@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-11-12
 
 First public release.
 
@@ -23,4 +23,5 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/commits/main
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.1.0
