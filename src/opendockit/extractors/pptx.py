@@ -4,6 +4,8 @@ Shapes are read by **on-screen position (top → bottom, left → right)**, not 
 a person reads a slide.
 """
 
+from collections.abc import Callable
+from dataclasses import dataclass
 import re
 
 from pptx.enum.shapes import PP_PLACEHOLDER
@@ -18,6 +20,7 @@ from pptx.table import _Row
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._shared import (
     HAND_TYPED_BULLET,
+    LINK_OPEN,
     MAX_LEVEL,
     OLE_PLACEHOLDER,
     SUBSCRIPT,
@@ -29,9 +32,13 @@ from opendockit.extractors._shared import (
     decimal_int,
     format_number,
     is_strict_package,
+    link_close,
+    link_target,
     list_item_prefix,
+    mark_emphasis,
     mark_script,
     mark_strike,
+    merge_emphasis_marks,
     omitted_rows_warning,
     open_package,
     parse_part,
@@ -40,6 +47,7 @@ from opendockit.extractors._shared import (
     render_chartex,
     render_omml,
     render_smartart,
+    resolve_inline,
     resolve_scripts,
     resolve_strikes,
     symbol_font_text,
@@ -104,6 +112,33 @@ _STACK_GAP = 360_000
 for _content_type in ("application/vnd.ms-powerpoint.slideshow.macroEnabled.main+xml",
                       "application/vnd.ms-powerpoint.template.macroEnabled.main+xml"):
     PartFactory.part_type_for[_content_type] = PresentationPart
+
+
+@dataclass(frozen=True, slots=True)
+class _Inline:
+    """What is kept inside a paragraph besides its text (`ConvertOptions.keep_links`, `keep_emphasis`): `link` gives the vetted
+    address of a run's a:hlinkClick (None when links are not kept), `emphasis` says whether bold / italic runs are marked."""
+
+    link: Callable[[object], str | None] | None
+    emphasis: bool
+
+
+def _inline_of(shape: object, options: ConvertOptions) -> _Inline | None:
+    """Links and emphasis to keep in the text of `shape`. None when both options are off — the text is read exactly as before."""
+    if not (options.keep_links or options.keep_emphasis):
+        return None
+    part = shape.part
+
+    def link(click: object) -> str | None:
+        # Only a link out of the deck: an external relationship of the slide. A jump to another slide (`ppaction://hlinksldjump`)
+        # has an internal relationship or none, and a broken relationship id is not a link either.
+        relation = click.get(f"{{{_RELATIONSHIPS}}}id")
+        relationship = part.rels.get(relation) if relation else None
+        if relationship is None or not relationship.is_external:
+            return None
+        return link_target(relationship.target_ref)
+
+    return _Inline(link if options.keep_links else None, options.keep_emphasis)
 
 
 def _reject_strict(data: bytes) -> None:
@@ -552,7 +587,7 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
     if image:
         return [extraction.add_image(image, alt=_shape_alt(shape))]
     if getattr(shape, "has_table", False) and shape.has_table:
-        return [_render_pptx_table(shape.table, extraction)]
+        return [_render_pptx_table(shape.table, extraction, _inline_of(shape, options))]
     if getattr(shape, "has_chart", False) and shape.has_chart:
         try:
             chart = parse_part(shape.chart_part.blob)
@@ -565,7 +600,7 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
         fill = _picture_fill(shape) if options.extract_images else None
         markers = [extraction.add_image(fill, alt=_shape_alt(shape))] if fill else []
         as_bullets = _placeholder_type(shape) in _BULLET_PLACEHOLDERS
-        return [*markers, _render_text_frame(shape.text_frame, as_bullets, _list_styles(shape))]
+        return [*markers, _render_text_frame(shape.text_frame, as_bullets, _list_styles(shape), _inline_of(shape, options))]
     if _has_chartex(shape._element):
         return [_chartex_text(shape._element, shape.part) or "[Chart]"]
     if next(shape._element.iter(f"{{{_PRESENTATION}}}oleObj"), None) is not None:
@@ -643,7 +678,7 @@ def _render_smartart(shape: object) -> str:
     return render_smartart(data_model) if data_model is not None else ""
 
 
-def _render_text_frame(text_frame: object, as_bullets: bool, list_styles: list[object]) -> str:
+def _render_text_frame(text_frame: object, as_bullets: bool, list_styles: list[object], inline: _Inline | None = None) -> str:
     """Paragraphs of a text box. Paragraphs of a body placeholder and lower-level paragraphs get `- `; auto-numbered (a:buAutoNum)
     paragraphs get their number.
 
@@ -665,7 +700,7 @@ def _render_text_frame(text_frame: object, as_bullets: bool, list_styles: list[o
     rendered = []
     counters: dict[int, tuple[str, int]] = {}  # level → (number scheme, last number)
     for paragraph in text_frame.paragraphs:
-        lines = [" ".join(line.split()) for line in _paragraph_text(paragraph).split("\n")]
+        lines = [" ".join(line.split()) for line in _paragraph_text(paragraph, inline).split("\n")]
         lines = [line for line in lines if line]
         level = _paragraph_level(paragraph)
         bullet = _bullet(paragraph._p, level, list_styles)
@@ -770,7 +805,7 @@ def _auto_number(number: int, scheme: str) -> str:
     return template.format(digits)
 
 
-def _paragraph_text(paragraph: object) -> str:
+def _paragraph_text(paragraph: object, inline: _Inline | None = None) -> str:
     """Paragraph text. Like `paragraph.text`, but superscript/subscript runs (a:rPr baseline) are marked and a line break (a:br) is kept as `\\n`.
 
     Appending scripts as plain text turned 10⁶ into 106, and a line break in a table cell came out as a vertical tab, which the
@@ -782,8 +817,15 @@ def _paragraph_text(paragraph: object) -> str:
     Struck-through runs (a:rPr strike) are emitted in the same notation as DOCX and HTML (`~~text~~`). As plain text, the value from
     before a correction reads as a valid value (Pinned by:
     test_office.py::TestPptxStrikethroughTitlesAndHiddenSlides::test_struck_runs_are_marked_in_text_boxes_and_table_cells).
+    With `inline`, a run's hyperlink (a:hlinkClick with an external relationship) is written as `[text](url)` and bold / italic
+    runs (a:rPr b / i) as `**bold**` / `*italic*` (`_shared.resolve_inline`); a paragraph that is bold throughout is left
+    unmarked. Slide titles (headings) and speaker notes are read as plain text
+    (Pinned by: test_inline_formatting.py::TestPptx).
     """
-    return resolve_scripts(resolve_strikes("".join(_inline_parts(paragraph._p))))
+    text = "".join(_inline_parts(paragraph._p, inline))
+    if inline is None:
+        return resolve_scripts(resolve_strikes(text))
+    return resolve_inline(resolve_scripts(resolve_strikes(merge_emphasis_marks(text))))
 
 
 # Slide-number field text written in place of a number: PPTX saved by LibreOffice (`<number>`), PowerPoint masters/layouts (`‹#›`). It
@@ -792,7 +834,7 @@ def _paragraph_text(paragraph: object) -> str:
 _SLIDE_NUMBER_PLACEHOLDERS = frozenset(("<number>", "‹#›"))
 
 
-def _inline_parts(container: object) -> list[str]:
+def _inline_parts(container: object, inline: _Inline | None = None) -> list[str]:
     """Children of a paragraph (or of one branch of an `mc:AlternateContent` inside a paragraph) → pieces of text.
 
     PowerPoint wraps an equation in mc:Choice (a14:m) + mc:Fallback (text or picture for older versions) inside a paragraph as well.
@@ -816,12 +858,21 @@ def _inline_parts(container: object) -> list[str]:
             if shift:
                 text = mark_script(text, SUPERSCRIPT if shift > 0 else SUBSCRIPT)
             is_struck = properties is not None and properties.get("strike") in _STRIKES
-            parts.append(mark_strike(text) if is_struck else text)
+            text = mark_strike(text) if is_struck else text
+            if inline is not None and properties is not None:
+                # The outermost mark, so a bold formula stays one span: `**H_2O**`
+                if inline.emphasis:
+                    text = mark_emphasis(text, properties.get("b") in _TRUE, properties.get("i") in _TRUE)
+                click = properties.find(f"{{{_DRAWING}}}hlinkClick") if inline.link is not None else None
+                url = inline.link(click) if click is not None else None
+                if url and text:
+                    text = f"{LINK_OPEN}{text}{link_close(url)}"
+            parts.append(text)
         elif name == "m":  # a14:m. An equation paragraph (m:oMathPara) may hold several equations
             parts.extend(render_omml(equation) for equation in child.iter(f"{{{_MATH}}}oMath"))
         elif child.tag == f"{{{_MARKUP_COMPATIBILITY}}}AlternateContent":
             for branch in child:
-                branch_parts = _inline_parts(branch)
+                branch_parts = _inline_parts(branch, inline)
                 if "".join(branch_parts).strip():
                     parts.extend(branch_parts)
                     break
@@ -856,7 +907,7 @@ def _plain_font(properties: object | None) -> str | None:
     return font.get("typeface") if font is not None else None
 
 
-def _render_pptx_table(table: object, extraction: Extraction) -> str:
+def _render_pptx_table(table: object, extraction: Extraction, inline: _Inline | None = None) -> str:
     """The merge rules are the same as in the other formats (TableGrid: vertical repeats, horizontal first cell). Cells covered by a
     merge (hMerge, vMerge) are filled by the starting cell.
 
@@ -879,7 +930,7 @@ def _render_pptx_table(table: object, extraction: Extraction) -> str:
                 # A covered cell is inside the table too — the last row is not removed even when all of it is covered
                 grid.reach(row_index, col_index)
                 continue
-            text = "\n".join(_cell_paragraph_text(paragraph) for paragraph in cell.text_frame.paragraphs)
+            text = "\n".join(_cell_paragraph_text(paragraph, inline) for paragraph in cell.text_frame.paragraphs)
             grid.place(row_index, col_index, text, row_span=_span(element, "rowSpan"), col_span=_span(element, "gridSpan"))
     rendered = grid.render()
     if grid.omitted_rows():
@@ -887,12 +938,12 @@ def _render_pptx_table(table: object, extraction: Extraction) -> str:
     return rendered
 
 
-def _cell_paragraph_text(paragraph: object) -> str:
+def _cell_paragraph_text(paragraph: object, inline: _Inline | None = None) -> str:
     """Text of a table-cell paragraph. A lower level (a:pPr lvl) gets the same `cell_level_mark` ('└ ') in front as DOCX and HWP cell
     lists. Leading spaces inside a cell are removed when the table is built, so sub-items were flattened (Pinned by:
     test_office_cells_and_notes.py::TestPptxTableCellLevels). Bullet characters and numbers are not attached (cell text has always
     been read without bullets)."""
-    text = _paragraph_text(paragraph)
+    text = _paragraph_text(paragraph, inline)
     return cell_level_mark(_paragraph_level(paragraph)) + text if text.strip() else text
 
 

@@ -2,13 +2,16 @@
 
 Walks the tree itself instead of using a general-purpose converter such as markdownify: HTML tables exported by Korean
 systems (including ones disguised as ".xls") are full of rowspan/colspan, so merged cells must be unfolded onto a grid
-(`TableGrid`), and link URLs and emphasis marks only add tokens to LLM input.
+(`TableGrid`). Links and emphasis are kept the quiet way (`ConvertOptions.keep_links`, `keep_emphasis`): only `http`, `https`
+and `mailto` addresses, only `<b>` / `<strong>` / `<i>` / `<em>`, and nothing for bold that covers a whole block
+(docs/decisions/inline-formatting.md).
 """
 
 import base64
 import binascii
 from collections.abc import Callable
 from contextvars import ContextVar
+from dataclasses import dataclass
 from email.message import Message
 from html import escape
 import itertools
@@ -20,14 +23,24 @@ from bs4.element import PageElement, PreformattedString
 from lxml import etree
 
 from opendockit.extractors._shared import (
+    BLOCK_INSIDE,
+    BOLD_OFF,
+    BOLD_ON,
+    ITALIC_OFF,
+    ITALIC_ON,
+    LINK_ON,
     SUBSCRIPT,
     SUPERSCRIPT,
     SYMBOL_GLYPHS,
+    InlineMark,
     cell_level_mark,
     decimal_int,
     format_number,
     format_script,
+    link_off,
+    link_target,
     omitted_rows_warning,
+    resolve_inline,
     symbol_glyph,
 )
 from opendockit.extractors.text import (
@@ -154,6 +167,23 @@ _omitted_rows: ContextVar[list[int] | None] = ContextVar("omitted_rows", default
 # Whether the text of a table cell is being rendered (`_cell_text`). Headings and code blocks inside a cell stay as lines,
 # without the `#`/``` marks.
 _in_cell: ContextVar[bool] = ContextVar("in_cell", default=False)
+
+
+@dataclass(frozen=True, slots=True)
+class _Inline:
+    """Links and emphasis to keep while the document is rendered (`ConvertOptions.keep_links`, `keep_emphasis`). `cut` holds the
+    `id`s of the elements that may be cut at the end of the front part of a large document (`_open_at_the_end`): a link among
+    them stays text, because its text may be different in the whole conversion."""
+
+    links: bool
+    emphasis: bool
+    cut: frozenset[int]
+
+
+# None when both options are off — rendering is then exactly what it was before the options existed.
+_inline: ContextVar[_Inline | None] = ContextVar("inline", default=None)
+# Whether the text of a heading or table caption is being rendered: a title keeps its links but is not emphasized (`_title_text`).
+_in_heading: ContextVar[bool] = ContextVar("in_heading", default=False)
 # Maximum characters (excluding whitespace) of the name cell in a name | value table. Field names such as '교육명' (course
 # name), '대상자' (attendees), '문서번호' (document number) (`_pairs_names_with_values`).
 _NAME_CHARS = 20
@@ -213,6 +243,14 @@ _LAZY_SOURCE_WORDS = ("src", "original", "lazy")
 _MAX_FRAME_PARTS = 50
 _SPACER_SIDE = 2
 _QUOTE_END = object()  # where a quote block ends on the stack of `_render_nodes`
+_CODE_END = object()  # where an inline code element ends on the stack of `_render_nodes`
+# Bold and italic elements (`ConvertOptions.keep_emphasis`). Deliberately only these four: `<cite>`, `<var>`, `<dfn>` and CSS
+# `font-weight` / `font-style` are how a page is styled, and following them would mark navigation, captions and whole pages.
+_EMPHASIS_MARKS = {"b": (BOLD_ON, BOLD_OFF), "strong": (BOLD_ON, BOLD_OFF), "i": (ITALIC_ON, ITALIC_OFF), "em": (ITALIC_ON, ITALIC_OFF)}
+# Inline code. The text inside is not emphasized — `*` is a character of the code there.
+_CODE_TAGS = {"code", "kbd", "samp", "tt"}
+# Leaf blocks no link or emphasis span can hold (`_shared.BLOCK_INSIDE`). A heading is a single line and may sit inside a link.
+_BLOCK_LEAVES = {"table", "pre", "ul", "ol"}
 # Length of the front part read first in a large document = character limit × this multiple (`_extract_front`). A text-dense
 # document exceeds the limit with the first front part; if it does not, the front part grows by the text density. If by the
 # density the whole document may also be within the limit, it looks as far as the last front part
@@ -224,6 +262,13 @@ _MARKDOWN_HEADING = re.compile(r"^#{1,6} ", re.MULTILINE)
 # the end of the front part (an unclosed pre, math, heading …) is interpreted differently in the whole document, so its fence,
 # `$` or `#` may be absent from the whole conversion — leaving them out never counts more than there really is.
 _MARKDOWN_DECORATION = re.compile(r"[#`$>*~^_{}\\]")
+# With links kept, the address part of `[text](address)` and the brackets are left out of that count as well. A link inside an
+# element cut at the end of the front part can be plain text in the whole conversion (a heading that turns out to hold a table
+# is read as text only), so the front part must not count what the link added. The emphasis marks are already left out (`*`).
+# Addresses are percent-encoded (`_shared.link_target`), so they hold no whitespace or parentheses
+# (Pinned by: test_inline_formatting.py::TestCharacterLimit::test_front_of_a_large_page_does_not_count_link_addresses).
+_LINK_ADDRESS = re.compile(r"\]\((?:https?://|mailto:)[^()\s]*\)", re.IGNORECASE)
+_LINK_BRACKETS = re.compile(r"[\[\]]")
 # The charset the document declares itself: `<meta charset=…>`, `<meta http-equiv="Content-Type" content="…; charset=…">`,
 # the encoding of the XML declaration.
 _META_CHARSET = re.compile(rb"<meta\b[^>]*?\bcharset\s*=\s*[\"']?\s*([\w.:+-]+)", re.IGNORECASE)
@@ -636,7 +681,10 @@ def _extract_front(text: str, encoding: str, options: ConvertOptions,
             return None  # an unclosed select is interpreted differently depending on later markup
         closed = _closed_at_the_end(front) | _closed_after(text, end + 1)
         extraction = _extract(front, encoding, options, saved_picture, whole=False, closed=closed)
-        counted = solid_length(_MARKDOWN_DECORATION.sub("", extraction.sections[0].text))
+        front_text = extraction.sections[0].text
+        if options.keep_links:
+            front_text = _LINK_BRACKETS.sub("", _LINK_ADDRESS.sub("", front_text))
+        counted = solid_length(_MARKDOWN_DECORATION.sub("", front_text))
         if extraction.count(counted, options):
             return extraction
         if counted * len(text) <= options.max_chars * len(front):
@@ -695,9 +743,12 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _drop_unsettled_cut_table(soup, cut)
     omitted: list[int] = []
     token = _omitted_rows.set(omitted)
+    inline = _Inline(options.keep_links, options.keep_emphasis, cut) if options.keep_links or options.keep_emphasis else None
+    inline_token = _inline.set(inline)
     try:
         extraction.sections.append(Section(SectionKind.DOCUMENT, 1, _render_nodes(_document_nodes(soup), list_depth=0)))
     finally:
+        _inline.reset(inline_token)
         _omitted_rows.reset(token)
     if sum(omitted):
         extraction.warnings.append(omitted_rows_warning(sum(omitted)))
@@ -920,7 +971,9 @@ def _with_title_heading(text: str, title: str | None) -> str:
     DOCX (altChunk) goes through the same extractor, so the fragment's title becomes a heading.
     """
     body = text.strip()
-    if not title or not body or _MARKDOWN_HEADING.search(body) or title in body.split("\n", 1)[0]:
+    first_line = body.split("\n", 1)[0]
+    # The first line may carry emphasis marks now (`**공지** 사항`); the title is looked for without them
+    if not title or not body or _MARKDOWN_HEADING.search(body) or title in first_line or title in first_line.replace("*", ""):
         return text
     return f"# {title}\n\n{body}"
 
@@ -1704,8 +1757,19 @@ def _render_nodes(nodes: list, list_depth: int) -> str:
     recursion limit at around 330 levels and the document was rejected as a 'corrupted document'. Besides nodes, the stack holds the blank
     line for the spot where a block ends (str) and the spot where a quote block ends (`_QUOTE_END`)
     (Pinned by: test_text_html.py::TestDeepGenericNesting).
+
+    Links and emphasis (`_inline`): `<a href>` and `<b>` / `<strong>` / `<i>` / `<em>` put an `InlineMark` before and after
+    their content, and each frame is written out by `_shared.resolve_inline`, which decides what becomes `[text](url)` and
+    `**bold**` (one block only, whitespace outside, a block that is bold throughout left unmarked …). The document tree is not
+    touched, so everything that measures the text of an element (layout tables, name cells, folded answers) sees what it saw
+    before. A span never reaches into a table, list, code block or quote block: those are rendered on their own, and
+    `BLOCK_INSIDE` tells the resolver that a span around one is not written
+    (Pinned by: test_inline_formatting.py::TestHtmlLinks, TestHtmlEmphasis).
     """
-    frames: list[list[str]] = [[]]  # the last one is where we are writing now. One is pushed per quote block
+    inline = _inline.get()
+    emphasis = inline is not None and inline.emphasis and not _in_heading.get()
+    code_depth = 0  # inline code elements we are inside of: their text is not emphasized
+    frames: list[list[str | InlineMark]] = [[]]  # the last one is where we are writing now. One is pushed per quote block
     stack: list[object] = list(reversed(nodes))
 
     while stack:
@@ -1713,22 +1777,32 @@ def _render_nodes(nodes: list, list_depth: int) -> str:
         if isinstance(node, NavigableString):
             frames[-1].append(_WHITESPACE.sub(" ", str(node)))
         elif node is _QUOTE_END:
-            inner = _single_blank_lines("".join(frames.pop()).strip())
+            inner = _single_blank_lines(_frame_text(frames.pop(), inline).strip())
             quoted = "\n".join(f"> {line}" if line.strip() else ">" for line in inner.split("\n"))
+            if inline is not None:
+                frames[-1].append(BLOCK_INSIDE)
             frames[-1].append(f"{_BLOCK_GAP}{quoted}{_BLOCK_GAP}")
-        elif isinstance(node, str):
+        elif node is _CODE_END:
+            code_depth -= 1
+        elif isinstance(node, (str, InlineMark)):
             frames[-1].append(node)
         elif isinstance(node, Tag):
             name = node.name
             definitions = _render_definitions(node) if name == "dl" else None
             if definitions is not None:
+                if inline is not None:
+                    frames[-1].append(BLOCK_INSIDE)
                 frames[-1].append(definitions)
                 continue
             if name in _LEAF_RENDERERS:
+                if inline is not None and name in _BLOCK_LEAVES:
+                    frames[-1].append(BLOCK_INSIDE)
                 frames[-1].append(_LEAF_RENDERERS[name](node, list_depth))
                 continue
             grid = _render_aria_grid(node) if _roles(node) & _GRID_ROLES and name not in _ARIA_SKIPPED_TAGS else None
             if grid is not None:
+                if inline is not None:
+                    frames[-1].append(BLOCK_INSIDE)
                 frames[-1].append(f"\n\n{grid}\n\n")
                 continue
             if name == "blockquote" and len(frames) <= _MAX_QUOTE_DEPTH:
@@ -1737,8 +1811,36 @@ def _render_nodes(nodes: list, list_depth: int) -> str:
             elif name in _BLOCK_TAGS or name == "li":  # a quote block past the limit is treated as a block too
                 frames[-1].append(_BLOCK_GAP)
                 stack.append(_BLOCK_GAP)
+            elif inline is not None:
+                if name == "a":
+                    url = _link_address(node, inline)
+                    if url is not None:
+                        frames[-1].append(LINK_ON)
+                        stack.append(link_off(url))
+                elif name in _CODE_TAGS:
+                    code_depth += 1
+                    stack.append(_CODE_END)
+                elif emphasis and not code_depth and name in _EMPHASIS_MARKS:
+                    opening, closing = _EMPHASIS_MARKS[name]
+                    frames[-1].append(opening)
+                    stack.append(closing)
             stack.extend(reversed(node.contents))
-    return "".join(frames[0])
+    return _frame_text(frames[0], inline)
+
+
+def _frame_text(frame: list[str | InlineMark], inline: _Inline | None) -> str:
+    """The pieces of one frame of `_render_nodes` as text, with its link and emphasis spans written as Markdown."""
+    return "".join(frame) if inline is None else resolve_inline(frame)
+
+
+def _link_address(anchor: Tag, inline: _Inline) -> str | None:
+    """The address `<a href>` is written with, or None when it stays text: links are not kept, the address is not an `http`,
+    `https` or `mailto` one (relative addresses, `#fragment`, `javascript:` and empty ones — nothing is resolved against the page
+    address, which a saved file does not have), or the element may be cut at the end of the front part of a large document."""
+    if not inline.links or id(anchor) in inline.cut:
+        return None
+    address = anchor.get("href")
+    return link_target(address) if isinstance(address, str) else None
 
 
 def _single_blank_lines(text: str) -> str:
@@ -1867,8 +1969,19 @@ def _definition_entries(node: Tag) -> list[Tag] | None:
     return entries if any(entry.name == "dt" for entry in entries) else None
 
 
+def _title_text(node: Tag) -> str:
+    """One-line text of a heading or a table caption (`_inline_text`). A title keeps its links but is not emphasized:
+    `<h2><b>제목</b></h2>` is still just a heading, and headings and captions are often bold or italic as a whole
+    (Pinned by: test_inline_formatting.py::TestHtmlEmphasis::test_heading_and_caption_are_not_emphasized)."""
+    token = _in_heading.set(True)
+    try:
+        return _inline_text(node)
+    finally:
+        _in_heading.reset(token)
+
+
 def _render_heading(node: Tag, list_depth: int) -> str:
-    title = _inline_text(node)
+    title = _title_text(node)
     if not title:
         return ""
     if _in_cell.get():
@@ -2092,7 +2205,7 @@ def _item_blocks(text: str) -> list[str]:
 
 def _render_table(table: Tag) -> str:
     caption = table.find("caption")
-    caption_text = _inline_text(caption) if caption else ""
+    caption_text = _title_text(caption) if caption else ""
     rows = _table_rows(table)
     if (_is_one_column_box(rows) or _is_layout_table(rows)) and _layout_depth.get() < _MAX_LAYOUT_DEPTH:
         rendered = _render_layout_table(rows)

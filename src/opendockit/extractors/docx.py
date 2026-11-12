@@ -20,6 +20,7 @@ from opendockit.extractors._shared import (
     COMMENT_TARGET_MAX,
     DOCX_NUMBER_SHAPES,
     HAND_TYPED_BULLET,
+    LINK_OPEN,
     OLE_PLACEHOLDER,
     SUBSCRIPT,
     SUPERSCRIPT,
@@ -36,18 +37,24 @@ from opendockit.extractors._shared import (
     embedded_table,
     format_dutmal,
     is_strict_package,
+    link_close,
+    link_target,
     list_item_prefix,
+    mark_emphasis,
     mark_script,
     mark_strike,
+    merge_emphasis_marks,
     note_table,
     omitted_rows_warning,
     open_package,
     parse_part,
+    plain_inline,
     related_loader,
     render_chart,
     render_chartex,
     render_omml,
     render_smartart,
+    resolve_inline,
     resolve_scripts,
     resolve_strikes,
     symbol_font_text,
@@ -162,6 +169,13 @@ _EQ_CROSSES = {"×", "✗", "✘", "x", "X"}
 _CIRCLED_NUMBERS = ((1, 20, 0x2460), (21, 35, 0x3251), (36, 50, 0x32B1))
 _CIRCLED_HANGUL = {**dict(zip("가나다라마바사아자차카타파하", map(chr, range(0x326E, 0x327C)), strict=True)),
                    **dict(zip("ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ", map(chr, range(0x3260, 0x326E)), strict=True))}
+# Character styles whose runs are emphasized: the built-in styles Word names Strong and Emphasis (the name in styles.xml is the
+# English one in every language edition) → (bold, italic). Other styles are not followed (`_run_emphasis`).
+_EMPHASIS_STYLE_NAMES = {"strong": (True, False), "emphasis": (False, True)}
+# A HYPERLINK field: `HYPERLINK "address" \l "bookmark" \o "tip"`. The address may be unquoted; a first argument that is a
+# switch (`\l "bookmark"` alone) is a jump inside the document and is not a link.
+_HYPERLINK_FIELD = re.compile(r'\s*HYPERLINK\s+(?:"([^"]*)"|([^\s"\\]\S*))', re.IGNORECASE)
+_HYPERLINK_BOOKMARK = re.compile(r'\\l\s+"([^"]*)"', re.IGNORECASE)
 # Blocks read in order in the body, cells and text boxes: paragraph, table, imported content
 _BLOCK_TAGS = (_w("p"), _w("tbl"), _w("altChunk"))
 
@@ -205,6 +219,15 @@ class _ListItem:
     offset: int  # output level − level counted from ilvl. The next item of the same list inherits it
 
 
+@dataclass(frozen=True, slots=True)
+class _Inline:
+    """What `_paragraph_text` marks inside a paragraph besides its text (`ConvertOptions.keep_links`, `keep_emphasis`)."""
+
+    link: Callable[[etree._Element], str | None] | None  # w:hyperlink → vetted address, None when links are not kept
+    emphasis: bool
+    styles: dict[str, tuple[bool, bool]]  # character style id → (bold, italic) (`_EMPHASIS_STYLE_NAMES`)
+
+
 class _DocxRenderer:
     def __init__(self, document: object, options: ConvertOptions, extraction: Extraction) -> None:
         self._options = options
@@ -230,6 +253,24 @@ class _DocxRenderer:
         # Preceding list items not yet closed. Cells, headers and text boxes count separately (`_list_depth`)
         self._list_items: list[_ListItem] = []
         self._list_offsets: dict[str, int] = {}  # list (numId) → the offset the last item of that list used (`_ListItem.offset`)
+        # Links and emphasis to keep. None when both options are off — the paragraph text is then read exactly as before
+        self.inline: _Inline | None = None
+        if options.keep_links or options.keep_emphasis:
+            emphasis_styles = {style_id: _EMPHASIS_STYLE_NAMES[style.name.strip().lower()] for style_id, style in self._styles.items()
+                               if style.name.strip().lower() in _EMPHASIS_STYLE_NAMES}
+            self.inline = _Inline(self._hyperlink_target if options.keep_links else None, options.keep_emphasis, emphasis_styles)
+
+    def _hyperlink_target(self, hyperlink: etree._Element) -> str | None:
+        """Address of a w:hyperlink: the target of its external relationship in the part being read (body, header, footnote …),
+        with the bookmark (w:anchor) appended as the fragment. None for a jump inside the document (no r:id), a broken or internal
+        relationship, and an address that is not kept (`_shared.link_target`)."""
+        relation = hyperlink.get(f"{{{_R}}}id")
+        relationship = self._part.rels.get(relation) if relation else None
+        if relationship is None or not relationship.is_external:
+            return None
+        address = relationship.target_ref
+        bookmark = hyperlink.get(_w("anchor"))
+        return link_target(f"{address}#{bookmark}" if bookmark and "#" not in address else address)
 
     def render_container(self, container: etree._Element) -> list[str]:
         return [block for element in _children(container, *_BLOCK_TAGS) for block in self.render_block(element)]
@@ -326,8 +367,11 @@ class _DocxRenderer:
         # point at — HWP/HWPX leave them out too (Pinned by:
         # test_office.py::TestOfficeReadingOrderAndListMarks::test_note_marks_are_left_out_when_footnotes_are_not_included).
         notes = self.notes if self._options.include_footnotes else None
-        text = _paragraph_text(paragraph, notes, self.image_marker, add_object, self._paragraph_size(paragraph)).strip()
-        text = self._after_drop_cap(paragraph, text)
+        marked = _paragraph_text(paragraph, notes, self.image_marker, add_object, self._paragraph_size(paragraph), self.inline).strip()
+        marked = self._after_drop_cap(paragraph, marked)
+        # `marked` still holds the temporary link and emphasis marks. Everything that decides what the paragraph is (empty, a
+        # heading, too long for a heading) looks at the text without them, so those decisions are the same with the options off.
+        text = plain_inline(marked).strip() if self.inline is not None else marked
         # Charts, SmartArt and text boxes go after the paragraph text as separate blocks.
         after = [block for block in objects if block]
         with self._own_lists():
@@ -361,7 +405,7 @@ class _DocxRenderer:
         if not text:
             return after
         if _is_drop_cap(paragraph) and _next_is_paragraph(paragraph):
-            self._drop_cap = (paragraph, text)
+            self._drop_cap = (paragraph, marked)
             return after
 
         # A heading-style paragraph inside a table cell gets no heading mark. The cell text became '## 추진 배경' (a '## ' heading) —
@@ -375,6 +419,12 @@ class _DocxRenderer:
         # text are joined with a space below.
         is_body = self._grids or len(text) > _HEADING_MAX_CHARS
         heading = None if is_body else self._heading_level(paragraph, style)
+        if self.inline is not None:
+            # A heading keeps its links but is not emphasized — the heading styles are bold themselves, and a title typed in bold
+            # is a heading, not an emphasis. Bold or italic over a whole paragraph (a label line, a header cell) is how the
+            # paragraph is styled and is left unmarked (`_shared.resolve_inline`. Pinned by:
+            # test_inline_formatting.py::TestDocxEmphasis::test_heading_is_not_emphasized, TestWholeBlocks).
+            text = resolve_inline(marked, emphasis=not heading).strip()
         if heading:
             self._list_items.clear()
             # A heading with an auto number keeps the number in front of the heading text (a bullet is dropped). Returning right at
@@ -845,7 +895,8 @@ def _children(container: etree._Element, *tags: str) -> Iterator[etree._Element]
 
 def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                     image_marker: Callable[[etree._Element], str] | None = None,
-                    on_object: Callable[[etree._Element], bool] | None = None, body_size: int | None = None) -> str:
+                    on_object: Callable[[etree._Element], bool] | None = None, body_size: int | None = None,
+                    inline: "_Inline | None" = None) -> str:
     """Collect the paragraph text in document order.
 
     Text boxes (w:txbxContent) are skipped because they are emitted as separate blocks, and mc:Fallback because it is a compatibility
@@ -861,6 +912,11 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
     Charts and SmartArt are passed to `on_object` and emitted as separate blocks (True if a block was emitted). When `notes` is
     None, footnote/endnote reference marks are not emitted (the option that excludes footnotes). `body_size` is the paragraph font
     size (half-points, `_run_script`) — None if unknown.
+
+    With `inline`, hyperlinks (w:hyperlink with an external relationship, HYPERLINK fields) and bold / italic runs are announced
+    with temporary marks, and the returned text **still holds those marks**: the caller decides what the paragraph is from
+    `_shared.plain_inline` and writes the Markdown with `_shared.resolve_inline` (a heading is not emphasized). Without `inline`
+    the text is exactly what it was before those options existed.
     """
     parts: list[str] = []
 
@@ -910,11 +966,12 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
             if tag == _w("sdt") and _shows_placeholder(child):
                 continue
             if tag == _w("t"):
-                look = run_looks.get(element) or run_looks.setdefault(element, _RunLook.of(element, body_size))
+                look = run_looks.get(element) or run_looks.setdefault(element, _RunLook.of(element, body_size, inline))
                 text = symbol_font_text(look.symbol_font, child.text or "", ascii_font=look.ascii_font, latin_font=look.latin_font)
                 if look.painted_box:
                     text = text.translate(_FILLED_BOXES)
-                parts.append(mark_strike(text) if look.struck else text)
+                # Emphasis is the outer mark and strikethrough the inner one: `**~~text~~**`
+                parts.append(mark_emphasis(mark_strike(text) if look.struck else text, look.bold, look.italic))
             elif tag in (_w("tab"), _w("ptab")):
                 parts.append("\t")
             elif tag in (_w("br"), _w("cr")):
@@ -940,7 +997,11 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                     if not has_text_since(start):
                         parts.append("[Chart]")
             elif tag == _w("sym"):
-                parts.append(_symbol_char(child))
+                symbol = _symbol_char(child)
+                if inline is not None and inline.emphasis and element.tag == _w("r"):
+                    look = run_looks.get(element) or run_looks.setdefault(element, _RunLook.of(element, body_size, inline))
+                    symbol = mark_emphasis(symbol, look.bold, look.italic)
+                parts.append(symbol)
             elif tag == _w("fldChar"):
                 kind = child.get(_w("fldCharType"))
                 if not instruction_fields:
@@ -952,6 +1013,13 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                     if fields[-1].instruction_side:
                         instruction_fields -= 1
                     fields[-1].instruction_side = False
+                    # The result of a HYPERLINK field is the link text. The link is closed where the field ends; a field that
+                    # never ends leaves an unclosed mark, which is not written
+                    # (Pinned by: test_inline_formatting.py::TestDocxLinks::test_hyperlink_field_code_is_a_link).
+                    if inline is not None and inline.link is not None and not instruction_fields and fields[-1].link is None:
+                        fields[-1].link = _field_link("".join(fields[-1].instruction))
+                        if fields[-1].link:
+                            parts.append(LINK_OPEN)
                     fields[-1].start = len(parts)
                 elif kind == "end" and fields:
                     ended = fields.pop()
@@ -959,14 +1027,32 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                         instruction_fields -= 1
                     if not instruction_fields and not has_text_since(ended.start):
                         parts.append(_equation_field_text("".join(ended.instruction)))
+                    if ended.link:
+                        parts.append(link_close(ended.link))
             elif tag == _w("instrText"):
                 if fields and fields[-1].instruction_side:
                     fields[-1].instruction.append(child.text or "")
             elif tag == _w("fldSimple"):
+                link = None
+                if inline is not None and inline.link is not None and not instruction_fields:
+                    link = _field_link(child.get(_w("instr"), ""))
+                if link:
+                    parts.append(LINK_OPEN)
                 start = len(parts)
                 walk(child)
                 if not instruction_fields and not has_text_since(start):
                     parts.append(_equation_field_text(child.get(_w("instr"), "")))
+                if link:
+                    parts.append(link_close(link))
+            elif tag == _w("hyperlink"):
+                # Only a link out of the document (external relationship) is kept; a jump to a bookmark stays text. On the
+                # instruction side of a field nothing is emitted, so the marks would hold no text and are not written at all.
+                link = inline.link(child) if inline is not None and inline.link is not None else None
+                if link:
+                    parts.append(LINK_OPEN)
+                walk(child)
+                if link:
+                    parts.append(link_close(link))
             elif tag == _w("ruby"):
                 # Ruby stores the annotation (w:rt) before the base text (w:rubyBase). Read in order it became '한국韓國'. It is
                 # emitted in the same shape as HWP ruby text
@@ -986,7 +1072,11 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                 start = len(parts)
                 walk(child)
                 text = mark_script("".join(parts[start:]), _run_script(child, body_size))
-                parts[start:] = [mark_strike(text) if _is_struck(child) else text]
+                text = mark_strike(text) if _is_struck(child) else text
+                if inline is not None and inline.emphasis:
+                    # The emphasis mark goes around the script mark, so a bold formula stays one span: `**H_2O**`
+                    text = mark_emphasis(text, *_run_emphasis(child, inline.styles))
+                parts[start:] = [text]
                 forget_from(start)
             elif tag == f"{{{_M}}}oMath":
                 parts.append(render_omml(child))
@@ -1011,7 +1101,39 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
             merged.append(text)
             taken = max(taken, index)
         parts = merged + parts[taken:]
-    return resolve_scripts(resolve_strikes("".join(parts)))
+    text = "".join(parts)
+    if inline is not None:
+        text = merge_emphasis_marks(text)
+    return resolve_scripts(resolve_strikes(text))
+
+
+def _field_link(instruction: str) -> str | None:
+    """Vetted address of a HYPERLINK field instruction, None for any other field and for an address that is not kept."""
+    match = _HYPERLINK_FIELD.match(instruction)
+    if match is None:
+        return None
+    address = match.group(1) if match.group(1) is not None else match.group(2)
+    bookmark = _HYPERLINK_BOOKMARK.search(instruction, match.end())
+    return link_target(f"{address}#{bookmark.group(1)}" if bookmark and bookmark.group(1) and "#" not in address else address)
+
+
+def _run_emphasis(run: etree._Element, styles: dict[str, tuple[bool, bool]]) -> tuple[bool, bool]:
+    """(bold, italic) of a run: w:b / w:i set directly on the run (`w:val="0"` / `false` switches it off), otherwise what its
+    character style gives when that style is Strong or Emphasis.
+
+    Deliberate: the paragraph style and other character styles are not followed. A heading or title style is bold as a whole,
+    which says what the paragraph is and not that its words are stressed; following every style would mark whole documents whose
+    body style happens to be bold. Complex-script bold (w:bCs / w:iCs) is not read either
+    (Pinned by: test_inline_formatting.py::TestDocxEmphasis).
+    """
+    properties = run.find(_w("rPr"))
+    if properties is None:
+        return False, False
+    style = properties.find(_w("rStyle"))
+    bold, italic = styles.get(style.get(_w("val"), ""), (False, False)) if style is not None else (False, False)
+    direct_bold, direct_italic = properties.find(_w("b")), properties.find(_w("i"))
+    return (_is_on(direct_bold) if direct_bold is not None else bold,
+            _is_on(direct_italic) if direct_italic is not None else italic)
 
 
 def _is_ole_object(element: etree._Element) -> bool:
@@ -1052,10 +1174,18 @@ class _RunLook:
     ascii_font: str | None
     latin_font: str | None
     painted_box: bool  # a run holding only a box painted dark (`_is_painted_box`)
+    # Bold / italic to mark (`_run_emphasis`). Not for the text of a script run: the script notation (`10^6`) is built from the
+    # bare text, and the run as a whole is marked where the script mark is put (`_paragraph_text`)
+    bold: bool = False
+    italic: bool = False
 
     @classmethod
-    def of(cls, run: etree._Element, body_size: int | None) -> "_RunLook":
-        return cls(_is_struck(run) and _run_script(run, body_size) is None, _symbol_font(run), *_plain_fonts(run), _is_painted_box(run))
+    def of(cls, run: etree._Element, body_size: int | None, inline: "_Inline | None" = None) -> "_RunLook":
+        is_script = _run_script(run, body_size) is not None
+        emphasis = (False, False)
+        if inline is not None and inline.emphasis and not is_script and run.tag == _w("r"):
+            emphasis = _run_emphasis(run, inline.styles)
+        return cls(_is_struck(run) and not is_script, _symbol_font(run), *_plain_fonts(run), _is_painted_box(run), *emphasis)
 
 
 def _is_painted_box(run: etree._Element) -> bool:
@@ -1149,6 +1279,7 @@ class _Field:
     instruction_side: bool = True
     instruction: list[str] = field(default_factory=list)
     hidden: list[tuple[int, str]] = field(default_factory=list)  # text pieces left out on the instruction side (insert position, text)
+    link: str | None = None  # address of a HYPERLINK field whose result is being read ('' when it was looked at and is not a link)
 
 
 def _equation_field_text(instruction: str) -> str:
@@ -1601,7 +1732,8 @@ def _notes(document: object, renderer: _DocxRenderer) -> str:
         _keep_filled_placeholders(root, renderer.placeholders)
         with renderer.in_part(part):
             for note in root.iterchildren(_w(kind)):
-                body = " ".join(_note_block(block, renderer.image_marker) for block in _children(note, _w("p"), _w("tbl")))
+                body = " ".join(_note_block(block, renderer.image_marker, renderer.inline)
+                                for block in _children(note, _w("p"), _w("tbl")))
                 texts[kind, note.get(_w("id"), "")] = body.strip()
     return "\n".join(f"[^{label}]: {texts[ref]}" for ref, label in renderer.notes.labels.items() if texts.get(ref))
 
@@ -1672,14 +1804,15 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
     return {comment_id: "".join(pieces) for comment_id, pieces in targets.items()}
 
 
-def _note_block(block: etree._Element, image_marker: Callable[[etree._Element], str]) -> str:
+def _note_block(block: etree._Element, image_marker: Callable[[etree._Element], str], inline: _Inline | None = None) -> str:
     """A paragraph inside a footnote (including the paragraphs of text boxes in it) or a table → one line. A table puts ' / '
     between cells and '; ' between rows (`_shared.note_table`, same as HWP/HWPX). Joining all cell paragraphs with spaces produced
     '출처: 환경부 구분 값 A 10' (Pinned by: test_office_symbols_fields_notes.py::TestDocxTableInsideFootnote). The compatibility
     copy of a text box (the VML in mc:Fallback) is skipped as in the body (`_inside_fallback`) — the same text appeared twice
     (Pinned by: test_office_robustness.py::TestDocxFootnoteBoxesAndPictures::test_text_box_in_a_footnote_is_read_once)."""
     def text(container: etree._Element) -> str:
-        return " ".join(" ".join(_paragraph_text(p, None, image_marker).split())
+        # Links and emphasis are kept as in the body (sources are usually cited with a link in a footnote)
+        return " ".join(" ".join(resolve_inline(_paragraph_text(p, None, image_marker, inline=inline)).split())
                         for p in container.iter(_w("p")) if not _inside_fallback(p))
 
     if block.tag == _w("tbl"):
