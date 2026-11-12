@@ -7,6 +7,7 @@ import pytest
 
 from opendockit import DocumentFormat, EncryptedDocumentError, convert
 from opendockit.extractors.text import decode_text
+from tests import needs_html5_tokenizer
 
 
 def _b64(value: str) -> str:
@@ -55,6 +56,7 @@ class TestMailboxThatStartsWithAnHtmlMail:
     text, each mail is read under `## Message N`."""
 
     @pytest.mark.parametrize("order", [("first", "second", "third"), ("third", "second", "first")])
+    @needs_html5_tokenizer
     def test_every_mail_is_read_with_its_own_head(self, order):
         mails = {"first": _HTML_MAIL, "second": _PLAIN_MAIL, "third": _RELATED_MAIL}
         data = "".join(mails[name] for name in order).encode()

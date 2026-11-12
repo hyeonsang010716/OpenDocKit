@@ -7,7 +7,7 @@ import base64
 import pytest
 
 from opendockit import ConvertOptions, DocumentFormat, convert
-from tests import builder
+from tests import builder, needs_html5_tokenizer
 
 
 def _forward(outer_body: str, inner: str, *, outer_type: str = "text/plain", disposition: str = "") -> bytes:
@@ -69,6 +69,7 @@ class TestForwardedMail:
                                "견적 금액은 300만 원입니다.")
         assert result.warnings == []
 
+    @needs_html5_tokenizer
     def test_outer_html_body_comes_first_and_the_forwarded_mail_follows(self):
         data = _forward("<html><body><p>아래 메일 <b>확인</b> 바랍니다.</p></body></html>", _INNER_ALTERNATIVE,
                         outer_type="text/html")

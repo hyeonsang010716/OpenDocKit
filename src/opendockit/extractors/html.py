@@ -17,6 +17,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Comment, NavigableString, Tag, XMLParsedAsHTMLWarning
 from bs4.element import PageElement, PreformattedString
+from lxml import etree
 
 from opendockit.extractors._shared import (
     SUBSCRIPT,
@@ -241,7 +242,24 @@ _CHARSET_PRESCAN_BYTES = 4096
 _MHTML_CONTENT_TYPE = re.compile(rb"^Content-Type:\s*(?:multipart/related|text/html)\b", re.IGNORECASE | re.MULTILINE)
 
 
+# The HTML5 tokenizer arrived in libxml2 2.14. Reading malformed pages "like a browser" below (content after `</html>`, a
+# second concatenated document, raw-text elements such as <textarea>/<xmp>, mail whose HTML parts are joined) depends on it.
+# lxml's wheels for Linux and macOS bundle 2.14 from lxml 6.0 on, but its Windows wheels still bundle 2.11, where those
+# inputs silently lose content. The result cannot be repaired here, so it is reported
+# (Pinned by: test_core_html.py::TestOlderHtmlParser; tests that need the tokenizer are skipped via `tests.needs_html5_tokenizer`).
+HTML5_TOKENIZER = etree.LIBXML_VERSION >= (2, 14)
+_OLD_PARSER_WARNING = ("The installed lxml bundles an HTML parser older than libxml2 2.14 (as its Windows builds do), so content of "
+                       "malformed or multi-part HTML and mail (text after the end of the page, further mail parts) may be missing.")
+
+
 def extract_html(data: bytes, options: ConvertOptions) -> Extraction:
+    extraction = _extract_html(data, options)
+    if not HTML5_TOKENIZER and _OLD_PARSER_WARNING not in extraction.warnings:
+        extraction.warnings.append(_OLD_PARSER_WARNING)
+    return extraction
+
+
+def _extract_html(data: bytes, options: ConvertOptions) -> Extraction:
     # A declared charset is used only when strict decoding succeeds (decode_text holds the order of decisions). When the
     # declaration was ignored, documents declaring `shift_jis`/`windows-1252` were garbled as CP949
     # (Pinned by: test_text_html.py::TestHtmlDeclaredCharset).

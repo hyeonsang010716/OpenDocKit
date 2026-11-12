@@ -7,7 +7,7 @@ import pytest
 
 from opendockit import DocumentFormat, convert
 from opendockit.extractors import text as text_module
-from tests import builder
+from tests import builder, needs_html5_tokenizer
 
 
 def _encoded_word(value: str, codec: str, label: str) -> str:
@@ -55,6 +55,7 @@ class TestHtmlBodySplitAroundAnInlineAttachment:
     Only the first text/html part was read, so body ② after the attachment vanished without a warning, and a PDF with
     `inline; filename=` was not counted as an attachment, so there was no warning either."""
 
+    @needs_html5_tokenizer
     def test_every_html_body_part_is_read_in_order(self):
         data = _APPLE_MAIL.encode()
 
@@ -289,12 +290,14 @@ class TestMeetingInvitation:
     text/calendar part are placed after the body as an `Event:` block."""
 
     @pytest.mark.parametrize("html", [True, False])
+    @needs_html5_tokenizer
     def test_invitation_details_follow_the_body(self, html):
         result = convert(_invite(_INVITE_CALENDAR, html=html), "invite.eml")
 
         assert result.text.endswith("예산 검토 회의입니다.\n\n" + _INVITE_BLOCK)
         assert result.warnings == []
 
+    @needs_html5_tokenizer
     def test_folded_lines_escapes_utc_and_all_day_times_are_readable(self):
         calendar = ("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:분기 \r\n 워크숍\\, 1일차\r\nDTSTART:20240307T060000Z\r\n"
                     "DTEND;VALUE=DATE:20240308\r\nLOCATION:제주\\; 본관\\nA동\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nSUMMARY:2일차\r\n"
@@ -305,6 +308,7 @@ class TestMeetingInvitation:
         assert result.text.endswith("Event:\n\n- Title: 분기 워크숍, 1일차\n- Start: 2024-03-07 06:00 UTC\n- End: 2024-03-08\n"
                                     "- Location: 제주; 본관 A동\n\nEvent:\n\n- Title: 2일차\n- Start: 2024-03-08")
 
+    @needs_html5_tokenizer
     def test_colon_inside_a_quoted_parameter_does_not_split_the_line(self):
         calendar = ('BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;TZID="(UTC+09:00) 서울":20240307T150000\r\n'
                     'ORGANIZER;CN="홍길동: 팀장":mailto:hong@x.com\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n')
@@ -313,6 +317,7 @@ class TestMeetingInvitation:
 
         assert result.text.endswith("Event:\n\n- Start: 2024-03-07 15:00 ((UTC+09:00) 서울)\n- Organizer: 홍길동: 팀장 <hong@x.com>")
 
+    @needs_html5_tokenizer
     def test_cancelled_meeting_is_marked(self):
         calendar = _INVITE_CALENDAR.replace("METHOD:REQUEST", "METHOD:CANCEL")
 

@@ -5,7 +5,7 @@ import base64
 import pytest
 
 from opendockit import convert
-from tests import builder
+from tests import builder, needs_html5_tokenizer
 
 
 def _alternative(html: str, plain: str = "계약 금액은 3억원이며 4월 1일 시작합니다.") -> bytes:
@@ -22,11 +22,13 @@ class TestHtmlAlternativeWithoutText:
         '<html><body><img src="cid:logo"></body></html>',
         "<html><head><style>p { color: red }</style><title>제목</title></head><body><div>&nbsp;</div></body></html>",
     ])
+    @needs_html5_tokenizer
     def test_plain_body_is_used_when_the_html_part_has_no_text(self, html):
         result = convert(_alternative(html), "a.eml")
 
         assert result.text == "Subject: alt\nFrom: a@b.c\nTo: d@e.f\n\n계약 금액은 3억원이며 4월 1일 시작합니다."
 
+    @needs_html5_tokenizer
     def test_picture_in_the_html_part_is_kept_before_the_plain_body(self):
         picture = base64.b64encode(builder.png_bytes(300, 200)).decode()
         html = f'<html><body><img alt="서명" src="data:image/png;base64,{picture}"></body></html>'

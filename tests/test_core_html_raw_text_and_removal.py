@@ -6,6 +6,7 @@ import time
 import pytest
 
 from opendockit import ConvertOptions, convert
+from tests import needs_html5_tokenizer
 
 
 def _stock_page(rows: int, opening: str = "<textarea name=memo/>") -> bytes:
@@ -85,6 +86,7 @@ class TestHtmlExampleInsideAClosedTextarea:
     """The textarea of a saved HTML editor or CMS admin page holds HTML source. Even a closed textarea was re-read if its text
     contained `</html>`, so the heading of the example became a heading of the body (`# 내 제목`)."""
 
+    @needs_html5_tokenizer
     def test_closed_textarea_holding_a_whole_page_keeps_it_as_its_value(self):
         html = ("<html><body><h2>템플릿 편집</h2><form><textarea name=src><html><body><h1>내 제목</h1><p>예제 문단</p></body></html>"
                 "</textarea><p>저장하려면 아래를 누르세요.</p></form></body></html>")
@@ -95,6 +97,7 @@ class TestHtmlExampleInsideAClosedTextarea:
         assert "<h1>내 제목</h1>" in result.text
         assert "저장하려면 아래를 누르세요." in result.text
 
+    @needs_html5_tokenizer
     def test_closed_textarea_at_the_end_of_the_page_keeps_its_value(self):
         html = "<html><body><p>본문</p><form><textarea name=src><p>예제</p></body></html></textarea></form></body></html>"
 
@@ -102,6 +105,7 @@ class TestHtmlExampleInsideAClosedTextarea:
 
         assert "<p>예제</p>" in result.text
 
+    @needs_html5_tokenizer
     def test_unclosed_textarea_without_closing_page_tags_is_read_as_html(self):
         html = "<html><body><p>앞</p><textarea name=a/><p>본문 문단</p><table><tr><th>구분</th><th>값</th></tr><tr><td>가</td><td>1</td></tr></table>"
 

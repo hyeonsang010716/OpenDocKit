@@ -52,7 +52,8 @@ pip install "opendockit[openai]"      # + image description with a vision model
 pip install "opendockit[heic]"        # + HEIC/HEIF images (pulls in GPL/LGPL-licensed codec libraries)
 ```
 
-Requires Python 3.12 or newer.
+Requires Python 3.12 or newer on Linux or macOS. Windows is not supported yet for HTML and email
+([why](docs/limitations.md#platforms)).
 
 ## Quick start
 

@@ -26,14 +26,15 @@ classifiers = [
     "Topic :: Text Processing :: Markup :: Markdown",
     "Typing :: Typed",
 ]
+# Every lower bound below is the oldest version the full test suite was run against (one package at a time and all together).
 dependencies = [
-    "beautifulsoup4>=4.12",
-    "charset-normalizer>=3.3",
-    "lxml>=5.2",
+    "beautifulsoup4>=4.13,!=4.14.0",  # 4.14.0 mis-parses some documents; fixed in 4.14.1
+    "charset-normalizer>=3.5",
+    "lxml>=6.0",  # the HTML extractor relies on the HTML5 tokenizer of libxml2 2.14, first bundled in lxml 6.0
     "olefile>=0.47",
-    "openpyxl>=3.1",
-    "pdfminer.six>=20240706",
-    "pdfplumber>=0.11",
+    "openpyxl>=3.1.4",
+    "pdfminer.six>=20251230",
+    "pdfplumber>=0.11.9",
     "pillow>=11.3",  # 11.3 is the first release that reads AVIF
     "pypdfium2>=4.30",
     "python-docx>=1.1",
@@ -50,8 +51,8 @@ heic = [
 # Vision model support (`OpenAIImageDescriber`, `opendockit --describe`).
 openai = [
     "httpx>=0.27",
-    "langchain-core>=0.3",
-    "langchain-openai>=0.3",
+    "langchain-core>=1.0",
+    "langchain-openai>=1.0",
 ]
 
 [project.scripts]

@@ -2,6 +2,17 @@
 
 This page lists what OpenDocKit does not restore, restores only approximately, or handles in a way that may surprise you, grouped by format. Several entries also state the exact rule that is applied, so that you can predict the output. What *is* restored is in [formats.md](formats.md); the reasons behind many of these trade-offs are in [design.md](design.md) and [decisions/](decisions/core.md).
 
+## Platforms
+
+- **Linux and macOS are the supported platforms.** The full test suite runs on both for every change.
+- **Windows is not supported yet for HTML and email.** OpenDocKit reads malformed HTML the way a browser does, which relies on
+  the HTML5 tokenizer of libxml2 2.14. lxml bundles that version on Linux and macOS, but its Windows wheels still bundle
+  libxml2 2.11. With the older parser, text after the end of a page, a second concatenated document, the content of
+  `<textarea>`/`<xmp>` and — most importantly — further parts of a mail (forwarded messages, calendar invitations, later
+  messages of an mbox) can go missing. When that parser is in use, every HTML or mail result carries a warning saying so.
+  The other formats do not depend on it. `IsolatedConverter` applies its memory limit on Linux only; elsewhere the time
+  limit and process isolation remain.
+
 ## General
 
 - **Charts and shapes drawn as vectors** (PDF charts drawn with lines rather than as images, Office shapes) cannot be extracted as pictures. Native charts of PPTX, DOCX, HWPX, XLSX sheets and chart sheets are converted to data tables (XLS charts are not converted; a chart sheet, and an otherwise empty sheet holding only a chart, give a warning). New chart types (waterfall, treemap and other chartex types) are handed over as the fallback picture stored in the file when their values cannot be read (not verified with real files). However, a PDF page with no characters at all and only curves (a design PDF whose text was converted to outlines) is sent to the vision model as a whole page, like a scanned page.

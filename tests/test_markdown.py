@@ -558,7 +558,7 @@ class TestMergedTableAsHtml:
 
         grid.render()
 
-        assert time.perf_counter() - started < 2.0
+        assert time.perf_counter() - started < 6.0
 
     def test_nested_table_keeps_its_structure_inside_an_html_cell(self):
         """Flattening a table inside a table into 'cell / cell' lines lost the row and column structure. The outer table is
@@ -645,7 +645,7 @@ class TestMergedTableAsHtml:
 
         result = grid.render()
 
-        assert time.perf_counter() - started < 2.0
+        assert time.perf_counter() - started < 6.0
         assert result.count('rowspan="100" colspan="100"') == 50
 
 

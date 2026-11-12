@@ -48,7 +48,18 @@ jobs:
         run: uv run pytest -n auto -m "not timing"
       # Tests that assert on wall-clock time run on their own, one at a time, so busy workers cannot fail them.
       - name: Timing tests (serial)
-        run: uv run pytest -m timing
+        if: ${{ !cancelled() }}
+        run: uv run pytest -m timing --durations=15
+
+  minimum-dependencies:
+    # Runs the suite against the oldest versions allowed by pyproject.toml, so the declared lower bounds stay true.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - run: uv sync --python 3.12 --resolution lowest-direct
+      - run: uv run --no-sync pytest -n auto -m "not timing"
+      - run: uv run --no-sync pytest -m timing
 
   build:
     runs-on: ubuntu-latest

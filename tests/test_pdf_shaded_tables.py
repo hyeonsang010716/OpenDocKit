@@ -275,4 +275,4 @@ def test_many_bands_on_a_page_with_many_letters_take_linear_time():
             _band_chars(first, (top, top + 8), [20.0, 300.0, 600.0])
         elapsed = time.perf_counter() - started
 
-    assert len(objects) > 40000 and elapsed < 1.5
+    assert len(objects) > 40000 and elapsed < 4

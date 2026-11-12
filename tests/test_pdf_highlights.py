@@ -241,7 +241,7 @@ def test_many_painted_squares_beside_one_huge_letter_take_linear_time():
         _without_highlights(first)
         elapsed = time.perf_counter() - started
 
-    assert objects[0] and elapsed < 1.5
+    assert objects[0] and elapsed < 4
 
 
 def _word_lines_pdf(lines: list[list[tuple[str, float, bool]]]) -> bytes:

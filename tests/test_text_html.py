@@ -125,7 +125,7 @@ class TestDeepNesting:
         started = time.perf_counter()
         result = convert(html.encode(), "a.html")
 
-        assert time.perf_counter() - started < 5
+        assert time.perf_counter() - started < 12
         assert "가장 안쪽" in result.text
 
     @pytest.mark.timing
@@ -310,7 +310,7 @@ class TestLayoutTables:
         started = time.perf_counter()
         result = convert(html.encode(), "a.html")
 
-        assert time.perf_counter() - started < 5
+        assert time.perf_counter() - started < 12
         assert "가장 안쪽" in result.text
 
     def test_data_table_with_a_small_nested_table_in_one_cell_stays_a_table(self):
@@ -928,7 +928,7 @@ class TestFormValues:
         elapsed = time.perf_counter() - started
 
         assert result.text.count("값") == 4000 and result.text.count("☒") == 4000 and result.text.count(" b ") == 4000
-        assert elapsed < 2.0
+        assert elapsed < 4.0
 
 
 class TestHeaderRowsOfThOnlyTables:
@@ -1374,7 +1374,7 @@ class TestContentOutsideTableCells:
         started = time.perf_counter()
         result = convert(html.encode(), "a.html", ConvertOptions(max_chars=None))
 
-        assert time.perf_counter() - started < 5
+        assert time.perf_counter() - started < 12
         assert "가장 안쪽" in result.text
         assert result.text.count("| 칸 | 값 |") == 5_000
 

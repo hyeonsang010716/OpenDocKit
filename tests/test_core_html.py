@@ -5,6 +5,7 @@ import warnings
 import pytest
 
 from opendockit import DocumentFormat, convert
+from tests import needs_html5_tokenizer
 
 
 class TestContentOutsideTheBody:
@@ -21,6 +22,7 @@ class TestContentOutsideTheBody:
              "표1\n\n| a | 1 |\n| --- | --- |"),
         ],
     )
+    @needs_html5_tokenizer
     def test_content_after_the_body_is_kept_in_document_order(self, html, expected):
         data = html.encode()
 
@@ -28,6 +30,7 @@ class TestContentOutsideTheBody:
 
         assert result.text == expected
 
+    @needs_html5_tokenizer
     def test_second_concatenated_document_is_kept(self):
         html = ('<html><head><meta charset="utf-8"><title>내보내기</title></head><body><table><tr><th>이름</th><th>금액</th></tr>'
                 '<tr><td>홍</td><td>100</td></tr></table></body></html>\n'
@@ -336,3 +339,23 @@ class TestSymbolFontsInHtml:
         assert time.perf_counter() - started < 5.0
         assert result.text.startswith("☑ 확인")
         assert "þ" not in result.text
+
+
+class TestOlderHtmlParser:
+    """lxml's Windows wheels bundle libxml2 2.11, without the HTML5 tokenizer the extractor relies on. There, text after
+    `</html>` and further HTML parts of a mail went missing with no sign that anything was wrong."""
+
+    def test_missing_html5_tokenizer_is_reported_once(self, monkeypatch):
+        monkeypatch.setattr("opendockit.extractors.html.HTML5_TOKENIZER", False)
+
+        result = convert("<html><body><p>본문</p></body></html>".encode(), "a.html")
+
+        assert [warning for warning in result.warnings if "libxml2 2.14" in warning] == [
+            "The installed lxml bundles an HTML parser older than libxml2 2.14 (as its Windows builds do), so content of "
+            "malformed or multi-part HTML and mail (text after the end of the page, further mail parts) may be missing."]
+
+    def test_current_parser_adds_no_warning(self, monkeypatch):
+        monkeypatch.setattr("opendockit.extractors.html.HTML5_TOKENIZER", True)
+
+        assert convert("<html><body><p>본문</p></body></html>".encode(), "a.html").warnings == []
+

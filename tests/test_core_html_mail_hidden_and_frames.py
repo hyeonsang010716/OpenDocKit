@@ -8,6 +8,7 @@ import quopri
 import pytest
 
 from opendockit import convert
+from tests import needs_html5_tokenizer
 
 
 _PLAIN = "[가을 세일] 10월 10일~20일 전 품목 30% 할인\n쿠폰 코드: FALL30"
@@ -33,6 +34,7 @@ class TestHtmlAlternativeWithOnlyHiddenText:
         '<table><tr><td><img src="https://cdn.example.com/banner.jpg"></td></tr></table></body></html>',
         '<html><body><span hidden>미리보기</span><p aria-hidden="true">&nbsp;</p></body></html>',
     ])
+    @needs_html5_tokenizer
     def test_plain_body_is_used_when_the_html_part_shows_no_text(self, html):
         result = convert(_alternative(html), "a.eml")
 
@@ -208,6 +210,7 @@ class TestPlainAndHtmlBodiesSideBySide:
     plain-text body (what is to be approved, the amount) vanished without a warning. Only alternatives, two representations of the
     same body, have one chosen; the parts of a mixed are all read in order."""
 
+    @needs_html5_tokenizer
     def test_plain_body_and_html_signature_are_both_read_in_order(self):
         data = _mixed("Content-Type: text/plain; charset=utf-8\n\n출장비 정산 결재 요청드립니다. 금액은 352,000원입니다.",
                       "Content-Type: text/html; charset=utf-8\n\n<p>[서명] 홍길동 | 재무팀</p>")
@@ -228,6 +231,7 @@ class TestPlainAndHtmlBodiesSideBySide:
         assert result.text.endswith("\n\n본문(HTML)\n\n-- 수신 거부: unsubscribe@corp.co.kr")
         assert "본문(평문)" not in result.text
 
+    @needs_html5_tokenizer
     def test_alternative_without_html_text_is_not_read_twice_next_to_a_plain_part(self):
         alternative = ("Content-Type: multipart/alternative; boundary=A\n\n"
                        "--A\nContent-Type: text/plain; charset=utf-8\n\n본문(평문)\n"
@@ -291,6 +295,7 @@ class TestRawTextElementsLeftOpen:
     and all, and with xmp `<b>코드</b>` came out as paragraph text."""
 
     @pytest.mark.parametrize("tag", ["textarea name=a/", "xmp", "plaintext"])
+    @needs_html5_tokenizer
     def test_rest_of_the_page_swallowed_by_an_unclosed_element_is_read_as_html(self, tag):
         html = f"<html><body><p>앞</p><{tag}><p>본문 문단 하나</p><table><tr><th>구분</th><th>값</th></tr><tr><td>가</td><td>1</td></tr></table></body></html>"
 
@@ -301,6 +306,7 @@ class TestRawTextElementsLeftOpen:
         assert result.text == "앞\n\n본문 문단 하나\n\n| 구분 | 값 |\n| --- | --- |\n| 가 | 1 |"
 
     @pytest.mark.timing
+    @needs_html5_tokenizer
     def test_many_unclosed_elements_take_linear_time(self):
         """If the re-read remainder has another unclosed element, what follows it is read again; re-reading them one at a time is
         quadratic in their number."""
@@ -318,6 +324,7 @@ class TestRawTextElementsLeftOpen:
 
         assert large < 8 * small + 0.5
 
+    @needs_html5_tokenizer
     def test_closed_xmp_is_a_code_block(self):
         html = "<html><body><xmp><b>코드</b></xmp><p>본문</p></body></html>"
 
@@ -325,6 +332,7 @@ class TestRawTextElementsLeftOpen:
 
         assert result.text == "```\n<b>코드</b>\n```\n\n본문"
 
+    @needs_html5_tokenizer
     def test_closed_textarea_keeps_its_value(self):
         html = "<html><body><form><textarea name=a>값 <b>x</b></textarea></form><p>본문</p></body></html>"
 
