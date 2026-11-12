@@ -1,0 +1,280 @@
+{
+ "tool": "markitdown",
+ "version": "0.1.9",
+ "import_seconds": 0.024042151000003287,
+ "wall_seconds": 6.32124883900002,
+ "results": {
+  "analysis.ipynb": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/analysis.ipynb",
+   "ok": true,
+   "chars": 128,
+   "seconds": 5.341364647999967,
+   "peak_rss_mb": 173.66796875,
+   "outcome": "ok"
+  },
+  "article.html": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/article.html",
+   "ok": true,
+   "chars": 957,
+   "seconds": 0.008712394000042423,
+   "peak_rss_mb": 173.796875,
+   "outcome": "ok"
+  },
+  "branch-sales-cp949.csv": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/branch-sales-cp949.csv",
+   "ok": true,
+   "chars": 245,
+   "seconds": 0.02052218799997263,
+   "peak_rss_mb": 174.046875,
+   "outcome": "ok"
+  },
+  "dashboard.mht": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/dashboard.mht",
+   "ok": true,
+   "chars": 764,
+   "seconds": 0.005046735999997054,
+   "peak_rss_mb": 174.046875,
+   "outcome": "ok"
+  },
+  "deck.odp": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.odp",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.005472478999990926,
+   "peak_rss_mb": 174.046875,
+   "outcome": "error"
+  },
+  "deck.pptx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.pptx",
+   "ok": true,
+   "chars": 754,
+   "seconds": 0.018741056999999728,
+   "peak_rss_mb": 174.171875,
+   "outcome": "ok"
+  },
+  "fax.tiff": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/fax.tiff",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.005170101999965482,
+   "peak_rss_mb": 174.171875,
+   "outcome": "error"
+  },
+  "html-table-named.xls": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/html-table-named.xls",
+   "ok": true,
+   "chars": 187,
+   "seconds": 0.006583237000029385,
+   "peak_rss_mb": 174.171875,
+   "outcome": "ok"
+  },
+  "inventory-2003.xml": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/inventory-2003.xml",
+   "ok": true,
+   "chars": 747,
+   "seconds": 0.005129140000008192,
+   "peak_rss_mb": 174.171875,
+   "outcome": "ok"
+  },
+  "invoice.png": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/invoice.png",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.004638958999976239,
+   "peak_rss_mb": 174.171875,
+   "outcome": "empty"
+  },
+  "legacy-deck.ppt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-deck.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.005592740999986745,
+   "peak_rss_mb": 174.171875,
+   "outcome": "error"
+  },
+  "legacy-report.doc": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-report.doc",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.005327349000026516,
+   "peak_rss_mb": 174.171875,
+   "outcome": "error"
+  },
+  "legacy-sales.xls": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-sales.xls",
+   "ok": true,
+   "chars": 767,
+   "seconds": 0.01998905300001752,
+   "peak_rss_mb": 175.01171875,
+   "outcome": "ok"
+  },
+  "mailbox.mbox": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/mailbox.mbox",
+   "ok": true,
+   "chars": 603,
+   "seconds": 0.005064352000033523,
+   "peak_rss_mb": 175.01171875,
+   "outcome": "ok"
+  },
+  "meeting.eml": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/meeting.eml",
+   "ok": true,
+   "chars": 1874,
+   "seconds": 0.00503773100001581,
+   "peak_rss_mb": 175.01171875,
+   "outcome": "ok"
+  },
+  "notes.txt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notes.txt",
+   "ok": true,
+   "chars": 82,
+   "seconds": 0.004690127000003486,
+   "peak_rss_mb": 175.01171875,
+   "outcome": "ok"
+  },
+  "notice-cp949.txt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notice-cp949.txt",
+   "ok": true,
+   "chars": 41,
+   "seconds": 0.0053076490000307786,
+   "peak_rss_mb": 175.01171875,
+   "outcome": "ok"
+  },
+  "numbered-outline.hwpx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/numbered-outline.hwpx",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.005122780000021976,
+   "peak_rss_mb": 175.13671875,
+   "outcome": "error"
+  },
+  "orders.csv": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/orders.csv",
+   "ok": true,
+   "chars": 112,
+   "seconds": 0.0047084250000466454,
+   "peak_rss_mb": 175.13671875,
+   "outcome": "ok"
+  },
+  "receipt.jpg": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/receipt.jpg",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.004644987999995465,
+   "peak_rss_mb": 175.13671875,
+   "outcome": "empty"
+  },
+  "release-notes.epub": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.epub",
+   "ok": true,
+   "chars": 457,
+   "seconds": 0.008086419000051137,
+   "peak_rss_mb": 175.13671875,
+   "outcome": "ok"
+  },
+  "release-notes.md": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.md",
+   "ok": true,
+   "chars": 303,
+   "seconds": 0.0049246009999706075,
+   "peak_rss_mb": 175.13671875,
+   "outcome": "ok"
+  },
+  "report.docx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.docx",
+   "ok": true,
+   "chars": 901,
+   "seconds": 0.16984414099999867,
+   "peak_rss_mb": 189.43359375,
+   "outcome": "ok"
+  },
+  "report.odt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.odt",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.005475313000033566,
+   "peak_rss_mb": 189.43359375,
+   "outcome": "error"
+  },
+  "report.rtf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.rtf",
+   "ok": true,
+   "chars": 6186695,
+   "seconds": 0.14908333199997514,
+   "peak_rss_mb": 207.27734375,
+   "outcome": "ok"
+  },
+  "rich-text.docx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.docx",
+   "ok": true,
+   "chars": 253,
+   "seconds": 0.17981183300003067,
+   "peak_rss_mb": 207.27734375,
+   "outcome": "ok"
+  },
+  "rich-text.html": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.html",
+   "ok": true,
+   "chars": 275,
+   "seconds": 0.006193138000014642,
+   "peak_rss_mb": 207.27734375,
+   "outcome": "ok"
+  },
+  "sales.ods": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.ods",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.005217915000002904,
+   "peak_rss_mb": 207.27734375,
+   "outcome": "error"
+  },
+  "sales.xlsx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.xlsx",
+   "ok": true,
+   "chars": 767,
+   "seconds": 0.01720680000005359,
+   "peak_rss_mb": 207.27734375,
+   "outcome": "ok"
+  },
+  "scanned-notice.pdf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/scanned-notice.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.007819635999965158,
+   "peak_rss_mb": 207.27734375,
+   "outcome": "empty"
+  },
+  "score-table.hwpx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/score-table.hwpx",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.0052657260000046335,
+   "peak_rss_mb": 207.27734375,
+   "outcome": "error"
+  },
+  "service-report.pdf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/service-report.pdf",
+   "ok": true,
+   "chars": 7612,
+   "seconds": 0.20626535299999205,
+   "peak_rss_mb": 207.27734375,
+   "outcome": "ok"
+  },
+  "table.hwp": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/table.hwp",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.005964032000008501,
+   "peak_rss_mb": 207.27734375,
+   "outcome": "error"
+  },
+  "ticket.heic": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/ticket.heic",
+   "ok": false,
+   "error": "FileConversionException: File conversion failed after 1 attempts:\n - AudioConverter threw FileNotFoundError with message: [Errno 2] No such file or directory: 'ffprobe'\n",
+   "seconds": 0.0066645300000232055,
+   "peak_rss_mb": 207.27734375,
+   "outcome": "error"
+  }
+ }
+}

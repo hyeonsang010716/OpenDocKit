@@ -1,0 +1,280 @@
+{
+ "tool": "kreuzberg",
+ "version": "4.10.4",
+ "import_seconds": 0.023257853000018258,
+ "wall_seconds": 2.784518243999969,
+ "results": {
+  "analysis.ipynb": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/analysis.ipynb",
+   "ok": true,
+   "chars": 123,
+   "seconds": 0.06635505100001637,
+   "peak_rss_mb": 47.08984375,
+   "outcome": "ok"
+  },
+  "article.html": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/article.html",
+   "ok": true,
+   "chars": 1053,
+   "seconds": 0.008717692999994142,
+   "peak_rss_mb": 48.53515625,
+   "outcome": "ok"
+  },
+  "branch-sales-cp949.csv": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/branch-sales-cp949.csv",
+   "ok": true,
+   "chars": 232,
+   "seconds": 0.003239885999960279,
+   "peak_rss_mb": 49.34375,
+   "outcome": "ok"
+  },
+  "dashboard.mht": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/dashboard.mht",
+   "ok": true,
+   "chars": 119,
+   "seconds": 0.09585008700003073,
+   "peak_rss_mb": 70.2578125,
+   "outcome": "ok"
+  },
+  "deck.odp": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.odp",
+   "ok": false,
+   "error": "ValidationError: ValidationError: application/vnd.oasis.opendocument.presentation",
+   "seconds": 0.0007559719999790104,
+   "peak_rss_mb": 70.2578125,
+   "outcome": "error"
+  },
+  "deck.pptx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.pptx",
+   "ok": true,
+   "chars": 408,
+   "seconds": 0.0031645120000121096,
+   "peak_rss_mb": 70.2578125,
+   "outcome": "ok"
+  },
+  "fax.tiff": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/fax.tiff",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.7110919469999999,
+   "peak_rss_mb": 274.0078125,
+   "outcome": "ok"
+  },
+  "html-table-named.xls": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/html-table-named.xls",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Invalid OLE (379 bytes is too small, signature \\x3c\\x68\\x74\\x6d\\x6c\\x3e\\x3c\\x68 invalid, not an office document?)",
+   "seconds": 0.0005670269999882294,
+   "peak_rss_mb": 274.0078125,
+   "outcome": "error"
+  },
+  "inventory-2003.xml": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/inventory-2003.xml",
+   "ok": true,
+   "chars": 361,
+   "seconds": 0.1317449449999799,
+   "peak_rss_mb": 274.0078125,
+   "outcome": "ok"
+  },
+  "invoice.png": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/invoice.png",
+   "ok": true,
+   "chars": 87,
+   "seconds": 0.6567358650000301,
+   "peak_rss_mb": 296.2421875,
+   "outcome": "ok"
+  },
+  "legacy-deck.ppt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-deck.ppt",
+   "ok": true,
+   "chars": 424,
+   "seconds": 0.0772478920000026,
+   "peak_rss_mb": 296.2421875,
+   "outcome": "ok"
+  },
+  "legacy-report.doc": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-report.doc",
+   "ok": true,
+   "chars": 823,
+   "seconds": 0.0013998960000094485,
+   "peak_rss_mb": 296.2421875,
+   "outcome": "ok"
+  },
+  "legacy-sales.xls": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-sales.xls",
+   "ok": true,
+   "chars": 681,
+   "seconds": 0.001432083999986844,
+   "peak_rss_mb": 296.2421875,
+   "outcome": "ok"
+  },
+  "mailbox.mbox": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/mailbox.mbox",
+   "ok": false,
+   "error": "ValidationError: ValidationError: application/mbox",
+   "seconds": 0.0002639280000380495,
+   "peak_rss_mb": 296.2421875,
+   "outcome": "error"
+  },
+  "meeting.eml": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/meeting.eml",
+   "ok": true,
+   "chars": 307,
+   "seconds": 0.2277512379999962,
+   "peak_rss_mb": 296.2421875,
+   "outcome": "ok"
+  },
+  "notes.txt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notes.txt",
+   "ok": true,
+   "chars": 82,
+   "seconds": 0.0011021249999885185,
+   "peak_rss_mb": 296.2421875,
+   "outcome": "ok"
+  },
+  "notice-cp949.txt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notice-cp949.txt",
+   "ok": true,
+   "chars": 59,
+   "seconds": 0.001077588000043761,
+   "peak_rss_mb": 296.2421875,
+   "outcome": "ok"
+  },
+  "numbered-outline.hwpx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/numbered-outline.hwpx",
+   "ok": false,
+   "error": "ValidationError: ValidationError: application/haansofthwpx",
+   "seconds": 0.0002847810000048412,
+   "peak_rss_mb": 296.2421875,
+   "outcome": "error"
+  },
+  "orders.csv": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/orders.csv",
+   "ok": true,
+   "chars": 112,
+   "seconds": 0.0011021349999964514,
+   "peak_rss_mb": 296.2421875,
+   "outcome": "ok"
+  },
+  "receipt.jpg": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/receipt.jpg",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.6500430119999692,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "ok"
+  },
+  "release-notes.epub": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.epub",
+   "ok": true,
+   "chars": 393,
+   "seconds": 0.0014199560000065503,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "ok"
+  },
+  "release-notes.md": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.md",
+   "ok": true,
+   "chars": 305,
+   "seconds": 0.0017253469999900517,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "ok"
+  },
+  "report.docx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.docx",
+   "ok": true,
+   "chars": 922,
+   "seconds": 0.005280709000032857,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "ok"
+  },
+  "report.odt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.odt",
+   "ok": true,
+   "chars": 877,
+   "seconds": 0.0017029229999820927,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "ok"
+  },
+  "report.rtf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.rtf",
+   "ok": true,
+   "chars": 866,
+   "seconds": 0.04421946500002605,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "ok"
+  },
+  "rich-text.docx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.docx",
+   "ok": true,
+   "chars": 242,
+   "seconds": 0.0033498509999958515,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "ok"
+  },
+  "rich-text.html": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.html",
+   "ok": true,
+   "chars": 309,
+   "seconds": 0.0003106390000198189,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "ok"
+  },
+  "sales.ods": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.ods",
+   "ok": true,
+   "chars": 651,
+   "seconds": 0.0020057510000128786,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "ok"
+  },
+  "sales.xlsx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.xlsx",
+   "ok": true,
+   "chars": 681,
+   "seconds": 0.0015848740000024009,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "ok"
+  },
+  "scanned-notice.pdf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/scanned-notice.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.006307490000040161,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "empty"
+  },
+  "score-table.hwpx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/score-table.hwpx",
+   "ok": false,
+   "error": "ValidationError: ValidationError: application/haansofthwpx",
+   "seconds": 0.0002835180000033688,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "error"
+  },
+  "service-report.pdf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/service-report.pdf",
+   "ok": true,
+   "chars": 7136,
+   "seconds": 0.021921623000025647,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "ok"
+  },
+  "table.hwp": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/table.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.00013214000000516535,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "empty"
+  },
+  "ticket.heic": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/ticket.heic",
+   "ok": false,
+   "error": "ValidationError: ValidationError: image/heic",
+   "seconds": 0.00022663300001113384,
+   "peak_rss_mb": 309.6171875,
+   "outcome": "error"
+  }
+ }
+}

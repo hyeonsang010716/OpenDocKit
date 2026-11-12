@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 298" width="760" height="298" role="img" aria-label="Structure checks passed">
+<style>
+  .surface { fill: #fcfcfb; } .title { fill: #0b0b0b; font-weight: 600; } .label { fill: #0b0b0b; }
+  .note, .tick { fill: #52514e; } .axis { stroke: #d8d7d2; } .bar { fill: #9a9993; } .bar.us { fill: #2a78d6; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #1a1a19; } .title, .label { fill: #f0efec; } .note, .tick { fill: #c3c2b7; }
+    .axis { stroke: #3a3a37; } .bar { fill: #7d7c76; } .bar.us { fill: #3987e5; }
+  }
+  text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 14px; }
+</style>
+<rect class="surface" width="760" height="298" rx="8"/>
+<text class="title" x="24" y="32" font-size="16">Structure checks passed</text>
+<line class="axis" x1="150" y1="56" x2="150" y2="246"/>
+<text class="label" x="138" y="80" text-anchor="end" font-weight="600">OpenDocKit</text>
+<path class="bar us" d="M150,64 h434.7755102040816 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-434.7755102040816 z"/>
+<text class="label" x="596.7755102040817" y="80">43 of 49</text>
+<text class="label" x="138" y="118" text-anchor="end">Docling</text>
+<path class="bar" d="M150,102 h363.3469387755102 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-363.3469387755102 z"/>
+<text class="label" x="525.3469387755101" y="118">36 of 49</text>
+<text class="label" x="138" y="156" text-anchor="end">MarkItDown</text>
+<path class="bar" d="M150,140 h312.3265306122449 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-312.3265306122449 z"/>
+<text class="label" x="474.3265306122449" y="156">31 of 49</text>
+<text class="label" x="138" y="194" text-anchor="end">Kreuzberg</text>
+<path class="bar" d="M150,178 h291.9183673469388 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-291.9183673469388 z"/>
+<text class="label" x="453.9183673469388" y="194">29 of 49</text>
+<text class="label" x="138" y="232" text-anchor="end">Unstructured</text>
+<path class="bar" d="M150,216 h118.44897959183673 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-118.44897959183673 z"/>
+<text class="label" x="280.44897959183675" y="232">12 of 49</text>
+<text class="note" x="24" y="282" font-size="12">49 yes/no checks on documents with known content. Tool versions and method: benchmarks/README.md</text>
+</svg>

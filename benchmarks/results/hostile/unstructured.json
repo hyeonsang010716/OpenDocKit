@@ -1,0 +1,912 @@
+{
+ "tool": "unstructured",
+ "version": "0.27.37",
+ "import_seconds": 0.03328502499971364,
+ "wall_seconds": 231.39766847600004,
+ "results": {
+  "0000.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4591020179783680.pdf",
+   "ok": true,
+   "chars": 19,
+   "seconds": 5.33180589299991,
+   "peak_rss_mb": 823.03515625,
+   "outcome": "ok"
+  },
+  "0002.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4652594248613888.pdf",
+   "ok": true,
+   "chars": 82,
+   "seconds": 5.377511249999998,
+   "peak_rss_mb": 831.21484375,
+   "outcome": "ok"
+  },
+  "0001.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4646567755972608.pdf",
+   "ok": false,
+   "error": "PDFPageCountError: Unable to get page count.\nSyntax Error (105): Dictionary key must be a name object\nSyntax Error (107): Dictionary key must be a name object\nSyntax Error (111): Dictionary key must be a name object\nInternal Error: xref num 1 not found but needed, try to reconstruct\nSyntax Error (94",
+   "seconds": 5.61257984000008,
+   "peak_rss_mb": 840.42578125,
+   "outcome": "error"
+  },
+  "0004.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4715311080734720.pdf",
+   "ok": true,
+   "chars": 16,
+   "seconds": 3.3643884040000103,
+   "peak_rss_mb": 832.66796875,
+   "outcome": "ok"
+  },
+  "0003.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4691742750474240.pdf",
+   "ok": false,
+   "error": "PDFPageCountError: Unable to get page count.\nSyntax Error (664): Illegal character ')'\nSyntax Error (1469): Illegal character '>'\nSyntax Error (1470): Dictionary key must be a name object\nSyntax Error (1471): Illegal character '>'\nSyntax Error (1471): Dictionary key must be a name object\nSyntax Erro",
+   "seconds": 4.614682061999929,
+   "peak_rss_mb": 850.4921875,
+   "outcome": "error"
+  },
+  "0005.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4736668896133120.pdf",
+   "ok": false,
+   "error": "PDFPageCountError: Unable to get page count.\nSyntax Warning: No valid XRef size in trailer\nSyntax Error (2070): Illegal character '}'\nSyntax Error: Catalog dictionary does not contain a valid \"Pages\" entry\nCommand Line Error: Wrong page range given: the first page (1) can not be after the last page ",
+   "seconds": 4.5612872889998926,
+   "peak_rss_mb": 850.7109375,
+   "outcome": "error"
+  },
+  "0006.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4833695495684096.pdf",
+   "ok": true,
+   "chars": 46,
+   "seconds": 4.0973751229998925,
+   "peak_rss_mb": 903.20703125,
+   "outcome": "ok"
+  },
+  "0007.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4927662560968704.pdf",
+   "ok": false,
+   "error": "PdfiumError: Failed to load document (PDFium: Data format error).",
+   "seconds": 3.980278177000173,
+   "peak_rss_mb": 854.55078125,
+   "outcome": "error"
+  },
+  "0008.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5177159198507008.pdf",
+   "ok": false,
+   "error": "PDFPageCountError: Unable to get page count.\nSyntax Error: Couldn't find trailer dictionary\nSyntax Error: Couldn't find trailer dictionary\nSyntax Error: Couldn't read xref table\n",
+   "seconds": 4.12584307100019,
+   "peak_rss_mb": 850.63671875,
+   "outcome": "error"
+  },
+  "0009.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5317294594523136.pdf",
+   "ok": true,
+   "chars": 16,
+   "seconds": 3.854335276000029,
+   "peak_rss_mb": 832.453125,
+   "outcome": "ok"
+  },
+  "0010.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5452007745323008.pdf",
+   "ok": true,
+   "chars": 58,
+   "seconds": 4.326350410000032,
+   "peak_rss_mb": 894.2265625,
+   "outcome": "ok"
+  },
+  "0011.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5592736912179200.pdf",
+   "ok": true,
+   "chars": 16,
+   "seconds": 3.900470280000036,
+   "peak_rss_mb": 832.2421875,
+   "outcome": "ok"
+  },
+  "0012.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5809779695484928.pdf",
+   "ok": false,
+   "error": "PDFPageCountError: Unable to get page count.\nSyntax Error: Invalid XRef entry 117\nInternal Error: xref num 117 not found but needed, try to reconstruct\nSyntax Error: Invalid XRef entry 117\nSyntax Error: Top-level pages object is wrong type (null)\nCommand Line Error: Wrong page range given: the first",
+   "seconds": 4.219754465999813,
+   "peak_rss_mb": 850.87109375,
+   "outcome": "error"
+  },
+  "0013.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5903429863538688.pdf",
+   "ok": true,
+   "chars": 18,
+   "seconds": 3.9403300970000146,
+   "peak_rss_mb": 832.25,
+   "outcome": "ok"
+  },
+  "0015.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6013812888633344.pdf",
+   "ok": false,
+   "error": "PDFPageCountError: Unable to get page count.\nSyntax Error (533): Dictionary key must be a name object\nSyntax Error (593): Dictionary key must be a name object\nSyntax Error (913): Illegal character <ff> in hex string\nSyntax Error (914): Illegal character <ff> in hex string\nSyntax Error (915): Illegal",
+   "seconds": 3.9029951259999507,
+   "peak_rss_mb": 850.48046875,
+   "outcome": "error"
+  },
+  "0014.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5914823472250880.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 7.087759506000111,
+   "peak_rss_mb": 976.6640625,
+   "outcome": "empty"
+  },
+  "0016.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6085913544818688.pdf",
+   "ok": true,
+   "chars": 581,
+   "seconds": 3.7336771450000015,
+   "peak_rss_mb": 770.91796875,
+   "outcome": "ok"
+  },
+  "0017.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6400141380878336.pdf",
+   "ok": false,
+   "error": "PDFPageCountError: Unable to get page count.\nSyntax Warning: May not be a PDF file (continuing anyway)\nToo large XRef size\nSyntax Error: Invalid 'obj' parameters\nToo large XRef size\nSyntax Error: Invalid 'obj' parameters\nSyntax Error: Couldn't read xref table\n",
+   "seconds": 3.706677298999921,
+   "peak_rss_mb": 857.1484375,
+   "outcome": "error"
+  },
+  "0019.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Fuzzed.doc",
+   "ok": true,
+   "chars": 8803,
+   "seconds": 4.573272533999898,
+   "peak_rss_mb": 763.9609375,
+   "outcome": "ok"
+  },
+  "0021.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.27095104599993647,
+   "peak_rss_mb": 55.87109375,
+   "outcome": "error"
+  },
+  "0018.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6515565732102144.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 7.394712494000032,
+   "peak_rss_mb": 976.734375,
+   "outcome": "empty"
+  },
+  "0022.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4892412469968896.doc",
+   "ok": true,
+   "chars": 8946,
+   "seconds": 4.050520117000133,
+   "peak_rss_mb": 763.8671875,
+   "outcome": "ok"
+  },
+  "0023.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4947285593948160.doc",
+   "ok": true,
+   "chars": 0,
+   "seconds": 3.1034076269997968,
+   "peak_rss_mb": 671.890625,
+   "outcome": "empty"
+  },
+  "0025.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5050208641482752.doc",
+   "ok": true,
+   "chars": 0,
+   "seconds": 3.1224218219999784,
+   "peak_rss_mb": 671.8125,
+   "outcome": "empty"
+  },
+  "0024.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4951943183990784.doc",
+   "ok": true,
+   "chars": 6632,
+   "seconds": 8.695838989000094,
+   "peak_rss_mb": 762.90625,
+   "outcome": "ok"
+  },
+  "0027.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5195207308541952.doc",
+   "ok": true,
+   "chars": 8179,
+   "seconds": 5.594333207999853,
+   "peak_rss_mb": 766.88671875,
+   "outcome": "ok"
+  },
+  "0020.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-POIHWPFFuzzer-5696094627495936.doc",
+   "ok": false,
+   "error": "FileNotFoundError: no such file or directory: '/tmp/tmp6dh_m32b/clusterfuzz-testcase-POIHWPFFuzzer-5696094627495936.docx'",
+   "seconds": 22.74853198400001,
+   "peak_rss_mb": 640.375,
+   "outcome": "error"
+  },
+  "0028.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5418937293340672.doc",
+   "ok": true,
+   "chars": 14,
+   "seconds": 6.930829065000125,
+   "peak_rss_mb": 672.41796875,
+   "outcome": "ok"
+  },
+  "0026.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5074346559012864.doc",
+   "ok": false,
+   "error": "FileNotFoundError: no such file or directory: '/tmp/tmpaglaf85y/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5074346559012864.docx'",
+   "seconds": 17.57462428100007,
+   "peak_rss_mb": 640.66015625,
+   "outcome": "error"
+  },
+  "0031.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-6610789829836800.doc",
+   "ok": true,
+   "chars": 3180,
+   "seconds": 3.5977213339999707,
+   "peak_rss_mb": 762.79296875,
+   "outcome": "ok"
+  },
+  "0032.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.237437208999836,
+   "peak_rss_mb": 56.0,
+   "outcome": "error"
+  },
+  "0033.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4959857092198400.docx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.28552689999992253,
+   "peak_rss_mb": 55.78515625,
+   "outcome": "error"
+  },
+  "0034.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx",
+   "ok": false,
+   "error": "ValueError: not a ZIP archive (so not a DOCX file): '/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx'",
+   "seconds": 2.170454558999836,
+   "peak_rss_mb": 645.18359375,
+   "outcome": "error"
+  },
+  "0035.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.24678748700011965,
+   "peak_rss_mb": 55.62109375,
+   "outcome": "error"
+  },
+  "0036.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5313273089884160.docx",
+   "ok": false,
+   "error": "ValueError: not a ZIP archive (so not a DOCX file): '/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5313273089884160.docx'",
+   "seconds": 2.254171584000005,
+   "peak_rss_mb": 645.41796875,
+   "outcome": "error"
+  },
+  "0037.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
+   "ok": false,
+   "error": "ValueError: not a ZIP archive (so not a DOCX file): '/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx'",
+   "seconds": 2.2278810259999773,
+   "peak_rss_mb": 645.46484375,
+   "outcome": "error"
+  },
+  "0038.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5569740188549120.docx",
+   "ok": false,
+   "error": "ValueError: not a ZIP archive (so not a DOCX file): '/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5569740188549120.docx'",
+   "seconds": 2.216078585000105,
+   "peak_rss_mb": 645.44921875,
+   "outcome": "error"
+  },
+  "0039.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6061520554164224.docx",
+   "ok": false,
+   "error": "ValueError: not a ZIP archive (so not a DOCX file): '/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6061520554164224.docx'",
+   "seconds": 2.1741284939998877,
+   "peak_rss_mb": 645.46484375,
+   "outcome": "error"
+  },
+  "0030.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5832867957309440.doc",
+   "ok": false,
+   "error": "FileNotFoundError: no such file or directory: '/tmp/tmpp6bzdvon/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5832867957309440.docx'",
+   "seconds": 16.457572879000054,
+   "peak_rss_mb": 640.55859375,
+   "outcome": "error"
+  },
+  "0040.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.2810880179999913,
+   "peak_rss_mb": 55.91796875,
+   "outcome": "error"
+  },
+  "0029.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5440721166139392.doc",
+   "ok": false,
+   "error": "FileNotFoundError: no such file or directory: '/tmp/tmpg4ekd6lm/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5440721166139392.docx'",
+   "seconds": 21.797080294000125,
+   "peak_rss_mb": 640.51953125,
+   "outcome": "error"
+  },
+  "0041.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6442791109263360.docx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.29805838500010395,
+   "peak_rss_mb": 55.796875,
+   "outcome": "error"
+  },
+  "0042.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6733884933668864.docx",
+   "ok": false,
+   "error": "BadZipFile: Bad CRC-32 for file 'word/theme/theme1.xml'",
+   "seconds": 2.5659679619998315,
+   "peak_rss_mb": 641.05859375,
+   "outcome": "error"
+  },
+  "0043.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx",
+   "ok": false,
+   "error": "ValueError: not a ZIP archive (so not a DOCX file): '/home/runner/work/_temp/corpus/poi/test-data/document/crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx'",
+   "seconds": 2.898843711999916,
+   "peak_rss_mb": 645.609375,
+   "outcome": "error"
+  },
+  "0045.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-5802475696488448.ppt",
+   "ok": false,
+   "error": "ValueError: Exceeds the limit (4300 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit",
+   "seconds": 0.32115100999999413,
+   "peak_rss_mb": 55.87890625,
+   "outcome": "error"
+  },
+  "0044.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/deep-table-cell.docx",
+   "ok": false,
+   "error": "XMLSyntaxError: Excessive depth in document: 256, use XML_PARSE_HUGE option, line 507, column 15 (<string>, line 507)",
+   "seconds": 2.739817801000072,
+   "peak_rss_mb": 643.17578125,
+   "outcome": "error"
+  },
+  "0046.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5205835528404992.pptx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.23554150700010723,
+   "peak_rss_mb": 56.0078125,
+   "outcome": "error"
+  },
+  "0048.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5681320547975168.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmprhiupzvb/clusterfuzz-testcase-minimized-POIFuzzer-5681320547975168.pptx'",
+   "seconds": 15.419768837999982,
+   "peak_rss_mb": 646.62890625,
+   "outcome": "error"
+  },
+  "0047.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5429732352851968.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmpch5kltb7/clusterfuzz-testcase-minimized-POIFuzzer-5429732352851968.pptx'",
+   "seconds": 16.415472045000115,
+   "peak_rss_mb": 646.57421875,
+   "outcome": "error"
+  },
+  "0049.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-6411649193738240.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmp4ilrgme1/clusterfuzz-testcase-minimized-POIFuzzer-6411649193738240.pptx'",
+   "seconds": 19.613134173999924,
+   "peak_rss_mb": 646.8203125,
+   "outcome": "error"
+  },
+  "0051.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4630915954114560.ppt",
+   "ok": true,
+   "chars": 75,
+   "seconds": 4.0703599170001326,
+   "peak_rss_mb": 767.11328125,
+   "outcome": "ok"
+  },
+  "0050.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4624961081573376.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmph05d_cnc/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4624961081573376.pptx'",
+   "seconds": 16.930565888000046,
+   "peak_rss_mb": 646.63671875,
+   "outcome": "error"
+  },
+  "0053.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4983252485210112.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmpgtrn_89j/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4983252485210112.pptx'",
+   "seconds": 18.868543475000024,
+   "peak_rss_mb": 646.13671875,
+   "outcome": "error"
+  },
+  "0052.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4838893004128256.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmpzhca_o8v/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4838893004128256.pptx'",
+   "seconds": 20.364472733999946,
+   "peak_rss_mb": 646.59765625,
+   "outcome": "error"
+  },
+  "0054.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5018229722382336.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmp64ha37y9/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5018229722382336.pptx'",
+   "seconds": 15.903248876999896,
+   "peak_rss_mb": 646.015625,
+   "outcome": "error"
+  },
+  "0055.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5231088823566336.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmp3m2estmw/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5231088823566336.pptx'",
+   "seconds": 16.06168853700001,
+   "peak_rss_mb": 646.6171875,
+   "outcome": "error"
+  },
+  "0057.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5962760801091584.ppt",
+   "ok": true,
+   "chars": 0,
+   "seconds": 8.360880308000105,
+   "peak_rss_mb": 677.421875,
+   "outcome": "empty"
+  },
+  "0058.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6028723156746240.ppt",
+   "ok": true,
+   "chars": 8615,
+   "seconds": 4.207069904000036,
+   "peak_rss_mb": 775.375,
+   "outcome": "ok"
+  },
+  "0056.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5306877435838464.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmpqy7ol7t1/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5306877435838464.pptx'",
+   "seconds": 22.111217286000056,
+   "peak_rss_mb": 646.1875,
+   "outcome": "error"
+  },
+  "0059.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6032591399288832.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmpldbvjf9f/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6032591399288832.pptx'",
+   "seconds": 15.521529512999905,
+   "peak_rss_mb": 646.0703125,
+   "outcome": "error"
+  },
+  "0060.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6192650357112832.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmp09klnt1t/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6192650357112832.pptx'",
+   "seconds": 14.720489737000207,
+   "peak_rss_mb": 645.83984375,
+   "outcome": "error"
+  },
+  "0061.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6360479850954752.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmpgbgxb91h/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6360479850954752.pptx'",
+   "seconds": 17.29755440400004,
+   "peak_rss_mb": 645.93359375,
+   "outcome": "error"
+  },
+  "0063.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6614960949821440.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmpgjxt_88i/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6614960949821440.pptx'",
+   "seconds": 14.297618307999983,
+   "peak_rss_mb": 646.01171875,
+   "outcome": "error"
+  },
+  "0065.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4838644450394112.pptx",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4838644450394112.pptx'",
+   "seconds": 2.257940766999809,
+   "peak_rss_mb": 651.1953125,
+   "outcome": "error"
+  },
+  "0066.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4986044400861184.pptx",
+   "ok": false,
+   "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.ZIP file type.",
+   "seconds": 0.22964608400002362,
+   "peak_rss_mb": 60.4921875,
+   "outcome": "error"
+  },
+  "0067.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5463285576892416.pptx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.24737224900013643,
+   "peak_rss_mb": 55.83984375,
+   "outcome": "error"
+  },
+  "0068.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5471515212382208.pptx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.23678855699995438,
+   "peak_rss_mb": 55.5859375,
+   "outcome": "error"
+  },
+  "0062.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6416153805979648.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmp7dolpfqu/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6416153805979648.pptx'",
+   "seconds": 20.267192969000007,
+   "peak_rss_mb": 646.52734375,
+   "outcome": "error"
+  },
+  "0069.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5611274456596480.pptx",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5611274456596480.pptx'",
+   "seconds": 2.3841406129999996,
+   "peak_rss_mb": 650.86328125,
+   "outcome": "error"
+  },
+  "0070.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6071540680032256.pptx",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6071540680032256.pptx'",
+   "seconds": 2.6275448260000758,
+   "peak_rss_mb": 651.19921875,
+   "outcome": "error"
+  },
+  "0072.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6372932378820608.pptx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.3057657819999804,
+   "peak_rss_mb": 55.8984375,
+   "outcome": "error"
+  },
+  "0073.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6435650376957952.pptx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.3174993909999557,
+   "peak_rss_mb": 55.67578125,
+   "outcome": "error"
+  },
+  "0064.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6710128412590080.ppt",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/tmp/tmpl38tqv9e/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6710128412590080.pptx'",
+   "seconds": 17.610033273,
+   "peak_rss_mb": 646.015625,
+   "outcome": "error"
+  },
+  "0071.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6254434927378432.pptx",
+   "ok": false,
+   "error": "PackageNotFoundError: Package not found at '/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6254434927378432.pptx'",
+   "seconds": 2.6974294419999296,
+   "peak_rss_mb": 650.90625,
+   "outcome": "error"
+  },
+  "0074.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx",
+   "ok": false,
+   "error": "BadZipFile: Bad CRC-32 for file 'ppt/slideMasters/slideMaster1.xml'",
+   "seconds": 2.6786074050000934,
+   "peak_rss_mb": 646.125,
+   "outcome": "error"
+  },
+  "0076.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for file header",
+   "seconds": 2.5967281109999476,
+   "peak_rss_mb": 641.30078125,
+   "outcome": "error"
+  },
+  "0075.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-74c33084f66628ba85e4ab8e71374d39915db381.ppt",
+   "ok": true,
+   "chars": 56,
+   "seconds": 3.671580477000134,
+   "peak_rss_mb": 767.0234375,
+   "outcome": "ok"
+  },
+  "0079.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4734163573080064.xls",
+   "ok": false,
+   "error": "OleFileError: incomplete OLE sector",
+   "seconds": 0.3437144019999323,
+   "peak_rss_mb": 55.703125,
+   "outcome": "error"
+  },
+  "0077.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4651309315719168.xls",
+   "ok": false,
+   "error": "UnprocessableEntityError: XLSX file is password protected.",
+   "seconds": 3.1008447329998035,
+   "peak_rss_mb": 682.68359375,
+   "outcome": "error"
+  },
+  "0078.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4657005060816896.xls",
+   "ok": false,
+   "error": "XLRDError: Unsupported format, or corrupt file: Expected BOF record; found b'\\x00\\x00\\t\\x08\\x10\\x00\\x00\\x06'",
+   "seconds": 2.8321039629997813,
+   "peak_rss_mb": 682.2578125,
+   "outcome": "error"
+  },
+  "0080.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4819588401201152.xls",
+   "ok": false,
+   "error": "AssertionError: ",
+   "seconds": 3.2092715569999655,
+   "peak_rss_mb": 682.13671875,
+   "outcome": "error"
+  },
+  "0081.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4977868385681408.xls",
+   "ok": true,
+   "chars": 134,
+   "seconds": 3.6085502000000815,
+   "peak_rss_mb": 780.20703125,
+   "outcome": "ok"
+  },
+  "0082.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5175219985448960.xls",
+   "ok": false,
+   "error": "AssertionError: ",
+   "seconds": 3.043477517999918,
+   "peak_rss_mb": 682.08203125,
+   "outcome": "error"
+  },
+  "0083.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5285517825277952.xls",
+   "ok": true,
+   "chars": 134,
+   "seconds": 3.4490130359999966,
+   "peak_rss_mb": 780.5234375,
+   "outcome": "ok"
+  },
+  "0084.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5436547081830400.xls",
+   "ok": false,
+   "error": "CompDocError: MSAT: invalid sector id: -22",
+   "seconds": 3.1601073410001845,
+   "peak_rss_mb": 681.953125,
+   "outcome": "error"
+  },
+  "0085.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5786329142919168.xls",
+   "ok": false,
+   "error": "UnprocessableEntityError: Not a valid XLSX file.",
+   "seconds": 3.1855717430000823,
+   "peak_rss_mb": 676.43359375,
+   "outcome": "error"
+  },
+  "0088.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6137883240824832.xls",
+   "ok": false,
+   "error": "ValueError: Exceeds the limit (4300 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit",
+   "seconds": 0.3337370369999917,
+   "peak_rss_mb": 56.08984375,
+   "outcome": "error"
+  },
+  "0086.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5816431116615680.xls",
+   "ok": false,
+   "error": "error: unpack requires a buffer of 16 bytes",
+   "seconds": 2.360226799999964,
+   "peak_rss_mb": 682.44921875,
+   "outcome": "error"
+  },
+  "0087.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5889658057523200.xls",
+   "ok": false,
+   "error": "AssertionError: ",
+   "seconds": 3.046361256999944,
+   "peak_rss_mb": 682.015625,
+   "outcome": "error"
+  },
+  "0089.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6322470200934400.xls",
+   "ok": false,
+   "error": "ParseError: Incomplete BIFF record payload at offset 765",
+   "seconds": 3.252753299999995,
+   "peak_rss_mb": 681.8984375,
+   "outcome": "error"
+  },
+  "0090.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6483562584932352.xls",
+   "ok": false,
+   "error": "AssertionError: ",
+   "seconds": 2.6051798870000766,
+   "peak_rss_mb": 681.73046875,
+   "outcome": "error"
+  },
+  "0092.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.3403050609999809,
+   "peak_rss_mb": 55.97265625,
+   "outcome": "error"
+  },
+  "0094.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.3582196350000686,
+   "peak_rss_mb": 55.8671875,
+   "outcome": "error"
+  },
+  "0091.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6537773940867072.xls",
+   "ok": false,
+   "error": "AssertionError: ",
+   "seconds": 2.929181553000035,
+   "peak_rss_mb": 681.7421875,
+   "outcome": "error"
+  },
+  "0093.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5089447305609216.xlsx",
+   "ok": false,
+   "error": "UnprocessableEntityError: Not a valid XLSX file.",
+   "seconds": 2.7552787159997933,
+   "peak_rss_mb": 680.65234375,
+   "outcome": "error"
+  },
+  "0095.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5265527465181184.xlsx",
+   "ok": false,
+   "error": "BadZipFile: Bad CRC-32 for file 'xl/drawings/drawing1.xml'",
+   "seconds": 2.852514700000029,
+   "peak_rss_mb": 683.703125,
+   "outcome": "error"
+  },
+  "0096.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5937385319563264.xlsx",
+   "ok": false,
+   "error": "BadZipFile: Bad CRC-32 for file 'xl/worksheets/sheet8.xml'",
+   "seconds": 3.413903874000198,
+   "peak_rss_mb": 686.171875,
+   "outcome": "error"
+  },
+  "0099.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.23593451999977333,
+   "peak_rss_mb": 55.90234375,
+   "outcome": "error"
+  },
+  "0097.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6123461607817216.xlsx",
+   "ok": false,
+   "error": "UnprocessableEntityError: Not a valid XLSX file.",
+   "seconds": 2.919177636999848,
+   "peak_rss_mb": 680.6015625,
+   "outcome": "error"
+  },
+  "0100.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.32621078600004694,
+   "peak_rss_mb": 55.80859375,
+   "outcome": "error"
+  },
+  "0102.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5636439151607808.xlsx",
+   "ok": false,
+   "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.ZIP file type.",
+   "seconds": 0.3783014880000337,
+   "peak_rss_mb": 60.59765625,
+   "outcome": "error"
+  },
+  "0098.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6419366255919104.xlsx",
+   "ok": false,
+   "error": "UnprocessableEntityError: Not a valid XLSX file.",
+   "seconds": 2.9001934769999025,
+   "peak_rss_mb": 680.51171875,
+   "outcome": "error"
+  },
+  "0103.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6504225896792064.xlsx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.32411818800028414,
+   "peak_rss_mb": 55.8984375,
+   "outcome": "error"
+  },
+  "0105.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-274d6342e4842d61be0fb48eaadad6208ae767ae.xlsx",
+   "ok": false,
+   "error": "BadZipFile: Bad magic number for central directory",
+   "seconds": 0.3811533779999081,
+   "peak_rss_mb": 55.75390625,
+   "outcome": "error"
+  },
+  "0101.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx",
+   "ok": false,
+   "error": "UnprocessableEntityError: Not a valid XLSX file.",
+   "seconds": 2.5022122230002424,
+   "peak_rss_mb": 680.59375,
+   "outcome": "error"
+  },
+  "0104.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6594557414080512.xlsx",
+   "ok": false,
+   "error": "UnprocessableEntityError: Not a valid XLSX file.",
+   "seconds": 3.025437666000016,
+   "peak_rss_mb": 680.5,
+   "outcome": "error"
+  },
+  "0108.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/deep-data.xlsx",
+   "ok": false,
+   "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.ZIP file type.",
+   "seconds": 0.31356095000001005,
+   "peak_rss_mb": 62.09375,
+   "outcome": "error"
+  },
+  "0106.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-9bf3cd4bd6f50a8a9339d363c2c7af14b536865c.xlsx",
+   "ok": false,
+   "error": "UnprocessableEntityError: XLSX file is password protected.",
+   "seconds": 2.958113247000256,
+   "peak_rss_mb": 683.9765625,
+   "outcome": "error"
+  },
+  "0107.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-e329fca9087fe21bca4a80c8bc472a661c98d860.xls",
+   "ok": true,
+   "chars": 223,
+   "seconds": 3.6610975009998583,
+   "peak_rss_mb": 781.6484375,
+   "outcome": "ok"
+  },
+  "0110.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb-empty.xlsx",
+   "ok": false,
+   "error": "ParseError: limit on input amplification factor (from DTD and entities) breached: line 11, column 6255",
+   "seconds": 3.295776138999827,
+   "peak_rss_mb": 683.65625,
+   "outcome": "error"
+  },
+  "0111.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb.xlsx",
+   "ok": false,
+   "error": "ParseError: limit on input amplification factor (from DTD and entities) breached: line 11, column 2395",
+   "seconds": 3.0301584900003036,
+   "peak_rss_mb": 724.2578125,
+   "outcome": "error"
+  },
+  "0112.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poi-fuzz.xls",
+   "ok": true,
+   "chars": 31,
+   "seconds": 3.3488791259997015,
+   "peak_rss_mb": 780.75,
+   "outcome": "ok"
+  },
+  "0109.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-shared-strings.xlsx",
+   "ok": false,
+   "outcome": "memory",
+   "error": "stopped above 6000 MB",
+   "seconds": 30.036568051999893,
+   "peak_rss_mb": 6000
+  }
+ }
+}

@@ -1,0 +1,1 @@
+<table><tr><td>order_id</td><td>customer</td><td>total</td></tr><tr><td>10021</td><td>Northwind</td><td>1280.00</td></tr><tr><td>10022</td><td>Contoso</td><td>310.50</td></tr></table>
