@@ -1,0 +1,138 @@
+[
+ {
+  "id": "analysis.ipynb",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/analysis.ipynb"
+ },
+ {
+  "id": "article.html",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/article.html"
+ },
+ {
+  "id": "branch-sales-cp949.csv",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/branch-sales-cp949.csv"
+ },
+ {
+  "id": "dashboard.mht",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/dashboard.mht"
+ },
+ {
+  "id": "deck.odp",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.odp"
+ },
+ {
+  "id": "deck.pptx",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.pptx"
+ },
+ {
+  "id": "fax.tiff",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/fax.tiff"
+ },
+ {
+  "id": "html-table-named.xls",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/html-table-named.xls"
+ },
+ {
+  "id": "inventory-2003.xml",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/inventory-2003.xml"
+ },
+ {
+  "id": "invoice.png",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/invoice.png"
+ },
+ {
+  "id": "legacy-deck.ppt",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-deck.ppt"
+ },
+ {
+  "id": "legacy-report.doc",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-report.doc"
+ },
+ {
+  "id": "legacy-sales.xls",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-sales.xls"
+ },
+ {
+  "id": "mailbox.mbox",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/mailbox.mbox"
+ },
+ {
+  "id": "meeting.eml",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/meeting.eml"
+ },
+ {
+  "id": "notes.txt",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notes.txt"
+ },
+ {
+  "id": "notice-cp949.txt",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notice-cp949.txt"
+ },
+ {
+  "id": "numbered-outline.hwpx",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/numbered-outline.hwpx"
+ },
+ {
+  "id": "orders.csv",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/orders.csv"
+ },
+ {
+  "id": "receipt.jpg",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/receipt.jpg"
+ },
+ {
+  "id": "release-notes.epub",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.epub"
+ },
+ {
+  "id": "release-notes.md",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.md"
+ },
+ {
+  "id": "report.docx",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.docx"
+ },
+ {
+  "id": "report.odt",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.odt"
+ },
+ {
+  "id": "report.rtf",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.rtf"
+ },
+ {
+  "id": "rich-text.docx",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.docx"
+ },
+ {
+  "id": "rich-text.html",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.html"
+ },
+ {
+  "id": "sales.ods",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.ods"
+ },
+ {
+  "id": "sales.xlsx",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.xlsx"
+ },
+ {
+  "id": "scanned-notice.pdf",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/scanned-notice.pdf"
+ },
+ {
+  "id": "score-table.hwpx",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/score-table.hwpx"
+ },
+ {
+  "id": "service-report.pdf",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/service-report.pdf"
+ },
+ {
+  "id": "table.hwp",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/table.hwp"
+ },
+ {
+  "id": "ticket.heic",
+  "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/ticket.heic"
+ }
+]

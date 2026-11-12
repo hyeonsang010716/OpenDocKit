@@ -1,0 +1,2159 @@
+{
+ "tools": {
+  "opendockit": "0.1.0",
+  "markitdown": "0.1.9",
+  "kreuzberg": "4.10.4",
+  "unstructured": "0.27.37",
+  "docling": "2.150.0"
+ },
+ "coverage": {
+  "report.docx": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "deck.pptx": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "sales.xlsx": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "legacy-sales.xls": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "inventory-2003.xml": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "fail",
+    "why": "ConversionError: Conversion failed for: inventory-2003.xml with status: skipped. Errors: File format not allowed: inventory-2003.xml"
+   }
+  },
+  "legacy-report.doc": {
+   "opendockit": {
+    "status": "fail",
+    "why": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX."
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported."
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "legacy-deck.ppt": {
+   "opendockit": {
+    "status": "fail",
+    "why": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX."
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported."
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "report.rtf": {
+   "opendockit": {
+    "status": "fail",
+    "why": "UnsupportedFormatError: RTF documents are not supported. Please save the file as DOCX."
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "report.odt": {
+   "opendockit": {
+    "status": "fail",
+    "why": "UnsupportedFormatError: ODF (odt, ods, odp) documents are not supported. Please save the file as DOCX, XLSX or PPTX."
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported."
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "sales.ods": {
+   "opendockit": {
+    "status": "fail",
+    "why": "UnsupportedFormatError: ODF (odt, ods, odp) documents are not supported. Please save the file as DOCX, XLSX or PPTX."
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported."
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "fail",
+    "why": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type."
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "deck.odp": {
+   "opendockit": {
+    "status": "fail",
+    "why": "UnsupportedFormatError: ODF (odt, ods, odp) documents are not supported. Please save the file as DOCX, XLSX or PPTX."
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported."
+   },
+   "kreuzberg": {
+    "status": "fail",
+    "why": "ValidationError: ValidationError: application/vnd.oasis.opendocument.presentation"
+   },
+   "unstructured": {
+    "status": "fail",
+    "why": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type."
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "table.hwp": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported."
+   },
+   "kreuzberg": {
+    "status": "fail",
+    "why": "empty"
+   },
+   "unstructured": {
+    "status": "fail",
+    "why": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type."
+   },
+   "docling": {
+    "status": "fail",
+    "why": "ConversionError: Conversion failed for: table.hwp with status: skipped. Errors: File format not allowed: table.hwp"
+   }
+  },
+  "score-table.hwpx": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported."
+   },
+   "kreuzberg": {
+    "status": "fail",
+    "why": "ValidationError: ValidationError: application/haansofthwpx"
+   },
+   "unstructured": {
+    "status": "fail",
+    "why": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type."
+   },
+   "docling": {
+    "status": "fail",
+    "why": "ConversionError: Conversion failed for: score-table.hwpx/mimetype with status: failure. Errors: The document backend could not parse the input."
+   }
+  },
+  "branch-sales-cp949.csv": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "fail",
+    "why": "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xb3 in position 4: invalid start byte"
+   },
+   "docling": {
+    "status": "partial",
+    "found": "1/3"
+   }
+  },
+  "notice-cp949.txt": {
+   "opendockit": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "kreuzberg": {
+    "status": "fail",
+    "found": "0/2",
+    "why": "output has none of the expected text"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "docling": {
+    "status": "fail",
+    "found": "0/2",
+    "why": "output has none of the expected text"
+   }
+  },
+  "service-report.pdf": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "scanned-notice.pdf": {
+   "opendockit": {
+    "status": "fail",
+    "found": "0/3",
+    "why": "output has none of the expected text"
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "empty"
+   },
+   "kreuzberg": {
+    "status": "fail",
+    "why": "empty"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "article.html": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "dashboard.mht": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "meeting.eml": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "fail",
+    "why": "PdfiumError: Failed to load document (PDFium: Data format error)."
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "mailbox.mbox": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "fail",
+    "why": "ValidationError: ValidationError: application/mbox"
+   },
+   "unstructured": {
+    "status": "fail",
+    "why": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type."
+   },
+   "docling": {
+    "status": "fail",
+    "why": "ConversionError: Conversion failed for: mailbox.mbox with status: skipped. Errors: File format not allowed: mailbox.mbox"
+   }
+  },
+  "notes.txt": {
+   "opendockit": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "2/2"
+   }
+  },
+  "release-notes.md": {
+   "opendockit": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "2/2"
+   }
+  },
+  "orders.csv": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "analysis.ipynb": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "fail",
+    "why": "ConversionError: Conversion failed for: analysis.ipynb with status: skipped. Errors: File format not allowed: analysis.ipynb"
+   }
+  },
+  "release-notes.epub": {
+   "opendockit": {
+    "status": "fail",
+    "why": "UnsupportedFormatError: This archive file format is not supported."
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "2/2"
+   }
+  },
+  "invoice.png": {
+   "opendockit": {
+    "status": "fail",
+    "found": "0/2",
+    "why": "output has none of the expected text"
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "empty"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "2/2"
+   }
+  },
+  "receipt.jpg": {
+   "opendockit": {
+    "status": "fail",
+    "found": "0/2",
+    "why": "output has none of the expected text"
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "empty"
+   },
+   "kreuzberg": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "2/2"
+   }
+  },
+  "fax.tiff": {
+   "opendockit": {
+    "status": "fail",
+    "found": "0/3",
+    "why": "output has none of the expected text"
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported."
+   },
+   "kreuzberg": {
+    "status": "partial",
+    "found": "1/3"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "pass",
+    "found": "3/3"
+   }
+  },
+  "ticket.heic": {
+   "opendockit": {
+    "status": "fail",
+    "found": "0/2",
+    "why": "output has none of the expected text"
+   },
+   "markitdown": {
+    "status": "fail",
+    "why": "FileConversionException: File conversion failed after 1 attempts:\n - AudioConverter threw FileNotFoundError with message: [Errno 2] No such file or directory: 'ffprobe'\n"
+   },
+   "kreuzberg": {
+    "status": "fail",
+    "why": "ValidationError: ValidationError: image/heic"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "2/2"
+   },
+   "docling": {
+    "status": "fail",
+    "why": "ConversionError: Conversion failed for: ticket.heic with status: skipped. Errors: File format not allowed: ticket.heic"
+   }
+  },
+  "html-table-named.xls": {
+   "opendockit": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "markitdown": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "kreuzberg": {
+    "status": "fail",
+    "why": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Invalid OLE (379 bytes is too small, signature \\x3c\\x68\\x74\\x6d\\x6c\\x3e\\x3c\\x68 invalid, not an office document?)"
+   },
+   "unstructured": {
+    "status": "pass",
+    "found": "3/3"
+   },
+   "docling": {
+    "status": "partial",
+    "found": "2/3"
+   }
+  }
+ },
+ "probes": {
+  "docx-headings": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": true,
+   "docling": true
+  },
+  "docx-bullets": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": true
+  },
+  "docx-numbered": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": false,
+   "unstructured": true,
+   "docling": true
+  },
+  "docx-table": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": true,
+   "docling": true
+  },
+  "docx-merged-cell": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": true,
+   "unstructured": true,
+   "docling": true
+  },
+  "docx-equation": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "docx-image-position": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "docx-link-target": {
+   "opendockit": false,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "docx-bold": {
+   "opendockit": false,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "docx-italic": {
+   "opendockit": false,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "docx-no-header-footer": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "pptx-slides": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": true,
+   "docling": true
+  },
+  "pptx-nesting": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "pptx-notes": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": false
+  },
+  "pptx-table": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": true,
+   "docling": true
+  },
+  "pptx-chart-data": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": true
+  },
+  "xlsx-table": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": true,
+   "docling": true
+  },
+  "xlsx-two-tables": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": false
+  },
+  "xlsx-percent": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": true
+  },
+  "xlsx-date": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": true
+  },
+  "xlsx-sheets": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": false
+  },
+  "xlsx-hidden-sheet": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": true
+  },
+  "pdf-headings": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "pdf-ruled-table": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": true
+  },
+  "pdf-borderless-table": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": true
+  },
+  "pdf-running-header": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "pdf-page-numbers": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "pdf-two-columns": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": false,
+   "unstructured": true,
+   "docling": true
+  },
+  "html-chrome-removed": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": true,
+   "unstructured": true,
+   "docling": true
+  },
+  "html-hidden-removed": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "html-spanned-header": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": true,
+   "docling": true
+  },
+  "html-nested-list": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "html-code-block": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "html-mathml": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": false
+  },
+  "html-link-target": {
+   "opendockit": false,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "html-bold": {
+   "opendockit": false,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "html-italic": {
+   "opendockit": false,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "html-image-alt": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": true,
+   "docling": true
+  },
+  "eml-headers": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "eml-body-once": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": true
+  },
+  "eml-table": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": false
+  },
+  "eml-invitation": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": false
+  },
+  "mbox-both-mails": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": false
+  },
+  "hwp-table": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": false
+  },
+  "hwpx-table": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": false
+  },
+  "hwpx-numbering": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": false
+  },
+  "cp949-csv-table": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": true,
+   "unstructured": false,
+   "docling": false
+  },
+  "cp949-csv-title": {
+   "opendockit": true,
+   "markitdown": false,
+   "kreuzberg": false,
+   "unstructured": false,
+   "docling": false
+  },
+  "mislabeled-xls": {
+   "opendockit": true,
+   "markitdown": true,
+   "kreuzberg": false,
+   "unstructured": true,
+   "docling": false
+  }
+ },
+ "ordinary": {
+  "opendockit": {
+   "version": "0.1.0",
+   "import_seconds": 0.03,
+   "wall_seconds": 36.5,
+   "formats": {
+    "DOC": {
+     "files": 100,
+     "ok": 0,
+     "empty": 0,
+     "error": 100,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 93,
+     "total_seconds": 1.2,
+     "median_seconds": 0.0,
+     "max_seconds": 0.4
+    },
+    "DOCX": {
+     "files": 100,
+     "ok": 87,
+     "empty": 10,
+     "error": 3,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 304,
+     "total_seconds": 4.5,
+     "median_seconds": 0.003,
+     "max_seconds": 3.3
+    },
+    "HWP": {
+     "files": 44,
+     "ok": 29,
+     "empty": 15,
+     "error": 0,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 188,
+     "total_seconds": 1.0,
+     "median_seconds": 0.001,
+     "max_seconds": 0.9
+    },
+    "HWPX": {
+     "files": 49,
+     "ok": 39,
+     "empty": 10,
+     "error": 0,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 275,
+     "total_seconds": 2.0,
+     "median_seconds": 0.004,
+     "max_seconds": 0.7
+    },
+    "PDF": {
+     "files": 66,
+     "ok": 63,
+     "empty": 1,
+     "error": 2,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 499,
+     "total_seconds": 73.0,
+     "median_seconds": 0.141,
+     "max_seconds": 16.9
+    },
+    "PPT": {
+     "files": 100,
+     "ok": 0,
+     "empty": 0,
+     "error": 100,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 218,
+     "total_seconds": 0.1,
+     "median_seconds": 0.0,
+     "max_seconds": 0.0
+    },
+    "PPTX": {
+     "files": 84,
+     "ok": 83,
+     "empty": 0,
+     "error": 1,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 307,
+     "total_seconds": 3.5,
+     "median_seconds": 0.008,
+     "max_seconds": 0.7
+    },
+    "XLS": {
+     "files": 100,
+     "ok": 91,
+     "empty": 8,
+     "error": 1,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 335,
+     "total_seconds": 7.8,
+     "median_seconds": 0.004,
+     "max_seconds": 3.4
+    },
+    "XLSX": {
+     "files": 100,
+     "ok": 92,
+     "empty": 6,
+     "error": 2,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 382,
+     "total_seconds": 8.8,
+     "median_seconds": 0.006,
+     "max_seconds": 5.6
+    }
+   }
+  },
+  "markitdown": {
+   "version": "0.1.9",
+   "import_seconds": 0.03,
+   "wall_seconds": 49.6,
+   "formats": {
+    "DOC": {
+     "files": 100,
+     "ok": 0,
+     "empty": 0,
+     "error": 100,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 165,
+     "total_seconds": 4.3,
+     "median_seconds": 0.017,
+     "max_seconds": 1.0
+    },
+    "DOCX": {
+     "files": 100,
+     "ok": 85,
+     "empty": 12,
+     "error": 3,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 816,
+     "total_seconds": 41.3,
+     "median_seconds": 0.044,
+     "max_seconds": 29.5
+    },
+    "HWP": {
+     "files": 44,
+     "ok": 0,
+     "empty": 0,
+     "error": 44,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 234,
+     "total_seconds": 0.7,
+     "median_seconds": 0.013,
+     "max_seconds": 0.0
+    },
+    "HWPX": {
+     "files": 49,
+     "ok": 0,
+     "empty": 0,
+     "error": 49,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 234,
+     "total_seconds": 0.8,
+     "median_seconds": 0.018,
+     "max_seconds": 0.0
+    },
+    "PDF": {
+     "files": 66,
+     "ok": 62,
+     "empty": 2,
+     "error": 2,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 616,
+     "total_seconds": 47.1,
+     "median_seconds": 0.133,
+     "max_seconds": 18.5
+    },
+    "PPT": {
+     "files": 100,
+     "ok": 0,
+     "empty": 0,
+     "error": 100,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 207,
+     "total_seconds": 1.1,
+     "median_seconds": 0.012,
+     "max_seconds": 0.0
+    },
+    "PPTX": {
+     "files": 84,
+     "ok": 83,
+     "empty": 0,
+     "error": 1,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 338,
+     "total_seconds": 3.6,
+     "median_seconds": 0.016,
+     "max_seconds": 0.5
+    },
+    "XLS": {
+     "files": 100,
+     "ok": 99,
+     "empty": 0,
+     "error": 1,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 816,
+     "total_seconds": 29.5,
+     "median_seconds": 0.02,
+     "max_seconds": 7.5
+    },
+    "XLSX": {
+     "files": 100,
+     "ok": 97,
+     "empty": 0,
+     "error": 3,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 816,
+     "total_seconds": 15.4,
+     "median_seconds": 0.028,
+     "max_seconds": 3.3
+    }
+   }
+  },
+  "kreuzberg": {
+   "version": "4.10.4",
+   "import_seconds": 0.03,
+   "wall_seconds": 2.4,
+   "formats": {
+    "DOC": {
+     "files": 100,
+     "ok": 79,
+     "empty": 8,
+     "error": 13,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 57,
+     "total_seconds": 0.3,
+     "median_seconds": 0.001,
+     "max_seconds": 0.0
+    },
+    "DOCX": {
+     "files": 100,
+     "ok": 86,
+     "empty": 11,
+     "error": 3,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 112,
+     "total_seconds": 1.1,
+     "median_seconds": 0.002,
+     "max_seconds": 0.7
+    },
+    "HWP": {
+     "files": 44,
+     "ok": 0,
+     "empty": 44,
+     "error": 0,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 117,
+     "total_seconds": 0.1,
+     "median_seconds": 0.0,
+     "max_seconds": 0.1
+    },
+    "HWPX": {
+     "files": 49,
+     "ok": 0,
+     "empty": 0,
+     "error": 49,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 58,
+     "total_seconds": 0.0,
+     "median_seconds": 0.0,
+     "max_seconds": 0.0
+    },
+    "PDF": {
+     "files": 66,
+     "ok": 61,
+     "empty": 3,
+     "error": 2,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 134,
+     "total_seconds": 4.2,
+     "median_seconds": 0.017,
+     "max_seconds": 0.5
+    },
+    "PPT": {
+     "files": 100,
+     "ok": 77,
+     "empty": 21,
+     "error": 2,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 136,
+     "total_seconds": 0.2,
+     "median_seconds": 0.002,
+     "max_seconds": 0.0
+    },
+    "PPTX": {
+     "files": 84,
+     "ok": 81,
+     "empty": 0,
+     "error": 3,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 136,
+     "total_seconds": 0.3,
+     "median_seconds": 0.002,
+     "max_seconds": 0.1
+    },
+    "XLS": {
+     "files": 100,
+     "ok": 86,
+     "empty": 13,
+     "error": 1,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 142,
+     "total_seconds": 0.5,
+     "median_seconds": 0.002,
+     "max_seconds": 0.1
+    },
+    "XLSX": {
+     "files": 100,
+     "ok": 88,
+     "empty": 9,
+     "error": 3,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 142,
+     "total_seconds": 0.4,
+     "median_seconds": 0.002,
+     "max_seconds": 0.1
+    }
+   }
+  },
+  "unstructured": {
+   "version": "0.27.37",
+   "import_seconds": 0.03,
+   "wall_seconds": 184.9,
+   "formats": {
+    "DOC": {
+     "files": 100,
+     "ok": 88,
+     "empty": 8,
+     "error": 4,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 860,
+     "total_seconds": 170.2,
+     "median_seconds": 0.461,
+     "max_seconds": 17.8
+    },
+    "DOCX": {
+     "files": 100,
+     "ok": 85,
+     "empty": 12,
+     "error": 3,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 1013,
+     "total_seconds": 32.1,
+     "median_seconds": 0.012,
+     "max_seconds": 22.7
+    },
+    "HWP": {
+     "files": 44,
+     "ok": 0,
+     "empty": 0,
+     "error": 44,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 832,
+     "total_seconds": 0.1,
+     "median_seconds": 0.001,
+     "max_seconds": 0.0
+    },
+    "HWPX": {
+     "files": 49,
+     "ok": 0,
+     "empty": 0,
+     "error": 49,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 832,
+     "total_seconds": 0.1,
+     "median_seconds": 0.001,
+     "max_seconds": 0.0
+    },
+    "PDF": {
+     "files": 66,
+     "ok": 63,
+     "empty": 2,
+     "error": 1,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 1479,
+     "total_seconds": 64.9,
+     "median_seconds": 0.224,
+     "max_seconds": 16.0
+    },
+    "PPT": {
+     "files": 100,
+     "ok": 82,
+     "empty": 9,
+     "error": 9,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 1479,
+     "total_seconds": 260.8,
+     "median_seconds": 0.542,
+     "max_seconds": 38.4
+    },
+    "PPTX": {
+     "files": 84,
+     "ok": 62,
+     "empty": 21,
+     "error": 1,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 1552,
+     "total_seconds": 7.5,
+     "median_seconds": 0.014,
+     "max_seconds": 1.3
+    },
+    "XLS": {
+     "files": 100,
+     "ok": 84,
+     "empty": 14,
+     "error": 2,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 1552,
+     "total_seconds": 8.9,
+     "median_seconds": 0.014,
+     "max_seconds": 2.1
+    },
+    "XLSX": {
+     "files": 100,
+     "ok": 88,
+     "empty": 8,
+     "error": 4,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 1552,
+     "total_seconds": 9.1,
+     "median_seconds": 0.019,
+     "max_seconds": 2.7
+    }
+   }
+  },
+  "docling": {
+   "version": "2.150.0",
+   "import_seconds": 0.03,
+   "wall_seconds": 904.0,
+   "formats": {
+    "DOC": {
+     "files": 100,
+     "ok": 94,
+     "empty": 3,
+     "error": 2,
+     "timeout": 1,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 775,
+     "total_seconds": 261.5,
+     "median_seconds": 0.528,
+     "max_seconds": 120.4
+    },
+    "DOCX": {
+     "files": 100,
+     "ok": 88,
+     "empty": 10,
+     "error": 2,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 1164,
+     "total_seconds": 32.3,
+     "median_seconds": 0.008,
+     "max_seconds": 11.7
+    },
+    "HWP": {
+     "files": 44,
+     "ok": 0,
+     "empty": 0,
+     "error": 44,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 807,
+     "total_seconds": 0.1,
+     "median_seconds": 0.002,
+     "max_seconds": 0.0
+    },
+    "HWPX": {
+     "files": 49,
+     "ok": 0,
+     "empty": 0,
+     "error": 49,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 807,
+     "total_seconds": 0.1,
+     "median_seconds": 0.001,
+     "max_seconds": 0.0
+    },
+    "PDF": {
+     "files": 66,
+     "ok": 56,
+     "empty": 1,
+     "error": 2,
+     "timeout": 7,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 3193,
+     "total_seconds": 2208.8,
+     "median_seconds": 16.611,
+     "max_seconds": 120.6
+    },
+    "PPT": {
+     "files": 100,
+     "ok": 83,
+     "empty": 8,
+     "error": 9,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 2984,
+     "total_seconds": 94.6,
+     "median_seconds": 0.478,
+     "max_seconds": 20.5
+    },
+    "PPTX": {
+     "files": 84,
+     "ok": 71,
+     "empty": 12,
+     "error": 1,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 2984,
+     "total_seconds": 13.7,
+     "median_seconds": 0.01,
+     "max_seconds": 2.9
+    },
+    "XLS": {
+     "files": 100,
+     "ok": 87,
+     "empty": 12,
+     "error": 1,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 3476,
+     "total_seconds": 80.1,
+     "median_seconds": 0.439,
+     "max_seconds": 16.1
+    },
+    "XLSX": {
+     "files": 100,
+     "ok": 89,
+     "empty": 9,
+     "error": 2,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 3476,
+     "total_seconds": 12.2,
+     "median_seconds": 0.008,
+     "max_seconds": 6.0
+    }
+   }
+  }
+ },
+ "hostile": {
+  "opendockit": {
+   "version": "0.1.0",
+   "import_seconds": 0.03,
+   "wall_seconds": 18.4,
+   "formats": {
+    "PDF": {
+     "files": 19,
+     "ok": 5,
+     "empty": 2,
+     "error": 12,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 86,
+     "total_seconds": 10.6,
+     "median_seconds": 0.445,
+     "max_seconds": 1.3
+    },
+    "DOC": {
+     "files": 12,
+     "ok": 0,
+     "empty": 0,
+     "error": 12,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 83,
+     "total_seconds": 4.9,
+     "median_seconds": 0.422,
+     "max_seconds": 0.5
+    },
+    "DOCX": {
+     "files": 14,
+     "ok": 0,
+     "empty": 0,
+     "error": 14,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 85,
+     "total_seconds": 5.4,
+     "median_seconds": 0.396,
+     "max_seconds": 0.5
+    },
+    "PPTX": {
+     "files": 11,
+     "ok": 0,
+     "empty": 0,
+     "error": 11,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 83,
+     "total_seconds": 4.2,
+     "median_seconds": 0.382,
+     "max_seconds": 0.4
+    },
+    "PPT": {
+     "files": 20,
+     "ok": 0,
+     "empty": 0,
+     "error": 20,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 83,
+     "total_seconds": 7.9,
+     "median_seconds": 0.42,
+     "max_seconds": 0.5
+    },
+    "XLSX": {
+     "files": 20,
+     "ok": 1,
+     "empty": 0,
+     "error": 19,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 125,
+     "total_seconds": 8.9,
+     "median_seconds": 0.445,
+     "max_seconds": 0.7
+    },
+    "XLS": {
+     "files": 17,
+     "ok": 5,
+     "empty": 0,
+     "error": 12,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 86,
+     "total_seconds": 6.5,
+     "median_seconds": 0.339,
+     "max_seconds": 0.5
+    }
+   }
+  },
+  "markitdown": {
+   "version": "0.1.9",
+   "import_seconds": 0.02,
+   "wall_seconds": 65.2,
+   "formats": {
+    "PDF": {
+     "files": 19,
+     "ok": 8,
+     "empty": 6,
+     "error": 5,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 165,
+     "total_seconds": 18.8,
+     "median_seconds": 0.928,
+     "max_seconds": 1.5
+    },
+    "DOC": {
+     "files": 12,
+     "ok": 0,
+     "empty": 0,
+     "error": 12,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 165,
+     "total_seconds": 10.5,
+     "median_seconds": 0.864,
+     "max_seconds": 1.0
+    },
+    "DOCX": {
+     "files": 14,
+     "ok": 0,
+     "empty": 0,
+     "error": 14,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 240,
+     "total_seconds": 40.6,
+     "median_seconds": 0.87,
+     "max_seconds": 29.6
+    },
+    "PPT": {
+     "files": 20,
+     "ok": 0,
+     "empty": 0,
+     "error": 20,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 165,
+     "total_seconds": 16.7,
+     "median_seconds": 0.845,
+     "max_seconds": 0.9
+    },
+    "PPTX": {
+     "files": 11,
+     "ok": 0,
+     "empty": 0,
+     "error": 11,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 165,
+     "total_seconds": 9.0,
+     "median_seconds": 0.84,
+     "max_seconds": 0.9
+    },
+    "XLSX": {
+     "files": 20,
+     "ok": 0,
+     "empty": 0,
+     "error": 19,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 1,
+     "peak_rss_mb": 6000,
+     "total_seconds": 37.2,
+     "median_seconds": 0.84,
+     "max_seconds": 21.5
+    },
+    "XLS": {
+     "files": 17,
+     "ok": 4,
+     "empty": 0,
+     "error": 13,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 168,
+     "total_seconds": 13.9,
+     "median_seconds": 0.814,
+     "max_seconds": 0.9
+    }
+   }
+  },
+  "kreuzberg": {
+   "version": "4.10.4",
+   "import_seconds": 0.03,
+   "wall_seconds": 2.9,
+   "formats": {
+    "PDF": {
+     "files": 19,
+     "ok": 4,
+     "empty": 2,
+     "error": 13,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 56,
+     "total_seconds": 0.4,
+     "median_seconds": 0.019,
+     "max_seconds": 0.0
+    },
+    "DOC": {
+     "files": 12,
+     "ok": 3,
+     "empty": 1,
+     "error": 8,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 49,
+     "total_seconds": 0.2,
+     "median_seconds": 0.017,
+     "max_seconds": 0.0
+    },
+    "DOCX": {
+     "files": 14,
+     "ok": 1,
+     "empty": 0,
+     "error": 13,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 60,
+     "total_seconds": 0.4,
+     "median_seconds": 0.019,
+     "max_seconds": 0.2
+    },
+    "PPT": {
+     "files": 20,
+     "ok": 1,
+     "empty": 2,
+     "error": 17,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 49,
+     "total_seconds": 0.3,
+     "median_seconds": 0.018,
+     "max_seconds": 0.0
+    },
+    "PPTX": {
+     "files": 11,
+     "ok": 1,
+     "empty": 0,
+     "error": 10,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 49,
+     "total_seconds": 0.2,
+     "median_seconds": 0.017,
+     "max_seconds": 0.0
+    },
+    "XLS": {
+     "files": 17,
+     "ok": 4,
+     "empty": 0,
+     "error": 13,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 49,
+     "total_seconds": 0.3,
+     "median_seconds": 0.017,
+     "max_seconds": 0.0
+    },
+    "XLSX": {
+     "files": 20,
+     "ok": 1,
+     "empty": 2,
+     "error": 17,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 51,
+     "total_seconds": 0.4,
+     "median_seconds": 0.018,
+     "max_seconds": 0.0
+    }
+   }
+  },
+  "unstructured": {
+   "version": "0.27.37",
+   "import_seconds": 0.03,
+   "wall_seconds": 231.4,
+   "formats": {
+    "PDF": {
+     "files": 19,
+     "ok": 9,
+     "empty": 2,
+     "error": 8,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 977,
+     "total_seconds": 87.1,
+     "median_seconds": 4.126,
+     "max_seconds": 7.4
+    },
+    "DOC": {
+     "files": 12,
+     "ok": 6,
+     "empty": 2,
+     "error": 4,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 767,
+     "total_seconds": 118.2,
+     "median_seconds": 6.263,
+     "max_seconds": 22.7
+    },
+    "DOCX": {
+     "files": 14,
+     "ok": 0,
+     "empty": 0,
+     "error": 14,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 646,
+     "total_seconds": 20.9,
+     "median_seconds": 2.172,
+     "max_seconds": 2.9
+    },
+    "PPT": {
+     "files": 20,
+     "ok": 3,
+     "empty": 1,
+     "error": 16,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 775,
+     "total_seconds": 282.0,
+     "median_seconds": 15.982,
+     "max_seconds": 22.1
+    },
+    "PPTX": {
+     "files": 11,
+     "ok": 0,
+     "empty": 0,
+     "error": 11,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 651,
+     "total_seconds": 14.2,
+     "median_seconds": 0.317,
+     "max_seconds": 2.7
+    },
+    "XLSX": {
+     "files": 20,
+     "ok": 0,
+     "empty": 0,
+     "error": 19,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 1,
+     "peak_rss_mb": 6000,
+     "total_seconds": 64.9,
+     "median_seconds": 2.676,
+     "max_seconds": 30.0
+    },
+    "XLS": {
+     "files": 17,
+     "ok": 4,
+     "empty": 0,
+     "error": 13,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 782,
+     "total_seconds": 47.5,
+     "median_seconds": 3.101,
+     "max_seconds": 3.7
+    }
+   }
+  },
+  "docling": {
+   "version": "2.150.0",
+   "import_seconds": 0.03,
+   "wall_seconds": 150.6,
+   "formats": {
+    "PDF": {
+     "files": 19,
+     "ok": 4,
+     "empty": 2,
+     "error": 13,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 1639,
+     "total_seconds": 110.6,
+     "median_seconds": 3.349,
+     "max_seconds": 12.6
+    },
+    "DOC": {
+     "files": 12,
+     "ok": 6,
+     "empty": 2,
+     "error": 4,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 721,
+     "total_seconds": 50.9,
+     "median_seconds": 3.8,
+     "max_seconds": 7.6
+    },
+    "DOCX": {
+     "files": 14,
+     "ok": 0,
+     "empty": 0,
+     "error": 14,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 687,
+     "total_seconds": 42.7,
+     "median_seconds": 3.088,
+     "max_seconds": 3.4
+    },
+    "PPTX": {
+     "files": 11,
+     "ok": 0,
+     "empty": 0,
+     "error": 11,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 685,
+     "total_seconds": 34.3,
+     "median_seconds": 3.167,
+     "max_seconds": 3.5
+    },
+    "PPT": {
+     "files": 20,
+     "ok": 2,
+     "empty": 2,
+     "error": 16,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 697,
+     "total_seconds": 70.3,
+     "median_seconds": 3.465,
+     "max_seconds": 4.5
+    },
+    "XLSX": {
+     "files": 20,
+     "ok": 1,
+     "empty": 0,
+     "error": 19,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 694,
+     "total_seconds": 63.6,
+     "median_seconds": 3.231,
+     "max_seconds": 3.7
+    },
+    "XLS": {
+     "files": 17,
+     "ok": 15,
+     "empty": 2,
+     "error": 0,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 714,
+     "total_seconds": 61.5,
+     "median_seconds": 3.672,
+     "max_seconds": 4.1
+    }
+   }
+  }
+ }
+}

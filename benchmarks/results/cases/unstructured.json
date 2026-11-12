@@ -1,0 +1,280 @@
+{
+ "tool": "unstructured",
+ "version": "0.27.37",
+ "import_seconds": 0.025051802999996653,
+ "wall_seconds": 62.99472910100002,
+ "results": {
+  "analysis.ipynb": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/analysis.ipynb",
+   "ok": true,
+   "chars": 581,
+   "seconds": 3.7282565710000313,
+   "peak_rss_mb": 123.6328125,
+   "outcome": "ok"
+  },
+  "article.html": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/article.html",
+   "ok": true,
+   "chars": 840,
+   "seconds": 12.365017318999946,
+   "peak_rss_mb": 788.734375,
+   "outcome": "ok"
+  },
+  "branch-sales-cp949.csv": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/branch-sales-cp949.csv",
+   "ok": false,
+   "error": "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xb3 in position 4: invalid start byte",
+   "seconds": 0.006563137999989976,
+   "peak_rss_mb": 788.859375,
+   "outcome": "error"
+  },
+  "dashboard.mht": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/dashboard.mht",
+   "ok": true,
+   "chars": 132,
+   "seconds": 25.57704295000002,
+   "peak_rss_mb": 1692.953125,
+   "outcome": "ok"
+  },
+  "deck.odp": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.odp",
+   "ok": false,
+   "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
+   "seconds": 0.004130298999996285,
+   "peak_rss_mb": 1695.3828125,
+   "outcome": "error"
+  },
+  "deck.pptx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.pptx",
+   "ok": true,
+   "chars": 496,
+   "seconds": 0.1661115609999797,
+   "peak_rss_mb": 1700.421875,
+   "outcome": "ok"
+  },
+  "fax.tiff": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/fax.tiff",
+   "ok": true,
+   "chars": 55,
+   "seconds": 5.752903856000046,
+   "peak_rss_mb": 1897.80078125,
+   "outcome": "ok"
+  },
+  "html-table-named.xls": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/html-table-named.xls",
+   "ok": true,
+   "chars": 301,
+   "seconds": 0.004587280999999166,
+   "peak_rss_mb": 1897.80078125,
+   "outcome": "ok"
+  },
+  "inventory-2003.xml": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/inventory-2003.xml",
+   "ok": true,
+   "chars": 71,
+   "seconds": 0.06945323900004041,
+   "peak_rss_mb": 1897.92578125,
+   "outcome": "ok"
+  },
+  "invoice.png": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/invoice.png",
+   "ok": true,
+   "chars": 43,
+   "seconds": 1.5280996649999565,
+   "peak_rss_mb": 1908.76171875,
+   "outcome": "ok"
+  },
+  "legacy-deck.ppt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-deck.ppt",
+   "ok": true,
+   "chars": 492,
+   "seconds": 2.2243600890000153,
+   "peak_rss_mb": 1908.76171875,
+   "outcome": "ok"
+  },
+  "legacy-report.doc": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-report.doc",
+   "ok": true,
+   "chars": 960,
+   "seconds": 1.1453573729999675,
+   "peak_rss_mb": 1911.26171875,
+   "outcome": "ok"
+  },
+  "legacy-sales.xls": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-sales.xls",
+   "ok": true,
+   "chars": 765,
+   "seconds": 0.6340499929999623,
+   "peak_rss_mb": 1917.2734375,
+   "outcome": "ok"
+  },
+  "mailbox.mbox": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/mailbox.mbox",
+   "ok": false,
+   "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
+   "seconds": 0.0007972650000169779,
+   "peak_rss_mb": 1917.2734375,
+   "outcome": "error"
+  },
+  "meeting.eml": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/meeting.eml",
+   "ok": false,
+   "error": "PdfiumError: Failed to load document (PDFium: Data format error).",
+   "seconds": 0.2348786050000058,
+   "peak_rss_mb": 1923.23046875,
+   "outcome": "error"
+  },
+  "notes.txt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notes.txt",
+   "ok": true,
+   "chars": 83,
+   "seconds": 0.008121481999978641,
+   "peak_rss_mb": 1923.23046875,
+   "outcome": "ok"
+  },
+  "notice-cp949.txt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notice-cp949.txt",
+   "ok": true,
+   "chars": 44,
+   "seconds": 0.008827408999991349,
+   "peak_rss_mb": 1923.53125,
+   "outcome": "ok"
+  },
+  "numbered-outline.hwpx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/numbered-outline.hwpx",
+   "ok": false,
+   "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
+   "seconds": 0.0008120070000359192,
+   "peak_rss_mb": 1923.53125,
+   "outcome": "error"
+  },
+  "orders.csv": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/orders.csv",
+   "ok": true,
+   "chars": 183,
+   "seconds": 0.05328049000002011,
+   "peak_rss_mb": 1923.53125,
+   "outcome": "ok"
+  },
+  "receipt.jpg": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/receipt.jpg",
+   "ok": true,
+   "chars": 35,
+   "seconds": 1.5103879259999644,
+   "peak_rss_mb": 1930.82421875,
+   "outcome": "ok"
+  },
+  "release-notes.epub": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.epub",
+   "ok": true,
+   "chars": 377,
+   "seconds": 1.2028400149999925,
+   "peak_rss_mb": 1930.82421875,
+   "outcome": "ok"
+  },
+  "release-notes.md": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.md",
+   "ok": true,
+   "chars": 377,
+   "seconds": 0.24698157300002777,
+   "peak_rss_mb": 1930.94921875,
+   "outcome": "ok"
+  },
+  "report.docx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.docx",
+   "ok": true,
+   "chars": 960,
+   "seconds": 0.020418232999986685,
+   "peak_rss_mb": 1931.07421875,
+   "outcome": "ok"
+  },
+  "report.odt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.odt",
+   "ok": true,
+   "chars": 958,
+   "seconds": 0.09704358299995874,
+   "peak_rss_mb": 1931.07421875,
+   "outcome": "ok"
+  },
+  "report.rtf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.rtf",
+   "ok": true,
+   "chars": 1003,
+   "seconds": 1.942364700999974,
+   "peak_rss_mb": 1931.44921875,
+   "outcome": "ok"
+  },
+  "rich-text.docx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.docx",
+   "ok": true,
+   "chars": 315,
+   "seconds": 0.015190031999964049,
+   "peak_rss_mb": 1931.44921875,
+   "outcome": "ok"
+  },
+  "rich-text.html": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.html",
+   "ok": true,
+   "chars": 221,
+   "seconds": 0.0038036079999983485,
+   "peak_rss_mb": 1931.44921875,
+   "outcome": "ok"
+  },
+  "sales.ods": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.ods",
+   "ok": false,
+   "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
+   "seconds": 0.0008309759999747257,
+   "peak_rss_mb": 1931.44921875,
+   "outcome": "error"
+  },
+  "sales.xlsx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.xlsx",
+   "ok": true,
+   "chars": 765,
+   "seconds": 0.5277529720000302,
+   "peak_rss_mb": 1932.703125,
+   "outcome": "ok"
+  },
+  "scanned-notice.pdf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/scanned-notice.pdf",
+   "ok": true,
+   "chars": 345,
+   "seconds": 2.0718875680000792,
+   "peak_rss_mb": 2064.734375,
+   "outcome": "ok"
+  },
+  "score-table.hwpx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/score-table.hwpx",
+   "ok": false,
+   "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
+   "seconds": 0.0011582410000983145,
+   "peak_rss_mb": 2064.734375,
+   "outcome": "error"
+  },
+  "service-report.pdf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/service-report.pdf",
+   "ok": true,
+   "chars": 7298,
+   "seconds": 0.14960875700000997,
+   "peak_rss_mb": 2064.734375,
+   "outcome": "ok"
+  },
+  "table.hwp": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/table.hwp",
+   "ok": false,
+   "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
+   "seconds": 0.000961122000035175,
+   "peak_rss_mb": 2064.734375,
+   "outcome": "error"
+  },
+  "ticket.heic": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/ticket.heic",
+   "ok": true,
+   "chars": 35,
+   "seconds": 1.5364378440000337,
+   "peak_rss_mb": 2064.734375,
+   "outcome": "ok"
+  }
+ }
+}

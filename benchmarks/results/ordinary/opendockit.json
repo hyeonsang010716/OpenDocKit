@@ -1,0 +1,5952 @@
+{
+ "tool": "opendockit",
+ "version": "0.1.0",
+ "import_seconds": 0.0328663970000207,
+ "wall_seconds": 36.481549160999975,
+ "results": {
+  "0002.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/47950_normal.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.30455342200002633,
+   "peak_rss_mb": 82.71484375,
+   "outcome": "error"
+  },
+  "0003.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/51921-Word-Crash067.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00042016399993372033,
+   "peak_rss_mb": 82.71484375,
+   "outcome": "error"
+  },
+  "0004.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/52117.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003370800000084273,
+   "peak_rss_mb": 82.71484375,
+   "outcome": "error"
+  },
+  "0005.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/53379.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0005908330000465867,
+   "peak_rss_mb": 82.96484375,
+   "outcome": "error"
+  },
+  "0006.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/53446.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0004115609999644221,
+   "peak_rss_mb": 82.96484375,
+   "outcome": "error"
+  },
+  "0007.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/57603-seven_columns.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00036576200000126846,
+   "peak_rss_mb": 83.08984375,
+   "outcome": "error"
+  },
+  "0008.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/57843.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00030372899993835745,
+   "peak_rss_mb": 83.08984375,
+   "outcome": "error"
+  },
+  "0009.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/58804_1.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00034993899998880806,
+   "peak_rss_mb": 83.21484375,
+   "outcome": "error"
+  },
+  "0010.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/59322.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003378400000428883,
+   "peak_rss_mb": 83.21484375,
+   "outcome": "error"
+  },
+  "0011.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/61490.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00033243199993648886,
+   "peak_rss_mb": 83.21484375,
+   "outcome": "error"
+  },
+  "0012.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/61586.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003463929999725224,
+   "peak_rss_mb": 83.33984375,
+   "outcome": "error"
+  },
+  "0013.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/64132.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0005752900000288719,
+   "peak_rss_mb": 83.46484375,
+   "outcome": "error"
+  },
+  "0014.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/AIOOB-Tap.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003244900000254347,
+   "peak_rss_mb": 83.46484375,
+   "outcome": "error"
+  },
+  "0015.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug33519.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00033979400006955984,
+   "peak_rss_mb": 83.46484375,
+   "outcome": "error"
+  },
+  "0016.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug34898.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003328929999497632,
+   "peak_rss_mb": 83.46484375,
+   "outcome": "error"
+  },
+  "0017.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug44292.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003064229999836243,
+   "peak_rss_mb": 83.46484375,
+   "outcome": "error"
+  },
+  "0018.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug44431.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00033469600009539135,
+   "peak_rss_mb": 83.46484375,
+   "outcome": "error"
+  },
+  "0019.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug45269.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00030812499994681275,
+   "peak_rss_mb": 83.46484375,
+   "outcome": "error"
+  },
+  "0020.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug45473.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00030098499996711325,
+   "peak_rss_mb": 83.46484375,
+   "outcome": "error"
+  },
+  "0021.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug46220.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0008863589999918986,
+   "peak_rss_mb": 84.58984375,
+   "outcome": "error"
+  },
+  "0022.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug46610_1.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003275949999306249,
+   "peak_rss_mb": 84.58984375,
+   "outcome": "error"
+  },
+  "0023.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug46610_3.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003062119999412971,
+   "peak_rss_mb": 84.58984375,
+   "outcome": "error"
+  },
+  "0024.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug46817.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00033368399999744724,
+   "peak_rss_mb": 84.58984375,
+   "outcome": "error"
+  },
+  "0025.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug47287.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.000320665000003828,
+   "peak_rss_mb": 84.58984375,
+   "outcome": "error"
+  },
+  "0026.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug47731.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.001035595000075773,
+   "peak_rss_mb": 85.58984375,
+   "outcome": "error"
+  },
+  "0027.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug47742.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003597140000692889,
+   "peak_rss_mb": 85.58984375,
+   "outcome": "error"
+  },
+  "0028.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug48065.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00032834599994657765,
+   "peak_rss_mb": 85.58984375,
+   "outcome": "error"
+  },
+  "0029.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug48075.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003565689999049937,
+   "peak_rss_mb": 85.58984375,
+   "outcome": "error"
+  },
+  "0030.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug49908.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00031472600005599816,
+   "peak_rss_mb": 85.71484375,
+   "outcome": "error"
+  },
+  "0031.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug49919.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00034613299999364244,
+   "peak_rss_mb": 85.71484375,
+   "outcome": "error"
+  },
+  "0032.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug50075.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003257820000044376,
+   "peak_rss_mb": 85.71484375,
+   "outcome": "error"
+  },
+  "0033.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug50936_1.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0015430019999485012,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0034.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug50936_3.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0007015490000412683,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0035.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug50955.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0006021199999395321,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0036.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug51686.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00033673900009034696,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0037.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug51834.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00031374399998185254,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0038.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug51944.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.000303559000030873,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0039.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug52032_1.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003213659999801166,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0040.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug52032_3.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003120119999948656,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0041.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug52311.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003337839999630887,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0042.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug53182.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003153469999688241,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0043.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug53380_1.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003691879999223602,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0044.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug53380_3.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00043760100004419655,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0045.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug53380_4.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003499189999729424,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0046.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug60936.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0004272850000006656,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0047.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug60942.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0002998129999696175,
+   "peak_rss_mb": 85.96484375,
+   "outcome": "error"
+  },
+  "0048.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug61268.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.006197143000008509,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0049.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/DiffFirstPageHeadFoot.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00033924199999546545,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0050.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/FloatingPictures.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0004705809999450139,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0051.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/GaiaTest.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00034036400006698386,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0052.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/HeaderFooterProblematic.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003437999999960084,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0053.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/HeaderWithMacros.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00030353900001500733,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0054.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ListEntryNoListTable.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00030316799995944166,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0055.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/MarkAuthorsTable.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00034325899991927145,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0056.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/NoHeadFoot.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00031170099998689693,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0057.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/PasswordProtected.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00032974800001284166,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0058.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Picture_Alternative_Text.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003052420000813072,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0059.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ProblemExtracting.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00037756100005026383,
+   "peak_rss_mb": 91.390625,
+   "outcome": "error"
+  },
+  "0060.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/SampleDoc.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00034951800000726507,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0061.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/SimpleMacro.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00039456599995446595,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0062.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ThreeColFoot.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003078649999679328,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0063.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ThreeColHeadFoot.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00031247200001871533,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0064.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/WithArtShapes.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.000350970999988931,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0065.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Word6_sections.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00030220700000427314,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0066.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Word6_sections2.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0002997029999960432,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0067.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/au.edu.utas.www___data_assets_word_doc_0003_154335_International-Travel-Approval-Request-Form.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00037196199991740286,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0068.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug65255.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0004265540000005785,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0069.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/cap.stanford.edu_profiles_viewbiosketch_facultyid=4009&name=m_maciver.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003063030000021172,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0070.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/capitalized.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003095079999866357,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0071.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProperties.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00034286799996152695,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0072.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/empty.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00029869100001178595,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0073.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/equation.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00037180200001785124,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0074.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/footnote.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0002975190000142902,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0075.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/header_footer_replace.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00030115499998828454,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0076.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/header_image.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003183310000167694,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0077.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/hyperlink.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003055419999782316,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0078.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/lists-margins.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00031443500006389513,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0079.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/o_kurs.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003385909999451542,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0080.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/page-break-before.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003014460000940744,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0081.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/page-break.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00029499599997961923,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0082.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/parentinvguid.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00036406000003808003,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0083.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/password_password_cryptoapi.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003289569999651576,
+   "peak_rss_mb": 91.515625,
+   "outcome": "error"
+  },
+  "0084.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/picture.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0010180379999837896,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0085.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/pictures_escher.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00033044999997855484,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0086.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/saved-by-table.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.000350129000025845,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0087.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/simple-list.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00034402000005684386,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0088.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/simple-table2.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00032295799996973074,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0089.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/simple.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00030277799999112176,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0090.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/test-fields.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00034223699992708134,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0091.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/test.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.000311801999941963,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0092.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/testCroppedPictures.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0005622989999665151,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0093.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/testPictures.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0003595229999291405,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0094.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/testRangeInsertion.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00032752499998878193,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0095.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/testRangeReplacement.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00033606800002417003,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0096.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/vector_image.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0002998630000092817,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0097.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/watermark.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.00035371400008443743,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0098.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/word95err.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0002946449999399192,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0099.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/word_with_embeded.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.0005380230001037489,
+   "peak_rss_mb": 92.890625,
+   "outcome": "error"
+  },
+  "0100.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/51921-Word-Crash067.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.006784680999999182,
+   "peak_rss_mb": 92.890625,
+   "outcome": "empty"
+  },
+  "0101.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/52288.docx",
+   "ok": true,
+   "chars": 52,
+   "seconds": 0.0024957509999694594,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0102.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/52449.docx",
+   "ok": true,
+   "chars": 273,
+   "seconds": 0.005806903999996393,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0103.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/55733.docx",
+   "ok": true,
+   "chars": 4,
+   "seconds": 0.001301366000006965,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0104.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/55966.docx",
+   "ok": true,
+   "chars": 156,
+   "seconds": 0.002267746000029547,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0105.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/56392.docx",
+   "ok": true,
+   "chars": 536,
+   "seconds": 0.007587082999975792,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0106.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/57312.docx",
+   "ok": true,
+   "chars": 425,
+   "seconds": 0.002885398999978861,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0107.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/58618.docx",
+   "ok": true,
+   "chars": 55,
+   "seconds": 0.0014608569999836618,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0108.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/59030.docx",
+   "ok": true,
+   "chars": 43,
+   "seconds": 0.001959992000024613,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0109.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/59378.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.016288369999983843,
+   "peak_rss_mb": 92.890625,
+   "outcome": "empty"
+  },
+  "0110.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/60293.docx",
+   "ok": true,
+   "chars": 6,
+   "seconds": 0.0021495180000101755,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0111.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/60316.docx",
+   "ok": true,
+   "chars": 113,
+   "seconds": 0.007397776999937378,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0000.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/47304.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.4147379869999668,
+   "peak_rss_mb": 81.3203125,
+   "outcome": "error"
+  },
+  "0001.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/47950_lower.doc",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
+   "seconds": 0.4147942929999999,
+   "peak_rss_mb": 81.32421875,
+   "outcome": "error"
+  },
+  "0112.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/60329.docx",
+   "ok": true,
+   "chars": 4790,
+   "seconds": 0.013218942000094103,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0115.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/61991.docx",
+   "ok": true,
+   "chars": 626,
+   "seconds": 0.002679679000038959,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0113.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/61745.docx",
+   "ok": true,
+   "chars": 410,
+   "seconds": 0.006062198999984503,
+   "peak_rss_mb": 81.6953125,
+   "outcome": "ok"
+  },
+  "0116.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/65099.docx",
+   "ok": true,
+   "chars": 338,
+   "seconds": 0.0064330499999414315,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0114.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/61787.docx",
+   "ok": true,
+   "chars": 4079,
+   "seconds": 0.012789171999997961,
+   "peak_rss_mb": 81.69921875,
+   "outcome": "ok"
+  },
+  "0118.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug54771a.docx",
+   "ok": true,
+   "chars": 34,
+   "seconds": 0.0057727519999843935,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0119.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug54849.docx",
+   "ok": true,
+   "chars": 376,
+   "seconds": 0.009638071999916065,
+   "peak_rss_mb": 82.44921875,
+   "outcome": "ok"
+  },
+  "0120.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug55142.docx",
+   "ok": true,
+   "chars": 196,
+   "seconds": 0.008197926000093503,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0121.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug60337.docx",
+   "ok": true,
+   "chars": 131,
+   "seconds": 0.0039037880000023506,
+   "peak_rss_mb": 82.69921875,
+   "outcome": "ok"
+  },
+  "0122.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug60341.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.001059801000110383,
+   "peak_rss_mb": 92.890625,
+   "outcome": "empty"
+  },
+  "0124.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug64561.docx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.0024395350000077087,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0123.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug62859.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.003780562000088139,
+   "peak_rss_mb": 83.44921875,
+   "outcome": "empty"
+  },
+  "0125.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug66263-paragraph.docx",
+   "ok": true,
+   "chars": 91,
+   "seconds": 0.001179030999992392,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0126.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug66988.docx",
+   "ok": true,
+   "chars": 5,
+   "seconds": 0.0018488829999796508,
+   "peak_rss_mb": 83.44921875,
+   "outcome": "ok"
+  },
+  "0127.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ComplexNumberedLists.docx",
+   "ok": true,
+   "chars": 304,
+   "seconds": 0.004259986000079152,
+   "peak_rss_mb": 92.890625,
+   "outcome": "ok"
+  },
+  "0128.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/DiffFirstPageHeadFoot.docx",
+   "ok": true,
+   "chars": 258,
+   "seconds": 0.0038006330000825983,
+   "peak_rss_mb": 83.69921875,
+   "outcome": "ok"
+  },
+  "0130.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/EmptyDocumentWithHeaderFooter.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0022059730000592026,
+   "peak_rss_mb": 83.69921875,
+   "outcome": "empty"
+  },
+  "0131.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/EnforcedWith.docx",
+   "ok": true,
+   "chars": 27,
+   "seconds": 0.0018148110000311135,
+   "peak_rss_mb": 83.69921875,
+   "outcome": "ok"
+  },
+  "0117.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug51170.docx",
+   "ok": true,
+   "chars": 10095,
+   "seconds": 0.0352140339999778,
+   "peak_rss_mb": 84.0703125,
+   "outcome": "ok"
+  },
+  "0132.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/FancyFoot.docx",
+   "ok": true,
+   "chars": 208,
+   "seconds": 0.0035219410000308926,
+   "peak_rss_mb": 83.82421875,
+   "outcome": "ok"
+  },
+  "0133.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/FieldCodes.docx",
+   "ok": true,
+   "chars": 20,
+   "seconds": 0.00412408099998629,
+   "peak_rss_mb": 84.0703125,
+   "outcome": "ok"
+  },
+  "0134.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/FldSimple.docx",
+   "ok": true,
+   "chars": 14,
+   "seconds": 0.0019350129999793353,
+   "peak_rss_mb": 83.82421875,
+   "outcome": "ok"
+  },
+  "0136.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Headers.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0022764700000834637,
+   "peak_rss_mb": 83.82421875,
+   "outcome": "empty"
+  },
+  "0135.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/HeaderFooterUnicode.docx",
+   "ok": true,
+   "chars": 413,
+   "seconds": 0.0042766010000150345,
+   "peak_rss_mb": 84.3203125,
+   "outcome": "ok"
+  },
+  "0129.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/EmbeddedDocument.docx",
+   "ok": true,
+   "chars": 57,
+   "seconds": 0.014817778000065118,
+   "peak_rss_mb": 93.6953125,
+   "outcome": "ok"
+  },
+  "0138.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/NoHeadFoot.docx",
+   "ok": true,
+   "chars": 179,
+   "seconds": 0.002206333000003724,
+   "peak_rss_mb": 84.3203125,
+   "outcome": "ok"
+  },
+  "0139.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Numbering.docx",
+   "ok": true,
+   "chars": 212,
+   "seconds": 0.0045010909999518844,
+   "peak_rss_mb": 93.6953125,
+   "outcome": "ok"
+  },
+  "0141.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/NumberingWithOutOfOrderId.docx",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.001733779999995022,
+   "peak_rss_mb": 93.6953125,
+   "outcome": "ok"
+  },
+  "0142.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/PageSpecificHeadFoot.docx",
+   "ok": true,
+   "chars": 225,
+   "seconds": 0.003011028999935661,
+   "peak_rss_mb": 93.8203125,
+   "outcome": "ok"
+  },
+  "0143.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/SampleDoc.docx",
+   "ok": true,
+   "chars": 140,
+   "seconds": 0.0017273600000180522,
+   "peak_rss_mb": 93.8203125,
+   "outcome": "ok"
+  },
+  "0144.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Styles.docx",
+   "ok": true,
+   "chars": 47,
+   "seconds": 0.0015827020000642733,
+   "peak_rss_mb": 93.8203125,
+   "outcome": "ok"
+  },
+  "0145.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/TestDocument.docx",
+   "ok": true,
+   "chars": 182,
+   "seconds": 0.0021641299999828334,
+   "peak_rss_mb": 93.8203125,
+   "outcome": "ok"
+  },
+  "0146.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/TestPoiXMLDocumentCorePropertiesGetKeywords.docx",
+   "ok": true,
+   "chars": 66,
+   "seconds": 0.0013376910000033604,
+   "peak_rss_mb": 93.8203125,
+   "outcome": "ok"
+  },
+  "0147.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/TestTableCellAlign.docx",
+   "ok": true,
+   "chars": 43,
+   "seconds": 0.001541309000003821,
+   "peak_rss_mb": 93.8203125,
+   "outcome": "ok"
+  },
+  "0140.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/NumberingWOverrides.docx",
+   "ok": true,
+   "chars": 56,
+   "seconds": 0.019094149000011384,
+   "peak_rss_mb": 85.9453125,
+   "outcome": "ok"
+  },
+  "0148.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/TestTableColumns.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.002381128000024546,
+   "peak_rss_mb": 93.8203125,
+   "outcome": "empty"
+  },
+  "0150.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ThreeColHead.docx",
+   "ok": true,
+   "chars": 214,
+   "seconds": 0.001809434000051624,
+   "peak_rss_mb": 93.8203125,
+   "outcome": "ok"
+  },
+  "0149.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ThreeColFoot.docx",
+   "ok": true,
+   "chars": 215,
+   "seconds": 0.0033256650000339505,
+   "peak_rss_mb": 85.9453125,
+   "outcome": "ok"
+  },
+  "0151.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Tika-792.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0017696940000178074,
+   "peak_rss_mb": 93.8203125,
+   "outcome": "empty"
+  },
+  "0153.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/WithGIF.docx",
+   "ok": true,
+   "chars": 600,
+   "seconds": 0.009956894000083594,
+   "peak_rss_mb": 93.8203125,
+   "outcome": "ok"
+  },
+  "0154.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/WithTabs.docx",
+   "ok": true,
+   "chars": 3,
+   "seconds": 0.0015832819999559433,
+   "peak_rss_mb": 93.8203125,
+   "outcome": "ok"
+  },
+  "0155.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/WordWithAttachments.docx",
+   "ok": true,
+   "chars": 1087,
+   "seconds": 0.009918305000041983,
+   "peak_rss_mb": 94.0703125,
+   "outcome": "ok"
+  },
+  "0152.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/VariousPictures.docx",
+   "ok": true,
+   "chars": 114,
+   "seconds": 0.03138251500001843,
+   "peak_rss_mb": 89.46875,
+   "outcome": "ok"
+  },
+  "0157.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug-paragraph-alignment.docx",
+   "ok": true,
+   "chars": 185,
+   "seconds": 0.0029687960000046587,
+   "peak_rss_mb": 89.46875,
+   "outcome": "ok"
+  },
+  "0158.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug53475-password-is-pass.docx",
+   "ok": false,
+   "error": "EncryptedDocumentError: The Office document is password-protected. Please remove the password and upload it again.",
+   "seconds": 0.0006624399999282105,
+   "peak_rss_mb": 89.46875,
+   "outcome": "error"
+  },
+  "0159.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug53475-password-is-solrcell.docx",
+   "ok": false,
+   "error": "EncryptedDocumentError: The Office document is password-protected. Please remove the password and upload it again.",
+   "seconds": 0.000539314999969065,
+   "peak_rss_mb": 89.59375,
+   "outcome": "error"
+  },
+  "0137.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/IllustrativeCases.docx",
+   "ok": true,
+   "chars": 6867,
+   "seconds": 0.06301205299996582,
+   "peak_rss_mb": 86.57421875,
+   "outcome": "ok"
+  },
+  "0160.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug56075-changeTracking_off.docx",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.002251171000011709,
+   "peak_rss_mb": 89.59375,
+   "outcome": "ok"
+  },
+  "0161.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug56075-changeTracking_on.docx",
+   "ok": true,
+   "chars": 18,
+   "seconds": 0.002165492000017366,
+   "peak_rss_mb": 86.57421875,
+   "outcome": "ok"
+  },
+  "0162.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug56076.docx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.0018793089999462609,
+   "peak_rss_mb": 89.59375,
+   "outcome": "ok"
+  },
+  "0156.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bib-chernigovka.netdo.ru_download_docs_17459.docx",
+   "ok": true,
+   "chars": 24703,
+   "seconds": 0.10161706100006995,
+   "peak_rss_mb": 104.1953125,
+   "outcome": "ok"
+  },
+  "0165.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug65738.docx",
+   "ok": true,
+   "chars": 765,
+   "seconds": 0.0054610509999974965,
+   "peak_rss_mb": 104.1953125,
+   "outcome": "ok"
+  },
+  "0166.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug66312.docx",
+   "ok": true,
+   "chars": 12,
+   "seconds": 0.0012702889999900435,
+   "peak_rss_mb": 104.1953125,
+   "outcome": "ok"
+  },
+  "0167.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug69628.docx",
+   "ok": true,
+   "chars": 1293,
+   "seconds": 0.0048343639999757215,
+   "peak_rss_mb": 104.1953125,
+   "outcome": "ok"
+  },
+  "0168.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/capitalized.docx",
+   "ok": true,
+   "chars": 35,
+   "seconds": 0.0015728459999309052,
+   "peak_rss_mb": 104.1953125,
+   "outcome": "ok"
+  },
+  "0169.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/checkboxes.docx",
+   "ok": true,
+   "chars": 163,
+   "seconds": 0.005071782999948482,
+   "peak_rss_mb": 104.1953125,
+   "outcome": "ok"
+  },
+  "0170.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/comment.docx",
+   "ok": true,
+   "chars": 76,
+   "seconds": 0.0013693490000150632,
+   "peak_rss_mb": 104.1953125,
+   "outcome": "ok"
+  },
+  "0171.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/delins.docx",
+   "ok": true,
+   "chars": 1356,
+   "seconds": 0.00956772600000022,
+   "peak_rss_mb": 105.0703125,
+   "outcome": "ok"
+  },
+  "0172.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProperties.docx",
+   "ok": true,
+   "chars": 12,
+   "seconds": 0.0013566100000161896,
+   "peak_rss_mb": 105.1953125,
+   "outcome": "ok"
+  },
+  "0173.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProtection_comments_no_password.docx",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.0012813760000653929,
+   "peak_rss_mb": 105.3203125,
+   "outcome": "ok"
+  },
+  "0174.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProtection_forms_no_password.docx",
+   "ok": true,
+   "chars": 29,
+   "seconds": 0.0022244909999926676,
+   "peak_rss_mb": 105.4453125,
+   "outcome": "ok"
+  },
+  "0175.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProtection_no_protection_tag_existing.docx",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.0011990720000767396,
+   "peak_rss_mb": 105.4453125,
+   "outcome": "ok"
+  },
+  "0176.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProtection_readonly_no_password.docx",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.0011559669999314792,
+   "peak_rss_mb": 105.4453125,
+   "outcome": "ok"
+  },
+  "0177.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProtection_trackedChanges_no_password.docx",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.0011472329999833164,
+   "peak_rss_mb": 105.4453125,
+   "outcome": "ok"
+  },
+  "0178.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/drawing.docx",
+   "ok": true,
+   "chars": 58313,
+   "seconds": 0.07626821199994538,
+   "peak_rss_mb": 107.1953125,
+   "outcome": "ok"
+  },
+  "0179.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/emptyPPr.docx",
+   "ok": true,
+   "chars": 58,
+   "seconds": 0.002620499000045129,
+   "peak_rss_mb": 107.1953125,
+   "outcome": "ok"
+  },
+  "0180.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/endnotes.docx",
+   "ok": true,
+   "chars": 952,
+   "seconds": 0.0038440980000586933,
+   "peak_rss_mb": 107.1953125,
+   "outcome": "ok"
+  },
+  "0181.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/footnotes.docx",
+   "ok": true,
+   "chars": 51,
+   "seconds": 0.001808361999906083,
+   "peak_rss_mb": 107.1953125,
+   "outcome": "ok"
+  },
+  "0182.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/headerFooter.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0015769920000821003,
+   "peak_rss_mb": 107.1953125,
+   "outcome": "empty"
+  },
+  "0183.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/headerPic.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0018474019999530356,
+   "peak_rss_mb": 107.1953125,
+   "outcome": "empty"
+  },
+  "0184.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/heading123.docx",
+   "ok": true,
+   "chars": 1814,
+   "seconds": 0.029976490999956695,
+   "peak_rss_mb": 107.1953125,
+   "outcome": "ok"
+  },
+  "0185.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/issue_51265_1.docx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.012750463999964268,
+   "peak_rss_mb": 107.1953125,
+   "outcome": "ok"
+  },
+  "0186.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/issue_51265_2.docx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.01285175700002128,
+   "peak_rss_mb": 107.1953125,
+   "outcome": "ok"
+  },
+  "0187.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/issue_51265_3.docx",
+   "ok": true,
+   "chars": 34,
+   "seconds": 0.02538846800007377,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0188.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/rtl.docx",
+   "ok": true,
+   "chars": 759,
+   "seconds": 0.004714063000051283,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0189.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/sample.docx",
+   "ok": true,
+   "chars": 1544,
+   "seconds": 0.0026777659999197567,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0190.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/saut_page.docx",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.026469501999940803,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0191.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/shapes-with-text.docx",
+   "ok": true,
+   "chars": 123,
+   "seconds": 0.004667651999966438,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0192.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/smarttag-snippet.docx",
+   "ok": true,
+   "chars": 236,
+   "seconds": 0.0020391709999785235,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0193.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/table-alignment.docx",
+   "ok": true,
+   "chars": 664,
+   "seconds": 0.007507562999990114,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0194.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/table_footnotes.docx",
+   "ok": true,
+   "chars": 63,
+   "seconds": 0.002336170000035054,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0195.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/testComment.docx",
+   "ok": true,
+   "chars": 75,
+   "seconds": 0.0024171819999310173,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0196.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/tika-3388.docx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.002093403000003491,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0197.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/tika-3816.docx",
+   "ok": true,
+   "chars": 71,
+   "seconds": 0.0028298360000462708,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0198.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/truncated62886.docx",
+   "ok": false,
+   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
+   "seconds": 0.0007141190000083952,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "error"
+  },
+  "0199.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/unicode-path.docx",
+   "ok": true,
+   "chars": 1,
+   "seconds": 0.0011338429999341315,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0200.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/blank.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0010624249999864332,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0201.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/etc.hwp",
+   "ok": true,
+   "chars": 44,
+   "seconds": 0.0009498660000417658,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0202.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/ole.hwp",
+   "ok": true,
+   "chars": 21,
+   "seconds": 0.0015238729999964562,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0203.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/각주미주.hwp",
+   "ok": true,
+   "chars": 38,
+   "seconds": 0.000710163000007924,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0204.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/구버전(5.0.2.2) Picture 컨트롤.hwp",
+   "ok": true,
+   "chars": 3542,
+   "seconds": 0.008641305999958604,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0205.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/그림.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.001482529999975668,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0206.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/글상자-압축.hwp",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.0007026409999753014,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0207.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/글상자.hwp",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.0007150809999529883,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0208.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/글자겹침.hwp",
+   "ok": true,
+   "chars": 3,
+   "seconds": 0.0006127450000121826,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0209.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/다각형.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.000729222000018126,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0210.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/덧말.hwp",
+   "ok": true,
+   "chars": 25,
+   "seconds": 0.0006045330000006288,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0211.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/머리글꼬리글.hwp",
+   "ok": true,
+   "chars": 503,
+   "seconds": 0.0014814580000575006,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0212.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/묶음.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0005742480000208161,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0213.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/문단번호 1-10 수준.hwp",
+   "ok": true,
+   "chars": 65,
+   "seconds": 0.0009530600000289269,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0214.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/바탕쪽.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0005434509999986403,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0215.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/새번호지정.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0007515460000604435,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0216.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/선-사각형-타원.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0006206880000263482,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0217.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/수식.hwp",
+   "ok": true,
+   "chars": 36,
+   "seconds": 0.0007722469999862369,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0218.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/숨은설명.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0006836530000100538,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0219.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/이미지추가.hwp",
+   "ok": true,
+   "chars": 16,
+   "seconds": 0.0016428820000555788,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0220.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/차트.hwp",
+   "ok": true,
+   "chars": 12,
+   "seconds": 0.0006305829999746493,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0221.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/책갈피.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0005905120000306852,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0222.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/페이지숨김.hwp",
+   "ok": true,
+   "chars": 3,
+   "seconds": 0.0007621620000008988,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0223.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/표.hwp",
+   "ok": true,
+   "chars": 91,
+   "seconds": 0.0010020539999686662,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0224.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/필드-누름틀.hwp",
+   "ok": true,
+   "chars": 3523,
+   "seconds": 0.0028942830000460162,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0225.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/필드.hwp",
+   "ok": true,
+   "chars": 3,
+   "seconds": 0.0006176330000471353,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0226.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/호-곡선.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0007491620000337207,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0163.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug59058.docx",
+   "ok": true,
+   "chars": 122165,
+   "seconds": 0.45933160300000964,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0228.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/blank.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0014351580000493414,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0229.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/changing-image.hwp",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.0033502109999972163,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0230.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/changing-paragraph-text.hwp",
+   "ok": true,
+   "chars": 18,
+   "seconds": 0.001228395999987697,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0231.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/distribution.hwp",
+   "ok": true,
+   "chars": 918,
+   "seconds": 0.0015594459999874744,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0232.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/extracting_ParaHead.hwp",
+   "ok": true,
+   "chars": 1377,
+   "seconds": 0.0055750230000057854,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0233.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/finding-all-field.hwp",
+   "ok": true,
+   "chars": 824,
+   "seconds": 0.0020895269999527954,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0234.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/finding-control.hwp",
+   "ok": true,
+   "chars": 16,
+   "seconds": 0.0018264499999531836,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0235.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/getting_clickhere_text.hwp",
+   "ok": true,
+   "chars": 3523,
+   "seconds": 0.004843077000032281,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0236.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/inserting_image_cell.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.001399994999928822,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0237.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/making_caption.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0010831470000312038,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0238.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/merging-cell.hwp",
+   "ok": true,
+   "chars": 351,
+   "seconds": 0.0032120930000019143,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0239.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/removing-row.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.001230529000054048,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0240.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/setting-celltext-by-field.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.00146609500006889,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "empty"
+  },
+  "0241.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/setting-fields.hwp",
+   "ok": true,
+   "chars": 215,
+   "seconds": 0.0015449439999883907,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0242.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/source.hwp",
+   "ok": true,
+   "chars": 59,
+   "seconds": 0.0014014079999924434,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0243.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/target.hwp",
+   "ok": true,
+   "chars": 25,
+   "seconds": 0.001109365999923284,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0244.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20230413/test.hwpx",
+   "ok": true,
+   "chars": 709,
+   "seconds": 0.008615738000003148,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0245.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20230426/HwpxTest1.hwpx",
+   "ok": true,
+   "chars": 1792,
+   "seconds": 0.009402455999975246,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "ok"
+  },
+  "0246.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20230728/test.hwpx",
+   "ok": true,
+   "chars": 29058,
+   "seconds": 0.16753466400007255,
+   "peak_rss_mb": 135.44921875,
+   "outcome": "ok"
+  },
+  "0247.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20230809/test.hwpx",
+   "ok": true,
+   "chars": 74,
+   "seconds": 0.0051487489999999525,
+   "peak_rss_mb": 135.44921875,
+   "outcome": "ok"
+  },
+  "0248.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20230818/test.hwpx",
+   "ok": true,
+   "chars": 9501,
+   "seconds": 0.04950320299997202,
+   "peak_rss_mb": 135.44921875,
+   "outcome": "ok"
+  },
+  "0249.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20231219/test1.hwpx",
+   "ok": true,
+   "chars": 25,
+   "seconds": 0.004197071000021424,
+   "peak_rss_mb": 135.44921875,
+   "outcome": "ok"
+  },
+  "0250.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20240305/2022.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.004458336000084273,
+   "peak_rss_mb": 135.44921875,
+   "outcome": "empty"
+  },
+  "0251.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20240416/presentation오류.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.004231543999935639,
+   "peak_rss_mb": 135.44921875,
+   "outcome": "empty"
+  },
+  "0252.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20240626/no_manifest.hwpx",
+   "ok": true,
+   "chars": 1408,
+   "seconds": 0.008911505000014586,
+   "peak_rss_mb": 135.44921875,
+   "outcome": "ok"
+  },
+  "0253.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20240919/테스트문서.hwpx",
+   "ok": true,
+   "chars": 149,
+   "seconds": 0.0032355480000205716,
+   "peak_rss_mb": 135.44921875,
+   "outcome": "ok"
+  },
+  "0254.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20241104/mot.hwpx",
+   "ok": true,
+   "chars": 1281,
+   "seconds": 0.3780107869999938,
+   "peak_rss_mb": 172.93359375,
+   "outcome": "ok"
+  },
+  "0227.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/big_file.hwp",
+   "ok": true,
+   "chars": 499999,
+   "seconds": 0.8922472560000188,
+   "peak_rss_mb": 187.82421875,
+   "outcome": "ok"
+  },
+  "0255.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20250523/프로젝트 계획서.hwpx",
+   "ok": true,
+   "chars": 1090,
+   "seconds": 0.34227793000002293,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0257.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20251107/test.hwpx",
+   "ok": true,
+   "chars": 32384,
+   "seconds": 0.10477808600001026,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0258.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20251107/test_re.hwpx",
+   "ok": true,
+   "chars": 32384,
+   "seconds": 0.10633882499996616,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0259.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20260805/고정폭빈칸_문서.hwpx",
+   "ok": true,
+   "chars": 14,
+   "seconds": 0.004208177999998952,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0260.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20260806/표전체 형광색인 경우 오류.hwpx",
+   "ok": true,
+   "chars": 58,
+   "seconds": 0.014888584999994237,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0261.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/ChangeTrack.hwpx",
+   "ok": true,
+   "chars": 6,
+   "seconds": 0.0032865849999552665,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0262.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/HeaderFooter.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0032925339999110292,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "empty"
+  },
+  "0263.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/MultiColumn.hwpx",
+   "ok": true,
+   "chars": 390,
+   "seconds": 0.005771059000039713,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0264.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/PageFunctions.hwpx",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.0033268360000420216,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0265.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/PageSize_Margin.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.003187545999935537,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "empty"
+  },
+  "0266.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleArc.hwpx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.0033170019999033684,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0267.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleButtons.hwpx",
+   "ok": true,
+   "chars": 18,
+   "seconds": 0.0034414099999366954,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0268.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleComboBox.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.003377041999897301,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "empty"
+  },
+  "0269.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleCompose.hwpx",
+   "ok": true,
+   "chars": 5,
+   "seconds": 0.003276830999993763,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0270.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleConnectLine.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0034110139999938838,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "empty"
+  },
+  "0271.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleContainer.hwpx",
+   "ok": true,
+   "chars": 16,
+   "seconds": 0.009272940000073504,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0272.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleCurve.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.003325033999999505,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "empty"
+  },
+  "0273.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleDutmal.hwpx",
+   "ok": true,
+   "chars": 14,
+   "seconds": 0.003259534999983771,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0274.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleEdit.hwpx",
+   "ok": true,
+   "chars": 4,
+   "seconds": 0.0034694619999982024,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0275.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleEllipse.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0033209869999382136,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "empty"
+  },
+  "0276.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleEquation.hwpx",
+   "ok": true,
+   "chars": 51,
+   "seconds": 0.003607590000001437,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0277.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleLine.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0032309320000649677,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "empty"
+  },
+  "0278.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleOLE.hwpx",
+   "ok": true,
+   "chars": 12,
+   "seconds": 0.0033114929999555898,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0279.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimplePicture.hwpx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.005039334000002782,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0280.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimplePolygon.hwpx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.007343084000012823,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0281.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleRectangle.hwpx",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.003417733999981465,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0282.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleTable.hwpx",
+   "ok": true,
+   "chars": 132,
+   "seconds": 0.0037606220000725443,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0283.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleTextArt.hwpx",
+   "ok": true,
+   "chars": 27,
+   "seconds": 0.003298694000022806,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0284.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleVideo.hwpx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.003656835000015235,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0285.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/sample1.hwpx",
+   "ok": true,
+   "chars": 15,
+   "seconds": 0.0036759839999831456,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0286.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/blank.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0030734930001017347,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "empty"
+  },
+  "0287.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/finder/TestFinder.hwpx",
+   "ok": true,
+   "chars": 29,
+   "seconds": 0.005576625999992757,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0288.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/textextractor/ParaHead.hwpx",
+   "ok": true,
+   "chars": 282,
+   "seconds": 0.00546662900001138,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0289.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/textextractor/RectInPara.hwpx",
+   "ok": true,
+   "chars": 149,
+   "seconds": 0.003618576999997458,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0290.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/textextractor/RectInRect.hwpx",
+   "ok": true,
+   "chars": 36,
+   "seconds": 0.0034689709999611296,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0291.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/textextractor/Table.hwpx",
+   "ok": true,
+   "chars": 165,
+   "seconds": 0.0055125590000670854,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0292.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/textextractor/multipara.hwpx",
+   "ok": true,
+   "chars": 1136,
+   "seconds": 0.004686101000061171,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0256.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20250808/2015년_12월_재난안전종합상황_분석_및_전망.hwpx",
+   "ok": true,
+   "chars": 71733,
+   "seconds": 0.6595487160000175,
+   "peak_rss_mb": 274.87109375,
+   "outcome": "ok"
+  },
+  "0293.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/examples/pdfs/ag-energy-round-up-2017-02-24.pdf",
+   "ok": true,
+   "chars": 9865,
+   "seconds": 0.46560034400010863,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0294.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/examples/pdfs/background-checks.pdf",
+   "ok": true,
+   "chars": 8430,
+   "seconds": 0.49151025100002244,
+   "peak_rss_mb": 274.87109375,
+   "outcome": "ok"
+  },
+  "0296.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/examples/pdfs/san-jose-pd-firearm-sample.pdf",
+   "ok": true,
+   "chars": 2565,
+   "seconds": 0.1255834109999796,
+   "peak_rss_mb": 274.87109375,
+   "outcome": "ok"
+  },
+  "0297.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/150109DSP-Milw-505-90D.pdf",
+   "ok": true,
+   "chars": 6926,
+   "seconds": 0.3680594420000034,
+   "peak_rss_mb": 274.87109375,
+   "outcome": "ok"
+  },
+  "0298.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/2023-06-20-PV.pdf",
+   "ok": true,
+   "chars": 2076,
+   "seconds": 0.13469988499991814,
+   "peak_rss_mb": 274.87109375,
+   "outcome": "ok"
+  },
+  "0164.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug65649.docx",
+   "ok": true,
+   "chars": 491508,
+   "seconds": 3.2563851349999595,
+   "peak_rss_mb": 304.40625,
+   "outcome": "ok"
+  },
+  "0300.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/annotations-rotated-180.pdf",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.008637900000053378,
+   "peak_rss_mb": 304.40625,
+   "outcome": "ok"
+  },
+  "0301.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/annotations-rotated-270.pdf",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.007620363000000907,
+   "peak_rss_mb": 304.40625,
+   "outcome": "ok"
+  },
+  "0302.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/annotations-rotated-90.pdf",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.007247731000006752,
+   "peak_rss_mb": 304.40625,
+   "outcome": "ok"
+  },
+  "0303.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/annotations-unicode-issues.pdf",
+   "ok": true,
+   "chars": 65,
+   "seconds": 0.007960568000044077,
+   "peak_rss_mb": 304.40625,
+   "outcome": "ok"
+  },
+  "0304.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/annotations.pdf",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.0054356929999812564,
+   "peak_rss_mb": 304.40625,
+   "outcome": "ok"
+  },
+  "0299.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/WARN-Report-for-7-1-2015-to-03-25-2016.pdf",
+   "ok": true,
+   "chars": 79617,
+   "seconds": 5.493660424999916,
+   "peak_rss_mb": 274.87109375,
+   "outcome": "ok"
+  },
+  "0306.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/cupertino_usd_4-6-16.pdf",
+   "ok": true,
+   "chars": 2980,
+   "seconds": 0.19681872000001022,
+   "peak_rss_mb": 274.87109375,
+   "outcome": "ok"
+  },
+  "0307.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/empty.pdf",
+   "ok": false,
+   "error": "CorruptedDocumentError: The file is empty.",
+   "seconds": 0.00032908699995459756,
+   "peak_rss_mb": 274.87109375,
+   "outcome": "error"
+  },
+  "0308.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/extra-attrs-example.pdf",
+   "ok": true,
+   "chars": 30,
+   "seconds": 0.004414189000044644,
+   "peak_rss_mb": 274.87109375,
+   "outcome": "ok"
+  },
+  "0295.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/examples/pdfs/ca-warn-report.pdf",
+   "ok": true,
+   "chars": 79617,
+   "seconds": 8.910426528000016,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0310.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/figure_structure.pdf",
+   "ok": true,
+   "chars": 144,
+   "seconds": 0.03182590899996285,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0311.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/hello_structure.pdf",
+   "ok": true,
+   "chars": 92,
+   "seconds": 0.007330076000016561,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0312.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/image_structure.pdf",
+   "ok": true,
+   "chars": 64,
+   "seconds": 0.033561391000034746,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0313.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-1054-example.pdf",
+   "ok": true,
+   "chars": 257,
+   "seconds": 0.02216536100002031,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0314.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-1114-dedupe-chars.pdf",
+   "ok": true,
+   "chars": 158,
+   "seconds": 0.019676741000012044,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0315.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-1147-example.pdf",
+   "ok": true,
+   "chars": 1801,
+   "seconds": 0.414823821999903,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0316.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-1181.pdf",
+   "ok": true,
+   "chars": 282,
+   "seconds": 0.038791533999983585,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0309.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/federal-register-2020-17221.pdf",
+   "ok": true,
+   "chars": 57386,
+   "seconds": 3.772852133000015,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0317.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-1279-example.pdf",
+   "ok": true,
+   "chars": 3084,
+   "seconds": 0.7627720450000197,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0319.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-140-example.pdf",
+   "ok": true,
+   "chars": 1157,
+   "seconds": 0.13650311399999282,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0318.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-13-151201DSP-Fond-581-90D.pdf",
+   "ok": true,
+   "chars": 7487,
+   "seconds": 0.35143448100006935,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0320.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-192-example.pdf",
+   "ok": true,
+   "chars": 3160,
+   "seconds": 0.46565183100005925,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "ok"
+  },
+  "0322.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-297-example.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0013799049999079216,
+   "peak_rss_mb": 207.0234375,
+   "outcome": "empty"
+  },
+  "0321.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-203-decimalize.pdf",
+   "ok": true,
+   "chars": 49,
+   "seconds": 0.37890380999999707,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0324.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-33-lorem-ipsum.pdf",
+   "ok": true,
+   "chars": 4750,
+   "seconds": 0.24923675699994874,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0325.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-336-example.pdf",
+   "ok": true,
+   "chars": 1699,
+   "seconds": 0.23051380200001859,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0326.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-461-example.pdf",
+   "ok": true,
+   "chars": 1396,
+   "seconds": 0.09096619699994335,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0327.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-463-example.pdf",
+   "ok": true,
+   "chars": 1782,
+   "seconds": 0.12911137000003237,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0328.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-466-example.pdf",
+   "ok": true,
+   "chars": 822,
+   "seconds": 0.07832486100005553,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0329.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-53-example.pdf",
+   "ok": true,
+   "chars": 10355,
+   "seconds": 0.5606011149999404,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0330.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-598-example.pdf",
+   "ok": true,
+   "chars": 1479,
+   "seconds": 0.10405769299995882,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0323.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-316-example.pdf",
+   "ok": true,
+   "chars": 49934,
+   "seconds": 2.9611924069999986,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0331.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-67-example.pdf",
+   "ok": true,
+   "chars": 18397,
+   "seconds": 1.6803132430000005,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0333.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-71-duplicate-chars.pdf",
+   "ok": true,
+   "chars": 1452,
+   "seconds": 0.19064324299995405,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0334.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-842-example.pdf",
+   "ok": true,
+   "chars": 193,
+   "seconds": 0.09518892599999162,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0335.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-848.pdf",
+   "ok": true,
+   "chars": 15964,
+   "seconds": 1.5423876379999228,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0336.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-90-example.pdf",
+   "ok": true,
+   "chars": 3311,
+   "seconds": 0.2540025760000617,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0337.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-905.pdf",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.004322168999919995,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0338.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-912.pdf",
+   "ok": true,
+   "chars": 1301,
+   "seconds": 0.1087839530000565,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0305.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/chelsea_pdta.pdf",
+   "ok": true,
+   "chars": 94082,
+   "seconds": 16.856196766999915,
+   "peak_rss_mb": 304.40625,
+   "outcome": "ok"
+  },
+  "0340.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-987-test.pdf",
+   "ok": true,
+   "chars": 43,
+   "seconds": 0.006688203999942743,
+   "peak_rss_mb": 304.40625,
+   "outcome": "ok"
+  },
+  "0341.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/la-precinct-bulletin-2014-p1.pdf",
+   "ok": true,
+   "chars": 2356,
+   "seconds": 0.20384658800003308,
+   "peak_rss_mb": 304.40625,
+   "outcome": "ok"
+  },
+  "0342.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/line-char-render-example.pdf",
+   "ok": true,
+   "chars": 50,
+   "seconds": 0.007876588999920386,
+   "peak_rss_mb": 304.40625,
+   "outcome": "ok"
+  },
+  "0339.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-982-example.pdf",
+   "ok": true,
+   "chars": 29390,
+   "seconds": 1.854036937999922,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0344.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/mcid_example.pdf",
+   "ok": true,
+   "chars": 144,
+   "seconds": 0.019432545999961803,
+   "peak_rss_mb": 299.0234375,
+   "outcome": "ok"
+  },
+  "0343.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/malformed-from-issue-932.pdf",
+   "ok": true,
+   "chars": 28,
+   "seconds": 0.14620020600000316,
+   "peak_rss_mb": 304.40625,
+   "outcome": "ok"
+  },
+  "0332.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-71-duplicate-chars-2.pdf",
+   "ok": true,
+   "chars": 42489,
+   "seconds": 4.865897472000029,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0347.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/page-boxes-example.pdf",
+   "ok": true,
+   "chars": 45,
+   "seconds": 0.004733412000064163,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0348.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/password-example.pdf",
+   "ok": false,
+   "error": "EncryptedDocumentError: The PDF is password-protected. Remove the password and upload it again.",
+   "seconds": 0.007851932999983546,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0349.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/pdf_structure.pdf",
+   "ok": true,
+   "chars": 1147,
+   "seconds": 0.1127950630000214,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0346.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/nics-background-checks-2015-11.pdf",
+   "ok": true,
+   "chars": 8430,
+   "seconds": 0.8372230859999945,
+   "peak_rss_mb": 304.953125,
+   "outcome": "ok"
+  },
+  "0350.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/pdffill-demo.pdf",
+   "ok": true,
+   "chars": 1431,
+   "seconds": 0.30936735699992823,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0352.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/pr-138-example.pdf",
+   "ok": true,
+   "chars": 13360,
+   "seconds": 1.4579562740000256,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0353.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/pr-88-example.pdf",
+   "ok": true,
+   "chars": 246,
+   "seconds": 0.05604966700002478,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0354.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/scotus-transcript-p1.pdf",
+   "ok": true,
+   "chars": 751,
+   "seconds": 0.14655254799993145,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0351.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/pr-136-example.pdf",
+   "ok": true,
+   "chars": 5886,
+   "seconds": 2.245816250999951,
+   "peak_rss_mb": 306.703125,
+   "outcome": "ok"
+  },
+  "0355.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/senate-expenditures.pdf",
+   "ok": true,
+   "chars": 4798,
+   "seconds": 0.5743982949999236,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0357.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/test-punkt.pdf",
+   "ok": true,
+   "chars": 176,
+   "seconds": 0.020697321999932683,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0358.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/word365_structure.pdf",
+   "ok": true,
+   "chars": 261,
+   "seconds": 0.04760683999995763,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0359.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/119877_all type background_save_by_AOO.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.001024136999944858,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0360.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/2100a8d44da546f97ab7795c500a58bed6cb655d.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.000497952000046098,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0361.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/23884_defense_FINAL_OOimport_edit.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.001084798999954728,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0362.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/2cade576206d5bf9a89479446973deeda5a9b549.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005276079999703143,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0363.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/38256.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004142960000308449,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0364.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/41071.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00039403499999934866,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0365.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/41246-1.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004542259999880116,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0366.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/41246-2.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004349170000068625,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0367.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/42474-1.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004138550000334362,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0368.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/42474-2.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005500810000285128,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0369.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/42485.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00040497199995570554,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0370.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/42486.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005589349999581827,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0371.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/43781.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004903310000372585,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0372.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/44296.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004785930000252847,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0373.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/44770.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.000599666999960391,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0374.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45537_Header.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004525230000353986,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0375.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45543.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005278669999597696,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0376.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45776.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.000487075999899389,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0377.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/47261.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005192549999719631,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0378.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/49648.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004666449999604083,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0379.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/51731.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004558089999591175,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0380.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/52244.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00047840299998824776,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0381.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/52599.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004400850000365608,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0382.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54111.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004543059999377874,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0383.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54332a.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004892190000873597,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0384.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54332b.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00046401200006584986,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0385.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54541_cropped_bitmap2.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005258339999727468,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0386.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54722.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0010305669999297606,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0387.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54880_chinese.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004899199999499615,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0388.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/56260.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005092689999628419,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0389.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/59302.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00041031000000657514,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0390.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/60003.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0006004970000503818,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0391.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/60294.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005119730000160416,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0392.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/60f557c0a46bcb0068b1c3e15589dac383307bc8.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004772609999008637,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0393.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/6afff8111a22b118d1ed4eba5007c153de0b0ad7.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00047853300009137456,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0394.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/7ffe3cabb976ebc593dfe2f9461bdeac980a626c.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004596349999701488,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0395.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/PPT95.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0007178539999586064,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0396.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ParagraphStylesShorterThanCharStyles.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00048008600003868196,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0397.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/Password_Protected-hello.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00045430600005147426,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0398.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/Password_Protected-np-hello.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.000429670000016813,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0399.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/PictureTypeZero.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00048237800001516007,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0400.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/SimpleMacro.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004609059999438614,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0401.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/Single_Coloured_Page.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00045743100008621695,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0402.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/Single_Coloured_Page_With_Fonts_and_Alignments.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004352280000148312,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0403.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/WithComments.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004369910000150412,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0404.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/WithMacros.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004071449999401011,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0405.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/WithMaster.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00040852699999049946,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0406.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/alterman_security.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005927959999780796,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0407.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/backgrounds.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00042867699994530994,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0408.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/basic_test_ppt_file.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004305999999587584,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0409.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/br.com.diversas.palestras_Nelson_20-_20Temas_20Diversos_20XXXVI_pmrg_462538ba7a204-programa_alianca_12-04-2007.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0006654649999973117,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0410.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/br.com.tvcamboriu.www_pps_Pensar_5b1_5d.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004570099999909871,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0411.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug45088.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00044150700000500365,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0412.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug45124.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005406970000194633,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0413.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug45908.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00048840800002381,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0414.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug46441.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00043158200003290403,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0415.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug52297.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0008349709999038168,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0416.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug53192.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004692290000321009,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0417.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug55030.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0003896189999750277,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0418.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug55732.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004198249999944892,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0419.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug56240.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0007620019999876604,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0420.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug57820-initTableNullRefrenceException.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00042824700005894556,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0421.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58144-headers-footers-2003.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00043879300005755795,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0422.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58159_headers-and-footers.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004566299999169132,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0423.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58516.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00046585399991272425,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0424.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58718_008495.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0006703330000163987,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0425.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58718_008524.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00048360999994656595,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0426.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58718_349008.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004602950000389683,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0427.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58733_671884.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004966300000432966,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0428.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60345_Jankovic_final_Retreat_2002.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0009281019999889395,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0429.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60345_paperfigures.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005449230000067473,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0430.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60993.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004956490000722624,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0431.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug61881.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00048458200001277874,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0432.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug62092.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.000503722000075868,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0433.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug62591.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004892690000133371,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0434.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bullets.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00046261899990440725,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0435.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/cf5f6fde99a8b3ea5a4946c258b7abad6f30b0c5.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00047215299991876236,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0436.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/cryptoapi-proc2356.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0006928269999662007,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0437.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/datetime.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004889489999868601,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0438.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/empty.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004611470000099871,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0439.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/empty_textbox.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004527439999719718,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0440.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/headers_footers.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00046826799996324553,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0441.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/iisd_report.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0008805500000335087,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0442.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/incorrect_slide_order.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00043282399997224275,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0443.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/master_text.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004670260000239068,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0444.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/missing-moveto.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0008188780000182305,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0445.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/next_test_ppt_file.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004280470000139758,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0446.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/npe.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005763709999655475,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0447.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/numbers.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004338259999485672,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0448.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/numbers3.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0005959399999255766,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0449.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ole2-embedding-2003.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004263049999053692,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0450.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/pictures.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00041316400006508047,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0451.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/pp40only.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: This OLE document format is not supported.",
+   "seconds": 0.000441356999999698,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0452.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ppt_with_png.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004147870000679177,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0453.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ppt_with_png_encrypted.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00045112199995855917,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0454.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/slide_master.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.00043569800004661374,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0455.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/sound.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004528040000195688,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0456.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/testPPT_oleWorkbook.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004534050000302159,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0457.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/text-margins.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004432900000210793,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0458.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/text_shapes.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
+   "seconds": 0.0004550779999590304,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0356.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/table-curves-example.pdf",
+   "ok": true,
+   "chars": 2429,
+   "seconds": 0.25581571499992606,
+   "peak_rss_mb": 306.703125,
+   "outcome": "ok"
+  },
+  "0460.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45541_Footer.pptx",
+   "ok": true,
+   "chars": 2511,
+   "seconds": 0.0742784980000124,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0459.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/2411-Performance_Up.pptx",
+   "ok": true,
+   "chars": 9732,
+   "seconds": 0.19894168300004367,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0461.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45541_Header.pptx",
+   "ok": true,
+   "chars": 2511,
+   "seconds": 0.06628451999995377,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0463.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/49386-null_dates.pptx",
+   "ok": true,
+   "chars": 17,
+   "seconds": 0.00836818300001596,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0464.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/51187.pptx",
+   "ok": true,
+   "chars": 10,
+   "seconds": 0.007277837000060572,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0465.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54542_cropped_bitmap.pptx",
+   "ok": true,
+   "chars": 10,
+   "seconds": 0.01727091499992639,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0466.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/56812.pptx",
+   "ok": true,
+   "chars": 79,
+   "seconds": 0.007460441999910472,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0467.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/60042.pptx",
+   "ok": true,
+   "chars": 22,
+   "seconds": 0.00885073199992803,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0462.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45545_Comment.pptx",
+   "ok": true,
+   "chars": 2565,
+   "seconds": 0.08348845300008634,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0469.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/61515.pptx",
+   "ok": true,
+   "chars": 10,
+   "seconds": 0.007670007999990958,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0470.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/63200.pptx",
+   "ok": true,
+   "chars": 10,
+   "seconds": 0.005537597000056849,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0471.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ArtisticEffectSample.pptx",
+   "ok": true,
+   "chars": 153,
+   "seconds": 0.014865159999999378,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0472.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/Divino_Revelado.pptx",
+   "ok": false,
+   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
+   "seconds": 0.0011295470000050045,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "error"
+  },
+  "0473.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/EmbeddedAudio.pptx",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.0071530980000034106,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0474.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/EmbeddedVideo.pptx",
+   "ok": true,
+   "chars": 10,
+   "seconds": 0.006059775999915473,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0475.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/KEY02.pptx",
+   "ok": true,
+   "chars": 127,
+   "seconds": 0.012582891999954882,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0468.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/60810.pptx",
+   "ok": true,
+   "chars": 24699,
+   "seconds": 0.17081019900001593,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0477.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/OverlappingRelations.pptx",
+   "ok": true,
+   "chars": 175,
+   "seconds": 0.012528278999980103,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0478.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/SampleShow.pptx",
+   "ok": true,
+   "chars": 379,
+   "seconds": 0.009786225999960152,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0479.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/SmartArt.pptx",
+   "ok": true,
+   "chars": 10,
+   "seconds": 0.004976559000056113,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0480.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/WithMaster.pptx",
+   "ok": true,
+   "chars": 80,
+   "seconds": 0.009093979999988733,
+   "peak_rss_mb": 306.8828125,
+   "outcome": "ok"
+  },
+  "0476.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/LIBRE_OFFICE-100610-0.pptx",
+   "ok": true,
+   "chars": 3524,
+   "seconds": 0.15775910000002114,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0481.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/aascu.org_hbcu_leadershipsummit_cooper_.pptx",
+   "ok": true,
+   "chars": 9994,
+   "seconds": 0.11897037400001409,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0483.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ae.ac.uaeu.faculty_nafaachbili_GeomLec1.pptx",
+   "ok": true,
+   "chars": 3067,
+   "seconds": 0.06253795899999659,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0482.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/aascu.org_workarea_downloadasset.aspx_id=5864.pptx",
+   "ok": true,
+   "chars": 18842,
+   "seconds": 0.16840805999993336,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0485.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/aptia.pptx",
+   "ok": true,
+   "chars": 2670,
+   "seconds": 0.043089244000043436,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0484.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/alterman_security.pptx",
+   "ok": true,
+   "chars": 8916,
+   "seconds": 0.12014519900003506,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0487.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/au.asn.aes.www_conferences_2011_presentations_Fri_20Room4Level4_20930_20Maloney.pptx",
+   "ok": true,
+   "chars": 21053,
+   "seconds": 0.13466110100000606,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0486.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/at.ecodesign.www_downloads_Vertiefungsvortrag_elektronik.pptx",
+   "ok": true,
+   "chars": 9166,
+   "seconds": 0.19963006299997232,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0489.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bar-chart.pptx",
+   "ok": true,
+   "chars": 141,
+   "seconds": 0.0073513469999397785,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0488.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/backgrounds.pptx",
+   "ok": true,
+   "chars": 214,
+   "seconds": 0.017327329999943686,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0490.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug54570.pptx",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.006092856000009306,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0491.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58144-headers-footers-2007.pptx",
+   "ok": true,
+   "chars": 63,
+   "seconds": 0.009468175000051815,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0492.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60499.pptx",
+   "ok": true,
+   "chars": 35,
+   "seconds": 0.007963291999999456,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0494.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60993.pptx",
+   "ok": true,
+   "chars": 111,
+   "seconds": 0.005920014999901468,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0493.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60715.pptx",
+   "ok": true,
+   "chars": 10,
+   "seconds": 0.00756183599992255,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0496.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug62736.pptx",
+   "ok": true,
+   "chars": 64,
+   "seconds": 0.012699588999907974,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0497.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug63290.pptx",
+   "ok": true,
+   "chars": 54,
+   "seconds": 0.004657067000039206,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0498.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug64693.pptx",
+   "ok": true,
+   "chars": 54,
+   "seconds": 0.012701971999945272,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0499.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug65228.pptx",
+   "ok": true,
+   "chars": 42,
+   "seconds": 0.008473933000004763,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0500.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug65523.pptx",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.008181883000020207,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0501.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug65551.pptx",
+   "ok": true,
+   "chars": 36,
+   "seconds": 0.0049091280000084225,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0502.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug65673.pptx",
+   "ok": true,
+   "chars": 40,
+   "seconds": 0.008479461999968407,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0495.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug62513.pptx",
+   "ok": true,
+   "chars": 4862,
+   "seconds": 0.06781334100003278,
+   "peak_rss_mb": 218.32421875,
+   "outcome": "ok"
+  },
+  "0503.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug68703.pptx",
+   "ok": true,
+   "chars": 593,
+   "seconds": 0.007587413999999626,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0505.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/chart-picture-bg.pptx",
+   "ok": true,
+   "chars": 216,
+   "seconds": 0.00751177999995889,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0506.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/chart-slide-bg.pptx",
+   "ok": true,
+   "chars": 216,
+   "seconds": 0.005715446000067459,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0507.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/chart-texture-bg.pptx",
+   "ok": true,
+   "chars": 216,
+   "seconds": 0.006411256999967918,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0508.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/copy-slide-demo.pptx",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.006016199000100642,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0509.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crop-to-0.pptx",
+   "ok": true,
+   "chars": 34,
+   "seconds": 0.0036718979999932344,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0510.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/customGeo.pptx",
+   "ok": true,
+   "chars": 28246,
+   "seconds": 0.2326660080000238,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0511.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ececapstonespring2012.pptx",
+   "ok": true,
+   "chars": 4426,
+   "seconds": 0.05440206699995542,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0512.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/highlight-test-case.pptx",
+   "ok": true,
+   "chars": 103,
+   "seconds": 0.006985965000012584,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0513.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/keyframes.pptx",
+   "ok": true,
+   "chars": 6770,
+   "seconds": 0.07266953800001374,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0514.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/layouts.pptx",
+   "ok": true,
+   "chars": 983,
+   "seconds": 0.03462863100003233,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0515.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/line-chart.pptx",
+   "ok": true,
+   "chars": 142,
+   "seconds": 0.0072668990000011036,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0516.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/minimal-gradient-fill-issue.pptx",
+   "ok": true,
+   "chars": 131,
+   "seconds": 0.007399529999929655,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0517.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/missing-blip-fill.pptx",
+   "ok": true,
+   "chars": 10,
+   "seconds": 0.0053904939999256385,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0518.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/picture-transparency.pptx",
+   "ok": true,
+   "chars": 46,
+   "seconds": 0.005582124000056865,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0519.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/pie-chart.pptx",
+   "ok": true,
+   "chars": 141,
+   "seconds": 0.00713190500005112,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0520.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/placeholder-layout-color.pptx",
+   "ok": true,
+   "chars": 21,
+   "seconds": 0.004910228999960964,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0521.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/pptx2svg.pptx",
+   "ok": true,
+   "chars": 729,
+   "seconds": 0.020885827000029167,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0522.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/prProps.pptx",
+   "ok": true,
+   "chars": 40,
+   "seconds": 0.005378487000029963,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0523.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/present1.pptx",
+   "ok": true,
+   "chars": 16,
+   "seconds": 0.05482609799992133,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0524.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/radar-chart.pptx",
+   "ok": true,
+   "chars": 143,
+   "seconds": 0.007857542000010653,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0525.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/rain.pptx",
+   "ok": true,
+   "chars": 16,
+   "seconds": 0.006424866999964252,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0526.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/sample.pptx",
+   "ok": true,
+   "chars": 173,
+   "seconds": 0.01104788300006021,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0527.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/sample_pptx_grouping_issues.pptx",
+   "ok": true,
+   "chars": 30,
+   "seconds": 0.024640480000016396,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0528.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/scatter-chart.pptx",
+   "ok": true,
+   "chars": 181,
+   "seconds": 0.007678983000005246,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0529.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/shapes.pptx",
+   "ok": true,
+   "chars": 723,
+   "seconds": 0.019087689999992108,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0530.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/smartart-rotated-text.pptx",
+   "ok": true,
+   "chars": 37,
+   "seconds": 0.006060176000005413,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0531.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/smartart-simple.pptx",
+   "ok": true,
+   "chars": 309,
+   "seconds": 0.006929088999982014,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0532.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/table-with-different-font-colors.pptx",
+   "ok": true,
+   "chars": 394,
+   "seconds": 0.008276384999930997,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0533.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/table-with-no-theme.pptx",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.005225786000096377,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0534.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/table-with-theme.pptx",
+   "ok": true,
+   "chars": 36,
+   "seconds": 0.005883789999984401,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0535.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/table_test.pptx",
+   "ok": true,
+   "chars": 10,
+   "seconds": 0.005142379000062647,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0536.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/table_test2.pptx",
+   "ok": true,
+   "chars": 840,
+   "seconds": 0.007125897000037185,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0537.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/templatePPTWithOnlyOneText.pptx",
+   "ok": true,
+   "chars": 27,
+   "seconds": 0.004628132999982881,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0538.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/testPPT.pptx",
+   "ok": true,
+   "chars": 319,
+   "seconds": 0.011446635000083916,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0539.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/text-highlight.pptx",
+   "ok": true,
+   "chars": 128,
+   "seconds": 0.005589795999981106,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0504.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ca.ubc.cs.people_~emhill_presentations_HowWeRefactor.pptx",
+   "ok": true,
+   "chars": 9938,
+   "seconds": 0.733596438999939,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0540.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/themes.pptx",
+   "ok": true,
+   "chars": 792,
+   "seconds": 0.042963203999988764,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0542.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/with_japanese.pptx",
+   "ok": true,
+   "chars": 630,
+   "seconds": 0.011939218999941659,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0543.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/12561-1.xls",
+   "ok": true,
+   "chars": 4503,
+   "seconds": 0.021046830000045702,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0544.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/13224.xls",
+   "ok": true,
+   "chars": 22,
+   "seconds": 0.002271781999979794,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0545.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/14460.xls",
+   "ok": true,
+   "chars": 133,
+   "seconds": 0.003008085000033134,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0546.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/15573.xls",
+   "ok": true,
+   "chars": 117,
+   "seconds": 0.0024028699999689707,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0541.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/tika-2605.pptx",
+   "ok": true,
+   "chars": 288,
+   "seconds": 0.056780010000011316,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0548.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/25695.xls",
+   "ok": true,
+   "chars": 93,
+   "seconds": 0.002779068999984702,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0549.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/27349-vlookupAcrossSheets.xls",
+   "ok": true,
+   "chars": 164,
+   "seconds": 0.0030001129999845944,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0550.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/27933.xls",
+   "ok": true,
+   "chars": 974,
+   "seconds": 0.007978443999945739,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0547.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/19599-2.xls",
+   "ok": true,
+   "chars": 3765,
+   "seconds": 0.026189769999973578,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0552.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/30978-alt.xls",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.00223340399998051,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "empty"
+  },
+  "0553.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/31979.xls",
+   "ok": true,
+   "chars": 28,
+   "seconds": 0.003145152000001872,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0554.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/35564.xls",
+   "ok": true,
+   "chars": 8703,
+   "seconds": 0.03571627499991337,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0555.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/37376.xls",
+   "ok": true,
+   "chars": 106,
+   "seconds": 0.003544465000004493,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0556.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/37684.xls",
+   "ok": true,
+   "chars": 2814,
+   "seconds": 0.004349090999994587,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0557.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/3dFormulas.xls",
+   "ok": true,
+   "chars": 177,
+   "seconds": 0.0024722849999534446,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0551.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/29942.xls",
+   "ok": true,
+   "chars": 23103,
+   "seconds": 0.060418346999995265,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0558.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/42016.xls",
+   "ok": true,
+   "chars": 37,
+   "seconds": 0.0021454320000202642,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0559.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/42844.xls",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0026569350000045233,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "empty"
+  },
+  "0560.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/43902.xls",
+   "ok": true,
+   "chars": 192,
+   "seconds": 0.00227843299990127,
+   "peak_rss_mb": 307.03515625,
+   "outcome": "ok"
+  },
+  "0561.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/44200.xls",
+   "ok": true,
+   "chars": 60,
+   "seconds": 0.0020108080000227346,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0563.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/44840.xls",
+   "ok": true,
+   "chars": 34,
+   "seconds": 0.033270429000026525,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0564.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/44958_1.xls",
+   "ok": true,
+   "chars": 272,
+   "seconds": 0.002936377000082757,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0565.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/45365-2.xls",
+   "ok": true,
+   "chars": 102069,
+   "seconds": 0.23986577599998782,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0566.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/45538_classic_Header.xls",
+   "ok": true,
+   "chars": 9792,
+   "seconds": 0.03544356199995491,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0567.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/45672.xls",
+   "ok": true,
+   "chars": 580,
+   "seconds": 0.005360017999919364,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0568.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/46136-NoWarnings.xls",
+   "ok": true,
+   "chars": 21,
+   "seconds": 0.002129738000007819,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0569.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/46368.xls",
+   "ok": true,
+   "chars": 65611,
+   "seconds": 0.013946813000075053,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0570.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/46670_local.xls",
+   "ok": true,
+   "chars": 22,
+   "seconds": 0.003318304000003991,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0571.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/47154.xls",
+   "ok": true,
+   "chars": 22,
+   "seconds": 0.0020440480000161187,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0572.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/47701.xls",
+   "ok": true,
+   "chars": 44,
+   "seconds": 0.0037080119999473027,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0573.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/48026.xls",
+   "ok": true,
+   "chars": 18692,
+   "seconds": 0.035720551000054,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0574.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/48968.xls",
+   "ok": true,
+   "chars": 629,
+   "seconds": 0.004566138999962277,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0575.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/49237.xls",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0014023290000295674,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "empty"
+  },
+  "0576.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/49581.xls",
+   "ok": true,
+   "chars": 536,
+   "seconds": 0.01115163899999061,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0577.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/49896.xls",
+   "ok": true,
+   "chars": 220,
+   "seconds": 0.003468269999984841,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0578.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/50298.xls",
+   "ok": true,
+   "chars": 113,
+   "seconds": 0.0038592910000261327,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0579.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/50779_2.xls",
+   "ok": true,
+   "chars": 4202,
+   "seconds": 0.006537647999948604,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0580.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/51262.xls",
+   "ok": true,
+   "chars": 32,
+   "seconds": 0.003989466999996694,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0581.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/51670.xls",
+   "ok": true,
+   "chars": 2304,
+   "seconds": 0.006482996000045205,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0582.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/52527.xls",
+   "ok": true,
+   "chars": 383,
+   "seconds": 0.007496336000031079,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0583.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/53404.xls",
+   "ok": true,
+   "chars": 137,
+   "seconds": 0.001887310999904912,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0584.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/53691.xls",
+   "ok": true,
+   "chars": 39,
+   "seconds": 0.0034795569999914733,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0585.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/54016.xls",
+   "ok": true,
+   "chars": 500000,
+   "seconds": 0.7545128729999533,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "ok"
+  },
+  "0586.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/55341_CellStyleBorder.xls",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.004560580999964259,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "empty"
+  },
+  "0587.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56325.xls",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0036258380000617763,
+   "peak_rss_mb": 244.0859375,
+   "outcome": "empty"
+  },
+  "0588.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56563a.xls",
+   "ok": true,
+   "chars": 364117,
+   "seconds": 1.1461938980000923,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0589.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57074.xls",
+   "ok": true,
+   "chars": 25,
+   "seconds": 0.0042644230001087635,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0590.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57798.xls",
+   "ok": true,
+   "chars": 59,
+   "seconds": 0.003772369999978764,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0591.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/59830.xls",
+   "ok": true,
+   "chars": 11727,
+   "seconds": 0.027794935999963855,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0592.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/60405.xls",
+   "ok": true,
+   "chars": 356,
+   "seconds": 0.004145554000047014,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0593.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/61287.xls",
+   "ok": true,
+   "chars": 2389,
+   "seconds": 0.009908160999998472,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0594.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/64261.xls",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.003542192000054456,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0595.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/AreaErrPtg.xls",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.00208052300001782,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0596.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/CodeFunctionTestCaseData.xls",
+   "ok": true,
+   "chars": 1769,
+   "seconds": 0.005390374999933556,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0597.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ComplexFunctionTestCaseData.xls",
+   "ok": true,
+   "chars": 1914,
+   "seconds": 0.006966886999975941,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0598.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/DBCSSheetName.xls",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.058247187000006306,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "empty"
+  },
+  "0599.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/DateTimeToNumberTestCases.xls",
+   "ok": true,
+   "chars": 2233,
+   "seconds": 0.00716659800002617,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0600.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/EmbeddedChartHeaderTest.xls",
+   "ok": true,
+   "chars": 108,
+   "seconds": 0.0023714729999255724,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0601.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ForShifting.xls",
+   "ok": true,
+   "chars": 473,
+   "seconds": 0.005211944999928164,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0602.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/FormulaEvalTestData.xls",
+   "ok": true,
+   "chars": 106765,
+   "seconds": 0.16120697999997446,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0603.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/IfFormulaTest.xls",
+   "ok": true,
+   "chars": 29,
+   "seconds": 0.0023248319999993328,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0604.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ImaginaryFunctionTestCaseData.xls",
+   "ok": true,
+   "chars": 1870,
+   "seconds": 0.005921876999991582,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0605.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/IntersectionPtg.xls",
+   "ok": true,
+   "chars": 89,
+   "seconds": 0.0022320419999459773,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0606.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/LookupFunctionsTestCaseData.xls",
+   "ok": true,
+   "chars": 22525,
+   "seconds": 0.0404207320000296,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0607.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/MissingBits.xls",
+   "ok": true,
+   "chars": 222,
+   "seconds": 0.002783225000030143,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0608.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/PercentPtg.xls",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.0023246519999702286,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0609.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ReferencePtg.xls",
+   "ok": true,
+   "chars": 115,
+   "seconds": 0.1853805429999511,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0610.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/RowFunctionTestCaseData.xls",
+   "ok": true,
+   "chars": 1748,
+   "seconds": 0.006145705999983875,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0611.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SheetWithDrawing.xls",
+   "ok": true,
+   "chars": 25,
+   "seconds": 0.004896627999983139,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0612.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SimpleMacro.xls",
+   "ok": true,
+   "chars": 42,
+   "seconds": 0.00394224599995141,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0613.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SimpleWithChoose.xls",
+   "ok": true,
+   "chars": 126,
+   "seconds": 0.0023263450000285957,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0614.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SimpleWithFormula.xls",
+   "ok": true,
+   "chars": 58,
+   "seconds": 0.0021710800000391828,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0615.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SimpleWithPrintArea.xls",
+   "ok": true,
+   "chars": 38,
+   "seconds": 0.0022558890000254905,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0616.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SolverContainerAfterSPGR.xls",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0035032629999705023,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "empty"
+  },
+  "0617.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SubtotalsNested.xls",
+   "ok": true,
+   "chars": 258,
+   "seconds": 0.00642640000000938,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0618.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/Trend.xls",
+   "ok": true,
+   "chars": 11711,
+   "seconds": 0.020632283000054485,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0619.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/UncalcedRecord.xls",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.0022654329999340916,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0620.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WeekNumFunctionTestCaseData2013.xls",
+   "ok": true,
+   "chars": 1976,
+   "seconds": 0.005814625999960299,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0621.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WithEmbeddedObjects.xls",
+   "ok": true,
+   "chars": 44,
+   "seconds": 0.007326249000016105,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0622.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WithThreeCharts.xls",
+   "ok": true,
+   "chars": 164,
+   "seconds": 0.004886172999931659,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0623.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/XRefCalc.xls",
+   "ok": true,
+   "chars": 182,
+   "seconds": 0.0040355779999572405,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0562.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/44593.xls",
+   "ok": true,
+   "chars": 0,
+   "seconds": 3.3567412230000855,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "empty"
+  },
+  "0624.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/at.gv.land-oberoesterreich.www_cps_rde_xbcr_SID-4A1B954F-5C07F98E_ooe_stat_download_bp10.xls",
+   "ok": true,
+   "chars": 95565,
+   "seconds": 0.432833966999965,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0626.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/chinese-provinces.xls",
+   "ok": true,
+   "chars": 126,
+   "seconds": 0.002064749000055599,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0627.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/countblankExamples.xls",
+   "ok": true,
+   "chars": 359,
+   "seconds": 0.0025332070000558815,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0628.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/duprich1.xls",
+   "ok": true,
+   "chars": 3954,
+   "seconds": 0.007968570000002728,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0629.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ex41187-19267.xls",
+   "ok": true,
+   "chars": 46,
+   "seconds": 0.0026758029999882638,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0630.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ex42570-20305.xls",
+   "ok": true,
+   "chars": 2097,
+   "seconds": 0.16701869600001373,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0631.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ex45672.xls",
+   "ok": true,
+   "chars": 91,
+   "seconds": 0.0041828910000276665,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0632.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ex47747-sharedFormula.xls",
+   "ok": true,
+   "chars": 144,
+   "seconds": 0.006481693999944582,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0633.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/external_image.xls",
+   "ok": true,
+   "chars": 11776,
+   "seconds": 0.03952718300001834,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0634.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/intercept.xls",
+   "ok": true,
+   "chars": 268,
+   "seconds": 0.0042828809999946316,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0635.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/moodle.iamm.fr_pluginfile.php_2971_mod_resource_content_4_evaluation_module_decouverte_qesamed.xls",
+   "ok": true,
+   "chars": 2438,
+   "seconds": 0.016274830999918777,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0636.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/named-cell-in-formula-test.xls",
+   "ok": true,
+   "chars": 54,
+   "seconds": 0.0025836329999719965,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0637.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ole2-embedding.xls",
+   "ok": true,
+   "chars": 43,
+   "seconds": 0.0032245630000034,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0638.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/rde.imf.ru_sites_default_files_rde_documents_vodootvedenie_2020.xlsb.xls",
+   "ok": false,
+   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
+   "seconds": 0.000854560999982823,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "error"
+  },
+  "0625.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug66319.xls",
+   "ok": true,
+   "chars": 166932,
+   "seconds": 0.43426054299993666,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "ok"
+  },
+  "0640.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/testArraysAndTables.xls",
+   "ok": true,
+   "chars": 1102,
+   "seconds": 0.0062376539999604574,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "ok"
+  },
+  "0641.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/testEXCEL_95.xls",
+   "ok": true,
+   "chars": 479,
+   "seconds": 0.004029849000062313,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "ok"
+  },
+  "0642.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/text.xls",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.0034997069999462838,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "ok"
+  },
+  "0643.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/123233_charts.xlsx",
+   "ok": true,
+   "chars": 70,
+   "seconds": 0.01767459500001678,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "ok"
+  },
+  "0639.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/styles-3563.xls",
+   "ok": true,
+   "chars": 26443,
+   "seconds": 0.1721335839999938,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0644.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/45540_classic_Footer.xlsx",
+   "ok": true,
+   "chars": 10451,
+   "seconds": 0.05876888600005259,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "ok"
+  },
+  "0646.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/46536.xlsx",
+   "ok": true,
+   "chars": 124,
+   "seconds": 0.006097242999999253,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "ok"
+  },
+  "0645.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/45540_form_Header.xlsx",
+   "ok": true,
+   "chars": 4004,
+   "seconds": 0.05618745600008879,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0647.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/47737.xlsx",
+   "ok": true,
+   "chars": 527,
+   "seconds": 0.009744513999976334,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "ok"
+  },
+  "0648.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/47862.xlsx",
+   "ok": true,
+   "chars": 106,
+   "seconds": 0.00572527099996023,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0649.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/48539.xlsx",
+   "ok": true,
+   "chars": 1576,
+   "seconds": 0.011235545999966234,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "ok"
+  },
+  "0650.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/48962.xlsx",
+   "ok": true,
+   "chars": 1180,
+   "seconds": 0.009936744000015096,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0651.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/49325.xlsx",
+   "ok": true,
+   "chars": 87,
+   "seconds": 0.0042967019999196054,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "ok"
+  },
+  "0652.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/49872.xlsx",
+   "ok": true,
+   "chars": 97,
+   "seconds": 0.005160006000096473,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0654.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/50786-indexed_colours.xlsx",
+   "ok": true,
+   "chars": 17,
+   "seconds": 0.003940844999988258,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0655.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/50867_with_table.xlsx",
+   "ok": true,
+   "chars": 80,
+   "seconds": 0.005613500999970711,
+   "peak_rss_mb": 246.7109375,
+   "outcome": "ok"
+  },
+  "0653.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/50299.xlsx",
+   "ok": true,
+   "chars": 4273,
+   "seconds": 0.04003129499994884,
+   "peak_rss_mb": 334.91015625,
+   "outcome": "ok"
+  },
+  "0657.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/51710.xlsx",
+   "ok": true,
+   "chars": 75853,
+   "seconds": 0.27688557800001945,
+   "peak_rss_mb": 337.16796875,
+   "outcome": "ok"
+  },
+  "0658.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/51998.xlsx",
+   "ok": true,
+   "chars": 126,
+   "seconds": 0.008610108999960175,
+   "peak_rss_mb": 337.16796875,
+   "outcome": "ok"
+  },
+  "0659.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/52716.xlsx",
+   "ok": true,
+   "chars": 3634,
+   "seconds": 0.01621560099999897,
+   "peak_rss_mb": 337.16796875,
+   "outcome": "ok"
+  },
+  "0660.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/53282.xlsx",
+   "ok": true,
+   "chars": 208,
+   "seconds": 0.008070114000020112,
+   "peak_rss_mb": 337.16796875,
+   "outcome": "ok"
+  },
+  "0661.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/53734.xlsx",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.005861966999987089,
+   "peak_rss_mb": 337.16796875,
+   "outcome": "ok"
+  },
+  "0662.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/54071.xlsx",
+   "ok": true,
+   "chars": 430,
+   "seconds": 0.0053013100000498525,
+   "peak_rss_mb": 337.16796875,
+   "outcome": "ok"
+  },
+  "0663.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/54288-ref.xlsx",
+   "ok": true,
+   "chars": 14234,
+   "seconds": 0.13189398400004393,
+   "peak_rss_mb": 337.16796875,
+   "outcome": "ok"
+  },
+  "0664.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/54436.xlsx",
+   "ok": true,
+   "chars": 361,
+   "seconds": 0.0076551559999415986,
+   "peak_rss_mb": 337.16796875,
+   "outcome": "ok"
+  },
+  "0656.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/51585.xlsx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.529212320000056,
+   "peak_rss_mb": 251.1171875,
+   "outcome": "empty"
+  },
+  "0666.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/55745.xlsx",
+   "ok": true,
+   "chars": 187,
+   "seconds": 0.007960136999940914,
+   "peak_rss_mb": 251.1171875,
+   "outcome": "ok"
+  },
+  "0667.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/55864.xlsx",
+   "ok": true,
+   "chars": 99,
+   "seconds": 0.0063044759999684175,
+   "peak_rss_mb": 251.1171875,
+   "outcome": "ok"
+  },
+  "0668.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/55926.xlsx",
+   "ok": true,
+   "chars": 77,
+   "seconds": 0.005835577000084413,
+   "peak_rss_mb": 251.1171875,
+   "outcome": "ok"
+  },
+  "0669.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56017.xlsx",
+   "ok": true,
+   "chars": 50,
+   "seconds": 0.005280487999925754,
+   "peak_rss_mb": 251.1171875,
+   "outcome": "ok"
+  },
+  "0670.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56274.xlsx",
+   "ok": true,
+   "chars": 109,
+   "seconds": 0.009260802000085278,
+   "peak_rss_mb": 251.1171875,
+   "outcome": "ok"
+  },
+  "0671.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56420.xlsx",
+   "ok": true,
+   "chars": 83,
+   "seconds": 0.0051239220000525165,
+   "peak_rss_mb": 251.1171875,
+   "outcome": "ok"
+  },
+  "0672.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56514.xlsx",
+   "ok": true,
+   "chars": 32,
+   "seconds": 0.005370144000039545,
+   "peak_rss_mb": 251.1171875,
+   "outcome": "ok"
+  },
+  "0673.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56644.xlsx",
+   "ok": true,
+   "chars": 4704,
+   "seconds": 0.04973781199998939,
+   "peak_rss_mb": 251.7421875,
+   "outcome": "ok"
+  },
+  "0674.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56688_4.xlsx",
+   "ok": true,
+   "chars": 62,
+   "seconds": 0.005224172999987786,
+   "peak_rss_mb": 251.7421875,
+   "outcome": "ok"
+  },
+  "0675.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56737.xlsx",
+   "ok": true,
+   "chars": 188,
+   "seconds": 0.005115109000030316,
+   "peak_rss_mb": 251.7421875,
+   "outcome": "ok"
+  },
+  "0676.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57171_57163_57165.xlsx",
+   "ok": true,
+   "chars": 205,
+   "seconds": 0.012552877000075569,
+   "peak_rss_mb": 251.7421875,
+   "outcome": "ok"
+  },
+  "0677.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57362.xlsx",
+   "ok": true,
+   "chars": 184,
+   "seconds": 0.005737017999990712,
+   "peak_rss_mb": 251.7421875,
+   "outcome": "ok"
+  },
+  "0665.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/54764.xlsx",
+   "ok": false,
+   "error": "CorruptedDocumentError: Could not parse the XLSX document. The file may be corrupted.",
+   "seconds": 0.20441808399993988,
+   "peak_rss_mb": 381.91796875,
+   "outcome": "error"
+  },
+  "0679.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57826.xlsx",
+   "ok": true,
+   "chars": 25,
+   "seconds": 0.005728855000029398,
+   "peak_rss_mb": 381.91796875,
+   "outcome": "ok"
+  },
+  "0678.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57523.xlsx",
+   "ok": true,
+   "chars": 27724,
+   "seconds": 0.2460568379999586,
+   "peak_rss_mb": 253.6171875,
+   "outcome": "ok"
+  },
+  "0681.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/58315.xlsx",
+   "ok": true,
+   "chars": 27,
+   "seconds": 0.0050189629999977114,
+   "peak_rss_mb": 253.6171875,
+   "outcome": "ok"
+  },
+  "0682.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/58616.xlsx",
+   "ok": false,
+   "error": "EncryptedDocumentError: The Office document is password-protected. Please remove the password and upload it again.",
+   "seconds": 0.0007870890000276631,
+   "peak_rss_mb": 253.6171875,
+   "outcome": "error"
+  },
+  "0683.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/58760.xlsx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.006448823999903652,
+   "peak_rss_mb": 253.6171875,
+   "outcome": "empty"
+  },
+  "0684.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/59026.xlsx",
+   "ok": true,
+   "chars": 214,
+   "seconds": 0.005028897999977744,
+   "peak_rss_mb": 253.6171875,
+   "outcome": "ok"
+  },
+  "0685.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/59264.xlsx",
+   "ok": true,
+   "chars": 168,
+   "seconds": 0.006246227000019644,
+   "peak_rss_mb": 253.6171875,
+   "outcome": "ok"
+  },
+  "0686.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/59746_NoRowNums.xlsx",
+   "ok": true,
+   "chars": 6915,
+   "seconds": 0.01797877499996048,
+   "peak_rss_mb": 253.8671875,
+   "outcome": "ok"
+  },
+  "0687.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/60289.xlsx",
+   "ok": true,
+   "chars": 72,
+   "seconds": 0.004067176000035033,
+   "peak_rss_mb": 253.8671875,
+   "outcome": "ok"
+  },
+  "0688.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/60709.xlsx",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.004388801000004605,
+   "peak_rss_mb": 253.8671875,
+   "outcome": "ok"
+  },
+  "0689.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/61063.xlsx",
+   "ok": true,
+   "chars": 71,
+   "seconds": 0.004727773000013258,
+   "peak_rss_mb": 253.8671875,
+   "outcome": "ok"
+  },
+  "0690.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/61652.xlsx",
+   "ok": true,
+   "chars": 165,
+   "seconds": 0.013635012000008828,
+   "peak_rss_mb": 253.8671875,
+   "outcome": "ok"
+  },
+  "0691.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/62629_toMerge.xlsx",
+   "ok": true,
+   "chars": 67,
+   "seconds": 0.00780383099993287,
+   "peak_rss_mb": 253.9921875,
+   "outcome": "ok"
+  },
+  "0692.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/64508.xlsx",
+   "ok": true,
+   "chars": 477,
+   "seconds": 0.004709074999937002,
+   "peak_rss_mb": 253.9921875,
+   "outcome": "ok"
+  },
+  "0693.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/64759.xlsx",
+   "ok": true,
+   "chars": 263,
+   "seconds": 0.00529176500003814,
+   "peak_rss_mb": 253.9921875,
+   "outcome": "ok"
+  },
+  "0694.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/70005-countifs.xlsx",
+   "ok": true,
+   "chars": 113,
+   "seconds": 0.005084141999986969,
+   "peak_rss_mb": 253.9921875,
+   "outcome": "ok"
+  },
+  "0695.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/BrNotClosed.xlsx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.004622695000080057,
+   "peak_rss_mb": 253.9921875,
+   "outcome": "empty"
+  },
+  "0696.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/CustomXMLMapping-singleattributenamespace.xlsx",
+   "ok": true,
+   "chars": 170,
+   "seconds": 0.005240877999995064,
+   "peak_rss_mb": 253.9921875,
+   "outcome": "ok"
+  },
+  "0697.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/CustomXmlMappings-inverse-order.xlsx",
+   "ok": true,
+   "chars": 183,
+   "seconds": 0.005334440000069662,
+   "peak_rss_mb": 253.9921875,
+   "outcome": "ok"
+  },
+  "0698.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/DataValidations-49244.xlsx",
+   "ok": true,
+   "chars": 1575,
+   "seconds": 0.008823471999903632,
+   "peak_rss_mb": 253.9921875,
+   "outcome": "ok"
+  },
+  "0699.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ElapsedFormatTests.xlsx",
+   "ok": true,
+   "chars": 3456,
+   "seconds": 0.014620680999996694,
+   "peak_rss_mb": 254.1171875,
+   "outcome": "ok"
+  },
+  "0700.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/Excel_file_with_trash_item.xlsx",
+   "ok": true,
+   "chars": 50287,
+   "seconds": 0.22120838299997558,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0701.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/FormatConditionTests.xlsx",
+   "ok": true,
+   "chars": 2215,
+   "seconds": 0.01705711199997495,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0702.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/FormulaEvalTestData_Copy.xlsx",
+   "ok": true,
+   "chars": 93670,
+   "seconds": 0.1501778800000011,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0703.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/GroupTest.xlsx",
+   "ok": true,
+   "chars": 244,
+   "seconds": 0.005652441000052022,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0704.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/InlineStrings.xlsx",
+   "ok": true,
+   "chars": 282,
+   "seconds": 0.007343876999925669,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0705.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/LIBRE_OFFICE-128382-0.xlsx",
+   "ok": true,
+   "chars": 4442,
+   "seconds": 0.13453682800002298,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0706.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/NewStyleConditionalFormattings.xlsx",
+   "ok": true,
+   "chars": 2127,
+   "seconds": 0.013748072999987926,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0707.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/RepeatingRowsCols.xlsx",
+   "ok": true,
+   "chars": 443,
+   "seconds": 0.008538180999948963,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0708.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SheetTabColors.xlsx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.004569654999954764,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "empty"
+  },
+  "0709.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SimpleNormal.xlsx",
+   "ok": true,
+   "chars": 250,
+   "seconds": 0.005048979000093823,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0710.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SingleCellTable.xlsx",
+   "ok": true,
+   "chars": 20,
+   "seconds": 0.005719411999962176,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0711.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/Tables.xlsx",
+   "ok": true,
+   "chars": 23627,
+   "seconds": 0.1381730719999723,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0712.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/TextFormatTests.xlsx",
+   "ok": true,
+   "chars": 1243,
+   "seconds": 0.00943356400000539,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0713.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/TwoSheetsOneHidden.xlsx",
+   "ok": true,
+   "chars": 26,
+   "seconds": 0.004745139999954517,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0714.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WidthsAndHeights.xlsx",
+   "ok": true,
+   "chars": 114,
+   "seconds": 0.004707893999920998,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0715.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WithConditionalFormatting.xlsx",
+   "ok": true,
+   "chars": 138,
+   "seconds": 0.006429945000036241,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0716.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WithTable.xlsx",
+   "ok": true,
+   "chars": 52,
+   "seconds": 0.0055473020000818,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0717.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WithThreeCharts.xlsx",
+   "ok": true,
+   "chars": 679,
+   "seconds": 0.008699915000079272,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0718.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/XSSFSheet.copyRows.xlsx",
+   "ok": true,
+   "chars": 1846,
+   "seconds": 0.008306851000043025,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0719.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug60848_sumproduct_unary_minus.xlsx",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.01844730199991318,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0720.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug63189.xlsx",
+   "ok": true,
+   "chars": 54,
+   "seconds": 0.008842290000075081,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0721.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug65464.xlsx",
+   "ok": true,
+   "chars": 954,
+   "seconds": 0.021189146000097026,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0722.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug67784.xlsx",
+   "ok": true,
+   "chars": 163,
+   "seconds": 0.006839062999915768,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0723.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug70146.xlsx",
+   "ok": true,
+   "chars": 63,
+   "seconds": 0.005387260000020433,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0724.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/chartTitle_withTitleFormula.xlsx",
+   "ok": true,
+   "chars": 294,
+   "seconds": 0.0059284470000875444,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0725.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/comments.xlsx",
+   "ok": true,
+   "chars": 258,
+   "seconds": 0.00600505299996712,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0726.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/conditional_formatting_with_formula_on_second_sheet.xlsx",
+   "ok": true,
+   "chars": 43,
+   "seconds": 0.01501626899994335,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0727.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/dataValidationTableRange.xlsx",
+   "ok": true,
+   "chars": 184170,
+   "seconds": 0.3298705259999224,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0728.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/evaluate_formula_with_structured_table_references.xlsx",
+   "ok": true,
+   "chars": 78,
+   "seconds": 0.005590998000002401,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0729.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/headerFooterTest.xlsx",
+   "ok": true,
+   "chars": 45,
+   "seconds": 0.004294518999927277,
+   "peak_rss_mb": 254.4921875,
+   "outcome": "ok"
+  },
+  "0730.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/link-external-workbook-b.xlsx",
+   "ok": true,
+   "chars": 20,
+   "seconds": 0.003963609000038559,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0731.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/picture-and-shape-same-size.xlsx",
+   "ok": true,
+   "chars": 77,
+   "seconds": 0.011813829999937298,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0732.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ref-56737.xlsx",
+   "ok": true,
+   "chars": 199,
+   "seconds": 0.006107387999918501,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0733.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/resize_compare.xlsx",
+   "ok": true,
+   "chars": 129,
+   "seconds": 0.00969997599997896,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0734.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/sample.xlsx",
+   "ok": true,
+   "chars": 397,
+   "seconds": 0.008342325000057826,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0735.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/sheetProtection_allLocked.xlsx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.004461290999984158,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "empty"
+  },
+  "0736.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/simple-table-named-range.xlsx",
+   "ok": true,
+   "chars": 89,
+   "seconds": 0.004695255000001453,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0737.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/tableStyle.xlsx",
+   "ok": true,
+   "chars": 171,
+   "seconds": 0.0064018730000725554,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0738.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/testSharedFormulasSetBlank.xlsx",
+   "ok": true,
+   "chars": 46,
+   "seconds": 0.00510798799996337,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0739.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/unicodeSheetName.xlsx",
+   "ok": true,
+   "chars": 44,
+   "seconds": 0.004565066999930423,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0740.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/workbookProtection_not_protected.xlsx",
+   "ok": true,
+   "chars": 65,
+   "seconds": 0.004504595999947014,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0741.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/workbookProtection_workbook_windows_protected.xlsx",
+   "ok": true,
+   "chars": 65,
+   "seconds": 0.004636875999949552,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0742.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/xlsx-corrupted.xlsx",
+   "ok": true,
+   "chars": 234,
+   "seconds": 0.006862448999982007,
+   "peak_rss_mb": 254.6171875,
+   "outcome": "ok"
+  },
+  "0345.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/nics-background-checks-2015-11-rotated.pdf",
+   "ok": true,
+   "chars": 32278,
+   "seconds": 12.046436757000038,
+   "peak_rss_mb": 499.4921875,
+   "outcome": "ok"
+  },
+  "0680.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57893-many-merges.xlsx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 5.576803171999927,
+   "peak_rss_mb": 381.91796875,
+   "outcome": "empty"
+  }
+ }
+}

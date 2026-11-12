@@ -1,0 +1,680 @@
+[
+ {
+  "id": "0000.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4591020179783680.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/4591020179783680.pdf"
+ },
+ {
+  "id": "0001.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4646567755972608.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/4646567755972608.pdf"
+ },
+ {
+  "id": "0002.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4652594248613888.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/4652594248613888.pdf"
+ },
+ {
+  "id": "0003.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4691742750474240.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/4691742750474240.pdf"
+ },
+ {
+  "id": "0004.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4715311080734720.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/4715311080734720.pdf"
+ },
+ {
+  "id": "0005.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4736668896133120.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/4736668896133120.pdf"
+ },
+ {
+  "id": "0006.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4833695495684096.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/4833695495684096.pdf"
+ },
+ {
+  "id": "0007.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4927662560968704.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/4927662560968704.pdf"
+ },
+ {
+  "id": "0008.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5177159198507008.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/5177159198507008.pdf"
+ },
+ {
+  "id": "0009.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5317294594523136.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/5317294594523136.pdf"
+ },
+ {
+  "id": "0010.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5452007745323008.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/5452007745323008.pdf"
+ },
+ {
+  "id": "0011.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5592736912179200.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/5592736912179200.pdf"
+ },
+ {
+  "id": "0012.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5809779695484928.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/5809779695484928.pdf"
+ },
+ {
+  "id": "0013.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5903429863538688.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/5903429863538688.pdf"
+ },
+ {
+  "id": "0014.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5914823472250880.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/5914823472250880.pdf"
+ },
+ {
+  "id": "0015.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6013812888633344.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/6013812888633344.pdf"
+ },
+ {
+  "id": "0016.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6085913544818688.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/6085913544818688.pdf"
+ },
+ {
+  "id": "0017.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6400141380878336.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/6400141380878336.pdf"
+ },
+ {
+  "id": "0018.pdf",
+  "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6515565732102144.pdf",
+  "format": "PDF",
+  "source": "pdfplumber/tests/pdfs/from-oss-fuzz/load/6515565732102144.pdf"
+ },
+ {
+  "id": "0019.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Fuzzed.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/Fuzzed.doc"
+ },
+ {
+  "id": "0020.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-POIHWPFFuzzer-5696094627495936.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/clusterfuzz-testcase-POIHWPFFuzzer-5696094627495936.doc"
+ },
+ {
+  "id": "0021.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx"
+ },
+ {
+  "id": "0022.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4892412469968896.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4892412469968896.doc"
+ },
+ {
+  "id": "0023.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4947285593948160.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4947285593948160.doc"
+ },
+ {
+  "id": "0024.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4951943183990784.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4951943183990784.doc"
+ },
+ {
+  "id": "0025.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5050208641482752.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5050208641482752.doc"
+ },
+ {
+  "id": "0026.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5074346559012864.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5074346559012864.doc"
+ },
+ {
+  "id": "0027.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5195207308541952.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5195207308541952.doc"
+ },
+ {
+  "id": "0028.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5418937293340672.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5418937293340672.doc"
+ },
+ {
+  "id": "0029.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5440721166139392.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5440721166139392.doc"
+ },
+ {
+  "id": "0030.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5832867957309440.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5832867957309440.doc"
+ },
+ {
+  "id": "0031.doc",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-6610789829836800.doc",
+  "format": "DOC",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-6610789829836800.doc"
+ },
+ {
+  "id": "0032.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx"
+ },
+ {
+  "id": "0033.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4959857092198400.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4959857092198400.docx"
+ },
+ {
+  "id": "0034.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx"
+ },
+ {
+  "id": "0035.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx"
+ },
+ {
+  "id": "0036.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5313273089884160.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5313273089884160.docx"
+ },
+ {
+  "id": "0037.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx"
+ },
+ {
+  "id": "0038.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5569740188549120.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5569740188549120.docx"
+ },
+ {
+  "id": "0039.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6061520554164224.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6061520554164224.docx"
+ },
+ {
+  "id": "0040.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx"
+ },
+ {
+  "id": "0041.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6442791109263360.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6442791109263360.docx"
+ },
+ {
+  "id": "0042.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6733884933668864.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6733884933668864.docx"
+ },
+ {
+  "id": "0043.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx"
+ },
+ {
+  "id": "0044.docx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/document/deep-table-cell.docx",
+  "format": "DOCX",
+  "source": "poi/test-data/document/deep-table-cell.docx"
+ },
+ {
+  "id": "0045.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-5802475696488448.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-5802475696488448.ppt"
+ },
+ {
+  "id": "0046.pptx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5205835528404992.pptx",
+  "format": "PPTX",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5205835528404992.pptx"
+ },
+ {
+  "id": "0047.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5429732352851968.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5429732352851968.ppt"
+ },
+ {
+  "id": "0048.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5681320547975168.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5681320547975168.ppt"
+ },
+ {
+  "id": "0049.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-6411649193738240.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-6411649193738240.ppt"
+ },
+ {
+  "id": "0050.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4624961081573376.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4624961081573376.ppt"
+ },
+ {
+  "id": "0051.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4630915954114560.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4630915954114560.ppt"
+ },
+ {
+  "id": "0052.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4838893004128256.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4838893004128256.ppt"
+ },
+ {
+  "id": "0053.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4983252485210112.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4983252485210112.ppt"
+ },
+ {
+  "id": "0054.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5018229722382336.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5018229722382336.ppt"
+ },
+ {
+  "id": "0055.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5231088823566336.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5231088823566336.ppt"
+ },
+ {
+  "id": "0056.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5306877435838464.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5306877435838464.ppt"
+ },
+ {
+  "id": "0057.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5962760801091584.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5962760801091584.ppt"
+ },
+ {
+  "id": "0058.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6028723156746240.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6028723156746240.ppt"
+ },
+ {
+  "id": "0059.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6032591399288832.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6032591399288832.ppt"
+ },
+ {
+  "id": "0060.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6192650357112832.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6192650357112832.ppt"
+ },
+ {
+  "id": "0061.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6360479850954752.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6360479850954752.ppt"
+ },
+ {
+  "id": "0062.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6416153805979648.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6416153805979648.ppt"
+ },
+ {
+  "id": "0063.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6614960949821440.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6614960949821440.ppt"
+ },
+ {
+  "id": "0064.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6710128412590080.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6710128412590080.ppt"
+ },
+ {
+  "id": "0065.pptx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4838644450394112.pptx",
+  "format": "PPTX",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4838644450394112.pptx"
+ },
+ {
+  "id": "0066.pptx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4986044400861184.pptx",
+  "format": "PPTX",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4986044400861184.pptx"
+ },
+ {
+  "id": "0067.pptx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5463285576892416.pptx",
+  "format": "PPTX",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5463285576892416.pptx"
+ },
+ {
+  "id": "0068.pptx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5471515212382208.pptx",
+  "format": "PPTX",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5471515212382208.pptx"
+ },
+ {
+  "id": "0069.pptx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5611274456596480.pptx",
+  "format": "PPTX",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5611274456596480.pptx"
+ },
+ {
+  "id": "0070.pptx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6071540680032256.pptx",
+  "format": "PPTX",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6071540680032256.pptx"
+ },
+ {
+  "id": "0071.pptx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6254434927378432.pptx",
+  "format": "PPTX",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6254434927378432.pptx"
+ },
+ {
+  "id": "0072.pptx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6372932378820608.pptx",
+  "format": "PPTX",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6372932378820608.pptx"
+ },
+ {
+  "id": "0073.pptx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6435650376957952.pptx",
+  "format": "PPTX",
+  "source": "poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6435650376957952.pptx"
+ },
+ {
+  "id": "0074.pptx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx",
+  "format": "PPTX",
+  "source": "poi/test-data/slideshow/crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx"
+ },
+ {
+  "id": "0075.ppt",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-74c33084f66628ba85e4ab8e71374d39915db381.ppt",
+  "format": "PPT",
+  "source": "poi/test-data/slideshow/crash-74c33084f66628ba85e4ab8e71374d39915db381.ppt"
+ },
+ {
+  "id": "0076.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx"
+ },
+ {
+  "id": "0077.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4651309315719168.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4651309315719168.xls"
+ },
+ {
+  "id": "0078.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4657005060816896.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4657005060816896.xls"
+ },
+ {
+  "id": "0079.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4734163573080064.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4734163573080064.xls"
+ },
+ {
+  "id": "0080.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4819588401201152.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4819588401201152.xls"
+ },
+ {
+  "id": "0081.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4977868385681408.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4977868385681408.xls"
+ },
+ {
+  "id": "0082.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5175219985448960.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5175219985448960.xls"
+ },
+ {
+  "id": "0083.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5285517825277952.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5285517825277952.xls"
+ },
+ {
+  "id": "0084.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5436547081830400.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5436547081830400.xls"
+ },
+ {
+  "id": "0085.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5786329142919168.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5786329142919168.xls"
+ },
+ {
+  "id": "0086.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5816431116615680.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5816431116615680.xls"
+ },
+ {
+  "id": "0087.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5889658057523200.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5889658057523200.xls"
+ },
+ {
+  "id": "0088.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6137883240824832.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6137883240824832.xls"
+ },
+ {
+  "id": "0089.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6322470200934400.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6322470200934400.xls"
+ },
+ {
+  "id": "0090.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6483562584932352.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6483562584932352.xls"
+ },
+ {
+  "id": "0091.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6537773940867072.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6537773940867072.xls"
+ },
+ {
+  "id": "0092.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx"
+ },
+ {
+  "id": "0093.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5089447305609216.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5089447305609216.xlsx"
+ },
+ {
+  "id": "0094.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx"
+ },
+ {
+  "id": "0095.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5265527465181184.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5265527465181184.xlsx"
+ },
+ {
+  "id": "0096.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5937385319563264.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5937385319563264.xlsx"
+ },
+ {
+  "id": "0097.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6123461607817216.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6123461607817216.xlsx"
+ },
+ {
+  "id": "0098.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6419366255919104.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6419366255919104.xlsx"
+ },
+ {
+  "id": "0099.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx"
+ },
+ {
+  "id": "0100.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx"
+ },
+ {
+  "id": "0101.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx"
+ },
+ {
+  "id": "0102.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5636439151607808.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5636439151607808.xlsx"
+ },
+ {
+  "id": "0103.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6504225896792064.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6504225896792064.xlsx"
+ },
+ {
+  "id": "0104.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6594557414080512.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6594557414080512.xlsx"
+ },
+ {
+  "id": "0105.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-274d6342e4842d61be0fb48eaadad6208ae767ae.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/crash-274d6342e4842d61be0fb48eaadad6208ae767ae.xlsx"
+ },
+ {
+  "id": "0106.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-9bf3cd4bd6f50a8a9339d363c2c7af14b536865c.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/crash-9bf3cd4bd6f50a8a9339d363c2c7af14b536865c.xlsx"
+ },
+ {
+  "id": "0107.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-e329fca9087fe21bca4a80c8bc472a661c98d860.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/crash-e329fca9087fe21bca4a80c8bc472a661c98d860.xls"
+ },
+ {
+  "id": "0108.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/deep-data.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/deep-data.xlsx"
+ },
+ {
+  "id": "0109.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-shared-strings.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/poc-shared-strings.xlsx"
+ },
+ {
+  "id": "0110.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb-empty.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/poc-xmlbomb-empty.xlsx"
+ },
+ {
+  "id": "0111.xlsx",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb.xlsx",
+  "format": "XLSX",
+  "source": "poi/test-data/spreadsheet/poc-xmlbomb.xlsx"
+ },
+ {
+  "id": "0112.xls",
+  "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poi-fuzz.xls",
+  "format": "XLS",
+  "source": "poi/test-data/spreadsheet/poi-fuzz.xls"
+ }
+]

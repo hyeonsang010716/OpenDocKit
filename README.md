@@ -130,6 +130,22 @@ Legacy `.doc` and `.ppt` need LibreOffice installed; everything else is read by 
 what each format restores is in [docs/formats.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/formats.md); the honest list of what it cannot do is in
 [docs/limitations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md).
 
+## How it compares
+
+<p align="center">
+  <img alt="Structure checks passed: OpenDocKit 43 of 49, Docling 36, MarkItDown 31, Kreuzberg 29, Unstructured 12"
+       src="https://github.com/hyeonsang010716/OpenDocKit/raw/main/benchmarks/charts/structure-checks.svg" width="720">
+</p>
+
+We ran OpenDocKit, MarkItDown, Kreuzberg, Unstructured and Docling on the same files on a standard GitHub runner
+([method, raw results and how to rerun it](https://github.com/hyeonsang010716/OpenDocKit/blob/main/benchmarks/README.md)):
+
+- **Structure** — OpenDocKit keeps the most: 43 of 49 checks such as "is the merged cell still attached to its row",
+  against 36 for the next tool.
+- **Korean documents** — it is the only one of the five that reads HWP and HWPX.
+- **Not the widest, not the fastest** — 0.1.0 has no reader for legacy `.doc`/`.ppt`, RTF, OpenDocument or EPUB,
+  reads scans only through a vision model, and drops link targets and bold text. Kreuzberg is far faster.
+
 ## Examples
 
 [`examples/`](https://github.com/hyeonsang010716/OpenDocKit/tree/main/examples/) has one sample document per format and the Markdown OpenDocKit produces from each — with and
