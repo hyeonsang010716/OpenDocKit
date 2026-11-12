@@ -1,6 +1,6 @@
 # Deploying with blue-green releases
 
-A blue-green release keeps two identical environments. Traffic moves from blue to green in one switch, and moves back just as quickly if something is wrong.
+A blue-green release keeps two identical environments. Traffic moves from *blue* to *green* in one switch, and moves back just as quickly if something is wrong.
 
 ## Checklist
 
@@ -24,6 +24,6 @@ lb set-backend --pool green --drain 30s
 lb status --wait healthy
 ```
 
-Expected error budget burn during a switch is $\frac{t·e}{T}$, where t is the switch time.
+Expected error budget burn during a switch is $\frac{t·e}{T}$, where *t* is the switch time.
 
 © 2026 Example Cloud. All rights reserved.
