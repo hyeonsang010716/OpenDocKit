@@ -22,9 +22,11 @@ install() {  # name requirement
 }
 install opendockit   "opendockit[heic]==0.1.0"
 install markitdown   "markitdown[all]==0.1.9"
-install kreuzberg    "kreuzberg==4.10.4"
+install kreuzberg    "kreuzberg[all]==4.10.4"
 install unstructured "unstructured[all-docs]==0.27.37"
 install docling      "docling==2.150.0"
+# Docling keeps some document formats behind extras of its core package; add the ones for office documents and mail.
+uv pip install -q --python "$VENVS/docling" "docling-slim[format-opendocument,format-office,format-email]==2.150.0"
 
 # Docling and unstructured download models on first use; fetch them now so no timing includes a download.
 "$VENVS/docling/bin/docling-tools" models download >/dev/null 2>&1 || true
