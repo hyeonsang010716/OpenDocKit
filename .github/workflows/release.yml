@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   build:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -27,6 +28,7 @@ jobs:
           path: dist/
 
   publish:
+    timeout-minutes: 15
     needs: build
     runs-on: ubuntu-latest
     environment: pypi

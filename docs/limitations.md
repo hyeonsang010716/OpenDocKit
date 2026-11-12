@@ -10,8 +10,10 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   libxml2 2.11. With the older parser, text after the end of a page, a second concatenated document, the content of
   `<textarea>`/`<xmp>` and — most importantly — further parts of a mail (forwarded messages, calendar invitations, later
   messages of an mbox) can go missing. When that parser is in use, every HTML or mail result carries a warning saying so.
-  The other formats do not depend on it. `IsolatedConverter` applies its memory limit on Linux only; elsewhere the time
-  limit and process isolation remain.
+  The other formats do not depend on it.
+- **`IsolatedConverter` is verified on Linux and macOS only.** Its memory limit applies on Linux; on macOS the time limit and
+  process isolation remain. On Windows it is untested: in CI, closing a converter while a conversion was still running did
+  not return.
 
 ## General
 
