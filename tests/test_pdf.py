@@ -2563,6 +2563,33 @@ def test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text(s
     assert result.warnings == []
 
 
+def test_wrongly_decrypted_font_info_that_happens_to_be_printable_is_still_repaired(monkeypatch):
+    """The repair above recognised broken font info by 'not printable ASCII'. AES uses a random IV, and now and then the wrongly
+    decrypted bytes were all printable (`b'"w#"Q'`, `b'(|>%Ue'`): about 1 conversion in 400 of the same document lost its whole
+    text. The bytes pdfminer hands back are replaced here by that printable garbage so the case is reproduced every time."""
+    from pdfminer.pdftypes import resolve1 as real_resolve
+    from reportlab.lib.pdfencrypt import StandardEncryption
+
+    from opendockit.extractors import pdf as extractor
+
+    def draw(pdf, index):
+        pdf.drawString(72, 760, "당사는 2025년 매출액 1조 4,567억원을 기록하였습니다.")
+
+    def resolve_with_printable_garbage(value, *args, **kwargs):
+        resolved = real_resolve(value, *args, **kwargs)
+        if isinstance(resolved, dict) and "Ordering" in resolved and resolved.get("Ordering") != b"Korea1":
+            resolved["Registry"], resolved["Ordering"] = b'"w#"Q', b"(|>%Ue"
+        return resolved
+
+    monkeypatch.setattr(extractor, "resolve1", resolve_with_printable_garbage)
+    encrypt = StandardEncryption("", ownerPassword="own", canCopy=0, strength=128)
+
+    result = convert(_korean_pdf(draw, encrypt=encrypt), "a.pdf")
+
+    assert "당사는 2025년 매출액 1조 4,567억원을 기록하였습니다." in result.sections[0].text
+    assert result.warnings == []
+
+
 class TestListMarkers:
     """A PDF exported with LibreOffice from a Word list (List Number, List Bullet) places the numbers and bullets apart from the item
     text, so a paragraph of numbers only ('1.\\n\\n2.\\n\\n3.') and the item text came apart. The numbers of the footnote area did

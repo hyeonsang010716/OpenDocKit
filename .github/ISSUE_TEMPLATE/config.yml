@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Question or idea
+    url: https://github.com/hyeonsang010716/OpenDocKit/discussions
+    about: Ask how to use OpenDocKit or discuss an idea before opening an issue.
   - name: Security vulnerability
     url: https://github.com/hyeonsang010716/OpenDocKit/security/advisories/new
     about: Report crashes, resource exhaustion or data leaks from crafted documents privately.

@@ -9,7 +9,7 @@
   <a href="https://pypi.org/project/opendockit/"><img alt="PyPI" src="https://img.shields.io/pypi/v/opendockit"></a>
   <a href="https://pypi.org/project/opendockit/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/opendockit"></a>
   <a href="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://github.com/hyeonsang010716/OpenDocKit/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
 ---
@@ -53,7 +53,7 @@ pip install "opendockit[heic]"        # + HEIC/HEIF images (pulls in GPL/LGPL-li
 ```
 
 Requires Python 3.12 or newer on Linux or macOS. Windows is not supported yet for HTML and email
-([why](docs/limitations.md#platforms)).
+([why](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md#platforms)).
 
 ## Quick start
 
@@ -82,7 +82,7 @@ result = await aconvert(data, "report.pdf", describer=OpenAIImageDescriber())   
 
 Charts become data tables, diagrams become lists, scanned pages are transcribed, and decorative images are dropped.
 `OpenAIImageDescriber(model)` accepts any LangChain chat model, and anything with an
-`async describe(image) -> str` method works as a describer. See [docs/images.md](docs/images.md).
+`async describe(image) -> str` method works as a describer. See [docs/images.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md).
 
 ### Serve it
 
@@ -96,7 +96,7 @@ async with IsolatedConverter(workers=2) as converter:      # 2 GB and 2 minutes 
         print(exc.code, exc)                               # stable code + a message safe to show users
 ```
 
-One bad file ends one worker; your server and the next upload carry on. See [docs/server.md](docs/server.md).
+One bad file ends one worker; your server and the next upload carry on. See [docs/server.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md).
 
 ### Command line
 
@@ -122,38 +122,39 @@ opendockit scan.pdf --describe        # describe images with a vision model (use
 | Images | document / page | JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, and HEIC with the `heic` extra — described by a vision model |
 
 Not supported: legacy `.doc`/`.ppt`, RTF, ODF. The full list of what each format restores is in
-[docs/formats.md](docs/formats.md); the honest list of what it cannot do is in [docs/limitations.md](docs/limitations.md).
+[docs/formats.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/formats.md); the honest list of what it cannot do is in [docs/limitations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md).
 
 ## Examples
 
-[`examples/`](examples/) has one sample document per format and the Markdown OpenDocKit produces from each — with and
+[`examples/`](https://github.com/hyeonsang010716/OpenDocKit/tree/main/examples/) has one sample document per format and the Markdown OpenDocKit produces from each — with and
 without a vision model — so you can judge the output before installing anything.
 
 ## Documentation
 
 | | |
 | --- | --- |
-| [Formats](docs/formats.md) | What is extracted from each format and how it is rendered |
-| [Options](docs/options.md) | `ConvertOptions`, exceptions and error codes |
-| [Images](docs/images.md) | Extraction, filtering, vision models, custom describers |
-| [Running on a server](docs/server.md) | `IsolatedConverter`, resource limits, the character budget |
-| [Integration guide](docs/integration-guide.md) | What an upload UI should tell its users |
-| [Design](docs/design.md) | Why it is built this way, and how it was verified |
-| [Limitations](docs/limitations.md) | Known gaps, stated plainly |
-| [Decision records](docs/decisions/) | Every deliberate trade-off, with the test that pins it |
+| [Formats](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/formats.md) | What is extracted from each format and how it is rendered |
+| [Options](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`, exceptions and error codes |
+| [Images](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | Extraction, filtering, vision models, custom describers |
+| [Running on a server](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`, resource limits, the character budget |
+| [Integration guide](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | What an upload UI should tell its users |
+| [Design](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | Why it is built this way, and how it was verified |
+| [Limitations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | Known gaps, stated plainly |
+| [Decision records](https://github.com/hyeonsang010716/OpenDocKit/tree/main/docs/decisions/) | Every deliberate trade-off, with the test that pins it |
 
 ## Contributing
 
 Contributions are welcome — bug reports with a minimal reproducing document are especially valuable.
-Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+Start with [CONTRIBUTING.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/CONTRIBUTING.md).
 
 ```bash
 git clone https://github.com/hyeonsang010716/OpenDocKit.git && cd OpenDocKit
 uv sync
-uv run pytest -n auto
+uv run pytest -n auto -m "not timing"   # the bulk of the suite, in parallel
+uv run pytest -m timing                  # tests that measure time, one at a time
 uv run ruff check
 ```
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/hyeonsang010716/OpenDocKit/blob/main/LICENSE)

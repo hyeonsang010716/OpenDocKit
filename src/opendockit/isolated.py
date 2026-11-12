@@ -13,9 +13,9 @@ rationale and measurements are in docs/server.md.
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
-from functools import partial
 import multiprocessing
 from multiprocessing.context import BaseContext
+import threading
 from typing import TYPE_CHECKING
 
 
@@ -144,14 +144,50 @@ def _worker_context() -> BaseContext:
 def _stop(pool: ProcessPoolExecutor) -> "asyncio.Future[None]":
     """Terminate the workers, and wait for the pool's manager thread to finish outside the server loop (in the default thread pool)."""
     # Deliberate: the public API of Python 3.12 cannot stop a running worker, so the processes are killed directly
-    # (`_processes` is a private attribute).
-    for process in list((pool._processes or {}).values()):
-        process.kill()
+    # (`_processes` is a private attribute). The dict is kept by reference: the pool sets its own attribute to None when it
+    # shuts down, but the manager thread keeps adding replacement workers to this same dict.
+    processes = pool._processes
+    _kill_all(processes)
+    return asyncio.get_running_loop().run_in_executor(None, _shut_down, pool, processes)
 
-    # shutdown(wait=False) cleared `_processes` to None while the manager thread was replacing a finished worker, and that thread
-    # died with a TypeError
-    # (max_tasks_per_child, Pinned by: test_isolated.py::TestIsolatedConverter::test_stopping_workers_waits_for_the_pool_manager_thread)
-    return asyncio.get_running_loop().run_in_executor(None, partial(pool.shutdown, wait=True, cancel_futures=True))
+
+def _kill_all(processes: dict | None) -> None:
+    try:
+        workers = list((processes or {}).values())
+    except RuntimeError:  # the manager thread added or removed a worker meanwhile; the caller comes round again
+        return
+    for process in workers:
+        try:
+            process.kill()
+        except (OSError, ValueError, AttributeError):  # already gone, already closed, or not started yet
+            pass
+
+
+def _shut_down(pool: ProcessPoolExecutor, processes: dict | None) -> None:
+    """Runs in a thread. Keeps killing the pool's workers until its manager thread has finished.
+
+    Killing once is not enough. With `max_tasks_per_child=1` the manager thread starts a replacement worker whenever one
+    exits, so a worker can appear after the first kill. On shutdown that worker announces itself through the result queue,
+    and if a killed worker died between writing its result and releasing the queue's write lock, the announcement blocks
+    forever: the manager thread waits for the worker, `shutdown(wait=True)` waits for the manager thread, and `aclose()`
+    never returns. It happened under load in a Linux container (1 run in about 4 of the whole suite in parallel).
+    (Pinned by: test_isolated.py::TestIsolatedConverter::test_stopping_does_not_wait_for_a_worker_blocked_on_the_result_queue)
+
+    shutdown(wait=False) is not an alternative: it cleared `_processes` to None while the manager thread was replacing a
+    finished worker, and that thread died with a TypeError
+    (max_tasks_per_child, Pinned by: test_isolated.py::TestIsolatedConverter::test_stopping_workers_waits_for_the_pool_manager_thread).
+    """
+    finished = threading.Event()
+
+    def keep_killing() -> None:
+        while not finished.wait(0.05):
+            _kill_all(processes)
+
+    threading.Thread(target=keep_killing, name="opendockit-stop", daemon=True).start()
+    try:
+        pool.shutdown(wait=True, cancel_futures=True)
+    finally:
+        finished.set()
 
 
 def _limit_memory(limit: int | None) -> None:

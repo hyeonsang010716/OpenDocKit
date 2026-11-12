@@ -79,7 +79,8 @@ Convert real documents with the CLI (`opendockit file.pdf`, `--json` for section
 
 ```bash
 uv sync
-uv run pytest -n auto
+uv run pytest -n auto -m "not timing"
+uv run pytest -m timing
 uv run ruff check
 ```
 

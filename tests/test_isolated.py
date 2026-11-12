@@ -169,6 +169,29 @@ class TestIsolatedConverter:
 
         assert not manager.is_alive()
 
+    def test_stopping_does_not_wait_for_a_worker_blocked_on_the_result_queue(self):
+        """A worker killed between writing its result and releasing the result queue's write lock leaves that lock held. A
+        replacement worker the first kill missed (the manager thread starts one whenever a worker exits) then blocks on the
+        lock while announcing its exit, and `aclose()` waited for it forever — seen as a hung test run in a Linux container
+        under load. The lock is taken here to stand for the killed worker, and the first kill is made to miss the worker."""
+        async def scenario():
+            converter = IsolatedConverter()
+            await converter.convert(_SMALL_TEXT, "a.txt")
+            pool = converter._pools[0]
+            await asyncio.sleep(0.3)  # the replacement worker is up and waiting for a call
+            manager = pool._executor_manager_thread
+            pool._result_queue._wlock.acquire()
+            for process in pool._processes.values():
+                kill, calls = process.kill, []
+                process.kill = lambda kill=kill, calls=calls: (calls.append(1), kill() if len(calls) > 1 else None)[1]
+            started = time.perf_counter()
+            await asyncio.wait_for(converter.aclose(), 20)
+            return time.perf_counter() - started, manager
+
+        elapsed, manager = asyncio.run(scenario())
+
+        assert elapsed < 10 and not manager.is_alive()
+
     def test_closed_converter_refuses_new_files(self):
         async def scenario():
             converter = IsolatedConverter()

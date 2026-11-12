@@ -11,10 +11,14 @@ You need [uv](https://docs.astral.sh/uv/) and Python 3.12 or newer.
 git clone https://github.com/hyeonsang010716/OpenDocKit.git
 cd OpenDocKit
 uv sync                      # creates .venv with runtime, vision and development dependencies
-uv run pytest -n auto        # ~3,000 tests, about half a minute
+uv run pytest -n auto -m "not timing"   # ~2,900 tests in parallel, about 20 seconds
+uv run pytest -m timing                  # ~110 tests that measure time, one at a time, about 40 seconds
 uv run ruff check            # lint
 uv run opendockit some.pdf   # try a real document
 ```
+
+`uv run pytest -n auto` also works for a quick look, but the timing tests can fail when every core is busy, which is why
+they are run separately (as CI does).
 
 Optional: `uvx pre-commit install` runs the linter before each commit.
 
@@ -27,6 +31,9 @@ OPENDOCKIT_LIVE_TESTS=1 OPENAI_API_KEY=... uv run pytest -m live     # OPENAI_BA
 
 `examples/` holds sample documents and their committed outputs; run `uv run python examples/run_examples.py` after a
 change to see what moved.
+
+Questions and ideas are welcome in [Discussions](https://github.com/hyeonsang010716/OpenDocKit/discussions); bugs go to
+[Issues](https://github.com/hyeonsang010716/OpenDocKit/issues).
 
 ## Reporting a problem
 

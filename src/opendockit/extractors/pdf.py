@@ -751,6 +751,8 @@ _CID = re.compile(r"\(cid:\d+\)")
 # Predefined Unicode CMap name → CIDSystemInfo Ordering (_repair_cid_system_info)
 _UNICODE_CMAP = re.compile(r"Uni(KS|JIS|GB|CNS)-")
 _CID_ORDERINGS = {"KS": b"Korea1", "JIS": b"Japan1", "GB": b"GB1", "CNS": b"CNS1"}
+# Orderings a correctly read CIDSystemInfo of such a font can hold (Japan2 and KR are the newer collections of the same scripts).
+_KNOWN_CID_ORDERINGS = frozenset((b"Korea1", b"KR", b"Japan1", b"Japan2", b"GB1", b"CNS1", b"Identity"))
 # Bullets in the Symbol and Wingdings fonts come out as private use area characters (a PDF exported from a Word list). These are
 # the ones markdown._SYMBOL_FONT_GLYPHS later converts to Unicode symbols.
 _SYMBOL_BULLETS = "\uf0b7\uf06c\uf0a1\uf0a7\uf06e\uf071\uf075\uf076\uf0a8\uf0d8\uf0e0\uf0e8\uf0f0\uf0fc\uf0fe\uf02d"
@@ -1828,7 +1830,7 @@ def _repair_cid_system_info(page: object) -> None:
     reportlab writes these strings of the font dictionary unencrypted even in a PDF with only an owner password (copy protection).
     pdfminer 'decrypts' them and with the broken Ordering cannot find the Unicode mapping table, so every character of a
     non-embedded Korean font (UniKS-UCS2-H) became `(cid:n)` and the page was left with only empty tables (pdfium reads by the
-    CMap name). Only fonts in an encrypted document whose Registry/Ordering are not printable ASCII and whose encoding is a
+    CMap name). Only fonts in an encrypted document whose Registry/Ordering are not `Adobe` plus a known ordering and whose encoding is a
     predefined `Uni(KS|JIS|GB|CNS)-…` CMap are repaired — correctly decrypted values are not touched. The font dictionary of that
     document cached by pdfminer is what gets repaired, so no global state changes. Known limitation: fonts used only inside a Form
     XObject are not looked at
@@ -1843,7 +1845,7 @@ def _repair_cid_system_info(page: object) -> None:
             for descendant in (resolve1(font.get("DescendantFonts")) or []) if encoding else []:
                 descendant = resolve1(descendant)
                 info = resolve1(descendant.get("CIDSystemInfo")) if isinstance(descendant, dict) else None
-                if isinstance(info, dict) and not all(_printable_ascii(resolve1(info.get(key))) for key in ("Registry", "Ordering")):
+                if isinstance(info, dict) and not _sound_cid_system_info(info):
                     info["Registry"], info["Ordering"] = b"Adobe", _CID_ORDERINGS[encoding.group(1)]
     except Exception:  # noqa: BLE001 — the repair is a bonus. Page reading meets a broken reference itself and handles it
         return
@@ -1853,8 +1855,11 @@ def _name(value: object) -> str:
     return str(getattr(value, "name", "") or "")
 
 
-def _printable_ascii(value: object) -> bool:
-    return isinstance(value, bytes) and all(0x20 <= byte < 0x7F for byte in value)
+def _sound_cid_system_info(info: dict) -> bool:
+    """Registry `Adobe` with a known Ordering. Checking only for printable ASCII let through wrongly decrypted bytes that happened
+    to be printable (`b'"w#"Q'`, `b'(|>%Ue'`): with the random IV of AES about 1 file in 400 kept its broken Ordering and lost all
+    of its text (Pinned by: test_pdf.py::test_wrongly_decrypted_font_info_that_happens_to_be_printable_is_still_repaired)."""
+    return resolve1(info.get("Registry")) == b"Adobe" and resolve1(info.get("Ordering")) in _KNOWN_CID_ORDERINGS
 
 
 def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -> _Page:
