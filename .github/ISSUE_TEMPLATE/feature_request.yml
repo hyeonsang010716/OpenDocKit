@@ -1,0 +1,16 @@
+name: Feature request
+description: A new format, a structure that is not restored yet, or an API improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The documents you have and what you need in the Markdown output.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What the output or API could look like. Mention licences if a new dependency is involved (no AGPL).

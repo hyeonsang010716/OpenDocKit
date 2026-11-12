@@ -1,0 +1,37 @@
+name: Conversion problem
+description: A document converts incorrectly, loses content, fails, or takes too long.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please do not attach private or copyrighted documents.
+        The most useful report is a small script that builds a document showing the problem (see `tests/builder.py`).
+  - type: dropdown
+    id: format
+    attributes:
+      label: Document format
+      options: [PDF, DOCX, PPTX, XLSX / XLS / CSV, HWP / HWPX, HTML / MHTML, Email, Text / Markdown, Image, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What is in the document, what OpenDocKit produced, and what you expected. Include `result.warnings`.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Code that builds or converts the document, or a description of how the file was created (which application and version).
+      render: python
+  - type: input
+    id: version
+    attributes:
+      label: Versions
+      description: OpenDocKit, Python and operating system.
+      placeholder: opendockit 0.1.0, Python 3.12.5, Ubuntu 24.04
+    validations:
+      required: true
