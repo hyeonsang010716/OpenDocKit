@@ -18,6 +18,16 @@ uv run opendockit some.pdf   # try a real document
 
 Optional: `uvx pre-commit install` runs the linter before each commit.
 
+Tests that call a real vision model are skipped by default because they cost money. To run them (after changing
+`describe.py` or its prompts):
+
+```bash
+OPENDOCKIT_LIVE_TESTS=1 OPENAI_API_KEY=... uv run pytest -m live     # OPENAI_BASE_URL may point at a compatible endpoint
+```
+
+`examples/` holds sample documents and their committed outputs; run `uv run python examples/run_examples.py` after a
+change to see what moved.
+
 ## Reporting a problem
 
 The most useful bug report is **a script that builds a small document showing the problem**. Real documents are often

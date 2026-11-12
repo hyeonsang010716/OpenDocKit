@@ -87,13 +87,26 @@ Sample documents are built by the tests themselves, in memory, and the vision mo
 
 ### Tests against a real vision model
 
-> **Note.** The figures in this section and in the model comparison table above were measured before the 0.1.0 release, when the
-> prompts were written in Korean. The prompts have since been rewritten in English with the same rules (`describe.py`), and the
-> measurements have not been repeated with the English prompts. The live tests that produced them are not part of this repository.
+**Checked with the English prompts (2026-11-12).** The prompts were rewritten in English for 0.1.0, so the live suite in
+`tests/test_live_vision.py` was run against `gpt-5.6-terra` on an OpenAI-compatible Azure endpoint: 16 tests (pictures inside
+DOCX, a DOCX table cell, PPTX, XLSX, HTML and PDF; a scanned PDF page; PNG, JPEG, WebP, GIF, BMP, TIFF and AVIF files; a long
+picture sent as tiles; a chart; a decorative picture; a wrong key followed by a retry), six consecutive runs, 96/96 passed,
+plus one run with `gpt-5.6-luna`, 16/16. In separate spot checks a Korean schedule drawn as an image was transcribed in Korean
+as a table with every cell correct, and 8 of 8 decorative pictures were dropped. The older figures below were measured with
+the earlier Korean prompts and have not been repeated.
 
 20 calls to real OpenAI (default model `gpt-5.6-terra`). A picture carrying a numeric code is placed in every format and the test checks that the number appears at the right place in the result (between paragraphs, in a table cell, on a slide, on a sheet, on a scanned page). The run covers 7 image types (PNG, JPEG, WEBP, GIF, BMP, TIFF, HEIC), Hangul text, removal of decoration, a wrong key (placeholder text plus a warning), a process pool, and `detail="low"`. All passed 3 times in a row with the final code.
 
 Model wobble (measured with the earlier default model gpt-4o-mini): text pictures inside PDFs preserved 72/72; textless patterns removed 17/18 (the remaining one was kept with a description attached — not a loss).
+
+### Public corpus and corrupted input (2026-11-12)
+
+1,584 public test documents (Apache POI test data, pdfplumber's PDFs, the hwplib and hwpxlib samples — including their fuzzer
+crash cases) were converted through `IsolatedConverter` with a 120 s limit: 1,161 converted, 423 were rejected with a
+`ConversionError` (legacy `.doc`/`.ppt`, encrypted files, Strict Open XML, deliberately broken or fuzzed files), and there were
+no crashes, no unexpected exceptions and no timeouts. Converted results were checked for leftover placeholders, NFC, control
+characters, consistent table widths and picklability. A further 1,680 randomly corrupted variants of the files in `examples/`
+(bit flips, truncation, inserted garbage, repeated ranges) gave only successes and `ConversionError`s.
 
 ### Full run over real files
 

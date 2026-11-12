@@ -124,6 +124,11 @@ opendockit scan.pdf --describe        # describe images with a vision model (use
 Not supported: legacy `.doc`/`.ppt`, RTF, ODF. The full list of what each format restores is in
 [docs/formats.md](docs/formats.md); the honest list of what it cannot do is in [docs/limitations.md](docs/limitations.md).
 
+## Examples
+
+[`examples/`](examples/) has one sample document per format and the Markdown OpenDocKit produces from each — with and
+without a vision model — so you can judge the output before installing anything.
+
 ## Documentation
 
 | | |

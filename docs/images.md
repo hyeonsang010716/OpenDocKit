@@ -82,6 +82,11 @@ The instruction depends on the kind of image (`ImageKind`, in `describe.py`).
 
 Description also respects the character limit: after each image finishes the length is counted again, and the remaining calls are cancelled once the limit is certainly exceeded. See [server.md](server.md#character-limit).
 
+**Other OpenAI-compatible endpoints.** `OpenAIImageDescriber()` builds a `langchain_openai.ChatOpenAI`, which reads
+`OPENAI_API_KEY` and `OPENAI_BASE_URL`. Pointing `OPENAI_BASE_URL` at an Azure OpenAI `https://<resource>.openai.azure.com/openai/v1/`
+endpoint with the Azure key works without code changes (that is how the live tests were run); `model_name` is then the Azure
+deployment name. For anything else, build the chat model yourself and pass it in: `OpenAIImageDescriber(model)`.
+
 **Setup problems look like failures too.** Because every failed call is reported as a warning on that image, a missing
 `opendockit[openai]` extra or a missing `OPENAI_API_KEY` also shows up only as "could not be described". Call
 `OpenAIImageDescriber().check()` once at startup (inside a running event loop) to make such a problem raise immediately.

@@ -85,6 +85,7 @@ pythonpath = ["."]
 addopts = "-ra --strict-markers --strict-config"
 xfail_strict = true
 markers = [
+    "live: calls a real vision model; skipped unless OPENDOCKIT_LIVE_TESTS=1 and OPENAI_API_KEY are set",
     "timing: asserts on wall-clock time or real timeouts; CI runs these serially (`-m timing`) so load from parallel workers cannot fail them",
 ]
 
@@ -103,6 +104,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Long lines in tests are sample documents; East Asian characters also count double.
 "tests/*" = ["E501"]
+"examples/*" = ["E501"]
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true

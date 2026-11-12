@@ -138,6 +138,9 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 
 ## HTML and text
 
+- **Elements hidden only by a stylesheet rule** (`<style>.x{display:none}</style>` with `class="x"`) are kept. Hidden
+  elements are recognised by the `hidden` attribute, inline `style`, `aria-hidden` and similar marks on the element itself.
+
 - **Adjacent inline HTML elements without whitespace** (`<span>이름</span><span>홍길동</span>`) are read joined together (they cannot be told apart from an element that only changes the font in the middle of a word).
 - **Large HTML** stops as soon as its leading part alone exceeds the character limit. A large HTML that is mostly markup and stays within the limit is parsed in full and can be slow (around 30 s for 40 MB).
 - **Text encoding**: when a file is not UTF-8, CP949 is tried first. Japanese (Shift_JIS, EUC-JP) and Chinese (GB2312) text files can be misread as CP949 (less so for HTML, which follows its declared charset). Short Central European text that statistics cannot identify is read as Windows-1252.

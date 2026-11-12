@@ -20,6 +20,7 @@ First public release.
 - `describe_images` and `OpenAIImageDescriber` (optional `openai` extra) to describe pictures and transcribe scanned pages;
   `OpenAIImageDescriber.check()` to fail fast on a missing extra or API key.
 - `opendockit` command-line tool.
+- `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
 [Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/commits/main
