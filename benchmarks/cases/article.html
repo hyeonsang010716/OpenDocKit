@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Deploying with blue-green releases</title>
+</head>
+<body>
+<nav><a href="/">Home</a> · <a href="/docs">Docs</a> · <a href="/pricing">Pricing</a></nav>
+<aside><h3>Related</h3><ul><li><a href="/canary">Canary releases</a></li><li><a href="/rollback">Rollbacks</a></li></ul></aside>
+<main>
+<h1>Deploying with blue-green releases</h1>
+<p>A blue-green release keeps two identical environments. Traffic moves from <em>blue</em> to <em>green</em> in one switch,
+and moves back just as quickly if something is wrong.</p>
+<p hidden>This paragraph is hidden and is not part of the article.</p>
+<div style="display:none">Tracking pixel placeholder — also hidden.</div>
+<h2>Checklist</h2>
+<ol><li>Deploy the new version to green.</li><li>Run smoke tests against green.
+  <ul><li>Login</li><li>Checkout</li></ul></li><li>Switch the load balancer.</li></ol>
+<h2>Cost and risk</h2>
+<table>
+<tr><th rowspan="2">Strategy</th><th colspan="2">Cost</th><th rowspan="2">Rollback time</th></tr>
+<tr><th>Compute</th><th>Operations</th></tr>
+<tr><td>Blue-green</td><td>2×</td><td>Low</td><td>Seconds</td></tr>
+<tr><td>Rolling</td><td>1.1×</td><td>Medium</td><td>Minutes</td></tr>
+</table>
+<h2>Switch command</h2>
+<pre><code>lb set-backend --pool green --drain 30s
+lb status --wait healthy</code></pre>
+<p>Expected error budget burn during a switch is
+<math><mfrac><mrow><mi>t</mi><mo>·</mo><mi>e</mi></mrow><mi>T</mi></mfrac></math>, where <i>t</i> is the switch time.</p>
+</main>
+<footer>© 2026 Example Cloud. All rights reserved.</footer>
+<script>window.analytics = {track: function(){}}</script>
+</body></html>

@@ -1,0 +1,60 @@
+name: Benchmark
+
+# Runs the comparison in benchmarks/ on a standard GitHub-hosted runner and uploads the raw results.
+# Started by hand (Actions → Benchmark → Run workflow); it takes a while and is not part of CI.
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Which suites to run"
+        type: choice
+        options: [all, cases, corpus]
+        default: all
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h / | tail -1
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Install the five tools
+        run: |
+          sudo env "PATH=$PATH" BENCH_VENVS=/venvs sh benchmarks/setup_tools.sh
+          df -h / | tail -1
+      - name: Describe the machine
+        run: |
+          mkdir -p benchmarks/results
+          python3 - <<'PY'
+          import json, os, platform, subprocess
+          cpu = next((line.split(":", 1)[1].strip() for line in open("/proc/cpuinfo") if line.startswith("model name")), "unknown")
+          memory = int(next(line.split()[1] for line in open("/proc/meminfo") if line.startswith("MemTotal"))) // 1024
+          info = {"cpu": cpu, "cores": os.cpu_count(), "memory_mb": memory, "platform": platform.platform(),
+                  "python": platform.python_version(), "runner": os.environ.get("ImageOS"), "commit": os.environ.get("GITHUB_SHA")}
+          json.dump(info, open("benchmarks/results/environment.json", "w"), indent=1)
+          print(info)
+          PY
+      - name: Download the public corpus
+        if: inputs.suite != 'cases'
+        run: sh benchmarks/fetch_corpus.sh "$RUNNER_TEMP/corpus"
+      - name: Run
+        run: sudo env BENCH_VENVS=/venvs CORPUS="$RUNNER_TEMP/corpus" sh benchmarks/run_all.sh "${{ inputs.suite }}"
+      - name: Pack the results
+        if: always()
+        run: |
+          sudo chown -R "$USER" benchmarks/results
+          # keep every JSON and the converted text of the case suite; the corpus outputs are large and not needed for scoring
+          rm -rf benchmarks/results/ordinary/*/ benchmarks/results/hostile/*/
+          du -sh benchmarks/results
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: benchmark-results
+          path: benchmarks/results

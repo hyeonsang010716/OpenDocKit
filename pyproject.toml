@@ -93,6 +93,7 @@ markers = [
 line-length = 150
 target-version = "py312"
 src = ["src", "tests"]
+extend-exclude = ["benchmarks/cases", "benchmarks/results"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "BLE", "C4", "PIE", "RUF100"]
@@ -105,6 +106,7 @@ ignore = [
 # Long lines in tests are sample documents; East Asian characters also count double.
 "tests/*" = ["E501"]
 "examples/*" = ["E501"]
+"benchmarks/*" = ["E501"]
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
