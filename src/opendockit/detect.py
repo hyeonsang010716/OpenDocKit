@@ -115,6 +115,13 @@ _EXTENSION_CLAIMS = {
     ".xls": DocumentFormat.XLS,
     ".hwp": DocumentFormat.HWP,
     ".hwpx": DocumentFormat.HWPX,
+    ".odt": DocumentFormat.ODT,
+    ".ods": DocumentFormat.ODS,
+    ".odp": DocumentFormat.ODP,
+    ".epub": DocumentFormat.EPUB,
+    ".rtf": DocumentFormat.RTF,
+    ".doc": DocumentFormat.DOC,
+    ".ppt": DocumentFormat.PPT,
     ".jpg": DocumentFormat.IMAGE,
     ".jpeg": DocumentFormat.IMAGE,
     ".png": DocumentFormat.IMAGE,
@@ -131,6 +138,11 @@ _EXTENSION_CLAIMS = {
 # test_core_text_and_mail.py::TestHtmlTableServedAsCsv).
 _TEXT_FAMILY = {DocumentFormat.TEXT, DocumentFormat.MARKDOWN, DocumentFormat.CSV, DocumentFormat.HTML,
                 DocumentFormat.XML_SPREADSHEET}
+
+
+# The `mimetype` entry of an OpenDocument package says which kind it is (templates carry the same word plus `-template`).
+_ODF_MIMETYPES = {b"opendocument.text": DocumentFormat.ODT, b"opendocument.spreadsheet": DocumentFormat.ODS,
+                  b"opendocument.presentation": DocumentFormat.ODP}
 
 
 def extension_of(filename: str | None) -> str:
@@ -150,10 +162,7 @@ def detect_format(data: bytes, filename: str | None = None) -> DocumentFormat:
     if _is_raw_biff(data):
         return DocumentFormat.XLS
     if data[:64].lstrip().startswith(_RTF_MAGIC):
-        # RTF is a character-based format, so it passed through as text. Control words and Korean escapes like `\'c7\'d1` became a
-        # "successful" result as they were
-        # (Pinned by: test_detect.py::test_rtf_and_svg_are_reported_as_unsupported_instead_of_passing_as_text).
-        raise UnsupportedFormatError("RTF documents are not supported. Please save the file as DOCX.")
+        return DocumentFormat.RTF
     if data.startswith(_HWP3_MAGIC):
         raise UnsupportedFormatError("Hangul 3.0 or earlier (HWP 3.x) documents are not supported. "
                                      "Please save the file again as HWP or HWPX in Hancom Office.")
@@ -221,8 +230,13 @@ def _detect_zip(data: bytes) -> DocumentFormat:
         return DocumentFormat.XLSX
     if main_part is not None:
         return main_part
+    for marker, document_format in _ODF_MIMETYPES.items():
+        if marker in mimetype:
+            return document_format
+    if b"epub+zip" in mimetype or "META-INF/container.xml" in names:
+        return DocumentFormat.EPUB
     if b"opendocument" in mimetype:
-        raise UnsupportedFormatError("ODF (odt, ods, odp) documents are not supported. Please save the file as DOCX, XLSX or PPTX.")
+        raise UnsupportedFormatError("This OpenDocument file type (drawing, formula, database) is not supported.")
     raise UnsupportedFormatError("This archive file format is not supported.")
 
 
@@ -285,9 +299,9 @@ def _detect_ole(data: bytes) -> DocumentFormat:
         # A password-protected docx/xlsx/pptx is stored not as a ZIP but as an encrypted package inside OLE.
         raise EncryptedDocumentError("The Office document is password-protected. Please remove the password and upload it again.")
     if "worddocument" in streams:
-        raise UnsupportedFormatError("Legacy Word (.doc) documents are not supported. Please save the file as DOCX.")
+        return DocumentFormat.DOC
     if "powerpoint document" in streams:
-        raise UnsupportedFormatError("Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.")
+        return DocumentFormat.PPT
     raise UnsupportedFormatError("This OLE document format is not supported.")
 
 

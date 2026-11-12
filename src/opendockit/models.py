@@ -29,6 +29,13 @@ class DocumentFormat(StrEnum):
     MARKDOWN = "markdown"
     TEXT = "text"
     IMAGE = "image"
+    ODT = "odt"    # OpenDocument Text
+    ODS = "ods"    # OpenDocument Spreadsheet
+    ODP = "odp"    # OpenDocument Presentation
+    EPUB = "epub"
+    RTF = "rtf"
+    DOC = "doc"    # Word 97-2003 binary; converted through LibreOffice when it is installed
+    PPT = "ppt"    # PowerPoint 97-2003 binary; converted through LibreOffice when it is installed
 
 
 class SectionKind(StrEnum):
@@ -118,6 +125,10 @@ class ConvertOptions:
     include_hidden_sheets: bool = False
     include_headers_footers: bool = False
     include_footnotes: bool = True
+    # Keep the address of a hyperlink as a Markdown link (`[text](https://…)`). Off: only the link text is kept.
+    keep_links: bool = True
+    # Keep bold and italic as Markdown emphasis (`**bold**`, `*italic*`). Off: emphasis is flattened to plain text.
+    keep_emphasis: bool = True
     # Remove header, footer and page-number lines that repeat across the pages of a PDF.
     remove_repeated_page_lines: bool = True
     # Put page boundary markers (`<!-- Page 3 -->`) into the full text. Slide and sheet headings are always included.
