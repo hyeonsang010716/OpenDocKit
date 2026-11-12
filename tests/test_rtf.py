@@ -224,6 +224,83 @@ class TestEmphasis:
         body = r"{\b " + _cp949("중요") + r"}: " + _cp949("내용") + r"\par"
         assert _text(body, head=r"\ansi\ansicpg949") == "**중요**: 내용"
 
+    def test_paragraph_list_item_and_cell_that_are_bold_throughout_are_not_marked(self):
+        """A paragraph, a list item and the header cells of a table, each bold (or italic) from the first to the last word: that
+        is how the block is styled, not a stress inside it. DOCX writes the same content without marks (inline-formatting.md)."""
+        assert _text(r"{\b This whole paragraph is bold.}\par {\i Whole italic line.}\par") == "This whole paragraph is bold.\n\nWhole italic line."
+        assert _text(r"\ls1 {\b Whole}{\b  item}\par \ls1 Item with {\b a bold part}\par") == "- Whole item\n- Item with **a bold part**"
+        table = _row([r"{\b Header A}", r"{\b Header B}"]) + _row(["plain", r"{\b " + _cp949("합계") + "}"])
+        assert _text(table, head=r"\ansi\ansicpg949") == "| Header A | Header B |\n| --- | --- |\n| plain | 합계 |"
+
+    def test_bold_on_part_of_a_paragraph_or_cell_is_marked(self):
+        body = r"Some {\b partial bold} and {\i italic words} here.\par" + _row(["label", r"some {\b bold} text"])
+        assert _text(body) == "Some **partial bold** and *italic words* here.\n\n| label | some **bold** text |\n| --- | --- |"
+
+    def test_korean_word_before_its_particle_is_marked(self):
+        """In Korean the particle is written onto the stressed word without a space: the span starts a word and stops before its
+        ending, which is kept."""
+        body = _cp949("분기 ") + r"{\b " + _cp949("매출") + "}" + _cp949("은 증가했다.") + r"\par"
+        assert _text(body, head=r"\ansi\ansicpg949") == "분기 **매출**은 증가했다."
+
+    def test_emphasis_inside_a_word_is_not_marked(self):
+        """A digit in another weight and a decorated initial are styling of part of a word, not emphasis."""
+        assert _text(r"1{\b 2},345 and {\b S}trength\par") == "12,345 and Strength"
+
+    def test_line_break_closes_and_reopens_the_span_and_a_typed_bullet_stays_in_front(self):
+        assert _text(r"a {\b b\line c} d\par") == "a **b**\n**c** d"
+        assert _text(r"\pard\li360 {\b \bullet \tab bold} rest\par \pard\li360 {\b \endash \tab part} rest\par") == "- **bold** rest\n- **part** rest"
+
+    def test_footnote_text_follows_the_same_rules(self):
+        body = r"Text{\footnote \pard {\b whole bold note}} and{\footnote \pard see {\b this} note}.\par"
+        assert _text(body) == "Text[^1] and[^2].\n\n[^1]: whole bold note\n[^2]: see **this** note"
+
+
+def _link(address: str, text: str) -> str:
+    return r'{\field{\*\fldinst HYPERLINK "' + address + r'"}{\fldrslt ' + text + "}}"
+
+
+class TestLinks:
+    """The link rules are the shared ones (`_shared.link_target`, `resolve_inline`; inline-formatting.md); these pin that the RTF
+    reader goes through them."""
+
+    def test_link_whose_text_is_its_address_stays_the_bare_address(self):
+        body = "Visit " + _link("https://example.com/", "https://example.com") + " or " + _link("mailto:team@example.com", "team@example.com") + r"\par"
+        assert _text(body) == "Visit https://example.com or team@example.com"
+
+    def test_only_web_and_mail_addresses_become_links(self):
+        body = " ".join((_link("javascript:alert(1)", "js"), _link("ftp://a.example/f", "ftp"), _link("/relative", "rel"),
+                         _link("HTTPS://A.example/", "upper"))) + r"\par"
+        assert _text(body) == "js ftp rel [upper](HTTPS://A.example/)"
+
+    def test_address_and_text_cannot_close_the_link_or_split_a_table_row(self):
+        """An address with `)`, a space and `|`, and link text that tries to end the link and start another one."""
+        body = "x " + _link("https://a.example/x) [y](https://evil.example/|z", "here](https://evil.example) [x") + r"\par"
+        assert _text(body) == r"x [here\](https://evil.example) \[x](https://a.example/x%29%20[y]%28https://evil.example/%7Cz)"
+
+    def test_bookmark_is_appended_as_the_fragment(self):
+        body = r'{\field{\*\fldinst HYPERLINK "https://example.com/doc" \\l "part2"}{\fldrslt part two}} end\par'
+        assert _text(body) == "[part two](https://example.com/doc#part2) end"
+
+    def test_link_in_a_heading_is_kept_and_emphasis_stops_at_the_edge_of_a_link(self):
+        assert _text(_STYLES + r"\pard\s1 {\b Annual} " + _link("https://example.com/r", "report") + r"\par") == "# Annual [report](https://example.com/r)"
+        body = r"{\b before} " + _link("https://example.com/", r"{\b link}") + r" after\par"
+        assert _text(body) == "**before** [**link**](https://example.com/) after"
+
+    def test_link_around_a_picture_keeps_the_picture_and_writes_no_link(self):
+        body = "see " + _link("https://example.com/", r"{\pict\pngblip " + _png().hex() + "}") + r" end\par"
+        result = convert(_rtf(body), "a.rtf")
+        assert "](" not in result.text and "example.com" not in result.text
+        assert len(result.images) == 1
+
+    def test_control_characters_in_the_text_cannot_forge_a_link(self):
+        """The shared resolver's temporary marks are control characters (U+000E–U+0014), which RTF text can hold (`\\'12`,
+        `\\u19`). The reader hands over mark objects between the pieces instead, so such characters are only text (and are
+        removed by cleaning). A real bold run in the same paragraph makes sure the resolver runs."""
+        body = "a \\'12click\\'13https://evil.example\\'14 b \\'0efake\\'0f c \\u18 ?d\\u19 ?https://evil.example\\u20 ? {\\b real} e\\par"
+        text = _text(body)
+        assert "](" not in text and "**fake**" not in text
+        assert text == "a clickhttps://evil.example b fake c dhttps://evil.example **real** e"
+
 
 class TestLists:
     def test_bullet_and_numbered_lists_from_the_list_table(self):

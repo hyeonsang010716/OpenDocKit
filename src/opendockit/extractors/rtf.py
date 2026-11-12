@@ -14,7 +14,21 @@ from functools import lru_cache
 import re
 
 from opendockit.exceptions import CorruptedDocumentError
-from opendockit.extractors._shared import NOTE_ROW_SEPARATOR, TableBudget, omitted_rows_warning, paragraph_head
+from opendockit.extractors._shared import (
+    BOLD_OFF,
+    BOLD_ON,
+    ITALIC_OFF,
+    ITALIC_ON,
+    LINK_ON,
+    NOTE_ROW_SEPARATOR,
+    InlineMark,
+    TableBudget,
+    link_off,
+    link_target,
+    omitted_rows_warning,
+    paragraph_head,
+    resolve_inline,
+)
 from opendockit.markdown import TableGrid, join_blocks, merged_copy, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -54,8 +68,9 @@ _TITLE_NAMES = frozenset(("title", "제목"))
 _LIST_STYLE_LEVEL = re.compile(r"List (?:Bullet|Number|Continue|Paragraph)\s+([1-9])", re.IGNORECASE)
 # A bullet typed as text and followed by a tab (pandoc writes its lists this way: `\bullet \tab text`).
 _TYPED_BULLETS = frozenset("•·◦▪‣○●–-")
-_LINK_SCHEMES = frozenset(("http", "https", "mailto"))
-_HYPERLINK = re.compile(r'\s*HYPERLINK\s+(?:"([^"]*)"|(\S+))', re.IGNORECASE)
+# The address and the bookmark (`\l "name"`) of a HYPERLINK field instruction — the same shapes DOCX reads (`docx._field_link`).
+_HYPERLINK = re.compile(r'\s*HYPERLINK\s+(?:"([^"]*)"|([^\s"\\]\S*))', re.IGNORECASE)
+_HYPERLINK_BOOKMARK = re.compile(r'\\l\s+"([^"]*)"', re.IGNORECASE)
 
 # Destinations (where the text of a group goes).
 _BODY, _SKIP, _FONTTBL, _STYLESHEET, _INFO, _INFO_TEXT, _PICT, _FLDINST, _LISTTABLE, _LISTOVERRIDE, _PN, _SHAPE = range(12)
@@ -264,61 +279,59 @@ class _Table:
         return grid
 
 
-def _emphasized(text: str, bold: bool, italic: bool) -> str:
-    """Whitespace stays outside the markers; a run of only whitespace gets none."""
-    core = text.strip()
-    if not core or not (bold or italic):
-        return text
-    mark = "***" if bold and italic else "**" if bold else "*"
-    lead, trail = text[:len(text) - len(text.lstrip())], text[len(text.rstrip()):]
-    lines = (f"{mark}{line.strip()}{mark}" if line.strip() else "" for line in core.split("\n"))
-    return f"{lead}{'\n'.join(lines)}{trail}"
+# A piece of a paragraph: text, bold, italic, the vetted address (`_shared.link_target`) of the link it is part of.
+type _Run = tuple[str, bool, bool, str | None]
 
 
-def _linked(text: str, url: str) -> str:
-    core = " ".join(text.split())
-    if not core:
-        return text
-    return f"{text[:len(text) - len(text.lstrip())]}[{core}]({url}){text[len(text.rstrip()):]}"
+def _inline_tokens(runs: list[_Run], *, emphasis: bool, links: bool) -> list[str | InlineMark]:
+    """Runs → the pieces and span marks `_shared.resolve_inline` turns into Markdown. This only says where bold, italic and a link
+    start and end; merging runs, placing whitespace, whole-block and part-of-word emphasis, escaping and the "text is its address"
+    rule are the shared rules of docs/decisions/inline-formatting.md.
 
-
-def _inline(runs: list[tuple[str, bool, bool, str | None]], *, emphasis: bool, links: bool) -> str:
-    """Runs → inline Markdown. Adjacent runs with the same formatting are merged first, so `**bold** **bold**` does not appear for
-    text that was split only by the writer (Pinned by: test_rtf.py::TestEmphasis::test_adjacent_runs_with_the_same_formatting_are_merged)."""
-    merged: list[tuple[list[str], bool, bool, str | None]] = []
+    The marks are `InlineMark` items between the pieces (the HTML way), not control characters inside the text (the DOCX way):
+    RTF text can hold any character (`\\'12`, `\\u19`), so marks inside the text could be forged by the document
+    (Pinned by: test_rtf.py::TestLinks::test_control_characters_in_the_text_cannot_forge_a_link).
+    """
+    tokens: list[str | InlineMark] = []
+    open_link: str | None = None
     for text, bold, italic, link in runs:
-        if not emphasis:
-            bold = italic = False
         if not links:
             link = None
-        if merged and merged[-1][1] == bold and merged[-1][2] == italic and merged[-1][3] == link:
-            merged[-1][0].append(text)
-        else:
-            merged.append(([text], bold, italic, link))
-
-    parts: list[str] = []
-    index = 0
-    while index < len(merged):
-        link = merged[index][3]
-        pieces: list[str] = []
-        while index < len(merged) and merged[index][3] == link:
-            pieces.append(_emphasized("".join(merged[index][0]), merged[index][1], merged[index][2]))
-            index += 1
-        text = "".join(pieces)
-        parts.append(_linked(text, link) if link else text)
-    return "".join(parts)
+        if link != open_link:
+            if open_link is not None:
+                tokens.append(link_off(open_link))
+            if link is not None:
+                tokens.append(LINK_ON)
+            open_link = link
+        bold, italic = emphasis and bold, emphasis and italic
+        if not (bold or italic) or not text.strip():  # whitespace joins the runs around it
+            tokens.append(text)
+            continue
+        # Bold is the outer mark, as in `_shared.mark_emphasis`
+        if bold:
+            tokens.append(BOLD_ON)
+        if italic:
+            tokens.append(ITALIC_ON)
+        tokens.append(text)
+        if italic:
+            tokens.append(ITALIC_OFF)
+        if bold:
+            tokens.append(BOLD_OFF)
+    if open_link is not None:
+        tokens.append(link_off(open_link))
+    return tokens
 
 
 def _link_target(instruction: str) -> str | None:
-    """The address of a `HYPERLINK "url"` field instruction. Only http, https and mailto become links; a link to a bookmark
+    """The vetted address of a `HYPERLINK "url"` field instruction (`_shared.link_target`: only http, https and mailto, unsafe
+    characters percent-encoded), with `\\l "bookmark"` appended as the fragment as in DOCX. A link to a bookmark alone
     (`HYPERLINK \\l "name"`) or to a file keeps only its text."""
     match = _HYPERLINK.match(instruction)
     if match is None:
         return None
-    url = (match.group(1) if match.group(1) is not None else match.group(2)).strip()
-    if url.split(":", 1)[0].lower() not in _LINK_SCHEMES or any(ord(char) < 32 for char in url):
-        return None
-    return url.replace(" ", "%20").replace("(", "%28").replace(")", "%29").replace("<", "%3C").replace(">", "%3E")
+    address = match.group(1) if match.group(1) is not None else match.group(2)
+    bookmark = _HYPERLINK_BOOKMARK.search(instruction, match.end())
+    return link_target(f"{address}#{bookmark.group(1)}" if bookmark and bookmark.group(1) and "#" not in address else address)
 
 
 class _Flow:
@@ -328,7 +341,7 @@ class _Flow:
         self.reader = reader
         self.kind = kind  # "body", "header", "footer", "note", "box"
         self.blocks: list[str] = []
-        self.runs: list[tuple[str, bool, bool, str | None]] = []
+        self.runs: list[_Run] = []
         self.paragraph = _Paragraph()
         self.tables: list[_Table] = []  # the open tables, outermost first
         self.row = _RowDefinition()
@@ -429,29 +442,41 @@ class _Flow:
             return ""
         self.runs = []
         reader, paragraph, options = self.reader, self.paragraph, self.reader.options
-        plain = self.kind == "note"
-        level = None
-        if not in_cell and not plain and sum(len(run[0]) for run in runs) <= _HEADING_MAX_CHARS:
-            level = reader.heading_level(paragraph)
-        text = _inline(runs, emphasis=options.keep_emphasis and level is None, links=options.keep_links)
+        # What the paragraph is (empty, a heading, a list item) is decided on the text without marks, so the decisions are the
+        # same with the options off — as in DOCX.
+        plain = "".join(run[0] for run in runs)
+        first_line = next((line for line in (" ".join(line.split()) for line in plain.split("\n")) if line), "")
+        if not first_line:
+            return ""
+        level = mark = None
+        if self.kind != "note":
+            if not in_cell and len(plain) <= _HEADING_MAX_CHARS:
+                level = reader.heading_level(paragraph)
+            if level:
+                reader.end_simple_numbering()
+            else:
+                mark = reader.list_mark(paragraph)
+                start = plain.lstrip()
+                if mark is None and start[1:2] == "\t" and start[0] in _TYPED_BULLETS and len(first_line) > 2:
+                    # A typed bullet + tab is a list item; its level is the place of its left indent among the items before it
+                    # (Pinned by: test_rtf.py::TestLists::test_typed_bullet_followed_by_a_tab_is_a_list_item).
+                    mark = "-", reader.typed_level(paragraph.indent)
+                    first = next(index for index, run in enumerate(runs) if run[0].strip())
+                    runs[first] = (runs[first][0].lstrip()[1:], *runs[first][1:])
+                else:
+                    reader.typed_indents.clear()
+        # A heading keeps its links but is not emphasized; bold or italic over the whole paragraph (also a list item, a paragraph
+        # of a cell) is how it is styled and is left unmarked (`_shared.resolve_inline`.
+        # Pinned by: test_rtf.py::TestEmphasis::test_paragraph_list_item_and_cell_that_are_bold_throughout_are_not_marked).
+        text = resolve_inline(_inline_tokens(runs, emphasis=options.keep_emphasis and level is None, links=options.keep_links),
+                              emphasis=level is None)
         lines = [line for line in (" ".join(line.split()) for line in text.split("\n")) if line]
         if not lines:
             return ""
         if level:
-            reader.end_simple_numbering()
             return f"{'#' * level} {' '.join(lines)}"
-        if not plain:
-            mark = reader.list_mark(paragraph)
-            typed = mark is None and text.lstrip()[1:2] == "\t" and text.lstrip()[0] in _TYPED_BULLETS and len(lines[0]) > 2
-            if typed:
-                # A typed bullet + tab is a list item; its level is the place of its left indent among the items before it
-                # (Pinned by: test_rtf.py::TestLists::test_typed_bullet_followed_by_a_tab_is_a_list_item).
-                mark = "-", reader.typed_level(paragraph.indent)
-                lines[0] = lines[0][1:].lstrip()
-            else:
-                reader.typed_indents.clear()
-            if mark is not None:
-                lines[0] = paragraph_head(mark[0], mark[1], in_cell=in_cell, heading=False) + lines[0]
+        if mark is not None:
+            lines[0] = paragraph_head(mark[0], mark[1], in_cell=in_cell, heading=False) + lines[0]
         return "\n".join(lines)
 
 
@@ -945,7 +970,9 @@ class _Reader:
                     self._too_many_pictures = True
                     return
                 self._picture_count += 1
-                self._flow.runs.append((f" {self.extraction.add_image(data)} ", False, False, None))
+                # A picture inside a link stays in the span of the link, as in DOCX: the shared rules keep it out of the brackets
+                # at the edge and write no link around a picture alone.
+                self._flow.runs.append((f" {self.extraction.add_image(data)} ", False, False, self._state.link))
         elif closer == "flow":
             flow = self._flows.pop()
             self._flow = self._flows[-1]
@@ -956,7 +983,8 @@ class _Reader:
                 text = " ".join(" ".join(block.split()) for block in blocks).strip()
                 if text:
                     self._notes.append(text)
-                    self._flow.runs.append((f"[^{len(self._notes)}]", False, False, None))
+                    link = self._stack[-1].link if self._stack else None  # of the text around the footnote group
+                    self._flow.runs.append((f"[^{len(self._notes)}]", False, False, link))
             elif flow.kind == "box":
                 self._flow.add_blocks(blocks)
             else:

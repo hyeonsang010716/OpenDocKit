@@ -20,12 +20,16 @@ src/opendockit/
     ├── _shared.py   # Strict OOXML detection (`is_strict_package`, DOCX/PPTX), OOXML charts and SmartArt (PPTX/DOCX/HWPX), Office equations (OMML → LaTeX, DOCX/PPTX), automatic number strings, paragraph heads (`paragraph_head`), ruby text and list levels inside a cell (DOCX/HWP/HWPX), chart tables inside a cell (`embedded_table`), Hangul (HWP) bullet indent levels (`BulletNesting`, HWP/HWPX), symbol-font mapping (`symbol_font_text` — including ordinary letters in Symbol), character limit inside tables (`TableBudget`, DOCX/HWP/HWPX), DrawingML `a:br` line breaks (`drawing_paragraph_lines`, PPTX/DOCX/XLSX/charts), comment lines (`comment_line`, DOCX/PPTX/HWPX/Excel)
     ├── _equation.py # Hancom equation script → LaTeX (HWP/HWPX). The original script when it cannot be converted
     ├── docx.py
+    ├── epub.py      # chapters in spine order, each through html.py
     ├── html.py
     ├── hwp.py
     ├── hwpx.py
     ├── image.py
+    ├── legacy.py    # .doc / .ppt: converted with an installed LibreOffice, then read by docx.py / pptx.py
+    ├── odf.py       # ODT, ODS, ODP
     ├── pdf.py
     ├── pptx.py
+    ├── rtf.py
     ├── spreadsheet.py
     └── text.py
 
@@ -86,6 +90,11 @@ Only the common decisions (detection, limits, pictures, assembly, description) a
   - [encoding.md](encoding.md) — encoding detection
   - [mail.md](mail.md) — mail
   - [html.md](html.md) — HTML blocks (aside, quotes, checklists, item/value tables), exceptions for hidden elements, lazy-loading placeholder pictures, MHTML frames, inline SVG labels, `data:` URI pictures in MD
+  - [odf.md](odf.md) — OpenDocument (ODT, ODS, ODP)
+  - [rtf.md](rtf.md) — RTF
+  - [epub.md](epub.md) — EPUB
+  - [legacy-office.md](legacy-office.md) — `.doc` and `.ppt` through LibreOffice: how it is run, what is and is not guaranteed
+- [inline-formatting.md](inline-formatting.md) — links and bold / italic: which are kept, which are deliberately left plain
 - [images.md](images.md) — images, picture descriptions (the describer), placeholders
 - [detect.md](detect.md) — format detection (magic bytes, ZIP, OLE, telling the text family apart, MHTML, mail, extension warnings)
 

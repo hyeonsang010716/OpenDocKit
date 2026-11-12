@@ -307,6 +307,58 @@ class TestInlineFormatting:
         text = self._text('<text:h text:outline-level="1"><text:span text:style-name="B">제1장</text:span> 총칙</text:h>')
         assert text == "# 제1장 총칙"
 
+    def test_link_inside_a_heading_is_kept(self):
+        """A heading with a bold linked word: the emphasis is dropped, the link stays (the DOCX rule)."""
+        text = self._text('<text:h text:outline-level="2"><text:a xlink:href="https://example.com/guide">'
+                          '<text:span text:style-name="B">안내서</text:span></text:a> 개정</text:h>')
+        assert text == "## [안내서](https://example.com/guide) 개정"
+
+    def test_paragraph_that_is_bold_as_a_whole_is_left_unmarked(self):
+        """A paragraph whose every word is bold (split into two spans, as LibreOffice writes it) and one that is italic
+        throughout: bold over a whole block is how the block is styled, not emphasis — the DOCX of the same content gives the
+        plain sentence, and `**This whole paragraph is bold.**` here made the two formats disagree."""
+        text = self._text('<text:p><text:span text:style-name="B">This whole </text:span>'
+                          '<text:span text:style-name="B">paragraph is bold.</text:span></text:p>'
+                          '<text:p><text:span text:style-name="I">전체가 기울임인 문단</text:span></text:p>')
+        assert text == "This whole paragraph is bold.\n\n전체가 기울임인 문단"
+
+    def test_bold_part_of_a_paragraph_is_marked(self):
+        """The same sentence with only two of its words bold: that is emphasis and is written."""
+        text = self._text('<text:p>This paragraph is <text:span text:style-name="B">partly bold</text:span> only.</text:p>')
+        assert text == "This paragraph is **partly bold** only."
+
+    def test_bold_korean_word_before_its_particle_is_marked(self):
+        """In Korean the particle is written onto the stressed word without a space: bold that starts a word and stops before
+        its ending is emphasis."""
+        text = self._text('<text:p>분기 <text:span text:style-name="B">매출</text:span>은 늘었다.</text:p>')
+        assert text == "분기 **매출**은 늘었다."
+
+    def test_bold_that_starts_inside_a_word_or_covers_one_glued_character_is_not_marked(self):
+        """A digit in another weight inside a number, bold on the second half of a word, and a decorated first syllable: styling
+        of part of a word, not emphasis (the shared part-of-a-word rule)."""
+        text = self._text('<text:p>1<text:span text:style-name="B">2</text:span>,345원, '
+                          '인사<text:span text:style-name="B">발령</text:span>, '
+                          '<text:span text:style-name="B">부</text:span>분</text:p>')
+        assert text == "12,345원, 인사발령, 부분"
+
+    def test_list_item_that_is_bold_as_a_whole_is_left_unmarked_and_a_partly_bold_one_is_marked(self):
+        """Two bullets: one bold throughout (a label), one with a bold word. The bullet is not counted as a word of the item."""
+        bold = '<text:span text:style-name="B">{}</text:span>'
+        text = self._text(f'<text:list><text:list-item><text:p>{bold.format("준비물")}</text:p></text:list-item>'
+                          f'<text:list-item><text:p>신분증 {bold.format("원본")} 지참</text:p></text:list-item></text:list>')
+        assert text == "- 준비물\n- 신분증 **원본** 지참"
+
+    def test_bold_and_italic_nest_with_bold_outside(self):
+        """An italic word inside a bold phrase: one bold span with the italic inside it, not three spans."""
+        text = self._text('<text:p>결과는 <text:span text:style-name="B">매우 </text:span><text:span text:style-name="BI">중요한'
+                          '</text:span><text:span text:style-name="B"> 변화</text:span>다.</text:p>')
+        assert text == "결과는 **매우 *중요한* 변화**다."
+
+    def test_emphasis_is_closed_and_reopened_at_a_line_break(self):
+        """A bold span that holds a `text:line-break`, in a paragraph that is not bold throughout: each line gets its own marks."""
+        text = self._text('<text:p>참고: <text:span text:style-name="B">첫째 줄<text:line-break/>둘째 줄</text:span> 끝</text:p>')
+        assert text == "참고: **첫째 줄**\n**둘째 줄** 끝"
+
     def test_cell_that_is_bold_as_a_whole_is_left_plain(self):
         """A header row whose cells are bold throughout and a data cell with one bold word: the header stays plain (styling), the
         partial emphasis is kept."""
@@ -324,20 +376,85 @@ class TestInlineFormatting:
         assert self._text(paragraph) == ("[공지 사항](https://example.com/a%20b%281%29), [문의](mailto:help@example.com), 개요")
         assert self._text(paragraph, ConvertOptions(keep_links=False)) == "공지 사항, 문의, 개요"
 
+    def test_addresses_that_are_not_web_or_mail_stay_text_and_the_scheme_is_compared_without_case(self):
+        """javascript, file, a relative address and a protocol-relative one keep their text only (`_shared.link_target`);
+        `HTTPS://` is a web address."""
+        links = "".join(f'<text:a xlink:href="{address}">{label}</text:a> ' for address, label in (
+            ("javascript:alert(1)", "스크립트"), ("file:///etc/passwd", "파일"), ("../other.odt", "상대"), ("//host/x", "호스트"),
+            ("HTTPS://example.com/a", "대문자")))
+        assert self._text(f"<text:p>{links}끝</text:p>") == "스크립트 파일 상대 호스트 [대문자](HTTPS://example.com/a) 끝"
+
+    def test_address_and_link_text_cannot_close_the_link_or_split_a_table_row(self):
+        """An address holding `)`, a space and `|`, and link text holding `](`: the address is percent-encoded and the bracket
+        escaped, so the document cannot write a second link of its own choosing."""
+        text = self._text('<text:p><text:a xlink:href="https://a.example/x) [y](https://evil.example/|z">여기](https://evil.example) [x'
+                          '</text:a></text:p>')
+        assert text == "[여기\\](https://evil.example) \\[x](https://a.example/x%29%20[y]%28https://evil.example/%7Cz)"
+
+    def test_mail_address_linked_to_itself_and_a_trailing_slash_difference_stay_the_bare_address(self):
+        text = self._text('<text:p><text:a xlink:href="mailto:team@example.com">team@example.com</text:a>, '
+                          '<text:a xlink:href="https://example.com/">https://example.com</text:a></text:p>')
+        assert text == "team@example.com, https://example.com"
+
+    def test_link_split_into_spans_is_one_link_with_white_space_outside_the_brackets(self):
+        """A link whose text is split into a plain and a bold span is one link with the emphasis inside it; white space at
+        the edge of the link stays outside the brackets."""
+        text = self._text('<text:p>자세한 내용은<text:a xlink:href="https://example.com/doc"> 운영 '
+                          '<text:span text:style-name="B">지침</text:span>서 </text:a>참고</text:p>')
+        assert text == "자세한 내용은 [운영 **지침**서](https://example.com/doc) 참고"
+
+    def test_emphasis_stops_at_the_edge_of_a_link(self):
+        """Bold that runs from the text before a link into the link: each side gets its own marks."""
+        text = self._text('<text:p>이것은 <text:span text:style-name="B">꼭 </text:span><text:a xlink:href="https://example.com">'
+                          '<text:span text:style-name="B">신청</text:span></text:a> 하세요</text:p>')
+        assert text == "이것은 **꼭** [**신청**](https://example.com) 하세요"
+
     def test_link_whose_text_is_its_address_is_written_once(self):
         text = self._text('<text:p><text:a xlink:href="https://example.com">https://example.com</text:a></text:p>')
         assert text == "https://example.com"
 
     def test_bold_text_inside_a_link_keeps_both(self):
-        text = self._text('<text:p><text:a xlink:href="https://example.com"><text:span text:style-name="B">신청</text:span>'
-                          '</text:a></text:p>')
-        assert text == "[**신청**](https://example.com)"
+        """A bold link in a sentence that is otherwise plain. (A paragraph that is nothing but the bold link is bold as a
+        whole and keeps only the link.)"""
+        link = '<text:a xlink:href="https://example.com"><text:span text:style-name="B">신청</text:span></text:a>'
+        assert self._text(f"<text:p>지금 {link} 하세요</text:p>") == "지금 [**신청**](https://example.com) 하세요"
+        assert self._text(f"<text:p>{link}</text:p>") == "[신청](https://example.com)"
 
     def test_superscript_and_strikethrough_use_the_shared_notation(self):
         """10 with a raised 6 and a struck-through price: `10^6` and `~~…~~` as in the other formats (10⁶ must not read 106)."""
         text = self._text('<text:p>10<text:span text:style-name="Sup">6</text:span> 단위, '
                           '<text:span text:style-name="Del">정가 10,000원</text:span> 8,000원</text:p>')
         assert text == "10^6 단위, ~~정가 10,000원~~ 8,000원"
+
+    def test_strikethrough_and_script_stay_inside_the_bold_span_around_them(self):
+        """A bold struck price and a bold formula with a subscript, in a sentence that is not bold throughout: emphasis is the
+        outer mark (`**~~…~~**`) and the formula is one span, not `**H**_2**O**`."""
+        automatic = self.AUTOMATIC + (
+            '<style:style style:name="BDel" style:family="text" style:parent-style-name="B">'
+            '<style:text-properties style:text-line-through-style="solid"/></style:style>'
+            '<style:style style:name="BSub" style:family="text" style:parent-style-name="B">'
+            '<style:text-properties style:text-position="sub 58%"/></style:style>')
+        text = _odt('<text:p>정가 <text:span text:style-name="BDel">1,000</text:span>원, '
+                    '<text:span text:style-name="B">H</text:span><text:span text:style-name="BSub">2</text:span>'
+                    '<text:span text:style-name="B">O</text:span> 사용</text:p>', automatic=automatic)
+        assert text == "정가 **~~1,000~~**원, **H_2O** 사용"
+
+    def test_heading_inside_a_table_cell_is_a_paragraph_and_keeps_its_emphasis(self):
+        """A `text:h` in a cell is not a heading (no `#`), so the heading rule does not apply to it: a bold word stays marked."""
+        text = self._text("<table:table>" + _row(_cell("구분"), _cell("내용")) + _row(
+            _cell("1"), '<table:table-cell><text:h text:outline-level="2">추진 <text:span text:style-name="B">배경</text:span>'
+                        '</text:h></table:table-cell>') + "</table:table>")
+        assert text == "| 구분 | 내용 |\n| --- | --- |\n| 1 | 추진 **배경** |"
+
+    def test_slide_text_box_follows_the_same_rules(self):
+        """ODP: a caption box that is bold throughout stays plain, a bold word in a sentence is marked, the title is plain."""
+        bold = '<text:span text:style-name="B">{}</text:span>'
+        result = _convert("presentation", _slide(
+            _text_frame(f"<text:p>{bold.format('분기')} 실적</text:p>", 'presentation:class="title"'),
+            _text_frame(f"<text:p>{bold.format('핵심 요약')}</text:p><text:p>분기 {bold.format('매출')}은 늘었다.</text:p>")),
+            automatic=self.AUTOMATIC)
+        assert result.sections[0].title == "분기 실적"
+        assert result.sections[0].text == "핵심 요약\n\n분기 **매출**은 늘었다."
 
 
 class TestSpreadsheet:

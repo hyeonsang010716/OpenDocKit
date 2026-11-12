@@ -5,11 +5,11 @@ This page describes what the Markdown produced by OpenDocKit looks like for each
 | Format | Section unit | Marker in `result.text` |
 | --- | --- | --- |
 | PDF | page | `<!-- Page N -->` |
-| DOCX | document | — |
-| PPTX | slide | `## Slide N: title` |
-| XLSX, XLS, Excel 2003 XML, CSV | sheet | `## Sheet: name` |
+| DOCX, ODT, RTF, DOC | document | — |
+| PPTX, ODP, PPT | slide | `## Slide N: title` |
+| XLSX, XLS, ODS, Excel 2003 XML, CSV | sheet | `## Sheet: name` |
 | HWP, HWPX | document | — |
-| HTML, MHTML, email | document | — |
+| HTML, MHTML, email, EPUB | document | — |
 | TXT, MD | document | — |
 | Image files | document (multi-page TIFF: page) | `<!-- Page N -->` for multi-page TIFF |
 
@@ -260,6 +260,75 @@ Section unit: the whole document; a multi-page TIFF is split into pages (`<!-- P
 - Animated GIF and AVIF: first frame only.
 - A JPEG above about 179 million pixels is read reduced (1/2 to 1/8).
 - A very large image that cannot be read reduced raises `DocumentTooLargeError`; if it is a picture inside a document, it is left as a placeholder with a warning.
+
+## OpenDocument: ODT, ODS, ODP
+
+Read directly from the package; LibreOffice is not needed.
+
+- **ODT**: headings, bulleted and numbered lists with nesting, tables with merged cells and nested tables,
+  footnotes and endnotes, links, bold / italic, superscripts and subscripts, strikethrough, pictures, charts (title and
+  values), formulas (LaTeX) and comments. Headers and footers with `include_headers_footers`. Tracked deletions are left out.
+- **ODS**: one section per sheet with the cell text as displayed. Several tables on a sheet are split as for XLSX;
+  merged cells are filled the same way. Hidden sheets are skipped with a warning unless `include_hidden_sheets`. Chart
+  titles, pictures and cell comments follow the cells.
+- **ODP**: one section per slide, titled from the title placeholder: bullet levels, tables, pictures, charts, and speaker
+  notes with `include_speaker_notes`.
+- Password-protected files are reported as `EncryptedDocumentError`.
+
+More: [decisions/odf.md](decisions/odf.md).
+
+## RTF
+
+Read by a built-in parser, with no extra dependency.
+
+- Headings (outline level or heading styles, including the Korean "제목 N"), bullet and numbered lists with nesting,
+  tables with merged cells and nested tables, bold / italic and hyperlinks, footnotes as `[^n]`, pictures (PNG and JPEG in
+  place; the WMF/EMF compatibility copy is skipped), title and author metadata.
+- Headers and footers with `include_headers_footers`.
+- Legacy code pages are decoded per font (CP949 for Korean, Shift-JIS, GBK, Big5, Cyrillic and others) along with `\u`
+  Unicode escapes.
+
+More: [decisions/rtf.md](decisions/rtf.md).
+
+## EPUB
+
+- Chapters in reading order (the spine) as one document: headings, lists, tables, code blocks, quotes and equations as
+  for HTML. Title, authors and language come from the package metadata.
+- Pictures stored in the book are extracted in place (`extract_images`). External links are kept (`keep_links`); links
+  between chapters keep only their text.
+- The table of contents (navigation document, NCX), the cover page and content outside the reading flow
+  (`linear="no"`) are left out. Chapters that are not well-formed XHTML are still read.
+- DRM-protected books are reported as `EncryptedDocumentError`; books with only obfuscated fonts are read normally.
+
+More: [decisions/epub.md](decisions/epub.md).
+
+## Word 97-2003 (.doc) and PowerPoint 97-2003 (.ppt)
+
+These binary formats are read **through LibreOffice when it is installed** (`soffice` or `libreoffice` on `PATH`, the
+standard macOS and Windows install locations, or the path in the `OPENDOCKIT_SOFFICE` environment variable).
+
+- The file is converted to DOCX / PPTX in a private temporary directory and then read exactly like those formats.
+  The result carries one warning that it went through LibreOffice, and `format` is `doc` / `ppt`.
+- Each conversion starts LibreOffice, which takes from half a second to a few seconds, with a fixed 60-second limit.
+- Without LibreOffice the file is rejected with `UnsupportedFormatError` and advice to install it or save the file as
+  DOCX / PPTX. Set `OPENDOCKIT_SOFFICE=` (empty) to switch the bridge off so that no subprocess is ever started.
+- LibreOffice runs headless with a private profile in which macros and link updates are disabled and HTTP(S) is routed
+  to a dead proxy. That is configuration, not a sandbox: see [limitations.md](limitations.md) and
+  [decisions/legacy-office.md](decisions/legacy-office.md).
+- Password-protected files are `EncryptedDocumentError`.
+
+## Links and emphasis
+
+In DOCX, PPTX, HTML, ODT, ODP, RTF and EPUB:
+
+- Hyperlinks are kept as `[text](url)`. Only `http`, `https` and `mailto` targets become links; a link whose text is its
+  own address stays the bare address. Nothing is resolved or fetched.
+- Bold and italic are kept as `**bold**`, `*italic*` and `***both***`.
+- Headings, captions and code are not emphasized, and bold that covers a whole paragraph, list item or table cell is not
+  marked (in real documents that is styling, and marking it buries the emphasis that means something).
+- Switch either off with `ConvertOptions(keep_links=False)` / `ConvertOptions(keep_emphasis=False)` to get plain text.
+
+More: [decisions/inline-formatting.md](decisions/inline-formatting.md).
 
 ## Common rules
 

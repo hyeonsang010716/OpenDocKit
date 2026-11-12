@@ -23,6 +23,8 @@ result = convert(data, "deck.pptx", options)
 | `include_hidden_sheets` | `False` | Hidden sheets |
 | `include_headers_footers` | `False` | Headers and footers of DOCX, HWP and HWPX (usually noise) |
 | `include_footnotes` | `True` | Footnotes as `[^n]: …` at the end of the document |
+| `keep_links` | `True` | Hyperlinks as `[text](url)` (http, https and mailto only). `False`: only the link text |
+| `keep_emphasis` | `True` | Bold and italic as `**bold**` / `*italic*`. `False`: plain text |
 | `remove_repeated_page_lines` | `True` | Remove repeated PDF page headers, footers and page numbers |
 | `page_markers` | `True` | PDF page-boundary comments (`<!-- Page N -->`) |
 | `extract_images` | `True` | Image extraction. `False` ignores images completely: pictures inside a document leave no placeholder, and an image file uploaded on its own is not read (empty result plus a warning). However, OLE objects whose content is not read (a pasted Excel sheet and the like) still leave an `[OLE object]` placeholder and a warning (DOCX, PPTX, HWP, HWPX) |
@@ -49,6 +51,13 @@ The number of concurrent calls is the `max_concurrency` argument (default 8) of 
 
 To use a different vision model, implement the `ImageDescriber` protocol; see [images.md](images.md#using-another-vision-model).
 
+## Environment
+
+| Variable | Effect |
+| --- | --- |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL` | Read by `OpenAIImageDescriber()` when no model is passed in |
+| `OPENDOCKIT_SOFFICE` | Path of the LibreOffice program used for `.doc` / `.ppt`. Empty: never start LibreOffice |
+
 ## Option validation
 
 Values are checked when `ConvertOptions` is created.
@@ -66,7 +75,7 @@ All exceptions are subclasses of `ConversionError`; branch on `code`. The messag
 
 | Exception | `code` | When |
 | --- | --- | --- |
-| `UnsupportedFormatError` | `unsupported_format` | Legacy .doc and .ppt, HWP 3.x, Hangul XML (.hml), ODF, DOCX and PPTX saved as Strict Open XML (the message advises saving again in the normal format), unknown binary |
+| `UnsupportedFormatError` | `unsupported_format` | Legacy .doc and .ppt when LibreOffice is not installed, HWP 3.x, Hangul XML (.hml), single-file ODF XML, DOCX and PPTX saved as Strict Open XML (the message advises saving again in the normal format), unknown binary |
 | `EncryptedDocumentError` | `encrypted_document` | Password-protected PDF, Office and HWP documents (a protected XLS that Excel saved with its default password VelvetSweatshop is read normally), encrypted mail (S/MIME, PGP), an HWP distribution document whose body is encrypted when it has no preview either |
 | `DocumentTooLargeError` | `document_too_large` | File size or decompressed size over the limit; time or memory limit of `IsolatedConverter` exceeded, or its worker died ("too large or too complex") |
 | `CorruptedDocumentError` | `corrupted_document` | Empty file, broken structure, internal parser error, an image file that cannot be decoded (uploaded on its own) |

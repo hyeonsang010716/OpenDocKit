@@ -339,10 +339,21 @@ def _speaker_notes(notes_slide: object) -> str:
     # picture, page number and header are not notes text
     # (Pinned by: test_office_cells_and_notes.py::TestPptxSpeakerNoteLevels::test_text_box_on_the_notes_page_is_part_of_the_notes)
     frames = [] if body is None else [body]
-    frames += [shape.text_frame for shape in notes_slide.shapes if not shape.is_placeholder and shape.has_text_frame]
+    # A text box that holds nothing but fields (slide number, date) is page furniture: a deck that went through LibreOffice (a
+    # converted .ppt) carries the notes-page number as such a box, and it ended the notes with a `<number>` line
+    # (Pinned by: test_office_cells_and_notes.py::TestPptxSpeakerNoteLevels::test_field_only_text_box_on_the_notes_page_is_not_notes)
+    frames += [shape.text_frame for shape in notes_slide.shapes
+               if not shape.is_placeholder and shape.has_text_frame and not _holds_only_fields(shape._element)]
     notes = [cell_level_mark(_paragraph_level(paragraph)) + line
              for frame in frames for paragraph in frame.paragraphs for line in paragraph.text.splitlines() if line.strip()]
     return "> Speaker notes: " + "\n> ".join(notes) if notes else ""
+
+
+def _holds_only_fields(shape: object) -> bool:
+    """The shape's text is made of field elements only (`a:fld`), with no ordinary run that has text."""
+    has_field = any(True for _ in shape.iter(f"{{{_DRAWING}}}fld"))
+    has_text = any((text.text or "").strip() for run in shape.iter(f"{{{_DRAWING}}}r") for text in run.iter(f"{{{_DRAWING}}}t"))
+    return has_field and not has_text
 
 
 def _drop_unreadable_shapes(tree: object) -> int:

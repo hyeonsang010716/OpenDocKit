@@ -23,6 +23,7 @@ from lxml import etree
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._shared import (
+    LINK_OPEN,
     SUBSCRIPT,
     SUPERSCRIPT,
     TableBudget,
@@ -33,11 +34,16 @@ from opendockit.extractors._shared import (
     format_dutmal,
     format_number,
     is_placeholder_only,
+    link_close,
+    link_target,
+    mark_emphasis,
     mark_script,
     mark_strike,
+    merge_emphasis_marks,
     note_table,
     omitted_rows_warning,
     paragraph_head,
+    resolve_inline,
     resolve_scripts,
     resolve_strikes,
 )
@@ -104,9 +110,6 @@ _XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, remove_co
 # ODF collapses white space in paragraph text (runs of spaces, tabs and line ends count as one space); real spaces, tabs and line
 # breaks are the elements `text:s`, `text:tab` and `text:line-break`. Indented XML otherwise became line breaks inside a sentence.
 _XML_SPACE = re.compile(r"[ \t\r\n]+")
-_LINK_SCHEMES = ("http://", "https://", "mailto:")
-_LINK_ESCAPES = str.maketrans({" ": "%20", "(": "%28", ")": "%29", "<": "%3C", ">": "%3E"})
-_MAX_LINK_CHARS = 2_000
 _HEADING_STYLE = re.compile(r"Heading_20_([1-9])")
 _TIME_VALUE = re.compile(r"PT(\d+)H(\d+)M(\d+)(?:[.,]\d+)?S")
 
@@ -162,7 +165,7 @@ class _Run:
     italic: bool = False
     script: str = ""        # SUPERSCRIPT / SUBSCRIPT / ""
     strike: bool = False
-    href: str | None = None
+    href: str | None = None     # the address of the link the text is in, already vetted by `_shared.link_target`
 
 
 @dataclass(slots=True)
@@ -441,35 +444,6 @@ def _flat_text(node: etree._Element) -> str:
     return " ".join("".join(node.itertext()).split())
 
 
-def _emphasized(text: str, bold: bool, italic: bool) -> str:
-    """Wrap text in Markdown emphasis, line by line, with the marks tight against the first and last character (white space stays
-    outside). Text without a letter or digit is left alone — `**—**` says nothing."""
-    if not (bold or italic):
-        return text
-    mark = "***" if bold and italic else "**" if bold else "*"
-    lines = []
-    for line in text.split("\n"):
-        core = line.strip()
-        if not any(character.isalnum() for character in core):
-            lines.append(line)
-            continue
-        lead = line[:len(line) - len(line.lstrip())]
-        lines.append(f"{lead}{mark}{core}{mark}{line[len(lead) + len(core):]}")
-    return "\n".join(lines)
-
-
-def _linked(text: str, href: str) -> str:
-    """`[text](address)` for http, https and mailto addresses. Other targets (bookmarks, files, macros), an address that is already
-    the visible text, and empty link text give the text alone."""
-    label = " ".join(text.split())
-    target = "".join(character for character in href.strip() if character.isprintable()).translate(_LINK_ESCAPES)
-    if not label or not target.lower().startswith(_LINK_SCHEMES) or len(target) > _MAX_LINK_CHARS or label == href.strip():
-        return text
-    lead = text[:len(text) - len(text.lstrip())]
-    trail = text[len(text.rstrip()):]
-    return f"{lead}[{label.replace('[', '\\[').replace(']', '\\]')}]({target}){trail}"
-
-
 _MATH_SCRIPTS = {"msup": "^", "msub": "_", "msubsup": "_", "munder": "_", "mover": "^", "munderover": "_"}
 _MATH_IGNORED = frozenset(("annotation", "annotation-xml", "none", "mprescripts", "mphantom"))
 
@@ -607,7 +581,8 @@ class _Renderer:
                 inner = tuple(have if have is not None else outer for have, outer in zip(own, look, strict=True))
                 self._inline(child, inner, href, pieces, context, depth + 1)
             elif tag == _A:
-                self._inline(child, look, child.get(_HREF) or href, pieces, context, depth + 1)
+                # Only web and mail addresses are links (`_shared.link_target`); a bookmark or a file keeps its text only.
+                self._inline(child, look, link_target(child.get(_HREF)) or href, pieces, context, depth + 1)
             elif tag == _RUBY:
                 base, annotation = child.find(_RUBY_BASE), child.find(_RUBY_TEXT)
                 text = format_dutmal(_flat_text(base) if base is not None else "", _flat_text(annotation) if annotation is not None else "")
@@ -623,33 +598,23 @@ class _Renderer:
                 pieces.append(_run(_XML_SPACE.sub(" ", child.tail), look, href))
 
     def _format(self, runs: list[_Run], context: _Context, emphasis: bool) -> str:
-        """Runs → Markdown text. Adjacent runs with the same formatting are merged before the marks are written."""
-        emphasis = emphasis and self._options.keep_emphasis and not context.plain
+        """Runs → Markdown text. The runs only announce where a link, bold or italic starts and ends (the temporary marks of
+        `_shared`); merging runs, placing white space, whole-block and part-of-word emphasis, link text and escaping are the
+        shared rules of `_shared.resolve_inline` (docs/decisions/inline-formatting.md), in the order docx.py applies them, so that
+        an ODT and the DOCX it was saved from read the same
+        (Pinned by: test_odf.py::TestInlineFormatting::test_paragraph_that_is_bold_as_a_whole_is_left_unmarked).
+        Runs that follow each other with the same address are one link. With both options off, and in plain contexts (slide
+        titles, sheet cells, speaker notes), no marks are written at all."""
         links = self._options.keep_links and not context.plain
-        if emphasis and context.in_cell:
-            # A table cell that is bold or italic as a whole is a styled header or label, not emphasis: marking it put `**` around
-            # every cell of a header row. Emphasis stays where it sets part of the cell text apart
-            # (Pinned by: test_odf.py::TestInlineFormatting::test_cell_that_is_bold_as_a_whole_is_left_plain).
-            emphasis = len({(run.bold, run.italic) for run in runs if run.text.strip()}) > 1
-
-        last = (False, False)
-
-        def look_of(run: _Run) -> tuple[bool, bool]:
-            # White space between two runs takes the formatting of the run before it, so that '**a** **b**' is written '**a b**'.
-            nonlocal last
-            if run.text.strip():
-                last = (run.bold, run.italic)
-            return last
-
+        marks = self._options.keep_emphasis and not context.plain
         parts = []
-        for href, linked in groupby(runs, key=lambda run: run.href if links else None):
-            pieces = []
-            for (bold, italic), group in groupby(linked, key=look_of):
-                text = "".join(_marked(run) for run in group)
-                pieces.append(_emphasized(text, bold, italic) if emphasis else text)
-            text = "".join(pieces)
-            parts.append(_linked(text, href) if href else text)
-        return resolve_scripts(resolve_strikes("".join(parts)))
+        for target, linked in groupby(runs, key=lambda run: run.href if links else None):
+            text = "".join(_marked(run, marks) for run in linked)
+            parts.append(f"{LINK_OPEN}{text}{link_close(target)}" if target else text)
+        text = "".join(parts)
+        if not (links or marks):
+            return resolve_scripts(resolve_strikes(text))
+        return resolve_inline(resolve_scripts(resolve_strikes(merge_emphasis_marks(text))), emphasis=emphasis)
 
     def _paragraph(self, node: etree._Element, context: _Context, depth: int, *, emphasis: bool = True) -> list[str]:
         """A paragraph as blocks: its text, with the pictures and text boxes anchored in it as blocks of their own in place."""
@@ -722,11 +687,12 @@ class _Renderer:
         return []
 
     def _heading(self, node: etree._Element, context: _Context, depth: int, level: int) -> list[str]:
-        """`text:h` → `#` by outline level (1-6). No emphasis inside a heading. Inside a table cell, a note or a slide title it is
-        plain text — a `#` there is not a heading. The 'Title' paragraph style is a level-1 heading as in DOCX."""
-        blocks = self._paragraph(node, context, depth, emphasis=False)
+        """`text:h` → `#` by outline level (1-6). No emphasis inside a heading (links are kept). Inside a table cell, a note or a
+        slide title it is not a heading — a `#` there is not one — but a paragraph, emphasized like any other (as in DOCX). The
+        'Title' paragraph style is a level-1 heading as in DOCX."""
         if context.in_cell or context.in_note or context.plain:
-            return blocks
+            return self._paragraph(node, context, depth)
+        blocks = self._paragraph(node, context, depth, emphasis=False)
         for index, block in enumerate(blocks):
             if not is_placeholder_only(block):
                 blocks[index] = f"{'#' * level} {' '.join(block.split())}"
@@ -1105,9 +1071,12 @@ class _Renderer:
         return "> Speaker notes: " + "\n> ".join(lines) if lines else ""
 
 
-def _marked(run: _Run) -> str:
+def _marked(run: _Run, emphasis: bool) -> str:
+    """The text of a run inside the temporary marks of `_shared`: script innermost, then strikethrough, emphasis outermost
+    (`**~~1,000~~**`, `**H_2O**`), the order docx.py uses."""
     text = mark_script(run.text, run.script) if run.script else run.text
-    return mark_strike(text) if run.strike else text
+    text = mark_strike(text) if run.strike else text
+    return mark_emphasis(text, run.bold, run.italic) if emphasis else text
 
 
 # ---- Entry points ------------------------------------------------------------------------------------------------
