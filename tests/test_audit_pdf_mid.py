@@ -220,3 +220,169 @@ class TestManyTablesOnOnePage:
             "Report of the two tables\n\n| Item | Description |\n| --- | --- |\n"
             "| Pump | The pressure of the hydraulic pump is checked every morning |\n| Belt | Tension<br>Wear |\n\n"
             "Second table\n\n| Name | Value |\n| --- | --- |\n| Alpha | 10 |\n| Beta | 20 |\n| Gamma | 30 |")
+
+
+def _vertical_strips_pdf(strips: int) -> bytes:
+    """One-page PDF (3000×800pt) whose picture is drawn as `strips` vertical strips of the full page height, under 30 lines
+    of text."""
+    from reportlab.lib.utils import ImageReader
+
+    from tests.builder import png_bytes
+
+    width, height = 3000.0, 800.0
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(width, height))
+    picture = ImageReader(BytesIO(png_bytes(64, 64, seed=3)))
+    for strip in range(strips):
+        pdf.drawImage(picture, strip * width / strips, 0, width=width / strips, height=height)
+    pdf.setFont("Helvetica", 10)
+    for line in range(30):
+        pdf.drawString(50, 700 - line * 14, f"plain text line number {line} with words in it for the layer")
+    pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
+
+class _CountedBox(tuple):
+    """A box that counts how many times a coordinate is read from any box of this kind."""
+
+    reads = 0
+
+    def __getitem__(self, index):
+        _CountedBox.reads += 1
+        return super().__getitem__(index)
+
+
+class TestPictureDrawnAsManyStrips:
+    """`_tiled_background` compared every pair of pictures that share a top, `_is_strips` every pair of pieces of a group
+    and `_union_area` every box with every band, so a page whose picture is drawn as 3,000 vertical strips (a 12 KB file)
+    took 10 seconds."""
+
+    def test_strips_are_compared_with_their_neighbours_only(self, monkeypatch):
+        abuts, encloses = _counted(monkeypatch, "_abuts"), _counted(monkeypatch, "_encloses")
+
+        result = convert(_vertical_strips_pdf(600), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text.count("plain text line number") == 30 and len(result.images) == 1  # one background, as before
+        assert abuts[0] <= 600 * 10  # 600 × 599 / 2 before
+        assert encloses[0] <= 600 * 40  # 600 × 600 before
+
+    def test_union_area_of_many_stacked_strips_is_swept_once(self):
+        strips = [_CountedBox((0.0, top * 2.0, 600.0, top * 2.0 + 2.0)) for top in range(400)]
+        _CountedBox.reads = 0
+
+        area = pdf_module._union_area(strips)
+
+        assert area == 600.0 * 800.0
+        assert _CountedBox.reads <= 400 * 20  # 800 bands × 400 boxes before
+
+    def test_groups_and_areas_are_the_ones_found_by_comparing_everything(self):
+        """The groups of abutting pictures, the strip shape of a group and the area of a union are the same as when every
+        pair of boxes (every box for every band) is compared, on layouts of strips, grids, pieces laid inside strips and
+        scattered boxes."""
+        import random
+
+        def abutting_groups(boxes):
+            groups = [{index} for index in range(len(boxes))]
+            for index, box in enumerate(boxes):
+                for other in range(index + 1, len(boxes)):
+                    if pdf_module._abuts(box, boxes[other]) and groups[index] is not groups[other]:
+                        groups[index] |= groups[other]
+                        for member in groups[other]:
+                            groups[member] = groups[index]
+            return sorted({tuple(sorted(group)) for group in groups})
+
+        def union_area(boxes):
+            edges = sorted({edge for box in boxes for edge in (box[1], box[3])})
+            area = 0.0
+            for low, high in zip(edges, edges[1:], strict=False):
+                covered, reach = 0.0, float("-inf")
+                for x0, x1 in sorted((box[0], box[2]) for box in boxes if box[1] <= low and box[3] >= high):
+                    covered += max(0.0, x1 - max(x0, reach))
+                    reach = max(reach, x1)
+                area += covered * (high - low)
+            return area
+
+        def is_strips(shapes):
+            encloses = pdf_module._encloses
+            outer = [tile for tile in shapes if not any(encloses(other, tile) and not encloses(tile, other) for other in shapes)]
+            x0, top = min(tile[0] for tile in outer), min(tile[1] for tile in outer)
+            x1, bottom = max(tile[2] for tile in outer), max(tile[3] for tile in outer)
+            gap = pdf_module._TILE_GAP
+            return (all(tile[0] - x0 <= gap and x1 - tile[2] <= gap for tile in outer)
+                    or all(tile[1] - top <= gap and bottom - tile[3] <= gap for tile in outer))
+
+        def expected(boxes, view):
+            view_area = (view[2] - view[0]) * (view[3] - view[1])
+            if sum(pdf_module._box_area(box[:4]) for box in boxes) < view_area * pdf_module._BACKGROUND_RATIO:
+                return boxes
+            result = []
+            for group in abutting_groups(boxes):
+                tiles = [boxes[index] for index in group]
+                shapes = [tile[:4] for tile in tiles]
+                if len(tiles) > 1 and is_strips(shapes) and union_area(shapes) >= view_area * pdf_module._BACKGROUND_RATIO:
+                    result.append(tuple(pick(tile[side] for tile in tiles) for side, pick in enumerate((min, min, max, max, max))))
+                else:
+                    result.extend(tiles)
+            return result
+
+        random.seed(7)
+        width, height = 600.0, 800.0
+        merged = 0
+        for _ in range(400):
+            count, slack = random.randrange(2, 40), [0.0, 0.0, 0.5, 1.5, 2.0, 2.5, 3.0, -1.0]
+            layout = random.randrange(5)
+            if layout == 0:  # horizontal strips, with gaps or overlaps between some
+                boxes = [(0.0, row * height / count, width, (row + 1) * height / count - random.choice(slack), 1.0)
+                         for row in range(count)]
+            elif layout == 1:  # vertical strips
+                boxes = [(column * width / count, 0.0, (column + 1) * width / count - random.choice(slack), height, 2.0)
+                         for column in range(count)]
+            elif layout == 2:  # a grid
+                rows, columns = random.randrange(1, 7), random.randrange(1, 7)
+                boxes = [(column * width / columns, row * height / rows, (column + 1) * width / columns - random.choice(slack),
+                          (row + 1) * height / rows - random.choice(slack), 1.0) for row in range(rows) for column in range(columns)]
+            elif layout == 3:  # strips with pieces laid inside them or just around them
+                boxes = [(0.0, row * height / count, width, (row + 1) * height / count, 1.0) for row in range(count)]
+                boxes += [(random.choice([-1.5, -0.5, 0.0, 0.5, 1.5, 10.0]), row * height / count + random.choice([0.0, 0.5, 1.5]),
+                           width / random.choice([1, 2]), (row + 1) * height / count - random.choice([-1.5, -0.5, 0.0, 1.5]), 1.0)
+                          for row in range(count) if random.random() < 0.5]
+            else:  # boxes scattered on a 20pt lattice
+                boxes = []
+                for _ in range(count):
+                    x0, top = random.randrange(30) * 20.0, random.randrange(40) * 20.0
+                    boxes.append((x0, top, x0 + random.randrange(1, 12) * 20.0, top + random.randrange(1, 12) * 20.0, 1.0))
+            random.shuffle(boxes)
+            shapes = [box[:4] for box in boxes]
+
+            found = pdf_module._tiled_background(boxes, (0.0, 0.0, width, height))
+
+            assert sorted(found) == sorted(expected(boxes, (0.0, 0.0, width, height)))
+            assert pdf_module._is_strips(shapes) == is_strips(shapes)
+            assert pdf_module._union_area(shapes) == union_area(shapes)
+            merged += len(found) < len(boxes)
+        assert merged > 20
+
+    @pytest.mark.timing
+    def test_page_of_thousands_of_strips_is_grouped_in_seconds(self):
+        width, height, strips = 3000.0, 800.0, 6000
+        boxes = [(strip * width / strips, 0.0, (strip + 1) * width / strips, height, 1.0) for strip in range(strips)]
+
+        started = time.perf_counter()
+        found = pdf_module._tiled_background(boxes, (0.0, 0.0, width, height))
+        elapsed = time.perf_counter() - started
+
+        assert found == [(0.0, 0.0, width, height, 1.0)] and elapsed < 3  # 12 seconds before
+
+    def test_scan_stored_as_strips_and_photos_side_by_side_read_as_before(self):
+        from tests import builder
+
+        lines = ["Minutes of the regular meeting", "The budget for the next year was approved as proposed."]
+        scan = convert(builder.pdf_scanned_in_strips([lines]), "scan.pdf", ConvertOptions(page_markers=False))
+        photos = convert(builder.pdf_scanned_in_strips([lines], strips=4, gap=12), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert scan.text == "Minutes of the regular meeting\nThe budget for the next year was approved as proposed."
+        assert len(scan.images) == 1 and len(scan.warnings) == 2  # the strips are one background: the page is sent whole
+        assert photos.text == ("[Image]\n\nMinutes of the regular meeting\nThe budget for the next year was approved as proposed."
+                               "\n\n[Image]\n\n[Image]\n\n[Image]")
+        assert len(photos.images) == 4 and photos.warnings == []

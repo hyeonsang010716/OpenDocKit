@@ -3758,12 +3758,33 @@ def _tiled_background(boxes: list[tuple[float, float, float, float, float]],
             index = parent[index]
         return index
 
+    # Boxes that abut have a side within `_TILE_GAP` of the other's opposite side, so when that is fewer boxes than the ones
+    # that follow down to this box's bottom, only the boxes with a side near the opposite side of this one are compared (the
+    # same pairs are joined). Comparing every pair took 8 of 10 seconds on a page whose picture was drawn as 3,000 vertical
+    # strips, which all share a top (a 12 KB file) (Pinned by:
+    # test_audit_pdf_mid.py::TestPictureDrawnAsManyStrips::test_strips_are_compared_with_their_neighbours_only).
+    # A coordinate that is not a finite number has no place in this search, so such a page is compared pair by pair as before
+    sorted_sides = (None if not all(math.isfinite(value) for box in boxes for value in box[:4]) else
+                    [sorted((boxes[index][side], place) for place, index in enumerate(order)) for side in range(4)])
     for position, index in enumerate(order):
-        for other in islice(order, position + 1, None):
-            if boxes[other][1] > boxes[index][3] + _TILE_GAP:
-                break
-            if _abuts(boxes[index], boxes[other]):
-                parent[root(other)] = root(index)
+        if sorted_sides is None:
+            for other in islice(order, position + 1, None):
+                if boxes[other][1] > boxes[index][3] + _TILE_GAP:
+                    break
+                if _abuts(boxes[index], boxes[other]):
+                    parent[root(other)] = root(index)
+            continue
+        end = bisect_right(sorted_sides[1], (boxes[index][3] + _TILE_GAP, len(order)))  # the boxes after it start lower than this box reaches
+        near = []
+        for side, values in enumerate(sorted_sides):
+            opposite = boxes[index][(side + 2) % 4]
+            reach = _TILE_GAP + 1 + abs(opposite) * 1e-9  # wider than `_abuts` allows, whatever the rounding
+            near.append((values, bisect_left(values, (opposite - reach,)), bisect_right(values, (opposite + reach, len(order)))))
+        places = (range(position + 1, end) if end - position <= sum(high - low for _, low, high in near)
+                  else [place for values, low, high in near for _, place in values[low:high] if position < place < end])
+        for place in places:
+            if _abuts(boxes[index], boxes[order[place]]):
+                parent[root(order[place])] = root(index)
 
     groups: dict[int, list[int]] = {}
     for index in range(len(boxes)):
@@ -3795,7 +3816,27 @@ def _is_strips(tiles: list[tuple[float, ...]]) -> bool:
     shapes = [tuple(tile[:4]) for tile in tiles]
 
     # Pieces that enclose each other (same position within 1pt) are both kept — removing the redrawn strip too would leave no piece
-    outer = [tile for tile in shapes if not any(_encloses(other, tile) and not _encloses(tile, other) for other in shapes)]
+    # A piece that encloses another starts no further right (lower) than it and, being no wider (taller) than the widest
+    # (tallest) piece, not far to the left of (above) its end, so only the pieces starting in the narrower of those two ranges
+    # are compared instead of every piece (Pinned by:
+    # test_audit_pdf_mid.py::TestPictureDrawnAsManyStrips::test_strips_are_compared_with_their_neighbours_only).
+    # A coordinate that is not a finite number has no place in this search, so then every piece is compared as before
+    ordered = (None if not all(math.isfinite(value) for tile in shapes for value in tile) else
+               [sorted(shapes, key=lambda tile, low=low: tile[low]) for low in (0, 1)])
+    starts = [[tile[low] for tile in pieces] for low, pieces in enumerate(ordered or ())]
+    longest = [max(tile[low + 2] - tile[low] for tile in shapes) for low in (0, 1)]
+
+    def others(tile: tuple[float, ...]) -> list[tuple[float, ...]]:
+        if ordered is None:
+            return shapes
+        ranges = []
+        for low in (0, 1):
+            reach = 3 + (abs(tile[low]) + abs(tile[low + 2]) + abs(longest[low])) * 1e-9  # wider than `_encloses` allows
+            ranges.append((bisect_left(starts[low], tile[low + 2] - longest[low] - reach), bisect_right(starts[low], tile[low] + reach)))
+        low = 0 if ranges[0][1] - ranges[0][0] <= ranges[1][1] - ranges[1][0] else 1
+        return ordered[low][ranges[low][0]:ranges[low][1]]
+
+    outer = [tile for tile in shapes if not any(_encloses(other, tile) and not _encloses(tile, other) for other in others(tile))]
     x0, top = min(tile[0] for tile in outer), min(tile[1] for tile in outer)
     x1, bottom = max(tile[2] for tile in outer), max(tile[3] for tile in outer)
     return (all(tile[0] - x0 <= _TILE_GAP and x1 - tile[2] <= _TILE_GAP for tile in outer)
@@ -3818,8 +3859,26 @@ def _union_area(boxes: list[tuple[float, ...]]) -> float:
     """Area of the union of the boxes (overlapping parts counted once)."""
     edges = sorted({edge for box in boxes for edge in (box[1], box[3])})
     area = 0.0
+    # The boxes crossing each band are kept in a sorted list that a box enters at its top and leaves at its bottom (the same
+    # list as picking them out of all the boxes for every band, which took the number of bands times the number of boxes)
+    # (Pinned by: test_audit_pdf_mid.py::TestPictureDrawnAsManyStrips::test_union_area_of_many_stacked_strips_is_swept_once).
+    # A coordinate that is not a finite number has no place in this list, so then the boxes are picked for every band as before
+    swept = all(math.isfinite(value) for box in boxes for value in box)
+    entering: dict[float, list[tuple[float, float]]] = {}
+    leaving: dict[float, list[tuple[float, float]]] = {}
+    for box in boxes:
+        if swept and box[1] < box[3]:
+            entering.setdefault(box[1], []).append((box[0], box[2]))
+            leaving.setdefault(box[3], []).append((box[0], box[2]))
+    spans: list[tuple[float, float]] = []
     for low, high in zip(edges, edges[1:], strict=False):
-        spans = sorted((box[0], box[2]) for box in boxes if box[1] <= low and box[3] >= high)
+        if swept:
+            for span in leaving.get(low, ()):
+                del spans[bisect_left(spans, span)]
+            for span in entering.get(low, ()):
+                insort(spans, span)
+        else:
+            spans = sorted((box[0], box[2]) for box in boxes if box[1] <= low and box[3] >= high)
         covered, reach = 0.0, float("-inf")
         for x0, x1 in spans:
             covered += max(0.0, x1 - max(x0, reach))
