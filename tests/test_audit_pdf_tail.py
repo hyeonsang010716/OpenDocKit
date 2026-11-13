@@ -1,8 +1,13 @@
 """PDF audit of the borderless-table, row-joining and repeated-line code: lost cell lines and super-linear time."""
 
 from io import BytesIO
+from random import Random
+import time
+
+import pytest
 
 from opendockit import ConvertOptions, convert
+from opendockit.extractors import pdf
 
 
 def _pdf(draw, pages: int = 1, size: tuple[float, float] = (595, 842)) -> bytes:
@@ -102,3 +107,93 @@ class TestJoinedCellLinesOnATwoColumnPage:
         assert result.text.count("aa1") == 1
         assert result.text.count("\n| --- ") == 1
         assert result.text.rstrip().endswith(table)
+
+
+def _wrapped_lines_pdf(count: int, rows_below: int) -> bytes:
+    """A borderless table (header, one row) with `count` one-word lines at line spacing under the first cell, in the gap
+    before the second header, and `rows_below` more table rows under them."""
+    height = 200 + count * 4.2
+
+    def draw(pdf, page):
+        pdf.setFont("Helvetica", 4)
+        y = height - 50
+        for x, text in ((50, "aa"), (200, "bb"), (300, "cc")):
+            pdf.drawString(x, y, text)
+        y -= 7
+        for x, text in ((50, "name here long text"), (200, "v"), (300, "w")):
+            pdf.drawString(x, y, text)
+        for _ in range(count):
+            y -= 4.2
+            pdf.drawString(60, y, "wrap")
+        for index in range(rows_below):
+            y -= 7
+            for x, text in ((50, f"row{index}"), (200, "v"), (300, "w")):
+                pdf.drawString(x, y, text)
+
+    return _pdf(draw, size=(600, height))
+
+
+class TestManyWrappedLinesUnderOneRow:
+    """Every further wrapped line under a table row measured the whole row again (its bottom and the column of each of its
+    cells, each of which looks at the other cells), so the time grew with the cube of the number of lines: 600 one-word
+    lines in a 3.8 KB file took 10 seconds."""
+
+    @staticmethod
+    def _counted(monkeypatch) -> list[int]:
+        calls = [0]
+        column_of = pdf._column_of
+
+        def counting(*args):
+            calls[0] += 1
+            return column_of(*args)
+
+        monkeypatch.setattr(pdf, "_column_of", counting)
+        return calls
+
+    def test_wrapped_lines_of_a_cell_are_not_measured_again_for_every_line(self, monkeypatch):
+        calls = self._counted(monkeypatch)
+
+        result = convert(_wrapped_lines_pdf(200, rows_below=3), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text.startswith("| aa | bb | cc |\n| --- | --- | --- |\n| name here long text" + "<br>wrap" * 200 + " | v | w |\n"
+                                      "| row0 | v | w |\n| row1 | v | w |\n| row2 | v | w |")
+        assert calls[0] < 2_000  # 21,353 when the row was measured again for every line
+
+    def test_lines_that_end_the_page_without_a_row_below_stay_lines(self, monkeypatch):
+        calls = self._counted(monkeypatch)
+
+        result = convert(_wrapped_lines_pdf(200, rows_below=0), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == "aa\n\nname here long text\n\nbb\n\nv\n\ncc\n\nw\n\n" + "\n".join(["wrap"] * 200)
+        assert calls[0] < 2_000  # 62,121 when the row was measured again for every line
+
+    def test_columns_of_a_growing_row_are_those_of_column_of(self):
+        """The columns kept for a growing row equal `_column_of` asked afresh for every cell, whatever the cells are:
+        text and numbers at header edges, inside headers, in the gaps between them, and empty-width cells."""
+        random = Random(20261113)
+        moved = 0
+        for _ in range(400):
+            starts = sorted(random.sample(range(40, 520, 10), random.randint(3, 6)))
+            header = [pdf._Line(100, 110, x, x + random.choice((8, 20, 45)), "head", 10) for x in starts]
+            edges = [edge for cell in header for edge in (cell.x0, cell.x1)]
+            row: list = []
+            known: dict = {}
+            for _ in range(random.randint(1, 14)):
+                x0 = random.choice([random.choice(edges) + random.choice((-30, -12, -3, 0, 3, 12, 30)), random.uniform(30, 560),
+                                    *([random.choice(row).x1] * 2 if row else [])])  # also right where another cell ends
+                width = random.choice((0, 0, 4, 15, 40, 90))
+                x1 = random.choice([x0 + width, random.choice(edges)]) if random.random() < 0.3 else x0 + width
+                row.append(pdf._Line(120, 130, min(x0, x1), max(x0, x1), random.choice(("word", "12", "3,400", "note a")), 10))
+                expected = [pdf._column_of(cell, header, row) for cell in row]
+                assert pdf._cell_columns(row, header, known) == expected
+                moved += sum(column != pdf._header_column(cell, header) for cell, column in zip(row, expected, strict=True))
+        assert moved > 200  # the gap rule (a cell sent to the column on its right) is exercised
+
+    @pytest.mark.timing
+    def test_six_hundred_wrapped_lines_take_no_longer_than_reading_them(self):
+        started = time.perf_counter()
+
+        result = convert(_wrapped_lines_pdf(600, rows_below=0), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text.count("wrap") == 600
+        assert time.perf_counter() - started < 5.0  # 10 seconds before; about half a second now

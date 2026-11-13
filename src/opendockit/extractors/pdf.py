@@ -6937,9 +6937,15 @@ def _table_runs(rows: list[list[_Line]], max_cell: float,
                 # Wrapped lines of cell text (there may be several) are joined to the cell only when more table rows
                 # follow below. A short note set right below the last row ('* 잠정치', '출처: 인사팀') was attached to
                 # the first cell
+                # The bottom of the growing row is carried along and the columns of its cells are worked out from what
+                # is already known about each cell (`known`, `_cell_columns`): measuring both again for every wrapped
+                # line took time cubic in the number of lines under one row (Pinned by: test_audit_pdf_tail.py::
+                # TestManyWrappedLinesUnderOneRow).
                 merged, ahead = previous, following
+                floor, known = max(line.bottom for line in merged), {}
                 while (ahead < len(rows) and len(rows[ahead]) == 1
-                       and _continues_cell(rows[ahead][0], merged, header, gap_below(merged, rows[ahead]), row_gap)):
+                       and _continues_cell(rows[ahead][0], merged, header, rows[ahead][0].top - floor, row_gap, known)):
+                    floor = max(floor, rows[ahead][0].bottom)
                     merged, ahead = [*merged, *rows[ahead]], ahead + 1
                 if ahead > following and ((ahead < len(rows) and accepts(rows[ahead], merged, header))
                                           or _in_the_band_of(merged[len(previous):], previous, bands)):
@@ -7081,7 +7087,8 @@ def _sizes_match(row: list[_Line], previous: list[_Line]) -> bool:
     return min(sizes) <= 0 or max(sizes) <= min(sizes) * _TABLE_SIZE_RATIO
 
 
-def _continues_cell(line: _Line, previous: list[_Line], header: list[_Line], gap: float, row_gap: float) -> bool:
+def _continues_cell(line: _Line, previous: list[_Line], header: list[_Line], gap: float, row_gap: float,
+                    known: dict | None = None) -> bool:
     """Whether a single-fragment line (`line`) is the wrapped continuation of cell text in the row right above (`previous`).
 
     When cell text wraps onto two lines, the wrapped line becomes a single-fragment row, the table is cut there, and if
@@ -7098,14 +7105,52 @@ def _continues_cell(line: _Line, previous: list[_Line], header: list[_Line], gap
     before a centred header was counted as the first column and the table was cut
     (Pinned by: test_pdf_table_columns.py::TestCentredHeadersOverLeftAlignedCells::
     test_wrapped_line_of_a_cell_in_the_gap_before_a_centred_header_stays_in_the_cell).
+
+    `known` is what a caller that asks about one growing row again and again keeps between calls (`_cell_columns`).
     """
     if not 0 <= gap <= row_gap * _WRAP_GAP_RATIO or row_gap - gap < line.height * _WRAP_GAP_MIN_RATIO:
         return False
 
-    columns = [_column_of(cell, header, previous) for cell in previous]
+    columns = [_column_of(cell, header, previous) for cell in previous] if known is None else _cell_columns(previous, header, known)
     candidates = {_column_of(line, header)} | {
         column for cell, column in zip(previous, columns, strict=True) if abs(cell.x0 - line.x0) <= _TABLE_ROW_TOLERANCE}
     return any(_wraps_into(line, previous, columns, header, column) for column in sorted(candidates))
+
+
+def _cell_columns(row: list[_Line], header: list[_Line], known: dict) -> list[int]:
+    """The same list as `[_column_of(cell, header, row) for cell in row]` for a row that grows: `known` (empty at first)
+    keeps what was worked out in the previous call, and `row` is the row of that call with cells added at the end.
+
+    `_column_of` looks at the other cells of the row for two things only: whether an earlier cell occupies the header
+    column of the cell (`taken` in `_gap_column` — true exactly when one of the two cells of that header column that end
+    leftmost, the cell itself aside, ends before the cell starts), and whether another cell goes to the same column under
+    the gap rule. So the gap rule is asked with a row of just that leftmost cell and the cell itself, again only for the
+    header column in which an added cell became one of the two leftmost, and the second question is answered by
+    counting. Asking `_column_of` for every cell of the row again for every further wrapped line took tens of seconds
+    with several hundred lines under one row (Pinned by: test_audit_pdf_tail.py::TestManyWrappedLinesUnderOneRow; the
+    equality with `_column_of` by test_columns_of_a_growing_row_are_those_of_column_of).
+    """
+    heads: list[int] = known.setdefault("heads", [])  # `_header_column` of each cell
+    gaps: list[int] = known.setdefault("gaps", [])  # `_gap_column` of each cell in this row
+    leftmost: dict[int, list[_Line]] = known.setdefault("leftmost", {})  # header column → the two cells ending leftmost
+    seen = len(heads)
+    moved: set[int] = set()  # header columns whose leftmost cells changed: `taken` may have changed for their cells
+    for cell in row[seen:]:
+        heads.append(_header_column(cell, header))
+        gaps.append(heads[-1])
+        ends = leftmost.setdefault(heads[-1], [])
+        if len(ends) < 2 or cell.x1 < max(other.x1 for other in ends):
+            if len(ends) == 2:
+                ends.remove(max(ends, key=lambda other: other.x1))
+            ends.append(cell)
+            moved.add(heads[-1])
+    for index in range(0 if moved else seen, len(row)):
+        cell, head = row[index], heads[index]
+        if index >= seen or head in moved:
+            earlier = next((other for other in leftmost[head] if other is not cell and other.x1 <= cell.x0), None)
+            gaps[index] = _gap_column(cell, header, [cell] if earlier is None else [earlier, cell], head)
+    shared = Counter(gaps)
+    return [head if shared[gap] > 1 else gap for head, gap in zip(heads, gaps, strict=True)]
 
 
 def _wraps_into(line: _Line, previous: list[_Line], columns: list[int], header: list[_Line], column: int) -> bool:
