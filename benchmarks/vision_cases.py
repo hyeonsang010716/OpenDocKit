@@ -7,6 +7,7 @@ tool in the comparison is given a remote model. Results go to <results>/cases/op
 """
 
 import asyncio
+from importlib.metadata import version
 import json
 from pathlib import Path
 import sys
@@ -37,7 +38,7 @@ async def main() -> None:
     finally:
         await describer.aclose()
     (results / "opendockit-vision.json").write_text(json.dumps(
-        {"tool": "opendockit-vision", "version": f"0.1.0 + {DEFAULT_MODEL}", "results": replies}, ensure_ascii=False, indent=1))
+        {"tool": "opendockit-vision", "version": f"{version('opendockit')} + {DEFAULT_MODEL}", "results": replies}, ensure_ascii=False, indent=1))
 
 
 if __name__ == "__main__":

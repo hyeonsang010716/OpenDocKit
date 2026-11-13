@@ -10,6 +10,11 @@ on:
         type: choice
         options: [all, cases, corpus]
         default: all
+      opendockit:
+        description: "OpenDocKit from the pinned PyPI release, or built from this checkout"
+        type: choice
+        options: [pypi, checkout]
+        default: pypi
 
 permissions:
   contents: read
@@ -27,7 +32,11 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.3
       - name: Install the five tools
         run: |
-          sudo env "PATH=$PATH" BENCH_VENVS=/venvs sh benchmarks/setup_tools.sh
+          if [ "${{ inputs.opendockit }}" = checkout ]; then
+            uv build --wheel --out-dir "$RUNNER_TEMP/wheel"
+            OPENDOCKIT_SPEC="opendockit[heic] @ file://$(ls "$RUNNER_TEMP"/wheel/*.whl)"
+          fi
+          sudo env "PATH=$PATH" BENCH_VENVS=/venvs OPENDOCKIT_SPEC="$OPENDOCKIT_SPEC" sh benchmarks/setup_tools.sh
           df -h / | tail -1
       - name: Describe the machine
         run: |
@@ -37,7 +46,8 @@ jobs:
           cpu = next((line.split(":", 1)[1].strip() for line in open("/proc/cpuinfo") if line.startswith("model name")), "unknown")
           memory = int(next(line.split()[1] for line in open("/proc/meminfo") if line.startswith("MemTotal"))) // 1024
           info = {"cpu": cpu, "cores": os.cpu_count(), "memory_mb": memory, "platform": platform.platform(),
-                  "python": platform.python_version(), "runner": os.environ.get("ImageOS"), "commit": os.environ.get("GITHUB_SHA")}
+                  "python": platform.python_version(), "runner": os.environ.get("ImageOS"), "commit": os.environ.get("GITHUB_SHA"),
+                  "opendockit": "${{ inputs.opendockit }}"}
           json.dump(info, open("benchmarks/results/environment.json", "w"), indent=1)
           print(info)
           PY

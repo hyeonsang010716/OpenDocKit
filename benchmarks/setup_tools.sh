@@ -20,7 +20,8 @@ install() {  # name requirement
     uv venv -q --python 3.12 "$VENVS/$1"
     uv pip install -q --python "$VENVS/$1" "$2"
 }
-install opendockit   "opendockit[heic]==0.1.0"
+# OPENDOCKIT_SPEC replaces the pinned release, e.g. with a wheel built from a checkout (the workflow's "checkout" choice).
+install opendockit   "${OPENDOCKIT_SPEC:-opendockit[heic]==0.2.0}"
 install markitdown   "markitdown[all]==0.1.9"
 install kreuzberg    "kreuzberg[all]==4.10.4"
 install unstructured "unstructured[all-docs]==0.27.37"
