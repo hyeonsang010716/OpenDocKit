@@ -945,6 +945,18 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
     def forget_from(start: int) -> None:
         del visible[start + 1:]
 
+    def collapse_from(start: int) -> None:
+        """Called right before the pieces from `start` on are swapped for one piece (script runs, ruby). A field that began in
+        there keeps a piece index that no longer exists: whether it has shown text so far is settled now, and its result is
+        counted from after the swapped piece. The stale index raised IndexError (the whole document was rejected) or gave the
+        wrong 'no result text' verdict (Pinned by: test_audit_office.py::TestDocxFieldStartedInsideASwappedRun)."""
+        for open_field in reversed(fields):
+            if open_field.start <= start:
+                break
+            open_field.shown = open_field.shown or has_text_since(open_field.start)
+            open_field.start = start + 1
+            open_field.hidden = [(min(index, start + 1), text) for index, text in open_field.hidden]
+
     # Run → the look of that run (`_RunLook`). Looking up the run properties for every w:t (scanning all children when there is no
     # w:rPr) and joining the whole run's text again to see whether the run holds only a box took the square of the number of w:t
     # (a 38 KB document took 312 seconds. Pinned by: test_office_scaling_and_note_order.py::
@@ -1021,11 +1033,12 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                         if fields[-1].link:
                             parts.append(LINK_OPEN)
                     fields[-1].start = len(parts)
+                    fields[-1].shown = False
                 elif kind == "end" and fields:
                     ended = fields.pop()
                     if ended.instruction_side:
                         instruction_fields -= 1
-                    if not instruction_fields and not has_text_since(ended.start):
+                    if not instruction_fields and not ended.shown and not has_text_since(ended.start):
                         parts.append(_equation_field_text("".join(ended.instruction)))
                     if ended.link:
                         parts.append(link_close(ended.link))
@@ -1060,12 +1073,13 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                 start = len(parts)
                 texts = []
                 for name in ("rubyBase", "rt"):
+                    first = len(parts)
                     for piece in child.iterchildren(_w(name)):
                         walk(piece)
-                    texts.append("".join(parts[start:]))
-                    del parts[start:]
-                    forget_from(start)
-                parts.append(format_dutmal(*texts))
+                    texts.append("".join(parts[first:]))
+                collapse_from(start)
+                parts[start:] = [format_dutmal(*texts)]
+                forget_from(start)
             elif tag == _w("r") and _run_script(child, body_size) is not None:
                 # Superscript/subscript run. Appended as plain text, 10⁶ became 106
                 # (Pinned by: test_office.py::TestSuperscriptAndTextBoxes::test_docx_superscript_and_subscript_runs_are_marked).
@@ -1076,6 +1090,7 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                 if inline is not None and inline.emphasis:
                     # The emphasis mark goes around the script mark, so a bold formula stays one span: `**H_2O**`
                     text = mark_emphasis(text, *_run_emphasis(child, inline.styles))
+                collapse_from(start)
                 parts[start:] = [text]
                 forget_from(start)
             elif tag == f"{{{_M}}}oMath":
@@ -1280,6 +1295,7 @@ class _Field:
     instruction: list[str] = field(default_factory=list)
     hidden: list[tuple[int, str]] = field(default_factory=list)  # text pieces left out on the instruction side (insert position, text)
     link: str | None = None  # address of a HYPERLINK field whose result is being read ('' when it was looked at and is not a link)
+    shown: bool = False  # result text seen in pieces that were swapped for one piece afterwards (`collapse_from` of `_paragraph_text`)
 
 
 def _equation_field_text(instruction: str) -> str:
