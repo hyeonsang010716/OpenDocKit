@@ -1,6 +1,6 @@
 # HWP / HWPX decisions
 
-Deliberate decisions of the HWP and HWPX extractors (`hwp.py`, `hwpx.py`). Split off from [extractors.md](extractors.md); the rule is the same:
+Deliberate decisions of the HWP and HWPX extractors (`hwp.py`, `hwpx.py`; the paragraph rules both follow are in `_hangul.py`). Split off from [extractors.md](extractors.md); the rule is the same:
 do not revert the decisions in this table. To change one, change its pinning test first and write the reason in the same row.
 
 ## HWP / HWPX

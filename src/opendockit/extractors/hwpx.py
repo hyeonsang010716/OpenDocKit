@@ -18,8 +18,9 @@ from lxml import etree
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._charts import embedded_table, package_loader, render_chart
 from opendockit.extractors._equation import render_equation
-from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike, resolve_scripts, resolve_strikes
-from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number, is_placeholder_only, paragraph_head
+from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, decorated_text
+from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
+from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import COMMENT_TARGET_MAX, TableBudget, comment_line, format_dutmal, note_table, omitted_rows_warning
 from opendockit.extractors._package import decimal_int, parse_part
 from opendockit.markdown import TableGrid, join_blocks, render_table, solid_length
@@ -29,10 +30,6 @@ from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 _SECTION_NAME = re.compile(r"^Contents/section(\d+)\.xml$")
 # Spine entries (itemref of content.hpf) looked at, the same number as for an EPUB (`_section_order`).
 _MAX_SPINE_ITEMS = 5_000
-# Hangul's "개요 1" to "개요 7" (Outline 1-7) paragraph styles are the chapter/section structure of the document. They become Markdown headings.
-_OUTLINE_STYLE = re.compile(r"^(?:개요|Outline)\s*([1-9])$")
-# A paragraph longer than this stays body text, not a heading, even with an outline style (some documents write body text in outline styles).
-_HEADING_MAX_CHARS = 120
 _XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, remove_comments=True)
 # Pictures, OLE objects and videos have no text, and a picture's description (shapeComment) is the "그림입니다. 원본 그림의 이름…" text
 # that Hangul inserts automatically.
@@ -47,8 +44,6 @@ _TEXTART_BREAKS = re.compile("␍␊|␍|␊")
 # and footnote/endnote numbers (FOOTNOTE, ENDNOTE) are replaced by `[^n]`, so they are not written (deliberate. Pinned by:
 # test_hwp.py::TestAutoNumber).
 _AUTO_NUMBER_KINDS = {"PICTURE", "TABLE", "EQUATION"}
-# Table cell marks in the preview text (Preview/PrvText.txt). A preview with nothing but these has no text (`extract_hwpx`).
-_PREVIEW_CELL_MARKS = str.maketrans("", "", "<>")
 # hh:strikeout shapes that count as strikethrough — the line types of the standard (OWPML LineType2). `NONE` and values outside the
 # standard are not strikethrough: in real press releases without strikethrough the body character shape was `3D`. The HWP side
 # (`hwp._STRIKEOUT_LINE_SHAPES`) looks at the same line types only (deliberate.
@@ -163,28 +158,9 @@ class HwpxRenderer:
 
     def render_paragraph(self, paragraph: etree._Element) -> list[str]:
         self._note_memo_target(" ")  # between paragraphs of a comment range that spans several paragraphs
-        blocks: list[str] = []
-        buffer: list[str] = []
-        # The paragraph head (number or bullet) and the outline heading mark are attached only to the first text piece of the paragraph.
-        # Text that continues after a table or text box is the rest of the same paragraph — it got the heading mark too and became
-        # '# 은 아래와 같다' ('# is as follows') (Pinned by: test_hwp_heads_and_shapes.py::TestOutlineParagraphSplitByATable).
-        headed = False
-        bare: int | None = None  # first piece emitted without a head, only placeholders. If the paragraph ends up with no text the number goes here
-
-        def flush() -> None:
-            nonlocal headed, bare
-            text = resolve_scripts(resolve_strikes("".join(buffer))).strip()  # strikethrough comes first (`resolve_strikes`)
-            buffer.clear()
-            if not text:
-                return
-            if headed:
-                blocks.append(text)
-            elif is_placeholder_only(text):
-                bare = len(blocks) if bare is None else bare
-                blocks.append(text)
-            else:
-                blocks.append(self._decorate(paragraph, text))
-                headed = True
+        # The head goes on the first text piece only, and a paragraph without text keeps its number (`_hangul.ParagraphPieces`).
+        pieces = ParagraphPieces(lambda text: self._decorate(paragraph, text))
+        blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
 
         for run in _children(paragraph, "run"):
             script = self._scripts.get(run.get("charPrIDRef", ""))
@@ -193,21 +169,7 @@ class HwpxRenderer:
                 # Reading inner paragraphs (table, text box) changes these by the time it returns, so set them again per node
                 self._script, self._struck = script, struck
                 self._render_object(node, buffer, blocks, flush)
-        flush()
-
-        # A numbered paragraph holding only a picture also counts its number — otherwise the later numbers shift up. The heading mark and
-        # bullet are not attached (they would be left alone).
-        # A paragraph holding only a table or text box has no piece to attach to, so just the number goes on the line before it. Without
-        # counting it, '3. 추진 일정' after '2. [table]' on the Hangul screen shifted up to '2.'
-        # (Pinned by: test_hwp_object_only_numbers.py).
-        if not headed and any(blocks):
-            mark, level = self._paragraph_head(paragraph)
-            head = paragraph_head(mark, level, in_cell=bool(self._cell_depth), heading=False) if mark != "-" else ""
-            if bare is not None:
-                blocks[bare] = head + blocks[bare]
-            elif head:
-                blocks.insert(0, head.rstrip())
-        return blocks
+        return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
 
     def _render_object(self, node: etree._Element, buffer: list[str], blocks: list[str],
                        flush: Callable[[], None]) -> None:
@@ -469,19 +431,9 @@ class HwpxRenderer:
         """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style, the heading mark to the paragraph's first text piece."""
         mark, level = self._paragraph_head(paragraph)
         style_name = self._styles.get(paragraph.get("styleIDRef", ""), "")
-        match = None if self._cell_depth else _OUTLINE_STYLE.match(style_name.strip())
-        heading = match is not None and len(f"{mark} {text}" if mark else text) <= _HEADING_MAX_CHARS and "\n" not in text
-
-        # The level of a bullet paragraph is set from its left margin compared with the preceding items (`BulletNesting`). Other
-        # paragraphs close the more deeply indented items
         margin = self._heads.margins.get(paragraph.get("paraPrIDRef", ""), 0)
-        if mark == "-" and not heading:
-            level = self._bullets[-1].bullet(level, margin)
-        else:
-            self._bullets[-1].other(margin)
-
-        head = paragraph_head(mark, level, in_cell=bool(self._cell_depth), heading=heading) + self._check_mark(paragraph)
-        return f"{'#' * min(int(match.group(1)), 6)} {head}{text}" if heading else head + text
+        return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth),
+                              check=self._check_mark(paragraph))
 
     def _check_mark(self, paragraph: etree._Element) -> str:
         """The check state character (☑ or ☐) of a check bullet paragraph, plus a trailing space. Empty text if it is not a check bullet
@@ -639,7 +591,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
     # (Pinned by: test_hwp.py::TestPreviewFallback).
     body = join_blocks([*renderer.headers_footers, *blocks, "\n".join(renderer.notes), renderer.memo_lines()])
     preview_text = preview.decode("utf-8", errors="replace")
-    if not body.strip() and preview_text.translate(_PREVIEW_CELL_MARKS).strip():
+    if not body.strip() and preview_text.translate(PREVIEW_CELL_MARKS).strip():
         body = preview_text
         extraction.warnings.append("The body could not be parsed, so the preview text saved by Hancom Office was used instead "
                                    "(it may contain only the beginning).")
