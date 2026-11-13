@@ -781,8 +781,10 @@ def _parse_member(archive: zipfile.ZipFile, names: list[str], name: str) -> etre
 def _section_order(package: etree._Element | None, names: list[str], warnings: list[str]) -> list[str]:
     """The body order is set by the spine of content.hpf. Section number order if it is missing or broken. A spine cut at the
     cap is reported in `warnings`."""
+    # A number of more than 4,300 digits cannot be read by `int()` and sorts after the others: one extra member with such a
+    # name rejected a document whose spine never mentions it (Pinned by: test_audit_hangul.py::TestHugeHwpxSectionNumber).
     fallback = sorted((name for name in names if _SECTION_NAME.match(name)),
-                      key=lambda name: int(_SECTION_NAME.match(name).group(1)))
+                      key=lambda name: decimal_int(_SECTION_NAME.match(name).group(1), float("inf")))
     if package is None:
         return fallback
 

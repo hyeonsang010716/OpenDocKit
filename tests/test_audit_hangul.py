@@ -138,6 +138,29 @@ class TestHwpAutoNumberDecoration:
         assert convert(data, "a.hwp").text == "식 힣2）"
 
 
+class TestHugeHwpxSectionNumber:
+    """The number in a section file name went through `int()` before anything else: one extra member named
+    `Contents/section` + 5,000 digits + `.xml` rejected a document whose spine never mentions it."""
+
+    _JUNK = f"Contents/section{'9' * 5000}.xml"
+
+    def test_member_with_a_huge_section_number_outside_the_spine_is_ignored(self):
+        data = builder.zip_with(builder.hwpx_bytes(), add={self._JUNK: _section_xml("목록에 없는 구역")})
+
+        result = convert(data, "a.hwpx")
+
+        assert result.text == convert(builder.hwpx_bytes(), "a.hwpx").text
+        assert result.warnings == []
+
+    def test_without_a_spine_it_is_read_after_the_numbered_sections(self):
+        data = builder.zip_with(builder.hwpx_bytes(_paragraph_xml("첫 구역")), edit={"Contents/content.hpf": lambda xml: xml[:-20]},
+                                add={self._JUNK: _section_xml("끝 구역"), "Contents/section7.xml": _section_xml("일곱째 구역")})
+
+        result = convert(data, "a.hwpx")
+
+        assert result.text == "첫 구역\n\n일곱째 구역\n\n끝 구역"
+
+
 def _hwp_headers(texts: list[str]) -> bytes:
     """One paragraph per text, each holding a header control (`head`) with that text."""
     record = builder.hwp_record
