@@ -1723,6 +1723,10 @@ def _int_value(value: str | None, default: int) -> int:
 
 def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str) -> str:
     seen: list[str] = []
+    # A part referenced by several sections is rendered once. Rendering it per section and dropping the copies by their text kept
+    # every copy whose text differed: a numbered paragraph counted on ('1. Company', '2. Company' …) and a picture was registered
+    # once per section (Pinned by: test_audit_office.py::TestDocxHeaderSharedBySections).
+    rendered: set[object] = set()
     for section in document.sections:
         for attribute in _HEADER_FOOTER_KINDS[kind]:
             story = getattr(section, attribute)
@@ -1736,8 +1740,9 @@ def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str) ->
             # it raised AttributeError and rejected the whole document (Pinned by:
             # test_audit_office.py::TestDocxHeaderReferenceToAPartThatIsNotAHeader::test_only_that_header_is_skipped).
             element = getattr(part, "element", None)
-            if element is None:
+            if element is None or part in rendered:
                 continue
+            rendered.add(part)
             _keep_filled_placeholders(element, renderer.placeholders)
             text = join_blocks(renderer.render_story(part, element))
             if text and text not in seen:
