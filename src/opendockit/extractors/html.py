@@ -2228,8 +2228,16 @@ def _item_blocks(text: str) -> list[str]:
     return blocks
 
 
+def _own_caption(table: Tag) -> Tag | None:
+    """The caption of this table: the first one outside its cells and inner tables (the parser leaves a caption written inside
+    tbody or a wrapping form where it is). `table.find("caption")` also found the caption of a table nested in a cell, so the
+    outer table took it and it came out twice (Pinned by: test_audit_html_text.py::TestCaptionOfATableInsideACell)."""
+    found = _nearest(table, wanted={"caption"}, stop={"table", "td", "th"})
+    return found[0] if found else None
+
+
 def _render_table(table: Tag) -> str:
-    caption = table.find("caption")
+    caption = _own_caption(table)
     caption_text = _title_text(caption) if caption else ""
     rows = _table_rows(table)
     if (_is_one_column_box(rows) or _is_layout_table(rows)) and _layout_depth.get() < _MAX_LAYOUT_DEPTH:
@@ -2448,7 +2456,7 @@ def _embedded_grid(table: Tag) -> TableGrid | None:
 
 def _has_one_row_header(table: Tag, rows: list[Tag]) -> bool:
     """Whether it has no caption or multi-row header and so can sit as a one-line HTML table inside an outer HTML cell (`_embedded_grid`)."""
-    return table.find("caption") is None and _header_row_count(table, rows) <= 1
+    return _own_caption(table) is None and _header_row_count(table, rows) <= 1
 
 
 def _is_layout_table(rows: list[Tag]) -> bool:

@@ -141,3 +141,52 @@ class TestStylePropertiesThatOnlyEndLikeAHidingOne:
         result = convert(f'<p>before</p><div style="{style}">SECRET</div><p>after</p>'.encode(), "a.html")
 
         assert result.text == "before\n\nafter"
+
+
+_TWO_ROWS = "<tr><td>1</td><td>2</td></tr><tr><td>3</td><td>4</td></tr>"
+
+
+class TestCaptionOfATableInsideACell:
+    """The caption of a table was looked for among all descendants, so an outer table without a caption took the caption of a
+    table nested in one of its cells: it came out twice, once above the outer table and once at the inner one."""
+
+    def test_outer_table_does_not_take_the_caption_of_the_inner_table(self):
+        html = (f"<table><tr><td>a</td><td><table><caption>INNERCAP</caption>{_TWO_ROWS}</table></td></tr>"
+                "<tr><td>b</td><td>c</td></tr><tr><td>d</td><td>e</td></tr></table>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "a\n\nINNERCAP\n\n| 1 | 2 |\n| --- | --- |\n| 3 | 4 |\n\nb\n\nc\n\nd\n\ne"
+
+    def test_outer_caption_and_inner_caption_each_come_out_once(self):
+        html = (f"<table><caption>OUTERCAP</caption><tr><td>a</td><td><table><caption>INNERCAP</caption>{_TWO_ROWS}</table></td></tr>"
+                "<tr><td>b</td><td>c</td></tr></table>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text.count("OUTERCAP") == 1
+        assert result.text.count("INNERCAP") == 1
+        assert result.text.startswith("OUTERCAP\n\na\n\nINNERCAP\n\n| 1 | 2 |")
+
+    def test_caption_of_a_table_two_levels_down_comes_out_once(self):
+        deepest = f"<table><caption>DEEPCAP</caption>{_TWO_ROWS}</table>"
+        inner = f"<table><tr><th>h</th><th>i</th></tr><tr><td>x</td><td>{deepest}</td></tr></table>"
+        html = (f"<table><tr><th>a</th><th colspan=2>z</th></tr><tr><td>k</td><td>q</td><td>{inner}</td></tr>"
+                "<tr><td>b</td><td>c</td><td>d</td></tr></table>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == ('<table>\n<tr><th>a</th><th colspan="2">z</th></tr>\n'
+                               "<tr><td>k</td><td>q</td><td>h i x DEEPCAP 1 2 3 4</td></tr>\n"
+                               "<tr><td>b</td><td>c</td><td>d</td></tr>\n</table>")
+
+    @pytest.mark.parametrize("table", [
+        f"<table><caption>CAP</caption>{_TWO_ROWS}</table>",
+        f"<table>{_TWO_ROWS}<caption>CAP</caption></table>",
+        f"<table><tbody><caption>CAP</caption>{_TWO_ROWS}</tbody></table>",
+        f"<table><form><caption>CAP</caption>{_TWO_ROWS}</form></table>",
+    ])
+    def test_caption_of_the_table_itself_is_found_wherever_the_parser_left_it(self, table):
+        result = convert(table.encode(), "a.html")
+
+        assert result.text == "CAP\n\n| 1 | 2 |\n| --- | --- |\n| 3 | 4 |"
