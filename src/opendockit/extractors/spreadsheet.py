@@ -3468,7 +3468,10 @@ def _rich_values(archive: zipfile.ZipFile, names: set[str]) -> dict[str, object]
     # and the values (v) are paired by order
     keys = [[key.get("n", "") for key in structure.iterchildren(f"{{{_RICH_DATA}}}k")]
             for structure in (structures.iterchildren(f"{{{_RICH_DATA}}}s") if structures is not None else ())]
-    targets = _related(archive, names, parts["/richValueRel"]) if relations is not None else {}
+    # Relationships that cannot be read are treated as absent (`_part_relations`): the pictures are left blank with the warning
+    # and the data types are kept. They rejected the whole workbook
+    # (Pinned by: test_audit_spreadsheet.py::TestDamagedRichValueRelationships).
+    targets = _part_relations(archive, names, parts["/richValueRel"]) if relations is not None else {}
     pictures = [targets.get(relation.get(_RELATIONSHIP_ID, ""), "")
                 for relation in (relations.iterchildren(f"{{{_RICH_VALUE_RELS}}}rel") if relations is not None else ())]
     rich: list[object] = []
@@ -3527,7 +3530,9 @@ def _picture_reference_bytes(archive: zipfile.ZipFile) -> int:
 
     total = 0
     for sheet in sheets & names:
-        for part in _related(archive, names, sheet).values():
+        # Parts the workbook points to that are not sheets are looked at too, and openpyxl never reads their relationships: ones
+        # that cannot be read count nothing (Pinned by: test_audit_spreadsheet.py::TestDamagedRichValueRelationships)
+        for part in _part_relations(archive, names, sheet).values():
             if part == sheet or part not in names or not part.endswith(".xml"):
                 continue
             media = _part_relations(archive, names, part)

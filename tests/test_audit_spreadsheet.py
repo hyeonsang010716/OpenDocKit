@@ -14,6 +14,7 @@ from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors import spreadsheet
 from opendockit.models import ConvertOptions
 from tests import builder
+from tests.test_spreadsheet_cell_values_and_controls import _LOCAL_IMAGE, _rich_value_workbook
 
 
 _MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -555,3 +556,21 @@ class TestXmlDateTimeWithATimeZone:
     ])
     def test_elapsed_time_is_the_time_as_written(self, value, number_format, expected):
         assert self._convert(value, number_format) == expected
+
+
+class TestDamagedRichValueRelationships:
+    """A relationships part of the in-cell pictures (`xl/richData/_rels/richValueRel.xml.rels`) that is not XML rejected the
+    whole workbook. Only the pictures it points to are lost."""
+
+    def test_pictures_are_left_blank_with_the_warning_and_data_types_are_kept(self):
+        structures = _LOCAL_IMAGE + '<s t="_linkedEntity"><k n="%EntityId" t="s"/><k n="_DisplayString" t="s"/></s>'
+        data = _rich_value_workbook(['<rv s="0"><v>0</v><v>5</v></rv>', '<rv s="1"><v>X2</v><v>Korea</v></rv>'], structures,
+                                    pictures=1)
+        data = builder.zip_with(data, edit={"xl/richData/_rels/richValueRel.xml.rels": lambda _: "<broken"})
+
+        result = convert(data, "a.xlsx")
+
+        assert result.sections[0].text == ("| 제품명 | 사진 | 단가 |\n| --- | --- | --- |\n| A형 펌프 | | 120000 |\n"
+                                           "| B형 밸브 | Korea | 45000 |")
+        assert result.warnings == ["1 in-cell picture or data-type value(s) could not be found and were left blank."]
+        assert result.images == []
