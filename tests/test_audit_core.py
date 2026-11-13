@@ -8,6 +8,7 @@ import pytest
 from opendockit import ConvertOptions, convert
 from opendockit.detect import detect_format
 from opendockit.extractors import _shared
+from opendockit.markdown import neutralize_table_tags
 from opendockit.models import DocumentFormat
 
 
@@ -63,3 +64,30 @@ class TestUnclosedImagePlaceholderText:
         assert _shared._is_placeholder_text("[Image: 조직도] [^1] [Image]")
         assert not _shared._is_placeholder_text("[Image: 조직도] 본문")
         assert _shared._INLINE_PLACEHOLDER.split("앞 [Image: 로고]뒤[^12]") == ["앞 ", "[Image: 로고]", "뒤", "[^12]", ""]
+
+
+class TestUnclosedTableTagsInCellText:
+    """Cell text of an HTML table (a table with a horizontal merge) is searched for table tags to neutralize. A tag name with no
+    `>` after it was scanned to the end of the text from every `<`, so 80,000 of them in one cell took 8 seconds."""
+
+    @pytest.mark.timing
+    def test_many_unclosed_tag_starts_take_linear_time(self):
+        data = ("<table><tr><td colspan=2>" + "&lt;td" * 200_000 + "</td></tr><tr><td>a</td><td>b</td></tr></table>").encode()
+        started = time.perf_counter()
+
+        result = convert(data, "a.html", ConvertOptions(max_chars=None))
+
+        assert time.perf_counter() - started < 5.0
+        assert result.text.startswith('<table>\n<tr><th colspan="2"><td<td<td') and result.char_count > 600_000
+
+    @pytest.mark.parametrize(("text", "expected"), [
+        ("a <td> b </TR> c", "a &lt;td> b &lt;/TR> c"),
+        ("<td <td> <td", "&lt;td <td> <td"),
+        ('<td title="x<5">y<br', '&lt;td title="x<5">y<br'),
+        ("x<5 <tdx> <br/>\n<th\nscope=col>", "x<5 <tdx> &lt;br/>\n&lt;th\nscope=col>"),
+        ("<td<td<td", "<td<td<td"),
+        (">", ">"),
+        ("", ""),
+    ])
+    def test_the_same_tags_are_neutralized_as_before(self, text, expected):
+        assert neutralize_table_tags(text) == expected

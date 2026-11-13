@@ -153,8 +153,12 @@ def neutralize_table_tags(text: str) -> str:
     """Neutralize only the table tags (`<td>`, `</tr>`, `<br>`, etc.) in HTML table cell text, with `&lt;`. Deliberate: the result
     is fed to an LLM, not drawn on screen, so the rest of the text (`x<5`, `A & B`, `|`) stays as in the original — escaping
     everything is noise. Table tags left as they are would be confused with cell and row boundaries
-    (Pinned by: test_markdown.py::TestMergedTableAsHtml::test_only_table_tags_in_cell_text_are_neutralized)."""
-    return _TABLE_TAG.sub(lambda match: "&lt;" + match.group()[1:], text)
+    (Pinned by: test_markdown.py::TestMergedTableAsHtml::test_only_table_tags_in_cell_text_are_neutralized).
+    Only the text up to its last `>` is searched — a tag ends with one, so nothing after it can match. Searched whole, every tag
+    name with no `>` after it was scanned to the end of the text (80,000 `<td` in one cell took 8 seconds)
+    (Pinned by: test_audit_core.py::TestUnclosedTableTagsInCellText)."""
+    end = text.rfind(">") + 1
+    return _TABLE_TAG.sub(lambda match: "&lt;" + match.group()[1:], text[:end]) + text[end:]
 
 
 def _html_cell(value: str) -> str:
