@@ -51,9 +51,9 @@ to read the outline and ask for sections, which is what the bundled skill teache
 
 ## What it does on your machine
 
-- **Runs a local process.** `uvx --python ">=3.12" --exclude-newer 2026-11-14T00:00:00Z --from "opendockit[mcp]==0.3.0" opendockit-mcp`, over stdio, for as
+- **Runs a local process.** `uvx --python ">=3.12" --exclude-newer 2026-11-14T00:00:00Z --from "opendockit[mcp]==0.3.1" opendockit-mcp`, over stdio, for as
   long as the session lives. `uvx` is the one Hermes manages.
-- **Downloads once.** The first start fetches `opendockit` 0.3.0 and its dependencies from PyPI into uv's cache, and a
+- **Downloads once.** The first start fetches `opendockit` 0.3.1 and its dependencies from PyPI into uv's cache, and a
   Python 3.12 or newer if the machine has none. The `opendockit` version is pinned, and `--exclude-newer` keeps its
   dependencies at the releases that existed on that date, so every install resolves the same set.
 - **Reads files, writes none.** By default the server can read any file your user can read, like the agent's own file
@@ -78,7 +78,7 @@ to read the outline and ask for sections, which is what the bundled skill teache
 ## Health check without Hermes
 
 ```bash
-uvx --python ">=3.12" --exclude-newer 2026-11-14T00:00:00Z --from "opendockit[mcp]==0.3.0" opendockit-mcp <<'EOF'
+uvx --python ">=3.12" --exclude-newer 2026-11-14T00:00:00Z --from "opendockit[mcp]==0.3.1" opendockit-mcp <<'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}
 EOF
 ```
@@ -87,7 +87,7 @@ A line of JSON naming the server `opendockit` means it starts.
 
 ## Version pinning
 
-`mcp.json` pins `opendockit[mcp]==0.3.0` and resolves its dependencies as of 2026-11-14. A newer OpenDocKit, or a
+`mcp.json` pins `opendockit[mcp]==0.3.1` and resolves its dependencies as of 2026-11-14. A newer OpenDocKit, or a
 newer release of a dependency, reaches catalog installs only through a commit here that
 moves the pin, followed by a reviewed SHA bump in the
 [Hermes plugin catalog](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog). The package never

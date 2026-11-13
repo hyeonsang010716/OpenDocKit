@@ -50,7 +50,25 @@ _INSTRUCTIONS = (
     "keeping tables, headings and lists. For a long document call document_outline first, then convert_document with "
     "`sections` to read the pages, slides or sheets you need."
 )
+# What the SDK serves for every server, whether or not anything was registered for it.
+_UNUSED_METHODS = ("prompts/list", "prompts/get", "resources/list", "resources/read", "resources/templates/list")
 _UNIT = {SectionKind.PAGE: "Page", SectionKind.SLIDE: "Slide", SectionKind.SHEET: "Sheet", SectionKind.DOCUMENT: "Document"}
+
+
+def _serve_tools_only(server: MCPServer) -> None:
+    """Stop the server from announcing prompts and resources it does not have.
+
+    The SDK answers `prompts/list` and `resources/list` on every server and therefore announces both capabilities. A
+    client that trusts the announcement gives the agent tools for them — Hermes adds four per server — which can only
+    ever return empty lists and cost the agent context in every request. The SDK has no switch for this, so the handlers
+    are taken out of its table. That table is private: if a later SDK keeps it elsewhere the server announces prompts
+    and resources again and still works, and the pinning test fails
+    (Pinned by: test_mcp_server.py::TestCommandLine::test_server_announces_tools_and_nothing_it_does_not_have).
+    """
+    handlers = getattr(getattr(server, "_lowlevel_server", None), "_request_handlers", None)
+    if isinstance(handlers, dict):
+        for method in _UNUSED_METHODS:
+            handlers.pop(method, None)
 
 
 def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFAULT_MAX_CHARS) -> MCPServer:
@@ -71,6 +89,7 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
                 await converter.aclose()
 
     server = MCPServer("opendockit", instructions=_INSTRUCTIONS, version=__version__, lifespan=lifespan)
+    _serve_tools_only(server)
 
     async def converted(path: str, limit: int | None) -> ConversionResult:
         nonlocal converter

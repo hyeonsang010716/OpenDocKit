@@ -246,6 +246,20 @@ class TestCommandLine:
         assert all(word in tools["convert_document"].description for word in ("path:", "sections:", "max_chars:"))
         assert all(tool.annotations.read_only_hint and not tool.annotations.destructive_hint for tool in tools.values())
 
+    def test_server_announces_tools_and_nothing_it_does_not_have(self):
+        """A client builds the agent's tool list from what the server announces. Announcing prompts and resources, as the
+        SDK does for every server, made Hermes add four tools that could only return empty lists."""
+        async def run():
+            from mcp.client.client import Client
+
+            async with Client(mcp_server.create_server()) as client:
+                return client.server_capabilities
+
+        capabilities = asyncio.run(run())
+
+        assert capabilities.tools is not None
+        assert capabilities.prompts is None and capabilities.resources is None
+
     def test_default_max_chars_of_the_server_is_what_the_agent_is_told(self):
         tools = {tool.name: tool for tool in asyncio.run(mcp_server.create_server(default_max_chars=2_000).list_tools())}
 

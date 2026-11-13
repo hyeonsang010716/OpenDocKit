@@ -6,10 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-13
+
 ### Added
 
 - **Hermes Agent plugin** (`hermes-plugin/`): a portable Agent Plugins v1 package that gives Hermes the `opendockit-mcp`
   tools and a skill for reading long documents in parts. It is not part of the Python package.
+
+### Fixed
+
+- **MCP server**: it no longer announces prompts and resources, which it does not have. Clients that build the agent's
+  tool list from the announcement (Hermes adds four tools per server) showed tools that could only return empty lists.
 
 ## [0.3.0] - 2026-11-13
 
@@ -80,7 +87,8 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.1
 [0.3.0]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.0
 [0.2.0]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.2.0
 [0.1.0]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.1.0

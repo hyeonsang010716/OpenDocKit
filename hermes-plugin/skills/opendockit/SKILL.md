@@ -1,7 +1,7 @@
 ---
 name: opendockit
 description: "Read a local document as Markdown with the OpenDocKit MCP server: PDF, Word, PowerPoint, Excel, CSV, HWP/HWPX, OpenDocument, RTF, EPUB, HTML and email. Use it when the user points at a document file and wants it read, summarised, searched or quoted. Covers reading a long document in parts (outline first, then pages, slides or sheets by number) and what to do with scanned pages and warnings."
-version: 0.3.0
+version: 0.3.1
 author: hyeonsang010716
 license: MIT
 metadata:
@@ -29,7 +29,7 @@ written.
 ## Prerequisites
 
 - The `opendockit` plugin installed and enabled, then a NEW Hermes session so the tools load.
-- The server is `opendockit-mcp` from `opendockit[mcp]==0.3.0`, started with `uvx`. The first start
+- The server is `opendockit-mcp` from `opendockit[mcp]==0.3.1`, started with `uvx`. The first start
   downloads the package from PyPI, and Python 3.12 or newer if this machine has none, so the first
   call of a session can take a while on a slow connection.
 - Legacy `.doc` and `.ppt` need LibreOffice installed. `.docx` and `.pptx` do not.
