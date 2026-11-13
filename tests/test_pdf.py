@@ -2090,8 +2090,11 @@ class TestWidelySpacedColumns:
         that one line happened to be as long as the column width, and were pulled up in front of the right column (below a LibreOffice
         two-column section). It is the continuation of the left column only when a line filling the column width wraps onto the next
         line at that same column width."""
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
         from reportlab.pdfbase.pdfmetrics import stringWidth
 
+        pdfmetrics.registerFont(UnicodeCIDFont(_FONT))  # measured below, before `_korean_pdf` registers it
         self._read_in_order(monkeypatch, lambda line: (line.x0 < 300 < line.x1, line.x0 > 300, line.top))
         body = "왼쪽 단 {}번째 줄 본문 내용입니다 하나"
         tail = "맺음 문단은 한 줄이며 단 폭만큼 길게 쓴 줄입니다."
