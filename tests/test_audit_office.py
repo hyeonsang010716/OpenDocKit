@@ -1,9 +1,11 @@
 """Defects found by an audit of the DOCX, PPTX and ODF extractors with hand-built hostile documents: one odd structure that
 rejected the whole document, values that came out wrong, and work that was repeated for every reference to the same part."""
 
+import re
+
 import pytest
 
-from opendockit import ConvertOptions, convert
+from opendockit import ConvertOptions, CorruptedDocumentError, convert
 from tests import builder
 from tests.test_office import _docx_with_body
 
@@ -59,3 +61,26 @@ class TestDocxFieldStartedInsideASwappedRun:
                      "<w:r><w:t>z</w:t></w:r></w:p>")
 
         assert text.index("h") < text.index("z")
+
+
+class TestDocxMainPartWithoutABody:
+    """`w:body` is optional in the schema. Without it the body walk raised TypeError and the document was rejected as corrupted;
+    it is an empty document, as a deck without a slide list is an empty deck. A main part whose root is not `w:document` is not
+    a Word document: it gets the fixed structure error instead of an AttributeError from inside the library."""
+
+    def test_document_without_a_body_is_an_empty_document(self):
+        data = builder.zip_with(_docx_with_body("<w:p><w:r><w:t>gone</w:t></w:r></w:p>"), edit={
+            "word/document.xml": lambda xml: re.sub(r"<w:body>.*</w:body>", "", xml, flags=re.DOTALL)})
+
+        result = convert(data, "sample.docx", ConvertOptions(include_headers_footers=True))
+
+        assert result.text == ""
+
+    def test_root_that_is_not_a_document_gets_the_structure_error(self):
+        data = builder.zip_with(_docx_with_body("<w:p><w:r><w:t>text</w:t></w:r></w:p>"), edit={
+            "word/document.xml": lambda xml: xml.replace("<w:document ", "<w:documentX ").replace("</w:document>", "</w:documentX>")})
+
+        with pytest.raises(CorruptedDocumentError) as error:
+            convert(data, "sample.docx")
+
+        assert str(error.value) == "The DOCX document structure could not be read."

@@ -841,6 +841,14 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
         raise CorruptedDocumentError("The DOCX document structure could not be read.")
 
     document = part.document
+    # A main part whose root is not w:document is not a Word document. A w:document without w:body (optional in the schema) is an
+    # empty document, as a deck without a slide list is an empty deck: it is given an empty body in memory. Both raised from
+    # inside the body walk (Pinned by: test_audit_office.py::TestDocxMainPartWithoutABody).
+    if document.element.tag != _w("document"):
+        _reject_strict(data)
+        raise CorruptedDocumentError("The DOCX document structure could not be read.")
+    if document.element.body is None:
+        etree.SubElement(document.element, _w("body"))
     renderer = _DocxRenderer(document, options, extraction)
     _keep_filled_placeholders(document.element.body, renderer.placeholders)
     # The body is read paragraph by paragraph and table by table while counting characters. Once the limit is exceeded, the rest of
