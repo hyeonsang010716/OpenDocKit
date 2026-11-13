@@ -11,13 +11,3 @@ def _no_old_parser_warning(monkeypatch):
     test_core_html.py::TestOlderHtmlParser, which switches it back on.
     """
     monkeypatch.setattr("opendockit.extractors.html.HTML5_TOKENIZER", True)
-
-
-HEAP_BY_MODULE: list[tuple[str, int]] = []
-
-
-def pytest_runtest_setup(item):
-    import gc
-    name = item.module.__name__
-    if not HEAP_BY_MODULE or HEAP_BY_MODULE[-1][0] != name:
-        HEAP_BY_MODULE.append((name, len(gc.get_objects())))
