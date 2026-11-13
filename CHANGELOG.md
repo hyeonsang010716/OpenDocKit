@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.3.0] - Unreleased
+
+### Added
+
+- **LangChain**: `opendockit.integrations.langchain.OpenDocKitLoader` and `OpenDocKitParser`
+  (`pip install "opendockit[langchain]"`).
+- **LlamaIndex**: `opendockit.integrations.llama_index.OpenDocKitReader` (`pip install "opendockit[llamaindex]"`), usable
+  as a `file_extractor` of `SimpleDirectoryReader`.
+- **MCP server**: `opendockit-mcp` (`pip install "opendockit[mcp]"`) lets an agent read local documents as Markdown, whole
+  or by page / slide / sheet, with a bounded answer and an optional `--root` restriction.
+- All three give one piece per file or one per page / slide / sheet (`mode="sections"`) with the same metadata.
+- Korean and Simplified Chinese READMEs.
+
+### Fixed
+
+- `IsolatedConverter`: an idle worker no longer outlives a server process that was killed (SIGKILL, the out-of-memory
+  killer). It used to stay for ever, together with multiprocessing's fork server and resource tracker.
+
 ## [0.2.0] - 2026-11-13
 
 ### Added
@@ -57,6 +75,7 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.0
 [0.2.0]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.2.0
 [0.1.0]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.1.0

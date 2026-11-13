@@ -540,6 +540,12 @@ def _layout(sections: list[Section], options: ConvertOptions) -> tuple[str, list
 def _header(section: Section, options: ConvertOptions) -> str:
     if section.kind is SectionKind.PAGE:
         return f"<!-- Page {section.index} -->" if options.page_markers else ""
+    return section_heading(section)
+
+
+def section_heading(section: Section) -> str:
+    """The heading the full text gives a slide or a sheet (`## Slide 2: Goals`, `## Sheet: Sales`); '' for a page or a whole
+    document. For callers that hand out sections one by one (the integrations) and want each to say what it is."""
     if section.kind is SectionKind.SLIDE:
         return f"## Slide {section.index}" + (f": {section.title}" if section.title else "")
     if section.kind is SectionKind.SHEET:

@@ -16,6 +16,14 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   process isolation remain. On Windows it is untested: in CI, closing a converter while a conversion was still running did
   not return.
 
+## Integrations
+
+- **LangChain, LlamaIndex and the MCP server convert offline.** Pictures and scanned pages stay placeholders; to have them
+  described, convert with a describer yourself ([integrations.md](integrations.md)).
+- **The MCP server** speaks stdio only, and on Windows it converts without the worker process that limits memory and time
+  on Linux and macOS. Without `--root` it reads any file its user can read. In `sections` mode a page, sheet or slide
+  without text is left out, so section numbers can have gaps.
+
 ## General
 
 - **Charts and shapes drawn as vectors** (PDF charts drawn with lines rather than as images, Office shapes) cannot be extracted as pictures. Native charts of PPTX, DOCX, HWPX, XLSX sheets and chart sheets are converted to data tables (XLS charts are not converted; a chart sheet, and an otherwise empty sheet holding only a chart, give a warning). New chart types (waterfall, treemap and other chartex types) are handed over as the fallback picture stored in the file when their values cannot be read (not verified with real files). However, a PDF page with no characters at all and only curves (a design PDF whose text was converted to outlines) is sent to the vision model as a whole page, like a scanned page.

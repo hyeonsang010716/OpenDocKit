@@ -56,6 +56,9 @@ result.warnings    # 被跳过或近似处理的内容，用平实的句子说�
 pip install opendockit                # 仅转换 —— 完全不访问网络
 pip install "opendockit[openai]"      # + 用视觉模型描述图片
 pip install "opendockit[heic]"        # + HEIC/HEIF 图片（会安装 GPL/LGPL 许可证的编解码库）
+pip install "opendockit[langchain]"   # + LangChain 加载器
+pip install "opendockit[llamaindex]"  # + LlamaIndex 读取器
+pip install "opendockit[mcp]"         # + 供智能体使用的 MCP 服务器
 ```
 
 需要 Python 3.12 或更高版本，运行在 Linux 或 macOS 上。Windows 暂不支持 HTML、电子邮件和 EPUB
@@ -118,6 +121,23 @@ opendockit report.pdf --count         # 只输出字符数
 opendockit scan.pdf --describe        # 用视觉模型描述图片（使用 OPENAI_API_KEY）
 ```
 
+### LangChain、LlamaIndex 和 MCP
+
+```python
+from opendockit.integrations.langchain import OpenDocKitLoader
+from opendockit.integrations.llama_index import OpenDocKitReader
+
+docs = OpenDocKitLoader("report.pdf", mode="sections").load()       # 每页 / 每张幻灯片 / 每个工作表一个 Document
+docs = OpenDocKitReader(mode="sections").load_data("report.pdf")
+```
+
+```bash
+opendockit-mcp --root ~/Documents     # MCP 服务器：让 Claude、Cursor 等智能体把你的文档读成 Markdown
+```
+
+使用 `mode="sections"` 时，每一页、每张幻灯片或每个工作表各成为一个 Document，其编号保存在元数据中，可用于标注出处。
+详见 [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md)。
+
 ## 支持的格式
 
 | 格式 | 分节单位 | 要点 |
@@ -173,6 +193,7 @@ opendockit scan.pdf --describe        # 用视觉模型描述图片（使用 OPE
 | [选项](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`、异常和错误码 |
 | [图片](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | 提取、筛选、视觉模型、自定义描述器 |
 | [在服务器上运行](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`、资源限制、字符预算 |
+| [集成](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain、LlamaIndex 和 MCP 服务器 |
 | [集成指南](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | 上传界面应该告诉用户什么 |
 | [设计](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | 为什么这样设计，以及如何验证 |
 | [局限](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | 已知的不足，如实说明 |
