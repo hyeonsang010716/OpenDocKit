@@ -123,3 +123,49 @@ class TestSpacesOnALineWithAPicture:
                                "  - 항목  끝\n\n[Image: c]\n\n[Image: d]\n\n"
                                "[Image: e]\n\n[Image: f]\n\n"
                                "\t탭 \t탭\n\n[Image: g]")
+
+
+def _docx_with_alt_text(alt: str) -> bytes:
+    """The sample document with pictures, the alt text (wp:docPr descr) of its first picture replaced (`alt` is XML attribute text)."""
+    return builder.zip_with(builder.docx_with_images(), edit={
+        "word/document.xml": lambda xml: xml.replace('descr="분기별 매출 차트"', f'descr="{alt}"')})
+
+
+class TestAltTextWithManyLineBreaks:
+    """Alt text is checked for the line Office adds below its own description ('Description automatically generated'). The check
+    looked for that line after every line break, each time skipping the breaks that follow, so alt text with 16,000 line breaks
+    took 2.4 seconds."""
+
+    @pytest.mark.timing
+    def test_alt_text_with_many_line_breaks_takes_linear_time(self):
+        data = _docx_with_alt_text("a" + "&#10;" * 56_000 + "b")
+        started = time.perf_counter()
+
+        result = convert(data, "a.docx")
+
+        assert time.perf_counter() - started < 5.0
+        assert result.text.startswith("차트 앞 문단입니다.\n\n[Image: a b]\n\n")
+
+    @pytest.mark.parametrize("alt", [
+        "로고, 폰트이(가) 표시된 사진&#10;&#10;자동 생성된 설명",
+        "A picture containing text, clock&#10;&#10;Description automatically generated",
+        "Chart&#10; &#9;&#10;  Description automatically&#10;generated.",
+        "Diagram  &#10;Description generated with very high confidence",
+        "텍스트&#10;&#10;&#10;AI 생성 콘텐츠는 정확하지 않을 수 있습니다.",
+        "a&#10;b&#10;AI-generated content may be incorrect.",
+    ])
+    def test_description_office_generated_is_still_dropped(self, alt):
+        result = convert(_docx_with_alt_text(alt), "a.docx")
+
+        assert result.text.startswith("차트 앞 문단입니다.\n\n[Image]\n\n")
+
+    @pytest.mark.parametrize(("alt", "shown"), [
+        ("Description automatically generated", "Description automatically generated"),
+        ("조직도&#10;Description automatically generated 2", "조직도 Description automatically generated 2"),
+        ("조직도 Description automatically generated", "조직도 Description automatically generated"),
+        ("조직도&#10;설명 Description automatically generated", "조직도 설명 Description automatically generated"),
+    ])
+    def test_alt_text_a_person_wrote_is_still_kept(self, alt, shown):
+        result = convert(_docx_with_alt_text(alt), "a.docx")
+
+        assert result.text.startswith(f"차트 앞 문단입니다.\n\n[Image: {shown}]\n\n")
