@@ -1,14 +1,17 @@
 """Defects found by an audit of the DOCX, PPTX and ODF extractors with hand-built hostile documents: one odd structure that
 rejected the whole document, values that came out wrong, and work that was repeated for every reference to the same part."""
 
+from copy import deepcopy
 from io import BytesIO
 import re
 
 from docx import Document
+from docx.oxml.ns import qn
 from docx.shared import Inches
 import pytest
 
 from opendockit import ConvertOptions, CorruptedDocumentError, convert
+from opendockit.extractors.docx import extract_docx
 from tests import builder
 from tests.test_office import _docx_with_body
 
@@ -144,3 +147,68 @@ class TestDocxHeaderReferenceToAPartThatIsNotAHeader:
         result = convert(data, "sample.docx", ConvertOptions(include_headers_footers=True, extract_images=False))
 
         assert result.text == "body text\n\nfooter text"
+
+
+class TestDocxHeaderSharedBySections:
+    """A header part was rendered once for every section that references it and the copies were dropped afterwards by comparing
+    their text. Rendering has side effects: a numbered paragraph counted on ('1. Company', '2. Company' … — four different
+    texts, all kept) and a picture was registered once per section."""
+
+    @staticmethod
+    def _four_sections_sharing_the_header(document) -> bytes:
+        for number in range(2, 5):
+            document.add_section()
+            document.add_paragraph(f"section {number}")
+        sections = list(document.sections)
+        reference = sections[0]._sectPr.find(qn("w:headerReference"))
+        assert reference is not None
+        for section in sections[1:]:
+            section._sectPr.insert(0, deepcopy(reference))
+        return _docx_saved(document)
+
+    def test_numbered_paragraph_in_a_shared_header_is_written_once(self):
+        document = Document()
+        document.add_paragraph("section 1")
+        document.sections[0].header.paragraphs[0].text = "Company"
+        document.sections[0].header.paragraphs[0].style = document.styles["List Number"]
+        data = self._four_sections_sharing_the_header(document)
+
+        result = convert(data, "sample.docx", ConvertOptions(include_headers_footers=True))
+
+        assert result.text == "1. Company\n\nsection 1\n\nsection 2\n\nsection 3\n\nsection 4"
+
+    def test_picture_in_a_shared_header_is_registered_once(self):
+        document = Document()
+        document.add_paragraph("section 1")
+        document.sections[0].header.paragraphs[0].add_run("Logo ").add_picture(BytesIO(builder.png_bytes()), width=Inches(1))
+        data = self._four_sections_sharing_the_header(document)
+
+        extraction = extract_docx(data, ConvertOptions(include_headers_footers=True))
+
+        assert len(extraction.images) == 1
+
+
+class TestPptxSlideListEntryWithoutARelationship:
+    """A slide list entry without `r:id` raised InvalidXmlError, which was not among the errors that skip one slide, so the whole
+    deck was rejected. A main part whose root is not `p:presentation` gets the fixed structure error."""
+
+    def test_entry_without_a_relationship_id_skips_only_that_slide(self):
+        deck = builder.pptx_bytes()
+        whole = convert(deck, "sample.pptx")
+        data = builder.zip_with(deck, edit={
+            "ppt/presentation.xml": lambda xml: re.sub(r"<p:sldId [^>]*/>", '<p:sldId id="999"/>', xml, count=1)})
+
+        result = convert(data, "sample.pptx")
+
+        assert [section.text for section in result.sections] == [section.text for section in whole.sections[1:]]
+        assert result.warnings == ["Slide 1: skipped because its part could not be read."]
+
+    def test_root_that_is_not_a_presentation_gets_the_structure_error(self):
+        data = builder.zip_with(builder.pptx_bytes(), edit={
+            "ppt/presentation.xml": lambda xml: xml.replace("<p:presentation ", "<p:presentationX ")
+                                                   .replace("</p:presentation>", "</p:presentationX>")})
+
+        with pytest.raises(CorruptedDocumentError) as error:
+            convert(data, "sample.pptx")
+
+        assert str(error.value) == "The PPTX document structure could not be read."

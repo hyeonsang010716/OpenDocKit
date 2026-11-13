@@ -169,15 +169,22 @@ def extract_pptx(data: bytes, options: ConvertOptions) -> Extraction:
     # not a slide (AttributeError) skips only that slide. `presentation.slides` looked up the part of every entry at construction
     # (rename_slide_parts) and raised right there, and so did iteration, so the remaining slides were lost as well
     # (Pinned by: test_office.py::TestOneBrokenPartDoesNotRejectTheDocument::test_pptx_slide_whose_part_cannot_be_read_is_skipped_with_a_warning).
+    # A main part whose root is not p:presentation is not a deck (asking it for the slide list raised AttributeError. Pinned by:
+    # test_audit_office.py::TestPptxSlideListEntryWithoutARelationship::test_root_that_is_not_a_presentation_gets_the_structure_error).
+    if part._element.tag != f"{{{_PRESENTATION}}}presentation":
+        _reject_strict(data)
+        raise CorruptedDocumentError("The PPTX document structure could not be read.")
     presentation = part.presentation
     slide_ids = presentation._element.sldIdLst
     # OLE objects left as a bare placeholder with no preview picture. Their count is reported as a warning once everything is read
     unread_ole: list[object] = []
     authors = _comment_authors(part)
     for index, slide_id in enumerate(slide_ids.sldId_lst if slide_ids is not None else [], start=1):
+        # An entry without r:id is an InvalidXmlError (Pinned by: test_audit_office.py::
+        # TestPptxSlideListEntryWithoutARelationship::test_entry_without_a_relationship_id_skips_only_that_slide).
         try:
             slide = part.related_slide(slide_id.rId)
-        except (KeyError, AttributeError):
+        except (KeyError, AttributeError, InvalidXmlError):
             extraction.warnings.append(f"Slide {index}: skipped because its part could not be read.")
             continue
         # A slide whose root is not p:sld (`p:sldX`) rejected the whole document with an AttributeError when asked for its shape list.
