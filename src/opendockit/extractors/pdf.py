@@ -149,7 +149,7 @@ class _InflateBudget:
 
     remaining: int
     exceeded: bool = False
-    charged: dict[int, object] = field(default_factory=dict)
+    charged: dict[int | tuple[int, int | None], object] = field(default_factory=dict)  # id, or (object number, generation)
     walked: dict[int, object] = field(default_factory=dict)
     font_entries: int = 0  # number of entries font ranges (/W, mapping tables) may still expand to (`_bounded_font_ranges`)
     font_ranges_cut: bool = False
@@ -178,24 +178,40 @@ PDFStream.decode = _decode_within_budget  # outside a conversion (no budget) it 
 
 
 def _charge(stream: PDFStream, budget: _InflateBudget) -> None:
-    """Charges the size the stream's Flate stage will inflate to against the limit. Raises DocumentTooLargeError when exceeded.
+    """Charges the size the stream's Flate stages will inflate to against the limit. Raises DocumentTooLargeError when exceeded.
     Other filters and broken streams are not measured (pdfminer decodes them as before — ASCII filters shrink the data, image
-    filters are not decoded)."""
-    if id(stream) in budget.charged or stream.rawdata is None:
+    filters are not decoded).
+
+    Every Flate stage is charged, not only the first: with `/Filter [/FlateDecode /FlateDecode]` the first stage inflated to a
+    few KB and passed, and pdfminer then inflated the second to 200MB under a 10MB limit. A stage that is followed by another
+    Flate stage has been measured to fit, so it is decoded by pdfminer's own decoder (predictor included) to get the next stage's
+    input; a stream with a single Flate stage is only measured, as before
+    (Pinned by: test_audit_pdf_head.py::TestStreamCompressedTwice)."""
+    # Keyed by the object's number in the file: the second pdfplumber document (`ungrouped`, pages with very many text pieces)
+    # builds new stream objects for the same file objects, and by `id` each stream decoded there was charged a second time (a
+    # dense page inflating to 6.4MB was rejected at a 10MB limit). A stream without a number is keyed by `id` as before
+    # (Pinned by: test_audit_pdf_head.py::TestStreamReadThroughTheUngroupedDocument).
+    key = id(stream) if stream.objid is None else (stream.objid, stream.genno)
+    if key in budget.charged or stream.rawdata is None:
         return
-    budget.charged[id(stream)] = stream
+    budget.charged[key] = stream
     try:
         data = stream.rawdata
         if stream.decipher:
             data = stream.decipher(stream.objid, stream.genno, data, stream.attrs)
-        for name, _ in stream.get_filters():
+        filters = stream.get_filters()
+        for index, (name, params) in enumerate(filters):
             if name in LITERALS_ASCII85_DECODE:
                 data = ascii85decode(data)
             elif name in LITERALS_ASCIIHEX_DECODE:
                 data = asciihexdecode(data)
             elif name in LITERALS_FLATE_DECODE:
                 budget.remaining -= _inflated_size(data, budget.remaining + 1)
-                break
+                if budget.remaining < 0 or not any(later in LITERALS_FLATE_DECODE for later, _ in filters[index + 1:]):
+                    break
+                stage = PDFStream({"Filter": name, "DecodeParms": params}, data)
+                _decode_unbounded(stage)
+                data = stage.data
             else:
                 break
     except Exception:  # noqa: BLE001 — a stream that could not be measured is handled by pdfminer's decoder as before
@@ -327,7 +343,10 @@ def _content_objects(data: bytes, resources: object, limit: int, counted: dict[t
     back to itself (`active`) counts as one object, and a form deeper than `_FORM_NESTING_MAX` counts as over the limit. The number
     of paint operators already counted is passed in as `paints`."""
     total = _paint_operators(data, limit) if paints is None else paints
-    calls = Counter(_XOBJECT_CALL.findall(data))
+    # Only the first `limit + 1` calls are looked at: every call is at least one object, so with more the estimate is over the limit
+    # anyway. `findall` listed every name first — a 65MB stream of five million different names held 500MB
+    # (Pinned by: test_audit_pdf_head.py::TestManyDistinctXObjectNames).
+    calls = Counter(match[1] for match in islice(_XOBJECT_CALL.finditer(data), limit + 1))
     xobjects = resolve1(resources.get("XObject")) if isinstance(resources, dict) and calls else None
 
     for raw, times in calls.items():
@@ -1371,7 +1390,15 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                                                     else _survey_page(fallback, page.page_number - 1))
                         if late:
                             over_budget += 1
-                            pages.append(_pdfium_page(fallback, page.page_number - 1))
+                            try:
+                                pages.append(_pdfium_page(fallback, page.page_number - 1))
+                            except pdfium.PdfiumError:
+                                # A page pdfium cannot open (pdfminer follows `/Kids`, pdfium trusts `/Count`) is an empty page,
+                                # not a corrupted document — the pages already read are kept
+                                # (Pinned by: test_audit_pdf_head.py::TestPageOnlyPdfminerFinds).
+                                pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
+                                                   lines=[], tables=[], has_images=False,
+                                                   view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
                         elif crowded_page is not None:
                             crowded.append(page.page_number)
                             pages.append(crowded_page)
@@ -1399,10 +1426,13 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 # with remaining text is swapped too if pdfium reads clearly more (`_UNDECODED_TEXT_RATIO`,
                                 # Pinned by: test_pdf_round48.py::TestEmbeddedEncodingCMap).
                                 fallback = fallback or _open_pdfium(data)
-                                simple = _pdfium_page(fallback, page.page_number - 1)
+                                try:
+                                    simple = _pdfium_page(fallback, page.page_number - 1)
+                                except pdfium.PdfiumError:
+                                    simple = read  # pdfium cannot open the page: the pdfminer result stays (see above)
                                 floor = (_read_chars(read) * _UNDECODED_TEXT_RATIO + _UNDECODED_MIN_CHARS if undecoded
                                          else read.hidden_chars * _HIDDEN_TEXT_RATIO)
-                                if simple.lines and _solid_chars(simple) > floor:
+                                if simple is not read and simple.lines and _solid_chars(simple) > floor:
                                     simple.has_images, simple.figures, simple.view = read.has_images, read.figures, read.view
                                     simple.form_values = read.form_values
                                     read = simple
@@ -1413,7 +1443,12 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                         # extraction instead.
                         _check_budget(budget)
                         fallback = fallback or _open_pdfium(data)
-                        pages.append(_pdfium_page(fallback, page.page_number - 1))
+                        try:
+                            pages.append(_pdfium_page(fallback, page.page_number - 1))
+                        except pdfium.PdfiumError:  # neither library reads the page: an empty page (see above)
+                            pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
+                                               lines=[], tables=[], has_images=False,
+                                               view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
                         failed.append(page.page_number)
                     finally:
                         page.close()
@@ -2018,12 +2053,30 @@ def _mark_checkboxes(page: object, lines: list[_Line], tables: list[tuple[float,
     marks = [*page.curves, *page.lines, *(rect for rect in rects if rect.get("fill"))]
     before: set[int] = set()  # lines with the mark placed before the text
     after: set[int] = set()  # lines with the mark placed after the text
+    # Rectangles at most `cell` pt on a side are looked up by the grid cell of their top-left corner: one that touches a box starts
+    # at most `cell` + 1pt before the box and no later than 0.5pt after it, so it is in one of the cells searched below. Larger
+    # ones (frames, cell backgrounds) and those with huge or non-finite coordinates are always scanned. Every box scanned all the
+    # rectangles of the page, so a page of 10,000 separate 8pt squares took 17 seconds here
+    # (Pinned by: test_audit_pdf_head.py::TestManySquaresOnOnePage).
+    cell = 64.0
+    near: dict[tuple[int, int], list[dict]] = {}
+    far: list[dict] = []
+    for rect in rects:
+        small = (all(abs(rect[side]) < 1e9 for side in ("x0", "top", "x1", "bottom"))
+                 and rect["x1"] - rect["x0"] <= cell and rect["bottom"] - rect["top"] <= cell)
+        (near.setdefault((math.floor(rect["x0"] / cell), math.floor(rect["top"] / cell)), []) if small else far).append(rect)
 
     for box in boxes:
+        around = rects
+        if all(abs(box[side]) < 1e9 for side in ("x0", "top", "x1", "bottom")):
+            cells = [near.get((column, row), ())
+                     for column in range(math.floor((box["x0"] - 1) / cell) - 1, math.floor((box["x1"] + 0.5) / cell) + 1)
+                     for row in range(math.floor((box["top"] - 1) / cell) - 1, math.floor((box["bottom"] + 0.5) / cell) + 1)]
+            around = (other for group in (far, *cells) for other in group)
         if any(other is not box and other["x0"] <= box["x1"] + 0.5 and box["x0"] <= other["x1"] + 0.5
                and other["top"] <= box["bottom"] + 0.5 and box["top"] <= other["bottom"] + 0.5
                and not _encloses(_bbox(box), _bbox(other)) and not _encloses(_bbox(other), _bbox(box))
-               for other in rects):
+               for other in around):
             continue  # box touching another rectangle (a row of character cell boxes). A frame around the box or a filled mark inside is fine
         _put_checkbox_mark(box, any(mark is not box and _ticks(box, mark) for mark in marks), page.chars, lines, before, after)
 
@@ -2332,16 +2385,22 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
     try:
         placed = []
         for reference in resolve1(page.page_obj.annots) or []:
-            widget = resolve1(reference)
-            subtype = _name_of(widget.get("Subtype")) if isinstance(widget, dict) else None
-            rect = resolve1(widget.get("Rect")) if subtype in ("Widget", "FreeText") else None
-            if not isinstance(rect, list) or len(rect) != 4:
+            # One annotation that cannot be read (a `/Rect` holding something that is not a number) is skipped on its own — it
+            # used to drop the values of every other field of the page. The numbers of `/Rect` may be indirect objects
+            # (Pinned by: test_audit_pdf_head.py::TestOneUnreadableAnnotation).
+            try:
+                widget = resolve1(reference)
+                subtype = _name_of(widget.get("Subtype")) if isinstance(widget, dict) else None
+                rect = resolve1(widget.get("Rect")) if subtype in ("Widget", "FreeText") else None
+                if not isinstance(rect, list) or len(rect) != 4:
+                    continue
+                x0, x1 = sorted(float(resolve1(value)) for value in rect[0::2])
+                low, high = sorted(float(resolve1(value)) for value in rect[1::2])
+                text = _field_text(widget) if subtype == "Widget" else _free_text(page, widget, (x0, low, x1, high), lines)
+                if text:
+                    placed.append((-high, x0, text))
+            except Exception:  # noqa: BLE001 — the other annotations of the page are still read
                 continue
-            x0, x1 = sorted(float(value) for value in rect[0::2])
-            low, high = sorted(float(value) for value in rect[1::2])
-            text = _field_text(widget) if subtype == "Widget" else _free_text(page, widget, (x0, low, x1, high), lines)
-            if text:
-                placed.append((-high, x0, text))
         return [text for _, _, text in sorted(placed)]
     except Exception:  # noqa: BLE001 — the page body is still read even if the annotations cannot be parsed
         return []
@@ -2890,8 +2949,14 @@ def _late_symbols_in_place(piece: LTTextLineHorizontal, word_margin: float) -> L
 
 def _merged_overlapping_pieces(pieces: list[LTTextLineHorizontal], word_margin: float) -> tuple[list[LTTextLineHorizontal], bool]:
     """(piece list, whether anything was merged) after merging pieces on the same baseline whose x ranges overlap (`_shares_baseline`)
-    into one piece with the characters re-laid by x. A merged piece takes the place of its first piece. The pieces are scanned in y0
-    order so that only pairs that can overlap vertically are examined."""
+    into one piece with the characters re-laid by x. A merged piece takes the place of its first piece. Only pairs that can overlap
+    both ways are examined: the pieces are scanned in x0 order, and of the earlier pieces that still reach the current x0 (`live`,
+    sorted by y0) only those starting below the piece's top and less than 2 / `_PIECE_HEIGHT_RATIO` heights below its bottom are
+    compared — `_shares_baseline` is False for every other pair (no x overlap, no vertical overlap, or a taller piece than the height
+    ratio allows), and the merged groups depend only on the pairs for which it is True. Scanning in y0 order alone compared every
+    pair of one row: a single row of 6,000 two-letter pieces (an 8.5KB PDF) took 28 seconds inside one page
+    (Pinned by: test_audit_pdf_head.py::TestManyPiecesOnOneBaseline). With a non-finite coordinate the pieces are scanned in y0
+    order as before."""
     order = sorted(range(len(pieces)), key=lambda index: pieces[index].y0)
     parent = list(range(len(pieces)))
     texts = [piece.get_text().strip() for piece in pieces]  # rejoining the text for every pair would build text the square of the piece count times
@@ -2902,13 +2967,30 @@ def _merged_overlapping_pieces(pieces: list[LTTextLineHorizontal], word_margin: 
             index = parent[index]
         return index
 
-    for position, index in enumerate(order):
-        piece = pieces[index]
-        for other in islice(order, position + 1, None):
-            if pieces[other].y0 >= piece.y1:
-                break
-            if _shares_baseline(piece, pieces[other], texts[index], texts[other]):
-                parent[root(other)] = root(index)
+    if all(math.isfinite(value) for piece in pieces for value in piece.bbox):
+        wide = [index for index in range(len(pieces)) if pieces[index].x1 > pieces[index].x0]  # the others overlap nothing in x
+        ends, ended = sorted(wide, key=lambda index: pieces[index].x1), 0
+        live: list[tuple[float, int]] = []  # (y0, piece number)
+        for index in sorted(wide, key=lambda index: pieces[index].x0):
+            piece = pieces[index]
+            while pieces[ends[ended]].x1 <= piece.x0:
+                del live[bisect_left(live, (pieces[ends[ended]].y0, ends[ended]))]
+                ended += 1
+            for position in range(bisect_left(live, (piece.y0 - piece.height * 2 / _PIECE_HEIGHT_RATIO,)), len(live)):
+                y0, other = live[position]
+                if y0 > piece.y1:
+                    break
+                if _shares_baseline(piece, pieces[other], texts[index], texts[other]):
+                    parent[root(other)] = root(index)
+            insort(live, (piece.y0, index))
+    else:
+        for position, index in enumerate(order):
+            piece = pieces[index]
+            for other in islice(order, position + 1, None):
+                if pieces[other].y0 >= piece.y1:
+                    break
+                if _shares_baseline(piece, pieces[other], texts[index], texts[other]):
+                    parent[root(other)] = root(index)
 
     groups: dict[int, list[int]] = {}
     for index in range(len(pieces)):
