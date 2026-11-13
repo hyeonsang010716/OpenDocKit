@@ -12,8 +12,8 @@
 <text class="title" x="24" y="32" font-size="16">Structure checks passed</text>
 <line class="axis" x1="150" y1="56" x2="150" y2="246"/>
 <text class="label" x="138" y="80" text-anchor="end" font-weight="600">OpenDocKit</text>
-<path class="bar us" d="M150,64 h434.7755102040816 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-434.7755102040816 z"/>
-<text class="label" x="596.7755102040817" y="80">43 of 49</text>
+<path class="bar us" d="M150,64 h496.0 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-496.0 z"/>
+<text class="label" x="658.0" y="80">49 of 49</text>
 <text class="label" x="138" y="118" text-anchor="end">Docling</text>
 <path class="bar" d="M150,102 h363.3469387755102 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-363.3469387755102 z"/>
 <text class="label" x="525.3469387755101" y="118">36 of 49</text>

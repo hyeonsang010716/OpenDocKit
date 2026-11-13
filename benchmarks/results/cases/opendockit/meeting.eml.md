@@ -6,7 +6,7 @@ Date: Mon, 09 Feb 2026 09:12:00 +0900
 
 Hi all,
 
-The budget review moves to Thursday. Please read the attached draft before the meeting.
+The budget review moves to **Thursday**. Please read the attached draft before the meeting.
 
 | Item | Requested | Approved |
 | --- | --- | --- |

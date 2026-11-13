@@ -1,45 +1,45 @@
 {
  "tool": "opendockit-vision",
- "version": "0.1.0 + gpt-5.6-terra",
+ "version": "0.2.0 + gpt-5.6-terra",
  "results": {
   "scanned-notice.pdf": {
    "path": "scanned-notice.pdf",
    "ok": true,
    "outcome": "ok",
    "chars": 400,
-   "seconds": 3.4288690419634804,
+   "seconds": 3.1421937919803895,
    "warnings": []
   },
   "invoice.png": {
    "path": "invoice.png",
    "ok": true,
    "outcome": "ok",
-   "chars": 114,
-   "seconds": 1.442779208009597,
+   "chars": 125,
+   "seconds": 1.5696811249945313,
    "warnings": []
   },
   "receipt.jpg": {
    "path": "receipt.jpg",
    "ok": true,
    "outcome": "ok",
-   "chars": 111,
-   "seconds": 1.960444958996959,
+   "chars": 125,
+   "seconds": 1.9318326660431921,
    "warnings": []
   },
   "fax.tiff": {
    "path": "fax.tiff",
    "ok": true,
    "outcome": "ok",
-   "chars": 264,
-   "seconds": 1.9004620410269126,
+   "chars": 267,
+   "seconds": 1.4098177500418387,
    "warnings": []
   },
   "ticket.heic": {
    "path": "ticket.heic",
    "ok": true,
    "outcome": "ok",
-   "chars": 99,
-   "seconds": 1.3445089159649797,
+   "chars": 103,
+   "seconds": 1.3921573749976233,
    "warnings": []
   }
  }

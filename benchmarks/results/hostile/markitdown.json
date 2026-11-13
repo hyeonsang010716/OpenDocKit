@@ -1,903 +1,903 @@
 {
  "tool": "markitdown",
  "version": "0.1.9",
- "import_seconds": 0.024524950000113677,
- "wall_seconds": 65.15247076700007,
+ "import_seconds": 0.03363078099982886,
+ "wall_seconds": 69.08780986300007,
  "results": {
-  "0000.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4591020179783680.pdf",
+  "0001.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4646567755972608.pdf",
    "ok": true,
-   "chars": 16,
-   "seconds": 1.4844901700000719,
-   "peak_rss_mb": 163.8828125,
-   "outcome": "ok"
+   "chars": 0,
+   "seconds": 1.159930112999973,
+   "peak_rss_mb": 164.65625,
+   "outcome": "empty"
   },
   "0002.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4652594248613888.pdf",
    "ok": true,
    "chars": 82,
-   "seconds": 1.5250900510000065,
-   "peak_rss_mb": 163.76953125,
+   "seconds": 1.160996139999952,
+   "peak_rss_mb": 164.390625,
    "outcome": "ok"
   },
-  "0001.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4646567755972608.pdf",
+  "0000.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4591020179783680.pdf",
    "ok": true,
-   "chars": 0,
-   "seconds": 1.5178787439999724,
-   "peak_rss_mb": 164.23046875,
-   "outcome": "empty"
+   "chars": 16,
+   "seconds": 1.202365405999899,
+   "peak_rss_mb": 164.18359375,
+   "outcome": "ok"
   },
   "0005.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4736668896133120.pdf",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PdfConverter threw PSSyntaxError with message: Invalid dictionary construct: [/'Type', /'PF', /b'ages', /'Count', 1, /'Kids', [3, 0, /b'R']]\n",
-   "seconds": 0.7289528139999675,
-   "peak_rss_mb": 164.734375,
+   "seconds": 0.7782779310000478,
+   "peak_rss_mb": 164.828125,
    "outcome": "error"
   },
   "0003.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4691742750474240.pdf",
    "ok": true,
    "chars": 0,
-   "seconds": 0.9144068119999247,
-   "peak_rss_mb": 164.5390625,
+   "seconds": 1.0921882899999673,
+   "peak_rss_mb": 164.34765625,
    "outcome": "empty"
   },
   "0004.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4715311080734720.pdf",
    "ok": true,
    "chars": 14,
-   "seconds": 1.0713256770000044,
-   "peak_rss_mb": 164.7578125,
+   "seconds": 1.1456845479999629,
+   "peak_rss_mb": 164.55078125,
    "outcome": "ok"
   },
   "0006.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4833695495684096.pdf",
    "ok": true,
    "chars": 45,
-   "seconds": 0.9112246380000215,
-   "peak_rss_mb": 164.80078125,
+   "seconds": 0.9317284599999311,
+   "peak_rss_mb": 164.6484375,
    "outcome": "ok"
   },
   "0007.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4927662560968704.pdf",
    "ok": true,
    "chars": 0,
-   "seconds": 0.7513119249999818,
-   "peak_rss_mb": 164.73046875,
+   "seconds": 1.0793587099999513,
+   "peak_rss_mb": 164.77734375,
    "outcome": "empty"
   },
   "0008.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5177159198507008.pdf",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PdfConverter threw TypeError with message: unhashable type: 'dict'\n",
-   "seconds": 1.009517692999907,
-   "peak_rss_mb": 164.65625,
+   "seconds": 1.098606676999907,
+   "peak_rss_mb": 164.4453125,
    "outcome": "error"
-  },
-  "0010.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5452007745323008.pdf",
-   "ok": true,
-   "chars": 57,
-   "seconds": 0.7970577900000535,
-   "peak_rss_mb": 164.703125,
-   "outcome": "ok"
   },
   "0009.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5317294594523136.pdf",
    "ok": true,
    "chars": 14,
-   "seconds": 0.9276281019999715,
-   "peak_rss_mb": 164.81640625,
+   "seconds": 1.0097123719999672,
+   "peak_rss_mb": 164.78125,
+   "outcome": "ok"
+  },
+  "0010.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5452007745323008.pdf",
+   "ok": true,
+   "chars": 57,
+   "seconds": 0.9984950600000957,
+   "peak_rss_mb": 164.640625,
    "outcome": "ok"
   },
   "0011.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5592736912179200.pdf",
    "ok": true,
    "chars": 14,
-   "seconds": 1.0489085869999144,
-   "peak_rss_mb": 164.56640625,
+   "seconds": 1.057772519000082,
+   "peak_rss_mb": 164.8203125,
    "outcome": "ok"
   },
   "0012.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5809779695484928.pdf",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PdfConverter threw AssertionError with message: Invalid octal b'477' (319)\n",
-   "seconds": 0.8214463049998812,
-   "peak_rss_mb": 164.78125,
+   "seconds": 0.9421819900001083,
+   "peak_rss_mb": 164.66015625,
    "outcome": "error"
   },
   "0013.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5903429863538688.pdf",
    "ok": true,
    "chars": 16,
-   "seconds": 0.8477094660001967,
-   "peak_rss_mb": 164.4140625,
+   "seconds": 1.0863680209999984,
+   "peak_rss_mb": 164.5625,
    "outcome": "ok"
   },
   "0014.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5914823472250880.pdf",
    "ok": true,
    "chars": 0,
-   "seconds": 0.9591816340000605,
-   "peak_rss_mb": 164.73046875,
+   "seconds": 1.0454407349998291,
+   "peak_rss_mb": 164.61328125,
    "outcome": "empty"
   },
   "0015.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6013812888633344.pdf",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PdfConverter threw PDFSyntaxError with message: No /Root object! - Is this really a PDF?\n",
-   "seconds": 0.9406692749998911,
-   "peak_rss_mb": 164.81640625,
+   "seconds": 0.792445639999869,
+   "peak_rss_mb": 164.7421875,
    "outcome": "error"
-  },
-  "0016.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6085913544818688.pdf",
-   "ok": true,
-   "chars": 0,
-   "seconds": 0.783986478000088,
-   "peak_rss_mb": 164.51171875,
-   "outcome": "empty"
   },
   "0017.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6400141380878336.pdf",
    "ok": true,
    "chars": 0,
-   "seconds": 0.9569165819998489,
-   "peak_rss_mb": 165.328125,
+   "seconds": 0.7580286980000892,
+   "peak_rss_mb": 165.08203125,
    "outcome": "empty"
   },
-  "0019.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Fuzzed.doc",
-   "ok": false,
-   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.7695135720000508,
-   "peak_rss_mb": 164.703125,
-   "outcome": "error"
+  "0016.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6085913544818688.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 1.0798991560000104,
+   "peak_rss_mb": 164.33984375,
+   "outcome": "empty"
   },
   "0018.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6515565732102144.pdf",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PdfConverter threw KeyError with message: 'DescendantFonts'\n",
-   "seconds": 0.804349608999928,
-   "peak_rss_mb": 164.71875,
+   "seconds": 1.0789225430000897,
+   "peak_rss_mb": 164.74609375,
    "outcome": "error"
   },
-  "0021.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx",
-   "ok": false,
-   "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.6963811509999687,
-   "peak_rss_mb": 164.78515625,
-   "outcome": "error"
-  },
-  "0022.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4892412469968896.doc",
+  "0019.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Fuzzed.doc",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.919691174000036,
-   "peak_rss_mb": 164.57421875,
+   "seconds": 1.02808830999993,
+   "peak_rss_mb": 164.48828125,
    "outcome": "error"
   },
   "0020.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-POIHWPFFuzzer-5696094627495936.doc",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.9942711439998675,
-   "peak_rss_mb": 164.94921875,
+   "seconds": 0.9898861869999109,
+   "peak_rss_mb": 164.68359375,
+   "outcome": "error"
+  },
+  "0021.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx",
+   "ok": false,
+   "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: Bad magic number for central directory\n",
+   "seconds": 0.8823492440001246,
+   "peak_rss_mb": 164.62109375,
+   "outcome": "error"
+  },
+  "0022.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4892412469968896.doc",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.842083146999812,
+   "peak_rss_mb": 164.66796875,
    "outcome": "error"
   },
   "0023.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4947285593948160.doc",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8314411530000143,
-   "peak_rss_mb": 164.6484375,
-   "outcome": "error"
-  },
-  "0025.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5050208641482752.doc",
-   "ok": false,
-   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8305905320000875,
-   "peak_rss_mb": 164.671875,
+   "seconds": 1.0128376989998742,
+   "peak_rss_mb": 164.69140625,
    "outcome": "error"
   },
   "0024.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4951943183990784.doc",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8930956100000458,
-   "peak_rss_mb": 164.83203125,
+   "seconds": 1.0472556790000453,
+   "peak_rss_mb": 164.625,
+   "outcome": "error"
+  },
+  "0025.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5050208641482752.doc",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.8993409770000653,
+   "peak_rss_mb": 164.59375,
    "outcome": "error"
   },
   "0026.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5074346559012864.doc",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8893427489999794,
-   "peak_rss_mb": 164.828125,
+   "seconds": 0.9531006879999495,
+   "peak_rss_mb": 164.62890625,
    "outcome": "error"
   },
   "0027.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5195207308541952.doc",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8380330679999588,
-   "peak_rss_mb": 164.65234375,
+   "seconds": 1.0308817850000196,
+   "peak_rss_mb": 164.60546875,
    "outcome": "error"
   },
   "0028.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5418937293340672.doc",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.9293949880000127,
-   "peak_rss_mb": 164.73046875,
+   "seconds": 0.954356012000062,
+   "peak_rss_mb": 164.59765625,
    "outcome": "error"
   },
   "0029.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5440721166139392.doc",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8884951029999684,
-   "peak_rss_mb": 164.66796875,
+   "seconds": 1.0037803479999639,
+   "peak_rss_mb": 164.640625,
    "outcome": "error"
   },
   "0030.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5832867957309440.doc",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8362020770000527,
-   "peak_rss_mb": 164.6328125,
+   "seconds": 0.8687074069998744,
+   "peak_rss_mb": 164.6484375,
    "outcome": "error"
   },
   "0031.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-6610789829836800.doc",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8401494570000523,
-   "peak_rss_mb": 164.80859375,
-   "outcome": "error"
-  },
-  "0032.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx",
-   "ok": false,
-   "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.8684966129999339,
-   "peak_rss_mb": 164.66796875,
+   "seconds": 1.037456519999978,
+   "peak_rss_mb": 164.71875,
    "outcome": "error"
   },
   "0033.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4959857092198400.docx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.8709682300000168,
-   "peak_rss_mb": 164.46875,
+   "seconds": 0.8109606850000546,
+   "peak_rss_mb": 164.83203125,
+   "outcome": "error"
+  },
+  "0032.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx",
+   "ok": false,
+   "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: Bad magic number for central directory\n",
+   "seconds": 1.0367428130000462,
+   "peak_rss_mb": 164.5703125,
    "outcome": "error"
   },
   "0034.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.9192680220000966,
-   "peak_rss_mb": 164.52734375,
+   "seconds": 1.0157565509998676,
+   "peak_rss_mb": 164.6015625,
    "outcome": "error"
   },
   "0035.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.796330467000189,
-   "peak_rss_mb": 164.76953125,
+   "seconds": 0.7675942640000812,
+   "peak_rss_mb": 164.79296875,
    "outcome": "error"
   },
   "0036.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5313273089884160.docx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8305980250001994,
-   "peak_rss_mb": 164.43359375,
+   "seconds": 0.9755830480000895,
+   "peak_rss_mb": 164.47265625,
    "outcome": "error"
   },
   "0037.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 2 attempts:\n - DocxConverter threw BadZipFile with message: File is not a zip file\n - PptxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.9547067040000456,
-   "peak_rss_mb": 164.71875,
+   "seconds": 0.9806690759999128,
+   "peak_rss_mb": 164.69140625,
    "outcome": "error"
   },
   "0038.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5569740188549120.docx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8364032269998916,
-   "peak_rss_mb": 164.59375,
+   "seconds": 0.9526282859999355,
+   "peak_rss_mb": 164.515625,
    "outcome": "error"
   },
   "0039.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6061520554164224.docx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8080176579999261,
-   "peak_rss_mb": 164.625,
+   "seconds": 0.9471346579998681,
+   "peak_rss_mb": 164.359375,
    "outcome": "error"
   },
   "0040.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.8865047029999005,
-   "peak_rss_mb": 164.5703125,
+   "seconds": 0.9679452519999359,
+   "peak_rss_mb": 164.74609375,
    "outcome": "error"
   },
   "0041.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6442791109263360.docx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.7416437690001203,
-   "peak_rss_mb": 164.921875,
+   "seconds": 0.9937919789999796,
+   "peak_rss_mb": 164.73046875,
    "outcome": "error"
   },
   "0042.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6733884933668864.docx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: Bad CRC-32 for file 'word/theme/theme1.xml'\n",
-   "seconds": 0.9248774739999135,
-   "peak_rss_mb": 164.83203125,
+   "seconds": 0.8034176149999439,
+   "peak_rss_mb": 164.6015625,
    "outcome": "error"
   },
   "0043.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.9550954020000972,
-   "peak_rss_mb": 164.671875,
+   "seconds": 1.0329591459999392,
+   "peak_rss_mb": 164.828125,
    "outcome": "error"
   },
   "0045.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-5802475696488448.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.9297619639999084,
-   "peak_rss_mb": 164.7578125,
+   "seconds": 1.0077589399998033,
+   "peak_rss_mb": 164.625,
    "outcome": "error"
   },
   "0046.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5205835528404992.pptx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.7321963330000472,
-   "peak_rss_mb": 164.625,
+   "seconds": 0.790042781000011,
+   "peak_rss_mb": 164.84375,
    "outcome": "error"
   },
   "0047.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5429732352851968.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8181574010000077,
-   "peak_rss_mb": 164.875,
+   "seconds": 0.9206504389999282,
+   "peak_rss_mb": 164.765625,
    "outcome": "error"
   },
   "0048.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5681320547975168.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8674354160000348,
-   "peak_rss_mb": 164.625,
+   "seconds": 1.0326260479998837,
+   "peak_rss_mb": 164.7578125,
    "outcome": "error"
   },
   "0049.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-6411649193738240.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.7197184369999832,
-   "peak_rss_mb": 164.81640625,
-   "outcome": "error"
-  },
-  "0050.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4624961081573376.ppt",
-   "ok": false,
-   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.9268918720001693,
-   "peak_rss_mb": 164.79296875,
+   "seconds": 0.7499503270000787,
+   "peak_rss_mb": 164.70703125,
    "outcome": "error"
   },
   "0051.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4630915954114560.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8260874439999952,
-   "peak_rss_mb": 164.6015625,
+   "seconds": 0.7486219219999839,
+   "peak_rss_mb": 164.765625,
+   "outcome": "error"
+  },
+  "0050.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4624961081573376.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 1.0321763370000099,
+   "peak_rss_mb": 164.578125,
    "outcome": "error"
   },
   "0052.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4838893004128256.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.851306293000107,
-   "peak_rss_mb": 164.62890625,
+   "seconds": 0.9533574909999061,
+   "peak_rss_mb": 164.67578125,
    "outcome": "error"
   },
   "0053.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4983252485210112.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8877112960001341,
-   "peak_rss_mb": 164.734375,
+   "seconds": 1.0360659409998334,
+   "peak_rss_mb": 164.51171875,
    "outcome": "error"
   },
   "0054.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5018229722382336.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.7719851540000491,
-   "peak_rss_mb": 164.75,
+   "seconds": 0.9268967539999267,
+   "peak_rss_mb": 164.51953125,
    "outcome": "error"
   },
   "0055.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5231088823566336.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8447265350000634,
-   "peak_rss_mb": 164.65625,
+   "seconds": 0.9224194129999432,
+   "peak_rss_mb": 164.62890625,
    "outcome": "error"
   },
   "0056.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5306877435838464.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8188394149999567,
-   "peak_rss_mb": 164.68359375,
+   "seconds": 0.8445728380002038,
+   "peak_rss_mb": 164.79296875,
    "outcome": "error"
   },
   "0057.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5962760801091584.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8965880069999912,
-   "peak_rss_mb": 164.84375,
+   "seconds": 1.0144338850000167,
+   "peak_rss_mb": 164.546875,
    "outcome": "error"
   },
   "0058.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6028723156746240.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.7825816330000634,
-   "peak_rss_mb": 164.81640625,
+   "seconds": 1.023092725999959,
+   "peak_rss_mb": 164.6640625,
    "outcome": "error"
   },
   "0059.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6032591399288832.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8539837380001245,
-   "peak_rss_mb": 164.67578125,
+   "seconds": 0.9650006039998971,
+   "peak_rss_mb": 164.671875,
    "outcome": "error"
   },
   "0060.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6192650357112832.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.7276581490000353,
-   "peak_rss_mb": 164.65625,
+   "seconds": 0.8654227090000859,
+   "peak_rss_mb": 164.73828125,
    "outcome": "error"
   },
   "0061.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6360479850954752.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8419425570000385,
-   "peak_rss_mb": 164.5625,
+   "seconds": 0.8475493349999397,
+   "peak_rss_mb": 164.55859375,
    "outcome": "error"
   },
   "0062.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6416153805979648.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8455329190001066,
-   "peak_rss_mb": 164.68359375,
-   "outcome": "error"
-  },
-  "0064.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6710128412590080.ppt",
-   "ok": false,
-   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.6955963390000761,
-   "peak_rss_mb": 164.69921875,
+   "seconds": 0.8635597820000385,
+   "peak_rss_mb": 164.62890625,
    "outcome": "error"
   },
   "0063.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6614960949821440.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.8980955140000333,
-   "peak_rss_mb": 164.88671875,
+   "seconds": 0.877765737000118,
+   "peak_rss_mb": 164.50390625,
+   "outcome": "error"
+  },
+  "0064.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6710128412590080.ppt",
+   "ok": false,
+   "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
+   "seconds": 0.9368572660000609,
+   "peak_rss_mb": 164.69140625,
    "outcome": "error"
   },
   "0065.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4838644450394112.pptx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.882653062999907,
-   "peak_rss_mb": 164.84765625,
+   "seconds": 0.8321433249998336,
+   "peak_rss_mb": 164.625,
    "outcome": "error"
   },
   "0066.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4986044400861184.pptx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8836089569999785,
-   "peak_rss_mb": 164.859375,
+   "seconds": 0.8375630929999716,
+   "peak_rss_mb": 164.59765625,
    "outcome": "error"
   },
   "0067.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5463285576892416.pptx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.7774794179999844,
-   "peak_rss_mb": 164.640625,
+   "seconds": 0.9076715800001693,
+   "peak_rss_mb": 164.56640625,
    "outcome": "error"
   },
   "0068.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5471515212382208.pptx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.8400816260000283,
-   "peak_rss_mb": 164.8046875,
+   "seconds": 0.9726502039998195,
+   "peak_rss_mb": 164.546875,
    "outcome": "error"
   },
   "0069.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5611274456596480.pptx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8803863119999278,
-   "peak_rss_mb": 164.54296875,
+   "seconds": 0.8878951159999815,
+   "peak_rss_mb": 164.8203125,
    "outcome": "error"
   },
   "0070.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6071540680032256.pptx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8495859329998439,
-   "peak_rss_mb": 164.8046875,
+   "seconds": 1.0327858369998921,
+   "peak_rss_mb": 164.7578125,
    "outcome": "error"
   },
   "0071.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6254434927378432.pptx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8401583849999952,
-   "peak_rss_mb": 164.59765625,
+   "seconds": 0.9856905330000245,
+   "peak_rss_mb": 164.56640625,
    "outcome": "error"
   },
   "0072.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6372932378820608.pptx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.7204851700000745,
-   "peak_rss_mb": 164.625,
+   "seconds": 0.9653997240000081,
+   "peak_rss_mb": 164.6875,
    "outcome": "error"
   },
   "0073.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6435650376957952.pptx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.8421383459999561,
-   "peak_rss_mb": 164.84375,
-   "outcome": "error"
-  },
-  "0074.pptx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx",
-   "ok": false,
-   "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: Bad CRC-32 for file 'ppt/slideMasters/slideMaster1.xml'\n",
-   "seconds": 0.7634623989999909,
-   "peak_rss_mb": 164.72265625,
-   "outcome": "error"
-  },
-  "0076.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx",
-   "ok": false,
-   "error": "FileConversionException: File conversion failed after 2 attempts:\n - XlsxConverter threw OSError with message: File contains no valid workbook part\n - DocxConverter threw BadZipFile with message: Bad magic number for file header\n",
-   "seconds": 0.6708423210000092,
-   "peak_rss_mb": 164.79296875,
+   "seconds": 0.7614682170001288,
+   "peak_rss_mb": 164.734375,
    "outcome": "error"
   },
   "0075.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-74c33084f66628ba85e4ab8e71374d39915db381.ppt",
    "ok": false,
    "error": "UnsupportedFormatException: Could not convert stream to Markdown. No converter attempted a conversion, suggesting that the filetype is simply not supported.",
-   "seconds": 0.9160808619999443,
-   "peak_rss_mb": 164.59765625,
+   "seconds": 0.7270055720000528,
+   "peak_rss_mb": 164.734375,
+   "outcome": "error"
+  },
+  "0074.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx",
+   "ok": false,
+   "error": "FileConversionException: File conversion failed after 1 attempts:\n - PptxConverter threw BadZipFile with message: Bad CRC-32 for file 'ppt/slideMasters/slideMaster1.xml'\n",
+   "seconds": 0.9501783520001936,
+   "peak_rss_mb": 164.484375,
+   "outcome": "error"
+  },
+  "0076.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx",
+   "ok": false,
+   "error": "FileConversionException: File conversion failed after 2 attempts:\n - XlsxConverter threw OSError with message: File contains no valid workbook part\n - DocxConverter threw BadZipFile with message: Bad magic number for file header\n",
+   "seconds": 0.7789255390000562,
+   "peak_rss_mb": 164.6171875,
    "outcome": "error"
   },
   "0077.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4651309315719168.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw CompDocError with message: MSAT: invalid sector id: -8\n",
-   "seconds": 0.7933717260000321,
-   "peak_rss_mb": 164.70703125,
+   "seconds": 0.893910988000016,
+   "peak_rss_mb": 164.77734375,
    "outcome": "error"
   },
   "0078.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4657005060816896.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw XLRDError with message: Unsupported format, or corrupt file: Expected BOF record; found b'\\x00\\x00\\t\\x08\\x10\\x00\\x00\\x06'\n",
-   "seconds": 0.9136296480000965,
-   "peak_rss_mb": 164.82421875,
+   "seconds": 0.836197009999978,
+   "peak_rss_mb": 164.8046875,
    "outcome": "error"
   },
   "0079.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4734163573080064.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw CompDocError with message: MSAT: invalid sector id: -6619392\n",
-   "seconds": 0.8633045880001191,
-   "peak_rss_mb": 164.68359375,
+   "seconds": 0.9006638780001595,
+   "peak_rss_mb": 164.61328125,
    "outcome": "error"
   },
   "0080.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4819588401201152.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw CompDocError with message: MSAT extension corruption: seen[0] == 2\n",
-   "seconds": 0.864051752000023,
-   "peak_rss_mb": 164.68359375,
+   "seconds": 0.8986917720001202,
+   "peak_rss_mb": 164.78515625,
    "outcome": "error"
   },
   "0081.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4977868385681408.xls",
    "ok": true,
    "chars": 189,
-   "seconds": 0.7552246860000196,
-   "peak_rss_mb": 165.62890625,
+   "seconds": 1.0261048699999264,
+   "peak_rss_mb": 165.5390625,
    "outcome": "ok"
   },
   "0082.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5175219985448960.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw UnicodeDecodeError with message: 'utf-16-le' codec can't decode byte 0x3b in position 32: truncated data\nThe charset may have been automatically guessed incorrectly. If you didn't specify the charset, please retr",
-   "seconds": 0.802765860000136,
-   "peak_rss_mb": 164.78515625,
+   "seconds": 1.0482418659998984,
+   "peak_rss_mb": 164.50390625,
    "outcome": "error"
   },
   "0083.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5285517825277952.xls",
    "ok": true,
    "chars": 189,
-   "seconds": 0.7206476310000198,
-   "peak_rss_mb": 165.42578125,
+   "seconds": 0.902928460000112,
+   "peak_rss_mb": 165.6484375,
    "outcome": "ok"
   },
   "0084.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5436547081830400.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw CompDocError with message: MSAT: invalid sector id: -22\n",
-   "seconds": 0.8811680690000685,
-   "peak_rss_mb": 164.78515625,
+   "seconds": 1.0553159660000802,
+   "peak_rss_mb": 164.875,
    "outcome": "error"
   },
   "0085.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5786329142919168.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw CompDocError with message: MSAT: invalid sector id: -16748000\n",
-   "seconds": 0.8274387909998495,
-   "peak_rss_mb": 164.81640625,
+   "seconds": 0.9936577080000006,
+   "peak_rss_mb": 164.92578125,
    "outcome": "error"
   },
   "0086.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5816431116615680.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw error with message: unpack requires a buffer of 16 bytes\n",
-   "seconds": 0.7733183249999911,
-   "peak_rss_mb": 164.9921875,
+   "seconds": 0.9240577380001014,
+   "peak_rss_mb": 164.734375,
    "outcome": "error"
   },
   "0087.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5889658057523200.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw CompDocError with message: MSAT: invalid sector id: -16777216\n",
-   "seconds": 0.8144281269999283,
-   "peak_rss_mb": 164.796875,
+   "seconds": 0.812749832999998,
+   "peak_rss_mb": 164.6015625,
    "outcome": "error"
   },
   "0088.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6137883240824832.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw CompDocError with message: MSAT: invalid sector id: -16252928\n",
-   "seconds": 0.7848800299998402,
-   "peak_rss_mb": 164.81640625,
+   "seconds": 0.8142545700000028,
+   "peak_rss_mb": 164.78125,
    "outcome": "error"
   },
   "0089.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6322470200934400.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw CompDocError with message: MSAT: invalid sector id: -1281\n",
-   "seconds": 0.7530891000001247,
-   "peak_rss_mb": 164.703125,
+   "seconds": 0.9263723760000175,
+   "peak_rss_mb": 164.51953125,
    "outcome": "error"
   },
   "0090.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6483562584932352.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw CompDocError with message: MSAT: invalid sector id: -97\n",
-   "seconds": 0.8233331980000003,
-   "peak_rss_mb": 164.75390625,
+   "seconds": 0.9622517450000032,
+   "peak_rss_mb": 164.734375,
    "outcome": "error"
   },
   "0091.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6537773940867072.xls",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsConverter threw CompDocError with message: MSAT: invalid sector id: -65\n",
-   "seconds": 0.9224539350000214,
-   "peak_rss_mb": 164.66796875,
-   "outcome": "error"
-  },
-  "0092.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx",
-   "ok": false,
-   "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.8215989079999417,
-   "peak_rss_mb": 164.78125,
+   "seconds": 0.7492201069999282,
+   "peak_rss_mb": 164.74609375,
    "outcome": "error"
   },
   "0093.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5089447305609216.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.7470673870000155,
-   "peak_rss_mb": 164.70703125,
+   "seconds": 0.7973910890000298,
+   "peak_rss_mb": 164.5078125,
    "outcome": "error"
   },
-  "0094.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx",
+  "0092.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.9319788580000932,
-   "peak_rss_mb": 164.83984375,
+   "seconds": 0.9716338540001743,
+   "peak_rss_mb": 164.5859375,
    "outcome": "error"
   },
   "0095.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5265527465181184.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: Bad CRC-32 for file 'xl/drawings/drawing1.xml'\n",
-   "seconds": 0.851258616999985,
-   "peak_rss_mb": 164.82421875,
+   "seconds": 0.8004344850000962,
+   "peak_rss_mb": 164.71484375,
+   "outcome": "error"
+  },
+  "0094.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx",
+   "ok": false,
+   "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: Bad magic number for central directory\n",
+   "seconds": 0.9710322669998277,
+   "peak_rss_mb": 164.52734375,
    "outcome": "error"
   },
   "0096.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5937385319563264.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: Bad CRC-32 for file 'xl/worksheets/sheet8.xml'\n",
-   "seconds": 0.7885925470000075,
-   "peak_rss_mb": 166.2421875,
+   "seconds": 0.938991587999908,
+   "peak_rss_mb": 166.1171875,
    "outcome": "error"
   },
   "0097.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6123461607817216.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8299781440000515,
-   "peak_rss_mb": 164.66015625,
+   "seconds": 0.9619930880000993,
+   "peak_rss_mb": 164.734375,
    "outcome": "error"
   },
-  "0098.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6419366255919104.xlsx",
+  "0044.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/deep-table-cell.docx",
    "ok": false,
-   "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8820096499998726,
-   "peak_rss_mb": 164.80078125,
+   "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw RecursionError with message: maximum recursion depth exceeded\n",
+   "seconds": 27.419429173000026,
+   "peak_rss_mb": 239.28125,
    "outcome": "error"
   },
   "0099.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.8880528659999527,
-   "peak_rss_mb": 164.46484375,
+   "seconds": 0.8203593549999368,
+   "peak_rss_mb": 164.68359375,
+   "outcome": "error"
+  },
+  "0098.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6419366255919104.xlsx",
+   "ok": false,
+   "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: File is not a zip file\n",
+   "seconds": 1.0835410570000477,
+   "peak_rss_mb": 164.6015625,
    "outcome": "error"
   },
   "0100.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.7904181400001562,
-   "peak_rss_mb": 164.66796875,
-   "outcome": "error"
-  },
-  "0101.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx",
-   "ok": false,
-   "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8508067989998835,
-   "peak_rss_mb": 164.31640625,
+   "seconds": 1.0775171190000492,
+   "peak_rss_mb": 164.671875,
    "outcome": "error"
   },
   "0102.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5636439151607808.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8908273939998708,
-   "peak_rss_mb": 164.828125,
+   "seconds": 0.892529217999936,
+   "peak_rss_mb": 164.50390625,
+   "outcome": "error"
+  },
+  "0101.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx",
+   "ok": false,
+   "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: File is not a zip file\n",
+   "seconds": 0.9821073620000789,
+   "peak_rss_mb": 164.63671875,
    "outcome": "error"
   },
   "0103.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6504225896792064.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.766232317999993,
-   "peak_rss_mb": 164.69140625,
+   "seconds": 1.0178462949997993,
+   "peak_rss_mb": 164.58203125,
    "outcome": "error"
   },
   "0104.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6594557414080512.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.7443033260001357,
-   "peak_rss_mb": 164.59765625,
+   "seconds": 0.8334902599999623,
+   "peak_rss_mb": 164.5390625,
    "outcome": "error"
   },
   "0105.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-274d6342e4842d61be0fb48eaadad6208ae767ae.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: Bad magic number for central directory\n",
-   "seconds": 0.7445195969999077,
-   "peak_rss_mb": 164.515625,
+   "seconds": 1.009745854999892,
+   "peak_rss_mb": 164.6796875,
    "outcome": "error"
   },
   "0106.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-9bf3cd4bd6f50a8a9339d363c2c7af14b536865c.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.9000767899999573,
-   "peak_rss_mb": 164.8203125,
+   "seconds": 0.9219829319999917,
+   "peak_rss_mb": 164.66796875,
    "outcome": "error"
   },
   "0107.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-e329fca9087fe21bca4a80c8bc472a661c98d860.xls",
    "ok": true,
    "chars": 10219,
-   "seconds": 0.9257596500001455,
-   "peak_rss_mb": 168.41015625,
+   "seconds": 0.9503710550000051,
+   "peak_rss_mb": 168.49609375,
    "outcome": "ok"
-  },
-  "0044.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/deep-table-cell.docx",
-   "ok": false,
-   "error": "FileConversionException: File conversion failed after 1 attempts:\n - DocxConverter threw RecursionError with message: maximum recursion depth exceeded\n",
-   "seconds": 29.554085631000135,
-   "peak_rss_mb": 239.5390625,
-   "outcome": "error"
   },
   "0108.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/deep-data.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw BadZipFile with message: File is not a zip file\n",
-   "seconds": 0.8610074770001575,
-   "peak_rss_mb": 164.4765625,
+   "seconds": 1.0239116399998238,
+   "peak_rss_mb": 164.58203125,
    "outcome": "error"
   },
   "0110.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb-empty.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw ValueError with message: Unable to read workbook: could not read strings from /home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb-empty.xlsx.\nThis is most probably because the workbook source fi",
-   "seconds": 0.922685908999938,
-   "peak_rss_mb": 164.8046875,
+   "seconds": 0.8159525020000729,
+   "peak_rss_mb": 164.76171875,
    "outcome": "error"
   },
   "0111.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb.xlsx",
    "ok": false,
    "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw ValueError with message: Unable to read workbook: could not read strings from /home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb.xlsx.\nThis is most probably because the workbook source files co",
-   "seconds": 0.7484534930001701,
-   "peak_rss_mb": 164.66015625,
+   "seconds": 1.060234982000111,
+   "peak_rss_mb": 164.75390625,
    "outcome": "error"
   },
   "0112.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poi-fuzz.xls",
    "ok": true,
    "chars": 93,
-   "seconds": 0.6386283069998626,
-   "peak_rss_mb": 166.640625,
+   "seconds": 0.8035770090000369,
+   "peak_rss_mb": 166.578125,
    "outcome": "ok"
   },
   "0109.xlsx": {
@@ -905,7 +905,7 @@
    "ok": false,
    "outcome": "memory",
    "error": "stopped above 6000 MB",
-   "seconds": 21.528558706000013,
+   "seconds": 22.85373585399998,
    "peak_rss_mb": 6000
   }
  }

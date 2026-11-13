@@ -129,14 +129,35 @@ def main() -> None:
     hostile_table = table([f"{hostile_files} hostile files", *head], hostile_rows)
 
     footprint_table = table(["", *head], [
-        ["Installed size"] + [{"opendockit": "0.1 GB", "markitdown": "0.3 GB", "kreuzberg": "0.1 GB", "unstructured": "6.5 GB", "docling": "5.9 GB"}[tool] for tool in tools],
-        ["Needs system packages"] + [{"opendockit": "no", "markitdown": "no", "kreuzberg": "Tesseract for OCR", "docling": "no",
+        ["Installed size"] + [{"opendockit": "0.1 GB", "markitdown": "0.3 GB", "kreuzberg": "5.7 GB", "unstructured": "6.5 GB", "docling": "5.9 GB"}[tool] for tool in tools],
+        ["Needs system packages"] + [{"opendockit": "LibreOffice, only for `.doc` / `.ppt`", "markitdown": "no", "kreuzberg": "Tesseract for OCR", "docling": "no",
                                       "unstructured": "libmagic, Poppler, Tesseract, LibreOffice, pandoc"}[tool] for tool in tools],
         ["Runs ML models locally"] + [{"opendockit": "no", "markitdown": "no", "kreuzberg": "optional", "unstructured": "yes", "docling": "yes"}[tool] for tool in tools],
     ])
 
     order = sorted(tools, key=lambda tool: -probe_pass[tool])
     speed_order = sorted(tools, key=lambda tool: seconds[tool])
+    widest = max(coverage_pass.values())
+    widest_tools = [NAMES[tool] for tool in tools if coverage_pass[tool] == widest]
+    offline_gaps = [case.label for case in COVERAGE if summary["coverage"][case.file]["opendockit"]["status"] != "pass"]
+    if coverage_pass["opendockit"] == widest:
+        formats_note = (f"No tool reads more ({', '.join(widest_tools)})." if len(widest_tools) > 1 else "That is the most of the five.")
+    else:
+        formats_note = f"**It is not the widest:** {' and '.join(widest_tools)} read{'s' if len(widest_tools) == 1 else ''} {widest}."
+    formats_note += (" Offline, OpenDocKit does not read " + ", ".join(offline_gaps) + " — it has no OCR of its own." if offline_gaps else "")
+    failed_questions = list(dict.fromkeys(probe.question for probe in PROBES if not summary["probes"][probe.id]["opendockit"]))
+    if failed_questions:
+        failed = "OpenDocKit fails these:\n\n" + "\n".join(f"- {question}" for question in failed_questions)
+    else:
+        failed = f"OpenDocKit passes all {len(PROBES)}. Read that with the note on author bias at the end of this page in mind."
+    legacy = {name: ordinary["opendockit"]["formats"][name] for name in ("DOC", "PPT")}
+    legacy_ok, legacy_files = sum(b["ok"] for b in legacy.values()), sum(b["files"] for b in legacy.values())
+    legacy_seconds = sum(b["total_seconds"] for b in legacy.values())
+    hostile_us = summary["hostile"]["opendockit"]["formats"]
+    us_hostile_slowest = max(b["max_seconds"] for b in hostile_us.values())
+    us_hostile_memory = max(b["peak_rss_mb"] for b in hostile_us.values())
+    over_cap = [NAMES[tool] for tool in tools if total(tool, "memory", "hostile")]
+    bad_hostile = [NAMES[tool] for tool in tools if total(tool, "crash", "hostile") or total(tool, "timeout", "hostile")]
     text = TEMPLATE.format(
         cpu=environment["cpu"], cores=environment["cores"], memory=round(environment["memory_mb"] / 1024), platform=environment["platform"],
         commit=environment["commit"][:7], versions=versions, coverage_table=coverage_table, area_table=area_table, probe_table=probe_table,
@@ -149,11 +170,15 @@ def main() -> None:
         us_rank=speed_order.index("opendockit") + 1, docling_seconds=round(seconds["docling"]), unstructured_seconds=round(seconds["unstructured"]),
         markitdown_seconds=round(seconds["markitdown"]), hwp_ok=ordinary["opendockit"]["formats"]["HWP"]["ok"] + ordinary["opendockit"]["formats"]["HWPX"]["ok"],
         hwp_files=ordinary["opendockit"]["formats"]["HWP"]["files"] + ordinary["opendockit"]["formats"]["HWPX"]["files"],
-        legacy_errors=ordinary["opendockit"]["formats"]["DOC"]["error"] + ordinary["opendockit"]["formats"]["PPT"]["error"],
-        us_errors=int(total("opendockit", "error")),
+        us_errors=int(total("opendockit", "error")), formats_note=formats_note,
+        legacy_ok=legacy_ok, legacy_files=legacy_files, legacy_seconds=round(legacy_seconds),
+        rest_seconds=round(seconds["opendockit"] - legacy_seconds), us_hostile_slowest=f"{us_hostile_slowest:.0f}",
+        us_hostile_memory=f"{us_hostile_memory / 1024:.1f}",
+        hostile_verdict=("no tool crashed or hung" if not bad_hostile else f"{', '.join(bad_hostile)} crashed or timed out on at least one file"),
+        over_cap=" and ".join(over_cap) if over_cap else "no tool", opendockit_build=(
+            "built from the commit above" if environment.get("opendockit") == "checkout"
+            else "installed from PyPI"),
     )
-    failed = "\n".join(f"- {question}" for question in dict.fromkeys(
-        probe.question for probe in PROBES if not summary["probes"][probe.id]["opendockit"]))
     (ROOT / "README.md").write_text(text.replace("@@FAILED@@", failed), encoding="utf-8")
     print("README.md written;", {tool: (coverage_pass[tool], probe_pass[tool], round(seconds[tool])) for tool in tools}, "vision", vision_total)
 
@@ -178,15 +203,15 @@ OpenDocKit is not the best choice.
   tool, {second}, passes {second_probes}. This is where OpenDocKit is strongest: merged cells, several tables on one sheet,
   Excel's display formats, two-column PDFs, running headers, equations, meeting invitations.
 - **Formats.** OpenDocKit reads {us_coverage} of the {formats} formats tested offline ({us_vision} with a vision model for
-  images and scans). **It is not the widest:** {best_coverage} reads {best_coverage_count}. OpenDocKit has no reader for
-  legacy `.doc`/`.ppt`, RTF, OpenDocument or EPUB, and reads images only through a vision model.
+  images and scans). {formats_note}
 - **Korean documents.** OpenDocKit is the only one of the five that reads HWP and HWPX at all, and it reads
   CP949-encoded text and CSV, which several of the others do not.
 - **Speed.** {fastest} is in a class of its own ({fastest_seconds} s for {files} files). OpenDocKit is #{us_rank} of 5 at
-  {us_seconds} s; MarkItDown takes {markitdown_seconds} s, Unstructured {unstructured_seconds} s and Docling
-  {docling_seconds} s on a CPU-only machine.
-- **Hostile input.** On {hostile_files} fuzzer findings and attack files from other projects, no tool crashed or hung.
-  One file made two tools pass 6 GB of memory; OpenDocKit's largest was about 0.1 GB.
+  {us_seconds} s, of which {legacy_seconds} s is LibreOffice converting the {legacy_files} legacy `.doc` and `.ppt` files;
+  MarkItDown takes {markitdown_seconds} s, Unstructured {unstructured_seconds} s and Docling {docling_seconds} s on a
+  CPU-only machine.
+- **Hostile input.** On {hostile_files} fuzzer findings and attack files from other projects, {hostile_verdict}.
+  One file made {over_cap} pass 6 GB of memory; OpenDocKit's largest was about {us_hostile_memory} GB.
 
 ## What was compared
 
@@ -198,7 +223,8 @@ support (see [`setup_tools.sh`](setup_tools.sh)), and called through its default
 and Kreuzberg need for OCR and legacy formats (Tesseract with English and Korean data, LibreOffice, pandoc, Poppler,
 libmagic) were installed for them.
 
-Machine: GitHub-hosted runner, {cpu}, {cores} cores, {memory} GB RAM, no GPU, {platform}. Run from commit `{commit}`.
+Machine: GitHub-hosted runner, {cpu}, {cores} cores, {memory} GB RAM, no GPU, {platform}. Run from commit `{commit}`;
+OpenDocKit was {opendockit_build}.
 
 ## 1. Which formats does each tool read?
 
@@ -225,11 +251,12 @@ case, whitespace, Markdown escapes and emphasis markers, and accepts both Markdo
 
 {area_table}
 
-OpenDocKit fails these:
-
 @@FAILED@@
 
-Links and emphasis are real gaps: OpenDocKit flattens them to plain text, and MarkItDown, Kreuzberg and Docling keep them.
+These are the same {probes} checks, unchanged, that were published with the report for OpenDocKit 0.1.0, which passed 43
+of them: it had no reader for the OpenDocument, RTF, EPUB and legacy Office files and flattened links and emphasis to
+plain text. 0.2.0 was written afterwards with those checks known, so its score says the gaps are closed, not that
+OpenDocKit would do as well on checks somebody else wrote.
 
 <details>
 <summary>Every check, every tool</summary>
@@ -253,8 +280,8 @@ particular tool. We do not know their correct output, so this section only count
 
 {problem_table}
 
-- {legacy_errors} of OpenDocKit's {us_errors} errors are the legacy `.doc` and `.ppt` files — it refuses those formats outright. Kreuzberg, Unstructured
-  and Docling read them (through LibreOffice or their own parsers).
+- OpenDocKit reads legacy `.doc` and `.ppt` by handing them to LibreOffice, which this machine has because Unstructured
+  and Kreuzberg need it too: {legacy_ok} of {legacy_files} returned text. Without LibreOffice it refuses those two formats.
 - "No text returned" is often correct: many test files are blank pages, pictures or shapes. Of the {hwp_files} Hangul
   files OpenDocKit returned text for {hwp_ok}; we checked the rest against the preview text stored inside each file, and
   they contain none.
@@ -273,26 +300,29 @@ cases, XML bombs, deeply nested tables). Each file ran in a fresh process with a
 
 {hostile_table}
 
-Every tool survived every file — nothing crashed the interpreter and nothing hung. The one clear difference is
-`poc-shared-strings.xlsx`, an Excel file whose shared-string table expands enormously: it pushed MarkItDown and
-Unstructured past the 6 GB cap. OpenDocKit bounds decompressed size and converted or refused every file within a second.
+The one clear difference is `poc-shared-strings.xlsx`, an Excel file whose shared-string table expands enormously: it
+pushed {over_cap} past the 6 GB cap. OpenDocKit bounds decompressed size; its slowest file took {us_hostile_slowest} s and its largest used
+{us_hostile_memory} GB.
 This is a small sample; it shows the absence of obvious problems, not robustness in general.
 
 ## 5. Footprint
 
 {footprint_table}
 
+Sizes are of the environments as installed above, with every extra the comparison uses; a tool installed without its
+extras is smaller.
+
 ## Which one should you use?
 
 - **Korean office documents (HWP, HWPX, CP949), or Office files where tables and layout must survive** → OpenDocKit.
 - **Scanned PDFs and images, offline** → Docling or Unstructured. They run OCR and layout models locally; OpenDocKit
   needs a vision-model API for those.
-- **Legacy `.doc`/`.ppt`, OpenDocument, EPUB, or sheer throughput** → Kreuzberg.
-- **Links and inline formatting must be preserved, or you want audio, URLs and archives too** → MarkItDown.
+- **Sheer throughput** → Kreuzberg.
+- **Audio, video, web URLs, archives, Outlook `.msg`** → MarkItDown or Unstructured; OpenDocKit does not read them.
 
 ## Run it yourself
 
-On GitHub: fork the repository, open **Actions → Benchmark → Run workflow**. It takes about 35 minutes on a free
+On GitHub: fork the repository, open **Actions → Benchmark → Run workflow**. It takes about 40 minutes on a free
 runner and uploads the raw results as an artifact.
 
 Locally, on an x86-64 Linux machine (the ML-based tools crash under Docker on Apple silicon):
@@ -317,15 +347,16 @@ python benchmarks/make_report.py && python benchmarks/charts.py
 
 ## Limits of this benchmark
 
-- **Author bias.** We chose the documents and wrote the checks. We added checks we knew OpenDocKit fails, but a
-  maintainer of another tool would have picked different ones.
+- **Author bias.** We chose the documents and wrote the checks, and a maintainer of another tool would have picked
+  different ones. The checks include six that OpenDocKit 0.1.0 failed; 0.2.0 was then developed with all of them in
+  view, which no other tool here was.
 - **Small and synthetic.** The scored documents are {formats} files we generated. They are realistic but not real,
   and several tools were not built for the Korean formats that make up part of the set.
 - **Defaults only.** Each tool ran with default options. Docling and Unstructured in particular have settings
   (OCR engines, table modes, a GPU) that change both quality and speed.
 - **One run, one machine.** Timings come from a single run on a shared 4-core runner; treat differences under 2× as noise.
 - **No accuracy score for real files.** For the public corpus we count outcomes, not correctness.
-- **A snapshot.** Versions are pinned to what was current on 2026-11-12. All five projects move quickly.
+- **A snapshot.** The other four tools are pinned to what was current on 2026-11-12. All five projects move quickly.
 """
 
 

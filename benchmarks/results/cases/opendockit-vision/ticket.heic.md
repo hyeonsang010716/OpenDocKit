@@ -1,4 +1,4 @@
-> [Image] A boarding pass displaying gate C17 and seat 22A.
+> [Image] A boarding pass displaying gate and seat information.
 >
 > BOARDING PASS
 >

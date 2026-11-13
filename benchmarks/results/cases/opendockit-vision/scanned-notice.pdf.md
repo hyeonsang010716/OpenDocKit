@@ -7,7 +7,8 @@ Reference: ADM-2026-017
 
 Date: 9 February 2026
 
-From 2 March 2026 the Seoul office moves to the 14th floor of Harbor Tower, 77 Marine Road.
+From 2 March 2026 the Seoul office moves to the 14th floor of
+Harbor Tower, 77 Marine Road.
 
 Schedule
 

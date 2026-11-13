@@ -1,279 +1,279 @@
 {
  "tool": "docling",
  "version": "2.150.0",
- "import_seconds": 0.024584988000015073,
- "wall_seconds": 71.56516142299995,
+ "import_seconds": 0.032193000999996,
+ "wall_seconds": 63.28131709499996,
  "results": {
   "analysis.ipynb": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/analysis.ipynb",
    "ok": false,
    "error": "ConversionError: Conversion failed for: analysis.ipynb with status: skipped. Errors: File format not allowed: analysis.ipynb",
-   "seconds": 9.335953175999975,
-   "peak_rss_mb": 688.33203125,
+   "seconds": 5.406588779999993,
+   "peak_rss_mb": 683.98046875,
    "outcome": "error"
   },
   "article.html": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/article.html",
    "ok": true,
    "chars": 898,
-   "seconds": 0.11645731500004786,
-   "peak_rss_mb": 689.83203125,
+   "seconds": 0.16724171200002047,
+   "peak_rss_mb": 685.60546875,
    "outcome": "ok"
   },
   "branch-sales-cp949.csv": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/branch-sales-cp949.csv",
    "ok": true,
    "chars": 496,
-   "seconds": 0.002586907999898358,
-   "peak_rss_mb": 689.83203125,
+   "seconds": 0.0041351449999638135,
+   "peak_rss_mb": 685.60546875,
    "outcome": "ok"
   },
   "dashboard.mht": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/dashboard.mht",
    "ok": true,
    "chars": 120,
-   "seconds": 0.004229499999951258,
-   "peak_rss_mb": 689.83203125,
+   "seconds": 0.006692973999975038,
+   "peak_rss_mb": 685.60546875,
    "outcome": "ok"
   },
   "deck.odp": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.odp",
    "ok": true,
    "chars": 808,
-   "seconds": 0.015826021999941986,
-   "peak_rss_mb": 690.96484375,
+   "seconds": 0.023992227000007915,
+   "peak_rss_mb": 686.7734375,
    "outcome": "ok"
   },
   "deck.pptx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.pptx",
    "ok": true,
    "chars": 808,
-   "seconds": 0.5546636750000289,
-   "peak_rss_mb": 692.08984375,
+   "seconds": 0.050590329000044676,
+   "peak_rss_mb": 687.7734375,
    "outcome": "ok"
   },
   "fax.tiff": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/fax.tiff",
    "ok": true,
    "chars": 54,
-   "seconds": 41.46800417700001,
-   "peak_rss_mb": 1941.71875,
+   "seconds": 26.896705988999997,
+   "peak_rss_mb": 2013.56640625,
    "outcome": "ok"
   },
   "html-table-named.xls": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/html-table-named.xls",
    "ok": true,
    "chars": 229,
-   "seconds": 0.426864384000055,
-   "peak_rss_mb": 1941.71875,
+   "seconds": 0.4282680779999737,
+   "peak_rss_mb": 2013.56640625,
    "outcome": "ok"
   },
   "inventory-2003.xml": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/inventory-2003.xml",
    "ok": false,
    "error": "ConversionError: Conversion failed for: inventory-2003.xml with status: skipped. Errors: File format not allowed: inventory-2003.xml",
-   "seconds": 0.0013384519999135591,
-   "peak_rss_mb": 1941.71875,
+   "seconds": 0.0016876760000172908,
+   "peak_rss_mb": 2013.56640625,
    "outcome": "error"
   },
   "invoice.png": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/invoice.png",
    "ok": true,
    "chars": 44,
-   "seconds": 2.062211816000058,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 3.818223200000034,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "legacy-deck.ppt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-deck.ppt",
    "ok": true,
    "chars": 808,
-   "seconds": 1.1349641799999972,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 1.4939484939999943,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "legacy-report.doc": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-report.doc",
    "ok": true,
    "chars": 935,
-   "seconds": 0.4210732750000261,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.4874808909999615,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "legacy-sales.xls": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-sales.xls",
    "ok": true,
    "chars": 916,
-   "seconds": 0.5322417559999622,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.43713160300001164,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "mailbox.mbox": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/mailbox.mbox",
    "ok": false,
    "error": "ConversionError: Conversion failed for: mailbox.mbox with status: skipped. Errors: File format not allowed: mailbox.mbox",
-   "seconds": 0.0017952729999706207,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.00289730999998028,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "error"
   },
   "meeting.eml": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/meeting.eml",
    "ok": true,
    "chars": 280,
-   "seconds": 0.0026919769999267373,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.005152858000030847,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "notes.txt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notes.txt",
    "ok": true,
    "chars": 82,
-   "seconds": 0.0028585389999307154,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.005926999999985583,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "notice-cp949.txt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notice-cp949.txt",
    "ok": true,
    "chars": 65,
-   "seconds": 0.0013743469999099034,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.0033013190000019677,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "numbered-outline.hwpx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/numbered-outline.hwpx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: numbered-outline.hwpx/mimetype with status: failure. Errors: The document backend could not parse the input.",
-   "seconds": 0.0010796510000545823,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.002208432000031735,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "error"
   },
   "orders.csv": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/orders.csv",
    "ok": true,
    "chars": 151,
-   "seconds": 0.001273604999937561,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.0026441100000056394,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "receipt.jpg": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/receipt.jpg",
    "ok": true,
    "chars": 34,
-   "seconds": 1.705592303000003,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 2.937905404999981,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "release-notes.epub": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.epub",
    "ok": true,
    "chars": 391,
-   "seconds": 0.00825902799999767,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.011321122000026662,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "release-notes.md": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.md",
    "ok": true,
    "chars": 370,
-   "seconds": 0.003979501999992863,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.0054297350000069855,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "report.docx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.docx",
    "ok": true,
    "chars": 970,
-   "seconds": 0.057449034999990545,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.07969965299997739,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "report.odt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.odt",
    "ok": true,
    "chars": 936,
-   "seconds": 0.026469499999961954,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.03606540000004088,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "report.rtf": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.rtf",
    "ok": true,
    "chars": 936,
-   "seconds": 0.8569445540000515,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.688108949000025,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "rich-text.docx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.docx",
    "ok": true,
    "chars": 284,
-   "seconds": 0.012731755000004341,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.019362886999999773,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "rich-text.html": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.html",
    "ok": true,
    "chars": 256,
-   "seconds": 0.0052820900000369875,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.00786382199999025,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "sales.ods": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.ods",
    "ok": true,
    "chars": 3104,
-   "seconds": 0.015857598000025064,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.023591789000022345,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "sales.xlsx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.xlsx",
    "ok": true,
    "chars": 916,
-   "seconds": 0.00946353699998781,
-   "peak_rss_mb": 2075.48046875,
+   "seconds": 0.01307052399999975,
+   "peak_rss_mb": 2120.96484375,
    "outcome": "ok"
   },
   "scanned-notice.pdf": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/scanned-notice.pdf",
    "ok": true,
    "chars": 349,
-   "seconds": 7.156983847999982,
-   "peak_rss_mb": 2600.8359375,
+   "seconds": 14.304482710000002,
+   "peak_rss_mb": 2660.828125,
    "outcome": "ok"
   },
   "score-table.hwpx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/score-table.hwpx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: score-table.hwpx/mimetype with status: failure. Errors: The document backend could not parse the input.",
-   "seconds": 0.0014550590000226293,
-   "peak_rss_mb": 2600.8359375,
+   "seconds": 0.0017052800000101342,
+   "peak_rss_mb": 2660.828125,
    "outcome": "error"
   },
   "service-report.pdf": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/service-report.pdf",
    "ok": true,
    "chars": 7521,
-   "seconds": 5.441115617000037,
-   "peak_rss_mb": 2600.8359375,
+   "seconds": 5.750422619000005,
+   "peak_rss_mb": 2660.828125,
    "outcome": "ok"
   },
   "table.hwp": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/table.hwp",
    "ok": false,
    "error": "ConversionError: Conversion failed for: table.hwp with status: skipped. Errors: File format not allowed: table.hwp",
-   "seconds": 0.002326815999936116,
-   "peak_rss_mb": 2600.8359375,
+   "seconds": 0.0025901109999608707,
+   "peak_rss_mb": 2660.828125,
    "outcome": "error"
   },
   "ticket.heic": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/ticket.heic",
    "ok": false,
    "error": "ConversionError: Conversion failed for: ticket.heic with status: skipped. Errors: File format not allowed: ticket.heic",
-   "seconds": 0.0020245590000058655,
-   "peak_rss_mb": 2600.8359375,
+   "seconds": 0.0021333739999818135,
+   "peak_rss_mb": 2660.828125,
    "outcome": "error"
   }
  }

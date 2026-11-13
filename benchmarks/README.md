@@ -14,25 +14,25 @@ OpenDocKit is not the best choice.
 
 ## Summary
 
-- **Structure.** On 49 yes/no checks of the kind "is the table still a table", OpenDocKit passes 43; the next
+- **Structure.** On 49 yes/no checks of the kind "is the table still a table", OpenDocKit passes 49; the next
   tool, Docling, passes 36. This is where OpenDocKit is strongest: merged cells, several tables on one sheet,
   Excel's display formats, two-column PDFs, running headers, equations, meeting invitations.
-- **Formats.** OpenDocKit reads 19 of the 31 formats tested offline (24 with a vision model for
-  images and scans). **It is not the widest:** Unstructured reads 24. OpenDocKit has no reader for
-  legacy `.doc`/`.ppt`, RTF, OpenDocument or EPUB, and reads images only through a vision model.
+- **Formats.** OpenDocKit reads 26 of the 31 formats tested offline (31 with a vision model for
+  images and scans). That is the most of the five. Offline, OpenDocKit does not read PDF (scanned, no text layer), Image (.png), Image (.jpg), Image (multi-page .tiff), Image (.heic) — it has no OCR of its own.
 - **Korean documents.** OpenDocKit is the only one of the five that reads HWP and HWPX at all, and it reads
   CP949-encoded text and CSV, which several of the others do not.
-- **Speed.** Kreuzberg is in a class of its own (7 s for 743 files). OpenDocKit is #2 of 5 at
-  102 s; MarkItDown takes 144 s, Unstructured 554 s and Docling
-  2703 s on a CPU-only machine.
+- **Speed.** Kreuzberg is in a class of its own (10 s for 743 files). OpenDocKit is #3 of 5 at
+  304 s, of which 173 s is LibreOffice converting the 200 legacy `.doc` and `.ppt` files;
+  MarkItDown takes 169 s, Unstructured 641 s and Docling 3155 s on a
+  CPU-only machine.
 - **Hostile input.** On 113 fuzzer findings and attack files from other projects, no tool crashed or hung.
-  One file made two tools pass 6 GB of memory; OpenDocKit's largest was about 0.1 GB.
+  One file made MarkItDown and Unstructured pass 6 GB of memory; OpenDocKit's largest was about 0.1 GB.
 
 ## What was compared
 
 | Tool | Version | Installed as | License |
 | :--- | :--- | :--- | :--- |
-| [OpenDocKit](https://github.com/hyeonsang010716/OpenDocKit) | 0.1.0 | `opendockit[heic]` | MIT |
+| [OpenDocKit](https://github.com/hyeonsang010716/OpenDocKit) | 0.2.0 | `opendockit[heic]` | MIT |
 | [MarkItDown](https://github.com/microsoft/markitdown) | 0.1.9 | `markitdown[all]` | MIT |
 | [Kreuzberg](https://kreuzberg.dev) | 4.10.4 | `kreuzberg[all]` | MIT |
 | [Unstructured](https://github.com/Unstructured-IO/unstructured) | 0.27.37 | `unstructured[all-docs]` | Apache-2.0 |
@@ -44,7 +44,8 @@ support (see [`setup_tools.sh`](setup_tools.sh)), and called through its default
 and Kreuzberg need for OCR and legacy formats (Tesseract with English and Korean data, LibreOffice, pandoc, Poppler,
 libmagic) were installed for them.
 
-Machine: GitHub-hosted runner, AMD EPYC 9V74 80-Core Processor, 4 cores, 16 GB RAM, no GPU, Linux-7.0.0-1019-azure-x86_64-with-glibc2.43. Run from commit `d161074`.
+Machine: GitHub-hosted runner, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz, 4 cores, 16 GB RAM, no GPU, Linux-7.0.0-1019-azure-x86_64-with-glibc2.43. Run from commit `e23913a`;
+OpenDocKit was built from the commit above.
 
 ## 1. Which formats does each tool read?
 
@@ -60,12 +61,12 @@ One representative file per format. ✅ means the output contains every piece of
 | Excel (.xlsx) | ✅ |  | ✅ | ✅ | ✅ | ✅ |
 | Excel 97-2003 (.xls) | ✅ |  | ✅ | ✅ | ✅ | ✅ |
 | Excel 2003 XML | ✅ |  | ✅ | ✅ | ✅ | ❌ |
-| Word 97-2003 (.doc) | ❌ |  | ❌ | ✅ | ✅ | ✅ |
-| PowerPoint 97-2003 (.ppt) | ❌ |  | ❌ | ✅ | ✅ | ✅ |
-| Rich Text (.rtf) | ❌ |  | ✅ | ✅ | ✅ | ✅ |
-| OpenDocument Text (.odt) | ❌ |  | ❌ | ✅ | ✅ | ✅ |
-| OpenDocument Spreadsheet (.ods) | ❌ |  | ❌ | ✅ | ❌ | ✅ |
-| OpenDocument Presentation (.odp) | ❌ |  | ❌ | ❌ | ❌ | ✅ |
+| Word 97-2003 (.doc) | ✅ |  | ❌ | ✅ | ✅ | ✅ |
+| PowerPoint 97-2003 (.ppt) | ✅ |  | ❌ | ✅ | ✅ | ✅ |
+| Rich Text (.rtf) | ✅ |  | ✅ | ✅ | ✅ | ✅ |
+| OpenDocument Text (.odt) | ✅ |  | ❌ | ✅ | ✅ | ✅ |
+| OpenDocument Spreadsheet (.ods) | ✅ |  | ❌ | ✅ | ❌ | ✅ |
+| OpenDocument Presentation (.odp) | ✅ |  | ❌ | ❌ | ❌ | ✅ |
 | **Korean office** |  |  |  |  |  |  |
 | Hangul (.hwp) | ✅ |  | ❌ | ❌ | ❌ | ❌ |
 | Hangul (.hwpx) | ✅ |  | ❌ | ❌ | ❌ | ❌ |
@@ -84,7 +85,7 @@ One representative file per format. ✅ means the output contains every piece of
 | Markdown | ✅ |  | ✅ | ✅ | ✅ | ✅ |
 | CSV | ✅ |  | ✅ | ✅ | ✅ | ✅ |
 | Jupyter notebook | ✅ |  | ✅ | ✅ | ✅ | ❌ |
-| EPUB | ❌ |  | ✅ | ✅ | ✅ | ✅ |
+| EPUB | ✅ |  | ✅ | ✅ | ✅ | ✅ |
 | **Images** |  |  |  |  |  |  |
 | Image (.png) | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ |
 | Image (.jpg) | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ |
@@ -92,7 +93,7 @@ One representative file per format. ✅ means the output contains every piece of
 | Image (.heic) | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
 | **Mislabeled** |  |  |  |  |  |  |
 | HTML table saved as .xls | ✅ |  | ✅ | ❌ | ✅ | 🟡 |
-| **Formats read** | **19** | **24** | **19** | **22** | **24** | **22** |
+| **Formats read** | **26** | **31** | **19** | **22** | **24** | **22** |
 
 Notes:
 
@@ -111,23 +112,22 @@ case, whitespace, Markdown escapes and emphasis markers, and accepts both Markdo
 
 | Checks | OpenDocKit | MarkItDown | Kreuzberg | Unstructured | Docling |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| Word (11) | 8 | 9 | 9 | 4 | **11** |
+| Word (11) | **11** | 9 | 9 | 4 | **11** |
 | PowerPoint (5) | **5** | 4 | 3 | 2 | 4 |
 | Excel (6) | **6** | 2 | 2 | 1 | 4 |
 | PDF (6) | **6** | 2 | 3 | 1 | **6** |
-| HTML (10) | 7 | 7 | **9** | 3 | **9** |
+| HTML (10) | **10** | 7 | 9 | 3 | 9 |
 | Email (5) | **5** | **5** | 2 | 0 | 2 |
 | Korean documents (5) | **5** | 1 | 1 | 0 | 0 |
 | Mislabeled file (1) | **1** | **1** | 0 | **1** | 0 |
-| **All (49)** | **43** | 31 | 29 | 12 | 36 |
+| **All (49)** | **49** | 31 | 29 | 12 | 36 |
 
-OpenDocKit fails these:
+OpenDocKit passes all 49. Read that with the note on author bias at the end of this page in mind.
 
-- A hyperlink keeps its address
-- Bold text stays bold
-- Italic text stays italic
-
-Links and emphasis are real gaps: OpenDocKit flattens them to plain text, and MarkItDown, Kreuzberg and Docling keep them.
+These are the same 49 checks, unchanged, that were published with the report for OpenDocKit 0.1.0, which passed 43
+of them: it had no reader for the OpenDocument, RTF, EPUB and legacy Office files and flattened links and emphasis to
+plain text. 0.2.0 was written afterwards with those checks known, so its score says the gaps are closed, not that
+OpenDocKit would do as well on checks somebody else wrote.
 
 <details>
 <summary>Every check, every tool</summary>
@@ -141,9 +141,9 @@ Links and emphasis are real gaps: OpenDocKit flattens them to plain text, and Ma
 | The vertically merged 'Domestic' cell still applies to the South row | `report.docx` | ✅ | ❌ | ✅ | ✅ | ✅ |
 | The equation is written as LaTeX | `report.docx` | ✅ | ❌ | ✅ | ❌ | ✅ |
 | The picture leaves a marker between the text before and after it | `report.docx` | ✅ | ✅ | ✅ | ❌ | ✅ |
-| A hyperlink keeps its address | `rich-text.docx` | ❌ | ✅ | ✅ | ❌ | ✅ |
-| Bold text stays bold | `rich-text.docx` | ❌ | ✅ | ✅ | ❌ | ✅ |
-| Italic text stays italic | `rich-text.docx` | ❌ | ✅ | ✅ | ❌ | ✅ |
+| A hyperlink keeps its address | `rich-text.docx` | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Bold text stays bold | `rich-text.docx` | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Italic text stays italic | `rich-text.docx` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | Page header and footer text is kept out of the body | `rich-text.docx` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | Each slide title is a heading | `deck.pptx` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | A second-level bullet is visibly nested under its parent | `deck.pptx` | ✅ | ❌ | ✅ | ❌ | ✅ |
@@ -168,9 +168,9 @@ Links and emphasis are real gaps: OpenDocKit flattens them to plain text, and Ma
 | The nested list keeps its nesting | `article.html` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | The code block is fenced | `article.html` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | MathML is written as LaTeX | `article.html` | ✅ | ❌ | ❌ | ❌ | ❌ |
-| A hyperlink keeps its address | `rich-text.html` | ❌ | ✅ | ✅ | ❌ | ✅ |
-| Bold text stays bold | `rich-text.html` | ❌ | ✅ | ✅ | ❌ | ✅ |
-| Italic text stays italic | `rich-text.html` | ❌ | ✅ | ✅ | ❌ | ✅ |
+| A hyperlink keeps its address | `rich-text.html` | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Bold text stays bold | `rich-text.html` | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Italic text stays italic | `rich-text.html` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | An image's alt text is kept | `rich-text.html` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Subject, sender and recipient are kept | `meeting.eml` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | The body is read once (not the HTML and the plain-text copy) | `meeting.eml` | ✅ | ✅ | ✅ | ❌ | ✅ |
@@ -203,22 +203,22 @@ particular tool. We do not know their correct output, so this section only count
 | PPTX (84) | **83** | **83** | 81 | 62 | 71 |
 | XLSX (100) | 92 | **97** | 88 | 88 | 89 |
 | XLS (100) | 91 | **99** | 86 | 84 | 87 |
-| PDF (66) | **63** | 62 | 61 | **63** | 56 |
+| PDF (66) | **63** | 62 | 61 | **63** | 54 |
 | HWP (44) | **29** | 0 | 0 | 0 | 0 |
 | HWPX (49) | **39** | 0 | 0 | 0 | 0 |
-| DOC (100) | 0 | 0 | 79 | 88 | **94** |
-| PPT (100) | 0 | 0 | 77 | 82 | **83** |
-| **All (743)** | **484** | **426** | **558** | **552** | **568** |
+| DOC (100) | 93 | 0 | 79 | 89 | **94** |
+| PPT (100) | **90** | 0 | 77 | 82 | 83 |
+| **All (743)** | **667** | **426** | **558** | **553** | **566** |
 
 | Of the same files | OpenDocKit | MarkItDown | Kreuzberg | Unstructured | Docling |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| Error (refused or failed) | 209 | 303 | 76 | 117 | 112 |
-| No text returned | 50 | 14 | 109 | 74 | 55 |
-| Timed out (120 s) | 0 | 0 | 0 | 0 | 8 |
+| Error (refused or failed) | 21 | 303 | 76 | 116 | 112 |
+| No text returned | 55 | 14 | 109 | 74 | 55 |
+| Timed out (120 s) | 0 | 0 | 0 | 0 | 10 |
 | Crashed the process | 0 | 0 | 0 | 0 | 0 |
 
-- 200 of OpenDocKit's 209 errors are the legacy `.doc` and `.ppt` files — it refuses those formats outright. Kreuzberg, Unstructured
-  and Docling read them (through LibreOffice or their own parsers).
+- OpenDocKit reads legacy `.doc` and `.ppt` by handing them to LibreOffice, which this machine has because Unstructured
+  and Kreuzberg need it too: 183 of 200 returned text. Without LibreOffice it refuses those two formats.
 - "No text returned" is often correct: many test files are blank pages, pictures or shapes. Of the 93 Hangul
   files OpenDocKit returned text for 68; we checked the rest against the preview text stored inside each file, and
   they contain none.
@@ -226,17 +226,17 @@ particular tool. We do not know their correct output, so this section only count
 
 | Time to convert, seconds | OpenDocKit | MarkItDown | Kreuzberg | Unstructured | Docling |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| DOCX | 4.5 | 41.3 | 1.1 | 32.1 | 32.3 |
-| PPTX | 3.5 | 3.6 | 0.3 | 7.5 | 13.7 |
-| XLSX | 8.8 | 15.4 | 0.4 | 9.1 | 12.2 |
-| XLS | 7.8 | 29.5 | 0.5 | 8.9 | 80.1 |
-| PDF | 73.0 | 47.1 | 4.2 | 64.9 | 2,208.8 |
-| HWP | 1.0 | 0.7 | 0.1 | 0.1 | 0.1 |
-| HWPX | 2.0 | 0.8 | 0.0 | 0.1 | 0.1 |
-| DOC | 1.2 | 4.3 | 0.3 | 170.2 | 261.5 |
-| PPT | 0.1 | 1.1 | 0.2 | 260.8 | 94.6 |
-| **All, seconds** | 102 | 144 | **7** | 554 | 2,703 |
-| Median PDF, seconds | 0.14 | 0.13 | 0.02 | 0.22 | 16.61 |
+| DOCX | 7.0 | 37.6 | 1.4 | 39.6 | 43.9 |
+| PPTX | 3.1 | 5.6 | 0.4 | 11.2 | 15.5 |
+| XLSX | 9.1 | 16.8 | 0.5 | 12.4 | 14.6 |
+| XLS | 6.0 | 40.0 | 0.7 | 13.6 | 91.2 |
+| PDF | 101.9 | 62.2 | 5.8 | 95.6 | 2,601.4 |
+| HWP | 1.4 | 0.6 | 0.1 | 0.1 | 0.2 |
+| HWPX | 2.6 | 0.7 | 0.0 | 0.1 | 0.1 |
+| DOC | 77.2 | 4.6 | 0.4 | 207.6 | 279.2 |
+| PPT | 95.7 | 1.1 | 0.3 | 261.0 | 108.7 |
+| **All, seconds** | 304 | 169 | **10** | 641 | 3,155 |
+| Median PDF, seconds | 0.18 | 0.19 | 0.02 | 0.27 | 23.50 |
 
 Three workers per tool ran in parallel on the 4-core machine; times are the sum over files of the time inside the
 conversion call. Docling and Unstructured run layout and OCR models, which is why they are slow on a machine without a
@@ -249,39 +249,42 @@ cases, XML bombs, deeply nested tables). Each file ran in a fresh process with a
 
 | 113 hostile files | OpenDocKit | MarkItDown | Kreuzberg | Unstructured | Docling |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| Returned text | 11 | 12 | 15 | 22 | 28 |
-| Refused with an error | 100 | 94 | 91 | 85 | 77 |
-| No text returned | 2 | 6 | 7 | 5 | 8 |
+| Returned text | 21 | 12 | 15 | 22 | 28 |
+| Refused with an error | 88 | 94 | 91 | 85 | 77 |
+| No text returned | 4 | 6 | 7 | 5 | 8 |
 | Timed out (60 s) | 0 | 0 | 0 | 0 | 0 |
 | Crashed the process | 0 | 0 | 0 | 0 | 0 |
 | Stopped above 6 GB of memory | 0 | 1 | 0 | 1 | 0 |
-| Slowest single file, seconds | 1.3 | 29.6 | 0.2 | 30.0 | 12.6 |
-| Peak memory on a single file, MB | 125 | 6,000 | 60 | 6,000 | 1,639 |
+| Slowest single file, seconds | 1.9 | 27.4 | 0.2 | 36.1 | 14.9 |
+| Peak memory on a single file, MB | 125 | 6,000 | 60 | 6,000 | 1,635 |
 
-Every tool survived every file — nothing crashed the interpreter and nothing hung. The one clear difference is
-`poc-shared-strings.xlsx`, an Excel file whose shared-string table expands enormously: it pushed MarkItDown and
-Unstructured past the 6 GB cap. OpenDocKit bounds decompressed size and converted or refused every file within a second.
+The one clear difference is `poc-shared-strings.xlsx`, an Excel file whose shared-string table expands enormously: it
+pushed MarkItDown and Unstructured past the 6 GB cap. OpenDocKit bounds decompressed size; its slowest file took 2 s and its largest used
+0.1 GB.
 This is a small sample; it shows the absence of obvious problems, not robustness in general.
 
 ## 5. Footprint
 
 |  | OpenDocKit | MarkItDown | Kreuzberg | Unstructured | Docling |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| Installed size | 0.1 GB | 0.3 GB | 0.1 GB | 6.5 GB | 5.9 GB |
-| Needs system packages | no | no | Tesseract for OCR | libmagic, Poppler, Tesseract, LibreOffice, pandoc | no |
+| Installed size | 0.1 GB | 0.3 GB | 5.7 GB | 6.5 GB | 5.9 GB |
+| Needs system packages | LibreOffice, only for `.doc` / `.ppt` | no | Tesseract for OCR | libmagic, Poppler, Tesseract, LibreOffice, pandoc | no |
 | Runs ML models locally | no | no | optional | yes | yes |
+
+Sizes are of the environments as installed above, with every extra the comparison uses; a tool installed without its
+extras is smaller.
 
 ## Which one should you use?
 
 - **Korean office documents (HWP, HWPX, CP949), or Office files where tables and layout must survive** → OpenDocKit.
 - **Scanned PDFs and images, offline** → Docling or Unstructured. They run OCR and layout models locally; OpenDocKit
   needs a vision-model API for those.
-- **Legacy `.doc`/`.ppt`, OpenDocument, EPUB, or sheer throughput** → Kreuzberg.
-- **Links and inline formatting must be preserved, or you want audio, URLs and archives too** → MarkItDown.
+- **Sheer throughput** → Kreuzberg.
+- **Audio, video, web URLs, archives, Outlook `.msg`** → MarkItDown or Unstructured; OpenDocKit does not read them.
 
 ## Run it yourself
 
-On GitHub: fork the repository, open **Actions → Benchmark → Run workflow**. It takes about 35 minutes on a free
+On GitHub: fork the repository, open **Actions → Benchmark → Run workflow**. It takes about 40 minutes on a free
 runner and uploads the raw results as an artifact.
 
 Locally, on an x86-64 Linux machine (the ML-based tools crash under Docker on Apple silicon):
@@ -306,12 +309,13 @@ python benchmarks/make_report.py && python benchmarks/charts.py
 
 ## Limits of this benchmark
 
-- **Author bias.** We chose the documents and wrote the checks. We added checks we knew OpenDocKit fails, but a
-  maintainer of another tool would have picked different ones.
+- **Author bias.** We chose the documents and wrote the checks, and a maintainer of another tool would have picked
+  different ones. The checks include six that OpenDocKit 0.1.0 failed; 0.2.0 was then developed with all of them in
+  view, which no other tool here was.
 - **Small and synthetic.** The scored documents are 31 files we generated. They are realistic but not real,
   and several tools were not built for the Korean formats that make up part of the set.
 - **Defaults only.** Each tool ran with default options. Docling and Unstructured in particular have settings
   (OCR engines, table modes, a GPU) that change both quality and speed.
 - **One run, one machine.** Timings come from a single run on a shared 4-core runner; treat differences under 2× as noise.
 - **No accuracy score for real files.** For the public corpus we count outcomes, not correctness.
-- **A snapshot.** Versions are pinned to what was current on 2026-11-12. All five projects move quickly.
+- **A snapshot.** The other four tools are pinned to what was current on 2026-11-12. All five projects move quickly.

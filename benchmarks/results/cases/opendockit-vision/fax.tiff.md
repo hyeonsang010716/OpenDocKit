@@ -1,6 +1,6 @@
 <!-- Page 1 -->
 
-> [Image] A fax document page labeled “FAX PAGE ONE” with reference number 5501-A.
+> [Image] A fax cover page labeled “FAX PAGE ONE” with reference number 5501-A.
 >
 > FAX PAGE ONE
 >
@@ -8,7 +8,7 @@
 
 <!-- Page 2 -->
 
-> [Image] A fax document page labeled “FAX PAGE TWO” with reference number 5502-B.
+> [Image] A fax document page labeled “FAX PAGE TWO” with reference number “Ref 5502-B.”
 >
 > FAX PAGE TWO
 >

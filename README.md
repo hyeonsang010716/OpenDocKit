@@ -138,18 +138,21 @@ what each format restores is in [docs/formats.md](https://github.com/hyeonsang01
 ## How it compares
 
 <p align="center">
-  <img alt="Structure checks passed: OpenDocKit 43 of 49, Docling 36, MarkItDown 31, Kreuzberg 29, Unstructured 12"
+  <img alt="Structure checks passed: OpenDocKit 49 of 49, Docling 36, MarkItDown 31, Kreuzberg 29, Unstructured 12"
        src="https://github.com/hyeonsang010716/OpenDocKit/raw/main/benchmarks/charts/structure-checks.svg" width="720">
 </p>
 
 We ran OpenDocKit, MarkItDown, Kreuzberg, Unstructured and Docling on the same files on a standard GitHub runner
 ([method, raw results and how to rerun it](https://github.com/hyeonsang010716/OpenDocKit/blob/main/benchmarks/README.md)):
 
-- **Structure** — OpenDocKit keeps the most: 43 of 49 checks such as "is the merged cell still attached to its row",
-  against 36 for the next tool.
-- **Korean documents** — it is the only one of the five that reads HWP and HWPX.
-- **Not the widest, not the fastest** — 0.1.0 has no reader for legacy `.doc`/`.ppt`, RTF, OpenDocument or EPUB,
-  reads scans only through a vision model, and drops link targets and bold text. Kreuzberg is far faster.
+- **Structure** — OpenDocKit keeps the most: 49 of 49 checks such as "is the merged cell still attached to its row",
+  against 36 for the next tool. The checks are ours, and 0.2.0 was written with them known; the report says what that
+  means.
+- **Formats** — it reads 26 of the 31 formats tested without any model or service, the most of the five, and is the
+  only one that reads HWP and HWPX.
+- **Not the fastest, and no OCR** — scans and images are read only through a vision model, where Docling and
+  Unstructured read them offline. Kreuzberg is about thirty times faster, and legacy `.doc` / `.ppt` cost about a
+  second each because they go through LibreOffice.
 
 ## Examples
 

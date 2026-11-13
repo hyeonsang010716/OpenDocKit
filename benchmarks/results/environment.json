@@ -1,9 +1,10 @@
 {
- "cpu": "AMD EPYC 9V74 80-Core Processor",
+ "cpu": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
  "cores": 4,
- "memory_mb": 15983,
+ "memory_mb": 15982,
  "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.43",
  "python": "3.14.4",
  "runner": "ubuntu26",
- "commit": "d1610748cc1c9dec3d09c74847ec15df6a547226"
+ "commit": "e23913a1380ea6da66b3c980a5c666a011873e67",
+ "opendockit": "checkout"
 }

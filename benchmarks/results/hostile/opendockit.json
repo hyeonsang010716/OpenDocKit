@@ -1,912 +1,912 @@
 {
  "tool": "opendockit",
- "version": "0.1.0",
- "import_seconds": 0.02603815699990264,
- "wall_seconds": 18.44838201200014,
+ "version": "0.2.0",
+ "import_seconds": 0.03401023100013845,
+ "wall_seconds": 27.10969156400006,
  "results": {
-  "0002.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4652594248613888.pdf",
-   "ok": false,
-   "error": "CorruptedDocumentError: Could not parse the PDF document. The file may be corrupted.",
-   "seconds": 1.2525689849999253,
-   "peak_rss_mb": 82.96484375,
-   "outcome": "error"
-  },
   "0000.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4591020179783680.pdf",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the PDF document. The file may be corrupted.",
-   "seconds": 1.2802971410001192,
-   "peak_rss_mb": 83.3515625,
+   "seconds": 0.5826380080000035,
+   "peak_rss_mb": 85.03125,
+   "outcome": "error"
+  },
+  "0002.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4652594248613888.pdf",
+   "ok": false,
+   "error": "CorruptedDocumentError: Could not parse the PDF document. The file may be corrupted.",
+   "seconds": 0.6000781139998708,
+   "peak_rss_mb": 84.8203125,
    "outcome": "error"
   },
   "0001.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4646567755972608.pdf",
    "ok": false,
    "error": "CorruptedDocumentError: The PDF structure could not be read.",
-   "seconds": 1.2786700909998672,
-   "peak_rss_mb": 85.23046875,
+   "seconds": 0.6579178889999184,
+   "peak_rss_mb": 85.48828125,
    "outcome": "error"
   },
   "0003.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4691742750474240.pdf",
    "ok": false,
    "error": "CorruptedDocumentError: The PDF structure could not be read.",
-   "seconds": 0.4377890279999974,
-   "peak_rss_mb": 84.03515625,
-   "outcome": "error"
-  },
-  "0005.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4736668896133120.pdf",
-   "ok": false,
-   "error": "CorruptedDocumentError: Could not parse the PDF document. The file may be corrupted.",
-   "seconds": 0.4028730850000102,
-   "peak_rss_mb": 84.08984375,
+   "seconds": 0.40746694499989644,
+   "peak_rss_mb": 84.66796875,
    "outcome": "error"
   },
   "0004.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4715311080734720.pdf",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the PDF document. The file may be corrupted.",
-   "seconds": 0.43814449499996044,
-   "peak_rss_mb": 84.19140625,
+   "seconds": 0.6673444739999468,
+   "peak_rss_mb": 84.98046875,
    "outcome": "error"
   },
-  "0007.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4927662560968704.pdf",
+  "0005.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4736668896133120.pdf",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the PDF document. The file may be corrupted.",
-   "seconds": 0.34618450099992515,
-   "peak_rss_mb": 84.34765625,
+   "seconds": 0.625674834999927,
+   "peak_rss_mb": 84.50390625,
    "outcome": "error"
   },
   "0006.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4833695495684096.pdf",
    "ok": true,
    "chars": 62,
-   "seconds": 0.4607142009999734,
-   "peak_rss_mb": 83.7265625,
+   "seconds": 0.4357168609999462,
+   "peak_rss_mb": 84.15234375,
    "outcome": "ok"
+  },
+  "0007.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4927662560968704.pdf",
+   "ok": false,
+   "error": "CorruptedDocumentError: Could not parse the PDF document. The file may be corrupted.",
+   "seconds": 0.5514493149998998,
+   "peak_rss_mb": 84.95703125,
+   "outcome": "error"
   },
   "0008.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5177159198507008.pdf",
    "ok": false,
    "error": "CorruptedDocumentError: The PDF structure could not be read.",
-   "seconds": 0.45655013800001143,
-   "peak_rss_mb": 84.2578125,
+   "seconds": 0.6304800939999495,
+   "peak_rss_mb": 84.78125,
    "outcome": "error"
   },
   "0009.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5317294594523136.pdf",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the PDF document. The file may be corrupted.",
-   "seconds": 0.33701816000007057,
-   "peak_rss_mb": 84.2421875,
+   "seconds": 0.6019735679999485,
+   "peak_rss_mb": 84.9921875,
    "outcome": "error"
   },
   "0010.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5452007745323008.pdf",
    "ok": true,
    "chars": 75,
-   "seconds": 0.444641061999846,
-   "peak_rss_mb": 83.5234375,
-   "outcome": "ok"
-  },
-  "0011.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5592736912179200.pdf",
-   "ok": true,
-   "chars": 31,
-   "seconds": 0.46024950900005024,
-   "peak_rss_mb": 83.62890625,
-   "outcome": "ok"
-  },
-  "0013.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5903429863538688.pdf",
-   "ok": true,
-   "chars": 33,
-   "seconds": 0.34282010799984164,
-   "peak_rss_mb": 83.6171875,
+   "seconds": 0.5489879939998445,
+   "peak_rss_mb": 84.1875,
    "outcome": "ok"
   },
   "0012.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5809779695484928.pdf",
    "ok": false,
    "error": "CorruptedDocumentError: The PDF structure could not be read.",
-   "seconds": 0.6249503240001104,
-   "peak_rss_mb": 84.1015625,
+   "seconds": 0.40508799300005194,
+   "peak_rss_mb": 84.88671875,
    "outcome": "error"
+  },
+  "0011.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5592736912179200.pdf",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.6377548940001816,
+   "peak_rss_mb": 84.3046875,
+   "outcome": "ok"
   },
   "0014.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5914823472250880.pdf",
    "ok": true,
    "chars": 0,
-   "seconds": 0.33259776899990356,
-   "peak_rss_mb": 83.0078125,
+   "seconds": 0.4046215299999858,
+   "peak_rss_mb": 83.58984375,
    "outcome": "empty"
   },
-  "0017.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6400141380878336.pdf",
-   "ok": false,
-   "error": "UnsupportedFormatError: This binary file format is not supported.",
-   "seconds": 0.3348681209999995,
-   "peak_rss_mb": 82.6875,
-   "outcome": "error"
+  "0013.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5903429863538688.pdf",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.637190819000125,
+   "peak_rss_mb": 84.3359375,
+   "outcome": "ok"
   },
   "0015.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6013812888633344.pdf",
    "ok": false,
    "error": "CorruptedDocumentError: The PDF structure could not be read.",
-   "seconds": 0.46431828699996913,
-   "peak_rss_mb": 84.1171875,
+   "seconds": 0.6126236539998899,
+   "peak_rss_mb": 84.65625,
    "outcome": "error"
   },
   "0016.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6085913544818688.pdf",
    "ok": true,
    "chars": 521,
-   "seconds": 0.5804228060001151,
-   "peak_rss_mb": 85.828125,
+   "seconds": 0.4917967179999323,
+   "peak_rss_mb": 86.20703125,
    "outcome": "ok"
+  },
+  "0017.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6400141380878336.pdf",
+   "ok": false,
+   "error": "UnsupportedFormatError: This binary file format is not supported.",
+   "seconds": 0.5989813500000309,
+   "peak_rss_mb": 83.19921875,
+   "outcome": "error"
   },
   "0018.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6515565732102144.pdf",
    "ok": true,
    "chars": 0,
-   "seconds": 0.33480076799992275,
-   "peak_rss_mb": 83.10546875,
+   "seconds": 0.5422511670001313,
+   "peak_rss_mb": 83.67578125,
    "outcome": "empty"
-  },
-  "0019.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Fuzzed.doc",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.49573423099991487,
-   "peak_rss_mb": 82.80078125,
-   "outcome": "error"
-  },
-  "0020.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-POIHWPFFuzzer-5696094627495936.doc",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.41107592100001966,
-   "peak_rss_mb": 82.515625,
-   "outcome": "error"
   },
   "0021.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.3085656939999808,
-   "peak_rss_mb": 82.65625,
+   "seconds": 0.5729345550000744,
+   "peak_rss_mb": 83.23046875,
    "outcome": "error"
   },
-  "0024.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4951943183990784.doc",
+  "0020.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-POIHWPFFuzzer-5696094627495936.doc",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.2993652010000005,
-   "peak_rss_mb": 82.48046875,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 0.8877059559999907,
+   "peak_rss_mb": 83.15625,
    "outcome": "error"
   },
-  "0022.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4892412469968896.doc",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.4203360740000335,
-   "peak_rss_mb": 82.75,
-   "outcome": "error"
+  "0019.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Fuzzed.doc",
+   "ok": true,
+   "chars": 8511,
+   "seconds": 1.4130372529998567,
+   "peak_rss_mb": 88.38671875,
+   "outcome": "ok"
   },
   "0023.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4947285593948160.doc",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.4244164400001864,
-   "peak_rss_mb": 82.42578125,
-   "outcome": "error"
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.836292407999963,
+   "peak_rss_mb": 83.265625,
+   "outcome": "empty"
+  },
+  "0022.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4892412469968896.doc",
+   "ok": true,
+   "chars": 8556,
+   "seconds": 1.474707411000054,
+   "peak_rss_mb": 88.52734375,
+   "outcome": "ok"
+  },
+  "0024.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4951943183990784.doc",
+   "ok": true,
+   "chars": 6428,
+   "seconds": 1.186178560999906,
+   "peak_rss_mb": 84.84765625,
+   "outcome": "ok"
   },
   "0025.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5050208641482752.doc",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.33683663500005423,
-   "peak_rss_mb": 82.5234375,
-   "outcome": "error"
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.969160951000049,
+   "peak_rss_mb": 83.23046875,
+   "outcome": "empty"
   },
   "0026.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5074346559012864.doc",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.4579978359997767,
-   "peak_rss_mb": 82.51953125,
-   "outcome": "error"
-  },
-  "0027.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5195207308541952.doc",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.4622516639999503,
-   "peak_rss_mb": 82.578125,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 1.0918378060000578,
+   "peak_rss_mb": 83.15625,
    "outcome": "error"
   },
   "0028.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5418937293340672.doc",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.33480617500003973,
-   "peak_rss_mb": 82.6796875,
-   "outcome": "error"
+   "ok": true,
+   "chars": 14,
+   "seconds": 0.860188232000155,
+   "peak_rss_mb": 83.23046875,
+   "outcome": "ok"
+  },
+  "0027.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5195207308541952.doc",
+   "ok": true,
+   "chars": 8655,
+   "seconds": 1.9386591299999054,
+   "peak_rss_mb": 88.83984375,
+   "outcome": "ok"
   },
   "0029.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5440721166139392.doc",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.45461565900018286,
-   "peak_rss_mb": 82.47265625,
-   "outcome": "error"
-  },
-  "0031.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-6610789829836800.doc",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.33160670199981723,
-   "peak_rss_mb": 82.55078125,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 1.1218397719999302,
+   "peak_rss_mb": 83.1640625,
    "outcome": "error"
   },
   "0030.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5832867957309440.doc",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy Word (.doc) documents are not supported. Please save the file as DOCX.",
-   "seconds": 0.4535514320000402,
-   "peak_rss_mb": 82.58203125,
-   "outcome": "error"
-  },
-  "0033.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4959857092198400.docx",
-   "ok": false,
-   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.31078090899995914,
-   "peak_rss_mb": 82.59765625,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 0.8527123339999889,
+   "peak_rss_mb": 83.046875,
    "outcome": "error"
   },
   "0032.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.42619608399991193,
-   "peak_rss_mb": 82.6796875,
+   "seconds": 0.4423126910000974,
+   "peak_rss_mb": 83.328125,
    "outcome": "error"
+  },
+  "0033.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4959857092198400.docx",
+   "ok": false,
+   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
+   "seconds": 0.5475114900000335,
+   "peak_rss_mb": 83.17578125,
+   "outcome": "error"
+  },
+  "0031.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-6610789829836800.doc",
+   "ok": true,
+   "chars": 2633,
+   "seconds": 1.0174728009999399,
+   "peak_rss_mb": 83.3203125,
+   "outcome": "ok"
   },
   "0034.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4305391259999851,
-   "peak_rss_mb": 82.81640625,
-   "outcome": "error"
-  },
-  "0035.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx",
-   "ok": false,
-   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.411407792999853,
-   "peak_rss_mb": 82.6953125,
-   "outcome": "error"
-  },
-  "0037.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
-   "ok": false,
-   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.3672679579999567,
-   "peak_rss_mb": 82.703125,
+   "seconds": 0.5658846030000859,
+   "peak_rss_mb": 83.3046875,
    "outcome": "error"
   },
   "0036.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5313273089884160.docx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4299111269999685,
-   "peak_rss_mb": 82.46875,
+   "seconds": 0.3923410849999982,
+   "peak_rss_mb": 83.1796875,
+   "outcome": "error"
+  },
+  "0035.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx",
+   "ok": false,
+   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
+   "seconds": 0.6112215919999926,
+   "peak_rss_mb": 83.078125,
    "outcome": "error"
   },
   "0038.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5569740188549120.docx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.3433125869999003,
-   "peak_rss_mb": 82.6953125,
+   "seconds": 0.38987472799999523,
+   "peak_rss_mb": 83.26171875,
    "outcome": "error"
   },
-  "0040.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx",
+  "0037.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.38824926600000254,
-   "peak_rss_mb": 82.60546875,
+   "seconds": 0.5998786059999475,
+   "peak_rss_mb": 83.19921875,
    "outcome": "error"
   },
   "0039.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6061520554164224.docx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.45571581800004424,
-   "peak_rss_mb": 82.5,
+   "seconds": 0.5932447390000561,
+   "peak_rss_mb": 83.109375,
+   "outcome": "error"
+  },
+  "0040.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx",
+   "ok": false,
+   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
+   "seconds": 0.38186760600001435,
+   "peak_rss_mb": 83.1875,
    "outcome": "error"
   },
   "0041.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6442791109263360.docx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.36441553899999235,
-   "peak_rss_mb": 82.7109375,
-   "outcome": "error"
-  },
-  "0042.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6733884933668864.docx",
-   "ok": false,
-   "error": "CorruptedDocumentError: Could not parse the DOCX document. The file may be corrupted.",
-   "seconds": 0.42497936699987804,
-   "peak_rss_mb": 82.97265625,
+   "seconds": 0.6016824879998239,
+   "peak_rss_mb": 83.27734375,
    "outcome": "error"
   },
   "0043.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4041997540000466,
-   "peak_rss_mb": 82.55078125,
+   "seconds": 0.3946951719999561,
+   "peak_rss_mb": 83.296875,
    "outcome": "error"
   },
-  "0044.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/deep-table-cell.docx",
+  "0042.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6733884933668864.docx",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the DOCX document. The file may be corrupted.",
-   "seconds": 0.3516579049999109,
-   "peak_rss_mb": 84.81640625,
-   "outcome": "error"
-  },
-  "0046.pptx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5205835528404992.pptx",
-   "ok": false,
-   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.3284947509998801,
-   "peak_rss_mb": 82.42578125,
+   "seconds": 0.6131104870000854,
+   "peak_rss_mb": 83.9140625,
    "outcome": "error"
   },
   "0045.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-5802475696488448.ppt",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the file format. The file may be corrupted.",
-   "seconds": 0.4478344049998668,
-   "peak_rss_mb": 82.65625,
+   "seconds": 0.38238366400014456,
+   "peak_rss_mb": 83.26171875,
+   "outcome": "error"
+  },
+  "0044.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/deep-table-cell.docx",
+   "ok": false,
+   "error": "CorruptedDocumentError: Could not parse the DOCX document. The file may be corrupted.",
+   "seconds": 0.597120847000042,
+   "peak_rss_mb": 85.33984375,
+   "outcome": "error"
+  },
+  "0046.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5205835528404992.pptx",
+   "ok": false,
+   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
+   "seconds": 0.5902356430001419,
+   "peak_rss_mb": 83.25390625,
    "outcome": "error"
   },
   "0047.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5429732352851968.ppt",
    "ok": false,
    "error": "EncryptedDocumentError: The Office document is password-protected. Please remove the password and upload it again.",
-   "seconds": 0.45126692199983154,
-   "peak_rss_mb": 82.61328125,
+   "seconds": 0.3803801509998266,
+   "peak_rss_mb": 83.07421875,
    "outcome": "error"
   },
   "0048.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5681320547975168.ppt",
    "ok": false,
    "error": "EncryptedDocumentError: The Office document is password-protected. Please remove the password and upload it again.",
-   "seconds": 0.329359987999851,
-   "peak_rss_mb": 82.47265625,
-   "outcome": "error"
-  },
-  "0049.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-6411649193738240.ppt",
-   "ok": false,
-   "error": "EncryptedDocumentError: The Office document is password-protected. Please remove the password and upload it again.",
-   "seconds": 0.4492565040000045,
-   "peak_rss_mb": 82.66796875,
-   "outcome": "error"
-  },
-  "0051.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4630915954114560.ppt",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.3199070360001315,
-   "peak_rss_mb": 82.47265625,
+   "seconds": 0.585801346999915,
+   "peak_rss_mb": 83.140625,
    "outcome": "error"
   },
   "0050.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4624961081573376.ppt",
    "ok": false,
    "error": "EncryptedDocumentError: The Office document is password-protected. Please remove the password and upload it again.",
-   "seconds": 0.4450408549998883,
-   "peak_rss_mb": 82.62890625,
+   "seconds": 0.3845092249998743,
+   "peak_rss_mb": 83.140625,
+   "outcome": "error"
+  },
+  "0049.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-6411649193738240.ppt",
+   "ok": false,
+   "error": "EncryptedDocumentError: The Office document is password-protected. Please remove the password and upload it again.",
+   "seconds": 0.5944726570000967,
+   "peak_rss_mb": 83.09375,
    "outcome": "error"
   },
   "0052.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4838893004128256.ppt",
    "ok": false,
    "error": "EncryptedDocumentError: The Office document is password-protected. Please remove the password and upload it again.",
-   "seconds": 0.4256428189999042,
-   "peak_rss_mb": 82.60546875,
+   "seconds": 0.3896378720000939,
+   "peak_rss_mb": 83.1953125,
    "outcome": "error"
+  },
+  "0051.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4630915954114560.ppt",
+   "ok": true,
+   "chars": 22,
+   "seconds": 1.1809593499999664,
+   "peak_rss_mb": 83.6484375,
+   "outcome": "ok"
   },
   "0053.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4983252485210112.ppt",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.301533518000042,
-   "peak_rss_mb": 82.4296875,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 0.9812292589999743,
+   "peak_rss_mb": 83.13671875,
    "outcome": "error"
   },
   "0054.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5018229722382336.ppt",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.4209094580000965,
-   "peak_rss_mb": 82.60546875,
-   "outcome": "error"
-  },
-  "0056.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5306877435838464.ppt",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.30692092800018145,
-   "peak_rss_mb": 82.578125,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 0.8405199899998479,
+   "peak_rss_mb": 83.18359375,
    "outcome": "error"
   },
   "0055.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5231088823566336.ppt",
    "ok": false,
    "error": "EncryptedDocumentError: The Office document is password-protected. Please remove the password and upload it again.",
-   "seconds": 0.4383784899998773,
-   "peak_rss_mb": 82.5546875,
+   "seconds": 0.40315012800010663,
+   "peak_rss_mb": 83.1015625,
    "outcome": "error"
   },
   "0057.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5962760801091584.ppt",
+   "ok": true,
+   "chars": 10,
+   "seconds": 0.967027446999964,
+   "peak_rss_mb": 83.4375,
+   "outcome": "ok"
+  },
+  "0056.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5306877435838464.ppt",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.4461830610000561,
-   "peak_rss_mb": 82.6015625,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 1.1090619980000156,
+   "peak_rss_mb": 83.140625,
    "outcome": "error"
   },
   "0058.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6028723156746240.ppt",
+   "ok": true,
+   "chars": 10490,
+   "seconds": 1.5185349010000664,
+   "peak_rss_mb": 95.63671875,
+   "outcome": "ok"
+  },
+  "0060.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6192650357112832.ppt",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.3972793590000947,
-   "peak_rss_mb": 82.97265625,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 0.7463590519998888,
+   "peak_rss_mb": 83.05078125,
    "outcome": "error"
   },
   "0059.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6032591399288832.ppt",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.40227645800018763,
-   "peak_rss_mb": 82.62109375,
-   "outcome": "error"
-  },
-  "0060.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6192650357112832.ppt",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.4361063869998816,
-   "peak_rss_mb": 82.38671875,
-   "outcome": "error"
-  },
-  "0061.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6360479850954752.ppt",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.323556569999937,
-   "peak_rss_mb": 82.34375,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 0.8498265980001634,
+   "peak_rss_mb": 83.17578125,
    "outcome": "error"
   },
   "0062.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6416153805979648.ppt",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.42415984900003423,
-   "peak_rss_mb": 82.53515625,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 0.9323857669999143,
+   "peak_rss_mb": 82.91015625,
    "outcome": "error"
   },
-  "0064.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6710128412590080.ppt",
+  "0061.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6360479850954752.ppt",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.2991907989999163,
-   "peak_rss_mb": 82.5859375,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 1.0150536699998156,
+   "peak_rss_mb": 83.0546875,
    "outcome": "error"
   },
   "0063.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6614960949821440.ppt",
    "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.414517842000123,
-   "peak_rss_mb": 82.47265625,
-   "outcome": "error"
-  },
-  "0066.pptx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4986044400861184.pptx",
-   "ok": false,
-   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.31117608600015956,
-   "peak_rss_mb": 82.6953125,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 0.9184482939999725,
+   "peak_rss_mb": 82.87890625,
    "outcome": "error"
   },
   "0065.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4838644450394112.pptx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4309974080001666,
-   "peak_rss_mb": 82.71484375,
+   "seconds": 0.5980369489998338,
+   "peak_rss_mb": 83.1875,
+   "outcome": "error"
+  },
+  "0066.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4986044400861184.pptx",
+   "ok": false,
+   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
+   "seconds": 0.5788754360000894,
+   "peak_rss_mb": 83.19140625,
+   "outcome": "error"
+  },
+  "0064.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6710128412590080.ppt",
+   "ok": false,
+   "error": "CorruptedDocumentError: LibreOffice could not convert the document. The file may be corrupted.",
+   "seconds": 0.6959680329998719,
+   "peak_rss_mb": 83.0234375,
    "outcome": "error"
   },
   "0067.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5463285576892416.pptx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.3817281639999237,
-   "peak_rss_mb": 82.6484375,
+   "seconds": 0.3860394470000301,
+   "peak_rss_mb": 83.05859375,
    "outcome": "error"
   },
   "0068.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5471515212382208.pptx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4490757799999301,
-   "peak_rss_mb": 82.640625,
+   "seconds": 0.5848212910000257,
+   "peak_rss_mb": 83.296875,
    "outcome": "error"
   },
   "0069.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5611274456596480.pptx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4371264589999555,
-   "peak_rss_mb": 82.69140625,
+   "seconds": 0.585831546999998,
+   "peak_rss_mb": 83.15625,
    "outcome": "error"
   },
   "0070.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6071540680032256.pptx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.3531607750001058,
-   "peak_rss_mb": 82.703125,
-   "outcome": "error"
-  },
-  "0072.pptx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6372932378820608.pptx",
-   "ok": false,
-   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.3212597799999912,
-   "peak_rss_mb": 82.703125,
+   "seconds": 0.38374900500002695,
+   "peak_rss_mb": 83.2265625,
    "outcome": "error"
   },
   "0071.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6254434927378432.pptx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4370916450000095,
-   "peak_rss_mb": 82.72265625,
+   "seconds": 0.4856138850000207,
+   "peak_rss_mb": 83.15234375,
+   "outcome": "error"
+  },
+  "0072.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6372932378820608.pptx",
+   "ok": false,
+   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
+   "seconds": 0.6088021070002014,
+   "peak_rss_mb": 83.09765625,
    "outcome": "error"
   },
   "0073.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6435650376957952.pptx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.431206844999906,
-   "peak_rss_mb": 82.71484375,
+   "seconds": 0.5802172410001276,
+   "peak_rss_mb": 83.140625,
    "outcome": "error"
   },
   "0074.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the PPTX document. The file may be corrupted.",
-   "seconds": 0.30298115499999767,
-   "peak_rss_mb": 83.19921875,
-   "outcome": "error"
-  },
-  "0075.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-74c33084f66628ba85e4ab8e71374d39915db381.ppt",
-   "ok": false,
-   "error": "UnsupportedFormatError: Legacy PowerPoint (.ppt) documents are not supported. Please save the file as PPTX.",
-   "seconds": 0.41957511199984765,
-   "peak_rss_mb": 82.53515625,
-   "outcome": "error"
-  },
-  "0076.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx",
-   "ok": false,
-   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.43799838600011753,
-   "peak_rss_mb": 82.8046875,
+   "seconds": 0.39131587399992895,
+   "peak_rss_mb": 83.8984375,
    "outcome": "error"
   },
   "0077.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4651309315719168.xls",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the XLS document. The file may be corrupted.",
-   "seconds": 0.3230857089999972,
-   "peak_rss_mb": 83.1796875,
+   "seconds": 0.3989519410001776,
+   "peak_rss_mb": 83.57421875,
    "outcome": "error"
   },
-  "0078.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4657005060816896.xls",
+  "0076.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx",
    "ok": false,
-   "error": "CorruptedDocumentError: Could not parse the XLS document. The file may be corrupted.",
-   "seconds": 0.4537996080000539,
-   "peak_rss_mb": 83.36328125,
-   "outcome": "error"
-  },
-  "0080.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4819588401201152.xls",
-   "ok": false,
-   "error": "CorruptedDocumentError: The XLS document structure could not be read.",
-   "seconds": 0.32874162400003115,
-   "peak_rss_mb": 83.0625,
+   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
+   "seconds": 0.5575577609999982,
+   "peak_rss_mb": 83.39453125,
    "outcome": "error"
   },
   "0079.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4734163573080064.xls",
    "ok": false,
    "error": "CorruptedDocumentError: The OLE structure of the document is corrupted.",
-   "seconds": 0.4494489250000697,
-   "peak_rss_mb": 82.78515625,
+   "seconds": 0.3944854449998729,
+   "peak_rss_mb": 83.203125,
    "outcome": "error"
   },
-  "0082.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5175219985448960.xls",
+  "0075.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-74c33084f66628ba85e4ab8e71374d39915db381.ppt",
+   "ok": true,
+   "chars": 54,
+   "seconds": 1.1679205000000366,
+   "peak_rss_mb": 83.5625,
+   "outcome": "ok"
+  },
+  "0078.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4657005060816896.xls",
    "ok": false,
-   "error": "CorruptedDocumentError: The XLS document structure could not be read.",
-   "seconds": 0.32770588199991835,
-   "peak_rss_mb": 82.99609375,
+   "error": "CorruptedDocumentError: Could not parse the XLS document. The file may be corrupted.",
+   "seconds": 0.5681770740000047,
+   "peak_rss_mb": 83.6484375,
    "outcome": "error"
   },
   "0081.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4977868385681408.xls",
    "ok": true,
    "chars": 288,
-   "seconds": 0.455824419999999,
-   "peak_rss_mb": 86.1953125,
+   "seconds": 0.41644560800000363,
+   "peak_rss_mb": 87.6171875,
    "outcome": "ok"
+  },
+  "0080.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4819588401201152.xls",
+   "ok": false,
+   "error": "CorruptedDocumentError: The XLS document structure could not be read.",
+   "seconds": 0.5820181499998398,
+   "peak_rss_mb": 83.67578125,
+   "outcome": "error"
+  },
+  "0082.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5175219985448960.xls",
+   "ok": false,
+   "error": "CorruptedDocumentError: The XLS document structure could not be read.",
+   "seconds": 0.604499874999874,
+   "peak_rss_mb": 83.54296875,
+   "outcome": "error"
   },
   "0083.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5285517825277952.xls",
    "ok": true,
    "chars": 288,
-   "seconds": 0.45342758599986155,
-   "peak_rss_mb": 83.18359375,
+   "seconds": 0.39435774499997933,
+   "peak_rss_mb": 85.15234375,
    "outcome": "ok"
   },
   "0084.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5436547081830400.xls",
    "ok": true,
    "chars": 288,
-   "seconds": 0.33889138700010335,
-   "peak_rss_mb": 82.94921875,
+   "seconds": 0.6063584620001166,
+   "peak_rss_mb": 85.06640625,
    "outcome": "ok"
-  },
-  "0085.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5786329142919168.xls",
-   "ok": false,
-   "error": "UnsupportedFormatError: This OLE document format is not supported.",
-   "seconds": 0.44723583900008634,
-   "peak_rss_mb": 82.4765625,
-   "outcome": "error"
-  },
-  "0087.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5889658057523200.xls",
-   "ok": false,
-   "error": "CorruptedDocumentError: The XLS document structure could not be read.",
-   "seconds": 0.3259788949999347,
-   "peak_rss_mb": 83.1171875,
-   "outcome": "error"
   },
   "0086.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5816431116615680.xls",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the XLS document. The file may be corrupted.",
-   "seconds": 0.4520721369999592,
-   "peak_rss_mb": 83.23046875,
+   "seconds": 0.38535842500004946,
+   "peak_rss_mb": 83.69921875,
    "outcome": "error"
   },
-  "0089.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6322470200934400.xls",
+  "0085.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5786329142919168.xls",
    "ok": false,
-   "error": "CorruptedDocumentError: Could not parse the XLS document. The file may be corrupted.",
-   "seconds": 0.32938462100014476,
-   "peak_rss_mb": 82.9765625,
+   "error": "UnsupportedFormatError: This OLE document format is not supported.",
+   "seconds": 0.5934608320001189,
+   "peak_rss_mb": 82.98046875,
    "outcome": "error"
   },
   "0088.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6137883240824832.xls",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the file format. The file may be corrupted.",
-   "seconds": 0.4480631699998412,
-   "peak_rss_mb": 82.80078125,
+   "seconds": 0.3837855619999573,
+   "peak_rss_mb": 83.26953125,
+   "outcome": "error"
+  },
+  "0087.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5889658057523200.xls",
+   "ok": false,
+   "error": "CorruptedDocumentError: The XLS document structure could not be read.",
+   "seconds": 0.5942397589999473,
+   "peak_rss_mb": 83.59375,
+   "outcome": "error"
+  },
+  "0089.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6322470200934400.xls",
+   "ok": false,
+   "error": "CorruptedDocumentError: Could not parse the XLS document. The file may be corrupted.",
+   "seconds": 0.5967516410000826,
+   "peak_rss_mb": 83.65234375,
    "outcome": "error"
   },
   "0090.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6483562584932352.xls",
    "ok": false,
    "error": "CorruptedDocumentError: The XLS document structure could not be read.",
-   "seconds": 0.44585217799999555,
-   "peak_rss_mb": 83.0234375,
+   "seconds": 0.3863069330000144,
+   "peak_rss_mb": 83.6640625,
    "outcome": "error"
   },
   "0091.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6537773940867072.xls",
    "ok": false,
    "error": "CorruptedDocumentError: The XLS document structure could not be read.",
-   "seconds": 0.3212481759999264,
-   "peak_rss_mb": 83.015625,
-   "outcome": "error"
-  },
-  "0092.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx",
-   "ok": false,
-   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.44460449300004257,
-   "peak_rss_mb": 82.640625,
+   "seconds": 0.6045611499998813,
+   "peak_rss_mb": 83.4453125,
    "outcome": "error"
   },
   "0093.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5089447305609216.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4464373829998749,
-   "peak_rss_mb": 82.57421875,
+   "seconds": 0.39775142200005575,
+   "peak_rss_mb": 83.28515625,
    "outcome": "error"
   },
-  "0094.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx",
+  "0092.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.327597982000043,
-   "peak_rss_mb": 82.67578125,
+   "seconds": 0.6070975579998503,
+   "peak_rss_mb": 83.171875,
    "outcome": "error"
   },
   "0095.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5265527465181184.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4446495510001114,
-   "peak_rss_mb": 82.64453125,
+   "seconds": 0.4037090159999934,
+   "peak_rss_mb": 83.2109375,
    "outcome": "error"
   },
-  "0097.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6123461607817216.xlsx",
+  "0094.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.32668360000002394,
-   "peak_rss_mb": 82.67578125,
+   "seconds": 0.6074447930000133,
+   "peak_rss_mb": 83.234375,
    "outcome": "error"
   },
   "0096.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5937385319563264.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the XLSX document. The file may be corrupted.",
-   "seconds": 0.4502789269999994,
-   "peak_rss_mb": 83.2421875,
+   "seconds": 0.6127304839999397,
+   "peak_rss_mb": 83.83984375,
    "outcome": "error"
   },
-  "0099.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx",
+  "0097.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6123461607817216.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.3288212790000671,
-   "peak_rss_mb": 82.58984375,
+   "seconds": 0.38964509900006306,
+   "peak_rss_mb": 83.2265625,
    "outcome": "error"
   },
   "0098.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6419366255919104.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.44153281100011554,
-   "peak_rss_mb": 82.6953125,
+   "seconds": 0.5988630510000803,
+   "peak_rss_mb": 83.203125,
    "outcome": "error"
   },
   "0100.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4460204719998728,
-   "peak_rss_mb": 82.6796875,
+   "seconds": 0.3884129099999427,
+   "peak_rss_mb": 83.234375,
    "outcome": "error"
   },
-  "0101.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx",
+  "0099.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.32191609500000595,
-   "peak_rss_mb": 82.65625,
+   "seconds": 0.5980784739999763,
+   "peak_rss_mb": 83.20703125,
    "outcome": "error"
   },
   "0102.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5636439151607808.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.44473930699996345,
-   "peak_rss_mb": 82.7421875,
+   "seconds": 0.38893655399988347,
+   "peak_rss_mb": 83.20703125,
+   "outcome": "error"
+  },
+  "0101.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx",
+   "ok": false,
+   "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
+   "seconds": 0.5969634379998752,
+   "peak_rss_mb": 83.17578125,
    "outcome": "error"
   },
   "0103.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6504225896792064.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.44943660500007354,
-   "peak_rss_mb": 82.72265625,
+   "seconds": 0.5936101600000256,
+   "peak_rss_mb": 83.32421875,
    "outcome": "error"
   },
   "0104.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6594557414080512.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.345989593000013,
-   "peak_rss_mb": 82.59765625,
+   "seconds": 0.38279704499996114,
+   "peak_rss_mb": 83.2578125,
    "outcome": "error"
   },
   "0105.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-274d6342e4842d61be0fb48eaadad6208ae767ae.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4563076970000566,
-   "peak_rss_mb": 82.8046875,
+   "seconds": 0.5974562779999815,
+   "peak_rss_mb": 83.26171875,
    "outcome": "error"
   },
   "0107.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-e329fca9087fe21bca4a80c8bc472a661c98d860.xls",
    "ok": true,
    "chars": 7264,
-   "seconds": 0.32637839800008805,
-   "peak_rss_mb": 82.74609375,
+   "seconds": 0.3986334190001344,
+   "peak_rss_mb": 83.12890625,
    "outcome": "ok"
   },
   "0106.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-9bf3cd4bd6f50a8a9339d363c2c7af14b536865c.xlsx",
    "ok": false,
    "error": "EncryptedDocumentError: The Office document is password-protected. Please remove the password and upload it again.",
-   "seconds": 0.44877710800005843,
-   "peak_rss_mb": 82.52734375,
+   "seconds": 0.6013236480000614,
+   "peak_rss_mb": 83.08203125,
    "outcome": "error"
   },
   "0108.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/deep-data.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: The archive structure of the document is corrupted.",
-   "seconds": 0.4493925980000313,
-   "peak_rss_mb": 83.48828125,
+   "seconds": 0.6024067849998573,
+   "peak_rss_mb": 84.140625,
    "outcome": "error"
   },
   "0109.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-shared-strings.xlsx",
    "ok": true,
    "chars": 500000,
-   "seconds": 0.6899951079999482,
-   "peak_rss_mb": 108.8984375,
+   "seconds": 0.8415091920001032,
+   "peak_rss_mb": 109.44921875,
    "outcome": "ok"
   },
   "0110.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb-empty.xlsx",
    "ok": false,
    "error": "CorruptedDocumentError: Could not parse the XLSX document. The file may be corrupted.",
-   "seconds": 0.6815988910000215,
-   "peak_rss_mb": 83.34765625,
-   "outcome": "error"
-  },
-  "0111.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb.xlsx",
-   "ok": false,
-   "error": "CorruptedDocumentError: Could not parse the XLSX document. The file may be corrupted.",
-   "seconds": 0.4989218630000778,
-   "peak_rss_mb": 124.5546875,
+   "seconds": 0.932277331000023,
+   "peak_rss_mb": 83.83984375,
    "outcome": "error"
   },
   "0112.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poi-fuzz.xls",
    "ok": true,
    "chars": 48,
-   "seconds": 0.3199101239999891,
-   "peak_rss_mb": 82.3515625,
+   "seconds": 0.3880739149999499,
+   "peak_rss_mb": 82.87890625,
    "outcome": "ok"
+  },
+  "0111.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb.xlsx",
+   "ok": false,
+   "error": "CorruptedDocumentError: Could not parse the XLSX document. The file may be corrupted.",
+   "seconds": 0.643022770000016,
+   "peak_rss_mb": 124.8125,
+   "outcome": "error"
   }
  }
 }
