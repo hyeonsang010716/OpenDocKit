@@ -256,6 +256,8 @@ _BLOCK_GAP = "\n\n"
 _LAZY_SOURCE_WORDS = ("src", "original", "lazy")
 # Upper bound on the MHTML text/html parts examined when checking whether the body is in a frame (`_unread_frame_warning`).
 _MAX_FRAME_PARTS = 50
+# The start of an `<iframe>` or `<frame>` tag (also of `<frameset>`, which holds them).
+_FRAME_TAG = re.compile(r"<i?frame", re.IGNORECASE)
 _SPACER_SIDE = 2
 _QUOTE_END = object()  # where a quote block ends on the stack of `_render_nodes`
 _CODE_END = object()  # where an inline code element ends on the stack of `_render_nodes`
@@ -522,7 +524,10 @@ def _unread_frame_warning(message: Message, page: str) -> str | None:
     ad) is not reported.
     """
     pages = list(itertools.islice((part for part in message.walk() if part.get_content_type() == "text/html"), _MAX_FRAME_PARTS))
-    if len(pages) < 2:
+    # A page without the text of a frame tag has no frame element: it is not parsed again to look for one. A large page that
+    # had been stopped at its front part (`_extract_front`) was parsed whole here whenever the file held a second HTML part
+    # (Pinned by: test_audit_html_text.py::TestFrameCheckOfASavedPageWithoutFrames)
+    if len(pages) < 2 or _FRAME_TAG.search(page) is None:
         return None
     base = str(pages[0].get("Content-Location") or "").strip()
     frames: dict[str, Message] = {}

@@ -4,10 +4,12 @@ duplicated without a warning, and markup of a few hundred KB that took many seco
 import base64
 import time
 
+from bs4 import BeautifulSoup
 import pytest
 
-from opendockit import convert
+from opendockit import ConvertOptions, convert
 from opendockit.exceptions import CorruptedDocumentError
+from opendockit.extractors import html as html_extractor
 from tests.builder import png_bytes
 
 
@@ -702,3 +704,55 @@ class TestEquationsNestedInsideEquations:
     ])
     def test_equation_is_written_as_before(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected
+
+
+def _saved_page(page: str, frames: int) -> bytes:
+    """An MHTML whose first text/html part is `page`, followed by `frames` further text/html parts."""
+    further = "".join(f"--b\r\nContent-Type: text/html\r\nContent-Location: http://site.example/f{number}.html\r\n\r\n"
+                      f"<p>{'frame text ' * 50}</p>\r\n" for number in range(frames))
+    return ("MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary=b\r\n\r\n"
+            "--b\r\nContent-Type: text/html\r\nContent-Location: http://site.example/a.html\r\n\r\n"
+            f"{page}\r\n{further}--b--\r\n").encode()
+
+
+class TestFrameCheckOfASavedPageWithoutFrames:
+    """The check whether the body of a saved page is inside a frame parsed the whole page again to look for `<iframe>` whenever
+    the file held a second text/html part — also after a large page had been stopped at its front part, so that a 10MB page
+    over the limit took several times as long with two parts as with one."""
+
+    @pytest.fixture
+    def parses(self, monkeypatch):
+        """The number of characters handed to the HTML parser, per call."""
+        sizes: list[int] = []
+
+        def counting(markup, *args, **kwargs):
+            sizes.append(len(markup))
+            return BeautifulSoup(markup, *args, **kwargs)
+
+        monkeypatch.setattr(html_extractor, "BeautifulSoup", counting)
+        return sizes
+
+    def test_page_without_a_frame_element_is_not_parsed_again(self, parses):
+        page = "<html><body>" + "<p>paragraph of the page</p>" * 2000 + "</body></html>"
+        options = ConvertOptions(max_chars=1000)
+
+        one = convert(_saved_page(page, 0), "a.mht", options)
+        with_one_part = list(parses)
+        parses.clear()
+        two = convert(_saved_page(page, 2), "a.mht", options)
+
+        assert one.exceeded and two.exceeded
+        assert parses == with_one_part
+        assert max(parses) < len(page) // 2
+
+    @pytest.mark.parametrize("frame", ['<iframe src="f0.html"></iframe>', '<IFRAME SRC="http://site.example/f1.html"></IFRAME>',
+                                       '<frameset><frame src="f0.html"></frameset>', '<iframe\nsrc="f1.html">'])
+    def test_body_inside_a_frame_is_still_reported(self, frame):
+        result = convert(_saved_page(f"<html><body><p>shell</p>{frame}</body></html>", 2), "a.mht")
+
+        assert any("inside a frame" in warning for warning in result.warnings)
+
+    def test_page_that_only_mentions_a_frame_is_not_reported(self):
+        result = convert(_saved_page("<html><body><p>shell &lt;iframe src='f0.html'&gt;</p></body></html>", 2), "a.mht")
+
+        assert result.warnings == []
