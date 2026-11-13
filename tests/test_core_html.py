@@ -307,7 +307,7 @@ class TestSymbolFontsInHtml:
     """An .htm saved by Word and Outlook HTML mail write bullets and check boxes drawn with a symbol font (Wingdings, Wingdings 2,
     Symbol) as the character at that code in the font (`§`, `Ø`, `þ`, `¨`, `R`). The font was not looked at, so checked and
     unchecked items came out as `þ` and `¨`. They are converted with the same per-font table as DOCX and PPTX
-    (`_shared.SYMBOL_GLYPHS`)."""
+    (`_symbols.SYMBOL_GLYPHS`)."""
 
     def test_symbol_font_characters_become_the_symbols_they_show(self):
         data = _WORD_HTML_LIST.encode()

@@ -378,7 +378,7 @@ class TestInlineFormatting:
         assert self._text(paragraph, ConvertOptions(keep_links=False)) == "공지 사항, 문의, 개요"
 
     def test_addresses_that_are_not_web_or_mail_stay_text_and_the_scheme_is_compared_without_case(self):
-        """javascript, file, a relative address and a protocol-relative one keep their text only (`_shared.link_target`);
+        """javascript, file, a relative address and a protocol-relative one keep their text only (`_inline.link_target`);
         `HTTPS://` is a web address."""
         links = "".join(f'<text:a xlink:href="{address}">{label}</text:a> ' for address, label in (
             ("javascript:alert(1)", "스크립트"), ("file:///etc/passwd", "파일"), ("../other.odt", "상대"), ("//host/x", "호스트"),

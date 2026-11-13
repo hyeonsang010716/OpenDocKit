@@ -14,21 +14,9 @@ from functools import lru_cache
 import re
 
 from opendockit.exceptions import CorruptedDocumentError
-from opendockit.extractors._shared import (
-    BOLD_OFF,
-    BOLD_ON,
-    ITALIC_OFF,
-    ITALIC_ON,
-    LINK_ON,
-    NOTE_ROW_SEPARATOR,
-    InlineMark,
-    TableBudget,
-    link_off,
-    link_target,
-    omitted_rows_warning,
-    paragraph_head,
-    resolve_inline,
-)
+from opendockit.extractors._inline import BOLD_OFF, BOLD_ON, ITALIC_OFF, ITALIC_ON, LINK_ON, InlineMark, link_off, link_target, resolve_inline
+from opendockit.extractors._lists import paragraph_head
+from opendockit.extractors._notation import NOTE_ROW_SEPARATOR, TableBudget, omitted_rows_warning
 from opendockit.markdown import TableGrid, join_blocks, merged_copy, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -295,12 +283,12 @@ class _Table:
         return grid
 
 
-# A piece of a paragraph: text, bold, italic, the vetted address (`_shared.link_target`) of the link it is part of.
+# A piece of a paragraph: text, bold, italic, the vetted address (`_inline.link_target`) of the link it is part of.
 type _Run = tuple[str, bool, bool, str | None]
 
 
 def _inline_tokens(runs: list[_Run], *, emphasis: bool, links: bool) -> list[str | InlineMark]:
-    """Runs → the pieces and span marks `_shared.resolve_inline` turns into Markdown. This only says where bold, italic and a link
+    """Runs → the pieces and span marks `_inline.resolve_inline` turns into Markdown. This only says where bold, italic and a link
     start and end; merging runs, placing whitespace, whole-block and part-of-word emphasis, escaping and the "text is its address"
     rule are the shared rules of docs/decisions/inline-formatting.md.
 
@@ -323,7 +311,7 @@ def _inline_tokens(runs: list[_Run], *, emphasis: bool, links: bool) -> list[str
         if not (bold or italic) or not text.strip():  # whitespace joins the runs around it
             tokens.append(text)
             continue
-        # Bold is the outer mark, as in `_shared.mark_emphasis`
+        # Bold is the outer mark, as in `_inline.mark_emphasis`
         if bold:
             tokens.append(BOLD_ON)
         if italic:
@@ -339,7 +327,7 @@ def _inline_tokens(runs: list[_Run], *, emphasis: bool, links: bool) -> list[str
 
 
 def _link_target(instruction: str) -> str | None:
-    """The vetted address of a `HYPERLINK "url"` field instruction (`_shared.link_target`: only http, https and mailto, unsafe
+    """The vetted address of a `HYPERLINK "url"` field instruction (`_inline.link_target`: only http, https and mailto, unsafe
     characters percent-encoded), with `\\l "bookmark"` appended as the fragment as in DOCX. A link to a bookmark alone
     (`HYPERLINK \\l "name"`) or to a file keeps only its text."""
     match = _HYPERLINK.match(instruction)
@@ -374,7 +362,7 @@ class _Flow:
         while len(self.tables) > depth:
             self._close_table()
         while len(self.tables) < depth:
-            # Only a top-level table of the body watches the character limit while its cells are read (`_shared.TableBudget`).
+            # Only a top-level table of the body watches the character limit while its cells are read (`_notation.TableBudget`).
             counted = self.kind == "body" and not self.tables
             self.tables.append(_Table(TableBudget(self.reader.extraction, self.reader.options) if counted else None))
 
@@ -388,7 +376,7 @@ class _Flow:
             if placeholder:
                 self.tables[-1].cell.append(placeholder)
         elif self.kind == "note":
-            # A table inside a footnote is one line, as in DOCX/HWP (`_shared.note_table` shape: cells ' / ', rows '; ').
+            # A table inside a footnote is one line, as in DOCX/HWP (`_notation.note_table` shape: cells ' / ', rows '; ').
             self.add_block(NOTE_ROW_SEPARATOR.join(line for line in grid.flatten().split("\n") if line.strip()))
         else:
             self.add_block(grid.render())
@@ -514,7 +502,7 @@ class _Flow:
                 else:
                     reader.typed_indents.clear()
         # A heading keeps its links but is not emphasized; bold or italic over the whole paragraph (also a list item, a paragraph
-        # of a cell) is how it is styled and is left unmarked (`_shared.resolve_inline`.
+        # of a cell) is how it is styled and is left unmarked (`_inline.resolve_inline`.
         # Pinned by: test_rtf.py::TestEmphasis::test_paragraph_list_item_and_cell_that_are_bold_throughout_are_not_marked).
         text = resolve_inline(_inline_tokens(runs, emphasis=options.keep_emphasis and level is None, links=options.keep_links),
                               emphasis=level is None)

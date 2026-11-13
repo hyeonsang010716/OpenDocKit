@@ -64,8 +64,8 @@ docs/                user documentation
 docs/decisions/      decision records: every deliberate trade-off and the test that pins it
 ```
 
-Dependency direction: extractors import only `markdown`, `models`, `exceptions` and the shared helpers in
-`extractors/_shared.py`. Extractors produce sections; normalization, section headings, image handling and the
+Dependency direction: extractors import only `markdown`, `models`, `exceptions` and the shared helpers of
+`extractors/` (the modules whose names start with `_`). Extractors produce sections; normalization, section headings, image handling and the
 character limit belong to `converter.py`. The details are in [docs/decisions/core.md](docs/decisions/core.md).
 
 ## What a good change looks like

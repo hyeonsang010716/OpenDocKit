@@ -4,7 +4,7 @@ new charts (chartex), and text of shapes pasted into DOCX. Only a:t was joined, 
 from lxml import etree
 
 from opendockit import convert
-from opendockit.extractors._shared import render_chart, render_chartex, render_smartart
+from opendockit.extractors._charts import render_chart, render_chartex, render_smartart
 from tests import builder
 from tests.test_office import (
     _CHART_NS,

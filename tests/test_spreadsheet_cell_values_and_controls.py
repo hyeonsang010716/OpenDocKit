@@ -437,7 +437,7 @@ _DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawi
 
 class TestSmartArtOnASheet:
     """SmartArt in a sheet's drawing part (dgm:relIds of a graphicFrame) was not read, so org charts and process diagrams were
-    dropped whole. It is placed where it sits as the same `_shared.render_smartart` nested list as in PPTX and DOCX."""
+    dropped whole. It is placed where it sits as the same `_charts.render_smartart` nested list as in PPTX and DOCX."""
 
     def test_smartart_is_read_as_a_nested_list(self):
         main = "http://schemas.openxmlformats.org/drawingml/2006/main"

@@ -6,7 +6,7 @@ import time
 import pytest
 
 from opendockit import convert
-from opendockit.extractors._shared import mark_strike, resolve_strikes
+from opendockit.extractors._inline import mark_strike, resolve_strikes
 from tests import builder
 from tests.test_office import (
     _docx_with_body,
@@ -335,7 +335,7 @@ class TestPptxHandTypedLinesInsideAnItem:
 
     def test_parenthesized_number_line_is_a_sub_item_with_a_list_mark(self):
         """A '3) ' line is a sub-item, but only indentation was added and `clean_text` removed it (list lines are only '-', '*',
-        '1.'). It is written in the sub-number form '- 3) ' (`_shared.list_item_prefix`)."""
+        '1.'). It is written in the sub-number form '- 3) ' (`_lists.list_item_prefix`)."""
         data = _pptx_with_paragraphs([("1단계 착수\v3) 예산 확정", 0, "")], placeholder=True)
 
         body = _slide_body(data)

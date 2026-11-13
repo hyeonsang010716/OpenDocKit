@@ -72,13 +72,8 @@ import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
-from opendockit.extractors._shared import (
-    SUBSCRIPT,
-    SUPERSCRIPT,
-    mark_script,
-    resolve_scripts,
-    symbol_glyph,
-)
+from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
+from opendockit.extractors._symbols import symbol_glyph
 from opendockit.markdown import render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, ImageKind, Section, SectionKind
 
@@ -500,7 +495,7 @@ def _render_char_few_copies(self: PDFPageAggregatorWithMarkedContent, *args: obj
 
 
 # Symbol font PostScript name (subset prefix, ',Bold' and '-Regular' removed; lower case without spaces) → font name in
-# `_shared.SYMBOL_GLYPHS`.
+# `_symbols.SYMBOL_GLYPHS`.
 _SYMBOL_FONT_NAMES = {"symbol": "symbol", "symbolmt": "symbol", "wingdings": "wingdings", "wingdings2": "wingdings 2"}
 
 
@@ -513,7 +508,7 @@ def _symbol_font(fontname: str) -> str | None:
 
 def _symbol_font_glyph(char: LTChar, font: object) -> None:
     """When a symbol font character comes out in the private use area (U+F020–F0FF), replaces it using that font's table
-    (`_shared.symbol_glyph`).
+    (`_symbols.symbol_glyph`).
 
     The check boxes in a PDF exported by Word (☑ = F052 and ☐ = F0A3 in Wingdings 2, □ = F06F and ☒ = F078 in Wingdings) are code
     points missing from the shared mapping (`markdown._SYMBOL_FONT_GLYPHS`), so they were deleted and which side had been ticked

@@ -42,20 +42,11 @@ from openpyxl.xml.functions import iterparse as _openpyxl_iterparse
 import xlrd
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
-from opendockit.extractors._shared import (
-    SUBSCRIPT,
-    SUPERSCRIPT,
-    cell_level_mark,
-    comment_line,
-    decimal_int,
-    mark_script,
-    package_loader,
-    parse_part,
-    render_chart,
-    render_chartex,
-    render_smartart,
-    resolve_scripts,
-)
+from opendockit.extractors._charts import package_loader, render_chart, render_chartex, render_smartart
+from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
+from opendockit.extractors._lists import cell_level_mark
+from opendockit.extractors._notation import comment_line
+from opendockit.extractors._package import decimal_int, parse_part
 from opendockit.extractors.text import decode_text, decoding_warning
 from opendockit.markdown import join_blocks, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, quiet_warnings
@@ -460,7 +451,7 @@ _openpyxl_excel_reader.get_dependents = _dependents_left_to_openpyxl
 # created date, printed date or custom property value (the date-only `2024-01-05` that W3CDTF allows, `0000-00-00T00:00:00Z`, `abc`
 # in a `vt:i4`, broken XML) it rejected the whole document. A DOCX or PPTX with the same core.xml was read. While reading, custom
 # properties are not read, and when the document properties cannot be read only the title is looked up directly (no warning, same as
-# `_shared.core_properties` for DOCX/PPTX. Pinned by: test_office_round45.py::TestDocumentPropertiesTheConverterDoesNotNeed).
+# `_package.core_properties` for DOCX/PPTX. Pinned by: test_office_round45.py::TestDocumentPropertiesTheConverterDoesNotNeed).
 _read_properties = _openpyxl_excel_reader.ExcelReader.read_properties
 _CORE_TITLE = "{http://purl.org/dc/elements/1.1/}title"
 
@@ -1166,12 +1157,12 @@ _LEADING_SPACES = re.compile(r"[ \t\xa0\u3000]*")
 _SPACED_LABEL = re.compile(r"\S(?:[ \t\xa0\u3000]+\S)+")
 # Maximum level of the indent-level mark (`_level_marked`).
 _MAX_INDENT_LEVEL = 5
-# Indent-level mark (`_shared.cell_level_mark`) — removed from the first row (header row) of a table (`_header_without_level_mark`).
+# Indent-level mark (`_lists.cell_level_mark`) — removed from the first row (header row) of a table (`_header_without_level_mark`).
 _LEVEL_MARK = re.compile(r"└─* ")
 
 
 def _level_marked(text: str, raw: str, indent: float) -> str:
-    """Add the indent-level mark (`└ `, `└─ `, `_shared.cell_level_mark` — the same mark as list levels inside table cells) to the
+    """Add the indent-level mark (`└ `, `└─ `, `_lists.cell_level_mark` — the same mark as list levels inside table cells) to the
     first text cell of a row (`text`, original text `raw`). Level = cell indent (`indent`) + one per two leading spaces (a single
     space is one too; a full-width space is two).
 
@@ -2338,7 +2329,7 @@ def _xml_cell_value(data: etree._Element, number_format: str | None) -> str:
 
 def _xml_rich_text(data: etree._Element) -> str:
     """Characters of rich text (html tags inside `ss:Data`). Characters inside `<Sup>`/`<Sub>` are marked as superscript/subscript
-    (the same `_shared.mark_script` as XLSX rich text). Joining the characters alone turned `m²` into `m2` and `10⁶원` into `106원`
+    (the same `_inline.mark_script` as XLSX rich text). Joining the characters alone turned `m²` into `m2` and `10⁶원` into `106원`
     (Pinned by: test_core_spreadsheet.py::TestXmlSpreadsheetScripts). The text of comments and processing instructions is left out
     and only their tail text is joined (same as `itertext`)."""
     pieces: list[str] = []
@@ -3161,7 +3152,7 @@ _CellComment = tuple[int, int, str, str, list[tuple[str, str]]]
 
 def _comment_block(comments: list[_CellComment], row_at: _SheetRows, extraction: Extraction, options: ConvertOptions) -> str:
     """Turn cell comments, in cell order (top→bottom, left→right), into `> Comment(author, cell E5, on "row text: cell text"): text`
-    lines (`_shared.comment_line`).
+    lines (`_notation.comment_line`).
 
     Comments were dropped without a warning, so review remarks could not be seen (same direction as DOCX/PPTX/HWPX comments; they
     are placed at the end of the sheet. Pinned by:
@@ -3417,7 +3408,7 @@ def _drawing_items(element: etree._Element,
 
 
 def _chart_text(archive: zipfile.ZipFile, names: set[str], kind: str, path: str) -> str:
-    """A chart placed on a sheet → "[Chart] title" + a table of the stored values (the same `_shared.render_chart` as PPTX/DOCX).
+    """A chart placed on a sheet → "[Chart] title" + a table of the stored values (the same `_charts.render_chart` as PPTX/DOCX).
     For a chart that stores no values (one made by openpyxl), the header-only table is dropped and only the title is kept.
 
     Charts disappeared without a trace, so a dashboard sheet consisting only of charts was left with just the sheet title. The

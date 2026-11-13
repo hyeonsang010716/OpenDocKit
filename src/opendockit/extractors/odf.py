@@ -22,31 +22,24 @@ import zlib
 from lxml import etree
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
-from opendockit.extractors._shared import (
+from opendockit.extractors._charts import embedded_table
+from opendockit.extractors._inline import (
     LINK_OPEN,
     SUBSCRIPT,
     SUPERSCRIPT,
-    TableBudget,
-    cell_level_mark,
-    comment_line,
-    decimal_int,
-    embedded_table,
-    format_dutmal,
-    format_number,
-    is_placeholder_only,
     link_close,
     link_target,
     mark_emphasis,
     mark_script,
     mark_strike,
     merge_emphasis_marks,
-    note_table,
-    omitted_rows_warning,
-    paragraph_head,
     resolve_inline,
     resolve_scripts,
     resolve_strikes,
 )
+from opendockit.extractors._lists import cell_level_mark, format_number, is_placeholder_only, paragraph_head
+from opendockit.extractors._notation import TableBudget, comment_line, format_dutmal, note_table, omitted_rows_warning
+from opendockit.extractors._package import decimal_int
 
 # Splitting a sheet into tables, title rows and merge filling are the spreadsheet extractor's rules. They are imported as they are
 # (private names, nothing edited there) so that an ODS sheet and the XLSX it was saved from come out the same — an exception to the
@@ -142,7 +135,7 @@ _REPEAT_SHEET_CELLS = 2_000_000
 # Columns of a sheet beyond this are not materialized whatever `max_sheet_cols` says (the widest sheet LibreOffice and Excel have).
 _MAX_COLUMNS = 16_384
 
-# `style:num-format` of a numbered list level → number shape of `_shared.format_number`. LibreOffice writes the letter and Korean
+# `style:num-format` of a numbered list level → number shape of `_lists.format_number`. LibreOffice writes the letter and Korean
 # formats as the start of the sequence ("가, 나, 다, ..."), so the first character decides.
 _NUMBER_SHAPES = {"1": "DIGIT", "a": "LATIN_SMALL", "A": "LATIN_CAPITAL", "i": "ROMAN_SMALL", "I": "ROMAN_CAPITAL",
                   "가": "HANGUL_SYLLABLE", "ㄱ": "HANGUL_JAMO", "①": "CIRCLED_DIGIT", "㉮": "CIRCLED_HANGUL_SYLLABLE",
@@ -176,7 +169,7 @@ class _Run:
     italic: bool = False
     script: str = ""        # SUPERSCRIPT / SUBSCRIPT / ""
     strike: bool = False
-    href: str | None = None     # the address of the link the text is in, already vetted by `_shared.link_target`
+    href: str | None = None     # the address of the link the text is in, already vetted by `_inline.link_target`
 
 
 @dataclass(slots=True)
@@ -623,7 +616,7 @@ class _Renderer:
                 inner = tuple(have if have is not None else outer for have, outer in zip(own, look, strict=True))
                 self._inline(child, inner, href, pieces, context, depth + 1)
             elif tag == _A:
-                # Only web and mail addresses are links (`_shared.link_target`); a bookmark or a file keeps its text only.
+                # Only web and mail addresses are links (`_inline.link_target`); a bookmark or a file keeps its text only.
                 self._inline(child, look, link_target(child.get(_HREF)) or href, pieces, context, depth + 1)
             elif tag == _RUBY:
                 base, annotation = child.find(_RUBY_BASE), child.find(_RUBY_TEXT)
@@ -641,8 +634,8 @@ class _Renderer:
 
     def _format(self, runs: list[_Run], context: _Context, emphasis: bool) -> str:
         """Runs → Markdown text. The runs only announce where a link, bold or italic starts and ends (the temporary marks of
-        `_shared`); merging runs, placing white space, whole-block and part-of-word emphasis, link text and escaping are the
-        shared rules of `_shared.resolve_inline` (docs/decisions/inline-formatting.md), in the order docx.py applies them, so that
+        `_inline`); merging runs, placing white space, whole-block and part-of-word emphasis, link text and escaping are the
+        shared rules of `_inline.resolve_inline` (docs/decisions/inline-formatting.md), in the order docx.py applies them, so that
         an ODT and the DOCX it was saved from read the same
         (Pinned by: test_odf.py::TestInlineFormatting::test_paragraph_that_is_bold_as_a_whole_is_left_unmarked).
         Runs that follow each other with the same address are one link. With both options off, and in plain contexts (slide
@@ -1156,7 +1149,7 @@ class _Renderer:
 
 
 def _marked(run: _Run, emphasis: bool) -> str:
-    """The text of a run inside the temporary marks of `_shared`: script innermost, then strikethrough, emphasis outermost
+    """The text of a run inside the temporary marks of `_inline`: script innermost, then strikethrough, emphasis outermost
     (`**~~1,000~~**`, `**H_2O**`), the order docx.py uses."""
     text = mark_script(run.text, run.script) if run.script else run.text
     text = mark_strike(text) if run.strike else text

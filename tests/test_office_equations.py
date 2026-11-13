@@ -1,4 +1,4 @@
-"""Office equations (OMML → LaTeX, `_shared.omml_to_latex`): fractions without a bar, characters right after a one-character script,
+"""Office equations (OMML → LaTeX, `_omml.omml_to_latex`): fractions without a bar, characters right after a one-character script,
 group characters, brace delimiters, systems of equations.
 
 DOCX and PPTX use the same function. The documents are built as DOCX for the checks.

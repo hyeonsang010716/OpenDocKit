@@ -175,7 +175,7 @@ class TestOutlineParagraphSplitByATable:
 
 class TestLowerLevelNumbers:
     """Lower-level numbers such as '가.' or '1)' had their leading spaces removed by `clean_text` (list lines are only `-`, `*`,
-    `1.`) and got a blank line per item, so there was no telling they were sub-items. They take the same `_shared.list_item_prefix`
+    `1.`) and got a blank line per item, so there was no telling they were sub-items. They take the same `_lists.list_item_prefix`
     form as DOCX and PPTX (`  - 가. `). The top level stays as it is."""
 
     _EXPECTED = ("1. 추진 목적\n  - 가. 현황 분석\n    - 1) 매출 감소 10%\n    - 2) 원가 상승 5%\n  - 나. 개선 방향\n"

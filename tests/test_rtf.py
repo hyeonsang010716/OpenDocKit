@@ -277,7 +277,7 @@ def _link(address: str, text: str) -> str:
 
 
 class TestLinks:
-    """The link rules are the shared ones (`_shared.link_target`, `resolve_inline`; inline-formatting.md); these pin that the RTF
+    """The link rules are the shared ones (`_inline.link_target`, `resolve_inline`; inline-formatting.md); these pin that the RTF
     reader goes through them."""
 
     def test_link_whose_text_is_its_address_stays_the_bare_address(self):

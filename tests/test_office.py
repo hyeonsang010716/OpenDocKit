@@ -1424,7 +1424,7 @@ def _convert_chart(chart: str) -> str:
 
 
 class TestChartAxes:
-    """Category names and axis titles of the shared chart code (`_shared.render_chart`). PPTX, DOCX and HWPX use the same function."""
+    """Category names and axis titles of the shared chart code (`_charts.render_chart`). PPTX, DOCX and HWPX use the same function."""
 
     @staticmethod
     def _numeric_categories(format_code: str, serials: list[str]) -> str:
@@ -2830,11 +2830,11 @@ _PART_SKIPPED = "missing or broken part(s)"
 class TestOneBrokenPartDoesNotRejectTheDocument:
     """python-docx reads every part referenced by a relationship when it opens the package. One missing part or one part that is not
     XML got a document with a sound body rejected as a 'corrupted document'. When opening fails, it is reopened from a copy with
-    only that part and its relationship detached, with one warning (`_shared.repair_package`). Parts the library does not read as
+    only that part and its relationship detached, with one warning (`_package.repair_package`). Parts the library does not read as
     XML, such as the footnotes part, are handled by `parse_part` as before."""
 
     def test_healthy_package_is_not_rebuilt(self):
-        from opendockit.extractors._shared import repair_package
+        from opendockit.extractors._package import repair_package
 
         assert repair_package(builder.docx_bytes()) is None and repair_package(builder.pptx_bytes()) is None
 

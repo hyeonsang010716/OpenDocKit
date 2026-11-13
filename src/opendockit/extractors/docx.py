@@ -16,51 +16,36 @@ from docx.parts.document import DocumentPart
 from lxml import etree
 
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
-from opendockit.extractors._shared import (
-    COMMENT_TARGET_MAX,
-    DOCX_NUMBER_SHAPES,
-    HAND_TYPED_BULLET,
+from opendockit.extractors._charts import drawing_paragraph_lines, embedded_table, related_loader, render_chart, render_chartex, render_smartart
+from opendockit.extractors._inline import (
     LINK_OPEN,
-    OLE_PLACEHOLDER,
     SUBSCRIPT,
     SUPERSCRIPT,
-    SYMBOL_FONTS,
-    SYMBOL_GLYPHS,
-    Numbering,
-    NumberLevel,
-    TableBudget,
-    cell_level_mark,
-    comment_line,
-    core_properties,
-    decimal_int,
-    drawing_paragraph_lines,
-    embedded_table,
-    format_dutmal,
-    is_strict_package,
     link_close,
     link_target,
-    list_item_prefix,
     mark_emphasis,
     mark_script,
     mark_strike,
     merge_emphasis_marks,
-    note_table,
-    omitted_rows_warning,
-    open_package,
-    parse_part,
     plain_inline,
-    related_loader,
-    render_chart,
-    render_chartex,
-    render_omml,
-    render_smartart,
     resolve_inline,
     resolve_scripts,
     resolve_strikes,
-    symbol_font_text,
-    symbol_glyph,
+)
+from opendockit.extractors._lists import DOCX_NUMBER_SHAPES, HAND_TYPED_BULLET, Numbering, NumberLevel, cell_level_mark, list_item_prefix
+from opendockit.extractors._notation import (
+    COMMENT_TARGET_MAX,
+    OLE_PLACEHOLDER,
+    TableBudget,
+    comment_line,
+    format_dutmal,
+    note_table,
+    omitted_rows_warning,
     unread_ole_warning,
 )
+from opendockit.extractors._omml import render_omml
+from opendockit.extractors._package import core_properties, decimal_int, is_strict_package, open_package, parse_part
+from opendockit.extractors._symbols import SYMBOL_FONTS, SYMBOL_GLYPHS, symbol_font_text, symbol_glyph
 from opendockit.extractors.html import extract_html, is_mhtml
 from opendockit.extractors.text import extract_text
 from opendockit.markdown import TableGrid, join_blocks, merged_copy, solid_length
@@ -78,7 +63,7 @@ _WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 _CHART = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 _CHARTEX = "http://schemas.microsoft.com/office/drawing/2014/chartex"
 _DIAGRAM = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
-# Object inside a paragraph → (the r: attribute pointing at the part, renderer). Rendering uses the same `_shared` as PPTX.
+# Object inside a paragraph → (the r: attribute pointing at the part, renderer). Rendering uses the same `_charts` and `_omml` as PPTX.
 _OBJECT_RENDERERS = {f"{{{_CHART}}}chart": ("id", render_chart), f"{{{_CHARTEX}}}chart": ("id", render_chartex),
                      f"{{{_DIAGRAM}}}relIds": ("dm", render_smartart)}
 _HEADING_NAME = re.compile(r"^(?:heading|제목)\s*([1-9])$", re.IGNORECASE)
@@ -101,7 +86,7 @@ _FILLED_BOXES = str.maketrans({"□": "■", "☐": "☒"})
 _HIGHLIGHT_COLORS = {"black": "000000", "darkBlue": "000080", "darkRed": "800000", "darkMagenta": "800080",
                      "darkGreen": "008000", "darkCyan": "008080", "darkYellow": "808000", "darkGray": "808080"}
 # Characters of a symbol font (w:sym, the w:t of a symbol-font run) are converted straight to Unicode with the per-font table
-# (`_shared.SYMBOL_GLYPHS`). Only w:sym characters missing from the table are moved to the private use area (U+F000 + code) and left
+# (`_symbols.SYMBOL_GLYPHS`). Only w:sym characters missing from the table are moved to the private use area (U+F000 + code) and left
 # to the symbol mapping of markdown.clean_text (removed if not there either). When everything was moved to the private use area,
 # Symbol's ≥ ± ° μ and Wingdings' ☒ disappeared and Symbol's ◊ ¬ ♦ came out as Wingdings' → ➢ □
 # (Pinned by: test_office.py::TestDocxObjects::test_symbol_font_check_boxes_are_kept, TestDocxStruckDeletedAndSymbolRuns).
@@ -267,7 +252,7 @@ class _DocxRenderer:
     def _hyperlink_target(self, hyperlink: etree._Element) -> str | None:
         """Address of a w:hyperlink: the target of its external relationship in the part being read (body, header, footnote …),
         with the bookmark (w:anchor) appended as the fragment. None for a jump inside the document (no r:id), a broken or internal
-        relationship, and an address that is not kept (`_shared.link_target`)."""
+        relationship, and an address that is not kept (`_inline.link_target`)."""
         relation = hyperlink.get(f"{{{_R}}}id")
         relationship = self._part.rels.get(relation) if relation else None
         if relationship is None or not relationship.is_external:
@@ -432,7 +417,7 @@ class _DocxRenderer:
         if self.inline is not None:
             # A heading keeps its links but is not emphasized — the heading styles are bold themselves, and a title typed in bold
             # is a heading, not an emphasis. Bold or italic over a whole paragraph (a label line, a header cell) is how the
-            # paragraph is styled and is left unmarked (`_shared.resolve_inline`. Pinned by:
+            # paragraph is styled and is left unmarked (`_inline.resolve_inline`. Pinned by:
             # test_inline_formatting.py::TestDocxEmphasis::test_heading_is_not_emphasized, TestWholeBlocks).
             text = resolve_inline(marked, emphasis=not heading).strip()
         if heading:
@@ -531,7 +516,7 @@ class _DocxRenderer:
         # (test_docx_vertical_merge_whose_width_changes_keeps_the_neighbour_cell). A cell that could not be tied repeats the text of
         # the cell above.
         grid = TableGrid()
-        # The top-level table checks the character limit while reading its cells (`_shared.TableBudget`). The text of an inner table
+        # The top-level table checks the character limit while reading its cells (`_notation.TableBudget`). The text of an inner table
         # is not counted as cell text of the outer table (it undercounts).
         budget = None if self._grids else TableBudget(self._extraction, self._options)
         outer = self._grids[-1] if self._grids else None
@@ -851,9 +836,9 @@ def _reject_strict(data: bytes) -> None:
 
 def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
     # If opening fails because of one part that is missing or is not XML, only that part is detached and the package is opened again
-    # (`_shared.open_package`, one warning).
+    # (`_package.open_package`, one warning).
     # A Strict Open XML document fails here because its main part is not found. It is not corruption; the message asks to save it again
-    # (`_shared.is_strict_package`).
+    # (`_package.is_strict_package`).
     extraction = Extraction()
     try:
         part = open_package(Package.open, data, extraction.warnings).main_document_part
@@ -947,7 +932,7 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
 
     With `inline`, hyperlinks (w:hyperlink with an external relationship, HYPERLINK fields) and bold / italic runs are announced
     with temporary marks, and the returned text **still holds those marks**: the caller decides what the paragraph is from
-    `_shared.plain_inline` and writes the Markdown with `_shared.resolve_inline` (a heading is not emphasized). Without `inline`
+    `_inline.plain_inline` and writes the Markdown with `_inline.resolve_inline` (a heading is not emphasized). Without `inline`
     the text is exactly what it was before those options existed.
     """
     parts: list[str] = []
@@ -1436,7 +1421,7 @@ def _form_field_value(field_char: etree._Element) -> str:
 
 def _drawing_lines(body: etree._Element) -> list[str]:
     """Lines of DrawingML shape text (a:txBody). A line break inside a paragraph (a:br) splits lines too
-    (`_shared.drawing_paragraph_lines`). Empty lines are dropped."""
+    (`_charts.drawing_paragraph_lines`). Empty lines are dropped."""
     return [line for paragraph in body.iter(f"{{{_A}}}p") for line in drawing_paragraph_lines(paragraph)]
 
 
@@ -1738,7 +1723,7 @@ def _number_levels(levels: dict[int, _LevelDefinition]) -> list[NumberLevel]:
 
 
 def _int_value(value: str | None, default: int) -> int:
-    """Integer attribute value. '²' and numbers of more than 4,300 digits give `default` (`_shared.decimal_int`. Pinned by:
+    """Integer attribute value. '²' and numbers of more than 4,300 digits give `default` (`_package.decimal_int`. Pinned by:
     test_office.py::TestOneOddValueDoesNotRejectTheDocument::test_docx_odd_grid_span_is_read_as_one_column)."""
     return decimal_int(value, default, signed=True)
 
@@ -1756,7 +1741,7 @@ def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str) ->
                 continue
             try:
                 part = story.part
-            except KeyError:  # a header detached because its part is missing (`_shared.repair_package`). Only that header is skipped
+            except KeyError:  # a header detached because its part is missing (`_package.repair_package`). Only that header is skipped
                 continue
             # A reference whose relationship points at a part that is not a header (a picture) has no content to read. Asking for
             # it raised AttributeError and rejected the whole document (Pinned by:
@@ -1825,7 +1810,7 @@ _W15 = "http://schemas.microsoft.com/office/word/2012/wordml"
 
 
 def _comments(document: object) -> str:
-    """Comments (word/comments.xml) in part order as `> Comment(author, on "range"): text` lines (`_shared.comment_line`). A reply
+    """Comments (word/comments.xml) in part order as `> Comment(author, on "range"): text` lines (`_notation.comment_line`). A reply
     (a comment with a paraIdParent in commentsExtended) is `> Reply(author): text`. Comments were dropped wholesale without a warning
     (Pinned by: test_office_comments.py::TestDocxComments). A broken or external part skips only the comments (same rule as
     footnotes)."""
@@ -1888,7 +1873,7 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
 
 def _note_block(block: etree._Element, image_marker: Callable[[etree._Element], str], inline: _Inline | None = None) -> str:
     """A paragraph inside a footnote (including the paragraphs of text boxes in it) or a table → one line. A table puts ' / '
-    between cells and '; ' between rows (`_shared.note_table`, same as HWP/HWPX). Joining all cell paragraphs with spaces produced
+    between cells and '; ' between rows (`_notation.note_table`, same as HWP/HWPX). Joining all cell paragraphs with spaces produced
     '출처: 환경부 구분 값 A 10' (Pinned by: test_office_symbols_fields_notes.py::TestDocxTableInsideFootnote). The compatibility
     copy of a text box (the VML in mc:Fallback) is skipped as in the body (`_inside_fallback`) — the same text appeared twice
     (Pinned by: test_office_robustness.py::TestDocxFootnoteBoxesAndPictures::test_text_box_in_a_footnote_is_read_once)."""

@@ -16,32 +16,12 @@ import zlib
 from lxml import etree
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
+from opendockit.extractors._charts import embedded_table, package_loader, render_chart
 from opendockit.extractors._equation import render_equation
-from opendockit.extractors._shared import (
-    COMMENT_TARGET_MAX,
-    SUBSCRIPT,
-    SUPERSCRIPT,
-    BulletNesting,
-    Numbering,
-    NumberLevel,
-    TableBudget,
-    comment_line,
-    decimal_int,
-    embedded_table,
-    format_dutmal,
-    format_number,
-    is_placeholder_only,
-    mark_script,
-    mark_strike,
-    note_table,
-    omitted_rows_warning,
-    package_loader,
-    paragraph_head,
-    parse_part,
-    render_chart,
-    resolve_scripts,
-    resolve_strikes,
-)
+from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike, resolve_scripts, resolve_strikes
+from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number, is_placeholder_only, paragraph_head
+from opendockit.extractors._notation import COMMENT_TARGET_MAX, TableBudget, comment_line, format_dutmal, note_table, omitted_rows_warning
+from opendockit.extractors._package import decimal_int, parse_part
 from opendockit.markdown import TableGrid, join_blocks, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -435,7 +415,7 @@ class HwpxRenderer:
 
         Comments were dropped without a warning, so review remarks could not be seen. Like DOCX and PPTX comments they go at the end of
         the document as `> Comment(author, on "range"): text`
-        (`_shared.comment_line`, Pinned by: test_hwp.py::TestMemo). Table and picture placeholders inside a comment are not cell text, so
+        (`_notation.comment_line`, Pinned by: test_hwp.py::TestMemo). Table and picture placeholders inside a comment are not cell text, so
         they are not handed to the outer table.
         """
         author = next((" ".join((param.text or "").split()) for param in field.iter()
@@ -486,7 +466,7 @@ class HwpxRenderer:
         return "\n".join(comment_line(author, text, "".join(target).strip()) for author, text, target in self.memos if text)
 
     def _decorate(self, paragraph: etree._Element, text: str) -> str:
-        """Attach the paragraph head (`_shared.paragraph_head`) and, for an outline style, the heading mark to the paragraph's first text piece."""
+        """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style, the heading mark to the paragraph's first text piece."""
         mark, level = self._paragraph_head(paragraph)
         style_name = self._styles.get(paragraph.get("styleIDRef", ""), "")
         match = None if self._cell_depth else _OUTLINE_STYLE.match(style_name.strip())
@@ -521,7 +501,7 @@ class HwpxRenderer:
             if caption is not None else ""
 
         grid = TableGrid()
-        # The top-level table checks the character limit while reading cells (`_shared.TableBudget`). Once exceeded, the remaining rows
+        # The top-level table checks the character limit while reading cells (`_notation.TableBudget`). Once exceeded, the remaining rows
         # are not read.
         budget = None if self._grids or self._cell_depth or self._note_depth else TableBudget(self._extraction, self._options)
         outer = self._grids[-1] if self._grids else None
@@ -744,7 +724,7 @@ def _top_sublists(element: etree._Element | None) -> Iterator[etree._Element]:
 
 
 def _int(value: str | None, default: int) -> int:
-    """Integer attribute value. '²' and numbers longer than 4,300 digits give `default` (`_shared.decimal_int`. Pinned by:
+    """Integer attribute value. '²' and numbers longer than 4,300 digits give `default` (`_package.decimal_int`. Pinned by:
     test_hwp.py::TestOneOddValueInHangulDocuments,
     test_hwp_robustness.py::TestHugeNumbersInHangulDocuments)."""
     return decimal_int(value, default)

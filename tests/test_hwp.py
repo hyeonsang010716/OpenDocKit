@@ -664,7 +664,7 @@ class TestStrikethrough:
         assert result.text == "면적 ~~10^6~~ 삭제"
 
     def test_hwpx_struck_superscript_split_over_runs_is_one_superscript_inside_the_strike(self):
-        """Strikeouts are resolved before superscripts/subscripts (same order as DOCX and PPTX, `_shared.resolve_strikes`).
+        """Strikeouts are resolved before superscripts/subscripts (same order as DOCX and PPTX, `_inline.resolve_strikes`).
         Resolving them the other way round broke the struck superscript '-'·'3' split over two runs into `~~10^-^3~~`."""
         def with_shapes(header):
             return header.replace("<hh:styles>", (
@@ -1202,7 +1202,7 @@ class TestNestedTables:
 class TestTableInsideFootnote:
     """A table inside a footnote was drawn as a Markdown table and then the footnote was joined into one line, giving
     '| 연도 | 값 | | --- | --- | | 2022 | 5 |' (for a footnote inside a cell, '연도 / 값 2022 / 5' with the row boundary lost). A
-    footnote is one line, so cells are joined with ' / ' and rows with '; ' (`_shared.note_table`)."""
+    footnote is one line, so cells are joined with ' / ' and rows with '; ' (`_notation.note_table`)."""
 
     @staticmethod
     def _hwpx_table(rows: list[tuple[str, str]]) -> str:

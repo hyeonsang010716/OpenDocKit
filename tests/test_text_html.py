@@ -1539,7 +1539,7 @@ class TestTitleRowInsideMultiRowHeader:
 class TestIndentedLabelsInTables:
     """In a table that shows sub-accounts by indentation (`&nbsp;`, padding), like a financial statement, the indentation was lost
     and '매출원가' and its sub-account '재료비' read as the same level. The same mark as list levels inside a table cell
-    (`└ `, `_shared.cell_level_mark`) is added."""
+    (`└ `, `_lists.cell_level_mark`) is added."""
 
     def test_label_indented_with_non_breaking_spaces_is_marked(self):
         html = ("<table><tr><td>과목</td><td>금액</td></tr><tr><td>매출원가</td><td>600</td></tr>"

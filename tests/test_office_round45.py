@@ -14,7 +14,7 @@ from pptx.util import Inches
 import pytest
 
 from opendockit import convert
-from opendockit.extractors._shared import DOCX_NUMBER_SHAPES, format_number
+from opendockit.extractors._lists import DOCX_NUMBER_SHAPES, format_number
 from tests import builder
 
 

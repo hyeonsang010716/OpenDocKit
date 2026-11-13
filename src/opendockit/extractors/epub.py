@@ -20,7 +20,7 @@ import zlib
 from lxml import etree
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
-from opendockit.extractors._shared import parse_part
+from opendockit.extractors._package import parse_part
 from opendockit.extractors.html import extract_html
 from opendockit.extractors.text import decode_text, decoding_warning
 from opendockit.markdown import solid_length

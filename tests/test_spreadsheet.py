@@ -2278,7 +2278,7 @@ def _xlsx_with_indents(rows: list[tuple[object, int, object]]) -> bytes:
 class TestIndentedLabels:
     """Sub-items of financial statements are shown by cell indent (`alignment.indent`) or leading spaces; both were dropped, so
     '매출원가' and its sub-item '재료비' read at the same level. The first text cell of a row gets the same mark as list levels
-    inside table cells (`└ `, `└─ `, `_shared.cell_level_mark`)."""
+    inside table cells (`└ `, `└─ `, `_lists.cell_level_mark`)."""
 
     def test_xlsx_cell_indent_becomes_a_level_mark(self, streamed):
         data = _xlsx_with_indents([("매출원가", 0, 600), ("재료비", 1, 400), ("원재료", 2, 300)])

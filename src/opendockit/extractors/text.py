@@ -19,7 +19,7 @@ import unicodedata
 from charset_normalizer import CharsetMatch, CharsetMatches, from_bytes
 
 from opendockit.exceptions import CorruptedDocumentError
-from opendockit.extractors._shared import decimal_int
+from opendockit.extractors._package import decimal_int
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 

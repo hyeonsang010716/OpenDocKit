@@ -22,7 +22,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
 from bs4.element import PageElement, PreformattedString
 from lxml import etree
 
-from opendockit.extractors._shared import (
+from opendockit.extractors._inline import (
     BLOCK_INSIDE,
     BOLD_OFF,
     BOLD_ON,
@@ -31,18 +31,16 @@ from opendockit.extractors._shared import (
     LINK_ON,
     SUBSCRIPT,
     SUPERSCRIPT,
-    SYMBOL_GLYPHS,
     InlineMark,
-    cell_level_mark,
-    decimal_int,
-    format_number,
     format_script,
     link_off,
     link_target,
-    omitted_rows_warning,
     resolve_inline,
-    symbol_glyph,
 )
+from opendockit.extractors._lists import cell_level_mark, format_number
+from opendockit.extractors._notation import omitted_rows_warning
+from opendockit.extractors._package import decimal_int
+from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_glyph
 from opendockit.extractors.text import (
     FORWARDED_MAIL_TITLE,
     MIME_HEAD_BYTES,
@@ -140,7 +138,7 @@ _STAYING_LINK = re.compile(r"\s*(?:#|javascript:|$)", re.IGNORECASE)
 # Names (class/id) and roles of hidden elements that are not folded answers: menus, modals, tooltips, layer popups.
 _OVERLAY_NAME = re.compile(r"modal|popup|pop-|tooltip|menu|layer|dropdown|dialog|gnb|lnb|nav|toast|banner|overlay", re.IGNORECASE)
 _OVERLAY_ROLES = {"dialog", "alertdialog", "menu", "menubar", "tooltip", "navigation", "listbox"}
-# `type` of a numbered list → number shape (`_shared.format_number`). Case-sensitive.
+# `type` of a numbered list → number shape (`_lists.format_number`). Case-sensitive.
 _LIST_NUMBER_SHAPES = {"a": "LATIN_SMALL", "A": "LATIN_CAPITAL", "i": "ROMAN_SMALL", "I": "ROMAN_CAPITAL"}
 _WHITESPACE = re.compile(r"\s+")
 # Characters that draw nothing on screen: zero-width spaces and joiners (ZWSP/ZWNJ/ZWJ/WJ/BOM), the combining grapheme joiner
@@ -266,7 +264,7 @@ _CODE_END = object()  # where an inline code element ends on the stack of `_rend
 _EMPHASIS_MARKS = {"b": (BOLD_ON, BOLD_OFF), "strong": (BOLD_ON, BOLD_OFF), "i": (ITALIC_ON, ITALIC_OFF), "em": (ITALIC_ON, ITALIC_OFF)}
 # Inline code. The text inside is not emphasized — `*` is a character of the code there.
 _CODE_TAGS = {"code", "kbd", "samp", "tt"}
-# Leaf blocks no link or emphasis span can hold (`_shared.BLOCK_INSIDE`). A heading is a single line and may sit inside a link.
+# Leaf blocks no link or emphasis span can hold (`_inline.BLOCK_INSIDE`). A heading is a single line and may sit inside a link.
 _BLOCK_LEAVES = {"table", "pre", "ul", "ol"}
 # Length of the front part read first in a large document = character limit × this multiple (`_extract_front`). A text-dense
 # document exceeds the limit with the first front part; if it does not, the front part grows by the text density. If by the
@@ -282,7 +280,7 @@ _MARKDOWN_DECORATION = re.compile(r"[#`$>*~^_{}\\]")
 # With links kept, the address part of `[text](address)` and the brackets are left out of that count as well. A link inside an
 # element cut at the end of the front part can be plain text in the whole conversion (a heading that turns out to hold a table
 # is read as text only), so the front part must not count what the link added. The emphasis marks are already left out (`*`).
-# Addresses are percent-encoded (`_shared.link_target`), so they hold no whitespace or parentheses
+# Addresses are percent-encoded (`_inline.link_target`), so they hold no whitespace or parentheses
 # (Pinned by: test_inline_formatting.py::TestCharacterLimit::test_front_of_a_large_page_does_not_count_link_addresses).
 _LINK_ADDRESS = re.compile(r"\]\((?:https?://|mailto:)[^()\s]*\)", re.IGNORECASE)
 _LINK_BRACKETS = re.compile(r"[\[\]]")
@@ -1436,7 +1434,7 @@ def _put_form_values(soup: BeautifulSoup) -> None:
 
 def _put_math(soup: BeautifulSoup) -> None:
     """Replaces MathML (`<math>`) with the same `$LaTeX$` notation as Office and Hangul (HWP) equations
-    (`_shared.render_omml`). Joining only the characters read `r²π` as `r2π` and the fraction 3/4 as `34`
+    (`_omml.render_omml`). Joining only the characters read `r²π` as `r2π` and the fraction 3/4 as `34`
     (Pinned by: test_core_html.py::TestMathMl).
 
     The LaTeX the document wrote is used first: `<annotation encoding="application/x-tex">` (LaTeXML, MathJax) or, without it,
@@ -1501,7 +1499,7 @@ def _math_source(math: Tag) -> str | None:
 
 def _mathml_latex(node: object, depth: int) -> str:
     """Presentation MathML as one LaTeX-style line. The aim is not complete LaTeX but making the structure (scripts,
-    fractions, radicals, upper/lower limits) readable (the same as `_shared.omml_to_latex`). Unknown elements have their
+    fractions, radicals, upper/lower limits) readable (the same as `_omml.omml_to_latex`). Unknown elements have their
     children joined in order. Deeper than `_MAX_MATH_DEPTH`, only the characters are joined."""
     if isinstance(node, NavigableString):
         return "" if isinstance(node, PreformattedString) else str(node).strip()
@@ -1559,7 +1557,7 @@ def _math_group(text: str) -> str:
 
 
 def _put_symbol_fonts(soup: BeautifulSoup) -> None:
-    """Replace characters drawn with a symbol font (Wingdings, Wingdings 2, Symbol) using that font's table (`_shared.SYMBOL_GLYPHS`, the
+    """Replace characters drawn with a symbol font (Wingdings, Wingdings 2, Symbol) using that font's table (`_symbols.SYMBOL_GLYPHS`, the
     same one DOCX and PPTX use). The font comes from font-family / font in style or from `<font face>`; when an inner element sets another
     font, the text inside it has that font.
 
@@ -1910,7 +1908,7 @@ def _render_nodes(nodes: list, list_depth: int) -> str:
     (Pinned by: test_text_html.py::TestDeepGenericNesting).
 
     Links and emphasis (`_inline`): `<a href>` and `<b>` / `<strong>` / `<i>` / `<em>` put an `InlineMark` before and after
-    their content, and each frame is written out by `_shared.resolve_inline`, which decides what becomes `[text](url)` and
+    their content, and each frame is written out by `_inline.resolve_inline`, which decides what becomes `[text](url)` and
     `**bold**` (one block only, whitespace outside, a block that is bold throughout left unmarked …). The document tree is not
     touched, so everything that measures the text of an element (layout tables, name cells, folded answers) sees what it saw
     before. A span never reaches into a table, list, code block or quote block: those are rendered on their own, and
@@ -2440,7 +2438,7 @@ def _render_table(table: Tag) -> str:
             rendered = drawn.render(headless=headless)
 
     # Rows dropped by the grid cell limit are warned about once at the end of the document, with the same wording as the other formats
-    # (`_shared.omitted_rows_warning`) — the lower rows of an 'Excel download' HTML with very many rows vanished without a warning
+    # (`_notation.omitted_rows_warning`) — the lower rows of an 'Excel download' HTML with very many rows vanished without a warning
     # (Pinned by: test_core_html.py::TestRowsLeftOutByTheGridLimit).
     omitted = _omitted_rows.get()
     if omitted is not None:
@@ -2472,7 +2470,7 @@ def _header_titles(grid_rows: list[list[str]], rows: list[Tag], header_count: in
 
 
 def _indent_marks(rows: list[Tag], header_count: int) -> dict[int, str]:
-    """First-column cell of a body row (`id`) → indent level mark (`└ `, `└─ `, `_shared.cell_level_mark` — the same marks as list levels
+    """First-column cell of a body row (`id`) → indent level mark (`└ `, `└─ `, `_lists.cell_level_mark` — the same marks as list levels
     inside a table cell).
 
     Financial statements and budgets show sub-accounts by indenting with `&nbsp;` or padding, but leading whitespace in cell text is
