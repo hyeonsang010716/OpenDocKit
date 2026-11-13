@@ -39,4 +39,6 @@ document that justifies it.
 - Exception messages and warnings are fixed English sentences and never include document content or parser errors.
 - No copyleft dependencies in the default install (`heic` is an opt-in extra for that reason). Never commit real documents or keys.
 - Korean text in the source is data (patterns matched against documents, numbering tables, sample content in
-  tests) — leave it. Everything the project itself says is English.
+  tests) — leave it. Everything the project itself says is English. The one exception is the translated READMEs,
+  `README.ko.md` and `README.zh-CN.md`: change them together with `README.md`
+  (`tests/test_readme_translations.py` fails when their code, links or figures drift apart).
