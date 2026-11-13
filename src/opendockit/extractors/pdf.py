@@ -1387,7 +1387,15 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                                                     else _survey_page(fallback, page.page_number - 1))
                         if late:
                             over_budget += 1
-                            pages.append(_pdfium_page(fallback, page.page_number - 1))
+                            try:
+                                pages.append(_pdfium_page(fallback, page.page_number - 1))
+                            except pdfium.PdfiumError:
+                                # A page pdfium cannot open (pdfminer follows `/Kids`, pdfium trusts `/Count`) is an empty page,
+                                # not a corrupted document — the pages already read are kept
+                                # (Pinned by: test_audit_pdf_head.py::TestPageOnlyPdfminerFinds).
+                                pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
+                                                   lines=[], tables=[], has_images=False,
+                                                   view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
                         elif crowded_page is not None:
                             crowded.append(page.page_number)
                             pages.append(crowded_page)
@@ -1415,10 +1423,13 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 # with remaining text is swapped too if pdfium reads clearly more (`_UNDECODED_TEXT_RATIO`,
                                 # Pinned by: test_pdf_round48.py::TestEmbeddedEncodingCMap).
                                 fallback = fallback or _open_pdfium(data)
-                                simple = _pdfium_page(fallback, page.page_number - 1)
+                                try:
+                                    simple = _pdfium_page(fallback, page.page_number - 1)
+                                except pdfium.PdfiumError:
+                                    simple = read  # pdfium cannot open the page: the pdfminer result stays (see above)
                                 floor = (_read_chars(read) * _UNDECODED_TEXT_RATIO + _UNDECODED_MIN_CHARS if undecoded
                                          else read.hidden_chars * _HIDDEN_TEXT_RATIO)
-                                if simple.lines and _solid_chars(simple) > floor:
+                                if simple is not read and simple.lines and _solid_chars(simple) > floor:
                                     simple.has_images, simple.figures, simple.view = read.has_images, read.figures, read.view
                                     simple.form_values = read.form_values
                                     read = simple
@@ -1429,7 +1440,12 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                         # extraction instead.
                         _check_budget(budget)
                         fallback = fallback or _open_pdfium(data)
-                        pages.append(_pdfium_page(fallback, page.page_number - 1))
+                        try:
+                            pages.append(_pdfium_page(fallback, page.page_number - 1))
+                        except pdfium.PdfiumError:  # neither library reads the page: an empty page (see above)
+                            pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
+                                               lines=[], tables=[], has_images=False,
+                                               view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
                         failed.append(page.page_number)
                     finally:
                         page.close()

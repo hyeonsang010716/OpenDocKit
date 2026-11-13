@@ -145,3 +145,56 @@ class TestStreamReadThroughTheUngroupedDocument:
             pdf_module._charge(stream, budget)
 
         assert budget.remaining == 200_000
+
+
+def _two_kids(count: int, *bodies: bytes) -> bytes:
+    """A PDF whose page tree lists one page per body but declares `/Count count`."""
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
+               2: b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(b"%d 0 R" % (10 + index) for index in range(len(bodies))),
+                                                               count),
+               5: _FONT_OBJECT}
+    for index, body in enumerate(bodies):
+        objects[10 + index] = _PAGE % (b"[0 0 595 842]", 20 + index, b"")
+        objects[20 + index] = _stream(body)
+    return _raw_pdf(objects)
+
+
+class TestPageOnlyPdfminerFinds:
+    """With `/Count 1` over two `/Kids`, pdfminer sees two pages and pdfium one. Asking pdfium for the second page raised
+    PdfiumError outside the page survey, and the whole document failed as corrupted although page 1 is readable."""
+
+    def test_blank_page_pdfium_cannot_open_stays_an_empty_page(self):
+        result = convert(_two_kids(1, _text(b"Hello world"), b""), "a.pdf")
+
+        assert "Hello world" in result.text
+        assert result.metadata["page_count"] == "2"
+
+    def test_pages_beyond_the_time_budget_that_pdfium_cannot_open_keep_the_rest(self):
+        result = convert(_two_kids(1, _text(b"Hello world"), _text(b"Second page")), "a.pdf", ConvertOptions(pdf_time_budget=0))
+
+        assert "Hello world" in result.text
+        assert any("exceeded the time budget" in warning for warning in result.warnings)
+
+    def test_page_neither_library_reads_is_an_empty_page_with_the_failure_warning(self, monkeypatch):
+        from pdfplumber.utils.exceptions import PdfminerException
+
+        from opendockit.extractors import pdf as pdf_module
+
+        read_page_from = pdf_module._read_page_from
+
+        def read(source, page, placement_fit):
+            if page.page_number == 2:
+                raise PdfminerException(ValueError("broken font stream"))
+            return read_page_from(source, page, placement_fit)
+
+        monkeypatch.setattr(pdf_module, "_read_page_from", read)
+
+        result = convert(_two_kids(1, _text(b"Hello world"), _text(b"Second page")), "a.pdf")
+
+        assert "Hello world" in result.text and "Second page" not in result.text
+        assert any("Structure analysis failed for 1 PDF page(s)" in warning for warning in result.warnings)
+
+    def test_ordinary_two_page_document_is_unchanged(self):
+        result = convert(_two_kids(2, _text(b"Hello world"), _text(b"Second page")), "a.pdf")
+
+        assert "Hello world" in result.text and "Second page" in result.text and not result.warnings
