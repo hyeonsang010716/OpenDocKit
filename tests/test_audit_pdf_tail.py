@@ -60,3 +60,45 @@ class TestJoinedCellLinesAtThePageTop:
         for page in range(3):
             assert self._table(page) in result.text
         assert result.text.count("Quarterly revenue") == 3
+
+
+class TestJoinedCellLinesOnATwoColumnPage:
+    """A borderless table under two columns of text, with a vertically centred row whose cells wrap to different numbers of
+    lines: the row is one table row of joined cells, but the search inside each page column did not count the original
+    lines of those cells as table lines and made a second table out of the lines of the three left cells."""
+
+    @staticmethod
+    def _draw(pdf, page):
+        pdf.setFont("Helvetica", 10)
+        y = 780
+        for index in range(8):
+            pdf.drawString(60, y, f"Left column body line {index} runs on and on to here")
+            pdf.drawString(315, y, f"Right column body line {index} runs on and on too")
+            y -= 14
+        y -= 30
+        starts = (60, 130, 200, 330, 430)
+        for x, text in zip(starts, ("Alpha", "Beta", "Gamma", "Delta", "Eps"), strict=True):
+            pdf.drawString(x, y, text)
+        y -= 22
+        for index in range(4):
+            for x, text in zip(starts, ("aa", "bb", "cc"), strict=False):
+                pdf.drawString(x, y - 12 * index, f"{text}{index}")
+        pdf.drawString(starts[3], y - 18, "dd")
+        pdf.drawString(starts[4], y - 12, "ee1")
+        pdf.drawString(starts[4], y - 24, "ee2")
+        y -= 58
+        for index in range(2):
+            for x, text in zip(starts, ("r", "s", "t", "u", "v"), strict=True):
+                pdf.drawString(x, y, f"{text}{index}")
+            y -= 22
+
+    def test_lines_of_a_joined_row_are_not_a_second_table(self):
+        result = convert(_pdf(self._draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        table = ("| Alpha | Beta | Gamma | Delta | Eps |\n| --- | --- | --- | --- | --- |\n"
+                 "| aa0<br>aa1<br>aa2<br>aa3 | bb0<br>bb1<br>bb2<br>bb3 | cc0<br>cc1<br>cc2<br>cc3 | dd | ee1<br>ee2 |\n"
+                 "| r0 | s0 | t0 | u0 | v0 |\n| r1 | s1 | t1 | u1 | v1 |")
+        assert table in result.text
+        assert result.text.count("aa1") == 1
+        assert result.text.count("\n| --- ") == 1
+        assert result.text.rstrip().endswith(table)

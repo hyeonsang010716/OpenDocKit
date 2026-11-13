@@ -6779,7 +6779,11 @@ def _column_table_runs(page: _Page, runs: list[list[list[_Line]]], columns: tupl
     column the table criteria (`_table_runs`) are unchanged.
     """
     left_end, right_start = columns
-    in_table = {id(line) for run in runs for row in run for line in row}
+    # The original lines of a cell joined from several lines are in a table too. Left in `rest`, the lines of a row whose
+    # cells wrap to several lines (`_centred_band_row`) made a second table inside the column and came out twice
+    # (Pinned by: test_audit_pdf_tail.py::TestJoinedCellLinesOnATwoColumnPage::
+    # test_lines_of_a_joined_row_are_not_a_second_table).
+    in_table = {id(original) for run in runs for row in run for line in row for original in (line, *line.joined)}
     rest = [line for line in page.lines if id(line) not in in_table]
     found: list[list[list[_Line]]] = []
     for side in ([line for line in rest if line.x1 <= right_start], [line for line in rest if line.x0 >= left_end]):
