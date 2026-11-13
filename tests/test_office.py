@@ -1,5 +1,6 @@
 """DOCX, PPTX, XLSX and CSV conversion."""
 
+import base64
 from collections.abc import Callable
 from io import BytesIO
 import re
@@ -2508,6 +2509,19 @@ class TestDocxImportedChunks:
 
         assert result.text == "머리 문단\n\n가져온 본문: 계약 금액 1,000만원\n\n꼬리 문단"
         assert result.warnings == []
+
+    def test_chunk_text_shaped_like_a_picture_placeholder_stays_text(self):
+        """The chunk's picture placeholders are renumbered for the document. Text of the chunk that has the shape of a
+        placeholder (`⟦IMG:1⟧`) used to be taken for one: the text vanished and the picture appeared twice."""
+        picture = base64.b64encode(builder.png_bytes()).decode()
+        html = f'<html><body><p>문자 그대로 ⟦IMG:1⟧ 입니다.</p><p><img src="data:image/png;base64,{picture}" alt="도표"></p></body></html>'
+        data = _docx_with_chunks('<w:altChunk r:id="rIdChunk"/>', {"rIdChunk": ("chunk1.html", "text/html", html.encode())})
+
+        result = convert(data, "a.docx")
+
+        assert len(result.images) == 1
+        assert "문자 그대로 ⟦IMG:1⟧ 입니다." in result.text
+        assert result.text.count("도표") == 1
 
     def test_mht_chunk_that_is_the_whole_body_is_read(self):
         mht = _mht("<html><body><h1>=EB=B3=B4=EA=B3=A0=EC=84=9C</h1><p>Quarterly revenue 120</p></body></html>")

@@ -113,6 +113,36 @@ class TestPptxSpeakerNoteLevels:
         assert "> Speaker notes: 핵심 메시지\n> 글상자 메모" in result.text
         assert result.text.count("글상자 메모") == 1
 
+    def test_field_only_text_box_on_the_notes_page_is_not_notes(self):
+        """A deck that went through LibreOffice (a converted .ppt) has the notes-page number as an ordinary text box holding one
+        slide-number field. It was read as notes text, so every such deck's notes ended with a `<number>` line."""
+        from copy import deepcopy
+
+        from lxml import etree
+        from pptx import Presentation
+        from pptx.util import Cm
+
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+        slide.shapes.title.text = "추이"
+        slide.notes_slide.notes_text_frame.text = "핵심 메시지"
+        box = slide.shapes.add_textbox(Cm(1), Cm(1), Cm(5), Cm(2))
+        box.text_frame.text = "x"
+        run = box._element.find(".//{http://schemas.openxmlformats.org/drawingml/2006/main}r")
+        field = etree.fromstring(
+            '<a:fld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" id="{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}" '
+            'type="slidenum"><a:rPr lang="en-US"/><a:t>&lt;number&gt;</a:t></a:fld>')
+        run.getparent().replace(run, field)
+        slide.notes_slide.shapes._spTree.append(deepcopy(box._element))
+        slide.shapes._spTree.remove(box._element)
+        buffer = BytesIO()
+        presentation.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.pptx")
+
+        assert "> Speaker notes: 핵심 메시지" in result.text
+        assert "number" not in result.text
+
 
 class TestPptxTableCellLevels:
     """Paragraphs of a PPTX table cell were joined without their level (a:pPr lvl), so sub-items were flattened. They are marked

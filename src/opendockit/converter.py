@@ -38,7 +38,8 @@ if TYPE_CHECKING:
 
 
 _DEFAULT_OPTIONS = ConvertOptions()
-_ZIP_FORMATS = {DocumentFormat.DOCX, DocumentFormat.PPTX, DocumentFormat.XLSX, DocumentFormat.HWPX}
+_ZIP_FORMATS = {DocumentFormat.DOCX, DocumentFormat.PPTX, DocumentFormat.XLSX, DocumentFormat.HWPX, DocumentFormat.ODT, DocumentFormat.ODS,
+                DocumentFormat.ODP, DocumentFormat.EPUB}
 # Formats where the original whitespace (code indentation, table alignment) carries meaning. Spaces inside a line are not collapsed.
 _KEEP_SPACES = {DocumentFormat.TEXT, DocumentFormat.MARKDOWN}
 # Alt text that Office and Hangul (HWP) attach automatically ("그림 3" (picture 3), "image1.png", "그림입니다. 원본 그림의 이름…"

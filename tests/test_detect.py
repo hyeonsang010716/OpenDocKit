@@ -207,17 +207,27 @@ def test_binary_workbook_is_reported_as_unsupported_not_corrupted():
         convert(buffer.getvalue(), "a.xlsb")
 
 
-@pytest.mark.parametrize("data, filename, hint", [
-    (b"{\\rtf1\\ansi\\ansicpg949 \\'c7\\'d1\\'b1\\'db\\par}", "a.rtf", "RTF"),
-    (b"{\\rtf1\\ansi text\\par}", "a.doc", "RTF"),
-    (b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0L5 5"/></svg>', "a.svg", "SVG"),
-    (b'<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "x.dtd"><svg><text>hi</text></svg>', "logo", "SVG"),
+@pytest.mark.parametrize("data, filename", [
+    (b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0L5 5"/></svg>', "a.svg"),
+    (b'<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "x.dtd"><svg><text>hi</text></svg>', "logo"),
 ])
-def test_rtf_and_svg_are_reported_as_unsupported_instead_of_passing_as_text(data, filename, hint):
-    """RTF and SVG passed as text, so control words and path coordinates became a 'successful' result as is (Korean RTF has
-    `\\'c7\\'d1` escapes)."""
-    with pytest.raises(UnsupportedFormatError, match=hint):
+def test_svg_is_reported_as_unsupported_instead_of_passing_as_text(data, filename):
+    """SVG passed as text, so path coordinates became a 'successful' result as is."""
+    with pytest.raises(UnsupportedFormatError, match="SVG"):
         convert(data, filename)
+
+
+@pytest.mark.parametrize("data, filename, expected", [
+    (b"{\\rtf1\\ansi\\ansicpg949 \\'c7\\'d1\\'b1\\'db\\par}", "a.rtf", "한글"),
+    (b"{\\rtf1\\ansi text\\par}", "a.doc", "text"),
+])
+def test_rtf_is_read_as_rtf_whatever_the_extension(data, filename, expected):
+    """RTF used to pass as text, so control words and Korean escapes like `\\'c7\\'d1` became a 'successful' result as they were;
+    then it was rejected as unsupported. It is now read by the RTF extractor, by content — an RTF named `.doc` included."""
+    result = convert(data, filename)
+
+    assert result.format is DocumentFormat.RTF
+    assert result.text == expected
 
 
 def test_text_file_that_shows_svg_markup_is_still_text():
@@ -661,5 +671,4 @@ class TestOleStreamNameCaseForOtherDocuments:
     def test_old_word_stream_in_any_case_is_reported_as_old_word(self, name):
         data = builder.ole_container({name: b"\x00" * 4096})
 
-        with pytest.raises(UnsupportedFormatError, match="Word"):
-            detect_format(data, "a.doc")
+        assert detect_format(data, "a.doc") is DocumentFormat.DOC

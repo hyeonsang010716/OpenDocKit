@@ -40,7 +40,7 @@ This page is a summary for people building an upload screen on top of OpenDocKit
 
 Branch on `code`; the message can be displayed as is.
 
-- `unsupported_format`: a format that is not supported — legacy .doc and .ppt, Hangul 3.x, ODF (.odt, .ods, .odp), .xlsb, RTF, SVG, Word XML, ODF single-file XML (.fodt, .fods, .fodp), Hangul XML (.hml — advise saving as HWPX), unknown binary.
+- `unsupported_format`: a format that is not supported — legacy .doc and .ppt on a server without LibreOffice, Hangul 3.x, .xlsb, SVG, Word XML, ODF single-file XML (.fodt, .fods, .fodp), Hangul XML (.hml — advise saving as HWPX), unknown binary.
 - `encrypted_document`: a password-protected PDF, Office or HWP document. Tell the user to remove the password and upload again.
 - `document_too_large`: over 50 MB; or a file that becomes too large when decompressed; an HWP with an excessive number of internal records; a file that exceeded the server's conversion time (2 minutes) or memory limit (the "too large or too complex to convert" message).
 - `corrupted_document`: an empty file, a broken file, a parse failure, an image file that cannot be opened (when a single image was uploaded).
@@ -192,7 +192,7 @@ Branch on `code`; the message can be displayed as is.
 
 ### What is dropped or changed
 
-- Legacy `.doc` gives `unsupported_format` → advise "save as DOCX and upload".
+- Legacy `.doc` is converted when the server has LibreOffice installed; otherwise it gives `unsupported_format` → advise "save as DOCX and upload".
 - A docx saved in Strict Open XML format gives `unsupported_format` → advise "save again as a normal Word Document (.docx)".
 - Headers and footers are excluded by default (usually noise).
 - Hyperlink addresses (URLs) and hidden text are not included (only the link text remains). Comments (review comments) are added at the end of the document as `> Comment(author, on "passage"): text`.
@@ -221,7 +221,7 @@ Branch on `code`; the message can be displayed as is.
 
 ### What is dropped or changed
 
-- Legacy `.ppt` gives `unsupported_format` → advise "save as PPTX and upload".
+- Legacy `.ppt` is converted when the server has LibreOffice installed; otherwise it gives `unsupported_format` → advise "save as PPTX and upload".
 - A pptx saved in Strict Open XML format gives `unsupported_format` → advise "save again as a normal PowerPoint Presentation (.pptx)".
 - Shapes themselves (arrows, diagram shapes) are not extracted as pictures. Only the text inside shapes remains.
 - Shapes hidden in the Selection Pane are not included (hidden slides are still output, with `(hidden)` after the slide title).

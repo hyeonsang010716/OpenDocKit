@@ -1,6 +1,6 @@
 # Examples
 
-One realistic document per format in [`samples/`](samples/), and exactly what OpenDocKit makes of each in
+Realistic documents for every format in [`samples/`](samples/), and exactly what OpenDocKit makes of each in
 [`output/`](output/). Open a sample in its own application, then read the Markdown next to it.
 
 ```bash
@@ -26,6 +26,10 @@ Warnings the converter raised are kept at the end of each output file in an HTML
 | [`orders-export.xls`](samples/orders-export.xls) | [offline](output/orders-export.xls.md) | A "Download as Excel" file that is really an HTML table: detected by content, converted, and reported |
 | [`branch-sales-cp949.csv`](samples/branch-sales-cp949.csv) | [offline](output/branch-sales-cp949.csv.md) | A Korean CSV in CP949 with title lines above the header row: the encoding is detected and the title lines stay outside the table |
 | [`release-notes.md`](samples/release-notes.md) | [offline](output/release-notes.md.md) | Markdown passes through unchanged |
+| [`quarterly-report.odt`](samples/quarterly-report.odt) · [`.rtf`](samples/quarterly-report.rtf) · [`.doc`](samples/quarterly-report.doc) | [odt](output/quarterly-report.odt.md) · [rtf](output/quarterly-report.rtf.md) · [doc](output/quarterly-report.doc.md) | The Word report saved by LibreOffice in three more formats. ODT and RTF are read directly and give the same structure; the `.doc` goes through LibreOffice and carries a warning saying so. The equation survives in ODT and `.doc` but not in RTF, which LibreOffice saves without it |
+| [`sales.ods`](samples/sales.ods) | [offline](output/sales.ods.md) | The same workbook as OpenDocument: identical output to the XLSX, including the two tables and the hidden-sheet warning |
+| [`launch-plan.odp`](samples/launch-plan.odp) · [`.ppt`](samples/launch-plan.ppt) | [odp](output/launch-plan.odp.md) · [ppt](output/launch-plan.ppt.md) | The same deck as OpenDocument and as PowerPoint 97-2003: slides, bullet levels, speaker notes, table and chart data |
+| [`incident-guide.epub`](samples/incident-guide.epub) | [offline](output/incident-guide.epub.md) | An EPUB: chapters in reading order as one document, the navigation page left out, a link and bold text kept |
 | [`table.hwp`](samples/table.hwp) | [offline](output/table.hwp.md) | HWP 5.x binary: a captioned table with a line break inside a cell |
 | [`score-table.hwpx`](samples/score-table.hwpx) | [offline](output/score-table.hwpx.md) | HWPX: text and a table |
 | [`numbered-outline.hwpx`](samples/numbered-outline.hwpx) | [offline](output/numbered-outline.hwpx.md) | HWPX: bullets, multi-level numbering (`3.1.`, `4.1.2.1.`) and Korean outline numbering (`가.`, `1)`) |

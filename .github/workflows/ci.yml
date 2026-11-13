@@ -46,6 +46,10 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked --python ${{ matrix.python }}
+      # The .doc / .ppt tests that start a real LibreOffice run only where it is installed: one Linux job is enough.
+      - name: Install LibreOffice
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libreoffice-writer libreoffice-impress
       - name: Tests (parallel)
         run: uv run pytest -n auto -m "not timing"
       # Tests that assert on wall-clock time run on their own, one at a time, so busy workers cannot fail them.

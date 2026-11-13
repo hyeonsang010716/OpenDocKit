@@ -77,7 +77,7 @@ class TestForwardedMail:
         result = convert(data, "fwd.eml")
 
         assert result.format is DocumentFormat.HTML
-        assert result.text.startswith(f"{_OUTER_HEAD}\n\n아래 메일 확인 바랍니다.\n\n## Forwarded message\n\n{_INNER_HEAD}\n\n")
+        assert result.text.startswith(f"{_OUTER_HEAD}\n\n아래 메일 **확인** 바랍니다.\n\n## Forwarded message\n\n{_INNER_HEAD}\n\n")
         assert result.text.endswith("견적 금액은 300만 원입니다(HTML).")
 
     def test_attachment_inside_the_forwarded_mail_is_named_in_the_warning(self):

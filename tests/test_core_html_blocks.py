@@ -17,7 +17,7 @@ class TestAsideInsideTheMainContent:
 
         result = convert(html.encode(), "a.html")
 
-        assert result.text == ("# API 가이드\n\n요청 한도는 분당 60회입니다.\n\n경고: API 키를 넣지 마세요.\n\n참고: v1 은 종료됩니다.\n\n"
+        assert result.text == ("# API 가이드\n\n요청 한도는 분당 60회입니다.\n\n**경고:** API 키를 넣지 마세요.\n\n참고: v1 은 종료됩니다.\n\n"
                                "다음 단계로 진행합니다.")
 
     def test_aside_inside_main_without_an_article_is_kept(self):

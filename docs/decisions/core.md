@@ -20,12 +20,16 @@ src/opendockit/
     ├── _shared.py   # Strict OOXML detection (`is_strict_package`, DOCX/PPTX), OOXML charts and SmartArt (PPTX/DOCX/HWPX), Office equations (OMML → LaTeX, DOCX/PPTX), automatic number strings, paragraph heads (`paragraph_head`), ruby text and list levels inside a cell (DOCX/HWP/HWPX), chart tables inside a cell (`embedded_table`), Hangul (HWP) bullet indent levels (`BulletNesting`, HWP/HWPX), symbol-font mapping (`symbol_font_text` — including ordinary letters in Symbol), character limit inside tables (`TableBudget`, DOCX/HWP/HWPX), DrawingML `a:br` line breaks (`drawing_paragraph_lines`, PPTX/DOCX/XLSX/charts), comment lines (`comment_line`, DOCX/PPTX/HWPX/Excel)
     ├── _equation.py # Hancom equation script → LaTeX (HWP/HWPX). The original script when it cannot be converted
     ├── docx.py
+    ├── epub.py      # chapters in spine order, each through html.py
     ├── html.py
     ├── hwp.py
     ├── hwpx.py
     ├── image.py
+    ├── legacy.py    # .doc / .ppt: converted with an installed LibreOffice, then read by docx.py / pptx.py
+    ├── odf.py       # ODT, ODS, ODP
     ├── pdf.py
     ├── pptx.py
+    ├── rtf.py
     ├── spreadsheet.py
     └── text.py
 
@@ -86,6 +90,11 @@ Only the common decisions (detection, limits, pictures, assembly, description) a
   - [encoding.md](encoding.md) — encoding detection
   - [mail.md](mail.md) — mail
   - [html.md](html.md) — HTML blocks (aside, quotes, checklists, item/value tables), exceptions for hidden elements, lazy-loading placeholder pictures, MHTML frames, inline SVG labels, `data:` URI pictures in MD
+  - [odf.md](odf.md) — OpenDocument (ODT, ODS, ODP)
+  - [rtf.md](rtf.md) — RTF
+  - [epub.md](epub.md) — EPUB
+  - [legacy-office.md](legacy-office.md) — `.doc` and `.ppt` through LibreOffice: how it is run, what is and is not guaranteed
+- [inline-formatting.md](inline-formatting.md) — links and bold / italic: which are kept, which are deliberately left plain
 - [images.md](images.md) — images, picture descriptions (the describer), placeholders
 - [detect.md](detect.md) — format detection (magic bytes, ZIP, OLE, telling the text family apart, MHTML, mail, extension warnings)
 
@@ -94,6 +103,7 @@ Only the common decisions (detection, limits, pictures, assembly, description) a
 | Markdown tables repeat a vertically merged value on every row | Each row carries by itself which category its values belong to (no information loss) | `test_markdown.py::TestTableGrid` |
 | Only a table that still has horizontally spanning cells after empty rows and columns are removed becomes an HTML table (rowspan/colspan, th in the first row, one row per line). A full-width merge of the title row at the top alone does not switch it. Cell text and the picture descriptions of that cell stay as written and only table tags are neutralized with `&lt;` (`markdown.neutralize_table_tags`) — the result is not rendered on screen but fed to an LLM, so escaping everything is noise. Applies to the formats that pass span counts to `TableGrid` (HWP, HWPX, DOCX, PPTX, HTML with a single header row) | A Markdown table cannot draw a horizontal merge, so nobody could tell what the empty cell in '\| 합계 \| \| 4개 과제 \|' (Total \| \| 4 tasks) was. A table with only vertical merges loses nothing through repetition, so it is not switched (existing output kept). Keeps a `</td>` in cell text from being confused with a cell boundary. In 295 real documents all 312 HTML tables had matching cell counts; 142 limit verdicts × 3, 0 violations | `test_markdown.py::TestMergedTableAsHtml`, `test_converter.py::TestAssembly::test_picture_in_an_html_table_cell_keeps_its_text` |
 | A table inside a table (HWP, HWPX, DOCX; for HTML see [extractors.md](extractors.md)) is not flattened: it is handed to the outer `TableGrid.embed`, which leaves a placeholder (private-use characters) in the cell text. The outer table becomes HTML (a one-line HTML table inside the cell); a one-column box becomes paragraphs + a standalone table. While rendering text that goes somewhere other than cell text, such as a header inside a cell, the position is marked as one that cannot take it (None) and the table is `flatten`ed ('cell / cell'). A table inside a footnote or endnote is `_shared.note_table` ('cell / cell; cell / cell'). Copies made for merged cells drop picture and table placeholders (`merged_copy`). The caption of an inner table stays with the table wherever it is | 'cell / cell' lost the row and column structure. A placeholder that leaks into a footnote is never resolved and is erased, so the content disappears. A table in a merged cell came out once per row. The inner table's caption was dropped, so a picture in the caption cost a description and then vanished | `test_markdown.py::TestMergedTableAsHtml` (4 nested cases), `test_hwp.py::TestNestedTables` (including footnotes), `test_quality.py::test_docx_nested_table_keeps_its_rows_and_columns`, `test_hwp.py::TestTableInsideFootnote`, `test_office_symbols_fields_notes.py::TestDocxTableInsideFootnote` |
+| A nested table is drawn once in a drawing, at the first placeholder with its number (`TableGrid._first_use`); later copies and numbers that do not exist draw nothing. A placeholder, real or only shaped like one, is left out of the character estimate (`solid_length`). Text of an imported part (EPUB chapter, DOCX `w:altChunk`) that has the shape of a picture placeholder stays text: only placeholders with the document's key are renumbered (`models.renumber_image_markers`) | Document text can contain the private-use characters the placeholder is made of. When every copy drew the nested table again, copies at each level of nesting multiplied: a 736-byte ODT took 26 s and 1.4 GB, a 2 KB RTF never finished. Counted, digits between those characters stopped the reading of a table and the little that was written was under the limit — a document over the limit came back cut, without `exceeded`. In an EPUB chapter the text `⟦IMG:1⟧` vanished and the chapter's first picture was inserted in its place | `test_markdown.py::TestMergedTableAsHtml::test_text_shaped_like_a_nested_table_placeholder_draws_nothing`, `TestSolidLength::test_nested_table_placeholder_is_not_counted`, `test_odf.py::TestHostileInput::test_forged_nested_table_placeholders_do_not_multiply_the_table`, `test_rtf.py::TestLimits::test_text_shaped_like_a_nested_table_placeholder_is_not_counted_against_the_limit`, `test_epub.py::TestPictures::test_text_shaped_like_a_picture_placeholder_stays_text`, `test_office.py::TestDocxImportedChunks::test_chunk_text_shaped_like_a_picture_placeholder_stays_text` |
 | PyMuPDF and pyhwp are not used | AGPL | — |
 | clean_text removes first, then NFC | In the other order the characters on both sides of a removed one combined anew and NFC broke (real PDF) | `test_markdown.py::test_result_is_nfc_even_when_removed_character_separated_combining_mark` |
 | Private-use bullets of Symbol/Wingdings (U+F0B7 etc.) are not removed but turned into Unicode symbols | The list markers of a Word PDF disappeared | `test_quality.py::test_symbol_font_bullets_become_unicode_bullets` |

@@ -29,6 +29,13 @@ class DocumentFormat(StrEnum):
     MARKDOWN = "markdown"
     TEXT = "text"
     IMAGE = "image"
+    ODT = "odt"    # OpenDocument Text
+    ODS = "ods"    # OpenDocument Spreadsheet
+    ODP = "odp"    # OpenDocument Presentation
+    EPUB = "epub"
+    RTF = "rtf"
+    DOC = "doc"    # Word 97-2003 binary; converted through LibreOffice when it is installed
+    PPT = "ppt"    # PowerPoint 97-2003 binary; converted through LibreOffice when it is installed
 
 
 class SectionKind(StrEnum):
@@ -118,6 +125,10 @@ class ConvertOptions:
     include_hidden_sheets: bool = False
     include_headers_footers: bool = False
     include_footnotes: bool = True
+    # Keep the address of a hyperlink as a Markdown link (`[text](https://…)`). Off: only the link text is kept.
+    keep_links: bool = True
+    # Keep bold and italic as Markdown emphasis (`**bold**`, `*italic*`). Off: emphasis is flattened to plain text.
+    keep_emphasis: bool = True
     # Remove header, footer and page-number lines that repeat across the pages of a PDF.
     remove_repeated_page_lines: bool = True
     # Put page boundary markers (`<!-- Page 3 -->`) into the full text. Slide and sheet headings are always included.
@@ -296,6 +307,15 @@ def image_marker(image_id: int) -> str:
 def image_marker_pattern(key: str) -> re.Pattern[str]:
     """A regex that finds only the placeholders made with `key` (the number is the first group)."""
     return re.compile(rf"⟦IMG:{re.escape(key)}:(\d+)⟧")
+
+
+def renumber_image_markers(text: str, markers: dict[int, str]) -> str:
+    """Replace the placeholders of an imported part (an EPUB chapter, a DOCX chunk — numbered from 1 in the part) with the
+    placeholders the document gave those pictures, in one pass so that a rewritten number is not rewritten again. Only
+    placeholders with the key of the document being converted are touched: text of the part that merely has the shape
+    (`⟦IMG:1⟧`) stays text. Matched without the key, such text vanished and the picture was inserted in its place
+    (Pinned by: test_epub.py::TestPictures::test_text_shaped_like_a_picture_placeholder_stays_text)."""
+    return image_marker_pattern(_MARKER_KEY.get()).sub(lambda match: markers.get(int(match.group(1)), match.group(0)), text)
 
 
 # The filters `quiet_warnings` currently has in place: (category, module regex) → [the entry put into warnings.filters (None if it

@@ -3,12 +3,16 @@
 from collections.abc import Callable
 
 from opendockit.extractors.docx import extract_docx
+from opendockit.extractors.epub import extract_epub
 from opendockit.extractors.html import extract_html
 from opendockit.extractors.hwp import extract_hwp
 from opendockit.extractors.hwpx import extract_hwpx
 from opendockit.extractors.image import extract_image
+from opendockit.extractors.legacy import extract_doc, extract_ppt
+from opendockit.extractors.odf import extract_odp, extract_ods, extract_odt
 from opendockit.extractors.pdf import extract_pdf
 from opendockit.extractors.pptx import extract_pptx
+from opendockit.extractors.rtf import extract_rtf
 from opendockit.extractors.spreadsheet import (
     extract_csv,
     extract_xls,
@@ -35,4 +39,11 @@ EXTRACTORS: dict[DocumentFormat, Extractor] = {
     DocumentFormat.MARKDOWN: extract_markdown,
     DocumentFormat.TEXT: extract_text,
     DocumentFormat.IMAGE: extract_image,
+    DocumentFormat.ODT: extract_odt,
+    DocumentFormat.ODS: extract_ods,
+    DocumentFormat.ODP: extract_odp,
+    DocumentFormat.EPUB: extract_epub,
+    DocumentFormat.RTF: extract_rtf,
+    DocumentFormat.DOC: extract_doc,
+    DocumentFormat.PPT: extract_ppt,
 }

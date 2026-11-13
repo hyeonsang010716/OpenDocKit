@@ -2,7 +2,7 @@
 
 <p align="center">
   <b>Turn any document into clean, LLM-ready Markdown.</b><br>
-  PDF · DOCX · PPTX · XLSX · HWP/HWPX · HTML · email · CSV · images — one function, no GPU, MIT licensed.
+  PDF · DOCX · PPTX · XLSX · HWP/HWPX · ODF · RTF · EPUB · HTML · email · images — one function, no GPU, MIT licensed.
 </p>
 
 <p align="center">
@@ -29,7 +29,8 @@ result.warnings    # what was skipped or approximated, in plain sentences
 Most converters handle the happy path. OpenDocKit is built for the files people actually upload.
 
 - **Structure, not just text.** Merged table cells, multi-column PDFs, borderless tables, nested lists, footnotes,
-  speaker notes, native charts as data tables, SmartArt as nested lists, Word / PowerPoint / Hancom equations as LaTeX.
+  speaker notes, native charts as data tables, SmartArt as nested lists, Word / PowerPoint / Hancom equations as LaTeX,
+  links and bold / italic as Markdown.
 - **First-class Korean documents.** A from-scratch HWP 5.x parser, HWPX, CP949 detection, NFC normalization, and the
   form-heavy tables Korean offices produce. Most general-purpose converters cannot read these at all.
 - **Detects by content, not extension.** An HTML table saved as `.xls`, a CSV with a title block, an MHTML page named
@@ -116,13 +117,18 @@ opendockit scan.pdf --describe        # describe images with a vision model (use
 | PPTX | slide | on-screen order, bullet levels, tables, charts → tables, SmartArt, equations, speaker notes |
 | XLSX · XLS · Excel 2003 XML · CSV | sheet | several tables per sheet, merged cells, number and date formats, charts, cell comments |
 | HWP · HWPX | document | outline headings, numbering, merged cells, captions, footnotes, equations → LaTeX |
+| ODT · ODS · ODP | document / sheet / slide | read directly from the package: headings, lists, merged cells, charts, formulas → LaTeX, speaker notes |
+| RTF | document | built-in parser: legacy code pages (CP949), tables with merged cells, lists, footnotes, pictures |
+| EPUB | document | chapters in reading order, pictures stored in the book, metadata |
+| DOC · PPT | document / slide | converted through LibreOffice when it is installed, then read like DOCX / PPTX |
 | HTML · MHTML | document | tables with rowspan/colspan, layout tables unwrapped, MathML → LaTeX, hidden elements removed |
 | Email (`.eml`, mbox) | document | headers, HTML or plain body, forwarded messages, calendar invites |
 | TXT · Markdown | document | encoding detection (UTF-8, CP949, UTF-16, Windows-1252) |
 | Images | document / page | JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, and HEIC with the `heic` extra — described by a vision model |
 
-Not supported: legacy `.doc`/`.ppt`, RTF, ODF. The full list of what each format restores is in
-[docs/formats.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/formats.md); the honest list of what it cannot do is in [docs/limitations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md).
+Legacy `.doc` and `.ppt` need LibreOffice installed; everything else is read by OpenDocKit itself. The full list of
+what each format restores is in [docs/formats.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/formats.md); the honest list of what it cannot do is in
+[docs/limitations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md).
 
 ## How it compares
 
