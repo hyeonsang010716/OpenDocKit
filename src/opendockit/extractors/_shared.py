@@ -232,6 +232,11 @@ def core_properties(package: object) -> dict[str, str]:
     return {name: value for name, value in values.items() if isinstance(value, str) and value}
 
 
+# A part name as Office writes it: letters, then digits, a dot and a short extension (`image1.png`, `numbering.xml`). Only such
+# names are written into the warning of `repair_package`.
+_PART_LABEL = re.compile(r"[A-Za-z]{1,24}[0-9]{0,6}\.[A-Za-z0-9]{1,5}")
+
+
 def repair_package(data: bytes) -> tuple[bytes, str] | None:
     """A copy of the package with the relationships that point to missing parts or non-XML XML parts removed and those parts left
     out, plus the warning text. None if there is nothing to detach.
@@ -290,9 +295,13 @@ def repair_package(data: bytes) -> tuple[bytes, str] | None:
                 with archive.open(info) as source, target_archive.open(entry, "w") as sink:
                     shutil.copyfileobj(source, sink)
 
+    # Deliberate: a part is named only when its name has the plain shape of a part name (`_PART_LABEL`); the others are only
+    # counted. The names come from relationship targets, which the document's author writes: a sentence of any length put there
+    # appeared word for word in the warning (Pinned by: test_audit_core.py::TestDetachedPartNamesInTheWarning).
     labels = sorted({posixpath.basename(name) or name for name in dropped})
-    shown = ", ".join(labels[:4]) + (f" and {len(labels) - 4} more" if len(labels) > 4 else "")
-    return buffer.getvalue(), (f"Read after detaching {len(dropped)} missing or broken part(s) ({shown}). "
+    named = [label for label in labels if _PART_LABEL.fullmatch(label)][:4]
+    shown = ", ".join(named) + (f" and {len(labels) - len(named)} more" if named and len(labels) > len(named) else "")
+    return buffer.getvalue(), (f"Read after detaching {len(dropped)} missing or broken part(s){f' ({shown})' if shown else ''}. "
                                "The contents of those parts (pictures, numbering, styles, etc.) may be missing.")
 
 
