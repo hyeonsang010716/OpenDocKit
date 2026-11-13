@@ -6,7 +6,7 @@ import base64
 import pytest
 
 from opendockit import DocumentFormat, convert
-from opendockit.extractors import text as text_module
+from opendockit.extractors import _mail
 from tests import builder, needs_html5_tokenizer
 
 
@@ -223,7 +223,7 @@ class TestMailboxWithSeveralMails:
 
     @pytest.mark.parametrize("html", [False, True])
     def test_mails_beyond_the_limit_are_reported(self, monkeypatch, html):
-        monkeypatch.setattr(text_module, "MAX_BOX_MAILS", 2)
+        monkeypatch.setattr(_mail, "MAX_BOX_MAILS", 2)
         data = _mbox(html, html, html)
 
         result = convert(data, "box.mbox")

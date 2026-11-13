@@ -22,6 +22,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
 from bs4.element import PageElement, PreformattedString
 from lxml import etree
 
+from opendockit.extractors._encoding import decode_text, decoding_warning, decoding_warnings
 from opendockit.extractors._inline import (
     BLOCK_INSIDE,
     BOLD_OFF,
@@ -38,17 +39,11 @@ from opendockit.extractors._inline import (
     resolve_inline,
 )
 from opendockit.extractors._lists import cell_level_mark, format_number
-from opendockit.extractors._notation import omitted_rows_warning
-from opendockit.extractors._package import decimal_int
-from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_glyph
-from opendockit.extractors.text import (
+from opendockit.extractors._mail import (
     FORWARDED_MAIL_TITLE,
     MIME_HEAD_BYTES,
     MIME_VERSION,
     _unescaped_from_lines,
-    decode_text,
-    decoding_warning,
-    decoding_warnings,
     is_sent_mail,
     mail_attachment_warning,
     mail_body_parts,
@@ -56,7 +51,6 @@ from opendockit.extractors.text import (
     mail_box,
     mail_box_title,
     mail_box_warning,
-    mail_calendar_events,
     mail_head_text,
     mail_html_body_parts,
     mail_html_outside_alternative,
@@ -65,7 +59,11 @@ from opendockit.extractors.text import (
     mime_start,
     parse_mail,
 )
-from opendockit.extractors.text import mime_header_block as _mime_header_block
+from opendockit.extractors._mail import mime_header_block as _mime_header_block
+from opendockit.extractors._mail_calendar import mail_calendar_events
+from opendockit.extractors._notation import omitted_rows_warning
+from opendockit.extractors._package import decimal_int
+from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_glyph
 from opendockit.markdown import TableGrid, render_table, solid_length, table_title
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, quiet_warnings
 
@@ -293,7 +291,7 @@ _XML_ENCODING = re.compile(rb"^\s*<\?xml\b[^>]*?\bencoding\s*=\s*[\"']([\w.:+-]+
 _CHARSET_PRESCAN_BYTES = 4096
 # Header of an MHTML (single-file web page): from the very start to the blank line there are only `name: value` lines (and
 # continuation lines folded with spaces/tabs), and among them MIME-Version and a multipart/related (or text/html) Content-Type.
-# The block is walked line by line by `_mime_header_block` (`text.mime_header_block`, shared with `text.mime_mail`, which
+# The block is walked line by line by `_mime_header_block` (`_mail.mime_header_block`, shared with `_mail.mime_mail`, which
 # detects transfer-encoded mail) — matching the whole block with one regex `(?:name:value\n(?:[ \t]+…\n)*)+\n` backtracks
 # once for every way the two quantifiers can split the leading whitespace of the folded lines, and on text whose first line is
 # `word:` followed only by indented lines with no blank line (XMP metadata) it did not finish even with 12 lines (a text file
@@ -323,10 +321,10 @@ def _extract_html(data: bytes, options: ConvertOptions) -> Extraction:
     # A declared charset is used only when strict decoding succeeds (decode_text holds the order of decisions). When the
     # declaration was ignored, documents declaring `shift_jis`/`windows-1252` were garbled as CP949
     # (Pinned by: test_text_html.py::TestHtmlDeclaredCharset).
-    # Mail (.eml, `text.mime_mail`) has its HTML body part read like MHTML, with the header (subject, sender …) placed before
+    # Mail (.eml, `_mail.mime_mail`) has its HTML body part read like MHTML, with the header (subject, sender …) placed before
     # the body (Pinned by: test_text_html.py::TestEncodedMail, test_core_mail_and_detect.py::TestMailWithoutTransferEncoding).
     # Mail read as MHTML (a single text/html part, or multipart/related with embedded photos) also gets its mail header in
-    # front when it has one (`text.is_sent_mail`).
+    # front when it has one (`_mail.is_sent_mail`).
     # An mbox mailbox (two or more mails) is a mailbox even when its first mail is MHTML-shaped (same order as `detect`).
     mails, total = mail_box(data)
     if len(mails) < 2 and is_mhtml(data):
@@ -388,11 +386,11 @@ def mhtml_html_part(data: bytes) -> tuple[bytes, str | None] | None:
 
 
 def mail_html_parts(message: Message) -> list[tuple[bytes, str | None]]:
-    """The text/html body parts of a mail (`text.mime_mail`) (`text.mail_html_body_parts` — in document order, including
+    """The text/html body parts of a mail (`_mail.mime_mail`) (`_mail.mail_html_body_parts` — in document order, including
     pieces separated by attachments) as (bytes, charset the part declares). An empty list if there are none (a mail with only
     plain-text parts is read as text).
 
-    HTML that is an attachment (Content-Disposition: attachment, or a part that merely has a name — `text._is_attachment`) and
+    HTML that is an attachment (Content-Disposition: attachment, or a part that merely has a name — `_mail._is_attachment`) and
     HTML inside a forwarded mail (message/rfc822) are not this mail's body — the attached HTML was read instead of the
     plain-text body
     (Pinned by: test_core_mail_and_detect.py::TestMailWithoutTransferEncoding::test_html_attachment_of_a_plain_mail_is_not_read_as_its_body,
@@ -408,9 +406,9 @@ def mail_html_parts(message: Message) -> list[tuple[bytes, str | None]]:
 
 
 def mail_reads_as_html(message: Message) -> bool:
-    """Whether a mail (`text.mime_mail`) is read by the HTML extractor: the outer mail has an HTML body, or among the forwarded
-    mails (`text.mail_messages`) there is one with only an HTML body and no plain-text body, or one with a separate HTML body
-    that is not an alternative rendering of the plain text (`text.mail_html_outside_alternative`). Everything else is read as
+    """Whether a mail (`_mail.mime_mail`) is read by the HTML extractor: the outer mail has an HTML body, or among the forwarded
+    mails (`_mail.mail_messages`) there is one with only an HTML body and no plain-text body, or one with a separate HTML body
+    that is not an alternative rendering of the plain text (`_mail.mail_html_outside_alternative`). Everything else is read as
     plain text by the text extractor.
 
     When a forwarded mail's mixed part held both plain-text and HTML bodies, the text extractor read only the plain text and
@@ -424,13 +422,13 @@ def mail_reads_as_html(message: Message) -> bool:
 
 
 def _extract_mail(mails: list[Message], total: int, options: ConvertOptions) -> Extraction:
-    """Mails read as HTML (`text.mail_box` — an mbox mailbox holds several): for each mail, the bodies of that mail and of its
-    forwarded mails (`text.mail_messages`) are joined in order and rendered as one HTML.
+    """Mails read as HTML (`_mail.mail_box` — an mbox mailbox holds several): for each mail, the bodies of that mail and of its
+    forwarded mails (`_mail.mail_messages`) are joined in order and rendered as one HTML.
 
     Each body uses its HTML parts or, if there are none, its plain-text part turned into paragraphs. A forwarded mail is
     preceded by the 'Forwarded message' heading and that mail's header (the same shape as the text extractor's
-    `text.forwarded_mail_head`). When the mailbox holds several mails, each is preceded by `## Message N` and its header
-    (`text.mail_box_title`, the same shape as the text extractor). Each body is decoded separately with its part's charset and
+    `_mail.forwarded_mail_head`). When the mailbox holds several mails, each is preceded by `## Message N` and its header
+    (`_mail.mail_box_title`, the same shape as the text extractor). Each body is decoded separately with its part's charset and
     then joined — the joined HTML documents are rendered in order, as a browser would (`_document_nodes`). The HTML body of a
     forwarded mail used to push out the outer plain-text body
     (Pinned by: test_core_text_and_mail.py::TestForwardedMail, test_core_mail_parts_and_icons.py::TestMailboxWithSeveralMails).
@@ -466,7 +464,7 @@ def _extract_mail(mails: list[Message], total: int, options: ConvertOptions) -> 
 
 
 def _mail_body_html(message: Message) -> tuple[str, list[str]]:
-    """The body HTML of one mail and the encodings decoded: the body parts (`text.mail_body_sequence` — the HTML branch of an
+    """The body HTML of one mail and the encodings decoded: the body parts (`_mail.mail_body_sequence` — the HTML branch of an
     alternative, and all plain-text and HTML parts of a mixed) joined in order or, when there is no HTML part, the plain-text
     body as paragraphs (Pinned by: test_core_html_mail_hidden_and_frames.py::TestPlainAndHtmlBodiesSideBySide).
 
@@ -582,14 +580,14 @@ def _has_text(html: str) -> bool:
 
 
 def _calendar_html(message: Message) -> str:
-    """HTML for the events of a meeting invitation (`text.mail_calendar_events`), placed after the body: an `Event:` paragraph
-    + a list. It renders in the same shape as for plain-text mail (`text.mail_calendar_text`)."""
+    """HTML for the events of a meeting invitation (`_mail_calendar.mail_calendar_events`), placed after the body: an `Event:` paragraph
+    + a list. It renders in the same shape as for plain-text mail (`_mail_calendar.mail_calendar_text`)."""
     return "".join(f"<p>{escape(title)}:</p><ul>{''.join(f'<li>{escape(label)}: {escape(value)}</li>' for label, value in fields)}</ul>"
                    for title, fields in mail_calendar_events(message))
 
 
 def _head_html(message: Message) -> str:
-    """The mail header (`text.mail_head_text`) as HTML, its lines separated by `<br>`."""
+    """The mail header (`_mail.mail_head_text`) as HTML, its lines separated by `<br>`."""
     return "<br>".join(escape(line) for line in mail_head_text(message).split("\n"))
 
 
@@ -610,7 +608,7 @@ def _plain_paragraphs(text: str) -> str:
 
 def _mhtml_message(data: bytes) -> Message:
     # A file that starts with an mbox separator line (an .eml saved by Thunderbird) has its `>From ` body lines unescaped, as on
-    # the mail path (`text.mail_box`) — a mail with a single text/html part kept `>From here`
+    # the mail path (`_mail.mail_box`) — a mail with a single text/html part kept `>From here`
     # (Pinned by: test_audit_html_text.py::TestFromLineEscapeInASingleHtmlPartMail)
     start = mime_start(data)
     return parse_mail(_unescaped_from_lines(data[start:]) if b"From " in data[:start] else data[start:])

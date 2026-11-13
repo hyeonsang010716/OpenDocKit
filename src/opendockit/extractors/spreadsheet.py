@@ -43,11 +43,11 @@ import xlrd
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._charts import package_loader, render_chart, render_chartex, render_smartart
+from opendockit.extractors._encoding import decode_text, decoding_warning
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._lists import cell_level_mark
 from opendockit.extractors._notation import comment_line
 from opendockit.extractors._package import decimal_int, parse_part
-from opendockit.extractors.text import decode_text, decoding_warning
 from opendockit.markdown import join_blocks, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, quiet_warnings
 

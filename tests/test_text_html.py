@@ -6,7 +6,7 @@ import time
 import pytest
 
 from opendockit import ConvertOptions, DocumentFormat, convert
-from opendockit.extractors.text import decode_text
+from opendockit.extractors._encoding import decode_text
 
 
 class TestDecodeText:

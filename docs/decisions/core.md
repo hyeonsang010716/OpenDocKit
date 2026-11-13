@@ -26,6 +26,9 @@ src/opendockit/
     ├── _symbols.py  # symbol-font mapping (`symbol_font_text` — including ordinary letters in Symbol)
     ├── _lists.py    # automatic number strings, paragraph heads (`paragraph_head`), list levels inside a cell (DOCX/HWP/HWPX), Hangul (HWP) bullet indent levels (`BulletNesting`, HWP/HWPX)
     ├── _notation.py # character limit inside tables (`TableBudget`, DOCX/HWP/HWPX), tables inside footnotes, comment lines (`comment_line`, DOCX/PPTX/HWPX/Excel), ruby text, the OLE placeholder
+    ├── _encoding.py # text encoding detection and decoding (TXT, CSV, HTML, mail, and `detect`)
+    ├── _mail.py     # MIME mail and mailboxes: where a mail starts, parsing within the nesting limits, body parts in order, forwarded mails, headers, the attachment warning (text/HTML)
+    ├── _mail_calendar.py # meeting invitations (text/calendar parts) as labelled lines
     ├── _equation.py # Hancom equation script → LaTeX (HWP/HWPX). The original script when it cannot be converted
     ├── docx.py
     ├── epub.py      # chapters in spine order, each through html.py
@@ -39,7 +42,7 @@ src/opendockit/
     ├── pptx.py
     ├── rtf.py
     ├── spreadsheet.py
-    └── text.py
+    └── text.py      # TXT and Markdown; a text file that is a mail or a mailbox is read through `_mail.py`
 
 tests/               # unit tests; sample builders are in tests/builder.py
 docs/decisions/      # deliberate decisions per format (file list in "Deliberate decisions" below)
@@ -47,7 +50,7 @@ docs/decisions/      # deliberate decisions per format (file list in "Deliberate
 
 For use on a server see [server.md](../server.md) (conversion must go through `IsolatedConverter`).
 
-- `extractors/*` imports only `markdown`, `models` and `exceptions`. Extractors share with each other only the decoding functions of `text` (including MIME header blocks and unpacking MIME mail) and the modules of `extractors/` whose names start with `_` (`_package.py`, `_charts.py`, `_inline.py`, `_omml.py`, `_symbols.py`, `_lists.py`, `_notation.py`, `_equation.py`). Warning filtering is `models.quiet_warnings` (spreadsheet, image, html). Exceptions: DOCX `w:altChunk` uses `html.extract_html`, `is_mhtml` and `text.extract_text` as they are (altChunk row in [office.md](office.md)). The image extractor uses `image.split_tiff_pages` (multi-page TIFF, image section of [extractors.md](extractors.md)).
+- `extractors/*` imports only `markdown`, `models` and `exceptions`. Extractors share with each other only the modules of `extractors/` whose names start with `_`: text decoding (`_encoding.py`, also used by `detect`), MIME header blocks and unpacking MIME mail (`_mail.py`, `_mail_calendar.py`), and `_package.py`, `_charts.py`, `_inline.py`, `_omml.py`, `_symbols.py`, `_lists.py`, `_notation.py`, `_equation.py`. Warning filtering is `models.quiet_warnings` (spreadsheet, image, html). Exceptions: DOCX `w:altChunk` uses `html.extract_html`, `is_mhtml` and `text.extract_text` as they are (altChunk row in [office.md](office.md)). The image extractor uses `image.split_tiff_pages` (multi-page TIFF, image section of [extractors.md](extractors.md)).
 - An extractor registers images **as the original bytes** with `Extraction.add_image()` and puts the placeholder it gets back (`⟦IMG:<key>:n⟧`) at the right place in the body.
   Decoding, size filtering, de-duplication and limits happen in one place only, `converter._prepare_images`.
 - `convert` does not use the network (deterministic, usable in a process pool). Vision-model calls live only in `describe.py`, and once descriptions are filled in
