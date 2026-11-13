@@ -443,3 +443,24 @@ class TestDetachedPartNamesInTheWarning:
 
         assert result.warnings == ["Read after detaching 7 missing or broken part(s) (gone1.png, gone2.png, gone3.png, gone4.png "
                                    "and 3 more). The contents of those parts (pictures, numbering, styles, etc.) may be missing."]
+
+
+class TestLetterAfterAPercentSignInNumberText:
+    """`^N` / `^n` in the number text of a Hangul (HWP) list stands for the number of the level itself. The same was done for
+    `%N` in a DOCX list, where only `%1`–`%9` are numbers: '100%Note %1.' came out as '1001ote 1.'."""
+
+    def test_docx_number_text_keeps_a_percent_sign_before_a_letter(self):
+        result = convert(_docx_with_level_text("100%Note %1."), "a.docx")
+
+        assert "\n\n100%Note 1. 첫째\n\n100%Note 2. 둘째\n\n" in result.text
+
+    def test_docx_number_text_keeps_percent_n_in_either_case(self):
+        numbering = _shared.Numbering([_shared.NumberLevel("%n%N %1)")], mark="%")
+
+        assert numbering.advance(0) == "%n%N 1)"
+
+    def test_hangul_number_text_still_reads_the_level_itself(self):
+        numbering = _shared.Numbering([_shared.NumberLevel("^1."), _shared.NumberLevel("^1-^N)"), _shared.NumberLevel("(^n)")])
+
+        assert [numbering.advance(0), numbering.advance(1), numbering.advance(1), numbering.advance(2)] == [
+            "1.", "1-1)", "1-2)", "(1)"]

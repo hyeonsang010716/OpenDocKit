@@ -2292,7 +2292,10 @@ class Numbering:
             shape = "DIGIT" if self.levels[level].legal else self._level(target).shape
             return format_number(self.counters.get(target, self._level(target).start), shape)
 
-        return re.sub(rf"{re.escape(self.mark)}(\d+|[Nn])", number, self.levels[level].template).strip()
+        # `^N` / `^n` (the number of the level itself) is Hangul (HWP) notation only. Read for DOCX too, `%N` made '100%Note %1.'
+        # come out as '1001ote 1.' (Pinned by: test_audit_core.py::TestLetterAfterAPercentSignInNumberText).
+        token = r"(\d+|[Nn])" if self.mark == "^" else r"(\d+)"
+        return re.sub(re.escape(self.mark) + token, number, self.levels[level].template).strip()
 
     def _level(self, level: int) -> NumberLevel:
         return self.levels[min(level, len(self.levels) - 1)]
