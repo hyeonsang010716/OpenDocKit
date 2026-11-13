@@ -97,12 +97,15 @@ _MERGE_REF = re.compile(rb"<(?:[\w.-]+:)?(?:mergeCell|hyperlink)\b(?:\s+[\w:.-]+
 # (Pinned by: test_spreadsheet.py::TestEmptyRowGaps).
 _EMPTY_ROW_STOP = 5_000
 # Formula cells (<f>) in sheet XML, and formula cells stored together with their computed result (<v>value</v>).
+# The inside of a tag never runs past the next `<` (`[^<>]*`, in these patterns and in `_VIEW_SETTINGS`, `_SHEET_STATE` and
+# `_CONTROL_ELEMENT`): with `[^>]*` every unclosed tag was scanned to the end of the part, so a 4.7 KB file whose sheet is `<c `
+# 80,000 times took 50 s (Pinned by: test_audit_spreadsheet.py::TestUnclosedTagsInSheetXml).
 _FORMULA = re.compile(rb"<(?:\w+:)?f[\s>/]")
-_FORMULA_WITH_RESULT = re.compile(rb"(?:</(?:\w+:)?f>|<(?:\w+:)?f\b[^>]*/>)\s*<(?:\w+:)?v>[^<]")
+_FORMULA_WITH_RESULT = re.compile(rb"(?:</(?:\w+:)?f>|<(?:\w+:)?f\b[^<>]*/>)\s*<(?:\w+:)?v>[^<]")
 # A formula cell stored without a result: no `<v>` after the formula, or an empty one. A formula computed to an empty string
 # (`t="str"` with an empty `<v>`) does have a result.
 _FORMULA_WITHOUT_RESULT = re.compile(
-    rb"<(?:\w+:)?c\b(?![^>]*\bt\s*=\s*[\"']str[\"'])[^>]*>\s*<(?:\w+:)?f\b(?:[^>]*/>|[^>]*>[^<]*</(?:\w+:)?f>)\s*"
+    rb"<(?:\w+:)?c\b(?![^<>]*\bt\s*=\s*[\"']str[\"'])[^<>]*>\s*<(?:\w+:)?f\b(?:[^<>]*/>|[^<>]*>[^<]*</(?:\w+:)?f>)\s*"
     rb"(?:<(?:\w+:)?v\s*/>|<(?:\w+:)?v>\s*</(?:\w+:)?v>)?\s*</(?:\w+:)?c>")
 
 
@@ -782,10 +785,10 @@ def _repaired_copies(data: bytes) -> Iterator[tuple[bytes, bool, bool]]:
 # (Pinned by: test_core_spreadsheet.py::TestMalformedViewAndPrintSettings::test_unclosed_settings_take_linear_time).
 _VIEW_SETTINGS = re.compile(
     rb"<((?:[\w.-]+:)?(?:bookViews|calcPr|definedNames|sheetViews|sheetFormatPr|pageMargins|pageSetup|printOptions))\b"
-    rb"(?:[^>]*/>|(?:(?!<\1\b).)*?</\1\s*>)", re.DOTALL)
+    rb"(?:[^<>]*/>|(?:(?!<\1\b).)*?</\1\s*>)", re.DOTALL)
 # Sheet state in the workbook's sheet list (`<sheet … state="VeryHidden">`). A single value with the wrong letter case made openpyxl
 # reject the whole document.
-_SHEET_STATE = re.compile(rb"(<(?:[\w.-]+:)?sheet\b[^>]*?\sstate\s*=\s*)(\"[^\"]*\"|'[^']*')")
+_SHEET_STATE = re.compile(rb"(<(?:[\w.-]+:)?sheet\b[^<>]*?\sstate\s*=\s*)(\"[^\"]*\"|'[^']*')")
 _SHEET_STATES = {"visible": b"visible", "hidden": b"hidden", "veryhidden": b"veryHidden"}
 
 
@@ -3220,7 +3223,7 @@ _HTML_TAG = re.compile(rb"<[^<>]*>")
 _HTML_NAMED_ENTITY = re.compile(rb"&([A-Za-z][A-Za-z0-9]{0,31});")
 _XML_ENTITY_NAMES = frozenset((b"amp", b"lt", b"gt", b"quot", b"apos"))
 _VML_SHAPE_NUMBER = re.compile(r"_s(\d+)$")
-_CONTROL_ELEMENT = re.compile(rb"<(?:[\w.-]+:)?control\b[^>]*>")
+_CONTROL_ELEMENT = re.compile(rb"<(?:[\w.-]+:)?control\b[^<>]*>")
 _CONTROL_SHAPE_ID = re.compile(rb"\sshapeId\s*=\s*[\"']\s*(\d+)")
 _CONTROL_RELATIONSHIP = re.compile(rb"\s[\w.-]+:id\s*=\s*[\"']([^\"']*)")
 

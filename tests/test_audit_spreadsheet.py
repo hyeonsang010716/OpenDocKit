@@ -2,12 +2,14 @@
 document (audit of `extractors/spreadsheet.py`)."""
 
 from io import BytesIO
+import time
 import zipfile
 
 import openpyxl
 import pytest
 
 from opendockit import convert
+from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors import spreadsheet
 from opendockit.models import ConvertOptions
 from tests import builder
@@ -196,3 +198,78 @@ class TestSheetStoredAtAnotherPath:
 
         assert result.text == "## Sheet: Sheet\n\n| group | name |\n| --- | --- |\n| A | x |\n| A | y |"
         assert load_modes == [False]
+
+
+_CONTROL_RELATIONS = (
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" '
+    'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/ctrlProp" Target="../ctrlProps/ctrlProp1.xml"/>'
+    "</Relationships>")
+
+
+@pytest.mark.timing
+class TestUnclosedTagsInSheetXml:
+    """The searches over raw sheet XML let an unclosed tag run to the end of the part, once per tag: quadratic time. A 4.7 KB
+    file whose sheet is `<c ` 80,000 times took 50 s before openpyxl even saw it. The old code needed 20 s or more for each of
+    these inputs."""
+
+    def test_unclosed_cells(self):
+        data = builder.zip_with(_workbook(), edit={_SHEET: lambda _: "<c " * 80_000})
+        started = time.perf_counter()
+
+        with pytest.raises(CorruptedDocumentError):
+            convert(data, "a.xlsx")
+
+        assert time.perf_counter() - started < 5
+
+    def test_unclosed_formulas(self):
+        with zipfile.ZipFile(BytesIO(builder.zip_with(_workbook(), edit={_SHEET: lambda _: "<f " * 200_000}))) as archive:
+            started = time.perf_counter()
+
+            assert spreadsheet._formulas_without_results(archive, [_SHEET]) == (True, set())
+
+        assert time.perf_counter() - started < 5
+
+    @pytest.mark.parametrize(("part", "tag"), [(_SHEET, "<calcPr "), ("xl/workbook.xml", "<sheet ")])
+    def test_unclosed_settings(self, part, tag):
+        data = builder.zip_with(_workbook(), edit={part: lambda _: tag * 100_000 + "<sheetViews></sheetViews>"})
+        started = time.perf_counter()
+
+        assert spreadsheet._without_view_settings(data) is not None
+
+        assert time.perf_counter() - started < 5
+
+    def test_unclosed_controls(self):
+        data = builder.zip_with(_workbook(), edit={_SHEET: lambda _: "<control " * 100_000},
+                                add={"xl/worksheets/_rels/sheet1.xml.rels": _CONTROL_RELATIONS})
+        with zipfile.ZipFile(BytesIO(data)) as archive:
+            started = time.perf_counter()
+
+            assert spreadsheet._checked_control_shapes(archive, set(archive.namelist()), _SHEET) == set()
+
+        assert time.perf_counter() - started < 5
+
+
+class TestSheetXmlSearchesFindWhatTheyFound:
+    """The searches bounded for `TestUnclosedTagsInSheetXml` still find the same things in ordinary XML."""
+
+    def test_formula_cells(self):
+        with_result = b'<c r="A1" s="1"><f>1+1</f><v>2</v></c><c r="B1"><f t="shared" si="0"/><v>3</v></c>'
+        without = b'<x:c r="A1" s="1"><x:f>1+1</x:f></x:c>'
+
+        assert len(spreadsheet._FORMULA_WITH_RESULT.findall(with_result)) == 2
+        assert spreadsheet._FORMULA_WITHOUT_RESULT.search(with_result) is None
+        assert spreadsheet._FORMULA_WITHOUT_RESULT.search(without).group() == without
+        assert spreadsheet._FORMULA_WITHOUT_RESULT.search(b'<c r="A1"><f t="shared" si="0"/><v></v></c>') is not None
+        assert spreadsheet._FORMULA_WITHOUT_RESULT.search(b'<c r="A1" t="str"><f>""</f><v></v></c>') is None
+
+    def test_settings_and_sheet_state(self):
+        xml = b'<a><calcPr calcId="1" fullCalcOnLoad="1"/><sheetViews><sheetView tabSelected="1"/></sheetViews><b/></a>'
+
+        assert spreadsheet._VIEW_SETTINGS.sub(b"", xml) == b"<a><b/></a>"
+        assert spreadsheet._SHEET_STATE.search(b'<sheet name="a" sheetId="1" state="Hidden" r:id="rId1"/>').group(2) == b'"Hidden"'
+        assert spreadsheet._SHEET_STATE.search(b'<sheet name="a"/><sheets state="x"/>') is None
+
+    def test_control_elements(self):
+        xml = b'<controls><mc:x><control shapeId="1025" r:id="rId1" name="a"><controlPr/></control></mc:x></controls>'
+
+        assert spreadsheet._CONTROL_ELEMENT.findall(xml) == [b'<control shapeId="1025" r:id="rId1" name="a">']
