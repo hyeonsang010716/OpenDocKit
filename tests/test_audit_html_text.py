@@ -121,3 +121,23 @@ class TestDeeplyNestedAriaGrids:
 
         assert result.text == ("| a | \\| a \\| innermost \\|<br>\\| --- \\| --- \\|<br>\\| c \\| d \\| |\n"
                                "| --- | --- |\n| c | d |")
+
+
+class TestStylePropertiesThatOnlyEndLikeAHidingOne:
+    """The hidden-style pattern matched inside a longer property name: `backface-visibility:hidden` (a 3D-transform hint on an
+    element that is fully visible) removed the element and its text without a warning."""
+
+    @pytest.mark.parametrize("style", ["backface-visibility:hidden", "-webkit-backface-visibility: hidden;color:red",
+                                       "transform:none;BACKFACE-VISIBILITY : HIDDEN", "--card-display:none"])
+    def test_element_is_kept(self, style):
+        result = convert(f'<p>before</p><div style="{style}">BODY</div><p>after</p>'.encode(), "a.html")
+
+        assert result.text == "before\n\nBODY\n\nafter"
+
+    @pytest.mark.parametrize("style", ["display:none", "DISPLAY : NONE", "visibility:hidden", "color:red;visibility: hidden",
+                                       "color:red; display:none !important", "content-visibility:hidden",
+                                       "backface-visibility:hidden;display:none"])
+    def test_hidden_element_is_still_removed(self, style):
+        result = convert(f'<p>before</p><div style="{style}">SECRET</div><p>after</p>'.encode(), "a.html")
+
+        assert result.text == "before\n\nafter"

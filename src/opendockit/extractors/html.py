@@ -121,7 +121,10 @@ _STRIKE_STYLE = re.compile(r"text-decoration(?:-line)?\s*:[^;]*\bline-through\b"
 _BLOCK_TAGS = {"address", "article", "aside", "blockquote", "dd", "details", "dialog", "div", "dl", "dt",
                "fieldset", "figcaption", "figure", "footer", "form", "header", "hgroup", "hr", "legend", "main", "nav", "p",
                "search", "section", "summary", "caption", "center"}
-_HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.IGNORECASE)
+# Only the `display` / `visibility` (and `content-visibility`) properties themselves: matched anywhere, the pattern removed a
+# visible element styled `backface-visibility:hidden`, text and all
+# (Pinned by: test_audit_html_text.py::TestStylePropertiesThatOnlyEndLikeAHidingOne).
+_HIDDEN_STYLE = re.compile(r"(?<![\w-])(?:display\s*:\s*none|(?:content-)?visibility\s*:\s*hidden)", re.IGNORECASE)
 _FOLDED_STYLE = re.compile(r"display\s*:\s*none", re.IGNORECASE)
 # Hidden elements (blocks) that can be a folded answer, and the elements right before one that unfold it. Lists (ul/ol) are
 # left out because they are dropdown menus.
