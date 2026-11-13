@@ -6,6 +6,52 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+A review of the whole source for defects. Ordinary documents convert as before (the sample outputs in `examples/` are
+unchanged); what changed is what happens with damaged and hostile files.
+
+### Security
+
+- **Format detection** no longer takes time quadratic in the file size on a file with `%PDF-` after its first byte (40 KB
+  took 5 seconds; every upload passes through this check).
+- **PDF**: a stream compressed twice (`/Filter [/FlateDecode /FlateDecode]`) is charged against `max_uncompressed_bytes` at
+  every stage. A 1.1 KB file used to inflate to 200 MB under a 10 MB limit.
+- **Images**: pictures inside documents are opened with a fixed list of raster formats, so an EPS no longer reaches Pillow's
+  Ghostscript plugin; a progressive JPEG over the pixel limit is refused instead of decoded (1.5 MB on disk took 946 MB).
+- **XLSX**: row numbers the file skips cost nothing (a 14 KB file made ten million empty rows, 2.6 GB), and the streaming
+  checks cannot be avoided by storing a sheet outside `xl/worksheets/`.
+- About forty places where a small crafted file took tens of seconds (regular expressions that backtracked, work repeated
+  for every reference to the same part, searches that rescanned the page) now take time proportional to the input, in PDF,
+  HTML, mail, spreadsheets, DOCX, PPTX, ODF and HWPX. The decision records list each one, with what remains.
+
+### Fixed
+
+- **PDF**: the first line of a wrapped cell in a borderless table at the top of every page was deleted as a repeated header
+  in documents of three or more pages, and the table fell apart; on two-column pages such a table could come out twice.
+- **PDF**: a document was rejected when pdfium could not open one page, and a dense page was charged twice against the
+  decompression limit; one unreadable annotation dropped every form value of its page.
+- **HTML**: an element with `backface-visibility:hidden` was removed as hidden; an outer table took the caption of a table
+  nested in a cell; a `DOCTYPE` inside the body came out as text; `data:` pictures written with capitals were skipped.
+- **Mail**: a subject or attachment name that is not a decodable encoded word rejected the whole mail.
+- **DOCX**: a header shared by several sections was rendered once per section (`1. Company … 4. Company`); a `gridSpan` of 0
+  lost the next cell; documents without a body, with generically typed style parts or with a field begun inside a
+  superscript were rejected.
+- **Spreadsheets, charts, HWP, ODF**: single values no longer reject the whole document (a large negative elapsed time, a
+  date past the calendar, attributes of thousands of digits, a surrogate in an HWP auto number, `ss:Index="0"`).
+- **`IsolatedConverter`**: conversions under way when `aclose()` is called end with the closed error instead of "too large",
+  and the pools are shut down once; the converter can be used from one `asyncio.run` after another and after a fork.
+- Text behind a byte order mark that had to be decoded with replacement characters now gives the usual warning.
+
+### Changed
+
+- A chart or section referenced several times in one PPTX, DOCX or HWPX is written in full once; later references give the
+  chart's title line.
+- Number formats longer than Excel allows (255 characters for charts, 1,024 for cells) are not applied.
+- The warning about detached package parts names only plain part names, at most four; attachment names in the mail warning
+  are kept on one line and cut at 100 characters.
+- A Hancom equation with a repeated script on one term (`x^2^3`) keeps the original script instead of LaTeX that does not
+  compile.
+- The release workflow runs the tests before it builds.
+
 ## [0.3.2] - 2026-11-13
 
 ### Added
