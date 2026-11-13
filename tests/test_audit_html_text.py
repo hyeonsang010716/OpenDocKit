@@ -519,3 +519,54 @@ class TestMuchContentOutsideTheCellsOfATable:
     ])
     def test_stray_content_is_moved_as_before(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected
+
+
+class TestAttributeValuesThatRepeatTheStartOfAPattern:
+    """Two attribute patterns began again at every occurrence of their first word and each time read on to the end of the
+    value: a `style` of 20,000 `text-decoration:` (312KB) took 15 s, a `class` of 20,000 `lst-kix_` (156KB) 5 s."""
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("style", ["text-decoration:" * 20000, "text-decoration:" * 20000 + ";line-through",
+                                       "text-decoration " * 20000, "color:red;" + "text-decoration-line :x " * 20000])
+    def test_style_without_a_strikethrough_takes_linear_time(self, style):
+        seconds, text = _seconds(f'<p style="{style}">text</p>'.encode(), "a.html")
+
+        assert text == "text"
+        assert seconds < 3
+
+    @pytest.mark.parametrize("style", [
+        "text-decoration:line-through", "TEXT-DECORATION : underline LINE-THROUGH", "color:red;text-decoration-line: line-through;",
+        "-webkit-text-decoration:line-through", "text-decoration text-decoration: x line-through", "a:b;;text-decoration:\nline-through",
+        "text-decoration:" * 3 + "line-through",
+    ])
+    def test_strikethrough_style_is_marked_as_before(self, style):
+        assert convert(f'<p>a <span style="{style}">old</span> b</p>'.encode(), "a.html").text == "a ~~old~~ b"
+
+    @pytest.mark.parametrize("style", [
+        "text-decoration:underline", "text-decoration:none;color:line-through", "line-through", "text-decoration:x;line-through",
+        "text-decoration:noline-through", "text-decoration line-through",
+    ])
+    def test_other_styles_are_not_marked(self, style):
+        assert convert(f'<p>a <span style="{style}">old</span> b</p>'.encode(), "a.html").text == "a old b"
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("name", ["lst-kix_" * 20000, "a-1" + "lst-kix_" * 20000, "lst-kix_" * 20000 + "-x"])
+    def test_class_that_is_not_a_google_docs_list_takes_linear_time(self, name):
+        seconds, text = _seconds(f'<ul class="{name}"><li>one</li></ul><ul class="{name}"><li>two</li></ul>'.encode(), "a.html")
+
+        assert text == "- one\n\n- two"
+        assert seconds < 3
+
+    @pytest.mark.parametrize(("first", "second", "expected"), [
+        ("lst-kix_abc-0 start", "lst-kix_abc-1", "- one\n  - two"),
+        ("c1 lst-kix_abc-0", "lst-kix_abc-0", "- one\n- two"),
+        ("lst-kix_abc-0", "lst-kix_xyz-0", "- one\n\n- two"),
+        ("xlst-kix_a-b-0", "ylst-kix_a-b-0", "- one\n- two"),
+        ("lst-kix_lst-kix_q-0", "lst-kix_lst-kix_q-1", "- one\n  - two"),
+        ("lst-kix_-0", "lst-kix_-1", "- one\n\n- two"),
+        ("lst-kix_abc-0", "lst-kix_abc-x", "- one\n\n- two"),
+    ])
+    def test_google_docs_list_levels_are_read_as_before(self, first, second, expected):
+        html = f'<ul class="{first}"><li>one</li></ul><ul class="{second}"><li>two</li></ul>'
+
+        assert convert(html.encode(), "a.html").text == expected

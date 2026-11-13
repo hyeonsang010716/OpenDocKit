@@ -116,7 +116,11 @@ _HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
 _STRIKE_TAGS = ["del", "s", "strike"]
 _STRIKE = "~~"
 # CSS strikethrough. Both `text-decoration: underline line-through` and `text-decoration-line: line-through`.
-_STRIKE_STYLE = re.compile(r"text-decoration(?:-line)?\s*:[^;]*\bline-through\b", re.IGNORECASE)
+# Each declaration (up to the next `;`) is read once, from its first `text-decoration…:` — a later one in the same declaration
+# has less after it, so it cannot match when the first does not. Starting again at every occurrence took 15 seconds on a
+# style of 20,000 `text-decoration:` (312KB)
+# (Pinned by: test_audit_html_text.py::TestAttributeValuesThatRepeatTheStartOfAPattern).
+_STRIKE_STYLE = re.compile(r"(?:^|;)(?>[^;]*?text-decoration(?:-line)?\s*:)[^;]*\bline-through\b", re.IGNORECASE)
 # Block elements. legend/hgroup/search were missing, so text ran into what followed, as in '신청인 정보이름: 홍길동'
 # (legend "신청인 정보" glued to "이름: 홍길동") (Pinned by: test_core_html.py::TestBlockElements).
 _BLOCK_TAGS = {"address", "article", "aside", "blockquote", "dd", "details", "dialog", "div", "dl", "dt",
@@ -231,7 +235,9 @@ _MIN_LAYOUT_CELL_BLOCKS = 3
 _LAYOUT_BLOCKS = {"p", "ul", "ol", "blockquote", "pre", "dl", *_HEADINGS}
 # Class of a list exported by Google Docs (`lst-kix_<list id>-<level>`). It lays out a separate list per level side by side
 # (`_nest_google_docs_lists`).
-_GOOGLE_DOCS_LIST = re.compile(r"lst-kix_\S+-(\d+)")
+# Each class name is read once, from its first `lst-kix_` (`list` is the name up to the level) — same reason as
+# `_STRIKE_STYLE`: a class of 20,000 `lst-kix_` (156KB) took 5 seconds.
+_GOOGLE_DOCS_LIST = re.compile(r"(?<!\S)(?>\S*?(?=lst-kix_))(?P<list>lst-kix_\S+)-(?P<level>\d+)")
 # Style of a list paragraph that Word wrote with 'Save as Web Page' (`mso-list:l0 level2 lfo1`) and its bullet slot
 # (`mso-list:Ignore`, `_nest_word_lists`).
 _WORD_LIST_LEVEL = re.compile(r"mso-list\s*:\s*l\d+\s+level(\d+)", re.IGNORECASE)
@@ -870,7 +876,7 @@ def _nest_google_docs_lists(soup: BeautifulSoup) -> None:
     """
     levels = {id(node): level for node in soup.find_all(["ul", "ol"])
               if (match := _GOOGLE_DOCS_LIST.search(" ".join(node.get("class") or ())))
-              and (level := decimal_int(match.group(1), None)) is not None}
+              and (level := decimal_int(match.group("level"), None)) is not None}
     if not levels:
         return
     runs: list[list[Tag]] = []
@@ -1002,7 +1008,7 @@ def _continues_google_docs_list(previous: Tag, node: Tag, previous_items: int) -
     list id and tag and, for a numbered list, a `start` that is the next number."""
     def list_id(tag: Tag) -> str | None:
         match = _GOOGLE_DOCS_LIST.search(" ".join(tag.get("class") or ()))
-        return match.group(0).rsplit("-", 1)[0] if match else None
+        return match.group("list") if match else None
 
     if node.name != previous.name or list_id(node) != list_id(previous):
         return False
