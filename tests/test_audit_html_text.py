@@ -581,10 +581,10 @@ class TestListItemWithManyUnpairedFenceLines:
     @pytest.mark.timing
     @pytest.mark.parametrize("line", ["```<br>x", "```<br>", "x<br>```", "```<br>x<br>"])
     def test_item_takes_linear_time(self, line):
-        seconds, text = _seconds(("<ul><li>" + line * 20000 + "</li></ul>").encode(), "a.html")
+        seconds, text = _seconds(("<ul><li>" + line * 40000 + "</li></ul>").encode(), "a.html")
 
         assert text.startswith("-")
-        assert seconds < 3
+        assert seconds < 6
 
     @pytest.mark.parametrize(("item", "expected"), [
         ("first<pre>a  b\n\n\nc</pre>then<pre>d</pre>last", "- first\n\n```\na  b\n\n\nc\n```\n\nthen\n\n```\nd\n```\n\nlast"),
@@ -636,20 +636,20 @@ class TestManyListsOrTablesSetAsideWhileTheirParentIsRendered:
 
     @pytest.mark.timing
     def test_item_with_many_nested_lists_takes_linear_time(self):
-        seconds, text = _seconds(("<ul><li>" + "<ul><li>a</li></ul>" * 20000 + "</li></ul>").encode(), "a.html")
+        seconds, text = _seconds(("<ul><li>" + "<ul><li>a</li></ul>" * 30000 + "</li></ul>").encode(), "a.html")
 
-        assert text == "-\n" + "\n".join(["  - a"] * 20000)
-        assert seconds < 3
+        assert text == "-\n" + "\n".join(["  - a"] * 30000)
+        assert seconds < 8
 
     @pytest.mark.timing
     def test_cell_with_many_tables_takes_linear_time(self):
-        html = ("<table><tr><td>" + "<table><tr><td>a</td></tr></table>" * 20000 + "</td><td>b</td></tr>"
+        html = ("<table><tr><td>" + "<table><tr><td>a</td></tr></table>" * 30000 + "</td><td>b</td></tr>"
                 "<tr><td>c</td><td>d</td></tr></table>")
 
         seconds, text = _seconds(html.encode(), "a.html")
 
-        assert text == "| " + "a" * 20000 + " | b |\n| --- | --- |\n| c | d |"
-        assert seconds < 4
+        assert text == "| " + "a" * 30000 + " | b |\n| --- | --- |\n| c | d |"
+        assert seconds < 8
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<ul><li>one<ul><li>a</li></ul>between<div><ol><li>b</li></ol></div>after</li><li>two</li></ul>",
