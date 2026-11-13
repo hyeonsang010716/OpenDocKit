@@ -4,6 +4,7 @@ document (audit of `extractors/spreadsheet.py`)."""
 from io import BytesIO
 import struct
 import time
+from types import SimpleNamespace
 import zipfile
 
 import openpyxl
@@ -634,3 +635,74 @@ class TestPartsReferencedManyTimes:
         chart_text = once[once.index("[Chart]"):]
         assert result.text == once + ("\n\n" + chart_text) * 49
         assert len(parsed) == 1
+
+
+def _long_format(length: int) -> str:
+    """A number format of exactly `length` characters: two decimal places and spaces to be dropped."""
+    return "0.00" + " " * (length - 4)
+
+
+class TestVeryLongNumberFormat:
+    """The number format is analysed again for every cell, in time proportional to its length: a 6 KB workbook with a 100 KB
+    format on 200 cells took 1.6 s (7.8 ms per cell). Excel accepts no format of more than 255 characters."""
+
+    @pytest.fixture
+    def formats_analysed(self, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+        """Lengths of the formats handed to `format_cell`."""
+        lengths: list[int] = []
+        format_cell = spreadsheet.format_cell
+
+        def recording(value: object, number_format: str | None) -> str:
+            lengths.append(len(number_format or ""))
+            return format_cell(value, number_format)
+
+        monkeypatch.setattr(spreadsheet, "format_cell", recording)
+        return lengths
+
+    @staticmethod
+    def _xlsx(number_format: str) -> bytes:
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["name", "amount"])
+        sheet.append(["a", 1.5])
+        sheet["B2"].number_format = number_format
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    @pytest.mark.parametrize("streamed", [False, True], ids=["full", "streamed"])
+    def test_xlsx_format_over_the_limit_is_the_general_format(self, streamed, monkeypatch, formats_analysed):
+        """Pins: a number format of more than 1,024 characters is not interpreted; the value is shown as it is stored."""
+        if streamed:
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+
+        result = convert(self._xlsx(_long_format(1_025)), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| name | amount |\n| --- | --- |\n| a | 1.5 |"
+        assert not result.warnings
+        assert max(formats_analysed) < 100
+
+    def test_xlsx_format_at_the_limit_is_applied(self):
+        result = convert(self._xlsx(_long_format(1_024)), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| name | amount |\n| --- | --- |\n| a | 1.50 |"
+
+    @pytest.mark.parametrize(("length", "expected"), [(1_024, "1.50"), (1_025, "1.5")])
+    def test_xml_spreadsheet(self, length, expected, formats_analysed):
+        styles = f'<Style ss:ID="s0"><NumberFormat ss:Format="{_long_format(length)}"/></Style>'
+
+        result = convert(_xml_workbook(_STYLED_ROWS, styles), "a.xml")
+
+        assert result.text == f"## Sheet: s\n\n| name | amount |\n| --- | --- |\n| part | {expected} |"
+        assert max(formats_analysed) <= 1_024
+
+    @pytest.mark.parametrize(("length", "expected"), [(1_024, "1.50"), (1_025, "1.5")])
+    def test_xls(self, length, expected, formats_analysed):
+        import xlrd
+
+        book = SimpleNamespace(format_map={7: SimpleNamespace(format_str=_long_format(length))},
+                               xf_list=[SimpleNamespace(format_key=7)], datemode=0)
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_NUMBER, 1.5, 0)
+
+        assert spreadsheet._xls_cell_text(cell, book) == expected
+        assert max(formats_analysed) <= 1_024

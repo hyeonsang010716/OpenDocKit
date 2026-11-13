@@ -1236,9 +1236,20 @@ def _number_format(cell: object) -> str | None:
     (Pinned by: test_core_spreadsheet.py::TestUndefinedNumberFormatId).
     """
     try:
-        return getattr(cell, "number_format", None)
+        return _format_within_length(getattr(cell, "number_format", None))
     except IndexError:
         return None
+
+
+# A display format longer than this is not interpreted: the value is shown as under the General format. The format is analysed
+# again for every cell in time proportional to its length, so a 6 KB workbook with a 100 KB format on 200 cells took 1.6 s (7.8 ms
+# per cell). Excel accepts no format of more than 255 characters. Common to XLSX, XLS and Excel 2003 XML
+# (Pinned by: test_audit_spreadsheet.py::TestVeryLongNumberFormat).
+_MAX_FORMAT_LENGTH = 1024
+
+
+def _format_within_length(number_format: str | None) -> str | None:
+    return number_format if number_format is None or len(number_format) <= _MAX_FORMAT_LENGTH else None
 
 
 def _is_serial_zero_shown_as_date(value: object, number_format: str | None) -> bool:
@@ -2151,7 +2162,7 @@ def _xml_number_format(number_format: str | None) -> str | None:
     """A named format becomes its format string; a name missing from the table is treated as the General format (None) — the
     letters of the name were being read as date codes
     (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetNamedFormats::test_unknown_format_name_is_not_read_as_a_date)."""
-    if not number_format:
+    if not number_format or len(number_format) > _MAX_FORMAT_LENGTH:
         return None
     if number_format in _XML_NAMED_FORMATS:
         return _XML_NAMED_FORMATS[number_format]
@@ -4163,7 +4174,7 @@ def _xls_escapement(book: xlrd.book.Book, font_index: int) -> int | None:
 
 def _xls_number_format(book: xlrd.book.Book, cell: xlrd.sheet.Cell) -> str | None:
     try:
-        return book.format_map[book.xf_list[cell.xf_index].format_key].format_str
+        return _format_within_length(book.format_map[book.xf_list[cell.xf_index].format_key].format_str)
     except (AttributeError, IndexError, KeyError, TypeError):
         return None
 
