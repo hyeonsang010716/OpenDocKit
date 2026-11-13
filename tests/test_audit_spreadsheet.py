@@ -12,7 +12,7 @@ import pytest
 
 from opendockit import convert
 from opendockit.exceptions import CorruptedDocumentError
-from opendockit.extractors import _sheet_layout, spreadsheet, xls, xml_spreadsheet
+from opendockit.extractors import _sheet_layout, _xlsx_parts, spreadsheet, xls, xml_spreadsheet
 from opendockit.models import ConvertOptions
 from tests import builder
 from tests.test_spreadsheet_cell_values_and_controls import (
@@ -253,7 +253,7 @@ class TestUnclosedTagsInSheetXml:
         with zipfile.ZipFile(BytesIO(data)) as archive:
             started = time.perf_counter()
 
-            assert spreadsheet._checked_control_shapes(archive, set(archive.namelist()), _SHEET) == set()
+            assert _xlsx_parts._checked_control_shapes(archive, set(archive.namelist()), _SHEET) == set()
 
         assert time.perf_counter() - started < allowed(5)
 
@@ -281,7 +281,7 @@ class TestSheetXmlSearchesFindWhatTheyFound:
     def test_control_elements(self):
         xml = b'<controls><mc:x><control shapeId="1025" r:id="rId1" name="a"><controlPr/></control></mc:x></controls>'
 
-        assert spreadsheet._CONTROL_ELEMENT.findall(xml) == [b'<control shapeId="1025" r:id="rId1" name="a">']
+        assert _xlsx_parts._CONTROL_ELEMENT.findall(xml) == [b'<control shapeId="1025" r:id="rId1" name="a">']
 
 
 def _bof(kind: int) -> bytes:
@@ -591,13 +591,13 @@ class TestPartsReferencedManyTimes:
     def parsed(self, monkeypatch: pytest.MonkeyPatch) -> list[int]:
         """Sizes of the parts this module parsed."""
         sizes: list[int] = []
-        parse_part = spreadsheet.parse_part
+        parse_part = _xlsx_parts.parse_part
 
         def counting(data: bytes) -> object:
             sizes.append(len(data))
             return parse_part(data)
 
-        monkeypatch.setattr(spreadsheet, "parse_part", counting)
+        monkeypatch.setattr(_xlsx_parts, "parse_part", counting)
         return sizes
 
     def test_control_properties_part_is_parsed_once(self, parsed):

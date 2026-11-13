@@ -131,7 +131,7 @@ class TestManySheets:
         """To find comment authors (persons) the workbook relationships file (one entry per sheet) was parsed again for every sheet,
         taking time quadratic in the sheet count (8.9 s for 3,200 sheets). Timing fluctuates because openpyxl's own share is mixed
         in, so the number of re-reads is counted — it must not depend on the sheet count."""
-        from opendockit.extractors import spreadsheet
+        from opendockit.extractors import _xlsx_parts, spreadsheet
 
         def reads(sheets: int) -> int:
             workbook = Workbook()
@@ -140,11 +140,13 @@ class TestManySheets:
             buffer = BytesIO()
             workbook.save(buffer)
             sources: list[str] = []
-            related = spreadsheet._related
-            monkeypatch.setattr(spreadsheet, "_related",
-                                lambda archive, names, source, kind=None: sources.append(source) or related(archive, names, source, kind))
+            related = _xlsx_parts._related
+            for module in (spreadsheet, _xlsx_parts):  # the sheet list is read in one, the comment authors in the other
+                monkeypatch.setattr(module, "_related", lambda archive, names, source, kind=None: sources.append(source)
+                                    or related(archive, names, source, kind))
             convert(buffer.getvalue(), "a.xlsx", ConvertOptions(max_chars=None))
-            monkeypatch.setattr(spreadsheet, "_related", related)
+            for module in (spreadsheet, _xlsx_parts):
+                monkeypatch.setattr(module, "_related", related)
             return sources.count("xl/workbook.xml")
 
         few, many = reads(3), reads(300)

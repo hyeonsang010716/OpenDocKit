@@ -35,7 +35,7 @@ def _smartart(*bodies: str) -> str:
 class TestLineBreaksInsideDrawingParagraphs:
     """a:br is a line break. Where the text is written on one line (SmartArt items, chart titles) it becomes a space; where each line
     becomes a block (text boxes inside a chart, DOCX shape text) the line is split — the same rule as XLSX text boxes
-    (`spreadsheet._text_body`) and PPTX text boxes."""
+    (`_xlsx_parts._text_body`) and PPTX text boxes."""
 
     def test_smartart_item_with_a_line_break_keeps_its_words_apart(self):
         data = _smartart("<a:p><a:r><a:t>1단계</a:t></a:r><a:br/><a:r><a:t>기반 구축</a:t></a:r></a:p>", _BROKEN)

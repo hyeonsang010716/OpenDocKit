@@ -628,7 +628,7 @@ def drawing_paragraph_lines(paragraph: etree._Element) -> list[str]:
 
     Joining only the a:t made '2023' + a:br + '1,500' stick together as '20231,500'. Places written on one line (SmartArt items,
     chart titles) join the lines with a space; places where each line becomes a block (text boxes inside a chart, DOCX shape text)
-    use the lines as they are — the same rule as XLSX text boxes (`spreadsheet._text_body`) and PPTX text boxes
+    use the lines as they are — the same rule as XLSX text boxes (`_xlsx_parts._text_body`) and PPTX text boxes
     (Pinned by: test_office_drawing_line_breaks.py::TestLineBreaksInsideDrawingParagraphs).
     """
     pieces = ["\n" if node.tag == f"{{{_A}}}br" else node.text or ""
