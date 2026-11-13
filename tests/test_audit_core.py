@@ -34,6 +34,12 @@ def _pptx_with_number_chart(values: list[str], value_format: str = "General", *,
     return builder.zip_with(_pptx_with_chart(), edit={"ppt/charts/chart1.xml": lambda _: chart})
 
 
+def _docx_with_level_text(level_text: str) -> bytes:
+    """The sample document with the number text (w:lvlText) of its numbered lists replaced."""
+    return builder.zip_with(builder.docx_bytes(), edit={
+        "word/numbering.xml": lambda xml: xml.replace('<w:lvlText w:val="%1."/>', f'<w:lvlText w:val="{level_text}"/>')})
+
+
 class TestPdfBodySearchAfterALateHeader:
     """A file with `%PDF-` after its first byte is searched for body structure (`N N obj`). The search started again at every digit
     of a run of digits, so 40,000 digits after the header took 5 seconds — in the first check every upload goes through."""
@@ -359,3 +365,18 @@ class TestChartValueTooLargeForItsFormat:
         assert _shared._format_value("5", "0" + "," * 400_000 + '"k"') == "5"
         assert _shared._format_units("5", "0" + "," * 251 + '"k"') == "0k"
         assert _shared._format_units("1200000", '0,,"백만"') == "1백만"
+
+
+class TestHugeLevelNumberInNumberText:
+    """The level number after `%` in the number text of a DOCX list (w:lvlText) was turned into an integer as it was. With more
+    than 4,300 digits that is an error, so one list definition got the whole document rejected as 'corrupted'."""
+
+    def test_level_number_with_thousands_of_digits_is_a_level_that_does_not_exist(self):
+        result = convert(_docx_with_level_text("%" + "9" * 5000 + "(%1)"), "a.docx")
+
+        assert "\n\n(1) 첫째\n\n(2) 둘째\n\n" in result.text and "본문 첫 문단입니다." in result.text
+
+    def test_number_of_a_level_that_does_not_exist_is_left_out_as_before(self):
+        numbering = _shared.Numbering([_shared.NumberLevel("%7%0-%1.")], mark="%")
+
+        assert [numbering.advance(0), numbering.advance(0)] == ["-1.", "-2."]

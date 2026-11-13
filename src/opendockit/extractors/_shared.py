@@ -2275,7 +2275,9 @@ class Numbering:
 
         def number(match: re.Match[str]) -> str:
             token = match.group(1)
-            target = level if token in ("N", "n") else int(token) - 1
+            # A level number of more than 4,300 digits is a level that does not exist (`decimal_int`), not an error that rejects
+            # the document (Pinned by: test_audit_core.py::TestHugeLevelNumberInNumberText).
+            target = level if token in ("N", "n") else decimal_int(token, 0) - 1
             if not 0 <= target <= level:
                 return ""
             shape = "DIGIT" if self.levels[level].legal else self._level(target).shape
