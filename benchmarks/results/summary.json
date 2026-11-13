@@ -1045,8 +1045,8 @@
  "ordinary": {
   "opendockit": {
    "version": "0.2.0",
-   "import_seconds": 0.05,
-   "wall_seconds": 108.5,
+   "import_seconds": 0.04,
+   "wall_seconds": 104.2,
    "formats": {
     "DOC": {
      "files": 100,
@@ -1056,10 +1056,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 227,
-     "total_seconds": 77.2,
-     "median_seconds": 0.576,
-     "max_seconds": 13.4
+     "peak_rss_mb": 209,
+     "total_seconds": 77.7,
+     "median_seconds": 0.581,
+     "max_seconds": 13.2
     },
     "DOCX": {
      "files": 100,
@@ -1069,10 +1069,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 332,
-     "total_seconds": 7.0,
-     "median_seconds": 0.005,
-     "max_seconds": 5.1
+     "peak_rss_mb": 395,
+     "total_seconds": 4.6,
+     "median_seconds": 0.004,
+     "max_seconds": 2.8
     },
     "HWP": {
      "files": 44,
@@ -1082,10 +1082,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 241,
-     "total_seconds": 1.4,
+     "peak_rss_mb": 204,
+     "total_seconds": 1.9,
      "median_seconds": 0.002,
-     "max_seconds": 1.3
+     "max_seconds": 1.8
     },
     "HWPX": {
      "files": 49,
@@ -1095,10 +1095,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 352,
-     "total_seconds": 2.6,
-     "median_seconds": 0.006,
-     "max_seconds": 0.8
+     "peak_rss_mb": 395,
+     "total_seconds": 2.8,
+     "median_seconds": 0.004,
+     "max_seconds": 1.2
     },
     "PDF": {
      "files": 66,
@@ -1108,10 +1108,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 549,
-     "total_seconds": 101.9,
-     "median_seconds": 0.179,
-     "max_seconds": 23.9
+     "peak_rss_mb": 669,
+     "total_seconds": 91.1,
+     "median_seconds": 0.206,
+     "max_seconds": 21.6
     },
     "PPT": {
      "files": 100,
@@ -1121,10 +1121,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 549,
-     "total_seconds": 95.7,
-     "median_seconds": 0.531,
-     "max_seconds": 20.6
+     "peak_rss_mb": 669,
+     "total_seconds": 94.5,
+     "median_seconds": 0.534,
+     "max_seconds": 20.7
     },
     "PPTX": {
      "files": 84,
@@ -1134,10 +1134,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 549,
-     "total_seconds": 3.1,
-     "median_seconds": 0.008,
-     "max_seconds": 0.6
+     "peak_rss_mb": 669,
+     "total_seconds": 2.7,
+     "median_seconds": 0.007,
+     "max_seconds": 0.5
     },
     "XLS": {
      "files": 100,
@@ -1147,9 +1147,9 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 549,
-     "total_seconds": 6.0,
-     "median_seconds": 0.003,
+     "peak_rss_mb": 669,
+     "total_seconds": 5.8,
+     "median_seconds": 0.004,
      "max_seconds": 2.4
     },
     "XLSX": {
@@ -1160,17 +1160,17 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 549,
-     "total_seconds": 9.1,
+     "peak_rss_mb": 669,
+     "total_seconds": 8.6,
      "median_seconds": 0.006,
-     "max_seconds": 6.5
+     "max_seconds": 6.2
     }
    }
   },
   "markitdown": {
    "version": "0.1.9",
-   "import_seconds": 0.05,
-   "wall_seconds": 58.6,
+   "import_seconds": 0.04,
+   "wall_seconds": 61.1,
    "formats": {
     "DOC": {
      "files": 100,
@@ -1181,9 +1181,9 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 165,
-     "total_seconds": 4.6,
-     "median_seconds": 0.014,
-     "max_seconds": 1.2
+     "total_seconds": 5.5,
+     "median_seconds": 0.022,
+     "max_seconds": 1.3
     },
     "DOCX": {
      "files": 100,
@@ -1193,10 +1193,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 805,
-     "total_seconds": 37.6,
-     "median_seconds": 0.035,
-     "max_seconds": 26.0
+     "peak_rss_mb": 816,
+     "total_seconds": 47.9,
+     "median_seconds": 0.055,
+     "max_seconds": 32.7
     },
     "HWP": {
      "files": 44,
@@ -1206,9 +1206,9 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 235,
-     "total_seconds": 0.6,
-     "median_seconds": 0.014,
+     "peak_rss_mb": 234,
+     "total_seconds": 0.9,
+     "median_seconds": 0.02,
      "max_seconds": 0.0
     },
     "HWPX": {
@@ -1219,9 +1219,9 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 235,
-     "total_seconds": 0.7,
-     "median_seconds": 0.014,
+     "peak_rss_mb": 234,
+     "total_seconds": 1.0,
+     "median_seconds": 0.02,
      "max_seconds": 0.0
     },
     "PDF": {
@@ -1232,10 +1232,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 805,
-     "total_seconds": 62.2,
-     "median_seconds": 0.188,
-     "max_seconds": 22.0
+     "peak_rss_mb": 617,
+     "total_seconds": 54.3,
+     "median_seconds": 0.164,
+     "max_seconds": 17.8
     },
     "PPT": {
      "files": 100,
@@ -1245,9 +1245,9 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 805,
+     "peak_rss_mb": 234,
      "total_seconds": 1.1,
-     "median_seconds": 0.01,
+     "median_seconds": 0.011,
      "max_seconds": 0.0
     },
     "PPTX": {
@@ -1258,10 +1258,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 805,
-     "total_seconds": 5.6,
-     "median_seconds": 0.021,
-     "max_seconds": 1.3
+     "peak_rss_mb": 338,
+     "total_seconds": 5.2,
+     "median_seconds": 0.03,
+     "max_seconds": 0.7
     },
     "XLS": {
      "files": 100,
@@ -1271,10 +1271,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 805,
-     "total_seconds": 40.0,
-     "median_seconds": 0.021,
-     "max_seconds": 9.8
+     "peak_rss_mb": 816,
+     "total_seconds": 41.2,
+     "median_seconds": 0.031,
+     "max_seconds": 9.6
     },
     "XLSX": {
      "files": 100,
@@ -1284,17 +1284,17 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 805,
-     "total_seconds": 16.8,
-     "median_seconds": 0.024,
+     "peak_rss_mb": 816,
+     "total_seconds": 19.6,
+     "median_seconds": 0.031,
      "max_seconds": 3.9
     }
    }
   },
   "kreuzberg": {
    "version": "4.10.4",
-   "import_seconds": 0.05,
-   "wall_seconds": 3.4,
+   "import_seconds": 0.04,
+   "wall_seconds": 3.1,
    "formats": {
     "DOC": {
      "files": 100,
@@ -1304,10 +1304,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 57,
+     "peak_rss_mb": 59,
      "total_seconds": 0.4,
      "median_seconds": 0.002,
-     "max_seconds": 0.0
+     "max_seconds": 0.1
     },
     "DOCX": {
      "files": 100,
@@ -1317,10 +1317,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 112,
-     "total_seconds": 1.4,
-     "median_seconds": 0.003,
-     "max_seconds": 1.0
+     "peak_rss_mb": 110,
+     "total_seconds": 1.3,
+     "median_seconds": 0.002,
+     "max_seconds": 0.9
     },
     "HWP": {
      "files": 44,
@@ -1330,8 +1330,8 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 113,
-     "total_seconds": 0.1,
+     "peak_rss_mb": 114,
+     "total_seconds": 0.2,
      "median_seconds": 0.0,
      "max_seconds": 0.1
     },
@@ -1343,7 +1343,7 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 63,
+     "peak_rss_mb": 56,
      "total_seconds": 0.0,
      "median_seconds": 0.0,
      "max_seconds": 0.0
@@ -1356,10 +1356,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 131,
-     "total_seconds": 5.8,
-     "median_seconds": 0.023,
-     "max_seconds": 0.8
+     "peak_rss_mb": 144,
+     "total_seconds": 5.2,
+     "median_seconds": 0.02,
+     "max_seconds": 0.7
     },
     "PPT": {
      "files": 100,
@@ -1369,8 +1369,8 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 132,
-     "total_seconds": 0.3,
+     "peak_rss_mb": 146,
+     "total_seconds": 0.2,
      "median_seconds": 0.002,
      "max_seconds": 0.0
     },
@@ -1382,9 +1382,9 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 132,
+     "peak_rss_mb": 146,
      "total_seconds": 0.4,
-     "median_seconds": 0.003,
+     "median_seconds": 0.002,
      "max_seconds": 0.1
     },
     "XLS": {
@@ -1395,8 +1395,8 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 142,
-     "total_seconds": 0.7,
+     "peak_rss_mb": 152,
+     "total_seconds": 0.6,
      "median_seconds": 0.002,
      "max_seconds": 0.1
     },
@@ -1408,7 +1408,7 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 142,
+     "peak_rss_mb": 152,
      "total_seconds": 0.5,
      "median_seconds": 0.002,
      "max_seconds": 0.1
@@ -1417,8 +1417,8 @@
   },
   "unstructured": {
    "version": "0.27.37",
-   "import_seconds": 0.05,
-   "wall_seconds": 214.5,
+   "import_seconds": 0.04,
+   "wall_seconds": 208.1,
    "formats": {
     "DOC": {
      "files": 100,
@@ -1428,10 +1428,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 887,
-     "total_seconds": 207.6,
-     "median_seconds": 0.548,
-     "max_seconds": 18.1
+     "peak_rss_mb": 864,
+     "total_seconds": 199.3,
+     "median_seconds": 0.527,
+     "max_seconds": 18.7
     },
     "DOCX": {
      "files": 100,
@@ -1441,10 +1441,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 985,
-     "total_seconds": 39.6,
-     "median_seconds": 0.016,
-     "max_seconds": 23.6
+     "peak_rss_mb": 1048,
+     "total_seconds": 35.7,
+     "median_seconds": 0.013,
+     "max_seconds": 23.7
     },
     "HWP": {
      "files": 44,
@@ -1454,10 +1454,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 855,
+     "peak_rss_mb": 814,
      "total_seconds": 0.1,
      "median_seconds": 0.001,
-     "max_seconds": 0.0
+     "max_seconds": 0.1
     },
     "HWPX": {
      "files": 49,
@@ -1467,7 +1467,7 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 856,
+     "peak_rss_mb": 814,
      "total_seconds": 0.1,
      "median_seconds": 0.001,
      "max_seconds": 0.0
@@ -1480,10 +1480,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 1445,
-     "total_seconds": 95.6,
-     "median_seconds": 0.271,
-     "max_seconds": 19.3
+     "peak_rss_mb": 1616,
+     "total_seconds": 81.5,
+     "median_seconds": 0.249,
+     "max_seconds": 16.2
     },
     "PPT": {
      "files": 100,
@@ -1493,10 +1493,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 1445,
-     "total_seconds": 261.0,
-     "median_seconds": 0.551,
-     "max_seconds": 20.2
+     "peak_rss_mb": 1616,
+     "total_seconds": 274.3,
+     "median_seconds": 0.691,
+     "max_seconds": 20.3
     },
     "PPTX": {
      "files": 84,
@@ -1506,10 +1506,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 1445,
-     "total_seconds": 11.2,
+     "peak_rss_mb": 1616,
+     "total_seconds": 8.9,
      "median_seconds": 0.016,
-     "max_seconds": 1.4
+     "max_seconds": 1.2
     },
     "XLS": {
      "files": 100,
@@ -1519,10 +1519,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 1445,
-     "total_seconds": 13.6,
-     "median_seconds": 0.021,
-     "max_seconds": 2.3
+     "peak_rss_mb": 1616,
+     "total_seconds": 11.6,
+     "median_seconds": 0.017,
+     "max_seconds": 3.0
     },
     "XLSX": {
      "files": 100,
@@ -1532,17 +1532,17 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 1445,
-     "total_seconds": 12.4,
-     "median_seconds": 0.027,
+     "peak_rss_mb": 1616,
+     "total_seconds": 10.5,
+     "median_seconds": 0.024,
      "max_seconds": 3.0
     }
    }
   },
   "docling": {
    "version": "2.150.0",
-   "import_seconds": 0.06,
-   "wall_seconds": 1055.4,
+   "import_seconds": 0.04,
+   "wall_seconds": 1020.2,
    "formats": {
     "DOC": {
      "files": 100,
@@ -1552,10 +1552,10 @@
      "timeout": 1,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 768,
-     "total_seconds": 279.2,
-     "median_seconds": 0.628,
-     "max_seconds": 120.3
+     "peak_rss_mb": 770,
+     "total_seconds": 278.9,
+     "median_seconds": 0.629,
+     "max_seconds": 120.4
     },
     "DOCX": {
      "files": 100,
@@ -1565,10 +1565,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 1165,
-     "total_seconds": 43.9,
-     "median_seconds": 0.013,
-     "max_seconds": 19.8
+     "peak_rss_mb": 1176,
+     "total_seconds": 40.9,
+     "median_seconds": 0.011,
+     "max_seconds": 18.0
     },
     "HWP": {
      "files": 44,
@@ -1578,9 +1578,9 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 774,
+     "peak_rss_mb": 786,
      "total_seconds": 0.2,
-     "median_seconds": 0.004,
+     "median_seconds": 0.003,
      "max_seconds": 0.0
     },
     "HWPX": {
@@ -1591,23 +1591,23 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 774,
+     "peak_rss_mb": 786,
      "total_seconds": 0.1,
-     "median_seconds": 0.002,
+     "median_seconds": 0.001,
      "max_seconds": 0.0
     },
     "PDF": {
      "files": 66,
-     "ok": 54,
+     "ok": 55,
      "empty": 1,
      "error": 2,
-     "timeout": 9,
+     "timeout": 8,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 3222,
-     "total_seconds": 2601.4,
-     "median_seconds": 23.504,
-     "max_seconds": 120.9
+     "peak_rss_mb": 3190,
+     "total_seconds": 2495.1,
+     "median_seconds": 20.661,
+     "max_seconds": 120.7
     },
     "PPT": {
      "files": 100,
@@ -1617,9 +1617,9 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 3222,
-     "total_seconds": 108.7,
-     "median_seconds": 0.532,
+     "peak_rss_mb": 2793,
+     "total_seconds": 110.8,
+     "median_seconds": 0.579,
      "max_seconds": 20.5
     },
     "PPTX": {
@@ -1630,10 +1630,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 2028,
-     "total_seconds": 15.5,
-     "median_seconds": 0.014,
-     "max_seconds": 3.1
+     "peak_rss_mb": 2665,
+     "total_seconds": 15.9,
+     "median_seconds": 0.013,
+     "max_seconds": 3.6
     },
     "XLS": {
      "files": 100,
@@ -1643,10 +1643,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 3222,
-     "total_seconds": 91.2,
-     "median_seconds": 0.483,
-     "max_seconds": 19.7
+     "peak_rss_mb": 3177,
+     "total_seconds": 94.8,
+     "median_seconds": 0.487,
+     "max_seconds": 20.4
     },
     "XLSX": {
      "files": 100,
@@ -1656,10 +1656,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 3222,
-     "total_seconds": 14.6,
-     "median_seconds": 0.011,
-     "max_seconds": 7.9
+     "peak_rss_mb": 3177,
+     "total_seconds": 14.0,
+     "median_seconds": 0.01,
+     "max_seconds": 7.7
     }
    }
   }
@@ -1668,7 +1668,7 @@
   "opendockit": {
    "version": "0.2.0",
    "import_seconds": 0.03,
-   "wall_seconds": 27.1,
+   "wall_seconds": 26.4,
    "formats": {
     "PDF": {
      "files": 19,
@@ -1679,9 +1679,9 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 86,
-     "total_seconds": 10.6,
-     "median_seconds": 0.599,
-     "max_seconds": 0.7
+     "total_seconds": 9.9,
+     "median_seconds": 0.554,
+     "max_seconds": 0.6
     },
     "DOCX": {
      "files": 14,
@@ -1692,8 +1692,8 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 85,
-     "total_seconds": 7.3,
-     "median_seconds": 0.569,
+     "total_seconds": 6.7,
+     "median_seconds": 0.503,
      "max_seconds": 0.6
     },
     "DOC": {
@@ -1705,22 +1705,9 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 89,
-     "total_seconds": 13.6,
-     "median_seconds": 1.055,
-     "max_seconds": 1.9
-    },
-    "PPT": {
-     "files": 20,
-     "ok": 4,
-     "empty": 0,
-     "error": 16,
-     "timeout": 0,
-     "crash": 0,
-     "memory": 0,
-     "peak_rss_mb": 96,
-     "total_seconds": 16.0,
-     "median_seconds": 0.845,
-     "max_seconds": 1.5
+     "total_seconds": 13.5,
+     "median_seconds": 1.1,
+     "max_seconds": 1.6
     },
     "PPTX": {
      "files": 11,
@@ -1731,22 +1718,22 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 84,
-     "total_seconds": 5.8,
-     "median_seconds": 0.58,
+     "total_seconds": 5.4,
+     "median_seconds": 0.508,
      "max_seconds": 0.6
     },
-    "XLS": {
-     "files": 17,
-     "ok": 5,
+    "PPT": {
+     "files": 20,
+     "ok": 4,
      "empty": 0,
-     "error": 12,
+     "error": 16,
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 88,
-     "total_seconds": 8.3,
-     "median_seconds": 0.416,
-     "max_seconds": 0.6
+     "peak_rss_mb": 96,
+     "total_seconds": 16.1,
+     "median_seconds": 0.829,
+     "max_seconds": 1.3
     },
     "XLSX": {
      "files": 20,
@@ -1757,16 +1744,29 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 125,
-     "total_seconds": 11.3,
-     "median_seconds": 0.598,
-     "max_seconds": 0.9
+     "total_seconds": 10.9,
+     "median_seconds": 0.545,
+     "max_seconds": 1.2
+    },
+    "XLS": {
+     "files": 17,
+     "ok": 5,
+     "empty": 0,
+     "error": 12,
+     "timeout": 0,
+     "crash": 0,
+     "memory": 0,
+     "peak_rss_mb": 88,
+     "total_seconds": 8.1,
+     "median_seconds": 0.467,
+     "max_seconds": 0.6
     }
    }
   },
   "markitdown": {
    "version": "0.1.9",
-   "import_seconds": 0.03,
-   "wall_seconds": 69.1,
+   "import_seconds": 0.06,
+   "wall_seconds": 73.8,
    "formats": {
     "PDF": {
      "files": 19,
@@ -1777,8 +1777,8 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 165,
-     "total_seconds": 19.5,
-     "median_seconds": 1.079,
+     "total_seconds": 19.8,
+     "median_seconds": 1.088,
      "max_seconds": 1.2
     },
     "DOC": {
@@ -1790,9 +1790,9 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 165,
-     "total_seconds": 11.7,
-     "median_seconds": 0.997,
-     "max_seconds": 1.0
+     "total_seconds": 11.6,
+     "median_seconds": 0.969,
+     "max_seconds": 1.1
     },
     "DOCX": {
      "files": 14,
@@ -1803,9 +1803,9 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 239,
-     "total_seconds": 39.6,
-     "median_seconds": 0.972,
-     "max_seconds": 27.4
+     "total_seconds": 36.9,
+     "median_seconds": 0.986,
+     "max_seconds": 24.5
     },
     "PPT": {
      "files": 20,
@@ -1816,9 +1816,9 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 165,
-     "total_seconds": 18.3,
-     "median_seconds": 0.925,
-     "max_seconds": 1.0
+     "total_seconds": 19.0,
+     "median_seconds": 0.951,
+     "max_seconds": 1.1
     },
     "PPTX": {
      "files": 11,
@@ -1829,9 +1829,9 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 165,
-     "total_seconds": 9.9,
-     "median_seconds": 0.908,
-     "max_seconds": 1.0
+     "total_seconds": 10.5,
+     "median_seconds": 0.999,
+     "max_seconds": 1.1
     },
     "XLSX": {
      "files": 20,
@@ -1842,9 +1842,9 @@
      "crash": 0,
      "memory": 1,
      "peak_rss_mb": 6000,
-     "total_seconds": 40.6,
-     "median_seconds": 0.967,
-     "max_seconds": 22.9
+     "total_seconds": 46.2,
+     "median_seconds": 0.999,
+     "max_seconds": 27.6
     },
     "XLS": {
      "files": 17,
@@ -1855,8 +1855,8 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 168,
-     "total_seconds": 15.5,
-     "median_seconds": 0.903,
+     "total_seconds": 16.2,
+     "median_seconds": 0.946,
      "max_seconds": 1.1
     }
    }
@@ -1875,8 +1875,8 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 56,
-     "total_seconds": 0.4,
-     "median_seconds": 0.023,
+     "total_seconds": 0.5,
+     "median_seconds": 0.025,
      "max_seconds": 0.0
     },
     "DOC": {
@@ -1889,7 +1889,7 @@
      "memory": 0,
      "peak_rss_mb": 49,
      "total_seconds": 0.3,
-     "median_seconds": 0.022,
+     "median_seconds": 0.021,
      "max_seconds": 0.0
     },
     "DOCX": {
@@ -1900,9 +1900,9 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 60,
-     "total_seconds": 0.4,
-     "median_seconds": 0.018,
+     "peak_rss_mb": 59,
+     "total_seconds": 0.5,
+     "median_seconds": 0.022,
      "max_seconds": 0.2
     },
     "PPT": {
@@ -1915,7 +1915,7 @@
      "memory": 0,
      "peak_rss_mb": 49,
      "total_seconds": 0.4,
-     "median_seconds": 0.019,
+     "median_seconds": 0.02,
      "max_seconds": 0.0
     },
     "PPTX": {
@@ -1928,7 +1928,7 @@
      "memory": 0,
      "peak_rss_mb": 49,
      "total_seconds": 0.2,
-     "median_seconds": 0.017,
+     "median_seconds": 0.019,
      "max_seconds": 0.0
     },
     "XLSX": {
@@ -1941,7 +1941,7 @@
      "memory": 0,
      "peak_rss_mb": 51,
      "total_seconds": 0.4,
-     "median_seconds": 0.019,
+     "median_seconds": 0.022,
      "max_seconds": 0.0
     },
     "XLS": {
@@ -1953,8 +1953,8 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 49,
-     "total_seconds": 0.3,
-     "median_seconds": 0.02,
+     "total_seconds": 0.4,
+     "median_seconds": 0.022,
      "max_seconds": 0.0
     }
    }
@@ -1962,7 +1962,7 @@
   "unstructured": {
    "version": "0.27.37",
    "import_seconds": 0.03,
-   "wall_seconds": 265.1,
+   "wall_seconds": 268.2,
    "formats": {
     "PDF": {
      "files": 19,
@@ -1973,9 +1973,9 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 977,
-     "total_seconds": 105.7,
-     "median_seconds": 5.273,
-     "max_seconds": 10.4
+     "total_seconds": 103.6,
+     "median_seconds": 5.095,
+     "max_seconds": 9.4
     },
     "DOC": {
      "files": 12,
@@ -1986,9 +1986,9 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 767,
-     "total_seconds": 132.2,
-     "median_seconds": 6.784,
-     "max_seconds": 24.6
+     "total_seconds": 127.4,
+     "median_seconds": 5.385,
+     "max_seconds": 26.0
     },
     "DOCX": {
      "files": 14,
@@ -1998,9 +1998,9 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 646,
-     "total_seconds": 31.2,
-     "median_seconds": 2.862,
+     "peak_rss_mb": 645,
+     "total_seconds": 28.8,
+     "median_seconds": 2.845,
      "max_seconds": 3.7
     },
     "PPT": {
@@ -2011,10 +2011,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 776,
-     "total_seconds": 300.6,
-     "median_seconds": 15.403,
-     "max_seconds": 28.6
+     "peak_rss_mb": 775,
+     "total_seconds": 314.4,
+     "median_seconds": 17.298,
+     "max_seconds": 25.9
     },
     "PPTX": {
      "files": 11,
@@ -2025,8 +2025,8 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 651,
-     "total_seconds": 18.3,
-     "median_seconds": 0.605,
+     "total_seconds": 18.6,
+     "median_seconds": 0.444,
      "max_seconds": 3.6
     },
     "XLSX": {
@@ -2038,9 +2038,9 @@
      "crash": 0,
      "memory": 1,
      "peak_rss_mb": 6000,
-     "total_seconds": 81.1,
-     "median_seconds": 3.198,
-     "max_seconds": 36.1
+     "total_seconds": 81.0,
+     "median_seconds": 3.335,
+     "max_seconds": 37.6
     },
     "XLS": {
      "files": 17,
@@ -2051,16 +2051,16 @@
      "crash": 0,
      "memory": 0,
      "peak_rss_mb": 781,
-     "total_seconds": 58.1,
-     "median_seconds": 3.621,
-     "max_seconds": 5.0
+     "total_seconds": 58.5,
+     "median_seconds": 3.595,
+     "max_seconds": 5.1
     }
    }
   },
   "docling": {
    "version": "2.150.0",
-   "import_seconds": 0.05,
-   "wall_seconds": 174.3,
+   "import_seconds": 0.03,
+   "wall_seconds": 178.0,
    "formats": {
     "PDF": {
      "files": 19,
@@ -2070,10 +2070,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 1635,
-     "total_seconds": 132.2,
-     "median_seconds": 4.058,
-     "max_seconds": 14.9
+     "peak_rss_mb": 1666,
+     "total_seconds": 132.5,
+     "median_seconds": 4.034,
+     "max_seconds": 14.1
     },
     "DOC": {
      "files": 12,
@@ -2083,10 +2083,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 719,
-     "total_seconds": 58.6,
-     "median_seconds": 4.462,
-     "max_seconds": 8.9
+     "peak_rss_mb": 714,
+     "total_seconds": 60.4,
+     "median_seconds": 4.269,
+     "max_seconds": 9.0
     },
     "DOCX": {
      "files": 14,
@@ -2096,10 +2096,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 684,
-     "total_seconds": 52.1,
-     "median_seconds": 3.845,
-     "max_seconds": 4.2
+     "peak_rss_mb": 680,
+     "total_seconds": 51.2,
+     "median_seconds": 3.686,
+     "max_seconds": 4.1
     },
     "PPT": {
      "files": 20,
@@ -2109,9 +2109,9 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 695,
-     "total_seconds": 79.4,
-     "median_seconds": 4.081,
+     "peak_rss_mb": 690,
+     "total_seconds": 83.3,
+     "median_seconds": 4.203,
      "max_seconds": 4.6
     },
     "PPTX": {
@@ -2122,10 +2122,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 682,
-     "total_seconds": 40.4,
-     "median_seconds": 3.709,
-     "max_seconds": 4.2
+     "peak_rss_mb": 678,
+     "total_seconds": 40.0,
+     "median_seconds": 3.674,
+     "max_seconds": 4.0
     },
     "XLSX": {
      "files": 20,
@@ -2135,10 +2135,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 691,
-     "total_seconds": 71.6,
-     "median_seconds": 3.548,
-     "max_seconds": 4.4
+     "peak_rss_mb": 687,
+     "total_seconds": 73.9,
+     "median_seconds": 3.609,
+     "max_seconds": 4.5
     },
     "XLS": {
      "files": 17,
@@ -2148,10 +2148,10 @@
      "timeout": 0,
      "crash": 0,
      "memory": 0,
-     "peak_rss_mb": 712,
-     "total_seconds": 70.5,
-     "median_seconds": 4.26,
-     "max_seconds": 5.0
+     "peak_rss_mb": 707,
+     "total_seconds": 72.3,
+     "median_seconds": 4.319,
+     "max_seconds": 5.2
     }
    }
   }

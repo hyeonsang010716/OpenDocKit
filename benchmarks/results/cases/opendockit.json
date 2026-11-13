@@ -1,279 +1,279 @@
 {
  "tool": "opendockit",
  "version": "0.2.0",
- "import_seconds": 0.03473018800002592,
- "wall_seconds": 5.403527746999998,
+ "import_seconds": 0.031792600999892784,
+ "wall_seconds": 6.082491965000031,
  "results": {
   "analysis.ipynb": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/analysis.ipynb",
    "ok": true,
    "chars": 419,
-   "seconds": 1.6389368349999813,
-   "peak_rss_mb": 105.9765625,
+   "seconds": 1.483755073999987,
+   "peak_rss_mb": 105.33203125,
    "outcome": "ok"
   },
   "article.html": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/article.html",
    "ok": true,
    "chars": 747,
-   "seconds": 0.006250032999957966,
-   "peak_rss_mb": 105.9765625,
+   "seconds": 0.005631761000017832,
+   "peak_rss_mb": 105.33203125,
    "outcome": "ok"
   },
   "branch-sales-cp949.csv": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/branch-sales-cp949.csv",
    "ok": true,
    "chars": 207,
-   "seconds": 0.002918593000003966,
-   "peak_rss_mb": 105.9765625,
+   "seconds": 0.0026068550000672985,
+   "peak_rss_mb": 105.33203125,
    "outcome": "ok"
   },
   "dashboard.mht": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/dashboard.mht",
    "ok": true,
    "chars": 94,
-   "seconds": 0.0027456720000031964,
-   "peak_rss_mb": 105.9765625,
+   "seconds": 0.0024661230000901924,
+   "peak_rss_mb": 105.33203125,
    "outcome": "ok"
   },
   "deck.odp": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.odp",
    "ok": true,
    "chars": 703,
-   "seconds": 0.006873978999976771,
-   "peak_rss_mb": 105.9765625,
+   "seconds": 0.005928279000045222,
+   "peak_rss_mb": 105.33203125,
    "outcome": "ok"
   },
   "deck.pptx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.pptx",
    "ok": true,
    "chars": 703,
-   "seconds": 0.016322023999975954,
-   "peak_rss_mb": 105.9765625,
+   "seconds": 0.014540147999923647,
+   "peak_rss_mb": 105.33203125,
    "outcome": "ok"
   },
   "fax.tiff": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/fax.tiff",
    "ok": true,
    "chars": 50,
-   "seconds": 0.1792209170000092,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.1732359400000405,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "html-table-named.xls": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/html-table-named.xls",
    "ok": true,
    "chars": 187,
-   "seconds": 0.0029381549999811796,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.002789930999938406,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "inventory-2003.xml": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/inventory-2003.xml",
    "ok": true,
    "chars": 126,
-   "seconds": 0.0011231020000082026,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.001003944999979467,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "invoice.png": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/invoice.png",
    "ok": true,
    "chars": 7,
-   "seconds": 0.012230306999981622,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.013406948000010743,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "legacy-deck.ppt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-deck.ppt",
    "ok": true,
    "chars": 703,
-   "seconds": 2.190105587000005,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 2.6377030830000194,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "legacy-report.doc": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-report.doc",
    "ok": true,
    "chars": 878,
-   "seconds": 0.5470383900000115,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.5437593660000175,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "legacy-sales.xls": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-sales.xls",
    "ok": true,
    "chars": 530,
-   "seconds": 0.004943996999998035,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.004013507999957255,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "mailbox.mbox": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/mailbox.mbox",
    "ok": true,
    "chars": 359,
-   "seconds": 0.0012165559999743891,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.0011198900000408685,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "meeting.eml": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/meeting.eml",
    "ok": true,
    "chars": 650,
-   "seconds": 0.005477637000012692,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.004997323999987202,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "notes.txt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notes.txt",
    "ok": true,
    "chars": 82,
-   "seconds": 0.000667754000005516,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.0005087079999839261,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "notice-cp949.txt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notice-cp949.txt",
    "ok": true,
    "chars": 41,
-   "seconds": 0.0005769939999709095,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.0005428800000117917,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "numbered-outline.hwpx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/numbered-outline.hwpx",
    "ok": true,
    "chars": 282,
-   "seconds": 0.0052511779999804276,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.004514804999985245,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "orders.csv": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/orders.csv",
    "ok": true,
    "chars": 112,
-   "seconds": 0.0018489910000312193,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.0012444689999711045,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "receipt.jpg": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/receipt.jpg",
    "ok": true,
    "chars": 7,
-   "seconds": 0.008611975000007988,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.007716849000075854,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "release-notes.epub": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.epub",
    "ok": true,
    "chars": 295,
-   "seconds": 0.005547589000002517,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.005169102999957431,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "release-notes.md": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.md",
    "ok": true,
    "chars": 303,
-   "seconds": 0.0006833769999730066,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.0005279270000073666,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "report.docx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.docx",
    "ok": true,
    "chars": 910,
-   "seconds": 0.025765980000016953,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.024946803999910117,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "report.odt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.odt",
    "ok": true,
    "chars": 878,
-   "seconds": 0.011782698999979857,
-   "peak_rss_mb": 118.74609375,
+   "seconds": 0.011419718999945871,
+   "peak_rss_mb": 118.79296875,
    "outcome": "ok"
   },
   "report.rtf": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.rtf",
    "ok": true,
    "chars": 878,
-   "seconds": 0.059447010999974736,
-   "peak_rss_mb": 125.10546875,
+   "seconds": 0.06603676600002473,
+   "peak_rss_mb": 125.1953125,
    "outcome": "ok"
   },
   "rich-text.docx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.docx",
    "ok": true,
    "chars": 242,
-   "seconds": 0.014502223999954822,
-   "peak_rss_mb": 125.10546875,
+   "seconds": 0.012999803000070642,
+   "peak_rss_mb": 125.1953125,
    "outcome": "ok"
   },
   "rich-text.html": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.html",
    "ok": true,
    "chars": 247,
-   "seconds": 0.0024902299999780553,
-   "peak_rss_mb": 125.10546875,
+   "seconds": 0.0022707780000246203,
+   "peak_rss_mb": 125.1953125,
    "outcome": "ok"
   },
   "sales.ods": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.ods",
    "ok": true,
    "chars": 558,
-   "seconds": 0.003506785000013224,
-   "peak_rss_mb": 125.10546875,
+   "seconds": 0.003214060999994217,
+   "peak_rss_mb": 125.1953125,
    "outcome": "ok"
   },
   "sales.xlsx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.xlsx",
    "ok": true,
    "chars": 558,
-   "seconds": 0.008993833000033646,
-   "peak_rss_mb": 125.10546875,
+   "seconds": 0.015911428999970667,
+   "peak_rss_mb": 125.1953125,
    "outcome": "ok"
   },
   "scanned-notice.pdf": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/scanned-notice.pdf",
    "ok": true,
    "chars": 15,
-   "seconds": 0.18681420899997647,
-   "peak_rss_mb": 138.05859375,
+   "seconds": 0.6071802930000558,
+   "peak_rss_mb": 138.11328125,
    "outcome": "ok"
   },
   "score-table.hwpx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/score-table.hwpx",
    "ok": true,
    "chars": 165,
-   "seconds": 0.005160795999984202,
-   "peak_rss_mb": 138.05859375,
+   "seconds": 0.004586132999975234,
+   "peak_rss_mb": 138.11328125,
    "outcome": "ok"
   },
   "service-report.pdf": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/service-report.pdf",
    "ok": true,
    "chars": 7384,
-   "seconds": 0.35358872900002325,
-   "peak_rss_mb": 138.05859375,
+   "seconds": 0.3340634979999777,
+   "peak_rss_mb": 138.11328125,
    "outcome": "ok"
   },
   "table.hwp": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/table.hwp",
    "ok": true,
    "chars": 91,
-   "seconds": 0.0023584860000482877,
-   "peak_rss_mb": 138.05859375,
+   "seconds": 0.0018418700000211174,
+   "peak_rss_mb": 138.11328125,
    "outcome": "ok"
   },
   "ticket.heic": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/ticket.heic",
    "ok": true,
    "chars": 7,
-   "seconds": 0.019440971999983958,
-   "peak_rss_mb": 138.05859375,
+   "seconds": 0.017078321000099095,
+   "peak_rss_mb": 138.11328125,
    "outcome": "ok"
   }
  }

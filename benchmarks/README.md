@@ -21,9 +21,9 @@ OpenDocKit is not the best choice.
   images and scans). That is the most of the five. Offline, OpenDocKit does not read PDF (scanned, no text layer), Image (.png), Image (.jpg), Image (multi-page .tiff), Image (.heic) — it has no OCR of its own.
 - **Korean documents.** OpenDocKit is the only one of the five that reads HWP and HWPX at all, and it reads
   CP949-encoded text and CSV, which several of the others do not.
-- **Speed.** Kreuzberg is in a class of its own (10 s for 743 files). OpenDocKit is #3 of 5 at
-  304 s, of which 173 s is LibreOffice converting the 200 legacy `.doc` and `.ppt` files;
-  MarkItDown takes 169 s, Unstructured 641 s and Docling 3155 s on a
+- **Speed.** Kreuzberg is in a class of its own (9 s for 743 files). OpenDocKit is #3 of 5 at
+  290 s, of which 172 s is LibreOffice converting the 200 legacy `.doc` and `.ppt` files;
+  MarkItDown takes 177 s, Unstructured 622 s and Docling 3051 s on a
   CPU-only machine.
 - **Hostile input.** On 113 fuzzer findings and attack files from other projects, no tool crashed or hung.
   One file made MarkItDown and Unstructured pass 6 GB of memory; OpenDocKit's largest was about 0.1 GB.
@@ -44,8 +44,8 @@ support (see [`setup_tools.sh`](setup_tools.sh)), and called through its default
 and Kreuzberg need for OCR and legacy formats (Tesseract with English and Korean data, LibreOffice, pandoc, Poppler,
 libmagic) were installed for them.
 
-Machine: GitHub-hosted runner, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz, 4 cores, 16 GB RAM, no GPU, Linux-7.0.0-1019-azure-x86_64-with-glibc2.43. Run from commit `e23913a`;
-OpenDocKit was built from the commit above.
+Machine: GitHub-hosted runner, AMD EPYC 9V74 80-Core Processor, 4 cores, 16 GB RAM, no GPU, Linux-7.0.0-1019-azure-x86_64-with-glibc2.43. Run from commit `091ec42`;
+OpenDocKit was installed from PyPI.
 
 ## 1. Which formats does each tool read?
 
@@ -203,18 +203,18 @@ particular tool. We do not know their correct output, so this section only count
 | PPTX (84) | **83** | **83** | 81 | 62 | 71 |
 | XLSX (100) | 92 | **97** | 88 | 88 | 89 |
 | XLS (100) | 91 | **99** | 86 | 84 | 87 |
-| PDF (66) | **63** | 62 | 61 | **63** | 54 |
+| PDF (66) | **63** | 62 | 61 | **63** | 55 |
 | HWP (44) | **29** | 0 | 0 | 0 | 0 |
 | HWPX (49) | **39** | 0 | 0 | 0 | 0 |
 | DOC (100) | 93 | 0 | 79 | 89 | **94** |
 | PPT (100) | **90** | 0 | 77 | 82 | 83 |
-| **All (743)** | **667** | **426** | **558** | **553** | **566** |
+| **All (743)** | **667** | **426** | **558** | **553** | **567** |
 
 | Of the same files | OpenDocKit | MarkItDown | Kreuzberg | Unstructured | Docling |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | Error (refused or failed) | 21 | 303 | 76 | 116 | 112 |
 | No text returned | 55 | 14 | 109 | 74 | 55 |
-| Timed out (120 s) | 0 | 0 | 0 | 0 | 10 |
+| Timed out (120 s) | 0 | 0 | 0 | 0 | 9 |
 | Crashed the process | 0 | 0 | 0 | 0 | 0 |
 
 - OpenDocKit reads legacy `.doc` and `.ppt` by handing them to LibreOffice, which this machine has because Unstructured
@@ -226,17 +226,17 @@ particular tool. We do not know their correct output, so this section only count
 
 | Time to convert, seconds | OpenDocKit | MarkItDown | Kreuzberg | Unstructured | Docling |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| DOCX | 7.0 | 37.6 | 1.4 | 39.6 | 43.9 |
-| PPTX | 3.1 | 5.6 | 0.4 | 11.2 | 15.5 |
-| XLSX | 9.1 | 16.8 | 0.5 | 12.4 | 14.6 |
-| XLS | 6.0 | 40.0 | 0.7 | 13.6 | 91.2 |
-| PDF | 101.9 | 62.2 | 5.8 | 95.6 | 2,601.4 |
-| HWP | 1.4 | 0.6 | 0.1 | 0.1 | 0.2 |
-| HWPX | 2.6 | 0.7 | 0.0 | 0.1 | 0.1 |
-| DOC | 77.2 | 4.6 | 0.4 | 207.6 | 279.2 |
-| PPT | 95.7 | 1.1 | 0.3 | 261.0 | 108.7 |
-| **All, seconds** | 304 | 169 | **10** | 641 | 3,155 |
-| Median PDF, seconds | 0.18 | 0.19 | 0.02 | 0.27 | 23.50 |
+| DOCX | 4.6 | 47.9 | 1.3 | 35.7 | 40.9 |
+| PPTX | 2.7 | 5.2 | 0.4 | 8.9 | 15.9 |
+| XLSX | 8.6 | 19.6 | 0.5 | 10.5 | 14.0 |
+| XLS | 5.8 | 41.2 | 0.6 | 11.6 | 94.8 |
+| PDF | 91.1 | 54.3 | 5.2 | 81.5 | 2,495.1 |
+| HWP | 1.9 | 0.9 | 0.2 | 0.1 | 0.2 |
+| HWPX | 2.8 | 1.0 | 0.0 | 0.1 | 0.1 |
+| DOC | 77.7 | 5.5 | 0.4 | 199.3 | 278.9 |
+| PPT | 94.5 | 1.1 | 0.2 | 274.3 | 110.8 |
+| **All, seconds** | 290 | 177 | **9** | 622 | 3,051 |
+| Median PDF, seconds | 0.21 | 0.16 | 0.02 | 0.25 | 20.66 |
 
 Three workers per tool ran in parallel on the 4-core machine; times are the sum over files of the time inside the
 conversion call. Docling and Unstructured run layout and OCR models, which is why they are slow on a machine without a
@@ -255,8 +255,8 @@ cases, XML bombs, deeply nested tables). Each file ran in a fresh process with a
 | Timed out (60 s) | 0 | 0 | 0 | 0 | 0 |
 | Crashed the process | 0 | 0 | 0 | 0 | 0 |
 | Stopped above 6 GB of memory | 0 | 1 | 0 | 1 | 0 |
-| Slowest single file, seconds | 1.9 | 27.4 | 0.2 | 36.1 | 14.9 |
-| Peak memory on a single file, MB | 125 | 6,000 | 60 | 6,000 | 1,635 |
+| Slowest single file, seconds | 1.6 | 27.6 | 0.2 | 37.6 | 14.1 |
+| Peak memory on a single file, MB | 125 | 6,000 | 59 | 6,000 | 1,666 |
 
 The one clear difference is `poc-shared-strings.xlsx`, an Excel file whose shared-string table expands enormously: it
 pushed MarkItDown and Unstructured past the 6 GB cap. OpenDocKit bounds decompressed size; its slowest file took 2 s and its largest used

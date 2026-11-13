@@ -1,279 +1,279 @@
 {
  "tool": "unstructured",
  "version": "0.27.37",
- "import_seconds": 0.03465273099999422,
- "wall_seconds": 48.75165525799997,
+ "import_seconds": 0.0322728769999685,
+ "wall_seconds": 50.58583587999999,
  "results": {
   "analysis.ipynb": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/analysis.ipynb",
    "ok": true,
    "chars": 581,
-   "seconds": 2.617472089000046,
-   "peak_rss_mb": 123.4609375,
+   "seconds": 2.0726031799999873,
+   "peak_rss_mb": 122.94921875,
    "outcome": "ok"
   },
   "article.html": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/article.html",
    "ok": true,
    "chars": 840,
-   "seconds": 9.078568802999996,
-   "peak_rss_mb": 788.59765625,
+   "seconds": 6.925029919000053,
+   "peak_rss_mb": 787.9296875,
    "outcome": "ok"
   },
   "branch-sales-cp949.csv": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/branch-sales-cp949.csv",
    "ok": false,
    "error": "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xb3 in position 4: invalid start byte",
-   "seconds": 0.008286433000023408,
-   "peak_rss_mb": 788.72265625,
+   "seconds": 0.007794686000011097,
+   "peak_rss_mb": 788.0546875,
    "outcome": "error"
   },
   "dashboard.mht": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/dashboard.mht",
    "ok": true,
    "chars": 132,
-   "seconds": 18.96714806600005,
-   "peak_rss_mb": 1691.42578125,
+   "seconds": 19.316327530999956,
+   "peak_rss_mb": 1720.453125,
    "outcome": "ok"
   },
   "deck.odp": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.odp",
    "ok": false,
    "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
-   "seconds": 0.04879871900004673,
-   "peak_rss_mb": 1693.9140625,
+   "seconds": 0.0036630589999049334,
+   "peak_rss_mb": 1720.453125,
    "outcome": "error"
   },
   "deck.pptx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.pptx",
    "ok": true,
    "chars": 496,
-   "seconds": 0.21840956599999117,
-   "peak_rss_mb": 1699.1640625,
+   "seconds": 0.1986384630000657,
+   "peak_rss_mb": 1720.453125,
    "outcome": "ok"
   },
   "fax.tiff": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/fax.tiff",
    "ok": true,
    "chars": 55,
-   "seconds": 4.423583941000004,
-   "peak_rss_mb": 1897.140625,
+   "seconds": 6.5008335649999935,
+   "peak_rss_mb": 1849.29296875,
    "outcome": "ok"
   },
   "html-table-named.xls": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/html-table-named.xls",
    "ok": true,
    "chars": 301,
-   "seconds": 0.005917192000026716,
-   "peak_rss_mb": 1897.140625,
+   "seconds": 0.005464097999947626,
+   "peak_rss_mb": 1849.29296875,
    "outcome": "ok"
   },
   "inventory-2003.xml": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/inventory-2003.xml",
    "ok": true,
    "chars": 71,
-   "seconds": 0.030711731999986114,
-   "peak_rss_mb": 1897.390625,
+   "seconds": 0.020915532999993047,
+   "peak_rss_mb": 1849.41796875,
    "outcome": "ok"
   },
   "invoice.png": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/invoice.png",
    "ok": true,
    "chars": 43,
-   "seconds": 1.3014989280000009,
-   "peak_rss_mb": 1908.26171875,
+   "seconds": 2.0027922099999387,
+   "peak_rss_mb": 1860.265625,
    "outcome": "ok"
   },
   "legacy-deck.ppt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-deck.ppt",
    "ok": true,
    "chars": 492,
-   "seconds": 1.4634123009999485,
-   "peak_rss_mb": 1908.26171875,
+   "seconds": 1.4195424580000235,
+   "peak_rss_mb": 1860.265625,
    "outcome": "ok"
   },
   "legacy-report.doc": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-report.doc",
    "ok": true,
    "chars": 960,
-   "seconds": 0.4795592180000199,
-   "peak_rss_mb": 1910.88671875,
+   "seconds": 0.45437630199990053,
+   "peak_rss_mb": 1862.890625,
    "outcome": "ok"
   },
   "legacy-sales.xls": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-sales.xls",
    "ok": true,
    "chars": 765,
-   "seconds": 0.3319492749999995,
-   "peak_rss_mb": 1916.8125,
+   "seconds": 0.3106675249999853,
+   "peak_rss_mb": 1868.68359375,
    "outcome": "ok"
   },
   "mailbox.mbox": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/mailbox.mbox",
    "ok": false,
    "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
-   "seconds": 0.0009279280000100698,
-   "peak_rss_mb": 1916.8125,
+   "seconds": 0.0008833939999703944,
+   "peak_rss_mb": 1868.68359375,
    "outcome": "error"
   },
   "meeting.eml": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/meeting.eml",
    "ok": false,
    "error": "PdfiumError: Failed to load document (PDFium: Data format error).",
-   "seconds": 0.1828245030000062,
-   "peak_rss_mb": 1922.640625,
+   "seconds": 0.16409108900006686,
+   "peak_rss_mb": 1874.53515625,
    "outcome": "error"
   },
   "notes.txt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notes.txt",
    "ok": true,
    "chars": 83,
-   "seconds": 0.01219974500003218,
-   "peak_rss_mb": 1922.640625,
+   "seconds": 0.00975926699993579,
+   "peak_rss_mb": 1874.53515625,
    "outcome": "ok"
   },
   "notice-cp949.txt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notice-cp949.txt",
    "ok": true,
    "chars": 44,
-   "seconds": 0.018267888000025323,
-   "peak_rss_mb": 1922.94921875,
+   "seconds": 0.012024731999986216,
+   "peak_rss_mb": 1874.80078125,
    "outcome": "ok"
   },
   "numbered-outline.hwpx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/numbered-outline.hwpx",
    "ok": false,
    "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
-   "seconds": 0.0012144329999728143,
-   "peak_rss_mb": 1922.94921875,
+   "seconds": 0.0009983270000475386,
+   "peak_rss_mb": 1874.80078125,
    "outcome": "error"
   },
   "orders.csv": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/orders.csv",
    "ok": true,
    "chars": 183,
-   "seconds": 0.007792098999971131,
-   "peak_rss_mb": 1923.0859375,
+   "seconds": 0.007054338999978427,
+   "peak_rss_mb": 1874.92578125,
    "outcome": "ok"
   },
   "receipt.jpg": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/receipt.jpg",
    "ok": true,
    "chars": 35,
-   "seconds": 1.2186745859999633,
-   "peak_rss_mb": 1931.4140625,
+   "seconds": 2.023325006999926,
+   "peak_rss_mb": 1883.00390625,
    "outcome": "ok"
   },
   "release-notes.epub": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.epub",
    "ok": true,
    "chars": 377,
-   "seconds": 0.773283446999983,
-   "peak_rss_mb": 1931.4140625,
+   "seconds": 0.6665196019999939,
+   "peak_rss_mb": 1883.00390625,
    "outcome": "ok"
   },
   "release-notes.md": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.md",
    "ok": true,
    "chars": 377,
-   "seconds": 0.06187887400000136,
-   "peak_rss_mb": 1931.6640625,
+   "seconds": 0.0620221640000409,
+   "peak_rss_mb": 1883.25390625,
    "outcome": "ok"
   },
   "report.docx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.docx",
    "ok": true,
    "chars": 960,
-   "seconds": 0.02468421999998327,
-   "peak_rss_mb": 1931.6640625,
+   "seconds": 0.02499942800000099,
+   "peak_rss_mb": 1883.25390625,
    "outcome": "ok"
   },
   "report.odt": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.odt",
    "ok": true,
    "chars": 958,
-   "seconds": 0.11331326599997738,
-   "peak_rss_mb": 1931.6640625,
+   "seconds": 0.15581887700000152,
+   "peak_rss_mb": 1883.25390625,
    "outcome": "ok"
   },
   "report.rtf": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.rtf",
    "ok": true,
    "chars": 1003,
-   "seconds": 2.056598700000052,
-   "peak_rss_mb": 1931.6640625,
+   "seconds": 2.1339656019999893,
+   "peak_rss_mb": 1883.25390625,
    "outcome": "ok"
   },
   "rich-text.docx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.docx",
    "ok": true,
    "chars": 315,
-   "seconds": 0.022534973000006175,
-   "peak_rss_mb": 1931.6640625,
+   "seconds": 0.020981141000106618,
+   "peak_rss_mb": 1883.25390625,
    "outcome": "ok"
   },
   "rich-text.html": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.html",
    "ok": true,
    "chars": 221,
-   "seconds": 0.005486910000001899,
-   "peak_rss_mb": 1931.6640625,
+   "seconds": 0.005216173999997409,
+   "peak_rss_mb": 1883.25390625,
    "outcome": "ok"
   },
   "sales.ods": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.ods",
    "ok": false,
    "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
-   "seconds": 0.0012827999999558415,
-   "peak_rss_mb": 1931.6640625,
+   "seconds": 0.0015803160000587013,
+   "peak_rss_mb": 1883.25390625,
    "outcome": "error"
   },
   "sales.xlsx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.xlsx",
    "ok": true,
    "chars": 765,
-   "seconds": 0.06213541800002531,
-   "peak_rss_mb": 1932.796875,
+   "seconds": 0.058059262000028866,
+   "peak_rss_mb": 1884.4375,
    "outcome": "ok"
   },
   "scanned-notice.pdf": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/scanned-notice.pdf",
    "ok": true,
    "chars": 345,
-   "seconds": 2.599288589999958,
-   "peak_rss_mb": 2063.8984375,
+   "seconds": 2.640249377000032,
+   "peak_rss_mb": 2015.51953125,
    "outcome": "ok"
   },
   "score-table.hwpx": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/score-table.hwpx",
    "ok": false,
    "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
-   "seconds": 0.0017906980000361727,
-   "peak_rss_mb": 2063.8984375,
+   "seconds": 0.0013690859999542226,
+   "peak_rss_mb": 2015.51953125,
    "outcome": "error"
   },
   "service-report.pdf": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/service-report.pdf",
    "ok": true,
    "chars": 7298,
-   "seconds": 0.2334730580000155,
-   "peak_rss_mb": 2063.8984375,
+   "seconds": 0.19435682599998927,
+   "peak_rss_mb": 2015.51953125,
    "outcome": "ok"
   },
   "table.hwp": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/table.hwp",
    "ok": false,
    "error": "UnsupportedFileFormatError: Partitioning is not supported for the FileType.UNK file type.",
-   "seconds": 0.0012038579999966714,
-   "peak_rss_mb": 2063.8984375,
+   "seconds": 0.0013027170000441401,
+   "peak_rss_mb": 2015.51953125,
    "outcome": "error"
   },
   "ticket.heic": {
    "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/ticket.heic",
    "ok": true,
    "chars": 35,
-   "seconds": 2.2371525130000123,
-   "peak_rss_mb": 2063.8984375,
+   "seconds": 2.971062361999998,
+   "peak_rss_mb": 2015.51953125,
    "outcome": "ok"
   }
  }
