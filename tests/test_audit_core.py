@@ -464,3 +464,19 @@ class TestLetterAfterAPercentSignInNumberText:
 
         assert [numbering.advance(0), numbering.advance(1), numbering.advance(1), numbering.advance(2)] == [
             "1.", "1-1)", "1-2)", "(1)"]
+
+
+class TestWarningsWhenNoCharactersAreAllowed:
+    """With `max_chars=0` a file that has text is cut to nothing, and the result then also said 'No text was extracted.' — about a
+    file whose text was extracted and then cut."""
+
+    def test_text_cut_to_nothing_is_not_reported_as_nothing_extracted(self):
+        result = convert("본문".encode(), "a.txt", ConvertOptions(max_chars=0))
+
+        assert result.exceeded and result.text == ""
+        assert result.warnings == ["The conversion was stopped because the text exceeded 0 characters."]
+
+    def test_file_without_text_is_still_reported_as_nothing_extracted(self):
+        result = convert(b"  \n\n", "a.txt", ConvertOptions(max_chars=0))
+
+        assert not result.exceeded and result.warnings == ["No text was extracted."]

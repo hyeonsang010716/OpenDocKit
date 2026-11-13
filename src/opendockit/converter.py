@@ -235,11 +235,14 @@ def render(result: ConversionResult) -> ConversionResult:
     # result can be over because of the `[Image]` placeholders and then drop under the limit once pictures are removed as decoration.
     char_count = max(len(text), result.counted)
     exceeded = options.max_chars is not None and char_count > options.max_chars
+    # Whether nothing was extracted is decided before the cut: with `max_chars=0` text that was cut to nothing was also reported as
+    # 'No text was extracted.' (Pinned by: test_audit_core.py::TestWarningsWhenNoCharactersAreAllowed).
+    empty = not text.strip()
     if exceeded and options.max_chars is not None:
         text = text[: options.max_chars].rstrip()
         sections = _cut_sections(sections, options, options.max_chars)
         warnings.append(f"The conversion was stopped because the text exceeded {options.max_chars:,} characters.")
-    if not text.strip():
+    if empty:
         warnings.append("No text was extracted.")
     return replace(result, text=text, sections=sections, warnings=warnings, exceeded=exceeded, char_count=char_count)
 
