@@ -372,3 +372,46 @@ class TestMultipartNestingDeclaredWithExtendedParameters:
             convert(data, "a.eml")
 
         assert time.perf_counter() - started < 3
+
+
+def _seconds(data: bytes, file_name: str) -> tuple[float, str]:
+    started = time.perf_counter()
+    result = convert(data, file_name)
+    return time.perf_counter() - started, result.text
+
+
+class TestUnclosedImgTagWithManySources:
+    """The `<img …>` branches of the Markdown picture pattern looked, for every `src=` in a tag, all the way to the end of the
+    tag for its `>`. A tag that is never closed made that quadratic: 8,000 `src="data:…"` in one `<img` (234KB) took 19 s."""
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("ending", ["", "<", "<p>text</p>"])
+    @pytest.mark.parametrize("source", ['src="data:image/png;base64,A" ', "src='data:image/png;base64,A' ", "src=data:image/png;base64,A ",
+                                        'src="data:image/svg+xml,x" ', "src=data:image/svg+xml,x "])
+    def test_tag_left_open_takes_linear_time(self, source, ending):
+        text = "<img " + source * 8000 + ending
+
+        seconds, converted = _seconds(text.encode(), "a.md")
+
+        assert converted == text.strip()
+        assert seconds < 3
+
+    @pytest.mark.parametrize(("markdown", "expected"), [
+        ('<img alt="a" src="data:image/svg+xml,%3Csvg%3E"> text', "[Image: a] text"),
+        ('<img src="data:image/svg+xml;utf8,<svg xmlns=\'x\'><path d=\'M0 0\'/></svg>" alt="b"> text', "[Image: b] text"),
+        ("<img src='data:image/svg+xml;utf8,<svg><text>a > b</text></svg>' alt='c'> text", "[Image: c] text"),
+        ('<img src="data:image/svg+xml,x>y" alt="d"> text', "[Image: d] text"),
+        ('<img src=data:image/svg+xml,x alt=e> text', "[Image: e] text"),
+        ('<img src=data:image/svg+xml,x alt=f <b>text</b>', "<img src=data:image/svg+xml,x alt=f <b>text</b>"),
+        ('<img src="data:image/gif,x" alt="g" <b>text</b>', '<img src="data:image/gif,x" alt="g" <b>text</b>'),
+        ('<img src=data:image/gif,x src="data:image/gif,<y>" alt="h"> text', "[Image: h] text"),
+    ])
+    def test_pictures_that_are_not_base64_are_found_as_before(self, markdown, expected):
+        assert convert(markdown.encode(), "a.md").text == expected
+
+    def test_base64_picture_in_a_tag_is_extracted_as_before(self):
+        encoded = base64.b64encode(png_bytes()).decode()
+
+        result = convert(f'<img alt="chart" class="x" src="data:image/png;base64,{encoded}" width="3"> text'.encode(), "a.md")
+
+        assert len(result.images) == 1

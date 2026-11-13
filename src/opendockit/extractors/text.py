@@ -1416,17 +1416,25 @@ def _plain_text(data: bytes) -> Extraction:
 # (Pinned by: test_core_round48.py::TestRepeatedPictureOpenersTakeLinearTime). Known accepted gap: when the alt text contains
 # `![` (`![a ![b](data:…)`), the picture starts at the last `![` and the `![a ` before it stays as text (the picture is still
 # extracted).
+# An `<img` is only examined when the `>` that would close it is there: the base64 branch looks ahead for it (`(?=[^<>]*>)` —
+# nothing in that branch can hold `<` or `>`), and the other branch, where a quoted address may hold them
+# (`data:image/svg+xml;utf8,<svg …>`), notes whether the tag text runs up to a `>` (`closed`) and otherwise only takes a quoted
+# address that itself holds a `<` or `>` — nothing else could reach a `>` from there. Without that, every `src=` of a tag
+# that is never closed walked to the end of the tag and back: 8,000 of them in one `<img` (234KB) took 19 seconds. The matches
+# are the same as before (Pinned by: test_audit_html_text.py::TestUnclosedImgTagWithManySources).
 _PICTURE_ALT = r"(?:[^\]\n!]|!(?!\[))*"
 _DATA_IMAGE = r"data:image/[\w.+-]+(?:;[\w.+-]+=[^;,\s()<>\"']*)*;base64,"
 _MARKDOWN_DATA_PICTURE = re.compile(
     r"!\[(?P<alt>" + _PICTURE_ALT + r")\]\(\s*(?:<" + _DATA_IMAGE + r"(?P<angle_data>[A-Za-z0-9+/=\s]*)>\s*"
     r"|" + _DATA_IMAGE + r"(?P<data>[A-Za-z0-9+/=\s]*))"
     r"(?:\"[^\"\n]*\"\s*|'[^'\n]*'\s*|\([^()\n]*\)\s*)?\)"
-    r"|<img\b(?P<before>[^<>]*?)\bsrc\s*=\s*(?:(?P<quote>[\"'])\s*" + _DATA_IMAGE + r"(?P<tag_data>[A-Za-z0-9+/=\s]*)(?P=quote)"
+    r"|<img\b(?=[^<>]*>)(?P<before>[^<>]*?)\bsrc\s*=\s*(?:(?P<quote>[\"'])\s*" + _DATA_IMAGE + r"(?P<tag_data>[A-Za-z0-9+/=\s]*)(?P=quote)"
     r"|" + _DATA_IMAGE + r"(?P<bare_data>[A-Za-z0-9+/=]*)(?![A-Za-z0-9+/=]))(?P<after>[^<>]*)>"
     r"|!\[(?P<other_alt>" + _PICTURE_ALT + r")\]\(\s*(?:<data:image/[^<>\n]*+>|data:image/(?:[^\s()]|\([^\s()]*+\))*+)\s*"
     r"(?:\"[^\"\n]*\"\s*|'[^'\n]*'\s*|\([^()\n]*\)\s*)?\)"
-    r"|<img\b(?P<other_before>[^<>]*?)\bsrc\s*=\s*(?:\"\s*data:image/[^\"]*+\"|'\s*data:image/[^']*+'|data:image/[^\s\"'<>`]*+)"
+    r"|<img\b(?:(?=[^<>]*>)(?P<closed>))?(?P<other_before>[^<>]*?)\bsrc\s*=\s*"
+    r"(?:\"\s*data:image/(?(closed)|[^\"<>]*+[<>])[^\"]*+\"|'\s*data:image/(?(closed)|[^'<>]*+[<>])[^']*+'"
+    r"|(?(closed)|(?!))data:image/[^\s\"'<>`]*+)"
     r"(?P<other_after>[^<>]*)>",
     re.IGNORECASE)
 # The line-start opening of a code fence (three or more backticks or tildes) and the closing line (fence marker + only spaces or
