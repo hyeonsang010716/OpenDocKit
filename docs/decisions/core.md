@@ -35,12 +35,23 @@ src/opendockit/
     ├── _xlsx_parts.py # the XLSX parts read without openpyxl: drawings, comments, form controls, pictures in cells, relationships
     ├── _pdf_pdfminer.py # what is replaced in pdfminer: stream and object budgets, font tables, symbol fonts, CMaps
     ├── _pdf_model.py # the line, table, page and paragraph records, shared thresholds, box and colour helpers
-    ├── _pdf_text.py  # characters → lines: artifacts, sideways text, joined pieces, placed runs, letter spacing, scripts
+    ├── _pdf_chars.py # the text of a run of characters: spaces from gaps, letter spacing, superscripts and subscripts
+    ├── _pdf_artifacts.py # characters that are not text (watermarks, shadow copies, tilted or hidden text), sideways text
+    ├── _pdf_pieces.py # one line drawn as several pieces put back together; symbols and footnote marks in place
+    ├── _pdf_placed_runs.py # spaces found again in text placed character by character
     ├── _pdf_marks.py # check boxes and circle bullets drawn as shapes
     ├── _pdf_forms.py # form values, free-text annotations, attachments
     ├── _pdf_figures.py # picture areas, clips, tiled backgrounds, pdfium rendering, scanned pages
-    ├── _pdf_ruled_tables.py # tables drawn with rules or shading
-    ├── _pdf_aligned_tables.py # tables without rules, found from aligned lines
+    ├── _pdf_table_filters.py # glyph outlines, highlights and tiled rows that look like the rules or text of a table
+    ├── _pdf_ruled_tables.py # tables drawn with rules: which found tables are real, inner tables, column sections
+    ├── _pdf_shaded_tables.py # tables marked by shading, with or without rules
+    ├── _pdf_open_tables.py # tables open at the sides, rules drawn in pieces, split headers
+    ├── _pdf_cell_text.py # the text of ruled cells: wrapped lines, merged cells, sideways text
+    ├── _pdf_aligned_tables.py # tables without rules, found from aligned lines: runs of rows and their columns
+    ├── _pdf_table_rows.py # judgments about one row of a table without rules
+    ├── _pdf_wrapped_cells.py # cells of a table without rules that wrap over lines
+    ├── _pdf_row_joins.py # pieces of one row drawn apart: fragments, leader dots, markers, side-by-side pairs
+    ├── _pdf_continued_tables.py # header lines joined, headers and open cells carried over a page break
     ├── _pdf_label_values.py # label and value lines
     ├── _pdf_reading_order.py # columns, alternating sides, lone lines, sidebars, captions
     ├── _pdf_paragraphs.py # lines and tables of a page → Markdown: paragraphs, headings, pictures in cells

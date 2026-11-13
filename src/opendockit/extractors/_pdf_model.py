@@ -2,6 +2,7 @@
 small helpers for boxes and fill colours.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 import math
 import re
@@ -361,3 +362,49 @@ def _info_text(value: bytes) -> str:
             if encoding == "utf-8" or any("가" <= char <= "힣" for char in text):
                 return text
     return decode_text(value)
+
+
+# Table finder settings. By default pdfplumber discards lines shorter than 1pt before joining them. A dotted cell border is drawn
+# as hundreds of short 0.4pt lines, so left as is the border disappeared and cells merged (23 names crowded into one cell, and
+# values and rows went out of step). If they are not discarded, joining (default 3pt) turns the dotted line into one line.
+_TABLE_SETTINGS = {"edge_min_length_prefilter": 0}
+
+
+def _text_by_middle(page: object) -> tuple[list[float], list[dict]]:
+    """The page's non-blank characters in order of their vertical middle (page order where the middles are equal), as (list of
+    middles, list of characters). Built once per page (`_closed_at_open_ends`, `_join_soft_wraps`). A character whose middle
+    is not a number is inside no box and is left out."""
+    def build() -> tuple[list[float], list[dict]]:
+        placed = [((char["top"] + char["bottom"]) / 2, char) for char in page.chars if char["text"].strip()]
+        ordered = sorted((item for item in placed if item[0] == item[0]), key=lambda item: item[0])
+        return [middle for middle, _ in ordered], [char for _, char in ordered]
+
+    return _page_index(page, "text", build)
+
+
+def _page_index(page: object, name: str, build: Callable[[], object]) -> object:
+    """The list `name` of the page, built with `build` the first time it is asked for (`_verticals_by_x`, `_text_by_middle`,
+    `_sideways_by_middle`). The lists are kept on the page object together with the page's objects they were built from: a
+    page that has been read again (`page.close()` releases its objects) gets new lists. `_real_tables` drops them when it is
+    done (`_dropping_page_indexes`)."""
+    held = page.__dict__.get("_page_indexes")
+    if held is None or held[0] is not page.objects:
+        held = page.__dict__["_page_indexes"] = (page.objects, {})
+    if name not in held[1]:
+        held[1][name] = build()
+    return held[1][name]
+
+
+_TABLE_MIN_ROWS = 3
+_TABLE_MIN_COLUMNS = 3
+
+
+# Gap for a line to count as wrapped cell text in a borderless table (_continues_cell): at most this multiple of this table's gap
+# between rows, and narrower than the row gap by at least this multiple of the line height. Line spacing inside a cell is clearly
+# narrower than row spacing. The staggered lines of a list with tightly packed rows (2pt gap) are not wrapped lines.
+_WRAP_GAP_RATIO = 0.6
+# The 'narrower by at least this multiple of the line height' side of the condition above. In a Chrome table (4px cell padding) the
+# gap between rows is 12.7pt at a 12pt line height and the gap of a wrapped line 6pt, so the difference (6.7pt) fell short of 0.6×
+# (7.2pt) and the wrapped line became a row of its own (Pinned by: test_pdf_table_columns.py::TestWideWrappedFirstColumn).
+# For a list with a 2pt gap the difference is far below even 0.5×, so it is still filtered out.
+_WRAP_GAP_MIN_RATIO = 0.5

@@ -10,7 +10,7 @@ import pytest
 from reportlab.pdfgen import canvas
 
 from opendockit import ConvertOptions, convert
-from opendockit.extractors import _pdf_figures, _pdf_model, _pdf_ruled_tables
+from opendockit.extractors import _pdf_cell_text, _pdf_figures, _pdf_model, _pdf_ruled_tables
 from opendockit.extractors import pdf as pdf_module
 from tests.pdf_modules import replace_everywhere
 from tests.timing import allowed
@@ -62,8 +62,8 @@ class TestSidewaysCells:
         with pdfplumber.open(BytesIO(data)) as document:
             page = document.pages[0]
             table = max(page.find_tables(_pdf_ruled_tables._TABLE_SETTINGS), key=lambda found: len(found.cells))
-            rows = table.extract(**_pdf_ruled_tables._CELL_TEXT)
-            _pdf_ruled_tables._read_sideways_cells(table, rows)
+            rows = table.extract(**_pdf_cell_text._CELL_TEXT)
+            _pdf_cell_text._read_sideways_cells(table, rows)
             return rows, len(page.chars)
 
     @pytest.mark.parametrize(("rows", "columns"), [(40, 10), (1, 300), (300, 1)])
@@ -125,9 +125,9 @@ class TestManyTablesOnOnePage:
             cells = []
             for table in page.find_tables(_pdf_ruled_tables._TABLE_SETTINGS):
                 assert _pdf_ruled_tables._closed_at_open_ends(page, table) is table
-                rows = table.extract(**_pdf_ruled_tables._CELL_TEXT)
-                _pdf_ruled_tables._read_sideways_cells(table, rows)
-                _pdf_ruled_tables._join_soft_wraps(table, rows)
+                rows = table.extract(**_pdf_cell_text._CELL_TEXT)
+                _pdf_cell_text._read_sideways_cells(table, rows)
+                _pdf_cell_text._join_soft_wraps(table, rows)
                 cells.append(rows)
             return cells, len(page.chars)
 
@@ -179,13 +179,13 @@ class TestManyTablesOnOnePage:
         with pdfplumber.open(BytesIO(data)) as document:
             page = document.pages[0]
             tables = page.find_tables(_pdf_ruled_tables._TABLE_SETTINGS)
-            extracted = [table.extract(**_pdf_ruled_tables._CELL_TEXT) for table in tables]  # pdfplumber's own time is not measured
+            extracted = [table.extract(**_pdf_cell_text._CELL_TEXT) for table in tables]  # pdfplumber's own time is not measured
 
             started = time.perf_counter()
             for table, rows in zip(tables, extracted, strict=True):
                 _pdf_ruled_tables._closed_at_open_ends(page, table)
-                _pdf_ruled_tables._read_sideways_cells(table, rows)
-                _pdf_ruled_tables._join_soft_wraps(table, rows)
+                _pdf_cell_text._read_sideways_cells(table, rows)
+                _pdf_cell_text._join_soft_wraps(table, rows)
             elapsed = time.perf_counter() - started
 
         assert len(tables) == 800 and elapsed < allowed(3)  # 9 seconds in these three steps before

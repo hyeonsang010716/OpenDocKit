@@ -6,8 +6,8 @@ from io import BytesIO
 import pytest
 
 from opendockit import convert
-from opendockit.extractors import _pdf_ruled_tables
 from opendockit.markdown import clean_text
+from tests.pdf_modules import replace_everywhere
 
 
 def test_symbol_font_bullets_become_unicode_bullets():
@@ -350,7 +350,7 @@ def test_pdf_text_inside_a_table_area_is_never_dropped(monkeypatch):
     were held by no cell and silently disappeared (7 rows of "딜라이브…" in the same table). When the cells hold clearly fewer
     characters than the area contains, no table is made and the text stays in the body."""
 
-    monkeypatch.setattr(_pdf_ruled_tables, "_TABLE_SETTINGS", {})  # reproduce the state in which dotted lines are not seen (pdfplumber defaults)
+    replace_everywhere(monkeypatch, "_TABLE_SETTINGS", {})  # reproduce the state in which dotted lines are not seen (pdfplumber defaults)
 
     result = convert(_dotted_border_table_pdf(open_bottom=True), "a.pdf")
 

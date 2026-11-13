@@ -6,7 +6,7 @@ import zlib
 import pytest
 
 from opendockit import ConvertOptions, DocumentTooLargeError, convert
-from opendockit.extractors import _pdf_marks, _pdf_model, _pdf_pdfminer, _pdf_text
+from opendockit.extractors import _pdf_marks, _pdf_model, _pdf_pdfminer, _pdf_pieces
 from tests.test_pdf import _raw_pdf
 from tests.timing import allowed
 
@@ -240,8 +240,8 @@ class TestManyPiecesOnOneBaseline:
     def test_pieces_apart_on_one_row_are_not_compared_with_each_other(self, monkeypatch):
 
         calls = []
-        shares_baseline = _pdf_text._shares_baseline
-        monkeypatch.setattr(_pdf_text, "_shares_baseline", lambda *args: calls.append(1) or shares_baseline(*args))
+        shares_baseline = _pdf_pieces._shares_baseline
+        monkeypatch.setattr(_pdf_pieces, "_shares_baseline", lambda *args: calls.append(1) or shares_baseline(*args))
 
         result = convert(_one_row(2500), "a.pdf")
 
@@ -262,10 +262,10 @@ class TestManyPiecesOnOneBaseline:
                                  y0 + height, rng.choice(["", "ab", "cd"])))
         texts = [piece.text for piece in pieces]
         expected = {frozenset((first, second)) for first in range(300) for second in range(first)
-                    if _pdf_text._shares_baseline(pieces[first], pieces[second], texts[first], texts[second])}
+                    if _pdf_pieces._shares_baseline(pieces[first], pieces[second], texts[first], texts[second])}
         assert len(expected) > 20
         found = set()
-        shares_baseline = _pdf_text._shares_baseline
+        shares_baseline = _pdf_pieces._shares_baseline
 
         def spy(piece, other, text, other_text):
             shared = shares_baseline(piece, other, text, other_text)
@@ -273,8 +273,8 @@ class TestManyPiecesOnOneBaseline:
                 found.add(frozenset((pieces.index(piece), pieces.index(other))))
             return shared
 
-        monkeypatch.setattr(_pdf_text, "_shares_baseline", spy)
-        _pdf_text._merged_overlapping_pieces(pieces, 0.1)
+        monkeypatch.setattr(_pdf_pieces, "_shares_baseline", spy)
+        _pdf_pieces._merged_overlapping_pieces(pieces, 0.1)
 
         assert found == expected
         assert _components(300, found) == _components(300, expected)
@@ -283,7 +283,7 @@ class TestManyPiecesOnOneBaseline:
 
         pieces = [_Piece(0.0, 0.0, 10.0, 4.0, "ab"), _Piece(5.0, 0.0, float("inf"), 4.0, "cd"), _Piece(50.0, 0.0, 60.0, 4.0, "ef")]
 
-        merged, changed = _pdf_text._merged_overlapping_pieces(pieces, 0.1)
+        merged, changed = _pdf_pieces._merged_overlapping_pieces(pieces, 0.1)
 
         assert changed and len(merged) == 1
 

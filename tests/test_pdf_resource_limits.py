@@ -6,7 +6,7 @@ import zlib
 import pytest
 
 from opendockit import ConvertOptions, DocumentTooLargeError, convert
-from opendockit.extractors import _pdf_model, _pdf_pdfminer, _pdf_ruled_tables, _pdf_text
+from opendockit.extractors import _pdf_model, _pdf_open_tables, _pdf_pdfminer, _pdf_pieces, _pdf_shaded_tables
 from tests.pdf_modules import replace_everywhere
 from tests.test_pdf import _raw_pdf
 
@@ -288,8 +288,8 @@ class TestOverprintedText:
     def test_copies_beyond_a_few_are_dropped_before_layout_analysis(self, monkeypatch):
 
         sizes = []
-        original = _pdf_text._merged_overlapping_pieces
-        monkeypatch.setattr(_pdf_text, "_merged_overlapping_pieces",
+        original = _pdf_pieces._merged_overlapping_pieces
+        monkeypatch.setattr(_pdf_pieces, "_merged_overlapping_pieces",
                             lambda pieces, margin: sizes.append(len(pieces)) or original(pieces, margin))
         content = b"BT /F1 12 Tf 72 700 Td (Overprinted title) Tj ET\n" * 400 + b"BT /F1 12 Tf 72 650 Td (Body line) Tj ET"
 
@@ -474,7 +474,7 @@ class TestStackedRules:
         edges = [{"x0": 100.0, "x1": 101.0, "top": 50.0} for _ in range(20_000)]
 
         started = time.perf_counter()
-        joined = _pdf_ruled_tables._joined_rules(edges, lambda x, top: True)
+        joined = _pdf_open_tables._joined_rules(edges, lambda x, top: True)
 
         assert time.perf_counter() - started < 2, "before the fix 20,000 rules took more than 30 seconds"
         assert len(joined) == 20_000
@@ -484,7 +484,7 @@ class TestStackedRules:
         edges = [{"x0": 0.0, "x1": 50.0, "top": 10.0}, {"x0": 50.0, "x1": 100.0, "top": 10.0},
                  {"x0": 0.0, "x1": 50.0, "top": 10.0}]
 
-        joined = _pdf_ruled_tables._joined_rules(edges, lambda x, top: x == 50.0)
+        joined = _pdf_open_tables._joined_rules(edges, lambda x, top: x == 50.0)
 
         assert sorted(joined) == [(0.0, 50.0, 10.0), (0.0, 100.0, 10.0)]
 
@@ -683,8 +683,8 @@ class TestManyCellsOnOnePage:
         fills = [{"x0": x0, "x1": x1, "top": top, "bottom": bottom} for x0, top, x1, bottom in boxes]
 
         started = time.perf_counter()
-        near = _pdf_ruled_tables._fills_by_row(rows, fills)
-        covers = [_pdf_ruled_tables._fill_cover(cell, near[int(cell[1] // 10)]) for cell in boxes]
+        near = _pdf_shaded_tables._fills_by_row(rows, fills)
+        covers = [_pdf_shaded_tables._fill_cover(cell, near[int(cell[1] // 10)]) for cell in boxes]
 
         assert time.perf_counter() - started < 2, "before the fix 7,500 cells took more than 19 seconds"
         assert all(cover == 1.0 for cover in covers)
@@ -741,8 +741,8 @@ class TestCellsReachingFarOffThePage:
         fills = [{"x0": -float(index), "x1": 200.0 + index, "top": -1.0, "bottom": 3001.0} for index in range(3000)]
 
         started = time.perf_counter()
-        near = _pdf_ruled_tables._fills_by_row(rows, fills)
-        covers = [_pdf_ruled_tables._fill_cover(cell, near[int(cell[1] // 10)]) for cell in boxes]
+        near = _pdf_shaded_tables._fills_by_row(rows, fills)
+        covers = [_pdf_shaded_tables._fill_cover(cell, near[int(cell[1] // 10)]) for cell in boxes]
 
         assert time.perf_counter() - started < 1, "before the fix all 3,000 rectangles were added up for every cell"
         assert all(cover == 1.0 for cover in covers)
@@ -761,7 +761,7 @@ class TestCellsReachingFarOffThePage:
             whole = sum(max(0.0, min(x1, f["x1"]) - max(x0, f["x0"])) * max(0.0, min(bottom, f["bottom"]) - max(top, f["top"]))
                         for f in fills)
 
-            cover = _pdf_ruled_tables._fill_cover(cell, fills)
+            cover = _pdf_shaded_tables._fill_cover(cell, fills)
 
             assert cover == pytest.approx(min(whole / ((x1 - x0) * (bottom - top)), 1.0))
 

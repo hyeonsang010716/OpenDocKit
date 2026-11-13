@@ -9,7 +9,7 @@ import time
 import pytest
 
 from opendockit import ConvertOptions, convert
-from opendockit.extractors import _pdf_aligned_tables, _pdf_label_values, _pdf_margins, pdf
+from opendockit.extractors import _pdf_aligned_tables, _pdf_label_values, _pdf_margins, _pdf_row_joins, _pdf_table_rows, pdf
 from tests.pdf_modules import replace_everywhere
 from tests.timing import allowed
 
@@ -145,13 +145,12 @@ class TestManyWrappedLinesUnderOneRow:
     @staticmethod
     def _counted(monkeypatch) -> list[int]:
         calls = [0]
-        column_of = _pdf_aligned_tables._column_of
 
         def counting(*args):
             calls[0] += 1
             return column_of(*args)
 
-        monkeypatch.setattr(_pdf_aligned_tables, "_column_of", counting)
+        column_of = replace_everywhere(monkeypatch, "_column_of", counting)
         return calls
 
     def test_wrapped_lines_of_a_cell_are_not_measured_again_for_every_line(self, monkeypatch):
@@ -189,8 +188,8 @@ class TestManyWrappedLinesUnderOneRow:
                 x1 = random.choice([x0 + width, random.choice(edges)]) if random.random() < 0.3 else x0 + width
                 row.append(pdf._Line(120, 130, min(x0, x1), max(x0, x1), random.choice(("word", "12", "3,400", "note a")), 10))
                 expected = [_pdf_aligned_tables._column_of(cell, header, row) for cell in row]
-                assert _pdf_aligned_tables._cell_columns(row, header, known) == expected
-                moved += sum(column != _pdf_aligned_tables._header_column(cell, header) for cell, column in zip(row, expected, strict=True))
+                assert _pdf_table_rows._cell_columns(row, header, known) == expected
+                moved += sum(column != _pdf_table_rows._header_column(cell, header) for cell, column in zip(row, expected, strict=True))
         assert moved > 200  # the gap rule (a cell sent to the column on its right) is exercised
 
     @pytest.mark.timing
@@ -222,8 +221,8 @@ class TestLongDotRunInsideALine:
     _TOKENS = (".", "·", "…", "‥", " ", "a", "1", "\n", ".....", "……", "abcdefghijkl")
 
     def test_leader_patterns_judge_as_before(self):
-        assert _same_verdicts(_pdf_aligned_tables._LEADER_END, r"(?:[.·∙・]{5,}|[…‥]{2,})$", self._TOKENS, 5, search=True)
-        assert _same_verdicts(_pdf_aligned_tables._LEADER_TAIL, r"(?:[.·∙・]{5,}|[…‥]{2,})\s*\S{1,12}$", self._TOKENS, 5, search=True)
+        assert _same_verdicts(_pdf_row_joins._LEADER_END, r"(?:[.·∙・]{5,}|[…‥]{2,})$", self._TOKENS, 5, search=True)
+        assert _same_verdicts(_pdf_row_joins._LEADER_TAIL, r"(?:[.·∙・]{5,}|[…‥]{2,})\s*\S{1,12}$", self._TOKENS, 5, search=True)
 
     def test_contents_line_keeps_its_page_number(self):
         def draw(canvas, page):

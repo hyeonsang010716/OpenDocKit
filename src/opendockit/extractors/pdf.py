@@ -51,7 +51,23 @@ import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
-from opendockit.extractors._pdf_aligned_tables import _carry_table_headers, _extract_aligned_tables, _join_row_fragments, _join_ruled_header_lines
+from opendockit.extractors._pdf_aligned_tables import _extract_aligned_tables
+from opendockit.extractors._pdf_artifacts import (
+    _chars_at_line_level,
+    _has_undecodable_contents,
+    _is_sideways,
+    _is_tilted,
+    _part_outside_cells,
+    _sideways_paragraphs,
+    _text_view,
+    _text_without_artifacts,
+    _unmeasured,
+    _view_box,
+    _without_drawing_artifacts,
+    _xobject_owners,
+)
+from opendockit.extractors._pdf_chars import _drawn_text, _gap_parts, _letter_spaced_text, _letter_spacings, _scripted_text, _text_from_chars
+from opendockit.extractors._pdf_continued_tables import _carry_table_headers, _join_ruled_header_lines
 from opendockit.extractors._pdf_figures import _figure_boxes, _open_pdfium, _page_images, _PageRenderer, _untrusted_text_layer_pages
 from opendockit.extractors._pdf_forms import _annotated_attachments, _form_values, _has_xfa, _named_attachments
 from opendockit.extractors._pdf_margins import _body_font_size, _edge_rows, _remove_repeated_margins, _typical_line_gap
@@ -84,45 +100,18 @@ from opendockit.extractors._pdf_pdfminer import (
     _InflateBudget,
     _name,
 )
+from opendockit.extractors._pdf_pieces import _place_xobject_lines, _rejoined_lines
+from opendockit.extractors._pdf_placed_runs import _repair_placed_runs
 from opendockit.extractors._pdf_reading_order import (
     _read_alternating_sides_in_turn,
     _read_columns_in_turn,
     _read_lone_lines_in_place,
     _read_sidebar_first,
 )
-from opendockit.extractors._pdf_ruled_tables import (
-    _real_tables,
-    _ruled_table,
-    _shade_bands,
-    _thin_rules,
-    _with_open_below,
-    _without_glyph_outlines,
-    _without_highlights,
-    _without_unadvanced_spaces,
-)
-from opendockit.extractors._pdf_text import (
-    _chars_at_line_level,
-    _drawn_text,
-    _gap_parts,
-    _has_undecodable_contents,
-    _is_sideways,
-    _is_tilted,
-    _letter_spaced_text,
-    _letter_spacings,
-    _part_outside_cells,
-    _place_xobject_lines,
-    _rejoined_lines,
-    _repair_placed_runs,
-    _scripted_text,
-    _sideways_paragraphs,
-    _text_from_chars,
-    _text_view,
-    _text_without_artifacts,
-    _unmeasured,
-    _view_box,
-    _without_drawing_artifacts,
-    _xobject_owners,
-)
+from opendockit.extractors._pdf_row_joins import _join_row_fragments
+from opendockit.extractors._pdf_ruled_tables import _real_tables, _ruled_table, _with_open_below
+from opendockit.extractors._pdf_shaded_tables import _shade_bands, _thin_rules
+from opendockit.extractors._pdf_table_filters import _without_glyph_outlines, _without_highlights, _without_unadvanced_spaces
 from opendockit.markdown import solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
