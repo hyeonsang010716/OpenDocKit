@@ -916,11 +916,14 @@ _MARKER_GAP_RATIO = 3.0
 # A line ending in the dot leader of a table of contents or price list (5 or more periods/middle dots, or 2 or more ellipses, in a
 # row) and the short value placed separately at its right end (page number, amount). The value starts within `_LEADER_GAP_RATIO` ×
 # the character size from the end of the leader and is at most `_LEADER_VALUE_MAX_RATIO` × the character size wide (`_leader_rows`).
-_LEADER_END = re.compile(r"(?:[.·∙・]{5,}|[…‥]{2,})$")  # scattered dots of an OCR text layer ('... .. . .') are not a dot leader
+# A run of dots is tried only from its first dot (the look-behinds): tried from every dot, each time to the end of the run and back,
+# a piece with a long run that does not end the text took time with the square of the run — 18 seconds for 20,000 dots followed by
+# a word (Pinned by: test_audit_pdf_tail.py::TestLongDotRunInsideALine). A match from inside a run is also one from its start.
+_LEADER_END = re.compile(r"(?:(?<![.·∙・])[.·∙・]{5,}|(?<![…‥])[…‥]{2,})$")  # scattered dots of an OCR text layer ('... .. . .') are not a dot leader
 _LEADER_GAP_RATIO = 3.0
 _LEADER_VALUE_MAX_RATIO = 10.0
 # End of a table-of-contents line whose dot leader and page number are one piece with the item text ('서론 ....... 1') (`_leader_rows`).
-_LEADER_TAIL = re.compile(r"(?:[.·∙・]{5,}|[…‥]{2,})\s*\S{1,12}$")
+_LEADER_TAIL = re.compile(r"(?:(?<![.·∙・])[.·∙・]{5,}|(?<![…‥])[…‥]{2,})\s*\S{1,12}$")
 # Dot leader left in the page text (5 or more dots/middle dots or 3 or more ellipses; they may be spaced one apart). Shortened to a
 # single ellipsis (`_shortened_leaders`).
 _LEADER_RUN = re.compile(r"[ \t]*(?:[.·∙・](?:[ \t]?[.·∙・]){4,}|[…‥](?:[ \t]?[…‥]){2,})[ \t]*")
@@ -944,7 +947,10 @@ _CENTRED_TOLERANCE_RATIO = 0.03
 _DIGITS = re.compile(r"\d+")
 # Piece that looks like a page number ("3", "- 3 -", "3 / 10", "Page 3", "3쪽"). For a margin line with several pieces at the same
 # height, only the digits of this piece are ignored; the rest must match character for character to count as a repeat.
-_PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:page|p\.)?\s*\d{1,4}\s*(?:/\s*\d{1,4})?\s*(?:쪽|페이지)?\s*[-–)\]]?$", re.IGNORECASE)
+# Each optional part carries the white space after it, so no two runs of optional white space are neighbours: with
+# `\s*(?:/…)?\s*(?:쪽|페이지)?\s*`, a digit followed by a long run of white space and then anything else was tried in every way
+# of sharing the white space out (cubic). The texts matched are the same (Pinned by: test_audit_pdf_tail.py::TestPageNumberShape).
+_PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:(?:page|p\.)\s*)?\d{1,4}\s*(?:/\s*\d{1,4}\s*)?(?:(?:쪽|페이지)\s*)?[-–)\]]?$", re.IGNORECASE)
 # Token that can be a page number (_page_number_blind): without its digits only punctuation, a page word or a single Latin letter
 # remains ('3', '3/10', '3쪽', 'p.3', '2024-01-05', 'A-1'). A value with a unit ('12건') is not one.
 _PAGE_WORDS = frozenset({"page", "p", "pp", "of", "쪽", "페이지", "면", "頁"})
@@ -6861,7 +6867,11 @@ def _column_table_runs(page: _Page, runs: list[list[list[_Line]]], columns: tupl
     column the table criteria (`_table_runs`) are unchanged.
     """
     left_end, right_start = columns
-    in_table = {id(line) for run in runs for row in run for line in row}
+    # The original lines of a cell joined from several lines are in a table too. Left in `rest`, the lines of a row whose
+    # cells wrap to several lines (`_centred_band_row`) made a second table inside the column and came out twice
+    # (Pinned by: test_audit_pdf_tail.py::TestJoinedCellLinesOnATwoColumnPage::
+    # test_lines_of_a_joined_row_are_not_a_second_table).
+    in_table = {id(original) for run in runs for row in run for line in row for original in (line, *line.joined)}
     rest = [line for line in page.lines if id(line) not in in_table]
     found: list[list[list[_Line]]] = []
     for side in ([line for line in rest if line.x1 <= right_start], [line for line in rest if line.x0 >= left_end]):
@@ -7015,9 +7025,15 @@ def _table_runs(rows: list[list[_Line]], max_cell: float,
                 # Wrapped lines of cell text (there may be several) are joined to the cell only when more table rows
                 # follow below. A short note set right below the last row ('* 잠정치', '출처: 인사팀') was attached to
                 # the first cell
+                # The bottom of the growing row is carried along and the columns of its cells are worked out from what
+                # is already known about each cell (`known`, `_cell_columns`): measuring both again for every wrapped
+                # line took time cubic in the number of lines under one row (Pinned by: test_audit_pdf_tail.py::
+                # TestManyWrappedLinesUnderOneRow).
                 merged, ahead = previous, following
+                floor, known = max(line.bottom for line in merged), {}
                 while (ahead < len(rows) and len(rows[ahead]) == 1
-                       and _continues_cell(rows[ahead][0], merged, header, gap_below(merged, rows[ahead]), row_gap)):
+                       and _continues_cell(rows[ahead][0], merged, header, rows[ahead][0].top - floor, row_gap, known)):
+                    floor = max(floor, rows[ahead][0].bottom)
                     merged, ahead = [*merged, *rows[ahead]], ahead + 1
                 if ahead > following and ((ahead < len(rows) and accepts(rows[ahead], merged, header))
                                           or _in_the_band_of(merged[len(previous):], previous, bands)):
@@ -7159,7 +7175,8 @@ def _sizes_match(row: list[_Line], previous: list[_Line]) -> bool:
     return min(sizes) <= 0 or max(sizes) <= min(sizes) * _TABLE_SIZE_RATIO
 
 
-def _continues_cell(line: _Line, previous: list[_Line], header: list[_Line], gap: float, row_gap: float) -> bool:
+def _continues_cell(line: _Line, previous: list[_Line], header: list[_Line], gap: float, row_gap: float,
+                    known: dict | None = None) -> bool:
     """Whether a single-fragment line (`line`) is the wrapped continuation of cell text in the row right above (`previous`).
 
     When cell text wraps onto two lines, the wrapped line becomes a single-fragment row, the table is cut there, and if
@@ -7176,14 +7193,52 @@ def _continues_cell(line: _Line, previous: list[_Line], header: list[_Line], gap
     before a centred header was counted as the first column and the table was cut
     (Pinned by: test_pdf_table_columns.py::TestCentredHeadersOverLeftAlignedCells::
     test_wrapped_line_of_a_cell_in_the_gap_before_a_centred_header_stays_in_the_cell).
+
+    `known` is what a caller that asks about one growing row again and again keeps between calls (`_cell_columns`).
     """
     if not 0 <= gap <= row_gap * _WRAP_GAP_RATIO or row_gap - gap < line.height * _WRAP_GAP_MIN_RATIO:
         return False
 
-    columns = [_column_of(cell, header, previous) for cell in previous]
+    columns = [_column_of(cell, header, previous) for cell in previous] if known is None else _cell_columns(previous, header, known)
     candidates = {_column_of(line, header)} | {
         column for cell, column in zip(previous, columns, strict=True) if abs(cell.x0 - line.x0) <= _TABLE_ROW_TOLERANCE}
     return any(_wraps_into(line, previous, columns, header, column) for column in sorted(candidates))
+
+
+def _cell_columns(row: list[_Line], header: list[_Line], known: dict) -> list[int]:
+    """The same list as `[_column_of(cell, header, row) for cell in row]` for a row that grows: `known` (empty at first)
+    keeps what was worked out in the previous call, and `row` is the row of that call with cells added at the end.
+
+    `_column_of` looks at the other cells of the row for two things only: whether an earlier cell occupies the header
+    column of the cell (`taken` in `_gap_column` — true exactly when one of the two cells of that header column that end
+    leftmost, the cell itself aside, ends before the cell starts), and whether another cell goes to the same column under
+    the gap rule. So the gap rule is asked with a row of just that leftmost cell and the cell itself, again only for the
+    header column in which an added cell became one of the two leftmost, and the second question is answered by
+    counting. Asking `_column_of` for every cell of the row again for every further wrapped line took tens of seconds
+    with several hundred lines under one row (Pinned by: test_audit_pdf_tail.py::TestManyWrappedLinesUnderOneRow; the
+    equality with `_column_of` by test_columns_of_a_growing_row_are_those_of_column_of).
+    """
+    heads: list[int] = known.setdefault("heads", [])  # `_header_column` of each cell
+    gaps: list[int] = known.setdefault("gaps", [])  # `_gap_column` of each cell in this row
+    leftmost: dict[int, list[_Line]] = known.setdefault("leftmost", {})  # header column → the two cells ending leftmost
+    seen = len(heads)
+    moved: set[int] = set()  # header columns whose leftmost cells changed: `taken` may have changed for their cells
+    for cell in row[seen:]:
+        heads.append(_header_column(cell, header))
+        gaps.append(heads[-1])
+        ends = leftmost.setdefault(heads[-1], [])
+        if len(ends) < 2 or cell.x1 < max(other.x1 for other in ends):
+            if len(ends) == 2:
+                ends.remove(max(ends, key=lambda other: other.x1))
+            ends.append(cell)
+            moved.add(heads[-1])
+    for index in range(0 if moved else seen, len(row)):
+        cell, head = row[index], heads[index]
+        if index >= seen or head in moved:
+            earlier = next((other for other in leftmost[head] if other is not cell and other.x1 <= cell.x0), None)
+            gaps[index] = _gap_column(cell, header, [cell] if earlier is None else [earlier, cell], head)
+    shared = Counter(gaps)
+    return [head if shared[gap] > 1 else gap for head, gap in zip(heads, gaps, strict=True)]
 
 
 def _wraps_into(line: _Line, previous: list[_Line], columns: list[int], header: list[_Line], column: int) -> bool:
@@ -8548,17 +8603,27 @@ def _label_value_run(rows: list[list[_Line]], index: int, max_label: float) -> l
     """The group of 'label value' rows continuing downwards from `rows[index]` (a label-value pair): pairs in the same
     two columns (`_pairs_with`), wrapped value lines (`_wraps_value`), and label rows without a value between pairs
     (`_is_empty_value_row`). A group that has accepted a wrapped value line accepts further pairs only with a short label."""
-    def pairs(run: list[list[_Line]], row: list[_Line]) -> bool:
-        return _pairs_with(run, row, max_label) and (_short_label(row, max_label) or not _has_wrapped_value(run))
+    def pairs(run: list[list[_Line]], row: list[_Line], wrapped: bool) -> bool:
+        return _pairs_with(run, row, max_label) and (_short_label(row, max_label) or not wrapped)
+
+    def wraps(row: list[_Line]) -> bool:  # what `row` adds to `_has_wrapped_value` of the group (judged against the first row)
+        return _has_wrapped_value([run[0], row])
 
     run = [rows[index]]
+    # `_has_wrapped_value(run)`, carried along as rows are added. Asked of the whole group again for every pair with a long
+    # label, a group of many such pairs took time with the square of its rows, and with the cube when it is then discarded
+    # for its wide values and built again from each of its rows (Pinned by: test_audit_pdf_tail.py::
+    # TestManyPairsWithLongLabels).
+    wrapped = _has_wrapped_value(run)
 
     while index + len(run) < len(rows):
         row = rows[index + len(run)]
-        if pairs(run, row) or _wraps_value(run, row, max_label):
+        if pairs(run, row, wrapped) or _wraps_value(run, row, max_label):
             run.append(row)
+            wrapped = wrapped or wraps(row)
         elif (index + len(run) + 1 < len(rows) and _is_empty_value_row(run, row, max_label)
-              and pairs([*run, row], rows[index + len(run) + 1])):
+              and pairs([*run, row], rows[index + len(run) + 1], wrapped or wraps(row))):
+            wrapped = wrapped or wraps(row) or wraps(rows[index + len(run) + 1])
             run += [row, rows[index + len(run) + 1]]
         else:
             break
@@ -8947,7 +9012,13 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
         # Rows in the margin area + the top and bottom two rows of the page. Slide-style PDFs have the header outside the margin.
         rows = _visual_rows(page.lines)
         edge = {id(line) for row in _edge_rows(rows) for line in row}
-        protected = {id(line.source or line) for run in _aligned_table_runs(page) for row in run for line in row}
+        cells = [line for run in _aligned_table_runs(page) for row in run for line in row]
+        protected = {id(line.source or line) for line in cells}
+        # A cell joined from several lines stands for its original lines, which are the ones in `page.lines`: unprotected,
+        # the first line of a wrapped cell in the top row of a table repeated on every page was removed and the table fell
+        # apart (Pinned by: test_audit_pdf_tail.py::TestJoinedCellLinesAtThePageTop::
+        # test_wrapped_first_cell_survives_on_every_page).
+        protected.update(id(original) for line in cells for original in line.joined)
         protected.update(id(line) for row in _label_value_rows(rows, page.width) for line in row)
         captions = _caption_lines(page)
         body: dict[str, list[list[_Line]]] = {}  # Text with digits masked → body rows (outside the margin and edge rows)
