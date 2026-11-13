@@ -235,3 +235,27 @@ class TestClosingWithConversionsUnderWay:
         outcome, replaced = asyncio.run(scenario())
 
         assert isinstance(outcome, asyncio.CancelledError) and replaced
+
+
+class TestConverterUsedFromSuccessiveEventLoops:
+    """The queue of free workers binds to the first event loop in which a file has to wait. A converter kept across several
+    `asyncio.run` calls (a job runner, a test suite) then failed in every later loop as soon as a file had to wait:
+    "RuntimeError: <Queue ...> is bound to a different event loop"."""
+
+    @pytest.mark.timing
+    @_posix_only
+    def test_files_wait_for_a_worker_in_a_later_event_loop_too(self):
+        converter = IsolatedConverter(workers=2)
+
+        async def three_files():
+            files = (converter.convert(_SMALL_TEXT, name) for name in ("a.txt", "b.txt", "c.txt"))
+            return await asyncio.gather(*files, return_exceptions=True)
+
+        try:
+            outcomes = [asyncio.run(three_files()) for _ in range(3)]
+            free = sorted(converter._free.get_nowait() for _ in range(converter._free.qsize()))
+        finally:
+            asyncio.run(converter.aclose())
+
+        assert [[getattr(outcome, "text", outcome) for outcome in loop] for loop in outcomes] == [[convert(_SMALL_TEXT, "a.txt").text] * 3] * 3
+        assert free == [0, 1]  # every worker came back, none twice: the limit is still two files at a time

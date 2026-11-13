@@ -113,7 +113,7 @@ class IsolatedConverter:
         await self.aclose()
 
     async def _convert_in_worker(self, data: bytes, filename: str | None, options: ConvertOptions | None) -> ConversionResult:
-        slot = await self._free.get()
+        slot = await self._free_slots().get()
         try:
             if self._closed:  # closed while this file waited for a slot: its pool is shut down
                 raise RuntimeError("This IsolatedConverter is closed.")
@@ -138,6 +138,24 @@ class IsolatedConverter:
             raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
         finally:
             self._free.put_nowait(slot)
+
+    def _free_slots(self) -> "asyncio.Queue[int]":
+        """The queue of free slots, replaced when it is bound to an event loop that has been closed.
+
+        An `asyncio.Queue` binds to the loop in which a caller first has to wait. A converter used from one `asyncio.run` after
+        another then raised "bound to a different event loop" in every later loop as soon as a file had to wait
+        (Pinned by: test_audit_runtime.py::TestConverterUsedFromSuccessiveEventLoops). Nothing can wait in a closed loop any
+        more, so the free slots are moved to a new queue: the number of slots, and with it the worker limit, stays the same.
+        Deliberate: a queue bound to a loop that is still open is left alone (`_loop` is a private attribute; without it
+        nothing is moved). One converter shared by event loops running at the same time in several threads is not supported.
+        """
+        bound = getattr(self._free, "_loop", None)
+        if bound is not None and bound.is_closed():
+            free: asyncio.Queue[int] = asyncio.Queue()
+            while not self._free.empty():
+                free.put_nowait(self._free.get_nowait())
+            self._free = free
+        return self._free
 
     def _replace(self, slot: int) -> None:
         if self._closed:  # `aclose` is stopping every pool itself; a second `shutdown` of the same pool at the same time broke it
