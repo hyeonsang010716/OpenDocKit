@@ -209,10 +209,11 @@ def _open_within_pixel_limit(data: bytes, max_side: int) -> Image.Image:
     """Open so that at most `_MAX_DECODE_PIXELS` pixels are decoded. A JPEG over it is read reduced to 1/2–1/8 at decode time (draft).
 
     Normal photos over Pillow's decompression-bomb limit (the same value), such as panoramas and large scans, were rejected as a
-    'corrupted image' (Pinned by: test_core_image_and_assembly.py::TestVeryLargePictures). A JPEG is decoded reduced at the DCT
-    stage, so it uses only the memory of the reduced size — the over-limit original is never decoded whole. Image.open rejects
-    it in its limit check, so the JPEG decoder is opened directly (global settings such as `MAX_IMAGE_PIXELS` are not changed).
-    If it is still over the limit after reduction, or the format cannot be read reduced (PNG, TIFF, ...), raise `ImageTooLarge`.
+    'corrupted image' (Pinned by: test_core_image_and_assembly.py::TestVeryLargePictures). A baseline JPEG is decoded reduced at
+    the DCT stage, so it uses only the memory of the reduced size — the over-limit original is never decoded whole. Image.open
+    rejects it in its limit check, so the JPEG decoder is opened directly (global settings such as `MAX_IMAGE_PIXELS` are not
+    changed). If it is still over the limit after reduction, or the format cannot be read reduced (PNG, TIFF, a progressive
+    JPEG, ...), raise `ImageTooLarge`.
     """
     try:
         opened = Image.open(BytesIO(data))
@@ -226,6 +227,13 @@ def _open_within_pixel_limit(data: bytes, max_side: int) -> Image.Image:
         raise ImageTooLarge("image too large")
 
     jpeg = JpegImagePlugin.JpegImageFile(BytesIO(data))
+    # Deliberate: a progressive JPEG over the limit is not read. Its decoder keeps the coefficients of the whole picture in
+    # memory whatever the reduction, so the limit on the reduced size does not bound it: a 20000×20000 one (1.5 MB) took 946 MB
+    # where a baseline one took 148 MB
+    # (Pinned by: test_audit_runtime.py::TestProgressiveJpegOverThePixelLimit::test_progressive_jpeg_over_the_limit_is_too_large).
+    if jpeg.info.get("progressive") or jpeg.info.get("progression"):
+        jpeg.close()
+        raise ImageTooLarge("image too large")
     width, height = jpeg.size
     scale = next((scale for scale in (2, 4, 8) if -(-width // scale) * -(-height // scale) <= _MAX_DECODE_PIXELS), None)
     if scale is None:
