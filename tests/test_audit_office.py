@@ -1,6 +1,7 @@
 """Defects found by an audit of the DOCX, PPTX and ODF extractors with hand-built hostile documents: one odd structure that
 rejected the whole document, values that came out wrong, and work that was repeated for every reference to the same part."""
 
+import base64
 from copy import deepcopy
 from io import BytesIO
 import re
@@ -16,7 +17,7 @@ from opendockit.extractors import docx as docx_module
 from opendockit.extractors import pptx as pptx_module
 from opendockit.extractors.docx import extract_docx
 from tests import builder
-from tests.test_office import _CHART_NS, _chart_series, _chart_xml, _docx_inline, _docx_with_body
+from tests.test_office import _CHART_NS, _chart_series, _chart_xml, _docx_inline, _docx_with_body, _docx_with_chunks
 from tests.test_odf import _package as _odf_package
 
 
@@ -401,6 +402,47 @@ class TestChartPartReferencedByManyFrames:
 
         assert text.count("[Chart] Quarters") == 2
         assert text.count("Q2") == 1
+
+
+class TestDocxChunkPartReferencedManyTimes:
+    """The part of imported content (w:altChunk) was converted again for every reference to it, and a chunk that gives no text
+    never moves the character count: 20 references to 2 MB of empty `<div>` (a 41 KB document) took 60 s. The part is converted
+    once per document; what each reference writes is unchanged."""
+
+    @staticmethod
+    def _count_html_conversions(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+        conversions = [0]
+        extract = docx_module.extract_html
+
+        def counted(data: bytes, options: ConvertOptions) -> object:
+            conversions[0] += 1
+            return extract(data, options)
+
+        monkeypatch.setattr(docx_module, "extract_html", counted)
+        return conversions
+
+    def test_chunk_referenced_many_times_is_converted_once(self, monkeypatch: pytest.MonkeyPatch):
+        picture = base64.b64encode(builder.png_bytes()).decode()
+        html = f'<html><body><p>imported text</p><p><img src="data:image/png;base64,{picture}" alt="figure"></p></body></html>'
+        chunks = {"rIdChunk": ("chunk1.html", "text/html", html.encode())}
+        conversions = self._count_html_conversions(monkeypatch)
+
+        extraction = extract_docx(_docx_with_chunks('<w:altChunk r:id="rIdChunk"/>' * 20, chunks), ConvertOptions())
+
+        assert conversions == [1]
+        assert extraction.sections[0].text.count("imported text") == 20
+        assert len(extraction.images) == 20   # every reference still registers the chunk's picture, with its own placeholder
+        assert all(f":{number}⟧" in extraction.sections[0].text for number in range(1, 21))
+
+    def test_chunk_without_text_referenced_many_times_is_converted_once(self, monkeypatch: pytest.MonkeyPatch):
+        html = "<html><body>" + "<div><span></span></div>" * 50 + "</body></html>"
+        conversions = self._count_html_conversions(monkeypatch)
+
+        result = convert(_docx_with_chunks('<w:altChunk r:id="rIdChunk"/>' * 20 + "<w:p><w:r><w:t>tail</w:t></w:r></w:p>",
+                                           {"rIdChunk": ("chunk1.html", "text/html", html.encode())}), "sample.docx")
+
+        assert conversions == [1]
+        assert result.text == "tail"
 
 
 class TestPptxSlideListEntryWithoutARelationship:

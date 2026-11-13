@@ -251,6 +251,7 @@ class _DocxRenderer:
         self.notes = _NoteLabels()  # footnote/endnote references seen in the body, and their labels
         # Tables being rendered. A table inside a cell is handed to the table at the top of the stack (markdown.TableGrid.embed)
         self._grids: list[TableGrid] = []
+        self._chunks: dict[object, Extraction] = {}  # imported-content part → its conversion (`_chunk_blocks`)
         self._chart_titles: dict[object, str] = {}  # chart part already written → its `[Chart] title` line (`_object_block`)
         self._drop_cap: tuple[etree._Element, str] | None = None  # (drop-cap paragraph, its text). Prepended to the very next paragraph
         # Preceding list items not yet closed. Cells, headers and text boxes count separately (`_list_depth`)
@@ -328,13 +329,19 @@ class _DocxRenderer:
             return []
 
         content_type = part.content_type.split(";")[0].strip().lower()
-        if content_type in _HTML_CHUNK_TYPES or (content_type in _MHT_CHUNK_TYPES and is_mhtml(blob)):
+        # A part is converted once however many w:altChunk point at it; each reference still writes its content. It was
+        # converted again per reference, and a chunk that gives no text never moves the character count: 20 references to 2 MB
+        # of empty <div> took 60 s (Pinned by: test_audit_office.py::TestDocxChunkPartReferencedManyTimes).
+        if part in self._chunks:
+            imported = self._chunks[part]
+        elif content_type in _HTML_CHUNK_TYPES or (content_type in _MHT_CHUNK_TYPES and is_mhtml(blob)):
             imported = extract_html(blob, self._options)
         elif content_type in _TEXT_CHUNK_TYPES:
             imported = extract_text(blob, self._options)
         else:
             self.unread_chunks += 1
             return []
+        self._chunks[part] = imported
 
         # The chunk's placeholders carry numbers local to the chunk. They must be rewritten in one pass so that a rewritten number is
         # not rewritten again.
