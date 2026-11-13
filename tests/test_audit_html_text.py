@@ -415,3 +415,25 @@ class TestUnclosedImgTagWithManySources:
         result = convert(f'<img alt="chart" class="x" src="data:image/png;base64,{encoded}" width="3"> text'.encode(), "a.md")
 
         assert len(result.images) == 1
+
+
+class TestManyHeadingsUnderDeepNesting:
+    """Every heading looked for a heading around it by walking up to the root of the document: 8,000 headings under 8,000
+    unclosed `<div>` (117KB) took 31 s. Only a heading that lay inside another one when the page was parsed can have one."""
+
+    @pytest.mark.timing
+    def test_headings_without_an_outer_heading_take_linear_time(self):
+        seconds, text = _seconds(("<div>" * 8000 + "<h2>x</h2>" * 8000).encode(), "a.html")
+
+        assert text == "\n\n".join(["## x"] * 8000)
+        assert seconds < 5
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<h2>one<h3>two</h3>three</h2><p>p</p>", "## one\n\n### two\n\nthree\n\np"),
+        ("<h2>one<span>a<h3>two</h3>b</span>c</h2><p>p</p>", "## oneac\n\n### two\n\nb\n\np"),
+        ("<h1>t<div><h2>a<div><h3>b<div><h4>c</h4>d</div>e</h3>f</div>g</h2>h</div>i</h1>",
+         "# t i\n\n## a g\n\n### b e\n\n#### c\n\ndfh"),
+        ("<h1>t<h2>a</h2><span><h3>b</h3></span></h1><div><h4>c</h4></div>", "# t\n\n## a\n\n### b\n\n#### c"),
+    ])
+    def test_heading_inside_a_heading_is_still_taken_out(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected

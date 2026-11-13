@@ -9,7 +9,7 @@ and `mailto` addresses, only `<b>` / `<strong>` / `<i>` / `<em>`, and nothing fo
 
 import base64
 import binascii
-from collections.abc import Callable
+from collections.abc import Callable, Container
 from contextvars import ContextVar
 from dataclasses import dataclass
 from email.message import Message
@@ -1046,13 +1046,42 @@ def _flatten_nested_headings(soup: BeautifulSoup) -> None:
     9.9 s (quadratic) on 156KB of repeated `<h3>제목`
     (Pinned by: test_text_html.py::TestMalformedNesting::test_many_heading_tags_left_open_take_linear_time).
     """
-    for heading in soup.find_all(list(_HEADINGS)):
+    headings = soup.find_all(list(_HEADINGS))
+    # `_flatten_nested_headings` only moves content out of headings (and wraps what precedes an already handled heading), so a
+    # heading that starts outside every heading never gets one around it and need not look for one
+    nested = _lying_inside(headings, _HEADINGS)
+    for heading in headings:
         if heading.parent is not None and heading.parent.name in _HEADINGS:
             _close_heading_before(soup, heading.parent, heading)
+            continue
+        if id(heading) not in nested:
             continue
         outer = heading.find_parent(list(_HEADINGS))
         if outer is not None:
             _move_after(outer, [heading, *heading.next_siblings])
+
+
+def _lying_inside(nodes: list[Tag], names: Container[str]) -> set[int]:
+    """`id`s of those of `nodes` that lie inside an element named in `names` (the same answer as `find_parent(names)` for each,
+    as the tree is now). Each node walks upwards and stops at an element already visited, so it is linear time.
+
+    `find_parent` walks to the root for every node that has no such ancestor: 8,000 headings under 8,000 unclosed `<div>`
+    (117KB) took 31 seconds (Pinned by: test_audit_html_text.py::TestManyHeadingsUnderDeepNesting).
+    """
+    found: set[int] = set()
+    inside: dict[int, bool] = {}  # element not named in `names` → whether it lies inside one that is
+
+    for node in nodes:
+        path: list[Tag] = []
+        parent = node.parent
+        while parent is not None and parent.name not in names and id(parent) not in inside:
+            path.append(parent)
+            parent = parent.parent
+        lies_inside = parent is not None and (parent.name in names or inside[id(parent)])
+        inside.update((id(passed), lies_inside) for passed in path)
+        if lies_inside:
+            found.add(id(node))
+    return found
 
 
 def _reopen_raw_text_elements(soup: BeautifulSoup, closed: frozenset[str]) -> None:
