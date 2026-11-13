@@ -288,3 +288,40 @@ class TestDamagedTextBehindAByteOrderMark:
         assert result.text == "한글 text"
         assert result.warnings == []
         assert result.metadata["encoding"] in ("utf-8-sig", "utf-16", "utf-32")
+
+
+def _mail_with_attachment(disposition: str, *, body: str = "plain") -> bytes:
+    return (_MAIL_HEAD + "Subject: s\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n"
+            f"--b\r\nContent-Type: text/{body}\r\n\r\n<p>body text</p>\r\n"
+            f"--b\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; {disposition}\r\n\r\nxx\r\n--b--\r\n").encode()
+
+
+class TestAttachmentNameInTheWarning:
+    """The attachment warning names the attachments (docs/decisions/mail.md), and a name is whatever the mail says: an RFC 2231
+    name with encoded line breaks put several lines into the warning, and a name of any length was written out whole."""
+
+    @pytest.mark.parametrize("body", ["plain", "html"])
+    def test_name_with_line_breaks_and_control_characters_stays_on_one_line(self, body):
+        data = _mail_with_attachment("filename*=utf-8''evil%0Aline2%0D%0A%09line3%00%1B%5B31m.pdf", body=body)
+
+        result = convert(data, "a.eml")
+
+        assert result.warnings == ["1 mail attachment(s) (evil line2 line3 [31m.pdf) were not read. Convert attachments separately."]
+
+    def test_very_long_name_is_cut(self):
+        result = convert(_mail_with_attachment(f"filename*=utf-8''{'A' * 5000}.pdf"), "a.eml")
+
+        assert result.warnings == [f"1 mail attachment(s) ({'A' * 99}…) were not read. Convert attachments separately."]
+
+    def test_ordinary_names_are_written_as_before(self):
+        name = "2024년 3분기 실적 보고서 (최종).pdf"
+        encoded = base64.b64encode(name.encode()).decode()
+
+        result = convert(_mail_with_attachment(f'filename="=?utf-8?b?{encoded}?="'), "a.eml")
+
+        assert result.warnings == [f"1 mail attachment(s) ({name}) were not read. Convert attachments separately."]
+
+    def test_name_of_only_line_breaks_counts_as_unnamed(self):
+        result = convert(_mail_with_attachment("filename*=utf-8''%0A%0D"), "a.eml")
+
+        assert result.warnings == ["1 mail attachment(s) (1 unnamed attachment(s)) were not read. Convert attachments separately."]

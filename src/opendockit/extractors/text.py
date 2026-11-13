@@ -408,6 +408,9 @@ _TERMINAL_SEQUENCE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b\n]*(?:\x07|\x1b\\)|[P^_][^\x1b\n]*\x1b\\|[()*+][0-9A-Za-z]|[78=>cDEHM\\])")
 # Number of names written in the mail attachment warning (beyond it 'and N more'; the same number as the PDF attachment warning).
 _ATTACHMENT_NAMES_SHOWN = 10
+# Maximum characters of one name in that warning, and the control characters (C0, DEL, C1) taken out of it (`_one_line`).
+_ATTACHMENT_NAME_CHARS = 100
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 # The header line names of the MIME header block (`mime_header_block`) and the headers used to identify mail. MHTML detection for
@@ -1230,7 +1233,7 @@ def _attachment_list(names: list[str]) -> str:
     """The text inside the parentheses of the attachment warning: up to `_ATTACHMENT_NAMES_SHOWN` names are written and the rest
     become 'and N more'; unnamed attachments (empty text) are given only as a count. Unnamed attachments were repeated 10 times
     as 'unnamed, unnamed, …' (Pinned by: test_core_round44.py::TestUnnamedMailAttachments)."""
-    named = [name for name in names if name]
+    named = [flat for name in names if (flat := _one_line(name))]
     parts = [*named[:_ATTACHMENT_NAMES_SHOWN]]
 
     if len(named) > _ATTACHMENT_NAMES_SHOWN:
@@ -1238,6 +1241,17 @@ def _attachment_list(names: list[str]) -> str:
     if len(named) < len(names):
         parts.append(f"{len(names) - len(named)} unnamed attachment(s)")
     return ", ".join(parts)
+
+
+def _one_line(name: str) -> str:
+    """A name taken from the mail (attachment file name, subject of a forwarded mail) as it goes into the warning: on one line,
+    without control characters, and at most `_ATTACHMENT_NAME_CHARS` characters (the same treatment as `mcp_server._one_line`).
+
+    An RFC 2231 name (`filename*=utf-8''a%0Ab`) carries line breaks and has no length limit, so the one-line warning became
+    several lines or thousands of characters (Pinned by: test_audit_html_text.py::TestAttachmentNameInTheWarning).
+    """
+    flat = " ".join(_CONTROL_CHARACTERS.sub(" ", name).split())
+    return flat if len(flat) <= _ATTACHMENT_NAME_CHARS else flat[:_ATTACHMENT_NAME_CHARS - 1].rstrip() + "…"
 
 
 def _attachment_name(part: Message) -> str:
