@@ -6,14 +6,13 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from bs4.element import PreformattedString
 
 from opendockit.extractors._html_base import _BLOCK_TAGS, _HEADINGS
+from opendockit.extractors._mathml import MATH_IGNORED, mathml_structure
 
 
 # MathML (`_put_math`): annotation encodings of the LaTeX the document wrote, the wrapper of Wikipedia's alttext, script
 # elements → marks, elements that are not text, and the maximum depth unfolded LaTeX-style (recursion).
 _TEX_ENCODINGS = {"application/x-tex", "tex", "latex", "application/x-latex", "text/x-tex"}
 _DISPLAY_STYLE = re.compile(r"\{\\displaystyle\s*(.*)\}", re.DOTALL)
-_MATH_SCRIPTS = {"msup": "^", "msub": "_", "msubsup": "_", "munder": "_", "mover": "^", "munderover": "_"}
-_MATH_IGNORED = {"annotation", "annotation-xml", "none", "mprescripts", "mphantom"}
 _MAX_MATH_DEPTH = 50
 # Page blocks that cannot appear inside an equation (`_maths_holding_page_blocks`).
 _PAGE_BLOCKS_IN_MATH = [*_BLOCK_TAGS, *_HEADINGS, "table", "ul", "ol", "li", "pre"]
@@ -93,7 +92,7 @@ def _mathml_latex(node: object, depth: int) -> str:
     if not isinstance(node, Tag):
         return ""
     name = node.name
-    if name in _MATH_IGNORED:
+    if name in MATH_IGNORED:
         return ""
     if depth >= _MAX_MATH_DEPTH:
         return "".join(node.get_text().split())
@@ -105,31 +104,10 @@ def _mathml_latex(node: object, depth: int) -> str:
         return parts[0] if parts else ""  # the first child is presentation, the rest are annotations
     if name == "mspace":
         return " "
-    if name in _MATH_SCRIPTS and len(parts) >= 2:
-        base, scripts = parts[0], parts[1:]
-        if name in ("msup", "msub"):
-            return f"{base}{_MATH_SCRIPTS[name]}{_math_group(scripts[0])}"
-        if name == "msubsup" and len(scripts) >= 2:
-            return f"{base}_{_math_group(scripts[0])}^{_math_group(scripts[1])}"
-        # Upper/lower limits (∑, lim, underbars etc.) are always wrapped in braces — so they do not read as glued to the
-        # following character, as in `∑_{i=1}^ni`.
-        if name == "munderover" and len(scripts) >= 2:
-            return f"{base}_{{{scripts[0]}}}^{{{scripts[1]}}}"
-        return f"{base}{_MATH_SCRIPTS[name]}{{{scripts[0]}}}"
-    if name == "mfrac" and len(parts) >= 2:
-        return f"\\frac{{{parts[0]}}}{{{parts[1]}}}"
-    if name == "msqrt":
-        return f"\\sqrt{{{''.join(parts)}}}"
-    if name == "mroot" and len(parts) >= 2:
-        return f"\\sqrt[{parts[1]}]{{{parts[0]}}}"
-    if name == "mfenced":
-        separator = str(node.get("separators", ",")).strip()[:1]
-        return f"{node.get('open', '(')}{separator.join(parts)}{node.get('close', ')')}"
-    if name == "mtable":
-        rows = " \\\\ ".join(parts)
-        return f"\\begin{{matrix}}{rows}\\end{{matrix}}"
-    if name in ("mtr", "mlabeledtr"):
-        return " & ".join(parts)
+    fence = (node.get("open", "("), str(node.get("separators", ",")).strip()[:1], node.get("close", ")")) if name == "mfenced" else None
+    structure = mathml_structure(name, parts, fence)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
+    if structure is not None:
+        return structure
     if not children:
         return " ".join(node.get_text().split())  # mi·mn·mo·mtext·ms
     # Unknown elements have their child elements and the text between them joined in order. Joining only the elements lost the
@@ -137,7 +115,3 @@ def _mathml_latex(node: object, depth: int) -> str:
     # (Pinned by: test_core_round45.py::TestLimitOnBrokenHtml::test_text_beside_elements_inside_math_is_kept).
     tag_parts = iter(parts)
     return "".join(next(tag_parts) if isinstance(child, Tag) else _mathml_latex(child, depth + 1) for child in node.children)
-
-
-def _math_group(text: str) -> str:
-    return text if len(text) == 1 else f"{{{text}}}"
