@@ -414,3 +414,28 @@ class TestXmlSpreadsheetStyleChains:
         result = convert(_xml_workbook(_STYLED_ROWS, default + styles), "a.xml")
 
         assert result.text == "## Sheet: s\n\n| name | amount |\n| --- | --- |\n| part | 1.500 |"
+
+
+class TestNumberLikeText:
+    """The test for cell text that looks like a number had two whitespace runs with only an optional currency sign between them,
+    so a sign followed by N spaces and no digit was tried N² ways: a 156 KB CSV with four such cells took 17 s."""
+
+    @pytest.mark.timing
+    def test_sign_followed_by_many_spaces(self):
+        data = (("-" + " " * 60_000 + "x\n\n") * 4).encode()  # one-cell rows between blank lines are tested for being notes
+        started = time.perf_counter()
+
+        result = convert(data, "a.csv", ConvertOptions(max_chars=None))
+
+        assert result.text == "- x\n\n- x\n\n- x\n\n- x"
+        assert time.perf_counter() - started < 5  # 30 s or more before
+
+    @pytest.mark.parametrize("text", ["12", "-12", "- 12", "₩1,200", "₩ 1,200", "- ₩ 1,200", "-  ₩  1,200", "( $ 3.5 )", "(1,234)",
+                                      "▲ 3.5%", "△12", "+ € 7", "1,200원", "12 명", "3.2 %p", "2024-01-02", "9:30", "-12:30:05",
+                                      "− ¥\t5", " £ 5"])
+    def test_numbers_are_still_numbers(self, text):
+        assert spreadsheet._NUMBER_LIKE.fullmatch(text) is not None
+
+    @pytest.mark.parametrize("text", ["", "-", "₩", "- ₩", "x", "- x", "₩₩1", "-+1", "$ - 1", "1 2", "12a", "a12", "1월", "( )"])
+    def test_other_text_is_still_text(self, text):
+        assert spreadsheet._NUMBER_LIKE.fullmatch(text) is None

@@ -2762,8 +2762,10 @@ def _append_sheet(extraction: Extraction, name: str, rows: list[list[str]], draw
 # was not recognised as a header and was merged into the first table
 # (Pinned by: test_core_spreadsheet.py::TestTablesWithUnitFormats). Deliberate: words common in column names ('1월', '2024년',
 # '1차') such as 월, 년, 일, 차, 회, 분기 are not included — if a header looks like a number the new table is missed.
+# The whitespace after the currency sign belongs to the sign (`(?:[₩$€¥£]\s*)?`): as `\s*[₩$€¥£]?\s*` a sign followed by N spaces
+# and no digit was split between the two runs in N² ways (Pinned by: test_audit_spreadsheet.py::TestNumberLikeText).
 _UNIT_SUFFIX = r"(?:\s?(?:[천만억조]|백만|십억)?원|\s?(?:명|건|개|대|톤|%p|kg|㎏|천|만|억|백만))?"
-_NUMBER_LIKE = re.compile(r"[-+−▲▼△(]?\s*[₩$€¥£]?\s*\d[\d,]*(?:\.\d+)?\s*%?" + _UNIT_SUFFIX + r"\)?"
+_NUMBER_LIKE = re.compile(r"[-+−▲▼△(]?\s*(?:[₩$€¥£]\s*)?\d[\d,]*(?:\.\d+)?\s*%?" + _UNIT_SUFFIX + r"\)?"
                           r"|\d{4}[-./]\d{1,2}[-./]\d{1,2}\b.*|-?\d{1,3}:\d{2}(?::\d{2})?")
 # Years, common in headers (`구분 | 2023 | 2024`). Treated as header cells even though they look like numbers.
 _YEAR = re.compile(r"(?:19|20)\d{2}")
