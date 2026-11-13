@@ -178,9 +178,15 @@ PDFStream.decode = _decode_within_budget  # outside a conversion (no budget) it 
 
 
 def _charge(stream: PDFStream, budget: _InflateBudget) -> None:
-    """Charges the size the stream's Flate stage will inflate to against the limit. Raises DocumentTooLargeError when exceeded.
+    """Charges the size the stream's Flate stages will inflate to against the limit. Raises DocumentTooLargeError when exceeded.
     Other filters and broken streams are not measured (pdfminer decodes them as before — ASCII filters shrink the data, image
-    filters are not decoded)."""
+    filters are not decoded).
+
+    Every Flate stage is charged, not only the first: with `/Filter [/FlateDecode /FlateDecode]` the first stage inflated to a
+    few KB and passed, and pdfminer then inflated the second to 200MB under a 10MB limit. A stage that is followed by another
+    Flate stage has been measured to fit, so it is decoded by pdfminer's own decoder (predictor included) to get the next stage's
+    input; a stream with a single Flate stage is only measured, as before
+    (Pinned by: test_audit_pdf_head.py::TestStreamCompressedTwice)."""
     if id(stream) in budget.charged or stream.rawdata is None:
         return
     budget.charged[id(stream)] = stream
@@ -188,14 +194,19 @@ def _charge(stream: PDFStream, budget: _InflateBudget) -> None:
         data = stream.rawdata
         if stream.decipher:
             data = stream.decipher(stream.objid, stream.genno, data, stream.attrs)
-        for name, _ in stream.get_filters():
+        filters = stream.get_filters()
+        for index, (name, params) in enumerate(filters):
             if name in LITERALS_ASCII85_DECODE:
                 data = ascii85decode(data)
             elif name in LITERALS_ASCIIHEX_DECODE:
                 data = asciihexdecode(data)
             elif name in LITERALS_FLATE_DECODE:
                 budget.remaining -= _inflated_size(data, budget.remaining + 1)
-                break
+                if budget.remaining < 0 or not any(later in LITERALS_FLATE_DECODE for later, _ in filters[index + 1:]):
+                    break
+                stage = PDFStream({"Filter": name, "DecodeParms": params}, data)
+                _decode_unbounded(stage)
+                data = stage.data
             else:
                 break
     except Exception:  # noqa: BLE001 — a stream that could not be measured is handled by pdfminer's decoder as before
