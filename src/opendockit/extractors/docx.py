@@ -1787,6 +1787,11 @@ def _notes(document: object, renderer: _DocxRenderer) -> str:
         _keep_filled_placeholders(root, renderer.placeholders)
         with renderer.in_part(part):
             for note in root.iterchildren(_w(kind)):
+                # A note the body never references is not written, so it is not rendered either: its picture was registered as a
+                # picture of the document with no placeholder anywhere (Pinned by: test_audit_office.py::
+                # TestDocxFootnoteNobodyReferences::test_picture_in_an_unreferenced_footnote_is_not_registered).
+                if (kind, note.get(_w("id"), "")) not in renderer.notes.labels:
+                    continue
                 body = " ".join(_note_block(block, renderer.image_marker, renderer.inline)
                                 for block in _children(note, _w("p"), _w("tbl")))
                 texts[kind, note.get(_w("id"), "")] = body.strip()

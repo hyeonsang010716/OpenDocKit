@@ -20,6 +20,10 @@ _SUPERSCRIPT = '<w:rPr><w:vertAlign w:val="superscript"/></w:rPr>'
 _ENCLOSED_21 = r"<w:instrText> eq \o\ac(○,21) </w:instrText>"
 
 
+_WORD = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_RELATIONSHIPS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
 def _field_char(kind: str) -> str:
     return f'<w:fldChar w:fldCharType="{kind}"/>'
 
@@ -185,6 +189,48 @@ class TestDocxHeaderSharedBySections:
 
         extraction = extract_docx(data, ConvertOptions(include_headers_footers=True))
 
+        assert len(extraction.images) == 1
+
+
+class TestDocxFootnoteNobodyReferences:
+    """Every note of the footnotes part was rendered, referenced or not, and only the referenced ones were written. A picture in
+    a note the body never references was registered as a picture of the document with no placeholder anywhere."""
+
+    @staticmethod
+    def _document_referencing(note_id: int) -> bytes:
+        """Footnotes 2 (text) and 7 (text and a picture); the body references `note_id` only."""
+        def note(number: int, extra: str = "") -> str:
+            return f'<w:footnote w:id="{number}"><w:p><w:r><w:t>note {number}</w:t></w:r>{extra}</w:p></w:footnote>'
+
+        picture = '<w:r><w:drawing><a:blip r:embed="rIdPicture"/></w:drawing></w:r>'
+        footnotes = (f'<w:footnotes xmlns:w="{_WORD}" xmlns:r="{_RELATIONSHIPS}" '
+                     f'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">{note(2)}{note(7, picture)}</w:footnotes>')
+        body = f'<w:p><w:r><w:t>body</w:t></w:r><w:r><w:footnoteReference w:id="{note_id}"/></w:r></w:p>'
+        return builder.zip_with(_docx_with_body(body), edit={
+            "word/_rels/document.xml.rels": lambda xml: xml.replace(
+                "</Relationships>", f'<Relationship Id="rIdNotes" Type="{_RELATIONSHIPS}/footnotes" Target="footnotes.xml"/>'
+                                    "</Relationships>"),
+            "[Content_Types].xml": lambda xml: xml.replace(
+                "</Types>", '<Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.'
+                            'wordprocessingml.footnotes+xml"/><Default Extension="png" ContentType="image/png"/></Types>'),
+        }, add={
+            "word/footnotes.xml": footnotes,
+            "word/_rels/footnotes.xml.rels": (
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                f'<Relationship Id="rIdPicture" Type="{_RELATIONSHIPS}/image" Target="media/note.png"/></Relationships>'),
+            "word/media/note.png": builder.png_bytes(400, 300),
+        })
+
+    def test_picture_in_an_unreferenced_footnote_is_not_registered(self):
+        extraction = extract_docx(self._document_referencing(2), ConvertOptions())
+
+        assert extraction.sections[0].text == "body[^1]\n\n[^1]: note 2"
+        assert extraction.images == []
+
+    def test_picture_in_the_referenced_footnote_is_still_registered(self):
+        extraction = extract_docx(self._document_referencing(7), ConvertOptions())
+
+        assert extraction.sections[0].text.startswith("body[^1]\n\n[^1]: note 7")
         assert len(extraction.images) == 1
 
 
