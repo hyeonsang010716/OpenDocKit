@@ -87,3 +87,61 @@ class TestStreamCompressedTwice:
         assert "Visible body text" in convert(data, "a.pdf").text
         with pytest.raises(DocumentTooLargeError):
             convert(data, "a.pdf", ConvertOptions(max_uncompressed_bytes=1_000_000))
+
+
+def _scattered_pieces(count: int) -> bytes:
+    """Content that places `count` short words apart from each other (more line pieces than text-box grouping allows)."""
+    parts = [b"BT /F1 3 Tf\n"]
+    parts.extend(b"1 0 0 1 %d %.1f Tm (w%d) Tj\n" % (20 + (index % 12) * 46, 830 - (index // 12) * 3.7, index)
+                 for index in range(count))
+    return b"".join(parts) + b"ET\n"
+
+
+class TestStreamReadThroughTheUngroupedDocument:
+    """A page with very many text pieces is read from a second pdfplumber document (text-box grouping off). Its stream objects
+    are new ones, so every stream decoded there was charged a second time: a page inflating to 6.4MB used 12.8MB of the limit."""
+
+    def test_dense_page_is_charged_once(self):
+        content = _scattered_pieces(2600)
+        data = _one_page(_flate(content + b" " * 600_000))
+        assert len(content) < 150_000
+
+        result = convert(data, "a.pdf", ConvertOptions(max_uncompressed_bytes=1_000_000))
+
+        assert "w2599" in result.text
+        assert any("too many text pieces" in warning for warning in result.warnings)  # the second document was used
+
+    def test_dense_page_over_the_limit_is_still_rejected(self):
+        data = _one_page(_flate(_scattered_pieces(2600) + b" " * 1_200_000))
+
+        with pytest.raises(DocumentTooLargeError):
+            convert(data, "a.pdf", ConvertOptions(max_uncompressed_bytes=1_000_000))
+
+    def test_streams_without_an_object_number_are_each_charged(self):
+        from pdfminer.pdftypes import PDFStream
+
+        from opendockit.extractors import pdf as pdf_module
+
+        budget = pdf_module._InflateBudget(1_000_000)
+        packed = zlib.compress(b" " * 400_000)
+        first, second = (PDFStream({"Filter": pdf_module.LITERALS_FLATE_DECODE[0]}, packed) for _ in range(2))
+
+        pdf_module._charge(first, budget)
+        pdf_module._charge(first, budget)
+        pdf_module._charge(second, budget)
+
+        assert budget.remaining == 200_000
+
+    def test_same_object_reached_through_two_documents_is_charged_once(self):
+        from pdfminer.pdftypes import PDFStream
+
+        from opendockit.extractors import pdf as pdf_module
+
+        budget = pdf_module._InflateBudget(1_000_000)
+        packed = zlib.compress(b" " * 400_000)
+        streams = [PDFStream({"Filter": pdf_module.LITERALS_FLATE_DECODE[0]}, packed) for _ in range(3)]
+        for stream, objid in zip(streams, (4, 4, 6), strict=True):
+            stream.set_objid(objid, 0)
+            pdf_module._charge(stream, budget)
+
+        assert budget.remaining == 200_000

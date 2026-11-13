@@ -149,7 +149,7 @@ class _InflateBudget:
 
     remaining: int
     exceeded: bool = False
-    charged: dict[int, object] = field(default_factory=dict)
+    charged: dict[int | tuple[int, int | None], object] = field(default_factory=dict)  # id, or (object number, generation)
     walked: dict[int, object] = field(default_factory=dict)
     font_entries: int = 0  # number of entries font ranges (/W, mapping tables) may still expand to (`_bounded_font_ranges`)
     font_ranges_cut: bool = False
@@ -187,9 +187,14 @@ def _charge(stream: PDFStream, budget: _InflateBudget) -> None:
     Flate stage has been measured to fit, so it is decoded by pdfminer's own decoder (predictor included) to get the next stage's
     input; a stream with a single Flate stage is only measured, as before
     (Pinned by: test_audit_pdf_head.py::TestStreamCompressedTwice)."""
-    if id(stream) in budget.charged or stream.rawdata is None:
+    # Keyed by the object's number in the file: the second pdfplumber document (`ungrouped`, pages with very many text pieces)
+    # builds new stream objects for the same file objects, and by `id` each stream decoded there was charged a second time (a
+    # dense page inflating to 6.4MB was rejected at a 10MB limit). A stream without a number is keyed by `id` as before
+    # (Pinned by: test_audit_pdf_head.py::TestStreamReadThroughTheUngroupedDocument).
+    key = id(stream) if stream.objid is None else (stream.objid, stream.genno)
+    if key in budget.charged or stream.rawdata is None:
         return
-    budget.charged[id(stream)] = stream
+    budget.charged[key] = stream
     try:
         data = stream.rawdata
         if stream.decipher:
