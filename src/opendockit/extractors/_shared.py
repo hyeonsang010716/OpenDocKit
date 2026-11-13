@@ -597,7 +597,10 @@ def _format_date(value: str, format_code: str, date1904: bool) -> str | None:
         serial = float(value)
     except ValueError:
         return None
-    if not (has_date or has_time) or not 0 <= serial <= _LAST_DATE_SERIAL:
+    # The 1904 system starts 1,462 days later, so its last date has a serial that much smaller. Checked against the 1900 limit only,
+    # 9999-12-31 of the 1900 system overflowed and the document was rejected as corrupted
+    # (Pinned by: test_audit_core.py::TestChartDateCategoryPastTheLastDate).
+    if not (has_date or has_time) or not 0 <= serial <= _LAST_DATE_SERIAL - (1462 if date1904 else 0):
         return None
 
     # The base date of the 1900 system is 1899-12-30 (Excel counts the nonexistent 1900-02-29, so dates before it are one day late).

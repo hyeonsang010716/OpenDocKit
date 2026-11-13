@@ -320,3 +320,22 @@ class TestPackageRelationshipsWithUnclosedTags:
         data = _package(f'<Relationships xmlns="x">{relationship}</Relationships>', "word/document2.xml", "docProps/core.xml")
 
         assert detect_format(data, "a.docx") is DocumentFormat.DOCX
+
+
+class TestChartDateCategoryPastTheLastDate:
+    """A chart of a workbook in the 1904 date system starts counting 1,462 days later, so a date category that is still a date in
+    the 1900 system (9999-12-31, serial 2958465) ran past the last date and the whole presentation was rejected as 'corrupted'."""
+
+    def test_serial_past_the_last_date_of_the_1904_system_stays_a_number(self):
+        data = _pptx_with_number_chart(["1", "2"], categories=["2958465", "2957004"], category_format="yyyy-mm-dd", date1904=True)
+
+        result = convert(data, "a.pptx")
+
+        assert result.text.endswith("| Category | S |\n| --- | --- |\n| 2958465 | 1 |\n| 2957004 | 2 |")
+
+    def test_last_date_of_each_date_system_is_still_a_date(self):
+        late = _pptx_with_number_chart(["1", "2"], categories=["2957003", "0"], category_format="yyyy-mm-dd", date1904=True)
+        early = _pptx_with_number_chart(["1", "2"], categories=["2958465", "2958466"], category_format="yyyy-mm-dd")
+
+        assert convert(late, "a.pptx").text.endswith("| 9999-12-31 | 1 |\n| 1904-01-01 | 2 |")
+        assert convert(early, "a.pptx").text.endswith("| 9999-12-31 | 1 |\n| 2958466 | 2 |")
