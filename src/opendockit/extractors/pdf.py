@@ -2922,8 +2922,14 @@ def _late_symbols_in_place(piece: LTTextLineHorizontal, word_margin: float) -> L
 
 def _merged_overlapping_pieces(pieces: list[LTTextLineHorizontal], word_margin: float) -> tuple[list[LTTextLineHorizontal], bool]:
     """(piece list, whether anything was merged) after merging pieces on the same baseline whose x ranges overlap (`_shares_baseline`)
-    into one piece with the characters re-laid by x. A merged piece takes the place of its first piece. The pieces are scanned in y0
-    order so that only pairs that can overlap vertically are examined."""
+    into one piece with the characters re-laid by x. A merged piece takes the place of its first piece. Only pairs that can overlap
+    both ways are examined: the pieces are scanned in x0 order, and of the earlier pieces that still reach the current x0 (`live`,
+    sorted by y0) only those starting below the piece's top and less than 2 / `_PIECE_HEIGHT_RATIO` heights below its bottom are
+    compared — `_shares_baseline` is False for every other pair (no x overlap, no vertical overlap, or a taller piece than the height
+    ratio allows), and the merged groups depend only on the pairs for which it is True. Scanning in y0 order alone compared every
+    pair of one row: a single row of 6,000 two-letter pieces (an 8.5KB PDF) took 28 seconds inside one page
+    (Pinned by: test_audit_pdf_head.py::TestManyPiecesOnOneBaseline). With a non-finite coordinate the pieces are scanned in y0
+    order as before."""
     order = sorted(range(len(pieces)), key=lambda index: pieces[index].y0)
     parent = list(range(len(pieces)))
     texts = [piece.get_text().strip() for piece in pieces]  # rejoining the text for every pair would build text the square of the piece count times
@@ -2934,13 +2940,30 @@ def _merged_overlapping_pieces(pieces: list[LTTextLineHorizontal], word_margin: 
             index = parent[index]
         return index
 
-    for position, index in enumerate(order):
-        piece = pieces[index]
-        for other in islice(order, position + 1, None):
-            if pieces[other].y0 >= piece.y1:
-                break
-            if _shares_baseline(piece, pieces[other], texts[index], texts[other]):
-                parent[root(other)] = root(index)
+    if all(math.isfinite(value) for piece in pieces for value in piece.bbox):
+        wide = [index for index in range(len(pieces)) if pieces[index].x1 > pieces[index].x0]  # the others overlap nothing in x
+        ends, ended = sorted(wide, key=lambda index: pieces[index].x1), 0
+        live: list[tuple[float, int]] = []  # (y0, piece number)
+        for index in sorted(wide, key=lambda index: pieces[index].x0):
+            piece = pieces[index]
+            while pieces[ends[ended]].x1 <= piece.x0:
+                del live[bisect_left(live, (pieces[ends[ended]].y0, ends[ended]))]
+                ended += 1
+            for position in range(bisect_left(live, (piece.y0 - piece.height * 2 / _PIECE_HEIGHT_RATIO,)), len(live)):
+                y0, other = live[position]
+                if y0 > piece.y1:
+                    break
+                if _shares_baseline(piece, pieces[other], texts[index], texts[other]):
+                    parent[root(other)] = root(index)
+            insort(live, (piece.y0, index))
+    else:
+        for position, index in enumerate(order):
+            piece = pieces[index]
+            for other in islice(order, position + 1, None):
+                if pieces[other].y0 >= piece.y1:
+                    break
+                if _shares_baseline(piece, pieces[other], texts[index], texts[other]):
+                    parent[root(other)] = root(index)
 
     groups: dict[int, list[int]] = {}
     for index in range(len(pieces)):
