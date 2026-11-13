@@ -155,6 +155,7 @@ class _CellReading:
     malformed: int = 0  # cells left as their raw text because they do not fit the format (blank for a shared-string index)
     unread_rich: int = 0  # in-cell picture / data-type cells whose value was not found (blank instead of the error value)
     picture_text: Callable[[_CellPicture], str] | None = None
+    row_numbers: list[int] | None = None  # row numbers of the streamed sheet being read, in the order read (`_streamed_rows`)
 
 
 # Deliberate: the cell interpretation of openpyxl's sheet parser (`WorkSheetParser.parse_cell`) and the place that knows the number
@@ -318,12 +319,28 @@ def _tolerant_parse_row(parser: object, row: object) -> tuple[int, list]:
     to be rejected
     (Pinned by: TestOneMalformedCellValue::test_row_number_that_is_not_a_whole_number_is_ignored)."""
     try:
-        return _parse_row(parser, row)
+        return _consecutive(_parse_row(parser, row))
     except ValueError:
         if _READING.get() is None:
             raise
     del row.attrib["r"]
-    return _parse_row(parser, row)
+    return _consecutive(_parse_row(parser, row))
+
+
+def _consecutive(parsed: tuple[int, list]) -> tuple[int, list]:
+    """While a streamed sheet is being read (`_streamed_rows`), hand the row to openpyxl under the next consecutive number and
+    keep the number written in the file in `_CellReading.row_numbers`. openpyxl's streaming yields an empty row for every row
+    number the file skips; rows 4,999 apart never reached the 5,000-empty-row stop, so a 14 KB file with 2,000 rows made ten
+    million empty rows (7.6 s, 2.6 GB). A row whose number is not above the previous one gets number 0, which openpyxl drops, as
+    it dropped that row before (Pinned by: test_audit_spreadsheet.py::TestStreamedRowsFarApart)."""
+    reading = _READING.get()
+    if reading is None or reading.row_numbers is None:
+        return parsed
+    number, cells = parsed
+    if number < 1 or (reading.row_numbers and number <= reading.row_numbers[-1]):
+        return 0, cells
+    reading.row_numbers.append(number)
+    return len(reading.row_numbers), cells
 
 
 def _skipped_while_reading(original: Callable[..., object]) -> Callable[..., object]:
@@ -1090,8 +1107,19 @@ def _streamed_rows(sheet: object, max_cols: int) -> Iterator[tuple[int, tuple[st
 
     sheet.reset_dimensions()
     sheet._get_row = bounded_row
-    for number, row in enumerate(sheet.iter_rows(), start=1):  # empty rows arrive too, none skipped
-        yield number, _with_xlsx_level_mark(row, [_cell_text(cell) for cell in row])
+    # Rows arrive under the number written in the file (`_consecutive`). Empty rows written in the file arrive too; row numbers
+    # the file skips are not made into rows here (`_until_long_empty_gap` counts them and puts one empty row in their place).
+    reading = _READING.get()
+    numbers = None
+    if reading is not None:
+        numbers = reading.row_numbers = []
+    try:
+        for index, row in enumerate(sheet.iter_rows()):
+            number = index + 1 if numbers is None else numbers[index]
+            yield number, _with_xlsx_level_mark(row, [_cell_text(cell) for cell in row])
+    finally:
+        if reading is not None:
+            reading.row_numbers = None
 
 
 def _with_xlsx_level_mark(cells: list[object] | tuple[object, ...], texts: list[str]) -> tuple[str, ...]:
@@ -2651,14 +2679,20 @@ def _collect_rows(rows: object, options: ConvertOptions, sheet_name: str, extrac
 def _until_long_empty_gap(rows: Iterator[tuple[int, tuple[str, ...]]], sheet_name: str,
                           warnings: list[str]) -> Iterator[tuple[int, tuple[str, ...]]]:
     """Yield the (row number, row) pairs of a streamed sheet only up to a run of `_EMPTY_ROW_STOP` empty rows, and warn when
-    stopping there."""
-    empty_streak = 0
+    stopping there. Row numbers the file skips count as empty rows of the run and are yielded as one empty row however many
+    they are — a run of empty rows renders the same as a single one (`_sheet_text`), as in a full load (`_with_blank_gaps`)
+    (Pinned by: test_audit_spreadsheet.py::TestStreamedRowsFarApart)."""
+    empty_streak = previous = 0
     for number, row in rows:
-        empty_streak = 0 if any(row) else empty_streak + 1
-        if empty_streak >= _EMPTY_ROW_STOP:
+        skipped = max(number - previous - 1, 0)
+        run = empty_streak + skipped + (0 if any(row) else 1)  # empty rows up to and including this row
+        if run >= _EMPTY_ROW_STOP:
             warnings.append(f"Sheet '{sheet_name}': {_EMPTY_ROW_STOP:,} consecutive empty rows were found, "
-                            f"so nothing was read from row {number - empty_streak + 1:,} on.")
+                            f"so nothing was read from row {previous - empty_streak + 1:,} on.")
             return
+        if skipped:
+            yield previous + 1, ()
+        empty_streak, previous = (0 if any(row) else run), number
         yield number, row
 
 
