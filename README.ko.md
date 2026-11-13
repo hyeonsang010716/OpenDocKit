@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/logo.png" alt="OpenDocKit" width="180">
+</p>
+
 <h1 align="center">OpenDocKit</h1>
 
 <p align="center">
@@ -136,6 +140,19 @@ docs = OpenDocKitReader(mode="sections").load_data("report.pdf")
 
 ```bash
 opendockit-mcp --root ~/Documents     # MCP 서버: Claude, Cursor 등의 에이전트가 내 문서를 Markdown으로 읽음
+```
+
+미리 설치하지 않고 클라이언트가 서버를 직접 실행하게 하려면, 클라이언트의 MCP 설정에 다음을 추가합니다.
+
+```json
+{
+  "mcpServers": {
+    "opendockit": {
+      "command": "uvx",
+      "args": ["opendockit-mcp", "--root", "/path/to/documents"]
+    }
+  }
+}
 ```
 
 `mode="sections"`를 주면 페이지, 슬라이드, 시트가 각각 하나의 Document가 되고, 그 번호가 메타데이터에 들어 있어 출처 표기에 쓸 수 있습니다.

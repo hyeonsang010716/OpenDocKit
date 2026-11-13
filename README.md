@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/logo.png" alt="OpenDocKit" width="180">
+</p>
+
 <h1 align="center">OpenDocKit</h1>
 
 <p align="center">
@@ -134,6 +138,19 @@ docs = OpenDocKitReader(mode="sections").load_data("report.pdf")
 
 ```bash
 opendockit-mcp --root ~/Documents     # MCP server: Claude, Cursor and other agents read your documents as Markdown
+```
+
+To let the client start the server itself, with nothing installed beforehand, add it to the client's MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "opendockit": {
+      "command": "uvx",
+      "args": ["opendockit-mcp", "--root", "/path/to/documents"]
+    }
+  }
+}
 ```
 
 With `mode="sections"` each page, slide or sheet is its own Document, with its number in the metadata for citations. See [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md).
