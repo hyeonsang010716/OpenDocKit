@@ -141,6 +141,7 @@ class HwpxRenderer:
         # list (cells, footnotes, text boxes, captions).
         self._bullets = [BulletNesting()]
         self._load_part = load_part
+        self._charts: dict[str, str] = {}  # chart part name → the `[Chart] title` line later references to it give (`_render_chart`)
         # Number counters: (kind, numbering id). Outline numbers and paragraph numbers are counted separately. The outline numbering id
         # is set by the section properties (secPr).
         self._numberings: dict[tuple[str, str], Numbering] = {}
@@ -326,6 +327,13 @@ class HwpxRenderer:
         """The chartIDRef of hp:chart is an OOXML chart inside the archive (Chart/chart1.xml). The same renderer as PPTX and DOCX is used
         (Pinned by: test_hwp.py::TestHwpxObjects::test_chart_data_is_kept)."""
         name = chart.get("chartIDRef", "")
+        # A chart part is read, parsed and rendered once however many hp:chart point at it, and its values are written at the
+        # first of them only; later ones give the `[Chart] title` line (same rule as an ODF embedded object): 100 references
+        # in one paragraph to a part of 300,000 empty elements (a 7.8 KB file) took 47 s
+        # (deliberate. Pinned by: test_audit_hangul.py::TestHwpxChartReferencedManyTimes).
+        if name in self._charts:
+            return self._charts[name]
+        self._charts[name] = ""
         data = self._load_part(name) if self._load_part is not None else None
         root = parse_part(data) if data else None
         if root is None:
@@ -338,7 +346,9 @@ class HwpxRenderer:
         # test_office_chart_units_and_ole.py::TestChartUserShapes::test_hwpx_chart_text_box_is_kept).
         outer = self._grids[-1] if self._grids else None
         table = embedded_table(outer) if outer is not None else render_table
-        return render_chart(root, table, package_loader(self._load_part, name))
+        rendered = render_chart(root, table, package_loader(self._load_part, name))
+        self._charts[name] = rendered.split("\n", 1)[0]
+        return rendered
 
     def _paragraph_head(self, paragraph: etree._Element) -> tuple[str, int]:
         """Paragraph head of the paragraph shape (hh:heading) → (number "1." / "가." or bullet "-", level). ("", 0) if the definition is
