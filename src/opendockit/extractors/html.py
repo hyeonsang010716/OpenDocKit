@@ -47,6 +47,7 @@ from opendockit.extractors.text import (
     FORWARDED_MAIL_TITLE,
     MIME_HEAD_BYTES,
     MIME_VERSION,
+    _unescaped_from_lines,
     decode_text,
     decoding_warning,
     decoding_warnings,
@@ -600,7 +601,11 @@ def _plain_paragraphs(text: str) -> str:
 
 
 def _mhtml_message(data: bytes) -> Message:
-    return parse_mail(data[mime_start(data):])
+    # A file that starts with an mbox separator line (an .eml saved by Thunderbird) has its `>From ` body lines unescaped, as on
+    # the mail path (`text.mail_box`) — a mail with a single text/html part kept `>From here`
+    # (Pinned by: test_audit_html_text.py::TestFromLineEscapeInASingleHtmlPartMail)
+    start = mime_start(data)
+    return parse_mail(_unescaped_from_lines(data[start:]) if b"From " in data[:start] else data[start:])
 
 
 def _html_part(message: Message) -> tuple[bytes, str | None] | None:

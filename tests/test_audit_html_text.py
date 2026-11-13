@@ -2,7 +2,6 @@
 duplicated without a warning, and markup of a few hundred KB that took many seconds."""
 
 import base64
-import time
 
 import pytest
 
@@ -213,3 +212,27 @@ class TestDoctypeInsideTheBody:
         result = convert(b"<p>write &lt;!DOCTYPE html&gt; first</p>", "a.html")
 
         assert result.text == "write <!DOCTYPE html> first"
+
+
+_FROM_LINE = "From - Mon Jan  1 00:00:00 2024\r\n"
+_ESCAPED_BODY = "<p>one</p>\r\n>From here on<br>\r\n<p>two</p>\r\n"
+
+
+class TestFromLineEscapeInASingleHtmlPartMail:
+    """An .eml saved by Thunderbird (a leading mbox separator line) has the `>` that mbox put before a body line starting with
+    `From ` stripped (docs/decisions/mail.md). A mail with a single text/html part is read on the MHTML path, which parsed the
+    bytes as they were and kept `>From here on` — the same mail as a multipart gave `From here on`."""
+
+    def test_single_html_part_is_unescaped_like_a_multipart(self):
+        single = (_FROM_LINE + _MAIL_HEAD + "Subject: s\r\nContent-Type: text/html\r\n\r\n" + _ESCAPED_BODY).encode()
+        multipart = (_FROM_LINE + _MAIL_HEAD + "Subject: s\r\nContent-Type: multipart/alternative; boundary=b\r\n\r\n"
+                     "--b\r\nContent-Type: text/html\r\n\r\n" + _ESCAPED_BODY + "--b--\r\n").encode()
+
+        expected = "Subject: s\nFrom: a@b.c\nTo: d@e.f\n\none\n\nFrom here on\n\ntwo"
+        assert convert(multipart, "a.eml").text == expected
+        assert convert(single, "a.eml").text == expected
+
+    def test_mail_without_a_separator_line_is_not_changed(self):
+        single = (_MAIL_HEAD + "Subject: s\r\nContent-Type: text/html\r\n\r\n" + _ESCAPED_BODY).encode()
+
+        assert convert(single, "a.eml").text == "Subject: s\nFrom: a@b.c\nTo: d@e.f\n\none\n\n>From here on\n\ntwo"
