@@ -47,6 +47,8 @@ from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
 _SECTION_NAME = re.compile(r"^Contents/section(\d+)\.xml$")
+# Spine entries (itemref of content.hpf) looked at, the same number as for an EPUB (`_section_order`).
+_MAX_SPINE_ITEMS = 5_000
 # Hangul's "개요 1" to "개요 7" (Outline 1-7) paragraph styles are the chapter/section structure of the document. They become Markdown headings.
 _OUTLINE_STYLE = re.compile(r"^(?:개요|Outline)\s*([1-9])$")
 # A paragraph longer than this stays body text, not a heading, even with an outline style (some documents write body text in outline styles).
@@ -623,7 +625,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
         renderer = HwpxRenderer(styles, options, extraction, load_binary, _load_paragraph_heads(header), load_part,
                                 _load_scripts(header), _load_struck_shapes(header))
         blocks = []
-        sections = _section_order(package, names)
+        sections = _section_order(package, names, extraction.warnings)
         broken: list[Exception] = []
         for number, name in enumerate(sections, 1):
             # If the XML or compression (CRC) of one section is broken, only that section is skipped with a warning. The whole document
@@ -774,21 +776,28 @@ def _parse_member(archive: zipfile.ZipFile, names: list[str], name: str) -> etre
         return None
 
 
-def _section_order(package: etree._Element | None, names: list[str]) -> list[str]:
-    """The body order is set by the spine of content.hpf. Section number order if it is missing or broken."""
+def _section_order(package: etree._Element | None, names: list[str], warnings: list[str]) -> list[str]:
+    """The body order is set by the spine of content.hpf. Section number order if it is missing or broken. A spine cut at the
+    cap is reported in `warnings`."""
     fallback = sorted((name for name in names if _SECTION_NAME.match(name)),
                       key=lambda name: int(_SECTION_NAME.match(name).group(1)))
     if package is None:
         return fallback
 
     manifest = {item.get("id"): item.get("href", "") for item in package.iter() if _local(item) == "item"}
-    ordered = []
-    for itemref in (node for node in package.iter() if _local(node) == "itemref"):
+    # A section listed a second time is read once, and at most `_MAX_SPINE_ITEMS` entries are looked at (the same two guards
+    # as the EPUB spine): one section of 300,000 empty paragraphs listed 40 times (a 33 KB file) was parsed and rendered 40
+    # times, 29 s (deliberate. Pinned by: test_audit_hangul.py::TestHwpxSpine).
+    ordered: dict[str, None] = {}
+    for references, itemref in enumerate((node for node in package.iter() if _local(node) == "itemref"), 1):
+        if references > _MAX_SPINE_ITEMS:
+            warnings.append(f"The HWPX document lists more than {_MAX_SPINE_ITEMS:,} sections; the rest were not read.")
+            break
         href = manifest.get(itemref.get("idref"), "")
         name = href if href.startswith("Contents/") else f"Contents/{href}"
         if _SECTION_NAME.match(name) and name in names:
-            ordered.append(name)
-    return ordered or fallback
+            ordered[name] = None
+    return list(ordered) or fallback
 
 
 def _binary_items(package: etree._Element | None, names: list[str]) -> dict[str, str]:

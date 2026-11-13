@@ -43,3 +43,53 @@ class TestHwpxChartReferencedManyTimes:
 
         assert result.text == "판매 현황:"
         assert parsed.count(b"<c:chartSpace><broken") == 1
+
+
+def _paragraph_xml(text: str) -> str:
+    return f"<hp:p><hp:run><hp:t>{text}</hp:t></hp:run></hp:p>"
+
+
+def _section_xml(text: str) -> str:
+    return ('<?xml version="1.0" encoding="UTF-8"?><hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" '
+            f'xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">{_paragraph_xml(text)}</hs:sec>')
+
+
+def _with_second_section(spine: str) -> bytes:
+    """A document of two sections ('첫 구역', '둘째 구역') whose spine is the usual one entry for the first, then `spine`."""
+    def edit(xml: str) -> str:
+        xml = xml.replace("</opf:manifest>", '<opf:item id="section1" href="Contents/section1.xml"/></opf:manifest>')
+        return xml.replace("</opf:spine>", spine + "</opf:spine>")
+
+    return builder.zip_with(builder.hwpx_bytes(_paragraph_xml("첫 구역")), edit={"Contents/content.hpf": edit},
+                            add={"Contents/section1.xml": _section_xml("둘째 구역")})
+
+
+_FIRST, _SECOND = '<opf:itemref idref="section0"/>', '<opf:itemref idref="section1"/>'
+
+
+class TestHwpxSpine:
+    """The spine of content.hpf decides what is read, so it must not decide how much work is done: one section of 300,000 empty
+    paragraphs listed 40 times (a 33 KB file) was parsed and rendered 40 times, 29 s."""
+
+    def test_section_listed_again_in_the_spine_is_read_once(self, monkeypatch):
+        parsed = []
+        parse_xml = hwpx.parse_xml
+        monkeypatch.setattr(hwpx, "parse_xml", lambda data: parsed.append(data) or parse_xml(data))
+
+        result = convert(_with_second_section(_FIRST * 40 + _SECOND + _FIRST), "a.hwpx")
+
+        assert len(parsed) == 2
+        assert result.text == "첫 구역\n\n둘째 구역"
+        assert result.warnings == []
+
+    def test_spine_longer_than_the_cap_is_cut_with_a_warning(self):
+        result = convert(_with_second_section(_FIRST * (hwpx._MAX_SPINE_ITEMS - 1) + _SECOND), "a.hwpx")
+
+        assert result.text == "첫 구역"
+        assert result.warnings == ["The HWPX document lists more than 5,000 sections; the rest were not read."]
+
+    def test_spine_at_the_cap_is_read_to_its_end(self):
+        result = convert(_with_second_section(_FIRST * (hwpx._MAX_SPINE_ITEMS - 2) + _SECOND), "a.hwpx")
+
+        assert result.text == "첫 구역\n\n둘째 구역"
+        assert result.warnings == []
