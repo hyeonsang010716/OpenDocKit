@@ -20,7 +20,7 @@ from bisect import bisect_right
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, Overflow
 from io import BytesIO
 import posixpath
 import re
@@ -55,11 +55,18 @@ _AXIS_LABELS = {"catAx": "Category axis", "dateAx": "Category axis", "valAx": "V
 _HORIZONTAL_AXIS_POSITIONS = {"b", "t"}
 # Text erased before looking for date/time letters in a display format: quoted text, bracketed sections (color, locale, condition;
 # elapsed time [h] is kept), and the one character after a backslash, fill or repeat.
-_FORMAT_LITERALS = re.compile(r'"[^"]*"|\[(?![hms]+\])[^\]]*\]|[\\_*].')
+# Deliberate: a bracketed section holds no `[` (here and in `_FORMAT_TOKEN`). A `[` with no `]` was scanned to the end of the format
+# from every `[`, for every chart point (a 20,000-character format on 40 points took 6 seconds)
+# (Pinned by: test_audit_core.py::TestChartFormatWithManyOpenBrackets).
+_FORMAT_LITERALS = re.compile(r'"[^"]*"|\[(?![hms]+\])[^\[\]]*\]|[\\_*].')
 _LAST_DATE_SERIAL = 2_958_465  # 9999-12-31
+# Longest display format that is applied (the longest Excel accepts). A format is read again for every point of a chart, so a
+# 20,000-character format on 8,000 points (a 40 KB file) took 30 seconds. With a longer format the value stays as written, as with
+# any format that is not handled (Pinned by: test_audit_core.py::TestChartFormatWithManyOpenBrackets).
+_MAX_FORMAT_CHARS = 255
 # Tokens of one section of a value display format (`_unit_format`): quoted text, the one character after a backslash, a currency
 # symbol ([$₩-412]), other brackets (color, condition), fill/spacing (`*x`, `_x`), digit placeholders (0 # ? , .), any other character.
-_FORMAT_TOKEN = re.compile(r'"([^"]*)"|\\(.)|\[\$([^\]-]*)(?:-[^\]]*)?\]|(\[[^\]]*\])|[_*].|([0#?,.])|(.)', re.DOTALL)
+_FORMAT_TOKEN = re.compile(r'"([^"]*)"|\\(.)|\[\$([^\[\]-]*)(?:-[^\[\]]*)?\]|(\[[^\[\]]*\])|[_*].|([0#?,.])|(.)', re.DOTALL)
 _FORMAT_COLORS = re.compile(r"\[(?:black|blue|cyan|green|magenta|red|white|yellow|color\s*\d{1,2})\]", re.IGNORECASE)
 # Symbols Excel shows as literal text even without quotes. Formats with other characters (date y/m/d, exponent E, text @, % …)
 # are not handled.
@@ -225,6 +232,11 @@ def core_properties(package: object) -> dict[str, str]:
     return {name: value for name, value in values.items() if isinstance(value, str) and value}
 
 
+# A part name as Office writes it: letters, then digits, a dot and a short extension (`image1.png`, `numbering.xml`). Only such
+# names are written into the warning of `repair_package`.
+_PART_LABEL = re.compile(r"[A-Za-z]{1,24}[0-9]{0,6}\.[A-Za-z0-9]{1,5}")
+
+
 def repair_package(data: bytes) -> tuple[bytes, str] | None:
     """A copy of the package with the relationships that point to missing parts or non-XML XML parts removed and those parts left
     out, plus the warning text. None if there is nothing to detach.
@@ -283,9 +295,13 @@ def repair_package(data: bytes) -> tuple[bytes, str] | None:
                 with archive.open(info) as source, target_archive.open(entry, "w") as sink:
                     shutil.copyfileobj(source, sink)
 
+    # Deliberate: a part is named only when its name has the plain shape of a part name (`_PART_LABEL`); the others are only
+    # counted. The names come from relationship targets, which the document's author writes: a sentence of any length put there
+    # appeared word for word in the warning (Pinned by: test_audit_core.py::TestDetachedPartNamesInTheWarning).
     labels = sorted({posixpath.basename(name) or name for name in dropped})
-    shown = ", ".join(labels[:4]) + (f" and {len(labels) - 4} more" if len(labels) > 4 else "")
-    return buffer.getvalue(), (f"Read after detaching {len(dropped)} missing or broken part(s) ({shown}). "
+    named = [label for label in labels if _PART_LABEL.fullmatch(label)][:4]
+    shown = ", ".join(named) + (f" and {len(labels) - len(named)} more" if named and len(labels) > len(named) else "")
+    return buffer.getvalue(), (f"Read after detaching {len(dropped)} missing or broken part(s){f' ({shown})' if shown else ''}. "
                                "The contents of those parts (pictures, numbering, styles, etc.) may be missing.")
 
 
@@ -581,6 +597,8 @@ def _format_date(value: str, format_code: str, date1904: bool) -> str | None:
     if the format is not a date format or the value cannot be a date. A format without a day gives `2026-01`, year only `2026`. The
     literal look of the format ('년', '월', weekday names) is not imitated — it is the same ISO notation as the spreadsheet
     extractor's dates."""
+    if len(format_code) > _MAX_FORMAT_CHARS:
+        return None
     letters = set(_FORMAT_LITERALS.sub("", format_code).lower())
     has_time = bool(letters & {"h", "s"})
     has_date = bool(letters & {"y", "d"}) or ("m" in letters and not has_time)
@@ -588,7 +606,10 @@ def _format_date(value: str, format_code: str, date1904: bool) -> str | None:
         serial = float(value)
     except ValueError:
         return None
-    if not (has_date or has_time) or not 0 <= serial <= _LAST_DATE_SERIAL:
+    # The 1904 system starts 1,462 days later, so its last date has a serial that much smaller. Checked against the 1900 limit only,
+    # 9999-12-31 of the 1900 system overflowed and the document was rejected as corrupted
+    # (Pinned by: test_audit_core.py::TestChartDateCategoryPastTheLastDate).
+    if not (has_date or has_time) or not 0 <= serial <= _LAST_DATE_SERIAL - (1462 if date1904 else 0):
         return None
 
     # The base date of the 1900 system is 1899-12-30 (Excel counts the nonexistent 1900-02-29, so dates before it are one day late).
@@ -745,6 +766,8 @@ def _format_units(value: str, format_code: str) -> str | None:
     loss read as a profit — the same rule as Excel cells (`spreadsheet._format_section`)
     (Pinned by: test_office_chart_units_and_ole.py::TestChartNegativeSectionWithoutSign).
     """
+    if len(format_code) > _MAX_FORMAT_CHARS:
+        return None
     try:
         number = Decimal(value.strip())
     except InvalidOperation:
@@ -844,6 +867,8 @@ def _format_percent(value: str, format_code: str) -> str | None:
     Only the first section of the format is looked at (negative sections, colors and conditions are not imitated; `-` is added). A
     `%` blocked by quotes or a backslash is a literal, so it is not a percentage. Rounding is half away from zero, as in Excel.
     """
+    if len(format_code) > _MAX_FORMAT_CHARS:
+        return None
     section = _FORMAT_LITERALS.sub("", format_code).split(";")[0]
     if "%" not in section:
         return None
@@ -858,7 +883,10 @@ def _format_percent(value: str, format_code: str) -> str | None:
     decimals = sum(1 for char in fraction if char in "0#?")
     try:
         percent = (number * 100).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)
-    except InvalidOperation:  # a format with dozens of decimal places / a value with too many digits — use the raw value
+    # a format with dozens of decimal places / a value with too many digits (InvalidOperation), or a value whose exponent is at the
+    # edge of what a decimal number can hold (Overflow when multiplied) — use the raw value
+    # (Pinned by: test_audit_core.py::TestChartValueTooLargeForItsFormat)
+    except (InvalidOperation, Overflow):
         return None
     return f"{percent:,f}%" if "," in whole else f"{percent:f}%"
 
@@ -1141,7 +1169,11 @@ _LINK_UNSAFE = re.compile(r"[\s\x00-\x1f\x7f-\x9f()<>|\\⟦⟧​-‏‪-‮⁠-
 # Text that stands for an object, not words: picture placeholders, `[Image: alt]` of pictures that are not extracted, OLE objects,
 # charts, videos and footnote references. Emphasis is not put around them, and at the edge of a link they stay outside the brackets
 # (the converter turns a picture placeholder into a block below its line).
-_INLINE_PLACEHOLDER = re.compile(rf"({IMAGE_MARKER.pattern}|\[Image(?:: [^\]\n]*)?\]|\[OLE object\]|\[Chart\]|\[Video\]|\[\^[^\]\s]+\])")
+# Deliberate: no `[` inside `[Image: …]` or `[^…]`. An opening with no `]` was scanned to the end of the line from every `[`
+# (10,000 `[Image: ` next to a bold word took 5 seconds); with a `[` inside, the text is no longer taken for a placeholder
+# (Pinned by: test_audit_core.py::TestUnclosedImagePlaceholderText).
+_INLINE_PLACEHOLDER = re.compile(
+    rf"({IMAGE_MARKER.pattern}|\[Image(?:: [^\[\]\n]*)?\]|\[OLE object\]|\[Chart\]|\[Video\]|\[\^[^\[\]\s]+\])")
 _EQUATION_ONLY = re.compile(r"\$[^$\n]+\$")
 # A bullet or number typed at the start of a line. It stays outside the marks (the same idea as `_STRIKE_LEAD`): `**- 항목**` is
 # not read as a list item, and the extractors look for these at the start of a line (`HAND_TYPED_BULLET`).
@@ -1722,13 +1754,16 @@ def _join_math(element: etree._Element) -> str:
     """Join the child equations in order. When a letter or digit directly follows a one-character script, the script is wrapped in
     `{}` (`x^{k}a^{n-k}`), and a function (m:func) name is spaced from a preceding letter, digit or closing bracket (`a_n cos x`;
     after an operator it stays `α+cos β`). Joined as is, the script and the following letter read as one lump, like `x^ka^{n-k}` and
-    `a_ncos x` (Pinned by: test_office_equations.py::TestOmmlScriptsFollowedByText)."""
+    `a_ncos x` (Pinned by: test_office_equations.py::TestOmmlScriptsFollowedByText).
+    The script is looked for in the last three characters only (the pattern ends at the end of the text, or before a line break
+    there): searched from the start for every child, an equation of 80,000 runs took 10 seconds
+    (Pinned by: test_audit_core.py::TestEquationWithManyRuns)."""
     text = ""
     for child in element:
         piece = omml_to_latex(child)
         if piece and text and child.tag == _m("func") and (text[-1].isalnum() or text[-1] in ")]}"):
             text += " "
-        elif piece[:1].isalnum() and (bare := _BARE_SCRIPT_END.search(text)):
+        elif piece[:1].isalnum() and (bare := _BARE_SCRIPT_END.search(text, max(len(text) - 3, 0))):
             text = f"{text[:bare.start(1)]}{{{bare.group(1)}}}"
         text += piece
     return text
@@ -2249,13 +2284,18 @@ class Numbering:
 
         def number(match: re.Match[str]) -> str:
             token = match.group(1)
-            target = level if token in ("N", "n") else int(token) - 1
+            # A level number of more than 4,300 digits is a level that does not exist (`decimal_int`), not an error that rejects
+            # the document (Pinned by: test_audit_core.py::TestHugeLevelNumberInNumberText).
+            target = level if token in ("N", "n") else decimal_int(token, 0) - 1
             if not 0 <= target <= level:
                 return ""
             shape = "DIGIT" if self.levels[level].legal else self._level(target).shape
             return format_number(self.counters.get(target, self._level(target).start), shape)
 
-        return re.sub(rf"{re.escape(self.mark)}(\d+|[Nn])", number, self.levels[level].template).strip()
+        # `^N` / `^n` (the number of the level itself) is Hangul (HWP) notation only. Read for DOCX too, `%N` made '100%Note %1.'
+        # come out as '1001ote 1.' (Pinned by: test_audit_core.py::TestLetterAfterAPercentSignInNumberText).
+        token = r"(\d+|[Nn])" if self.mark == "^" else r"(\d+)"
+        return re.sub(re.escape(self.mark) + token, number, self.levels[level].template).strip()
 
     def _level(self, level: int) -> NumberLevel:
         return self.levels[min(level, len(self.levels) - 1)]
