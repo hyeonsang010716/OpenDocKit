@@ -339,6 +339,37 @@ class TestPictures:
         assert "[Image: 그림 설명 2]" in result.text
         assert any("1 picture(s) were not extracted" in warning for warning in result.warnings)
 
+    def test_unusable_picture_is_read_once_however_often_it_is_shown(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One picture over the per-picture cap shown 500 times, and one that fits shown 500 times with a total cap that holds
+        two copies. Each `<img>` used to decompress the picture again up to the cap (20 MB each for a 20 KB book). The oversized
+        one is read once; the other is read until the total is used up and not after."""
+        small, large = builder.png_bytes(seed=1), builder.png_bytes(seed=2) + b"\0" * 4096
+        monkeypatch.setattr(epub, "_MAX_PICTURE_BYTES", len(large) - 1)
+        monkeypatch.setattr(epub, "_MAX_INLINED_BYTES", 2 * len(small))
+        reads: list[str] = []
+        read = epub._Book._read
+        monkeypatch.setattr(epub._Book, "_read", lambda self, name, limit: (reads.append(name), read(self, name, limit))[1])
+        body = "<p>본문</p>" + '<img src="large.png" alt="큰"/>' * 500 + '<img src="small.png" alt="작은"/>' * 500
+        data = _epub({"ch1.xhtml": _page(body)}, files={"OEBPS/large.png": large, "OEBPS/small.png": small})
+
+        result = convert(data, "book.epub")
+
+        assert reads.count("OEBPS/large.png") == 1 and reads.count("OEBPS/small.png") == 2
+        assert len(result.images) == 1   # the two copies are one picture to the converter
+        assert any("498 picture(s) were not extracted" in warning for warning in result.warnings)
+
+    def test_text_shaped_like_a_picture_placeholder_stays_text(self) -> None:
+        """A chapter whose text contains `⟦IMG:1⟧` and `⟦IMG:dead:1⟧`, and a real picture after it. The chapter's placeholders
+        are renumbered for the book; matched by shape alone, the author's text vanished and the picture appeared three times."""
+        body = '<p>문자 그대로 ⟦IMG:1⟧ 그리고 ⟦IMG:dead:1⟧ 입니다.</p><p><img src="a.png" alt="도표"/></p>'
+        data = _epub({"ch1.xhtml": _page(body)}, files={"OEBPS/a.png": builder.png_bytes()})
+
+        result = convert(data, "book.epub")
+
+        assert len(result.images) == 1
+        assert "문자 그대로 ⟦IMG:1⟧ 그리고 ⟦IMG:dead:1⟧ 입니다." in result.text
+        assert result.text.count("도표") == 1
+
     def test_picture_larger_than_the_per_picture_cap_is_not_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
         picture = builder.png_bytes()
         monkeypatch.setattr(epub, "_MAX_PICTURE_BYTES", len(picture) - 1)

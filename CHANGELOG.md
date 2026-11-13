@@ -31,6 +31,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Fixed
 
 - A converted `.ppt` no longer ends its speaker notes with a `<number>` line (a field-only text box on the notes page).
+- Text that has the shape of an internal placeholder is no longer taken for one. Cell text imitating the nested-table
+  placeholder made a table inside a table be drawn again for every copy (a document under 1 KB could run for minutes),
+  such text was also counted against `max_chars` although it is never written, which could cut a table short without
+  `exceeded`; and `⟦IMG:1⟧` written in an imported DOCX chunk (`w:altChunk`) was replaced by the chunk's first picture.
 
 
 ## [0.1.0] - 2026-11-12

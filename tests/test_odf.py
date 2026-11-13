@@ -11,6 +11,7 @@ import zipfile
 import pytest
 
 from opendockit import ConvertOptions, CorruptedDocumentError, EncryptedDocumentError, convert
+from opendockit.extractors import odf as odf_module
 from opendockit.extractors.odf import extract_odt
 from opendockit.models import DocumentFormat, SectionKind
 from tests import builder
@@ -580,6 +581,33 @@ class TestSpreadsheet:
         assert not result.warnings
 
 
+    def test_column_limit_counts_from_the_first_used_column(self):
+        """A three-column table that starts at column GW (204 empty columns to its left, written as one repeated cell), with a
+        comment on its first cell. Counting `max_sheet_cols` (100) from column A dropped the whole table with a 'columns excluded'
+        warning while the same workbook as XLSX was read in full. The limit counts from the first used column, the empty columns
+        are not written, and the comment keeps the real cell address."""
+        skip = '<table:table-cell table:number-columns-repeated="204"/>'
+        note = '<table:table-cell><office:annotation><text:p>확인 필요</text:p></office:annotation><text:p>부위</text:p></table:table-cell>'
+        result = _convert("spreadsheet", _sheet("Sizes", _row(skip, note, _cell("A"), _cell("G")),
+                                                _row('<table:table-cell table:number-columns-repeated="205"/>', _cell("52"), _cell("54"))))
+        assert result.sections[0].text == "| 부위 | A | G |\n| --- | --- | --- |\n| | 52 | 54 |\n\n> Comment(cell GW1): 확인 필요"
+        assert result.warnings == []
+        wide = _convert("spreadsheet", _sheet("Wide", _row(skip, *[_cell(f"c{index}") for index in range(5)])), ConvertOptions(max_sheet_cols=3))
+        assert wide.sections[0].text == "| c0 | c1 | c2 |\n| --- | --- | --- |"
+        assert any("columns beyond" in warning for warning in wide.warnings)
+
+    def test_text_in_a_drawn_shape_follows_the_cells(self):
+        """A text box drawn in Excel is a `draw:custom-shape` (not a frame) once the workbook is saved as ODS, anchored to a cell
+        or — when it is anchored to the page — listed in `table:shapes`. A sheet whose only content is such a shape came out
+        empty; the XLSX extractor reads the same text, so both forms are written after the cells."""
+        in_cell = '<table:table-cell><draw:custom-shape draw:name="Box 1"><text:p><text:span>결재 대기</text:span></text:p></draw:custom-shape></table:table-cell>'
+        on_page = ('<table:shapes><draw:rect><text:p>Approved by finance</text:p></draw:rect>'
+                   '<draw:g><draw:custom-shape><text:p>Grouped note</text:p></draw:custom-shape></draw:g></table:shapes>')
+        result = _convert("spreadsheet", _sheet("Budget", on_page, _row(_cell("Item"), _cell("Cost")), _row(_cell("Desk"), in_cell))
+                          + _sheet("Shapes only", _row(in_cell)))
+        assert result.sections[0].text == ("| Item | Cost |\n| --- | --- |\n| Desk | |\n\n결재 대기\n\nApproved by finance\n\nGrouped note")
+        assert result.sections[1].text == "결재 대기"
+
 class TestPresentation:
     TITLE = 'presentation:class="title"'
 
@@ -792,6 +820,57 @@ class TestHostileInput:
                     + _row(_cell("가", f'table:number-rows-spanned="{"9" * 5000}"'), _cell("1", 'table:number-columns-spanned="²"'))
                     + "</table:table>")
         assert text == "| 이름 | 값 |\n| --- | --- |\n| 가 | 1 |"
+
+    def test_repeated_row_of_many_cells_in_a_text_table_is_bounded_by_cell_count(self):
+        """A text-document table whose one row holds a letter and 500 empty cell elements, repeated 10,000 times: within the
+        character budget (10,000 characters) but 5 million cells of the grid — 13 seconds and 2.7 GB from a few hundred bytes.
+        Copies are bounded by the number of cells they add as well (200,000 per document), and the cut is reported. A second
+        table in the same document has no budget left, so its repeated rows are written once."""
+        row = f'<table:table-row table:number-rows-repeated="10000">{_cell("가")}{"<table:table-cell/>" * 500}</table:table-row>'
+        result = _convert("text", f"<table:table>{row}</table:table><text:p>사이</text:p><table:table>{row}</table:table>",
+                          ConvertOptions(max_chars=None))
+        first, second = result.text.split("사이")
+        assert first.count("가") == 1 + 200_000 // 501
+        assert second.count("가") == 1
+        assert any("was cut short" in warning for warning in result.warnings)
+
+    def test_forged_nested_table_placeholders_do_not_multiply_the_table(self):
+        """Seven tables nested in each other, each cell also holding nine copies of the text a nested-table placeholder is made
+        of (`U+E020 0 U+E021`). Every copy used to draw the inner table again, at every level: 736 bytes took 26 seconds and
+        1.4 GB. The innermost text appears once."""
+        table = "<text:p>가장 안쪽</text:p>"
+        for _ in range(7):
+            table = ("<table:table><table:table-row><table:table-cell><text:p>" + "&#xE020;0&#xE021;" * 9 + "</text:p>" + table
+                     + "</table:table-cell>" + _cell("y") + "</table:table-row></table:table>")
+        assert _odt(table).count("가장 안쪽") == 1
+
+    def test_object_referenced_many_times_is_parsed_once_and_written_once(self):
+        """300 frames in one paragraph, all pointing at the same chart sub-document (2,000 value rows). Each frame used to read,
+        parse and render the chart again (100 frames on a 20,000-row chart: 17 seconds from a 10 KB file). The values are written
+        at the first frame; the others give the title only."""
+        rows = "".join(_row(_cell(f"r{index}"), _cell("1")) for index in range(2000))
+        chart = (f'<office:document-content {_NAMESPACES}><office:body><office:chart><chart:chart><chart:title><text:p>매출</text:p>'
+                 f'</chart:title><table:table>{rows}</table:table></chart:chart></office:chart></office:body></office:document-content>')
+        text = _odt('<text:p>' + '<draw:frame><draw:object xlink:href="./Object 1"/></draw:frame>' * 300 + '</text:p>',
+                    parts={"Object 1/content.xml": chart.encode()})
+        assert text.count("[Chart] 매출") == 300
+        assert text.count("| r1999 | 1 |") == 1
+
+    def test_repeated_sheet_rows_are_bounded_by_cell_count(self, monkeypatch: pytest.MonkeyPatch):
+        """A sheet of rows that hold one character in the 99th column and are each repeated 10,000 times: little text, a
+        million cells per row element. 500 of them (2 KB) ran for a minute. The copies of a document add at most
+        `_REPEAT_SHEET_CELLS` cells; rows are still written once after that, and the cut is reported."""
+        row = ('<table:table-row table:number-rows-repeated="10000"><table:table-cell table:number-columns-repeated="98"/>'
+               + _cell("x") + "</table:table-row><table:table-row/>")
+        monkeypatch.setattr(odf_module, "_REPEAT_SHEET_CELLS", 19_800)
+        result = _convert("spreadsheet", _sheet("S", _row(_cell("a")), row * 40), ConvertOptions(max_chars=None))
+        assert result.text.count("x") == 201 + 39   # 19,800 cells / 99 per row are 200 copies; then one row per row element
+        assert result.warnings == ["Sheet 'S': a row repeated 10,000 times was read 201 times only."]   # once, not per row
+        # The cells a vertical merge adds to every copy count too: a value in column 100 merged down over all the rows.
+        merged = _row(_cell("h"), '<table:table-cell table:number-columns-repeated="98"/>', _cell("y", 'table:number-rows-spanned="1000000"'))
+        narrow = f'<table:table-row table:number-rows-repeated="10000">{_cell("x")}</table:table-row>{_row(_cell("z"))}'
+        result = _convert("spreadsheet", _sheet("S", merged, narrow * 40), ConvertOptions(max_chars=None))
+        assert result.text.count("| x |") + result.text.count("| x ") <= 2 * (198 + 40)
 
     def test_repeated_rows_with_text_are_cut_short_with_a_warning(self):
         """A sheet row with text repeated a billion times and no character limit: a few bytes of input must not become gigabytes

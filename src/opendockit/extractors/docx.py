@@ -64,7 +64,7 @@ from opendockit.extractors._shared import (
 from opendockit.extractors.html import extract_html, is_mhtml
 from opendockit.extractors.text import extract_text
 from opendockit.markdown import TableGrid, join_blocks, merged_copy, solid_length
-from opendockit.models import IMAGE_MARKER, ConvertOptions, Extraction, Section, SectionKind
+from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, renumber_image_markers
 
 
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -337,7 +337,7 @@ class _DocxRenderer:
         # not rewritten again.
         markers = {image.id: self._extraction.add_image(image.data, kind=image.kind, alt=image.alt) for image in imported.images}
         text = imported.sections[0].text if imported.sections else ""
-        text = IMAGE_MARKER.sub(lambda match: markers.get(_marker_id(match.group(0)), match.group(0)), text)
+        text = renumber_image_markers(text, markers)
         self._extraction.warnings.extend(warning for warning in imported.warnings if warning not in self._extraction.warnings)
         if self._grids:
             # Inside a table cell: a Markdown table of the chunk is handed to the outer table, like a chart inside a cell. The table
@@ -1511,10 +1511,6 @@ def _word_art_text(path: etree._Element) -> str:
         return ""
     return " ".join(path.get("string", "").split())
 
-
-def _marker_id(marker: str) -> int:
-    """The n of `⟦IMG:<key>:n⟧`."""
-    return int(marker[:-1].rsplit(":", 1)[-1])
 
 
 def _drawing_alt(element: etree._Element) -> str | None:

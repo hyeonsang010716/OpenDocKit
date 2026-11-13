@@ -927,7 +927,7 @@ def render_smartart(data_model: etree._Element, *, in_cell: bool = False) -> str
     The text is not in the body XML but in the data part (diagrams/data*.xml). It consists of points (dgm:pt) and parent→child
     connections (dgm:cxn), so we walk down from the document root (type="doc") in connection order (srcOrd). Layout-only points
     (pres) and connector points are left out
-    (Pinned by: test_office.py::test_smartart_text_is_extracted_as_nested_list, test_docx_smartart_and_chart_are_kept).
+    (Pinned by: test_office.py::test_smartart_text_is_extracted_as_nested_list, test_chart_and_smartart_are_kept).
     With a chain of 1,500 connections the recursion exceeded its limit and the whole document was rejected. A stack follows the same
     order (everything under an earlier sibling is written before the next sibling)
     (Pinned by: test_office.py::TestOneOddValueDoesNotRejectTheDocument::test_smartart_with_a_very_deep_chain_is_read_without_recursion).

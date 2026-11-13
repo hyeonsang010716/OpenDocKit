@@ -128,6 +128,17 @@ _MAX_REPEAT = 10_000
 # row with text is a few bytes in the file; expanded without a bound it was gigabytes of output when `max_chars` is None
 # (Pinned by: test_odf.py::TestHostileInput::test_repeated_rows_with_text_are_cut_short_with_a_warning).
 _REPEAT_BUDGET = 5_000_000
+# In a table of a text document or a slide every copy of a cell is a cell of the grid, with or without text, so the copies are
+# bounded by their number too: a row of one letter and 500 empty cells, repeated 10,000 times, was 5 million grid cells — 13 s
+# and 2.7 GB from a file of a few hundred bytes
+# (Pinned by: test_odf.py::TestHostileInput::test_repeated_row_of_many_cells_in_a_text_table_is_bounded_by_cell_count).
+_REPEAT_CELLS = 200_000
+# The same for the rows of a sheet, where a cell is cheaper (text in a list, no grid) and long runs of equal rows are real:
+# the copies of a document may add this many cells, empty ones included. One character in column CV of a row repeated
+# 10,000 times is 10,000 characters of the text budget and a million cells: 500 such rows (2 KB) ran for a minute with the
+# default options and for ten without a character limit
+# (Pinned by: test_odf.py::TestHostileInput::test_repeated_sheet_rows_are_bounded_by_cell_count).
+_REPEAT_SHEET_CELLS = 2_000_000
 # Columns of a sheet beyond this are not materialized whatever `max_sheet_cols` says (the widest sheet LibreOffice and Excel have).
 _MAX_COLUMNS = 16_384
 
@@ -416,6 +427,28 @@ def _rows(table: etree._Element) -> Iterator[etree._Element]:
             stack.pop()
 
 
+def _first_used_column(table: etree._Element) -> int:
+    """Number of columns before the leftmost cell of a sheet that holds a value (0 when there is none). The column limit counts
+    from there, as for XLSX and XLS (`spreadsheet._first_used_column`): a small table that starts at column GW is not 'beyond
+    column 100' (Pinned by: test_odf.py::TestSpreadsheet::test_column_limit_counts_from_the_first_used_column).
+    Each row is read only up to its first value or up to the best column found so far."""
+    best = _FAR
+    value_type = f"{{{_OFFICE}}}value-type"
+    for row in _rows(table):
+        column = 0
+        for cell in row:
+            tag = cell.tag
+            if tag != _CELL and tag != _COVERED:
+                continue
+            if column >= best:
+                break
+            if tag == _CELL and (cell.get(value_type) is not None or cell.find(_P) is not None):
+                best = column
+                break
+            column += _repeat(cell, _COLS_REPEATED)
+    return best if best < _FAR else 0
+
+
 def _top_level_blocks(body: etree._Element) -> Iterator[etree._Element]:
     """The blocks of a text document, looking through sections and indexes, so that the character limit is checked per paragraph
     even when the whole document sits in one section. Hidden sections are left out."""
@@ -548,6 +581,10 @@ class _Renderer:
         self.comments: list[str] = []       # `> Comment(author): text` lines
         self.omitted_rows = 0               # rows dropped by the table grid cell limit (`TableGrid.omitted_rows`)
         self._repeat_budget = _REPEAT_BUDGET
+        self._repeat_cells = _REPEAT_CELLS
+        self._sheet_cells = _REPEAT_SHEET_CELLS
+        self._objects: dict[str, etree._Element | None] = {}   # embedded sub-documents by folder name, parsed once
+        self._formulas: dict[str, list[str]] = {}   # … and a formula converted once
         self._counters: dict[str, dict[int, int]] = {}   # list style → level → last number given
         self.frames: list[etree._Element] = []          # frames found in sheet cells (charts, pictures), for after the rows
 
@@ -744,12 +781,16 @@ class _Renderer:
 
     # ---- Tables --------------------------------------------------------------------------------------------------
 
-    def _copies(self, repeat: int, length: int) -> int:
+    def _copies(self, repeat: int, length: int, cells: int = 0) -> int:
         """How many times a repeated row or cell with `length` characters of text is written (`_MAX_REPEAT`, `_REPEAT_BUDGET`).
-        Repeats of empty rows and cells are never written out — they only move the position."""
+        Repeats of empty rows and cells are never written out — they only move the position. `cells` is the number of grid cells
+        one copy adds (tables of text documents and slides; `_REPEAT_CELLS`)."""
         if repeat <= 1 or length <= 0:
             return 1
         copies = min(repeat, _MAX_REPEAT, 1 + self._repeat_budget // length)
+        if cells:
+            copies = min(copies, 1 + self._repeat_cells // cells)
+            self._repeat_cells -= (copies - 1) * cells
         self._repeat_budget -= (copies - 1) * length
         return copies
 
@@ -772,7 +813,7 @@ class _Renderer:
                     cells.append((min(column + repeat, _MAX_COLUMNS) - 1, None, 1, 1))
                 elif cell.tag == _CELL:
                     text = "\n".join(self._blocks(cell, inside, depth + 1)) if len(cell) else ""
-                    copies = self._copies(repeat, len(text)) if text else 1
+                    copies = self._copies(repeat, len(text), 1) if text else 1
                     cut = cut or (bool(text) and copies < repeat)
                     spans = decimal_int(cell.get(_ROWS_SPANNED), 1), decimal_int(cell.get(_COLS_SPANNED), 1)
                     cells.extend((column + copy, text if copy == 0 else merged_copy(text), *spans) for copy in range(copies))
@@ -780,7 +821,7 @@ class _Renderer:
                     continue
                 column = min(column + repeat, _FAR)
             repeat = _repeat(row, _ROWS_REPEATED)
-            copies = self._copies(repeat, sum(len(text) for _, text, _, _ in cells if text))
+            copies = self._copies(repeat, sum(len(text) for _, text, _, _ in cells if text), len(cells))
             cut = cut or copies < repeat and any(text for _, text, _, _ in cells)
             for copy in range(copies):
                 grid.reach(row_at, 0)   # a row whose cells are all covered by spans from above is still a row of the table
@@ -818,17 +859,17 @@ class _Renderer:
 
     # ---- Frames, pictures, embedded objects ----------------------------------------------------------------------
 
-    def _shape(self, node: etree._Element, context: _Context, depth: int) -> list[str]:
+    def _shape(self, node: etree._Element, context: _Context, depth: int, *, chart_values: bool = True) -> list[str]:
         """A drawing element: a frame (text box, picture, table, embedded object), a group, or a shape with text in it."""
         if depth >= _MAX_DEPTH:
             text = _flat_text(node)
             return [text] if text else []
         tag = node.tag
         if tag == _FRAME:
-            return self._frame(node, context, depth)
+            return self._frame(node, context, depth, chart_values=chart_values)
         if tag == _GROUP or tag == _DRAW_LINK:
             return [block for child in node if isinstance(child.tag, str) and child.tag.startswith(_DRAW_PREFIX)
-                    for block in self._shape(child, context, depth + 1)]
+                    for block in self._shape(child, context, depth + 1, chart_values=chart_values)]
         return self._blocks(node, context, depth + 1)
 
     def _frame(self, frame: etree._Element, context: _Context, depth: int, *, chart_values: bool = True) -> list[str]:
@@ -875,13 +916,26 @@ class _Renderer:
         formula gives the text LibreOffice Math keeps beside the MathML. Anything else (and a broken sub-document) gives nothing,
         and the frame falls back to its replacement picture."""
         name = self._package.linked(node.get(_HREF))
-        root = self._package.xml(f"{name}/content.xml") if name else None
+        root = None
+        if name:
+            # A sub-document is read and parsed once however many frames point at it, and its values are written at the first
+            # of them only: 100 frames on one chart of 20,000 rows (a 10 KB file) took 17 s and 650 MB
+            # (Pinned by: test_odf.py::TestHostileInput::test_object_referenced_many_times_is_parsed_once_and_written_once).
+            if name in self._objects:
+                chart_values = False
+            else:
+                self._objects[name] = self._package.xml(f"{name}/content.xml")
+            root = self._objects[name]
         if root is None:
             root = next((child for child in node if isinstance(child.tag, str)), None)   # an object written in place
             if root is None:
                 return []
         if root.tag == f"{{{_MATH}}}math":
-            return self._formula(root)
+            if not name:
+                return self._formula(root)
+            if name not in self._formulas:
+                self._formulas[name] = self._formula(root)
+            return list(self._formulas[name])
         chart = next(root.iter(f"{{{_CHART}}}chart"), None)
         return self._chart(chart, context, chart_values) if chart is not None else []
 
@@ -947,20 +1001,23 @@ class _Renderer:
         TestHostileInput::test_repeated_rows_with_text_are_cut_short_with_a_warning).
         """
         limit = min(self._options.max_sheet_cols, _MAX_COLUMNS)
+        offset = _first_used_column(table)   # leading empty columns: dropped from the rows and not counted against the limit
         merged_down: dict[int, tuple[str, int, int]] = {}   # column → (value, last sheet row, last column spanned horizontally)
         row_number = yielded = 0
-        gap = False
+        gap = cut = False
         for row in _rows(table):
             repeat = _repeat(row, _ROWS_REPEATED)
             values: dict[int, str] = {}
             spans: list[tuple[int, int, str]] = []
-            column = 0
+            column = -offset
             for cell in row:
                 tag = cell.tag
                 if tag != _CELL and tag != _COVERED:
                     continue
                 columns = _repeat(cell, _COLS_REPEATED)
-                text = self._sheet_cell(cell, row_number, column) if tag == _CELL and (len(cell) or cell.attrib) else ""
+                text = self._sheet_cell(cell, row_number, column + offset) if tag == _CELL and (len(cell) or cell.attrib) else ""
+                if column < 0:
+                    text = ""   # left of the first used column there is no value; the call above only notes comments and drawings
                 if text and column < limit:
                     wanted = min(columns, limit - column)
                     copies = self._copies(wanted, len(text))
@@ -987,8 +1044,16 @@ class _Renderer:
                 gap = yielded > 0
                 row_number = min(row_number + repeat, _FAR)
                 continue
-            copies = self._copies(repeat, sum(len(text) for text in values.values()))
-            if copies < repeat:
+            # The copies of a row are bounded by the cells they add as well as by their text (`_REPEAT_SHEET_CELLS`).
+            # The width of a copy includes what merges add to it: a value merged down from an earlier row, and the columns a
+            # horizontal merge is repeated over (Pinned by: test_odf.py::TestHostileInput::test_repeated_sheet_rows_are_bounded_by_cell_count).
+            width = 1 + max(max(values), max(merged_down, default=0), max((last for _, _, last in merged_down.values()), default=0),
+                            max((end for _, end, _ in spans), default=0))
+            copies = self._copies(min(repeat, 1 + self._sheet_cells // width), sum(len(text) for text in values.values()))
+            self._sheet_cells -= (copies - 1) * width
+            if copies < repeat and not cut:
+                # Said once per sheet, for the first row that was cut: a warning per row was 500 warnings for 500 row elements.
+                cut = True
                 self._extraction.warnings.append(f"Sheet '{name}': a row repeated {repeat:,} times was read {copies:,} times only.")
             if gap:
                 yield ()
@@ -1011,7 +1076,8 @@ class _Renderer:
 
     def _sheet_cell(self, cell: etree._Element, row: int, column: int) -> str:
         """Text of a sheet cell as displayed: the `text:p` content is the formatted value LibreOffice stored ('$120k', '46.4%',
-        '2025-03-14'), so number formats are not interpreted. Comments and frames in the cell are noted for the end of the sheet."""
+        '2025-03-14'), so number formats are not interpreted. Comments and drawings anchored to the cell (frames, and shapes with
+        text in them) are noted for the end of the sheet."""
         lines: list[str] = []
         displayed = False
         for child in cell:
@@ -1024,15 +1090,19 @@ class _Renderer:
                     lines.append(_XML_SPACE.sub(" ", child.text).strip())
             elif tag == _ANNOTATION:
                 self._comment(child, _cell_reference(row, column))
-            elif tag == _FRAME:
+            elif isinstance(tag, str) and tag.startswith(_DRAW_PREFIX):
                 self.frames.append(child)
         return "\n".join(lines) if displayed else _stored_value(cell)
 
     def sheet_objects(self, table: etree._Element) -> list[str]:
-        """Charts (`[Chart] title`) and pictures of a sheet, after its cells, then the cell comments."""
+        """Charts (`[Chart] title`), pictures and the text of shapes of a sheet, after its cells, then the cell comments. A drawing
+        is anchored to a cell or to the page (`table:shapes`), and a shape with text is not always a frame — a text box drawn in
+        Excel arrives as `draw:custom-shape` (Pinned by: test_odf.py::TestSpreadsheet::test_text_in_a_drawn_shape_follows_the_cells).
+        """
         shapes = table.find(f"{{{_TABLE}}}shapes")
-        frames = [*self.frames, *(shapes.iterchildren(_FRAME) if shapes is not None else ())]
-        blocks = [block for frame in frames for block in self._frame(frame, _PLAIN, 1, chart_values=False)]
+        anchored = [child for child in shapes if isinstance(child.tag, str) and child.tag.startswith(_DRAW_PREFIX)] if shapes is not None else []
+        blocks = [block for drawing in (*self.frames, *anchored) for block in self._shape(drawing, _PLAIN, 1, chart_values=False)
+                  if block.strip()]
         blocks.append("\n".join(self.comments))
         self.frames, self.comments = [], []
         return blocks

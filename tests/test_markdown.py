@@ -107,6 +107,20 @@ class TestCleanText:
         assert result == "    code  block"
 
 
+class TestSolidLength:
+    def test_nested_table_placeholder_is_not_counted(self):
+        """The estimate used for the character limit must never be larger than what is written. A nested-table placeholder is
+        replaced by its table (counted when drawn), and text that only has its shape — 80 digits between the two private-use
+        characters — is dropped by the table holding it. Counted, it stopped a table within the limit: the text came back
+        cut, without `exceeded`."""
+        forged = "\ue020" + "1234567890" * 8 + "\ue021"
+        assert solid_length("값 " + forged + " \ue0200\ue021 끝") == 2
+        grid = TableGrid()
+        grid.place(0, 0, "머리")
+        grid.place(0, 1, "값 " + forged)
+        assert solid_length(grid.render()) >= solid_length("머리") + solid_length("값 " + forged)
+
+
 class TestRenderTable:
     def test_renders_gfm_table_with_header_row(self):
         rows = [["이름", "값"], ["a", "1"]]
@@ -559,6 +573,23 @@ class TestMergedTableAsHtml:
         grid.render()
 
         assert time.perf_counter() - started < 6.0
+
+    def test_text_shaped_like_a_nested_table_placeholder_draws_nothing(self):
+        """Cell text may contain the private-use characters the nested-table placeholder is made of. A nested table is drawn
+        once in a drawing — at the first placeholder with its number — so copies written in the text (or a number that does
+        not exist, or one of thousands of digits) draw nothing more. A table can be drawn again afterwards."""
+        inner = TableGrid()
+        inner.place(0, 0, "안쪽")
+        inner.place(0, 1, "표")
+        outer = TableGrid()
+        outer.place(0, 0, outer.embed(inner))
+        outer.place(0, 1, "\ue0200\ue021 \ue0200\ue021 \ue0207\ue021 \ue020" + "9" * 5000 + "\ue021")
+        assert outer.render().count("안쪽") == 1
+        assert outer.render().count("안쪽") == 1
+        assert outer.flatten().count("안쪽") == 1
+        box = TableGrid()   # one column: the nested table is drawn between paragraphs
+        box.place(0, 0, "상자 " + box.embed(inner) + " \ue0200\ue021")
+        assert box.render().count("안쪽") == 1
 
     def test_nested_table_keeps_its_structure_inside_an_html_cell(self):
         """Flattening a table inside a table into 'cell / cell' lines lost the row and column structure. The outer table is

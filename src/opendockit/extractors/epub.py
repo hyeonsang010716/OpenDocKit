@@ -24,7 +24,7 @@ from opendockit.extractors._shared import parse_part
 from opendockit.extractors.html import extract_html
 from opendockit.extractors.text import decode_text, decoding_warning
 from opendockit.markdown import solid_length
-from opendockit.models import IMAGE_MARKER, ConvertOptions, Extraction, Section, SectionKind
+from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, renumber_image_markers
 
 
 _CONTAINER = "META-INF/container.xml"
@@ -91,6 +91,7 @@ class _Book:
         self._cover_pictures: set[str] = set()
         self._cover_pages: set[str] = set()
         self._inlined = 0
+        self._picture_sizes: dict[str, int] = {}   # picture name → its size once read (0: missing, unreadable or over the cap)
         self._uninlined = 0
 
     def extract(self) -> Extraction:
@@ -286,7 +287,7 @@ class _Book:
         # pass so that a rewritten number is not rewritten again.
         markers = {image.id: self._extraction.add_image(image.data, kind=image.kind, alt=image.alt) for image in inner.images}
         text = inner.sections[0].text if inner.sections else ""
-        text = IMAGE_MARKER.sub(lambda match: markers.get(_marker_id(match.group(0)), match.group(0)), text)
+        text = renumber_image_markers(text, markers)
         self._extraction.warnings.extend(warning for warning in inner.warnings if warning not in self._extraction.warnings)
         # A chapter the HTML extractor stopped reading at the limit reports the count it stopped at.
         self._extraction.count(inner.chars if inner.exceeded else solid_length(text), self._options)
@@ -355,7 +356,18 @@ class _Book:
         media_type = self._media_types.get(name, "")
         if "svg" in media_type or name.lower().endswith((".svg", ".svgz")) or name in self._encrypted:
             return
+        # A picture is decompressed only when it can still be used: one found missing or oversized is not read again, and one
+        # whose size is known is not read once it no longer fits in the book's total. 20,000 `<img>` on one oversized picture
+        # (a 20 KB book) each inflated 20 MB — over a minute
+        # (Pinned by: test_epub.py::TestPictures::test_unusable_picture_is_read_once_however_often_it_is_shown).
+        size = self._picture_sizes.get(name)
+        if size == 0 or name not in self._names:
+            return
+        if self._inlined + (size or 1) > _MAX_INLINED_BYTES:
+            self._uninlined += 1
+            return
         data = self._read(name, _MAX_PICTURE_BYTES)
+        self._picture_sizes[name] = len(data) if data else 0
         if not data:
             return
         if self._inlined + len(data) > _MAX_INLINED_BYTES:
@@ -480,7 +492,3 @@ def _member_name(base: str, href: str | None, *, decode: bool = True) -> str | N
         return None
     return path
 
-
-def _marker_id(marker: str) -> int:
-    """The n of `⟦IMG:<key>:n⟧`."""
-    return int(marker[:-1].rsplit(":", 1)[-1])

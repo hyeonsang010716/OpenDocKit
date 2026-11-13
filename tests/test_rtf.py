@@ -165,6 +165,15 @@ class TestSkippedDestinations:
         """A control word nobody knows, without `\\*`, is formatting: the text of its group stays."""
         assert _text(r"{\brandnew7 kept} {\brandnew kept too}\par") == "kept kept too"
 
+    def test_star_in_the_middle_of_a_group_does_not_hide_its_text(self):
+        """StarWriter wrote character styles as `{\\i0\\b0\\*\\cs7\\cf0 text}`: the `\\*` is not the first thing in the group, so the
+        group is not an ignorable destination and its text is body text (the whole document came out empty). At the start of a
+        group, also after a line break, `\\*` still hides an unknown destination."""
+        assert _text(r"{\loch\f2\i0\b0\*\cs7\cf0 The quick brown fox}\par") == "The quick brown fox"
+        assert _text("A{\r\n\\*\\unknowndest hidden}B\\par") == "AB"
+        # … and in the middle of a group in front of a word that is not a style reference, as before.
+        assert _text(r"a{\lang1033\*\xmlopen\xmlns1{\factoidname place}}b\par") == "ab"
+
     def test_headers_and_footers_follow_the_option(self):
         """A header, a first-page header with the same text, and a footer. Off by default; when on, each text once, header before
         the body and footer after it."""
@@ -253,6 +262,14 @@ class TestEmphasis:
     def test_footnote_text_follows_the_same_rules(self):
         body = r"Text{\footnote \pard {\b whole bold note}} and{\footnote \pard see {\b this} note}.\par"
         assert _text(body) == "Text[^1] and[^2].\n\n[^1]: whole bold note\n[^2]: see **this** note"
+
+    def test_emphasis_is_marked_line_by_line_inside_a_run(self):
+        """One italic group holding a paragraph with a blank line in it (`\\line\\line`, as mail bodies converted from HTML have),
+        between a plain tab before and after. The whole text is italic, so nothing is marked — the blank line inside the run
+        must not turn it into a span over two blocks, which left the first lines marked and the last one not. When only the
+        second line is italic, that line is marked."""
+        assert _text(r"\tab {\i First line. \line\line Second line.}\tab\par") == "First line.\nSecond line."
+        assert _text(r"First line. \line {\i Second\line third} line.\par") == "First line.\n*Second*\n*third* line."
 
 
 def _link(address: str, text: str) -> str:
@@ -490,6 +507,21 @@ class TestLimits:
         assert extraction.sections[0].text.count("\n") < 100
 
 
+    def test_text_shaped_like_a_nested_table_placeholder_is_not_counted_against_the_limit(self):
+        """A cell that holds a nested table and, as text, 80 digits between the private-use characters a nested-table
+        placeholder is made of. The table drops that text when it is drawn, so it must not be counted while the cells are
+        read: counted, the reading stopped at the first cell and the little that was written was under the limit — a
+        document over the limit came back as five characters without `exceeded`."""
+        forged = _unicode("\ue020" + "1234567890" * 8 + "\ue021")
+        body = (r"\trowd\cellx1000\cellx2000 inner\nestcell \itap1 " + forged + r"\cell second\cell\row"
+                r"\trowd\cellx1000\cellx2000\pard\intbl third\cell fourth\cell\row\pard after\par")
+        whole = convert(_rtf(body), "a.rtf", ConvertOptions(max_chars=None))
+        assert "fourth" in whole.text and whole.text.endswith("after") and len(whole.text) > 60
+        assert convert(_rtf(body), "a.rtf", ConvertOptions(max_chars=60)).exceeded
+        same = convert(_rtf(body), "a.rtf", ConvertOptions(max_chars=len(whole.text)))
+        assert same.text == whole.text and not same.exceeded
+
+
 class TestHostileInput:
     def test_data_that_is_not_rtf_is_a_corrupted_document(self):
         for data in (b"", b"hello", b"{\\rt", b"x" * 300 + b"{\\rtf1 late}"):
@@ -513,6 +545,60 @@ class TestHostileInput:
         """Extra closing braces and trailing bytes after the document closes (mail gateways append them)."""
         result = convert(rb"{\rtf1 body\par}}} trailing \par{junk}" + b"\x00" * 10, "a.rtf")
         assert result.text == "body" and result.warnings == []
+
+    def test_long_field_instruction_with_many_results_is_cheap(self, monkeypatch: pytest.MonkeyPatch):
+        """A field whose instruction is one piece of 200,000 characters, followed by 500 `\\fldrslt` words. The instruction used to
+        be kept whole (the cap was checked before the piece was added) and its address worked out again at every result: 3 MB
+        and 1,000 results took 11 seconds. It is cut at the cap and resolved once."""
+        seen: list[int] = []
+        resolve = rtf_module._link_target
+        monkeypatch.setattr(rtf_module, "_link_target", lambda text: (seen.append(len(text)), resolve(text))[1])
+        body = r'{\field{\*\fldinst HYPERLINK "https://example.com/' + "a" * 200_000 + r'"}' + r"\fldrslt" * 500 + r" site}\par"
+        assert "site" in _text(body)
+        assert seen == [rtf_module._MAX_INSTRUCTION_CHARS]
+
+    def test_pieces_with_the_same_formatting_are_one_run(self):
+        """200,000 control symbols (`\\_`, a hyphen each) in bold between two plain words: every symbol used to be a run of its
+        own (10 million of them: 22 seconds and 4.6 GB). Neighbours with the same formatting are collected as one run."""
+        flows: list = []
+        text = _text(r"x {\b " + r"\_" * 200_000 + r"} y\par")
+        assert text == "x **" + "-" * 200_000 + "** y"
+        reader = rtf_module._Reader(_rtf(r"a{\b b\_c}{\b d}e"), 0, ConvertOptions(), rtf_module.Extraction())
+        reader.read()
+        flows.append(reader._flow)
+        flows[0]._settle()
+        assert [run[0] for run in flows[0].runs] == ["a", "b-cd", "e"]
+
+    def test_cells_past_the_cell_limit_of_a_table_are_left_out_with_a_warning(self, monkeypatch: pytest.MonkeyPatch):
+        """`\\cell` is five bytes and a cell of the grid costs hundreds: 4,000 rows of 1,000 empty cells took 13 seconds and
+        3.4 GB, and so did the same cells with no `\\row` at all. A table keeps `_MAX_TABLE_CELLS` cells; the cells after
+        that are left out, whether rows end or not, and one warning says so. The text after the table is read. Inside the
+        limit a row keeps every cell, however many."""
+        monkeypatch.setattr(rtf_module, "_MAX_TABLE_CELLS", 45)
+        warning = "A table has more than 500,000 cells; the cells after that were left out."
+        rows = r"\trowd\cellx100" + (r"\pard\intbl a" + r"\cell" * 20 + r"\row" + "\n") * 12
+        for body in (rows + r"\pard\intbl tail\cell\pard after\par", rows + r"\row\row\pard after\par",
+                     r"\trowd\cellx100\pard\intbl a" + r"\cell" * 300 + r"\pard after\par"):
+            result = convert(_rtf(body), "a.rtf")
+            assert result.text.endswith("after") and "tail" not in result.text
+            assert result.text.count("a\n") in (1, 3)   # the rows that fit: 20 + 20 + 5 cells, or the one unfinished row
+            assert result.warnings == [warning]
+        monkeypatch.undo()
+        wide = r"\trowd\cellx100\pard\intbl " + "".join(f"c{index}\\cell " for index in range(5000)) + r"\row"
+        result = convert(_rtf(wide), "a.rtf")
+        assert "c4999" in result.text and result.warnings == []
+
+    def test_paragraph_of_endless_runs_keeps_its_text_in_a_bounded_number_of_runs(self, monkeypatch: pytest.MonkeyPatch):
+        """One paragraph of runs that cannot be merged (`{\\b a}b` again and again; 2.8 million of them took 16 seconds and
+        2.3 GB). A paragraph has at most `_MAX_PARAGRAPH_RUNS` runs; what follows is read as one plain run, so every character
+        is kept and only the marks stop. The next paragraph starts over."""
+        monkeypatch.setattr(rtf_module, "_MAX_PARAGRAPH_RUNS", 6)
+        text = _text(r"{\b bold} plain " * 10 + r'{\field{\*\fldinst HYPERLINK "https://example.com/"}{\fldrslt link}}\par {\b next} one\par')
+        first, second = text.split("\n\n")
+        assert first.startswith("**bold** plain **bold** plain") and first.count("**bold**") == 4
+        assert first.endswith("bold plain bold plain link")
+        assert first.replace("*", "") == "bold plain " * 10 + "link"   # every character, no link around the tail
+        assert second == "**next** one"
 
     def test_groups_nested_past_the_limit_are_skipped_with_a_warning(self):
         """100,000 nested groups: the text above the limit is kept, the text below is not read, nothing recurses."""

@@ -52,6 +52,20 @@ _MAGIC = b"{\\rtf"
 _MAX_GROUP_DEPTH = 500
 _MAX_TABLE_DEPTH = 16
 _MAX_ROW_CELLS = 4096
+# Cells one table may hold. `\cell` is five bytes and a cell of the grid costs several hundred, text or no text: 4,000 rows of
+# 1,000 empty cells (20 MB) took 13 s and 3.4 GB. The cells past the limit are left out — with or without a `\row` after
+# them — and one warning says so
+# (Pinned by: test_rtf.py::TestHostileInput::test_cells_past_the_cell_limit_of_a_table_are_left_out_with_a_warning).
+_MAX_TABLE_CELLS = 500_000
+# Runs one paragraph may have. Runs that cannot be merged (`{\b a}b` again and again) cost several hundred bytes each when
+# the marks are worked out: 2.8 million of them in one paragraph (20 MB) took 16 s and 2.3 GB. Past the limit the text is
+# still read, as one last run without bold, italic or link — nothing is lost and nothing is cut
+# (Pinned by: test_rtf.py::TestHostileInput::test_paragraph_of_endless_runs_keeps_its_text_in_a_bounded_number_of_runs).
+_MAX_PARAGRAPH_RUNS = 50_000
+_PLAIN_TAIL = (False, False, None, False)
+# Style references. Writers put `\*` in front of them in the middle of a run (StarWriter: `{\b0\*\cs7 text}`); there they are
+# formatting, not the start of an ignorable destination.
+_STYLE_WORDS = frozenset((b"cs", b"s", b"ds", b"ts"))
 _MAX_LIST_LEVELS = 64
 _MAX_LEVEL = 8
 _MAX_UC = 16
@@ -115,6 +129,7 @@ _MERGE_FLAGS = {b"clmgf": _H_FIRST, b"clmrg": _H_CONTINUES, b"clvmgf": _V_FIRST,
 
 _TRUNCATED = "The RTF document ends before it is complete; only the part that could be read was converted."
 _TOO_DEEP = f"Groups nested deeper than {_MAX_GROUP_DEPTH} levels were not read."
+_TABLE_CUT = f"A table has more than {_MAX_TABLE_CELLS:,} cells; the cells after that were left out."
 _TOO_MANY_PICTURES = f"The document has more than {_MAX_PICTURES:,} pictures; the rest were left out."
 
 
@@ -199,7 +214,7 @@ class _RowDefinition:
 
 
 class _Table:
-    __slots__ = ("grid", "rows", "cells", "cell", "budget")
+    __slots__ = ("grid", "rows", "cells", "cell", "budget", "count")
 
     def __init__(self, budget: TableBudget | None) -> None:
         self.grid = TableGrid()
@@ -207,6 +222,7 @@ class _Table:
         self.cells: list[str] = []  # finished cells of the row being read
         self.cell: list[str] = []   # paragraphs of the cell being read
         self.budget = budget
+        self.count = 0     # cells in `rows`
 
     def build(self) -> TableGrid:
         """Place the rows read so far into the grid.
@@ -342,6 +358,8 @@ class _Flow:
         self.kind = kind  # "body", "header", "footer", "note", "box"
         self.blocks: list[str] = []
         self.runs: list[_Run] = []
+        self._pieces: list[str] = []   # text of the run being collected (`add_run`) …
+        self._look: tuple[bool, bool, str | None, bool] | None = None   # … and its bold, italic, link, "is white space"
         self.paragraph = _Paragraph()
         self.tables: list[_Table] = []  # the open tables, outermost first
         self.row = _RowDefinition()
@@ -412,6 +430,9 @@ class _Flow:
             table.cell.append(text)
         cell = "\n".join(table.cell)
         table.cell = []
+        if table.count + len(table.cells) >= _MAX_TABLE_CELLS:
+            self.reader.table_cut = True   # the table is full: this cell and the ones after it are left out
+            return
         table.cells.append(cell)
         if table.budget is not None and table.budget.add(len(table.rows), len(table.cells) - 1, cell):
             self.reader.stopped = True
@@ -426,6 +447,7 @@ class _Flow:
             table.cells.append("\n".join(table.cell))
             table.cell = []
         if table.cells:
+            table.count += len(table.cells)
             # Only the edges of the cells the row really has are kept: the rest of a definition says nothing about this row.
             table.rows.append((table.cells, (self.nested_row if nested else self.row).shared()[:len(table.cells)]))
             table.cells = []
@@ -436,7 +458,33 @@ class _Flow:
         self._enter(0)
         return self.blocks
 
+    def add_run(self, text: str, bold: bool, italic: bool, link: str | None, *, alone: bool = False) -> None:
+        """Text for the paragraph being read. Pieces that follow each other with the same formatting are one run: a run per
+        token (10 million `\\_` in 20 MB) was a tuple each — 22 s and 4.6 GB
+        (Pinned by: test_rtf.py::TestHostileInput::test_pieces_with_the_same_formatting_are_one_run)."""
+        # White space (a tab, a `\line` break, a space between two groups) stays a run of its own, as it was when every piece
+        # was one: the shared rules place marks around it, and a line break inside a marked run reads as one span over two
+        # lines (Pinned by: test_rtf.py::TestEmphasis::test_emphasis_is_marked_line_by_line_inside_a_run).
+        # A picture placeholder and a footnote mark are runs of their own too (`alone`): the rules ask of a piece whether it is
+        # only a placeholder.
+        look = (bold, italic, link, not text.strip())
+        if len(self.runs) >= _MAX_PARAGRAPH_RUNS:
+            look, alone = _PLAIN_TAIL, False   # everything after the limit is one plain run (`_MAX_PARAGRAPH_RUNS`)
+        if alone or look != self._look:
+            self._settle()
+            self._look = look
+        self._pieces.append(text)
+        if alone:
+            self._settle()
+
+    def _settle(self) -> None:
+        if self._pieces:
+            self.runs.append(("".join(self._pieces), *self._look[:3]))
+            self._pieces = []
+        self._look = None
+
     def _paragraph_text(self, *, in_cell: bool) -> str:
+        self._settle()
         runs = self.runs
         if not runs:
             return ""
@@ -488,6 +536,7 @@ class _Reader:
         self.extraction = extraction
         self.stopped = False  # the character limit was exceeded: nothing more is read
         self.omitted_rows = 0
+        self.table_cut = False
         self._truncated = False
         self._too_deep = False
 
@@ -495,6 +544,7 @@ class _Reader:
         self._stack: list[_State] = []
         self._overflow = 0  # depth below the group limit
         self._star = False
+        self._fresh = False  # nothing but white space has been read since the last `{`
         self._raw: list[bytes] = []  # text bytes waiting to be decoded with the code page of the state they were read in
         self._skip = 0  # fallback characters still to drop after `\uN`
         self._high = 0  # a high surrogate waiting for its low half
@@ -515,7 +565,7 @@ class _Reader:
         self._simple_counters: list[int | None] = [None] * (_MAX_LEVEL + 1)
         self._info_key = ""
         self._info: list[str] = []
-        self._fields: list[list] = []  # open fields: [instruction parts, instruction length]
+        self._fields: list[list] = []  # open fields: [instruction parts, instruction length, length when resolved, link target]
         self._pictures: list[list[bytes]] = []  # open `\pict` groups: data chunks
         self._picture_count = 0
         self._too_many_pictures = False
@@ -547,6 +597,10 @@ class _Reader:
                     pos = self._binary(pos, int(token.group(2)))
                 continue
 
+            fresh = self._fresh
+            if kind != 5 and not (kind == 6 and not token.group(6).strip()):
+                self._fresh = False
+
             state = self._state
             dest = state.dest
             if kind == 6:
@@ -576,7 +630,8 @@ class _Reader:
                     self._flush()
                 self._skip = 0
                 self._star = False
-                if token.group(5) == b"{":
+                self._fresh = token.group(5) == b"{"
+                if self._fresh:
                     self._open_group()
                 else:
                     self._close_group()
@@ -588,6 +643,11 @@ class _Reader:
                     self._flush()
                 self._skip = 0
                 self._symbol(token.group(4))
+                if self._star and not fresh:
+                    # `\*` that is not the first thing in its group. It still makes an unknown word that follows an ignorable
+                    # destination, but not a style reference: `{\b0\*\cs7 text}` is body text
+                    # (Pinned by: test_rtf.py::TestSkippedDestinations::test_star_in_the_middle_of_a_group_does_not_hide_its_text).
+                    self._star = 2
             else:
                 if self._raw:
                     self._flush()
@@ -697,13 +757,14 @@ class _Reader:
         dest = state.dest
         if dest == _BODY:
             if not state.hidden:
-                self._flow.runs.append((text, state.bold, state.italic, state.link))
+                self._flow.add_run(text, state.bold, state.italic, state.link)
         elif dest == _INFO_TEXT:
             self._info.append(text)
         elif dest == _STYLESHEET:
             if self._style is not None:
                 self._style[1].append(text)
         elif dest == _FLDINST and self._fields and self._fields[-1][1] < _MAX_INSTRUCTION_CHARS:
+            text = text[:_MAX_INSTRUCTION_CHARS - self._fields[-1][1]]   # the cap holds for one long piece too
             self._fields[-1][0].append(text)
             self._fields[-1][1] += len(text)
 
@@ -813,12 +874,17 @@ class _Reader:
         elif word == b"field":
             if state.closer is None:
                 state.closer = "field"
-                self._fields.append([[], 0])
+                self._fields.append([[], 0, -1, None])
         elif word == b"fldinst":
             state.dest = _FLDINST
         elif word == b"fldrslt":
             if self._fields:
-                state.link = _link_target("".join(self._fields[-1][0])) or state.link
+                # The address is worked out once per instruction, not at every `\fldrslt`: a 3 MB instruction followed by 1,000
+                # results took 11 s (Pinned by: test_rtf.py::TestHostileInput::test_long_field_instruction_with_many_results_is_cheap).
+                field = self._fields[-1]
+                if field[2] != field[1]:
+                    field[2], field[3] = field[1], _link_target("".join(field[0]))
+                state.link = field[3] or state.link
         elif word in _NOTE_WORDS:
             # A footnote inside a footnote cannot be referenced from Markdown; it is left out.
             self._open_flow("note" if self.options.include_footnotes and flow.kind != "note" else None)
@@ -852,7 +918,7 @@ class _Reader:
             self._document_codec = "cp850"
         elif word == b"deff":
             self._default_font = number
-        elif word in _SKIPPED_WORDS or (star and word not in _TRANSPARENT_WORDS):
+        elif word in _SKIPPED_WORDS or (star and word not in _TRANSPARENT_WORDS and not (star == 2 and word in _STYLE_WORDS)):
             # `\*` marks a destination that may be ignored when it is not known: its text is not body text.
             state.dest = _SKIP
 
@@ -972,7 +1038,7 @@ class _Reader:
                 self._picture_count += 1
                 # A picture inside a link stays in the span of the link, as in DOCX: the shared rules keep it out of the brackets
                 # at the edge and write no link around a picture alone.
-                self._flow.runs.append((f" {self.extraction.add_image(data)} ", False, False, self._state.link))
+                self._flow.add_run(f" {self.extraction.add_image(data)} ", False, False, self._state.link, alone=True)
         elif closer == "flow":
             flow = self._flows.pop()
             self._flow = self._flows[-1]
@@ -984,7 +1050,7 @@ class _Reader:
                 if text:
                     self._notes.append(text)
                     link = self._stack[-1].link if self._stack else None  # of the text around the footnote group
-                    self._flow.runs.append((f"[^{len(self._notes)}]", False, False, link))
+                    self._flow.add_run(f"[^{len(self._notes)}]", False, False, link, alone=True)
             elif flow.kind == "box":
                 self._flow.add_blocks(blocks)
             else:
@@ -1088,6 +1154,8 @@ class _Reader:
             warnings.append(_TOO_MANY_PICTURES)
         if self.omitted_rows:
             warnings.append(omitted_rows_warning(self.omitted_rows))
+        if self.table_cut:
+            warnings.append(_TABLE_CUT)
         notes = "\n".join(f"[^{number}]: {text}" for number, text in enumerate(self._notes, 1))
         return join_blocks([join_blocks(self._headers), body, join_blocks(self._footers), notes])
 

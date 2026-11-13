@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -503,6 +505,96 @@ class TestRunner:
         assert time.monotonic() - started < 15
         child = int(pid_file.read_text())
         assert _wait_until_gone(child), "the launcher's child survived the timeout"
+        assert list(scratch.iterdir()) == []
+
+    @pytest.mark.timing
+    @pytest.mark.skipif(os.name != "posix", reason="the guard process is the POSIX mechanism; the stand-in launcher is a shell script")
+    def test_killing_the_converting_process_leaves_no_launcher_child_and_no_folder(self, scratch, tmp_path):
+        """`IsolatedConverter` ends a worker with SIGKILL (time limit, cancelled request, shutdown), so no `finally` of the
+        worker runs. A conversion is started in a separate Python process and that process is killed while the stand-in
+        launcher's child is still running: the child must be gone and the folder holding the uploaded file removed."""
+        pid_file = tmp_path / "child.pid"
+        launcher = _launcher(tmp_path, f'sleep 60 & echo $! > "{pid_file}"; wait')
+        script = ("import sys, tempfile\n"
+                  "from opendockit import convert\n"
+                  "from opendockit.extractors import legacy\n"
+                  "tempfile.tempdir = sys.argv[1]\n"
+                  "legacy.find_soffice = lambda: sys.argv[2]\n"
+                  "convert(open(sys.argv[3], 'rb').read(), 'a.doc')\n")
+        document = tmp_path / "a.doc"
+        document.write_bytes(_doc())
+        worker = subprocess.Popen([sys.executable, "-c", script, str(scratch), launcher, str(document)])
+        try:
+            deadline = time.monotonic() + 30
+            while not (pid_file.exists() and pid_file.read_text().strip()) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            child = int(pid_file.read_text())
+            assert list(scratch.iterdir()) != []
+        finally:
+            worker.kill()
+            worker.wait()
+
+        assert _wait_until_gone(child), "the launcher's child survived the death of the converting process"
+        deadline = time.monotonic() + 5
+        while list(scratch.iterdir()) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert list(scratch.iterdir()) == []
+
+    @pytest.mark.skipif(os.name != "posix", reason="the guard process is the POSIX mechanism")
+    def test_guard_is_started_only_with_a_python_interpreter(self, monkeypatch, tmp_path):
+        """In a frozen application or an embedding host (uWSGI) `sys.executable` is the application, not Python: running it
+        with `-c` would start a second copy of the application for every conversion. The guard is left out there."""
+        monkeypatch.setattr(sys, "executable", "/usr/local/bin/uwsgi")
+        assert legacy._start_guard(tmp_path) is None
+        monkeypatch.undo()
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        assert legacy._start_guard(tmp_path) is None
+        monkeypatch.undo()
+        monkeypatch.setattr(sys, "executable", "")
+        assert legacy._start_guard(tmp_path) is None
+        monkeypatch.undo()
+        guard = legacy._start_guard(tmp_path)
+        assert guard is not None
+        legacy._stop_guard(guard)
+        assert guard.poll() is not None and tmp_path.exists()   # stopped by us: it removed nothing
+
+    @pytest.mark.timing
+    @pytest.mark.skipif(os.name != "posix", reason="the guard process is the POSIX mechanism; the stand-in launcher is a shell script")
+    def test_guard_does_not_wait_for_a_process_forked_during_the_conversion(self, scratch, tmp_path):
+        """The converting process forks while a conversion runs (a pre-fork server, fork-start multiprocessing), so the fork
+        holds a copy of the guard's pipe and the pipe does not close when the converting process is killed. The guard also
+        watches for a new parent: the launcher's child and the folder are gone while the fork is still alive."""
+        pid_file = tmp_path / "child.pid"
+        launcher = _launcher(tmp_path, f'sleep 60 & echo $! > "{pid_file}"; wait')
+        script = ("import os, sys, tempfile, threading, time\n"
+                  "from opendockit import convert\n"
+                  "from opendockit.extractors import legacy\n"
+                  "tempfile.tempdir = sys.argv[1]\n"
+                  "legacy.find_soffice = lambda: sys.argv[2]\n"
+                  "data = open(sys.argv[3], 'rb').read()\n"
+                  "threading.Thread(target=convert, args=(data, 'a.doc'), daemon=True).start()\n"
+                  "while not os.path.exists(sys.argv[4]): time.sleep(0.05)\n"
+                  "if os.fork() == 0:\n"
+                  "    time.sleep(20)\n"
+                  "    os._exit(0)\n"
+                  "open(sys.argv[4] + '.forked', 'w').close()\n"
+                  "time.sleep(60)\n")
+        document = tmp_path / "a.doc"
+        document.write_bytes(_doc())
+        worker = subprocess.Popen([sys.executable, "-c", script, str(scratch), launcher, str(document), str(pid_file)])
+        try:
+            deadline = time.monotonic() + 30
+            while not Path(f"{pid_file}.forked").exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            child = int(pid_file.read_text())
+        finally:
+            worker.kill()
+            worker.wait()
+
+        assert _wait_until_gone(child), "the launcher's child outlived the converting process"
+        deadline = time.monotonic() + 5
+        while list(scratch.iterdir()) and time.monotonic() < deadline:
+            time.sleep(0.05)
         assert list(scratch.iterdir()) == []
 
 

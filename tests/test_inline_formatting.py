@@ -800,7 +800,9 @@ class TestLinearTime:
         small, large = page(10_000), page(40_000)
         assert convert(large, "a.html", options).text.startswith("[[0] 링크](https://example.com/p/0?q=%28x%29) [[1] 링크]")
 
-        assert _seconds(lambda: convert(large, "a.html", options)) < 8 * _seconds(lambda: convert(small, "a.html", options))
+        # Four times the links: 4x when linear, 16x when quadratic. The bound is 12, not 8: on a Linux virtual machine short of
+        # memory the large page measured 8.3x in two runs of five while the time per link was flat from 10,000 to 80,000 links.
+        assert _seconds(lambda: convert(large, "a.html", options)) < 12 * _seconds(lambda: convert(small, "a.html", options))
 
     @pytest.mark.timing
     def test_html_unclosed_emphasis_elements_nested_once_per_paragraph(self):

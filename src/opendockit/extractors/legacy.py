@@ -11,9 +11,11 @@ from functools import lru_cache
 from io import BytesIO
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import zipfile
 
@@ -222,15 +224,91 @@ def _run(command: list[str], working_folder: Path) -> None:
     # real program is a grandchild. On POSIX it gets its own process group, and the whole group is killed on timeout; killing
     # only the launcher left `soffice.bin` running (Pinned by: test_legacy.py::TestRunner::test_timeout_kills_the_whole_process_group).
     own_group = os.name == "posix"
-    process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               cwd=working_folder, start_new_session=own_group, shell=False)
+    guard = _start_guard(working_folder) if own_group else None
+    process = None
     try:
+        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   cwd=working_folder, start_new_session=own_group, shell=False)
+        if guard is not None:
+            _tell_guard(guard, process.pid)
         process.wait(timeout=CONVERSION_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
         raise ConversionTimeout from exc
     finally:
         # Also after a normal exit of the launcher and on any other exception (KeyboardInterrupt): nothing of ours stays behind.
-        _kill(process, own_group)
+        if process is not None:
+            _kill(process, own_group)
+        if guard is not None:
+            _stop_guard(guard)
+
+
+# What the guard process runs. It waits for its standard input to close, which happens when the process that started the
+# conversion is gone, then kills the process group named on the first line and removes the folder given as its argument.
+# "Gone" is seen two ways: the pipe closes, or the guard has a new parent. The second is needed when the converting process had
+# forked meanwhile — the fork holds a copy of the pipe, and the guard used to wait for that process to end as well.
+# The parent is watched only when it is the process named in the arguments: started through a wrapper that is not replaced
+# by the interpreter, the guard has another parent from the start and relies on the pipe alone.
+_GUARD = (
+    "import os, select, shutil, signal, sys\n"
+    "parent, fd, said = os.getppid(), sys.stdin.fileno(), b''\n"
+    "watch = str(parent) == sys.argv[2]\n"
+    "while not watch or os.getppid() == parent:\n"
+    "    if select.select([fd], [], [], 1.0)[0]:\n"
+    "        piece = os.read(fd, 64)\n"
+    "        if not piece:\n"
+    "            break\n"
+    "        said += piece\n"
+    "group = said.split(b'\\n')[0].strip()\n"
+    "try:\n"
+    "    os.killpg(int(group), signal.SIGKILL) if group else None\n"
+    "except (OSError, ValueError):\n"
+    "    pass\n"
+    "shutil.rmtree(sys.argv[1], ignore_errors=True)\n"
+)
+_PYTHON_PROGRAM = re.compile(r"(?:python|pypy)[\w.-]*\Z", re.IGNORECASE)
+
+
+def _start_guard(folder: Path) -> subprocess.Popen | None:
+    """Start the process that cleans up if this one is killed outright (POSIX).
+
+    `IsolatedConverter` ends a worker with SIGKILL on its time limit, when the request is cancelled and on shutdown. No
+    `finally` runs then, so LibreOffice kept running without a parent and the folder with the uploaded file stayed on disk —
+    for good when the document made LibreOffice hang (Pinned by:
+    test_legacy.py::TestRunner::test_killing_the_converting_process_leaves_no_launcher_child_and_no_folder). The guard is a
+    bare Python process in its own session holding a pipe from this process; it does nothing until the pipe closes. Without
+    an interpreter to start (a frozen application, an embedded Python) there is no guard and the conversion goes on as before."""
+    # Only a real interpreter is started: in a frozen application or an embedding host (uWSGI) `sys.executable` is the
+    # application itself, and `-c` would start a second copy of it
+    # (Pinned by: test_legacy.py::TestRunner::test_guard_is_started_only_with_a_python_interpreter).
+    program = sys.executable or ""
+    if getattr(sys, "frozen", False) or not _PYTHON_PROGRAM.match(os.path.basename(program)):
+        return None
+    try:
+        return subprocess.Popen([program, "-I", "-S", "-c", _GUARD, str(folder), str(os.getpid())], stdin=subprocess.PIPE,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, shell=False)
+    except OSError:
+        return None
+
+
+def _tell_guard(guard: subprocess.Popen, group: int) -> None:
+    try:
+        guard.stdin.write(f"{group}\n".encode("ascii"))
+        guard.stdin.flush()
+    except OSError:
+        pass
+
+
+def _stop_guard(guard: subprocess.Popen) -> None:
+    """End the guard before its pipe closes, so that it does nothing: this process has cleaned up itself."""
+    guard.kill()
+    try:
+        guard.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        guard.stdin.close()
+    except OSError:
+        pass
 
 
 def _kill(process: subprocess.Popen, own_group: bool) -> None:

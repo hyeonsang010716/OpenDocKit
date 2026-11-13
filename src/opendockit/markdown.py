@@ -115,7 +115,12 @@ def solid_length(text: str) -> int:
     decomposed jamo shrinks to 1/3 when normalized, and a placeholder disappears entirely if its picture is filtered out, so
     counting the raw length comes out larger than the real one.
     """
-    text = _PRIVATE_USE.sub("", _CONTROL.sub("", _INVISIBLE.sub("", IMAGE_MARKER.sub("", text))).translate(_SYMBOL_FONT_GLYPHS))
+    # A nested-table placeholder goes too, with its number: the table it stands for is counted when it is drawn, and text of
+    # the document that only has the shape of one is dropped by the table that holds it. Counted, 80 digits between the two
+    # private-use characters stopped a table that was within the limit, and the document came back cut without `exceeded`
+    # (Pinned by: test_markdown.py::TestSolidLength::test_nested_table_placeholder_is_not_counted).
+    text = _EMBED.sub("", IMAGE_MARKER.sub("", text))
+    text = _PRIVATE_USE.sub("", _CONTROL.sub("", _INVISIBLE.sub("", text)).translate(_SYMBOL_FONT_GLYPHS))
     return len("".join(unicodedata.normalize("NFC", text).split()))
 
 
@@ -313,6 +318,11 @@ class TableGrid:
         # An HTML span is built only from the spots a cell filled itself.
         self._owners: dict[tuple[int, int], int] = {}
         self._embedded: list[TableGrid] = []  # the tables inside cells (in the order of embed's placeholder numbers)
+        # The nested tables already drawn in the drawing under way. A table inside a table is drawn once: document text can hold
+        # the private-use characters a placeholder is made of, and when every forged copy drew the nested table again, copies at
+        # each level of nesting multiplied — a 736-byte ODT took 26 s and 1.4 GB
+        # (Pinned by: test_markdown.py::TestMergedTableAsHtml::test_text_shaped_like_a_nested_table_placeholder_draws_nothing).
+        self._drawn: set[int] = set()
         self._span_budget = _SPAN_BUDGET
         # The real extent of the table: the lowest row and rightmost column where a cell was placed (`place`) or a covered cell
         # was reported (`reach`). Spans are cut to this extent when drawing — extended by the span counts written in the file,
@@ -410,27 +420,42 @@ class TableGrid:
         rows = self.rows()
         if not self._embedded:
             return self._html(rows, headless=headless) or render_table(rows, headless=headless)
+        self._drawn = set()
 
         # A table inside a table cannot go in a Markdown cell, so it is HTML. Only a one-column box is unfolded into paragraphs as
         # before, with the nested table placed separately.
         html = self._html(rows, force=True, headless=headless)
         if html is not None:
             return html
+        self._drawn = set()
         text = _EMBED.sub(lambda match: f"\n\n{self._nested(match, inline=False)}\n\n", render_table(rows, headless=headless))
         return _BLANK_RUN.sub("\n\n", text).strip()
 
     def flatten(self) -> str:
         """'cell / cell' lines for places that cannot hold a table (inside a footnote or header). Nested tables are flattened the same way."""
         text = "\n".join(" / ".join(cell for cell in row if cell) for row in self.rows())
-        return _EMBED.sub(lambda match: self._embedded[int(match.group(1))].flatten()
-                          if int(match.group(1)) < len(self._embedded) else "", text)
+        self._drawn = set()
+        return _EMBED.sub(lambda match: self._embedded[index].flatten() if (index := self._first_use(match)) is not None else "", text)
+
+    def _first_use(self, match: re.Match[str]) -> int | None:
+        """The number of the nested table a placeholder stands for, the first time it is met in a drawing; None for a number
+        that does not exist (the document text happened to contain the same shape) and for every later copy."""
+        digits = match.group(1)
+        index = int(digits) if len(digits) <= 9 else -1
+        if not 0 <= index < len(self._embedded) or index in self._drawn:
+            return None
+        self._drawn.add(index)
+        return index
 
     def _nested(self, match: re.Match[str], *, inline: bool) -> str:
-        index = int(match.group(1))
-        if index >= len(self._embedded):
-            return ""  # the document text happened to contain the same shape
+        index = self._first_use(match)
+        if index is None:
+            return ""
         table = self._embedded[index]
-        return (table._html(table.rows(), force=True, inline=True) or "") if inline else table.render()
+        if not inline:
+            return table.render()
+        table._drawn = set()
+        return table._html(table.rows(), force=True, inline=True) or ""
 
     def _cell_html(self, text: str) -> str:
         html = _html_cell(text)

@@ -309,6 +309,15 @@ def image_marker_pattern(key: str) -> re.Pattern[str]:
     return re.compile(rf"⟦IMG:{re.escape(key)}:(\d+)⟧")
 
 
+def renumber_image_markers(text: str, markers: dict[int, str]) -> str:
+    """Replace the placeholders of an imported part (an EPUB chapter, a DOCX chunk — numbered from 1 in the part) with the
+    placeholders the document gave those pictures, in one pass so that a rewritten number is not rewritten again. Only
+    placeholders with the key of the document being converted are touched: text of the part that merely has the shape
+    (`⟦IMG:1⟧`) stays text. Matched without the key, such text vanished and the picture was inserted in its place
+    (Pinned by: test_epub.py::TestPictures::test_text_shaped_like_a_picture_placeholder_stays_text)."""
+    return image_marker_pattern(_MARKER_KEY.get()).sub(lambda match: markers.get(int(match.group(1)), match.group(0)), text)
+
+
 # The filters `quiet_warnings` currently has in place: (category, module regex) → [the entry put into warnings.filters (None if it
 # was already there), number of users].
 _QUIET_FILTERS: dict[tuple[type[Warning], str], list] = {}
