@@ -5,6 +5,7 @@ HWP record streams are built with the fake OLE container (`_fake_hwp`) of `test_
 """
 
 import time
+import zlib
 
 import pytest
 
@@ -191,6 +192,35 @@ class TestEquationWithARepeatedScript:
         body = "<hp:p><hp:run><hp:t>식:</hp:t><hp:equation><hp:script>x^2^3</hp:script></hp:equation></hp:run></hp:p>"
 
         assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "식: [Equation: x^2^3]"
+
+
+class TestHwpSectionWarningNumber:
+    """The number in a `Section N:` warning was read from the stream name, so up to 24 digits chosen by the document reached
+    the warning. It is the position of the section in the body, as for HWPX."""
+
+    _LAST = "BodyText/Section" + "9" * 24
+
+    def test_broken_section_is_numbered_by_its_position_not_by_its_stream_name(self, monkeypatch):
+        section = builder.hwp_record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) \
+            + builder.hwp_record(TAG_PARA_TEXT, 1, builder.hwp_text("첫 구역"))
+        data = _fake_hwp(monkeypatch, flags=1, sections=[section], extra={self._LAST: b"\xff\xff\xff garbage" * 10})
+
+        result = convert(data, "a.hwp")
+
+        assert result.text == "첫 구역"
+        assert result.warnings == ["Section 2: the compressed data is broken and could not be read."]
+
+    def test_truncated_section_is_numbered_by_its_position(self, monkeypatch):
+        record = builder.hwp_record
+        section = record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("첫 구역"))
+        long = b"".join(record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                        + record(TAG_PARA_TEXT, 1, builder.hwp_text(f"문단 {index}")) for index in range(50))
+        data = _fake_hwp(monkeypatch, flags=1, sections=[section], extra={self._LAST: zlib.compress(long)[2:-4][:60]})
+
+        result = convert(data, "a.hwp")
+
+        assert result.text.startswith("첫 구역\n\n문단 0")
+        assert result.warnings == ["Section 2: the stream is truncated, so only the part that could be read was converted."]
 
 
 def _hwp_headers(texts: list[str]) -> bytes:

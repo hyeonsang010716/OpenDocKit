@@ -29,7 +29,6 @@ from opendockit.extractors._shared import (
     Numbering,
     NumberLevel,
     TableBudget,
-    decimal_int,
     format_dutmal,
     format_number,
     is_placeholder_only,
@@ -950,12 +949,13 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
         blocks = []
         names = _section_streams(ole)
         broken: list[zlib.error] = []
-        for name in names:
+        for number, name in enumerate(names, 1):
             # If the compression of one section stream is broken, only that section is skipped, and if its end is truncated it is used
             # as far as it was read (both with a warning). The whole document used to be rejected even when Section0 was fine. If every
             # section is broken it is a corrupted document as before (Pinned by: test_hwp_robustness.py::
-            # TestBrokenSectionStream).
-            number = decimal_int(name.removeprefix("BodyText/Section"), 0) + 1
+            # TestBrokenSectionStream). The number in the warning is the position in the body, as for HWPX, not the number in
+            # the stream name: up to 24 digits chosen by the document reached the warning
+            # (Pinned by: test_audit_hangul.py::TestHwpSectionWarningNumber).
             try:
                 stream, complete = _read_stream_to_end(ole, name, compressed, budget)
             except zlib.error as exc:
