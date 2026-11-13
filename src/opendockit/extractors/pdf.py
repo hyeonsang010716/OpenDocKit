@@ -343,7 +343,10 @@ def _content_objects(data: bytes, resources: object, limit: int, counted: dict[t
     back to itself (`active`) counts as one object, and a form deeper than `_FORM_NESTING_MAX` counts as over the limit. The number
     of paint operators already counted is passed in as `paints`."""
     total = _paint_operators(data, limit) if paints is None else paints
-    calls = Counter(_XOBJECT_CALL.findall(data))
+    # Only the first `limit + 1` calls are looked at: every call is at least one object, so with more the estimate is over the limit
+    # anyway. `findall` listed every name first — a 65MB stream of five million different names held 500MB
+    # (Pinned by: test_audit_pdf_head.py::TestManyDistinctXObjectNames).
+    calls = Counter(match[1] for match in islice(_XOBJECT_CALL.finditer(data), limit + 1))
     xobjects = resolve1(resources.get("XObject")) if isinstance(resources, dict) and calls else None
 
     for raw, times in calls.items():

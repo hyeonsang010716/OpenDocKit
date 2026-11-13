@@ -413,3 +413,60 @@ class TestOneUnreadableAnnotation:
         text = convert(self._form(b"[72 8 0 R 200 580]"), "a.pdf").text
 
         assert text.index("name: Hong") < text.index("city: Seoul")
+
+
+class TestManyDistinctXObjectNames:
+    """Counting the `/Name Do` calls of a content stream built a list of every name first: a 65MB stream of five million different
+    names peaked at 500MB."""
+
+    def test_calls_are_counted_without_listing_them(self, monkeypatch):
+        import re
+
+        from opendockit.extractors import pdf as pdf_module
+
+        class Pattern:
+            def __init__(self, pattern: re.Pattern) -> None:
+                self.finditer, self.search = pattern.finditer, pattern.search
+
+        monkeypatch.setattr(pdf_module, "_XOBJECT_CALL", Pattern(pdf_module._XOBJECT_CALL))  # no `findall`
+        data = b"/Im1 Do /Im2 Do\n/Im1 Do q /A#42 Do Q (text) Tj\n"
+
+        assert pdf_module._content_objects(data, {}, 100, {}, set(), 0) == 5
+
+    def test_names_beyond_the_limit_are_not_collected(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        seen = []
+        pattern = pdf_module._XOBJECT_CALL
+
+        class Pattern:
+            search = pattern.search
+
+            @staticmethod
+            def finditer(data: bytes):
+                for match in pattern.finditer(data):
+                    seen.append(match)
+                    yield match
+
+        monkeypatch.setattr(pdf_module, "_XOBJECT_CALL", Pattern)
+        data = b"".join(b"/a%d Do\n" % index for index in range(1000))
+
+        assert pdf_module._content_objects(data, {}, 10, {}, set(), 0) > 10
+        assert len(seen) == 11
+        assert pdf_module._content_objects(data, {}, 1000, {}, set(), 0) == 1000
+
+    def test_repeated_names_are_looked_up_once_and_counted_every_time(self):
+        from io import BytesIO
+
+        import pdfplumber
+
+        from opendockit.extractors import pdf as pdf_module
+
+        form = b"<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length 12 >>\nstream\n0 0 1 1 re f\nendstream"
+        data = _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                         3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R "
+                            b"/Resources << /XObject << /Fm 6 0 R >> >> >>",
+                         4: _stream(b"/Fm Do /Fm Do /Fm Do /Missing Do"), 6: form})
+
+        with pdfplumber.open(BytesIO(data)) as pdf:
+            assert pdf_module._drawn_objects(pdf.pages[0], 100) == 3 * (1 + 1) + 1
