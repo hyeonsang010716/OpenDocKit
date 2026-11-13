@@ -146,7 +146,6 @@ _WHITESPACE = re.compile(r"\s+")
 # Characters that draw nothing on screen: zero-width spaces and joiners (ZWSP/ZWNJ/ZWJ/WJ/BOM), the combining grapheme joiner
 # (U+034F), the soft hyphen. Mails use them as blank filler (`&zwnj;&nbsp;`) (`_has_text`).
 _INVISIBLE_TEXT = re.compile("[\u200b-\u200d\u2060\ufeff\u034f\u00ad]")
-_FENCED = re.compile(r"(```\n.*?\n```)", re.DOTALL)
 _BLANK_LINES = re.compile(r"\n{2,}")
 # Placeholder for a nested list detached while its list item is rendered (private-use characters — clean_text removes them
 # if they are left in the body).
@@ -2304,11 +2303,31 @@ def _list_entries(node: Tag) -> list[Tag | str]:
     return entries
 
 
+def _split_at_fenced(text: str) -> list[str]:
+    """The text split at its code blocks (from a "```" + newline to the next newline + "```"): text, block, text, block …, text
+    — what splitting with the lazy pattern `(```\\n.*?\\n```)` gave. The pattern read on to the end of the text for every
+    opening that has no closing: 20,000 of them in one list item (156KB) took 6 seconds. Once an opening finds no closing
+    after it, no later one can (Pinned by: test_audit_html_text.py::TestListItemWithManyUnpairedFenceLines).
+    """
+    pieces: list[str] = []
+    position = 0
+
+    while True:
+        start = text.find("```\n", position)
+        end = text.find("\n```", start + 4) if start >= 0 else -1
+        if end < 0:
+            break
+        pieces += [text[position:start], text[start:end + 4]]
+        position = end + 4
+    pieces.append(text[position:])
+    return pieces
+
+
 def _item_blocks(text: str) -> list[str]:
     """Split a list item's content into blocks. Code blocks and tables keep their line structure; in other paragraphs whitespace is
     collapsed to single spaces."""
     blocks = []
-    for part in _FENCED.split(text):
+    for part in _split_at_fenced(text):
         if part.startswith("```"):
             blocks.append(part)
             continue

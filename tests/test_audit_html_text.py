@@ -570,3 +570,26 @@ class TestAttributeValuesThatRepeatTheStartOfAPattern:
         html = f'<ul class="{first}"><li>one</li></ul><ul class="{second}"><li>two</li></ul>'
 
         assert convert(html.encode(), "a.html").text == expected
+
+
+class TestListItemWithManyUnpairedFenceLines:
+    """The code blocks of a list item were cut out with a lazy pattern that, for every ``` line, read on to the end of the item
+    for the closing line: 20,000 ``` lines that are never closed in one `<li>` (156KB) took 6 s."""
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("line", ["```<br>x", "```<br>", "x<br>```", "```<br>x<br>"])
+    def test_item_takes_linear_time(self, line):
+        seconds, text = _seconds(("<ul><li>" + line * 20000 + "</li></ul>").encode(), "a.html")
+
+        assert text.startswith("-")
+        assert seconds < 3
+
+    @pytest.mark.parametrize(("item", "expected"), [
+        ("first<pre>a  b\n\n\nc</pre>then<pre>d</pre>last", "- first\n\n```\na  b\n\n\nc\n```\n\nthen\n\n```\nd\n```\n\nlast"),
+        ("<pre></pre>after", "-\n\n```\n\n```\n\nafter"),
+        ("```<br>open<pre>code</pre>```<br>x", "-\n\n```\nopen\n\n```\n\ncode\n\n```\n\n```\n\nx"),
+        ("one<br>```<br>two<br><br>```<br>three", "- one\n\n```\ntwo\n\n```\n\nthree"),
+        ("<pre>a</pre><pre>b</pre>", "-\n\n```\na\n```\n\n```\nb\n```"),
+    ])
+    def test_code_blocks_in_an_item_are_kept_as_before(self, item, expected):
+        assert convert(f"<ul><li>{item}</li></ul>".encode(), "a.html").text == expected
