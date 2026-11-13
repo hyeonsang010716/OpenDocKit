@@ -38,7 +38,10 @@ _RTF_MAGIC = b"{\\rtf"
 # SVG image: the top element (after a DOCTYPE) is <svg>. Passed through as text, the path coordinates become the body.
 _SVG_ROOT = re.compile(rb"(?:<!doctype\s+svg\b[^>]*>\s*)?<svg[\s>]", re.IGNORECASE)
 # Found only in a PDF body: the cross-reference table position (startxref) or an object header (`12 0 obj`).
-_PDF_BODY = re.compile(rb"startxref|\d+\s+\d+\s+obj\b")
+# An object header is looked for only from the first digit of a number (`(?<!\d)`): started again at every digit of a run, the search
+# took 5 seconds for 40,000 digits after a late header, in the first check every upload goes through. The same files match
+# (Pinned by: test_audit_core.py::TestPdfBodySearchAfterALateHeader).
+_PDF_BODY = re.compile(rb"startxref|(?<!\d)\d+\s+\d+\s+obj\b")
 # Top element of an Excel 2003 XML spreadsheet. Its `<Table>` matched the HTML sniff below (case-insensitive) and it was read as HTML.
 _XML_SPREADSHEET_SNIFF = re.compile(rb"<(?:\w+:)?Workbook\b[^>]*urn:schemas-microsoft-com:office:spreadsheet")
 _HTML_SNIFF = re.compile(rb"<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]|<table[\s>]|<meta\s", re.IGNORECASE)
@@ -248,8 +251,11 @@ def _read_prefix(archive: zipfile.ZipFile, name: str, size: int) -> bytes:
         return member.read(size)
 
 
-_OFFICE_DOCUMENT = re.compile(
-    rb"<(?:\w+:)?Relationship\b[^>]*?Type\s*=\s*[\"'][^\"']*/officeDocument[\"'][^>]*>")
+# A relationship tag (up to its first `>`, with no `<` inside — none can be there in XML) and, inside the tag, the officeDocument
+# type. As one pattern, a `<Relationship ` with no `>` was scanned to the end of the part from every tag start and every `Type=`:
+# 64 KB of them took a second (Pinned by: test_audit_core.py::TestPackageRelationshipsWithUnclosedTags).
+_RELATIONSHIP = re.compile(rb"<(?:\w+:)?Relationship\b[^<>]*>")
+_OFFICE_DOCUMENT = re.compile(rb"Type\s*=\s*[\"'][^\"']*/officeDocument[\"']")
 _TARGET = re.compile(rb"\bTarget\s*=\s*[\"']/?([^\"']+)[\"']")
 _OFFICE_FOLDERS = {"word": DocumentFormat.DOCX, "ppt": DocumentFormat.PPTX, "xl": DocumentFormat.XLSX}
 
@@ -263,8 +269,8 @@ def _office_main_part(archive: zipfile.ZipFile, names: set[str]) -> DocumentForm
     if "_rels/.rels" not in names:
         return None
     relationships = _read_prefix(archive, "_rels/.rels", 65_536)
-    for relationship in _OFFICE_DOCUMENT.finditer(relationships):
-        target = _TARGET.search(relationship.group(0))
+    for relationship in _RELATIONSHIP.finditer(relationships):
+        target = _TARGET.search(relationship.group(0)) if _OFFICE_DOCUMENT.search(relationship.group(0)) else None
         if target is None:
             continue
         path = target.group(1).decode("utf-8", errors="replace").removeprefix("./")
@@ -466,7 +472,9 @@ def _is_json(data: bytes, body: bytes, wide: str | None) -> bool:
     for candidate in (first_line, text) if first_line != text else (text,):
         try:
             value = json.loads(candidate)
-        except ValueError:
+        # Brackets nested too deep for the parser (RecursionError) are not JSON either — 200,000 `[` got a text file rejected as
+        # corrupted (Pinned by: test_audit_core.py::TestDeeplyNestedJsonLookalike).
+        except (ValueError, RecursionError):
             continue
         if isinstance(value, (dict, list)):
             return True

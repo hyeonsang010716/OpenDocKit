@@ -97,12 +97,15 @@ _MERGE_REF = re.compile(rb"<(?:[\w.-]+:)?(?:mergeCell|hyperlink)\b(?:\s+[\w:.-]+
 # (Pinned by: test_spreadsheet.py::TestEmptyRowGaps).
 _EMPTY_ROW_STOP = 5_000
 # Formula cells (<f>) in sheet XML, and formula cells stored together with their computed result (<v>value</v>).
+# The inside of a tag never runs past the next `<` (`[^<>]*`, in these patterns and in `_VIEW_SETTINGS`, `_SHEET_STATE` and
+# `_CONTROL_ELEMENT`): with `[^>]*` every unclosed tag was scanned to the end of the part, so a 4.7 KB file whose sheet is `<c `
+# 80,000 times took 50 s (Pinned by: test_audit_spreadsheet.py::TestUnclosedTagsInSheetXml).
 _FORMULA = re.compile(rb"<(?:\w+:)?f[\s>/]")
-_FORMULA_WITH_RESULT = re.compile(rb"(?:</(?:\w+:)?f>|<(?:\w+:)?f\b[^>]*/>)\s*<(?:\w+:)?v>[^<]")
+_FORMULA_WITH_RESULT = re.compile(rb"(?:</(?:\w+:)?f>|<(?:\w+:)?f\b[^<>]*/>)\s*<(?:\w+:)?v>[^<]")
 # A formula cell stored without a result: no `<v>` after the formula, or an empty one. A formula computed to an empty string
 # (`t="str"` with an empty `<v>`) does have a result.
 _FORMULA_WITHOUT_RESULT = re.compile(
-    rb"<(?:\w+:)?c\b(?![^>]*\bt\s*=\s*[\"']str[\"'])[^>]*>\s*<(?:\w+:)?f\b(?:[^>]*/>|[^>]*>[^<]*</(?:\w+:)?f>)\s*"
+    rb"<(?:\w+:)?c\b(?![^<>]*\bt\s*=\s*[\"']str[\"'])[^<>]*>\s*<(?:\w+:)?f\b(?:[^<>]*/>|[^<>]*>[^<]*</(?:\w+:)?f>)\s*"
     rb"(?:<(?:\w+:)?v\s*/>|<(?:\w+:)?v>\s*</(?:\w+:)?v>)?\s*</(?:\w+:)?c>")
 
 
@@ -155,6 +158,8 @@ class _CellReading:
     malformed: int = 0  # cells left as their raw text because they do not fit the format (blank for a shared-string index)
     unread_rich: int = 0  # in-cell picture / data-type cells whose value was not found (blank instead of the error value)
     picture_text: Callable[[_CellPicture], str] | None = None
+    row_numbers: list[int] | None = None  # row numbers of the streamed sheet being read, in the order read (`_streamed_rows`)
+    part_results: dict[tuple[str, ...], object] = field(default_factory=dict)  # what a part gave, kept for this workbook (`_once_per_part`)
 
 
 # Deliberate: the cell interpretation of openpyxl's sheet parser (`WorkSheetParser.parse_cell`) and the place that knows the number
@@ -318,12 +323,28 @@ def _tolerant_parse_row(parser: object, row: object) -> tuple[int, list]:
     to be rejected
     (Pinned by: TestOneMalformedCellValue::test_row_number_that_is_not_a_whole_number_is_ignored)."""
     try:
-        return _parse_row(parser, row)
+        return _consecutive(_parse_row(parser, row))
     except ValueError:
         if _READING.get() is None:
             raise
     del row.attrib["r"]
-    return _parse_row(parser, row)
+    return _consecutive(_parse_row(parser, row))
+
+
+def _consecutive(parsed: tuple[int, list]) -> tuple[int, list]:
+    """While a streamed sheet is being read (`_streamed_rows`), hand the row to openpyxl under the next consecutive number and
+    keep the number written in the file in `_CellReading.row_numbers`. openpyxl's streaming yields an empty row for every row
+    number the file skips; rows 4,999 apart never reached the 5,000-empty-row stop, so a 14 KB file with 2,000 rows made ten
+    million empty rows (7.6 s, 2.6 GB). A row whose number is not above the previous one gets number 0, which openpyxl drops, as
+    it dropped that row before (Pinned by: test_audit_spreadsheet.py::TestStreamedRowsFarApart)."""
+    reading = _READING.get()
+    if reading is None or reading.row_numbers is None:
+        return parsed
+    number, cells = parsed
+    if number < 1 or (reading.row_numbers and number <= reading.row_numbers[-1]):
+        return 0, cells
+    reading.row_numbers.append(number)
+    return len(reading.row_numbers), cells
 
 
 def _skipped_while_reading(original: Callable[..., object]) -> Callable[..., object]:
@@ -498,7 +519,11 @@ def extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
 def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
     data, repeated = _without_repeated_sheets(data)
     with zipfile.ZipFile(BytesIO(data)) as archive:
-        sheets = [info for info in archive.infolist() if info.filename.startswith("xl/worksheets/")]
+        # openpyxl reads the sheets the workbook's sheet list points to through relationships, wherever they are stored. Looking
+        # only under `xl/worksheets/`, a sheet at `xl/ws/sheet1.xml` dodged every check below: one merge A1:CV20000 was fully
+        # loaded (9 s, 1.5 GB) (Pinned by: test_audit_spreadsheet.py::TestSheetStoredAtAnotherPath).
+        listed = _listed_sheet_parts(archive)
+        sheets = [info for info in archive.infolist() if info.filename.startswith("xl/worksheets/") or info.filename in listed]
         sheet_names = [info.filename for info in sheets]
         large = sum(info.file_size for info in sheets) > _FULL_LOAD_MAX_SHEET_BYTES
         # In a full load openpyxl decompresses a picture again for every reference (a 56KB file pointing to one picture 40 times used
@@ -761,10 +786,10 @@ def _repaired_copies(data: bytes) -> Iterator[tuple[bytes, bool, bool]]:
 # (Pinned by: test_core_spreadsheet.py::TestMalformedViewAndPrintSettings::test_unclosed_settings_take_linear_time).
 _VIEW_SETTINGS = re.compile(
     rb"<((?:[\w.-]+:)?(?:bookViews|calcPr|definedNames|sheetViews|sheetFormatPr|pageMargins|pageSetup|printOptions))\b"
-    rb"(?:[^>]*/>|(?:(?!<\1\b).)*?</\1\s*>)", re.DOTALL)
+    rb"(?:[^<>]*/>|(?:(?!<\1\b).)*?</\1\s*>)", re.DOTALL)
 # Sheet state in the workbook's sheet list (`<sheet … state="VeryHidden">`). A single value with the wrong letter case made openpyxl
 # reject the whole document.
-_SHEET_STATE = re.compile(rb"(<(?:[\w.-]+:)?sheet\b[^>]*?\sstate\s*=\s*)(\"[^\"]*\"|'[^']*')")
+_SHEET_STATE = re.compile(rb"(<(?:[\w.-]+:)?sheet\b[^<>]*?\sstate\s*=\s*)(\"[^\"]*\"|'[^']*')")
 _SHEET_STATES = {"visible": b"visible", "hidden": b"hidden", "veryhidden": b"veryHidden"}
 
 
@@ -807,7 +832,9 @@ def _without_view_settings(data: bytes) -> bytes | None:
 
 
 def _is_number(value: str | None) -> bool:
-    return value is not None and value.strip().isascii() and value.strip().isdigit()
+    # Digits `int()` refuses (more than 4,300 of them) are not a number either: a cell style index like that rejected the whole
+    # document (Pinned by: test_audit_spreadsheet.py::TestIntegerAttributesTooLongToRead).
+    return value is not None and value.strip().isascii() and decimal_int(value.strip(), None) is not None
 
 
 _OFFICE_DOCUMENT = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
@@ -841,6 +868,20 @@ def _sheet_paths(archive: zipfile.ZipFile, names: set[str]) -> tuple[dict[str, s
     sheets = list(root.iter(f"{{{_SPREADSHEET_MAIN}}}sheet"))
     return ({sheet.get("name", ""): targets.get(sheet.get(_RELATIONSHIP_ID, ""), "") for sheet in sheets},
             {sheet.get("name", "") for sheet in sheets if sheet.get("state", "visible") != "visible"})
+
+
+def _listed_sheet_parts(archive: zipfile.ZipFile) -> set[str]:
+    """Paths of the parts the workbook's sheet list points to through relationships. The relationship type is not looked at —
+    openpyxl reads whatever part a `<sheet>` points to as a sheet. Empty when the workbook part or its relationships cannot be
+    read (openpyxl rejects the document for the same reason)."""
+    names = set(archive.namelist())
+    workbook_path = _workbook_path(archive, names)
+    try:
+        root = etree.fromstring(archive.read(workbook_path), parser=_XML_PARSER)
+        targets = _related(archive, names, workbook_path)
+    except (KeyError, etree.XMLSyntaxError):
+        return set()
+    return {targets.get(sheet.get(_RELATIONSHIP_ID, ""), "") for sheet in root.iter(f"{{{_SPREADSHEET_MAIN}}}sheet")}
 
 
 def _formulas_without_results(archive: zipfile.ZipFile, sheet_names: list[str]) -> tuple[bool, set[str]]:
@@ -1090,8 +1131,19 @@ def _streamed_rows(sheet: object, max_cols: int) -> Iterator[tuple[int, tuple[st
 
     sheet.reset_dimensions()
     sheet._get_row = bounded_row
-    for number, row in enumerate(sheet.iter_rows(), start=1):  # empty rows arrive too, none skipped
-        yield number, _with_xlsx_level_mark(row, [_cell_text(cell) for cell in row])
+    # Rows arrive under the number written in the file (`_consecutive`). Empty rows written in the file arrive too; row numbers
+    # the file skips are not made into rows here (`_until_long_empty_gap` counts them and puts one empty row in their place).
+    reading = _READING.get()
+    numbers = None
+    if reading is not None:
+        numbers = reading.row_numbers = []
+    try:
+        for index, row in enumerate(sheet.iter_rows()):
+            number = index + 1 if numbers is None else numbers[index]
+            yield number, _with_xlsx_level_mark(row, [_cell_text(cell) for cell in row])
+    finally:
+        if reading is not None:
+            reading.row_numbers = None
 
 
 def _with_xlsx_level_mark(cells: list[object] | tuple[object, ...], texts: list[str]) -> tuple[str, ...]:
@@ -1184,9 +1236,20 @@ def _number_format(cell: object) -> str | None:
     (Pinned by: test_core_spreadsheet.py::TestUndefinedNumberFormatId).
     """
     try:
-        return getattr(cell, "number_format", None)
+        return _format_within_length(getattr(cell, "number_format", None))
     except IndexError:
         return None
+
+
+# A display format longer than this is not interpreted: the value is shown as under the General format. The format is analysed
+# again for every cell in time proportional to its length, so a 6 KB workbook with a 100 KB format on 200 cells took 1.6 s (7.8 ms
+# per cell). Excel accepts no format of more than 255 characters. Common to XLSX, XLS and Excel 2003 XML
+# (Pinned by: test_audit_spreadsheet.py::TestVeryLongNumberFormat).
+_MAX_FORMAT_LENGTH = 1024
+
+
+def _format_within_length(number_format: str | None) -> str | None:
+    return number_format if number_format is None or len(number_format) <= _MAX_FORMAT_LENGTH else None
 
 
 def _is_serial_zero_shown_as_date(value: object, number_format: str | None) -> bool:
@@ -1634,22 +1697,42 @@ def _xls_sheets_holding_charts(stream: bytes) -> set[int]:
         if record_id == _BIFF_BOUNDSHEET and len(body) >= 6 and body[5] == 0:
             starts.append(struct.unpack_from("<I", body)[0])
 
-    charted = {start: _holds_chart(stream, start) for start in set(starts)}  # walked once each, even when many sheets point to the same position
-    return {index for index, start in enumerate(starts) if charted[start]}
+    charted = _chart_holders(stream, set(starts))
+    return {index for index, start in enumerate(starts) if start in charted}
 
 
-def _holds_chart(stream: bytes, start: int) -> bool:
-    depth = 0
-    for _, record_id, body in _biff_records(stream, start):
+def _chart_holders(stream: bytes, starts: set[int]) -> set[int]:
+    """Those of the sheet positions `starts` whose sheet holds a chart substream: the first BOF at or after the position (a
+    position right at an EOF has no sheet) has a chart BOF inside it, before its own EOF.
+
+    The stream is read once for all sheets. Walking it again from every sheet position, to the end when no EOF follows, took
+    64 s for 2,000 sheet entries over 200,000 empty records (808 KB). Deliberate: only positions at a record boundary of the
+    stream are looked at — a sheet entry pointing into the middle of a record gets no chart warning
+    (Pinned by: test_audit_spreadsheet.py::TestXlsChartScan::test_stream_is_walked_a_fixed_number_of_times).
+    """
+    charted: set[int] = set()
+    waiting: list[int] = []  # positions passed since the last BOF or EOF
+    open_sheets: list[list[int]] = []  # for every BOF still open, the positions whose sheet it starts
+    with_chart = 0  # the first this many open BOFs have a chart BOF inside them
+
+    for position, record_id, body in _biff_records(stream):
+        if position in starts:
+            waiting.append(position)
         if record_id == _BIFF_BOF:
-            depth += 1
-            if depth > 1 and body[2:4] == _BIFF_CHART_SUBSTREAM.to_bytes(2, "little"):
-                return True
+            if body[2:4] == _BIFF_CHART_SUBSTREAM.to_bytes(2, "little"):
+                with_chart = len(open_sheets)
+            open_sheets.append(waiting)
+            waiting = []
         elif record_id == _BIFF_EOF:
-            depth -= 1
-            if depth <= 0:
-                return False
-    return False
+            waiting = []
+            if open_sheets:
+                closed = open_sheets.pop()
+                if with_chart > len(open_sheets):
+                    charted.update(closed)
+                    with_chart = len(open_sheets)
+    for closed in open_sheets[:with_chart]:
+        charted.update(closed)
+    return charted
 
 
 def _xls_workbook_stream(data: bytes) -> bytes:
@@ -2014,13 +2097,17 @@ def _xml_style_formats(root: etree._Element) -> dict[str | None, str | None]:
         number_format = style.find(f"{{{_SS}}}NumberFormat") if style is not None else None
         return _ss(number_format, "Format") if number_format is not None else None
 
+    # The format each style inherits is kept, so a chain of parents is followed once and not again from every style on it: 8,000
+    # chained styles (310 KB) took 44 s (Pinned by: test_audit_spreadsheet.py::TestXmlSpreadsheetStyleChains).
     formats: dict[str | None, str | None] = {}
+    inherited: dict[str, str | None] = {}
     for style_id in [*styles, None]:
         current, seen = style_id, set()
-        while current is not None and current not in seen and own(current) is None:
+        while current is not None and current not in seen and current not in inherited and own(current) is None:
             seen.add(current)
             current = _ss(styles[current], "Parent") if current in styles else None
-        found = own(current) if current is not None else None
+        found = inherited[current] if current in inherited else own(current) if current is not None else None
+        inherited.update(dict.fromkeys(seen, found))
         formats[style_id] = _xml_number_format(found if found is not None else own("Default"))
     return formats
 
@@ -2029,17 +2116,25 @@ def _xml_style_indents(root: etree._Element) -> dict[str | None, int]:
     """Style ID → cell indent (`<Alignment ss:Indent>`). Inherited by following `ss:Parent`. Styles without an indent are not included."""
     styles = {_ss(style, "ID"): style for style in root.iter(f"{{{_SS}}}Style")}
     indents: dict[str | None, int] = {}
+    inherited: dict[str | None, int | None] = {}  # followed once per style, as in `_xml_style_formats`
     for style_id in styles:
         current, seen = style_id, set()
+        found = None
         while current in styles and current not in seen:
+            if current in inherited:
+                found = inherited[current]
+                break
             seen.add(current)
             alignment = styles[current].find(f"{{{_SS}}}Alignment")
             value = (_ss(alignment, "Indent") or "").strip() if alignment is not None else ""
             if value:
-                if value.isdecimal() and int(value) > 0:
-                    indents[style_id] = int(value)
+                if decimal_int(value, 0) > 0:
+                    found = decimal_int(value, 0)
                 break
             current = _ss(styles[current], "Parent")
+        inherited.update(dict.fromkeys(seen, found))
+        if found is not None:
+            indents[style_id] = found
     return indents
 
 
@@ -2047,15 +2142,20 @@ def _ss(element: etree._Element, name: str) -> str | None:
     return element.get(f"{{{_SS}}}{name}", element.get(name))
 
 
-def _ss_int(element: etree._Element, name: str, fallback: int, invalid: set[str]) -> int:
+def _ss_int(element: etree._Element, name: str, fallback: int, invalid: set[str], minimum: int = 0) -> int:
     """Integer attribute (`ss:Index`, `ss:Span`, `ss:MergeAcross`, `ss:MergeDown`). Missing or empty gives `fallback`; a value that is
     not a decimal number (`abc`, `²`) also gives `fallback` and records the name in `invalid` — a bare `int()` rejected the whole
-    document over a single attribute (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetIntegerAttributes)."""
+    document over a single attribute (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetIntegerAttributes). So does a number
+    below `minimum` — a cell at `ss:Index="0"`, a column that does not exist, was dropped without a warning
+    (Pinned by: test_audit_spreadsheet.py::TestXmlCellAtPositionZero)."""
     value = (_ss(element, name) or "").strip()
     if not value:
         return fallback
-    if value.isdecimal():
-        return int(value)
+    # None also for more than 4,300 digits, which `int()` refuses although they are decimal
+    # (Pinned by: test_audit_spreadsheet.py::TestIntegerAttributesTooLongToRead).
+    number = decimal_int(value, None)
+    if number is not None and number >= minimum:
+        return number
     invalid.add(name)
     return fallback
 
@@ -2064,7 +2164,7 @@ def _xml_number_format(number_format: str | None) -> str | None:
     """A named format becomes its format string; a name missing from the table is treated as the General format (None) — the
     letters of the name were being read as date codes
     (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetNamedFormats::test_unknown_format_name_is_not_read_as_a_date)."""
-    if not number_format:
+    if not number_format or len(number_format) > _MAX_FORMAT_LENGTH:
         return None
     if number_format in _XML_NAMED_FORMATS:
         return _XML_NAMED_FORMATS[number_format]
@@ -2167,7 +2267,7 @@ def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None]
         column = 0
 
         for cell in row.iterfind(f"{{{_SS}}}Cell"):
-            column = _ss_int(cell, "Index", column + 1, invalid)
+            column = _ss_int(cell, "Index", column + 1, invalid, minimum=1)
             data = cell.find(f"{{{_SS}}}Data")
             style = _ss(cell, "StyleID") or _ss(row, "StyleID") or column_styles.get(column)
             text = _xml_cell_value(data, formats.get(style, formats.get(None))) if data is not None else ""
@@ -2221,6 +2321,10 @@ def _xml_cell_value(data: etree._Element, number_format: str | None) -> str:
                 # Elapsed time is a duration measured from Excel's day 0. From 1900-03-01 on, Excel counts the non-existent day
                 # (1900-02-29) as one day
                 # (Pinned by: test_spreadsheet.py::TestDateFormats::test_xml_spreadsheet_elapsed_time_is_shown_as_total_hours).
+                # A value written with a time zone (`…T10:00:00Z`) is measured by the time as written, as the time-only case
+                # below reads it — compared with a date without a zone it raised TypeError and rejected the whole document
+                # (Pinned by: test_audit_spreadsheet.py::TestXmlDateTimeWithATimeZone).
+                value = value.replace(tzinfo=None)
                 return format_cell(value - datetime(1899, 12, 31 if value < datetime(1900, 3, 1) else 30), number_format)
 
             # A time-only value is stored attached to Excel's day 0 (1899-12-31) (Pinned by: test_time_only_value_is_shown_as_a_time).
@@ -2651,14 +2755,20 @@ def _collect_rows(rows: object, options: ConvertOptions, sheet_name: str, extrac
 def _until_long_empty_gap(rows: Iterator[tuple[int, tuple[str, ...]]], sheet_name: str,
                           warnings: list[str]) -> Iterator[tuple[int, tuple[str, ...]]]:
     """Yield the (row number, row) pairs of a streamed sheet only up to a run of `_EMPTY_ROW_STOP` empty rows, and warn when
-    stopping there."""
-    empty_streak = 0
+    stopping there. Row numbers the file skips count as empty rows of the run and are yielded as one empty row however many
+    they are — a run of empty rows renders the same as a single one (`_sheet_text`), as in a full load (`_with_blank_gaps`)
+    (Pinned by: test_audit_spreadsheet.py::TestStreamedRowsFarApart)."""
+    empty_streak = previous = 0
     for number, row in rows:
-        empty_streak = 0 if any(row) else empty_streak + 1
-        if empty_streak >= _EMPTY_ROW_STOP:
+        skipped = max(number - previous - 1, 0)
+        run = empty_streak + skipped + (0 if any(row) else 1)  # empty rows up to and including this row
+        if run >= _EMPTY_ROW_STOP:
             warnings.append(f"Sheet '{sheet_name}': {_EMPTY_ROW_STOP:,} consecutive empty rows were found, "
-                            f"so nothing was read from row {number - empty_streak + 1:,} on.")
+                            f"so nothing was read from row {previous - empty_streak + 1:,} on.")
             return
+        if skipped:
+            yield previous + 1, ()
+        empty_streak, previous = (0 if any(row) else run), number
         yield number, row
 
 
@@ -2675,8 +2785,10 @@ def _append_sheet(extraction: Extraction, name: str, rows: list[list[str]], draw
 # was not recognised as a header and was merged into the first table
 # (Pinned by: test_core_spreadsheet.py::TestTablesWithUnitFormats). Deliberate: words common in column names ('1월', '2024년',
 # '1차') such as 월, 년, 일, 차, 회, 분기 are not included — if a header looks like a number the new table is missed.
+# The whitespace after the currency sign belongs to the sign (`(?:[₩$€¥£]\s*)?`): as `\s*[₩$€¥£]?\s*` a sign followed by N spaces
+# and no digit was split between the two runs in N² ways (Pinned by: test_audit_spreadsheet.py::TestNumberLikeText).
 _UNIT_SUFFIX = r"(?:\s?(?:[천만억조]|백만|십억)?원|\s?(?:명|건|개|대|톤|%p|kg|㎏|천|만|억|백만))?"
-_NUMBER_LIKE = re.compile(r"[-+−▲▼△(]?\s*[₩$€¥£]?\s*\d[\d,]*(?:\.\d+)?\s*%?" + _UNIT_SUFFIX + r"\)?"
+_NUMBER_LIKE = re.compile(r"[-+−▲▼△(]?\s*(?:[₩$€¥£]\s*)?\d[\d,]*(?:\.\d+)?\s*%?" + _UNIT_SUFFIX + r"\)?"
                           r"|\d{4}[-./]\d{1,2}[-./]\d{1,2}\b.*|-?\d{1,3}:\d{2}(?::\d{2})?")
 # Years, common in headers (`구분 | 2023 | 2024`). Treated as header cells even though they look like numbers.
 _YEAR = re.compile(r"(?:19|20)\d{2}")
@@ -3020,7 +3132,8 @@ def _drawing_blocks(archive: zipfile.ZipFile, names: set[str], sheet_path: str, 
         target = embed
         if embed.startswith(_CHART_REFERENCE):
             kind, _, target = embed.removeprefix(_CHART_REFERENCE).partition("\0")
-            text = _chart_text(archive, names, kind, media.get(target, ""))
+            path = media.get(target, "")
+            text = _once_per_part(("chart", kind, path), lambda kind=kind, path=path: _chart_text(archive, names, kind, path))
 
         # Pictures and charts whose target part is missing are left out and reported. openpyxl does not follow drawing
         # relationships while reading (`_RELATIONS_LEFT_UNREAD`, Pinned by: test_spreadsheet.py::TestMissingPartRelationships)
@@ -3168,7 +3281,7 @@ _HTML_TAG = re.compile(rb"<[^<>]*>")
 _HTML_NAMED_ENTITY = re.compile(rb"&([A-Za-z][A-Za-z0-9]{0,31});")
 _XML_ENTITY_NAMES = frozenset((b"amp", b"lt", b"gt", b"quot", b"apos"))
 _VML_SHAPE_NUMBER = re.compile(r"_s(\d+)$")
-_CONTROL_ELEMENT = re.compile(rb"<(?:[\w.-]+:)?control\b[^>]*>")
+_CONTROL_ELEMENT = re.compile(rb"<(?:[\w.-]+:)?control\b[^<>]*>")
 _CONTROL_SHAPE_ID = re.compile(rb"\sshapeId\s*=\s*[\"']\s*(\d+)")
 _CONTROL_RELATIONSHIP = re.compile(rb"\s[\w.-]+:id\s*=\s*[\"']([^\"']*)")
 
@@ -3246,14 +3359,30 @@ def _checked_control_shapes(archive: zipfile.ZipFile, names: set[str], sheet_pat
     if not properties or sheet_path not in names:
         return set()
 
+    def says_checked(path: str) -> bool:
+        root = parse_part(archive.read(path))
+        return root is not None and root.get("checked") == "Checked"
+
     checked = set()
     for element in _CONTROL_ELEMENT.finditer(archive.read(sheet_path)):
         shape, relationship = _CONTROL_SHAPE_ID.search(element.group()), _CONTROL_RELATIONSHIP.search(element.group())
         path = properties.get(relationship.group(1).decode("utf-8", errors="replace")) if relationship else None
-        root = parse_part(archive.read(path)) if shape and path in names else None
-        if root is not None and root.get("checked") == "Checked":
+        if shape and path in names and _once_per_part(("checked", path), lambda path=path: says_checked(path)):
             checked.add(shape.group(1).decode())
     return checked
+
+
+def _once_per_part[T](key: tuple[str, ...], read: Callable[[], T]) -> T:
+    """What `read` works out from a part, worked out once per workbook (`key`: what is read, and the part path). A part was read
+    and parsed again for every reference to it: 1,000 `<control>` elements pointing at one 2 MB control properties part (a 7 KB
+    file) took 2.2 s, and so did a chart placed many times. The results live in the reading state of this conversion
+    (`_CellReading`); outside one, nothing is kept (Pinned by: test_audit_spreadsheet.py::TestPartsReferencedManyTimes)."""
+    reading = _READING.get()
+    if reading is None:
+        return read()
+    if key not in reading.part_results:
+        reading.part_results[key] = read()
+    return reading.part_results[key]
 
 
 def _drawing_items(element: etree._Element,
@@ -3370,7 +3499,10 @@ def _rich_values(archive: zipfile.ZipFile, names: set[str]) -> dict[str, object]
     # and the values (v) are paired by order
     keys = [[key.get("n", "") for key in structure.iterchildren(f"{{{_RICH_DATA}}}k")]
             for structure in (structures.iterchildren(f"{{{_RICH_DATA}}}s") if structures is not None else ())]
-    targets = _related(archive, names, parts["/richValueRel"]) if relations is not None else {}
+    # Relationships that cannot be read are treated as absent (`_part_relations`): the pictures are left blank with the warning
+    # and the data types are kept. They rejected the whole workbook
+    # (Pinned by: test_audit_spreadsheet.py::TestDamagedRichValueRelationships).
+    targets = _part_relations(archive, names, parts["/richValueRel"]) if relations is not None else {}
     pictures = [targets.get(relation.get(_RELATIONSHIP_ID, ""), "")
                 for relation in (relations.iterchildren(f"{{{_RICH_VALUE_RELS}}}rel") if relations is not None else ())]
     rich: list[object] = []
@@ -3429,7 +3561,9 @@ def _picture_reference_bytes(archive: zipfile.ZipFile) -> int:
 
     total = 0
     for sheet in sheets & names:
-        for part in _related(archive, names, sheet).values():
+        # Parts the workbook points to that are not sheets are looked at too, and openpyxl never reads their relationships: ones
+        # that cannot be read count nothing (Pinned by: test_audit_spreadsheet.py::TestDamagedRichValueRelationships)
+        for part in _part_relations(archive, names, sheet).values():
             if part == sheet or part not in names or not part.endswith(".xml"):
                 continue
             media = _part_relations(archive, names, part)
@@ -3646,8 +3780,14 @@ def _negative_serial_text(value: float, number_format: str) -> str:
     non-existent day (1899-12-25) or a time wrapped around the day (22:30) as if it were fact. Common to XLSX, XLS and XML and to
     the 1900 and 1904 systems (Pinned by: test_spreadsheet.py::TestNegativeDateSerials)."""
     if _ELAPSED_FORMAT.search(number_format):
-        return _elapsed_text(timedelta(days=value), number_format)
-    if _shows_date(number_format):
+        try:
+            return _elapsed_text(timedelta(days=value), number_format)
+        except OverflowError:
+            # A value that does not fit in a duration (a billion days or more, or infinity) is shown as the number, as the
+            # positive one is. It rejected the whole document
+            # (Pinned by: test_audit_spreadsheet.py::TestNegativeValueTooLargeForADuration).
+            return _format_value(value)
+    if _shows_date(number_format) or math.isinf(value):
         return _format_value(value)
     seconds = round(-value * 86400)
     return f"-{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
@@ -4036,7 +4176,7 @@ def _xls_escapement(book: xlrd.book.Book, font_index: int) -> int | None:
 
 def _xls_number_format(book: xlrd.book.Book, cell: xlrd.sheet.Cell) -> str | None:
     try:
-        return book.format_map[book.xf_list[cell.xf_index].format_key].format_str
+        return _format_within_length(book.format_map[book.xf_list[cell.xf_index].format_key].format_str)
     except (AttributeError, IndexError, KeyError, TypeError):
         return None
 

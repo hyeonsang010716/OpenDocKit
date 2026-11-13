@@ -22,6 +22,14 @@ except ImportError:  # the optional `heic` extra is not installed: only HEIC/HEI
 
 _HEIF_BRANDS = (b"heic", b"heix", b"hevc", b"heim", b"heis", b"mif1", b"msf1")
 
+# The only Pillow readers a picture is offered to: raster formats decoded inside this process. Left to itself `Image.open`
+# tries every plugin, and an EPS reached the PostScript plugin, which starts Ghostscript on the file. Deliberate: EPS, WMF/EMF
+# (drawn through Windows GDI, and documented as placeholders) and the scientific/container stubs are not listed
+# (Pinned by: test_audit_runtime.py::TestPictureFormatAllowList::test_eps_is_refused_without_reaching_the_postscript_plugin).
+# A JPEG that is an MPO is read by the JPEG reader. A name Pillow has not registered is a KeyError, hence the HEIF condition.
+_OPEN_FORMATS = ("JPEG", "PNG", "GIF", "BMP", "TIFF", "WEBP", "AVIF", *(("HEIF",) if HEIF_AVAILABLE else ()),
+                 "ICO", "JPEG2000", "PCX", "PPM", "DIB")
+
 
 # An aspect ratio more extreme than this with a short side under `_CONTENT_SHORT_SIDE` is a divider or a piece of border. With a
 # short side at or above it, the image is content such as a product detail page or a long screen capture
@@ -209,13 +217,14 @@ def _open_within_pixel_limit(data: bytes, max_side: int) -> Image.Image:
     """Open so that at most `_MAX_DECODE_PIXELS` pixels are decoded. A JPEG over it is read reduced to 1/2–1/8 at decode time (draft).
 
     Normal photos over Pillow's decompression-bomb limit (the same value), such as panoramas and large scans, were rejected as a
-    'corrupted image' (Pinned by: test_core_image_and_assembly.py::TestVeryLargePictures). A JPEG is decoded reduced at the DCT
-    stage, so it uses only the memory of the reduced size — the over-limit original is never decoded whole. Image.open rejects
-    it in its limit check, so the JPEG decoder is opened directly (global settings such as `MAX_IMAGE_PIXELS` are not changed).
-    If it is still over the limit after reduction, or the format cannot be read reduced (PNG, TIFF, ...), raise `ImageTooLarge`.
+    'corrupted image' (Pinned by: test_core_image_and_assembly.py::TestVeryLargePictures). A baseline JPEG is decoded reduced at
+    the DCT stage, so it uses only the memory of the reduced size — the over-limit original is never decoded whole. Image.open
+    rejects it in its limit check, so the JPEG decoder is opened directly (global settings such as `MAX_IMAGE_PIXELS` are not
+    changed). If it is still over the limit after reduction, or the format cannot be read reduced (PNG, TIFF, a progressive
+    JPEG, ...), raise `ImageTooLarge`.
     """
     try:
-        opened = Image.open(BytesIO(data))
+        opened = Image.open(BytesIO(data), formats=_OPEN_FORMATS)
     except Image.DecompressionBombError:
         opened = None
     if opened is not None and opened.width * opened.height <= _MAX_DECODE_PIXELS:
@@ -226,6 +235,13 @@ def _open_within_pixel_limit(data: bytes, max_side: int) -> Image.Image:
         raise ImageTooLarge("image too large")
 
     jpeg = JpegImagePlugin.JpegImageFile(BytesIO(data))
+    # Deliberate: a progressive JPEG over the limit is not read. Its decoder keeps the coefficients of the whole picture in
+    # memory whatever the reduction, so the limit on the reduced size does not bound it: a 20000×20000 one (1.5 MB) took 946 MB
+    # where a baseline one took 148 MB
+    # (Pinned by: test_audit_runtime.py::TestProgressiveJpegOverThePixelLimit::test_progressive_jpeg_over_the_limit_is_too_large).
+    if jpeg.info.get("progressive") or jpeg.info.get("progression"):
+        jpeg.close()
+        raise ImageTooLarge("image too large")
     width, height = jpeg.size
     scale = next((scale for scale in (2, 4, 8) if -(-width // scale) * -(-height // scale) <= _MAX_DECODE_PIXELS), None)
     if scale is None:
@@ -262,7 +278,7 @@ def split_tiff_pages(data: bytes) -> TiffPages:
         # reported in the warning text. This used to ignore every warning — the thread-safe `models.quiet_warnings` applies to the
         # whole process for the duration of the block, so it was narrowed to Pillow warnings
         with quiet_warnings((UserWarning, r"PIL\."), (Image.DecompressionBombWarning, r"PIL\.")):
-            with Image.open(BytesIO(data)) as opened:
+            with Image.open(BytesIO(data), formats=_OPEN_FORMATS) as opened:
                 if not _has_frame(opened, 1):
                     return TiffPages([])
                 for index in range(MAX_TIFF_PAGES):

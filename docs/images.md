@@ -55,6 +55,8 @@ The thresholds are `min_image_side` and `repeated_image_threshold` in [`ConvertO
 
 - Every image is re-encoded as PNG (when it has transparency) or JPEG and its long side is reduced to 2048 px (`image_max_side`). OpenAI downsizes images anyway, so anything larger only slows the upload.
 - EXIF rotation is corrected.
+- A picture inside a document is read only when it is one of the raster formats decoded in this process (JPEG, PNG, GIF, BMP, TIFF, WEBP, AVIF, HEIC with the extra, ICO, JPEG 2000, PCX, PPM); anything else — EPS, WMF / EMF, and rare formats such as TGA or PSD — keeps its `[Image]` placeholder.
+- A JPEG larger than about 179 million pixels is decoded at reduced size; a progressive JPEG of that size is refused as too large, because its decoder needs the memory of the whole picture.
 - Very long images such as product detail pages and long screen captures (long side > short side × 4 and long side > 4096 px) lose their text when shrunk as a whole. For these, tiles cut along the long side are also produced (`DocumentImage.tiles`, up to 8), and `OpenAIImageDescriber` sends them in order within a single query.
 
 ## Cost cap

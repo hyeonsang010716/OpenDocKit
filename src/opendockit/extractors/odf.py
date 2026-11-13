@@ -542,9 +542,13 @@ def _stored_value(cell: etree._Element) -> str:
             value = float(cell.get(f"{{{_OFFICE}}}value", ""))
         except ValueError:
             return ""
+        # Multiplied before the test for a finite number: 1e308 passed it and came out as 'inf%' (Pinned by: test_audit_office.py::
+        # TestOdsPercentageBeyondTheLargestNumber::test_stored_percentage_that_overflows_is_left_empty_like_an_infinite_value).
+        if kind == "percentage":
+            value *= 100
         if value != value or value in (float("inf"), float("-inf")):
             return ""
-        return f"{_number_text(round(value * 100, 10))}%" if kind == "percentage" else _number_text(value)
+        return f"{_number_text(round(value, 10))}%" if kind == "percentage" else _number_text(value)
     if kind == "date":
         return (cell.get(f"{{{_OFFICE}}}date-value") or "").removesuffix("T00:00:00").replace("T", " ")
     if kind == "time":
@@ -585,6 +589,7 @@ class _Renderer:
         self._sheet_cells = _REPEAT_SHEET_CELLS
         self._objects: dict[str, etree._Element | None] = {}   # embedded sub-documents by folder name, parsed once
         self._formulas: dict[str, list[str]] = {}   # … and a formula converted once
+        self._charts: dict[str, etree._Element | None] = {}   # … and its chart element found once (None when it has none)
         self._counters: dict[str, dict[int, int]] = {}   # list style → level → last number given
         self.frames: list[etree._Element] = []          # frames found in sheet cells (charts, pictures), for after the rows
 
@@ -926,6 +931,7 @@ class _Renderer:
             else:
                 self._objects[name] = self._package.xml(f"{name}/content.xml")
             root = self._objects[name]
+        linked = name if root is not None else None   # the sub-document itself is used, not an object written in place
         if root is None:
             root = next((child for child in node if isinstance(child.tag, str)), None)   # an object written in place
             if root is None:
@@ -936,7 +942,15 @@ class _Renderer:
             if name not in self._formulas:
                 self._formulas[name] = self._formula(root)
             return list(self._formulas[name])
-        chart = next(root.iter(f"{{{_CHART}}}chart"), None)
+        # Whether the sub-document holds a chart is found once: one that is neither a chart nor a formula was searched again for
+        # every frame — 2 million elements and 3,000 frames took 15 s (Pinned by: test_audit_office.py::
+        # TestOdfObjectThatIsNotAChart::test_many_frames_on_a_large_object_do_not_search_it_again).
+        if linked in self._charts:
+            chart = self._charts[linked]
+        else:
+            chart = next(root.iter(f"{{{_CHART}}}chart"), None)
+            if linked:
+                self._charts[linked] = chart
         return self._chart(chart, context, chart_values) if chart is not None else []
 
     def _formula(self, math: etree._Element) -> list[str]:

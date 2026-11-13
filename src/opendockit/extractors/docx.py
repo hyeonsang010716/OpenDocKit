@@ -240,7 +240,9 @@ class _DocxRenderer:
         self.placeholders = _placeholder_texts(self._part)  # glossary docPart name → placeholder text (`_keep_filled_placeholders`)
         self._styles = _load_styles(document)
         self._default_style = next((style for style in self._styles.values() if style.default), None)
-        default_size = document.styles.element.find(f"{_w('docDefaults')}/{_w('rPrDefault')}/{_w('rPr')}/{_w('sz')}")
+        styles_root = _styles_root(document)
+        default_size = (styles_root.find(f"{_w('docDefaults')}/{_w('rPrDefault')}/{_w('rPr')}/{_w('sz')}")
+                        if styles_root is not None else None)
         self._default_size = _int_attr(default_size, 0) or 20  # document default font size. If absent, Word uses 10pt (20 half-points)
         self._number_lists = _load_numbering(document)
         # There is one counter per number definition (abstractNum). Numbered lists (numId) already seen in the body are noted separately.
@@ -249,6 +251,8 @@ class _DocxRenderer:
         self.notes = _NoteLabels()  # footnote/endnote references seen in the body, and their labels
         # Tables being rendered. A table inside a cell is handed to the table at the top of the stack (markdown.TableGrid.embed)
         self._grids: list[TableGrid] = []
+        self._chunks: dict[object, Extraction] = {}  # imported-content part → its conversion (`_chunk_blocks`)
+        self._chart_titles: dict[object, str] = {}  # chart part already written → its `[Chart] title` line (`_object_block`)
         self._drop_cap: tuple[etree._Element, str] | None = None  # (drop-cap paragraph, its text). Prepended to the very next paragraph
         # Preceding list items not yet closed. Cells, headers and text boxes count separately (`_list_depth`)
         self._list_items: list[_ListItem] = []
@@ -325,13 +329,19 @@ class _DocxRenderer:
             return []
 
         content_type = part.content_type.split(";")[0].strip().lower()
-        if content_type in _HTML_CHUNK_TYPES or (content_type in _MHT_CHUNK_TYPES and is_mhtml(blob)):
+        # A part is converted once however many w:altChunk point at it; each reference still writes its content. It was
+        # converted again per reference, and a chunk that gives no text never moves the character count: 20 references to 2 MB
+        # of empty <div> took 60 s (Pinned by: test_audit_office.py::TestDocxChunkPartReferencedManyTimes).
+        if part in self._chunks:
+            imported = self._chunks[part]
+        elif content_type in _HTML_CHUNK_TYPES or (content_type in _MHT_CHUNK_TYPES and is_mhtml(blob)):
             imported = extract_html(blob, self._options)
         elif content_type in _TEXT_CHUNK_TYPES:
             imported = extract_text(blob, self._options)
         else:
             self.unread_chunks += 1
             return []
+        self._chunks[part] = imported
 
         # The chunk's placeholders carry numbers local to the chunk. They must be rewritten in one pass so that a rewritten number is
         # not rewritten again.
@@ -497,10 +507,13 @@ class _DocxRenderer:
         # (row, column, column span, whether it is a continuation cell, tc)
         cells: list[tuple[int, int, int, bool, etree._Element]] = []
         for row_index, row in enumerate(_children(table, _w("tr"))):
-            col = _int_attr(row.find(f"{_w('trPr')}/{_w('gridBefore')}"), 0)
+            # A span below 1 and a negative number of skipped columns are not used as they are: gridSpan="0" put the next cell on
+            # the same column (its text was lost) and a negative value moved cells to the left of their row
+            # (Pinned by: test_audit_office.py::TestDocxGridSpanBelowOne).
+            col = max(_int_attr(row.find(f"{_w('trPr')}/{_w('gridBefore')}"), 0), 0)
             for cell in _children(row, _w("tc")):
                 properties = cell.find(_w("tcPr"))
-                span = _int_attr(properties.find(_w("gridSpan")) if properties is not None else None, 1)
+                span = max(_int_attr(properties.find(_w("gridSpan")) if properties is not None else None, 1), 1)
                 # A continuation cell of the legacy horizontal merge (w:hMerge) is added to the column span of the cell before it.
                 # Kept separate, the merge became an empty cell (Pinned by:
                 # test_office.py::TestDocxStruckDeletedAndSymbolRuns::test_legacy_horizontal_merge_extends_the_starting_cell).
@@ -602,6 +615,11 @@ class _DocxRenderer:
         attribute, render = _OBJECT_RENDERERS[element.tag]
         relation = element.get(f"{{{_R}}}{attribute}")
         part = self._part.related_parts.get(relation) if relation else None
+        # A chart part is read once however many frames point at it, and its values are written at the first of them only; the
+        # later frames give `[Chart] title` (the rule for ODF objects). The part was parsed and rendered again for every frame
+        # (Pinned by: test_audit_office.py::TestChartPartReferencedByManyFrames).
+        if part in self._chart_titles:
+            return self._chart_titles[part]
         blob = getattr(part, "blob", None)
         root = parse_part(blob) if blob else None
         if root is None:
@@ -610,7 +628,7 @@ class _DocxRenderer:
         # (Pinned by: test_office_chart_units_and_ole.py::TestChartUserShapes).
         extra = {"load_related": related_loader(part)} if render is render_chart else {}
         if not self._grids:
-            return render(root, **extra)
+            return self._first_frame(part, render, render(root, **extra))
 
         # Inside a table cell: a chart's value table is handed to the outer table (like a table inside a table) and SmartArt levels
         # are shown with `cell_level_mark`. The Markdown table text went into the cell and became a mess of `\|` and `<br>`, and the
@@ -618,7 +636,13 @@ class _DocxRenderer:
         # TestDocxObjectsInsideTableCells).
         if render is render_smartart:
             return render_smartart(root, in_cell=True)
-        return render(root, embedded_table(self._grids[-1]), **extra)
+        return self._first_frame(part, render, render(root, embedded_table(self._grids[-1]), **extra))
+
+    def _first_frame(self, part: object, render: Callable[..., str], text: str) -> str:
+        """Remember the title line of a chart written at its first frame (`_object_block`). SmartArt is not remembered."""
+        if render is not render_smartart:
+            self._chart_titles[part] = text.split("\n", 1)[0]
+        return text
 
     def _paragraph_style(self, paragraph: etree._Element) -> _Style | None:
         style_ref = paragraph.find(f"{_w('pPr')}/{_w('pStyle')}")
@@ -841,6 +865,14 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
         raise CorruptedDocumentError("The DOCX document structure could not be read.")
 
     document = part.document
+    # A main part whose root is not w:document is not a Word document. A w:document without w:body (optional in the schema) is an
+    # empty document, as a deck without a slide list is an empty deck: it is given an empty body in memory. Both raised from
+    # inside the body walk (Pinned by: test_audit_office.py::TestDocxMainPartWithoutABody).
+    if document.element.tag != _w("document"):
+        _reject_strict(data)
+        raise CorruptedDocumentError("The DOCX document structure could not be read.")
+    if document.element.body is None:
+        etree.SubElement(document.element, _w("body"))
     renderer = _DocxRenderer(document, options, extraction)
     _keep_filled_placeholders(document.element.body, renderer.placeholders)
     # The body is read paragraph by paragraph and table by table while counting characters. Once the limit is exceeded, the rest of
@@ -945,6 +977,18 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
     def forget_from(start: int) -> None:
         del visible[start + 1:]
 
+    def collapse_from(start: int) -> None:
+        """Called right before the pieces from `start` on are swapped for one piece (script runs, ruby). A field that began in
+        there keeps a piece index that no longer exists: whether it has shown text so far is settled now, and its result is
+        counted from after the swapped piece. The stale index raised IndexError (the whole document was rejected) or gave the
+        wrong 'no result text' verdict (Pinned by: test_audit_office.py::TestDocxFieldStartedInsideASwappedRun)."""
+        for open_field in reversed(fields):
+            if open_field.start <= start:
+                break
+            open_field.shown = open_field.shown or has_text_since(open_field.start)
+            open_field.start = start + 1
+            open_field.hidden = [(min(index, start + 1), text) for index, text in open_field.hidden]
+
     # Run → the look of that run (`_RunLook`). Looking up the run properties for every w:t (scanning all children when there is no
     # w:rPr) and joining the whole run's text again to see whether the run holds only a box took the square of the number of w:t
     # (a 38 KB document took 312 seconds. Pinned by: test_office_scaling_and_note_order.py::
@@ -1021,11 +1065,12 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                         if fields[-1].link:
                             parts.append(LINK_OPEN)
                     fields[-1].start = len(parts)
+                    fields[-1].shown = False
                 elif kind == "end" and fields:
                     ended = fields.pop()
                     if ended.instruction_side:
                         instruction_fields -= 1
-                    if not instruction_fields and not has_text_since(ended.start):
+                    if not instruction_fields and not ended.shown and not has_text_since(ended.start):
                         parts.append(_equation_field_text("".join(ended.instruction)))
                     if ended.link:
                         parts.append(link_close(ended.link))
@@ -1060,12 +1105,13 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                 start = len(parts)
                 texts = []
                 for name in ("rubyBase", "rt"):
+                    first = len(parts)
                     for piece in child.iterchildren(_w(name)):
                         walk(piece)
-                    texts.append("".join(parts[start:]))
-                    del parts[start:]
-                    forget_from(start)
-                parts.append(format_dutmal(*texts))
+                    texts.append("".join(parts[first:]))
+                collapse_from(start)
+                parts[start:] = [format_dutmal(*texts)]
+                forget_from(start)
             elif tag == _w("r") and _run_script(child, body_size) is not None:
                 # Superscript/subscript run. Appended as plain text, 10⁶ became 106
                 # (Pinned by: test_office.py::TestSuperscriptAndTextBoxes::test_docx_superscript_and_subscript_runs_are_marked).
@@ -1076,6 +1122,7 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                 if inline is not None and inline.emphasis:
                     # The emphasis mark goes around the script mark, so a bold formula stays one span: `**H_2O**`
                     text = mark_emphasis(text, *_run_emphasis(child, inline.styles))
+                collapse_from(start)
                 parts[start:] = [text]
                 forget_from(start)
             elif tag == f"{{{_M}}}oMath":
@@ -1280,6 +1327,7 @@ class _Field:
     instruction: list[str] = field(default_factory=list)
     hidden: list[tuple[int, str]] = field(default_factory=list)  # text pieces left out on the instruction side (insert position, text)
     link: str | None = None  # address of a HYPERLINK field whose result is being read ('' when it was looked at and is not a link)
+    shown: bool = False  # result text seen in pieces that were swapped for one piece afterwards (`collapse_from` of `_paragraph_text`)
 
 
 def _equation_field_text(instruction: str) -> str:
@@ -1538,9 +1586,27 @@ def _outline_to_heading(level: int) -> int | None:
     return min(level + 1, 6) if 0 <= level < 9 else None
 
 
+def _raw_part_root(part: object, kind: str) -> etree._Element | None:
+    """Root of the styles or numbering part (`kind`) parsed from its bytes, None when it is not XML. A part declared with a generic
+    content type (application/xml) comes back from python-docx as a plain `Part` with no parsed tree, and asking it for its styles
+    or element raised AttributeError, which rejected the whole document. It is read the way the footnotes and comments parts are
+    (Pinned by: test_audit_office.py::TestDocxStylesAndNumberingWithAGenericContentType)."""
+    related = next((rel.target_part for rel in part.rels.values() if not rel.is_external and rel.reltype.endswith(f"/{kind}")), None)
+    blob = getattr(related, "blob", None)
+    return parse_part(blob) if blob else None
+
+
+def _styles_root(document: object) -> etree._Element | None:
+    try:
+        return document.styles.element
+    except AttributeError:
+        return _raw_part_root(document.part, "styles")
+
+
 def _load_styles(document: object) -> dict[str, _Style]:
     styles: dict[str, _Style] = {}
-    for style in document.styles.element.iterchildren(_w("style")):
+    root = _styles_root(document)
+    for style in root.iterchildren(_w("style")) if root is not None else ():
         style_id = style.get(_w("styleId"))
         if not style_id:
             continue
@@ -1582,6 +1648,10 @@ def _load_numbering(document: object) -> dict[str, _NumberList]:
         numbering = document.part.numbering_part.element
     except (KeyError, NotImplementedError):
         return {}
+    except AttributeError:
+        numbering = _raw_part_root(document.part, "numbering")
+        if numbering is None:
+            return {}
 
     abstract_levels: dict[str, dict[int, _LevelDefinition]] = {}
     abstract_indents: dict[str, dict[int, dict[str, int]]] = {}
@@ -1675,6 +1745,10 @@ def _int_value(value: str | None, default: int) -> int:
 
 def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str) -> str:
     seen: list[str] = []
+    # A part referenced by several sections is rendered once. Rendering it per section and dropping the copies by their text kept
+    # every copy whose text differed: a numbered paragraph counted on ('1. Company', '2. Company' …) and a picture was registered
+    # once per section (Pinned by: test_audit_office.py::TestDocxHeaderSharedBySections).
+    rendered: set[object] = set()
     for section in document.sections:
         for attribute in _HEADER_FOOTER_KINDS[kind]:
             story = getattr(section, attribute)
@@ -1684,8 +1758,15 @@ def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str) ->
                 part = story.part
             except KeyError:  # a header detached because its part is missing (`_shared.repair_package`). Only that header is skipped
                 continue
-            _keep_filled_placeholders(story._element, renderer.placeholders)
-            text = join_blocks(renderer.render_story(part, story._element))
+            # A reference whose relationship points at a part that is not a header (a picture) has no content to read. Asking for
+            # it raised AttributeError and rejected the whole document (Pinned by:
+            # test_audit_office.py::TestDocxHeaderReferenceToAPartThatIsNotAHeader::test_only_that_header_is_skipped).
+            element = getattr(part, "element", None)
+            if element is None or part in rendered:
+                continue
+            rendered.add(part)
+            _keep_filled_placeholders(element, renderer.placeholders)
+            text = join_blocks(renderer.render_story(part, element))
             if text and text not in seen:
                 seen.append(text)
     return join_blocks(seen)
@@ -1728,6 +1809,11 @@ def _notes(document: object, renderer: _DocxRenderer) -> str:
         _keep_filled_placeholders(root, renderer.placeholders)
         with renderer.in_part(part):
             for note in root.iterchildren(_w(kind)):
+                # A note the body never references is not written, so it is not rendered either: its picture was registered as a
+                # picture of the document with no placeholder anywhere (Pinned by: test_audit_office.py::
+                # TestDocxFootnoteNobodyReferences::test_picture_in_an_unreferenced_footnote_is_not_registered).
+                if (kind, note.get(_w("id"), "")) not in renderer.notes.labels:
+                    continue
                 body = " ".join(_note_block(block, renderer.image_marker, renderer.inline)
                                 for block in _children(note, _w("p"), _w("tbl")))
                 texts[kind, note.get(_w("id"), "")] = body.strip()

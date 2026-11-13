@@ -9,7 +9,7 @@ and `mailto` addresses, only `<b>` / `<strong>` / `<i>` / `<em>`, and nothing fo
 
 import base64
 import binascii
-from collections.abc import Callable
+from collections.abc import Callable, Container
 from contextvars import ContextVar
 from dataclasses import dataclass
 from email.message import Message
@@ -18,7 +18,7 @@ import itertools
 import re
 from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup, Comment, NavigableString, Tag, XMLParsedAsHTMLWarning
+from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
 from bs4.element import PageElement, PreformattedString
 from lxml import etree
 
@@ -47,6 +47,7 @@ from opendockit.extractors.text import (
     FORWARDED_MAIL_TITLE,
     MIME_HEAD_BYTES,
     MIME_VERSION,
+    _unescaped_from_lines,
     decode_text,
     decoding_warning,
     decoding_warnings,
@@ -95,6 +96,10 @@ _GRID_ROLES = {"grid", "table", "treegrid"}
 _ARIA_CELL_ROLES = {"cell", "gridcell", "columnheader", "rowheader"}
 _ARIA_SKIPPED_TAGS = {"table", "thead", "tbody", "tfoot", "tr", "td", "th", "ul", "ol", "dl", "pre"}
 _MAX_ARIA_COLUMN_SKIP = 200
+# Maximum nesting depth at which an ARIA table inside the cell of another one is drawn as a table. Deeper ones are descended
+# as blocks (recursion limit; Pinned by: test_audit_html_text.py::TestDeeplyNestedAriaGrids).
+_MAX_ARIA_GRID_DEPTH = 20
+_aria_grid_depth: ContextVar[int] = ContextVar("aria_grid_depth", default=0)
 # Elements whose content the parser leaves as raw text (`_reopen_raw_text_elements`), and those among them that an end tag
 # closes (plaintext is never closed).
 _RAW_TEXT_TAGS = ["textarea", "xmp", "plaintext"]
@@ -111,13 +116,20 @@ _HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
 _STRIKE_TAGS = ["del", "s", "strike"]
 _STRIKE = "~~"
 # CSS strikethrough. Both `text-decoration: underline line-through` and `text-decoration-line: line-through`.
-_STRIKE_STYLE = re.compile(r"text-decoration(?:-line)?\s*:[^;]*\bline-through\b", re.IGNORECASE)
+# Each declaration (up to the next `;`) is read once, from its first `text-decoration…:` — a later one in the same declaration
+# has less after it, so it cannot match when the first does not. Starting again at every occurrence took 15 seconds on a
+# style of 20,000 `text-decoration:` (312KB)
+# (Pinned by: test_audit_html_text.py::TestAttributeValuesThatRepeatTheStartOfAPattern).
+_STRIKE_STYLE = re.compile(r"(?:^|;)(?>[^;]*?text-decoration(?:-line)?\s*:)[^;]*\bline-through\b", re.IGNORECASE)
 # Block elements. legend/hgroup/search were missing, so text ran into what followed, as in '신청인 정보이름: 홍길동'
 # (legend "신청인 정보" glued to "이름: 홍길동") (Pinned by: test_core_html.py::TestBlockElements).
 _BLOCK_TAGS = {"address", "article", "aside", "blockquote", "dd", "details", "dialog", "div", "dl", "dt",
                "fieldset", "figcaption", "figure", "footer", "form", "header", "hgroup", "hr", "legend", "main", "nav", "p",
                "search", "section", "summary", "caption", "center"}
-_HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.IGNORECASE)
+# Only the `display` / `visibility` (and `content-visibility`) properties themselves: matched anywhere, the pattern removed a
+# visible element styled `backface-visibility:hidden`, text and all
+# (Pinned by: test_audit_html_text.py::TestStylePropertiesThatOnlyEndLikeAHidingOne).
+_HIDDEN_STYLE = re.compile(r"(?<![\w-])(?:display\s*:\s*none|(?:content-)?visibility\s*:\s*hidden)", re.IGNORECASE)
 _FOLDED_STYLE = re.compile(r"display\s*:\s*none", re.IGNORECASE)
 # Hidden elements (blocks) that can be a folded answer, and the elements right before one that unfold it. Lists (ul/ol) are
 # left out because they are dropdown menus.
@@ -134,7 +146,6 @@ _WHITESPACE = re.compile(r"\s+")
 # Characters that draw nothing on screen: zero-width spaces and joiners (ZWSP/ZWNJ/ZWJ/WJ/BOM), the combining grapheme joiner
 # (U+034F), the soft hyphen. Mails use them as blank filler (`&zwnj;&nbsp;`) (`_has_text`).
 _INVISIBLE_TEXT = re.compile("[\u200b-\u200d\u2060\ufeff\u034f\u00ad]")
-_FENCED = re.compile(r"(```\n.*?\n```)", re.DOTALL)
 _BLANK_LINES = re.compile(r"\n{2,}")
 # Placeholder for a nested list detached while its list item is rendered (private-use characters — clean_text removes them
 # if they are left in the body).
@@ -195,6 +206,8 @@ _FONT_SHORTHAND = re.compile(r"(?:^|;)\s*font\s*:\s*([^;]+)", re.IGNORECASE)
 _CSS_INDENT = re.compile(r"(?:^|;)\s*(?P<name>padding-left|padding|text-indent|margin-left)\s*:\s*(?P<value>[^;!]+)", re.IGNORECASE)
 _CSS_LENGTH = re.compile(r"(\d+(?:\.\d+)?)(px|pt|em|rem|)", re.IGNORECASE)
 _CSS_UNITS = {"px": 1.0, "pt": 4 / 3, "em": 16.0, "rem": 16.0, "": 0.0}
+# Upper bound on one CSS length (px, `_css_length`). No real indentation comes near it.
+_MAX_CSS_LENGTH = 10000.0
 _MAX_INDENT_RANK = 5
 _NUMBER_TEXT = re.compile(r"[-+−▲▼△(]?\s*[₩$€¥£]?\s*\d[\d,]*(?:\.\d+)?\s*%?\)?")
 # MathML (`_put_math`): annotation encodings of the LaTeX the document wrote, the wrapper of Wikipedia's alttext, script
@@ -221,7 +234,9 @@ _MIN_LAYOUT_CELL_BLOCKS = 3
 _LAYOUT_BLOCKS = {"p", "ul", "ol", "blockquote", "pre", "dl", *_HEADINGS}
 # Class of a list exported by Google Docs (`lst-kix_<list id>-<level>`). It lays out a separate list per level side by side
 # (`_nest_google_docs_lists`).
-_GOOGLE_DOCS_LIST = re.compile(r"lst-kix_\S+-(\d+)")
+# Each class name is read once, from its first `lst-kix_` (`list` is the name up to the level) — same reason as
+# `_STRIKE_STYLE`: a class of 20,000 `lst-kix_` (156KB) took 5 seconds.
+_GOOGLE_DOCS_LIST = re.compile(r"(?<!\S)(?>\S*?(?=lst-kix_))(?P<list>lst-kix_\S+)-(?P<level>\d+)")
 # Style of a list paragraph that Word wrote with 'Save as Web Page' (`mso-list:l0 level2 lfo1`) and its bullet slot
 # (`mso-list:Ignore`, `_nest_word_lists`).
 _WORD_LIST_LEVEL = re.compile(r"mso-list\s*:\s*l\d+\s+level(\d+)", re.IGNORECASE)
@@ -241,6 +256,8 @@ _BLOCK_GAP = "\n\n"
 _LAZY_SOURCE_WORDS = ("src", "original", "lazy")
 # Upper bound on the MHTML text/html parts examined when checking whether the body is in a frame (`_unread_frame_warning`).
 _MAX_FRAME_PARTS = 50
+# The start of an `<iframe>` or `<frame>` tag (also of `<frameset>`, which holds them).
+_FRAME_TAG = re.compile(r"<i?frame", re.IGNORECASE)
 _SPACER_SIDE = 2
 _QUOTE_END = object()  # where a quote block ends on the stack of `_render_nodes`
 _CODE_END = object()  # where an inline code element ends on the stack of `_render_nodes`
@@ -507,7 +524,10 @@ def _unread_frame_warning(message: Message, page: str) -> str | None:
     ad) is not reported.
     """
     pages = list(itertools.islice((part for part in message.walk() if part.get_content_type() == "text/html"), _MAX_FRAME_PARTS))
-    if len(pages) < 2:
+    # A page without the text of a frame tag has no frame element: it is not parsed again to look for one. A large page that
+    # had been stopped at its front part (`_extract_front`) was parsed whole here whenever the file held a second HTML part
+    # (Pinned by: test_audit_html_text.py::TestFrameCheckOfASavedPageWithoutFrames)
+    if len(pages) < 2 or _FRAME_TAG.search(page) is None:
         return None
     base = str(pages[0].get("Content-Location") or "").strip()
     frames: dict[str, Message] = {}
@@ -523,7 +543,7 @@ def _unread_frame_warning(message: Message, page: str) -> str | None:
         soup = BeautifulSoup(page, "lxml")
     sources = [str(frame.get("src") or "").strip() for frame in soup.find_all(["iframe", "frame"])]
     found = {id(part): part for source in sources if source
-             and (part := frames.get(source) or frames.get(urljoin(base, source))) is not None}
+             and (part := frames.get(source) or frames.get(_resolved(base, source))) is not None}
     if not found:
         return None
     own = _visible_length(page)
@@ -591,7 +611,11 @@ def _plain_paragraphs(text: str) -> str:
 
 
 def _mhtml_message(data: bytes) -> Message:
-    return parse_mail(data[mime_start(data):])
+    # A file that starts with an mbox separator line (an .eml saved by Thunderbird) has its `>From ` body lines unescaped, as on
+    # the mail path (`text.mail_box`) — a mail with a single text/html part kept `>From here`
+    # (Pinned by: test_audit_html_text.py::TestFromLineEscapeInASingleHtmlPartMail)
+    start = mime_start(data)
+    return parse_mail(_unescaped_from_lines(data[start:]) if b"From " in data[:start] else data[start:])
 
 
 def _html_part(message: Message) -> tuple[bytes, str | None] | None:
@@ -624,11 +648,21 @@ def _mhtml_pictures(message: Message) -> Callable[[str], bytes | None]:
             parts.setdefault(location, part)
 
     def find(source: str) -> bytes | None:
-        part = parts.get(source) or (parts.get(urljoin(base, source)) if base else None)
+        part = parts.get(source) or (parts.get(_resolved(base, source)) if base else None)
         payload = part.get_payload(decode=True) if part is not None else None
         return payload if isinstance(payload, bytes) and payload else None
 
     return find
+
+
+def _resolved(base: str, source: str) -> str:
+    """`source` resolved against `base` (`urljoin`), or `source` as written when either cannot be parsed as an address.
+    `urljoin` raises ValueError on an unclosed `[` (`//[bad`, 'Invalid IPv6 URL'), and one `src` of a saved page rejected the
+    whole document (Pinned by: test_audit_html_text.py::TestAddressThatCannotBeResolvedInMhtml)."""
+    try:
+        return urljoin(base, source)
+    except ValueError:
+        return source
 
 
 def _declared_charset(data: bytes) -> str | None:
@@ -716,7 +750,9 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _keep_svg_labels(soup, cut)
     _decompose_all(soup.find_all(_DROP_TAGS))
     _drop_sidebars(soup)
-    _decompose_all(soup.find_all(string=lambda node: isinstance(node, Comment)))
+    # Not only comments: a DOCTYPE in the middle of the body is a node of its own too, and its name came out as the paragraph
+    # `html` (Pinned by: test_audit_html_text.py::TestDoctypeInsideTheBody)
+    _decompose_all(soup.find_all(string=lambda node: isinstance(node, PreformattedString)))
     _drop_hidden(soup, kept=folded, whole=whole)
 
     extraction = Extraction(metadata=metadata)
@@ -763,9 +799,11 @@ def _drop_sidebars(soup: BeautifulSoup) -> None:
     vanish without a warning (Pinned by: test_core_html_blocks.py::TestAsideInsideTheMainContent). Deliberate: an aside used as
     a side menu stays when it is inside the main content — removing it loses body text, keeping it only adds a short menu text.
     """
-    for aside in soup.find_all("aside"):
-        if aside.find_parent(_MAIN_CONTENT_TAGS) is None:
-            aside.decompose()
+    # Decided for all of them in one walk and removed together (`_lying_inside`, `_decompose_all`)
+    # (Pinned by: test_audit_html_text.py::TestManyElementsThatLookUpwardsUnderDeepNesting)
+    asides = soup.find_all("aside")
+    kept = _lying_inside(asides, _MAIN_CONTENT_TAGS)
+    _decompose_all([aside for aside in asides if id(aside) not in kept])
 
 
 def _keep_svg_labels(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> None:
@@ -780,17 +818,39 @@ def _keep_svg_labels(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> 
     foreignObject's text.
     """
     places: _Places = {}
+    # Inner svgs and labels inside a foreignObject are found by walking down each outermost svg once, not by walking up from
+    # every svg and label to the root of the document
+    # (Pinned by: test_audit_html_text.py::TestManyElementsThatLookUpwardsUnderDeepNesting)
+    inner: set[int] = set()
 
     for svg in soup.find_all("svg"):
-        if svg.find_parent("svg") is not None or id(svg) in cut:
-            continue  # replaced or removed together with the outer svg. The label count of a cut svg is unknown
-        labels = [" ".join(label.get_text(" ").split()) for label in svg.find_all(["text", "foreignobject"])
-                  if label.find_parent("foreignobject") is None]
+        if id(svg) in inner:
+            continue  # replaced or removed together with the outer svg
+        inner.update(id(nested) for nested in svg.find_all("svg"))
+        if id(svg) in cut:
+            continue  # the label count of a cut svg is unknown
+        labels = [" ".join(label.get_text(" ").split()) for label in _svg_labels(svg)]
         labels = [label for label in labels if label]
         if _is_labelled_svg(labels):
             span = soup.new_tag("span")
             span.string = " ".join(labels)
             _replace(svg, span, places)
+
+
+def _svg_labels(svg: Tag) -> list[Tag]:
+    """The label elements of an svg in document order: every `<text>` and `<foreignObject>` that is not inside a foreignObject
+    (with a stack, like `_nearest`; a foreignObject is not descended into)."""
+    found: list[Tag] = []
+    stack = list(reversed(svg.contents))
+    while stack:
+        child = stack.pop()
+        if not isinstance(child, Tag):
+            continue
+        if child.name in ("text", "foreignobject"):
+            found.append(child)
+        if child.name != "foreignobject":
+            stack.extend(reversed(child.contents))
+    return found
 
 
 def _is_labelled_svg(labels: list[str]) -> bool:
@@ -820,7 +880,7 @@ def _nest_google_docs_lists(soup: BeautifulSoup) -> None:
     """
     levels = {id(node): level for node in soup.find_all(["ul", "ol"])
               if (match := _GOOGLE_DOCS_LIST.search(" ".join(node.get("class") or ())))
-              and (level := decimal_int(match.group(1), None)) is not None}
+              and (level := decimal_int(match.group("level"), None)) is not None}
     if not levels:
         return
     runs: list[list[Tag]] = []
@@ -893,9 +953,11 @@ def _nest_word_lists(soup: BeautifulSoup) -> None:
     runs: list[list[tuple[Tag, int]]] = []
     previous: Tag | None = None
 
-    for paragraph in soup.find_all("p", style=_WORD_LIST_LEVEL):
+    paragraphs = soup.find_all("p", style=_WORD_LIST_LEVEL)
+    in_items = _lying_inside(paragraphs, ("li",))
+    for paragraph in paragraphs:
         level = decimal_int(_WORD_LIST_LEVEL.search(str(paragraph.get("style"))).group(1), None)
-        if level is None or paragraph.find_parent("li") is not None:
+        if level is None or id(paragraph) in in_items:
             continue
         level = min(level, _MAX_WORD_LIST_LEVEL)
         before = paragraph.previous_sibling
@@ -950,7 +1012,7 @@ def _continues_google_docs_list(previous: Tag, node: Tag, previous_items: int) -
     list id and tag and, for a numbered list, a `start` that is the next number."""
     def list_id(tag: Tag) -> str | None:
         match = _GOOGLE_DOCS_LIST.search(" ".join(tag.get("class") or ()))
-        return match.group(0).rsplit("-", 1)[0] if match else None
+        return match.group("list") if match else None
 
     if node.name != previous.name or list_id(node) != list_id(previous):
         return False
@@ -1020,13 +1082,42 @@ def _flatten_nested_headings(soup: BeautifulSoup) -> None:
     9.9 s (quadratic) on 156KB of repeated `<h3>제목`
     (Pinned by: test_text_html.py::TestMalformedNesting::test_many_heading_tags_left_open_take_linear_time).
     """
-    for heading in soup.find_all(list(_HEADINGS)):
+    headings = soup.find_all(list(_HEADINGS))
+    # `_flatten_nested_headings` only moves content out of headings (and wraps what precedes an already handled heading), so a
+    # heading that starts outside every heading never gets one around it and need not look for one
+    nested = _lying_inside(headings, _HEADINGS)
+    for heading in headings:
         if heading.parent is not None and heading.parent.name in _HEADINGS:
             _close_heading_before(soup, heading.parent, heading)
+            continue
+        if id(heading) not in nested:
             continue
         outer = heading.find_parent(list(_HEADINGS))
         if outer is not None:
             _move_after(outer, [heading, *heading.next_siblings])
+
+
+def _lying_inside(nodes: list[Tag], names: Container[str]) -> set[int]:
+    """`id`s of those of `nodes` that lie inside an element named in `names` (the same answer as `find_parent(names)` for each,
+    as the tree is now). Each node walks upwards and stops at an element already visited, so it is linear time.
+
+    `find_parent` walks to the root for every node that has no such ancestor: 8,000 headings under 8,000 unclosed `<div>`
+    (117KB) took 31 seconds (Pinned by: test_audit_html_text.py::TestManyHeadingsUnderDeepNesting).
+    """
+    found: set[int] = set()
+    inside: dict[int, bool] = {}  # element not named in `names` → whether it lies inside one that is
+
+    for node in nodes:
+        path: list[Tag] = []
+        parent = node.parent
+        while parent is not None and parent.name not in names and id(parent) not in inside:
+            path.append(parent)
+            parent = parent.parent
+        lies_inside = parent is not None and (parent.name in names or inside[id(parent)])
+        inside.update((id(passed), lies_inside) for passed in path)
+        if lies_inside:
+            found.add(id(node))
+    return found
 
 
 def _reopen_raw_text_elements(soup: BeautifulSoup, closed: frozenset[str]) -> None:
@@ -1190,9 +1281,26 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
             else:
                 before.append(child)
 
-        for node in before:
-            table.insert_before(node.extract())
-        _move_after(table, after)
+        if before or after:
+            _move_beside(table, before, after)
+
+
+def _move_beside(table: Tag, before: list, after: list) -> None:
+    """Moves `before`, in order, to right before `table` and `after` to right after it. Both are detached in one go
+    (`_decompose_all`) and put in at positions counted from the table's, which is looked up once.
+
+    `insert_before(node.extract())` per node looks up the node's position and the table's among their siblings every time:
+    40,000 texts between the rows of one table (781KB) took 29 seconds, 40,000 tables outside its cells 14 seconds
+    (Pinned by: test_audit_html_text.py::TestMuchContentOutsideTheCellsOfATable).
+    """
+    _decompose_all(before, detach_only=True)
+    _decompose_all(after, detach_only=True)
+    parent = table.parent
+    index = next(position for position, child in enumerate(parent.contents) if child is table)
+    for offset, node in enumerate(before):
+        parent.insert(index + offset, node)
+    for offset, node in enumerate(after, start=1):
+        parent.insert(index + len(before) + offset, node)
 
 
 def _move_after(anchor: Tag, nodes: list) -> None:
@@ -1208,11 +1316,32 @@ def _keep_expander_buttons(soup: BeautifulSoup) -> None:
     remaining buttons (copy, search, close) are removed by `_DROP_TAGS`
     (Pinned by: test_text_html.py::TestCollapsedQuestionsAndAnswers).
     """
-    for button in soup.find_all("button"):
-        if button.find_parent(list(_HEADINGS)) is not None:
-            button.unwrap()
-        elif button.has_attr("aria-expanded") or button.has_attr("aria-controls"):
+    buttons = soup.find_all("button")
+    in_headings = _lying_inside(buttons, _HEADINGS)
+    for button in buttons:
+        if id(button) not in in_headings and (button.has_attr("aria-expanded") or button.has_attr("aria-controls")):
             button.name = "div"
+    _unwrap_all([button for button in buttons if id(button) in in_headings])
+
+
+def _unwrap_all(tags: list[Tag]) -> None:
+    """`unwrap()` for each of `tags`, collected in document order: the element is taken out and its children stay in its place.
+    It goes from the back and measures the child positions once per parent, like `_decompose_all` — unwrapping a later sibling
+    leaves the position of an earlier one unchanged, and the children of an element are done before the element itself.
+
+    bs4's `unwrap` looks up the position of the element among its siblings from the start: 40,000 buttons in one heading
+    (703KB) took 11 seconds (Pinned by: test_audit_html_text.py::TestManyButtonsInsideOneHeading).
+    """
+    places: dict[int, dict[int, int]] = {}  # parent id → (child id → position)
+
+    for tag in reversed(tags):
+        parent = tag.parent
+        if id(parent) not in places:
+            places[id(parent)] = {id(child): index for index, child in enumerate(parent.contents)}
+        index = places[id(parent)][id(tag)]
+        tag.extract(_self_index=index)
+        for child in reversed(tag.contents[:]):
+            parent.insert(index, child)
 
 
 def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> set[int]:
@@ -1227,7 +1356,14 @@ def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> s
     element cut at the end of the front part (`cut`, `_open_at_the_end`) is not kept, since its link ratio is unknown.
     """
     folded: set[int] = set()
+    # Blocks inside a hidden block that was measured and is not kept: they go with it (`_drop_hidden`) and are not measured.
+    # Measuring each of 4,000 nested blocks that are mostly links took 9.5 seconds (the text below it, once per level)
+    # (Pinned by: test_audit_html_text.py::TestHiddenBlocksNestedInsideHiddenBlocks). Known accepted gap: answers folded
+    # inside answers, each of them kept, are still measured once per level.
+    removed: set[int] = set()
     for tag in soup.find_all(_FOLDED_TAGS):
+        if id(tag) in removed:
+            continue
         if id(tag) in cut or not _FOLDED_STYLE.search(str(tag.get("style", ""))) or tag.has_attr("hidden") or tag.get("aria-hidden") == "true":
             continue
         opener = tag.find_previous_sibling(True)
@@ -1236,6 +1372,8 @@ def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> s
         length = _solid_length(tag)
         if length and 2 * sum(_solid_length(link) for link in tag.find_all("a")) < length:
             folded.add(id(tag))
+        elif _hidden_by_style(tag):
+            removed.update(id(inner) for inner in tag.find_all(_FOLDED_TAGS))
     return folded
 
 
@@ -1308,9 +1446,14 @@ def _put_math(soup: BeautifulSoup) -> None:
     """
     for math in _maths_holding_page_blocks(soup):
         math.unwrap()
+    # Equations inside an equation that was replaced: nothing of them is used. `clear()` only detaches the direct children, so
+    # a `<math>` further down still had a parent and was converted again, each one walking everything below it
+    # (Pinned by: test_audit_html_text.py::TestEquationsNestedInsideEquations)
+    replaced: set[int] = set()
     for math in soup.find_all("math"):
-        if math.parent is None:
+        if id(math) in replaced:
             continue  # already replaced together with the outer equation
+        replaced.update(id(inner) for inner in math.find_all("math"))
         latex = _math_source(math)
         if latex is None:
             latex = " ".join(_mathml_latex(math, 0).split())
@@ -1612,9 +1755,13 @@ def _image_placeholder(image: Tag, extraction: Extraction, options: ConvertOptio
     """
     alt = " ".join(str(image.get("alt", "")).split())
     source = str(image.get("src", ""))
-    if source.lstrip()[:18].lower().startswith("data:image/svg") or (source.startswith("data:") and _is_lazy(image)):
+    # The scheme and the base64 mark are compared without case and leading whitespace, as the SVG check always was:
+    # `src=" data:image/png…"` and `DATA:image/png…` gave no picture
+    # (Pinned by: test_audit_html_text.py::TestDataUriWrittenWithCapitalsOrLeadingSpace)
+    lowered = source.lstrip().lower()
+    if lowered.startswith("data:image/svg") or (lowered.startswith("data:") and _is_lazy(image)):
         return f" [Image: {alt}] " if alt else ""
-    if options.extract_images and source.startswith("data:image/") and ";base64," in source:
+    if options.extract_images and lowered.startswith("data:image/") and ";base64," in lowered:
         try:
             data = base64.b64decode(source.split(",", 1)[1], validate=False)
         except (binascii.Error, ValueError):
@@ -1697,7 +1844,11 @@ def _decompose_all(nodes: list[PageElement], *, detach_only: bool = False) -> No
 
     for node in reversed(nodes):
         parent = node.parent
-        if parent is None or (isinstance(node, Tag) and node.decomposed):
+        # `Tag.decomposed` reads `_decomposed` with getattr, and on a tag that was never decomposed the attribute is missing, so
+        # bs4 takes it for the name of a child tag and searches the whole subtree for one: asking 5,000 open tables nested in
+        # each other took 10 seconds. The flag is an instance attribute once set, so it is read from the instance
+        # (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_deeply_chained_open_tables_are_read_quickly).
+        if parent is None or (isinstance(node, Tag) and vars(node).get("_decomposed", False)):
             continue
         if id(parent) not in places:
             places[id(parent)] = {id(child): index for index, child in enumerate(parent.contents)}
@@ -1875,20 +2026,26 @@ def _render_aria_grid(node: Tag) -> str | None:
     nearest cell descendants of that row, and an empty cell still counts as a cell. With `aria-colindex` (1-based) the cell goes in that
     column (cells left out by virtual scrolling). Spans (`aria-colspan`) are not considered.
     """
+    if _aria_grid_depth.get() >= _MAX_ARIA_GRID_DEPTH:
+        return None
     rows = _role_descendants(node, wanted={"row"})
     cells = [_role_descendants(row, wanted=_ARIA_CELL_ROLES) for row in rows]
     if len(rows) < 2 or max(map(len, cells)) < 2:
         return None
 
     grid = TableGrid()
-    for row_index, row_cells in enumerate(cells):
-        col = 0
-        for cell in row_cells:
-            index = decimal_int(str(cell.get("aria-colindex", "")).strip(), 0)
-            if col < index <= col + _MAX_ARIA_COLUMN_SKIP:
-                col = index - 1
-            grid.place(row_index, col, _cell_text(cell))
-            col += 1
+    token = _aria_grid_depth.set(_aria_grid_depth.get() + 1)
+    try:
+        for row_index, row_cells in enumerate(cells):
+            col = 0
+            for cell in row_cells:
+                index = decimal_int(str(cell.get("aria-colindex", "")).strip(), 0)
+                if col < index <= col + _MAX_ARIA_COLUMN_SKIP:
+                    col = index - 1
+                grid.place(row_index, col, _cell_text(cell))
+                col += 1
+    finally:
+        _aria_grid_depth.reset(token)
 
     omitted = _omitted_rows.get()
     rendered = grid.render()
@@ -2074,13 +2231,16 @@ def _render_list(node: Tag, list_depth: int) -> str:
         # (Pinned by: test_core_html.py::TestNestedListInsideATableCell).
         nested = _nearest(item, wanted={"ul", "ol"}, stop={"li", "table"})
         slots = [NavigableString(f"{_LIST_SLOT_OPEN}{index}{_LIST_SLOT_CLOSE}") for index in range(len(nested))]
+        # Swapped through `_replace` (one position lookup per parent): `replace_with` per list took 6.4 seconds for one item
+        # with 20,000 lists (Pinned by: test_audit_html_text.py::TestManyListsOrTablesSetAsideWhileTheirParentIsRendered)
+        places: _Places = {}
         for child, slot in zip(nested, slots, strict=True):
-            child.replace_with(slot)
+            _replace(child, slot, places)
         try:
             pieces = _item_pieces(_item_blocks(_render_children(item, list_depth)), len(nested))
         finally:
             for child, slot in zip(nested, slots, strict=True):
-                slot.replace_with(child)
+                _replace(slot, child, places)
         first = pieces.pop(0) if pieces and isinstance(pieces[0], str) and not pieces[0].startswith(("```", "|")) else ""
 
         # Markdown numbered lists use digits only. A letter number is written after a bullet — it has to stay a list line for the nested
@@ -2188,11 +2348,31 @@ def _list_entries(node: Tag) -> list[Tag | str]:
     return entries
 
 
+def _split_at_fenced(text: str) -> list[str]:
+    """The text split at its code blocks (from a "```" + newline to the next newline + "```"): text, block, text, block …, text
+    — what splitting with the lazy pattern `(```\\n.*?\\n```)` gave. The pattern read on to the end of the text for every
+    opening that has no closing: 20,000 of them in one list item (156KB) took 6 seconds. Once an opening finds no closing
+    after it, no later one can (Pinned by: test_audit_html_text.py::TestListItemWithManyUnpairedFenceLines).
+    """
+    pieces: list[str] = []
+    position = 0
+
+    while True:
+        start = text.find("```\n", position)
+        end = text.find("\n```", start + 4) if start >= 0 else -1
+        if end < 0:
+            break
+        pieces += [text[position:start], text[start:end + 4]]
+        position = end + 4
+    pieces.append(text[position:])
+    return pieces
+
+
 def _item_blocks(text: str) -> list[str]:
     """Split a list item's content into blocks. Code blocks and tables keep their line structure; in other paragraphs whitespace is
     collapsed to single spaces."""
     blocks = []
-    for part in _FENCED.split(text):
+    for part in _split_at_fenced(text):
         if part.startswith("```"):
             blocks.append(part)
             continue
@@ -2203,8 +2383,16 @@ def _item_blocks(text: str) -> list[str]:
     return blocks
 
 
+def _own_caption(table: Tag) -> Tag | None:
+    """The caption of this table: the first one outside its cells and inner tables (the parser leaves a caption written inside
+    tbody or a wrapping form where it is). `table.find("caption")` also found the caption of a table nested in a cell, so the
+    outer table took it and it came out twice (Pinned by: test_audit_html_text.py::TestCaptionOfATableInsideACell)."""
+    found = _nearest(table, wanted={"caption"}, stop={"table", "td", "th"})
+    return found[0] if found else None
+
+
 def _render_table(table: Tag) -> str:
-    caption = table.find("caption")
+    caption = _own_caption(table)
     caption_text = _title_text(caption) if caption else ""
     rows = _table_rows(table)
     if (_is_one_column_box(rows) or _is_layout_table(rows)) and _layout_depth.get() < _MAX_LAYOUT_DEPTH:
@@ -2360,7 +2548,9 @@ def _css_length(value: str, *, last: bool) -> float:
     match = _CSS_LENGTH.fullmatch(parts[0]) if parts else None
     if match is None:
         return 0.0
-    return float(match.group(1)) * _CSS_UNITS[match.group(2).lower()]
+    # A length of hundreds of digits is `inf`, and rounding the depth raised OverflowError — one style attribute rejected the
+    # whole document (Pinned by: test_audit_html_text.py::TestHugeCssLengthInATableCell)
+    return min(float(match.group(1)) * _CSS_UNITS[match.group(2).lower()], _MAX_CSS_LENGTH)
 
 
 def _table_grid(rows: list[Tag], header_count: int, *, embedding: bool,
@@ -2421,7 +2611,7 @@ def _embedded_grid(table: Tag) -> TableGrid | None:
 
 def _has_one_row_header(table: Tag, rows: list[Tag]) -> bool:
     """Whether it has no caption or multi-row header and so can sit as a one-line HTML table inside an outer HTML cell (`_embedded_grid`)."""
-    return table.find("caption") is None and _header_row_count(table, rows) <= 1
+    return _own_caption(table) is None and _header_row_count(table, rows) <= 1
 
 
 def _is_layout_table(rows: list[Tag]) -> bool:
@@ -2586,7 +2776,7 @@ def _header_rows_on_top(table: Tag, rows: list[Tag]) -> int:
     """The header row count of `_header_row_count` before 'every row is th' is reduced to the first row."""
     head = table.find("thead")
     if head is not None and head.find_parent("table") is table:
-        return sum(1 for row in rows if row.find_parent("thead") is head)
+        return sum(1 for row in rows if _nearest_head(row, table) is head)
     count = 0
     spanned_until = 0  # last row covered by a header row's rowspan, + 1
     above_spans_columns = False
@@ -2601,6 +2791,16 @@ def _header_rows_on_top(table: Tag, rows: list[Tag]) -> int:
         above_spans_columns = any(_span(cell, "colspan") > 1 for cell in cells)
         count += 1
     return count
+
+
+def _nearest_head(row: Tag, table: Tag) -> Tag | None:
+    """The thead of `table` that its row `row` is in, or None. It looks no further up than the table: `find_parent("thead")`
+    walked to the root of the document for every body row
+    (Pinned by: test_audit_html_text.py::TestManyElementsThatLookUpwardsUnderDeepNesting)."""
+    node = row.parent
+    while node is not None and node is not table and node.name != "thead":
+        node = node.parent
+    return node if node is not table else None
 
 
 def _table_rows(table: Tag) -> list[Tag]:
@@ -2648,11 +2848,12 @@ def _cell_text(cell: Tag, *, embed_into: TableGrid | None = None) -> str:
     the same cell twice (flattened, and embedded) (`_render_table`).
     """
     stand_ins: list[tuple[NavigableString, Tag]] = []
+    places: _Places = {}  # swapped through `_replace`, like the nested lists of a list item (`_render_list`)
     for nested in _nearest(cell, wanted={"table"}, stop=set()):
         grid = _embedded_grid(nested) if embed_into is not None and len(_table_rows(nested)) > 1 else None
         placeholder = embed_into.embed(grid) if embed_into is not None and grid is not None else ""
         stand_in = NavigableString(placeholder or _flat_table_text(nested))
-        nested.replace_with(stand_in)
+        _replace(nested, stand_in, places)
         stand_ins.append((stand_in, nested))
     token = _in_cell.set(True)
     try:
@@ -2660,7 +2861,7 @@ def _cell_text(cell: Tag, *, embed_into: TableGrid | None = None) -> str:
     finally:
         _in_cell.reset(token)
         for stand_in, nested in stand_ins:
-            stand_in.replace_with(nested)
+            _replace(stand_in, nested, places)
 
 
 def _flat_table_text(table: Tag) -> str:

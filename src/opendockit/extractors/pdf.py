@@ -149,7 +149,7 @@ class _InflateBudget:
 
     remaining: int
     exceeded: bool = False
-    charged: dict[int, object] = field(default_factory=dict)
+    charged: dict[int | tuple[int, int | None], object] = field(default_factory=dict)  # id, or (object number, generation)
     walked: dict[int, object] = field(default_factory=dict)
     font_entries: int = 0  # number of entries font ranges (/W, mapping tables) may still expand to (`_bounded_font_ranges`)
     font_ranges_cut: bool = False
@@ -178,24 +178,40 @@ PDFStream.decode = _decode_within_budget  # outside a conversion (no budget) it 
 
 
 def _charge(stream: PDFStream, budget: _InflateBudget) -> None:
-    """Charges the size the stream's Flate stage will inflate to against the limit. Raises DocumentTooLargeError when exceeded.
+    """Charges the size the stream's Flate stages will inflate to against the limit. Raises DocumentTooLargeError when exceeded.
     Other filters and broken streams are not measured (pdfminer decodes them as before — ASCII filters shrink the data, image
-    filters are not decoded)."""
-    if id(stream) in budget.charged or stream.rawdata is None:
+    filters are not decoded).
+
+    Every Flate stage is charged, not only the first: with `/Filter [/FlateDecode /FlateDecode]` the first stage inflated to a
+    few KB and passed, and pdfminer then inflated the second to 200MB under a 10MB limit. A stage that is followed by another
+    Flate stage has been measured to fit, so it is decoded by pdfminer's own decoder (predictor included) to get the next stage's
+    input; a stream with a single Flate stage is only measured, as before
+    (Pinned by: test_audit_pdf_head.py::TestStreamCompressedTwice)."""
+    # Keyed by the object's number in the file: the second pdfplumber document (`ungrouped`, pages with very many text pieces)
+    # builds new stream objects for the same file objects, and by `id` each stream decoded there was charged a second time (a
+    # dense page inflating to 6.4MB was rejected at a 10MB limit). A stream without a number is keyed by `id` as before
+    # (Pinned by: test_audit_pdf_head.py::TestStreamReadThroughTheUngroupedDocument).
+    key = id(stream) if stream.objid is None else (stream.objid, stream.genno)
+    if key in budget.charged or stream.rawdata is None:
         return
-    budget.charged[id(stream)] = stream
+    budget.charged[key] = stream
     try:
         data = stream.rawdata
         if stream.decipher:
             data = stream.decipher(stream.objid, stream.genno, data, stream.attrs)
-        for name, _ in stream.get_filters():
+        filters = stream.get_filters()
+        for index, (name, params) in enumerate(filters):
             if name in LITERALS_ASCII85_DECODE:
                 data = ascii85decode(data)
             elif name in LITERALS_ASCIIHEX_DECODE:
                 data = asciihexdecode(data)
             elif name in LITERALS_FLATE_DECODE:
                 budget.remaining -= _inflated_size(data, budget.remaining + 1)
-                break
+                if budget.remaining < 0 or not any(later in LITERALS_FLATE_DECODE for later, _ in filters[index + 1:]):
+                    break
+                stage = PDFStream({"Filter": name, "DecodeParms": params}, data)
+                _decode_unbounded(stage)
+                data = stage.data
             else:
                 break
     except Exception:  # noqa: BLE001 — a stream that could not be measured is handled by pdfminer's decoder as before
@@ -327,7 +343,10 @@ def _content_objects(data: bytes, resources: object, limit: int, counted: dict[t
     back to itself (`active`) counts as one object, and a form deeper than `_FORM_NESTING_MAX` counts as over the limit. The number
     of paint operators already counted is passed in as `paints`."""
     total = _paint_operators(data, limit) if paints is None else paints
-    calls = Counter(_XOBJECT_CALL.findall(data))
+    # Only the first `limit + 1` calls are looked at: every call is at least one object, so with more the estimate is over the limit
+    # anyway. `findall` listed every name first — a 65MB stream of five million different names held 500MB
+    # (Pinned by: test_audit_pdf_head.py::TestManyDistinctXObjectNames).
+    calls = Counter(match[1] for match in islice(_XOBJECT_CALL.finditer(data), limit + 1))
     xobjects = resolve1(resources.get("XObject")) if isinstance(resources, dict) and calls else None
 
     for raw, times in calls.items():
@@ -897,11 +916,14 @@ _MARKER_GAP_RATIO = 3.0
 # A line ending in the dot leader of a table of contents or price list (5 or more periods/middle dots, or 2 or more ellipses, in a
 # row) and the short value placed separately at its right end (page number, amount). The value starts within `_LEADER_GAP_RATIO` ×
 # the character size from the end of the leader and is at most `_LEADER_VALUE_MAX_RATIO` × the character size wide (`_leader_rows`).
-_LEADER_END = re.compile(r"(?:[.·∙・]{5,}|[…‥]{2,})$")  # scattered dots of an OCR text layer ('... .. . .') are not a dot leader
+# A run of dots is tried only from its first dot (the look-behinds): tried from every dot, each time to the end of the run and back,
+# a piece with a long run that does not end the text took time with the square of the run — 18 seconds for 20,000 dots followed by
+# a word (Pinned by: test_audit_pdf_tail.py::TestLongDotRunInsideALine). A match from inside a run is also one from its start.
+_LEADER_END = re.compile(r"(?:(?<![.·∙・])[.·∙・]{5,}|(?<![…‥])[…‥]{2,})$")  # scattered dots of an OCR text layer ('... .. . .') are not a dot leader
 _LEADER_GAP_RATIO = 3.0
 _LEADER_VALUE_MAX_RATIO = 10.0
 # End of a table-of-contents line whose dot leader and page number are one piece with the item text ('서론 ....... 1') (`_leader_rows`).
-_LEADER_TAIL = re.compile(r"(?:[.·∙・]{5,}|[…‥]{2,})\s*\S{1,12}$")
+_LEADER_TAIL = re.compile(r"(?:(?<![.·∙・])[.·∙・]{5,}|(?<![…‥])[…‥]{2,})\s*\S{1,12}$")
 # Dot leader left in the page text (5 or more dots/middle dots or 3 or more ellipses; they may be spaced one apart). Shortened to a
 # single ellipsis (`_shortened_leaders`).
 _LEADER_RUN = re.compile(r"[ \t]*(?:[.·∙・](?:[ \t]?[.·∙・]){4,}|[…‥](?:[ \t]?[…‥]){2,})[ \t]*")
@@ -925,7 +947,10 @@ _CENTRED_TOLERANCE_RATIO = 0.03
 _DIGITS = re.compile(r"\d+")
 # Piece that looks like a page number ("3", "- 3 -", "3 / 10", "Page 3", "3쪽"). For a margin line with several pieces at the same
 # height, only the digits of this piece are ignored; the rest must match character for character to count as a repeat.
-_PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:page|p\.)?\s*\d{1,4}\s*(?:/\s*\d{1,4})?\s*(?:쪽|페이지)?\s*[-–)\]]?$", re.IGNORECASE)
+# Each optional part carries the white space after it, so no two runs of optional white space are neighbours: with
+# `\s*(?:/…)?\s*(?:쪽|페이지)?\s*`, a digit followed by a long run of white space and then anything else was tried in every way
+# of sharing the white space out (cubic). The texts matched are the same (Pinned by: test_audit_pdf_tail.py::TestPageNumberShape).
+_PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:(?:page|p\.)\s*)?\d{1,4}\s*(?:/\s*\d{1,4}\s*)?(?:(?:쪽|페이지)\s*)?[-–)\]]?$", re.IGNORECASE)
 # Token that can be a page number (_page_number_blind): without its digits only punctuation, a page word or a single Latin letter
 # remains ('3', '3/10', '3쪽', 'p.3', '2024-01-05', 'A-1'). A value with a unit ('12건') is not one.
 _PAGE_WORDS = frozenset({"page", "p", "pp", "of", "쪽", "페이지", "면", "頁"})
@@ -1371,7 +1396,15 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                                                     else _survey_page(fallback, page.page_number - 1))
                         if late:
                             over_budget += 1
-                            pages.append(_pdfium_page(fallback, page.page_number - 1))
+                            try:
+                                pages.append(_pdfium_page(fallback, page.page_number - 1))
+                            except pdfium.PdfiumError:
+                                # A page pdfium cannot open (pdfminer follows `/Kids`, pdfium trusts `/Count`) is an empty page,
+                                # not a corrupted document — the pages already read are kept
+                                # (Pinned by: test_audit_pdf_head.py::TestPageOnlyPdfminerFinds).
+                                pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
+                                                   lines=[], tables=[], has_images=False,
+                                                   view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
                         elif crowded_page is not None:
                             crowded.append(page.page_number)
                             pages.append(crowded_page)
@@ -1399,10 +1432,13 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 # with remaining text is swapped too if pdfium reads clearly more (`_UNDECODED_TEXT_RATIO`,
                                 # Pinned by: test_pdf_round48.py::TestEmbeddedEncodingCMap).
                                 fallback = fallback or _open_pdfium(data)
-                                simple = _pdfium_page(fallback, page.page_number - 1)
+                                try:
+                                    simple = _pdfium_page(fallback, page.page_number - 1)
+                                except pdfium.PdfiumError:
+                                    simple = read  # pdfium cannot open the page: the pdfminer result stays (see above)
                                 floor = (_read_chars(read) * _UNDECODED_TEXT_RATIO + _UNDECODED_MIN_CHARS if undecoded
                                          else read.hidden_chars * _HIDDEN_TEXT_RATIO)
-                                if simple.lines and _solid_chars(simple) > floor:
+                                if simple is not read and simple.lines and _solid_chars(simple) > floor:
                                     simple.has_images, simple.figures, simple.view = read.has_images, read.figures, read.view
                                     simple.form_values = read.form_values
                                     read = simple
@@ -1413,7 +1449,12 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                         # extraction instead.
                         _check_budget(budget)
                         fallback = fallback or _open_pdfium(data)
-                        pages.append(_pdfium_page(fallback, page.page_number - 1))
+                        try:
+                            pages.append(_pdfium_page(fallback, page.page_number - 1))
+                        except pdfium.PdfiumError:  # neither library reads the page: an empty page (see above)
+                            pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
+                                               lines=[], tables=[], has_images=False,
+                                               view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
                         failed.append(page.page_number)
                     finally:
                         page.close()
@@ -2018,12 +2059,30 @@ def _mark_checkboxes(page: object, lines: list[_Line], tables: list[tuple[float,
     marks = [*page.curves, *page.lines, *(rect for rect in rects if rect.get("fill"))]
     before: set[int] = set()  # lines with the mark placed before the text
     after: set[int] = set()  # lines with the mark placed after the text
+    # Rectangles at most `cell` pt on a side are looked up by the grid cell of their top-left corner: one that touches a box starts
+    # at most `cell` + 1pt before the box and no later than 0.5pt after it, so it is in one of the cells searched below. Larger
+    # ones (frames, cell backgrounds) and those with huge or non-finite coordinates are always scanned. Every box scanned all the
+    # rectangles of the page, so a page of 10,000 separate 8pt squares took 17 seconds here
+    # (Pinned by: test_audit_pdf_head.py::TestManySquaresOnOnePage).
+    cell = 64.0
+    near: dict[tuple[int, int], list[dict]] = {}
+    far: list[dict] = []
+    for rect in rects:
+        small = (all(abs(rect[side]) < 1e9 for side in ("x0", "top", "x1", "bottom"))
+                 and rect["x1"] - rect["x0"] <= cell and rect["bottom"] - rect["top"] <= cell)
+        (near.setdefault((math.floor(rect["x0"] / cell), math.floor(rect["top"] / cell)), []) if small else far).append(rect)
 
     for box in boxes:
+        around = rects
+        if all(abs(box[side]) < 1e9 for side in ("x0", "top", "x1", "bottom")):
+            cells = [near.get((column, row), ())
+                     for column in range(math.floor((box["x0"] - 1) / cell) - 1, math.floor((box["x1"] + 0.5) / cell) + 1)
+                     for row in range(math.floor((box["top"] - 1) / cell) - 1, math.floor((box["bottom"] + 0.5) / cell) + 1)]
+            around = (other for group in (far, *cells) for other in group)
         if any(other is not box and other["x0"] <= box["x1"] + 0.5 and box["x0"] <= other["x1"] + 0.5
                and other["top"] <= box["bottom"] + 0.5 and box["top"] <= other["bottom"] + 0.5
                and not _encloses(_bbox(box), _bbox(other)) and not _encloses(_bbox(other), _bbox(box))
-               for other in rects):
+               for other in around):
             continue  # box touching another rectangle (a row of character cell boxes). A frame around the box or a filled mark inside is fine
         _put_checkbox_mark(box, any(mark is not box and _ticks(box, mark) for mark in marks), page.chars, lines, before, after)
 
@@ -2332,16 +2391,22 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
     try:
         placed = []
         for reference in resolve1(page.page_obj.annots) or []:
-            widget = resolve1(reference)
-            subtype = _name_of(widget.get("Subtype")) if isinstance(widget, dict) else None
-            rect = resolve1(widget.get("Rect")) if subtype in ("Widget", "FreeText") else None
-            if not isinstance(rect, list) or len(rect) != 4:
+            # One annotation that cannot be read (a `/Rect` holding something that is not a number) is skipped on its own — it
+            # used to drop the values of every other field of the page. The numbers of `/Rect` may be indirect objects
+            # (Pinned by: test_audit_pdf_head.py::TestOneUnreadableAnnotation).
+            try:
+                widget = resolve1(reference)
+                subtype = _name_of(widget.get("Subtype")) if isinstance(widget, dict) else None
+                rect = resolve1(widget.get("Rect")) if subtype in ("Widget", "FreeText") else None
+                if not isinstance(rect, list) or len(rect) != 4:
+                    continue
+                x0, x1 = sorted(float(resolve1(value)) for value in rect[0::2])
+                low, high = sorted(float(resolve1(value)) for value in rect[1::2])
+                text = _field_text(widget) if subtype == "Widget" else _free_text(page, widget, (x0, low, x1, high), lines)
+                if text:
+                    placed.append((-high, x0, text))
+            except Exception:  # noqa: BLE001 — the other annotations of the page are still read
                 continue
-            x0, x1 = sorted(float(value) for value in rect[0::2])
-            low, high = sorted(float(value) for value in rect[1::2])
-            text = _field_text(widget) if subtype == "Widget" else _free_text(page, widget, (x0, low, x1, high), lines)
-            if text:
-                placed.append((-high, x0, text))
         return [text for _, _, text in sorted(placed)]
     except Exception:  # noqa: BLE001 — the page body is still read even if the annotations cannot be parsed
         return []
@@ -2890,8 +2955,14 @@ def _late_symbols_in_place(piece: LTTextLineHorizontal, word_margin: float) -> L
 
 def _merged_overlapping_pieces(pieces: list[LTTextLineHorizontal], word_margin: float) -> tuple[list[LTTextLineHorizontal], bool]:
     """(piece list, whether anything was merged) after merging pieces on the same baseline whose x ranges overlap (`_shares_baseline`)
-    into one piece with the characters re-laid by x. A merged piece takes the place of its first piece. The pieces are scanned in y0
-    order so that only pairs that can overlap vertically are examined."""
+    into one piece with the characters re-laid by x. A merged piece takes the place of its first piece. Only pairs that can overlap
+    both ways are examined: the pieces are scanned in x0 order, and of the earlier pieces that still reach the current x0 (`live`,
+    sorted by y0) only those starting below the piece's top and less than 2 / `_PIECE_HEIGHT_RATIO` heights below its bottom are
+    compared — `_shares_baseline` is False for every other pair (no x overlap, no vertical overlap, or a taller piece than the height
+    ratio allows), and the merged groups depend only on the pairs for which it is True. Scanning in y0 order alone compared every
+    pair of one row: a single row of 6,000 two-letter pieces (an 8.5KB PDF) took 28 seconds inside one page
+    (Pinned by: test_audit_pdf_head.py::TestManyPiecesOnOneBaseline). With a non-finite coordinate the pieces are scanned in y0
+    order as before."""
     order = sorted(range(len(pieces)), key=lambda index: pieces[index].y0)
     parent = list(range(len(pieces)))
     texts = [piece.get_text().strip() for piece in pieces]  # rejoining the text for every pair would build text the square of the piece count times
@@ -2902,13 +2973,30 @@ def _merged_overlapping_pieces(pieces: list[LTTextLineHorizontal], word_margin: 
             index = parent[index]
         return index
 
-    for position, index in enumerate(order):
-        piece = pieces[index]
-        for other in islice(order, position + 1, None):
-            if pieces[other].y0 >= piece.y1:
-                break
-            if _shares_baseline(piece, pieces[other], texts[index], texts[other]):
-                parent[root(other)] = root(index)
+    if all(math.isfinite(value) for piece in pieces for value in piece.bbox):
+        wide = [index for index in range(len(pieces)) if pieces[index].x1 > pieces[index].x0]  # the others overlap nothing in x
+        ends, ended = sorted(wide, key=lambda index: pieces[index].x1), 0
+        live: list[tuple[float, int]] = []  # (y0, piece number)
+        for index in sorted(wide, key=lambda index: pieces[index].x0):
+            piece = pieces[index]
+            while pieces[ends[ended]].x1 <= piece.x0:
+                del live[bisect_left(live, (pieces[ends[ended]].y0, ends[ended]))]
+                ended += 1
+            for position in range(bisect_left(live, (piece.y0 - piece.height * 2 / _PIECE_HEIGHT_RATIO,)), len(live)):
+                y0, other = live[position]
+                if y0 > piece.y1:
+                    break
+                if _shares_baseline(piece, pieces[other], texts[index], texts[other]):
+                    parent[root(other)] = root(index)
+            insort(live, (piece.y0, index))
+    else:
+        for position, index in enumerate(order):
+            piece = pieces[index]
+            for other in islice(order, position + 1, None):
+                if pieces[other].y0 >= piece.y1:
+                    break
+                if _shares_baseline(piece, pieces[other], texts[index], texts[other]):
+                    parent[root(other)] = root(index)
 
     groups: dict[int, list[int]] = {}
     for index in range(len(pieces)):
@@ -3758,12 +3846,33 @@ def _tiled_background(boxes: list[tuple[float, float, float, float, float]],
             index = parent[index]
         return index
 
+    # Boxes that abut have a side within `_TILE_GAP` of the other's opposite side, so when that is fewer boxes than the ones
+    # that follow down to this box's bottom, only the boxes with a side near the opposite side of this one are compared (the
+    # same pairs are joined). Comparing every pair took 8 of 10 seconds on a page whose picture was drawn as 3,000 vertical
+    # strips, which all share a top (a 12 KB file) (Pinned by:
+    # test_audit_pdf_mid.py::TestPictureDrawnAsManyStrips::test_strips_are_compared_with_their_neighbours_only).
+    # A coordinate that is not a finite number has no place in this search, so such a page is compared pair by pair as before
+    sorted_sides = (None if not all(math.isfinite(value) for box in boxes for value in box[:4]) else
+                    [sorted((boxes[index][side], place) for place, index in enumerate(order)) for side in range(4)])
     for position, index in enumerate(order):
-        for other in islice(order, position + 1, None):
-            if boxes[other][1] > boxes[index][3] + _TILE_GAP:
-                break
-            if _abuts(boxes[index], boxes[other]):
-                parent[root(other)] = root(index)
+        if sorted_sides is None:
+            for other in islice(order, position + 1, None):
+                if boxes[other][1] > boxes[index][3] + _TILE_GAP:
+                    break
+                if _abuts(boxes[index], boxes[other]):
+                    parent[root(other)] = root(index)
+            continue
+        end = bisect_right(sorted_sides[1], (boxes[index][3] + _TILE_GAP, len(order)))  # the boxes after it start lower than this box reaches
+        near = []
+        for side, values in enumerate(sorted_sides):
+            opposite = boxes[index][(side + 2) % 4]
+            reach = _TILE_GAP + 1 + abs(opposite) * 1e-9  # wider than `_abuts` allows, whatever the rounding
+            near.append((values, bisect_left(values, (opposite - reach,)), bisect_right(values, (opposite + reach, len(order)))))
+        places = (range(position + 1, end) if end - position <= sum(high - low for _, low, high in near)
+                  else [place for values, low, high in near for _, place in values[low:high] if position < place < end])
+        for place in places:
+            if _abuts(boxes[index], boxes[order[place]]):
+                parent[root(order[place])] = root(index)
 
     groups: dict[int, list[int]] = {}
     for index in range(len(boxes)):
@@ -3795,7 +3904,27 @@ def _is_strips(tiles: list[tuple[float, ...]]) -> bool:
     shapes = [tuple(tile[:4]) for tile in tiles]
 
     # Pieces that enclose each other (same position within 1pt) are both kept — removing the redrawn strip too would leave no piece
-    outer = [tile for tile in shapes if not any(_encloses(other, tile) and not _encloses(tile, other) for other in shapes)]
+    # A piece that encloses another starts no further right (lower) than it and, being no wider (taller) than the widest
+    # (tallest) piece, not far to the left of (above) its end, so only the pieces starting in the narrower of those two ranges
+    # are compared instead of every piece (Pinned by:
+    # test_audit_pdf_mid.py::TestPictureDrawnAsManyStrips::test_strips_are_compared_with_their_neighbours_only).
+    # A coordinate that is not a finite number has no place in this search, so then every piece is compared as before
+    ordered = (None if not all(math.isfinite(value) for tile in shapes for value in tile) else
+               [sorted(shapes, key=lambda tile, low=low: tile[low]) for low in (0, 1)])
+    starts = [[tile[low] for tile in pieces] for low, pieces in enumerate(ordered or ())]
+    longest = [max(tile[low + 2] - tile[low] for tile in shapes) for low in (0, 1)]
+
+    def others(tile: tuple[float, ...]) -> list[tuple[float, ...]]:
+        if ordered is None:
+            return shapes
+        ranges = []
+        for low in (0, 1):
+            reach = 3 + (abs(tile[low]) + abs(tile[low + 2]) + abs(longest[low])) * 1e-9  # wider than `_encloses` allows
+            ranges.append((bisect_left(starts[low], tile[low + 2] - longest[low] - reach), bisect_right(starts[low], tile[low] + reach)))
+        low = 0 if ranges[0][1] - ranges[0][0] <= ranges[1][1] - ranges[1][0] else 1
+        return ordered[low][ranges[low][0]:ranges[low][1]]
+
+    outer = [tile for tile in shapes if not any(_encloses(other, tile) and not _encloses(tile, other) for other in others(tile))]
     x0, top = min(tile[0] for tile in outer), min(tile[1] for tile in outer)
     x1, bottom = max(tile[2] for tile in outer), max(tile[3] for tile in outer)
     return (all(tile[0] - x0 <= _TILE_GAP and x1 - tile[2] <= _TILE_GAP for tile in outer)
@@ -3818,8 +3947,26 @@ def _union_area(boxes: list[tuple[float, ...]]) -> float:
     """Area of the union of the boxes (overlapping parts counted once)."""
     edges = sorted({edge for box in boxes for edge in (box[1], box[3])})
     area = 0.0
+    # The boxes crossing each band are kept in a sorted list that a box enters at its top and leaves at its bottom (the same
+    # list as picking them out of all the boxes for every band, which took the number of bands times the number of boxes)
+    # (Pinned by: test_audit_pdf_mid.py::TestPictureDrawnAsManyStrips::test_union_area_of_many_stacked_strips_is_swept_once).
+    # A coordinate that is not a finite number has no place in this list, so then the boxes are picked for every band as before
+    swept = all(math.isfinite(value) for box in boxes for value in box)
+    entering: dict[float, list[tuple[float, float]]] = {}
+    leaving: dict[float, list[tuple[float, float]]] = {}
+    for box in boxes:
+        if swept and box[1] < box[3]:
+            entering.setdefault(box[1], []).append((box[0], box[2]))
+            leaving.setdefault(box[3], []).append((box[0], box[2]))
+    spans: list[tuple[float, float]] = []
     for low, high in zip(edges, edges[1:], strict=False):
-        spans = sorted((box[0], box[2]) for box in boxes if box[1] <= low and box[3] >= high)
+        if swept:
+            for span in leaving.get(low, ()):
+                del spans[bisect_left(spans, span)]
+            for span in entering.get(low, ()):
+                insort(spans, span)
+        else:
+            spans = sorted((box[0], box[2]) for box in boxes if box[1] <= low and box[3] >= high)
         covered, reach = 0.0, float("-inf")
         for x0, x1 in spans:
             covered += max(0.0, x1 - max(x0, reach))
@@ -4054,12 +4201,23 @@ def _without_highlights(page: object) -> object:
         return page
     middles = [(char["top"] + char["bottom"]) / 2 for char in chars]
     tallest = max(char["size"] for char in chars) * _HIGHLIGHT_MAX_HEIGHT
+    # A rectangle takes its characters from those of its line or from those between its left and right edges, whichever are
+    # fewer (in the order of the line either way). Going through the whole line for every rectangle took 8 seconds on a line
+    # of 4,000 characters with a filled rectangle under each (a 15 KB file) (Pinned by:
+    # test_audit_pdf_mid.py::TestManyFilledRectanglesOnOneLine::test_each_rectangle_looks_only_at_the_characters_it_covers)
+    centres = sorted((centre, position) for position, char in enumerate(chars)
+                     if (centre := (char["x0"] + char["x1"]) / 2) == centre)
     covered = []
     for rect in page.rects:
         if not rect.get("fill") or rect.get("stroke") or not 0 < rect["bottom"] - rect["top"] <= tallest:
             continue
-        inside = [char for char in chars[bisect_left(middles, rect["top"]):bisect_right(middles, rect["bottom"])]
-                  if rect["x0"] <= (char["x0"] + char["x1"]) / 2 <= rect["x1"]]
+        low, high = bisect_left(middles, rect["top"]), bisect_right(middles, rect["bottom"])
+        left, right = bisect_left(centres, (rect["x0"],)), bisect_right(centres, (rect["x1"], len(chars)))
+        if right - left < high - low:
+            inside = [chars[position] for position in sorted(position for centre, position in centres[left:right]
+                                                             if low <= position < high and rect["x0"] <= centre <= rect["x1"])]
+        else:
+            inside = [char for char in chars[low:high] if rect["x0"] <= (char["x0"] + char["x1"]) / 2 <= rect["x1"]]
         covered.append((rect, inside, "".join(char["text"] for char in inside).strip()))
 
     # The only evidence for column shading is a cell that fills its row without gaps (touching the neighbouring cell's shading, with
@@ -4072,11 +4230,12 @@ def _without_highlights(page: object) -> object:
     by_left = sorted((rect for rect, _, _ in covered), key=lambda rect: rect["x0"])
     rights, lefts = [rect["x1"] for rect in by_right], [rect["x0"] for rect in by_left]
     columns: dict[tuple[int, int], set[str]] = {}
+    # unfilled[n]: how many of the first n characters are visible and under no fill (counted once, not once per rectangle)
+    unfilled = list(accumulate((bool(char["text"].strip()) and id(char) not in shaded for char in chars), initial=0))
     for rect, _, text in covered:
-        line = chars[bisect_left(middles, rect["top"]):bisect_right(middles, rect["bottom"])]
         touching = (*by_right[bisect_left(rights, rect["x0"] - _HIGHLIGHT_EDGE_MAX):bisect_right(rights, rect["x0"] + _HIGHLIGHT_EDGE_MAX)],
                     *by_left[bisect_left(lefts, rect["x1"] - _HIGHLIGHT_EDGE_MAX):bisect_right(lefts, rect["x1"] + _HIGHLIGHT_EDGE_MAX)])
-        if (text and not any(char["text"].strip() and id(char) not in shaded for char in line)
+        if (text and unfilled[bisect_right(middles, rect["bottom"])] <= unfilled[bisect_left(middles, rect["top"])]
                 and any(other is not rect and abs(other["top"] - rect["top"]) <= _CELL_ALIGN
                         and abs(other["bottom"] - rect["bottom"]) <= _CELL_ALIGN for other in touching)):
             columns.setdefault((round(rect["x0"]), round(rect["x1"])), set()).add(text)
@@ -4175,6 +4334,24 @@ def _aligned_with_any(inside: list[dict], words: list[dict]) -> bool:
                or abs(word["x0"] + word["x1"] - left - right) <= _CELL_ALIGN * 2 for word in words)
 
 
+def _dropping_page_indexes(read: Callable[[object], list]) -> Callable[[object], list]:
+    """Decorator of `_real_tables`: the lists built once per page for its tables (`_page_index`) are dropped when the tables
+    have been read, also when reading them fails.
+
+    They are kept on the page object, and pdfplumber keeps the page objects of the whole document after it has released
+    their characters (`page.close()`), so without this every page read would stay in memory until the end of the document
+    (Pinned by: test_audit_pdf_mid.py::TestManyTablesOnOnePage::test_lists_built_for_the_tables_are_dropped_with_them).
+    """
+    def reading(page: object) -> list:
+        try:
+            return read(page)
+        finally:
+            page.__dict__.pop("_page_indexes", None)
+
+    return reading
+
+
+@_dropping_page_indexes
 def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], list[list[str]], list[tuple]]]:
     """Filter layout boxes out of the ruled tables: page frames (a box that covers the page but has hardly any cells), outer boxes
     that enclose another table, and boxes whose content is a single column.
@@ -4285,12 +4462,19 @@ def _closed_at_open_ends(page: object, table: object) -> object:
         return table
     x0, top, x1, bottom = table.bbox
     edges = _column_edges(table)
-    verticals = [edge for edge in page.vertical_edges if edge["bottom"] - edge["top"] > 1]
+    # The page's vertical rules and characters are sorted once per page and each table takes only those of its own range.
+    # Listing every rule and every character of the page again for every table took 31 seconds on a page of 800 small tables
+    # (a 51 KB file) (Pinned by: test_audit_pdf_mid.py::TestManyTablesOnOnePage::test_each_table_takes_only_its_own_part_of_the_page)
+    positions, verticals = _verticals_by_x(page)
+    verticals = verticals[bisect_left(positions, min(edges) - 2):bisect_right(positions, max(edges) + 2)] if edges else []
     lowest = _common_reach(verticals, edges, bottom, 1)
     highest = _common_reach(verticals, edges, top, -1)
     bands = [band for band in ((bottom, lowest), (highest, top)) if band[1] - band[0] >= _CHECKBOX_SIDE[0]]
-    stray = [char for char in page.chars if char["text"].strip() and x0 < (char["x0"] + char["x1"]) / 2 < x1
-             and any(low < (char["top"] + char["bottom"]) / 2 < high for low, high in bands)]
+    if not bands:
+        return table
+    middles, ordered = _text_by_middle(page)
+    stray = [char for low, high in bands for char in ordered[bisect_right(middles, low):bisect_left(middles, high)]
+             if x0 < (char["x0"] + char["x1"]) / 2 < x1 and low < (char["top"] + char["bottom"]) / 2 < high]
     if not stray:
         return table
 
@@ -4303,6 +4487,42 @@ def _closed_at_open_ends(page: object, table: object) -> object:
             or not all(map(_BoxIndex([cell for cell in found[0].cells if cell]).holds, stray))):
         return table
     return found[0]
+
+
+def _verticals_by_x(page: object) -> tuple[list[float], list[dict]]:
+    """The page's vertical rules longer than 1pt in order of their x position, as (list of x positions, list of rules). Built
+    once per page (`_closed_at_open_ends`). A rule whose position is not a number is at no column boundary and is left out."""
+    def build() -> tuple[list[float], list[dict]]:
+        ordered = sorted((edge for edge in page.vertical_edges if edge["bottom"] - edge["top"] > 1 and edge["x0"] == edge["x0"]),
+                         key=lambda edge: edge["x0"])
+        return [edge["x0"] for edge in ordered], ordered
+
+    return _page_index(page, "verticals", build)
+
+
+def _text_by_middle(page: object) -> tuple[list[float], list[dict]]:
+    """The page's non-blank characters in order of their vertical middle (page order where the middles are equal), as (list of
+    middles, list of characters). Built once per page (`_closed_at_open_ends`, `_join_soft_wraps`). A character whose middle
+    is not a number is inside no box and is left out."""
+    def build() -> tuple[list[float], list[dict]]:
+        placed = [((char["top"] + char["bottom"]) / 2, char) for char in page.chars if char["text"].strip()]
+        ordered = sorted((item for item in placed if item[0] == item[0]), key=lambda item: item[0])
+        return [middle for middle, _ in ordered], [char for _, char in ordered]
+
+    return _page_index(page, "text", build)
+
+
+def _page_index(page: object, name: str, build: Callable[[], object]) -> object:
+    """The list `name` of the page, built with `build` the first time it is asked for (`_verticals_by_x`, `_text_by_middle`,
+    `_sideways_by_middle`). The lists are kept on the page object together with the page's objects they were built from: a
+    page that has been read again (`page.close()` releases its objects) gets new lists. `_real_tables` drops them when it is
+    done (`_dropping_page_indexes`)."""
+    held = page.__dict__.get("_page_indexes")
+    if held is None or held[0] is not page.objects:
+        held = page.__dict__["_page_indexes"] = (page.objects, {})
+    if name not in held[1]:
+        held[1][name] = build()
+    return held[1][name]
 
 
 def _common_reach(verticals: list[dict], edges: list[float], at: float, direction: int) -> float:
@@ -4805,13 +5025,18 @@ def _grown_shaded_table(page: object, table: object, tables: list[object],
     spanning = sorted(y for y, x0, x1 in rules if x0 <= left + 2 and x1 >= right - 2)
     chain, bands = [table], []  # the table fragments joined so far, (top, bottom, whether it is an open band)
     top, bottom = table.bbox[1], table.bbox[3]
+    # The top and bottom of every fragment are measured once and the joined fragments are looked up by identity. Measuring
+    # every fragment and searching the whole chain for it at every step grew with the cube of the number of shaded rows: 5
+    # of the 7 seconds this function took on a striped table of 2,000 rows (a 53 KB file) (Pinned by:
+    # test_audit_pdf_mid.py::TestLongStripedTable::test_fragments_are_measured_once)
+    ends = [(fragment.bbox[1], fragment.bbox[3], fragment) for fragment in fragments]
+    joined = {id(table)}
 
     # continue the bands downward (+1) and upward (-1)
     for direction in (1, -1):
         edge = bottom if direction > 0 else top
         while True:
-            nearby = [(fragment.bbox[1] if direction > 0 else fragment.bbox[3], fragment) for fragment in fragments
-                      if not any(fragment is other for other in chain)]
+            nearby = [(start if direction > 0 else end, fragment) for start, end, fragment in ends if id(fragment) not in joined]
             nearby = [(y, fragment) for y, fragment in nearby if -1 <= (y - edge) * direction <= reach]
             nearby += [(y, None) for y in spanning if 1 < (y - edge) * direction <= reach]
             if not nearby:
@@ -4831,6 +5056,7 @@ def _grown_shaded_table(page: object, table: object, tables: list[object],
                 edge = y
             else:
                 chain.append(fragment)
+                joined.add(id(fragment))
                 edge = fragment.bbox[3] if direction > 0 else fragment.bbox[1]
         if direction > 0:
             bottom = edge
@@ -5130,8 +5356,10 @@ def _join_soft_wraps(table: object, rows: list[list[str | None]]) -> None:
     """
     images = [(image["x0"], image["top"], image["x1"], image["bottom"]) for image in table.page.images]
     bbox = table.bbox  # a property recomputed from all the cell boxes, so calling it per character is quadratic time
-    chars = sorted((char for char in table.page.chars if char["text"].strip() and _inside_any(char, [bbox])),
-                   key=lambda char: (char["top"] + char["bottom"]) / 2)
+    # The page's characters are sorted once per page (`_text_by_middle`) and the table takes those of its own vertical range
+    # (Pinned by: test_audit_pdf_mid.py::TestManyTablesOnOnePage::test_each_table_takes_only_its_own_part_of_the_page)
+    middles, ordered = _text_by_middle(table.page)
+    chars = [char for char in ordered[bisect_left(middles, bbox[1]):bisect_right(middles, bbox[3])] if _inside_any(char, [bbox])]
     middles = [(char["top"] + char["bottom"]) / 2 for char in chars]  # per cell, bisect to only the characters in its vertical range
 
     for row_index, row in enumerate(table.rows):
@@ -5214,17 +5442,55 @@ def _read_sideways_cells(table: object, rows: list[list[str | None]]) -> None:
     horizontal character mixed in (the axis title and ticks of a chart caught as a table) is left as is — there is no way to
     decide in what order to join text of two directions in one cell.
     """
-    sideways = [char for char in table.page.chars if char["text"].strip() and _is_sideways(char)]
-    if not sideways:
+    index = _sideways_by_middle(table.page)
+    if not index:
         return
+    # Each cell looks only at the characters of its own vertical range. Scanning the rotated characters and then every
+    # character of the page for every cell took 23 seconds on a table laid sideways on one page (100 rows of 20 columns,
+    # a 10 KB file) (Pinned by: test_audit_pdf_mid.py::TestSidewaysCells::test_each_cell_looks_only_at_its_own_band)
+    marked, every = index
 
     for row_index, row in enumerate(table.rows):
         for column_index, cell in enumerate(row.cells):
-            if cell is None or not any(_inside_any(char, [cell]) for char in sideways):
+            if cell is None or not _chars_in_cell(marked, cell):
                 continue
-            chars = [char for char in table.page.chars if _inside_any(char, [cell])]
+            chars = _chars_in_cell(every, cell)
             if all(_is_sideways(char) for char in chars if char["text"].strip()):
                 rows[row_index][column_index] = "\n".join(_sideways_paragraphs(chars))
+
+
+def _sideways_by_middle(page: object) -> tuple:
+    """The page's non-blank rotated characters and all of its characters, each sorted by position (`_by_middle`). An empty
+    tuple when the page has no rotated character. Built once per page (`_read_sideways_cells`), not once per table (Pinned by:
+    test_audit_pdf_mid.py::TestManyTablesOnOnePage::test_each_table_takes_only_its_own_part_of_the_page)."""
+    def build() -> tuple:
+        sideways = [char for char in page.chars if char["text"].strip() and _is_sideways(char)]
+        return (_by_middle(sideways), _by_middle(page.chars)) if sideways else ()
+
+    return _page_index(page, "sideways", build)
+
+
+def _by_middle(chars: list[dict]) -> list[tuple[list[float], list[tuple[float, int, dict]]]]:
+    """The characters as (middle, position in `chars`, character) in order of the vertical middle and in order of the
+    horizontal middle, each together with the list of those middles (to bisect on). A character whose middle is not a number
+    is inside no box and is left out."""
+    index = []
+    for low, high in (("top", "bottom"), ("x0", "x1")):
+        placed = [((char[low] + char[high]) / 2, position, char) for position, char in enumerate(chars)]
+        ordered = sorted((item for item in placed if item[0] == item[0]), key=lambda item: item[0])
+        index.append(([item[0] for item in ordered], ordered))
+    return index
+
+
+def _chars_in_cell(index: list[tuple[list[float], list[tuple[float, int, dict]]]], cell: tuple) -> list[dict]:
+    """The characters of `index` (`_by_middle`) whose centre is inside `cell`, in the order of the list they came from. Only
+    the characters of the cell's vertical range or of its horizontal range are examined, whichever are fewer (a table of one
+    long row has every character in the same vertical range)."""
+    (middles, by_row), (centres, by_column) = index
+    rows = bisect_left(middles, cell[1]), bisect_right(middles, cell[3])
+    columns = bisect_left(centres, cell[0]), bisect_right(centres, cell[2])
+    band = by_row[rows[0]:rows[1]] if rows[1] - rows[0] <= columns[1] - columns[0] else by_column[columns[0]:columns[1]]
+    return [char for _, _, char in sorted((item for item in band if _inside_any(item[2], [cell])), key=lambda item: item[1])]
 
 
 def _open_sided_tables(page: object) -> list[object]:
@@ -6779,7 +7045,11 @@ def _column_table_runs(page: _Page, runs: list[list[list[_Line]]], columns: tupl
     column the table criteria (`_table_runs`) are unchanged.
     """
     left_end, right_start = columns
-    in_table = {id(line) for run in runs for row in run for line in row}
+    # The original lines of a cell joined from several lines are in a table too. Left in `rest`, the lines of a row whose
+    # cells wrap to several lines (`_centred_band_row`) made a second table inside the column and came out twice
+    # (Pinned by: test_audit_pdf_tail.py::TestJoinedCellLinesOnATwoColumnPage::
+    # test_lines_of_a_joined_row_are_not_a_second_table).
+    in_table = {id(original) for run in runs for row in run for line in row for original in (line, *line.joined)}
     rest = [line for line in page.lines if id(line) not in in_table]
     found: list[list[list[_Line]]] = []
     for side in ([line for line in rest if line.x1 <= right_start], [line for line in rest if line.x0 >= left_end]):
@@ -6933,9 +7203,15 @@ def _table_runs(rows: list[list[_Line]], max_cell: float,
                 # Wrapped lines of cell text (there may be several) are joined to the cell only when more table rows
                 # follow below. A short note set right below the last row ('* 잠정치', '출처: 인사팀') was attached to
                 # the first cell
+                # The bottom of the growing row is carried along and the columns of its cells are worked out from what
+                # is already known about each cell (`known`, `_cell_columns`): measuring both again for every wrapped
+                # line took time cubic in the number of lines under one row (Pinned by: test_audit_pdf_tail.py::
+                # TestManyWrappedLinesUnderOneRow).
                 merged, ahead = previous, following
+                floor, known = max(line.bottom for line in merged), {}
                 while (ahead < len(rows) and len(rows[ahead]) == 1
-                       and _continues_cell(rows[ahead][0], merged, header, gap_below(merged, rows[ahead]), row_gap)):
+                       and _continues_cell(rows[ahead][0], merged, header, rows[ahead][0].top - floor, row_gap, known)):
+                    floor = max(floor, rows[ahead][0].bottom)
                     merged, ahead = [*merged, *rows[ahead]], ahead + 1
                 if ahead > following and ((ahead < len(rows) and accepts(rows[ahead], merged, header))
                                           or _in_the_band_of(merged[len(previous):], previous, bands)):
@@ -7077,7 +7353,8 @@ def _sizes_match(row: list[_Line], previous: list[_Line]) -> bool:
     return min(sizes) <= 0 or max(sizes) <= min(sizes) * _TABLE_SIZE_RATIO
 
 
-def _continues_cell(line: _Line, previous: list[_Line], header: list[_Line], gap: float, row_gap: float) -> bool:
+def _continues_cell(line: _Line, previous: list[_Line], header: list[_Line], gap: float, row_gap: float,
+                    known: dict | None = None) -> bool:
     """Whether a single-fragment line (`line`) is the wrapped continuation of cell text in the row right above (`previous`).
 
     When cell text wraps onto two lines, the wrapped line becomes a single-fragment row, the table is cut there, and if
@@ -7094,14 +7371,52 @@ def _continues_cell(line: _Line, previous: list[_Line], header: list[_Line], gap
     before a centred header was counted as the first column and the table was cut
     (Pinned by: test_pdf_table_columns.py::TestCentredHeadersOverLeftAlignedCells::
     test_wrapped_line_of_a_cell_in_the_gap_before_a_centred_header_stays_in_the_cell).
+
+    `known` is what a caller that asks about one growing row again and again keeps between calls (`_cell_columns`).
     """
     if not 0 <= gap <= row_gap * _WRAP_GAP_RATIO or row_gap - gap < line.height * _WRAP_GAP_MIN_RATIO:
         return False
 
-    columns = [_column_of(cell, header, previous) for cell in previous]
+    columns = [_column_of(cell, header, previous) for cell in previous] if known is None else _cell_columns(previous, header, known)
     candidates = {_column_of(line, header)} | {
         column for cell, column in zip(previous, columns, strict=True) if abs(cell.x0 - line.x0) <= _TABLE_ROW_TOLERANCE}
     return any(_wraps_into(line, previous, columns, header, column) for column in sorted(candidates))
+
+
+def _cell_columns(row: list[_Line], header: list[_Line], known: dict) -> list[int]:
+    """The same list as `[_column_of(cell, header, row) for cell in row]` for a row that grows: `known` (empty at first)
+    keeps what was worked out in the previous call, and `row` is the row of that call with cells added at the end.
+
+    `_column_of` looks at the other cells of the row for two things only: whether an earlier cell occupies the header
+    column of the cell (`taken` in `_gap_column` — true exactly when one of the two cells of that header column that end
+    leftmost, the cell itself aside, ends before the cell starts), and whether another cell goes to the same column under
+    the gap rule. So the gap rule is asked with a row of just that leftmost cell and the cell itself, again only for the
+    header column in which an added cell became one of the two leftmost, and the second question is answered by
+    counting. Asking `_column_of` for every cell of the row again for every further wrapped line took tens of seconds
+    with several hundred lines under one row (Pinned by: test_audit_pdf_tail.py::TestManyWrappedLinesUnderOneRow; the
+    equality with `_column_of` by test_columns_of_a_growing_row_are_those_of_column_of).
+    """
+    heads: list[int] = known.setdefault("heads", [])  # `_header_column` of each cell
+    gaps: list[int] = known.setdefault("gaps", [])  # `_gap_column` of each cell in this row
+    leftmost: dict[int, list[_Line]] = known.setdefault("leftmost", {})  # header column → the two cells ending leftmost
+    seen = len(heads)
+    moved: set[int] = set()  # header columns whose leftmost cells changed: `taken` may have changed for their cells
+    for cell in row[seen:]:
+        heads.append(_header_column(cell, header))
+        gaps.append(heads[-1])
+        ends = leftmost.setdefault(heads[-1], [])
+        if len(ends) < 2 or cell.x1 < max(other.x1 for other in ends):
+            if len(ends) == 2:
+                ends.remove(max(ends, key=lambda other: other.x1))
+            ends.append(cell)
+            moved.add(heads[-1])
+    for index in range(0 if moved else seen, len(row)):
+        cell, head = row[index], heads[index]
+        if index >= seen or head in moved:
+            earlier = next((other for other in leftmost[head] if other is not cell and other.x1 <= cell.x0), None)
+            gaps[index] = _gap_column(cell, header, [cell] if earlier is None else [earlier, cell], head)
+    shared = Counter(gaps)
+    return [head if shared[gap] > 1 else gap for head, gap in zip(heads, gaps, strict=True)]
 
 
 def _wraps_into(line: _Line, previous: list[_Line], columns: list[int], header: list[_Line], column: int) -> bool:
@@ -8466,17 +8781,27 @@ def _label_value_run(rows: list[list[_Line]], index: int, max_label: float) -> l
     """The group of 'label value' rows continuing downwards from `rows[index]` (a label-value pair): pairs in the same
     two columns (`_pairs_with`), wrapped value lines (`_wraps_value`), and label rows without a value between pairs
     (`_is_empty_value_row`). A group that has accepted a wrapped value line accepts further pairs only with a short label."""
-    def pairs(run: list[list[_Line]], row: list[_Line]) -> bool:
-        return _pairs_with(run, row, max_label) and (_short_label(row, max_label) or not _has_wrapped_value(run))
+    def pairs(run: list[list[_Line]], row: list[_Line], wrapped: bool) -> bool:
+        return _pairs_with(run, row, max_label) and (_short_label(row, max_label) or not wrapped)
+
+    def wraps(row: list[_Line]) -> bool:  # what `row` adds to `_has_wrapped_value` of the group (judged against the first row)
+        return _has_wrapped_value([run[0], row])
 
     run = [rows[index]]
+    # `_has_wrapped_value(run)`, carried along as rows are added. Asked of the whole group again for every pair with a long
+    # label, a group of many such pairs took time with the square of its rows, and with the cube when it is then discarded
+    # for its wide values and built again from each of its rows (Pinned by: test_audit_pdf_tail.py::
+    # TestManyPairsWithLongLabels).
+    wrapped = _has_wrapped_value(run)
 
     while index + len(run) < len(rows):
         row = rows[index + len(run)]
-        if pairs(run, row) or _wraps_value(run, row, max_label):
+        if pairs(run, row, wrapped) or _wraps_value(run, row, max_label):
             run.append(row)
+            wrapped = wrapped or wraps(row)
         elif (index + len(run) + 1 < len(rows) and _is_empty_value_row(run, row, max_label)
-              and pairs([*run, row], rows[index + len(run) + 1])):
+              and pairs([*run, row], rows[index + len(run) + 1], wrapped or wraps(row))):
+            wrapped = wrapped or wraps(row) or wraps(rows[index + len(run) + 1])
             run += [row, rows[index + len(run) + 1]]
         else:
             break
@@ -8865,7 +9190,13 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
         # Rows in the margin area + the top and bottom two rows of the page. Slide-style PDFs have the header outside the margin.
         rows = _visual_rows(page.lines)
         edge = {id(line) for row in _edge_rows(rows) for line in row}
-        protected = {id(line.source or line) for run in _aligned_table_runs(page) for row in run for line in row}
+        cells = [line for run in _aligned_table_runs(page) for row in run for line in row]
+        protected = {id(line.source or line) for line in cells}
+        # A cell joined from several lines stands for its original lines, which are the ones in `page.lines`: unprotected,
+        # the first line of a wrapped cell in the top row of a table repeated on every page was removed and the table fell
+        # apart (Pinned by: test_audit_pdf_tail.py::TestJoinedCellLinesAtThePageTop::
+        # test_wrapped_first_cell_survives_on_every_page).
+        protected.update(id(original) for line in cells for original in line.joined)
         protected.update(id(line) for row in _label_value_rows(rows, page.width) for line in row)
         captions = _caption_lines(page)
         body: dict[str, list[list[_Line]]] = {}  # Text with digits masked → body rows (outside the margin and edge rows)

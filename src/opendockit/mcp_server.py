@@ -22,7 +22,7 @@ from pathlib import Path
 import re
 
 from opendockit import __version__
-from opendockit.converter import convert_file, section_heading
+from opendockit.converter import _size_text, convert_file, section_heading
 from opendockit.exceptions import ConversionError
 from opendockit.isolated import IsolatedConverter
 from opendockit.models import ConversionResult, ConvertOptions, Section, SectionKind
@@ -101,7 +101,7 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
                 # in a thread of this process, without the worker's memory and time limits.
                 return await asyncio.to_thread(convert_file, file, options)
             if file.stat().st_size > options.max_file_bytes:
-                raise ToolError(f"The file is too large (maximum {options.max_file_bytes // (1024 * 1024)}MB).")
+                raise ToolError(f"The file is too large (maximum {_size_text(options.max_file_bytes)}).")
             if converter is None:
                 # One worker process per file, ended after 2 minutes or 2 GB: a document that hangs or balloons must not take
                 # the server, and the agent's session, with it.

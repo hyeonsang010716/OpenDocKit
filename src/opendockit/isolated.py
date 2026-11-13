@@ -72,6 +72,7 @@ class IsolatedConverter:
         self._memory_limit = memory_limit
         self._timeout = float(timeout)
         self._context = _worker_context()
+        self._server = os.getpid()  # the process the pools were built in, and the one their workers watch
         self._pools = [self._new_pool() for _ in range(workers)]
         self._free: asyncio.Queue[int] = asyncio.Queue()
         for slot in range(workers):
@@ -91,6 +92,13 @@ class IsolatedConverter:
         _check_arguments(filename, options)
         if self._closed:
             raise RuntimeError("This IsolatedConverter is closed.")
+        if self._server != os.getpid():
+            # The process was forked after this converter was built (gunicorn --preload). The pools carry the pid their
+            # workers watch (`_leave_with`), and that was the master's: a server killed outright left its idle worker behind
+            # for as long as the master lived. They are built again for this process (Pinned by:
+            # test_audit_runtime.py::TestConverterBuiltBeforeAFork).
+            self._pools = [self._new_pool() for _ in self._pools]
+            self._server = os.getpid()
 
         result = await self._convert_in_worker(data, filename, options)
         if describer is None or not result.images:
@@ -101,7 +109,8 @@ class IsolatedConverter:
         return await describe_images(result, describer, max_concurrency=max_concurrency)
 
     async def aclose(self) -> None:
-        """Terminate every worker. Files being converted are cut off (call this at application shutdown)."""
+        """Terminate every worker. Files being converted are cut off (call this at application shutdown): they, and the files
+        still waiting for a worker, end with the same `RuntimeError` a closed converter raises for a new file."""
         self._closed = True
         await asyncio.gather(*(_stop(pool) for pool in self._pools))
 
@@ -112,14 +121,24 @@ class IsolatedConverter:
         await self.aclose()
 
     async def _convert_in_worker(self, data: bytes, filename: str | None, options: ConvertOptions | None) -> ConversionResult:
-        slot = await self._free.get()
+        slot = await self._free_slots().get()
         try:
+            if self._closed:  # closed while this file waited for a slot: its pool is shut down
+                raise RuntimeError("This IsolatedConverter is closed.")
             future = asyncio.get_running_loop().run_in_executor(self._pools[slot], _run, data, filename, options)
             return await asyncio.wait_for(future, self._timeout)
         except (TimeoutError, BrokenProcessPool) as exc:
+            if self._closed:
+                # `aclose` killed the worker. That is a shutdown, not a document that is too large
+                # (Pinned by: test_audit_runtime.py::TestClosingWithConversionsUnderWay).
+                raise RuntimeError("This IsolatedConverter is closed.") from exc
             self._replace(slot)
             raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as exc:
+            current = asyncio.current_task()
+            if self._closed and current is not None and not current.cancelling():
+                # Not a cancelled request: `aclose` shut the pool down before the worker took the file, which cancels the call
+                raise RuntimeError("This IsolatedConverter is closed.") from exc
             # The worker keeps running even after the request is dropped. Left alone, the next file would queue behind it
             self._replace(slot)
             raise
@@ -128,10 +147,31 @@ class IsolatedConverter:
         finally:
             self._free.put_nowait(slot)
 
+    def _free_slots(self) -> "asyncio.Queue[int]":
+        """The queue of free slots, replaced when it is bound to an event loop that has been closed.
+
+        An `asyncio.Queue` binds to the loop in which a caller first has to wait. A converter used from one `asyncio.run` after
+        another then raised "bound to a different event loop" in every later loop as soon as a file had to wait
+        (Pinned by: test_audit_runtime.py::TestConverterUsedFromSuccessiveEventLoops). Nothing can wait in a closed loop any
+        more, so the free slots are moved to a new queue: the number of slots, and with it the worker limit, stays the same.
+        Deliberate: a queue bound to a loop that is still open is left alone (`_loop` is a private attribute; without it
+        nothing is moved). One converter shared by event loops running at the same time in several threads is not supported.
+        """
+        bound = getattr(self._free, "_loop", None)
+        if bound is not None and bound.is_closed():
+            free: asyncio.Queue[int] = asyncio.Queue()
+            while not self._free.empty():
+                free.put_nowait(self._free.get_nowait())
+            self._free = free
+        return self._free
+
     def _replace(self, slot: int) -> None:
-        _stop(self._pools[slot])  # do not wait for the manager thread to finish — no reason to delay the failure response
-        if not self._closed:
-            self._pools[slot] = self._new_pool()
+        if self._closed:  # `aclose` is stopping every pool itself; a second `shutdown` of the same pool at the same time broke it
+            return
+        # Do not wait for the manager thread to finish — no reason to delay the failure response. Nobody awaits this future, so
+        # its outcome is collected here; otherwise asyncio logs "Future exception was never retrieved" for a failed shutdown.
+        _stop(self._pools[slot]).add_done_callback(lambda stopped: stopped.cancelled() or stopped.exception())
+        self._pools[slot] = self._new_pool()
 
     def _new_pool(self) -> ProcessPoolExecutor:
         return ProcessPoolExecutor(max_workers=1, mp_context=self._context, initializer=_start_worker,

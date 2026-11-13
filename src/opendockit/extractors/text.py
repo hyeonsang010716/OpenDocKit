@@ -7,6 +7,7 @@ import bisect
 import codecs
 from datetime import date, timedelta
 import email
+from email.errors import HeaderParseError
 from email.header import Header, decode_header, make_header
 from email.message import Message
 import html
@@ -108,7 +109,10 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     """
     for bom, encoding in _BOMS:
         if data.startswith(bom):
-            return data.decode(encoding, errors="replace"), encoding
+            # Replacement decoding is reported here too — a lone surrogate behind a UTF-16 BOM became `�` without a warning
+            # (Pinned by: test_audit_html_text.py::TestDamagedTextBehindAByteOrderMark)
+            text = _strict(data, encoding)
+            return (text, encoding) if text is not None else (data.decode(encoding, errors="replace"), f"{encoding}{_REPLACED}")
 
     # 7-bit text declared as ISO-2022-JP, ISO-2022-KR or UTF-7 was taken by strict UTF-8 decoding and became `$B2q5D…(B` with the
     # escape sequences erased (Pinned by: test_core_mailboxes_and_charsets.py::TestSevenBitEscapeCharsets). Used only when it
@@ -404,6 +408,9 @@ _TERMINAL_SEQUENCE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b\n]*(?:\x07|\x1b\\)|[P^_][^\x1b\n]*\x1b\\|[()*+][0-9A-Za-z]|[78=>cDEHM\\])")
 # Number of names written in the mail attachment warning (beyond it 'and N more'; the same number as the PDF attachment warning).
 _ATTACHMENT_NAMES_SHOWN = 10
+# Maximum characters of one name in that warning, and the control characters (C0, DEL, C1) taken out of it (`_one_line`).
+_ATTACHMENT_NAME_CHARS = 100
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 # The header line names of the MIME header block (`mime_header_block`) and the headers used to identify mail. MHTML detection for
@@ -562,12 +569,19 @@ def _mime_nesting_exceeds(data: bytes, limit: int) -> bool:
     closes everything up to that boundary. A `boundary=` written in body text is not a Content-Type line and is not counted.
     Known accepted gap: a part that ends without a closing line stays open and is counted deeper than it really is (sibling
     parts are closed by the next delimiter line)."""
-    stack: list[bytes] = []
-    depth: dict[bytes, int] = {}  # open boundary → its position in the stack
+    stack: list[bytes | int] = []
+    depth: dict[bytes | int, int] = {}  # open boundary → its position in the stack
 
     for match in _MIME_NESTING_LINE.finditer(data):
-        boundary = match.group("declared_quoted") or match.group("declared")
+        boundary: bytes | int | None = match.group("declared_quoted") or match.group("declared")
         if boundary is not None:
+            # An RFC 2231 parameter (`boundary*=us-ascii''b1`, `boundary*0=b1`), which the parser honours too, is counted as a
+            # level of its own that no delimiter line of its own closes (its value is not decoded; the key is its position, which
+            # no line can equal). Not seen at all, it went around the limit: 600 levels + 200,000 lines took 9 seconds
+            # (Pinned by: test_audit_html_text.py::TestMultipartNestingDeclaredWithExtendedParameters). Known accepted gap: a
+            # mail with more than `limit` such declarations outside any part closed by an ordinary boundary is rejected.
+            if match.group("extended"):
+                boundary = match.start()
             if boundary not in depth:
                 depth[boundary] = len(stack)
                 stack.append(boundary)
@@ -1019,7 +1033,8 @@ _MAX_MIME_NESTING = 32
 # of its continuation line).
 _MIME_NESTING_LINE = re.compile(
     rb"^--(?P<delimiter>[^\r\n]*)"
-    rb"|^(?:content-type:|[ \t])[^\r\n]*?\bboundary\s*=\s*(?:\"(?P<declared_quoted>[^\"\r\n]*)\"|(?P<declared>[^\s;\"]+))",
+    rb"|^(?:content-type:|[ \t])[^\r\n]*?\bboundary(?P<extended>\*[\d*]*)?\s*=\s*"
+    rb"(?:\"(?P<declared_quoted>[^\"\r\n]*)\"|(?P<declared>[^\s;\"]+))",
     re.IGNORECASE | re.MULTILINE)
 
 
@@ -1121,9 +1136,12 @@ def _decoded_words(text: str) -> str:
     (Pinned by: test_core_mail_parts_and_icons.py::TestKoreanEncodedWordsWithExtendedHangul). Words that still do not decode are
     decoded piece by piece with `decode_text`.
     """
+    # A word whose base64 is broken (`=?utf-8?b?A?=`) raises HeaderParseError, which is not a ValueError: one subject or
+    # attachment name rejected the whole mail
+    # (Pinned by: test_audit_html_text.py::TestEncodedWordThatCannotBeDecoded).
     try:
         pieces = decode_header(text)
-    except (LookupError, UnicodeError, ValueError):
+    except (LookupError, UnicodeError, ValueError, HeaderParseError):
         return text
     # In a word labeled Windows-1252/ISO-8859-1 nearly every byte decodes strictly, so a CP949 subject was garbled into `[°øÁö]`.
     # It is judged by its content, like the same declaration on a body
@@ -1132,7 +1150,7 @@ def _decoded_words(text: str) -> str:
               else (chunk, charset) for chunk, charset in pieces]
     try:
         return str(make_header([(chunk, _header_codec(charset)) for chunk, charset in pieces]))
-    except (LookupError, UnicodeError, ValueError):
+    except (LookupError, UnicodeError, ValueError, HeaderParseError):
         return "".join(_header_chunk_text(chunk, charset) for chunk, charset in pieces)
 
 
@@ -1223,7 +1241,7 @@ def _attachment_list(names: list[str]) -> str:
     """The text inside the parentheses of the attachment warning: up to `_ATTACHMENT_NAMES_SHOWN` names are written and the rest
     become 'and N more'; unnamed attachments (empty text) are given only as a count. Unnamed attachments were repeated 10 times
     as 'unnamed, unnamed, …' (Pinned by: test_core_round44.py::TestUnnamedMailAttachments)."""
-    named = [name for name in names if name]
+    named = [flat for name in names if (flat := _one_line(name))]
     parts = [*named[:_ATTACHMENT_NAMES_SHOWN]]
 
     if len(named) > _ATTACHMENT_NAMES_SHOWN:
@@ -1231,6 +1249,17 @@ def _attachment_list(names: list[str]) -> str:
     if len(named) < len(names):
         parts.append(f"{len(names) - len(named)} unnamed attachment(s)")
     return ", ".join(parts)
+
+
+def _one_line(name: str) -> str:
+    """A name taken from the mail (attachment file name, subject of a forwarded mail) as it goes into the warning: on one line,
+    without control characters, and at most `_ATTACHMENT_NAME_CHARS` characters (the same treatment as `mcp_server._one_line`).
+
+    An RFC 2231 name (`filename*=utf-8''a%0Ab`) carries line breaks and has no length limit, so the one-line warning became
+    several lines or thousands of characters (Pinned by: test_audit_html_text.py::TestAttachmentNameInTheWarning).
+    """
+    flat = " ".join(_CONTROL_CHARACTERS.sub(" ", name).split())
+    return flat if len(flat) <= _ATTACHMENT_NAME_CHARS else flat[:_ATTACHMENT_NAME_CHARS - 1].rstrip() + "…"
 
 
 def _attachment_name(part: Message) -> str:
@@ -1387,17 +1416,25 @@ def _plain_text(data: bytes) -> Extraction:
 # (Pinned by: test_core_round48.py::TestRepeatedPictureOpenersTakeLinearTime). Known accepted gap: when the alt text contains
 # `![` (`![a ![b](data:…)`), the picture starts at the last `![` and the `![a ` before it stays as text (the picture is still
 # extracted).
+# An `<img` is only examined when the `>` that would close it is there: the base64 branch looks ahead for it (`(?=[^<>]*>)` —
+# nothing in that branch can hold `<` or `>`), and the other branch, where a quoted address may hold them
+# (`data:image/svg+xml;utf8,<svg …>`), notes whether the tag text runs up to a `>` (`closed`) and otherwise only takes a quoted
+# address that itself holds a `<` or `>` — nothing else could reach a `>` from there. Without that, every `src=` of a tag
+# that is never closed walked to the end of the tag and back: 8,000 of them in one `<img` (234KB) took 19 seconds. The matches
+# are the same as before (Pinned by: test_audit_html_text.py::TestUnclosedImgTagWithManySources).
 _PICTURE_ALT = r"(?:[^\]\n!]|!(?!\[))*"
 _DATA_IMAGE = r"data:image/[\w.+-]+(?:;[\w.+-]+=[^;,\s()<>\"']*)*;base64,"
 _MARKDOWN_DATA_PICTURE = re.compile(
     r"!\[(?P<alt>" + _PICTURE_ALT + r")\]\(\s*(?:<" + _DATA_IMAGE + r"(?P<angle_data>[A-Za-z0-9+/=\s]*)>\s*"
     r"|" + _DATA_IMAGE + r"(?P<data>[A-Za-z0-9+/=\s]*))"
     r"(?:\"[^\"\n]*\"\s*|'[^'\n]*'\s*|\([^()\n]*\)\s*)?\)"
-    r"|<img\b(?P<before>[^<>]*?)\bsrc\s*=\s*(?:(?P<quote>[\"'])\s*" + _DATA_IMAGE + r"(?P<tag_data>[A-Za-z0-9+/=\s]*)(?P=quote)"
+    r"|<img\b(?=[^<>]*>)(?P<before>[^<>]*?)\bsrc\s*=\s*(?:(?P<quote>[\"'])\s*" + _DATA_IMAGE + r"(?P<tag_data>[A-Za-z0-9+/=\s]*)(?P=quote)"
     r"|" + _DATA_IMAGE + r"(?P<bare_data>[A-Za-z0-9+/=]*)(?![A-Za-z0-9+/=]))(?P<after>[^<>]*)>"
     r"|!\[(?P<other_alt>" + _PICTURE_ALT + r")\]\(\s*(?:<data:image/[^<>\n]*+>|data:image/(?:[^\s()]|\([^\s()]*+\))*+)\s*"
     r"(?:\"[^\"\n]*\"\s*|'[^'\n]*'\s*|\([^()\n]*\)\s*)?\)"
-    r"|<img\b(?P<other_before>[^<>]*?)\bsrc\s*=\s*(?:\"\s*data:image/[^\"]*+\"|'\s*data:image/[^']*+'|data:image/[^\s\"'<>`]*+)"
+    r"|<img\b(?:(?=[^<>]*>)(?P<closed>))?(?P<other_before>[^<>]*?)\bsrc\s*=\s*"
+    r"(?:\"\s*data:image/(?(closed)|[^\"<>]*+[<>])[^\"]*+\"|'\s*data:image/(?(closed)|[^'<>]*+[<>])[^']*+'"
+    r"|(?(closed)|(?!))data:image/[^\s\"'<>`]*+)"
     r"(?P<other_after>[^<>]*)>",
     re.IGNORECASE)
 # The line-start opening of a code fence (three or more backticks or tildes) and the closing line (fence marker + only spaces or
