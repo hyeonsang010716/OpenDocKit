@@ -195,6 +195,8 @@ _FONT_SHORTHAND = re.compile(r"(?:^|;)\s*font\s*:\s*([^;]+)", re.IGNORECASE)
 _CSS_INDENT = re.compile(r"(?:^|;)\s*(?P<name>padding-left|padding|text-indent|margin-left)\s*:\s*(?P<value>[^;!]+)", re.IGNORECASE)
 _CSS_LENGTH = re.compile(r"(\d+(?:\.\d+)?)(px|pt|em|rem|)", re.IGNORECASE)
 _CSS_UNITS = {"px": 1.0, "pt": 4 / 3, "em": 16.0, "rem": 16.0, "": 0.0}
+# Upper bound on one CSS length (px, `_css_length`). No real indentation comes near it.
+_MAX_CSS_LENGTH = 10000.0
 _MAX_INDENT_RANK = 5
 _NUMBER_TEXT = re.compile(r"[-+−▲▼△(]?\s*[₩$€¥£]?\s*\d[\d,]*(?:\.\d+)?\s*%?\)?")
 # MathML (`_put_math`): annotation encodings of the LaTeX the document wrote, the wrapper of Wikipedia's alttext, script
@@ -2360,7 +2362,9 @@ def _css_length(value: str, *, last: bool) -> float:
     match = _CSS_LENGTH.fullmatch(parts[0]) if parts else None
     if match is None:
         return 0.0
-    return float(match.group(1)) * _CSS_UNITS[match.group(2).lower()]
+    # A length of hundreds of digits is `inf`, and rounding the depth raised OverflowError — one style attribute rejected the
+    # whole document (Pinned by: test_audit_html_text.py::TestHugeCssLengthInATableCell)
+    return min(float(match.group(1)) * _CSS_UNITS[match.group(2).lower()], _MAX_CSS_LENGTH)
 
 
 def _table_grid(rows: list[Tag], header_count: int, *, embedding: bool,

@@ -36,3 +36,27 @@ class TestEncodedWordThatCannotBeDecoded:
 
         assert "body text" in result.text
         assert any(warning.startswith("1 mail attachment(s)") for warning in result.warnings)
+
+
+class TestHugeCssLengthInATableCell:
+    """A CSS length of hundreds of digits became `inf`, and rounding the indentation depth of the cell raised OverflowError: one
+    style attribute rejected the whole document."""
+
+    @pytest.mark.parametrize("length", ["9" * 400 + "px", "9" * 300 + "px", "1" + "0" * 308 + "em"])
+    def test_table_is_read(self, length):
+        html = ("<table><tr><th>name</th><th>value</th></tr>"
+                f"<tr><td style='padding-left:{length}; margin-left:{length}'>inner</td><td>1</td></tr>"
+                "<tr><td>outer</td><td>2</td></tr></table>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "| name | value |\n| --- | --- |\n| └ inner | 1 |\n| outer | 2 |"
+
+    def test_ordinary_indentation_is_marked_as_before(self):
+        html = ("<table><tr><th>name</th><th>value</th></tr><tr><td>outer</td><td>2</td></tr>"
+                "<tr><td style='padding-left:20px'>inner</td><td>1</td></tr>"
+                "<tr><td style='padding-left:40px'>innermost</td><td>1</td></tr></table>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "| name | value |\n| --- | --- |\n| outer | 2 |\n| └ inner | 1 |\n| └─ innermost | 1 |"
