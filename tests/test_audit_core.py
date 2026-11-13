@@ -9,7 +9,7 @@ import zipfile
 from lxml import etree
 import pytest
 
-from opendockit import ConvertOptions, convert
+from opendockit import ConvertOptions, DocumentTooLargeError, convert, convert_file
 from opendockit.detect import detect_format
 from opendockit.extractors import _shared
 from opendockit.markdown import neutralize_table_tags
@@ -480,3 +480,21 @@ class TestWarningsWhenNoCharactersAreAllowed:
         result = convert(b"  \n\n", "a.txt", ConvertOptions(max_chars=0))
 
         assert not result.exceeded and result.warnings == ["No text was extracted."]
+
+
+class TestSizeLimitBelowOneMegabyte:
+    """The message for a file over `max_file_bytes` gave the limit in whole megabytes, so a limit under 1 MiB read 'maximum 0MB'."""
+
+    @pytest.mark.parametrize(("limit", "shown"), [(10, "10 bytes"), (1023, "1023 bytes"), (1024, "1KB"), (512 * 1024, "512KB"),
+                                                  (1024 * 1024 - 1, "1023KB"), (1024 * 1024, "1MB"), (5 * 1024 * 1024 + 7, "5MB")])
+    def test_limit_is_written_in_a_unit_that_does_not_round_it_to_zero(self, limit, shown, tmp_path):
+        data = b"a" * (limit + 1)
+        path = tmp_path / "a.txt"
+        path.write_bytes(data)
+
+        with pytest.raises(DocumentTooLargeError) as raised:
+            convert(data, "a.txt", ConvertOptions(max_file_bytes=limit))
+        with pytest.raises(DocumentTooLargeError) as raised_for_file:
+            convert_file(path, ConvertOptions(max_file_bytes=limit))
+
+        assert str(raised.value) == str(raised_for_file.value) == f"The file is too large (maximum {shown})."

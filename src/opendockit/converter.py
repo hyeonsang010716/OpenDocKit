@@ -89,7 +89,7 @@ def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
     _check_arguments(filename, options)
     options = options or _DEFAULT_OPTIONS
     if len(data) > options.max_file_bytes:
-        raise DocumentTooLargeError(f"The file is too large (maximum {options.max_file_bytes // (1024 * 1024)}MB).")
+        raise DocumentTooLargeError(f"The file is too large (maximum {_size_text(options.max_file_bytes)}).")
     if not data:
         raise CorruptedDocumentError("The file is empty.")
 
@@ -137,6 +137,14 @@ def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
     return render(result)
 
 
+def _size_text(size: int) -> str:
+    """A size limit in whole megabytes (`50MB`), or below 1 MiB in kilobytes or bytes (`512KB`, `10 bytes`) — in megabytes alone a
+    limit under 1 MiB read 'maximum 0MB' (Pinned by: test_audit_core.py::TestSizeLimitBelowOneMegabyte)."""
+    if size >= 1024 * 1024:
+        return f"{size // (1024 * 1024)}MB"
+    return f"{size // 1024}KB" if size >= 1024 else f"{size} bytes"
+
+
 def _content_bytes(data: bytes | bytearray | memoryview) -> bytes:
     """Take the file content as bytes. A memoryview failed in format detection (`startswith`) and a path string failed during
     detection, and both were rejected with 'The file may be corrupted', which hid the cause (Pinned by: test_converter.py::TestInputTypes)."""
@@ -180,7 +188,7 @@ def convert_file(path: str | os.PathLike[str], options: ConvertOptions | None = 
     _check_arguments(None, options)
     options = options or _DEFAULT_OPTIONS
     if file_path.stat().st_size > options.max_file_bytes:
-        raise DocumentTooLargeError(f"The file is too large (maximum {options.max_file_bytes // (1024 * 1024)}MB).")
+        raise DocumentTooLargeError(f"The file is too large (maximum {_size_text(options.max_file_bytes)}).")
     return convert(file_path.read_bytes(), file_path.name, options)
 
 
