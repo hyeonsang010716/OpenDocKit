@@ -84,3 +84,36 @@ class TestDocxMainPartWithoutABody:
             convert(data, "sample.docx")
 
         assert str(error.value) == "The DOCX document structure could not be read."
+
+
+class TestDocxStylesAndNumberingWithAGenericContentType:
+    """A styles or numbering part declared as `application/xml` comes back from python-docx as a plain part without a parsed
+    tree; asking it for its styles / element raised AttributeError and the document was rejected as corrupted. It is parsed from
+    its bytes, as the footnotes and comments parts are."""
+
+    _BODY = ('<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Chapter</w:t></w:r></w:p>'
+             '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>first</w:t></w:r></w:p>'
+             '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>second</w:t></w:r></w:p>')
+
+    @pytest.mark.parametrize("kind", ["styles", "numbering"])
+    def test_document_is_read_as_with_the_proper_content_type(self, kind):
+        proper = _docx_with_body(self._BODY)
+        declared = f"application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml"
+        generic = builder.zip_with(proper, edit={"[Content_Types].xml": lambda xml: xml.replace(declared, "application/xml")})
+
+        text = convert(generic, "sample.docx").text
+
+        assert text == convert(proper, "sample.docx").text
+        assert text == "# Chapter\n\n1. first\n2. second"
+
+    @pytest.mark.parametrize("kind", ["styles", "numbering"])
+    def test_part_that_is_not_xml_only_loses_its_own_information(self, kind):
+        declared = f"application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml"
+        data = builder.zip_with(_docx_with_body(self._BODY), edit={
+            "[Content_Types].xml": lambda xml: xml.replace(declared, "application/octet-stream"),
+            f"word/{kind}.xml": lambda xml: "not xml"})
+
+        text = convert(data, "sample.docx").text
+
+        assert [line for line in text.split("\n") if line] == {
+            "styles": ["Chapter", "first", "second"], "numbering": ["# Chapter", "first", "second"]}[kind]

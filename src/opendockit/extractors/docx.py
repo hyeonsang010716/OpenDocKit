@@ -240,7 +240,9 @@ class _DocxRenderer:
         self.placeholders = _placeholder_texts(self._part)  # glossary docPart name → placeholder text (`_keep_filled_placeholders`)
         self._styles = _load_styles(document)
         self._default_style = next((style for style in self._styles.values() if style.default), None)
-        default_size = document.styles.element.find(f"{_w('docDefaults')}/{_w('rPrDefault')}/{_w('rPr')}/{_w('sz')}")
+        styles_root = _styles_root(document)
+        default_size = (styles_root.find(f"{_w('docDefaults')}/{_w('rPrDefault')}/{_w('rPr')}/{_w('sz')}")
+                        if styles_root is not None else None)
         self._default_size = _int_attr(default_size, 0) or 20  # document default font size. If absent, Word uses 10pt (20 half-points)
         self._number_lists = _load_numbering(document)
         # There is one counter per number definition (abstractNum). Numbered lists (numId) already seen in the body are noted separately.
@@ -1562,9 +1564,27 @@ def _outline_to_heading(level: int) -> int | None:
     return min(level + 1, 6) if 0 <= level < 9 else None
 
 
+def _raw_part_root(part: object, kind: str) -> etree._Element | None:
+    """Root of the styles or numbering part (`kind`) parsed from its bytes, None when it is not XML. A part declared with a generic
+    content type (application/xml) comes back from python-docx as a plain `Part` with no parsed tree, and asking it for its styles
+    or element raised AttributeError, which rejected the whole document. It is read the way the footnotes and comments parts are
+    (Pinned by: test_audit_office.py::TestDocxStylesAndNumberingWithAGenericContentType)."""
+    related = next((rel.target_part for rel in part.rels.values() if not rel.is_external and rel.reltype.endswith(f"/{kind}")), None)
+    blob = getattr(related, "blob", None)
+    return parse_part(blob) if blob else None
+
+
+def _styles_root(document: object) -> etree._Element | None:
+    try:
+        return document.styles.element
+    except AttributeError:
+        return _raw_part_root(document.part, "styles")
+
+
 def _load_styles(document: object) -> dict[str, _Style]:
     styles: dict[str, _Style] = {}
-    for style in document.styles.element.iterchildren(_w("style")):
+    root = _styles_root(document)
+    for style in root.iterchildren(_w("style")) if root is not None else ():
         style_id = style.get(_w("styleId"))
         if not style_id:
             continue
@@ -1606,6 +1626,10 @@ def _load_numbering(document: object) -> dict[str, _NumberList]:
         numbering = document.part.numbering_part.element
     except (KeyError, NotImplementedError):
         return {}
+    except AttributeError:
+        numbering = _raw_part_root(document.part, "numbering")
+        if numbering is None:
+            return {}
 
     abstract_levels: dict[str, dict[int, _LevelDefinition]] = {}
     abstract_indents: dict[str, dict[int, dict[str, int]]] = {}
