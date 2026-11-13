@@ -1,6 +1,6 @@
 # PDF decisions: reading order
 
-Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py`) about body flow (reading order, two columns, joining lines, labels beside tables, superscripts) and removal of repeated headers and footers (`_remove_repeated_margins`). Joining pieces of the same row ('label value', dot leaders, list numbers) and lifting a pushed-down line are in [pdf-rows.md](pdf-rows.md). Split off from [pdf.md](pdf.md) because of its size limit;
+Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py` and the `_pdf_*.py` modules beside it) about body flow (reading order, two columns, joining lines, labels beside tables, superscripts) and removal of repeated headers and footers (`_remove_repeated_margins`). Joining pieces of the same row ('label value', dot leaders, list numbers) and lifting a pushed-down line are in [pdf-rows.md](pdf-rows.md). Split off from [pdf.md](pdf.md) because of its size limit;
 the rules are the same: do not revert the decisions in this table. To change one, change the pinning test first and write the reason in the same row.
 
 ## PDF body flow

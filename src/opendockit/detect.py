@@ -16,16 +16,9 @@ import zipfile
 import olefile
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
-from opendockit.extractors.html import is_mhtml, mail_reads_as_html, mhtml_html_part
-from opendockit.extractors.text import (
-    decode_text,
-    is_cp949_text,
-    is_encrypted_mail,
-    is_utf8_text,
-    mail_box,
-    unicode_bom_codec,
-    utf16_encoding,
-)
+from opendockit.extractors._encoding import decode_text, is_cp949_text, is_utf8_text, unicode_bom_codec, utf16_encoding
+from opendockit.extractors._html_mail import is_mhtml, mail_reads_as_html, mhtml_html_part
+from opendockit.extractors._mail import is_encrypted_mail, mail_box
 from opendockit.image import is_image_file
 from opendockit.models import DocumentFormat
 
@@ -294,7 +287,7 @@ def _detect_ole(data: bytes) -> DocumentFormat:
     # OLE stream names are case-insensitive (olefile, xlrd and Excel alike). An XLS saved with `WORKBOOK` was rejected as an "unsupported
     # OLE document" (Pinned by: test_detect.py::TestXlsStreamNameCase), and a password-protected docx saved with `ENCRYPTEDPACKAGE` got
     # the same rejection instead of the password notice (Pinned by: test_detect.py::TestOleStreamNameCaseForOtherDocuments). So Office
-    # stream names are compared in lowercase. The reading side (`spreadsheet._xls_workbook_stream`) is case-insensitive too. For HWP the
+    # stream names are compared in lowercase. The reading side (`xls._xls_workbook_stream`) is case-insensitive too. For HWP the
     # extractor (`hwp.py`) looks up `BodyText` by exactly that name, so detection leaves it as is.
     if "FileHeader" in streams and ("BodyText" in streams or "ViewText" in streams):
         return DocumentFormat.HWP
@@ -393,7 +386,7 @@ def _detect_text(data: bytes, extension: str) -> DocumentFormat:
     # (`html.mail_reads_as_html`). Any other mail is text and is not passed on to the HTML sniff below — an HTML attachment attached
     # as 8bit, or the `<html>` of a forwarded mail, made the whole raw mail be read as HTML
     # (Pinned by: test_core_text_and_mail.py::TestForwardedMail).
-    # An mbox archive is HTML if any of its mails has something to read as HTML (`text.mail_box`).
+    # An mbox archive is HTML if any of its mails has something to read as HTML (`_mail.mail_box`).
     if mails:
         return DocumentFormat.HTML if any(mail_reads_as_html(mail) for mail in mails) else DocumentFormat.TEXT
 
@@ -428,7 +421,7 @@ def _detect_text(data: bytes, extension: str) -> DocumentFormat:
 
 
 def _is_plain_mail(data: bytes) -> bool:
-    """Is this a mail with nothing to read as HTML (`text.mail_box`, MHTML excluded)? A plain-text mail named `.html`/`.htm` went to the
+    """Is this a mail with nothing to read as HTML (`_mail.mail_box`, MHTML excluded)? A plain-text mail named `.html`/`.htm` went to the
     HTML extractor by its extension, and its headers and body were squashed into one line
     (Pinned by: test_core_mailboxes_and_charsets.py::TestPlainMailNamedAsHtml)."""
     mails, _ = mail_box(data)

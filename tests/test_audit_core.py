@@ -11,7 +11,7 @@ import pytest
 
 from opendockit import ConvertOptions, DocumentTooLargeError, convert, convert_file
 from opendockit.detect import detect_format
-from opendockit.extractors import _shared
+from opendockit.extractors import _charts, _inline, _lists, _omml
 from opendockit.markdown import neutralize_table_tags
 from opendockit.models import DocumentFormat
 from tests import builder
@@ -90,9 +90,9 @@ class TestUnclosedImagePlaceholderText:
         assert result.text.startswith("**b** [^a[^a")
 
     def test_placeholders_are_still_told_from_words(self):
-        assert _shared._is_placeholder_text("[Image: 조직도] [^1] [Image]")
-        assert not _shared._is_placeholder_text("[Image: 조직도] 본문")
-        assert _shared._INLINE_PLACEHOLDER.split("앞 [Image: 로고]뒤[^12]") == ["앞 ", "[Image: 로고]", "뒤", "[^12]", ""]
+        assert _inline._is_placeholder_text("[Image: 조직도] [^1] [Image]")
+        assert not _inline._is_placeholder_text("[Image: 조직도] 본문")
+        assert _inline._INLINE_PLACEHOLDER.split("앞 [Image: 로고]뒤[^12]") == ["앞 ", "[Image: 로고]", "뒤", "[^12]", ""]
 
 
 class TestUnclosedTableTagsInCellText:
@@ -220,7 +220,7 @@ class TestChartFormatWithManyOpenBrackets:
         format_code = "[$" * 126 + '0"원'
         started = time.perf_counter()
 
-        shown = {_shared._format_value("1200", format_code) for _ in range(60_000)}
+        shown = {_charts._format_value("1200", format_code) for _ in range(60_000)}
 
         assert time.perf_counter() - started < allowed(10.0)  # 25 seconds before, 3 now
         assert len(format_code) == 255 and shown == {"1200"}
@@ -238,12 +238,12 @@ class TestChartFormatWithManyOpenBrackets:
         assert result.text.endswith("| 8000 | 0.5 |")
 
     def test_format_longer_than_excel_allows_is_not_applied(self):
-        assert _shared._format_value("1200", "#" * 251 + '0"원"') == "1200원"
-        assert _shared._format_value("1200", "#" * 252 + '0"원"') == "1200"
-        assert _shared._format_value("0.5", "#" * 253 + "0%") == "50%"
-        assert _shared._format_value("0.5", "#" * 254 + "0%") == "0.5"
-        assert _shared._format_date("46023", 'yyyy-mm-dd"' + "x" * 243 + '"', False) == "2026-01-01"
-        assert _shared._format_date("46023", 'yyyy-mm-dd"' + "x" * 244 + '"', False) is None
+        assert _charts._format_value("1200", "#" * 251 + '0"원"') == "1200원"
+        assert _charts._format_value("1200", "#" * 252 + '0"원"') == "1200"
+        assert _charts._format_value("0.5", "#" * 253 + "0%") == "50%"
+        assert _charts._format_value("0.5", "#" * 254 + "0%") == "0.5"
+        assert _charts._format_date("46023", 'yyyy-mm-dd"' + "x" * 243 + '"', False) == "2026-01-01"
+        assert _charts._format_date("46023", 'yyyy-mm-dd"' + "x" * 244 + '"', False) is None
 
     @pytest.mark.parametrize(("value", "format_code", "expected"), [
         ("0.253", "[Red]0.0%", "25.3%"),
@@ -253,12 +253,12 @@ class TestChartFormatWithManyOpenBrackets:
         ("0.5", '[h]:mm"%"', "0.5"),
     ])
     def test_bracketed_sections_are_read_as_before(self, value, format_code, expected):
-        assert _shared._format_value(value, format_code) == expected
+        assert _charts._format_value(value, format_code) == expected
 
     def test_bracketed_sections_of_a_date_format_are_read_as_before(self):
-        assert _shared._format_date("46023", "[$-412]yyyy-mm-dd", False) == "2026-01-01"
-        assert _shared._format_date("1.5", "[h]:mm", False) == "12:00"
-        assert _shared._format_date("46023", "[Red]0", False) is None
+        assert _charts._format_date("46023", "[$-412]yyyy-mm-dd", False) == "2026-01-01"
+        assert _charts._format_date("1.5", "[h]:mm", False) == "12:00"
+        assert _charts._format_date("46023", "[Red]0", False) is None
 
 
 def _equation(children: str) -> etree._Element:
@@ -274,7 +274,7 @@ class TestEquationWithManyRuns:
         equation = _equation("<m:r><m:t>x</m:t></m:r>" * 160_000)
         started = time.perf_counter()
 
-        latex = _shared.omml_to_latex(equation)
+        latex = _omml.omml_to_latex(equation)
 
         assert time.perf_counter() - started < allowed(5.0)
         assert latex == "x" * 160_000
@@ -282,9 +282,9 @@ class TestEquationWithManyRuns:
     def test_one_character_script_before_a_letter_is_still_braced(self):
         script = "<m:sSup><m:e><m:r><m:t>x</m:t></m:r></m:e><m:sup><m:r><m:t>k</m:t></m:r></m:sup></m:sSup>"
 
-        assert _shared.omml_to_latex(_equation(f"{script}<m:r><m:t>a</m:t></m:r>")) == "x^{k}a"
-        assert _shared.omml_to_latex(_equation(f"<m:r><m:t>y+</m:t></m:r>{script}<m:r><m:t>+a</m:t></m:r>")) == "y+x^k+a"
-        assert _shared.omml_to_latex(_equation(f"{script}{script}")) == "x^{k}x^k"
+        assert _omml.omml_to_latex(_equation(f"{script}<m:r><m:t>a</m:t></m:r>")) == "x^{k}a"
+        assert _omml.omml_to_latex(_equation(f"<m:r><m:t>y+</m:t></m:r>{script}<m:r><m:t>+a</m:t></m:r>")) == "y+x^k+a"
+        assert _omml.omml_to_latex(_equation(f"{script}{script}")) == "x^{k}x^k"
 
 
 def _package(relationships: str, *parts: str) -> bytes:
@@ -362,10 +362,10 @@ class TestChartValueTooLargeForItsFormat:
         assert result.text.endswith("| 1 | 1e999999 |\n| 2 | 25% |")
 
     def test_format_that_divides_by_thousands_past_the_number_range_is_not_applied(self):
-        assert _shared._format_units("5", "0" + "," * 400_000 + '"k"') is None
-        assert _shared._format_value("5", "0" + "," * 400_000 + '"k"') == "5"
-        assert _shared._format_units("5", "0" + "," * 251 + '"k"') == "0k"
-        assert _shared._format_units("1200000", '0,,"백만"') == "1백만"
+        assert _charts._format_units("5", "0" + "," * 400_000 + '"k"') is None
+        assert _charts._format_value("5", "0" + "," * 400_000 + '"k"') == "5"
+        assert _charts._format_units("5", "0" + "," * 251 + '"k"') == "0k"
+        assert _charts._format_units("1200000", '0,,"백만"') == "1백만"
 
 
 class TestHugeLevelNumberInNumberText:
@@ -378,7 +378,7 @@ class TestHugeLevelNumberInNumberText:
         assert "\n\n(1) 첫째\n\n(2) 둘째\n\n" in result.text and "본문 첫 문단입니다." in result.text
 
     def test_number_of_a_level_that_does_not_exist_is_left_out_as_before(self):
-        numbering = _shared.Numbering([_shared.NumberLevel("%7%0-%1.")], mark="%")
+        numbering = _lists.Numbering([_lists.NumberLevel("%7%0-%1.")], mark="%")
 
         assert [numbering.advance(0), numbering.advance(0)] == ["-1.", "-2."]
 
@@ -456,12 +456,12 @@ class TestLetterAfterAPercentSignInNumberText:
         assert "\n\n100%Note 1. 첫째\n\n100%Note 2. 둘째\n\n" in result.text
 
     def test_docx_number_text_keeps_percent_n_in_either_case(self):
-        numbering = _shared.Numbering([_shared.NumberLevel("%n%N %1)")], mark="%")
+        numbering = _lists.Numbering([_lists.NumberLevel("%n%N %1)")], mark="%")
 
         assert numbering.advance(0) == "%n%N 1)"
 
     def test_hangul_number_text_still_reads_the_level_itself(self):
-        numbering = _shared.Numbering([_shared.NumberLevel("^1."), _shared.NumberLevel("^1-^N)"), _shared.NumberLevel("(^n)")])
+        numbering = _lists.Numbering([_lists.NumberLevel("^1."), _lists.NumberLevel("^1-^N)"), _lists.NumberLevel("(^n)")])
 
         assert [numbering.advance(0), numbering.advance(1), numbering.advance(1), numbering.advance(2)] == [
             "1.", "1-1)", "1-2)", "(1)"]

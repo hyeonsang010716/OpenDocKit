@@ -169,7 +169,8 @@ class TestLeftBlockIsNotAWrappedCell:
     block is 4pt off)."""
 
     def test_lines_of_two_blocks_with_different_line_pitches_are_not_a_table(self):
-        from opendockit.extractors.pdf import _Line, _split_line_table_runs
+        from opendockit.extractors._pdf_aligned_tables import _split_line_table_runs
+        from opendockit.extractors._pdf_model import _Line
 
         placed = [(70.5, 34.5, 128.9, "(주)가나다상사 귀하"), (84.7, 34.5, 143.8, "견적일자: 2025. 9. 30."),
                   (99.0, 34.5, 172.4, "유효기간: 견적일로부터 30일"), (127.5, 34.5, 147.3, "아래와 같이 견적합니다."),

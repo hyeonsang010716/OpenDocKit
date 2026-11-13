@@ -51,6 +51,9 @@ unchanged); what changed is what happens with damaged and hostile files.
 - A Hancom equation with a repeated script on one term (`x^2^3`) keeps the original script instead of LaTeX that does not
   compile.
 - The release workflow runs the tests before it builds.
+- The extractor modules are split by topic: no module is longer than 1,300 lines (`pdf.py` had 9,400). The public API and the
+  output are unchanged. Code that imported internals must follow them: `extractors._shared` is gone, and XLS, Excel 2003 XML
+  and CSV are read by `extractors.xls`, `extractors.xml_spreadsheet` and `extractors.csv_text`.
 
 ## [0.3.2] - 2026-11-13
 

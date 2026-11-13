@@ -1,6 +1,6 @@
 # Spreadsheet table decisions
 
-Deliberate decisions about splitting tables within a sheet (Excel, CSV) at empty rows and columns, title rows, summary cells, filling merges and the start column of the column limit (`spreadsheet._sheet_text`, `_fill_across`). Split off from [spreadsheet.md](spreadsheet.md);
+Deliberate decisions about splitting tables within a sheet (Excel, CSV) at empty rows and columns, title rows, summary cells, filling merges and the start column of the column limit (`_sheet_layout._sheet_text`, `_fill_across`). Split off from [spreadsheet.md](spreadsheet.md);
 the rule is the same: do not revert the decisions in this table. To change one, change its pinning test first and write the reason in the same row.
 
 | Decision | Why | Pinned by |

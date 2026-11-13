@@ -79,7 +79,7 @@ class TestDotLeaderPageNumbers:
     def test_only_runs_of_leader_dots_are_shortened(self, text, shortened):
         """Leaders made of spaced dots, middle dots and ellipsis characters are shortened too, while an ellipsis inside prose ('……'), numbering and
         short runs of dots are left as they are."""
-        from opendockit.extractors.pdf import _shortened_leaders
+        from opendockit.extractors._pdf_paragraphs import _shortened_leaders
 
         result = _shortened_leaders(text)
 

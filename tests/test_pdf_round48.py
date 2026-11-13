@@ -7,6 +7,7 @@ from io import BytesIO
 import pytest
 
 from opendockit import ConvertOptions, convert
+from opendockit.extractors import _pdf_pdfminer
 from opendockit.extractors import pdf as pdf_module
 from tests.test_quality import _draw_words, _pdf
 
@@ -101,7 +102,7 @@ class TestEmbeddedEncodingCMap:
         """Imitates the other cases where the embedded CMap cannot be read (an unknown CMap): with stream decoding turned off
         the CMap is empty, as before. Even so, if pdfium reads clearly more characters on that page, the page is switched
         to simple extraction and a warning says so."""
-        monkeypatch.setattr(pdf_module, "_embedded_cmap", lambda stream: None)
+        monkeypatch.setattr(_pdf_pdfminer, "_embedded_cmap", lambda stream: None)
         data = _stream_cmap_pdf(_KOREAN_LINES)
 
         result = convert(data, "a.pdf")

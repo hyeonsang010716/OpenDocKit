@@ -1,6 +1,6 @@
 # PDF decisions: row pieces and pushed-down lines
 
-Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py`) about joining pieces of the same row (`_join_row_fragments`: 'label value', a value at the end of dot leaders, list numbers) and lifting lines that were read too late (`_read_lone_lines_in_place`).
+Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py` and the `_pdf_*.py` modules beside it) about joining pieces of the same row (`_join_row_fragments`: 'label value', a value at the end of dot leaders, list numbers) and lifting lines that were read too late (`_read_lone_lines_in_place`).
 Split off from [pdf-flow.md](pdf-flow.md) because of its size limit; the rules are the same: do not revert the decisions in this table. To change one, change the pinning test first and write the reason in the same row.
 
 ## PDF row pieces and pushed-down lines

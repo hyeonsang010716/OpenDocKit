@@ -1,6 +1,6 @@
 # CSV decisions
 
-Deliberate decisions of the CSV extractor (`spreadsheet.extract_csv`) about delimiters, quotes and line verdicts. Split off from [spreadsheet.md](spreadsheet.md);
+Deliberate decisions of the CSV extractor (`csv_text.extract_csv`) about delimiters, quotes and line verdicts. Split off from [spreadsheet.md](spreadsheet.md);
 the rule is the same: do not revert the decisions in this table. To change one, change its pinning test first and write the reason in the same row. Value formatting is,
 together with Excel, in [spreadsheet.md](spreadsheet.md); splitting tables within a sheet is in [spreadsheet-tables.md](spreadsheet-tables.md).
 

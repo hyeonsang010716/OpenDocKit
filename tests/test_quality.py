@@ -7,6 +7,7 @@ import pytest
 
 from opendockit import convert
 from opendockit.markdown import clean_text
+from tests.pdf_modules import replace_everywhere
 
 
 def test_symbol_font_bullets_become_unicode_bullets():
@@ -348,9 +349,8 @@ def test_pdf_text_inside_a_table_area_is_never_dropped(monkeypatch):
     """Characters inside a table area are taken out of the body flow, but characters where table detection built no cell
     were held by no cell and silently disappeared (7 rows of "딜라이브…" in the same table). When the cells hold clearly fewer
     characters than the area contains, no table is made and the text stays in the body."""
-    from opendockit.extractors import pdf as pdf_module
 
-    monkeypatch.setattr(pdf_module, "_TABLE_SETTINGS", {})  # reproduce the state in which dotted lines are not seen (pdfplumber defaults)
+    replace_everywhere(monkeypatch, "_TABLE_SETTINGS", {})  # reproduce the state in which dotted lines are not seen (pdfplumber defaults)
 
     result = convert(_dotted_border_table_pdf(open_bottom=True), "a.pdf")
 
@@ -573,7 +573,7 @@ class TestSpreadsheetNumberFormats:
         ],
     )
     def test_formats_numbers_like_excel(self, value, number_format, expected):
-        from opendockit.extractors.spreadsheet import format_cell
+        from opendockit.extractors._sheet_format import format_cell
 
         assert format_cell(value, number_format) == expected
 

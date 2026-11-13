@@ -1,6 +1,6 @@
 # PDF decisions: tables and form marks
 
-Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py`) about re-aligning columns of borderless tables, words spread over a cell width, centred headers, tables continued onto the next page, tables inside tables, check boxes (rectangles and curves), rotated pages, form-grid headers, and values of grouped form fields and choice fields (tables made of cell shading are in [pdf-cells.md](pdf-cells.md)). Split off from [pdf.md](pdf.md) because of its size
+Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py` and the `_pdf_*.py` modules beside it) about re-aligning columns of borderless tables, words spread over a cell width, centred headers, tables continued onto the next page, tables inside tables, check boxes (rectangles and curves), rotated pages, form-grid headers, and values of grouped form fields and choice fields (tables made of cell shading are in [pdf-cells.md](pdf-cells.md)). Split off from [pdf.md](pdf.md) because of its size
 limit; the rules are the same: do not revert the decisions in this table. To change one, change the pinning test first and write the reason in the same row.
 
 ## PDF tables and form marks

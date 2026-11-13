@@ -16,7 +16,7 @@ import pytest
 
 from opendockit import ConvertOptions, convert
 from opendockit.extractors import html as html_extractor
-from opendockit.extractors._shared import (
+from opendockit.extractors._inline import (
     BLOCK_INSIDE,
     BOLD_OFF,
     BOLD_ON,
@@ -658,7 +658,7 @@ class TestHtmlEmphasis:
 
 
 class TestResolver:
-    """`_shared.resolve_inline` on its own: the shapes the extractors hand over."""
+    """`_inline.resolve_inline` on its own: the shapes the extractors hand over."""
 
     def test_span_with_words_in_two_blocks_is_not_written(self):
         tokens = ["앞 ", BOLD_ON, "첫 블록", "\n\n", "둘째 블록", BOLD_OFF, " ", LINK_ON, "한 블록", link_off("https://a.example/"), " ",

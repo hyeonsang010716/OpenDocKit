@@ -12,6 +12,7 @@ from openpyxl.drawing.image import Image
 import pytest
 
 from opendockit import ConvertOptions, convert
+from opendockit.extractors import xls
 from tests import builder
 
 
@@ -130,7 +131,7 @@ class TestManySheets:
         """To find comment authors (persons) the workbook relationships file (one entry per sheet) was parsed again for every sheet,
         taking time quadratic in the sheet count (8.9 s for 3,200 sheets). Timing fluctuates because openpyxl's own share is mixed
         in, so the number of re-reads is counted — it must not depend on the sheet count."""
-        from opendockit.extractors import spreadsheet
+        from opendockit.extractors import _xlsx_parts, spreadsheet
 
         def reads(sheets: int) -> int:
             workbook = Workbook()
@@ -139,11 +140,13 @@ class TestManySheets:
             buffer = BytesIO()
             workbook.save(buffer)
             sources: list[str] = []
-            related = spreadsheet._related
-            monkeypatch.setattr(spreadsheet, "_related",
-                                lambda archive, names, source, kind=None: sources.append(source) or related(archive, names, source, kind))
+            related = _xlsx_parts._related
+            for module in (spreadsheet, _xlsx_parts):  # the sheet list is read in one, the comment authors in the other
+                monkeypatch.setattr(module, "_related", lambda archive, names, source, kind=None: sources.append(source)
+                                    or related(archive, names, source, kind))
             convert(buffer.getvalue(), "a.xlsx", ConvertOptions(max_chars=None))
-            monkeypatch.setattr(spreadsheet, "_related", related)
+            for module in (spreadsheet, _xlsx_parts):
+                monkeypatch.setattr(module, "_related", related)
             return sources.count("xl/workbook.xml")
 
         few, many = reads(3), reads(300)
@@ -163,11 +166,10 @@ class TestXlsChartSheetSavedAsAWorksheet:
     treated as a chart sheet, so that sheet was dropped without a warning."""
 
     def test_empty_sheet_holding_only_a_chart_is_reported_like_a_chart_sheet(self):
-        from opendockit.extractors import spreadsheet
 
         data = builder.xls_bytes([("데이터", [["월", "매출"]], b""), ("차트1", [[]], _embedded_chart())])
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert extraction.warnings == ["Chart sheet '차트1' was not read "
                                        "(XLS charts are not converted to value tables — saving as XLSX converts them)."]
@@ -176,10 +178,9 @@ class TestXlsChartSheetSavedAsAWorksheet:
     def test_chart_placed_next_to_a_table_is_left_as_before(self):
         """An XLS chart on a sheet that has a table gives no warning, as before (Known accepted gap: XLS charts are not
         converted)."""
-        from opendockit.extractors import spreadsheet
 
         data = builder.xls_bytes([("데이터", [["월", "매출"]], _embedded_chart())])
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert extraction.warnings == []

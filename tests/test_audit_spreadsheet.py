@@ -12,7 +12,7 @@ import pytest
 
 from opendockit import convert
 from opendockit.exceptions import CorruptedDocumentError
-from opendockit.extractors import spreadsheet
+from opendockit.extractors import _sheet_layout, _xlsx_parts, spreadsheet, xls, xml_spreadsheet
 from opendockit.models import ConvertOptions
 from tests import builder
 from tests.test_spreadsheet_cell_values_and_controls import (
@@ -58,13 +58,13 @@ class TestStreamedRowsFarApart:
     def _collected(self, monkeypatch: pytest.MonkeyPatch) -> list[int]:
         """Number of rows handed to the renderer, per sheet."""
         counts: list[int] = []
-        sheet_text = spreadsheet._sheet_text
+        sheet_text = _sheet_layout._sheet_text
 
         def counting(rows: list[list[str]], across: object = None) -> str:
             counts.append(len(rows))
             return sheet_text(rows, across)
 
-        monkeypatch.setattr(spreadsheet, "_sheet_text", counting)
+        monkeypatch.setattr(_sheet_layout, "_sheet_text", counting)
         return counts
 
     def test_skipped_row_numbers_cost_one_empty_row(self, monkeypatch):
@@ -253,7 +253,7 @@ class TestUnclosedTagsInSheetXml:
         with zipfile.ZipFile(BytesIO(data)) as archive:
             started = time.perf_counter()
 
-            assert spreadsheet._checked_control_shapes(archive, set(archive.namelist()), _SHEET) == set()
+            assert _xlsx_parts._checked_control_shapes(archive, set(archive.namelist()), _SHEET) == set()
 
         assert time.perf_counter() - started < allowed(5)
 
@@ -281,7 +281,7 @@ class TestSheetXmlSearchesFindWhatTheyFound:
     def test_control_elements(self):
         xml = b'<controls><mc:x><control shapeId="1025" r:id="rId1" name="a"><controlPr/></control></mc:x></controls>'
 
-        assert spreadsheet._CONTROL_ELEMENT.findall(xml) == [b'<control shapeId="1025" r:id="rId1" name="a">']
+        assert _xlsx_parts._CONTROL_ELEMENT.findall(xml) == [b'<control shapeId="1025" r:id="rId1" name="a">']
 
 
 def _bof(kind: int) -> bytes:
@@ -307,7 +307,7 @@ class TestXlsChartScan:
     def test_stream_is_walked_a_fixed_number_of_times(self, monkeypatch):
         """Pins: the chart scan reads the workbook stream in one pass, whatever the number of sheets."""
         read = 0
-        records = spreadsheet._biff_records
+        records = xls._biff_records
 
         def counting(stream: bytes, start: int = 0) -> object:
             nonlocal read
@@ -315,15 +315,15 @@ class TestXlsChartScan:
                 read += 1
                 yield record
 
-        monkeypatch.setattr(spreadsheet, "_biff_records", counting)
+        monkeypatch.setattr(xls, "_biff_records", counting)
         stream = _biff_stream([index * 4 for index in range(300)], builder.xls_record(0x0001) * 20_000)
 
-        assert spreadsheet._xls_sheets_holding_charts(stream) == set()
+        assert xls._xls_sheets_holding_charts(stream) == set()
         assert read < 3 * 20_302
 
     def test_nested_sheets_are_walked_once(self, monkeypatch):
         read = 0
-        records = spreadsheet._biff_records
+        records = xls._biff_records
 
         def counting(stream: bytes, start: int = 0) -> object:
             nonlocal read
@@ -331,10 +331,10 @@ class TestXlsChartScan:
                 read += 1
                 yield record
 
-        monkeypatch.setattr(spreadsheet, "_biff_records", counting)
+        monkeypatch.setattr(xls, "_biff_records", counting)
         stream = _biff_stream([index * len(_WORKSHEET) for index in range(300)], _WORKSHEET * 3_000 + _CHART)
 
-        assert spreadsheet._xls_sheets_holding_charts(stream) == set(range(300))
+        assert xls._xls_sheets_holding_charts(stream) == set(range(300))
         assert read < 3 * 3_302
 
     def test_which_sheets_hold_a_chart(self):
@@ -353,13 +353,13 @@ class TestXlsChartScan:
 
         stream = _biff_stream([*offsets, offsets[0], None, nested], b"".join(parts))
 
-        assert spreadsheet._xls_sheets_holding_charts(stream) == {0, 3, 5, 6, 7, 8, 10}
+        assert xls._xls_sheets_holding_charts(stream) == {0, 3, 5, 6, 7, 8, 10}
 
     def test_offset_into_the_middle_of_a_record_is_not_looked_at(self):
         """Deliberate: such a sheet entry gets no chart warning (it would need a walk of its own)."""
         body = builder.xls_record(0x0200, _WORKSHEET + _CHART + _EOF + _EOF)
 
-        assert spreadsheet._xls_sheets_holding_charts(_biff_stream([4], body)) == set()
+        assert xls._xls_sheets_holding_charts(_biff_stream([4], body)) == set()
 
 
 def _xml_workbook(table: str, styles: str = "") -> bytes:
@@ -386,14 +386,14 @@ class TestXmlSpreadsheetStyleChains:
     def test_long_parent_chain_is_followed_once(self, monkeypatch):
         """Pins: the format and indent a style inherits are worked out once per style."""
         calls = 0
-        attribute = spreadsheet._ss
+        attribute = xml_spreadsheet._ss
 
         def counting(element: object, name: str) -> str | None:
             nonlocal calls
             calls += 1
             return attribute(element, name)
 
-        monkeypatch.setattr(spreadsheet, "_ss", counting)
+        monkeypatch.setattr(xml_spreadsheet, "_ss", counting)
         styles = self._chain(600, '<Style ss:ID="s599"><NumberFormat ss:Format="0.00"/><Alignment ss:Indent="1"/></Style>')
 
         result = convert(_xml_workbook(_STYLED_ROWS, styles), "a.xml")
@@ -442,11 +442,11 @@ class TestNumberLikeText:
                                       "▲ 3.5%", "△12", "+ € 7", "1,200원", "12 명", "3.2 %p", "2024-01-02", "9:30", "-12:30:05",
                                       "− ¥\t5", " £ 5"])
     def test_numbers_are_still_numbers(self, text):
-        assert spreadsheet._NUMBER_LIKE.fullmatch(text) is not None
+        assert _sheet_layout._NUMBER_LIKE.fullmatch(text) is not None
 
     @pytest.mark.parametrize("text", ["", "-", "₩", "- ₩", "x", "- x", "₩₩1", "-+1", "$ - 1", "1 2", "12a", "a12", "1월", "( )"])
     def test_other_text_is_still_text(self, text):
-        assert spreadsheet._NUMBER_LIKE.fullmatch(text) is None
+        assert _sheet_layout._NUMBER_LIKE.fullmatch(text) is None
 
 
 class TestNegativeValueTooLargeForADuration:
@@ -480,7 +480,7 @@ class TestNegativeValueTooLargeForADuration:
 
         cell = xlrd.sheet.Cell(xlrd.XL_CELL_DATE, -1234567890.0)
 
-        assert spreadsheet.format_cell(spreadsheet._xls_value(cell, 0, "[h]:mm"), "[h]:mm") == "-1234567890"
+        assert spreadsheet.format_cell(xls._xls_value(cell, 0, "[h]:mm"), "[h]:mm") == "-1234567890"
 
     def test_xml_spreadsheet(self):
         styles = '<Style ss:ID="s0"><NumberFormat ss:Format="[h]:mm"/></Style>'
@@ -591,13 +591,13 @@ class TestPartsReferencedManyTimes:
     def parsed(self, monkeypatch: pytest.MonkeyPatch) -> list[int]:
         """Sizes of the parts this module parsed."""
         sizes: list[int] = []
-        parse_part = spreadsheet.parse_part
+        parse_part = _xlsx_parts.parse_part
 
         def counting(data: bytes) -> object:
             sizes.append(len(data))
             return parse_part(data)
 
-        monkeypatch.setattr(spreadsheet, "parse_part", counting)
+        monkeypatch.setattr(_xlsx_parts, "parse_part", counting)
         return sizes
 
     def test_control_properties_part_is_parsed_once(self, parsed):
@@ -657,7 +657,8 @@ class TestVeryLongNumberFormat:
             lengths.append(len(number_format or ""))
             return format_cell(value, number_format)
 
-        monkeypatch.setattr(spreadsheet, "format_cell", recording)
+        for module in (spreadsheet, xml_spreadsheet, xls):
+            monkeypatch.setattr(module, "format_cell", recording)
         return lengths
 
     @staticmethod
@@ -705,7 +706,7 @@ class TestVeryLongNumberFormat:
                                xf_list=[SimpleNamespace(format_key=7)], datemode=0)
         cell = xlrd.sheet.Cell(xlrd.XL_CELL_NUMBER, 1.5, 0)
 
-        assert spreadsheet._xls_cell_text(cell, book) == expected
+        assert xls._xls_cell_text(cell, book) == expected
         assert max(formats_analysed) <= 1_024
 
 

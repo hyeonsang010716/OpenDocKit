@@ -219,7 +219,7 @@ def test_many_painted_squares_beside_one_huge_letter_take_linear_time():
     import pdfplumber
     from reportlab.pdfgen import canvas
 
-    from opendockit.extractors.pdf import _without_highlights
+    from opendockit.extractors._pdf_table_filters import _without_highlights
 
     buffer = BytesIO()
     page = canvas.Canvas(buffer, pagesize=(600, 800))
@@ -292,7 +292,7 @@ def _remaining_rects(data: bytes) -> int:
 
     import pdfplumber
 
-    from opendockit.extractors.pdf import _without_highlights
+    from opendockit.extractors._pdf_table_filters import _without_highlights
 
     with pdfplumber.open(BytesIO(data)) as document:
         return len(_without_highlights(document.pages[0]).rects)

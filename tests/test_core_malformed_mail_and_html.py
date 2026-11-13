@@ -75,7 +75,7 @@ _HUGE = "1" * 5000
 
 class TestHugeNumbersInHtmlAndMail:
     """`int()` raises ValueError on a decimal number of more than 4,300 digits (Python's integer string length limit), so one value
-    got the whole document rejected. Like Office (`_shared.decimal_int`), it is treated as an odd value."""
+    got the whole document rejected. Like Office (`_package.decimal_int`), it is treated as an odd value."""
 
     @pytest.mark.parametrize("body", [f'<table><tr><td colspan="{_HUGE}">a</td><td>b</td></tr><tr><td>1</td><td>2</td></tr></table>',
                                       f'<div role="grid"><div role="row"><div role="gridcell" aria-colindex="{_HUGE}">a</div></div></div>',

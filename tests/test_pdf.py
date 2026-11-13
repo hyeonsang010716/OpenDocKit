@@ -3,7 +3,9 @@
 import pytest
 
 from opendockit import ConversionError, ConvertOptions, SectionKind, convert
+from opendockit.extractors import _pdf_model
 from tests import builder
+from tests.pdf_modules import replace_everywhere
 
 
 @pytest.fixture(scope="module")
@@ -2090,8 +2092,11 @@ class TestWidelySpacedColumns:
         that one line happened to be as long as the column width, and were pulled up in front of the right column (below a LibreOffice
         two-column section). It is the continuation of the left column only when a line filling the column width wraps onto the next
         line at that same column width."""
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
         from reportlab.pdfbase.pdfmetrics import stringWidth
 
+        pdfmetrics.registerFont(UnicodeCIDFont(_FONT))  # measured below, before `_korean_pdf` registers it
         self._read_in_order(monkeypatch, lambda line: (line.x0 < 300 < line.x1, line.x0 > 300, line.top))
         body = "왼쪽 단 {}번째 줄 본문 내용입니다 하나"
         tail = "맺음 문단은 한 줄이며 단 폭만큼 길게 쓴 줄입니다."
@@ -2376,7 +2381,7 @@ class TestLinesDrawnInPieces:
         group_textboxes = LTLayoutContainer.group_textboxes
         monkeypatch.setattr(LTLayoutContainer, "group_textboxes", lambda *args: calls.append(1) or group_textboxes(*args))
         monkeypatch.setattr(pdf_module, "_text_line_pieces", lambda rects: 0)
-        monkeypatch.setattr(pdf_module, "_MAX_GROUPED_TEXT_PIECES", 2)
+        replace_everywhere(monkeypatch, "_MAX_GROUPED_TEXT_PIECES", 2)
 
         result = convert(_korean_pdf(draw), "a.pdf")
 
@@ -2648,9 +2653,8 @@ class TestListMarkers:
     def test_symbol_font_bullets_are_lone_bullets(self, bullet):
         """Symbol and Wingdings bullets come out as private-use-area characters (U+F0B7 and so on). When not taken for bullets they came
         apart from the item text. reportlab's CID fonts cannot draw these characters, so only the detection is checked."""
-        from opendockit.extractors import pdf as pdf_module
 
-        matched = (pdf_module._LONE_BULLET.match(bullet), pdf_module._BULLET_START.match(bullet + " 항목"))
+        matched = (_pdf_model._LONE_BULLET.match(bullet), _pdf_model._BULLET_START.match(bullet + " 항목"))
 
         assert all(matched)
 

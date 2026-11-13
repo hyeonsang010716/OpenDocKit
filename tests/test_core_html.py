@@ -180,6 +180,35 @@ class TestXmlDataWithHtmlElementNames:
         assert [warning.category.__name__ for warning in caught] == []
 
 
+class TestPagesWithAnXmlDeclaration:
+    """A page that starts with an XML declaration makes bs4 warn at the place that called the parser, and the filter that
+    keeps the warning from the caller names the modules that call it. A saved page (MHTML) is parsed in more places than a
+    plain one: to see which frames were saved, and how much visible text a part holds."""
+
+    _PAGE = ('<?xml version="1.0" encoding="utf-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head>'
+             '<body>{body}<iframe src="cid:frame1"></iframe></body></html>')
+
+    @classmethod
+    def _saved_page(cls, body: str) -> bytes:
+        frame = cls._PAGE.format(body="<p>frame text</p>")
+        return ('MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary=b; type="text/html"\r\n\r\n'
+                "--b\r\nContent-Type: text/html; charset=utf-8\r\nContent-Location: http://example.com/\r\n\r\n"
+                f"{cls._PAGE.format(body=body)}\r\n"
+                f"--b\r\nContent-Type: text/html; charset=utf-8\r\nContent-ID: <frame1>\r\n\r\n{frame}\r\n--b--\r\n").encode()
+
+    @pytest.mark.parametrize("paragraphs", [1, 3000], ids=["short", "long"])
+    def test_saved_page_is_read_without_leaking_a_warning(self, paragraphs):
+        data = self._saved_page("<p>hello page</p>" * paragraphs)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = convert(data, "a.mht")
+
+        assert result.format is DocumentFormat.HTML
+        assert result.text.startswith("# t\n\nhello page")
+        assert [warning.category.__name__ for warning in caught] == []
+
+
 _ARIA_GRID = """<html><body><h2>주문 목록</h2>
 <div role="grid" class="ag-root">
 <div role="row" class="ag-header-row"><div role="columnheader">주문번호</div><div role="columnheader">고객</div>
@@ -307,7 +336,7 @@ class TestSymbolFontsInHtml:
     """An .htm saved by Word and Outlook HTML mail write bullets and check boxes drawn with a symbol font (Wingdings, Wingdings 2,
     Symbol) as the character at that code in the font (`§`, `Ø`, `þ`, `¨`, `R`). The font was not looked at, so checked and
     unchecked items came out as `þ` and `¨`. They are converted with the same per-font table as DOCX and PPTX
-    (`_shared.SYMBOL_GLYPHS`)."""
+    (`_symbols.SYMBOL_GLYPHS`)."""
 
     def test_symbol_font_characters_become_the_symbols_they_show(self):
         data = _WORD_HTML_LIST.encode()

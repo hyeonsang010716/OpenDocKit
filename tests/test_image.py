@@ -23,6 +23,7 @@ from opendockit import (
     convert,
     describe_images,
 )
+from opendockit.extractors import _pdf_figures
 from opendockit.extractors.hwp import (
     TAG_BIN_DATA,
     TAG_CTRL_HEADER,
@@ -1122,7 +1123,6 @@ class TestResourceBounds:
         from reportlab.lib.utils import ImageReader
         from reportlab.pdfgen import canvas
 
-        from opendockit.extractors import pdf as pdf_module
 
         pixels = _record_rendered_pixels(monkeypatch)
         buffer = BytesIO()
@@ -1135,13 +1135,12 @@ class TestResourceBounds:
 
         assert len(result.images) == 1
         assert result.images[0].width >= 798, "the picture area is still rendered at the original pixel size"
-        assert max(pixels) <= pdf_module._MAX_RENDER_PIXELS
+        assert max(pixels) <= _pdf_figures._MAX_RENDER_PIXELS
 
     def test_pdf_scanned_huge_page_is_rendered_within_the_pixel_cap(self, monkeypatch):
         from reportlab.lib.utils import ImageReader
         from reportlab.pdfgen import canvas
 
-        from opendockit.extractors import pdf as pdf_module
 
         pixels = _record_rendered_pixels(monkeypatch)
         buffer = BytesIO()
@@ -1152,7 +1151,7 @@ class TestResourceBounds:
         result = convert(buffer.getvalue(), "a.pdf")
 
         assert [image.kind for image in result.images] == [ImageKind.PAGE]
-        assert max(pixels) <= pdf_module._MAX_RENDER_PIXELS
+        assert max(pixels) <= _pdf_figures._MAX_RENDER_PIXELS
 
     def test_describing_many_images_does_not_reassemble_the_document_for_each(self, monkeypatch):
         """The whole document was reassembled to check the limit each time one picture finished, so it slowed down with the square

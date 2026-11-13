@@ -21,25 +21,9 @@ import olefile
 
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
 from opendockit.extractors._equation import render_equation
-from opendockit.extractors._shared import (
-    NUMBER_SHAPES,
-    SUBSCRIPT,
-    SUPERSCRIPT,
-    BulletNesting,
-    Numbering,
-    NumberLevel,
-    TableBudget,
-    format_dutmal,
-    format_number,
-    is_placeholder_only,
-    mark_script,
-    mark_strike,
-    note_table,
-    omitted_rows_warning,
-    paragraph_head,
-    resolve_scripts,
-    resolve_strikes,
-)
+from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike, resolve_scripts, resolve_strikes
+from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number, is_placeholder_only, paragraph_head
+from opendockit.extractors._notation import TableBudget, format_dutmal, note_table, omitted_rows_warning
 from opendockit.markdown import TableGrid, join_blocks, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -511,7 +495,7 @@ class HwpRenderer:
         return markers
 
     def _decorate(self, paragraph: Record, text: str) -> str:
-        """Attach the paragraph head (`_shared.paragraph_head`) and, for an outline style, the heading mark to the paragraph's first text piece."""
+        """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style, the heading mark to the paragraph's first text piece."""
         mark, level = self._paragraph_head(paragraph)
         style_id = paragraph.payload[10] if len(paragraph.payload) > 10 else -1
         style_name = self._styles[style_id] if 0 <= style_id < len(self._styles) else ""
@@ -604,7 +588,7 @@ class HwpRenderer:
                     caption.append(child)
 
         grid = TableGrid()
-        # The top-level table checks the character limit while reading cells (`_shared.TableBudget`). Once exceeded, the remaining cells
+        # The top-level table checks the character limit while reading cells (`_notation.TableBudget`). Once exceeded, the remaining cells
         # are not read.
         budget = None if self._grids or self._cell_depth or self._note_depth else TableBudget(self._extraction, self._options)
         outer = self._grids[-1] if self._grids else None

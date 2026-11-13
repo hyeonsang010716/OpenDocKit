@@ -18,41 +18,26 @@ from pptx.shapes.placeholder import LayoutPlaceholder, PlaceholderPicture, _Base
 from pptx.table import _Row
 
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
-from opendockit.extractors._shared import (
-    HAND_TYPED_BULLET,
+from opendockit.extractors._charts import related_loader, render_chart, render_chartex, render_smartart
+from opendockit.extractors._inline import (
     LINK_OPEN,
-    MAX_LEVEL,
-    OLE_PLACEHOLDER,
     SUBSCRIPT,
     SUPERSCRIPT,
-    SYMBOL_GLYPHS,
-    cell_level_mark,
-    comment_line,
-    core_properties,
-    decimal_int,
-    format_number,
-    is_strict_package,
     link_close,
     link_target,
-    list_item_prefix,
     mark_emphasis,
     mark_script,
     mark_strike,
     merge_emphasis_marks,
-    omitted_rows_warning,
-    open_package,
-    parse_part,
-    related_loader,
-    render_chart,
-    render_chartex,
-    render_omml,
-    render_smartart,
     resolve_inline,
     resolve_scripts,
     resolve_strikes,
-    symbol_font_text,
-    unread_ole_warning,
 )
+from opendockit.extractors._lists import HAND_TYPED_BULLET, MAX_LEVEL, cell_level_mark, format_number, list_item_prefix
+from opendockit.extractors._notation import OLE_PLACEHOLDER, comment_line, omitted_rows_warning, unread_ole_warning
+from opendockit.extractors._omml import render_omml
+from opendockit.extractors._package import core_properties, decimal_int, is_strict_package, open_package, parse_part
+from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_font_text
 from opendockit.markdown import TableGrid, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -64,7 +49,7 @@ _BULLET_PLACEHOLDERS = {PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.OBJECT}
 # Hand-typed bullets that make a line joined by a line break (a:br) inside a list-item paragraph an item one level down: '- ', '* ', '1. ',
 # '1) ' (numbers up to two digits — a date line such as '2024. 3.' is not one. '12. 31. 기준' (as of Dec 31), where another 'N.' follows,
 # is a date too). Other bullet characters are in `HAND_TYPED_BULLET`. Markdown does not read a '1) ' line as a list, so its indentation
-# would be removed; it is emitted as '- 1) ' (same shape as `_shared.list_item_prefix`.
+# would be removed; it is emitted as '- 1) ' (same shape as `_lists.list_item_prefix`.
 # Pinned by: test_office_symbols_fields_notes.py::TestPptxHandTypedLinesInsideAnItem).
 _HAND_TYPED_ITEM = re.compile(r"(?:[-*]|\d{1,2}([.)]))\s(?!\s*\d{1,2}\.(?:\s|$))")
 # Vertical tolerance (EMU) for treating shapes as the same row. About 0.2 cm.
@@ -152,9 +137,9 @@ def extract_pptx(data: bytes, options: ConvertOptions) -> Extraction:
     # (.potx, .potm) differ only in name and have the same structure, so the package is opened directly and only checked for being a
     # presentation part (Pinned by: test_office.py::test_slide_show_deck_is_read_like_a_plain_one).
     # If opening fails because of one part that is missing or is not XML, only that part is detached and the package is opened again
-    # (`_shared.open_package`, one warning).
+    # (`_package.open_package`, one warning).
     # A Strict Open XML document fails here because its main part is not found. It is not corruption; the message asks to save it again
-    # (`_shared.is_strict_package`).
+    # (`_package.is_strict_package`).
     extraction = Extraction()
     try:
         part = open_package(Package.open, data, extraction.warnings).main_document_part
@@ -307,7 +292,7 @@ def _comment_authors(part: object) -> dict[str, str]:
 
 
 def _slide_comments(part: object, authors: dict[str, str]) -> str:
-    """Slide comments as `> Comment(author): text` / `> Reply(author): text` lines (`_shared.comment_line`, same shape as DOCX). A slide
+    """Slide comments as `> Comment(author): text` / `> Reply(author): text` lines (`_notation.comment_line`, same shape as DOCX). A slide
     comment is attached to a position, not to a range of body text, so it has no target. Comments were dropped without a warning
     (Pinned by: test_office_comments.py::TestPptxComments)."""
     def body(element: object) -> str:
@@ -865,7 +850,7 @@ def _paragraph_text(paragraph: object, inline: _Inline | None = None) -> str:
     before a correction reads as a valid value (Pinned by:
     test_office.py::TestPptxStrikethroughTitlesAndHiddenSlides::test_struck_runs_are_marked_in_text_boxes_and_table_cells).
     With `inline`, a run's hyperlink (a:hlinkClick with an external relationship) is written as `[text](url)` and bold / italic
-    runs (a:rPr b / i) as `**bold**` / `*italic*` (`_shared.resolve_inline`); a paragraph that is bold throughout is left
+    runs (a:rPr b / i) as `**bold**` / `*italic*` (`_inline.resolve_inline`); a paragraph that is bold throughout is left
     unmarked. Slide titles (headings) and speaker notes are read as plain text
     (Pinned by: test_inline_formatting.py::TestPptx).
     """

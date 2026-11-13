@@ -17,7 +17,10 @@ import xlrd
 
 from opendockit import ConvertOptions, convert
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
-from opendockit.extractors.spreadsheet import _merged_cell_count, _xls_value, format_cell
+from opendockit.extractors import xls
+from opendockit.extractors._sheet_format import format_cell
+from opendockit.extractors.spreadsheet import _merged_cell_count
+from opendockit.extractors.xls import _xls_value
 from opendockit.models import Extraction, image_marker
 from tests import builder
 
@@ -390,16 +393,15 @@ def test_xls_reader_does_not_write_to_stdout(monkeypatch, capsys):
     import sys
 
     from opendockit import CorruptedDocumentError
-    from opendockit.extractors import spreadsheet
 
     def noisy_open(*args, **kwargs):
         kwargs.get("logfile", sys.stdout).write("WARNING *** OLE2 inconsistency\n")
         raise xlrd.biffh.XLRDError("cannot be read")
 
-    monkeypatch.setattr(spreadsheet.xlrd, "open_workbook", noisy_open)
+    monkeypatch.setattr(xls.xlrd, "open_workbook", noisy_open)
 
     with pytest.raises(CorruptedDocumentError):
-        spreadsheet.extract_xls(b"xls", ConvertOptions())
+        xls.extract_xls(b"xls", ConvertOptions())
 
     assert capsys.readouterr().out == ""
 
@@ -426,7 +428,7 @@ class TestSuperscriptInCells:
 
     def test_xls_rich_text_runs_with_raised_or_lowered_fonts_are_marked(self):
         """XLS keeps a list of (character position, font index) per cell; a font's escapement 1 is superscript, 2 is subscript."""
-        from opendockit.extractors.spreadsheet import _xls_rich_text
+        from opendockit.extractors.xls import _xls_rich_text
 
         escapements = {0: 0, 5: 1, 6: 2}
 
@@ -914,9 +916,8 @@ class TestXlsDrawings:
 
     @staticmethod
     def _convert(data: bytes, options: ConvertOptions | None = None) -> Extraction:
-        from opendockit.extractors import spreadsheet
 
-        return spreadsheet.extract_xls(data, options or ConvertOptions())
+        return xls.extract_xls(data, options or ConvertOptions())
 
     def test_text_box_text_is_kept_below_the_table_of_its_sheet(self):
         note = builder.xls_text_box("※ 부가세 별도, 환율 1,350원 기준\n둘째 줄")
@@ -999,12 +1000,11 @@ class TestXlsDrawings:
 
     def test_failure_while_reading_drawings_degrades_to_a_warning(self, monkeypatch):
         """Whatever fails while parsing drawing records, the cell contents are still converted."""
-        from opendockit.extractors import spreadsheet
 
         def broken(*args, **kwargs):
             raise struct.error("unpack requires a buffer of 2 bytes")
 
-        monkeypatch.setattr(spreadsheet, "_escher_picture_index", broken)
+        monkeypatch.setattr(xls, "_escher_picture_index", broken)
         data = builder.xls_bytes([("Sheet1", _XLS_ROWS, builder.xls_picture(1))], builder.xls_picture_store(builder.xls_png_blip(builder.png_bytes())))
 
         extraction = self._convert(data)
@@ -1093,12 +1093,11 @@ class TestXlsFormulasWithoutResults:
     warns)."""
 
     def test_workbook_whose_formulas_all_lack_results_is_reported(self):
-        from opendockit.extractors import spreadsheet
 
         formulas = _xls_formula(1, 1, _XLS_NO_RESULT) + _xls_formula(2, 1, _XLS_NO_RESULT)
         data = builder.xls_bytes([("Sheet1", _XLS_ROWS, formulas)])
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert extraction.sections[0].text == "| 항목 | 값 |\n| --- | --- |\n| 가 |  |"
         assert extraction.warnings == ["The results of 2 formula(s) are not stored in the file, so those cells were read as blank "
@@ -1107,12 +1106,11 @@ class TestXlsFormulasWithoutResults:
     def test_workbook_with_any_stored_result_is_not_reported(self):
         """With even one result it is a file saved by Excel. A formula that evaluated to an empty string normally has an empty
         result."""
-        from opendockit.extractors import spreadsheet
 
         formulas = _xls_formula(1, 1, struct.pack("<d", 3.0)) + _xls_formula(2, 1, _XLS_NO_RESULT)
         data = builder.xls_bytes([("Sheet1", _XLS_ROWS, formulas)])
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert "| 가 | 3 |" in extraction.sections[0].text
         assert not extraction.warnings
@@ -1209,12 +1207,11 @@ class TestXlsFormulasWithPlaceholderZeroResults:
     so totals came out as 0."""
 
     def test_zero_results_in_a_workbook_written_by_poi_are_blanked_with_a_warning(self):
-        from opendockit.extractors import spreadsheet
 
         formulas = _xls_formula(1, 1, struct.pack("<d", 0.0)) + _xls_formula(2, 1, struct.pack("<d", 0.0))
         data = builder.xls_bytes([("Sheet1", [*_XLS_ROWS, ["나", "2"]], formulas)]).replace(*_POI_BOF, 1)
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert extraction.sections[0].text == "| 항목 | 값 |\n| --- | --- |\n| 가 |  |\n| 나 |  |"
         assert extraction.warnings == ["The results of 2 formula(s) are stored only as 0 (the file was made by a program that does not "
@@ -1223,23 +1220,21 @@ class TestXlsFormulasWithPlaceholderZeroResults:
 
     def test_zero_results_in_a_workbook_written_by_another_program_are_kept(self):
         """All-zero results are normal in an empty form saved by a program other than POI (Excel, LibreOffice)."""
-        from opendockit.extractors import spreadsheet
 
         formulas = _xls_formula(1, 1, struct.pack("<d", 0.0)) + _xls_formula(2, 1, struct.pack("<d", 0.0))
         data = builder.xls_bytes([("Sheet1", [*_XLS_ROWS, ["나", "2"]], formulas)])
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert extraction.sections[0].text == "| 항목 | 값 |\n| --- | --- |\n| 가 | 0 |\n| 나 | 0 |"
         assert not extraction.warnings
 
     def test_poi_workbook_with_a_nonzero_result_is_kept(self):
-        from opendockit.extractors import spreadsheet
 
         formulas = _xls_formula(1, 1, struct.pack("<d", 0.0)) + _xls_formula(2, 1, struct.pack("<d", 5.0))
         data = builder.xls_bytes([("Sheet1", [*_XLS_ROWS, ["나", "2"]], formulas)]).replace(*_POI_BOF, 1)
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert extraction.sections[0].text == "| 항목 | 값 |\n| --- | --- |\n| 가 | 0 |\n| 나 | 5 |"
         assert not extraction.warnings
@@ -1401,13 +1396,12 @@ class TestChartSheets:
     def test_xls_chart_sheet_is_reported(self):
         """XLS charts are not converted to value tables (xlrd does not count chart sheets). A warning makes the reason for an
         empty result visible."""
-        from opendockit.extractors import spreadsheet
 
         name = "매출 차트"
         chart_sheet = builder.xls_record(0x0085, struct.pack("<IBBBB", 0, 0, 2, len(name), 1) + name.encode("utf-16-le"))
         data = builder.xls_bytes([("표", [["월", "매출"]], b"")], globals_extra=chart_sheet)
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert extraction.warnings == ["Chart sheet '매출 차트' was not read "
                                        "(XLS charts are not converted to value tables — saving as XLSX converts them)."]
@@ -1455,13 +1449,12 @@ class TestXlsResourceBounds:
     def test_far_cell_does_not_make_every_row_full_width(self):
         import time
 
-        from opendockit.extractors import spreadsheet
 
         far = _xls_label(65535, 255, "먼 칸") + _xls_label(65535, 1, "끝 행")
         data = builder.xls_bytes([(f"시트{index}", _XLS_ROWS, far) for index in range(3)])
 
         started = time.perf_counter()
-        extraction = spreadsheet.extract_xls(data, ConvertOptions(max_chars=None))
+        extraction = xls.extract_xls(data, ConvertOptions(max_chars=None))
 
         assert time.perf_counter() - started < 3
         assert extraction.sections[0].text == "| 항목 | 값 |\n| --- | --- |\n| 가 | 1 |\n|  | 끝 행 |"
@@ -1471,14 +1464,13 @@ class TestXlsResourceBounds:
     def test_repeated_merge_ranges_are_applied_once(self):
         import time
 
-        from opendockit.extractors import spreadsheet
 
         rows = [["구분", "값"], ["가", "1"], ["", "2"], ["", "3"]]
         merges = _xls_merges([(1, 65535, 0, 0)] * 20_000) + _xls_label(65535, 1, "끝")
         data = builder.xls_bytes([("Sheet1", rows, merges)])
 
         started = time.perf_counter()
-        extraction = spreadsheet.extract_xls(data, ConvertOptions(max_chars=None))
+        extraction = xls.extract_xls(data, ConvertOptions(max_chars=None))
 
         assert time.perf_counter() - started < 3
         assert extraction.sections[0].text == ("| 구분 | 값 |\n| --- | --- |\n| 가 | 1 |\n| 가 | 2 |\n| 가 | 3 |\n"
@@ -1487,25 +1479,22 @@ class TestXlsResourceBounds:
     def test_merge_is_repeated_into_rows_without_a_cell_in_the_merged_column(self):
         """Each row is read only up to its own cells, so some rows have no cell in the merged column. The merge value is repeated
         into those rows too."""
-        from opendockit.extractors import spreadsheet
 
         extra = _xls_label(2, 0, "나") + _xls_merges([(1, 2, 2, 2)])
         data = builder.xls_bytes([("Sheet1", [["구분", "값", "비고"], ["가", "1", "x"]], extra)])
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert extraction.sections[0].text == "| 구분 | 값 | 비고 |\n| --- | --- | --- |\n| 가 | 1 | x |\n| 나 |  | x |"
 
     def test_merges_covering_more_than_the_cell_budget_are_not_repeated(self, monkeypatch):
         """When merges cover more cells than the same cap as XLSX (500,000 cells), vertical merges are not repeated (first cell
         only) and a warning is given."""
-        from opendockit.extractors import spreadsheet
-
-        monkeypatch.setattr(spreadsheet, "_MAX_MERGED_CELLS", 2)
+        monkeypatch.setattr(xls, "_MAX_MERGED_CELLS", 2)
         rows = [["구분", "값"], ["가", "1"], ["", "2"], ["", "3"]]
         data = builder.xls_bytes([("Sheet1", rows, _xls_merges([(1, 3, 0, 0)]))])
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert extraction.sections[0].text == "| 구분 | 값 |\n| --- | --- |\n| 가 | 1 |\n|  | 2 |\n|  | 3 |"
         assert extraction.warnings == [
@@ -1900,9 +1889,8 @@ class TestXlsOleContainer:
 
     @staticmethod
     def _extract(data: bytes) -> Extraction:
-        from opendockit.extractors import spreadsheet
 
-        return spreadsheet.extract_xls(data, ConvertOptions())
+        return xls.extract_xls(data, ConvertOptions())
 
     @staticmethod
     def _looped_mini_fat(data: bytes) -> bytes:
@@ -2278,7 +2266,7 @@ def _xlsx_with_indents(rows: list[tuple[object, int, object]]) -> bytes:
 class TestIndentedLabels:
     """Sub-items of financial statements are shown by cell indent (`alignment.indent`) or leading spaces; both were dropped, so
     '매출원가' and its sub-item '재료비' read at the same level. The first text cell of a row gets the same mark as list levels
-    inside table cells (`└ `, `└─ `, `_shared.cell_level_mark`)."""
+    inside table cells (`└ `, `└─ `, `_lists.cell_level_mark`)."""
 
     def test_xlsx_cell_indent_becomes_a_level_mark(self, streamed):
         data = _xlsx_with_indents([("매출원가", 0, 600), ("재료비", 1, 400), ("원재료", 2, 300)])
@@ -2302,7 +2290,7 @@ class TestIndentedLabels:
         assert "| 100 | 1 |\n| 가 | 나 |" in result.text
 
     def test_xls_leading_spaces_become_a_level_mark(self):
-        from opendockit.extractors.spreadsheet import extract_xls
+        from opendockit.extractors.xls import extract_xls
 
         data = builder.xls_bytes([("손익", [["과목", "금액"], ["매출원가", "600"], ["  재료비", "400"]], b"")])
 

@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+from opendockit.extractors.csv_text import extract_csv
 from opendockit.extractors.docx import extract_docx
 from opendockit.extractors.epub import extract_epub
 from opendockit.extractors.html import extract_html
@@ -13,13 +14,10 @@ from opendockit.extractors.odf import extract_odp, extract_ods, extract_odt
 from opendockit.extractors.pdf import extract_pdf
 from opendockit.extractors.pptx import extract_pptx
 from opendockit.extractors.rtf import extract_rtf
-from opendockit.extractors.spreadsheet import (
-    extract_csv,
-    extract_xls,
-    extract_xlsx,
-    extract_xml_spreadsheet,
-)
+from opendockit.extractors.spreadsheet import extract_xlsx
 from opendockit.extractors.text import extract_markdown, extract_text
+from opendockit.extractors.xls import extract_xls
+from opendockit.extractors.xml_spreadsheet import extract_xml_spreadsheet
 from opendockit.models import ConvertOptions, DocumentFormat, Extraction
 
 

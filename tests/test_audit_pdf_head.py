@@ -6,6 +6,7 @@ import zlib
 import pytest
 
 from opendockit import ConvertOptions, DocumentTooLargeError, convert
+from opendockit.extractors import _pdf_marks, _pdf_model, _pdf_pdfminer, _pdf_pieces
 from tests.test_pdf import _raw_pdf
 from tests.timing import allowed
 
@@ -46,21 +47,20 @@ class TestStreamCompressedTwice:
             convert(self._twice(_text(b"Visible body text", 3_000_000)), "a.pdf", ConvertOptions(max_uncompressed_bytes=1_000_000))
 
     def test_later_stage_is_not_inflated_beyond_the_limit_while_measuring(self, monkeypatch):
-        from opendockit.extractors import pdf as pdf_module
 
         measured = []
-        inflated_size = pdf_module._inflated_size
+        inflated_size = _pdf_pdfminer._inflated_size
 
         def spy(data, limit):
             measured.append(inflated_size(data, limit))
             return measured[-1]
 
-        monkeypatch.setattr(pdf_module, "_inflated_size", spy)
+        monkeypatch.setattr(_pdf_pdfminer, "_inflated_size", spy)
 
         with pytest.raises(DocumentTooLargeError):
             convert(self._twice(_text(b"Visible body text", 30_000_000)), "a.pdf", ConvertOptions(max_uncompressed_bytes=1_000_000))
 
-        assert len(measured) == 2 and max(measured) <= 1_000_000 + pdf_module._INFLATE_CHUNK
+        assert len(measured) == 2 and max(measured) <= 1_000_000 + _pdf_pdfminer._INFLATE_CHUNK
 
     def test_stream_compressed_twice_within_the_limit_is_read_as_before(self):
         result = convert(self._twice(_text(b"Visible body text", 300_000)), "a.pdf", ConvertOptions(max_uncompressed_bytes=1_000_000))
@@ -125,11 +125,11 @@ class TestStreamReadThroughTheUngroupedDocument:
 
         budget = pdf_module._InflateBudget(1_000_000)
         packed = zlib.compress(b" " * 400_000)
-        first, second = (PDFStream({"Filter": pdf_module.LITERALS_FLATE_DECODE[0]}, packed) for _ in range(2))
+        first, second = (PDFStream({"Filter": _pdf_pdfminer.LITERALS_FLATE_DECODE[0]}, packed) for _ in range(2))
 
-        pdf_module._charge(first, budget)
-        pdf_module._charge(first, budget)
-        pdf_module._charge(second, budget)
+        _pdf_pdfminer._charge(first, budget)
+        _pdf_pdfminer._charge(first, budget)
+        _pdf_pdfminer._charge(second, budget)
 
         assert budget.remaining == 200_000
 
@@ -140,10 +140,10 @@ class TestStreamReadThroughTheUngroupedDocument:
 
         budget = pdf_module._InflateBudget(1_000_000)
         packed = zlib.compress(b" " * 400_000)
-        streams = [PDFStream({"Filter": pdf_module.LITERALS_FLATE_DECODE[0]}, packed) for _ in range(3)]
+        streams = [PDFStream({"Filter": _pdf_pdfminer.LITERALS_FLATE_DECODE[0]}, packed) for _ in range(3)]
         for stream, objid in zip(streams, (4, 4, 6), strict=True):
             stream.set_objid(objid, 0)
-            pdf_module._charge(stream, budget)
+            _pdf_pdfminer._charge(stream, budget)
 
         assert budget.remaining == 200_000
 
@@ -238,11 +238,10 @@ class TestManyPiecesOnOneBaseline:
     do not touch each other took the square of the piece count (6,000 pieces, an 8.5KB PDF: 28 seconds inside one page)."""
 
     def test_pieces_apart_on_one_row_are_not_compared_with_each_other(self, monkeypatch):
-        from opendockit.extractors import pdf as pdf_module
 
         calls = []
-        shares_baseline = pdf_module._shares_baseline
-        monkeypatch.setattr(pdf_module, "_shares_baseline", lambda *args: calls.append(1) or shares_baseline(*args))
+        shares_baseline = _pdf_pieces._shares_baseline
+        monkeypatch.setattr(_pdf_pieces, "_shares_baseline", lambda *args: calls.append(1) or shares_baseline(*args))
 
         result = convert(_one_row(2500), "a.pdf")
 
@@ -253,7 +252,6 @@ class TestManyPiecesOnOneBaseline:
     def test_merged_groups_are_those_of_comparing_every_pair(self, monkeypatch, seed):
         import random
 
-        from opendockit.extractors import pdf as pdf_module
 
         rng = random.Random(seed)
         pieces = []
@@ -264,10 +262,10 @@ class TestManyPiecesOnOneBaseline:
                                  y0 + height, rng.choice(["", "ab", "cd"])))
         texts = [piece.text for piece in pieces]
         expected = {frozenset((first, second)) for first in range(300) for second in range(first)
-                    if pdf_module._shares_baseline(pieces[first], pieces[second], texts[first], texts[second])}
+                    if _pdf_pieces._shares_baseline(pieces[first], pieces[second], texts[first], texts[second])}
         assert len(expected) > 20
         found = set()
-        shares_baseline = pdf_module._shares_baseline
+        shares_baseline = _pdf_pieces._shares_baseline
 
         def spy(piece, other, text, other_text):
             shared = shares_baseline(piece, other, text, other_text)
@@ -275,18 +273,17 @@ class TestManyPiecesOnOneBaseline:
                 found.add(frozenset((pieces.index(piece), pieces.index(other))))
             return shared
 
-        monkeypatch.setattr(pdf_module, "_shares_baseline", spy)
-        pdf_module._merged_overlapping_pieces(pieces, 0.1)
+        monkeypatch.setattr(_pdf_pieces, "_shares_baseline", spy)
+        _pdf_pieces._merged_overlapping_pieces(pieces, 0.1)
 
         assert found == expected
         assert _components(300, found) == _components(300, expected)
 
     def test_pieces_with_a_non_finite_box_are_still_compared(self, monkeypatch):
-        from opendockit.extractors import pdf as pdf_module
 
         pieces = [_Piece(0.0, 0.0, 10.0, 4.0, "ab"), _Piece(5.0, 0.0, float("inf"), 4.0, "cd"), _Piece(50.0, 0.0, 60.0, 4.0, "ef")]
 
-        merged, changed = pdf_module._merged_overlapping_pieces(pieces, 0.1)
+        merged, changed = _pdf_pieces._merged_overlapping_pieces(pieces, 0.1)
 
         assert changed and len(merged) == 1
 
@@ -364,7 +361,7 @@ class TestManySquaresOnOnePage:
                                fill=rng.random() < 0.2))
         boxes = [rect for rect in rects if rect["stroke"] and 5.0 <= rect["width"] <= 16.0
                  and abs(rect["width"] - rect["height"]) <= 1.5]
-        bbox, encloses = pdf_module._bbox, pdf_module._encloses
+        bbox, encloses = _pdf_model._bbox, _pdf_model._encloses
         expected = [id(box) for box in boxes
                     if not any(other is not box and other["x0"] <= box["x1"] + 0.5 and box["x0"] <= other["x1"] + 0.5
                                and other["top"] <= box["bottom"] + 0.5 and box["top"] <= other["bottom"] + 0.5
@@ -372,7 +369,7 @@ class TestManySquaresOnOnePage:
                                for other in rects)]
         assert 10 < len(expected) < len(boxes) - 10
         marked = []
-        monkeypatch.setattr(pdf_module, "_put_checkbox_mark", lambda box, *args: marked.append(id(box)))
+        monkeypatch.setattr(_pdf_marks, "_put_checkbox_mark", lambda box, *args: marked.append(id(box)))
 
         pdf_module._mark_checkboxes(self._page(rects), [self._line(0.0, 0.0)], [])
 
@@ -423,22 +420,20 @@ class TestManyDistinctXObjectNames:
     def test_calls_are_counted_without_listing_them(self, monkeypatch):
         import re
 
-        from opendockit.extractors import pdf as pdf_module
 
         class Pattern:
             def __init__(self, pattern: re.Pattern) -> None:
                 self.finditer, self.search = pattern.finditer, pattern.search
 
-        monkeypatch.setattr(pdf_module, "_XOBJECT_CALL", Pattern(pdf_module._XOBJECT_CALL))  # no `findall`
+        monkeypatch.setattr(_pdf_pdfminer, "_XOBJECT_CALL", Pattern(_pdf_pdfminer._XOBJECT_CALL))  # no `findall`
         data = b"/Im1 Do /Im2 Do\n/Im1 Do q /A#42 Do Q (text) Tj\n"
 
-        assert pdf_module._content_objects(data, {}, 100, {}, set(), 0) == 5
+        assert _pdf_pdfminer._content_objects(data, {}, 100, {}, set(), 0) == 5
 
     def test_names_beyond_the_limit_are_not_collected(self, monkeypatch):
-        from opendockit.extractors import pdf as pdf_module
 
         seen = []
-        pattern = pdf_module._XOBJECT_CALL
+        pattern = _pdf_pdfminer._XOBJECT_CALL
 
         class Pattern:
             search = pattern.search
@@ -449,12 +444,12 @@ class TestManyDistinctXObjectNames:
                     seen.append(match)
                     yield match
 
-        monkeypatch.setattr(pdf_module, "_XOBJECT_CALL", Pattern)
+        monkeypatch.setattr(_pdf_pdfminer, "_XOBJECT_CALL", Pattern)
         data = b"".join(b"/a%d Do\n" % index for index in range(1000))
 
-        assert pdf_module._content_objects(data, {}, 10, {}, set(), 0) > 10
+        assert _pdf_pdfminer._content_objects(data, {}, 10, {}, set(), 0) > 10
         assert len(seen) == 11
-        assert pdf_module._content_objects(data, {}, 1000, {}, set(), 0) == 1000
+        assert _pdf_pdfminer._content_objects(data, {}, 1000, {}, set(), 0) == 1000
 
     def test_repeated_names_are_looked_up_once_and_counted_every_time(self):
         from io import BytesIO

@@ -6,7 +6,7 @@ import base64
 import pytest
 
 from opendockit import DocumentFormat, EncryptedDocumentError, convert
-from opendockit.extractors.text import decode_text
+from opendockit.extractors._encoding import decode_text
 from tests import needs_html5_tokenizer
 
 

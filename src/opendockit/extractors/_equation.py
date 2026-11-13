@@ -164,7 +164,7 @@ class _Unsupported(Exception):
 
 def render_equation(script: str) -> str:
     """Equation to put in the body: ` $LaTeX$ `, or the original ` [Equation: …] ` when it cannot be converted. Same shape as a Word
-    equation (`_shared.omml_to_latex`)."""
+    equation (`_omml.omml_to_latex`)."""
     latex = equation_to_latex(script)
     if latex is not None:
         return f" ${latex}$ "

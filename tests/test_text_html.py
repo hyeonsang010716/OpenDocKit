@@ -6,7 +6,7 @@ import time
 import pytest
 
 from opendockit import ConvertOptions, DocumentFormat, convert
-from opendockit.extractors.text import decode_text
+from opendockit.extractors._encoding import decode_text
 
 
 class TestDecodeText:
@@ -546,6 +546,7 @@ class TestLargeHtmlStopsEarly:
 
     @staticmethod
     def _parsed_lengths(monkeypatch):
+        from opendockit.extractors import _html_dom, _html_mail
         from opendockit.extractors import html as html_extractor
 
         lengths = []
@@ -555,7 +556,8 @@ class TestLargeHtmlStopsEarly:
             lengths.append(len(markup))
             return original(markup, *args, **kwargs)
 
-        monkeypatch.setattr(html_extractor, "BeautifulSoup", recording)
+        for module in (html_extractor, _html_mail, _html_dom):  # every module that calls the parser
+            monkeypatch.setattr(module, "BeautifulSoup", recording)
         return lengths
 
     def test_document_far_over_the_limit_is_parsed_only_at_the_front(self, monkeypatch):
@@ -1539,7 +1541,7 @@ class TestTitleRowInsideMultiRowHeader:
 class TestIndentedLabelsInTables:
     """In a table that shows sub-accounts by indentation (`&nbsp;`, padding), like a financial statement, the indentation was lost
     and '매출원가' and its sub-account '재료비' read as the same level. The same mark as list levels inside a table cell
-    (`└ `, `_shared.cell_level_mark`) is added."""
+    (`└ `, `_lists.cell_level_mark`) is added."""
 
     def test_label_indented_with_non_breaking_spaces_is_marked(self):
         html = ("<table><tr><td>과목</td><td>금액</td></tr><tr><td>매출원가</td><td>600</td></tr>"

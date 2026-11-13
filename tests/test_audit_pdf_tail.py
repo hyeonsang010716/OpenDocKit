@@ -9,7 +9,8 @@ import time
 import pytest
 
 from opendockit import ConvertOptions, convert
-from opendockit.extractors import pdf
+from opendockit.extractors import _pdf_aligned_tables, _pdf_label_values, _pdf_margins, _pdf_row_joins, _pdf_table_rows, pdf
+from tests.pdf_modules import replace_everywhere
 from tests.timing import allowed
 
 
@@ -144,13 +145,12 @@ class TestManyWrappedLinesUnderOneRow:
     @staticmethod
     def _counted(monkeypatch) -> list[int]:
         calls = [0]
-        column_of = pdf._column_of
 
         def counting(*args):
             calls[0] += 1
             return column_of(*args)
 
-        monkeypatch.setattr(pdf, "_column_of", counting)
+        column_of = replace_everywhere(monkeypatch, "_column_of", counting)
         return calls
 
     def test_wrapped_lines_of_a_cell_are_not_measured_again_for_every_line(self, monkeypatch):
@@ -187,9 +187,9 @@ class TestManyWrappedLinesUnderOneRow:
                 width = random.choice((0, 0, 4, 15, 40, 90))
                 x1 = random.choice([x0 + width, random.choice(edges)]) if random.random() < 0.3 else x0 + width
                 row.append(pdf._Line(120, 130, min(x0, x1), max(x0, x1), random.choice(("word", "12", "3,400", "note a")), 10))
-                expected = [pdf._column_of(cell, header, row) for cell in row]
-                assert pdf._cell_columns(row, header, known) == expected
-                moved += sum(column != pdf._header_column(cell, header) for cell, column in zip(row, expected, strict=True))
+                expected = [_pdf_aligned_tables._column_of(cell, header, row) for cell in row]
+                assert _pdf_table_rows._cell_columns(row, header, known) == expected
+                moved += sum(column != _pdf_table_rows._header_column(cell, header) for cell, column in zip(row, expected, strict=True))
         assert moved > 200  # the gap rule (a cell sent to the column on its right) is exercised
 
     @pytest.mark.timing
@@ -221,8 +221,8 @@ class TestLongDotRunInsideALine:
     _TOKENS = (".", "·", "…", "‥", " ", "a", "1", "\n", ".....", "……", "abcdefghijkl")
 
     def test_leader_patterns_judge_as_before(self):
-        assert _same_verdicts(pdf._LEADER_END, r"(?:[.·∙・]{5,}|[…‥]{2,})$", self._TOKENS, 5, search=True)
-        assert _same_verdicts(pdf._LEADER_TAIL, r"(?:[.·∙・]{5,}|[…‥]{2,})\s*\S{1,12}$", self._TOKENS, 5, search=True)
+        assert _same_verdicts(_pdf_row_joins._LEADER_END, r"(?:[.·∙・]{5,}|[…‥]{2,})$", self._TOKENS, 5, search=True)
+        assert _same_verdicts(_pdf_row_joins._LEADER_TAIL, r"(?:[.·∙・]{5,}|[…‥]{2,})\s*\S{1,12}$", self._TOKENS, 5, search=True)
 
     def test_contents_line_keeps_its_page_number(self):
         def draw(canvas, page):
@@ -273,13 +273,13 @@ class TestManyPairsWithLongLabels:
 
     def test_group_is_not_gone_through_again_for_every_pair(self, monkeypatch):
         looked_at = [0]
-        has_wrapped_value = pdf._has_wrapped_value
+        has_wrapped_value = _pdf_label_values._has_wrapped_value
 
         def counting(run):
             looked_at[0] += len(run)
             return has_wrapped_value(run)
 
-        monkeypatch.setattr(pdf, "_has_wrapped_value", counting)
+        monkeypatch.setattr(_pdf_label_values, "_has_wrapped_value", counting)
 
         result = self._converted(200)
 
@@ -291,7 +291,7 @@ class TestManyPairsWithLongLabels:
     @pytest.mark.timing
     def test_many_pairs_are_read_in_the_time_of_their_lines(self, monkeypatch):
         spent = [0.0]
-        label_value_rows = pdf._label_value_rows
+        label_value_rows = _pdf_label_values._label_value_rows
 
         def timed(*args):
             started = time.perf_counter()
@@ -300,7 +300,7 @@ class TestManyPairsWithLongLabels:
             finally:
                 spent[0] += time.perf_counter() - started
 
-        monkeypatch.setattr(pdf, "_label_value_rows", timed)
+        replace_everywhere(monkeypatch, "_label_value_rows", timed)
 
         self._converted(1_500)
 
@@ -317,16 +317,16 @@ class TestPageNumberShape:
     def test_page_number_pattern_judges_as_before(self):
         reference = r"^[-–(\[]?\s*(?:page|p\.)?\s*\d{1,4}\s*(?:/\s*\d{1,4})?\s*(?:쪽|페이지)?\s*[-–)\]]?$"
 
-        assert _same_verdicts(pdf._PAGE_NUMBER, reference, self._TOKENS, 4, search=False)
+        assert _same_verdicts(_pdf_margins._PAGE_NUMBER, reference, self._TOKENS, 4, search=False)
         for text in ("3", "- 3 -", "3 / 10", "Page 3", "3쪽", "p. 12", "(3)", "[ 3 / 10 페이지 ]", "– 12 –"):
-            assert pdf._PAGE_NUMBER.match(text)
+            assert _pdf_margins._PAGE_NUMBER.match(text)
         for text in ("3 4", "page", "12345", "3 / x", "3쪽쪽", "a3"):
-            assert not pdf._PAGE_NUMBER.match(text)
+            assert not _pdf_margins._PAGE_NUMBER.match(text)
 
     @pytest.mark.timing
     def test_white_space_run_after_a_digit_is_linear(self):
         started = time.perf_counter()
 
-        assert not pdf._PAGE_NUMBER.match("1" + " " * 3_000 + "x")
-        assert not pdf._PAGE_NUMBER.match(" " * 3_000 + "x")
+        assert not _pdf_margins._PAGE_NUMBER.match("1" + " " * 3_000 + "x")
+        assert not _pdf_margins._PAGE_NUMBER.match(" " * 3_000 + "x")
         assert time.perf_counter() - started < allowed(2.0)  # minutes before

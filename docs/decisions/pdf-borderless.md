@@ -1,6 +1,6 @@
 # PDF decisions: borderless table rows and columns
 
-Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py`) about row and column judgments of borderless tables: rows with wide cells, overflowed cell lines, an empty top-left cell, and narrow gaps between cells. Split off from [pdf-tables.md](pdf-tables.md)
+Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py` and the `_pdf_*.py` modules beside it) about row and column judgments of borderless tables: rows with wide cells, overflowed cell lines, an empty top-left cell, and narrow gaps between cells. Split off from [pdf-tables.md](pdf-tables.md)
 because of its size limit; the rules are the same: do not revert the decisions in this table. To change one, change the pinning test first and write the reason in the same row.
 The conservative criterion (3 or more short pieces × 3 or more rows, [pdf.md](pdf.md)) stays as it is; only the rows that attach to a table found by that criterion are widened.
 

@@ -10,7 +10,8 @@ import openpyxl
 import pytest
 
 from opendockit import ConvertOptions, convert
-from opendockit.extractors.spreadsheet import extract_xls, format_cell
+from opendockit.extractors._sheet_format import format_cell
+from opendockit.extractors.xls import extract_xls
 from tests import builder
 
 
@@ -506,7 +507,7 @@ class TestMalformedViewAndPrintSettings:
 
     def test_empty_cell_style_inside_the_cells_reads_as_the_default_style(self):
         """A broken cell attribute (`s=""`) could not be fixed by the settings copy and was rejected. Now it is read as the default
-        format where the cell is parsed (`spreadsheet._tolerant_parse_cell`,
+        format where the cell is parsed (`_openpyxl_reading._tolerant_parse_cell`,
         test_spreadsheet_cell_values_and_controls.py::TestOneMalformedCellValue)."""
         data = _xlsx_with_damaged_part("xl/worksheets/sheet1.xml", lambda xml: xml.replace('<c r="B2"', '<c r="B2" s=""'))
 

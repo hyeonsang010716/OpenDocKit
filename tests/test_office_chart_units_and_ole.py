@@ -152,7 +152,7 @@ class TestChartValueUnits:
 class TestChartNegativeSectionWithoutSign:
     """With a format whose negative section has no character showing that the value is negative (`#,##0"억원";[Red]#,##0"억원"` —
     only the red colour marks a negative), -300 came out as `300억원` and a loss read as a profit. `-` is added, as for Excel
-    cells (`spreadsheet._format_section`)."""
+    cells (`_sheet_format._format_section`)."""
 
     @pytest.mark.parametrize(("format_code", "expected"), [
         ('#,##0"억원";[Red]#,##0"억원"', "-300억원"),

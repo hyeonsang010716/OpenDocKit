@@ -27,7 +27,7 @@ _PRIVATE_USE = re.compile("[\ue000-\uf8ff\U000f0000-\U000ffffd\U00100000-\U0010f
 # (Pinned by: test_quality.py::test_symbol_font_bullets_become_unicode_bullets).
 # The check boxes ✗ ✓ ☒ ☑ (Wingdings FB–FE) are included too — with ☒ removed and only □ left, the selected item read as the
 # opposite. Codes whose meaning differs by font (Wingdings ☒ 78 and □ 6F are ξ and ο in Symbol) are not included. DOCX and PPTX,
-# which know the font, convert them first with `extractors._shared.SYMBOL_GLYPHS`
+# which know the font, convert them first with `extractors._symbols.SYMBOL_GLYPHS`
 # (Pinned by: test_markdown.py::TestCleanText::test_check_box_glyphs_of_symbol_fonts_survive_without_a_font).
 _SYMBOL_FONT_GLYPHS = str.maketrans({
     "\uf0b7": "•", "\uf06c": "●", "\uf0a1": "○", "\uf0a7": "▪", "\uf06e": "■", "\uf071": "❑", "\uf075": "◆",
