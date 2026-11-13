@@ -831,7 +831,9 @@ def _without_view_settings(data: bytes) -> bytes | None:
 
 
 def _is_number(value: str | None) -> bool:
-    return value is not None and value.strip().isascii() and value.strip().isdigit()
+    # Digits `int()` refuses (more than 4,300 of them) are not a number either: a cell style index like that rejected the whole
+    # document (Pinned by: test_audit_spreadsheet.py::TestIntegerAttributesTooLongToRead).
+    return value is not None and value.strip().isascii() and decimal_int(value.strip(), None) is not None
 
 
 _OFFICE_DOCUMENT = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
@@ -2114,8 +2116,8 @@ def _xml_style_indents(root: etree._Element) -> dict[str | None, int]:
             alignment = styles[current].find(f"{{{_SS}}}Alignment")
             value = (_ss(alignment, "Indent") or "").strip() if alignment is not None else ""
             if value:
-                if value.isdecimal() and int(value) > 0:
-                    found = int(value)
+                if decimal_int(value, 0) > 0:
+                    found = decimal_int(value, 0)
                 break
             current = _ss(styles[current], "Parent")
         inherited.update(dict.fromkeys(seen, found))
@@ -2135,8 +2137,11 @@ def _ss_int(element: etree._Element, name: str, fallback: int, invalid: set[str]
     value = (_ss(element, name) or "").strip()
     if not value:
         return fallback
-    if value.isdecimal():
-        return int(value)
+    # None also for more than 4,300 digits, which `int()` refuses although they are decimal
+    # (Pinned by: test_audit_spreadsheet.py::TestIntegerAttributesTooLongToRead).
+    number = decimal_int(value, None)
+    if number is not None:
+        return number
     invalid.add(name)
     return fallback
 

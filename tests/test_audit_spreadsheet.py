@@ -482,3 +482,51 @@ class TestNegativeValueTooLargeForADuration:
         result = convert(_xml_workbook(rows, styles), "a.xml")
 
         assert result.text == "## Sheet: s\n\n| name | hours |\n| --- | --- |\n| a | -1000000000000 |"
+
+
+_TOO_LONG = "9" * 5_000  # decimal digits, yet int() refuses a number string of more than 4,300 digits
+
+
+class TestIntegerAttributesTooLongToRead:
+    """A whole number of more than 4,300 digits passes `isdecimal()` and `int()` raises ValueError: one attribute rejected the
+    whole document."""
+
+    @pytest.mark.parametrize("attribute", ["Index", "MergeAcross", "MergeDown"])
+    def test_xml_cell_attribute_is_treated_as_absent_with_the_warning(self, attribute):
+        rows = ("<Row>" + _xml_cell("name") + _xml_cell("amount") + "</Row>"
+                "<Row>" + _xml_cell("part") + _xml_cell(3, "Number", f'ss:{attribute}="{_TOO_LONG}"') + "</Row>")
+
+        result = convert(_xml_workbook(rows), "a.xml")
+
+        assert result.text == "## Sheet: s\n\n| name | amount |\n| --- | --- |\n| part | 3 |"
+        assert result.warnings == [f"Non-integer cell position and merge attributes ({attribute}) were ignored. "
+                                   "Cells may have been placed in a different column."]
+
+    def test_xml_row_and_column_attributes(self):
+        rows = (f'<Column ss:Index="{_TOO_LONG}" ss:Span="{_TOO_LONG}"/><Row>' + _xml_cell("name") + _xml_cell("amount") + "</Row>"
+                f'<Row ss:Index="{_TOO_LONG}">' + _xml_cell("part") + _xml_cell(3, "Number") + "</Row>")
+
+        result = convert(_xml_workbook(rows), "a.xml")
+
+        assert result.text == "## Sheet: s\n\n| name | amount |\n| --- | --- |\n| part | 3 |"
+        assert result.warnings == ["Non-integer cell position and merge attributes (Index, Span) were ignored. "
+                                   "Cells may have been placed in a different column."]
+
+    def test_xml_style_indent_is_no_indent(self):
+        styles = f'<Style ss:ID="s0"><Alignment ss:Indent="{_TOO_LONG}"/></Style>'
+
+        result = convert(_xml_workbook(_STYLED_ROWS, styles), "a.xml")
+
+        assert result.text == "## Sheet: s\n\n| name | amount |\n| --- | --- |\n| part | 1.5 |"
+
+    @pytest.mark.parametrize("streamed", [False, True], ids=["full", "streamed"])
+    def test_xlsx_cell_style_index_is_the_default_style(self, streamed, monkeypatch):
+        if streamed:
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+        rows = (_text_row(1, "name", "amount")
+                + f'<row r="2"><c r="A2" s="{_TOO_LONG}" t="inlineStr"><is><t>part</t></is></c><c r="B2" s="{_TOO_LONG}"><v>3</v></c></row>')
+
+        result = convert(_with_sheet_xml(_sheet_xml(rows)), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| name | amount |\n| --- | --- |\n| part | 3 |"
+        assert not result.warnings
