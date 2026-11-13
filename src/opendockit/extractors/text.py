@@ -7,6 +7,7 @@ import bisect
 import codecs
 from datetime import date, timedelta
 import email
+from email.errors import HeaderParseError
 from email.header import Header, decode_header, make_header
 from email.message import Message
 import html
@@ -1121,9 +1122,12 @@ def _decoded_words(text: str) -> str:
     (Pinned by: test_core_mail_parts_and_icons.py::TestKoreanEncodedWordsWithExtendedHangul). Words that still do not decode are
     decoded piece by piece with `decode_text`.
     """
+    # A word whose base64 is broken (`=?utf-8?b?A?=`) raises HeaderParseError, which is not a ValueError: one subject or
+    # attachment name rejected the whole mail
+    # (Pinned by: test_audit_html_text.py::TestEncodedWordThatCannotBeDecoded).
     try:
         pieces = decode_header(text)
-    except (LookupError, UnicodeError, ValueError):
+    except (LookupError, UnicodeError, ValueError, HeaderParseError):
         return text
     # In a word labeled Windows-1252/ISO-8859-1 nearly every byte decodes strictly, so a CP949 subject was garbled into `[°øÁö]`.
     # It is judged by its content, like the same declaration on a body
@@ -1132,7 +1136,7 @@ def _decoded_words(text: str) -> str:
               else (chunk, charset) for chunk, charset in pieces]
     try:
         return str(make_header([(chunk, _header_codec(charset)) for chunk, charset in pieces]))
-    except (LookupError, UnicodeError, ValueError):
+    except (LookupError, UnicodeError, ValueError, HeaderParseError):
         return "".join(_header_chunk_text(chunk, charset) for chunk, charset in pieces)
 
 
