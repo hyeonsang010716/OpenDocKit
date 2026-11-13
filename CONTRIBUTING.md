@@ -58,7 +58,7 @@ src/opendockit/
 ├── models.py        ConvertOptions, ConversionResult, Section, DocumentImage
 ├── exceptions.py    ConversionError and its subclasses
 ├── cli.py           the `opendockit` command
-└── extractors/      one module per format: (bytes, ConvertOptions) -> Extraction
+└── extractors/      one module per format: (bytes, ConvertOptions) -> Extraction; `_name.py` modules are stages and shared pieces
 tests/               one or more test modules per format; builder.py creates sample documents in memory
 docs/                user documentation
 docs/decisions/      decision records: every deliberate trade-off and the test that pins it
