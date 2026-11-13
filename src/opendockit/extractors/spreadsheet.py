@@ -1683,22 +1683,42 @@ def _xls_sheets_holding_charts(stream: bytes) -> set[int]:
         if record_id == _BIFF_BOUNDSHEET and len(body) >= 6 and body[5] == 0:
             starts.append(struct.unpack_from("<I", body)[0])
 
-    charted = {start: _holds_chart(stream, start) for start in set(starts)}  # walked once each, even when many sheets point to the same position
-    return {index for index, start in enumerate(starts) if charted[start]}
+    charted = _chart_holders(stream, set(starts))
+    return {index for index, start in enumerate(starts) if start in charted}
 
 
-def _holds_chart(stream: bytes, start: int) -> bool:
-    depth = 0
-    for _, record_id, body in _biff_records(stream, start):
+def _chart_holders(stream: bytes, starts: set[int]) -> set[int]:
+    """Those of the sheet positions `starts` whose sheet holds a chart substream: the first BOF at or after the position (a
+    position right at an EOF has no sheet) has a chart BOF inside it, before its own EOF.
+
+    The stream is read once for all sheets. Walking it again from every sheet position, to the end when no EOF follows, took
+    64 s for 2,000 sheet entries over 200,000 empty records (808 KB). Deliberate: only positions at a record boundary of the
+    stream are looked at — a sheet entry pointing into the middle of a record gets no chart warning
+    (Pinned by: test_audit_spreadsheet.py::TestXlsChartScan::test_stream_is_walked_a_fixed_number_of_times).
+    """
+    charted: set[int] = set()
+    waiting: list[int] = []  # positions passed since the last BOF or EOF
+    open_sheets: list[list[int]] = []  # for every BOF still open, the positions whose sheet it starts
+    with_chart = 0  # the first this many open BOFs have a chart BOF inside them
+
+    for position, record_id, body in _biff_records(stream):
+        if position in starts:
+            waiting.append(position)
         if record_id == _BIFF_BOF:
-            depth += 1
-            if depth > 1 and body[2:4] == _BIFF_CHART_SUBSTREAM.to_bytes(2, "little"):
-                return True
+            if body[2:4] == _BIFF_CHART_SUBSTREAM.to_bytes(2, "little"):
+                with_chart = len(open_sheets)
+            open_sheets.append(waiting)
+            waiting = []
         elif record_id == _BIFF_EOF:
-            depth -= 1
-            if depth <= 0:
-                return False
-    return False
+            waiting = []
+            if open_sheets:
+                closed = open_sheets.pop()
+                if with_chart > len(open_sheets):
+                    charted.update(closed)
+                    with_chart = len(open_sheets)
+    for closed in open_sheets[:with_chart]:
+        charted.update(closed)
+    return charted
 
 
 def _xls_workbook_stream(data: bytes) -> bytes:

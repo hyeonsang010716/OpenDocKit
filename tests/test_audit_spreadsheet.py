@@ -2,6 +2,7 @@
 document (audit of `extractors/spreadsheet.py`)."""
 
 from io import BytesIO
+import struct
 import time
 import zipfile
 
@@ -273,3 +274,81 @@ class TestSheetXmlSearchesFindWhatTheyFound:
         xml = b'<controls><mc:x><control shapeId="1025" r:id="rId1" name="a"><controlPr/></control></mc:x></controls>'
 
         assert spreadsheet._CONTROL_ELEMENT.findall(xml) == [b'<control shapeId="1025" r:id="rId1" name="a">']
+
+
+def _bof(kind: int) -> bytes:
+    return builder.xls_record(0x0809, struct.pack("<HHHHII", 0x0600, kind, 0x0DBB, 0x07CC, 0, 6))
+
+
+_WORKSHEET, _CHART, _EOF, _OTHER = _bof(0x0010), _bof(0x0020), builder.xls_record(0x000A), builder.xls_record(0x0200, b"\0" * 14)
+
+
+def _biff_stream(sheets: list[int | None], body: bytes) -> bytes:
+    """A workbook stream whose sheet list points at the given offsets inside `body` (None: past the end of the stream)."""
+    head = _bof(0x0005)
+    base = len(head) + len(sheets) * (4 + 9) + len(_EOF)
+    listed = b"".join(builder.xls_record(0x0085, struct.pack("<IBBBB", 2**31 if offset is None else base + offset, 0, 0, 1, 0)
+                                         + b"s") for offset in sheets)
+    return head + listed + _EOF + body
+
+
+class TestXlsChartScan:
+    """Looking for a chart placed on a sheet walked the stream again from every sheet offset, to the end when no end-of-sheet
+    record follows: 2,000 sheet entries over 200,000 empty records (808 KB) took 64 s."""
+
+    def test_stream_is_walked_a_fixed_number_of_times(self, monkeypatch):
+        """Pins: the chart scan reads the workbook stream in one pass, whatever the number of sheets."""
+        read = 0
+        records = spreadsheet._biff_records
+
+        def counting(stream: bytes, start: int = 0) -> object:
+            nonlocal read
+            for record in records(stream, start):
+                read += 1
+                yield record
+
+        monkeypatch.setattr(spreadsheet, "_biff_records", counting)
+        stream = _biff_stream([index * 4 for index in range(300)], builder.xls_record(0x0001) * 20_000)
+
+        assert spreadsheet._xls_sheets_holding_charts(stream) == set()
+        assert read < 3 * 20_302
+
+    def test_nested_sheets_are_walked_once(self, monkeypatch):
+        read = 0
+        records = spreadsheet._biff_records
+
+        def counting(stream: bytes, start: int = 0) -> object:
+            nonlocal read
+            for record in records(stream, start):
+                read += 1
+                yield record
+
+        monkeypatch.setattr(spreadsheet, "_biff_records", counting)
+        stream = _biff_stream([index * len(_WORKSHEET) for index in range(300)], _WORKSHEET * 3_000 + _CHART)
+
+        assert spreadsheet._xls_sheets_holding_charts(stream) == set(range(300))
+        assert read < 3 * 3_302
+
+    def test_which_sheets_hold_a_chart(self):
+        parts = [
+            _WORKSHEET + _OTHER + _CHART + _EOF + _EOF,   # 0: a chart placed on the sheet
+            _WORKSHEET + _OTHER + _EOF,                    # 1: no chart
+            _CHART + _EOF,                                 # 2: a chart of its own is not a chart placed on a sheet
+            _OTHER + _WORKSHEET + _CHART + _EOF + _EOF,    # 3: the offset points before the start of the sheet
+            _EOF,                                          # 4: the offset points at an end record
+            _WORKSHEET + _WORKSHEET + _EOF + _CHART + _EOF + _EOF,   # 5: a chart after a nested part
+            _WORKSHEET + _WORKSHEET + _CHART + _EOF + _EOF + _EOF,   # 6: a chart inside a nested part
+            _CHART + _WORKSHEET + _EOF + _OTHER + _CHART,  # 7: never closed, a chart inside
+        ]
+        offsets = [sum(map(len, parts[:index])) for index in range(len(parts))]
+        nested = offsets[6] + len(_WORKSHEET)  # 10: the nested part of 6 on its own
+
+        stream = _biff_stream([*offsets, offsets[0], None, nested], b"".join(parts))
+
+        assert spreadsheet._xls_sheets_holding_charts(stream) == {0, 3, 5, 6, 7, 8, 10}
+
+    def test_offset_into_the_middle_of_a_record_is_not_looked_at(self):
+        """Deliberate: such a sheet entry gets no chart warning (it would need a walk of its own)."""
+        body = builder.xls_record(0x0200, _WORKSHEET + _CHART + _EOF + _EOF)
+
+        assert spreadsheet._xls_sheets_holding_charts(_biff_stream([4], body)) == set()
