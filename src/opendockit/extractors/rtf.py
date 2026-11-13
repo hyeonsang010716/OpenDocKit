@@ -14,7 +14,17 @@ from functools import lru_cache
 import re
 
 from opendockit.exceptions import CorruptedDocumentError
-from opendockit.extractors._inline import BOLD_OFF, BOLD_ON, ITALIC_OFF, ITALIC_ON, LINK_ON, InlineMark, link_off, link_target, resolve_inline
+from opendockit.extractors._inline import (
+    BOLD_OFF,
+    BOLD_ON,
+    ITALIC_OFF,
+    ITALIC_ON,
+    LINK_ON,
+    InlineMark,
+    field_link,
+    link_off,
+    resolve_inline,
+)
 from opendockit.extractors._lists import paragraph_head
 from opendockit.extractors._notation import NOTE_ROW_SEPARATOR, TableBudget, omitted_rows_warning
 from opendockit.markdown import TableGrid, join_blocks, merged_copy, solid_length
@@ -70,9 +80,6 @@ _TITLE_NAMES = frozenset(("title", "제목"))
 _LIST_STYLE_LEVEL = re.compile(r"List (?:Bullet|Number|Continue|Paragraph)\s+([1-9])", re.IGNORECASE)
 # A bullet typed as text and followed by a tab (pandoc writes its lists this way: `\bullet \tab text`).
 _TYPED_BULLETS = frozenset("•·◦▪‣○●–-")
-# The address and the bookmark (`\l "name"`) of a HYPERLINK field instruction — the same shapes DOCX reads (`_docx_runs._field_link`).
-_HYPERLINK = re.compile(r'\s*HYPERLINK\s+(?:"([^"]*)"|([^\s"\\]\S*))', re.IGNORECASE)
-_HYPERLINK_BOOKMARK = re.compile(r'\\l\s+"([^"]*)"', re.IGNORECASE)
 
 # Destinations (where the text of a group goes).
 _BODY, _SKIP, _FONTTBL, _STYLESHEET, _INFO, _INFO_TEXT, _PICT, _FLDINST, _LISTTABLE, _LISTOVERRIDE, _PN, _SHAPE = range(12)
@@ -324,18 +331,6 @@ def _inline_tokens(runs: list[_Run], *, emphasis: bool, links: bool) -> list[str
     if open_link is not None:
         tokens.append(link_off(open_link))
     return tokens
-
-
-def _link_target(instruction: str) -> str | None:
-    """The vetted address of a `HYPERLINK "url"` field instruction (`_inline.link_target`: only http, https and mailto, unsafe
-    characters percent-encoded), with `\\l "bookmark"` appended as the fragment as in DOCX. A link to a bookmark alone
-    (`HYPERLINK \\l "name"`) or to a file keeps only its text."""
-    match = _HYPERLINK.match(instruction)
-    if match is None:
-        return None
-    address = match.group(1) if match.group(1) is not None else match.group(2)
-    bookmark = _HYPERLINK_BOOKMARK.search(instruction, match.end())
-    return link_target(f"{address}#{bookmark.group(1)}" if bookmark and bookmark.group(1) and "#" not in address else address)
 
 
 class _Flow:
@@ -871,7 +866,7 @@ class _Reader:
                 # results took 11 s (Pinned by: test_rtf.py::TestHostileInput::test_long_field_instruction_with_many_results_is_cheap).
                 field = self._fields[-1]
                 if field[2] != field[1]:
-                    field[2], field[3] = field[1], _link_target("".join(field[0]))
+                    field[2], field[3] = field[1], field_link("".join(field[0]))
                 state.link = field[3] or state.link
         elif word in _NOTE_WORDS:
             # A footnote inside a footnote cannot be referenced from Markdown; it is left out.

@@ -15,8 +15,8 @@ from opendockit.extractors._inline import (
     LINK_OPEN,
     SUBSCRIPT,
     SUPERSCRIPT,
+    field_link,
     link_close,
-    link_target,
     mark_emphasis,
     mark_script,
     mark_strike,
@@ -120,10 +120,6 @@ _CIRCLED_HANGUL = {**dict(zip("가나다라마바사아자차카타파하", map(
                    **dict(zip("ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ", map(chr, range(0x3260, 0x326E)), strict=True))}
 
 
-# A HYPERLINK field: `HYPERLINK "address" \l "bookmark" \o "tip"`. The address may be unquoted; a first argument that is a
-# switch (`\l "bookmark"` alone) is a jump inside the document and is not a link.
-_HYPERLINK_FIELD = re.compile(r'\s*HYPERLINK\s+(?:"([^"]*)"|([^\s"\\]\S*))', re.IGNORECASE)
-_HYPERLINK_BOOKMARK = re.compile(r'\\l\s+"([^"]*)"', re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,7 +286,7 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                     # never ends leaves an unclosed mark, which is not written
                     # (Pinned by: test_inline_formatting.py::TestDocxLinks::test_hyperlink_field_code_is_a_link).
                     if inline is not None and inline.link is not None and not instruction_fields and fields[-1].link is None:
-                        fields[-1].link = _field_link("".join(fields[-1].instruction))
+                        fields[-1].link = field_link("".join(fields[-1].instruction))
                         if fields[-1].link:
                             parts.append(LINK_OPEN)
                     fields[-1].start = len(parts)
@@ -309,7 +305,7 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
             elif tag == _w("fldSimple"):
                 link = None
                 if inline is not None and inline.link is not None and not instruction_fields:
-                    link = _field_link(child.get(_w("instr"), ""))
+                    link = field_link(child.get(_w("instr"), ""))
                 if link:
                     parts.append(LINK_OPEN)
                 start = len(parts)
@@ -381,16 +377,6 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
     if inline is not None:
         text = merge_emphasis_marks(text)
     return resolve_scripts(resolve_strikes(text))
-
-
-def _field_link(instruction: str) -> str | None:
-    """Vetted address of a HYPERLINK field instruction, None for any other field and for an address that is not kept."""
-    match = _HYPERLINK_FIELD.match(instruction)
-    if match is None:
-        return None
-    address = match.group(1) if match.group(1) is not None else match.group(2)
-    bookmark = _HYPERLINK_BOOKMARK.search(instruction, match.end())
-    return link_target(f"{address}#{bookmark.group(1)}" if bookmark and bookmark.group(1) and "#" not in address else address)
 
 
 def _run_emphasis(run: etree._Element, styles: dict[str, tuple[bool, bool]]) -> tuple[bool, bool]:

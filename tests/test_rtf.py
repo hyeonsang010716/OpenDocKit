@@ -551,8 +551,8 @@ class TestHostileInput:
         be kept whole (the cap was checked before the piece was added) and its address worked out again at every result: 3 MB
         and 1,000 results took 11 seconds. It is cut at the cap and resolved once."""
         seen: list[int] = []
-        resolve = rtf_module._link_target
-        monkeypatch.setattr(rtf_module, "_link_target", lambda text: (seen.append(len(text)), resolve(text))[1])
+        resolve = rtf_module.field_link
+        monkeypatch.setattr(rtf_module, "field_link", lambda text: (seen.append(len(text)), resolve(text))[1])
         body = r'{\field{\*\fldinst HYPERLINK "https://example.com/' + "a" * 200_000 + r'"}' + r"\fldrslt" * 500 + r" site}\par"
         assert "site" in _text(body)
         assert seen == [rtf_module._MAX_INSTRUCTION_CHARS]

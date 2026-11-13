@@ -220,6 +220,23 @@ BLOCK_INSIDE = InlineMark("x", True)
 _CHAR_MARKS = {_BOLD_OPEN: BOLD_ON, _BOLD_CLOSE: BOLD_OFF, _ITALIC_OPEN: ITALIC_ON, _ITALIC_CLOSE: ITALIC_OFF, LINK_OPEN: LINK_ON}
 
 
+# A HYPERLINK field (DOCX `w:instrText`, RTF `\fldinst`): `HYPERLINK "address" \l "bookmark" \o "tip"`. The address may be
+# unquoted; a first argument that is a switch (`\l "bookmark"` alone) is a jump inside the document and is not a link.
+_HYPERLINK_FIELD = re.compile(r'\s*HYPERLINK\s+(?:"([^"]*)"|([^\s"\\]\S*))', re.IGNORECASE)
+_HYPERLINK_BOOKMARK = re.compile(r'\\l\s+"([^"]*)"', re.IGNORECASE)
+
+
+def field_link(instruction: str) -> str | None:
+    """The vetted address of a HYPERLINK field instruction (`link_target`), with `\\l "bookmark"` appended as the fragment. None
+    for any other field, and for an address that is not kept: a link to a bookmark alone or to a file keeps only its text."""
+    match = _HYPERLINK_FIELD.match(instruction)
+    if match is None:
+        return None
+    address = match.group(1) if match.group(1) is not None else match.group(2)
+    bookmark = _HYPERLINK_BOOKMARK.search(instruction, match.end())
+    return link_target(f"{address}#{bookmark.group(1)}" if bookmark and bookmark.group(1) and "#" not in address else address)
+
+
 def link_target(address: str | None) -> str | None:
     """The address to write into `[text](address)`, or None when the link is not kept.
 
