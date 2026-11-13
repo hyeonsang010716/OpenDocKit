@@ -47,6 +47,8 @@ from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
 _SECTION_NAME = re.compile(r"^Contents/section(\d+)\.xml$")
+# Spine entries (itemref of content.hpf) looked at, the same number as for an EPUB (`_section_order`).
+_MAX_SPINE_ITEMS = 5_000
 # Hangul's "개요 1" to "개요 7" (Outline 1-7) paragraph styles are the chapter/section structure of the document. They become Markdown headings.
 _OUTLINE_STYLE = re.compile(r"^(?:개요|Outline)\s*([1-9])$")
 # A paragraph longer than this stays body text, not a heading, even with an outline style (some documents write body text in outline styles).
@@ -141,6 +143,7 @@ class HwpxRenderer:
         # list (cells, footnotes, text boxes, captions).
         self._bullets = [BulletNesting()]
         self._load_part = load_part
+        self._charts: dict[str, str] = {}  # chart part name → the `[Chart] title` line later references to it give (`_render_chart`)
         # Number counters: (kind, numbering id). Outline numbers and paragraph numbers are counted separately. The outline numbering id
         # is set by the section properties (secPr).
         self._numberings: dict[tuple[str, str], Numbering] = {}
@@ -155,7 +158,9 @@ class HwpxRenderer:
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
         self.notes: list[str] = []
-        self.headers_footers: list[str] = []
+        # Texts in order of first appearance, each once. Looked up in a list, 60,000 different headers took 11 s
+        # (Pinned by: test_audit_hangul.py::TestManyDistinctHeaders).
+        self.headers_footers: dict[str, None] = {}
         # Comments (review remarks): (author, text, pieces of the body range the comment is attached to). The range is the text between
         # fieldBegin and the fieldEnd with the same id
         self.memos: list[tuple[str, str, list[str]]] = []
@@ -326,6 +331,13 @@ class HwpxRenderer:
         """The chartIDRef of hp:chart is an OOXML chart inside the archive (Chart/chart1.xml). The same renderer as PPTX and DOCX is used
         (Pinned by: test_hwp.py::TestHwpxObjects::test_chart_data_is_kept)."""
         name = chart.get("chartIDRef", "")
+        # A chart part is read, parsed and rendered once however many hp:chart point at it, and its values are written at the
+        # first of them only; later ones give the `[Chart] title` line (same rule as an ODF embedded object): 100 references
+        # in one paragraph to a part of 300,000 empty elements (a 7.8 KB file) took 47 s
+        # (deliberate. Pinned by: test_audit_hangul.py::TestHwpxChartReferencedManyTimes).
+        if name in self._charts:
+            return self._charts[name]
+        self._charts[name] = ""
         data = self._load_part(name) if self._load_part is not None else None
         root = parse_part(data) if data else None
         if root is None:
@@ -338,7 +350,9 @@ class HwpxRenderer:
         # test_office_chart_units_and_ole.py::TestChartUserShapes::test_hwpx_chart_text_box_is_kept).
         outer = self._grids[-1] if self._grids else None
         table = embedded_table(outer) if outer is not None else render_table
-        return render_chart(root, table, package_loader(self._load_part, name))
+        rendered = render_chart(root, table, package_loader(self._load_part, name))
+        self._charts[name] = rendered.split("\n", 1)[0]
+        return rendered
 
     def _paragraph_head(self, paragraph: etree._Element) -> tuple[str, int]:
         """Paragraph head of the paragraph shape (hh:heading) → (number "1." / "가." or bullet "-", level). ("", 0) if the definition is
@@ -411,8 +425,8 @@ class HwpxRenderer:
                     text = join_blocks(block for sub in _top_sublists(node) for block in self.render_paragraphs(sub))
                 finally:
                     self._grids.pop()
-                if text and text not in self.headers_footers:
-                    self.headers_footers.append(text)
+                if text:
+                    self.headers_footers.setdefault(text)
             elif name == "autoNum":
                 buffer.append(_auto_number(node))
 
@@ -613,7 +627,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
         renderer = HwpxRenderer(styles, options, extraction, load_binary, _load_paragraph_heads(header), load_part,
                                 _load_scripts(header), _load_struck_shapes(header))
         blocks = []
-        sections = _section_order(package, names)
+        sections = _section_order(package, names, extraction.warnings)
         broken: list[Exception] = []
         for number, name in enumerate(sections, 1):
             # If the XML or compression (CRC) of one section is broken, only that section is skipped with a warning. The whole document
@@ -764,21 +778,30 @@ def _parse_member(archive: zipfile.ZipFile, names: list[str], name: str) -> etre
         return None
 
 
-def _section_order(package: etree._Element | None, names: list[str]) -> list[str]:
-    """The body order is set by the spine of content.hpf. Section number order if it is missing or broken."""
+def _section_order(package: etree._Element | None, names: list[str], warnings: list[str]) -> list[str]:
+    """The body order is set by the spine of content.hpf. Section number order if it is missing or broken. A spine cut at the
+    cap is reported in `warnings`."""
+    # A number of more than 4,300 digits cannot be read by `int()` and sorts after the others: one extra member with such a
+    # name rejected a document whose spine never mentions it (Pinned by: test_audit_hangul.py::TestHugeHwpxSectionNumber).
     fallback = sorted((name for name in names if _SECTION_NAME.match(name)),
-                      key=lambda name: int(_SECTION_NAME.match(name).group(1)))
+                      key=lambda name: decimal_int(_SECTION_NAME.match(name).group(1), float("inf")))
     if package is None:
         return fallback
 
     manifest = {item.get("id"): item.get("href", "") for item in package.iter() if _local(item) == "item"}
-    ordered = []
-    for itemref in (node for node in package.iter() if _local(node) == "itemref"):
+    # A section listed a second time is read once, and at most `_MAX_SPINE_ITEMS` entries are looked at (the same two guards
+    # as the EPUB spine): one section of 300,000 empty paragraphs listed 40 times (a 33 KB file) was parsed and rendered 40
+    # times, 29 s (deliberate. Pinned by: test_audit_hangul.py::TestHwpxSpine).
+    ordered: dict[str, None] = {}
+    for references, itemref in enumerate((node for node in package.iter() if _local(node) == "itemref"), 1):
+        if references > _MAX_SPINE_ITEMS:
+            warnings.append(f"The HWPX document lists more than {_MAX_SPINE_ITEMS:,} sections; the rest were not read.")
+            break
         href = manifest.get(itemref.get("idref"), "")
         name = href if href.startswith("Contents/") else f"Contents/{href}"
         if _SECTION_NAME.match(name) and name in names:
-            ordered.append(name)
-    return ordered or fallback
+            ordered[name] = None
+    return list(ordered) or fallback
 
 
 def _binary_items(package: etree._Element | None, names: list[str]) -> dict[str, str]:

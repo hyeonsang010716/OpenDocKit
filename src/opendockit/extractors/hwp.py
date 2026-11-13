@@ -29,7 +29,6 @@ from opendockit.extractors._shared import (
     Numbering,
     NumberLevel,
     TableBudget,
-    decimal_int,
     format_dutmal,
     format_number,
     is_placeholder_only,
@@ -328,7 +327,9 @@ class HwpRenderer:
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
         self.notes: list[str] = []
-        self.headers_footers: list[str] = []
+        # Texts in order of first appearance, each once. Looked up in a list, 60,000 different headers took 11 s
+        # (Pinned by: test_audit_hangul.py::TestManyDistinctHeaders).
+        self.headers_footers: dict[str, None] = {}
 
     def render(self, records: list[Record]) -> list[str]:
         """Find paragraphs (PARA_HEADER) and render them. A record that is not a paragraph is descended to find inner paragraphs — with a
@@ -572,8 +573,8 @@ class HwpRenderer:
             text = join_blocks(self.render(control.children))
         finally:
             self._grids.pop()
-        if text and text not in self.headers_footers:
-            self.headers_footers.append(text)
+        if text:
+            self.headers_footers.setdefault(text)
 
     def _render_table(self, control: Record) -> str:
         """Table: under CTRL_HEADER(tbl) comes TABLE, followed, for each cell, by a LIST_HEADER and that cell's paragraphs as siblings.
@@ -681,7 +682,10 @@ def _auto_number(control: Record) -> str:
         return ""
     shape = (attribute >> 4) & 0xFF
     text = format_number(number, NUMBER_SHAPES[shape] if shape < len(NUMBER_SHAPES) else "DIGIT")
-    return f"{chr(prefix) if prefix else ''}{text}{chr(suffix) if suffix else ''}"
+    # Half of a surrogate pair (0xD800-0xDFFF) is dropped: it is not a character, and the result could not be encoded as UTF-8
+    # (same as RTF `\uN`. Pinned by: test_audit_hangul.py::TestHwpAutoNumberDecoration).
+    prefix, suffix = (chr(code) if code and not 0xD800 <= code <= 0xDFFF else "" for code in (prefix, suffix))
+    return f"{prefix}{text}{suffix}"
 
 
 def _dutmal_text(control: Record) -> str:
@@ -945,12 +949,13 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
         blocks = []
         names = _section_streams(ole)
         broken: list[zlib.error] = []
-        for name in names:
+        for number, name in enumerate(names, 1):
             # If the compression of one section stream is broken, only that section is skipped, and if its end is truncated it is used
             # as far as it was read (both with a warning). The whole document used to be rejected even when Section0 was fine. If every
             # section is broken it is a corrupted document as before (Pinned by: test_hwp_robustness.py::
-            # TestBrokenSectionStream).
-            number = decimal_int(name.removeprefix("BodyText/Section"), 0) + 1
+            # TestBrokenSectionStream). The number in the warning is the position in the body, as for HWPX, not the number in
+            # the stream name: up to 24 digits chosen by the document reached the warning
+            # (Pinned by: test_audit_hangul.py::TestHwpSectionWarningNumber).
             try:
                 stream, complete = _read_stream_to_end(ole, name, compressed, budget)
             except zlib.error as exc:

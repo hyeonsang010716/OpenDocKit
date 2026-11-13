@@ -181,7 +181,38 @@ def equation_to_latex(script: str) -> str | None:
         return None  # Deliberate: unknown structures and converter defects alike fall back to the original (module docstring)
     latex = _TEXT_RUN.sub(lambda match: r"\text{" + " ".join(_TEXT_PIECE.findall(match.group())) + "}", latex)
     latex = _ROOT_INDEX.sub(r"\\sqrt[\1]{", " ".join(latex.split()))
+    if _has_repeated_script(latex):
+        return None
     return latex or None
+
+
+def _has_repeated_script(latex: str) -> bool:
+    """True if a term carries two superscripts or two subscripts (`x^{2}^{3}`), which LaTeX rejects. `x^2^3` in a script came
+    out that way; what Hancom draws for it is not in the spec, so it is not guessed (nested or not) and the caller keeps the
+    original script (deliberate. Pinned by: test_audit_hangul.py::TestEquationWithARepeatedScript)."""
+    seen = ""  # scripts already on the term being read
+    outer: list[str] = []  # what `seen` goes back to at the `}` of each open group
+    index = 0
+    while index < len(latex):
+        char = latex[index]
+        if char in "^_" and latex[index + 1:index + 2] == "{":
+            if char in seen:
+                return True
+            outer.append(seen + char)
+            seen = ""
+            index += 1
+        elif char == "\\":
+            seen = ""
+            index += 1  # an escaped character (`\{`, `\_`) is neither a brace nor a script
+        elif char == "{":
+            outer.append("")
+            seen = ""
+        elif char == "}":
+            seen = outer.pop() if outer else ""
+        elif not char.isspace():
+            seen = ""
+        index += 1
+    return False
 
 
 class _Parser:
