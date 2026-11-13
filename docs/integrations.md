@@ -119,4 +119,18 @@ With the package installed, the command is simply `opendockit-mcp`.
 - **Offline.** No vision model and nothing fetched: pictures and scanned pages stay placeholders, with a warning.
   Legacy `.doc` / `.ppt` need LibreOffice, as everywhere else.
 
+### Hermes Agent plugin
+
+[`hermes-plugin/`](../hermes-plugin) packages the same server for [Hermes Agent](https://github.com/NousResearch/hermes-agent)
+as a portable Agent Plugins v1 package: the server declaration (`mcp.json`, pinned to one OpenDocKit release) and a skill
+that teaches the agent to read the outline first and long documents by `sections`.
+
+```bash
+hermes plugins install hyeonsang010716/OpenDocKit#hermes-plugin
+hermes plugins enable opendockit
+```
+
+The server is started without `--root`; set `OPENDOCKIT_MCP_ROOTS` in the shell or in the Hermes profile's `.env` to
+restrict it. What the plugin does on the machine is listed in its [README](../hermes-plugin/README.md).
+
 Design notes: [decisions/integrations.md](decisions/integrations.md).

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "opendockit",
+  "version": "0.3.1",
+  "description": "Read local documents as Markdown: PDF, Word, PowerPoint, Excel, HWP/HWPX, OpenDocument, RTF, EPUB, HTML and email, whole or by page, slide or sheet. Offline, through the OpenDocKit MCP server, with a skill for reading long documents in parts.",
+  "author": {
+    "name": "hyeonsang010716",
+    "url": "https://github.com/hyeonsang010716"
+  },
+  "homepage": "https://github.com/hyeonsang010716/OpenDocKit/tree/main/hermes-plugin",
+  "repository": "https://github.com/hyeonsang010716/OpenDocKit",
+  "license": "MIT",
+  "keywords": [
+    "documents",
+    "markdown",
+    "pdf",
+    "docx",
+    "pptx",
+    "xlsx",
+    "hwp",
+    "hwpx",
+    "rag",
+    "mcp"
+  ]
+}
