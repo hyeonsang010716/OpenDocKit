@@ -693,11 +693,21 @@ def _ole_preview(shape: object) -> bytes | None:
         for relationship in shape.part.rels.values():
             if relationship.is_external or not relationship.reltype.endswith("/vmlDrawing"):
                 continue
-            drawing = parse_part(relationship.target_part.blob)
-            for vml_shape in drawing.iter(f"{{{_VML}}}shape") if drawing is not None and shape_id else []:
-                image = vml_shape.find(f"{{{_VML}}}imagedata")
-                if vml_shape.get("id") == shape_id and image is not None:
-                    return relationship.target_part.related_part(image.get(f"{{{_OFFICE}}}relid")).blob
+            # The drawing is read once: shape id → relationship id of its picture (the first shape with a picture, as when the
+            # part was searched per object), kept on the part. It was parsed and searched again for every OLE object (Pinned by:
+            # test_audit_office.py::TestPptxManyOleObjectsWithVmlPreviews).
+            target = relationship.target_part
+            previews = target.__dict__.get("_converter_vml_previews")
+            if previews is None:
+                previews = {}
+                drawing = parse_part(target.blob)
+                for vml_shape in drawing.iter(f"{{{_VML}}}shape") if drawing is not None else []:
+                    image = vml_shape.find(f"{{{_VML}}}imagedata")
+                    if image is not None:
+                        previews.setdefault(vml_shape.get("id"), image.get(f"{{{_OFFICE}}}relid"))
+                target._converter_vml_previews = previews
+            if shape_id and shape_id in previews:
+                return target.related_part(previews[shape_id]).blob
     except (KeyError, ValueError):  # broken or external relationship. One object must not reject the whole document
         pass
     return None

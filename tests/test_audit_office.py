@@ -16,9 +16,19 @@ from opendockit import ConvertOptions, CorruptedDocumentError, convert
 from opendockit.extractors import docx as docx_module
 from opendockit.extractors import pptx as pptx_module
 from opendockit.extractors.docx import extract_docx
+from opendockit.extractors.pptx import extract_pptx
 from tests import builder
-from tests.test_office import _CHART_NS, _chart_series, _chart_xml, _docx_inline, _docx_with_body, _docx_with_chunks
 from tests.test_odf import _package as _odf_package
+from tests.test_office import (
+    _CHART_NS,
+    _OLE_FRAME,
+    _chart_series,
+    _chart_xml,
+    _docx_inline,
+    _docx_with_body,
+    _docx_with_chunks,
+    _replace_picture,
+)
 
 
 _SUPERSCRIPT = '<w:rPr><w:vertAlign w:val="superscript"/></w:rPr>'
@@ -469,6 +479,45 @@ class TestOdfObjectThatIsNotAChart:
         convert(data, "sample.odt")
 
         assert time.perf_counter() - started < 4.0
+
+
+class TestPptxManyOleObjectsWithVmlPreviews:
+    """The preview picture of a legacy OLE object is found in the slide's VML drawing part by the object's shape id. The part was
+    parsed and searched again for every OLE object of the slide; its shapes are read once."""
+
+    def test_vml_drawing_is_parsed_once_for_all_objects_of_the_slide(self, monkeypatch: pytest.MonkeyPatch):
+        count = 12
+        frames = "".join(_OLE_FRAME.format(ole=f'<p:oleObj spid="_x0000_s{1026 + index}" name="Worksheet" r:id="rId9" '
+                                               'progId="Excel.Sheet.12"><p:embed/></p:oleObj>') for index in range(count))
+        vml = ('<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">'
+               + "".join(f'<v:shape id="_x0000_s{1026 + index}"><v:imagedata o:relid="rId1" o:title=""/></v:shape>'
+                         for index in range(count - 1)) + "</xml>")   # the last object has no shape in the drawing
+        vml_relationships = ('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/'
+                             f'package/2006/relationships"><Relationship Id="rId1" Type="{_RELATIONSHIPS}/image" '
+                             'Target="../media/image1.png"/></Relationships>')
+        data = builder.zip_with(
+            builder.pptx_with_image(),
+            edit={"ppt/slides/slide1.xml": _replace_picture(lambda _: frames),
+                  "ppt/slides/_rels/slide1.xml.rels": lambda xml: xml.replace(
+                      "</Relationships>", f'<Relationship Id="rIdVml" Type="{_RELATIONSHIPS}/vmlDrawing" '
+                                          'Target="../drawings/vmlDrawing1.vml"/></Relationships>'),
+                  "[Content_Types].xml": lambda xml: xml.replace("</Types>", '<Default Extension="vml" ContentType="application/'
+                                                                 'vnd.openxmlformats-officedocument.vmlDrawing"/></Types>')},
+            add={"ppt/drawings/vmlDrawing1.vml": vml, "ppt/drawings/_rels/vmlDrawing1.vml.rels": vml_relationships})
+        parses = [0]
+        parse = pptx_module.parse_part
+
+        def counted(part: bytes) -> object:
+            parses[0] += b"urn:schemas-microsoft-com:vml" in part
+            return parse(part)
+
+        monkeypatch.setattr(pptx_module, "parse_part", counted)
+
+        extraction = extract_pptx(data, ConvertOptions())
+
+        assert len(extraction.images) == count - 1
+        assert extraction.sections[0].text.count("[OLE object]") == 1
+        assert parses == [1]
 
 
 class TestPptxSlideListEntryWithoutARelationship:
