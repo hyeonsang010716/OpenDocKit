@@ -625,3 +625,36 @@ class TestHiddenBlocksNestedInsideHiddenBlocks:
     ])
     def test_folded_answers_are_kept_or_removed_as_before(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected
+
+
+class TestManyListsOrTablesSetAsideWhileTheirParentIsRendered:
+    """The nested lists of a list item and the tables inside a table cell are swapped for a stand-in while the item or cell is
+    rendered and put back afterwards, each swap looking up its position among its siblings: one `<li>` with 20,000 `<ul>`
+    (371KB) took 6.4 s, one cell with 20,000 tables 8 s."""
+
+    @pytest.mark.timing
+    def test_item_with_many_nested_lists_takes_linear_time(self):
+        seconds, text = _seconds(("<ul><li>" + "<ul><li>a</li></ul>" * 20000 + "</li></ul>").encode(), "a.html")
+
+        assert text == "-\n" + "\n".join(["  - a"] * 20000)
+        assert seconds < 3
+
+    @pytest.mark.timing
+    def test_cell_with_many_tables_takes_linear_time(self):
+        html = ("<table><tr><td>" + "<table><tr><td>a</td></tr></table>" * 20000 + "</td><td>b</td></tr>"
+                "<tr><td>c</td><td>d</td></tr></table>")
+
+        seconds, text = _seconds(html.encode(), "a.html")
+
+        assert text == "| " + "a" * 20000 + " | b |\n| --- | --- |\n| c | d |"
+        assert seconds < 4
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<ul><li>one<ul><li>a</li></ul>between<div><ol><li>b</li></ol></div>after</li><li>two</li></ul>",
+         "- one\n  - a\n\nbetween\n\n  1. b\n\nafter\n\n- two"),
+        ("<table><tr><th>k</th><th>v</th></tr><tr><td>x<table><tr><td>1</td><td>2</td></tr></table>y"
+         "<table><tr><td>3</td></tr></table>z</td><td><ul><li>p<ul><li>q</li></ul>r</li></ul></td></tr></table>",
+         "| k | v |\n| --- | --- |\n| x1 2y3z | - p<br>- q<br>r |"),
+    ])
+    def test_item_and_cell_are_rendered_as_before(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected

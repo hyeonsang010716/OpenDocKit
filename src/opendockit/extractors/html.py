@@ -2198,13 +2198,16 @@ def _render_list(node: Tag, list_depth: int) -> str:
         # (Pinned by: test_core_html.py::TestNestedListInsideATableCell).
         nested = _nearest(item, wanted={"ul", "ol"}, stop={"li", "table"})
         slots = [NavigableString(f"{_LIST_SLOT_OPEN}{index}{_LIST_SLOT_CLOSE}") for index in range(len(nested))]
+        # Swapped through `_replace` (one position lookup per parent): `replace_with` per list took 6.4 seconds for one item
+        # with 20,000 lists (Pinned by: test_audit_html_text.py::TestManyListsOrTablesSetAsideWhileTheirParentIsRendered)
+        places: _Places = {}
         for child, slot in zip(nested, slots, strict=True):
-            child.replace_with(slot)
+            _replace(child, slot, places)
         try:
             pieces = _item_pieces(_item_blocks(_render_children(item, list_depth)), len(nested))
         finally:
             for child, slot in zip(nested, slots, strict=True):
-                slot.replace_with(child)
+                _replace(slot, child, places)
         first = pieces.pop(0) if pieces and isinstance(pieces[0], str) and not pieces[0].startswith(("```", "|")) else ""
 
         # Markdown numbered lists use digits only. A letter number is written after a bullet — it has to stay a list line for the nested
@@ -2812,11 +2815,12 @@ def _cell_text(cell: Tag, *, embed_into: TableGrid | None = None) -> str:
     the same cell twice (flattened, and embedded) (`_render_table`).
     """
     stand_ins: list[tuple[NavigableString, Tag]] = []
+    places: _Places = {}  # swapped through `_replace`, like the nested lists of a list item (`_render_list`)
     for nested in _nearest(cell, wanted={"table"}, stop=set()):
         grid = _embedded_grid(nested) if embed_into is not None and len(_table_rows(nested)) > 1 else None
         placeholder = embed_into.embed(grid) if embed_into is not None and grid is not None else ""
         stand_in = NavigableString(placeholder or _flat_table_text(nested))
-        nested.replace_with(stand_in)
+        _replace(nested, stand_in, places)
         stand_ins.append((stand_in, nested))
     token = _in_cell.set(True)
     try:
@@ -2824,7 +2828,7 @@ def _cell_text(cell: Tag, *, embed_into: TableGrid | None = None) -> str:
     finally:
         _in_cell.reset(token)
         for stand_in, nested in stand_ins:
-            stand_in.replace_with(nested)
+            _replace(stand_in, nested, places)
 
 
 def _flat_table_text(table: Tag) -> str:
