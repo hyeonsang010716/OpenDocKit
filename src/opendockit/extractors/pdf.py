@@ -4175,6 +4175,24 @@ def _aligned_with_any(inside: list[dict], words: list[dict]) -> bool:
                or abs(word["x0"] + word["x1"] - left - right) <= _CELL_ALIGN * 2 for word in words)
 
 
+def _dropping_page_indexes(read: Callable[[object], list]) -> Callable[[object], list]:
+    """Decorator of `_real_tables`: the lists built once per page for its tables (`_page_index`) are dropped when the tables
+    have been read, also when reading them fails.
+
+    They are kept on the page object, and pdfplumber keeps the page objects of the whole document after it has released
+    their characters (`page.close()`), so without this every page read would stay in memory until the end of the document
+    (Pinned by: test_audit_pdf_mid.py::TestManyTablesOnOnePage::test_lists_built_for_the_tables_are_dropped_with_them).
+    """
+    def reading(page: object) -> list:
+        try:
+            return read(page)
+        finally:
+            page.__dict__.pop("_page_indexes", None)
+
+    return reading
+
+
+@_dropping_page_indexes
 def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], list[list[str]], list[tuple]]]:
     """Filter layout boxes out of the ruled tables: page frames (a box that covers the page but has hardly any cells), outer boxes
     that enclose another table, and boxes whose content is a single column.
@@ -4285,12 +4303,19 @@ def _closed_at_open_ends(page: object, table: object) -> object:
         return table
     x0, top, x1, bottom = table.bbox
     edges = _column_edges(table)
-    verticals = [edge for edge in page.vertical_edges if edge["bottom"] - edge["top"] > 1]
+    # The page's vertical rules and characters are sorted once per page and each table takes only those of its own range.
+    # Listing every rule and every character of the page again for every table took 31 seconds on a page of 800 small tables
+    # (a 51 KB file) (Pinned by: test_audit_pdf_mid.py::TestManyTablesOnOnePage::test_each_table_takes_only_its_own_part_of_the_page)
+    positions, verticals = _verticals_by_x(page)
+    verticals = verticals[bisect_left(positions, min(edges) - 2):bisect_right(positions, max(edges) + 2)] if edges else []
     lowest = _common_reach(verticals, edges, bottom, 1)
     highest = _common_reach(verticals, edges, top, -1)
     bands = [band for band in ((bottom, lowest), (highest, top)) if band[1] - band[0] >= _CHECKBOX_SIDE[0]]
-    stray = [char for char in page.chars if char["text"].strip() and x0 < (char["x0"] + char["x1"]) / 2 < x1
-             and any(low < (char["top"] + char["bottom"]) / 2 < high for low, high in bands)]
+    if not bands:
+        return table
+    middles, ordered = _text_by_middle(page)
+    stray = [char for low, high in bands for char in ordered[bisect_right(middles, low):bisect_left(middles, high)]
+             if x0 < (char["x0"] + char["x1"]) / 2 < x1 and low < (char["top"] + char["bottom"]) / 2 < high]
     if not stray:
         return table
 
@@ -4303,6 +4328,42 @@ def _closed_at_open_ends(page: object, table: object) -> object:
             or not all(map(_BoxIndex([cell for cell in found[0].cells if cell]).holds, stray))):
         return table
     return found[0]
+
+
+def _verticals_by_x(page: object) -> tuple[list[float], list[dict]]:
+    """The page's vertical rules longer than 1pt in order of their x position, as (list of x positions, list of rules). Built
+    once per page (`_closed_at_open_ends`). A rule whose position is not a number is at no column boundary and is left out."""
+    def build() -> tuple[list[float], list[dict]]:
+        ordered = sorted((edge for edge in page.vertical_edges if edge["bottom"] - edge["top"] > 1 and edge["x0"] == edge["x0"]),
+                         key=lambda edge: edge["x0"])
+        return [edge["x0"] for edge in ordered], ordered
+
+    return _page_index(page, "verticals", build)
+
+
+def _text_by_middle(page: object) -> tuple[list[float], list[dict]]:
+    """The page's non-blank characters in order of their vertical middle (page order where the middles are equal), as (list of
+    middles, list of characters). Built once per page (`_closed_at_open_ends`, `_join_soft_wraps`). A character whose middle
+    is not a number is inside no box and is left out."""
+    def build() -> tuple[list[float], list[dict]]:
+        placed = [((char["top"] + char["bottom"]) / 2, char) for char in page.chars if char["text"].strip()]
+        ordered = sorted((item for item in placed if item[0] == item[0]), key=lambda item: item[0])
+        return [middle for middle, _ in ordered], [char for _, char in ordered]
+
+    return _page_index(page, "text", build)
+
+
+def _page_index(page: object, name: str, build: Callable[[], object]) -> object:
+    """The list `name` of the page, built with `build` the first time it is asked for (`_verticals_by_x`, `_text_by_middle`,
+    `_sideways_by_middle`). The lists are kept on the page object together with the page's objects they were built from: a
+    page that has been read again (`page.close()` releases its objects) gets new lists. `_real_tables` drops them when it is
+    done (`_dropping_page_indexes`)."""
+    held = page.__dict__.get("_page_indexes")
+    if held is None or held[0] is not page.objects:
+        held = page.__dict__["_page_indexes"] = (page.objects, {})
+    if name not in held[1]:
+        held[1][name] = build()
+    return held[1][name]
 
 
 def _common_reach(verticals: list[dict], edges: list[float], at: float, direction: int) -> float:
@@ -5130,8 +5191,10 @@ def _join_soft_wraps(table: object, rows: list[list[str | None]]) -> None:
     """
     images = [(image["x0"], image["top"], image["x1"], image["bottom"]) for image in table.page.images]
     bbox = table.bbox  # a property recomputed from all the cell boxes, so calling it per character is quadratic time
-    chars = sorted((char for char in table.page.chars if char["text"].strip() and _inside_any(char, [bbox])),
-                   key=lambda char: (char["top"] + char["bottom"]) / 2)
+    # The page's characters are sorted once per page (`_text_by_middle`) and the table takes those of its own vertical range
+    # (Pinned by: test_audit_pdf_mid.py::TestManyTablesOnOnePage::test_each_table_takes_only_its_own_part_of_the_page)
+    middles, ordered = _text_by_middle(table.page)
+    chars = [char for char in ordered[bisect_left(middles, bbox[1]):bisect_right(middles, bbox[3])] if _inside_any(char, [bbox])]
     middles = [(char["top"] + char["bottom"]) / 2 for char in chars]  # per cell, bisect to only the characters in its vertical range
 
     for row_index, row in enumerate(table.rows):
@@ -5214,13 +5277,13 @@ def _read_sideways_cells(table: object, rows: list[list[str | None]]) -> None:
     horizontal character mixed in (the axis title and ticks of a chart caught as a table) is left as is — there is no way to
     decide in what order to join text of two directions in one cell.
     """
-    sideways = [char for char in table.page.chars if char["text"].strip() and _is_sideways(char)]
-    if not sideways:
+    index = _sideways_by_middle(table.page)
+    if not index:
         return
     # Each cell looks only at the characters of its own vertical range. Scanning the rotated characters and then every
     # character of the page for every cell took 23 seconds on a table laid sideways on one page (100 rows of 20 columns,
     # a 10 KB file) (Pinned by: test_audit_pdf_mid.py::TestSidewaysCells::test_each_cell_looks_only_at_its_own_band)
-    marked, every = _by_middle(sideways), _by_middle(table.page.chars)
+    marked, every = index
 
     for row_index, row in enumerate(table.rows):
         for column_index, cell in enumerate(row.cells):
@@ -5229,6 +5292,17 @@ def _read_sideways_cells(table: object, rows: list[list[str | None]]) -> None:
             chars = _chars_in_cell(every, cell)
             if all(_is_sideways(char) for char in chars if char["text"].strip()):
                 rows[row_index][column_index] = "\n".join(_sideways_paragraphs(chars))
+
+
+def _sideways_by_middle(page: object) -> tuple:
+    """The page's non-blank rotated characters and all of its characters, each sorted by position (`_by_middle`). An empty
+    tuple when the page has no rotated character. Built once per page (`_read_sideways_cells`), not once per table (Pinned by:
+    test_audit_pdf_mid.py::TestManyTablesOnOnePage::test_each_table_takes_only_its_own_part_of_the_page)."""
+    def build() -> tuple:
+        sideways = [char for char in page.chars if char["text"].strip() and _is_sideways(char)]
+        return (_by_middle(sideways), _by_middle(page.chars)) if sideways else ()
+
+    return _page_index(page, "sideways", build)
 
 
 def _by_middle(chars: list[dict]) -> list[tuple[list[float], list[tuple[float, int, dict]]]]:
