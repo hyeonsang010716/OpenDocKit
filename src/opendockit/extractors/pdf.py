@@ -4937,13 +4937,18 @@ def _grown_shaded_table(page: object, table: object, tables: list[object],
     spanning = sorted(y for y, x0, x1 in rules if x0 <= left + 2 and x1 >= right - 2)
     chain, bands = [table], []  # the table fragments joined so far, (top, bottom, whether it is an open band)
     top, bottom = table.bbox[1], table.bbox[3]
+    # The top and bottom of every fragment are measured once and the joined fragments are looked up by identity. Measuring
+    # every fragment and searching the whole chain for it at every step grew with the cube of the number of shaded rows: 5
+    # of the 7 seconds this function took on a striped table of 2,000 rows (a 53 KB file) (Pinned by:
+    # test_audit_pdf_mid.py::TestLongStripedTable::test_fragments_are_measured_once)
+    ends = [(fragment.bbox[1], fragment.bbox[3], fragment) for fragment in fragments]
+    joined = {id(table)}
 
     # continue the bands downward (+1) and upward (-1)
     for direction in (1, -1):
         edge = bottom if direction > 0 else top
         while True:
-            nearby = [(fragment.bbox[1] if direction > 0 else fragment.bbox[3], fragment) for fragment in fragments
-                      if not any(fragment is other for other in chain)]
+            nearby = [(start if direction > 0 else end, fragment) for start, end, fragment in ends if id(fragment) not in joined]
             nearby = [(y, fragment) for y, fragment in nearby if -1 <= (y - edge) * direction <= reach]
             nearby += [(y, None) for y in spanning if 1 < (y - edge) * direction <= reach]
             if not nearby:
@@ -4963,6 +4968,7 @@ def _grown_shaded_table(page: object, table: object, tables: list[object],
                 edge = y
             else:
                 chain.append(fragment)
+                joined.add(id(fragment))
                 edge = fragment.bbox[3] if direction > 0 else fragment.bbox[1]
         if direction > 0:
             bottom = edge

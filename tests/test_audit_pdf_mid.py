@@ -471,3 +471,57 @@ class TestManyFilledRectanglesOnOneLine:
 
         assert result.text == ("The container is 70% HDPE 80% recycled resin by weight\nof the material and is collected after use.\n\n"
                                "| Item | 2023 | 2024 |\n| --- | --- | --- |\n| Bottles | 1,200 | 1,350 |\n| Caps | 300 | 420 |")
+
+
+def _striped_table_pdf(rows: int) -> bytes:
+    """One-page PDF with a table of `rows` rows and three columns whose every other row is shaded cell by cell (filled
+    rectangles without a border, no rules)."""
+    edges = [40, 160, 280, 400]
+    height = rows * 14 + 80
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(500, height))
+    pdf.setFont("Helvetica", 8)
+    for row in range(rows):
+        top = height - 40 - row * 14
+        if row % 2 == 0:
+            pdf.setFillColorRGB(0.85, 0.85, 0.9)
+            for left, right in zip(edges, edges[1:], strict=False):
+                pdf.rect(left, top - 14, right - left, 14, stroke=0, fill=1)
+        pdf.setFillColorRGB(0, 0, 0)
+        for column, left in enumerate(edges[:-1]):
+            pdf.drawString(left + 5, top - 10, f"row{row}" if column == 0 else str(row * 7 + column))
+    pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestLongStripedTable:
+    """`_grown_shaded_table` measured every shaded row again and searched the rows joined so far for each of them at every
+    step, which grew with the cube of the number of shaded rows (5 seconds on a striped table of 2,000 rows)."""
+
+    def test_fragments_are_measured_once(self, monkeypatch):
+        from pdfplumber.table import Table
+
+        measured = [0]
+        bbox = Table.bbox.fget
+
+        def counting(table):
+            measured[0] += 1
+            return bbox(table)
+
+        monkeypatch.setattr(Table, "bbox", property(counting))
+        with pdfplumber.open(BytesIO(_striped_table_pdf(400))) as document:
+            page = document.pages[0]
+            fragments = page.find_tables(pdf_module._TABLE_SETTINGS)
+            measured[0] = 0
+
+            (table,) = pdf_module._with_shaded_rows(page, fragments)
+
+            assert len(fragments) == 200 and len(table.rows) == 400
+            assert measured[0] <= 200 * 10  # 200 × 200 / 2 before
+
+    def test_striped_table_reads_as_before(self):
+        result = convert(_striped_table_pdf(7), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("| row0 | 1 | 2 |\n| --- | --- | --- |\n| row1 | 8 | 9 |\n| row2 | 15 | 16 |\n| row3 | 22 | 23 |\n"
+                               "| row4 | 29 | 30 |\n| row5 | 36 | 37 |\n| row6 | 43 | 44 |")
