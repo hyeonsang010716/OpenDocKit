@@ -190,3 +190,26 @@ class TestCaptionOfATableInsideACell:
         result = convert(table.encode(), "a.html")
 
         assert result.text == "CAP\n\n| 1 | 2 |\n| --- | --- |\n| 3 | 4 |"
+
+
+class TestDoctypeInsideTheBody:
+    """A `<!DOCTYPE …>` in the middle of the body (pages pasted together, a template included twice) is kept by the parser as a
+    node of its own. Only the ones at the top of the document were skipped, so its name came out as a paragraph, `html`."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p>a</p><!DOCTYPE html><p>b</p>", "a\n\nb"),
+        ("<div>a<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Transitional//EN'>b</div>", "ab"),
+        ("<ul><li>a</li><!DOCTYPE html><li>b</li></ul>", "- a\n- b"),
+        ("<table><tr><td>a<!DOCTYPE html></td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>",
+         "| a | b |\n| --- | --- |\n| c | d |"),
+        ("<h2>title<!DOCTYPE html></h2><p>b</p>", "## title\n\nb"),
+    ])
+    def test_declaration_is_not_text(self, html, expected):
+        result = convert(f"<html><body>{html}</body></html>".encode(), "a.html")
+
+        assert result.text == expected
+
+    def test_text_that_only_looks_like_a_declaration_is_kept(self):
+        result = convert(b"<p>write &lt;!DOCTYPE html&gt; first</p>", "a.html")
+
+        assert result.text == "write <!DOCTYPE html> first"

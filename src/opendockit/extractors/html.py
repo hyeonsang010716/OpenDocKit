@@ -18,7 +18,7 @@ import itertools
 import re
 from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup, Comment, NavigableString, Tag, XMLParsedAsHTMLWarning
+from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
 from bs4.element import PageElement, PreformattedString
 from lxml import etree
 
@@ -735,7 +735,9 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _keep_svg_labels(soup, cut)
     _decompose_all(soup.find_all(_DROP_TAGS))
     _drop_sidebars(soup)
-    _decompose_all(soup.find_all(string=lambda node: isinstance(node, Comment)))
+    # Not only comments: a DOCTYPE in the middle of the body is a node of its own too, and its name came out as the paragraph
+    # `html` (Pinned by: test_audit_html_text.py::TestDoctypeInsideTheBody)
+    _decompose_all(soup.find_all(string=lambda node: isinstance(node, PreformattedString)))
     _drop_hidden(soup, kept=folded, whole=whole)
 
     extraction = Extraction(metadata=metadata)
