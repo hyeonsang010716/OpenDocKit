@@ -10,6 +10,7 @@ import pytest
 
 from opendockit import ConvertOptions, convert
 from opendockit.extractors import hwpx
+from opendockit.extractors._equation import equation_to_latex, render_equation
 from tests import builder
 from tests.test_hwp import (
     _CHART_XML,
@@ -159,6 +160,37 @@ class TestHugeHwpxSectionNumber:
         result = convert(data, "a.hwpx")
 
         assert result.text == "첫 구역\n\n일곱째 구역\n\n끝 구역"
+
+
+class TestEquationWithARepeatedScript:
+    """A second superscript (or subscript) on the same term came out as `x^{2}^{3}`, which LaTeX rejects (double superscript).
+    What Hancom draws for it is not in the spec, so the original script is kept like any other script that cannot be converted."""
+
+    @pytest.mark.parametrize("script", [
+        "x^2^3", "x_1_2", "x ^2 ^3", "x sup 2 sup 3", "x^2_1^3", "a over b^2^3", "e^{x^2^3}", "{x^2}^3^4",
+        "sum from 1 to n from 2",
+    ])
+    def test_repeated_script_keeps_the_original_script(self, script):
+        assert equation_to_latex(script) is None
+        assert render_equation(script) == f" [Equation: {script}] "
+
+    @pytest.mark.parametrize("script, latex", [
+        ("x_1^2", "x_{1}^{2}"),
+        ("x^2_1", "x^{2}_{1}"),
+        ("{x^2}^3", "{x^{2}}^{3}"),
+        ("x^{2^3}", "x^{2^{3}}"),
+        ("x^2 y^3", "x^{2} y^{3}"),
+        ("x^2 ~^3", "x^{2} {}^{3}"),
+        ("lsup 2 lsup 3 x", "{}^{3}{}^{2} x"),
+        ('"a_b_c"^2', r"\text{a\_b\_c}^{2}"),
+    ])
+    def test_scripts_on_different_terms_or_of_different_kinds_are_converted(self, script, latex):
+        assert equation_to_latex(script) == latex
+
+    def test_hwpx_equation_with_a_repeated_script_is_kept_as_written(self):
+        body = "<hp:p><hp:run><hp:t>식:</hp:t><hp:equation><hp:script>x^2^3</hp:script></hp:equation></hp:run></hp:p>"
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "식: [Equation: x^2^3]"
 
 
 def _hwp_headers(texts: list[str]) -> bytes:
