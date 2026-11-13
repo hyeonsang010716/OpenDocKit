@@ -1441,9 +1441,14 @@ def _put_math(soup: BeautifulSoup) -> None:
     """
     for math in _maths_holding_page_blocks(soup):
         math.unwrap()
+    # Equations inside an equation that was replaced: nothing of them is used. `clear()` only detaches the direct children, so
+    # a `<math>` further down still had a parent and was converted again, each one walking everything below it
+    # (Pinned by: test_audit_html_text.py::TestEquationsNestedInsideEquations)
+    replaced: set[int] = set()
     for math in soup.find_all("math"):
-        if math.parent is None:
+        if id(math) in replaced:
             continue  # already replaced together with the outer equation
+        replaced.update(id(inner) for inner in math.find_all("math"))
         latex = _math_source(math)
         if latex is None:
             latex = " ".join(_mathml_latex(math, 0).split())

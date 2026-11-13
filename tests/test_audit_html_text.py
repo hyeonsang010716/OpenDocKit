@@ -680,3 +680,25 @@ class TestManyButtonsInsideOneHeading:
     ])
     def test_heading_text_is_as_before(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected
+
+
+class TestEquationsNestedInsideEquations:
+    """An equation is replaced whole, but a `<math>` further down inside it was converted again at its own turn although
+    nothing of it is used: 4,000 nested `<math><mrow>` (46KB) took 2.2 s, growing with the square of the depth."""
+
+    @pytest.mark.timing
+    def test_nested_equations_take_linear_time(self):
+        seconds, text = _seconds(("<math><mrow>" * 8000 + "<mi>x</mi>" + "</mrow></math>" * 8000).encode(), "a.html")
+
+        assert text == "$x$"
+        assert seconds < 4
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p>a <math><mi>x</mi><mtext><math><mi>y</mi></math></mtext><msup><mi>z</mi><mn>2</mn></msup></math> b</p>", "a $xyz^2$ b"),
+        ("<p><math><mrow><math alttext='inner'><mi>y</mi></math></mrow></math> and <math alttext='q^2'><mi>q</mi></math></p>",
+         "$y$ and $q^2$"),
+        ("<p><math><semantics><mrow><math><mi>y</mi></math></mrow><annotation encoding='application/x-tex'>\\alpha</annotation>"
+         "</semantics></math></p>", "$\\alpha$"),
+    ])
+    def test_equation_is_written_as_before(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
