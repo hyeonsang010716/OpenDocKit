@@ -236,3 +236,28 @@ class TestFromLineEscapeInASingleHtmlPartMail:
         single = (_MAIL_HEAD + "Subject: s\r\nContent-Type: text/html\r\n\r\n" + _ESCAPED_BODY).encode()
 
         assert convert(single, "a.eml").text == "Subject: s\nFrom: a@b.c\nTo: d@e.f\n\none\n\n>From here on\n\ntwo"
+
+
+class TestDataUriWrittenWithCapitalsOrLeadingSpace:
+    """The scheme and the `;base64,` mark of a data: URI are not case-sensitive and a browser strips whitespace around the
+    address, but only the SVG check allowed for that: `src=" data:image/png…"` and `DATA:image/png…` gave no picture at all."""
+
+    @pytest.mark.parametrize("prefix", ["data:image/png;base64,", " data:image/png;base64,", "\n\tdata:image/png;base64,",
+                                        "DATA:image/png;base64,", "Data:Image/PNG;Base64,", "data:image/png;charset=utf-8;BASE64,"])
+    def test_picture_is_extracted(self, prefix):
+        encoded = base64.b64encode(png_bytes()).decode()
+
+        result = convert(f'<p>text</p><img alt="chart" src="{prefix}{encoded}">'.encode(), "a.html")
+
+        assert len(result.images) == 1
+        assert result.warnings == []
+
+    def test_lazy_placeholder_and_svg_keep_only_the_alt_text_as_before(self):
+        encoded = base64.b64encode(png_bytes()).decode()
+        html = (f'<p>text</p><img alt="lazy" data-src="/real.png" src=" DATA:image/png;base64,{encoded}">'
+                '<img alt="icon" src=" DATA:image/svg+xml;base64,PHN2Zy8+">')
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.images == []
+        assert result.text == "text\n\n[Image: lazy] [Image: icon]"

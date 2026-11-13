@@ -1638,9 +1638,13 @@ def _image_placeholder(image: Tag, extraction: Extraction, options: ConvertOptio
     """
     alt = " ".join(str(image.get("alt", "")).split())
     source = str(image.get("src", ""))
-    if source.lstrip()[:18].lower().startswith("data:image/svg") or (source.startswith("data:") and _is_lazy(image)):
+    # The scheme and the base64 mark are compared without case and leading whitespace, as the SVG check always was:
+    # `src=" data:image/png…"` and `DATA:image/png…` gave no picture
+    # (Pinned by: test_audit_html_text.py::TestDataUriWrittenWithCapitalsOrLeadingSpace)
+    lowered = source.lstrip().lower()
+    if lowered.startswith("data:image/svg") or (lowered.startswith("data:") and _is_lazy(image)):
         return f" [Image: {alt}] " if alt else ""
-    if options.extract_images and source.startswith("data:image/") and ";base64," in source:
+    if options.extract_images and lowered.startswith("data:image/") and ";base64," in lowered:
         try:
             data = base64.b64decode(source.split(",", 1)[1], validate=False)
         except (binascii.Error, ValueError):
