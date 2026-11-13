@@ -90,13 +90,15 @@ calling a loader in your server process.
   "mcpServers": {
     "opendockit": {
       "command": "uvx",
-      "args": ["--from", "opendockit[mcp]", "opendockit-mcp", "--root", "/path/to/documents"]
+      "args": ["opendockit-mcp", "--root", "/path/to/documents"]
     }
   }
 }
 ```
 
-With the package installed, the command is simply `opendockit-mcp`.
+`opendockit-mcp` on PyPI is a launcher without code: it installs `opendockit[mcp]` at the same version, so that the
+server can be started by its name. With `opendockit[mcp]` installed, the command is simply `opendockit-mcp`. The server
+is listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io.github.hyeonsang010716/opendockit`.
 
 | Tool | What it returns |
 | --- | --- |

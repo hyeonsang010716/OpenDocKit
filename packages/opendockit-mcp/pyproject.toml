@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "opendockit-mcp"
+version = "0.3.2"
+description = "MCP server that lets an agent read local documents (PDF, Office, HWP and more) as Markdown. Launcher for opendockit[mcp]."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{ name = "OpenDocKit contributors" }]
+keywords = ["mcp", "mcp-server", "markdown", "pdf", "docx", "pptx", "xlsx", "hwp", "hwpx", "rag", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+# No code of its own: the server is opendockit.mcp_server. The pin keeps `uvx opendockit-mcp==X` meaning opendockit X.
+dependencies = ["opendockit[mcp]==0.3.2"]
+
+[project.scripts]
+opendockit-mcp = "opendockit.mcp_server:main"
+
+[project.urls]
+Homepage = "https://github.com/hyeonsang010716/OpenDocKit"
+Documentation = "https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md"
+Repository = "https://github.com/hyeonsang010716/OpenDocKit"
+Issues = "https://github.com/hyeonsang010716/OpenDocKit/issues"
+Changelog = "https://github.com/hyeonsang010716/OpenDocKit/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+
+[tool.hatch.build.targets.sdist]
+include = ["/README.md", "/LICENSE"]

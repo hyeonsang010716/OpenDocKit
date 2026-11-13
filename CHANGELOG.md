@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-13
+
+### Added
+
+- **`opendockit-mcp` on PyPI**: a launcher package with no code of its own, so that the MCP server starts with
+  `uvx opendockit-mcp`. It installs `opendockit[mcp]` at the same version. `pip install "opendockit[mcp]"` and the
+  `opendockit-mcp` command it brings work as before.
+- The MCP server is listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as
+  `io.github.hyeonsang010716/opendockit`.
+
 ## [0.3.1] - 2026-11-13
 
 ### Added
@@ -87,7 +97,8 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.2
 [0.3.1]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.1
 [0.3.0]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.0
 [0.2.0]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.2.0

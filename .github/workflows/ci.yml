@@ -81,3 +81,35 @@ jobs:
           uv pip install --python /tmp/wheel-env dist/*.whl
           /tmp/wheel-env/bin/python -c "import opendockit; print(opendockit.__version__)"
           /tmp/wheel-env/bin/opendockit --help
+      - name: Build the launcher and start the server from the two wheels
+        run: |
+          uv build packages/opendockit-mcp --out-dir dist-mcp
+          uv venv --python 3.12 /tmp/launcher-env
+          uv pip install --python /tmp/launcher-env --find-links dist dist-mcp/*.whl
+          /tmp/launcher-env/bin/opendockit-mcp --version
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            | /tmp/launcher-env/bin/opendockit-mcp | grep -q '"name":"opendockit"'
+
+  # The entry the release publishes to the MCP Registry, checked with the registry's own tool before anything is released.
+  registry-entry:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.9
+    steps:
+      - uses: actions/checkout@v7
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+      - run: ./mcp-publisher validate packages/opendockit-mcp/server.json

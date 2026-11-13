@@ -1,8 +1,10 @@
 name: Release
 
-# Publishes to PyPI when a version tag (v1.2.3) is pushed.
+# Publishes to PyPI when a version tag (v1.2.3) is pushed: `opendockit`, then `opendockit-mcp` (the launcher in
+# packages/opendockit-mcp, which depends on that exact version), then the entry of the MCP server in the MCP Registry.
 # Uses PyPI trusted publishing: add this repository and the `release.yml` workflow as a trusted publisher
-# for the `opendockit` project on PyPI, and create a GitHub environment named `pypi`. No API token is needed.
+# for both projects on PyPI, and create a GitHub environment named `pypi`. No API token is needed.
+# The MCP Registry accepts the workflow's own identity for the `io.github.<owner>/` namespace.
 on:
   push:
     tags: ["v*"]
@@ -22,10 +24,15 @@ jobs:
           version=$(uv run --no-project python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != version $version"; exit 1; }
       - run: uv build
+      - run: uv build packages/opendockit-mcp --out-dir dist-mcp
       - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-mcp
+          path: dist-mcp/
 
   publish:
     timeout-minutes: 15
@@ -40,3 +47,54 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  # A job of its own: a trusted-publishing token is issued per upload, and the launcher needs `opendockit` to be there.
+  publish-mcp:
+    timeout-minutes: 15
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist-mcp
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  registry:
+    timeout-minutes: 15
+    needs: publish-mcp
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.9
+    steps:
+      - uses: actions/checkout@v7
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+      - name: Wait until PyPI serves the launcher this entry names
+        run: |
+          version=$(python3 -c "import json; print(json.load(open('packages/opendockit-mcp/server.json'))['version'])")
+          for attempt in $(seq 1 30); do
+            curl --fail --silent --output /dev/null "https://pypi.org/pypi/opendockit-mcp/$version/json" && exit 0
+            sleep 10
+          done
+          echo "opendockit-mcp $version did not appear on PyPI"; exit 1
+      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher publish packages/opendockit-mcp/server.json
