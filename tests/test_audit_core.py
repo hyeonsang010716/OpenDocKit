@@ -5,7 +5,9 @@ import time
 
 import pytest
 
+from opendockit import ConvertOptions, convert
 from opendockit.detect import detect_format
+from opendockit.extractors import _shared
 from opendockit.models import DocumentFormat
 
 
@@ -31,3 +33,33 @@ class TestPdfBodySearchAfterALateHeader:
     @pytest.mark.parametrize("body", [b"12 0 object", b"no 12 obj", b"a 0 obj", b"12 0obj", b"1" * 50 + b" " * 50])
     def test_text_without_an_object_header_is_not_a_pdf(self, body):
         assert detect_format(b"note: %PDF-1.4\n" + body, "a.txt") is DocumentFormat.TEXT
+
+
+class TestUnclosedImagePlaceholderText:
+    """Text that only looks like the start of a picture placeholder (`[Image: ` with no `]`) was scanned to the end of the line from
+    every `[`, so 10,000 of them next to a bold word took 5 seconds."""
+
+    @pytest.mark.timing
+    def test_many_unclosed_placeholder_starts_take_linear_time(self):
+        data = ("<p><b>b</b> " + "[Image: " * 25_000 + "</p>").encode()
+        started = time.perf_counter()
+
+        result = convert(data, "a.html", ConvertOptions(max_chars=None))
+
+        assert time.perf_counter() - started < 5.0
+        assert result.text.startswith("**b** [Image: [Image: ") and result.char_count > 150_000
+
+    @pytest.mark.timing
+    def test_many_unclosed_footnote_mark_starts_take_linear_time(self):
+        data = ("<p><b>b</b> " + "[^a" * 60_000 + "</p>").encode()
+        started = time.perf_counter()
+
+        result = convert(data, "a.html", ConvertOptions(max_chars=None))
+
+        assert time.perf_counter() - started < 5.0
+        assert result.text.startswith("**b** [^a[^a")
+
+    def test_placeholders_are_still_told_from_words(self):
+        assert _shared._is_placeholder_text("[Image: 조직도] [^1] [Image]")
+        assert not _shared._is_placeholder_text("[Image: 조직도] 본문")
+        assert _shared._INLINE_PLACEHOLDER.split("앞 [Image: 로고]뒤[^12]") == ["앞 ", "[Image: 로고]", "뒤", "[^12]", ""]

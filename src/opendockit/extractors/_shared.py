@@ -1141,7 +1141,11 @@ _LINK_UNSAFE = re.compile(r"[\s\x00-\x1f\x7f-\x9f()<>|\\⟦⟧​-‏‪-‮⁠-
 # Text that stands for an object, not words: picture placeholders, `[Image: alt]` of pictures that are not extracted, OLE objects,
 # charts, videos and footnote references. Emphasis is not put around them, and at the edge of a link they stay outside the brackets
 # (the converter turns a picture placeholder into a block below its line).
-_INLINE_PLACEHOLDER = re.compile(rf"({IMAGE_MARKER.pattern}|\[Image(?:: [^\]\n]*)?\]|\[OLE object\]|\[Chart\]|\[Video\]|\[\^[^\]\s]+\])")
+# Deliberate: no `[` inside `[Image: …]` or `[^…]`. An opening with no `]` was scanned to the end of the line from every `[`
+# (10,000 `[Image: ` next to a bold word took 5 seconds); with a `[` inside, the text is no longer taken for a placeholder
+# (Pinned by: test_audit_core.py::TestUnclosedImagePlaceholderText).
+_INLINE_PLACEHOLDER = re.compile(
+    rf"({IMAGE_MARKER.pattern}|\[Image(?:: [^\[\]\n]*)?\]|\[OLE object\]|\[Chart\]|\[Video\]|\[\^[^\[\]\s]+\])")
 _EQUATION_ONLY = re.compile(r"\$[^$\n]+\$")
 # A bullet or number typed at the start of a line. It stays outside the marks (the same idea as `_STRIKE_LEAD`): `**- 항목**` is
 # not read as a list item, and the extractors look for these at the start of a line (`HAND_TYPED_BULLET`).
