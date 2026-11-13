@@ -21,8 +21,9 @@ import olefile
 
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
 from opendockit.extractors._equation import render_equation
-from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike, resolve_scripts, resolve_strikes
-from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number, is_placeholder_only, paragraph_head
+from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, decorated_text
+from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
+from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import TableBudget, format_dutmal, note_table, omitted_rows_warning
 from opendockit.markdown import TableGrid, join_blocks, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
@@ -101,11 +102,6 @@ _AUTO_NUMBER_KINDS = {3, 4, 5}
 # that put the caption before the object: 0 left, 2 top.
 # The position was confirmed with public hwplib samples (equation and table captions below = 3).
 _CAPTION_BEFORE = {0, 2}
-# Table cell marks in the preview text (PrvText). A preview with nothing but these has no text (`_preview_text`).
-_PREVIEW_CELL_MARKS = str.maketrans("", "", "<>")
-
-_OUTLINE_STYLE = re.compile(r"^(?:개요|Outline)\s*([1-9])$")
-_HEADING_MAX_CHARS = 120
 # Limit on the number of records built for one document = `max_uncompressed_bytes` // this value (about 4.1 million by default). A body
 # holding 16 million zero-size records (4-byte header only) used 12 seconds and 2.4GB from 62KB compressed — the decompression limit
 # bounds only bytes and cannot stop the number of record objects. Records in real Hangul files average 35 bytes (26 bytes even for
@@ -354,28 +350,9 @@ class HwpRenderer:
         controls = iter([child for child in paragraph.children if child.tag == TAG_CTRL_HEADER])
         parts = decode_para_text(text_record.payload, self._shape_runs(paragraph, len(text_record.payload) // 2)) if text_record else []
 
-        blocks: list[str] = []
-        buffer: list[str] = []
-        # The paragraph head (number or bullet) and the outline heading mark are attached only to the first text piece of the paragraph.
-        # Text that continues after a table or text box is the rest of the same paragraph — it got the heading mark too and became
-        # '# 은 아래와 같다' ('# is as follows') (Pinned by: test_hwp_heads_and_shapes.py::TestOutlineParagraphSplitByATable).
-        headed = False
-        bare: int | None = None  # first piece emitted without a head, only placeholders. If the paragraph ends up with no text the number goes here
-
-        def flush() -> None:
-            nonlocal headed, bare
-            text = resolve_scripts(resolve_strikes("".join(buffer))).strip()  # strikethrough comes first (`resolve_strikes`)
-            buffer.clear()
-            if not text:
-                return
-            if headed:
-                blocks.append(text)
-            elif is_placeholder_only(text):
-                bare = len(blocks) if bare is None else bare
-                blocks.append(text)
-            else:
-                blocks.append(self._decorate(paragraph, text))
-                headed = True
+        # The head goes on the first text piece only, and a paragraph without text keeps its number (`_hangul.ParagraphPieces`).
+        pieces = ParagraphPieces(lambda text: self._decorate(paragraph, text))
+        blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
 
         for part in parts:
             if isinstance(part, str):
@@ -413,21 +390,7 @@ class HwpRenderer:
                 buffer.extend(_control_strings(control, 1))
             elif kind == "atno":
                 buffer.append(_auto_number(control))
-        flush()
-
-        # A numbered paragraph holding only a picture also counts its number — otherwise the later numbers shift up. The heading mark and
-        # bullet are not attached (they would be left alone).
-        # A paragraph holding only a table or text box has no piece to attach to, so just the number goes on the line before it. Without
-        # counting it, '3. 추진 일정' after '2. [table]' on the Hangul screen shifted up to '2.'
-        # (Pinned by: test_hwp_object_only_numbers.py).
-        if not headed and any(blocks):
-            mark, level = self._paragraph_head(paragraph)
-            head = paragraph_head(mark, level, in_cell=bool(self._cell_depth), heading=False) if mark != "-" else ""
-            if bare is not None:
-                blocks[bare] = head + blocks[bare]
-            elif head:
-                blocks.insert(0, head.rstrip())
-        return blocks
+        return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
 
     def _equation_with_caption(self, control: Record) -> str:
         """Equation (eqed) + its caption. The caption paragraph ('수식 1 넓이', including atno) comes as a sibling of the LIST_HEADER under
@@ -499,20 +462,9 @@ class HwpRenderer:
         mark, level = self._paragraph_head(paragraph)
         style_id = paragraph.payload[10] if len(paragraph.payload) > 10 else -1
         style_name = self._styles[style_id] if 0 <= style_id < len(self._styles) else ""
-        match = None if self._cell_depth else _OUTLINE_STYLE.match(style_name.strip())
-        heading = match is not None and len(f"{mark} {text}" if mark else text) <= _HEADING_MAX_CHARS and "\n" not in text
-
-        # The level of a bullet paragraph is set from its left margin compared with the preceding items (`BulletNesting`). Other
-        # paragraphs close the more deeply indented items
         shape_id = struct.unpack_from("<H", paragraph.payload, 8)[0] if len(paragraph.payload) >= 10 else -1
         margin = self._heads.margins[shape_id] if 0 <= shape_id < len(self._heads.margins) else 0
-        if mark == "-" and not heading:
-            level = self._bullets[-1].bullet(level, margin)
-        else:
-            self._bullets[-1].other(margin)
-
-        head = paragraph_head(mark, level, in_cell=bool(self._cell_depth), heading=heading)
-        return f"{'#' * min(int(match.group(1)), 6)} {head}{text}" if heading else head + text
+        return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth))
 
     def _paragraph_head(self, paragraph: Record) -> tuple[str, int]:
         """Paragraph head of the paragraph shape → (number "1." / "가." or bullet "-", level). ("", 0) if the definition is missing or
@@ -998,7 +950,7 @@ def _preview_text(ole: olefile.OleFileIO) -> str:
     if not ole.exists("PrvText"):
         return ""
     text = ole.openstream("PrvText").read().decode("utf-16-le", errors="replace").strip()
-    return text if text.translate(_PREVIEW_CELL_MARKS).strip() else ""
+    return text if text.translate(PREVIEW_CELL_MARKS).strip() else ""
 
 
 def _summary_metadata(ole: olefile.OleFileIO) -> dict[str, str]:

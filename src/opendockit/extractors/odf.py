@@ -38,6 +38,7 @@ from opendockit.extractors._inline import (
     resolve_strikes,
 )
 from opendockit.extractors._lists import cell_level_mark, format_number, is_placeholder_only, paragraph_head
+from opendockit.extractors._mathml import MATH_IGNORED, mathml_structure
 from opendockit.extractors._notation import TableBudget, comment_line, format_dutmal, note_table, omitted_rows_warning
 from opendockit.extractors._package import decimal_int
 
@@ -470,14 +471,6 @@ def _flat_text(node: etree._Element) -> str:
     return " ".join("".join(node.itertext()).split())
 
 
-_MATH_SCRIPTS = {"msup": "^", "msub": "_", "msubsup": "_", "munder": "_", "mover": "^", "munderover": "_"}
-_MATH_IGNORED = frozenset(("annotation", "annotation-xml", "none", "mprescripts", "mphantom"))
-
-
-def _math_group(text: str) -> str:
-    return text if len(text) == 1 else f"{{{text}}}"
-
-
 def _mathml_latex(node: etree._Element, depth: int) -> str:
     """Presentation MathML as one LaTeX-style line: scripts, fractions, radicals, limits, fences and matrices; unknown elements
     have their children joined. The same rules as `_html_math._mathml_latex` (which works on a parsed HTML tree), so an equation reads
@@ -486,7 +479,7 @@ def _mathml_latex(node: etree._Element, depth: int) -> str:
     if not isinstance(tag, str):
         return ""
     name = tag.rsplit("}", 1)[-1]
-    if name in _MATH_IGNORED:
+    if name in MATH_IGNORED:
         return ""
     if depth >= _MAX_DEPTH:
         return "".join("".join(node.itertext()).split())
@@ -497,29 +490,9 @@ def _mathml_latex(node: etree._Element, depth: int) -> str:
         return parts[0]   # the first child is the presentation form, the rest are annotations
     if name == "mspace":
         return " "
-    if name in _MATH_SCRIPTS and len(parts) >= 2:
-        base, scripts = parts[0], parts[1:]
-        if name in ("msup", "msub"):
-            return f"{base}{_MATH_SCRIPTS[name]}{_math_group(scripts[0])}"
-        if name == "msubsup" and len(scripts) >= 2:
-            return f"{base}_{_math_group(scripts[0])}^{_math_group(scripts[1])}"
-        if name == "munderover" and len(scripts) >= 2:
-            return f"{base}_{{{scripts[0]}}}^{{{scripts[1]}}}"
-        return f"{base}{_MATH_SCRIPTS[name]}{{{scripts[0]}}}"
-    if name == "mfrac" and len(parts) >= 2:
-        return f"\\frac{{{parts[0]}}}{{{parts[1]}}}"
-    if name == "msqrt":
-        return f"\\sqrt{{{''.join(parts)}}}"
-    if name == "mroot" and len(parts) >= 2:
-        return f"\\sqrt[{parts[1]}]{{{parts[0]}}}"
-    if name == "mfenced":
-        separator = (node.get("separators") or ",").strip()[:1]
-        return f"{node.get('open', '(')}{separator.join(parts)}{node.get('close', ')')}"
-    if name == "mtable":
-        return f"\\begin{{matrix}}{' \\\\ '.join(parts)}\\end{{matrix}}"
-    if name in ("mtr", "mlabeledtr"):
-        return " & ".join(parts)
-    return "".join(parts)
+    fence = (node.get("open", "("), (node.get("separators") or ",").strip()[:1], node.get("close", ")")) if name == "mfenced" else None
+    structure = mathml_structure(name, parts, fence)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
+    return "".join(parts) if structure is None else structure
 
 
 def _number_text(value: float) -> str:
