@@ -73,7 +73,7 @@ class IsolatedConverter:
         self._timeout = float(timeout)
         self._context = _worker_context()
         self._server = os.getpid()  # the process the pools were built in, and the one their workers watch
-        self._pools =[self._new_pool() for _ in range(workers)]
+        self._pools = [self._new_pool() for _ in range(workers)]
         self._free: asyncio.Queue[int] = asyncio.Queue()
         for slot in range(workers):
             self._free.put_nowait(slot)
