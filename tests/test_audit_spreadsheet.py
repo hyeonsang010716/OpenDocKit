@@ -530,3 +530,28 @@ class TestIntegerAttributesTooLongToRead:
 
         assert result.text == "## Sheet: Sheet\n\n| name | amount |\n| --- | --- |\n| part | 3 |"
         assert not result.warnings
+
+
+class TestXmlDateTimeWithATimeZone:
+    """A `DateTime` value with a time zone under an elapsed-time format was compared with a date without one: TypeError, and
+    the whole document was rejected."""
+
+    @staticmethod
+    def _convert(value: str, number_format: str) -> str:
+        styles = f'<Style ss:ID="s0"><NumberFormat ss:Format="{number_format}"/></Style>'
+        rows = ("<Row>" + _xml_cell("name") + _xml_cell("time") + "</Row>"
+                "<Row>" + _xml_cell("a") + _xml_cell(value, "DateTime", 'ss:StyleID="s0"') + "</Row>")
+        result = convert(_xml_workbook(rows, styles), "a.xml")
+        assert not result.warnings
+        return result.text.removeprefix("## Sheet: s\n\n| name | time |\n| --- | --- |\n| a | ").removesuffix(" |")
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        ("1899-12-31T10:00:00Z", "[h]:mm", "10:00"),
+        ("1899-12-31T10:00:00+09:00", "[h]:mm", "10:00"),
+        ("1900-01-01T02:00:00Z", "[h]:mm", "26:00"),
+        ("1900-01-01T02:00:00", "[h]:mm", "26:00"),
+        ("1900-03-01T00:00:00Z", "[h]", "1464:00"),
+        ("1900-03-01T00:00:00", "[h]", "1464:00"),
+    ])
+    def test_elapsed_time_is_the_time_as_written(self, value, number_format, expected):
+        assert self._convert(value, number_format) == expected

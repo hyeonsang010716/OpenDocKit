@@ -2307,6 +2307,10 @@ def _xml_cell_value(data: etree._Element, number_format: str | None) -> str:
                 # Elapsed time is a duration measured from Excel's day 0. From 1900-03-01 on, Excel counts the non-existent day
                 # (1900-02-29) as one day
                 # (Pinned by: test_spreadsheet.py::TestDateFormats::test_xml_spreadsheet_elapsed_time_is_shown_as_total_hours).
+                # A value written with a time zone (`…T10:00:00Z`) is measured by the time as written, as the time-only case
+                # below reads it — compared with a date without a zone it raised TypeError and rejected the whole document
+                # (Pinned by: test_audit_spreadsheet.py::TestXmlDateTimeWithATimeZone).
+                value = value.replace(tzinfo=None)
                 return format_cell(value - datetime(1899, 12, 31 if value < datetime(1900, 3, 1) else 30), number_format)
 
             # A time-only value is stored attached to Excel's day 0 (1899-12-31) (Pinned by: test_time_only_value_is_shown_as_a_time).
