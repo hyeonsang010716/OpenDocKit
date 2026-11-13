@@ -8865,7 +8865,13 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
         # Rows in the margin area + the top and bottom two rows of the page. Slide-style PDFs have the header outside the margin.
         rows = _visual_rows(page.lines)
         edge = {id(line) for row in _edge_rows(rows) for line in row}
-        protected = {id(line.source or line) for run in _aligned_table_runs(page) for row in run for line in row}
+        cells = [line for run in _aligned_table_runs(page) for row in run for line in row]
+        protected = {id(line.source or line) for line in cells}
+        # A cell joined from several lines stands for its original lines, which are the ones in `page.lines`: unprotected,
+        # the first line of a wrapped cell in the top row of a table repeated on every page was removed and the table fell
+        # apart (Pinned by: test_audit_pdf_tail.py::TestJoinedCellLinesAtThePageTop::
+        # test_wrapped_first_cell_survives_on_every_page).
+        protected.update(id(original) for line in cells for original in line.joined)
         protected.update(id(line) for row in _label_value_rows(rows, page.width) for line in row)
         captions = _caption_lines(page)
         body: dict[str, list[list[_Line]]] = {}  # Text with digits masked → body rows (outside the margin and edge rows)
