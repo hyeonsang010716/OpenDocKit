@@ -484,3 +484,38 @@ class TestManyElementsThatLookUpwardsUnderDeepNesting:
     ])
     def test_result_is_as_before(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected
+
+
+class TestMuchContentOutsideTheCellsOfATable:
+    """Text and tables placed inside a table but outside its cells are moved out of it (as a browser does), and they were moved
+    one node at a time, each looking up its position among its siblings: 40,000 stray texts in one table (781KB) took 29 s."""
+
+    @pytest.mark.timing
+    def test_many_stray_texts_take_linear_time(self):
+        html = "<table>" + "<tr><td>a</td></tr>x" * 40000 + "</table>"
+
+        seconds, text = _seconds(html.encode(), "a.html")
+
+        assert text == "x" * 40000 + "\n\n" + "\n\n".join(["a"] * 40000)
+        assert seconds < 8
+
+    @pytest.mark.timing
+    def test_many_stray_tables_take_linear_time(self):
+        html = "<table><tr><td>a</td><td>b</td></tr>" + "<table><tr><td>c</td></tr></table>" * 40000 + "</table>"
+
+        seconds, text = _seconds(html.encode(), "a.html")
+
+        assert text == "| a | b |\n| --- | --- |\n\n" + "\n\n".join(["c"] * 40000)
+        assert seconds < 8
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p>p</p><table>one<tr><td>a</td><td>b</td></tr>two <b>bold</b><tr><td>c</td><td>d</td></tr>three</table><p>q</p>",
+         "p\n\nonetwo **bold**three\n\n| a | b |\n| --- | --- |\n| c | d |\n\nq"),
+        ("<table><tr><td>a</td><td>b</td></tr>x<table><tr><td>c</td><td>d</td></tr>y</table>"
+         "<table><tr><td>e</td><td>f</td></tr></table>z</table><p>q</p>",
+         "xz\n\n| a | b |\n| --- | --- |\n\ny\n\n| c | d |\n| --- | --- |\n\n| e | f |\n| --- | --- |\n\nq"),
+        ("<div>before<table><form>in form<tr><td>a</td><td>b</td></tr></form></table>after</div>",
+         "beforein form\n\n| a | b |\n| --- | --- |\n\nafter"),
+    ])
+    def test_stray_content_is_moved_as_before(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected

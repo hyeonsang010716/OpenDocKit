@@ -1271,9 +1271,26 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
             else:
                 before.append(child)
 
-        for node in before:
-            table.insert_before(node.extract())
-        _move_after(table, after)
+        if before or after:
+            _move_beside(table, before, after)
+
+
+def _move_beside(table: Tag, before: list, after: list) -> None:
+    """Moves `before`, in order, to right before `table` and `after` to right after it. Both are detached in one go
+    (`_decompose_all`) and put in at positions counted from the table's, which is looked up once.
+
+    `insert_before(node.extract())` per node looks up the node's position and the table's among their siblings every time:
+    40,000 texts between the rows of one table (781KB) took 29 seconds, 40,000 tables outside its cells 14 seconds
+    (Pinned by: test_audit_html_text.py::TestMuchContentOutsideTheCellsOfATable).
+    """
+    _decompose_all(before, detach_only=True)
+    _decompose_all(after, detach_only=True)
+    parent = table.parent
+    index = next(position for position, child in enumerate(parent.contents) if child is table)
+    for offset, node in enumerate(before):
+        parent.insert(index + offset, node)
+    for offset, node in enumerate(after, start=1):
+        parent.insert(index + len(before) + offset, node)
 
 
 def _move_after(anchor: Tag, nodes: list) -> None:
