@@ -593,3 +593,35 @@ class TestListItemWithManyUnpairedFenceLines:
     ])
     def test_code_blocks_in_an_item_are_kept_as_before(self, item, expected):
         assert convert(f"<ul><li>{item}</li></ul>".encode(), "a.html").text == expected
+
+
+_QUESTION = '<a href="#">q</a>'
+_FOLDED = '<div style="display:none">'
+
+
+class TestHiddenBlocksNestedInsideHiddenBlocks:
+    """Whether a hidden block is a folded answer was measured (its text and the text of its links) for every hidden block, also
+    for those inside a hidden block that is removed anyway: 4,000 nested `display:none` blocks that are mostly links (187KB)
+    took 9.5 s."""
+
+    @pytest.mark.timing
+    def test_blocks_inside_a_removed_block_are_not_measured(self):
+        html = (_QUESTION + _FOLDED) * 4000 + "x" + "</div>" * 4000
+
+        seconds, text = _seconds(html.encode(), "a.html")
+
+        assert text == "q"
+        assert seconds < 3
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        # an answer folded under its question is kept, also one folded inside another answer
+        (f"{_QUESTION}{_FOLDED}answer one {_QUESTION}{_FOLDED}answer two</div></div>", "q\n\nanswer one q\n\nanswer two"),
+        # inside a hidden block that is not an answer (a menu of links) everything goes, folded answers included
+        (f'<p>p</p>{_QUESTION}{_FOLDED}<a href="/a">menu one two three</a> {_QUESTION}{_FOLDED}answer two</div></div>', "p\n\nq"),
+        (f"<p>p</p><div hidden>{_QUESTION}{_FOLDED}answer</div></div>", "p"),
+        (f'<p>p</p><div class="modal" style="display:none">{_QUESTION}{_FOLDED}answer</div></div>', "p"),
+        # a block that only looks hidden to the folded-answer pattern is not removed, so an answer inside it still counts
+        (f'<p>p</p><div style="--card-display:none">{_QUESTION}{_FOLDED}answer</div></div>', "p\n\nq\n\nanswer"),
+    ])
+    def test_folded_answers_are_kept_or_removed_as_before(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected

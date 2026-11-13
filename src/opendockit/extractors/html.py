@@ -1332,7 +1332,14 @@ def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> s
     element cut at the end of the front part (`cut`, `_open_at_the_end`) is not kept, since its link ratio is unknown.
     """
     folded: set[int] = set()
+    # Blocks inside a hidden block that was measured and is not kept: they go with it (`_drop_hidden`) and are not measured.
+    # Measuring each of 4,000 nested blocks that are mostly links took 9.5 seconds (the text below it, once per level)
+    # (Pinned by: test_audit_html_text.py::TestHiddenBlocksNestedInsideHiddenBlocks). Known accepted gap: answers folded
+    # inside answers, each of them kept, are still measured once per level.
+    removed: set[int] = set()
     for tag in soup.find_all(_FOLDED_TAGS):
+        if id(tag) in removed:
+            continue
         if id(tag) in cut or not _FOLDED_STYLE.search(str(tag.get("style", ""))) or tag.has_attr("hidden") or tag.get("aria-hidden") == "true":
             continue
         opener = tag.find_previous_sibling(True)
@@ -1341,6 +1348,8 @@ def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> s
         length = _solid_length(tag)
         if length and 2 * sum(_solid_length(link) for link in tag.find_all("a")) < length:
             folded.add(id(tag))
+        elif _hidden_by_style(tag):
+            removed.update(id(inner) for inner in tag.find_all(_FOLDED_TAGS))
     return folded
 
 
