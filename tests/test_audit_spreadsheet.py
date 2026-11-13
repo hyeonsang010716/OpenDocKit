@@ -14,7 +14,12 @@ from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors import spreadsheet
 from opendockit.models import ConvertOptions
 from tests import builder
-from tests.test_spreadsheet_cell_values_and_controls import _LOCAL_IMAGE, _rich_value_workbook
+from tests.test_spreadsheet_cell_values_and_controls import (
+    _LOCAL_IMAGE,
+    _rich_value_workbook,
+    _vml_control,
+    _workbook_with_controls,
+)
 
 
 _MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -574,3 +579,58 @@ class TestDamagedRichValueRelationships:
                                            "| B형 밸브 | Korea | 45000 |")
         assert result.warnings == ["1 in-cell picture or data-type value(s) could not be found and were left blank."]
         assert result.images == []
+
+
+class TestPartsReferencedManyTimes:
+    """A part was read and parsed again for every reference to it: 1,000 `<control>` elements pointing at one 2 MB control
+    properties part (a 7 KB file) took 2.2 s, and the same for a chart placed many times."""
+
+    @pytest.fixture
+    def parsed(self, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+        """Sizes of the parts this module parsed."""
+        sizes: list[int] = []
+        parse_part = spreadsheet.parse_part
+
+        def counting(data: bytes) -> object:
+            sizes.append(len(data))
+            return parse_part(data)
+
+        monkeypatch.setattr(spreadsheet, "parse_part", counting)
+        return sizes
+
+    def test_control_properties_part_is_parsed_once(self, parsed):
+        """Pins: a part is worked out once per conversion, however many references point at it."""
+        shape = _vml_control("Checkbox", "agree", "1, 15, 4, 2, 2, 15, 5, 2", None).replace(
+            "<v:shape ", '<v:shape id="_x0000_s1025" ')
+        data = _workbook_with_controls(shape, control_properties={"1025": "Checked"})
+        data = builder.zip_with(data, edit={_SHEET: lambda xml: xml.replace(
+            "</controls>", '<control shapeId="1025" r:id="rIdC1" name="again"/>' * 300 + "</controls>")})
+
+        result = convert(data, "a.xlsx")
+
+        assert result.text.endswith("☒ agree")
+        assert len(parsed) == 1
+
+    def test_chart_placed_many_times_is_parsed_once(self, parsed):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        for row in (["month", "sales"], ["Jan", 10], ["Feb", 20]):
+            sheet.append(row)
+        chart = openpyxl.chart.BarChart()
+        chart.title = "Sales"
+        chart.add_data(openpyxl.chart.Reference(sheet, min_col=2, min_row=1, max_row=3), titles_from_data=True)
+        sheet.add_chart(chart, "D2")
+        buffer = BytesIO()
+        workbook.save(buffer)
+        once = convert(buffer.getvalue(), "a.xlsx").text
+        parsed.clear()
+
+        def repeated(xml: str) -> str:
+            start, end = xml.index("<oneCellAnchor>"), xml.index("</oneCellAnchor>") + len("</oneCellAnchor>")
+            return xml[:end] + xml[start:end] * 49 + xml[end:]
+
+        result = convert(builder.zip_with(buffer.getvalue(), edit={"xl/drawings/drawing1.xml": repeated}), "a.xlsx")
+
+        chart_text = once[once.index("[Chart]"):]
+        assert result.text == once + ("\n\n" + chart_text) * 49
+        assert len(parsed) == 1

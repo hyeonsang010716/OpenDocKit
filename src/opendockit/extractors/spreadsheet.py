@@ -159,6 +159,7 @@ class _CellReading:
     unread_rich: int = 0  # in-cell picture / data-type cells whose value was not found (blank instead of the error value)
     picture_text: Callable[[_CellPicture], str] | None = None
     row_numbers: list[int] | None = None  # row numbers of the streamed sheet being read, in the order read (`_streamed_rows`)
+    part_results: dict[tuple[str, ...], object] = field(default_factory=dict)  # what a part gave, kept for this workbook (`_once_per_part`)
 
 
 # Deliberate: the cell interpretation of openpyxl's sheet parser (`WorkSheetParser.parse_cell`) and the place that knows the number
@@ -3118,7 +3119,8 @@ def _drawing_blocks(archive: zipfile.ZipFile, names: set[str], sheet_path: str, 
         target = embed
         if embed.startswith(_CHART_REFERENCE):
             kind, _, target = embed.removeprefix(_CHART_REFERENCE).partition("\0")
-            text = _chart_text(archive, names, kind, media.get(target, ""))
+            path = media.get(target, "")
+            text = _once_per_part(("chart", kind, path), lambda kind=kind, path=path: _chart_text(archive, names, kind, path))
 
         # Pictures and charts whose target part is missing are left out and reported. openpyxl does not follow drawing
         # relationships while reading (`_RELATIONS_LEFT_UNREAD`, Pinned by: test_spreadsheet.py::TestMissingPartRelationships)
@@ -3344,14 +3346,30 @@ def _checked_control_shapes(archive: zipfile.ZipFile, names: set[str], sheet_pat
     if not properties or sheet_path not in names:
         return set()
 
+    def says_checked(path: str) -> bool:
+        root = parse_part(archive.read(path))
+        return root is not None and root.get("checked") == "Checked"
+
     checked = set()
     for element in _CONTROL_ELEMENT.finditer(archive.read(sheet_path)):
         shape, relationship = _CONTROL_SHAPE_ID.search(element.group()), _CONTROL_RELATIONSHIP.search(element.group())
         path = properties.get(relationship.group(1).decode("utf-8", errors="replace")) if relationship else None
-        root = parse_part(archive.read(path)) if shape and path in names else None
-        if root is not None and root.get("checked") == "Checked":
+        if shape and path in names and _once_per_part(("checked", path), lambda path=path: says_checked(path)):
             checked.add(shape.group(1).decode())
     return checked
+
+
+def _once_per_part[T](key: tuple[str, ...], read: Callable[[], T]) -> T:
+    """What `read` works out from a part, worked out once per workbook (`key`: what is read, and the part path). A part was read
+    and parsed again for every reference to it: 1,000 `<control>` elements pointing at one 2 MB control properties part (a 7 KB
+    file) took 2.2 s, and so did a chart placed many times. The results live in the reading state of this conversion
+    (`_CellReading`); outside one, nothing is kept (Pinned by: test_audit_spreadsheet.py::TestPartsReferencedManyTimes)."""
+    reading = _READING.get()
+    if reading is None:
+        return read()
+    if key not in reading.part_results:
+        reading.part_results[key] = read()
+    return reading.part_results[key]
 
 
 def _drawing_items(element: etree._Element,
