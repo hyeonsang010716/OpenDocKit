@@ -328,7 +328,9 @@ class HwpRenderer:
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
         self.notes: list[str] = []
-        self.headers_footers: list[str] = []
+        # Texts in order of first appearance, each once. Looked up in a list, 60,000 different headers took 11 s
+        # (Pinned by: test_audit_hangul.py::TestManyDistinctHeaders).
+        self.headers_footers: dict[str, None] = {}
 
     def render(self, records: list[Record]) -> list[str]:
         """Find paragraphs (PARA_HEADER) and render them. A record that is not a paragraph is descended to find inner paragraphs — with a
@@ -572,8 +574,8 @@ class HwpRenderer:
             text = join_blocks(self.render(control.children))
         finally:
             self._grids.pop()
-        if text and text not in self.headers_footers:
-            self.headers_footers.append(text)
+        if text:
+            self.headers_footers.setdefault(text)
 
     def _render_table(self, control: Record) -> str:
         """Table: under CTRL_HEADER(tbl) comes TABLE, followed, for each cell, by a LIST_HEADER and that cell's paragraphs as siblings.

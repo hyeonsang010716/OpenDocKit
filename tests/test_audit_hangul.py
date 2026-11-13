@@ -4,14 +4,17 @@ that failed or slowed down the whole document.
 HWP record streams are built with the fake OLE container (`_fake_hwp`) of `test_hwp.py`.
 """
 
+import time
+
 import pytest
 
-from opendockit import convert
+from opendockit import ConvertOptions, convert
 from opendockit.extractors import hwpx
 from tests import builder
 from tests.test_hwp import (
     _CHART_XML,
     TAG_CTRL_HEADER,
+    TAG_LIST_HEADER,
     TAG_PARA_HEADER,
     TAG_PARA_TEXT,
     _auto_number,
@@ -133,3 +136,56 @@ class TestHwpAutoNumberDecoration:
         data = _fake_hwp(monkeypatch, sections=[section])
 
         assert convert(data, "a.hwp").text == "식 힣2）"
+
+
+def _hwp_headers(texts: list[str]) -> bytes:
+    """One paragraph per text, each holding a header control (`head`) with that text."""
+    record = builder.hwp_record
+    return b"".join(
+        record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text((16, "head")))
+        + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("head")) + record(TAG_LIST_HEADER, 2, b"\x00" * 8)
+        + record(TAG_PARA_HEADER, 2, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 3, builder.hwp_text(text))
+        for text in texts)
+
+
+def _hwpx_headers(texts: list[str]) -> str:
+    return "".join(f"<hp:p><hp:run><hp:ctrl><hp:header><hp:subList>{_paragraph_xml(text)}</hp:subList></hp:header></hp:ctrl>"
+                   "</hp:run></hp:p>" for text in texts)
+
+
+class TestManyDistinctHeaders:
+    """Each header or footer text is written once. Whether a text had been seen was looked up in a list, so the time was
+    quadratic in the number of different texts: 60,000 took 11 s (HWP and HWPX alike)."""
+
+    _OPTIONS = ConvertOptions(include_headers_footers=True, max_chars=None)
+    _TEXTS = ["머리말 나", "머리말 가", "머리말 나", "머리말 다", "머리말 가"]
+
+    def test_hwp_header_texts_are_written_once_in_order_of_first_appearance(self, monkeypatch):
+        data = _fake_hwp(monkeypatch, sections=[_hwp_headers(self._TEXTS)])
+
+        assert convert(data, "a.hwp", self._OPTIONS).text == "머리말 나\n\n머리말 가\n\n머리말 다"
+
+    def test_hwpx_header_texts_are_written_once_in_order_of_first_appearance(self):
+        data = builder.hwpx_bytes(_hwpx_headers(self._TEXTS))
+
+        assert convert(data, "a.hwpx", self._OPTIONS).text == "머리말 나\n\n머리말 가\n\n머리말 다"
+
+    @pytest.mark.timing
+    def test_hwp_headers_take_linear_time(self, monkeypatch):
+        data = _fake_hwp(monkeypatch, sections=[_hwp_headers([f"머리말 {index:08d}" for index in range(60_000)])])
+
+        started = time.perf_counter()
+        result = convert(data, "a.hwp", self._OPTIONS)
+
+        assert time.perf_counter() - started < 5.0
+        assert result.text.count("머리말") == 60_000
+
+    @pytest.mark.timing
+    def test_hwpx_headers_take_linear_time(self):
+        data = builder.hwpx_bytes(_hwpx_headers([f"머리말 {index:08d}" for index in range(60_000)]))
+
+        started = time.perf_counter()
+        result = convert(data, "a.hwpx", self._OPTIONS)
+
+        assert time.perf_counter() - started < 5.0
+        assert result.text.count("머리말") == 60_000

@@ -158,7 +158,9 @@ class HwpxRenderer:
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
         self.notes: list[str] = []
-        self.headers_footers: list[str] = []
+        # Texts in order of first appearance, each once. Looked up in a list, 60,000 different headers took 11 s
+        # (Pinned by: test_audit_hangul.py::TestManyDistinctHeaders).
+        self.headers_footers: dict[str, None] = {}
         # Comments (review remarks): (author, text, pieces of the body range the comment is attached to). The range is the text between
         # fieldBegin and the fieldEnd with the same id
         self.memos: list[tuple[str, str, list[str]]] = []
@@ -423,8 +425,8 @@ class HwpxRenderer:
                     text = join_blocks(block for sub in _top_sublists(node) for block in self.render_paragraphs(sub))
                 finally:
                     self._grids.pop()
-                if text and text not in self.headers_footers:
-                    self.headers_footers.append(text)
+                if text:
+                    self.headers_footers.setdefault(text)
             elif name == "autoNum":
                 buffer.append(_auto_number(node))
 
