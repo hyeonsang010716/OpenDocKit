@@ -2142,17 +2142,19 @@ def _ss(element: etree._Element, name: str) -> str | None:
     return element.get(f"{{{_SS}}}{name}", element.get(name))
 
 
-def _ss_int(element: etree._Element, name: str, fallback: int, invalid: set[str]) -> int:
+def _ss_int(element: etree._Element, name: str, fallback: int, invalid: set[str], minimum: int = 0) -> int:
     """Integer attribute (`ss:Index`, `ss:Span`, `ss:MergeAcross`, `ss:MergeDown`). Missing or empty gives `fallback`; a value that is
     not a decimal number (`abc`, `²`) also gives `fallback` and records the name in `invalid` — a bare `int()` rejected the whole
-    document over a single attribute (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetIntegerAttributes)."""
+    document over a single attribute (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetIntegerAttributes). So does a number
+    below `minimum` — a cell at `ss:Index="0"`, a column that does not exist, was dropped without a warning
+    (Pinned by: test_audit_spreadsheet.py::TestXmlCellAtPositionZero)."""
     value = (_ss(element, name) or "").strip()
     if not value:
         return fallback
     # None also for more than 4,300 digits, which `int()` refuses although they are decimal
     # (Pinned by: test_audit_spreadsheet.py::TestIntegerAttributesTooLongToRead).
     number = decimal_int(value, None)
-    if number is not None:
+    if number is not None and number >= minimum:
         return number
     invalid.add(name)
     return fallback
@@ -2265,7 +2267,7 @@ def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None]
         column = 0
 
         for cell in row.iterfind(f"{{{_SS}}}Cell"):
-            column = _ss_int(cell, "Index", column + 1, invalid)
+            column = _ss_int(cell, "Index", column + 1, invalid, minimum=1)
             data = cell.find(f"{{{_SS}}}Data")
             style = _ss(cell, "StyleID") or _ss(row, "StyleID") or column_styles.get(column)
             text = _xml_cell_value(data, formats.get(style, formats.get(None))) if data is not None else ""

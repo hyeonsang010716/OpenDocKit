@@ -706,3 +706,28 @@ class TestVeryLongNumberFormat:
 
         assert spreadsheet._xls_cell_text(cell, book) == expected
         assert max(formats_analysed) <= 1_024
+
+
+class TestXmlCellAtPositionZero:
+    """`ss:Index` counts from 1. A cell with `ss:Index="0"` was put at a column that does not exist and dropped without a
+    warning (`LOST | b | c` came out as `b | c`)."""
+
+    def test_cell_is_kept_where_it_stands_with_the_warning(self):
+        rows = ("<Row>" + _xml_cell("LOST", attributes='ss:Index="0"') + _xml_cell("b") + _xml_cell("c") + "</Row>"
+                "<Row>" + _xml_cell("1", "Number") + _xml_cell("2", "Number") + _xml_cell("3", "Number", 'ss:Index="0"') + "</Row>")
+
+        result = convert(_xml_workbook(rows), "a.xml")
+
+        assert result.text == "## Sheet: s\n\n| LOST | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |"
+        assert result.warnings == ["Non-integer cell position and merge attributes (Index) were ignored. "
+                                   "Cells may have been placed in a different column."]
+
+    def test_other_positions_are_read_as_before(self):
+        rows = ('<Row ss:Index="0">' + _xml_cell("a", attributes='ss:Index="1"') + _xml_cell("b", attributes='ss:Index="3"')
+                + _xml_cell("c", attributes='ss:MergeAcross="0" ss:MergeDown="0"') + "</Row>"
+                "<Row>" + "".join(_xml_cell(number, "Number") for number in range(1, 5)) + "</Row>")
+
+        result = convert(_xml_workbook('<Column ss:Index="0" ss:Span="0"/>' + rows), "a.xml")
+
+        assert result.text == "## Sheet: s\n\n| a | | b | c |\n| --- | --- | --- | --- |\n| 1 | 2 | 3 | 4 |"
+        assert not result.warnings
