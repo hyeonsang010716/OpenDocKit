@@ -445,6 +445,32 @@ class TestDocxChunkPartReferencedManyTimes:
         assert result.text == "tail"
 
 
+class TestOdfObjectThatIsNotAChart:
+    """An embedded sub-document is parsed once, but one that is neither a chart nor a formula was searched for a chart again for
+    every frame that points at it: a 2-million-element sub-document and 3,000 frames (a 36 KB file) took 15 s. Whether the
+    sub-document holds a chart is remembered with it."""
+
+    @staticmethod
+    def _document(elements: int, frames: int) -> bytes:
+        other = ('<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+                 'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text>'
+                 + "<text:p/>" * elements + "</office:text></office:body></office:document-content>").encode()
+        body = "<text:p>before" + '<draw:frame><draw:object xlink:href="./Obj1"/></draw:frame>' * frames + "after</text:p>"
+        return _odf_package("text", body, parts={"Obj1/content.xml": other})
+
+    def test_object_without_a_chart_gives_nothing_at_every_frame(self):
+        assert convert(self._document(10, 30), "sample.odt").text == "beforeafter"
+
+    @pytest.mark.timing
+    def test_many_frames_on_a_large_object_do_not_search_it_again(self):
+        data = self._document(200_000, 20_000)   # 4 × 10⁹ element visits before: about 10 s
+
+        started = time.perf_counter()
+        convert(data, "sample.odt")
+
+        assert time.perf_counter() - started < 4.0
+
+
 class TestPptxSlideListEntryWithoutARelationship:
     """A slide list entry without `r:id` raised InvalidXmlError, which was not among the errors that skip one slide, so the whole
     deck was rejected. A main part whose root is not `p:presentation` gets the fixed structure error."""
