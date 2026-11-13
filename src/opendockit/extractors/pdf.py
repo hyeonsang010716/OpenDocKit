@@ -2050,12 +2050,30 @@ def _mark_checkboxes(page: object, lines: list[_Line], tables: list[tuple[float,
     marks = [*page.curves, *page.lines, *(rect for rect in rects if rect.get("fill"))]
     before: set[int] = set()  # lines with the mark placed before the text
     after: set[int] = set()  # lines with the mark placed after the text
+    # Rectangles at most `cell` pt on a side are looked up by the grid cell of their top-left corner: one that touches a box starts
+    # at most `cell` + 1pt before the box and no later than 0.5pt after it, so it is in one of the cells searched below. Larger
+    # ones (frames, cell backgrounds) and those with huge or non-finite coordinates are always scanned. Every box scanned all the
+    # rectangles of the page, so a page of 10,000 separate 8pt squares took 17 seconds here
+    # (Pinned by: test_audit_pdf_head.py::TestManySquaresOnOnePage).
+    cell = 64.0
+    near: dict[tuple[int, int], list[dict]] = {}
+    far: list[dict] = []
+    for rect in rects:
+        small = (all(abs(rect[side]) < 1e9 for side in ("x0", "top", "x1", "bottom"))
+                 and rect["x1"] - rect["x0"] <= cell and rect["bottom"] - rect["top"] <= cell)
+        (near.setdefault((math.floor(rect["x0"] / cell), math.floor(rect["top"] / cell)), []) if small else far).append(rect)
 
     for box in boxes:
+        around = rects
+        if all(abs(box[side]) < 1e9 for side in ("x0", "top", "x1", "bottom")):
+            cells = [near.get((column, row), ())
+                     for column in range(math.floor((box["x0"] - 1) / cell) - 1, math.floor((box["x1"] + 0.5) / cell) + 1)
+                     for row in range(math.floor((box["top"] - 1) / cell) - 1, math.floor((box["bottom"] + 0.5) / cell) + 1)]
+            around = (other for group in (far, *cells) for other in group)
         if any(other is not box and other["x0"] <= box["x1"] + 0.5 and box["x0"] <= other["x1"] + 0.5
                and other["top"] <= box["bottom"] + 0.5 and box["top"] <= other["bottom"] + 0.5
                and not _encloses(_bbox(box), _bbox(other)) and not _encloses(_bbox(other), _bbox(box))
-               for other in rects):
+               for other in around):
             continue  # box touching another rectangle (a row of character cell boxes). A frame around the box or a filled mark inside is fine
         _put_checkbox_mark(box, any(mark is not box and _ticks(box, mark) for mark in marks), page.chars, lines, before, after)
 

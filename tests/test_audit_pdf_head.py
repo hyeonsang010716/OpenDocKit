@@ -288,3 +288,99 @@ class TestManyPiecesOnOneBaseline:
         merged, changed = pdf_module._merged_overlapping_pieces(pieces, 0.1)
 
         assert changed and len(merged) == 1
+
+
+class _CountedList(list):
+    """A list that counts the items handed out by iterating over it."""
+
+    handed_out = 0
+
+    def __iter__(self):
+        for item in list.__iter__(self):
+            self.handed_out += 1
+            yield item
+
+
+def _rect(x0: float, top: float, width: float, height: float, *, fill: bool = False) -> dict:
+    return {"x0": x0, "top": top, "x1": x0 + width, "bottom": top + height, "width": width, "height": height,
+            "stroke": not fill, "fill": fill, "object_type": "rect"}
+
+
+class TestManySquaresOnOnePage:
+    """Every candidate check box scanned all the rectangles of the page for one that touches it: a page of 10,000 separate 8pt
+    squares and one line of text spent 17 seconds there."""
+
+    @staticmethod
+    def _page(rects: list[dict]) -> object:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(rects=rects, curves=[], lines=[], chars=[])
+
+    @staticmethod
+    def _line(top: float, x0: float) -> object:
+        from opendockit.extractors import pdf as pdf_module
+
+        return pdf_module._Line(top=top, bottom=top + 10, x0=x0, x1=x0 + 40, text="label", size=10.0)
+
+    def test_separate_squares_do_not_each_scan_every_rectangle(self):
+        from opendockit.extractors import pdf as pdf_module
+
+        rects = _CountedList(_rect(60.0 + (index % 50) * 14, 60.0 + (index // 50) * 14, 8.0, 8.0) for index in range(2500))
+        line = self._line(59.0, 60.0 + 50 * 14)
+
+        pdf_module._mark_checkboxes(self._page(rects), [line], [])
+
+        assert line.text == "☐ label"
+        assert rects.handed_out <= 2500 * 4  # 6,250,000 when every square scanned every rectangle
+
+    @pytest.mark.timing
+    def test_ten_thousand_separate_squares_are_checked_within_seconds(self):
+        import time
+
+        from opendockit.extractors import pdf as pdf_module
+
+        rects = [_rect(60.0 + (index % 100) * 14, 60.0 + (index // 100) * 14, 8.0, 8.0) for index in range(10_000)]
+        started = time.perf_counter()
+
+        pdf_module._mark_checkboxes(self._page(rects), [self._line(59.0, 60.0 + 100 * 14)], [])
+
+        assert time.perf_counter() - started < 3  # 17 seconds when every square scanned every rectangle
+
+    @pytest.mark.parametrize("seed", range(6))
+    def test_boxes_found_touching_another_rectangle_are_those_of_scanning_them_all(self, monkeypatch, seed):
+        import random
+
+        from opendockit.extractors import pdf as pdf_module
+
+        rng = random.Random(seed)
+        rects = []
+        for _ in range(400):
+            side = rng.choice([6.0, 8.0, 8.0, 12.0, 15.9])
+            width, height = rng.choice([(side, side), (side, side + 1.0), (rng.uniform(1, 200), rng.uniform(1, 200)), (64.0, 64.0),
+                                        (64.5, 3.0), (-5.0, 8.0)])
+            rects.append(_rect(rng.choice([rng.uniform(-80, 300), float(rng.randrange(-64, 320, 16)), 1e12, float("inf")]),
+                               rng.choice([rng.uniform(-80, 300), float(rng.randrange(-64, 320, 16))]), width, height,
+                               fill=rng.random() < 0.2))
+        boxes = [rect for rect in rects if rect["stroke"] and 5.0 <= rect["width"] <= 16.0
+                 and abs(rect["width"] - rect["height"]) <= 1.5]
+        bbox, encloses = pdf_module._bbox, pdf_module._encloses
+        expected = [id(box) for box in boxes
+                    if not any(other is not box and other["x0"] <= box["x1"] + 0.5 and box["x0"] <= other["x1"] + 0.5
+                               and other["top"] <= box["bottom"] + 0.5 and box["top"] <= other["bottom"] + 0.5
+                               and not encloses(bbox(box), bbox(other)) and not encloses(bbox(other), bbox(box))
+                               for other in rects)]
+        assert 10 < len(expected) < len(boxes) - 10
+        marked = []
+        monkeypatch.setattr(pdf_module, "_put_checkbox_mark", lambda box, *args: marked.append(id(box)))
+
+        pdf_module._mark_checkboxes(self._page(rects), [self._line(0.0, 0.0)], [])
+
+        assert marked == expected
+
+    def test_squares_drawn_on_a_page_are_marked_as_before(self):
+        parts = [b"BT /F1 12 Tf 80 700 Td (Agree) Tj ET\nBT /F1 12 Tf 80 660 Td (Cells) Tj ET\n0.5 w\n",
+                 b"64 699 9 9 re S\n",  # a separate square before its label
+                 b"52 659 9 9 re S\n61 659 9 9 re S\n"]  # two squares sharing an edge: a row of character cells
+        result = convert(_one_page(_flate(b"".join(parts))), "a.pdf")
+
+        assert "☐ Agree" in result.text and "☐ Cells" not in result.text and "Cells" in result.text
