@@ -29,6 +29,7 @@ from tests.test_office import (
     _docx_with_chunks,
     _replace_picture,
 )
+from tests.timing import allowed
 
 
 _SUPERSCRIPT = '<w:rPr><w:vertAlign w:val="superscript"/></w:rPr>'
@@ -343,7 +344,7 @@ class TestPptxRowOfManySideLabels:
         started = time.perf_counter()
         convert(data, "sample.pptx", ConvertOptions(max_chars=None))
 
-        assert time.perf_counter() - started < 10.0
+        assert time.perf_counter() - started < allowed(10.0)
 
 
 def _count_chart_parses(monkeypatch: pytest.MonkeyPatch, module: object) -> list[int]:
@@ -478,7 +479,7 @@ class TestOdfObjectThatIsNotAChart:
         started = time.perf_counter()
         convert(data, "sample.odt")
 
-        assert time.perf_counter() - started < 4.0
+        assert time.perf_counter() - started < allowed(4.0)
 
 
 class TestPptxManyOleObjectsWithVmlPreviews:

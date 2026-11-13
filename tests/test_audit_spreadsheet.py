@@ -21,6 +21,7 @@ from tests.test_spreadsheet_cell_values_and_controls import (
     _vml_control,
     _workbook_with_controls,
 )
+from tests.timing import allowed
 
 
 _MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -227,7 +228,7 @@ class TestUnclosedTagsInSheetXml:
         with pytest.raises(CorruptedDocumentError):
             convert(data, "a.xlsx")
 
-        assert time.perf_counter() - started < 5
+        assert time.perf_counter() - started < allowed(5)
 
     def test_unclosed_formulas(self):
         with zipfile.ZipFile(BytesIO(builder.zip_with(_workbook(), edit={_SHEET: lambda _: "<f " * 200_000}))) as archive:
@@ -235,7 +236,7 @@ class TestUnclosedTagsInSheetXml:
 
             assert spreadsheet._formulas_without_results(archive, [_SHEET]) == (True, set())
 
-        assert time.perf_counter() - started < 5
+        assert time.perf_counter() - started < allowed(5)
 
     @pytest.mark.parametrize(("part", "tag"), [(_SHEET, "<calcPr "), ("xl/workbook.xml", "<sheet ")])
     def test_unclosed_settings(self, part, tag):
@@ -244,7 +245,7 @@ class TestUnclosedTagsInSheetXml:
 
         assert spreadsheet._without_view_settings(data) is not None
 
-        assert time.perf_counter() - started < 5
+        assert time.perf_counter() - started < allowed(5)
 
     def test_unclosed_controls(self):
         data = builder.zip_with(_workbook(), edit={_SHEET: lambda _: "<control " * 100_000},
@@ -254,7 +255,7 @@ class TestUnclosedTagsInSheetXml:
 
             assert spreadsheet._checked_control_shapes(archive, set(archive.namelist()), _SHEET) == set()
 
-        assert time.perf_counter() - started < 5
+        assert time.perf_counter() - started < allowed(5)
 
 
 class TestSheetXmlSearchesFindWhatTheyFound:
@@ -435,7 +436,7 @@ class TestNumberLikeText:
         result = convert(data, "a.csv", ConvertOptions(max_chars=None))
 
         assert result.text == "- x\n\n- x\n\n- x\n\n- x"
-        assert time.perf_counter() - started < 5  # 30 s or more before
+        assert time.perf_counter() - started < allowed(5)  # 30 s or more before
 
     @pytest.mark.parametrize("text", ["12", "-12", "- 12", "₩1,200", "₩ 1,200", "- ₩ 1,200", "-  ₩  1,200", "( $ 3.5 )", "(1,234)",
                                       "▲ 3.5%", "△12", "+ € 7", "1,200원", "12 명", "3.2 %p", "2024-01-02", "9:30", "-12:30:05",

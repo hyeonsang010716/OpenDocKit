@@ -11,6 +11,7 @@ from reportlab.pdfgen import canvas
 
 from opendockit import ConvertOptions, convert
 from opendockit.extractors import pdf as pdf_module
+from tests.timing import allowed
 
 
 def _sideways_table_pdf(rows: int, columns: int, *, upright: tuple[int, int] | None = None) -> bytes:
@@ -81,7 +82,7 @@ class TestSidewaysCells:
         cells, _ = self._read(data)
         elapsed = time.perf_counter() - started
 
-        assert cells[99][19] == "r99c19" and elapsed < 5  # 23 seconds in `_read_sideways_cells` alone before
+        assert cells[99][19] == "r99c19" and elapsed < allowed(5)  # 23 seconds in `_read_sideways_cells` alone before
 
     def test_sideways_table_reads_as_before(self):
         """A cell with a horizontal word mixed in keeps the text pdfplumber read (no order to join two directions in)."""
@@ -186,7 +187,7 @@ class TestManyTablesOnOnePage:
                 pdf_module._join_soft_wraps(table, rows)
             elapsed = time.perf_counter() - started
 
-        assert len(tables) == 800 and elapsed < 3  # 9 seconds in these three steps before
+        assert len(tables) == 800 and elapsed < allowed(3)  # 9 seconds in these three steps before
 
     def test_tables_with_wrapped_cells_and_a_row_open_at_the_page_end_read_as_before(self):
         """Two tables on one page: wrapped and broken lines in the cells of the first, and a last row without a bottom
@@ -372,7 +373,7 @@ class TestPictureDrawnAsManyStrips:
         found = pdf_module._tiled_background(boxes, (0.0, 0.0, width, height))
         elapsed = time.perf_counter() - started
 
-        assert found == [(0.0, 0.0, width, height, 1.0)] and elapsed < 3  # 12 seconds before
+        assert found == [(0.0, 0.0, width, height, 1.0)] and elapsed < allowed(3)  # 12 seconds before
 
     def test_scan_stored_as_strips_and_photos_side_by_side_read_as_before(self):
         from tests import builder
@@ -441,7 +442,7 @@ class TestManyFilledRectanglesOnOneLine:
             pdf_module._without_highlights(page)
             elapsed = time.perf_counter() - started
 
-        assert characters == 16000 and elapsed < 3  # 8 seconds before
+        assert characters == 16000 and elapsed < allowed(3)  # 8 seconds before
 
     def test_highlighted_words_and_shaded_cells_read_as_before(self):
         """Highlights over words of a paragraph are not rules (no table of words); the shading of table cells stays."""

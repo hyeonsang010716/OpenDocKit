@@ -11,6 +11,7 @@ from opendockit import ConvertOptions, convert
 from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors import html as html_extractor
 from tests.builder import png_bytes
+from tests.timing import allowed
 
 
 _MAIL_HEAD = "From: a@b.c\r\nTo: d@e.f\r\nMIME-Version: 1.0\r\n"
@@ -373,7 +374,7 @@ class TestMultipartNestingDeclaredWithExtendedParameters:
         with pytest.raises(CorruptedDocumentError):
             convert(data, "a.eml")
 
-        assert time.perf_counter() - started < 3
+        assert time.perf_counter() - started < allowed(3)
 
 
 def _seconds(data: bytes, file_name: str) -> tuple[float, str]:
@@ -396,7 +397,7 @@ class TestUnclosedImgTagWithManySources:
         seconds, converted = _seconds(text.encode(), "a.md")
 
         assert converted == text.strip()
-        assert seconds < 3
+        assert seconds < allowed(3)
 
     @pytest.mark.parametrize(("markdown", "expected"), [
         ('<img alt="a" src="data:image/svg+xml,%3Csvg%3E"> text', "[Image: a] text"),
@@ -428,7 +429,7 @@ class TestManyHeadingsUnderDeepNesting:
         seconds, text = _seconds(("<div>" * 8000 + "<h2>x</h2>" * 8000).encode(), "a.html")
 
         assert text == "\n\n".join(["## x"] * 8000)
-        assert seconds < 5
+        assert seconds < allowed(5)
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<h2>one<h3>two</h3>three</h2><p>p</p>", "## one\n\n### two\n\nthree\n\np"),
@@ -463,7 +464,7 @@ class TestManyElementsThatLookUpwardsUnderDeepNesting:
         seconds, text = _seconds(html.encode(), "a.html")
 
         assert text == expected
-        assert seconds < 5
+        assert seconds < allowed(5)
 
     @pytest.mark.parametrize(("html", "expected"), [
         # svg: an inner svg goes with the outer one; a label inside a foreignObject is part of that foreignObject's text
@@ -499,7 +500,7 @@ class TestMuchContentOutsideTheCellsOfATable:
         seconds, text = _seconds(html.encode(), "a.html")
 
         assert text == "x" * 40000 + "\n\n" + "\n\n".join(["a"] * 40000)
-        assert seconds < 8
+        assert seconds < allowed(8)
 
     @pytest.mark.timing
     def test_many_stray_tables_take_linear_time(self):
@@ -508,7 +509,7 @@ class TestMuchContentOutsideTheCellsOfATable:
         seconds, text = _seconds(html.encode(), "a.html")
 
         assert text == "| a | b |\n| --- | --- |\n\n" + "\n\n".join(["c"] * 40000)
-        assert seconds < 8
+        assert seconds < allowed(8)
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<p>p</p><table>one<tr><td>a</td><td>b</td></tr>two <b>bold</b><tr><td>c</td><td>d</td></tr>three</table><p>q</p>",
@@ -534,7 +535,7 @@ class TestAttributeValuesThatRepeatTheStartOfAPattern:
         seconds, text = _seconds(f'<p style="{style}">text</p>'.encode(), "a.html")
 
         assert text == "text"
-        assert seconds < 3
+        assert seconds < allowed(3)
 
     @pytest.mark.parametrize("style", [
         "text-decoration:line-through", "TEXT-DECORATION : underline LINE-THROUGH", "color:red;text-decoration-line: line-through;",
@@ -557,7 +558,7 @@ class TestAttributeValuesThatRepeatTheStartOfAPattern:
         seconds, text = _seconds(f'<ul class="{name}"><li>one</li></ul><ul class="{name}"><li>two</li></ul>'.encode(), "a.html")
 
         assert text == "- one\n\n- two"
-        assert seconds < 3
+        assert seconds < allowed(3)
 
     @pytest.mark.parametrize(("first", "second", "expected"), [
         ("lst-kix_abc-0 start", "lst-kix_abc-1", "- one\n  - two"),
@@ -584,7 +585,7 @@ class TestListItemWithManyUnpairedFenceLines:
         seconds, text = _seconds(("<ul><li>" + line * 40000 + "</li></ul>").encode(), "a.html")
 
         assert text.startswith("-")
-        assert seconds < 6
+        assert seconds < allowed(6)
 
     @pytest.mark.parametrize(("item", "expected"), [
         ("first<pre>a  b\n\n\nc</pre>then<pre>d</pre>last", "- first\n\n```\na  b\n\n\nc\n```\n\nthen\n\n```\nd\n```\n\nlast"),
@@ -613,7 +614,7 @@ class TestHiddenBlocksNestedInsideHiddenBlocks:
         seconds, text = _seconds(html.encode(), "a.html")
 
         assert text == "q"
-        assert seconds < 3
+        assert seconds < allowed(3)
 
     @pytest.mark.parametrize(("html", "expected"), [
         # an answer folded under its question is kept, also one folded inside another answer
@@ -639,7 +640,7 @@ class TestManyListsOrTablesSetAsideWhileTheirParentIsRendered:
         seconds, text = _seconds(("<ul><li>" + "<ul><li>a</li></ul>" * 30000 + "</li></ul>").encode(), "a.html")
 
         assert text == "-\n" + "\n".join(["  - a"] * 30000)
-        assert seconds < 8
+        assert seconds < allowed(8)
 
     @pytest.mark.timing
     def test_cell_with_many_tables_takes_linear_time(self):
@@ -649,7 +650,7 @@ class TestManyListsOrTablesSetAsideWhileTheirParentIsRendered:
         seconds, text = _seconds(html.encode(), "a.html")
 
         assert text == "| " + "a" * 30000 + " | b |\n| --- | --- |\n| c | d |"
-        assert seconds < 8
+        assert seconds < allowed(8)
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<ul><li>one<ul><li>a</li></ul>between<div><ol><li>b</li></ol></div>after</li><li>two</li></ul>",
@@ -671,7 +672,7 @@ class TestManyButtonsInsideOneHeading:
         seconds, text = _seconds(("<h1>" + "<button>ab</button>" * 40000 + "</h1>").encode(), "a.html")
 
         assert text == "# " + "ab" * 40000
-        assert seconds < 4
+        assert seconds < allowed(4)
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<h2>A<button>B <i>C</i></button>D<button></button><button>E</button></h2><p>p</p>", "## AB CDE\n\np"),
@@ -693,7 +694,7 @@ class TestEquationsNestedInsideEquations:
         seconds, text = _seconds(("<math><mrow>" * 8000 + "<mi>x</mi>" + "</mrow></math>" * 8000).encode(), "a.html")
 
         assert text == "$x$"
-        assert seconds < 4
+        assert seconds < allowed(4)
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<p>a <math><mi>x</mi><mtext><math><mi>y</mi></math></mtext><msup><mi>z</mi><mn>2</mn></msup></math> b</p>", "a $xyz^2$ b"),

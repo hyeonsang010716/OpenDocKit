@@ -7,6 +7,7 @@ import pytest
 
 from opendockit import ConvertOptions, DocumentTooLargeError, convert
 from tests.test_pdf import _raw_pdf
+from tests.timing import allowed
 
 
 _FONT_OBJECT = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
@@ -344,7 +345,7 @@ class TestManySquaresOnOnePage:
 
         pdf_module._mark_checkboxes(self._page(rects), [self._line(59.0, 60.0 + 100 * 14)], [])
 
-        assert time.perf_counter() - started < 3  # 17 seconds when every square scanned every rectangle
+        assert time.perf_counter() - started < allowed(3)  # 17 seconds when every square scanned every rectangle
 
     @pytest.mark.parametrize("seed", range(6))
     def test_boxes_found_touching_another_rectangle_are_those_of_scanning_them_all(self, monkeypatch, seed):

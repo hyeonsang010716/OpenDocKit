@@ -22,6 +22,7 @@ from tests.test_hwp import (
     _auto_number,
     _fake_hwp,
 )
+from tests.timing import allowed
 
 
 _CHART_REFERENCE = ('<hp:switch><hp:case hp:required-namespace="http://www.hancom.co.kr/hwpml/2016/ooxmlchart">'
@@ -262,7 +263,7 @@ class TestManyDistinctHeaders:
         started = time.perf_counter()
         result = convert(data, "a.hwp", self._OPTIONS)
 
-        assert time.perf_counter() - started < 5.0
+        assert time.perf_counter() - started < allowed(5.0)
         assert result.text.count("머리말") == 60_000
 
     @pytest.mark.timing
@@ -272,5 +273,5 @@ class TestManyDistinctHeaders:
         started = time.perf_counter()
         result = convert(data, "a.hwpx", self._OPTIONS)
 
-        assert time.perf_counter() - started < 5.0
+        assert time.perf_counter() - started < allowed(5.0)
         assert result.text.count("머리말") == 60_000

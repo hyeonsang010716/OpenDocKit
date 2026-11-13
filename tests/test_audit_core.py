@@ -16,6 +16,7 @@ from opendockit.markdown import neutralize_table_tags
 from opendockit.models import DocumentFormat
 from tests import builder
 from tests.test_office import _chart_xml, _pptx_with_chart
+from tests.timing import allowed
 
 
 def _pptx_with_number_chart(values: list[str], value_format: str = "General", *, categories: list[str] | None = None,
@@ -51,7 +52,7 @@ class TestPdfBodySearchAfterALateHeader:
 
         detected = detect_format(data, "note.txt")
 
-        assert time.perf_counter() - started < 5.0
+        assert time.perf_counter() - started < allowed(5.0)
         assert detected is DocumentFormat.TEXT
 
     @pytest.mark.parametrize("body", [b"12 0 obj\n<< >>\nendobj\n", b"0000000012 00000 obj", b"x12 0 obj", b"1\n\n2\tobj",
@@ -75,7 +76,7 @@ class TestUnclosedImagePlaceholderText:
 
         result = convert(data, "a.html", ConvertOptions(max_chars=None))
 
-        assert time.perf_counter() - started < 5.0
+        assert time.perf_counter() - started < allowed(5.0)
         assert result.text.startswith("**b** [Image: [Image: ") and result.char_count > 150_000
 
     @pytest.mark.timing
@@ -85,7 +86,7 @@ class TestUnclosedImagePlaceholderText:
 
         result = convert(data, "a.html", ConvertOptions(max_chars=None))
 
-        assert time.perf_counter() - started < 5.0
+        assert time.perf_counter() - started < allowed(5.0)
         assert result.text.startswith("**b** [^a[^a")
 
     def test_placeholders_are_still_told_from_words(self):
@@ -105,7 +106,7 @@ class TestUnclosedTableTagsInCellText:
 
         result = convert(data, "a.html", ConvertOptions(max_chars=None))
 
-        assert time.perf_counter() - started < 5.0
+        assert time.perf_counter() - started < allowed(5.0)
         assert result.text.startswith('<table>\n<tr><th colspan="2"><td<td<td') and result.char_count > 600_000
 
     @pytest.mark.parametrize(("text", "expected"), [
@@ -136,7 +137,7 @@ class TestSpacesOnALineWithAPicture:
 
         result = convert(data, "a.md", ConvertOptions(max_chars=None))
 
-        assert time.perf_counter() - started < 5.0
+        assert time.perf_counter() - started < allowed(5.0)
         assert result.text.startswith("x  ") and result.text.endswith(" y\n\n[Image: p]") and result.char_count > 300_000
 
     def test_spaces_around_placeholders_are_folded_as_before(self):
@@ -169,7 +170,7 @@ class TestAltTextWithManyLineBreaks:
 
         result = convert(data, "a.docx")
 
-        assert time.perf_counter() - started < 5.0
+        assert time.perf_counter() - started < allowed(5.0)
         assert result.text.startswith("차트 앞 문단입니다.\n\n[Image: a b]\n\n")
 
     @pytest.mark.parametrize("alt", [
@@ -211,7 +212,7 @@ class TestChartFormatWithManyOpenBrackets:
 
         result = convert(data, "a.pptx")
 
-        assert time.perf_counter() - started < 5.0
+        assert time.perf_counter() - started < allowed(5.0)
         assert result.text.endswith(f"| {points} | 0.5 |")
 
     @pytest.mark.timing
@@ -221,7 +222,7 @@ class TestChartFormatWithManyOpenBrackets:
 
         shown = {_shared._format_value("1200", format_code) for _ in range(60_000)}
 
-        assert time.perf_counter() - started < 10.0  # 25 seconds before, 3 now
+        assert time.perf_counter() - started < allowed(10.0)  # 25 seconds before, 3 now
         assert len(format_code) == 255 and shown == {"1200"}
 
     @pytest.mark.timing
@@ -233,7 +234,7 @@ class TestChartFormatWithManyOpenBrackets:
 
         result = convert(data, "a.pptx")
 
-        assert time.perf_counter() - started < 5.0
+        assert time.perf_counter() - started < allowed(5.0)
         assert result.text.endswith("| 8000 | 0.5 |")
 
     def test_format_longer_than_excel_allows_is_not_applied(self):
@@ -275,7 +276,7 @@ class TestEquationWithManyRuns:
 
         latex = _shared.omml_to_latex(equation)
 
-        assert time.perf_counter() - started < 5.0
+        assert time.perf_counter() - started < allowed(5.0)
         assert latex == "x" * 160_000
 
     def test_one_character_script_before_a_letter_is_still_braced(self):

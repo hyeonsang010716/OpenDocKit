@@ -10,6 +10,7 @@ import pytest
 
 from opendockit import ConvertOptions, convert
 from opendockit.extractors import pdf
+from tests.timing import allowed
 
 
 def _pdf(draw, pages: int = 1, size: tuple[float, float] = (595, 842)) -> bytes:
@@ -198,7 +199,7 @@ class TestManyWrappedLinesUnderOneRow:
         result = convert(_wrapped_lines_pdf(600, rows_below=0), "a.pdf", ConvertOptions(page_markers=False))
 
         assert result.text.count("wrap") == 600
-        assert time.perf_counter() - started < 5.0  # 10 seconds before; about half a second now
+        assert time.perf_counter() - started < allowed(5.0)  # 10 seconds before; about half a second now
 
 
 def _same_verdicts(pattern, reference: str, tokens: tuple[str, ...], length: int, *, search: bool) -> bool:
@@ -249,7 +250,7 @@ class TestLongDotRunInsideALine:
         result = convert(_pdf(draw, size=(dots * 0.556 + 400, 300)), "a.pdf", ConvertOptions(page_markers=False))
 
         assert "y" * 20 in result.text and "body text" in result.text
-        assert time.perf_counter() - started < 5.0  # 12 to 18 seconds before; 0.2 seconds now
+        assert time.perf_counter() - started < allowed(5.0)  # 12 to 18 seconds before; 0.2 seconds now
 
 
 class TestManyPairsWithLongLabels:
@@ -303,7 +304,7 @@ class TestManyPairsWithLongLabels:
 
         self._converted(1_500)
 
-        assert spent[0] < 5.0  # 10 seconds before; 1 second now
+        assert spent[0] < allowed(5.0)  # 10 seconds before; 1 second now
 
 
 class TestPageNumberShape:
@@ -328,4 +329,4 @@ class TestPageNumberShape:
 
         assert not pdf._PAGE_NUMBER.match("1" + " " * 3_000 + "x")
         assert not pdf._PAGE_NUMBER.match(" " * 3_000 + "x")
-        assert time.perf_counter() - started < 2.0  # minutes before
+        assert time.perf_counter() - started < allowed(2.0)  # minutes before
