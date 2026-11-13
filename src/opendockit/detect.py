@@ -38,7 +38,10 @@ _RTF_MAGIC = b"{\\rtf"
 # SVG image: the top element (after a DOCTYPE) is <svg>. Passed through as text, the path coordinates become the body.
 _SVG_ROOT = re.compile(rb"(?:<!doctype\s+svg\b[^>]*>\s*)?<svg[\s>]", re.IGNORECASE)
 # Found only in a PDF body: the cross-reference table position (startxref) or an object header (`12 0 obj`).
-_PDF_BODY = re.compile(rb"startxref|\d+\s+\d+\s+obj\b")
+# An object header is looked for only from the first digit of a number (`(?<!\d)`): started again at every digit of a run, the search
+# took 5 seconds for 40,000 digits after a late header, in the first check every upload goes through. The same files match
+# (Pinned by: test_audit_core.py::TestPdfBodySearchAfterALateHeader).
+_PDF_BODY = re.compile(rb"startxref|(?<!\d)\d+\s+\d+\s+obj\b")
 # Top element of an Excel 2003 XML spreadsheet. Its `<Table>` matched the HTML sniff below (case-insensitive) and it was read as HTML.
 _XML_SPREADSHEET_SNIFF = re.compile(rb"<(?:\w+:)?Workbook\b[^>]*urn:schemas-microsoft-com:office:spreadsheet")
 _HTML_SNIFF = re.compile(rb"<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]|<table[\s>]|<meta\s", re.IGNORECASE)
