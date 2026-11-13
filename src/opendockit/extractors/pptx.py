@@ -618,10 +618,19 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
         return [_render_pptx_table(shape.table, extraction, _inline_of(shape, options))]
     if getattr(shape, "has_chart", False) and shape.has_chart:
         try:
-            chart = parse_part(shape.chart_part.blob)
+            chart_part = shape.chart_part
+            # A chart part is read once however many frames point at it, and its values are written at the first of them only;
+            # the later frames give `[Chart] title` (the rule for ODF objects; the title is kept on the part and goes away with
+            # it). 100 frames on one chart of 20,000 rows took 25 s and 590 MB (Pinned by: test_audit_office.py::
+            # TestChartPartReferencedByManyFrames::test_pptx_chart_is_read_once_and_its_values_written_once).
+            if "_converter_chart_title" in chart_part.__dict__:
+                return [chart_part._converter_chart_title]
+            chart = parse_part(chart_part.blob)
         except (KeyError, ValueError):  # broken or external relationship. One chart must not reject the whole document
             return []
-        return [render_chart(chart, load_related=related_loader(shape.chart_part))] if chart is not None else []
+        rendered = render_chart(chart, load_related=related_loader(chart_part)) if chart is not None else ""
+        chart_part._converter_chart_title = rendered.split("\n", 1)[0]
+        return [rendered] if chart is not None else []
     if shape.has_text_frame:
         # A shape filled with a picture (a circle holding a photo, etc.) is not a picture shape, so it was dropped without a trace.
         # The fill picture goes first, the text on the shape after it.

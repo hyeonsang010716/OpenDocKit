@@ -251,6 +251,7 @@ class _DocxRenderer:
         self.notes = _NoteLabels()  # footnote/endnote references seen in the body, and their labels
         # Tables being rendered. A table inside a cell is handed to the table at the top of the stack (markdown.TableGrid.embed)
         self._grids: list[TableGrid] = []
+        self._chart_titles: dict[object, str] = {}  # chart part already written → its `[Chart] title` line (`_object_block`)
         self._drop_cap: tuple[etree._Element, str] | None = None  # (drop-cap paragraph, its text). Prepended to the very next paragraph
         # Preceding list items not yet closed. Cells, headers and text boxes count separately (`_list_depth`)
         self._list_items: list[_ListItem] = []
@@ -607,6 +608,11 @@ class _DocxRenderer:
         attribute, render = _OBJECT_RENDERERS[element.tag]
         relation = element.get(f"{{{_R}}}{attribute}")
         part = self._part.related_parts.get(relation) if relation else None
+        # A chart part is read once however many frames point at it, and its values are written at the first of them only; the
+        # later frames give `[Chart] title` (the rule for ODF objects). The part was parsed and rendered again for every frame
+        # (Pinned by: test_audit_office.py::TestChartPartReferencedByManyFrames).
+        if part in self._chart_titles:
+            return self._chart_titles[part]
         blob = getattr(part, "blob", None)
         root = parse_part(blob) if blob else None
         if root is None:
@@ -615,7 +621,7 @@ class _DocxRenderer:
         # (Pinned by: test_office_chart_units_and_ole.py::TestChartUserShapes).
         extra = {"load_related": related_loader(part)} if render is render_chart else {}
         if not self._grids:
-            return render(root, **extra)
+            return self._first_frame(part, render, render(root, **extra))
 
         # Inside a table cell: a chart's value table is handed to the outer table (like a table inside a table) and SmartArt levels
         # are shown with `cell_level_mark`. The Markdown table text went into the cell and became a mess of `\|` and `<br>`, and the
@@ -623,7 +629,13 @@ class _DocxRenderer:
         # TestDocxObjectsInsideTableCells).
         if render is render_smartart:
             return render_smartart(root, in_cell=True)
-        return render(root, embedded_table(self._grids[-1]), **extra)
+        return self._first_frame(part, render, render(root, embedded_table(self._grids[-1]), **extra))
+
+    def _first_frame(self, part: object, render: Callable[..., str], text: str) -> str:
+        """Remember the title line of a chart written at its first frame (`_object_block`). SmartArt is not remembered."""
+        if render is not render_smartart:
+            self._chart_titles[part] = text.split("\n", 1)[0]
+        return text
 
     def _paragraph_style(self, paragraph: etree._Element) -> _Style | None:
         style_ref = paragraph.find(f"{_w('pPr')}/{_w('pStyle')}")

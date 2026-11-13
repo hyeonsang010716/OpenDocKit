@@ -12,10 +12,11 @@ from docx.shared import Inches
 import pytest
 
 from opendockit import ConvertOptions, CorruptedDocumentError, convert
+from opendockit.extractors import docx as docx_module
 from opendockit.extractors import pptx as pptx_module
 from opendockit.extractors.docx import extract_docx
 from tests import builder
-from tests.test_office import _docx_with_body
+from tests.test_office import _CHART_NS, _chart_series, _chart_xml, _docx_inline, _docx_with_body
 from tests.test_odf import _package as _odf_package
 
 
@@ -332,6 +333,74 @@ class TestPptxRowOfManySideLabels:
         convert(data, "sample.pptx", ConvertOptions(max_chars=None))
 
         assert time.perf_counter() - started < 10.0
+
+
+def _count_chart_parses(monkeypatch: pytest.MonkeyPatch, module: object) -> list[int]:
+    """Count how many times `module` parses a chart part. The count is the single item of the returned list."""
+    parses = [0]
+    parse = module.parse_part
+
+    def counted(data: bytes) -> object:
+        parses[0] += b"chartSpace" in data
+        return parse(data)
+
+    monkeypatch.setattr(module, "parse_part", counted)
+    return parses
+
+
+class TestChartPartReferencedByManyFrames:
+    """A chart part was parsed and rendered again for every frame that points at it: 100 frames on one chart of 20,000 rows (a
+    255 KB deck) took 25 s and 590 MB and wrote 36 million characters. As for ODF objects, the part is read once and its values
+    are written at the first frame; the later frames give `[Chart] title`."""
+
+    def test_pptx_chart_is_read_once_and_its_values_written_once(self, monkeypatch: pytest.MonkeyPatch):
+        deck = builder.zip_with(builder.pptx_bytes(), edit={"ppt/charts/chart1.xml": lambda xml: xml.replace(
+            "<c:plotArea>", "<c:title><c:tx><c:rich><a:bodyPr/><a:p><a:r><a:t>Sales</a:t></a:r></a:p></c:rich></c:tx></c:title>"
+                            "<c:plotArea>", 1)})
+        once = convert(deck, "sample.pptx").sections[2].text
+        assert once.endswith("[Chart] Sales\n\n| Category | 매출 |\n| --- | --- |\n| 1분기 | 10.5 |\n| 2분기 | 20 |")
+
+        def repeat_frame(xml: str) -> str:
+            frame = re.search(r"<p:graphicFrame>(?:(?!</p:graphicFrame>).)*<c:chart (?:(?!</p:graphicFrame>).)*</p:graphicFrame>",
+                              xml, flags=re.DOTALL).group(0)
+            return xml.replace("</p:spTree>", frame * 30 + "</p:spTree>")
+
+        parses = _count_chart_parses(monkeypatch, pptx_module)
+
+        text = convert(builder.zip_with(deck, edit={"ppt/slides/slide3.xml": repeat_frame}), "sample.pptx").sections[2].text
+
+        assert text == once + "\n\n[Chart] Sales" * 30
+        assert parses == [1]
+
+    @staticmethod
+    def _docx_with_chart_frames(body: str) -> bytes:
+        chart = _chart_xml(f"<c:barChart>{_chart_series(0, 'Sales', ['10', '20'], ['Q1', 'Q2'])}</c:barChart>", title="Quarters")
+        relationship = f'<Relationship Id="rIdChart" Type="{_RELATIONSHIPS}/chart" Target="charts/chart1.xml"/></Relationships>'
+        return builder.zip_with(_docx_with_body(body), edit={
+            "word/_rels/document.xml.rels": lambda xml: xml.replace("</Relationships>", relationship)},
+            add={"word/charts/chart1.xml": chart})
+
+    _FRAME = _docx_inline(f'<c:chart xmlns:c="{_CHART_NS}" xmlns:r="{_RELATIONSHIPS}" r:id="rIdChart"/>', _CHART_NS)
+    _VALUES = "| Category | Sales |\n| --- | --- |\n| Q1 | 10 |\n| Q2 | 20 |"
+
+    def test_docx_chart_is_read_once_and_its_values_written_once(self, monkeypatch: pytest.MonkeyPatch):
+        parses = _count_chart_parses(monkeypatch, docx_module)
+
+        text = convert(self._docx_with_chart_frames(f"<w:p><w:r>{self._FRAME}</w:r></w:p>" * 31), "sample.docx").text
+
+        assert text == f"[Chart] Quarters\n\n{self._VALUES}" + "\n\n[Chart] Quarters" * 30
+        assert parses == [1]
+
+    def test_docx_chart_in_two_table_cells_gives_its_values_to_the_first(self):
+        def cell(content: str) -> str:
+            return f"<w:tc><w:p><w:r>{content}</w:r></w:p></w:tc>"
+
+        table = f"<w:tbl><w:tr>{cell('<w:t>a</w:t>')}{cell(self._FRAME)}</w:tr><w:tr>{cell('<w:t>b</w:t>')}{cell(self._FRAME)}</w:tr></w:tbl>"
+
+        text = convert(self._docx_with_chart_frames(table), "sample.docx").text
+
+        assert text.count("[Chart] Quarters") == 2
+        assert text.count("Q2") == 1
 
 
 class TestPptxSlideListEntryWithoutARelationship:
