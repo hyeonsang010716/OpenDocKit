@@ -480,7 +480,7 @@ def _math_group(text: str) -> str:
 
 def _mathml_latex(node: etree._Element, depth: int) -> str:
     """Presentation MathML as one LaTeX-style line: scripts, fractions, radicals, limits, fences and matrices; unknown elements
-    have their children joined. The same rules as `html._mathml_latex` (which works on a parsed HTML tree), so an equation reads
+    have their children joined. The same rules as `_html_math._mathml_latex` (which works on a parsed HTML tree), so an equation reads
     the same from HTML and from ODF. Deeper than `_MAX_DEPTH` only the characters are joined."""
     tag = node.tag
     if not isinstance(tag, str):

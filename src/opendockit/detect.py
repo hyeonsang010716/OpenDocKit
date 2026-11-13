@@ -17,8 +17,8 @@ import olefile
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._encoding import decode_text, is_cp949_text, is_utf8_text, unicode_bom_codec, utf16_encoding
+from opendockit.extractors._html_mail import is_mhtml, mail_reads_as_html, mhtml_html_part
 from opendockit.extractors._mail import is_encrypted_mail, mail_box
-from opendockit.extractors.html import is_mhtml, mail_reads_as_html, mhtml_html_part
 from opendockit.image import is_image_file
 from opendockit.models import DocumentFormat
 

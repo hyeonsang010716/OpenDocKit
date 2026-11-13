@@ -56,11 +56,17 @@ src/opendockit/
     ├── _pdf_reading_order.py # columns, alternating sides, lone lines, sidebars, captions
     ├── _pdf_paragraphs.py # lines and tables of a page → Markdown: paragraphs, headings, pictures in cells
     ├── _pdf_margins.py # repeated headers, footers and page numbers; body font size and line gap
+    ├── _html_base.py # tag sets, limits and rendering state shared by the HTML modules; placeholders for finished text
+    ├── _html_mail.py # MHTML pages and their pictures, the HTML body parts of a mail, frames that were not saved
+    ├── _html_dom.py  # the tree made ready: hidden parts dropped, lists nested, misplaced headings and tables put right, marks
+    ├── _html_math.py # MathML and equation pictures → LaTeX
+    ├── _html_tables.py # judgments about a table element: layout or data, header rows, spans, names paired with values
+    ├── _html_render.py # the prepared tree → Markdown: blocks, inline text, lists, tables and their cells
     ├── _equation.py # Hancom equation script → LaTeX (HWP/HWPX). The original script when it cannot be converted
     ├── csv_text.py  # CSV and other delimited text
     ├── docx.py
     ├── epub.py      # chapters in spine order, each through html.py
-    ├── html.py
+    ├── html.py      # HTML pages, MHTML and mail read as HTML: detection of the kind, the front part of a large page, the steps in order
     ├── hwp.py
     ├── hwpx.py
     ├── image.py
@@ -80,7 +86,7 @@ docs/decisions/      # deliberate decisions per format (file list in "Deliberate
 
 For use on a server see [server.md](../server.md) (conversion must go through `IsolatedConverter`).
 
-- `extractors/*` imports only `markdown`, `models` and `exceptions`. Extractors share with each other only the modules of `extractors/` whose names start with `_`: text decoding (`_encoding.py`, also used by `detect`), MIME header blocks and unpacking MIME mail (`_mail.py`, `_mail_calendar.py`), and the PDF stages (`_pdf_*.py`, used by `pdf.py` only), the spreadsheet pieces (`_sheet_format.py`, `_sheet_layout.py`, and for XLSX `_openpyxl_reading.py`, `_xlsx_parts.py`), and `_package.py`, `_charts.py`, `_inline.py`, `_omml.py`, `_symbols.py`, `_lists.py`, `_notation.py`, `_equation.py`. Warning filtering is `models.quiet_warnings` (spreadsheet, image, html). Exceptions: DOCX `w:altChunk` uses `html.extract_html`, `is_mhtml` and `text.extract_text` as they are (altChunk row in [office.md](office.md)). The image extractor uses `image.split_tiff_pages` (multi-page TIFF, image section of [extractors.md](extractors.md)).
+- `extractors/*` imports only `markdown`, `models` and `exceptions`. Extractors share with each other only the modules of `extractors/` whose names start with `_`: text decoding (`_encoding.py`, also used by `detect`), MIME header blocks and unpacking MIME mail (`_mail.py`, `_mail_calendar.py`), and the PDF stages (`_pdf_*.py`, used by `pdf.py` only), the HTML steps (`_html_*.py`), the spreadsheet pieces (`_sheet_format.py`, `_sheet_layout.py`, and for XLSX `_openpyxl_reading.py`, `_xlsx_parts.py`), and `_package.py`, `_charts.py`, `_inline.py`, `_omml.py`, `_symbols.py`, `_lists.py`, `_notation.py`, `_equation.py`. Warning filtering is `models.quiet_warnings` (spreadsheet, image, html). Exceptions: DOCX `w:altChunk` uses `html.extract_html`, `is_mhtml` and `text.extract_text` as they are (altChunk row in [office.md](office.md)). The image extractor uses `image.split_tiff_pages` (multi-page TIFF, image section of [extractors.md](extractors.md)).
 - An extractor registers images **as the original bytes** with `Extraction.add_image()` and puts the placeholder it gets back (`⟦IMG:<key>:n⟧`) at the right place in the body.
   Decoding, size filtering, de-duplication and limits happen in one place only, `converter._prepare_images`.
 - `convert` does not use the network (deterministic, usable in a process pool). Vision-model calls live only in `describe.py`, and once descriptions are filled in

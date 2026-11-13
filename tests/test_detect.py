@@ -13,7 +13,7 @@ from opendockit import (
     detect_format,
 )
 from opendockit.detect import extension_mismatch
-from opendockit.extractors.html import is_mhtml
+from opendockit.extractors._html_mail import is_mhtml
 from tests import builder
 
 

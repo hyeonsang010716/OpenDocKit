@@ -17,6 +17,7 @@ from lxml import etree
 
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._charts import drawing_paragraph_lines, embedded_table, related_loader, render_chart, render_chartex, render_smartart
+from opendockit.extractors._html_mail import is_mhtml
 from opendockit.extractors._inline import (
     LINK_OPEN,
     SUBSCRIPT,
@@ -46,7 +47,7 @@ from opendockit.extractors._notation import (
 from opendockit.extractors._omml import render_omml
 from opendockit.extractors._package import core_properties, decimal_int, is_strict_package, open_package, parse_part
 from opendockit.extractors._symbols import SYMBOL_FONTS, SYMBOL_GLYPHS, symbol_font_text, symbol_glyph
-from opendockit.extractors.html import extract_html, is_mhtml
+from opendockit.extractors.html import extract_html
 from opendockit.extractors.text import extract_text
 from opendockit.markdown import TableGrid, join_blocks, merged_copy, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, renumber_image_markers

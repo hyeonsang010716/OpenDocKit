@@ -546,6 +546,7 @@ class TestLargeHtmlStopsEarly:
 
     @staticmethod
     def _parsed_lengths(monkeypatch):
+        from opendockit.extractors import _html_dom, _html_mail
         from opendockit.extractors import html as html_extractor
 
         lengths = []
@@ -555,7 +556,8 @@ class TestLargeHtmlStopsEarly:
             lengths.append(len(markup))
             return original(markup, *args, **kwargs)
 
-        monkeypatch.setattr(html_extractor, "BeautifulSoup", recording)
+        for module in (html_extractor, _html_mail, _html_dom):  # every module that calls the parser
+            monkeypatch.setattr(module, "BeautifulSoup", recording)
         return lengths
 
     def test_document_far_over_the_limit_is_parsed_only_at_the_front(self, monkeypatch):
