@@ -384,3 +384,32 @@ class TestManySquaresOnOnePage:
         result = convert(_one_page(_flate(b"".join(parts))), "a.pdf")
 
         assert "☐ Agree" in result.text and "☐ Cells" not in result.text and "Cells" in result.text
+
+
+_FIELD = b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (%s) /V (%s) /Rect %s >>"
+
+
+class TestOneUnreadableAnnotation:
+    """One annotation whose `/Rect` could not be turned into numbers made form reading give up, and the values of every other
+    field of the page were dropped without a warning."""
+
+    @staticmethod
+    def _form(second_rect: bytes) -> bytes:
+        return _one_page(_stream(_text(b"Application")), page_extra=b"/Annots [6 0 R 7 0 R]",
+                         objects={6: _FIELD % (b"name", b"Hong", b"[72 600 200 620]"),
+                                  7: _FIELD % (b"city", b"Seoul", second_rect), 8: b"560"})
+
+    def test_field_values_are_read_when_both_annotations_are_well_formed(self):
+        text = convert(self._form(b"[72 560 200 580]"), "a.pdf").text
+
+        assert "name: Hong" in text and "city: Seoul" in text
+
+    def test_annotation_with_a_rect_that_is_not_numbers_does_not_drop_the_other_fields(self):
+        text = convert(self._form(b"[/Left 560 200 580]"), "a.pdf").text
+
+        assert "name: Hong" in text and "city: Seoul" not in text
+
+    def test_rect_numbers_given_as_indirect_objects_are_resolved(self):
+        text = convert(self._form(b"[72 8 0 R 200 580]"), "a.pdf").text
+
+        assert text.index("name: Hong") < text.index("city: Seoul")

@@ -2382,16 +2382,22 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
     try:
         placed = []
         for reference in resolve1(page.page_obj.annots) or []:
-            widget = resolve1(reference)
-            subtype = _name_of(widget.get("Subtype")) if isinstance(widget, dict) else None
-            rect = resolve1(widget.get("Rect")) if subtype in ("Widget", "FreeText") else None
-            if not isinstance(rect, list) or len(rect) != 4:
+            # One annotation that cannot be read (a `/Rect` holding something that is not a number) is skipped on its own — it
+            # used to drop the values of every other field of the page. The numbers of `/Rect` may be indirect objects
+            # (Pinned by: test_audit_pdf_head.py::TestOneUnreadableAnnotation).
+            try:
+                widget = resolve1(reference)
+                subtype = _name_of(widget.get("Subtype")) if isinstance(widget, dict) else None
+                rect = resolve1(widget.get("Rect")) if subtype in ("Widget", "FreeText") else None
+                if not isinstance(rect, list) or len(rect) != 4:
+                    continue
+                x0, x1 = sorted(float(resolve1(value)) for value in rect[0::2])
+                low, high = sorted(float(resolve1(value)) for value in rect[1::2])
+                text = _field_text(widget) if subtype == "Widget" else _free_text(page, widget, (x0, low, x1, high), lines)
+                if text:
+                    placed.append((-high, x0, text))
+            except Exception:  # noqa: BLE001 — the other annotations of the page are still read
                 continue
-            x0, x1 = sorted(float(value) for value in rect[0::2])
-            low, high = sorted(float(value) for value in rect[1::2])
-            text = _field_text(widget) if subtype == "Widget" else _free_text(page, widget, (x0, low, x1, high), lines)
-            if text:
-                placed.append((-high, x0, text))
         return [text for _, _, text in sorted(placed)]
     except Exception:  # noqa: BLE001 — the page body is still read even if the annotations cannot be parsed
         return []
