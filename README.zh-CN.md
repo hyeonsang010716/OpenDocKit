@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/logo.png" alt="OpenDocKit" width="180">
+</p>
+
 <h1 align="center">OpenDocKit</h1>
 
 <p align="center">
@@ -133,6 +137,19 @@ docs = OpenDocKitReader(mode="sections").load_data("report.pdf")
 
 ```bash
 opendockit-mcp --root ~/Documents     # MCP 服务器：让 Claude、Cursor 等智能体把你的文档读成 Markdown
+```
+
+如果想让客户端自行启动服务器、无需事先安装，请在客户端的 MCP 设置中加入：
+
+```json
+{
+  "mcpServers": {
+    "opendockit": {
+      "command": "uvx",
+      "args": ["opendockit-mcp", "--root", "/path/to/documents"]
+    }
+  }
+}
 ```
 
 使用 `mode="sections"` 时，每一页、每张幻灯片或每个工作表各成为一个 Document，其编号保存在元数据中，可用于标注出处。
