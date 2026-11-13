@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Hermes Agent plugin** (`hermes-plugin/`): a portable Agent Plugins v1 package that gives Hermes the `opendockit-mcp`
+  tools and a skill for reading long documents in parts. It is not part of the Python package.
+
 ## [0.3.0] - 2026-11-13
 
 ### Added
