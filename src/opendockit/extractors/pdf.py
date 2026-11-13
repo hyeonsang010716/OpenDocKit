@@ -897,11 +897,14 @@ _MARKER_GAP_RATIO = 3.0
 # A line ending in the dot leader of a table of contents or price list (5 or more periods/middle dots, or 2 or more ellipses, in a
 # row) and the short value placed separately at its right end (page number, amount). The value starts within `_LEADER_GAP_RATIO` ×
 # the character size from the end of the leader and is at most `_LEADER_VALUE_MAX_RATIO` × the character size wide (`_leader_rows`).
-_LEADER_END = re.compile(r"(?:[.·∙・]{5,}|[…‥]{2,})$")  # scattered dots of an OCR text layer ('... .. . .') are not a dot leader
+# A run of dots is tried only from its first dot (the look-behinds): tried from every dot, each time to the end of the run and back,
+# a piece with a long run that does not end the text took time with the square of the run — 18 seconds for 20,000 dots followed by
+# a word (Pinned by: test_audit_pdf_tail.py::TestLongDotRunInsideALine). A match from inside a run is also one from its start.
+_LEADER_END = re.compile(r"(?:(?<![.·∙・])[.·∙・]{5,}|(?<![…‥])[…‥]{2,})$")  # scattered dots of an OCR text layer ('... .. . .') are not a dot leader
 _LEADER_GAP_RATIO = 3.0
 _LEADER_VALUE_MAX_RATIO = 10.0
 # End of a table-of-contents line whose dot leader and page number are one piece with the item text ('서론 ....... 1') (`_leader_rows`).
-_LEADER_TAIL = re.compile(r"(?:[.·∙・]{5,}|[…‥]{2,})\s*\S{1,12}$")
+_LEADER_TAIL = re.compile(r"(?:(?<![.·∙・])[.·∙・]{5,}|(?<![…‥])[…‥]{2,})\s*\S{1,12}$")
 # Dot leader left in the page text (5 or more dots/middle dots or 3 or more ellipses; they may be spaced one apart). Shortened to a
 # single ellipsis (`_shortened_leaders`).
 _LEADER_RUN = re.compile(r"[ \t]*(?:[.·∙・](?:[ \t]?[.·∙・]){4,}|[…‥](?:[ \t]?[…‥]){2,})[ \t]*")

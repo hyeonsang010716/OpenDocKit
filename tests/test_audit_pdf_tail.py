@@ -1,7 +1,9 @@
 """PDF audit of the borderless-table, row-joining and repeated-line code: lost cell lines and super-linear time."""
 
 from io import BytesIO
+from itertools import product
 from random import Random
+import re
 import time
 
 import pytest
@@ -197,3 +199,55 @@ class TestManyWrappedLinesUnderOneRow:
 
         assert result.text.count("wrap") == 600
         assert time.perf_counter() - started < 5.0  # 10 seconds before; about half a second now
+
+
+def _same_verdicts(pattern, reference: str, tokens: tuple[str, ...], length: int, *, search: bool) -> bool:
+    """Whether `pattern` gives the same yes/no as the `reference` pattern on every text made of up to `length` `tokens`."""
+    old = re.compile(reference, pattern.flags)
+    for count in range(length + 1):
+        for parts in product(tokens, repeat=count):
+            text = "".join(parts)
+            if bool(pattern.search(text) if search else pattern.match(text)) != bool(old.search(text) if search else old.match(text)):
+                return False
+    return True
+
+
+class TestLongDotRunInsideALine:
+    """The dot-leader patterns were tried from every dot of a run, each time to the end of the run and back, so a piece
+    with a long run of dots that does not end the text took time with the square of the run: a 1.4 KB file with 20,000
+    dots and a word after them took 18 seconds."""
+
+    _TOKENS = (".", "·", "…", "‥", " ", "a", "1", "\n", ".....", "……", "abcdefghijkl")
+
+    def test_leader_patterns_judge_as_before(self):
+        assert _same_verdicts(pdf._LEADER_END, r"(?:[.·∙・]{5,}|[…‥]{2,})$", self._TOKENS, 5, search=True)
+        assert _same_verdicts(pdf._LEADER_TAIL, r"(?:[.·∙・]{5,}|[…‥]{2,})\s*\S{1,12}$", self._TOKENS, 5, search=True)
+
+    def test_contents_line_keeps_its_page_number(self):
+        def draw(canvas, page):
+            canvas.setFont("Helvetica", 10)
+            for index, (title, number) in enumerate((("1. Introduction", "3"), ("2. Method", "12"), ("3. Results", "27"))):
+                text = f"{title} {'.' * 40}"
+                canvas.drawString(60, 700 - index * 16, text)
+                canvas.drawString(60 + canvas.stringWidth(text, "Helvetica", 10) + 15, 700 - index * 16, number)
+
+        result = convert(_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert [line for line in result.text.splitlines() if line] == ["1. Introduction … 3", "2. Method … 12", "3. Results … 27"]
+
+    @pytest.mark.timing
+    def test_long_dot_run_before_a_word_is_read_in_linear_time(self):
+        dots = 20_000
+
+        def draw(canvas, page):
+            canvas.setFont("Helvetica", 2)
+            canvas.drawString(50, 200, "left")
+            canvas.drawString(150, 200, "." * dots + " " + "y" * 20)
+            canvas.drawString(50, 150, "body text")
+
+        started = time.perf_counter()
+        result = convert(_pdf(draw, size=(dots * 0.556 + 400, 300)), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert "y" * 20 in result.text and "body text" in result.text
+        assert time.perf_counter() - started < 5.0  # 12 to 18 seconds before; 0.2 seconds now
+
