@@ -1,6 +1,7 @@
 """Audited defects of the shared code (detection, assembly, shared extractor helpers): patterns that took quadratic time on a small
 hostile input, one odd value that got a whole document rejected as 'corrupted', and warnings or numbers that came out wrong."""
 
+import base64
 import time
 
 import pytest
@@ -10,6 +11,7 @@ from opendockit.detect import detect_format
 from opendockit.extractors import _shared
 from opendockit.markdown import neutralize_table_tags
 from opendockit.models import DocumentFormat
+from tests import builder
 
 
 class TestPdfBodySearchAfterALateHeader:
@@ -91,3 +93,33 @@ class TestUnclosedTableTagsInCellText:
     ])
     def test_the_same_tags_are_neutralized_as_before(self, text, expected):
         assert neutralize_table_tags(text) == expected
+
+
+def _markdown_picture(alt: str, seed: int) -> str:
+    return f"![{alt}](data:image/png;base64,{base64.b64encode(builder.png_bytes(seed=seed)).decode()})"
+
+
+class TestSpacesOnALineWithAPicture:
+    """The spaces around a picture placeholder inside a paragraph are folded into one. The search for 'spaces, placeholder, spaces'
+    started again at every space of a run, so one Markdown line with 80,000 spaces before a picture took 4 seconds."""
+
+    @pytest.mark.timing
+    def test_long_run_of_spaces_before_a_picture_takes_linear_time(self):
+        data = ("x" + " " * 300_000 + "y " + _markdown_picture("p", 1)).encode()
+        started = time.perf_counter()
+
+        result = convert(data, "a.md", ConvertOptions(max_chars=None))
+
+        assert time.perf_counter() - started < 5.0
+        assert result.text.startswith("x  ") and result.text.endswith(" y\n\n[Image: p]") and result.char_count > 300_000
+
+    def test_spaces_around_placeholders_are_folded_as_before(self):
+        a, b, c, d, e, f, g = (_markdown_picture(alt, seed) for seed, alt in enumerate("abcdefg", 1))
+        lines = [f"앞   말  {a}   가운데  말   {b}   뒤  말", f"  - 항목 {c}{d} 끝", f"{e}   {f}", f"\t탭 {g}\t탭"]
+
+        result = convert("\n\n".join(lines).encode(), "a.md")
+
+        assert result.text == ("앞   말 가운데  말 뒤  말\n\n[Image: a]\n\n[Image: b]\n\n"
+                               "  - 항목  끝\n\n[Image: c]\n\n[Image: d]\n\n"
+                               "[Image: e]\n\n[Image: f]\n\n"
+                               "\t탭 \t탭\n\n[Image: g]")

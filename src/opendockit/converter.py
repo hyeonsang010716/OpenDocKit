@@ -415,7 +415,14 @@ def _render_template(template: str, images: dict[int, DocumentImage], fallbacks:
         # kept, and a blank line follows the block — without it the next line continued into the quote block
         # (Pinned by: test_converter.py::TestAssembly::test_picture_block_inside_a_paragraph_is_followed_by_a_blank_line,
         # test_picture_in_nested_list_item_keeps_the_item_indentation).
-        body = re.sub(rf" *(?:{pattern.pattern}) *", " ", line).strip()
+        # The line is cut at the placeholders and the spaces are stripped from the pieces: one pattern for 'spaces, placeholder,
+        # spaces' started again at every space of a run, so a line with 80,000 spaces before a picture took 4 seconds
+        # (Pinned by: test_audit_core.py::TestSpacesOnALineWithAPicture).
+        pieces, position = [], 0
+        for match in pattern.finditer(line):
+            pieces.append(line[position:match.start()])
+            position = match.end()
+        body = " ".join(piece.strip(" ") for piece in [*pieces, line[position:]]).strip()
         text = line[: len(line) - len(line.lstrip())] + body if body else ""
         blocks = [block for block in (_block_text(images, fallbacks, image_id) for image_id in ids) if block]
         lines.append("\n\n".join(part for part in [text, *blocks] if part) + ("\n" if blocks else ""))
