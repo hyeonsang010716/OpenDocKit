@@ -658,3 +658,25 @@ class TestManyListsOrTablesSetAsideWhileTheirParentIsRendered:
     ])
     def test_item_and_cell_are_rendered_as_before(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected
+
+
+class TestManyButtonsInsideOneHeading:
+    """A button inside a heading is unwrapped so that its text stays heading text, and every unwrap looked up the position of
+    the button among its siblings: 40,000 buttons in one `<h1>` (703KB) took 11 s."""
+
+    @pytest.mark.timing
+    def test_buttons_are_unwrapped_in_linear_time(self):
+        seconds, text = _seconds(("<h1>" + "<button>ab</button>" * 40000 + "</h1>").encode(), "a.html")
+
+        assert text == "# " + "ab" * 40000
+        assert seconds < 4
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<h2>A<button>B <i>C</i></button>D<button></button><button>E</button></h2><p>p</p>", "## AB CDE\n\np"),
+        ("<h2><span>x<button>one<button>two</button>three</button>y</span><button>z</button></h2>", "## xonetwothreeyz"),
+        ("<h2>A<button>B<h3>C</h3>D</button>E</h2>", "## AB\n\n### C\n\nDE"),
+        ('<h2><button style="display:none" hidden>kept</button> <button style="text-decoration:line-through">plain</button></h2>',
+         "## kept plain"),
+    ])
+    def test_heading_text_is_as_before(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected

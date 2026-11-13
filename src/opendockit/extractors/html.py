@@ -1314,10 +1314,29 @@ def _keep_expander_buttons(soup: BeautifulSoup) -> None:
     buttons = soup.find_all("button")
     in_headings = _lying_inside(buttons, _HEADINGS)
     for button in buttons:
-        if id(button) in in_headings:
-            button.unwrap()
-        elif button.has_attr("aria-expanded") or button.has_attr("aria-controls"):
+        if id(button) not in in_headings and (button.has_attr("aria-expanded") or button.has_attr("aria-controls")):
             button.name = "div"
+    _unwrap_all([button for button in buttons if id(button) in in_headings])
+
+
+def _unwrap_all(tags: list[Tag]) -> None:
+    """`unwrap()` for each of `tags`, collected in document order: the element is taken out and its children stay in its place.
+    It goes from the back and measures the child positions once per parent, like `_decompose_all` — unwrapping a later sibling
+    leaves the position of an earlier one unchanged, and the children of an element are done before the element itself.
+
+    bs4's `unwrap` looks up the position of the element among its siblings from the start: 40,000 buttons in one heading
+    (703KB) took 11 seconds (Pinned by: test_audit_html_text.py::TestManyButtonsInsideOneHeading).
+    """
+    places: dict[int, dict[int, int]] = {}  # parent id → (child id → position)
+
+    for tag in reversed(tags):
+        parent = tag.parent
+        if id(parent) not in places:
+            places[id(parent)] = {id(child): index for index, child in enumerate(parent.contents)}
+        index = places[id(parent)][id(tag)]
+        tag.extract(_self_index=index)
+        for child in reversed(tag.contents[:]):
+            parent.insert(index, child)
 
 
 def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> set[int]:
