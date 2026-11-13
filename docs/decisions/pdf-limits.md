@@ -1,6 +1,6 @@
 # PDF decisions: resource limits, page boxes and attachments
 
-Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py`) about resource limits (time budget, decompression, font ranges, overdrawn copies, text-box grouping, rendering, pdfminer logging), page boxes and attachments. Split off from [pdf.md](pdf.md)
+Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py` and the `_pdf_*.py` modules beside it) about resource limits (time budget, decompression, font ranges, overdrawn copies, text-box grouping, rendering, pdfminer logging), page boxes and attachments. Split off from [pdf.md](pdf.md)
 because of its size limit; the rules are the same: do not revert the decisions in this table. To change one, change the pinning test first and write the reason in the same row.
 
 ## PDF resource limits

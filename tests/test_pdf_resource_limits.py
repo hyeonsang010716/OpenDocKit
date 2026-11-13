@@ -6,6 +6,8 @@ import zlib
 import pytest
 
 from opendockit import ConvertOptions, DocumentTooLargeError, convert
+from opendockit.extractors import _pdf_model, _pdf_pdfminer, _pdf_ruled_tables, _pdf_text
+from tests.pdf_modules import replace_everywhere
 from tests.test_pdf import _raw_pdf
 
 
@@ -284,11 +286,10 @@ class TestOverprintedText:
     copies in pdfminer's line grouping and piece merging, and used 110 seconds and 2.2GB."""
 
     def test_copies_beyond_a_few_are_dropped_before_layout_analysis(self, monkeypatch):
-        from opendockit.extractors import pdf as pdf_module
 
         sizes = []
-        original = pdf_module._merged_overlapping_pieces
-        monkeypatch.setattr(pdf_module, "_merged_overlapping_pieces",
+        original = _pdf_text._merged_overlapping_pieces
+        monkeypatch.setattr(_pdf_text, "_merged_overlapping_pieces",
                             lambda pieces, margin: sizes.append(len(pieces)) or original(pieces, margin))
         content = b"BT /F1 12 Tf 72 700 Td (Overprinted title) Tj ET\n" * 400 + b"BT /F1 12 Tf 72 650 Td (Body line) Tj ET"
 
@@ -372,7 +373,7 @@ class TestRepeatedFormXObjects:
 
         from opendockit.extractors import pdf as pdf_module
 
-        monkeypatch.setattr(pdf_module, "_FORM_NESTING_MAX", 3)
+        replace_everywhere(monkeypatch, "_FORM_NESTING_MAX", 3)
 
         with pdfplumber.open(BytesIO(_form_chain_pdf(6, fan=1))) as document:
             deep = pdf_module._drawn_objects(document.pages[1], 1000)
@@ -421,8 +422,8 @@ class TestManyPaintOperators:
         from opendockit.extractors import pdf as pdf_module
 
         scanned = []
-        original = pdf_module._paint_operators
-        monkeypatch.setattr(pdf_module, "_paint_operators", lambda data, limit: scanned.append(len(data))
+        original = _pdf_pdfminer._paint_operators
+        monkeypatch.setattr(_pdf_pdfminer, "_paint_operators", lambda data, limit: scanned.append(len(data))
                             or original(data, limit))
         monkeypatch.setattr(pdf_module, "_MAX_DRAWN_OBJECTS", 500)
 
@@ -469,23 +470,21 @@ class TestStackedRules:
     def test_rules_stacked_on_the_same_spot_take_linear_time(self):
         import time
 
-        from opendockit.extractors import pdf as pdf_module
 
         edges = [{"x0": 100.0, "x1": 101.0, "top": 50.0} for _ in range(20_000)]
 
         started = time.perf_counter()
-        joined = pdf_module._joined_rules(edges, lambda x, top: True)
+        joined = _pdf_ruled_tables._joined_rules(edges, lambda x, top: True)
 
         assert time.perf_counter() - started < 2, "before the fix 20,000 rules took more than 30 seconds"
         assert len(joined) == 20_000
 
     def test_pieces_meeting_at_a_column_border_are_still_joined(self):
-        from opendockit.extractors import pdf as pdf_module
 
         edges = [{"x0": 0.0, "x1": 50.0, "top": 10.0}, {"x0": 50.0, "x1": 100.0, "top": 10.0},
                  {"x0": 0.0, "x1": 50.0, "top": 10.0}]
 
-        joined = pdf_module._joined_rules(edges, lambda x, top: x == 50.0)
+        joined = _pdf_ruled_tables._joined_rules(edges, lambda x, top: x == 50.0)
 
         assert sorted(joined) == [(0.0, 50.0, 10.0), (0.0, 100.0, 10.0)]
 
@@ -517,11 +516,10 @@ class TestStreamWithBytesAfterTheZlibEnd:
 
     @pytest.mark.timing
     def test_size_of_a_stream_with_bytes_after_the_end_is_measured(self):
-        from opendockit.extractors import pdf as pdf_module
 
         body = b"0 0 1 1 re f\n" * 100_000
 
-        size = _measure_within(lambda: pdf_module._inflated_size(zlib.compress(body) + b"\r\n", 10**9), 5)
+        size = _measure_within(lambda: _pdf_pdfminer._inflated_size(zlib.compress(body) + b"\r\n", 10**9), 5)
 
         assert size == len(body)
 
@@ -612,11 +610,10 @@ class TestFormSharedByPages:
     for every page and spent 0.2 seconds more per page. The count inside a form does not depend on the page, so it is counted once per document."""
 
     def test_form_drawn_by_several_pages_is_counted_once(self, monkeypatch):
-        from opendockit.extractors import pdf as pdf_module
 
         scanned = []
-        original = pdf_module._paint_operators
-        monkeypatch.setattr(pdf_module, "_paint_operators", lambda data, limit: scanned.append(len(data))
+        original = _pdf_pdfminer._paint_operators
+        monkeypatch.setattr(_pdf_pdfminer, "_paint_operators", lambda data, limit: scanned.append(len(data))
                             or original(data, limit))
 
         result = convert(_shared_form_pdf(4, 300), "a.pdf")
@@ -657,7 +654,7 @@ class TestManyCellsOnOnePage:
 
         index = pdf_module._BoxIndex(boxes)
 
-        assert [index.holds(obj) for obj in objs] == [pdf_module._inside_any(obj, boxes) for obj in objs]
+        assert [index.holds(obj) for obj in objs] == [_pdf_model._inside_any(obj, boxes) for obj in objs]
 
     @pytest.mark.timing
     def test_characters_are_matched_against_many_cells_in_linear_time(self):
@@ -680,15 +677,14 @@ class TestManyCellsOnOnePage:
         import time
         from types import SimpleNamespace
 
-        from opendockit.extractors import pdf as pdf_module
 
         boxes = self._grid(300, 25)
         rows = [SimpleNamespace(bbox=(0.0, row * 10.0, 500.0, row * 10.0 + 10)) for row in range(300)]
         fills = [{"x0": x0, "x1": x1, "top": top, "bottom": bottom} for x0, top, x1, bottom in boxes]
 
         started = time.perf_counter()
-        near = pdf_module._fills_by_row(rows, fills)
-        covers = [pdf_module._fill_cover(cell, near[int(cell[1] // 10)]) for cell in boxes]
+        near = _pdf_ruled_tables._fills_by_row(rows, fills)
+        covers = [_pdf_ruled_tables._fill_cover(cell, near[int(cell[1] // 10)]) for cell in boxes]
 
         assert time.perf_counter() - started < 2, "before the fix 7,500 cells took more than 19 seconds"
         assert all(cover == 1.0 for cover in covers)
@@ -713,7 +709,7 @@ class TestCellsReachingFarOffThePage:
         held = [index.holds(obj) for obj in objs]
 
         assert time.perf_counter() - started < 1, "before the fix a single cell of height 1e12 made tens of billions of bands"
-        assert held == [pdf_module._inside_any(obj, boxes) for obj in objs] == [True, True, True]
+        assert held == [_pdf_model._inside_any(obj, boxes) for obj in objs] == [True, True, True]
 
     @pytest.mark.timing
     def test_ruled_table_with_rows_far_below_the_page_converts_quickly(self):
@@ -739,15 +735,14 @@ class TestCellsReachingFarOffThePage:
         import time
         from types import SimpleNamespace
 
-        from opendockit.extractors import pdf as pdf_module
 
         boxes = TestManyCellsOnOnePage._grid(300, 10)
         rows = [SimpleNamespace(bbox=(0.0, row * 10.0, 200.0, row * 10.0 + 10)) for row in range(300)]
         fills = [{"x0": -float(index), "x1": 200.0 + index, "top": -1.0, "bottom": 3001.0} for index in range(3000)]
 
         started = time.perf_counter()
-        near = pdf_module._fills_by_row(rows, fills)
-        covers = [pdf_module._fill_cover(cell, near[int(cell[1] // 10)]) for cell in boxes]
+        near = _pdf_ruled_tables._fills_by_row(rows, fills)
+        covers = [_pdf_ruled_tables._fill_cover(cell, near[int(cell[1] // 10)]) for cell in boxes]
 
         assert time.perf_counter() - started < 1, "before the fix all 3,000 rectangles were added up for every cell"
         assert all(cover == 1.0 for cover in covers)
@@ -755,7 +750,6 @@ class TestCellsReachingFarOffThePage:
     def test_fill_cover_stops_early_but_measures_like_a_full_sum(self):
         import random
 
-        from opendockit.extractors import pdf as pdf_module
 
         rng = random.Random(11)
         for _ in range(500):
@@ -767,7 +761,7 @@ class TestCellsReachingFarOffThePage:
             whole = sum(max(0.0, min(x1, f["x1"]) - max(x0, f["x0"])) * max(0.0, min(bottom, f["bottom"]) - max(top, f["top"]))
                         for f in fills)
 
-            cover = pdf_module._fill_cover(cell, fills)
+            cover = _pdf_ruled_tables._fill_cover(cell, fills)
 
             assert cover == pytest.approx(min(whole / ((x1 - x0) * (bottom - top)), 1.0))
 

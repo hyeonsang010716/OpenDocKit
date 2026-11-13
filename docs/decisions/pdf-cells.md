@@ -1,6 +1,6 @@
 # PDF decisions: ruled-table cell text, highlights and shaded tables
 
-Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py`) about joining lines of text in ruled table cells, filtering out highlighter marks before table finding, and tables made of cell shading (stripes, header shading). Split off from [pdf-tables.md](pdf-tables.md) because of its size limit;
+Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py` and the `_pdf_*.py` modules beside it) about joining lines of text in ruled table cells, filtering out highlighter marks before table finding, and tables made of cell shading (stripes, header shading). Split off from [pdf-tables.md](pdf-tables.md) because of its size limit;
 the rules are the same: do not revert the decisions in this table. To change one, change the pinning test first and write the reason in the same row. Overflowed lines (`<br>`) in borderless table cells are
 decisions of [pdf.md](pdf.md)·[pdf-borderless.md](pdf-borderless.md) and are not changed here.
 

@@ -33,6 +33,18 @@ src/opendockit/
     ├── _sheet_layout.py # rows of a sheet → Markdown: row limits, level marks, merges, splitting into tables and notes, cell comments (XLSX, XLS, XML Spreadsheet, CSV, ODS)
     ├── _openpyxl_reading.py # what is replaced in openpyxl while an XLSX is read, so one odd cell, style or part does not reject the workbook
     ├── _xlsx_parts.py # the XLSX parts read without openpyxl: drawings, comments, form controls, pictures in cells, relationships
+    ├── _pdf_pdfminer.py # what is replaced in pdfminer: stream and object budgets, font tables, symbol fonts, CMaps
+    ├── _pdf_model.py # the line, table, page and paragraph records, shared thresholds, box and colour helpers
+    ├── _pdf_text.py  # characters → lines: artifacts, sideways text, joined pieces, placed runs, letter spacing, scripts
+    ├── _pdf_marks.py # check boxes and circle bullets drawn as shapes
+    ├── _pdf_forms.py # form values, free-text annotations, attachments
+    ├── _pdf_figures.py # picture areas, clips, tiled backgrounds, pdfium rendering, scanned pages
+    ├── _pdf_ruled_tables.py # tables drawn with rules or shading
+    ├── _pdf_aligned_tables.py # tables without rules, found from aligned lines
+    ├── _pdf_label_values.py # label and value lines
+    ├── _pdf_reading_order.py # columns, alternating sides, lone lines, sidebars, captions
+    ├── _pdf_paragraphs.py # lines and tables of a page → Markdown: paragraphs, headings, pictures in cells
+    ├── _pdf_margins.py # repeated headers, footers and page numbers; body font size and line gap
     ├── _equation.py # Hancom equation script → LaTeX (HWP/HWPX). The original script when it cannot be converted
     ├── csv_text.py  # CSV and other delimited text
     ├── docx.py
@@ -43,7 +55,7 @@ src/opendockit/
     ├── image.py
     ├── legacy.py    # .doc / .ppt: converted with an installed LibreOffice, then read by docx.py / pptx.py
     ├── odf.py       # ODT, ODS, ODP
-    ├── pdf.py
+    ├── pdf.py       # opening, the page loop and its budgets, reading one page; the stages are the `_pdf_*.py` modules
     ├── pptx.py
     ├── rtf.py
     ├── spreadsheet.py # XLSX
@@ -57,7 +69,7 @@ docs/decisions/      # deliberate decisions per format (file list in "Deliberate
 
 For use on a server see [server.md](../server.md) (conversion must go through `IsolatedConverter`).
 
-- `extractors/*` imports only `markdown`, `models` and `exceptions`. Extractors share with each other only the modules of `extractors/` whose names start with `_`: text decoding (`_encoding.py`, also used by `detect`), MIME header blocks and unpacking MIME mail (`_mail.py`, `_mail_calendar.py`), and the spreadsheet pieces (`_sheet_format.py`, `_sheet_layout.py`, and for XLSX `_openpyxl_reading.py`, `_xlsx_parts.py`), and `_package.py`, `_charts.py`, `_inline.py`, `_omml.py`, `_symbols.py`, `_lists.py`, `_notation.py`, `_equation.py`. Warning filtering is `models.quiet_warnings` (spreadsheet, image, html). Exceptions: DOCX `w:altChunk` uses `html.extract_html`, `is_mhtml` and `text.extract_text` as they are (altChunk row in [office.md](office.md)). The image extractor uses `image.split_tiff_pages` (multi-page TIFF, image section of [extractors.md](extractors.md)).
+- `extractors/*` imports only `markdown`, `models` and `exceptions`. Extractors share with each other only the modules of `extractors/` whose names start with `_`: text decoding (`_encoding.py`, also used by `detect`), MIME header blocks and unpacking MIME mail (`_mail.py`, `_mail_calendar.py`), and the PDF stages (`_pdf_*.py`, used by `pdf.py` only), the spreadsheet pieces (`_sheet_format.py`, `_sheet_layout.py`, and for XLSX `_openpyxl_reading.py`, `_xlsx_parts.py`), and `_package.py`, `_charts.py`, `_inline.py`, `_omml.py`, `_symbols.py`, `_lists.py`, `_notation.py`, `_equation.py`. Warning filtering is `models.quiet_warnings` (spreadsheet, image, html). Exceptions: DOCX `w:altChunk` uses `html.extract_html`, `is_mhtml` and `text.extract_text` as they are (altChunk row in [office.md](office.md)). The image extractor uses `image.split_tiff_pages` (multi-page TIFF, image section of [extractors.md](extractors.md)).
 - An extractor registers images **as the original bytes** with `Extraction.add_image()` and puts the placeholder it gets back (`⟦IMG:<key>:n⟧`) at the right place in the body.
   Decoding, size filtering, de-duplication and limits happen in one place only, `converter._prepare_images`.
 - `convert` does not use the network (deterministic, usable in a process pool). Vision-model calls live only in `describe.py`, and once descriptions are filled in

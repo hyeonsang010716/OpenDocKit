@@ -258,7 +258,7 @@ def test_many_bands_on_a_page_with_many_letters_take_linear_time():
     import pdfplumber
     from reportlab.pdfgen import canvas
 
-    from opendockit.extractors.pdf import _band_chars
+    from opendockit.extractors._pdf_ruled_tables import _band_chars
 
     buffer = BytesIO()
     page = canvas.Canvas(buffer, pagesize=(1500, 1500))

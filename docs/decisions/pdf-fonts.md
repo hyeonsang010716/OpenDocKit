@@ -1,6 +1,6 @@
 # PDF decisions: fonts
 
-Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py`) about characters whose font information is incomplete (widths, encoding CMap) or whose font is a symbol font. Split off from [pdf.md](pdf.md) because of its size limit;
+Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py` and the `_pdf_*.py` modules beside it) about characters whose font information is incomplete (widths, encoding CMap) or whose font is a symbol font. Split off from [pdf.md](pdf.md) because of its size limit;
 the rules are the same: do not revert the decisions in this table. To change one, change the pinning test first and write the reason in the same row.
 
 ## PDF fonts

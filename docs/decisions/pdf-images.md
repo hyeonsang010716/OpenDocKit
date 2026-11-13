@@ -1,6 +1,6 @@
 # PDF decisions: picture placement
 
-Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py`) about where pictures go: the box of a picture drawn clipped, pictures inside ruled table cells, the reading order of multi-column photo grids, and the reading order of text beside a picture and of picture captions.
+Decisions of the PDF extractor (`src/opendockit/extractors/pdf.py` and the `_pdf_*.py` modules beside it) about where pictures go: the box of a picture drawn clipped, pictures inside ruled table cells, the reading order of multi-column photo grids, and the reading order of text beside a picture and of picture captions.
 Split off from [pdf.md](pdf.md) because of its size limit; the rules are the same: do not revert the decisions in this table. To change one, change the pinning test first and write the reason in the same row.
 
 ## PDF picture placement

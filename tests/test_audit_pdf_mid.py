@@ -10,7 +10,9 @@ import pytest
 from reportlab.pdfgen import canvas
 
 from opendockit import ConvertOptions, convert
+from opendockit.extractors import _pdf_figures, _pdf_model, _pdf_ruled_tables
 from opendockit.extractors import pdf as pdf_module
+from tests.pdf_modules import replace_everywhere
 from tests.timing import allowed
 
 
@@ -42,13 +44,12 @@ def _sideways_table_pdf(rows: int, columns: int, *, upright: tuple[int, int] | N
 def _counted(monkeypatch, name: str) -> list[int]:
     """Count the calls of the PDF extractor's function `name` (the returned one-item list holds the count)."""
     calls = [0]
-    original = getattr(pdf_module, name)
 
     def counting(*args, **kwargs):
         calls[0] += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(pdf_module, name, counting)
+    original = replace_everywhere(monkeypatch, name, counting)
     return calls
 
 
@@ -60,9 +61,9 @@ class TestSidewaysCells:
     def _read(data: bytes) -> tuple[list[list[str | None]], int]:
         with pdfplumber.open(BytesIO(data)) as document:
             page = document.pages[0]
-            table = max(page.find_tables(pdf_module._TABLE_SETTINGS), key=lambda found: len(found.cells))
-            rows = table.extract(**pdf_module._CELL_TEXT)
-            pdf_module._read_sideways_cells(table, rows)
+            table = max(page.find_tables(_pdf_ruled_tables._TABLE_SETTINGS), key=lambda found: len(found.cells))
+            rows = table.extract(**_pdf_ruled_tables._CELL_TEXT)
+            _pdf_ruled_tables._read_sideways_cells(table, rows)
             return rows, len(page.chars)
 
     @pytest.mark.parametrize(("rows", "columns"), [(40, 10), (1, 300), (300, 1)])
@@ -122,11 +123,11 @@ class TestManyTablesOnOnePage:
         with pdfplumber.open(BytesIO(data)) as document:
             page = document.pages[0]
             cells = []
-            for table in page.find_tables(pdf_module._TABLE_SETTINGS):
-                assert pdf_module._closed_at_open_ends(page, table) is table
-                rows = table.extract(**pdf_module._CELL_TEXT)
-                pdf_module._read_sideways_cells(table, rows)
-                pdf_module._join_soft_wraps(table, rows)
+            for table in page.find_tables(_pdf_ruled_tables._TABLE_SETTINGS):
+                assert _pdf_ruled_tables._closed_at_open_ends(page, table) is table
+                rows = table.extract(**_pdf_ruled_tables._CELL_TEXT)
+                _pdf_ruled_tables._read_sideways_cells(table, rows)
+                _pdf_ruled_tables._join_soft_wraps(table, rows)
                 cells.append(rows)
             return cells, len(page.chars)
 
@@ -159,15 +160,15 @@ class TestManyTablesOnOnePage:
             assert len(pdf_module._real_tables(page)) == 6
             assert "_page_indexes" not in vars(page)
 
-            first = pdf_module._text_by_middle(page)[1]
+            first = _pdf_ruled_tables._text_by_middle(page)[1]
             page.close()  # releases the page's objects; reading it again parses them anew
-            again = pdf_module._text_by_middle(page)[1]
+            again = _pdf_ruled_tables._text_by_middle(page)[1]
             assert again == first and again[0] is not first[0] and any(char is again[0] for char in page.chars)
 
             def failing(page):
                 raise RuntimeError
 
-            monkeypatch.setattr(pdf_module, "_open_sided_tables", failing)
+            monkeypatch.setattr(_pdf_ruled_tables, "_open_sided_tables", failing)
             with pytest.raises(RuntimeError):
                 pdf_module._real_tables(page)
             assert "_page_indexes" not in vars(page)
@@ -177,14 +178,14 @@ class TestManyTablesOnOnePage:
         data = _small_tables_pdf(800, 20)
         with pdfplumber.open(BytesIO(data)) as document:
             page = document.pages[0]
-            tables = page.find_tables(pdf_module._TABLE_SETTINGS)
-            extracted = [table.extract(**pdf_module._CELL_TEXT) for table in tables]  # pdfplumber's own time is not measured
+            tables = page.find_tables(_pdf_ruled_tables._TABLE_SETTINGS)
+            extracted = [table.extract(**_pdf_ruled_tables._CELL_TEXT) for table in tables]  # pdfplumber's own time is not measured
 
             started = time.perf_counter()
             for table, rows in zip(tables, extracted, strict=True):
-                pdf_module._closed_at_open_ends(page, table)
-                pdf_module._read_sideways_cells(table, rows)
-                pdf_module._join_soft_wraps(table, rows)
+                _pdf_ruled_tables._closed_at_open_ends(page, table)
+                _pdf_ruled_tables._read_sideways_cells(table, rows)
+                _pdf_ruled_tables._join_soft_wraps(table, rows)
             elapsed = time.perf_counter() - started
 
         assert len(tables) == 800 and elapsed < allowed(3)  # 9 seconds in these three steps before
@@ -272,7 +273,7 @@ class TestPictureDrawnAsManyStrips:
         strips = [_CountedBox((0.0, top * 2.0, 600.0, top * 2.0 + 2.0)) for top in range(400)]
         _CountedBox.reads = 0
 
-        area = pdf_module._union_area(strips)
+        area = _pdf_figures._union_area(strips)
 
         assert area == 600.0 * 800.0
         assert _CountedBox.reads <= 400 * 20  # 800 bands × 400 boxes before
@@ -287,7 +288,7 @@ class TestPictureDrawnAsManyStrips:
             groups = [{index} for index in range(len(boxes))]
             for index, box in enumerate(boxes):
                 for other in range(index + 1, len(boxes)):
-                    if pdf_module._abuts(box, boxes[other]) and groups[index] is not groups[other]:
+                    if _pdf_figures._abuts(box, boxes[other]) and groups[index] is not groups[other]:
                         groups[index] |= groups[other]
                         for member in groups[other]:
                             groups[member] = groups[index]
@@ -305,23 +306,23 @@ class TestPictureDrawnAsManyStrips:
             return area
 
         def is_strips(shapes):
-            encloses = pdf_module._encloses
+            encloses = _pdf_model._encloses
             outer = [tile for tile in shapes if not any(encloses(other, tile) and not encloses(tile, other) for other in shapes)]
             x0, top = min(tile[0] for tile in outer), min(tile[1] for tile in outer)
             x1, bottom = max(tile[2] for tile in outer), max(tile[3] for tile in outer)
-            gap = pdf_module._TILE_GAP
+            gap = _pdf_figures._TILE_GAP
             return (all(tile[0] - x0 <= gap and x1 - tile[2] <= gap for tile in outer)
                     or all(tile[1] - top <= gap and bottom - tile[3] <= gap for tile in outer))
 
         def expected(boxes, view):
             view_area = (view[2] - view[0]) * (view[3] - view[1])
-            if sum(pdf_module._box_area(box[:4]) for box in boxes) < view_area * pdf_module._BACKGROUND_RATIO:
+            if sum(_pdf_model._box_area(box[:4]) for box in boxes) < view_area * _pdf_figures._BACKGROUND_RATIO:
                 return boxes
             result = []
             for group in abutting_groups(boxes):
                 tiles = [boxes[index] for index in group]
                 shapes = [tile[:4] for tile in tiles]
-                if len(tiles) > 1 and is_strips(shapes) and union_area(shapes) >= view_area * pdf_module._BACKGROUND_RATIO:
+                if len(tiles) > 1 and is_strips(shapes) and union_area(shapes) >= view_area * _pdf_figures._BACKGROUND_RATIO:
                     result.append(tuple(pick(tile[side] for tile in tiles) for side, pick in enumerate((min, min, max, max, max))))
                 else:
                     result.extend(tiles)
@@ -356,11 +357,11 @@ class TestPictureDrawnAsManyStrips:
             random.shuffle(boxes)
             shapes = [box[:4] for box in boxes]
 
-            found = pdf_module._tiled_background(boxes, (0.0, 0.0, width, height))
+            found = _pdf_figures._tiled_background(boxes, (0.0, 0.0, width, height))
 
             assert sorted(found) == sorted(expected(boxes, (0.0, 0.0, width, height)))
-            assert pdf_module._is_strips(shapes) == is_strips(shapes)
-            assert pdf_module._union_area(shapes) == union_area(shapes)
+            assert _pdf_figures._is_strips(shapes) == is_strips(shapes)
+            assert _pdf_figures._union_area(shapes) == union_area(shapes)
             merged += len(found) < len(boxes)
         assert merged > 20
 
@@ -370,7 +371,7 @@ class TestPictureDrawnAsManyStrips:
         boxes = [(strip * width / strips, 0.0, (strip + 1) * width / strips, height, 1.0) for strip in range(strips)]
 
         started = time.perf_counter()
-        found = pdf_module._tiled_background(boxes, (0.0, 0.0, width, height))
+        found = _pdf_figures._tiled_background(boxes, (0.0, 0.0, width, height))
         elapsed = time.perf_counter() - started
 
         assert found == [(0.0, 0.0, width, height, 1.0)] and elapsed < allowed(3)  # 12 seconds before
@@ -513,10 +514,10 @@ class TestLongStripedTable:
         monkeypatch.setattr(Table, "bbox", property(counting))
         with pdfplumber.open(BytesIO(_striped_table_pdf(400))) as document:
             page = document.pages[0]
-            fragments = page.find_tables(pdf_module._TABLE_SETTINGS)
+            fragments = page.find_tables(_pdf_ruled_tables._TABLE_SETTINGS)
             measured[0] = 0
 
-            (table,) = pdf_module._with_shaded_rows(page, fragments)
+            (table,) = _pdf_ruled_tables._with_shaded_rows(page, fragments)
 
             assert len(fragments) == 200 and len(table.rows) == 400
             assert measured[0] <= 200 * 10  # 200 × 200 / 2 before
