@@ -55,11 +55,18 @@ _AXIS_LABELS = {"catAx": "Category axis", "dateAx": "Category axis", "valAx": "V
 _HORIZONTAL_AXIS_POSITIONS = {"b", "t"}
 # Text erased before looking for date/time letters in a display format: quoted text, bracketed sections (color, locale, condition;
 # elapsed time [h] is kept), and the one character after a backslash, fill or repeat.
-_FORMAT_LITERALS = re.compile(r'"[^"]*"|\[(?![hms]+\])[^\]]*\]|[\\_*].')
+# Deliberate: a bracketed section holds no `[` (here and in `_FORMAT_TOKEN`). A `[` with no `]` was scanned to the end of the format
+# from every `[`, for every chart point (a 20,000-character format on 40 points took 6 seconds)
+# (Pinned by: test_audit_core.py::TestChartFormatWithManyOpenBrackets).
+_FORMAT_LITERALS = re.compile(r'"[^"]*"|\[(?![hms]+\])[^\[\]]*\]|[\\_*].')
 _LAST_DATE_SERIAL = 2_958_465  # 9999-12-31
+# Longest display format that is applied (the longest Excel accepts). A format is read again for every point of a chart, so a
+# 20,000-character format on 8,000 points (a 40 KB file) took 30 seconds. With a longer format the value stays as written, as with
+# any format that is not handled (Pinned by: test_audit_core.py::TestChartFormatWithManyOpenBrackets).
+_MAX_FORMAT_CHARS = 255
 # Tokens of one section of a value display format (`_unit_format`): quoted text, the one character after a backslash, a currency
 # symbol ([$₩-412]), other brackets (color, condition), fill/spacing (`*x`, `_x`), digit placeholders (0 # ? , .), any other character.
-_FORMAT_TOKEN = re.compile(r'"([^"]*)"|\\(.)|\[\$([^\]-]*)(?:-[^\]]*)?\]|(\[[^\]]*\])|[_*].|([0#?,.])|(.)', re.DOTALL)
+_FORMAT_TOKEN = re.compile(r'"([^"]*)"|\\(.)|\[\$([^\[\]-]*)(?:-[^\[\]]*)?\]|(\[[^\[\]]*\])|[_*].|([0#?,.])|(.)', re.DOTALL)
 _FORMAT_COLORS = re.compile(r"\[(?:black|blue|cyan|green|magenta|red|white|yellow|color\s*\d{1,2})\]", re.IGNORECASE)
 # Symbols Excel shows as literal text even without quotes. Formats with other characters (date y/m/d, exponent E, text @, % …)
 # are not handled.
@@ -581,6 +588,8 @@ def _format_date(value: str, format_code: str, date1904: bool) -> str | None:
     if the format is not a date format or the value cannot be a date. A format without a day gives `2026-01`, year only `2026`. The
     literal look of the format ('년', '월', weekday names) is not imitated — it is the same ISO notation as the spreadsheet
     extractor's dates."""
+    if len(format_code) > _MAX_FORMAT_CHARS:
+        return None
     letters = set(_FORMAT_LITERALS.sub("", format_code).lower())
     has_time = bool(letters & {"h", "s"})
     has_date = bool(letters & {"y", "d"}) or ("m" in letters and not has_time)
@@ -745,6 +754,8 @@ def _format_units(value: str, format_code: str) -> str | None:
     loss read as a profit — the same rule as Excel cells (`spreadsheet._format_section`)
     (Pinned by: test_office_chart_units_and_ole.py::TestChartNegativeSectionWithoutSign).
     """
+    if len(format_code) > _MAX_FORMAT_CHARS:
+        return None
     try:
         number = Decimal(value.strip())
     except InvalidOperation:
@@ -844,6 +855,8 @@ def _format_percent(value: str, format_code: str) -> str | None:
     Only the first section of the format is looked at (negative sections, colors and conditions are not imitated; `-` is added). A
     `%` blocked by quotes or a backslash is a literal, so it is not a percentage. Rounding is half away from zero, as in Excel.
     """
+    if len(format_code) > _MAX_FORMAT_CHARS:
+        return None
     section = _FORMAT_LITERALS.sub("", format_code).split(";")[0]
     if "%" not in section:
         return None

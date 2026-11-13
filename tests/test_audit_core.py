@@ -12,6 +12,23 @@ from opendockit.extractors import _shared
 from opendockit.markdown import neutralize_table_tags
 from opendockit.models import DocumentFormat
 from tests import builder
+from tests.test_office import _chart_xml, _pptx_with_chart
+
+
+def _pptx_with_number_chart(values: list[str], value_format: str = "General", *, categories: list[str] | None = None,
+                            category_format: str = "General", date1904: bool = False) -> bytes:
+    """A slide with one bar chart whose cached values (and number categories) carry the given display formats."""
+    def cache(items: list[str], format_code: str) -> str:
+        points = "".join(f'<c:pt idx="{index}"><c:v>{item}</c:v></c:pt>' for index, item in enumerate(items))
+        return f'<c:numCache><c:formatCode>{format_code}</c:formatCode><c:ptCount val="{len(items)}"/>{points}</c:numCache>'
+
+    category_xml = f"<c:cat><c:numRef>{cache(categories, category_format)}</c:numRef></c:cat>" if categories else ""
+    series = (f'<c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:v>S</c:v></c:tx>{category_xml}'
+              f"<c:val><c:numRef>{cache(values, value_format)}</c:numRef></c:val></c:ser>")
+    chart = _chart_xml(f"<c:barChart>{series}</c:barChart>")
+    if date1904:
+        chart = chart.replace("<c:chart>", '<c:date1904 val="1"/><c:chart>')
+    return builder.zip_with(_pptx_with_chart(), edit={"ppt/charts/chart1.xml": lambda _: chart})
 
 
 class TestPdfBodySearchAfterALateHeader:
@@ -169,3 +186,66 @@ class TestAltTextWithManyLineBreaks:
         result = convert(_docx_with_alt_text(alt), "a.docx")
 
         assert result.text.startswith(f"차트 앞 문단입니다.\n\n[Image: {shown}]\n\n")
+
+
+class TestChartFormatWithManyOpenBrackets:
+    """The display format of chart values is searched for bracketed sections for every point. A `[` with no `]` was scanned to the
+    end of the format from every `[`, so a 20,000-character format on 40 points took 6 seconds. A format is read again for every
+    point, so even without brackets a 20,000-character format on 8,000 points (a 40 KB file) took 30 seconds: a format longer than
+    Excel allows (255 characters) is not applied."""
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize(("format_code", "points"), [("[" * 20_000 + "0%", 200), ("[$" * 10_000 + '0"원"', 8)])
+    def test_long_format_of_open_brackets_takes_no_time(self, format_code, points):
+        data = _pptx_with_number_chart(["0.5"] * points, format_code)
+        started = time.perf_counter()
+
+        result = convert(data, "a.pptx")
+
+        assert time.perf_counter() - started < 5.0
+        assert result.text.endswith(f"| {points} | 0.5 |")
+
+    @pytest.mark.timing
+    def test_open_brackets_in_a_format_of_the_longest_length_take_linear_time(self):
+        format_code = "[$" * 126 + '0"원'
+        started = time.perf_counter()
+
+        shown = {_shared._format_value("1200", format_code) for _ in range(60_000)}
+
+        assert time.perf_counter() - started < 10.0  # 25 seconds before, 3 now
+        assert len(format_code) == 255 and shown == {"1200"}
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("format_code", ["0" * 20_000 + '"원"', "[Red]" * 4_000 + '0"원"', "0." + "0" * 20_000 + "%",
+                                             '"' + "y" * 20_000 + '"0'])
+    def test_very_long_format_on_many_points_is_not_read_for_every_point(self, format_code):
+        data = _pptx_with_number_chart(["0.5"] * 8_000, format_code)
+        started = time.perf_counter()
+
+        result = convert(data, "a.pptx")
+
+        assert time.perf_counter() - started < 5.0
+        assert result.text.endswith("| 8000 | 0.5 |")
+
+    def test_format_longer_than_excel_allows_is_not_applied(self):
+        assert _shared._format_value("1200", "#" * 251 + '0"원"') == "1200원"
+        assert _shared._format_value("1200", "#" * 252 + '0"원"') == "1200"
+        assert _shared._format_value("0.5", "#" * 253 + "0%") == "50%"
+        assert _shared._format_value("0.5", "#" * 254 + "0%") == "0.5"
+        assert _shared._format_date("46023", 'yyyy-mm-dd"' + "x" * 243 + '"', False) == "2026-01-01"
+        assert _shared._format_date("46023", 'yyyy-mm-dd"' + "x" * 244 + '"', False) is None
+
+    @pytest.mark.parametrize(("value", "format_code", "expected"), [
+        ("0.253", "[Red]0.0%", "25.3%"),
+        ("1200", '[$₩-412]#,##0"원"', "₩1,200원"),
+        ("-300", '#,##0"억원";[Red]#,##0"억원"', "-300억원"),
+        ("1200", '[>=1000]#,##0"원"', "1200"),
+        ("0.5", '[h]:mm"%"', "0.5"),
+    ])
+    def test_bracketed_sections_are_read_as_before(self, value, format_code, expected):
+        assert _shared._format_value(value, format_code) == expected
+
+    def test_bracketed_sections_of_a_date_format_are_read_as_before(self):
+        assert _shared._format_date("46023", "[$-412]yyyy-mm-dd", False) == "2026-01-01"
+        assert _shared._format_date("1.5", "[h]:mm", False) == "12:00"
+        assert _shared._format_date("46023", "[Red]0", False) is None
