@@ -22,6 +22,14 @@ except ImportError:  # the optional `heic` extra is not installed: only HEIC/HEI
 
 _HEIF_BRANDS = (b"heic", b"heix", b"hevc", b"heim", b"heis", b"mif1", b"msf1")
 
+# The only Pillow readers a picture is offered to: raster formats decoded inside this process. Left to itself `Image.open`
+# tries every plugin, and an EPS reached the PostScript plugin, which starts Ghostscript on the file. Deliberate: EPS, WMF/EMF
+# (drawn through Windows GDI, and documented as placeholders) and the scientific/container stubs are not listed
+# (Pinned by: test_audit_runtime.py::TestPictureFormatAllowList::test_eps_is_refused_without_reaching_the_postscript_plugin).
+# A JPEG that is an MPO is read by the JPEG reader. A name Pillow has not registered is a KeyError, hence the HEIF condition.
+_OPEN_FORMATS = ("JPEG", "PNG", "GIF", "BMP", "TIFF", "WEBP", "AVIF", *(("HEIF",) if HEIF_AVAILABLE else ()),
+                 "ICO", "JPEG2000", "PCX", "PPM", "DIB")
+
 
 # An aspect ratio more extreme than this with a short side under `_CONTENT_SHORT_SIDE` is a divider or a piece of border. With a
 # short side at or above it, the image is content such as a product detail page or a long screen capture
@@ -216,7 +224,7 @@ def _open_within_pixel_limit(data: bytes, max_side: int) -> Image.Image:
     JPEG, ...), raise `ImageTooLarge`.
     """
     try:
-        opened = Image.open(BytesIO(data))
+        opened = Image.open(BytesIO(data), formats=_OPEN_FORMATS)
     except Image.DecompressionBombError:
         opened = None
     if opened is not None and opened.width * opened.height <= _MAX_DECODE_PIXELS:
@@ -270,7 +278,7 @@ def split_tiff_pages(data: bytes) -> TiffPages:
         # reported in the warning text. This used to ignore every warning — the thread-safe `models.quiet_warnings` applies to the
         # whole process for the duration of the block, so it was narrowed to Pillow warnings
         with quiet_warnings((UserWarning, r"PIL\."), (Image.DecompressionBombWarning, r"PIL\.")):
-            with Image.open(BytesIO(data)) as opened:
+            with Image.open(BytesIO(data), formats=_OPEN_FORMATS) as opened:
                 if not _has_frame(opened, 1):
                     return TiffPages([])
                 for index in range(MAX_TIFF_PAGES):
