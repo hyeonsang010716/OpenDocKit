@@ -352,3 +352,65 @@ class TestXlsChartScan:
         body = builder.xls_record(0x0200, _WORKSHEET + _CHART + _EOF + _EOF)
 
         assert spreadsheet._xls_sheets_holding_charts(_biff_stream([4], body)) == set()
+
+
+def _xml_workbook(table: str, styles: str = "") -> bytes:
+    return ('<?xml version="1.0" encoding="UTF-8"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" '
+            f'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles>{styles}</Styles>'
+            f'<Worksheet ss:Name="s"><Table>{table}</Table></Worksheet></Workbook>').encode()
+
+
+def _xml_cell(value: object, kind: str = "String", attributes: str = "") -> str:
+    return f'<Cell {attributes}><Data ss:Type="{kind}">{value}</Data></Cell>'
+
+
+_STYLED_ROWS = ("<Row>" + _xml_cell("name") + _xml_cell("amount") + "</Row>"
+                "<Row>" + _xml_cell("part", attributes='ss:StyleID="s0"') + _xml_cell(1.5, "Number", 'ss:StyleID="s0"') + "</Row>")
+
+
+class TestXmlSpreadsheetStyleChains:
+    """Every style walked its own `ss:Parent` chain again: 8,000 chained styles (310 KB) took 44 s."""
+
+    @staticmethod
+    def _chain(length: int, last: str) -> str:
+        return "".join(f'<Style ss:ID="s{index}" ss:Parent="s{index + 1}"/>' for index in range(length - 1)) + last
+
+    def test_long_parent_chain_is_followed_once(self, monkeypatch):
+        """Pins: the format and indent a style inherits are worked out once per style."""
+        calls = 0
+        attribute = spreadsheet._ss
+
+        def counting(element: object, name: str) -> str | None:
+            nonlocal calls
+            calls += 1
+            return attribute(element, name)
+
+        monkeypatch.setattr(spreadsheet, "_ss", counting)
+        styles = self._chain(600, '<Style ss:ID="s599"><NumberFormat ss:Format="0.00"/><Alignment ss:Indent="1"/></Style>')
+
+        result = convert(_xml_workbook(_STYLED_ROWS, styles), "a.xml")
+
+        assert result.text == "## Sheet: s\n\n| name | amount |\n| --- | --- |\n| └ part | 1.50 |"
+        assert calls < 30 * 600
+
+    def test_nearest_format_and_indent_win(self):
+        styles = ('<Style ss:ID="s0" ss:Parent="s1"/><Style ss:ID="s1" ss:Parent="s2"><Alignment ss:Indent="0"/></Style>'
+                  '<Style ss:ID="s2" ss:Parent="s3"><NumberFormat ss:Format="0.0"/><Alignment ss:Indent="2"/></Style>'
+                  '<Style ss:ID="s3"><NumberFormat ss:Format="0.000"/></Style>')
+
+        result = convert(_xml_workbook(_STYLED_ROWS, styles), "a.xml")
+
+        assert result.text == "## Sheet: s\n\n| name | amount |\n| --- | --- |\n| part | 1.5 |"
+
+    @pytest.mark.parametrize("styles", [
+        '<Style ss:ID="s0" ss:Parent="s1"/><Style ss:ID="s1" ss:Parent="s2"/><Style ss:ID="s2" ss:Parent="s1"/>',
+        '<Style ss:ID="s2" ss:Parent="s1"/><Style ss:ID="s1" ss:Parent="s2"/><Style ss:ID="s0" ss:Parent="s1"/>',
+        '<Style ss:ID="s0" ss:Parent="s0"/>',
+        '<Style ss:ID="s0" ss:Parent="missing"/>',
+    ], ids=["into a loop", "loop first", "its own parent", "missing parent"])
+    def test_parents_that_lead_nowhere_fall_back_to_the_default_style(self, styles):
+        default = '<Style ss:ID="Default"><NumberFormat ss:Format="0.000"/><Alignment ss:Indent="3"/></Style>'
+
+        result = convert(_xml_workbook(_STYLED_ROWS, default + styles), "a.xml")
+
+        assert result.text == "## Sheet: s\n\n| name | amount |\n| --- | --- |\n| part | 1.500 |"

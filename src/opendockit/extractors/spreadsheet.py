@@ -2083,13 +2083,17 @@ def _xml_style_formats(root: etree._Element) -> dict[str | None, str | None]:
         number_format = style.find(f"{{{_SS}}}NumberFormat") if style is not None else None
         return _ss(number_format, "Format") if number_format is not None else None
 
+    # The format each style inherits is kept, so a chain of parents is followed once and not again from every style on it: 8,000
+    # chained styles (310 KB) took 44 s (Pinned by: test_audit_spreadsheet.py::TestXmlSpreadsheetStyleChains).
     formats: dict[str | None, str | None] = {}
+    inherited: dict[str, str | None] = {}
     for style_id in [*styles, None]:
         current, seen = style_id, set()
-        while current is not None and current not in seen and own(current) is None:
+        while current is not None and current not in seen and current not in inherited and own(current) is None:
             seen.add(current)
             current = _ss(styles[current], "Parent") if current in styles else None
-        found = own(current) if current is not None else None
+        found = inherited[current] if current in inherited else own(current) if current is not None else None
+        inherited.update(dict.fromkeys(seen, found))
         formats[style_id] = _xml_number_format(found if found is not None else own("Default"))
     return formats
 
@@ -2098,17 +2102,25 @@ def _xml_style_indents(root: etree._Element) -> dict[str | None, int]:
     """Style ID → cell indent (`<Alignment ss:Indent>`). Inherited by following `ss:Parent`. Styles without an indent are not included."""
     styles = {_ss(style, "ID"): style for style in root.iter(f"{{{_SS}}}Style")}
     indents: dict[str | None, int] = {}
+    inherited: dict[str | None, int | None] = {}  # followed once per style, as in `_xml_style_formats`
     for style_id in styles:
         current, seen = style_id, set()
+        found = None
         while current in styles and current not in seen:
+            if current in inherited:
+                found = inherited[current]
+                break
             seen.add(current)
             alignment = styles[current].find(f"{{{_SS}}}Alignment")
             value = (_ss(alignment, "Indent") or "").strip() if alignment is not None else ""
             if value:
                 if value.isdecimal() and int(value) > 0:
-                    indents[style_id] = int(value)
+                    found = int(value)
                 break
             current = _ss(styles[current], "Parent")
+        inherited.update(dict.fromkeys(seen, found))
+        if found is not None:
+            indents[style_id] = found
     return indents
 
 
