@@ -1732,8 +1732,14 @@ def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str) ->
                 part = story.part
             except KeyError:  # a header detached because its part is missing (`_shared.repair_package`). Only that header is skipped
                 continue
-            _keep_filled_placeholders(story._element, renderer.placeholders)
-            text = join_blocks(renderer.render_story(part, story._element))
+            # A reference whose relationship points at a part that is not a header (a picture) has no content to read. Asking for
+            # it raised AttributeError and rejected the whole document (Pinned by:
+            # test_audit_office.py::TestDocxHeaderReferenceToAPartThatIsNotAHeader::test_only_that_header_is_skipped).
+            element = getattr(part, "element", None)
+            if element is None:
+                continue
+            _keep_filled_placeholders(element, renderer.placeholders)
+            text = join_blocks(renderer.render_story(part, element))
             if text and text not in seen:
                 seen.append(text)
     return join_blocks(seen)

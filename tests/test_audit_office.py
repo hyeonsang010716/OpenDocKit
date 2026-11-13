@@ -1,8 +1,11 @@
 """Defects found by an audit of the DOCX, PPTX and ODF extractors with hand-built hostile documents: one odd structure that
 rejected the whole document, values that came out wrong, and work that was repeated for every reference to the same part."""
 
+from io import BytesIO
 import re
 
+from docx import Document
+from docx.shared import Inches
 import pytest
 
 from opendockit import ConvertOptions, CorruptedDocumentError, convert
@@ -117,3 +120,27 @@ class TestDocxStylesAndNumberingWithAGenericContentType:
 
         assert [line for line in text.split("\n") if line] == {
             "styles": ["Chapter", "first", "second"], "numbering": ["# Chapter", "first", "second"]}[kind]
+
+
+def _docx_saved(document) -> bytes:
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+class TestDocxHeaderReferenceToAPartThatIsNotAHeader:
+    """A header reference whose relationship points at another kind of part (a picture) raised AttributeError when asked for
+    its content, and the document was rejected as corrupted. Only that header is skipped, as one whose part is missing is."""
+
+    def test_only_that_header_is_skipped(self):
+        document = Document()
+        document.add_paragraph("body text")
+        document.add_picture(BytesIO(builder.png_bytes()), width=Inches(1))
+        document.sections[0].header.paragraphs[0].text = "header text"
+        document.sections[0].footer.paragraphs[0].text = "footer text"
+        data = builder.zip_with(_docx_saved(document), edit={
+            "word/_rels/document.xml.rels": lambda xml: xml.replace('Target="header1.xml"', 'Target="media/image1.png"')})
+
+        result = convert(data, "sample.docx", ConvertOptions(include_headers_footers=True, extract_images=False))
+
+        assert result.text == "body text\n\nfooter text"
