@@ -2,7 +2,9 @@
 hostile input, one odd value that got a whole document rejected as 'corrupted', and warnings or numbers that came out wrong."""
 
 import base64
+from io import BytesIO
 import time
+import zipfile
 
 from lxml import etree
 import pytest
@@ -276,3 +278,45 @@ class TestEquationWithManyRuns:
         assert _shared.omml_to_latex(_equation(f"{script}<m:r><m:t>a</m:t></m:r>")) == "x^{k}a"
         assert _shared.omml_to_latex(_equation(f"<m:r><m:t>y+</m:t></m:r>{script}<m:r><m:t>+a</m:t></m:r>")) == "y+x^k+a"
         assert _shared.omml_to_latex(_equation(f"{script}{script}")) == "x^{k}x^k"
+
+
+def _package(relationships: str, *parts: str) -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("_rels/.rels", relationships)
+        for name in parts:
+            archive.writestr(name, "<x/>")
+    return buffer.getvalue()
+
+
+class TestPackageRelationshipsWithUnclosedTags:
+    """The package relationships are searched for the officeDocument relationship. A `<Relationship ` with no `>` was scanned to the
+    end of the part from every tag start: 64 KB of them took a second for an archive that is not a document at all."""
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("relationships", ["<Relationship " * 4_680, "<Relationship " + " Type='x/officeDocument'" * 2_800])
+    def test_unclosed_relationship_tags_take_linear_time(self, relationships):
+        from opendockit.detect import _office_main_part
+
+        data = _package(relationships, "word/document2.xml")
+        elapsed = []
+
+        with zipfile.ZipFile(BytesIO(data)) as archive:
+            for _ in range(3):
+                started = time.perf_counter()
+                found = _office_main_part(archive, set(archive.namelist()))
+                elapsed.append(time.perf_counter() - started)
+
+        assert found is None
+        assert min(elapsed) < 0.2  # 0.9 seconds before; a few milliseconds now
+
+    @pytest.mark.parametrize("relationship", [
+        '<Relationship Id="rId1" Type="http://x/officeDocument" Target="word/document2.xml"/>',
+        "<pr:Relationship Target = '/word/document2.xml' Id='r' Type = 'http://x/officeDocument' ></pr:Relationship>",
+        '<Relationship Id="a" Type="http://x/core-properties" Target="docProps/core.xml"/>\n'
+        '<Relationship\nId="b"\nType="http://x/officeDocument"\nTarget="./word/document2.xml"/>',
+    ])
+    def test_renamed_main_part_is_still_found(self, relationship):
+        data = _package(f'<Relationships xmlns="x">{relationship}</Relationships>', "word/document2.xml", "docProps/core.xml")
+
+        assert detect_format(data, "a.docx") is DocumentFormat.DOCX

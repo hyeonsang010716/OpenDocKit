@@ -251,8 +251,11 @@ def _read_prefix(archive: zipfile.ZipFile, name: str, size: int) -> bytes:
         return member.read(size)
 
 
-_OFFICE_DOCUMENT = re.compile(
-    rb"<(?:\w+:)?Relationship\b[^>]*?Type\s*=\s*[\"'][^\"']*/officeDocument[\"'][^>]*>")
+# A relationship tag (up to its first `>`, with no `<` inside — none can be there in XML) and, inside the tag, the officeDocument
+# type. As one pattern, a `<Relationship ` with no `>` was scanned to the end of the part from every tag start and every `Type=`:
+# 64 KB of them took a second (Pinned by: test_audit_core.py::TestPackageRelationshipsWithUnclosedTags).
+_RELATIONSHIP = re.compile(rb"<(?:\w+:)?Relationship\b[^<>]*>")
+_OFFICE_DOCUMENT = re.compile(rb"Type\s*=\s*[\"'][^\"']*/officeDocument[\"']")
 _TARGET = re.compile(rb"\bTarget\s*=\s*[\"']/?([^\"']+)[\"']")
 _OFFICE_FOLDERS = {"word": DocumentFormat.DOCX, "ppt": DocumentFormat.PPTX, "xl": DocumentFormat.XLSX}
 
@@ -266,8 +269,8 @@ def _office_main_part(archive: zipfile.ZipFile, names: set[str]) -> DocumentForm
     if "_rels/.rels" not in names:
         return None
     relationships = _read_prefix(archive, "_rels/.rels", 65_536)
-    for relationship in _OFFICE_DOCUMENT.finditer(relationships):
-        target = _TARGET.search(relationship.group(0))
+    for relationship in _RELATIONSHIP.finditer(relationships):
+        target = _TARGET.search(relationship.group(0)) if _OFFICE_DOCUMENT.search(relationship.group(0)) else None
         if target is None:
             continue
         path = target.group(1).decode("utf-8", errors="replace").removeprefix("./")
