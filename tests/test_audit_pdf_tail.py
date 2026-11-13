@@ -251,3 +251,56 @@ class TestLongDotRunInsideALine:
         assert "y" * 20 in result.text and "body text" in result.text
         assert time.perf_counter() - started < 5.0  # 12 to 18 seconds before; 0.2 seconds now
 
+
+class TestManyPairsWithLongLabels:
+    """A run of 'label value' rows whose labels are long (so each further pair asks whether the group has a wrapped
+    value) and whose values are wide (so the group is discarded and built again from its next row): the question went
+    through the whole group every time, so the time grew with the cube of the rows — 4 seconds for 900 rows."""
+
+    _VALUE = "a value that is quite long and goes on and on across the page width, on"
+
+    def _converted(self, rows: int):
+        height = 200 + rows * 12
+
+        def draw(canvas, page):
+            canvas.setFont("Helvetica", 10)
+            for index in range(rows):
+                canvas.drawString(50, height - 50 - index * 12, f"one two three four five{index % 10}")
+                canvas.drawString(220, height - 50 - index * 12, f"{self._VALUE} {index % 10}")
+
+        return convert(_pdf(draw, size=(600, height)), "a.pdf", ConvertOptions(page_markers=False))
+
+    def test_group_is_not_gone_through_again_for_every_pair(self, monkeypatch):
+        looked_at = [0]
+        has_wrapped_value = pdf._has_wrapped_value
+
+        def counting(run):
+            looked_at[0] += len(run)
+            return has_wrapped_value(run)
+
+        monkeypatch.setattr(pdf, "_has_wrapped_value", counting)
+
+        result = self._converted(200)
+
+        assert looked_at[0] < 100_000  # 1,353,400 rows when every pair went through the group
+        assert result.text.split("\n\n") == [
+            "\n".join(f"one two three four five{index % 10}" for index in range(200)),
+            "\n".join(f"{self._VALUE} {index % 10}" for index in range(200))]
+
+    @pytest.mark.timing
+    def test_many_pairs_are_read_in_the_time_of_their_lines(self, monkeypatch):
+        spent = [0.0]
+        label_value_rows = pdf._label_value_rows
+
+        def timed(*args):
+            started = time.perf_counter()
+            try:
+                return label_value_rows(*args)
+            finally:
+                spent[0] += time.perf_counter() - started
+
+        monkeypatch.setattr(pdf, "_label_value_rows", timed)
+
+        self._converted(1_500)
+
+        assert spent[0] < 5.0  # 10 seconds before; 1 second now

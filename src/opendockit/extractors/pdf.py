@@ -8518,17 +8518,27 @@ def _label_value_run(rows: list[list[_Line]], index: int, max_label: float) -> l
     """The group of 'label value' rows continuing downwards from `rows[index]` (a label-value pair): pairs in the same
     two columns (`_pairs_with`), wrapped value lines (`_wraps_value`), and label rows without a value between pairs
     (`_is_empty_value_row`). A group that has accepted a wrapped value line accepts further pairs only with a short label."""
-    def pairs(run: list[list[_Line]], row: list[_Line]) -> bool:
-        return _pairs_with(run, row, max_label) and (_short_label(row, max_label) or not _has_wrapped_value(run))
+    def pairs(run: list[list[_Line]], row: list[_Line], wrapped: bool) -> bool:
+        return _pairs_with(run, row, max_label) and (_short_label(row, max_label) or not wrapped)
+
+    def wraps(row: list[_Line]) -> bool:  # what `row` adds to `_has_wrapped_value` of the group (judged against the first row)
+        return _has_wrapped_value([run[0], row])
 
     run = [rows[index]]
+    # `_has_wrapped_value(run)`, carried along as rows are added. Asked of the whole group again for every pair with a long
+    # label, a group of many such pairs took time with the square of its rows, and with the cube when it is then discarded
+    # for its wide values and built again from each of its rows (Pinned by: test_audit_pdf_tail.py::
+    # TestManyPairsWithLongLabels).
+    wrapped = _has_wrapped_value(run)
 
     while index + len(run) < len(rows):
         row = rows[index + len(run)]
-        if pairs(run, row) or _wraps_value(run, row, max_label):
+        if pairs(run, row, wrapped) or _wraps_value(run, row, max_label):
             run.append(row)
+            wrapped = wrapped or wraps(row)
         elif (index + len(run) + 1 < len(rows) and _is_empty_value_row(run, row, max_label)
-              and pairs([*run, row], rows[index + len(run) + 1])):
+              and pairs([*run, row], rows[index + len(run) + 1], wrapped or wraps(row))):
+            wrapped = wrapped or wraps(row) or wraps(rows[index + len(run) + 1])
             run += [row, rows[index + len(run) + 1]]
         else:
             break
