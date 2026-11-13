@@ -72,7 +72,8 @@ class IsolatedConverter:
         self._memory_limit = memory_limit
         self._timeout = float(timeout)
         self._context = _worker_context()
-        self._pools = [self._new_pool() for _ in range(workers)]
+        self._server = os.getpid()  # the process the pools were built in, and the one their workers watch
+        self._pools =[self._new_pool() for _ in range(workers)]
         self._free: asyncio.Queue[int] = asyncio.Queue()
         for slot in range(workers):
             self._free.put_nowait(slot)
@@ -91,6 +92,13 @@ class IsolatedConverter:
         _check_arguments(filename, options)
         if self._closed:
             raise RuntimeError("This IsolatedConverter is closed.")
+        if self._server != os.getpid():
+            # The process was forked after this converter was built (gunicorn --preload). The pools carry the pid their
+            # workers watch (`_leave_with`), and that was the master's: a server killed outright left its idle worker behind
+            # for as long as the master lived. They are built again for this process (Pinned by:
+            # test_audit_runtime.py::TestConverterBuiltBeforeAFork).
+            self._pools = [self._new_pool() for _ in self._pools]
+            self._server = os.getpid()
 
         result = await self._convert_in_worker(data, filename, options)
         if describer is None or not result.images:

@@ -5,7 +5,10 @@ import asyncio
 import concurrent.futures
 import gc
 from io import BytesIO
+import os
+import subprocess
 import sys
+import time
 
 from PIL import Image, UnidentifiedImageError, features
 import pytest
@@ -259,3 +262,55 @@ class TestConverterUsedFromSuccessiveEventLoops:
 
         assert [[getattr(outcome, "text", outcome) for outcome in loop] for loop in outcomes] == [[convert(_SMALL_TEXT, "a.txt").text] * 3] * 3
         assert free == [0, 1]  # every worker came back, none twice: the limit is still two files at a time
+
+
+class TestConverterBuiltBeforeAFork:
+    """A converter built in a master process that then forks its servers (gunicorn --preload) told its workers to watch the
+    master: the pid was taken when the converter was built. A server killed outright then left its idle worker behind for as
+    long as the master lived — the leak the watch exists to prevent."""
+
+    @pytest.mark.timing
+    @pytest.mark.skipif(not hasattr(os, "fork"), reason="needs fork")
+    def test_worker_leaves_with_the_forked_server_that_uses_it_not_with_the_master(self, tmp_path):
+        script = ("import asyncio, os, signal, time\n"
+                  "from opendockit import IsolatedConverter\n"
+                  "async def serve(converter):\n"
+                  "    await converter.convert(b'hello', 'a.txt')\n"
+                  "    await asyncio.sleep(0.5)\n"   # the worker for the next file is up and idle
+                  "    print(*converter._pools[0]._processes, flush=True)\n"
+                  "    os.kill(os.getpid(), signal.SIGKILL)\n"
+                  "if __name__ == '__main__':\n"
+                  "    converter = IsolatedConverter(workers=1)\n"
+                  "    server = os.fork()\n"
+                  "    if server == 0:\n"
+                  "        asyncio.run(serve(converter))\n"
+                  "    os.waitpid(server, 0)\n"
+                  "    time.sleep(60)\n")   # the master outlives its server
+        output = tmp_path / "pids.txt"   # a file, not a pipe: an orphan would hold a pipe open and the test would hang on it
+        with output.open("w") as stdout:
+            master = subprocess.Popen([sys.executable, "-c", script], stdout=stdout, stderr=subprocess.DEVNULL,
+                                      stdin=subprocess.DEVNULL)
+        try:
+            deadline = time.monotonic() + 30
+            while not output.read_text().split() and time.monotonic() < deadline:
+                time.sleep(0.1)
+            workers = [int(pid) for pid in output.read_text().split()]
+            assert workers, "the forked server did not report its idle worker"
+
+            deadline = time.monotonic() + 10
+            while any(_exists(pid) for pid in workers) and time.monotonic() < deadline:
+                time.sleep(0.2)
+            left_behind = [pid for pid in workers if _exists(pid)]
+        finally:
+            master.kill()   # the workers of a failed run watch the master: they leave with it
+            master.wait()
+
+        assert left_behind == []
+
+
+def _exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
