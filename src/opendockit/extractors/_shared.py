@@ -20,7 +20,7 @@ from bisect import bisect_right
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, Overflow
 from io import BytesIO
 import posixpath
 import re
@@ -874,7 +874,10 @@ def _format_percent(value: str, format_code: str) -> str | None:
     decimals = sum(1 for char in fraction if char in "0#?")
     try:
         percent = (number * 100).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)
-    except InvalidOperation:  # a format with dozens of decimal places / a value with too many digits — use the raw value
+    # a format with dozens of decimal places / a value with too many digits (InvalidOperation), or a value whose exponent is at the
+    # edge of what a decimal number can hold (Overflow when multiplied) — use the raw value
+    # (Pinned by: test_audit_core.py::TestChartValueTooLargeForItsFormat)
+    except (InvalidOperation, Overflow):
         return None
     return f"{percent:,f}%" if "," in whole else f"{percent:f}%"
 

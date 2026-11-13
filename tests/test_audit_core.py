@@ -339,3 +339,23 @@ class TestChartDateCategoryPastTheLastDate:
 
         assert convert(late, "a.pptx").text.endswith("| 9999-12-31 | 1 |\n| 1904-01-01 | 2 |")
         assert convert(early, "a.pptx").text.endswith("| 9999-12-31 | 1 |\n| 2958466 | 2 |")
+
+
+class TestChartValueTooLargeForItsFormat:
+    """A chart value whose exponent is at the edge of what a decimal number can hold overflowed when it was multiplied for a percent
+    format, and so did the divisor of a format with hundreds of thousands of trailing commas. Only 'too many digits' was caught,
+    so one value got the whole presentation rejected as 'corrupted'. (A format that long is no longer applied at all —
+    `TestChartFormatWithManyOpenBrackets`.)"""
+
+    def test_huge_value_in_a_percent_format_is_left_as_written(self):
+        data = _pptx_with_number_chart(["1e999999", "0.25"], "0%")
+
+        result = convert(data, "a.pptx")
+
+        assert result.text.endswith("| 1 | 1e999999 |\n| 2 | 25% |")
+
+    def test_format_that_divides_by_thousands_past_the_number_range_is_not_applied(self):
+        assert _shared._format_units("5", "0" + "," * 400_000 + '"k"') is None
+        assert _shared._format_value("5", "0" + "," * 400_000 + '"k"') == "5"
+        assert _shared._format_units("5", "0" + "," * 251 + '"k"') == "0k"
+        assert _shared._format_units("1200000", '0,,"백만"') == "1백만"
