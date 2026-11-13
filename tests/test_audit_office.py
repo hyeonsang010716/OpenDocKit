@@ -4,6 +4,7 @@ rejected the whole document, values that came out wrong, and work that was repea
 from copy import deepcopy
 from io import BytesIO
 import re
+import time
 
 from docx import Document
 from docx.oxml.ns import qn
@@ -11,6 +12,7 @@ from docx.shared import Inches
 import pytest
 
 from opendockit import ConvertOptions, CorruptedDocumentError, convert
+from opendockit.extractors import pptx as pptx_module
 from opendockit.extractors.docx import extract_docx
 from tests import builder
 from tests.test_office import _docx_with_body
@@ -279,6 +281,57 @@ class TestOdsPercentageBeyondTheLargestNumber:
 
         assert "inf" not in text
         assert "| 7 | 25.3% | 1e+308 |" in text   # the two empty columns are dropped by the sheet rendering
+
+
+def _slide_shape(number: int, left: int, top: int, width: int, height: int, text: str) -> str:
+    return (f'<p:sp><p:nvSpPr><p:cNvPr id="{number + 100}" name="s"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm>'
+            f'<a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm></p:spPr>'
+            f"<p:txBody><a:bodyPr/><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp>")
+
+
+def _deck_with_side_labels(count: int) -> bytes:
+    """One tall box and `count` zero-width labels left of it, each lower than the one before and all vertically centred on the
+    box: every label joins the box's row as a side label."""
+    step, below = 100_000, 20_000_000   # below the shapes the slide already has
+    height = 2 * step * count + 10_000_000
+    shapes = _slide_shape(0, 5_000_000, below, 1_000_000, height, "big")
+    shapes += "".join(_slide_shape(index, 1000, below + index * step, 0, height - 2 * index * step, f"label{index}")
+                      for index in range(1, count + 1))
+    return builder.zip_with(builder.pptx_bytes(), edit={
+        "ppt/slides/slide1.xml": lambda xml: xml.replace("</p:spTree>", shapes + "</p:spTree>")})
+
+
+class TestPptxRowOfManySideLabels:
+    """Each shape that joined a row as a side label was compared with every shape already in the row, and the position of each
+    of those was resolved again (eight look-ups per shape of the row): 2,000 labels beside one box (a 79 KB deck) took 36 s.
+    The box of a row member is resolved once."""
+
+    def test_position_of_a_row_member_is_resolved_once(self, monkeypatch: pytest.MonkeyPatch):
+        calls = 0
+        resolve = pptx_module._offset
+
+        def counted(shape: object, axis: str) -> int:
+            nonlocal calls
+            calls += 1
+            return resolve(shape, axis)
+
+        monkeypatch.setattr(pptx_module, "_offset", counted)
+        count = 200
+
+        result = convert(_deck_with_side_labels(count), "sample.pptx", ConvertOptions(max_chars=None))
+
+        blocks = result.sections[0].text.split("\n\n")
+        assert blocks[-count - 1:] ==[f"label{index}" for index in range(1, count + 1)] + ["big"]
+        assert calls < 20 * (count + 10)   # it was about 4 × count²
+
+    @pytest.mark.timing
+    def test_many_side_labels_do_not_take_many_seconds(self):
+        data = _deck_with_side_labels(2000)
+
+        started = time.perf_counter()
+        convert(data, "sample.pptx", ConvertOptions(max_chars=None))
+
+        assert time.perf_counter() - started < 10.0
 
 
 class TestPptxSlideListEntryWithoutARelationship:

@@ -435,12 +435,16 @@ def _reading_order(shapes: object) -> list[object]:
     only 7.
     """
     rows: list[list[object]] = []
+    # Row member → its box, resolved the first time the member is compared with a later shape. Each comparison resolved the
+    # member's four values again, and every label that joins a row is compared with the whole row: 2,000 labels beside one box
+    # took 36 s (Pinned by: test_audit_office.py::TestPptxRowOfManySideLabels::test_position_of_a_row_member_is_resolved_once).
+    boxes: dict[int, tuple[int, int, int, int]] = {}
     anchor, after_label = 0, False  # top of the last shape seen, and whether that shape joined its row as a label
     for top, shape in sorted(((_offset(shape, "top"), shape) for shape in shapes), key=lambda item: item[0]):
-        if rows and top - anchor <= _ROW_TOLERANCE and not (after_label and _stacked_below(shape, rows[-1])):
+        if rows and top - anchor <= _ROW_TOLERANCE and not (after_label and _stacked_below(shape, rows[-1], boxes)):
             rows[-1].append(shape)
             after_label = False
-        elif rows and _beside_row(shape, rows[-1]):
+        elif rows and _beside_row(shape, rows[-1], boxes):
             rows[-1].append(shape)
             after_label = True
         else:
@@ -450,21 +454,28 @@ def _reading_order(shapes: object) -> list[object]:
     return _column_stacks([sorted(row, key=lambda shape: _offset(shape, "left")) for row in rows])
 
 
-def _stacked_below(shape: object, row: list[object]) -> bool:
+def _member_box(member: object, boxes: dict[int, tuple[int, int, int, int]]) -> tuple[int, int, int, int]:
+    """(top, left, bottom, right) of a row member, resolved once per `_reading_order` (`boxes`, keyed by the shape object)."""
+    box = boxes.get(id(member))
+    if box is None:
+        top, left = _offset(member, "top"), _offset(member, "left")
+        box = boxes[id(member)] = (top, left, top + _offset(member, "height"), left + _offset(member, "width"))
+    return box
+
+
+def _stacked_below(shape: object, row: list[object], boxes: dict[int, tuple[int, int, int, int]]) -> bool:
     """Whether `shape` overlaps some shape of the row horizontally and starts at or below that shape's bottom edge (within the
     tolerance) — it is the next row, stacked below."""
     top, left = _offset(shape, "top"), _offset(shape, "left")
     right = left + _offset(shape, "width")
     for member in row:
-        member_left = _offset(member, "left")
-        member_right = member_left + _offset(member, "width")
-        member_bottom = _offset(member, "top") + _offset(member, "height")
+        _, member_left, member_bottom, member_right = _member_box(member, boxes)
         if min(right, member_right) - max(left, member_left) > _ROW_TOLERANCE and top >= member_bottom - _ROW_TOLERANCE:
             return True
     return False
 
 
-def _beside_row(shape: object, row: list[object]) -> bool:
+def _beside_row(shape: object, row: list[object], boxes: dict[int, tuple[int, int, int, int]]) -> bool:
     """Whether `shape` is a label vertically centered to the left of a larger shape of the row: it lies within that shape's vertical
     extent, the vertical centers differ by no more than the tolerance (0.2 cm), and its right edge does not pass that shape's left edge
     (0.2 cm allowed). Not if it overlaps another shape of the row horizontally.
@@ -484,8 +495,7 @@ def _beside_row(shape: object, row: list[object]) -> bool:
     is_label = False
 
     for member in row:
-        member_top, member_left = _offset(member, "top"), _offset(member, "left")
-        member_bottom, member_right = member_top + _offset(member, "height"), member_left + _offset(member, "width")
+        member_top, member_left, member_bottom, member_right = _member_box(member, boxes)
         if min(right, member_right) - max(left, member_left) > _ROW_TOLERANCE:
             return False
         is_centered = abs((top + bottom) - (member_top + member_bottom)) <= 2 * _ROW_TOLERANCE  # compares twice the centers
