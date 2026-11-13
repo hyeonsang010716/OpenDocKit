@@ -3735,8 +3735,14 @@ def _negative_serial_text(value: float, number_format: str) -> str:
     non-existent day (1899-12-25) or a time wrapped around the day (22:30) as if it were fact. Common to XLSX, XLS and XML and to
     the 1900 and 1904 systems (Pinned by: test_spreadsheet.py::TestNegativeDateSerials)."""
     if _ELAPSED_FORMAT.search(number_format):
-        return _elapsed_text(timedelta(days=value), number_format)
-    if _shows_date(number_format):
+        try:
+            return _elapsed_text(timedelta(days=value), number_format)
+        except OverflowError:
+            # A value that does not fit in a duration (a billion days or more, or infinity) is shown as the number, as the
+            # positive one is. It rejected the whole document
+            # (Pinned by: test_audit_spreadsheet.py::TestNegativeValueTooLargeForADuration).
+            return _format_value(value)
+    if _shows_date(number_format) or math.isinf(value):
         return _format_value(value)
     seconds = round(-value * 86400)
     return f"-{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"

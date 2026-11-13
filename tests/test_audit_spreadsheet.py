@@ -439,3 +439,46 @@ class TestNumberLikeText:
     @pytest.mark.parametrize("text", ["", "-", "₩", "- ₩", "x", "- x", "₩₩1", "-+1", "$ - 1", "1 2", "12a", "a12", "1월", "( )"])
     def test_other_text_is_still_text(self, text):
         assert spreadsheet._NUMBER_LIKE.fullmatch(text) is None
+
+
+class TestNegativeValueTooLargeForADuration:
+    """A negative value under an elapsed-time format that does not fit in a duration (a billion days or more) raised
+    OverflowError and the whole document was rejected. The positive value was already shown as the number."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (-1e12, "[h]:mm", "-1000000000000"), (1e12, "[h]:mm", "1000000000000"), (-1e12, "[ss]", "-1000000000000"),
+        (-0.5, "[h]:mm", "-12:00"), (-1e12, "h:mm", "-24000000000000:00:00"),
+        (float("-inf"), "[h]:mm", "-inf"), (float("-inf"), "h:mm", "-inf"), (float("-inf"), "yyyy-mm-dd", "-inf"),
+    ])
+    def test_format_cell(self, value, number_format, expected):
+        assert spreadsheet.format_cell(value, number_format) == expected
+
+    def test_xlsx(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["name", "hours"])
+        sheet.append(["a", -1e12])
+        sheet.append(["b", 1.5])
+        sheet["B2"].number_format = sheet["B3"].number_format = "[h]:mm"
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| name | hours |\n| --- | --- |\n| a | -1000000000000 |\n| b | 36:00 |"
+
+    def test_xls(self):
+        import xlrd
+
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_DATE, -1234567890.0)
+
+        assert spreadsheet.format_cell(spreadsheet._xls_value(cell, 0, "[h]:mm"), "[h]:mm") == "-1234567890"
+
+    def test_xml_spreadsheet(self):
+        styles = '<Style ss:ID="s0"><NumberFormat ss:Format="[h]:mm"/></Style>'
+        rows = ("<Row>" + _xml_cell("name") + _xml_cell("hours") + "</Row>"
+                "<Row>" + _xml_cell("a") + _xml_cell(-1e12, "Number", 'ss:StyleID="s0"') + "</Row>")
+
+        result = convert(_xml_workbook(rows, styles), "a.xml")
+
+        assert result.text == "## Sheet: s\n\n| name | hours |\n| --- | --- |\n| a | -1000000000000 |"
