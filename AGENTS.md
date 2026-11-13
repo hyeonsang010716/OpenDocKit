@@ -25,7 +25,7 @@ document that justifies it.
 - [docs/decisions/extractors.md](docs/decisions/extractors.md) — rules shared by all extractors
 - [docs/decisions/](docs/decisions/) — one file per topic (`pdf*.md`, `office*.md`, `spreadsheet*.md`, `hwp.md`,
   `html.md`, `mail.md`, `csv.md`, `encoding.md`, `detect.md`, `images.md`, `odf.md`, `rtf.md`, `epub.md`,
-  `legacy-office.md`, `inline-formatting.md`)
+  `legacy-office.md`, `inline-formatting.md`, `integrations.md`)
 
 ## Rules
 

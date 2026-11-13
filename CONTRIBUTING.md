@@ -112,6 +112,8 @@ character limit belong to `converter.py`. The details are in [docs/decisions/cor
 5. Document it in `docs/formats.md`, `docs/limitations.md`, `docs/integration-guide.md`, `docs/images.md`, the option and
    error tables of `docs/options.md`, the README table and the `pyproject.toml` keywords.
 
+A new format works in the integrations (`docs/integrations.md`) without any change: they read sections, not formats.
+
 The README has Korean and Simplified Chinese translations (`README.ko.md`, `README.zh-CN.md`). Change all three
 together; a test compares their code, links, figures and structure. Everything else stays in English.
 

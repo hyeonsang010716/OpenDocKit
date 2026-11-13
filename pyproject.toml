@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opendockit"
-version = "0.2.0"
+version = "0.3.0"
 description = "Convert PDF, Office, HWP/HWPX, OpenDocument, RTF, EPUB, HTML, email and images into clean, LLM-ready Markdown."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
 authors = [{ name = "OpenDocKit contributors" }]
-keywords = ["markdown", "pdf", "docx", "pptx", "xlsx", "hwp", "hwpx", "odt", "ods", "odp", "opendocument", "rtf", "epub", "doc", "ppt", "html", "email", "llm", "rag", "document-conversion"]
+keywords = ["markdown", "pdf", "docx", "pptx", "xlsx", "hwp", "hwpx", "odt", "ods", "odp", "opendocument", "rtf", "epub", "doc", "ppt", "html", "email", "llm", "rag", "langchain", "llama-index", "mcp", "document-conversion"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -55,8 +55,21 @@ openai = [
     "langchain-openai>=1.0",
 ]
 
+# Adapters for other frameworks (`opendockit.integrations`). None of them is needed to convert documents.
+langchain = [
+    "langchain-core>=1.0",
+]
+llamaindex = [
+    "llama-index-core>=0.14",
+]
+# The `opendockit-mcp` server. 2.0 renamed the server class the module is written against.
+mcp = [
+    "mcp>=2.0",
+]
+
 [project.scripts]
 opendockit = "opendockit.cli:main"
+opendockit-mcp = "opendockit.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/hyeonsang010716/OpenDocKit"
@@ -66,7 +79,7 @@ Changelog = "https://github.com/hyeonsang010716/OpenDocKit/blob/main/CHANGELOG.m
 
 [dependency-groups]
 dev = [
-    "opendockit[heic,openai]",
+    "opendockit[heic,openai,langchain,llamaindex,mcp]",
     "pytest>=8.3",
     "pytest-xdist>=3.6",
     "reportlab>=4.2",

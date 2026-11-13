@@ -58,6 +58,9 @@ result.warnings    # 건너뛰었거나 근사 처리한 내용을 평이한 문
 pip install opendockit                # 변환만 — 네트워크를 전혀 사용하지 않음
 pip install "opendockit[openai]"      # + 비전 모델로 이미지 설명
 pip install "opendockit[heic]"        # + HEIC/HEIF 이미지 (GPL/LGPL 라이선스 코덱 라이브러리가 함께 설치됨)
+pip install "opendockit[langchain]"   # + LangChain 로더
+pip install "opendockit[llamaindex]"  # + LlamaIndex 리더
+pip install "opendockit[mcp]"         # + 에이전트용 MCP 서버
 ```
 
 Linux 또는 macOS에서 Python 3.12 이상이 필요합니다. Windows에서는 HTML, 이메일, EPUB를 아직 지원하지 않습니다
@@ -121,6 +124,23 @@ opendockit report.pdf --count         # 글자 수만
 opendockit scan.pdf --describe        # 비전 모델로 이미지 설명 (OPENAI_API_KEY 사용)
 ```
 
+### LangChain, LlamaIndex, MCP
+
+```python
+from opendockit.integrations.langchain import OpenDocKitLoader
+from opendockit.integrations.llama_index import OpenDocKitReader
+
+docs = OpenDocKitLoader("report.hwp", mode="sections").load()       # 페이지 / 슬라이드 / 시트마다 Document 하나
+docs = OpenDocKitReader(mode="sections").load_data("report.hwp")
+```
+
+```bash
+opendockit-mcp --root ~/Documents     # MCP 서버: Claude, Cursor 등의 에이전트가 내 문서를 Markdown으로 읽음
+```
+
+조각마다 페이지, 슬라이드, 시트 번호가 메타데이터에 들어 있어 출처 표기에 쓸 수 있습니다.
+[docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md)를 참고하세요.
+
 ## 지원 형식
 
 | 형식 | 섹션 단위 | 주요 기능 |
@@ -179,6 +199,7 @@ OpenDocKit이 그 문서에서 만들어 낸 Markdown이 비전 모델을 쓴 �
 | [옵션](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`, 예외, 오류 코드 |
 | [이미지](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | 추출, 필터링, 비전 모델, 직접 만드는 설명기 |
 | [서버에서 실행하기](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`, 자원 제한, 글자 수 예산 |
+| [연동](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, MCP 서버 |
 | [연동 가이드](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | 업로드 화면에서 사용자에게 알려야 할 것 |
 | [설계](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | 왜 이렇게 만들었고 어떻게 검증했는지 |
 | [한계](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | 알려진 한계를 있는 그대로 |

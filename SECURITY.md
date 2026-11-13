@@ -32,6 +32,10 @@ drawing operations), but a parser library can always surprise you. When the file
 conversions through `IsolatedConverter`, which gives every file its own worker process with a memory and time limit.
 See [docs/server.md](docs/server.md).
 
+The MCP server (`opendockit-mcp`) reads files from the machine it runs on, for the agent connected to it. Start it with
+`--root` so that it can read only the folders the agent is meant to see: an agent that reads untrusted text can be
+talked into asking for other files.
+
 Legacy `.doc` and `.ppt` files are converted by LibreOffice, started as a local process when it is installed. Macros,
 linked content and network access are switched off through its settings, but that is configuration, not a sandbox:
 when such files come from the public, run conversions in a container without network access and keep LibreOffice

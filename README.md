@@ -57,6 +57,9 @@ Most converters handle the happy path. OpenDocKit is built for the files people 
 pip install opendockit                # conversion only — never touches the network
 pip install "opendockit[openai]"      # + image description with a vision model
 pip install "opendockit[heic]"        # + HEIC/HEIF images (pulls in GPL/LGPL-licensed codec libraries)
+pip install "opendockit[langchain]"   # + LangChain loader
+pip install "opendockit[llamaindex]"  # + LlamaIndex reader
+pip install "opendockit[mcp]"         # + MCP server for agents
 ```
 
 Requires Python 3.12 or newer on Linux or macOS. Windows is not supported yet for HTML, email and EPUB
@@ -119,6 +122,22 @@ opendockit report.pdf --count         # just the character count
 opendockit scan.pdf --describe        # describe images with a vision model (uses OPENAI_API_KEY)
 ```
 
+### LangChain, LlamaIndex and MCP
+
+```python
+from opendockit.integrations.langchain import OpenDocKitLoader
+from opendockit.integrations.llama_index import OpenDocKitReader
+
+docs = OpenDocKitLoader("report.hwp", mode="sections").load()       # one Document per page / slide / sheet
+docs = OpenDocKitReader(mode="sections").load_data("report.hwp")
+```
+
+```bash
+opendockit-mcp --root ~/Documents     # MCP server: Claude, Cursor and other agents read your documents as Markdown
+```
+
+Every piece carries its page, slide or sheet number in the metadata, for citations. See [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md).
+
 ## Supported formats
 
 | Format | Sections | Highlights |
@@ -173,6 +192,7 @@ without a vision model — so you can judge the output before installing anythin
 | [Options](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`, exceptions and error codes |
 | [Images](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | Extraction, filtering, vision models, custom describers |
 | [Running on a server](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`, resource limits, the character budget |
+| [Integrations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex and the MCP server |
 | [Integration guide](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | What an upload UI should tell its users |
 | [Design](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | Why it is built this way, and how it was verified |
 | [Limitations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | Known gaps, stated plainly |

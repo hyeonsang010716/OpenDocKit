@@ -10,6 +10,8 @@ src/opendockit/
 ├── cli.py           # command line: opendockit <file> [--json] [--describe]
 ├── converter.py     # size check → detect → extractor → clean_text → image filtering → render (fill placeholders, assembly, character count, limit verdict)
 ├── isolated.py      # isolated conversion for servers (IsolatedConverter): a new worker process per file, memory and time limits, a crash fails only that file
+├── integrations/    # adapters behind extras: LangChain loader/parser, LlamaIndex reader (decisions in integrations.md). Imported by nothing else
+├── mcp_server.py    # the `opendockit-mcp` server (extra `mcp`): convert_document, document_outline
 ├── image.py         # image decoding, downscaling, PNG/JPEG re-encoding, image-file magic bytes
 ├── describe.py      # vision-model descriptions (LangChain ChatOpenAI). The only module that uses the network
 ├── detect.py        # magic-byte detection. The extension is used only to tell the text family apart (TXT, MD, CSV, HTML) (decisions in detect.md)
