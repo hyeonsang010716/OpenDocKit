@@ -60,3 +60,37 @@ class TestHugeCssLengthInATableCell:
         result = convert(html.encode(), "a.html")
 
         assert result.text == "| name | value |\n| --- | --- |\n| outer | 2 |\n| └ inner | 1 |\n| └─ innermost | 1 |"
+
+
+def _mhtml(page: str, *, location: str = "http://site.example/a.html") -> bytes:
+    """A saved web page with a second text/html part (a frame) and a picture part."""
+    picture = base64.b64encode(png_bytes()).decode()
+    return ("MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary=b\r\n\r\n"
+            f"--b\r\nContent-Type: text/html\r\nContent-Location: {location}\r\n\r\n{page}\r\n"
+            "--b\r\nContent-Type: text/html\r\nContent-Location: http://site.example/frame.html\r\n\r\n<p>frame</p>\r\n"
+            "--b\r\nContent-Type: image/png\r\nContent-Transfer-Encoding: base64\r\n"
+            f"Content-Location: http://site.example/logo.png\r\n\r\n{picture}\r\n--b--\r\n").encode()
+
+
+class TestAddressThatCannotBeResolvedInMhtml:
+    """`urljoin` raises ValueError ('Invalid IPv6 URL') on an address with an unclosed `[`, so one `src` (or the location of the
+    page itself) rejected the whole saved page."""
+
+    @pytest.mark.parametrize("tag", ["img", "iframe", "frame"])
+    def test_page_is_read(self, tag):
+        result = convert(_mhtml(f'<p>body text</p><{tag} src="//[bad">'), "a.mht")
+
+        assert result.text == "body text"
+        assert result.images == []
+
+    def test_page_whose_own_location_cannot_be_parsed_is_read(self):
+        result = convert(_mhtml('<p>body text</p><img src="logo.png"><iframe src="frame.html"></iframe>', location="http://[bad/a.html"),
+                         "a.mht")
+
+        assert result.text == "body text"
+
+    def test_picture_and_frame_with_a_relative_address_are_still_found(self):
+        result = convert(_mhtml('<p>t</p><img src="logo.png"><iframe src="frame.html"></iframe>'), "a.mht")
+
+        assert len(result.images) == 1
+        assert any("inside a frame" in warning for warning in result.warnings)

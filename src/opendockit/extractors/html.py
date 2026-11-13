@@ -525,7 +525,7 @@ def _unread_frame_warning(message: Message, page: str) -> str | None:
         soup = BeautifulSoup(page, "lxml")
     sources = [str(frame.get("src") or "").strip() for frame in soup.find_all(["iframe", "frame"])]
     found = {id(part): part for source in sources if source
-             and (part := frames.get(source) or frames.get(urljoin(base, source))) is not None}
+             and (part := frames.get(source) or frames.get(_resolved(base, source))) is not None}
     if not found:
         return None
     own = _visible_length(page)
@@ -626,11 +626,21 @@ def _mhtml_pictures(message: Message) -> Callable[[str], bytes | None]:
             parts.setdefault(location, part)
 
     def find(source: str) -> bytes | None:
-        part = parts.get(source) or (parts.get(urljoin(base, source)) if base else None)
+        part = parts.get(source) or (parts.get(_resolved(base, source)) if base else None)
         payload = part.get_payload(decode=True) if part is not None else None
         return payload if isinstance(payload, bytes) and payload else None
 
     return find
+
+
+def _resolved(base: str, source: str) -> str:
+    """`source` resolved against `base` (`urljoin`), or `source` as written when either cannot be parsed as an address.
+    `urljoin` raises ValueError on an unclosed `[` (`//[bad`, 'Invalid IPv6 URL'), and one `src` of a saved page rejected the
+    whole document (Pinned by: test_audit_html_text.py::TestAddressThatCannotBeResolvedInMhtml)."""
+    try:
+        return urljoin(base, source)
+    except ValueError:
+        return source
 
 
 def _declared_charset(data: bytes) -> str | None:
