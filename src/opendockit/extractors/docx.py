@@ -499,10 +499,13 @@ class _DocxRenderer:
         # (row, column, column span, whether it is a continuation cell, tc)
         cells: list[tuple[int, int, int, bool, etree._Element]] = []
         for row_index, row in enumerate(_children(table, _w("tr"))):
-            col = _int_attr(row.find(f"{_w('trPr')}/{_w('gridBefore')}"), 0)
+            # A span below 1 and a negative number of skipped columns are not used as they are: gridSpan="0" put the next cell on
+            # the same column (its text was lost) and a negative value moved cells to the left of their row
+            # (Pinned by: test_audit_office.py::TestDocxGridSpanBelowOne).
+            col = max(_int_attr(row.find(f"{_w('trPr')}/{_w('gridBefore')}"), 0), 0)
             for cell in _children(row, _w("tc")):
                 properties = cell.find(_w("tcPr"))
-                span = _int_attr(properties.find(_w("gridSpan")) if properties is not None else None, 1)
+                span = max(_int_attr(properties.find(_w("gridSpan")) if properties is not None else None, 1), 1)
                 # A continuation cell of the legacy horizontal merge (w:hMerge) is added to the column span of the cell before it.
                 # Kept separate, the merge became an empty cell (Pinned by:
                 # test_office.py::TestDocxStruckDeletedAndSymbolRuns::test_legacy_horizontal_merge_extends_the_starting_cell).

@@ -234,6 +234,34 @@ class TestDocxFootnoteNobodyReferences:
         assert len(extraction.images) == 1
 
 
+class TestDocxGridSpanBelowOne:
+    """`w:gridSpan` and `w:gridBefore` were read as signed numbers and used as they were: a span of 0 put the next cell on the
+    same column (its text was lost) and a negative one moved the next cell to the left of its row."""
+
+    @staticmethod
+    def _cell(text: str, properties: str = "") -> str:
+        return f"<w:tc><w:tcPr>{properties}</w:tcPr><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:tc>"
+
+    @pytest.mark.parametrize("span", ["0", "-5"])
+    def test_span_below_one_is_one_column(self, span):
+        table = (f'<w:tbl><w:tr>{self._cell("a", f"""<w:gridSpan w:val="{span}"/>""")}{self._cell("b")}</w:tr>'
+                 f'<w:tr>{self._cell("c")}{self._cell("d")}</w:tr></w:tbl>')
+
+        assert _docx(table) == "| a | b |\n| --- | --- |\n| c | d |"
+
+    def test_negative_grid_before_skips_no_column(self):
+        table = (f'<w:tbl><w:tr><w:trPr><w:gridBefore w:val="-1"/></w:trPr>{self._cell("a")}{self._cell("b")}</w:tr>'
+                 f'<w:tr>{self._cell("c")}{self._cell("d")}</w:tr></w:tbl>')
+
+        assert _docx(table) == "| a | b |\n| --- | --- |\n| c | d |"
+
+    def test_grid_before_still_skips_columns(self):
+        table = (f'<w:tbl><w:tr>{self._cell("a")}{self._cell("b")}</w:tr>'
+                 f'<w:tr><w:trPr><w:gridBefore w:val="1"/></w:trPr>{self._cell("d")}</w:tr></w:tbl>')
+
+        assert _docx(table) == "| a | b |\n| --- | --- |\n| | d |"
+
+
 class TestPptxSlideListEntryWithoutARelationship:
     """A slide list entry without `r:id` raised InvalidXmlError, which was not among the errors that skip one slide, so the whole
     deck was rejected. A main part whose root is not `p:presentation` gets the fixed structure error."""
