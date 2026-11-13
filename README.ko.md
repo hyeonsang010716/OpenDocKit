@@ -1,8 +1,9 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/logo.png" alt="OpenDocKit" width="180">
-</p>
-
-<h1 align="center">OpenDocKit</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/logo-dark.png">
+    <img src="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/logo-light.png" alt="OpenDocKit" width="380">
+  </picture>
+</h1>
 
 <p align="center">
   <b>어떤 문서든 LLM에 바로 넣을 수 있는 깔끔한 Markdown으로.</b><br>
@@ -23,6 +24,13 @@
 </p>
 
 ---
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/demo-dark.gif">
+    <img src="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/demo-light.gif" alt="한글 보고서, 엑셀 시트, PDF 페이지가 Markdown으로 바뀌는 모습: 병합 셀은 행마다 반복되고, 숫자는 시트에 보이는 대로 옮겨지며, 테두리 없는 표도 표로 인식됩니다" width="880">
+  </picture>
+</p>
 
 ```python
 from opendockit import convert_file

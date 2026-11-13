@@ -1,8 +1,9 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/logo.png" alt="OpenDocKit" width="180">
-</p>
-
-<h1 align="center">OpenDocKit</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/logo-dark.png">
+    <img src="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/logo-light.png" alt="OpenDocKit" width="380">
+  </picture>
+</h1>
 
 <p align="center">
   <b>把任何文档转换成干净、可直接交给 LLM 的 Markdown。</b><br>
@@ -23,6 +24,13 @@
 </p>
 
 ---
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/demo-dark.gif">
+    <img src="https://raw.githubusercontent.com/hyeonsang010716/OpenDocKit/main/docs/assets/demo-light.gif" alt="韩文 HWP 报告、Excel 工作表和 PDF 页面被转换成 Markdown：合并单元格在每一行重复，数字按工作表中显示的样子输出，没有边框的表格仍被识别为表格" width="880">
+  </picture>
+</p>
 
 ```python
 from opendockit import convert_file
