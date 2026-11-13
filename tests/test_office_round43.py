@@ -12,6 +12,7 @@ from openpyxl.drawing.image import Image
 import pytest
 
 from opendockit import ConvertOptions, convert
+from opendockit.extractors import xls
 from tests import builder
 
 
@@ -163,11 +164,10 @@ class TestXlsChartSheetSavedAsAWorksheet:
     treated as a chart sheet, so that sheet was dropped without a warning."""
 
     def test_empty_sheet_holding_only_a_chart_is_reported_like_a_chart_sheet(self):
-        from opendockit.extractors import spreadsheet
 
         data = builder.xls_bytes([("데이터", [["월", "매출"]], b""), ("차트1", [[]], _embedded_chart())])
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert extraction.warnings == ["Chart sheet '차트1' was not read "
                                        "(XLS charts are not converted to value tables — saving as XLSX converts them)."]
@@ -176,10 +176,9 @@ class TestXlsChartSheetSavedAsAWorksheet:
     def test_chart_placed_next_to_a_table_is_left_as_before(self):
         """An XLS chart on a sheet that has a table gives no warning, as before (Known accepted gap: XLS charts are not
         converted)."""
-        from opendockit.extractors import spreadsheet
 
         data = builder.xls_bytes([("데이터", [["월", "매출"]], _embedded_chart())])
 
-        extraction = spreadsheet.extract_xls(data, ConvertOptions())
+        extraction = xls.extract_xls(data, ConvertOptions())
 
         assert extraction.warnings == []

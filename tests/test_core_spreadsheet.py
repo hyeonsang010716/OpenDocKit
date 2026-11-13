@@ -10,7 +10,8 @@ import openpyxl
 import pytest
 
 from opendockit import ConvertOptions, convert
-from opendockit.extractors.spreadsheet import extract_xls, format_cell
+from opendockit.extractors._sheet_format import format_cell
+from opendockit.extractors.xls import extract_xls
 from tests import builder
 
 

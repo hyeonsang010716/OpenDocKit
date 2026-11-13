@@ -287,7 +287,7 @@ def _detect_ole(data: bytes) -> DocumentFormat:
     # OLE stream names are case-insensitive (olefile, xlrd and Excel alike). An XLS saved with `WORKBOOK` was rejected as an "unsupported
     # OLE document" (Pinned by: test_detect.py::TestXlsStreamNameCase), and a password-protected docx saved with `ENCRYPTEDPACKAGE` got
     # the same rejection instead of the password notice (Pinned by: test_detect.py::TestOleStreamNameCaseForOtherDocuments). So Office
-    # stream names are compared in lowercase. The reading side (`spreadsheet._xls_workbook_stream`) is case-insensitive too. For HWP the
+    # stream names are compared in lowercase. The reading side (`xls._xls_workbook_stream`) is case-insensitive too. For HWP the
     # extractor (`hwp.py`) looks up `BodyText` by exactly that name, so detection leaves it as is.
     if "FileHeader" in streams and ("BodyText" in streams or "ViewText" in streams):
         return DocumentFormat.HWP

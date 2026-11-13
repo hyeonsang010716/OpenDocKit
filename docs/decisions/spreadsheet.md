@@ -1,6 +1,6 @@
 # Spreadsheet decisions
 
-Deliberate decisions of the Excel and CSV extractor (`spreadsheet.py`). Split off from [extractors.md](extractors.md); the rule is the same:
+Deliberate decisions of the Excel and CSV extractors (`spreadsheet.py` for XLSX, `xls.py`, `xml_spreadsheet.py`, `csv_text.py`; number formats in `_sheet_format.py`, rows → tables in `_sheet_layout.py`). Split off from [extractors.md](extractors.md); the rule is the same:
 do not revert the decisions in this table. To change one, change its pinning test first and write the reason in the same row.
 The decisions about CSV delimiters, quotes and line verdicts (`extract_csv`) are kept separately in [csv.md](csv.md). Decisions shared by CSV and Excel, such as value formatting, are in this file; splitting tables within a sheet, table title rows and filling horizontal merges are in [spreadsheet-tables.md](spreadsheet-tables.md).
 Cell values that do not fit the format, pictures in cells, form controls, SmartArt on sheets and default-password XLS are in [spreadsheet-cells.md](spreadsheet-cells.md).

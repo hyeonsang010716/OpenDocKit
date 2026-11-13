@@ -18,7 +18,8 @@ from openpyxl.comments import Comment
 import pytest
 
 from opendockit import convert
-from opendockit.extractors.spreadsheet import extract_xls, format_cell
+from opendockit.extractors._sheet_format import format_cell
+from opendockit.extractors.xls import extract_xls
 from opendockit.models import ConvertOptions
 from tests import builder
 from tests.test_spreadsheet import _anchor, _xlsx_with_drawing

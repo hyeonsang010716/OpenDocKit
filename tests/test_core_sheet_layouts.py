@@ -7,7 +7,7 @@ from io import BytesIO
 import openpyxl
 
 from opendockit import ConvertOptions, convert
-from opendockit.extractors.spreadsheet import extract_xls
+from opendockit.extractors.xls import extract_xls
 from tests import builder
 
 

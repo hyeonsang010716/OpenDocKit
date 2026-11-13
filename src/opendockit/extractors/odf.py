@@ -45,7 +45,7 @@ from opendockit.extractors._package import decimal_int
 # (private names, nothing edited there) so that an ODS sheet and the XLSX it was saved from come out the same — an exception to the
 # dependency direction, like DOCX altChunk → html (docs/decisions/odf.md.
 # Pinned by: test_odf.py::TestSpreadsheet::test_two_tables_on_one_sheet_are_split_like_xlsx).
-from opendockit.extractors.spreadsheet import _append_sheet, _collect_rows, _warn_once
+from opendockit.extractors._sheet_layout import _append_sheet, _collect_rows, _warn_once
 from opendockit.markdown import TableGrid, join_blocks, merged_copy, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -997,7 +997,7 @@ class _Renderer:
     def sheet_rows(self, table: etree._Element, name: str,
                    across: dict[int, list[tuple[int, int, str]]]) -> Iterator[tuple[str, ...]]:
         """Rows of a sheet as the spreadsheet helpers take them (`_collect_rows`): one tuple of displayed cell text per row, `()`
-        for a gap of empty rows. Works like `spreadsheet._xml_sheet_rows`: a vertical merge is repeated in the rows below that have
+        for a gap of empty rows. Works like `xml_spreadsheet._xml_sheet_rows`: a vertical merge is repeated in the rows below that have
         content, and a horizontal merge in a row that has text to its left is reported in `across` (index of the yielded row →
         (first column, end column, value)) to be filled after the tables are split.
 

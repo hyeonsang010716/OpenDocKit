@@ -314,7 +314,7 @@ def _format_date(value: str, format_code: str, date1904: bool) -> str | None:
         return f"{moment.date().isoformat()} {time}"
 
     # A format that shows no day (d) or weekday (aaa) gives `YYYY-MM`, and `YYYY` when there is no month either. Appending a day 1
-    # that is not there made it read as a value known to the day — the same rule as Excel cell dates (`spreadsheet._date_text`)
+    # that is not there made it read as a value known to the day — the same rule as Excel cell dates (`_sheet_format._date_text`)
     # (Pinned by: test_office.py::TestChartAxes::test_date_categories_are_shown_as_dates).
     if letters & {"d", "a"}:
         return moment.date().isoformat()
@@ -455,7 +455,7 @@ def _format_units(value: str, format_code: str) -> str | None:
     in Excel.
     Deliberate: when the second section has no literal showing that the value is negative (its literals equal the first section's
     or the section is empty — `#,##0"억원";[Red]#,##0"억원"`), `-` is added. Colors are discarded, so -300 went out as `300억원` and a
-    loss read as a profit — the same rule as Excel cells (`spreadsheet._format_section`)
+    loss read as a profit — the same rule as Excel cells (`_sheet_format._format_section`)
     (Pinned by: test_office_chart_units_and_ole.py::TestChartNegativeSectionWithoutSign).
     """
     if len(format_code) > _MAX_FORMAT_CHARS:

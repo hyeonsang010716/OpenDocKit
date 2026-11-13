@@ -573,7 +573,7 @@ class TestSpreadsheetNumberFormats:
         ],
     )
     def test_formats_numbers_like_excel(self, value, number_format, expected):
-        from opendockit.extractors.spreadsheet import format_cell
+        from opendockit.extractors._sheet_format import format_cell
 
         assert format_cell(value, number_format) == expected
 

@@ -1,6 +1,6 @@
 # Spreadsheet cell decisions
 
-Decisions of the Excel extractor (`spreadsheet.py`) about interpreting cell values, pictures in cells, form controls, default-password XLS, cell comments, the cell of a floating picture and time formats. Split off from [spreadsheet.md](spreadsheet.md);
+Decisions of the Excel extractors (`spreadsheet.py`, `xls.py`, `xml_spreadsheet.py`, `_sheet_format.py`) about interpreting cell values, pictures in cells, form controls, default-password XLS, cell comments, the cell of a floating picture and time formats. Split off from [spreadsheet.md](spreadsheet.md);
 the rule is the same: do not revert the decisions in this table. To change one, change its pinning test first and write the reason in the same row.
 The pinning tests are all in `test_spreadsheet_cell_values_and_controls.py` (a file name is given only for other files).
 
