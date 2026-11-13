@@ -130,15 +130,15 @@ opendockit scan.pdf --describe        # 비전 모델로 이미지 설명 (OPENA
 from opendockit.integrations.langchain import OpenDocKitLoader
 from opendockit.integrations.llama_index import OpenDocKitReader
 
-docs = OpenDocKitLoader("report.hwp", mode="sections").load()       # 페이지 / 슬라이드 / 시트마다 Document 하나
-docs = OpenDocKitReader(mode="sections").load_data("report.hwp")
+docs = OpenDocKitLoader("report.pdf", mode="sections").load()       # 페이지 / 슬라이드 / 시트마다 Document 하나
+docs = OpenDocKitReader(mode="sections").load_data("report.pdf")
 ```
 
 ```bash
 opendockit-mcp --root ~/Documents     # MCP 서버: Claude, Cursor 등의 에이전트가 내 문서를 Markdown으로 읽음
 ```
 
-조각마다 페이지, 슬라이드, 시트 번호가 메타데이터에 들어 있어 출처 표기에 쓸 수 있습니다.
+`mode="sections"`를 주면 페이지, 슬라이드, 시트가 각각 하나의 Document가 되고, 그 번호가 메타데이터에 들어 있어 출처 표기에 쓸 수 있습니다.
 [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md)를 참고하세요.
 
 ## 지원 형식

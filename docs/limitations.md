@@ -21,7 +21,8 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **LangChain, LlamaIndex and the MCP server convert offline.** Pictures and scanned pages stay placeholders; to have them
   described, convert with a describer yourself ([integrations.md](integrations.md)).
 - **The MCP server** speaks stdio only, and on Windows it converts without the worker process that limits memory and time
-  on Linux and macOS. Without `--root` it reads any file its user can read.
+  on Linux and macOS. Without `--root` it reads any file its user can read. In `sections` mode a page, sheet or slide
+  without text is left out, so section numbers can have gaps.
 
 ## General
 

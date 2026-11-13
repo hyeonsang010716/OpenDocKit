@@ -15,7 +15,9 @@ from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 import multiprocessing
 from multiprocessing.context import BaseContext
+import os
 import threading
+import time
 from typing import TYPE_CHECKING
 
 
@@ -37,6 +39,9 @@ TOO_COMPLEX_MESSAGE = "The document is too large or too complex to convert."
 _DEFAULT_MEMORY_LIMIT = 2 * 1024**3
 _DEFAULT_TIMEOUT = 120.0
 
+
+# How often a worker looks whether its server is still there (`_leave_with`).
+_SERVER_WATCH_SECONDS = 1.0
 
 class IsolatedConverter:
     """Run `convert` in a worker process so one file's runaway memory or time does not spread to the server.
@@ -129,8 +134,8 @@ class IsolatedConverter:
             self._pools[slot] = self._new_pool()
 
     def _new_pool(self) -> ProcessPoolExecutor:
-        return ProcessPoolExecutor(max_workers=1, mp_context=self._context, initializer=_limit_memory,
-                                   initargs=(self._memory_limit,), max_tasks_per_child=1)
+        return ProcessPoolExecutor(max_workers=1, mp_context=self._context, initializer=_start_worker,
+                                   initargs=(self._memory_limit, os.getpid()), max_tasks_per_child=1)
 
 
 def _worker_context() -> BaseContext:
@@ -188,6 +193,31 @@ def _shut_down(pool: ProcessPoolExecutor, processes: dict | None) -> None:
         pool.shutdown(wait=True, cancel_futures=True)
     finally:
         finished.set()
+
+
+def _start_worker(limit: int | None, server: int) -> None:
+    """Runs when a worker starts."""
+    _limit_memory(limit)
+    if os.name == "posix":   # elsewhere `os.kill(pid, 0)` is not a harmless question
+        threading.Thread(target=_leave_with, args=(server,), daemon=True, name="opendockit-server-watch").start()
+
+
+def _leave_with(server: int) -> None:
+    """Ends this worker once the server process is gone.
+
+    A worker waits for work on a queue. When the server is killed outright (SIGKILL, the out-of-memory killer, a supervisor
+    that does not wait) nothing closes that queue, so the idle worker waited for ever — and it holds the pipes that keep
+    multiprocessing's fork server and resource tracker alive, so all three stayed behind for every server that died
+    (Pinned by: test_isolated.py::TestIsolatedConverter::test_worker_does_not_outlive_a_server_that_was_killed).
+    """
+    while True:
+        time.sleep(_SERVER_WATCH_SECONDS)
+        try:
+            os.kill(server, 0)
+        except ProcessLookupError:
+            os._exit(0)
+        except OSError:   # the pid exists but belongs to someone else now: the server is gone all the same
+            os._exit(0)
 
 
 def _limit_memory(limit: int | None) -> None:

@@ -127,15 +127,15 @@ opendockit scan.pdf --describe        # 用视觉模型描述图片（使用 OPE
 from opendockit.integrations.langchain import OpenDocKitLoader
 from opendockit.integrations.llama_index import OpenDocKitReader
 
-docs = OpenDocKitLoader("report.hwp", mode="sections").load()       # 每页 / 每张幻灯片 / 每个工作表一个 Document
-docs = OpenDocKitReader(mode="sections").load_data("report.hwp")
+docs = OpenDocKitLoader("report.pdf", mode="sections").load()       # 每页 / 每张幻灯片 / 每个工作表一个 Document
+docs = OpenDocKitReader(mode="sections").load_data("report.pdf")
 ```
 
 ```bash
 opendockit-mcp --root ~/Documents     # MCP 服务器：让 Claude、Cursor 等智能体把你的文档读成 Markdown
 ```
 
-每一段的元数据中都带有页码、幻灯片或工作表的编号，可用于标注出处。
+使用 `mode="sections"` 时，每一页、每张幻灯片或每个工作表各成为一个 Document，其编号保存在元数据中，可用于标注出处。
 详见 [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md)。
 
 ## 支持的格式

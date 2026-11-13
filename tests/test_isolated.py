@@ -192,6 +192,39 @@ class TestIsolatedConverter:
 
         assert elapsed < 10 and not manager.is_alive()
 
+    def test_worker_does_not_outlive_a_server_that_was_killed(self, tmp_path):
+        """A server process converts one file and is then killed outright (SIGKILL: no `finally`, no `aclose`) while its worker
+        idles. The idle worker waited on its queue for ever, and it holds the pipes that keep multiprocessing's fork server
+        and resource tracker alive: three processes stayed behind for every server that died. The worker now watches for
+        its server and leaves, and the other two follow."""
+        import subprocess
+
+        script = ("import asyncio, os, signal\n"
+                  "import multiprocessing.forkserver as forkserver\n"
+                  "from opendockit import IsolatedConverter\n"
+                  "async def main():\n"
+                  "    converter = IsolatedConverter(workers=1)\n"
+                  "    await converter.convert(b'hello', 'a.txt')\n"
+                  "    print(forkserver._forkserver._forkserver_pid, flush=True)\n"
+                  "    await asyncio.sleep(0.5)\n"
+                  "    os.kill(os.getpid(), signal.SIGKILL)\n"
+                  "if __name__ == '__main__':\n"
+                  "    asyncio.run(main())\n")
+        output = tmp_path / "pid.txt"   # a file, not a pipe: the orphans would hold a pipe open and the test would hang on it
+        with output.open("w") as stdout:
+            subprocess.run([sys.executable, "-c", script], stdout=stdout, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, check=False)
+        helper = int(output.read_text().split()[0])
+
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            try:
+                os.kill(helper, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.2)
+        os.kill(helper, signal.SIGKILL)   # do not leave it behind when the test fails
+        pytest.fail("the fork server of a killed server process was still running after 15 seconds")
+
     def test_closed_converter_refuses_new_files(self):
         async def scenario():
             converter = IsolatedConverter()

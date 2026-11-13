@@ -19,6 +19,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - All three give one piece per file or one per page / slide / sheet (`mode="sections"`) with the same metadata.
 - Korean and Simplified Chinese READMEs.
 
+### Fixed
+
+- `IsolatedConverter`: an idle worker no longer outlives a server process that was killed (SIGKILL, the out-of-memory
+  killer). It used to stay for ever, together with multiprocessing's fork server and resource tracker.
+
 ## [0.2.0] - 2026-11-13
 
 ### Added

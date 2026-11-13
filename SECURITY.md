@@ -34,7 +34,8 @@ See [docs/server.md](docs/server.md).
 
 The MCP server (`opendockit-mcp`) reads files from the machine it runs on, for the agent connected to it. Start it with
 `--root` so that it can read only the folders the agent is meant to see: an agent that reads untrusted text can be
-talked into asking for other files.
+talked into asking for other files. The server returns what a document says, including any sentence in it that is
+addressed to the agent; it does not, and cannot, tell instructions from content.
 
 Legacy `.doc` and `.ppt` files are converted by LibreOffice, started as a local process when it is installed. Macros,
 linked content and network access are switched off through its settings, but that is configuration, not a sandbox:

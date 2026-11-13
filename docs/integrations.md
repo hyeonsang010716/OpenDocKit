@@ -28,7 +28,7 @@ in the metadata.
 | `source` | The path that was given |
 | `format` | `pdf`, `docx`, `hwp`, … (detected from the content) |
 | `title`, `author`, `page_count`, `slide_count`, `sheet_count`, `encoding`, … | What the document says about itself, when it does |
-| `section_kind`, `section_index`, `section_title` | In `sections` mode: `page` / `slide` / `sheet`, its number from 1, and its title when it has one |
+| `section_kind`, `section_index`, `section_title` | In `sections` mode: `page` / `slide` / `sheet`, its number from 1, and its title when it has one. A page, sheet or slide without text is left out (a slide that is only a title is kept), so the numbers can have gaps |
 | `warnings` | One line per warning the converter raised (a hidden sheet left out, a scanned page without text, …). Absent when there are none |
 | `exceeded` | `True` when `max_chars` stopped the conversion. Absent otherwise |
 
@@ -71,7 +71,9 @@ docs = SimpleDirectoryReader("inbox", file_extractor=dict.fromkeys(extensions, r
 
 Both take `options=ConvertOptions(...)` ([options.md](options.md)) — `max_chars`, `keep_links`, `include_speaker_notes`
 and the rest work as they do for `convert`. A file that cannot be converted raises the same `ConversionError` subclasses
-`convert_file` raises; nothing is skipped silently. Conversion is offline: pictures stay `[Image]` placeholders. To have
+`convert_file` raises; the adapters skip nothing silently. (`SimpleDirectoryReader` itself prints and skips a file that
+fails unless you pass `raise_on_error=True`.) A file that converts but has no text to hand on — a scanned PDF, an empty
+workbook — gives no document, and a warning naming the file is logged on the `opendockit.integrations` logger. Conversion is offline: pictures stay `[Image]` placeholders. To have
 them described by a vision model, convert with `aconvert(..., describer=...)` yourself and build the documents from the
 result ([images.md](images.md)).
 
@@ -98,17 +100,22 @@ With the package installed, the command is simply `opendockit-mcp`.
 
 | Tool | What it returns |
 | --- | --- |
-| `convert_document(path, sections=None, max_chars=100000)` | The Markdown of the file, or of some of its pages / slides / sheets: `sections="3"` or `"2-5"`, counted from 1. Warnings follow the text |
+| `convert_document(path, sections=None, max_chars=100000)` | The Markdown of the file, or of some of its pages / slides / sheets: `sections="3"` or `"2-5"`, the numbers `document_outline` shows. Warnings follow the text |
 | `document_outline(path)` | Format, title, size, and the list of pages / slides / sheets with their titles and lengths — no text |
 
-- **The answer is bounded.** One call returns at most `max_chars` characters (100,000 unless the agent asks for more or
-  the server is started with `--max-chars`). A longer document is cut there with a note telling the agent to read the
-  outline and ask for `sections`.
+- **The answer is bounded.** One call returns at most `max_chars` characters of the document (100,000 unless the agent
+  asks for more or the server is started with `--max-chars`), followed by a short note and the converter's warnings when
+  there are any. A longer document is cut there, and the note tells the agent to read the outline and ask for `sections`.
 - **Which files it may read.** Without `--root`, any file the user running the server can read. With `--root DIR`
   (repeatable; or the `OPENDOCKIT_MCP_ROOTS` environment variable, separated like `PATH`) only files under those
-  folders; symbolic links are followed before the check. Give it the folders the agent is meant to see.
-- **One file cannot take the server down.** On Linux and macOS every conversion runs in a disposable worker process with
-  a 2 GB and 2-minute limit. On Windows it runs in a thread of the server, without those limits.
+  folders; symbolic links are followed before the check, and an empty value is an error rather than "everything". Give it the folders the agent is meant to see.
+- **One file cannot take the server down.** On Linux and macOS every conversion runs in a disposable worker process that
+  is ended after 2 minutes, and on Linux also when it passes 2 GB of memory. On Windows it runs in a thread of the
+  server, without those limits.
+- **Read-only.** Both tools are marked read-only for the client, and neither writes anything.
+- **The text of a document is data.** A document can contain sentences addressed to the agent. The server returns what
+  the file says; whether the agent acts on it is the agent's and the client's business, so let it read only the folders
+  you would hand it yourself.
 - **Offline.** No vision model and nothing fetched: pictures and scanned pages stay placeholders, with a warning.
   Legacy `.doc` / `.ppt` need LibreOffice, as everywhere else.
 

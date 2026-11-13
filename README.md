@@ -128,15 +128,15 @@ opendockit scan.pdf --describe        # describe images with a vision model (use
 from opendockit.integrations.langchain import OpenDocKitLoader
 from opendockit.integrations.llama_index import OpenDocKitReader
 
-docs = OpenDocKitLoader("report.hwp", mode="sections").load()       # one Document per page / slide / sheet
-docs = OpenDocKitReader(mode="sections").load_data("report.hwp")
+docs = OpenDocKitLoader("report.pdf", mode="sections").load()       # one Document per page / slide / sheet
+docs = OpenDocKitReader(mode="sections").load_data("report.pdf")
 ```
 
 ```bash
 opendockit-mcp --root ~/Documents     # MCP server: Claude, Cursor and other agents read your documents as Markdown
 ```
 
-Every piece carries its page, slide or sheet number in the metadata, for citations. See [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md).
+With `mode="sections"` each page, slide or sheet is its own Document, with its number in the metadata for citations. See [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md).
 
 ## Supported formats
 

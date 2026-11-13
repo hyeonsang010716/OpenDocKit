@@ -10,11 +10,12 @@
     docs = SimpleDirectoryReader("inbox", file_extractor=dict.fromkeys([".hwp", ".hwpx", ".pdf", ".xlsx"], reader)).load_data()
 """
 
+from collections.abc import Iterable
 import os
 from pathlib import Path
 from typing import Any
 
-from opendockit.converter import convert_file
+from opendockit.converter import convert, convert_file
 from opendockit.integrations._documents import Mode, check_mode, pieces
 from opendockit.models import ConvertOptions
 
@@ -44,8 +45,19 @@ class OpenDocKitReader(BaseReader):
         self.mode = mode
         self.options = options
 
-    def load_data(self, file: str | os.PathLike[str], extra_info: dict[str, Any] | None = None, **_: Any) -> list[Document]:
+    def lazy_load_data(self, file: str | os.PathLike[str], extra_info: dict[str, Any] | None = None, *, fs: Any = None,
+                       **_: Any) -> Iterable[Document]:
+        """`fs` is the fsspec file system `SimpleDirectoryReader` passes on when it was given one: the file is then read
+        through it (a bucket, an archive, memory) instead of from the local disk."""
         path = Path(file)
-        result = convert_file(path, self.options)
-        return [Document(text=text, metadata={**metadata, **(extra_info or {})})
-                for text, metadata in pieces(result, str(path), self.mode)]
+        if fs is None:
+            result = convert_file(path, self.options)
+        else:
+            with fs.open(str(file), "rb") as stream:
+                result = convert(stream.read(), path.name, self.options)
+        for text, metadata in pieces(result, str(file), self.mode):
+            yield Document(text=text, metadata={**metadata, **(extra_info or {})})
+
+    def load_data(self, file: str | os.PathLike[str], extra_info: dict[str, Any] | None = None, *, fs: Any = None,
+                  **_: Any) -> list[Document]:
+        return list(self.lazy_load_data(file, extra_info, fs=fs))

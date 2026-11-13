@@ -28,11 +28,13 @@ from opendockit.isolated import IsolatedConverter
 from opendockit.models import ConversionResult, ConvertOptions, Section, SectionKind
 
 
+_NEEDS_SDK = 'The OpenDocKit MCP server needs the MCP SDK (2.0 or newer): pip install "opendockit[mcp]"'
 try:
     from mcp.server.mcpserver import MCPServer
     from mcp.server.mcpserver.exceptions import ToolError
-except ImportError as exc:  # pragma: no cover - exercised only without the extra
-    raise ImportError('The OpenDocKit MCP server needs the MCP SDK (2.0 or newer): pip install "opendockit[mcp]"') from exc
+    from mcp.types import ToolAnnotations
+except ImportError:  # the `opendockit-mcp` command exists in every install; without the extra it says what to install
+    MCPServer = None
 
 
 __all__ = ["create_server", "main"]
@@ -53,7 +55,11 @@ _UNIT = {SectionKind.PAGE: "Page", SectionKind.SLIDE: "Slide", SectionKind.SHEET
 
 def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFAULT_MAX_CHARS) -> MCPServer:
     """The server with its two tools. `roots`, when given, are the only folders files may be read from."""
-    allowed = [root.expanduser().resolve() for root in roots or []]
+    if MCPServer is None:
+        raise ImportError(_NEEDS_SDK)
+    allowed = [_identity(root.expanduser().resolve()) for root in roots or []]
+    if None in allowed:
+        raise ValueError("every root must be an existing folder")
     converter: IsolatedConverter | None = None
 
     @asynccontextmanager
@@ -84,15 +90,20 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
             return await converter.convert(await asyncio.to_thread(file.read_bytes), file.name, options)
         except ConversionError as error:
             raise ToolError(str(error)) from error
+        except OSError as error:   # no permission, a file removed meanwhile
+            raise ToolError("The file could not be read.") from error
 
-    @server.tool(structured_output=False)
-    async def convert_document(path: str, sections: str | None = None, max_chars: int = default_max_chars) -> str:
-        """Convert a local document to Markdown.
+    # Both tools only read: clients use the hint to decide whether a call needs the user's confirmation.
+    reads_only = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 
-        path: the file to read (absolute, or relative to where the server was started).
-        sections: which pages, slides or sheets to return, counted from 1: "3" or "2-5". Leave out for the whole document.
-        max_chars: the most characters to return (default 100,000). When the text is longer it is cut there and a note says so.
-        """
+    @server.tool(structured_output=False, annotations=reads_only, description=(
+        "Convert a local document to Markdown.\n\n"
+        "path: the file to read (absolute, or relative to where the server was started).\n"
+        'sections: which pages, slides or sheets to return, by their numbers in document_outline: "3" or "2-5". '
+        "Leave out for the whole document.\n"
+        f"max_chars: the most characters of the document to return (default {default_max_chars:,}). A longer text is cut "
+        "there, and a note after it says so."))
+    async def convert_document(path: str, sections: str | int | None = None, max_chars: int = default_max_chars) -> str:
         if max_chars < 1:
             raise ToolError("max_chars must be at least 1.")
         chosen = _parse_range(sections)
@@ -104,7 +115,7 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
             text = result.text
             note = ("The document is longer than max_chars and was cut. Call document_outline and read it by `sections`, "
                     "or raise max_chars.") if result.exceeded else ""
-        warnings = [warning for warning in result.warnings if not warning.startswith("The conversion was stopped")]
+        warnings = [_one_line(warning) for warning in result.warnings if not warning.startswith("The conversion was stopped")]
         tail = [f"[{note}]"] if note else []
         if warnings:
             tail.append("Warnings:\n" + "\n".join(f"- {warning}" for warning in warnings))
@@ -112,49 +123,93 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
             tail.append("[No text was extracted.]")
         return "\n\n".join(part for part in (text, *tail) if part)
 
-    @server.tool(structured_output=False)
+    @server.tool(structured_output=False, annotations=reads_only, description=(
+        "Describe a local document without returning its text: format, title, size, and its pages, slides or sheets with "
+        "their numbers, titles and lengths. Use it to decide which `sections` to ask convert_document for.\n\n"
+        "path: the file to read (absolute, or relative to where the server was started)."))
     async def document_outline(path: str) -> str:
-        """Describe a local document without returning its text: format, title, size, and its pages, slides or sheets with
-        their titles and lengths. Use it to decide which `sections` to ask convert_document for.
-
-        path: the file to read (absolute, or relative to where the server was started).
-        """
         result = await converted(path, None)
         lines = [f"Format: {result.format.value}", f"Characters: {len(result.text):,}"]
-        lines += [f"{key.replace('_', ' ').capitalize()}: {value}" for key, value in result.metadata.items()]
-        units = [section for section in result.sections if section.kind is not SectionKind.DOCUMENT]
+        # What the document says about itself is its author's text: kept on one line, so that a title cannot pose as
+        # another line of this outline (Pinned by: test_mcp_server.py::TestDocumentOutline::test_title_cannot_add_lines_to_the_outline).
+        lines += [f"{key.replace('_', ' ').capitalize()}: {_one_line(value)}" for key, value in result.metadata.items()]
+        units = _units(result)
         if units:
             lines.append("")
             lines += [_outline_line(section) for section in units]
-        else:
+        elif result.text.strip():
             lines.append("The document is not divided into pages, slides or sheets; convert_document returns it whole.")
+        else:
+            lines.append("No text was extracted.")
         if result.warnings:
-            lines += ["", "Warnings:", *(f"- {warning}" for warning in result.warnings)]
+            lines += ["", "Warnings:", *(f"- {_one_line(warning)}" for warning in result.warnings)]
         return "\n".join(lines)
 
     return server
 
 
-def _checked_path(path: str, allowed: list[Path]) -> Path:
-    """The real file behind `path`. Symbolic links are followed before the folders are checked, so a link inside an allowed
-    folder cannot lead out of it
-    (Pinned by: test_mcp_server.py::TestWhichFilesMayBeRead::test_symbolic_link_inside_a_root_cannot_lead_out_of_it)."""
+def _identity(folder: Path) -> tuple[int, int] | None:
+    """What a folder is to the file system (device, inode), or None when it cannot be looked at."""
+    try:
+        status = folder.stat()
+    except OSError:
+        return None
+    return status.st_dev, status.st_ino
+
+
+def _checked_path(path: str, allowed: list[tuple[int, int] | None]) -> Path:
+    """The real file behind `path`.
+
+    Symbolic links are followed before the folders are checked, so a link inside an allowed folder cannot lead out of it
+    (Pinned by: test_mcp_server.py::TestWhichFilesMayBeRead::test_symbolic_link_inside_a_root_cannot_lead_out_of_it).
+    A folder is recognised by what it is, not by how its name is spelled: on macOS `~/documents` and `~/Documents` are one
+    folder, and so are a Korean name typed composed and the same name as the file system lists it, decomposed. Compared as
+    text, the paths an agent got from a directory listing were refused
+    (Pinned by: TestWhichFilesMayBeRead::test_root_is_recognised_whatever_the_spelling_of_its_name).
+    """
     if not path or "\x00" in path:
         raise ToolError("path must name a file.")
     try:
         file = Path(path).expanduser().resolve()
-    except (OSError, RuntimeError) as error:
-        raise ToolError("path must name a file.") from error
-    if allowed and not any(file.is_relative_to(root) for root in allowed):
-        raise ToolError("The file is outside the folders this server may read.")
-    if not file.is_file():
+        if allowed and not any(identity in allowed for identity in map(_identity, file.parents) if identity):
+            raise ToolError("The file is outside the folders this server may read.")
+        exists = file.is_file()
+    except (OSError, RuntimeError, ValueError) as error:   # a name too long for the system, a loop of links
+        raise ToolError("No file at that path.") from error
+    if not exists:
         raise ToolError("No file at that path.")
     return file
 
 
-def _parse_range(sections: str | None) -> tuple[int, int] | None:
-    if sections is None or not sections.strip():
-        return None
+def _units(result: ConversionResult) -> list[Section]:
+    return [section for section in result.sections if section.kind is not SectionKind.DOCUMENT]
+
+
+def _one_line(text: str, limit: int = 300) -> str:
+    """Text from the document (a title, a sheet name inside a warning) on one line of bounded length."""
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[:limit - 1].rstrip() + "…"
+
+
+def _numbers(indexes: list[int]) -> str:
+    """`1-3, 5` for [1, 2, 3, 5]."""
+    runs: list[list[int]] = []
+    for index in indexes:
+        if runs and index == runs[-1][1] + 1:
+            runs[-1][1] = index
+        else:
+            runs.append([index, index])
+    shown = [str(first) if first == last else f"{first}-{last}" for first, last in runs[:20]]
+    return ", ".join(shown) + (", …" if len(runs) > 20 else "")
+
+
+def _parse_range(sections: str | int | None) -> tuple[int, int] | None:
+    if isinstance(sections, int) and not isinstance(sections, bool):   # an agent passing the page number as a number
+        sections = str(sections)
+    if sections is None or not isinstance(sections, str) or not sections.strip():
+        if sections is None or isinstance(sections, str):
+            return None
+        raise ToolError('sections must be a number or a range counted from 1, such as "3" or "2-5".')
     match = _RANGE.match(sections)
     if match is None:
         raise ToolError('sections must be a number or a range counted from 1, such as "3" or "2-5".')
@@ -167,20 +222,24 @@ def _parse_range(sections: str | None) -> tuple[int, int] | None:
 
 def _selected(result: ConversionResult, chosen: tuple[int, int], max_chars: int) -> tuple[str, str]:
     """The text of the chosen pages / slides / sheets and a note when something has to be said about the choice."""
-    units = [section for section in result.sections if section.kind is not SectionKind.DOCUMENT]
+    units = _units(result)
     if not units:
-        text = result.text
-        note = "The document is not divided into pages, slides or sheets; this is all of it."
-    else:
-        first, last = chosen
-        picked = [section for section in units if first <= section.index <= last]
-        if not picked:
-            return "", f"The document has {len(units)} {_UNIT[units[0].kind].lower()}(s); none is in the range asked for."
-        text = "\n\n".join(_section_text(section) for section in picked)
-        note = ""
+        if not result.text.strip():
+            return "", ""
+        if len(result.text) > max_chars:
+            return result.text[:max_chars].rstrip(), ("The document is not divided into pages, slides or sheets, and it is longer "
+                                                      "than max_chars: it was cut. Raise max_chars to read more.")
+        return result.text, "The document is not divided into pages, slides or sheets; this is all of it."
+    first, last = chosen
+    picked = [section for section in units if first <= section.index <= last]
+    if not picked:
+        # The numbers that exist, not their count: a workbook whose first sheet is hidden has a sheet 2 and no sheet 1.
+        return "", (f"Nothing is in the range asked for. The {_UNIT[units[0].kind].lower()}s of this document are numbered "
+                    f"{_numbers([section.index for section in units])}.")
+    text = "\n\n".join(_section_text(section) for section in picked)
     if len(text) > max_chars:
         return text[:max_chars].rstrip(), "The selection is longer than max_chars and was cut. Ask for fewer sections or raise max_chars."
-    return text, note
+    return text, ""
 
 
 def _section_text(section: Section) -> str:
@@ -189,7 +248,7 @@ def _section_text(section: Section) -> str:
 
 
 def _outline_line(section: Section) -> str:
-    title = f' "{section.title}"' if section.title else ""
+    title = f' "{_one_line(section.title, 120)}"' if section.title else ""
     return f"{_UNIT[section.kind]} {section.index}{title}: {len(section.text):,} characters"
 
 
@@ -202,10 +261,18 @@ def main(argv: list[str] | None = None) -> None:
                         help="default limit on the characters one call returns (default: %(default)s)")
     parser.add_argument("--version", action="version", version=f"opendockit-mcp {__version__}")
     args = parser.parse_args(argv)
+    if MCPServer is None:
+        parser.exit(1, _NEEDS_SDK + "\n")
     if args.max_chars < 1:
         parser.error("--max-chars must be at least 1")
-    from_environment = [part for part in os.environ.get(ROOTS_VARIABLE, "").split(os.pathsep) if part.strip()]
-    roots = [Path(root) for root in (*args.root, *from_environment)]
+    named = [root.strip() for root in args.root]
+    if ROOTS_VARIABLE in os.environ:
+        named += [part.strip() for part in os.environ[ROOTS_VARIABLE].split(os.pathsep)]
+    # A root that is empty is a mistake, not "no restriction": `--root "$DOCS"` with DOCS unset must not open everything,
+    # and must not quietly mean the current folder (Pinned by: test_mcp_server.py::TestCommandLine::test_empty_root_is_an_error).
+    if any(not root for root in named):
+        parser.error(f"--root and {ROOTS_VARIABLE} must name folders; an empty value was given")
+    roots = [Path(root) for root in named]
     missing = [str(root) for root in roots if not root.expanduser().is_dir()]
     if missing:
         parser.error(f"not a folder: {', '.join(missing)}")

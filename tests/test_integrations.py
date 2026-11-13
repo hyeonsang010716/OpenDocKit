@@ -8,8 +8,26 @@ from opendockit import ConvertOptions, CorruptedDocumentError
 from tests import builder
 
 
-langchain = pytest.importorskip("opendockit.integrations.langchain", reason="needs the langchain extra")
-llama_index = pytest.importorskip("opendockit.integrations.llama_index", reason="needs the llamaindex extra")
+try:   # the adapters raise ImportError with the install command; `importorskip` skips only on ModuleNotFoundError
+    from opendockit.integrations import langchain, llama_index
+except ImportError:
+    pytest.skip("needs the langchain and llamaindex extras", allow_module_level=True)
+
+
+def _scanned_pdf() -> bytes:
+    """One page that is a picture from edge to edge, with no text layer."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    pdf.drawImage(ImageReader(BytesIO(builder.png_bytes(600, 800, seed=21))), 0, 0, width=width, height=height)
+    pdf.save()
+    return buffer.getvalue()
 
 
 @pytest.fixture
@@ -65,6 +83,41 @@ class TestLangChainLoader:
         assert "exceeded" not in plain.metadata and "warnings" not in plain.metadata
         for document in (limited, plain):
             assert all(isinstance(value, (str, int, bool)) for value in document.metadata.values())
+
+    @pytest.mark.parametrize("mode", ["single", "sections"])
+    def test_file_without_any_text_gives_no_document_and_a_logged_warning(self, tmp_path, caplog, mode):
+        """A scanned PDF: every page is a picture. Read page by page there is no piece; read whole there would be a Document
+        holding nothing but `<!-- Page 1 -->`, which is not content either. A file missing from an index without a word is
+        the failure nobody notices, and the converter's warning has no Document to travel on — it is logged, with the path."""
+        scan = tmp_path / "scan.pdf"
+        scan.write_bytes(_scanned_pdf())
+
+        with caplog.at_level("WARNING", logger="opendockit.integrations"):
+            assert langchain.OpenDocKitLoader(scan, mode=mode).load() == []
+        messages = [record.getMessage() for record in caplog.records]
+        assert len(messages) == 1 and str(scan) in messages[0] and "image description (OCR)" in messages[0]
+
+    def test_slide_that_is_only_a_title_is_kept(self, tmp_path):
+        """A deck of divider slides: titles and nothing else. The title lives in the slide's heading, not in its text, so the
+        slides used to vanish in `sections` mode (and the log said no text was extracted). A titled slide is a piece; a slide
+        with neither title nor text is not."""
+        from io import BytesIO
+
+        from pptx import Presentation
+
+        deck = Presentation()
+        for title in ("Agenda", None, "Results"):
+            slide = deck.slides.add_slide(deck.slide_layouts[5])
+            if title:
+                slide.shapes.title.text = title
+        buffer = BytesIO()
+        deck.save(buffer)
+        (tmp_path / "dividers.pptx").write_bytes(buffer.getvalue())
+
+        documents = langchain.OpenDocKitLoader(tmp_path / "dividers.pptx", mode="sections").load()
+
+        assert [document.page_content for document in documents] == ["## Slide 1: Agenda", "## Slide 3: Results"]
+        assert [document.metadata["section_index"] for document in documents] == [1, 3]
 
     def test_lazy_load_converts_a_file_only_when_it_is_reached(self, files, tmp_path):
         """The second path does not exist: the first Document still comes out, and the error is raised when the second is asked for."""
@@ -128,3 +181,24 @@ class TestLlamaIndexReader:
     def test_unknown_mode_is_rejected(self):
         with pytest.raises(ValueError, match="'single' or 'sections'"):
             llama_index.OpenDocKitReader(mode="chunks")
+
+    def test_file_system_given_by_the_directory_reader_is_used(self, files):
+        """`SimpleDirectoryReader(fs=...)` passes its fsspec file system to the reader. The file here exists only in an
+        in-memory file system: ignoring `fs` read the local disk, found nothing, and the directory reader skipped the file."""
+        import fsspec
+        from llama_index.core import SimpleDirectoryReader
+
+        memory = fsspec.filesystem("memory")
+        memory.pipe("/inbox/book.xlsx", files["book.xlsx"].read_bytes())
+        try:
+            documents = SimpleDirectoryReader("/inbox", fs=memory, raise_on_error=True,
+                                              file_extractor={".xlsx": llama_index.OpenDocKitReader(mode="sections")}).load_data()
+        finally:
+            memory.rm("/inbox", recursive=True)
+
+        assert documents and {document.metadata["format"] for document in documents} == {"xlsx"}
+
+    def test_lazy_loading_gives_the_same_documents(self, files):
+        reader = llama_index.OpenDocKitReader(mode="sections")
+
+        assert [d.text for d in reader.lazy_load_data(files["book.xlsx"])] == [d.text for d in reader.load_data(files["book.xlsx"])]

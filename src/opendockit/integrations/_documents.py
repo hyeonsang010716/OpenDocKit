@@ -5,6 +5,7 @@ way and name things the same.
 """
 
 from collections.abc import Iterator
+import logging
 from typing import Literal
 
 from opendockit.converter import section_heading
@@ -13,6 +14,7 @@ from opendockit.models import ConversionResult, SectionKind
 
 type Mode = Literal["single", "sections"]
 MODES: tuple[str, ...] = ("single", "sections")
+_LOG = logging.getLogger("opendockit.integrations")
 
 
 def check_mode(mode: str) -> None:
@@ -37,17 +39,28 @@ def pieces(result: ConversionResult, source: str | None, mode: Mode) -> Iterator
     if result.exceeded:
         base["exceeded"] = True
 
-    # A document without physical units is one piece either way.
-    whole = mode == "single" or all(section.kind is SectionKind.DOCUMENT for section in result.sections)
-    if whole:
-        if result.text.strip():
+    # What there is to hand on: sections with text, and slides that are only a title (a divider or agenda slide — its title
+    # is its content). A scanned PDF has neither: read whole it is nothing but page markers, so it gives no piece in either
+    # mode rather than a Document of `<!-- Page 1 -->` lines.
+    kept = [section for section in result.sections
+            if section.text.strip() or (section.kind is SectionKind.SLIDE and section.title)]
+    count = 0
+    if mode == "single" or all(section.kind is SectionKind.DOCUMENT for section in result.sections):
+        # A document without physical units is one piece either way.
+        if kept and result.text.strip():
+            count = 1
             yield result.text, base
-        return
-    for section in result.sections:
-        if not section.text.strip():
-            continue
-        heading = section_heading(section)
-        metadata = {**base, "section_kind": section.kind.value, "section_index": section.index}
-        if section.title:
-            metadata["section_title"] = section.title
-        yield (f"{heading}\n\n{section.text}" if heading else section.text), metadata
+    else:
+        for section in kept:
+            heading = section_heading(section)
+            metadata = {**base, "section_kind": section.kind.value, "section_index": section.index}
+            if section.title:
+                metadata["section_title"] = section.title
+            count += 1
+            yield "\n\n".join(part for part in (heading, section.text) if part), metadata
+    if not count:
+        # A file that gives no piece would otherwise be missing from the index without a word — a scanned PDF read page by
+        # page, an empty workbook. The warnings have nowhere to travel, so they are logged
+        # (Pinned by: test_integrations.py::TestLangChainLoader::test_file_without_any_text_gives_no_document_and_a_logged_warning).
+        _LOG.warning("%s gave no text and was left out: %s", source or "A document",
+                     " ".join(result.warnings) or "No text was extracted.")
