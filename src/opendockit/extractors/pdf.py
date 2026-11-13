@@ -5217,14 +5217,41 @@ def _read_sideways_cells(table: object, rows: list[list[str | None]]) -> None:
     sideways = [char for char in table.page.chars if char["text"].strip() and _is_sideways(char)]
     if not sideways:
         return
+    # Each cell looks only at the characters of its own vertical range. Scanning the rotated characters and then every
+    # character of the page for every cell took 23 seconds on a table laid sideways on one page (100 rows of 20 columns,
+    # a 10 KB file) (Pinned by: test_audit_pdf_mid.py::TestSidewaysCells::test_each_cell_looks_only_at_its_own_band)
+    marked, every = _by_middle(sideways), _by_middle(table.page.chars)
 
     for row_index, row in enumerate(table.rows):
         for column_index, cell in enumerate(row.cells):
-            if cell is None or not any(_inside_any(char, [cell]) for char in sideways):
+            if cell is None or not _chars_in_cell(marked, cell):
                 continue
-            chars = [char for char in table.page.chars if _inside_any(char, [cell])]
+            chars = _chars_in_cell(every, cell)
             if all(_is_sideways(char) for char in chars if char["text"].strip()):
                 rows[row_index][column_index] = "\n".join(_sideways_paragraphs(chars))
+
+
+def _by_middle(chars: list[dict]) -> list[tuple[list[float], list[tuple[float, int, dict]]]]:
+    """The characters as (middle, position in `chars`, character) in order of the vertical middle and in order of the
+    horizontal middle, each together with the list of those middles (to bisect on). A character whose middle is not a number
+    is inside no box and is left out."""
+    index = []
+    for low, high in (("top", "bottom"), ("x0", "x1")):
+        placed = [((char[low] + char[high]) / 2, position, char) for position, char in enumerate(chars)]
+        ordered = sorted((item for item in placed if item[0] == item[0]), key=lambda item: item[0])
+        index.append(([item[0] for item in ordered], ordered))
+    return index
+
+
+def _chars_in_cell(index: list[tuple[list[float], list[tuple[float, int, dict]]]], cell: tuple) -> list[dict]:
+    """The characters of `index` (`_by_middle`) whose centre is inside `cell`, in the order of the list they came from. Only
+    the characters of the cell's vertical range or of its horizontal range are examined, whichever are fewer (a table of one
+    long row has every character in the same vertical range)."""
+    (middles, by_row), (centres, by_column) = index
+    rows = bisect_left(middles, cell[1]), bisect_right(middles, cell[3])
+    columns = bisect_left(centres, cell[0]), bisect_right(centres, cell[2])
+    band = by_row[rows[0]:rows[1]] if rows[1] - rows[0] <= columns[1] - columns[0] else by_column[columns[0]:columns[1]]
+    return [char for _, _, char in sorted((item for item in band if _inside_any(item[2], [cell])), key=lambda item: item[1])]
 
 
 def _open_sided_tables(page: object) -> list[object]:
