@@ -109,7 +109,10 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     """
     for bom, encoding in _BOMS:
         if data.startswith(bom):
-            return data.decode(encoding, errors="replace"), encoding
+            # Replacement decoding is reported here too — a lone surrogate behind a UTF-16 BOM became `�` without a warning
+            # (Pinned by: test_audit_html_text.py::TestDamagedTextBehindAByteOrderMark)
+            text = _strict(data, encoding)
+            return (text, encoding) if text is not None else (data.decode(encoding, errors="replace"), f"{encoding}{_REPLACED}")
 
     # 7-bit text declared as ISO-2022-JP, ISO-2022-KR or UTF-7 was taken by strict UTF-8 decoding and became `$B2q5D…(B` with the
     # escape sequences erased (Pinned by: test_core_mailboxes_and_charsets.py::TestSevenBitEscapeCharsets). Used only when it

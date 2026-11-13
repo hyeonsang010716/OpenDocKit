@@ -261,3 +261,30 @@ class TestDataUriWrittenWithCapitalsOrLeadingSpace:
 
         assert result.images == []
         assert result.text == "text\n\n[Image: lazy] [Image: icon]"
+
+
+class TestDamagedTextBehindAByteOrderMark:
+    """Text that starts with a BOM was decoded with replacement characters but never reported it: a lone UTF-16 surrogate or a
+    broken UTF-8 byte became `�` with no warning, unlike every other replacement decoding (docs/decisions/encoding.md)."""
+
+    @pytest.mark.parametrize(("data", "text", "name"), [
+        (b"\xff\xfe" + "hi".encode("utf-16-le") + b"\x00\xd8" + "x".encode("utf-16-le") + b"\x00\xdc", "hi�x�", "UTF-16"),
+        (b"\xfe\xff" + "hi".encode("utf-16-be") + b"\xd8\x00" + "x".encode("utf-16-be"), "hi�x", "UTF-16"),
+        (b"\xef\xbb\xbf" + "가나".encode() + b"\xff" + "다".encode(), "가나�다", "UTF-8-SIG"),
+        (b"\xff\xfe\x00\x00" + "hi".encode("utf-32-le") + b"\x00\x00\x11\x00", "hi�", "UTF-32"),
+    ])
+    @pytest.mark.parametrize("file_name", ["a.txt", "a.md"])
+    def test_replacement_is_reported(self, data, text, name, file_name):
+        result = convert(data, file_name)
+
+        assert result.text == text
+        assert result.warnings == [f"The text was read as {name}, but some bytes could not be decoded and were replaced with �."]
+
+    @pytest.mark.parametrize("data", [b"\xff\xfe" + "한글 text".encode("utf-16-le"), b"\xfe\xff" + "한글 text".encode("utf-16-be"),
+                                      b"\xef\xbb\xbf" + "한글 text".encode(), b"\xff\xfe\x00\x00" + "한글 text".encode("utf-32-le")])
+    def test_sound_text_has_no_warning_and_the_same_encoding_name(self, data):
+        result = convert(data, "a.txt")
+
+        assert result.text == "한글 text"
+        assert result.warnings == []
+        assert result.metadata["encoding"] in ("utf-8-sig", "utf-16", "utf-32")
