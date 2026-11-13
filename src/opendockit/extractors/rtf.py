@@ -70,7 +70,7 @@ _TITLE_NAMES = frozenset(("title", "제목"))
 _LIST_STYLE_LEVEL = re.compile(r"List (?:Bullet|Number|Continue|Paragraph)\s+([1-9])", re.IGNORECASE)
 # A bullet typed as text and followed by a tab (pandoc writes its lists this way: `\bullet \tab text`).
 _TYPED_BULLETS = frozenset("•·◦▪‣○●–-")
-# The address and the bookmark (`\l "name"`) of a HYPERLINK field instruction — the same shapes DOCX reads (`docx._field_link`).
+# The address and the bookmark (`\l "name"`) of a HYPERLINK field instruction — the same shapes DOCX reads (`_docx_runs._field_link`).
 _HYPERLINK = re.compile(r'\s*HYPERLINK\s+(?:"([^"]*)"|([^\s"\\]\S*))', re.IGNORECASE)
 _HYPERLINK_BOOKMARK = re.compile(r'\\l\s+"([^"]*)"', re.IGNORECASE)
 
