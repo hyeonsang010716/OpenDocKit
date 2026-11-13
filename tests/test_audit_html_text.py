@@ -2,10 +2,12 @@
 duplicated without a warning, and markup of a few hundred KB that took many seconds."""
 
 import base64
+import time
 
 import pytest
 
 from opendockit import convert
+from opendockit.exceptions import CorruptedDocumentError
 from tests.builder import png_bytes
 
 
@@ -325,3 +327,48 @@ class TestAttachmentNameInTheWarning:
         result = convert(_mail_with_attachment("filename*=utf-8''%0A%0D"), "a.eml")
 
         assert result.warnings == ["1 mail attachment(s) (1 unnamed attachment(s)) were not read. Convert attachments separately."]
+
+
+def _nested_multipart(levels: int, lines: int, parameter: str) -> bytes:
+    """`levels` multiparts opened inside each other, the boundary of level N declared as `parameter` formatted with `bN`."""
+    opened = "".join(f"Content-Type: multipart/mixed; {parameter.format(f'b{level}')}\r\n\r\n--b{level}\r\n" for level in range(levels))
+    return (_MAIL_HEAD + "Subject: s\r\n" + opened + "Content-Type: text/plain\r\n\r\n" + "line\r\n" * lines).encode()
+
+
+_EXTENDED_BOUNDARIES = ["boundary*=us-ascii''{}", "boundary*0={}", "boundary*0*=us-ascii''{}", 'boundary*="{}"', "BOUNDARY* = {}"]
+
+
+class TestMultipartNestingDeclaredWithExtendedParameters:
+    """The nesting check before parsing (32 levels) only saw `boundary=`. The standard-library parser also honours the RFC 2231
+    forms (`boundary*=us-ascii''b1`, `boundary*0=b1`), so those went around the cap: 600 levels + 200,000 lines (1MB) took 9 s."""
+
+    @pytest.mark.parametrize("parameter", _EXTENDED_BOUNDARIES)
+    def test_deep_nesting_is_rejected_before_parsing(self, parameter):
+        with pytest.raises(CorruptedDocumentError, match="nested deeper than 32 levels"):
+            convert(_nested_multipart(40, 10, parameter), "a.eml")
+
+    @pytest.mark.parametrize("parameter", ["boundary={}", *_EXTENDED_BOUNDARIES])
+    def test_mail_within_the_cap_is_read(self, parameter):
+        result = convert(_nested_multipart(5, 3, parameter), "a.eml")
+
+        assert result.text == "Subject: s\nFrom: a@b.c\nTo: d@e.f\n\nline\nline\nline"
+
+    def test_extended_boundaries_inside_a_closed_part_are_not_counted_again(self):
+        # 40 sibling parts, each a multipart of its own declared the RFC 2231 way: one level deep at any time
+        parts = "".join(f"--outer\r\nContent-Type: multipart/mixed; boundary*=us-ascii''in{number}\r\n\r\n"
+                        f"--in{number}\r\nContent-Type: text/plain\r\n\r\npart {number}\r\n--in{number}--\r\n" for number in range(40))
+        data = (_MAIL_HEAD + "Subject: s\r\nContent-Type: multipart/mixed; boundary=outer\r\n\r\n" + parts + "--outer--\r\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert "part 0" in result.text and "part 39" in result.text
+
+    @pytest.mark.timing
+    def test_deep_nesting_with_a_long_body_is_decided_quickly(self):
+        data = _nested_multipart(600, 200_000, "boundary*=us-ascii''{}")
+
+        started = time.perf_counter()
+        with pytest.raises(CorruptedDocumentError):
+            convert(data, "a.eml")
+
+        assert time.perf_counter() - started < 3

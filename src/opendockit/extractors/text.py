@@ -569,12 +569,19 @@ def _mime_nesting_exceeds(data: bytes, limit: int) -> bool:
     closes everything up to that boundary. A `boundary=` written in body text is not a Content-Type line and is not counted.
     Known accepted gap: a part that ends without a closing line stays open and is counted deeper than it really is (sibling
     parts are closed by the next delimiter line)."""
-    stack: list[bytes] = []
-    depth: dict[bytes, int] = {}  # open boundary → its position in the stack
+    stack: list[bytes | int] = []
+    depth: dict[bytes | int, int] = {}  # open boundary → its position in the stack
 
     for match in _MIME_NESTING_LINE.finditer(data):
-        boundary = match.group("declared_quoted") or match.group("declared")
+        boundary: bytes | int | None = match.group("declared_quoted") or match.group("declared")
         if boundary is not None:
+            # An RFC 2231 parameter (`boundary*=us-ascii''b1`, `boundary*0=b1`), which the parser honours too, is counted as a
+            # level of its own that no delimiter line of its own closes (its value is not decoded; the key is its position, which
+            # no line can equal). Not seen at all, it went around the limit: 600 levels + 200,000 lines took 9 seconds
+            # (Pinned by: test_audit_html_text.py::TestMultipartNestingDeclaredWithExtendedParameters). Known accepted gap: a
+            # mail with more than `limit` such declarations outside any part closed by an ordinary boundary is rejected.
+            if match.group("extended"):
+                boundary = match.start()
             if boundary not in depth:
                 depth[boundary] = len(stack)
                 stack.append(boundary)
@@ -1026,7 +1033,8 @@ _MAX_MIME_NESTING = 32
 # of its continuation line).
 _MIME_NESTING_LINE = re.compile(
     rb"^--(?P<delimiter>[^\r\n]*)"
-    rb"|^(?:content-type:|[ \t])[^\r\n]*?\bboundary\s*=\s*(?:\"(?P<declared_quoted>[^\"\r\n]*)\"|(?P<declared>[^\s;\"]+))",
+    rb"|^(?:content-type:|[ \t])[^\r\n]*?\bboundary(?P<extended>\*[\d*]*)?\s*=\s*"
+    rb"(?:\"(?P<declared_quoted>[^\"\r\n]*)\"|(?P<declared>[^\s;\"]+))",
     re.IGNORECASE | re.MULTILINE)
 
 
