@@ -380,3 +380,19 @@ class TestHugeLevelNumberInNumberText:
         numbering = _shared.Numbering([_shared.NumberLevel("%7%0-%1.")], mark="%")
 
         assert [numbering.advance(0), numbering.advance(0)] == ["-1.", "-2."]
+
+
+class TestDeeplyNestedJsonLookalike:
+    """Text that starts with `[` or `{` is parsed to see whether it is JSON. 200,000 opening brackets ran the parser out of stack
+    (RecursionError, not the ValueError of text that is not JSON), so a text file was rejected as 'corrupted'."""
+
+    @pytest.mark.parametrize("filename", [None, "data", "data.bin"])
+    @pytest.mark.parametrize("opening", [b"[", b'{"a":'])
+    def test_text_of_opening_brackets_is_text(self, opening, filename):
+        result = convert(opening * 200_000, filename)
+
+        assert result.format is DocumentFormat.TEXT and result.text.startswith(opening.decode() * 3)
+
+    def test_json_holding_html_is_still_text(self):
+        assert detect_format(b'{"body": "<html><body><p>x</p></body></html>"}', "data") is DocumentFormat.TEXT
+        assert detect_format(b"[not json] <html><body><p>x</p></body></html>", "data") is DocumentFormat.HTML

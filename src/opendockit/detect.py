@@ -472,7 +472,9 @@ def _is_json(data: bytes, body: bytes, wide: str | None) -> bool:
     for candidate in (first_line, text) if first_line != text else (text,):
         try:
             value = json.loads(candidate)
-        except ValueError:
+        # Brackets nested too deep for the parser (RecursionError) are not JSON either — 200,000 `[` got a text file rejected as
+        # corrupted (Pinned by: test_audit_core.py::TestDeeplyNestedJsonLookalike).
+        except (ValueError, RecursionError):
             continue
         if isinstance(value, (dict, list)):
             return True
