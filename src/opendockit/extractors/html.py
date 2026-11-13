@@ -789,9 +789,11 @@ def _drop_sidebars(soup: BeautifulSoup) -> None:
     vanish without a warning (Pinned by: test_core_html_blocks.py::TestAsideInsideTheMainContent). Deliberate: an aside used as
     a side menu stays when it is inside the main content — removing it loses body text, keeping it only adds a short menu text.
     """
-    for aside in soup.find_all("aside"):
-        if aside.find_parent(_MAIN_CONTENT_TAGS) is None:
-            aside.decompose()
+    # Decided for all of them in one walk and removed together (`_lying_inside`, `_decompose_all`)
+    # (Pinned by: test_audit_html_text.py::TestManyElementsThatLookUpwardsUnderDeepNesting)
+    asides = soup.find_all("aside")
+    kept = _lying_inside(asides, _MAIN_CONTENT_TAGS)
+    _decompose_all([aside for aside in asides if id(aside) not in kept])
 
 
 def _keep_svg_labels(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> None:
@@ -806,17 +808,39 @@ def _keep_svg_labels(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> 
     foreignObject's text.
     """
     places: _Places = {}
+    # Inner svgs and labels inside a foreignObject are found by walking down each outermost svg once, not by walking up from
+    # every svg and label to the root of the document
+    # (Pinned by: test_audit_html_text.py::TestManyElementsThatLookUpwardsUnderDeepNesting)
+    inner: set[int] = set()
 
     for svg in soup.find_all("svg"):
-        if svg.find_parent("svg") is not None or id(svg) in cut:
-            continue  # replaced or removed together with the outer svg. The label count of a cut svg is unknown
-        labels = [" ".join(label.get_text(" ").split()) for label in svg.find_all(["text", "foreignobject"])
-                  if label.find_parent("foreignobject") is None]
+        if id(svg) in inner:
+            continue  # replaced or removed together with the outer svg
+        inner.update(id(nested) for nested in svg.find_all("svg"))
+        if id(svg) in cut:
+            continue  # the label count of a cut svg is unknown
+        labels = [" ".join(label.get_text(" ").split()) for label in _svg_labels(svg)]
         labels = [label for label in labels if label]
         if _is_labelled_svg(labels):
             span = soup.new_tag("span")
             span.string = " ".join(labels)
             _replace(svg, span, places)
+
+
+def _svg_labels(svg: Tag) -> list[Tag]:
+    """The label elements of an svg in document order: every `<text>` and `<foreignObject>` that is not inside a foreignObject
+    (with a stack, like `_nearest`; a foreignObject is not descended into)."""
+    found: list[Tag] = []
+    stack = list(reversed(svg.contents))
+    while stack:
+        child = stack.pop()
+        if not isinstance(child, Tag):
+            continue
+        if child.name in ("text", "foreignobject"):
+            found.append(child)
+        if child.name != "foreignobject":
+            stack.extend(reversed(child.contents))
+    return found
 
 
 def _is_labelled_svg(labels: list[str]) -> bool:
@@ -919,9 +943,11 @@ def _nest_word_lists(soup: BeautifulSoup) -> None:
     runs: list[list[tuple[Tag, int]]] = []
     previous: Tag | None = None
 
-    for paragraph in soup.find_all("p", style=_WORD_LIST_LEVEL):
+    paragraphs = soup.find_all("p", style=_WORD_LIST_LEVEL)
+    in_items = _lying_inside(paragraphs, ("li",))
+    for paragraph in paragraphs:
         level = decimal_int(_WORD_LIST_LEVEL.search(str(paragraph.get("style"))).group(1), None)
-        if level is None or paragraph.find_parent("li") is not None:
+        if level is None or id(paragraph) in in_items:
             continue
         level = min(level, _MAX_WORD_LIST_LEVEL)
         before = paragraph.previous_sibling
@@ -1263,8 +1289,10 @@ def _keep_expander_buttons(soup: BeautifulSoup) -> None:
     remaining buttons (copy, search, close) are removed by `_DROP_TAGS`
     (Pinned by: test_text_html.py::TestCollapsedQuestionsAndAnswers).
     """
-    for button in soup.find_all("button"):
-        if button.find_parent(list(_HEADINGS)) is not None:
+    buttons = soup.find_all("button")
+    in_headings = _lying_inside(buttons, _HEADINGS)
+    for button in buttons:
+        if id(button) in in_headings:
             button.unwrap()
         elif button.has_attr("aria-expanded") or button.has_attr("aria-controls"):
             button.name = "div"
@@ -2661,7 +2689,7 @@ def _header_rows_on_top(table: Tag, rows: list[Tag]) -> int:
     """The header row count of `_header_row_count` before 'every row is th' is reduced to the first row."""
     head = table.find("thead")
     if head is not None and head.find_parent("table") is table:
-        return sum(1 for row in rows if row.find_parent("thead") is head)
+        return sum(1 for row in rows if _nearest_head(row, table) is head)
     count = 0
     spanned_until = 0  # last row covered by a header row's rowspan, + 1
     above_spans_columns = False
@@ -2676,6 +2704,16 @@ def _header_rows_on_top(table: Tag, rows: list[Tag]) -> int:
         above_spans_columns = any(_span(cell, "colspan") > 1 for cell in cells)
         count += 1
     return count
+
+
+def _nearest_head(row: Tag, table: Tag) -> Tag | None:
+    """The thead of `table` that its row `row` is in, or None. It looks no further up than the table: `find_parent("thead")`
+    walked to the root of the document for every body row
+    (Pinned by: test_audit_html_text.py::TestManyElementsThatLookUpwardsUnderDeepNesting)."""
+    node = row.parent
+    while node is not None and node is not table and node.name != "thead":
+        node = node.parent
+    return node if node is not table else None
 
 
 def _table_rows(table: Tag) -> list[Tag]:

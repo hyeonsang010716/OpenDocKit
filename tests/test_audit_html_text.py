@@ -437,3 +437,50 @@ class TestManyHeadingsUnderDeepNesting:
     ])
     def test_heading_inside_a_heading_is_still_taken_out(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected
+
+
+_DEEP = "<div>" * 8000
+
+
+class TestManyElementsThatLookUpwardsUnderDeepNesting:
+    """The same walk to the root of the document for every element, at the other places that ask 'is this inside a …': inline
+    svgs and their labels, asides, Word list paragraphs, buttons, and the rows of a table with a thead. 8,000 of each under
+    8,000 unclosed `<div>` took 10–30 s."""
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize(("html", "expected"), [
+        (_DEEP + "<svg><text>ab</text></svg>" * 8000, "ab" * 8000),
+        ("<main>" + _DEEP + "<aside>ab</aside>" * 8000, "\n\n".join(["ab"] * 8000)),
+        (_DEEP + "<aside>ab</aside>" * 8000 + "<p>text</p>", "text"),
+        (_DEEP + "<p style='mso-list:l0 level1 lfo1'>ab</p><b>x</b>" * 8000, "\n\n".join(["- ab\n\nx"] * 8000)),
+        (_DEEP + "<button>ab</button>" * 8000 + "<p>text</p>", "text"),
+        (_DEEP + "<table><thead><tr><th>h</th><th>i</th></tr></thead>" + "<tr><td>a</td><td>b</td></tr>" * 8000 + "</table>",
+         "| h | i |\n| --- | --- |\n" + "\n".join(["| a | b |"] * 8000)),
+    ], ids=["svg", "aside-in-main", "aside", "word-list", "button", "thead"])
+    def test_takes_linear_time(self, html, expected):
+        seconds, text = _seconds(html.encode(), "a.html")
+
+        assert text == expected
+        assert seconds < 5
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        # svg: an inner svg goes with the outer one; a label inside a foreignObject is part of that foreignObject's text
+        ("<p>a</p><svg><text>one</text><svg><text>two</text></svg></svg><p>b</p>", "a\n\none two\n\nb"),
+        ("<p>a</p><svg><foreignObject><div>box <svg><text>in</text></svg></div></foreignObject><text>out</text></svg>",
+         "a\n\nbox in out"),
+        ("<p>a</p><svg><g><text>x <tspan>y</tspan></text></g><foreignObject><p>q</p><foreignObject><p>r</p></foreignObject>"
+         "</foreignObject></svg>", "a\n\nx y q r"),
+        # aside: removed outside the main content (with an aside inside it), kept inside
+        ("<aside>menu<aside>inner</aside></aside><main><p>a</p><div><aside>note</aside></div></main><div><aside>ad</aside></div>",
+         "a\n\nnote"),
+        ("<article><section><aside>note</aside></section></article><aside>menu</aside>", "note"),
+        # Word list paragraph: left alone inside a list item
+        ("<ul><li><p style='mso-list:l0 level1 lfo1'>in</p></li></ul><p style='mso-list:l0 level1 lfo1'>out</p>", "- in\n\n- out"),
+        # button: its text is kept inside a heading only
+        ("<h2><span><button>question</button></span></h2><div><button>copy</button></div><p>a</p>", "## question\n\na"),
+        # thead: the rows of the thead of this table are its header rows, also when the table sits in the thead of another one
+        ("<table><thead><tr><th>a</th><th>b</th></tr><tr><th>c</th><th>d</th></tr></thead><tr><td>1</td><td>2</td></tr></table>",
+         "| a c | b d |\n| --- | --- |\n| 1 | 2 |"),
+    ])
+    def test_result_is_as_before(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
