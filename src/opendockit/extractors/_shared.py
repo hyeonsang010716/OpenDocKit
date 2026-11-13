@@ -1739,13 +1739,16 @@ def _join_math(element: etree._Element) -> str:
     """Join the child equations in order. When a letter or digit directly follows a one-character script, the script is wrapped in
     `{}` (`x^{k}a^{n-k}`), and a function (m:func) name is spaced from a preceding letter, digit or closing bracket (`a_n cos x`;
     after an operator it stays `α+cos β`). Joined as is, the script and the following letter read as one lump, like `x^ka^{n-k}` and
-    `a_ncos x` (Pinned by: test_office_equations.py::TestOmmlScriptsFollowedByText)."""
+    `a_ncos x` (Pinned by: test_office_equations.py::TestOmmlScriptsFollowedByText).
+    The script is looked for in the last three characters only (the pattern ends at the end of the text, or before a line break
+    there): searched from the start for every child, an equation of 80,000 runs took 10 seconds
+    (Pinned by: test_audit_core.py::TestEquationWithManyRuns)."""
     text = ""
     for child in element:
         piece = omml_to_latex(child)
         if piece and text and child.tag == _m("func") and (text[-1].isalnum() or text[-1] in ")]}"):
             text += " "
-        elif piece[:1].isalnum() and (bare := _BARE_SCRIPT_END.search(text)):
+        elif piece[:1].isalnum() and (bare := _BARE_SCRIPT_END.search(text, max(len(text) - 3, 0))):
             text = f"{text[:bare.start(1)]}{{{bare.group(1)}}}"
         text += piece
     return text

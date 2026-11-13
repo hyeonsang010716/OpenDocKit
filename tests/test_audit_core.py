@@ -4,6 +4,7 @@ hostile input, one odd value that got a whole document rejected as 'corrupted', 
 import base64
 import time
 
+from lxml import etree
 import pytest
 
 from opendockit import ConvertOptions, convert
@@ -249,3 +250,29 @@ class TestChartFormatWithManyOpenBrackets:
         assert _shared._format_date("46023", "[$-412]yyyy-mm-dd", False) == "2026-01-01"
         assert _shared._format_date("1.5", "[h]:mm", False) == "12:00"
         assert _shared._format_date("46023", "[Red]0", False) is None
+
+
+def _equation(children: str) -> etree._Element:
+    return etree.fromstring(f'<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">{children}</m:oMath>')
+
+
+class TestEquationWithManyRuns:
+    """Joining the pieces of an equation looked for a one-character script at the end of the text so far, searching the whole text
+    again for every piece: an equation of 80,000 runs took 10 seconds."""
+
+    @pytest.mark.timing
+    def test_equation_of_many_runs_takes_linear_time(self):
+        equation = _equation("<m:r><m:t>x</m:t></m:r>" * 160_000)
+        started = time.perf_counter()
+
+        latex = _shared.omml_to_latex(equation)
+
+        assert time.perf_counter() - started < 5.0
+        assert latex == "x" * 160_000
+
+    def test_one_character_script_before_a_letter_is_still_braced(self):
+        script = "<m:sSup><m:e><m:r><m:t>x</m:t></m:r></m:e><m:sup><m:r><m:t>k</m:t></m:r></m:sup></m:sSup>"
+
+        assert _shared.omml_to_latex(_equation(f"{script}<m:r><m:t>a</m:t></m:r>")) == "x^{k}a"
+        assert _shared.omml_to_latex(_equation(f"<m:r><m:t>y+</m:t></m:r>{script}<m:r><m:t>+a</m:t></m:r>")) == "y+x^k+a"
+        assert _shared.omml_to_latex(_equation(f"{script}{script}")) == "x^{k}x^k"
