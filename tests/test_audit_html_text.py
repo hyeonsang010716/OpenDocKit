@@ -94,3 +94,30 @@ class TestAddressThatCannotBeResolvedInMhtml:
 
         assert len(result.images) == 1
         assert any("inside a frame" in warning for warning in result.warnings)
+
+
+def _nested_aria_grids(depth: int) -> bytes:
+    grid = ("<div role=grid><div role=row><div role=cell>a</div><div role=cell>%s</div></div>"
+            "<div role=row><div role=cell>c</div><div role=cell>d</div></div></div>")
+    html = "innermost"
+    for _ in range(depth):
+        html = grid % html
+    return html.encode()
+
+
+class TestDeeplyNestedAriaGrids:
+    """A grid built from ARIA roles inside the cell of another one was rendered by recursion without a depth limit (unlike layout
+    tables, embedded tables, lists and definition lists): 400 levels (57KB) rejected the document with a recursion-limit error."""
+
+    @pytest.mark.parametrize("depth", [21, 400, 3000])
+    def test_document_is_read(self, depth):
+        result = convert(_nested_aria_grids(depth), "a.html")
+
+        assert "innermost" in result.text
+        assert result.text.startswith("| a | ")
+
+    def test_grid_inside_a_grid_cell_is_rendered_as_before(self):
+        result = convert(_nested_aria_grids(2), "a.html")
+
+        assert result.text == ("| a | \\| a \\| innermost \\|<br>\\| --- \\| --- \\|<br>\\| c \\| d \\| |\n"
+                               "| --- | --- |\n| c | d |")

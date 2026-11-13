@@ -95,6 +95,10 @@ _GRID_ROLES = {"grid", "table", "treegrid"}
 _ARIA_CELL_ROLES = {"cell", "gridcell", "columnheader", "rowheader"}
 _ARIA_SKIPPED_TAGS = {"table", "thead", "tbody", "tfoot", "tr", "td", "th", "ul", "ol", "dl", "pre"}
 _MAX_ARIA_COLUMN_SKIP = 200
+# Maximum nesting depth at which an ARIA table inside the cell of another one is drawn as a table. Deeper ones are descended
+# as blocks (recursion limit; Pinned by: test_audit_html_text.py::TestDeeplyNestedAriaGrids).
+_MAX_ARIA_GRID_DEPTH = 20
+_aria_grid_depth: ContextVar[int] = ContextVar("aria_grid_depth", default=0)
 # Elements whose content the parser leaves as raw text (`_reopen_raw_text_elements`), and those among them that an end tag
 # closes (plaintext is never closed).
 _RAW_TEXT_TAGS = ["textarea", "xmp", "plaintext"]
@@ -1887,20 +1891,26 @@ def _render_aria_grid(node: Tag) -> str | None:
     nearest cell descendants of that row, and an empty cell still counts as a cell. With `aria-colindex` (1-based) the cell goes in that
     column (cells left out by virtual scrolling). Spans (`aria-colspan`) are not considered.
     """
+    if _aria_grid_depth.get() >= _MAX_ARIA_GRID_DEPTH:
+        return None
     rows = _role_descendants(node, wanted={"row"})
     cells = [_role_descendants(row, wanted=_ARIA_CELL_ROLES) for row in rows]
     if len(rows) < 2 or max(map(len, cells)) < 2:
         return None
 
     grid = TableGrid()
-    for row_index, row_cells in enumerate(cells):
-        col = 0
-        for cell in row_cells:
-            index = decimal_int(str(cell.get("aria-colindex", "")).strip(), 0)
-            if col < index <= col + _MAX_ARIA_COLUMN_SKIP:
-                col = index - 1
-            grid.place(row_index, col, _cell_text(cell))
-            col += 1
+    token = _aria_grid_depth.set(_aria_grid_depth.get() + 1)
+    try:
+        for row_index, row_cells in enumerate(cells):
+            col = 0
+            for cell in row_cells:
+                index = decimal_int(str(cell.get("aria-colindex", "")).strip(), 0)
+                if col < index <= col + _MAX_ARIA_COLUMN_SKIP:
+                    col = index - 1
+                grid.place(row_index, col, _cell_text(cell))
+                col += 1
+    finally:
+        _aria_grid_depth.reset(token)
 
     omitted = _omitted_rows.get()
     rendered = grid.render()
