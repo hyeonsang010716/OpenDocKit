@@ -386,3 +386,88 @@ class TestPictureDrawnAsManyStrips:
         assert photos.text == ("[Image]\n\nMinutes of the regular meeting\nThe budget for the next year was approved as proposed."
                                "\n\n[Image]\n\n[Image]\n\n[Image]")
         assert len(photos.images) == 4 and photos.warnings == []
+
+
+def _filled_line_pdf(count: int) -> bytes:
+    """One-page PDF with one line of `count` characters (Courier, 6pt apart) and a borderless filled rectangle under each."""
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(count * 6 + 40, 200))
+    pdf.setFont("Courier", 10)
+    pdf.setFillColorRGB(1, 1, 0)
+    for index in range(count):
+        pdf.rect(20 + index * 6, 96, 5.5, 12, stroke=0, fill=1)
+    pdf.setFillColorRGB(0, 0, 0)
+    for start in range(0, count, 50):
+        pdf.drawString(20 + start * 6, 100, ("abcdefghi " * 5)[:min(50, count - start)])
+    pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
+
+class _CountedChar(dict):
+    """A character that counts how many times a value is read from any character of this kind."""
+
+    reads = 0
+
+    def __getitem__(self, key):
+        _CountedChar.reads += 1
+        return super().__getitem__(key)
+
+
+class TestManyFilledRectanglesOnOneLine:
+    """`_without_highlights` went through every character of the line once to find the characters of each filled
+    rectangle and once more to look for unfilled text beside it, so a line of 4,000 characters with a rectangle under each
+    (a 15 KB file) took 8 seconds."""
+
+    def test_each_rectangle_looks_only_at_the_characters_it_covers(self):
+        with pdfplumber.open(BytesIO(_filled_line_pdf(600))) as document:
+            page = document.pages[0]
+            page.chars[:] = [_CountedChar(char) for char in page.chars]
+            rects = len(page.rects)
+            _CountedChar.reads = 0
+
+            kept = pdf_module._without_highlights(page)
+
+            assert rects == 600 and len(kept.rects) == 0  # all of them are highlights, as before
+            assert _CountedChar.reads <= 600 * 60  # more than 600 × 600 × 3 before
+
+    @pytest.mark.timing
+    def test_line_of_thousands_of_filled_rectangles_is_read_in_seconds(self):
+        with pdfplumber.open(BytesIO(_filled_line_pdf(8000))) as document:
+            page = document.pages[0]
+            characters = len(page.chars) + len(page.rects)  # parsing time is not measured
+
+            started = time.perf_counter()
+            pdf_module._without_highlights(page)
+            elapsed = time.perf_counter() - started
+
+        assert characters == 16000 and elapsed < 3  # 8 seconds before
+
+    def test_highlighted_words_and_shaded_cells_read_as_before(self):
+        """Highlights over words of a paragraph are not rules (no table of words); the shading of table cells stays."""
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(500, 400))
+        pdf.setFont("Courier", 10)
+        pdf.setFillColorRGB(1, 1, 0)
+        pdf.rect(40 + 4 * 6, 347.5, 9 * 6, 11, stroke=0, fill=1)  # 'container'
+        pdf.rect(40 + 21 * 6, 347.5, 3 * 6, 11, stroke=0, fill=1)  # 'HDP'
+        pdf.rect(40 + 24 * 6, 347.5, 4 * 6, 11, stroke=0, fill=1)  # 'E 80' in a second run
+        pdf.rect(40, 333.5, 2 * 6, 11, stroke=0, fill=1)  # 'of' at the start of the second line
+        pdf.setFillColorRGB(0.8, 0.8, 0.8)
+        for row in range(3):
+            for column in range(3):
+                if row == 0 or column == 0:
+                    pdf.rect(40 + column * 120, 270 - row * 16, 120, 16, stroke=0, fill=1)
+        pdf.setFillColorRGB(0, 0, 0)
+        pdf.drawString(40, 350, "The container is 70% HDPE 80% recycled resin by weight")
+        pdf.drawString(40, 336, "of the material and is collected after use.")
+        for row, values in enumerate([["Item", "2023", "2024"], ["Bottles", "1,200", "1,350"], ["Caps", "300", "420"]]):
+            for column, value in enumerate(values):
+                pdf.drawString(44 + column * 120, 274 - row * 16, value)
+        pdf.showPage()
+        pdf.save()
+
+        result = convert(buffer.getvalue(), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("The container is 70% HDPE 80% recycled resin by weight\nof the material and is collected after use.\n\n"
+                               "| Item | 2023 | 2024 |\n| --- | --- | --- |\n| Bottles | 1,200 | 1,350 |\n| Caps | 300 | 420 |")

@@ -4113,12 +4113,23 @@ def _without_highlights(page: object) -> object:
         return page
     middles = [(char["top"] + char["bottom"]) / 2 for char in chars]
     tallest = max(char["size"] for char in chars) * _HIGHLIGHT_MAX_HEIGHT
+    # A rectangle takes its characters from those of its line or from those between its left and right edges, whichever are
+    # fewer (in the order of the line either way). Going through the whole line for every rectangle took 8 seconds on a line
+    # of 4,000 characters with a filled rectangle under each (a 15 KB file) (Pinned by:
+    # test_audit_pdf_mid.py::TestManyFilledRectanglesOnOneLine::test_each_rectangle_looks_only_at_the_characters_it_covers)
+    centres = sorted((centre, position) for position, char in enumerate(chars)
+                     if (centre := (char["x0"] + char["x1"]) / 2) == centre)
     covered = []
     for rect in page.rects:
         if not rect.get("fill") or rect.get("stroke") or not 0 < rect["bottom"] - rect["top"] <= tallest:
             continue
-        inside = [char for char in chars[bisect_left(middles, rect["top"]):bisect_right(middles, rect["bottom"])]
-                  if rect["x0"] <= (char["x0"] + char["x1"]) / 2 <= rect["x1"]]
+        low, high = bisect_left(middles, rect["top"]), bisect_right(middles, rect["bottom"])
+        left, right = bisect_left(centres, (rect["x0"],)), bisect_right(centres, (rect["x1"], len(chars)))
+        if right - left < high - low:
+            inside = [chars[position] for position in sorted(position for centre, position in centres[left:right]
+                                                             if low <= position < high and rect["x0"] <= centre <= rect["x1"])]
+        else:
+            inside = [char for char in chars[low:high] if rect["x0"] <= (char["x0"] + char["x1"]) / 2 <= rect["x1"]]
         covered.append((rect, inside, "".join(char["text"] for char in inside).strip()))
 
     # The only evidence for column shading is a cell that fills its row without gaps (touching the neighbouring cell's shading, with
@@ -4131,11 +4142,12 @@ def _without_highlights(page: object) -> object:
     by_left = sorted((rect for rect, _, _ in covered), key=lambda rect: rect["x0"])
     rights, lefts = [rect["x1"] for rect in by_right], [rect["x0"] for rect in by_left]
     columns: dict[tuple[int, int], set[str]] = {}
+    # unfilled[n]: how many of the first n characters are visible and under no fill (counted once, not once per rectangle)
+    unfilled = list(accumulate((bool(char["text"].strip()) and id(char) not in shaded for char in chars), initial=0))
     for rect, _, text in covered:
-        line = chars[bisect_left(middles, rect["top"]):bisect_right(middles, rect["bottom"])]
         touching = (*by_right[bisect_left(rights, rect["x0"] - _HIGHLIGHT_EDGE_MAX):bisect_right(rights, rect["x0"] + _HIGHLIGHT_EDGE_MAX)],
                     *by_left[bisect_left(lefts, rect["x1"] - _HIGHLIGHT_EDGE_MAX):bisect_right(lefts, rect["x1"] + _HIGHLIGHT_EDGE_MAX)])
-        if (text and not any(char["text"].strip() and id(char) not in shaded for char in line)
+        if (text and unfilled[bisect_right(middles, rect["bottom"])] <= unfilled[bisect_left(middles, rect["top"])]
                 and any(other is not rect and abs(other["top"] - rect["top"]) <= _CELL_ALIGN
                         and abs(other["bottom"] - rect["bottom"]) <= _CELL_ALIGN for other in touching)):
             columns.setdefault((round(rect["x0"]), round(rect["x1"])), set()).add(text)
