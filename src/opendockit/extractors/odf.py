@@ -542,9 +542,13 @@ def _stored_value(cell: etree._Element) -> str:
             value = float(cell.get(f"{{{_OFFICE}}}value", ""))
         except ValueError:
             return ""
+        # Multiplied before the test for a finite number: 1e308 passed it and came out as 'inf%' (Pinned by: test_audit_office.py::
+        # TestOdsPercentageBeyondTheLargestNumber::test_stored_percentage_that_overflows_is_left_empty_like_an_infinite_value).
+        if kind == "percentage":
+            value *= 100
         if value != value or value in (float("inf"), float("-inf")):
             return ""
-        return f"{_number_text(round(value * 100, 10))}%" if kind == "percentage" else _number_text(value)
+        return f"{_number_text(round(value, 10))}%" if kind == "percentage" else _number_text(value)
     if kind == "date":
         return (cell.get(f"{{{_OFFICE}}}date-value") or "").removesuffix("T00:00:00").replace("T", " ")
     if kind == "time":

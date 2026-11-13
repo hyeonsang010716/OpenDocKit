@@ -14,6 +14,7 @@ from opendockit import ConvertOptions, CorruptedDocumentError, convert
 from opendockit.extractors.docx import extract_docx
 from tests import builder
 from tests.test_office import _docx_with_body
+from tests.test_odf import _package as _odf_package
 
 
 _SUPERSCRIPT = '<w:rPr><w:vertAlign w:val="superscript"/></w:rPr>'
@@ -260,6 +261,24 @@ class TestDocxGridSpanBelowOne:
                  f'<w:tr><w:trPr><w:gridBefore w:val="1"/></w:trPr>{self._cell("d")}</w:tr></w:tbl>')
 
         assert _docx(table) == "| a | b |\n| --- | --- |\n| | d |"
+
+
+class TestOdsPercentageBeyondTheLargestNumber:
+    """A percentage cell without displayed text is written as its stored value times 100. The 'not a finite number' test looked
+    at the stored value, so 1e308 passed it and came out as 'inf%'."""
+
+    def test_stored_percentage_that_overflows_is_left_empty_like_an_infinite_value(self):
+        def cell(kind: str, value: str) -> str:
+            return f'<table:table-cell office:value-type="{kind}" office:value="{value}"/>'
+
+        sheet = ('<table:table table:name="S"><table:table-row>'
+                 f'{cell("float", "7")}{cell("percentage", "1e308")}{cell("percentage", "-1e308")}{cell("percentage", "0.253")}'
+                 f'{cell("float", "1e308")}</table:table-row></table:table>')
+
+        text = convert(_odf_package("spreadsheet", sheet), "sample.ods").text
+
+        assert "inf" not in text
+        assert "| 7 | 25.3% | 1e+308 |" in text   # the two empty columns are dropped by the sheet rendering
 
 
 class TestPptxSlideListEntryWithoutARelationship:
