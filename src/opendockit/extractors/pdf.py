@@ -928,7 +928,10 @@ _CENTRED_TOLERANCE_RATIO = 0.03
 _DIGITS = re.compile(r"\d+")
 # Piece that looks like a page number ("3", "- 3 -", "3 / 10", "Page 3", "3쪽"). For a margin line with several pieces at the same
 # height, only the digits of this piece are ignored; the rest must match character for character to count as a repeat.
-_PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:page|p\.)?\s*\d{1,4}\s*(?:/\s*\d{1,4})?\s*(?:쪽|페이지)?\s*[-–)\]]?$", re.IGNORECASE)
+# Each optional part carries the white space after it, so no two runs of optional white space are neighbours: with
+# `\s*(?:/…)?\s*(?:쪽|페이지)?\s*`, a digit followed by a long run of white space and then anything else was tried in every way
+# of sharing the white space out (cubic). The texts matched are the same (Pinned by: test_audit_pdf_tail.py::TestPageNumberShape).
+_PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:(?:page|p\.)\s*)?\d{1,4}\s*(?:/\s*\d{1,4}\s*)?(?:(?:쪽|페이지)\s*)?[-–)\]]?$", re.IGNORECASE)
 # Token that can be a page number (_page_number_blind): without its digits only punctuation, a page word or a single Latin letter
 # remains ('3', '3/10', '3쪽', 'p.3', '2024-01-05', 'A-1'). A value with a unit ('12건') is not one.
 _PAGE_WORDS = frozenset({"page", "p", "pp", "of", "쪽", "페이지", "면", "頁"})

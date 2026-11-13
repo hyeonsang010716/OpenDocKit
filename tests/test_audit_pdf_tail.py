@@ -304,3 +304,28 @@ class TestManyPairsWithLongLabels:
         self._converted(1_500)
 
         assert spent[0] < 5.0  # 10 seconds before; 1 second now
+
+
+class TestPageNumberShape:
+    """The page-number pattern had three optional pieces each wrapped in optional white space, so a digit followed by a
+    long run of white space and anything else was tried in every way of sharing out the white space (cubic). Line text
+    has single spaces today, so this was not reachable from a document; the pattern is linear all the same."""
+
+    _TOKENS = ("-", "–", "(", "[", ")", "]", " ", " ", "\n", "Page", "p.", "3", "12345", "/", "쪽", "페이지", "x")
+
+    def test_page_number_pattern_judges_as_before(self):
+        reference = r"^[-–(\[]?\s*(?:page|p\.)?\s*\d{1,4}\s*(?:/\s*\d{1,4})?\s*(?:쪽|페이지)?\s*[-–)\]]?$"
+
+        assert _same_verdicts(pdf._PAGE_NUMBER, reference, self._TOKENS, 4, search=False)
+        for text in ("3", "- 3 -", "3 / 10", "Page 3", "3쪽", "p. 12", "(3)", "[ 3 / 10 페이지 ]", "– 12 –"):
+            assert pdf._PAGE_NUMBER.match(text)
+        for text in ("3 4", "page", "12345", "3 / x", "3쪽쪽", "a3"):
+            assert not pdf._PAGE_NUMBER.match(text)
+
+    @pytest.mark.timing
+    def test_white_space_run_after_a_digit_is_linear(self):
+        started = time.perf_counter()
+
+        assert not pdf._PAGE_NUMBER.match("1" + " " * 3_000 + "x")
+        assert not pdf._PAGE_NUMBER.match(" " * 3_000 + "x")
+        assert time.perf_counter() - started < 2.0  # minutes before
