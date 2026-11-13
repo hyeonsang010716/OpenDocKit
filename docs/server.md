@@ -101,7 +101,7 @@ Defaults: upload 50 MB · worker memory 2 GB · conversion 2 minutes.
 
 ### Measurements
 
-Pinned by `tests/test_isolated.py` (time limit, worker death, the next file after a cancelled request, a new worker per file; the memory limit on Linux only). In a Linux container (arm64, Python 3.12) all 3,024 tests passed. Feeding a 40 MB CSV to a worker with a 300 MB memory limit ended in 0.6 s with `document_too_large`, the server process stayed at 156 MB, and the next file succeeded immediately. A 40 MB CSV with a 10 s time limit ended at 10.0 s.
+Pinned by `tests/test_isolated.py` (time limit, worker death, the next file after a cancelled request, a new worker per file; the memory limit on Linux only). In a Linux container (arm64, Python 3.12) the whole suite passed (3,024 tests at 0.1.0, 3,305 at 0.2.0). Feeding a 40 MB CSV to a worker with a 300 MB memory limit ended in 0.6 s with `document_too_large`, the server process stayed at 156 MB, and the next file succeeded immediately. A 40 MB CSV with a 10 s time limit ended at 10.0 s.
 
 In a Linux container (8 GB of memory), 5 kinds of normal documents and 23 crafted files were fed one after another through hand-written code using the same scheme (a pool of one worker, 2 GB, 120 s, a new pool after termination). These measurements predate the move to `IsolatedConverter`.
 
@@ -119,5 +119,11 @@ Both of the following happen outside the worker, in the main process. They do no
 
 - **Memory when the conversion result is copied to the main process.** The result (including images) crosses to the main process by pickle, and the main process uses about 2.2 times the total image size (a result with 2.4 GB of images cost the main process 5.3 GB). Even within the 2 GB worker limit, 1.5–2 GB may appear in the main process (estimate). For normal documents, even a 50 MB scanned PDF has 134–141 MB of images in total. Where to fix: a limit on the total bytes of result images.
 - **CPU in the image description step.** Each time a picture is judged decorative (SKIP), the whole text is assembled again; in a document just under the limit, 10,000 pictures block the event loop (including chat responses) for 245 s. Real documents have tens of pictures, which takes under 1 s. Where to fix: make `converter.image_length_bound` return 0 for decorative pictures.
+
+**Legacy `.doc` and `.ppt`.** These start LibreOffice from inside the worker, with its own fixed limit of 60 seconds — below
+the 2-minute default, so the conversion normally ends with its own `document_too_large` error. If you set `timeout` below
+60 seconds the worker is killed first; on Linux and macOS a small guard process then ends LibreOffice and removes its
+temporary folder (on Windows both can be left behind). On Linux, LibreOffice inherits the worker's memory limit. The
+bridge is not a sandbox: see [limitations.md](limitations.md#word-97-2003-doc-and-powerpoint-97-2003-ppt).
 
 One bad file can hold a worker for up to 2 minutes, during which other uploads wait. If that becomes a problem, limit the number of uploads per user.

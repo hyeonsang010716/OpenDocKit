@@ -12,7 +12,7 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from opendockit import ConversionResult, OpenAIImageDescriber, convert_file, describe_images
+from opendockit import ConversionResult, OpenAIImageDescriber, UnsupportedFormatError, convert_file, describe_images
 
 
 HERE = Path(__file__).parent
@@ -48,7 +48,11 @@ def main() -> None:
     for path in sorted(SAMPLES.iterdir()):
         if path.suffix == ".md" and path.name.isupper() or path.name.startswith("THIRD_PARTY"):
             continue
-        result = results[path.name] = convert_file(path)
+        try:
+            result = results[path.name] = convert_file(path)
+        except UnsupportedFormatError as error:   # the .doc / .ppt samples on a machine without LibreOffice
+            print(f"{path.name:28} skipped: {error}")
+            continue
         write(f"{path.name}.md", result)
         print(f"{path.name:28} {result.format.value:10} {result.char_count:>6} chars  {len(result.images)} image(s)  "
               f"{len(result.warnings)} warning(s)")

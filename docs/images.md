@@ -32,6 +32,10 @@ The built-in describer needs the optional extra, `pip install "opendockit[openai
 | PPTX | Picture shapes and picture placeholders (including those inside groups) |
 | XLSX, XLS | Pictures attached to a sheet (placed after the table) |
 | HWP, HWPX | Pictures in the body, inside tables and in grouped objects (`BinData`) |
+| ODT, ODS, ODP | Pictures stored in the package or written inline (`office:binary-data`), with their title or description as alt text; in a sheet they follow the table. Linked pictures are never fetched |
+| RTF | The data of every `\pict` group (PNG, JPEG; WMF and EMF stay placeholders), where the picture stands. The copy kept for old readers (`\nonshppict`) is skipped |
+| EPUB | Pictures stored in the book and shown by a chapter, up to 20 MB each and 64 MB per book. SVG pictures and remote pictures keep only their alt text |
+| DOC, PPT | As DOCX and PPTX, from the file LibreOffice converts them to |
 | HTML | Pictures embedded as `data:` URIs, and picture parts saved inside MHTML. **External URLs are never fetched** (SSRF prevention) — only the alt text is kept |
 | MD | Pictures embedded as `![alt](data:image/…;base64,…)` or `<img src="data:image/…;base64,…" alt="alt">`. Inside code blocks and inline code they are left untouched, whether line endings are LF, CRLF or CR. Non-base64 data: URIs and SVG keep only the alt text, as in HTML. External URLs are never fetched |
 | Image files | JPG, PNG, WEBP, GIF, BMP, TIFF, AVIF and HEIC uploaded on their own (HEIC/HEIF needs `pip install "opendockit[heic]"`; without it such a file is rejected with `unsupported_format` and the install hint). A multi-page TIFF (fax or scan bundle) gives one image per page, up to 1,000 pages. When the pixel total of the pages exceeds about 1.79 billion (about 200 color A4 pages at 300 dpi), only the leading pages are read and a warning is added |

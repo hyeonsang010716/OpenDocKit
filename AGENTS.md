@@ -8,10 +8,10 @@ and [docs/](docs/); contribution rules are in [CONTRIBUTING.md](CONTRIBUTING.md)
 ```bash
 uv sync                          # install everything
 uv run pytest -n auto -m "not timing"   # the bulk of the suite in parallel (about 20 seconds)
-uv run pytest -m timing                  # tests that measure time, serially (about 40 seconds)
+uv run pytest -m timing                  # tests that measure time, serially (about 90 seconds)
 uv run pytest tests/test_pdf.py  # one module
 uv run ruff check                # lint
-uv run python examples/run_examples.py   # reconvert the sample documents; `git diff examples/output` shows what moved
+uv run python examples/run_examples.py   # reconvert the sample documents (needs LibreOffice for the .doc / .ppt samples); `git diff examples/output` shows what moved
 uv run opendockit <file> [--json | --count] [--describe]   # --describe calls a vision model (OPENAI_API_KEY, costs money)
 ```
 
@@ -23,7 +23,7 @@ document that justifies it.
 
 - [docs/decisions/core.md](docs/decisions/core.md) — structure, dependency direction, limits, rendering, tables
 - [docs/decisions/extractors.md](docs/decisions/extractors.md) — rules shared by all extractors
-- [docs/decisions/](docs/decisions/) — one file per topic (`pdf-*.md`, `office-*.md`, `spreadsheet-*.md`, `hwp.md`,
+- [docs/decisions/](docs/decisions/) — one file per topic (`pdf*.md`, `office*.md`, `spreadsheet*.md`, `hwp.md`,
   `html.md`, `mail.md`, `csv.md`, `encoding.md`, `detect.md`, `images.md`, `odf.md`, `rtf.md`, `epub.md`,
   `legacy-office.md`, `inline-formatting.md`)
 

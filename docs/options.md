@@ -19,15 +19,15 @@ result = convert(data, "deck.pptx", options)
 | `max_pages` | none | Only the first N pages of a PDF |
 | `pdf_time_budget` | 60 s | Time budget for PDF structure analysis. When exceeded, the remaining pages are read by plain pdfium extraction (no table or heading detection; the text is preserved) |
 | `max_sheet_cols` | 100 | Column limit per sheet (a warning when exceeded). Counted from the leftmost column that has a value; for large XLSX read in streaming mode, XLSX with formulas that have no value, Excel 2003 XML and CSV it is counted from column A. The number of rows is not limited — the only size limit is `max_chars` |
-| `include_speaker_notes` | `True` | PPTX speaker notes |
-| `include_hidden_sheets` | `False` | Hidden sheets |
-| `include_headers_footers` | `False` | Headers and footers of DOCX, HWP and HWPX (usually noise) |
+| `include_speaker_notes` | `True` | Speaker notes (PPTX, ODP, PPT) |
+| `include_hidden_sheets` | `False` | Hidden sheets (XLSX, XLS, ODS) |
+| `include_headers_footers` | `False` | Headers and footers of DOCX, ODT, RTF, DOC, HWP and HWPX (usually noise) |
 | `include_footnotes` | `True` | Footnotes as `[^n]: …` at the end of the document |
 | `keep_links` | `True` | Hyperlinks as `[text](url)` (http, https and mailto only). `False`: only the link text |
 | `keep_emphasis` | `True` | Bold and italic as `**bold**` / `*italic*`. `False`: plain text |
 | `remove_repeated_page_lines` | `True` | Remove repeated PDF page headers, footers and page numbers |
 | `page_markers` | `True` | PDF page-boundary comments (`<!-- Page N -->`) |
-| `extract_images` | `True` | Image extraction. `False` ignores images completely: pictures inside a document leave no placeholder, and an image file uploaded on its own is not read (empty result plus a warning). However, OLE objects whose content is not read (a pasted Excel sheet and the like) still leave an `[OLE object]` placeholder and a warning (DOCX, PPTX, HWP, HWPX) |
+| `extract_images` | `True` | Image extraction. `False` ignores images completely: pictures inside a document leave no placeholder (HTML, mail and EPUB pictures that have alt text keep `[Image: alt text]`), and an image file uploaded on its own is not read (empty result plus a warning). However, OLE objects whose content is not read (a pasted Excel sheet and the like) still leave an `[OLE object]` placeholder and a warning (DOCX, PPTX, HWP, HWPX) |
 | `max_images` | none | Number of images to describe per document (cost cap). Without it, all are described |
 | `min_image_side` | 64 | Images smaller than this (px) are discarded |
 | `repeated_image_threshold` | 3 | A picture repeated this many times is treated as a logo and discarded |
@@ -56,7 +56,7 @@ To use a different vision model, implement the `ImageDescriber` protocol; see [i
 | Variable | Effect |
 | --- | --- |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL` | Read by `OpenAIImageDescriber()` when no model is passed in |
-| `OPENDOCKIT_SOFFICE` | Path of the LibreOffice program used for `.doc` / `.ppt`. Empty: never start LibreOffice |
+| `OPENDOCKIT_SOFFICE` | Path of the LibreOffice program used for `.doc` / `.ppt`. Empty: never start LibreOffice. A path that is not a file also switches the bridge off — there is no fallback to an installed LibreOffice |
 
 ## Option validation
 
@@ -75,10 +75,10 @@ All exceptions are subclasses of `ConversionError`; branch on `code`. The messag
 
 | Exception | `code` | When |
 | --- | --- | --- |
-| `UnsupportedFormatError` | `unsupported_format` | Legacy .doc and .ppt when LibreOffice is not installed, HWP 3.x, Hangul XML (.hml), single-file ODF XML, DOCX and PPTX saved as Strict Open XML (the message advises saving again in the normal format), unknown binary |
-| `EncryptedDocumentError` | `encrypted_document` | Password-protected PDF, Office and HWP documents (a protected XLS that Excel saved with its default password VelvetSweatshop is read normally), encrypted mail (S/MIME, PGP), an HWP distribution document whose body is encrypted when it has no preview either |
-| `DocumentTooLargeError` | `document_too_large` | File size or decompressed size over the limit; time or memory limit of `IsolatedConverter` exceeded, or its worker died ("too large or too complex") |
-| `CorruptedDocumentError` | `corrupted_document` | Empty file, broken structure, internal parser error, an image file that cannot be decoded (uploaded on its own) |
+| `UnsupportedFormatError` | `unsupported_format` | Legacy .doc and .ppt when LibreOffice is not installed, switched off or cannot be started; HWP 3.x, Hangul XML (.hml), single-file ODF XML, other OpenDocument kinds (drawing, formula, database), .xlsb, SVG, Word XML, DOCX / PPTX / XLSX saved as Strict Open XML (the message advises saving again in the normal format), unknown binary |
+| `EncryptedDocumentError` | `encrypted_document` | Password-protected PDF, Office (`.doc` / `.ppt` included), OpenDocument and HWP documents, an EPUB with DRM or a ZIP password (a protected XLS that Excel saved with its default password VelvetSweatshop is read normally), encrypted mail (S/MIME, PGP), an HWP distribution document whose body is encrypted when it has no preview either |
+| `DocumentTooLargeError` | `document_too_large` | File size or decompressed size over the limit; time or memory limit of `IsolatedConverter` exceeded, or its worker died ("too large or too complex"); a `.doc` / `.ppt` LibreOffice did not finish within 60 seconds |
+| `CorruptedDocumentError` | `corrupted_document` | Empty file, broken structure, internal parser error, an image file that cannot be decoded (uploaded on its own), a `.doc` / `.ppt` LibreOffice could not convert |
 
 ```python
 from opendockit import ConversionError, convert

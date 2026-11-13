@@ -11,8 +11,8 @@ You need [uv](https://docs.astral.sh/uv/) and Python 3.12 or newer.
 git clone https://github.com/hyeonsang010716/OpenDocKit.git
 cd OpenDocKit
 uv sync                      # creates .venv with runtime, vision and development dependencies
-uv run pytest -n auto -m "not timing"   # ~2,900 tests in parallel, about 20 seconds
-uv run pytest -m timing                  # ~110 tests that measure time, one at a time, about 40 seconds
+uv run pytest -n auto -m "not timing"   # ~3,300 tests in parallel, about 20 seconds
+uv run pytest -m timing                  # ~130 tests that measure time, one at a time, about 90 seconds
 uv run ruff check            # lint
 uv run opendockit some.pdf   # try a real document
 ```
@@ -20,7 +20,8 @@ uv run opendockit some.pdf   # try a real document
 `uv run pytest -n auto` also works for a quick look, but the timing tests can fail when every core is busy, which is why
 they are run separately (as CI does).
 
-Optional: `uvx pre-commit install` runs the linter before each commit.
+Optional: `uvx pre-commit install` runs the linter before each commit. LibreOffice is optional too: without it the tests
+that start a real LibreOffice are skipped, and `examples/run_examples.py` skips the `.doc` / `.ppt` samples.
 
 Tests that call a real vision model are skipped by default because they cost money. To run them (after changing
 `describe.py` or its prompts):
@@ -91,7 +92,8 @@ character limit belong to `converter.py`. The details are in [docs/decisions/cor
   dependencies must be MIT / BSD / Apache-style and should ship wheels for Linux, macOS and Windows. Check what a
   wheel *bundles*, not only its own license: `pillow-heif` is BSD but ships GPL/LGPL codecs, which is why it lives
   behind the optional `heic` extra.
-- **`convert` never touches the network** and is deterministic. Network access lives only in `describe.py`.
+- **`convert` never touches the network** and is deterministic. Network access lives only in `describe.py`. The
+  one process it starts is LibreOffice for `.doc` / `.ppt` (`extractors/legacy.py`), with network access switched off.
 - **Untrusted input.** Never trust a size, count, span or offset stored in a file. Bound it, and add a test with a
   small crafted file that would otherwise take seconds or gigabytes.
 - **User-facing text is fixed English wording.** Exception messages and warnings may be shown to end users, so they
@@ -107,7 +109,8 @@ character limit belong to `converter.py`. The details are in [docs/decisions/cor
 2. Teach `detect.py` to recognize it by content.
 3. Write `extractors/<format>.py` and register it in `extractors/__init__.py`.
 4. Add a sample builder to `tests/builder.py` and tests in `tests/test_<format>.py`.
-5. Document it in `docs/formats.md` and the README table.
+5. Document it in `docs/formats.md`, `docs/limitations.md`, `docs/integration-guide.md`, `docs/images.md`, the option and
+   error tables of `docs/options.md`, the README table and the `pyproject.toml` keywords.
 
 ## Style
 

@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-11-13
 
 ### Added
 
@@ -19,18 +19,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `OPENDOCKIT_SOFFICE` environment variable sets the program path; an empty value disables the bridge.
 - **Links and emphasis.** `ConvertOptions.keep_links` and `keep_emphasis` (both on by default) keep hyperlinks as
   `[text](url)` and bold / italic as `**bold**` / `*italic*` in DOCX, PPTX, HTML, ODT, ODP, RTF and EPUB.
+- `DocumentFormat` has the new members `odt`, `ods`, `odp`, `epub`, `rtf`, `doc` and `ppt`; code that branches on
+  `result.format` will see them.
 - A comparison benchmark against four other converters in `benchmarks/`.
 
 ### Changed
 
 - **Default output changes** for documents that contain links, bold or italic: the marks and addresses are now part of
   the text and of `char_count`. Pass `keep_links=False, keep_emphasis=False` for the 0.1 output.
-- RTF, ODF, `.doc` and `.ppt` files are no longer rejected with `UnsupportedFormatError` (`.doc` / `.ppt` still are
+- RTF, ODF, EPUB, `.doc` and `.ppt` files are no longer rejected with `UnsupportedFormatError` (`.doc` / `.ppt` still are
   when LibreOffice is not installed).
 
 ### Fixed
 
-- A converted `.ppt` no longer ends its speaker notes with a `<number>` line (a field-only text box on the notes page).
+- PPTX: a text box on the notes page that holds only a field (the slide number) is no longer written into the speaker
+  notes as a `<number>` line.
 - Text that has the shape of an internal placeholder is no longer taken for one. Cell text imitating the nested-table
   placeholder made a table inside a table be drawn again for every copy (a document under 1 KB could run for minutes),
   such text was also counted against `max_chars` although it is never written, which could cut a table short without

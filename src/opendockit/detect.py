@@ -482,7 +482,7 @@ def _reject_other_xml_documents(head: bytes) -> None:
     if _WORD_XML_PROGID.search(prolog.group()) or _WORD_XML_ROOT.match(root):
         raise UnsupportedFormatError("Word XML documents are not supported. Please save the file as DOCX.")
     if _FLAT_ODF_ROOT.match(root):
-        raise UnsupportedFormatError("Flat XML ODF (fodt, fods, fodp) documents are not supported. Please save the file as DOCX, XLSX or PPTX.")
+        raise UnsupportedFormatError("Flat XML ODF (fodt, fods, fodp) documents are not supported. Please save the file as ODT, ODS or ODP.")
     if _HWPML_ROOT.match(root):
         # The table was scattered cell by cell and the trailing pictures (BINDATA base64) became the body (Pinned by: test_detect.py::TestHwpml).
         raise UnsupportedFormatError("Hangul XML (HWPML, .hml) documents are not supported. Please save the file as HWPX or HWP in Hancom Office.")

@@ -53,8 +53,11 @@ pip install "opendockit[openai]"      # + image description with a vision model
 pip install "opendockit[heic]"        # + HEIC/HEIF images (pulls in GPL/LGPL-licensed codec libraries)
 ```
 
-Requires Python 3.12 or newer on Linux or macOS. Windows is not supported yet for HTML and email
+Requires Python 3.12 or newer on Linux or macOS. Windows is not supported yet for HTML, email and EPUB
 ([why](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md#platforms)).
+
+Optional: install [LibreOffice](https://www.libreoffice.org/) (`brew install --cask libreoffice`, `apt install libreoffice`)
+to read legacy `.doc` and `.ppt` files. Every other format is read by OpenDocKit itself.
 
 ## Quick start
 
@@ -70,7 +73,8 @@ print(result.text)
 print(result.char_count, result.exceeded)        # size of the output, and whether the limit stopped it
 ```
 
-`convert` is synchronous, offline and deterministic. Pictures are collected in `result.images` and the text keeps an
+`convert` is synchronous, offline and deterministic (the one exception: `.doc` and `.ppt` start a local LibreOffice
+process). Pictures are collected in `result.images` and the text keeps an
 `[Image]` placeholder where each one was.
 
 ### Describe images with a vision model
@@ -97,7 +101,8 @@ async with IsolatedConverter(workers=2) as converter:      # 2 GB and 2 minutes 
         print(exc.code, exc)                               # stable code + a message safe to show users
 ```
 
-One bad file ends one worker; your server and the next upload carry on. See [docs/server.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md).
+One bad file ends one worker; your server and the next upload carry on. In a script, run this under
+`if __name__ == "__main__":` — the workers import the main module again. See [docs/server.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md).
 
 ### Command line
 

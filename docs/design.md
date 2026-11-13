@@ -47,7 +47,7 @@ These are synthetic images and a small sample. Newer models tend to correct part
 
 ### Conversion and description are separate
 
-Conversion is offline, synchronous and deterministic (it can be tested and run in a process pool). Only description, which needs the network and costs money, is split off as an asynchronous step.
+Conversion is offline, synchronous and deterministic (it can be tested and run in a process pool). The one exception is legacy `.doc` / `.ppt`, which are handed to a local LibreOffice process ([decisions/legacy-office.md](decisions/legacy-office.md)). Only description, which needs the network and costs money, is split off as an asynchronous step.
 
 ### Why not a general-purpose converter
 
@@ -100,14 +100,30 @@ the earlier Korean prompts and have not been repeated.
 
 Model wobble (measured with the earlier default model gpt-4o-mini): text pictures inside PDFs preserved 72/72; textless patterns removed 17/18 (the remaining one was kept with a description attached — not a loss).
 
-### Public corpus and corrupted input (2026-11-12)
+### Public corpus and corrupted input (0.1.0, 2026-11-12)
 
 1,584 public test documents (Apache POI test data, pdfplumber's PDFs, the hwplib and hwpxlib samples — including their fuzzer
 crash cases) were converted through `IsolatedConverter` with a 120 s limit: 1,161 converted, 423 were rejected with a
-`ConversionError` (legacy `.doc`/`.ppt`, encrypted files, Strict Open XML, deliberately broken or fuzzed files), and there were
+`ConversionError` (legacy `.doc`/`.ppt`, which 0.1.0 did not read, encrypted files, Strict Open XML, deliberately broken or fuzzed files), and there were
 no crashes, no unexpected exceptions and no timeouts. Converted results were checked for leftover placeholders, NFC, control
 characters, consistent table widths and picklability. A further 1,680 randomly corrupted variants of the files in `examples/`
 (bit flips, truncation, inserted garbage, repeated ranges) gave only successes and `ConversionError`s.
+
+### The formats added in 0.2.0 (2026-11-13)
+
+The new readers were checked against documents whose content is known from another format. 2,546 files — the corpus above,
+Apache Tika's test documents, and the DOCX / XLSX / PPTX files of the corpus saved by LibreOffice as ODT, ODS, ODP and RTF —
+were converted through `IsolatedConverter`, and each OpenDocument and RTF result was compared word by word with the result
+for its OOXML original; 146 EPUB books made by pandoc from the same sources were compared with pandoc's own plain text.
+That comparison found a sheet whose only content was a drawn shape coming out empty, a table that started at column GW
+being dropped by the column limit, and an RTF dialect whose body text was skipped. With links and emphasis switched off,
+the 1,756 files of the formats 0.1.0 already read gave the same output as 0.1.0 except for five intended differences.
+
+Three rounds of adversarial review by independent reviewers, each followed by fixes, looked for small files with large
+cost and for results that break the character-limit rule (a document within `max_chars` is never cut; `exceeded` is set
+exactly when the text is over it). Every limit within 140 characters of a document's size was tried on 1.5 million
+conversions of random RTF documents, and nine limits on 548 real files of all formats, without a violation. The bounds
+that came out of this are listed in [limitations.md](limitations.md) and each has a row in [decisions/](decisions/core.md).
 
 ### Full run over real files
 

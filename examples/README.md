@@ -5,7 +5,7 @@ Realistic documents for every format in [`samples/`](samples/), and exactly what
 
 ```bash
 uv run python examples/make_samples.py              # rebuild the samples (they are generated, not hand-made)
-uv run python examples/run_examples.py              # convert them all, offline
+uv run python examples/run_examples.py              # convert them all, offline (the .doc / .ppt samples need LibreOffice)
 uv run python examples/run_examples.py --describe   # also describe the pictures with a vision model
 ```
 

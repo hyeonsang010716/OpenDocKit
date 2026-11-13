@@ -263,23 +263,26 @@ Section unit: the whole document; a multi-page TIFF is split into pages (`<!-- P
 
 ## OpenDocument: ODT, ODS, ODP
 
-Read directly from the package; LibreOffice is not needed.
+Section unit: document (ODT), sheet (ODS), slide (ODP). Read directly from the package; LibreOffice is not needed.
 
 - **ODT**: headings, bulleted and numbered lists with nesting, tables with merged cells and nested tables,
   footnotes and endnotes, links, bold / italic, superscripts and subscripts, strikethrough, pictures, charts (title and
   values), formulas (LaTeX) and comments. Headers and footers with `include_headers_footers`. Tracked deletions are left out.
 - **ODS**: one section per sheet with the cell text as displayed. Several tables on a sheet are split as for XLSX;
   merged cells are filled the same way. Hidden sheets are skipped with a warning unless `include_hidden_sheets`. Chart
-  titles, pictures and cell comments follow the cells.
+  titles, pictures, the text of drawn shapes and cell comments follow the cells. The column limit counts from the first
+  used column, as for XLSX.
 - **ODP**: one section per slide, titled from the title placeholder: bullet levels, tables, pictures, charts, and speaker
   notes with `include_speaker_notes`.
 - Password-protected files are reported as `EncryptedDocumentError`.
+- Repeated rows and cells are written a bounded number of times and an embedded chart gives its values once; the
+  exact bounds are in [limitations.md](limitations.md#opendocument-rtf-and-epub).
 
 More: [decisions/odf.md](decisions/odf.md).
 
 ## RTF
 
-Read by a built-in parser, with no extra dependency.
+Section unit: document. Read by a built-in parser, with no extra dependency.
 
 - Headings (outline level or heading styles, including the Korean "제목 N"), bullet and numbered lists with nesting,
   tables with merged cells and nested tables, bold / italic and hyperlinks, footnotes as `[^n]`, pictures (PNG and JPEG in
@@ -287,10 +290,14 @@ Read by a built-in parser, with no extra dependency.
 - Headers and footers with `include_headers_footers`.
 - Legacy code pages are decoded per font (CP949 for Korean, Shift-JIS, GBK, Big5, Cyrillic and others) along with `\u`
   Unicode escapes.
+- A table keeps at most 500,000 cells and a paragraph 50,000 runs of formatting; see
+  [limitations.md](limitations.md#opendocument-rtf-and-epub).
 
 More: [decisions/rtf.md](decisions/rtf.md).
 
 ## EPUB
+
+Section unit: document.
 
 - Chapters in reading order (the spine) as one document: headings, lists, tables, code blocks, quotes and equations as
   for HTML. Title, authors and language come from the package metadata.
@@ -304,8 +311,9 @@ More: [decisions/epub.md](decisions/epub.md).
 
 ## Word 97-2003 (.doc) and PowerPoint 97-2003 (.ppt)
 
-These binary formats are read **through LibreOffice when it is installed** (`soffice` or `libreoffice` on `PATH`, the
-standard macOS and Windows install locations, or the path in the `OPENDOCKIT_SOFFICE` environment variable).
+Section unit: document (`.doc`), slide (`.ppt`). These binary formats are read **through LibreOffice when it is installed**
+(`soffice` or `libreoffice` on `PATH`, the standard macOS, Linux and Windows install locations, or the path in the
+`OPENDOCKIT_SOFFICE` environment variable — when that is set, nothing else is searched).
 
 - The file is converted to DOCX / PPTX in a private temporary directory and then read exactly like those formats.
   The result carries one warning that it went through LibreOffice, and `format` is `doc` / `ppt`.
@@ -319,7 +327,8 @@ standard macOS and Windows install locations, or the path in the `OPENDOCKIT_SOF
 
 ## Links and emphasis
 
-In DOCX, PPTX, HTML, ODT, ODP, RTF and EPUB:
+In DOCX, PPTX, HTML, email, ODT, ODP, RTF and EPUB, and in `.doc` / `.ppt` (read as DOCX / PPTX). PDF, HWP / HWPX and
+spreadsheet cells do not carry them:
 
 - Hyperlinks are kept as `[text](url)`. Only `http`, `https` and `mailto` targets become links; a link whose text is its
   own address stays the bare address. Nothing is resolved or fetched.
@@ -337,6 +346,8 @@ More: [decisions/inline-formatting.md](decisions/inline-formatting.md).
 Design notes: [decisions/detect.md](decisions/detect.md).
 
 - The format is determined **from the content (magic bytes), not the extension**.
+- OpenDocument files are recognized by the `mimetype` entry of the package (templates included), EPUB by its mimetype or
+  `META-INF/container.xml`, RTF by its `{\rtf` header, and `.doc` / `.ppt` by the streams of their OLE container.
 - "Excel download" files served as `.xls` are read as what they really are, with a warning: HTML tables, Excel 2003 XML spreadsheets, TSV/CSV (including files with a few title or query-condition lines in front), and BIFF records not wrapped in OLE (PHP style; CP949 when there is no code-page record).
 - A warning is also added when a text extension (.txt, .csv, .html and so on) holds a binary document such as Excel, PDF or an image. No warning is given between text formats.
 - Exception: a `.csv` or `.tsv` that starts with HTML document tags and contains a table (`<table>`, `<tr>`, `<td>` and closing tags) is read as an HTML table with a warning. A `.txt` stays text.
@@ -356,12 +367,12 @@ Design notes: [decisions/detect.md](decisions/detect.md).
 ### Tables
 
 - Tables are Markdown. **A vertically merged value is repeated on every row**, so each row states by itself which category it belongs to.
-- A table that has horizontally spanning cells (HWP, HWPX, DOCX, PPTX, HTML) is written as an **HTML table** (`<table>`, `rowspan`, `colspan`). A Markdown table cannot draw a horizontal merge, so the meaning of the empty cells would be lost. Because the output is LLM input, cell text is left as is; only table tags that could be confused with cell and row boundaries (`<td>`, `</tr>` and so on) are escaped with `&lt;`.
+- A table that has horizontally spanning cells (HWP, HWPX, DOCX, PPTX, HTML, ODT, ODP, RTF, EPUB) is written as an **HTML table** (`<table>`, `rowspan`, `colspan`). A Markdown table cannot draw a horizontal merge, so the meaning of the empty cells would be lost. Because the output is LLM input, cell text is left as is; only table tags that could be confused with cell and row boundaries (`<td>`, `</tr>` and so on) are escaped with `&lt;`.
 - PDF, Excel and CSV tables are always Markdown, because merge information is spread into the cells while reading. A horizontal merge in Excel is repeated in each spanned column only in data rows; a merge in a table title or header row, or one that extends over unnamed empty columns, keeps its value in the first cell only.
 - A one-cell title row at the top of a table becomes a paragraph above the table. A one-column table (a layout box) is unfolded into paragraphs.
 
 ### Nested tables
 
-- **A table inside a table** (HWP, HWPX, DOCX): the outer table is written as HTML and the inner table is placed inside the cell as a one-line HTML table.
+- **A table inside a table** (HWP, HWPX, DOCX, ODT, RTF): the outer table is written as HTML and the inner table is placed inside the cell as a one-line HTML table.
 - When the outer table is a one-column box, the box is unfolded into paragraphs and the inner table becomes an independent table.
 - A table inside a footnote or endnote is flattened to one line as `cell / cell; cell / cell` (cells separated by ` / `, rows by `; `). A table in a header inside a cell is flattened to `cell / cell` lines. These are places that cannot hold a table.
