@@ -1,12 +1,16 @@
 """Audited runtime defects in picture decoding (`image.py`) and in the isolated converter (`isolated.py`): each test is the
 input that showed the defect, built in memory."""
 
+import asyncio
+import concurrent.futures
+import gc
 from io import BytesIO
+import sys
 
 from PIL import Image, UnidentifiedImageError, features
 import pytest
 
-from opendockit import ConvertOptions, DocumentTooLargeError, convert
+from opendockit import ConvertOptions, DocumentTooLargeError, IsolatedConverter, convert, isolated
 from opendockit.image import (
     _OPEN_FORMATS,
     HEIF_AVAILABLE,
@@ -117,3 +121,117 @@ class TestPictureFormatAllowList:
         pages[0].save(buffer, format="TIFF", save_all=True, append_images=pages[1:])
 
         assert len(split_tiff_pages(buffer.getvalue()).pages) == 2
+
+
+_CLOSED = "This IsolatedConverter is closed."
+_SMALL_TEXT = b"first line\n\nsecond paragraph\n"
+# A CSV (8MB) that takes seconds to convert: still running when the converter is closed
+_SLOW_CSV = ("가나다 라마바 사아자 1234,5678\n" * 200_000).encode()
+# Tests that start worker processes wait on them: marked `timing` (run serially), and POSIX only (see tests/test_isolated.py)
+_posix_only = pytest.mark.skipif(sys.platform == "win32", reason="worker process control is tested on POSIX only")
+
+
+async def _wait_for_worker(converter: IsolatedConverter) -> None:
+    for _ in range(200):
+        if any(pool._processes for pool in converter._pools):
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("the worker did not start")
+
+
+class _PoolWithoutWorkers:
+    """Stands for a pool whose worker has not taken the file yet. `shutdown(cancel_futures=True)` cancels such a call."""
+
+    _processes = None
+
+    def __init__(self, *, cancels_on_shutdown: bool) -> None:
+        self.calls: list[concurrent.futures.Future] = []
+        self._cancels_on_shutdown = cancels_on_shutdown
+
+    def submit(self, *_: object) -> concurrent.futures.Future:
+        self.calls.append(concurrent.futures.Future())
+        return self.calls[-1]
+
+    def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
+        if self._cancels_on_shutdown and cancel_futures:
+            for call in self.calls:
+                call.cancel()
+
+
+async def _converter_with(pool: _PoolWithoutWorkers) -> tuple[IsolatedConverter, asyncio.Task]:
+    """A converter whose only pool is `pool`, and a conversion that has reached that pool."""
+    converter = IsolatedConverter()
+    for unused in converter._pools:
+        unused.shutdown()
+    converter._pools = [pool]
+    task = asyncio.create_task(converter.convert(_SMALL_TEXT, "a.txt"))
+    while not pool.calls:
+        await asyncio.sleep(0)
+    return converter, task
+
+
+class TestClosingWithConversionsUnderWay:
+    """`aclose()` while one file was being converted and another waited for the worker: both ended as "too large or too complex"
+    (a shutdown is not the document's fault), the waiting one was sent to the pool that had just been shut down, and the
+    running one shut its pool down a second time while `aclose` was doing so (1 run in 6 logged "Future exception was never
+    retrieved ... Bad file descriptor")."""
+
+    @pytest.mark.timing
+    @_posix_only
+    def test_running_and_waiting_files_end_as_closed_and_each_pool_is_stopped_once(self, monkeypatch):
+        stopped, logged = [], []
+        stop = isolated._stop
+        monkeypatch.setattr(isolated, "_stop", lambda pool: (stopped.append(pool), stop(pool))[1])
+
+        async def scenario():
+            asyncio.get_running_loop().set_exception_handler(lambda _, context: logged.append(context["message"]))
+            converter = IsolatedConverter(workers=1)
+            running = asyncio.create_task(converter.convert(_SLOW_CSV, "a.csv", ConvertOptions(max_chars=None)))
+            await _wait_for_worker(converter)
+            waiting = asyncio.create_task(converter.convert(_SMALL_TEXT, "b.txt"))
+            await asyncio.sleep(0.1)
+            pools = list(converter._pools)
+            await converter.aclose()
+            outcomes = await asyncio.gather(running, waiting, return_exceptions=True)
+            await asyncio.sleep(0.2)  # a shutdown started by the failed conversion would still be running here
+            return outcomes, pools
+
+        outcomes, pools = asyncio.run(scenario())
+        gc.collect()  # an exception nobody retrieved is logged when its future is collected
+
+        assert [(type(outcome), str(outcome)) for outcome in outcomes] == [(RuntimeError, _CLOSED)] * 2
+        assert stopped == pools
+        assert logged == []
+
+    def test_file_the_worker_had_not_taken_yet_ends_as_closed_not_as_a_cancelled_request(self):
+        async def scenario():
+            converter, task = await _converter_with(_PoolWithoutWorkers(cancels_on_shutdown=True))
+            await converter.aclose()
+            return (await asyncio.gather(task, return_exceptions=True))[0]
+
+        outcome = asyncio.run(scenario())
+
+        assert (type(outcome), str(outcome)) == (RuntimeError, _CLOSED)
+
+    def test_request_cancelled_after_closing_is_still_a_cancelled_request(self):
+        async def scenario():
+            converter, task = await _converter_with(_PoolWithoutWorkers(cancels_on_shutdown=False))
+            await converter.aclose()
+            task.cancel()
+            return (await asyncio.gather(task, return_exceptions=True))[0]
+
+        assert isinstance(asyncio.run(scenario()), asyncio.CancelledError)
+
+    def test_request_cancelled_while_open_still_gets_a_new_pool(self):
+        async def scenario():
+            pool = _PoolWithoutWorkers(cancels_on_shutdown=False)
+            converter, task = await _converter_with(pool)
+            task.cancel()
+            outcome = (await asyncio.gather(task, return_exceptions=True))[0]
+            replaced = converter._pools[0] is not pool
+            await converter.aclose()
+            return outcome, replaced
+
+        outcome, replaced = asyncio.run(scenario())
+
+        assert isinstance(outcome, asyncio.CancelledError) and replaced

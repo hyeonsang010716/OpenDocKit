@@ -101,7 +101,8 @@ class IsolatedConverter:
         return await describe_images(result, describer, max_concurrency=max_concurrency)
 
     async def aclose(self) -> None:
-        """Terminate every worker. Files being converted are cut off (call this at application shutdown)."""
+        """Terminate every worker. Files being converted are cut off (call this at application shutdown): they, and the files
+        still waiting for a worker, end with the same `RuntimeError` a closed converter raises for a new file."""
         self._closed = True
         await asyncio.gather(*(_stop(pool) for pool in self._pools))
 
@@ -114,12 +115,22 @@ class IsolatedConverter:
     async def _convert_in_worker(self, data: bytes, filename: str | None, options: ConvertOptions | None) -> ConversionResult:
         slot = await self._free.get()
         try:
+            if self._closed:  # closed while this file waited for a slot: its pool is shut down
+                raise RuntimeError("This IsolatedConverter is closed.")
             future = asyncio.get_running_loop().run_in_executor(self._pools[slot], _run, data, filename, options)
             return await asyncio.wait_for(future, self._timeout)
         except (TimeoutError, BrokenProcessPool) as exc:
+            if self._closed:
+                # `aclose` killed the worker. That is a shutdown, not a document that is too large
+                # (Pinned by: test_audit_runtime.py::TestClosingWithConversionsUnderWay).
+                raise RuntimeError("This IsolatedConverter is closed.") from exc
             self._replace(slot)
             raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as exc:
+            current = asyncio.current_task()
+            if self._closed and current is not None and not current.cancelling():
+                # Not a cancelled request: `aclose` shut the pool down before the worker took the file, which cancels the call
+                raise RuntimeError("This IsolatedConverter is closed.") from exc
             # The worker keeps running even after the request is dropped. Left alone, the next file would queue behind it
             self._replace(slot)
             raise
@@ -129,9 +140,12 @@ class IsolatedConverter:
             self._free.put_nowait(slot)
 
     def _replace(self, slot: int) -> None:
-        _stop(self._pools[slot])  # do not wait for the manager thread to finish — no reason to delay the failure response
-        if not self._closed:
-            self._pools[slot] = self._new_pool()
+        if self._closed:  # `aclose` is stopping every pool itself; a second `shutdown` of the same pool at the same time broke it
+            return
+        # Do not wait for the manager thread to finish — no reason to delay the failure response. Nobody awaits this future, so
+        # its outcome is collected here; otherwise asyncio logs "Future exception was never retrieved" for a failed shutdown.
+        _stop(self._pools[slot]).add_done_callback(lambda stopped: stopped.cancelled() or stopped.exception())
+        self._pools[slot] = self._new_pool()
 
     def _new_pool(self) -> ProcessPoolExecutor:
         return ProcessPoolExecutor(max_workers=1, mp_context=self._context, initializer=_start_worker,
