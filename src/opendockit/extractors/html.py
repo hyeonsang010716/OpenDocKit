@@ -1844,7 +1844,11 @@ def _decompose_all(nodes: list[PageElement], *, detach_only: bool = False) -> No
 
     for node in reversed(nodes):
         parent = node.parent
-        if parent is None or (isinstance(node, Tag) and node.decomposed):
+        # `Tag.decomposed` reads `_decomposed` with getattr, and on a tag that was never decomposed the attribute is missing, so
+        # bs4 takes it for the name of a child tag and searches the whole subtree for one: asking 5,000 open tables nested in
+        # each other took 10 seconds. The flag is an instance attribute once set, so it is read from the instance
+        # (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_deeply_chained_open_tables_are_read_quickly).
+        if parent is None or (isinstance(node, Tag) and vars(node).get("_decomposed", False)):
             continue
         if id(parent) not in places:
             places[id(parent)] = {id(child): index for index, child in enumerate(parent.contents)}
