@@ -169,15 +169,22 @@ def extract_pptx(data: bytes, options: ConvertOptions) -> Extraction:
     # not a slide (AttributeError) skips only that slide. `presentation.slides` looked up the part of every entry at construction
     # (rename_slide_parts) and raised right there, and so did iteration, so the remaining slides were lost as well
     # (Pinned by: test_office.py::TestOneBrokenPartDoesNotRejectTheDocument::test_pptx_slide_whose_part_cannot_be_read_is_skipped_with_a_warning).
+    # A main part whose root is not p:presentation is not a deck (asking it for the slide list raised AttributeError. Pinned by:
+    # test_audit_office.py::TestPptxSlideListEntryWithoutARelationship::test_root_that_is_not_a_presentation_gets_the_structure_error).
+    if part._element.tag != f"{{{_PRESENTATION}}}presentation":
+        _reject_strict(data)
+        raise CorruptedDocumentError("The PPTX document structure could not be read.")
     presentation = part.presentation
     slide_ids = presentation._element.sldIdLst
     # OLE objects left as a bare placeholder with no preview picture. Their count is reported as a warning once everything is read
     unread_ole: list[object] = []
     authors = _comment_authors(part)
     for index, slide_id in enumerate(slide_ids.sldId_lst if slide_ids is not None else [], start=1):
+        # An entry without r:id is an InvalidXmlError (Pinned by: test_audit_office.py::
+        # TestPptxSlideListEntryWithoutARelationship::test_entry_without_a_relationship_id_skips_only_that_slide).
         try:
             slide = part.related_slide(slide_id.rId)
-        except (KeyError, AttributeError):
+        except (KeyError, AttributeError, InvalidXmlError):
             extraction.warnings.append(f"Slide {index}: skipped because its part could not be read.")
             continue
         # A slide whose root is not p:sld (`p:sldX`) rejected the whole document with an AttributeError when asked for its shape list.
@@ -428,12 +435,16 @@ def _reading_order(shapes: object) -> list[object]:
     only 7.
     """
     rows: list[list[object]] = []
+    # Row member → its box, resolved the first time the member is compared with a later shape. Each comparison resolved the
+    # member's four values again, and every label that joins a row is compared with the whole row: 2,000 labels beside one box
+    # took 36 s (Pinned by: test_audit_office.py::TestPptxRowOfManySideLabels::test_position_of_a_row_member_is_resolved_once).
+    boxes: dict[int, tuple[int, int, int, int]] = {}
     anchor, after_label = 0, False  # top of the last shape seen, and whether that shape joined its row as a label
     for top, shape in sorted(((_offset(shape, "top"), shape) for shape in shapes), key=lambda item: item[0]):
-        if rows and top - anchor <= _ROW_TOLERANCE and not (after_label and _stacked_below(shape, rows[-1])):
+        if rows and top - anchor <= _ROW_TOLERANCE and not (after_label and _stacked_below(shape, rows[-1], boxes)):
             rows[-1].append(shape)
             after_label = False
-        elif rows and _beside_row(shape, rows[-1]):
+        elif rows and _beside_row(shape, rows[-1], boxes):
             rows[-1].append(shape)
             after_label = True
         else:
@@ -443,21 +454,28 @@ def _reading_order(shapes: object) -> list[object]:
     return _column_stacks([sorted(row, key=lambda shape: _offset(shape, "left")) for row in rows])
 
 
-def _stacked_below(shape: object, row: list[object]) -> bool:
+def _member_box(member: object, boxes: dict[int, tuple[int, int, int, int]]) -> tuple[int, int, int, int]:
+    """(top, left, bottom, right) of a row member, resolved once per `_reading_order` (`boxes`, keyed by the shape object)."""
+    box = boxes.get(id(member))
+    if box is None:
+        top, left = _offset(member, "top"), _offset(member, "left")
+        box = boxes[id(member)] = (top, left, top + _offset(member, "height"), left + _offset(member, "width"))
+    return box
+
+
+def _stacked_below(shape: object, row: list[object], boxes: dict[int, tuple[int, int, int, int]]) -> bool:
     """Whether `shape` overlaps some shape of the row horizontally and starts at or below that shape's bottom edge (within the
     tolerance) — it is the next row, stacked below."""
     top, left = _offset(shape, "top"), _offset(shape, "left")
     right = left + _offset(shape, "width")
     for member in row:
-        member_left = _offset(member, "left")
-        member_right = member_left + _offset(member, "width")
-        member_bottom = _offset(member, "top") + _offset(member, "height")
+        _, member_left, member_bottom, member_right = _member_box(member, boxes)
         if min(right, member_right) - max(left, member_left) > _ROW_TOLERANCE and top >= member_bottom - _ROW_TOLERANCE:
             return True
     return False
 
 
-def _beside_row(shape: object, row: list[object]) -> bool:
+def _beside_row(shape: object, row: list[object], boxes: dict[int, tuple[int, int, int, int]]) -> bool:
     """Whether `shape` is a label vertically centered to the left of a larger shape of the row: it lies within that shape's vertical
     extent, the vertical centers differ by no more than the tolerance (0.2 cm), and its right edge does not pass that shape's left edge
     (0.2 cm allowed). Not if it overlaps another shape of the row horizontally.
@@ -477,8 +495,7 @@ def _beside_row(shape: object, row: list[object]) -> bool:
     is_label = False
 
     for member in row:
-        member_top, member_left = _offset(member, "top"), _offset(member, "left")
-        member_bottom, member_right = member_top + _offset(member, "height"), member_left + _offset(member, "width")
+        member_top, member_left, member_bottom, member_right = _member_box(member, boxes)
         if min(right, member_right) - max(left, member_left) > _ROW_TOLERANCE:
             return False
         is_centered = abs((top + bottom) - (member_top + member_bottom)) <= 2 * _ROW_TOLERANCE  # compares twice the centers
@@ -601,10 +618,19 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
         return [_render_pptx_table(shape.table, extraction, _inline_of(shape, options))]
     if getattr(shape, "has_chart", False) and shape.has_chart:
         try:
-            chart = parse_part(shape.chart_part.blob)
+            chart_part = shape.chart_part
+            # A chart part is read once however many frames point at it, and its values are written at the first of them only;
+            # the later frames give `[Chart] title` (the rule for ODF objects; the title is kept on the part and goes away with
+            # it). 100 frames on one chart of 20,000 rows took 25 s and 590 MB (Pinned by: test_audit_office.py::
+            # TestChartPartReferencedByManyFrames::test_pptx_chart_is_read_once_and_its_values_written_once).
+            if "_converter_chart_title" in chart_part.__dict__:
+                return [chart_part._converter_chart_title]
+            chart = parse_part(chart_part.blob)
         except (KeyError, ValueError):  # broken or external relationship. One chart must not reject the whole document
             return []
-        return [render_chart(chart, load_related=related_loader(shape.chart_part))] if chart is not None else []
+        rendered = render_chart(chart, load_related=related_loader(chart_part)) if chart is not None else ""
+        chart_part._converter_chart_title = rendered.split("\n", 1)[0]
+        return [rendered] if chart is not None else []
     if shape.has_text_frame:
         # A shape filled with a picture (a circle holding a photo, etc.) is not a picture shape, so it was dropped without a trace.
         # The fill picture goes first, the text on the shape after it.
@@ -667,11 +693,21 @@ def _ole_preview(shape: object) -> bytes | None:
         for relationship in shape.part.rels.values():
             if relationship.is_external or not relationship.reltype.endswith("/vmlDrawing"):
                 continue
-            drawing = parse_part(relationship.target_part.blob)
-            for vml_shape in drawing.iter(f"{{{_VML}}}shape") if drawing is not None and shape_id else []:
-                image = vml_shape.find(f"{{{_VML}}}imagedata")
-                if vml_shape.get("id") == shape_id and image is not None:
-                    return relationship.target_part.related_part(image.get(f"{{{_OFFICE}}}relid")).blob
+            # The drawing is read once: shape id → relationship id of its picture (the first shape with a picture, as when the
+            # part was searched per object), kept on the part. It was parsed and searched again for every OLE object (Pinned by:
+            # test_audit_office.py::TestPptxManyOleObjectsWithVmlPreviews).
+            target = relationship.target_part
+            previews = target.__dict__.get("_converter_vml_previews")
+            if previews is None:
+                previews = {}
+                drawing = parse_part(target.blob)
+                for vml_shape in drawing.iter(f"{{{_VML}}}shape") if drawing is not None else []:
+                    image = vml_shape.find(f"{{{_VML}}}imagedata")
+                    if image is not None:
+                        previews.setdefault(vml_shape.get("id"), image.get(f"{{{_OFFICE}}}relid"))
+                target._converter_vml_previews = previews
+            if shape_id and shape_id in previews:
+                return target.related_part(previews[shape_id]).blob
     except (KeyError, ValueError):  # broken or external relationship. One object must not reject the whole document
         pass
     return None
