@@ -681,7 +681,10 @@ def _auto_number(control: Record) -> str:
         return ""
     shape = (attribute >> 4) & 0xFF
     text = format_number(number, NUMBER_SHAPES[shape] if shape < len(NUMBER_SHAPES) else "DIGIT")
-    return f"{chr(prefix) if prefix else ''}{text}{chr(suffix) if suffix else ''}"
+    # Half of a surrogate pair (0xD800-0xDFFF) is dropped: it is not a character, and the result could not be encoded as UTF-8
+    # (same as RTF `\uN`. Pinned by: test_audit_hangul.py::TestHwpAutoNumberDecoration).
+    prefix, suffix = (chr(code) if code and not 0xD800 <= code <= 0xDFFF else "" for code in (prefix, suffix))
+    return f"{prefix}{text}{suffix}"
 
 
 def _dutmal_text(control: Record) -> str:

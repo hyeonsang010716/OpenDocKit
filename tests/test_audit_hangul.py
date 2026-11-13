@@ -4,10 +4,19 @@ that failed or slowed down the whole document.
 HWP record streams are built with the fake OLE container (`_fake_hwp`) of `test_hwp.py`.
 """
 
+import pytest
+
 from opendockit import convert
 from opendockit.extractors import hwpx
 from tests import builder
-from tests.test_hwp import _CHART_XML
+from tests.test_hwp import (
+    _CHART_XML,
+    TAG_CTRL_HEADER,
+    TAG_PARA_HEADER,
+    TAG_PARA_TEXT,
+    _auto_number,
+    _fake_hwp,
+)
 
 
 _CHART_REFERENCE = ('<hp:switch><hp:case hp:required-namespace="http://www.hancom.co.kr/hwpml/2016/ooxmlchart">'
@@ -93,3 +102,34 @@ class TestHwpxSpine:
 
         assert result.text == "첫 구역\n\n둘째 구역"
         assert result.warnings == []
+
+
+class TestHwpAutoNumberDecoration:
+    """The prefix and suffix characters of an auto number (atno) are raw UINT16 values. Half of a surrogate pair went into the
+    body as it was, and the result could not be encoded as UTF-8."""
+
+    @pytest.mark.parametrize("prefix, suffix", [("\ud800", "\udfff"), ("\udbff", "\x00"), ("\x00", "\udc00")])
+    def test_lone_surrogate_decoration_is_dropped(self, monkeypatch, prefix, suffix):
+        record = builder.hwp_record
+        section = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("표 ", (18, "atno"), " 제목")),
+            record(TAG_CTRL_HEADER, 1, _auto_number(4, 1, prefix=prefix, suffix=suffix)),
+        ])
+        data = _fake_hwp(monkeypatch, sections=[section])
+
+        result = convert(data, "a.hwp")
+
+        assert result.text == "표 1 제목"
+        assert result.text.encode("utf-8").decode("utf-8") == result.text
+
+    def test_ordinary_decoration_around_the_surrogate_range_is_kept(self, monkeypatch):
+        record = builder.hwp_record
+        section = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("식 ", (18, "atno"))),
+            record(TAG_CTRL_HEADER, 1, _auto_number(5, 2, prefix="힣", suffix="）")),
+        ])
+        data = _fake_hwp(monkeypatch, sections=[section])
+
+        assert convert(data, "a.hwp").text == "식 힣2）"
