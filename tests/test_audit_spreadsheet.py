@@ -123,3 +123,76 @@ class TestStreamedRowsFarApart:
         result = convert(_with_sheet_xml(_sheet_xml(rows, _HUGE_MERGE)), "a.xlsx")
 
         assert result.text == "## Sheet: Sheet\n\n| name | total |\n| --- | --- |\n| a | 2 |\n| | =SUM(B1:B2) |\n| end | 9 |"
+
+
+def _moved(data: bytes, old: str = _SHEET, new: str = "xl/ws/sheet1.xml") -> bytes:
+    """The same workbook with a sheet part stored at another path (relationship and content type follow)."""
+    buffer = BytesIO()
+    with zipfile.ZipFile(BytesIO(data)) as source, zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+        for name in source.namelist():
+            content = source.read(name)
+            if name in ("xl/_rels/workbook.xml.rels", "[Content_Types].xml"):
+                assert f"/{old}".encode() in content
+                content = content.replace(f"/{old}".encode(), f"/{new}".encode())
+            target.writestr(new if name == old else name, content)
+    return buffer.getvalue()
+
+
+class TestSheetStoredAtAnotherPath:
+    """The checks that decide streaming looked only at parts under `xl/worksheets/`. openpyxl follows the workbook relationships,
+    so the same sheet stored at `xl/ws/sheet1.xml` was fully loaded: one merge A1:CV20000 took 9 s and 1.5 GB."""
+
+    @pytest.fixture
+    def load_modes(self, monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+        modes: list[bool] = []
+        original_load = openpyxl.load_workbook
+
+        def recording_load(*args: object, **kwargs: object) -> object:
+            modes.append(kwargs.get("read_only"))
+            return original_load(*args, **kwargs)
+
+        monkeypatch.setattr(spreadsheet.openpyxl, "load_workbook", recording_load)
+        return modes
+
+    def test_huge_merge_in_a_moved_sheet_is_streamed(self, load_modes):
+        data = _moved(_with_sheet_xml(_sheet_xml(_text_row(1, "name", "value") + _text_row(2, "a", "1"), _HUGE_MERGE)))
+
+        result = convert(data, "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| name | value |\n| --- | --- |\n| a | 1 |"
+        assert load_modes == [True]
+
+    def test_large_moved_sheet_is_streamed(self, load_modes, monkeypatch):
+        monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 100)
+
+        result = convert(_moved(_workbook()), "a.xlsx")
+
+        assert "name" in result.text
+        assert load_modes == [True]
+
+    def test_formulas_without_results_in_a_moved_sheet_are_copied(self, load_modes):
+        workbook = openpyxl.Workbook()
+        workbook.active.append(["a", 1, "=B1*2"])
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        result = convert(_moved(buffer.getvalue()), "a.xlsx")
+
+        assert "=B1*2" in result.text
+        assert any("Formula results are not stored" in warning for warning in result.warnings)
+        assert load_modes == [False]
+
+    def test_small_moved_sheet_is_fully_loaded_with_its_merges(self, load_modes):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["group", "name"])
+        sheet.append(["A", "x"])
+        sheet.append([None, "y"])
+        sheet.merge_cells("A2:A3")
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        result = convert(_moved(buffer.getvalue()), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| group | name |\n| --- | --- |\n| A | x |\n| A | y |"
+        assert load_modes == [False]

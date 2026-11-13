@@ -515,7 +515,11 @@ def extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
 def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
     data, repeated = _without_repeated_sheets(data)
     with zipfile.ZipFile(BytesIO(data)) as archive:
-        sheets = [info for info in archive.infolist() if info.filename.startswith("xl/worksheets/")]
+        # openpyxl reads the sheets the workbook's sheet list points to through relationships, wherever they are stored. Looking
+        # only under `xl/worksheets/`, a sheet at `xl/ws/sheet1.xml` dodged every check below: one merge A1:CV20000 was fully
+        # loaded (9 s, 1.5 GB) (Pinned by: test_audit_spreadsheet.py::TestSheetStoredAtAnotherPath).
+        listed = _listed_sheet_parts(archive)
+        sheets = [info for info in archive.infolist() if info.filename.startswith("xl/worksheets/") or info.filename in listed]
         sheet_names = [info.filename for info in sheets]
         large = sum(info.file_size for info in sheets) > _FULL_LOAD_MAX_SHEET_BYTES
         # In a full load openpyxl decompresses a picture again for every reference (a 56KB file pointing to one picture 40 times used
@@ -858,6 +862,20 @@ def _sheet_paths(archive: zipfile.ZipFile, names: set[str]) -> tuple[dict[str, s
     sheets = list(root.iter(f"{{{_SPREADSHEET_MAIN}}}sheet"))
     return ({sheet.get("name", ""): targets.get(sheet.get(_RELATIONSHIP_ID, ""), "") for sheet in sheets},
             {sheet.get("name", "") for sheet in sheets if sheet.get("state", "visible") != "visible"})
+
+
+def _listed_sheet_parts(archive: zipfile.ZipFile) -> set[str]:
+    """Paths of the parts the workbook's sheet list points to through relationships. The relationship type is not looked at —
+    openpyxl reads whatever part a `<sheet>` points to as a sheet. Empty when the workbook part or its relationships cannot be
+    read (openpyxl rejects the document for the same reason)."""
+    names = set(archive.namelist())
+    workbook_path = _workbook_path(archive, names)
+    try:
+        root = etree.fromstring(archive.read(workbook_path), parser=_XML_PARSER)
+        targets = _related(archive, names, workbook_path)
+    except (KeyError, etree.XMLSyntaxError):
+        return set()
+    return {targets.get(sheet.get(_RELATIONSHIP_ID, ""), "") for sheet in root.iter(f"{{{_SPREADSHEET_MAIN}}}sheet")}
 
 
 def _formulas_without_results(archive: zipfile.ZipFile, sheet_names: list[str]) -> tuple[bool, set[str]]:
