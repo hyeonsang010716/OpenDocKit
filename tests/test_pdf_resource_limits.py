@@ -963,6 +963,8 @@ class TestShapesWithoutAFinitePosition:
         b"200 100 m 200 -%s l S" % _HUGE,
         b"60 100 m %s 107 l S" % _HUGE,
         b"60 100 %s 10 re S" % _HUGE,
+        # A control point at (infinity, -infinity) is not a number once it is placed, and the box of the curve, taken from
+        # its other points, is finite.
     ])
     def test_page_is_read_and_its_table_kept(self, shape):
         rules = [b"50 %d m 250 %d l S" % (y, y) for y in (100, 107, 114)]
@@ -976,3 +978,22 @@ class TestShapesWithoutAFinitePosition:
         assert "Hello" in result.text
         assert "| Name | Value |" in result.text
         assert "| Alpha | One |" in result.text
+
+    def test_shape_with_a_point_that_is_not_a_number_inside_a_finite_box_is_left_out_too(self):
+        """A corner at (infinity, -infinity) is not a number once it is placed, and pdfminer takes the box of the shape from
+        its other corners: the box alone looks like that of an ordinary shape."""
+        import io
+        import math
+
+        import pdfplumber
+
+        from opendockit.extractors._pdf_table_filters import _without_unbounded_shapes
+
+        content = b"0.5 w\n60 100 m %s -%s l 240 100 l S\n300 600 m 400 620 l 500 600 l S" % (self._HUGE, self._HUGE)
+        with pdfplumber.open(io.BytesIO(_pages_pdf(content))) as pdf:
+            page = pdf.pages[0]
+            boxes = [[curve[side] for side in ("x0", "x1", "top", "bottom")] for curve in page.curves]
+            kept = _without_unbounded_shapes(page).curves
+
+        assert len(boxes) == 2 and all(math.isfinite(value) for box in boxes for value in box)
+        assert [(curve["x0"], curve["x1"]) for curve in kept] == [(300.0, 500.0)]
