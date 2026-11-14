@@ -111,7 +111,9 @@ _STRIKE_LEAD = re.compile(r"[-*+·•●○◦▪◆◇▶►➢]\s+")
 
 def mark_strike(text: str) -> str:
     """Put temporary marks around the text of a struck-through run. `resolve_strikes` converts them once the paragraph text is
-    collected. Like the script marks, they close before a line break and open again after it (`_per_line`)."""
+    collected. Like the script marks, they close before a line break and open again after it (`_per_line`): left around the
+    line break of a bold superscript run, they took the bullet of the struck line after it inside (`~~- 삭제 항목~~`) (Pinned by:
+    test_inline_formatting.py::TestScriptAndStrikeAcrossALineBreak::test_struck_line_break_in_a_bold_superscript_run_leaves_the_bullet_of_the_next_line_outside)."""
     return _per_line(text, _STRIKE_OPEN, _STRIKE_CLOSE)
 
 

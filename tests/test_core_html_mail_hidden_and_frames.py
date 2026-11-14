@@ -396,6 +396,13 @@ class TestStyleValuesThatOnlyStartLikeAHidingOne:
 
         assert convert(html.encode(), "a.html").text == "앞"
 
+    def test_value_that_only_starts_like_display_none_does_not_stop_a_visible_descendant(self):
+        """`display:none-ish` is not hiding that a descendant cannot undo."""
+        html = ('<div style="visibility:hidden; display:none-ish"><p style="visibility:visible">보임</p><p>숨김</p></div>'
+                "<p>끝</p>")
+
+        assert convert(html.encode(), "a.html").text == "보임\n\n끝"
+
     def test_visible_needs_the_whole_value_too(self):
         html = '<div style="visibility:hidden"><p>숨김</p><p style="visibility:visiblex">숨김 2</p></div><p>끝</p>'
 

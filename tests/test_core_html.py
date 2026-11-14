@@ -70,6 +70,14 @@ class TestTitleInsideSvg:
 
         assert result.metadata["title"] == "Report"
 
+    def test_title_inside_math_is_not_the_page_title(self):
+        html = "<html><body><p>본문</p><math><title>수식 제목</title><mi>x</mi></math></body></html>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert "title" not in result.metadata
+        assert result.text.startswith("본문")
+
 
 class TestTextShapedLikeAListPlaceholder:
     """Private-use text in a list item shaped like the placeholder of a nested list (`\ue0240\ue025`) pointed at a list that did
@@ -118,6 +126,12 @@ class TestItemTextStartingLikeABlock:
     ])
     def test_text_stays_on_the_bullet_line(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected
+
+    def test_lines_of_which_only_the_first_starts_like_a_quote_are_one_line_of_text(self):
+        """A quote block has `>` on every line. Kept as lines, the second line left the item."""
+        html = "<ul><li>&gt; 인용처럼 시작<br>다음 줄</li><li>둘</li></ul>"
+
+        assert convert(html.encode(), "a.html").text == "- > 인용처럼 시작 다음 줄\n- 둘"
 
     def test_table_in_an_item_still_goes_below(self):
         html = "<ul><li><table><tr><td>a</td><td>b</td></tr></table></li></ul>"

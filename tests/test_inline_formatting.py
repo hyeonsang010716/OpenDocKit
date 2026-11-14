@@ -904,6 +904,14 @@ class TestScriptAndStrikeAcrossALineBreak:
 
         assert _docx_text(body) == "x^a\n^b"
 
+    def test_struck_line_break_in_a_bold_superscript_run_leaves_the_bullet_of_the_next_line_outside(self):
+        """The strikethrough marks close before a line break too: left around the line break of an emphasized script run, they
+        took the bullet of the struck line after it inside (`~~- 삭제 항목~~`, not a list item)."""
+        body = (f'<w:p><w:r><w:t>가</w:t></w:r><w:r>{self._STRUCK_SUPERSCRIPT.replace("<w:strike/>", "<w:strike/><w:b/>")}<w:br/></w:r>'
+                '<w:r><w:rPr><w:strike/></w:rPr><w:t xml:space="preserve">- 삭제 항목</w:t></w:r></w:p>')
+
+        assert _docx_text(body, ConvertOptions(keep_emphasis=True)) == "가\n- ~~삭제 항목~~"
+
     def test_marks_without_a_line_break_are_unchanged(self):
         from opendockit.extractors._inline import SUPERSCRIPT, mark_script, mark_strike, resolve_scripts, resolve_strikes
 
