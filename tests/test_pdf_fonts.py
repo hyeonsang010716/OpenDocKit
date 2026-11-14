@@ -163,3 +163,18 @@ class TestWinAnsiUnusedCodesAreBullets:
         lines, _ = self._lines(font)
 
         assert "•" not in "".join(lines)
+
+    @pytest.mark.parametrize(("descriptor", "extra", "bullet"), [
+        (b"<< /Type /FontDescriptor /FontName /Custom /Flags 32 >>", {}, True),
+        (b"<< /Type /FontDescriptor /FontName /Custom /Flags 4 >>", {}, False),
+        (b"<< /Type /FontDescriptor /FontName /Custom /Flags 9 0 R >>", {9: b"4"}, False),  # the flags as an indirect object
+        (b"9 0 R", {9: b"<< /Type /FontDescriptor /FontName /Custom /Flags 10 0 R >>", 10: b"4"}, False),
+    ])
+    def test_a_symbolic_font_gets_no_bullet(self, descriptor, extra, bullet):
+        # A font of its own (not one of the standard 14, whose descriptor pdfminer takes from its own metrics), with widths so
+        # that pdfminer's reading of the page is kept.
+        widths = b" ".join([b"500"] * 224)
+        lines, _ = self._lines(b"<< /Type /Font /Subtype /Type1 /BaseFont /Custom /Encoding /WinAnsiEncoding"
+                               b" /FirstChar 32 /LastChar 255 /Widths [%s] /FontDescriptor %s >>" % (widths, descriptor), extra=extra)
+
+        assert ("• first item" in lines) is bullet
