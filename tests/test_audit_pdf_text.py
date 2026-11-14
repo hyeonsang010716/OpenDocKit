@@ -647,3 +647,43 @@ class TestTooMuchLineGrouping:
 
         assert time.perf_counter() - started < allowed(1)
         assert "Hello world" in result.text
+
+
+class TestCopiesOfStackedText:
+    """For every kept line `_read_page` looked through the removed characters at its height for copies drawn on top, so stacked
+    text drawn repeatedly (3 copies of each character kept, the rest removed, every line its own box) made every line scan
+    every copy at its height: a 4.5KB page of 1,500 characters drawn 30 times took 54 seconds."""
+
+    @staticmethod
+    def _stacked_form(count: int, draws: int) -> bytes:
+        inner = zlib.compress(b"BT /F1 10 Tf " + b"".join(
+            b"1 0 0 1 %d %g Tm (%s) Tj " % (100 + index % 2 * 300, 100 + index // 2 * 0.1, b"AB"[index % 2:index % 2 + 1])
+            for index in range(count)) + b"ET", 9)
+        form = (b"<< /Type /XObject /Subtype /Form /BBox [-1000000 -1000000 1000000 1000000] /Resources << /Font << /F1 5 0 R >> >> "
+                b"/Length %d /Filter /FlateDecode >>\nstream\n" % len(inner) + inner + b"\nendstream")
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 850] /Contents 4 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> /XObject << /X1 6 0 R >> >> >>")
+        return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
+                         4: _flate(b"BT /F1 12 Tf 72 800 Td (Hello world) Tj ET " + b"q /X1 Do Q " * draws), 5: _FONT, 6: form})
+
+    @pytest.mark.timing
+    def test_copies_of_stacked_text_drawn_many_times_are_found_in_about_linear_time(self):
+        started = time.perf_counter()
+        result = convert(self._stacked_form(1_500, 30), "a.pdf")
+
+        assert time.perf_counter() - started < allowed(8)  # 54 seconds before
+        assert "Hello world" in result.text
+
+    def test_the_index_answers_as_the_scan_does(self):
+        from opendockit.extractors._pdf_artifacts import _chars_at_line_level, _CopyIndex
+
+        chars = sorted([{"top": 100, "bottom": 110, "x0": 50, "shadow": False}, {"top": 100, "bottom": 110, "x0": 300, "shadow": True},
+                        {"top": 0, "bottom": 400, "x0": 50, "shadow": True},  # tall: its middle is at the line, its top is not
+                        {"top": 130, "bottom": 140, "x0": 50, "shadow": False}], key=lambda char: char["top"])
+        tops = [char["top"] for char in chars]
+        index = _CopyIndex(chars, tops)
+
+        for line in ({"top": 100, "bottom": 110, "x0": 40, "x1": 60}, {"top": 100, "bottom": 110, "x0": 290, "x1": 320},
+                     {"top": 195, "bottom": 205, "x0": 40, "x1": 60}, {"top": 100, "bottom": 110, "x0": 0, "x1": 1e6}):
+            copies = [char for char in _chars_at_line_level(line, chars, tops) if line["x0"] - 1 <= char["x0"] <= line["x1"] + 1]
+            assert index.at(line) == (bool(copies), any(char["shadow"] for char in copies))

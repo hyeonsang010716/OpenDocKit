@@ -55,6 +55,7 @@ from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError,
 from opendockit.extractors._pdf_aligned_tables import _extract_aligned_tables
 from opendockit.extractors._pdf_artifacts import (
     _chars_at_line_level,
+    _CopyIndex,
     _has_undecodable_contents,
     _is_sideways,
     _is_tilted,
@@ -820,6 +821,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     dropped = sorted([*(char for char in dropped if not in_cells(char)), *tilted, *sideways],
                      key=lambda char: char["top"])
     dropped_tops = [char["top"] for char in dropped]
+    copy_index = _CopyIndex(dropped, dropped_tops)
     layout_lines = page.objects.get("textlinehorizontal", [])
     owners = _xobject_owners(layout_page)
     if len(owners) != len(layout_lines):
@@ -878,9 +880,9 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
         if any(char.get("restored") for char in inside):
             text = _text_from_chars(inside) or text  # the line text pdfminer built lacks the restored spaces
         text = _letter_spaced_text(inside, spacings) or text
-        copies = [char for char in _chars_at_line_level(line, dropped, dropped_tops) if line["x0"] - 1 <= char["x0"] <= line["x1"] + 1]
-        if copies:
-            kept = _text_without_artifacts(line, text, inside, kept_lines, any(char.get("shadow") for char in copies))
+        has_copies, shadowed = copy_index.at(line)  # removed characters under the line (`_CopyIndex`)
+        if has_copies:
+            kept = _text_without_artifacts(line, text, inside, kept_lines, shadowed)
             if kept is None:
                 continue
             if kept == text:
