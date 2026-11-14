@@ -208,6 +208,83 @@ class TestErrorBoundary:
             convert(buffer.getvalue(), "a.zip")
 
 
+class TestRunningOutOfMemory:
+    """Running out of memory anywhere in a conversion is 'too large or too complex' under plain `convert` too. A MemoryError
+    inside an extractor was gathered with the parser failures ('Could not parse the … document. The file may be corrupted.'),
+    while `IsolatedConverter` reported the same file as too large; one after extraction left `convert` as a MemoryError."""
+
+    @staticmethod
+    def _too_complex():
+        from opendockit import TOO_COMPLEX_MESSAGE
+
+        return pytest.raises(DocumentTooLargeError, match=f"^{TOO_COMPLEX_MESSAGE}$")
+
+    def test_inside_an_extractor(self, monkeypatch):
+        def out_of_memory(data, options):
+            raise MemoryError
+
+        monkeypatch.setitem(EXTRACTORS, DocumentFormat.TEXT, out_of_memory)
+
+        with self._too_complex() as error:
+            convert(b"hello", "a.txt")
+        assert isinstance(error.value.__cause__, MemoryError)
+
+    def test_wrapped_by_a_parser_inside_an_extractor(self, monkeypatch):
+        def out_of_memory(data, options):
+            try:
+                raise MemoryError
+            except MemoryError as inner:
+                raise ValueError("parser") from inner
+
+        monkeypatch.setitem(EXTRACTORS, DocumentFormat.TEXT, out_of_memory)
+
+        with self._too_complex():
+            convert(b"hello", "a.txt")
+
+    def test_reported_by_an_extractor_as_another_failure(self, monkeypatch):
+        def out_of_memory(data, options):
+            try:
+                raise MemoryError
+            except MemoryError as inner:
+                raise CorruptedDocumentError("Could not parse the TXT document. The file may be corrupted.") from inner
+
+        monkeypatch.setitem(EXTRACTORS, DocumentFormat.TEXT, out_of_memory)
+
+        with self._too_complex():
+            convert(b"hello", "a.txt")
+
+    def test_while_detecting_the_format(self, monkeypatch):
+        import opendockit.converter as converter_module
+
+        def out_of_memory(data, filename):
+            raise MemoryError
+
+        monkeypatch.setattr(converter_module, "detect_format", out_of_memory)
+
+        with self._too_complex():
+            convert(b"hello", "a.txt")
+
+    def test_after_extraction(self, monkeypatch):
+        import opendockit.converter as converter_module
+
+        def out_of_memory(result):
+            raise MemoryError
+
+        monkeypatch.setattr(converter_module, "render", out_of_memory)
+
+        with self._too_complex():
+            convert(b"hello", "a.txt")
+
+    def test_another_failure_is_still_what_it_was(self, monkeypatch):
+        def too_large(data, options):
+            raise DocumentTooLargeError("The file is too large when decompressed (maximum 500MB).")
+
+        monkeypatch.setitem(EXTRACTORS, DocumentFormat.TEXT, too_large)
+
+        with pytest.raises(DocumentTooLargeError, match="when decompressed"):
+            convert(b"hello", "a.txt")
+
+
 class TestAssembly:
     def test_warns_when_extension_disagrees_with_content(self):
         result = convert(b"<html><body><table><tr><td>a</td><td>b</td></tr></table></body></html>", "list.xls")

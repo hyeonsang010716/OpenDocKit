@@ -4,6 +4,7 @@ The vision model is replaced by fake describers. The checks against the real Ope
 """
 
 import asyncio
+import base64
 from io import BytesIO
 import re
 import struct
@@ -1701,36 +1702,204 @@ class TestHeicWithoutTheOptionalExtra:
 
 
 
+_OUT_OF_MEMORY_WARNING = r"^(\d+) image\(s\) were too large to process in the memory available and were left as placeholder text\.$"
+
+
+def _scanned_pages_pdf(pages: int) -> bytes:
+    """A PDF whose pages are one full-page picture each, with no text layer."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    for page in range(pages):
+        pdf.drawImage(ImageReader(BytesIO(builder.png_bytes(600, 800, seed=page))), 0, 0, width=A4[0], height=A4[1])
+        pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
+
 class TestOutOfMemoryWhileReadingAPicture:
     """A MemoryError while decoding or re-encoding a picture was taken for an unreadable picture: an uploaded photo was
-    'corrupted' and a picture inside a document a format warning, so `IsolatedConverter` never reported 'too large or too
-    complex'. Running out of address space under the worker's memory limit is simulated by making the re-encode fail."""
+    'corrupted' and a picture inside a document got the warning about its format. Running out of address space under a
+    worker's memory limit is simulated by making one stage of `prepare_image` fail.
 
-    @pytest.fixture
-    def no_memory(self, monkeypatch):
+    An uploaded picture is the document: too large or too complex. A picture inside a document is left as its placeholder
+    with a warning of its own and the text is kept — refusing the document took the text of a DOCX away for one
+    13000×13000 RGBA PNG, which needs about 2 GiB to prepare."""
+
+    @staticmethod
+    def _out_of_memory(*_args, **_kwargs):
+        raise MemoryError
+
+    @pytest.fixture(params=["decoding", "retrying a cut JPEG", "re-encoding"])
+    def no_memory(self, request, monkeypatch):
+        """The three places of `prepare_image` a MemoryError goes up from."""
         import opendockit.image as image_module
 
-        def out_of_memory(*_args, **_kwargs):
-            raise MemoryError
+        if request.param == "decoding":
+            monkeypatch.setattr(image_module, "_decoded", self._out_of_memory)
+        elif request.param == "retrying a cut JPEG":
+            calls = []
 
-        monkeypatch.setattr(image_module, "_encoded", out_of_memory)
+            def unreadable_then_out_of_memory(*_args):
+                calls.append(1)
+                if len(calls) % 2:
+                    raise OSError("image file is truncated")
+                raise MemoryError
+
+            monkeypatch.setattr(image_module, "_decoded", unreadable_then_out_of_memory)
+        else:
+            monkeypatch.setattr(image_module, "_encoded", self._out_of_memory)
+        return request.param
+
+    @staticmethod
+    def _picture(stage: str, seed: int = 0) -> bytes:
+        """A JPEG without its end marker, which is read a second time — or a PNG, which is not, for the first reading."""
+        if stage == "decoding":
+            return builder.png_bytes(400, 300, seed=seed)
+        return builder.png_bytes(400, 300, seed=seed, image_format="JPEG")[:-2]
+
+    def test_memory_error_is_not_an_unreadable_picture(self, no_memory):
+        with pytest.raises(MemoryError):
+            prepare_image(self._picture(no_memory), min_side=1, max_side=2048)
 
     def test_uploaded_picture_is_too_complex_not_corrupted(self, no_memory):
         from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
 
         with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
-            convert(builder.png_bytes(400, 300), "photo.png")
+            convert(self._picture(no_memory), "photo")
 
-    def test_picture_inside_a_document_is_too_complex_not_a_format_warning(self, no_memory):
-        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+    @pytest.mark.parametrize("isolated", [False, True])
+    def test_picture_inside_a_document_stays_a_placeholder_and_the_text_is_kept(self, no_memory, isolated):
         from opendockit.isolated import _run
 
-        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
-            _run(builder.docx_with_images(), "a.docx", None)
+        mime = "image/png" if no_memory == "decoding" else "image/jpeg"
+        html = ("<p>Quarterly report</p>"
+                + "".join(f'<p><img alt="{alt}" src="data:{mime};base64,{base64.b64encode(self._picture(no_memory, seed)).decode()}"></p>'
+                          for seed, alt in enumerate(("Sales by region", "Costs by region")))
+                + "<p>Revenue grew 5%.</p>").encode()
 
-    def test_memory_error_is_not_an_unreadable_picture(self, no_memory):
-        with pytest.raises(MemoryError):
-            prepare_image(builder.png_bytes(400, 300), min_side=1, max_side=2048)
+        result = _run(html, "a.html", None) if isolated else convert(html, "a.html")
+
+        assert result.text == "Quarterly report\n\n[Image: Sales by region]\n\n[Image: Costs by region]\n\nRevenue grew 5%."
+        assert result.images == []
+        assert [re.match(_OUT_OF_MEMORY_WARNING, warning).group(1) for warning in result.warnings] == ["2"]
+
+    def test_only_the_picture_that_ran_out_is_left_out(self, monkeypatch):
+        import opendockit.converter as converter_module
+
+        def prepare(data, **options):
+            if Image.open(BytesIO(data)).size == (300, 200):
+                raise MemoryError
+            return prepare_image(data, **options)
+
+        monkeypatch.setattr(converter_module, "prepare_image", prepare)
+        pictures = [builder.png_bytes(300, 200, seed=1), builder.png_bytes(400, 300, seed=2), builder.png_bytes(300, 200, seed=3)]
+        html = ("<p>Before</p>" + "".join(f'<p><img src="data:image/png;base64,{base64.b64encode(picture).decode()}"></p>'
+                                         for picture in pictures) + "<p>After</p>").encode()
+
+        result = convert(html, "a.html")
+
+        assert result.text == "Before\n\n[Image]\n\n[Image]\n\n[Image]\n\nAfter"
+        assert [(image.width, image.height) for image in result.images] == [(400, 300)]
+        assert [re.match(_OUT_OF_MEMORY_WARNING, warning).group(1) for warning in result.warnings] == ["2"]
+
+    def test_what_is_left_of_a_picture_is_released_before_the_next_one(self, monkeypatch):
+        """The MemoryError holds the frames it went through, and they hold the half-read picture: kept as the outcome of that
+        picture, it stayed in memory while the next ones were read."""
+        import weakref
+
+        import opendockit.converter as converter_module
+
+        class HalfReadPicture:
+            def __init__(self) -> None:
+                self.itself = self   # part of a cycle, as a decoder and its buffers are
+
+        left: list[weakref.ref] = []
+        still_there: list[int] = []
+
+        def prepare(_data, **_options):
+            still_there.append(sum(1 for picture in left if picture() is not None))
+            half_read = HalfReadPicture()
+            left.append(weakref.ref(half_read))
+            raise MemoryError
+
+        monkeypatch.setattr(converter_module, "prepare_image", prepare)
+        html = ("<p>Text</p>" + "".join(f'<img src="data:image/png;base64,{base64.b64encode(builder.png_bytes(seed=seed)).decode()}">'
+                                       for seed in range(3))).encode()
+
+        result = convert(html, "a.html")
+
+        assert still_there == [0, 0, 0]
+        assert [re.match(_OUT_OF_MEMORY_WARNING, warning).group(1) for warning in result.warnings] == ["3"]
+
+    def test_scanned_pages_that_all_ran_out_are_too_complex(self, monkeypatch):
+        """Pages that exist only as a picture, none of which could be read: there is nothing else to give."""
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+        import opendockit.image as image_module
+
+        data = _scanned_pages_pdf(2)
+        assert [image.kind for image in convert(data, "scan.pdf").images] == [ImageKind.PAGE] * 2
+        monkeypatch.setattr(image_module, "_encoded", self._out_of_memory)
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            convert(data, "scan.pdf")
+
+    def test_one_scanned_page_that_ran_out_leaves_the_others(self, monkeypatch):
+        import opendockit.converter as converter_module
+
+        calls = []
+
+        def prepare(data, **options):
+            calls.append(1)
+            if len(calls) == 1:
+                raise MemoryError
+            return prepare_image(data, **options)
+
+        monkeypatch.setattr(converter_module, "prepare_image", prepare)
+
+        result = convert(_scanned_pages_pdf(2), "scan.pdf")
+
+        assert [image.section_index for image in result.images] == [2]
+        assert any(re.match(_OUT_OF_MEMORY_WARNING, warning) for warning in result.warnings)
+
+    @pytest.mark.parametrize("failing_page", [1, 2])
+    def test_page_of_a_tiff_is_too_complex_not_corrupted(self, monkeypatch, failing_page):
+        """A MemoryError while splitting the pages was gathered with the parser failures: 'Could not parse the IMAGE
+        document. The file may be corrupted.'"""
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+        import opendockit.image as image_module
+
+        transpose = image_module.ImageOps.exif_transpose
+
+        def out_of_memory_on_one_page(image, **options):   # Pillow's TIFF reader calls it too, with `in_place`
+            if not options and image.tell() == failing_page - 1:
+                raise MemoryError
+            return transpose(image, **options)
+
+        monkeypatch.setattr(image_module.ImageOps, "exif_transpose", out_of_memory_on_one_page)
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            convert(_tiff_pages("white", "gray", "black"), "fax.tiff")
+
+    def test_later_page_of_a_tiff_that_is_only_broken_keeps_the_pages_before_it(self, monkeypatch):
+        import opendockit.image as image_module
+
+        transpose = image_module.ImageOps.exif_transpose
+
+        def broken_third_page(image, **options):
+            if not options and image.tell() == 2:
+                raise OSError("broken data stream")
+            return transpose(image, **options)
+
+        monkeypatch.setattr(image_module.ImageOps, "exif_transpose", broken_third_page)
+
+        result = convert(_tiff_pages("white", "gray", "black"), "fax.tiff")
+
+        assert len(result.images) == 2
+        assert "Page 3 of the TIFF is corrupted or too large to read, so only the first 2 page(s) were read as images." in result.warnings
 
     def test_memory_error_deeper_in_the_chain_is_too_complex(self, monkeypatch):
         """A parser that wraps the MemoryError in its own exception, wrapped again by the converter, was a corrupted document:
@@ -1751,6 +1920,68 @@ class TestOutOfMemoryWhileReadingAPicture:
 
         with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
             isolated._run(b"x", "a.txt", None)
+
+
+class TestOnePictureInMemory:
+    """`exif_transpose` returned a copy of the decoded picture and the downscale worked on another copy: three full-size
+    pictures at the peak, 2.1 GiB for a 13000×13000 RGBA PNG. The opened picture is turned and shrunk itself."""
+
+    @pytest.fixture
+    def full_size_copies(self, monkeypatch) -> list[tuple[str, tuple[int, int]]]:
+        made: list[tuple[str, tuple[int, int]]] = []
+        for name in ("copy", "transpose"):
+            original = getattr(Image.Image, name)
+
+            def spy(self, *args, _name=name, _original=original, **options):
+                made.append((_name, self.size))
+                return _original(self, *args, **options)
+
+            monkeypatch.setattr(Image.Image, name, spy)
+        return made
+
+    @pytest.mark.parametrize("orientation", [1, 6])
+    def test_no_full_size_copy_is_made(self, full_size_copies, orientation):
+        exif = Image.Exif()
+        exif[0x0112] = orientation
+        picture = Image.new("RGB", (3000, 2000), "white")
+        picture.paste((200, 30, 30), (0, 0, 1500, 500))
+        buffer = BytesIO()
+        picture.save(buffer, format="JPEG", exif=exif)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        assert (result.width, result.height) == ((2048, 1365) if orientation == 1 else (1365, 2048))
+        assert [made for made in full_size_copies if 3000 in made[1]] == []
+
+    def test_turned_picture_is_what_it_was(self):
+        """The red corner of a picture stored on its side ends up where the orientation says."""
+        exif = Image.Exif()
+        exif[0x0112] = 6   # the stored picture is to be turned a quarter clockwise
+        picture = Image.new("RGB", (400, 200), "white")
+        picture.paste((255, 0, 0), (0, 0, 100, 100))
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG", exif=exif)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        shown = Image.open(BytesIO(result.data)).convert("RGB")
+        assert shown.size == (200, 400)
+        assert shown.getpixel((150, 50))[0] > 200 and shown.getpixel((150, 50))[1] < 60
+        assert shown.getpixel((50, 350)) == (255, 255, 255)
+
+    def test_tiles_and_the_whole_picture_come_from_the_same_pixels(self):
+        """The whole picture is shrunk after its tiles were cut, not before."""
+        picture = Image.new("RGB", (600, 9000), "white")
+        picture.paste((0, 0, 0), (0, 8000, 600, 9000))
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG")
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        assert (result.width, result.height) == (137, 2048)
+        assert len(result.tiles) == 8
+        assert Image.open(BytesIO(result.tiles[0])).width == 600
+        assert Image.open(BytesIO(result.tiles[-1])).convert("RGB").getpixel((300, 1100)) == (0, 0, 0)
 
 
 def _tiff_with_a_tag_of_the_wrong_count() -> bytes:

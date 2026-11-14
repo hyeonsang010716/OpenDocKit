@@ -4,6 +4,7 @@ import asyncio
 from concurrent.futures import Executor
 from dataclasses import replace
 from functools import partial
+import gc
 import hashlib
 import os
 from pathlib import Path
@@ -17,7 +18,15 @@ from opendockit.exceptions import ConversionError, CorruptedDocumentError, Docum
 from opendockit.extractors import EXTRACTORS
 from opendockit.extractors._inline import _escape_link_text
 from opendockit.extractors._package import uncompressed_size
-from opendockit.image import ImageSkipped, ImageTooLarge, ImageUnreadable, PreparedImage, needs_heif_plugin, prepare_image
+from opendockit.image import (
+    ImageOutOfMemory,
+    ImageSkipped,
+    ImageTooLarge,
+    ImageUnreadable,
+    PreparedImage,
+    needs_heif_plugin,
+    prepare_image,
+)
 from opendockit.markdown import clean_line, clean_text, code_fences, neutralize_table_tags, solid_length
 from opendockit.models import (
     ConversionResult,
@@ -39,7 +48,7 @@ if TYPE_CHECKING:
     from opendockit.describe import ImageDescriber
 
 
-# The message of a conversion that ran out of memory or time (`IsolatedConverter`, and running out of memory on a picture here).
+# The message of a conversion that ran out of memory or time (`convert`, `IsolatedConverter`).
 TOO_COMPLEX_MESSAGE = "The document is too large or too complex to convert."
 _DEFAULT_OPTIONS = ConvertOptions()
 _ZIP_FORMATS = {DocumentFormat.DOCX, DocumentFormat.PPTX, DocumentFormat.XLSX, DocumentFormat.HWPX, DocumentFormat.ODT, DocumentFormat.ODS,
@@ -95,7 +104,40 @@ def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
     _check_arguments(filename, options)
     options = options or _DEFAULT_OPTIONS
     check_size(data, options)
+    # Running out of memory anywhere in a conversion is 'too large or too complex', here as under `IsolatedConverter`, and
+    # never 'corrupted': a MemoryError inside an extractor (a page of a multi-page TIFF, a picture of a PDF) was gathered
+    # with the parser failures into `CorruptedDocumentError`, and one after extraction left `convert` as it was. A
+    # `ConversionError` raised from one counts too (`_ran_out_of_memory`)
+    # (Pinned by: test_converter.py::TestRunningOutOfMemory).
+    try:
+        return _converted(data, filename, options)
+    except MemoryError as exc:
+        raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
+    except ConversionError as exc:
+        if str(exc) != TOO_COMPLEX_MESSAGE and _ran_out_of_memory(exc):
+            raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
+        raise
 
+
+def _ran_out_of_memory(exc: BaseException) -> bool:
+    """Whether a MemoryError is among the causes and contexts of `exc` (each exception visited once): a parser that wraps it
+    in its own exception, which the converter wraps again, was reported as a corrupted document
+    (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture::test_memory_error_deeper_in_the_chain_is_too_complex)."""
+    seen: set[int] = set()
+    waiting: list[BaseException] = [exc]
+    while waiting:
+        current = waiting.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, MemoryError):
+            return True
+        waiting.extend(link for link in (current.__cause__, current.__context__) if link is not None)
+    return False
+
+
+def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> ConversionResult:
+    """`convert` after its argument and size checks."""
     # Format detection is parsing too: it opens ZIP and OLE containers. It sits inside the same boundary as extraction: an encrypted
     # ZIP (RuntimeError) or an unknown compression method (NotImplementedError) leaked out as an exception outside ConversionError
     # (Pinned by: test_converter.py::test_zip_that_cannot_be_inspected_is_a_conversion_error).
@@ -107,7 +149,7 @@ def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
         key = hashlib.sha256(data).hexdigest()[:16]
         with marker_key(key):
             document_format, extraction = _extract(document_format, data, filename, options)
-    except ConversionError:
+    except (ConversionError, MemoryError):
         raise
     except Exception as exc:  # the boundary that gathers arbitrary parser-library exceptions into one conversion failure.
         subject = f"the {document_format.value.upper()} document" if document_format else "the file format"
@@ -329,9 +371,16 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
             except (ImageSkipped, ImageUnreadable) as outcome:
                 decoded[key] = outcome
             except MemoryError as exc:
-                # Not a broken picture but a document too large for the memory there is (`image.prepare_image`)
-                # (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture).
-                raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
+                # Not a broken picture but one too large for the memory there is (`image.prepare_image`). A picture that is
+                # the document (an uploaded picture, a page of a TIFF) leaves nothing else to give: too large or too complex.
+                # A picture inside a document stays as its placeholder, with a warning of its own, and the text is kept: one
+                # 13000×13000 RGBA PNG in a DOCX (6.6 MB, under the pixel limit) took the whole document with it under a
+                # worker's 2 GB (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture).
+                if raw.kind is ImageKind.STANDALONE:
+                    raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
+                decoded[key] = ImageOutOfMemory()   # a new one: the one raised holds the frames, and with them the picture
+            if isinstance(decoded[key], ImageOutOfMemory):
+                gc.collect()   # what is left of the picture goes before the next one is read
 
         outcome = decoded[key]
         if isinstance(outcome, ImageTooLarge) and raw.kind is ImageKind.STANDALONE:
@@ -359,12 +408,18 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     # once). Pictures left out for being too large are reported separately — reported as 'WMF/EMF or corrupted', nobody could tell it
     # was the size (Pinned by: test_core_mbox_markdown_and_api.py::TestTooLargePictureInsideADocument).
     too_large = sum(1 for outcome in decoded.values() if isinstance(outcome, ImageTooLarge))
-    unreadable = sum(1 for outcome in decoded.values() if isinstance(outcome, ImageUnreadable)) - too_large
+    out_of_memory = sum(1 for outcome in decoded.values() if isinstance(outcome, ImageOutOfMemory))
+    unreadable = sum(1 for outcome in decoded.values() if isinstance(outcome, ImageUnreadable)) - too_large - out_of_memory
+    if out_of_memory and not prepared and not _has_text(sections, marker):
+        # Scanned pages that are the only content, none of which could be read: nothing else to give either.
+        raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE)
     if unreadable:
         warnings.append(f"{unreadable} image(s) are in an unreadable format (WMF/EMF vectors, etc.) or corrupted "
                         "and were left as placeholder text.")
     if too_large:
         warnings.append(f"{too_large} image(s) are too large (decode limit about 179 million pixels) and were left as placeholder text.")
+    if out_of_memory:
+        warnings.append(f"{out_of_memory} image(s) were too large to process in the memory available and were left as placeholder text.")
 
     counts: dict[str, int] = {}
     for _, _, _, digest in prepared:
@@ -431,6 +486,12 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
         warnings.append(f"There are many images, so only {options.max_images} were selected for description (scanned pages first) "
                         f"and {left_figures} were left as placeholders only.")
     return images, fallbacks
+
+
+def _has_text(sections: list[Section], marker: str) -> bool:
+    """Whether the document holds anything besides picture placeholders: a section title or body text."""
+    pattern = image_marker_pattern(marker)
+    return any(section.title or pattern.sub("", section.template).strip() for section in sections)
 
 
 def page_list(numbers: list[int]) -> str:

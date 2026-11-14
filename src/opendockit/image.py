@@ -95,6 +95,11 @@ class ImageUnreadable(Exception):
     """An image that could not be decoded (WMF/EMF vectors, a broken file). Placeholder text is left in the body."""
 
 
+class ImageOutOfMemory(ImageUnreadable):
+    """A picture inside a document that could not be read in the memory there is (a `MemoryError` from `prepare_image`). The
+    converter leaves it as placeholder text with a warning of its own."""
+
+
 class ImageTooLarge(ImageUnreadable):
     """An image not read because it is over the decode pixel limit (`_MAX_DECODE_PIXELS`). An uploaded picture is reported as 'document too large'."""
 
@@ -104,10 +109,10 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
     try:
         image = _decoded(data, max_side)
     except (ImageUnreadable, MemoryError):
-        # Running out of memory is not a broken picture: it goes up as it is, so that `IsolatedConverter` reports the document as
-        # too large or too complex. Taken for an unreadable picture, an uploaded photo was 'corrupted' and a picture inside a
-        # document was left as placeholder text with a warning about its format
-        # (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture).
+        # Running out of memory is not a broken picture: it goes up as it is, and the converter reports an uploaded picture as
+        # too large or too complex and leaves a picture inside a document as placeholder text with a warning that says so.
+        # Taken for an unreadable picture, an uploaded photo was 'corrupted' and a picture inside a document got the warning
+        # about its format (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture).
         raise
     except Exception as exc:  # Pillow raises all sorts of exceptions on a corrupted file (SyntaxError, struct.error, ...).
         # A decoding failure is an "unreadable image" whatever its type (MemoryError aside). If it leaked, convert would die with
@@ -147,13 +152,20 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
 
 
 def _decoded(data: bytes, max_side: int) -> Image.Image:
-    """The picture, decoded and with its orientation (EXIF) corrected."""
+    """The picture, decoded and with its orientation (EXIF) corrected.
+
+    Deliberate: the opened picture itself is returned, turned in place, and it is not closed (closing drops its pixels; the
+    file behind it is a `BytesIO`). `exif_transpose` otherwise returns a copy, and with the copy `_encoded` used to make
+    there were three full-size pictures in memory at the peak. A 13000×13000 PNG, just under the pixel limit, peaked at
+    2.1 GiB as RGBA (the whole of a worker's default limit) and 1.5 GiB as RGB; now at 1.5 GiB (Pillow's downscale of a
+    transparent picture makes one premultiplied copy) and 0.9 GiB. The bytes that come out are the same
+    (Pinned by: test_image.py::TestOnePictureInMemory)."""
     with quiet_warnings(*_PILLOW_WARNINGS):  # thread-safe (`models.quiet_warnings`)
-        with _open_within_pixel_limit(data, max_side) as opened:
-            opened.seek(0)  # first frame only for an animated GIF/AVIF. A multi-page TIFF is split per page by the extractor first (split_tiff_pages)
-            image = ImageOps.exif_transpose(opened)
-            image.load()
-    return image
+        opened = _open_within_pixel_limit(data, max_side)
+        opened.seek(0)  # first frame only for an animated GIF/AVIF. A multi-page TIFF is split per page by the extractor first (split_tiff_pages)
+        ImageOps.exif_transpose(opened, in_place=True)
+        opened.load()
+    return opened
 
 
 def _truncated_jpeg(data: bytes, max_side: int) -> Image.Image | None:
@@ -194,8 +206,9 @@ def _encoded(image: Image.Image, max_side: int, has_alpha: bool) -> tuple[bytes,
     the conversion time of picture-heavy PPTX/HWP files (23 of 31.7 seconds for a 122-slide deck) and the size did not go down
     (Pinned by: test_core_round47.py::TestTransparentPictureEncoding). JPEG's `optimize` only rebuilds the Huffman tables and is
     cheap, so it stays.
+
+    `image` itself is shrunk (no copy is made first, see `_decoded`): it is a tile, or the whole picture at its last use.
     """
-    image = image.copy()
     image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
 
     output = BytesIO()

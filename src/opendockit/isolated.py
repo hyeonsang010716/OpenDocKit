@@ -26,7 +26,7 @@ try:
 except ImportError:  # not available on Windows. Only the time limit applies, without a memory limit
     resource = None
 
-from opendockit.converter import TOO_COMPLEX_MESSAGE, _check_arguments, _content_bytes, check_size, convert
+from opendockit.converter import TOO_COMPLEX_MESSAGE, _check_arguments, _content_bytes, _ran_out_of_memory, check_size, convert
 from opendockit.exceptions import ConversionError, DocumentTooLargeError
 from opendockit.models import ConversionResult, ConvertOptions
 
@@ -281,6 +281,7 @@ def _run(data: bytes, filename: str | None, options: ConvertOptions | None) -> C
     A MemoryError anywhere in the chain of causes and contexts counts, not only the direct cause: a parser that wraps it in
     its own exception, which the converter wraps again, was reported as a corrupted document
     (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture::test_memory_error_deeper_in_the_chain_is_too_complex).
+    `convert` reports it the same way itself; this stays for what is raised around it in the worker.
     """
     try:
         return convert(data, filename, options)
@@ -290,18 +291,3 @@ def _run(data: bytes, filename: str | None, options: ConvertOptions | None) -> C
         raise
     except MemoryError:
         raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from None
-
-
-def _ran_out_of_memory(exc: BaseException) -> bool:
-    """Whether a MemoryError is among the causes and contexts of `exc` (each exception visited once)."""
-    seen: set[int] = set()
-    waiting: list[BaseException] = [exc]
-    while waiting:
-        current = waiting.pop()
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
-        if isinstance(current, MemoryError):
-            return True
-        waiting.extend(link for link in (current.__cause__, current.__context__) if link is not None)
-    return False
