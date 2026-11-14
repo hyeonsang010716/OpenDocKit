@@ -125,6 +125,34 @@ class TestSeparateTableBelowARowInNoTable:
         assert all(text.count(name) == 1 for name in _REGIONS[:8])
         assert "| 인천 | 1,333 | 4.3% | 증가 |\n\n| 광주 | 1,444 | 5.4% | 증가 |" in text
 
+    @pytest.mark.parametrize("periods", [("2023", "2024"), ("2024.01", "2024.02"), ("FY2023", "FY2024"), ("1분기", "2분기")])
+    def test_table_under_a_header_of_years_or_dates_is_not_joined(self, periods):
+        """Years and dates in a header are not values: '구분 | 2023 | 2024 | 증감' starts a table of its own."""
+        rows = [("구분", *periods, "증감"), ("매출", "1,200", "1,350", "+150"), ("비용", "800", "820", "+20"),
+                ("이익", "400", "530", "+130"), ("세금", "90", "110", "+20")]
+
+        text = convert(_regions_pdf(3, 0, rows=rows), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        regions = _tables(text)[0]
+        assert regions[-1] == ["인천", "1,333", "4.3%", "증가"]
+        assert not any(cell.startswith(("구분", "매출")) for row in regions for cell in row)
+        if periods == ("2023", "2024"):  # (the other headers merge into one piece and are not taken as a header row at all)
+            assert ("| 인천 | 1,333 | 4.3% | 증가 |\n\n| 구분 | 2023 | 2024 | 증감 |\n| --- | --- | --- | --- |\n"
+                    "| 매출 | 1,200 | 1,350 | +150 |") in text
+            assert "| 세금 | 90 | 110 | +20 |\n\n이상." in text
+
+    @pytest.mark.parametrize("space", [{4: 12.0, 6: 12.0}, {1: 14.0, 4: 14.0}])
+    def test_one_wide_gap_inside_a_table_does_not_let_a_wide_gap_between_tables_through(self, space):
+        """The bound is the usual row gap of the two tables, not the widest: a ranking list set 12pt apart, with one more
+        12pt gap inside it (or a 14pt gap inside the table above), stays a table of its own."""
+        rows = [("1", "강남구", "5,483", "12.1%"), ("2", "송파구", "4,920", "10.9%"), ("3", "서초구", "4,410", "9.7%"),
+                ("4", "마포구", "3,200", "7.0%")]
+
+        text = convert(_regions_pdf(3, 0, rows=rows, space=space), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| 인천 | 1,333 | 4.3% | 증가 |\n\n| 1 | 강남구 | 5,483 | 12.1% |" in text
+        assert text.count("인천") == 1
+
     @pytest.mark.parametrize("after", [5, 6])
     def test_joined_table_grows_below_the_end_of_the_other_table(self, after):
         """The last row of the lower table is merged differently too, so that table took it only while growing below itself;
