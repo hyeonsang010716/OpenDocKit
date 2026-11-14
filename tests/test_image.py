@@ -555,6 +555,24 @@ class TestPdfImages:
         assert [image.kind for image in result.images] == [ImageKind.PAGE] * 3
         assert any("3 page(s) whose text exists only as an image (1, 2, 3)" in warning for warning in result.warnings)
 
+    def test_untrusted_pages_beyond_the_picture_budget_are_not_said_to_be_handed_over(self):
+        """With `max_images` low, the render budget ran out before the last pages, yet the warning said every page with an
+        untrusted text layer was handed over as an image. Only the rendered pages are named so; the others are named as read
+        from their text layer only."""
+        data = _scan_with_text_layer([_LATIN_FRAGMENTS] * 3)
+
+        nothing = convert(data, "scan.pdf", ConvertOptions(max_images=0))
+        some = convert(data, "scan.pdf", ConvertOptions(max_images=1))
+
+        assert not nothing.images
+        assert not any("handed over as an image" in warning for warning in nothing.warnings)
+        assert any("3 PDF page(s) (1, 2, 3)" in warning and "only their text layer was read" in warning
+                   for warning in nothing.warnings)
+        # The render budget is twice `max_images`: pages 1 and 2 are rendered (the converter then keeps one), page 3 is not.
+        handed = [warning for warning in some.warnings if "handed over as an image" in warning]
+        assert len(handed) == 1 and "2 PDF page(s) (1, 2)" in handed[0]
+        assert any("only their text layer was read" in warning and "(3)" in warning for warning in some.warnings)
+
     def test_text_layer_with_korean_is_trusted_even_on_pages_without_korean(self):
         """If the text layer has Hangul on even one page, it is a text layer that can hold Hangul (a scan with proper OCR, a
         document laid over a background picture). Pages with only Latin/digits (code, tables) are also read from the text layer
