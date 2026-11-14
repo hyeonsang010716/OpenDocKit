@@ -4,7 +4,8 @@ import warnings
 
 import pytest
 
-from opendockit import DocumentFormat, convert
+from opendockit import ConvertOptions, DocumentFormat, convert
+from opendockit.extractors.html import extract_html
 from tests import needs_html5_tokenizer
 
 
@@ -81,6 +82,40 @@ class TestTextShapedLikeAListPlaceholder:
     ])
     def test_is_text(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected
+
+
+class TestListInsideAQuoteInsideAnItem:
+    """A list in a quote block inside a list item was taken out of the quote and put under the item, and the quote block left
+    behind was folded onto one line."""
+
+    def test_list_stays_in_the_quote(self):
+        html = "<ul><li>a<blockquote><p>q</p><ul><li>b<ul><li>c</li></ul></li></ul></blockquote></li><li>z</li></ul>"
+
+        extraction = extract_html(html.encode(), ConvertOptions())
+
+        assert extraction.sections[0].text.strip() == "- a\n\n> q\n>\n> - b\n>   - c\n\n- z"
+
+    def test_quote_with_paragraphs_keeps_its_lines(self):
+        html = "<ul><li>a<blockquote><p>q1</p><p>q2</p></blockquote></li></ul>"
+
+        assert convert(html.encode(), "a.html").text == "- a\n\n> q1\n>\n> q2"
+
+
+class TestItemTextStartingLikeABlock:
+    """List item text that starts with `|` or a fence was taken for a table or code block: the bullet was left empty and the
+    text moved under it."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<ul><li>| a | b |</li><li>```js</li></ul>", "- | a | b |\n- \\```js"),
+        ("<ul><li>| a | b |<ul><li>n</li></ul></li></ul>", "- | a | b |\n  - n"),
+    ])
+    def test_text_stays_on_the_bullet_line(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    def test_table_in_an_item_still_goes_below(self):
+        html = "<ul><li><table><tr><td>a</td><td>b</td></tr></table></li></ul>"
+
+        assert convert(html.encode(), "a.html").text == "-\n\n| a | b |\n| --- | --- |"
 
 
 class TestMathMl:

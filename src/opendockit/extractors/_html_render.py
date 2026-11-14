@@ -472,7 +472,9 @@ def _render_list(node: Tag, list_depth: int) -> str:
         # The detached lists are restored after drawing — a table with tables inside its cells draws the same cell twice
         # (`_render_table`), and the second drawing saw only the placeholder text and rejected the whole document with an IndexError
         # (Pinned by: test_core_html.py::TestNestedListInsideATableCell).
-        nested = _nearest(item, wanted={"ul", "ol"}, stop={"li", "table"})
+        # A list inside a quote block of the item stays in the quote, which draws it (Pinned by:
+        # test_core_html.py::TestListInsideAQuoteInsideAnItem).
+        nested = _nearest(item, wanted={"ul", "ol"}, stop={"li", "table", "blockquote"})
         slots = [NavigableString(f"{_LIST_SLOT_OPEN}{index}{_LIST_SLOT_CLOSE}") for index in range(len(nested))]
         # Swapped through `_replace` (one position lookup per parent): `replace_with` per list took 6.4 seconds for one item
         # with 20,000 lists (Pinned by: test_audit_html_text.py::TestManyListsOrTablesSetAsideWhileTheirParentIsRendered)
@@ -484,7 +486,12 @@ def _render_list(node: Tag, list_depth: int) -> str:
         finally:
             for child, slot in zip(nested, slots, strict=True):
                 _replace(slot, child, places)
-        first = pieces.pop(0) if pieces and isinstance(pieces[0], str) and not pieces[0].startswith(("```", "|")) else ""
+        # A code block or table opens the item on the line below. Text that only starts like one (`| a | b |`, `` ```js ``) is a
+        # single line and stays on the bullet line, a fence escaped — it was moved under an empty bullet
+        # (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock).
+        first = pieces.pop(0) if pieces and isinstance(pieces[0], str) and not _is_drawn_block(pieces[0]) else ""
+        if first.startswith("```"):
+            first = "\\" + first
 
         # Markdown numbered lists use digits only. A letter number is written after a bullet — it has to stay a list line for the nested
         # indentation to be kept.
@@ -501,6 +508,12 @@ def _render_list(node: Tag, list_depth: int) -> str:
     return "\n".join(line for line in lines if line.strip()).rstrip("\n")  # leading whitespace is the indentation of nested lists
 
 
+def _is_drawn_block(block: str) -> bool:
+    """Is this item block a code block or table (`_item_blocks`), which takes more than one line, not a line of text that starts
+    with a fence or `|`."""
+    return block.startswith(("```", "|")) and "\n" in block
+
+
 def _item_pieces(blocks: list[str], nested_count: int) -> list[str | int]:
     """Split the item blocks at the nested-list placeholders into text blocks (str) and nested-list indices (int), in source order. A
     placeholder inside a code block or table does not split the block; it goes after that block. Lists whose placeholder vanished while
@@ -508,7 +521,7 @@ def _item_pieces(blocks: list[str], nested_count: int) -> list[str | int]:
     pieces: list[str | int] = []
 
     for block in blocks:
-        if block.startswith(("```", "|")):
+        if _is_drawn_block(block):
             pieces.append(_LIST_SLOT.sub("", block))
             pieces.extend(int(found) for found in _LIST_SLOT.findall(block))
             continue
@@ -607,8 +620,9 @@ def _split_at_fenced(text: str) -> list[str]:
 
 
 def _item_blocks(text: str) -> list[str]:
-    """Split a list item's content into blocks. Code blocks and tables keep their line structure; in other paragraphs whitespace is
-    collapsed to single spaces."""
+    """Split a list item's content into blocks. Code blocks, tables and quote blocks (every line starting with `>`) keep their
+    line structure; in other paragraphs whitespace is collapsed to single spaces. A quote block in an item was folded onto one
+    line, its nested list and all (`> - b > - c`) (Pinned by: test_core_html.py::TestListInsideAQuoteInsideAnItem)."""
     blocks = []
     for part in _split_at_fenced(text):
         if part.startswith("```"):
@@ -616,8 +630,8 @@ def _item_blocks(text: str) -> list[str]:
             continue
         for paragraph in _BLANK_LINES.split(part):
             if paragraph.strip():
-                is_table = paragraph.lstrip().startswith("|")
-                blocks.append(paragraph.strip() if is_table else " ".join(paragraph.split()))
+                kept = paragraph.lstrip().startswith("|") or all(line.lstrip().startswith(">") for line in paragraph.strip().split("\n"))
+                blocks.append(paragraph.strip() if kept else " ".join(paragraph.split()))
     return blocks
 
 
