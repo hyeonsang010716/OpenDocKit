@@ -1336,19 +1336,13 @@ def _hidden_by_style(tag: Tag) -> bool:
     return tag.attrs is not None and (tag.has_attr("hidden") or bool(_HIDDEN_STYLE.search(str(tag.get("style", "")))))
 
 
-# The fallback of a `<canvas>` that only tells the reader their browser cannot draw it (`_drop_canvas_notices`): one short
-# sentence saying that the browser does not support or cannot show the canvas, with or without one telling the reader to
-# upgrade the browser.
-_CANVAS_NOTICE = re.compile(r"\bbrowsers?\b|\bcanvas\b|브라우저|캔버스", re.IGNORECASE)
-_CANNOT = re.compile(r"\b(?:does not|doesn['’]t|do not|don['’]t) support|\bnot supported\b|\bno support\b|\bunable to\b|\bcannot\b"
-                     r"|\bcan['’]t\b|지원하지 않|지원되지 않|지원 안|표시할 수 없", re.IGNORECASE)
-_UPGRADE_THE_BROWSER = re.compile(r"\b(?:upgrade|update) your browser\b|브라우저를 (?:업데이트|업그레이드)", re.IGNORECASE)
-_SENTENCE_END = re.compile(r"[.!?。]+")
-_HTML5 = re.compile(r"html5", re.IGNORECASE)
+# The fallback of a `<canvas>` that only tells the reader their browser cannot draw it (`_drop_canvas_notices`): it names the
+# browser together with supporting or upgrading it, and is short.
+_BROWSER = re.compile(r"\bbrowsers?\b|브라우저", re.IGNORECASE)
+_SUPPORT = re.compile(r"support|upgrad|updat|지원|업그레이드|업데이트", re.IGNORECASE)
 _CANVAS_NOTICE_CHARS = 200
-_CANVAS_NOTICE_SENTENCES = 2
 # What a real text alternative of a drawing may hold and a notice does not.
-_ALTERNATIVE_CONTENT = ["table", "ul", "ol", "dl", "img", "pre", "a"]
+_ALTERNATIVE_CONTENT = ["table", "ul", "ol", "dl", "img", "pre"]
 
 
 def _drop_canvas_notices(soup: BeautifulSoup) -> None:
@@ -1356,33 +1350,18 @@ def _drop_canvas_notices(soup: BeautifulSoup) -> None:
 
     The fallback of a canvas is read because it can be the text alternative of the drawing (`_html_base._DROP_TAGS`), but
     the sentence nearly every page writes there — `Your browser does not support the HTML5 canvas tag.` — came out as a
-    paragraph of the page. It is addressed to a reader with another browser and says nothing about the drawing.
-
-    Deliberately narrow, a fallback is removed only when it is nothing but the notice (`_is_canvas_notice`). Taken for a
-    notice whenever it was short and named the browser together with supporting or updating it, the alternative itself
-    was removed: `Your browser does not support canvas. The chart shows revenue of 3.2M in 2023 and 4.1M in 2024.`, the
-    notice followed by paragraphs of figures or by a link to the data, `Browser support for WebGL rose from 60% to 95%
-    between 2012 and 2020.` and `브라우저별 점유율 차트: 크롬 65%, 사파리 19%. 2024년 업데이트 기준.`
+    paragraph of the page. It is addressed to a reader with another browser and says nothing about the drawing. Deliberately
+    narrow: text only (no table, list, picture or code), at most `_CANVAS_NOTICE_CHARS` characters, and naming the browser
+    together with supporting or upgrading it — `Browser share: Chrome 65%` is an alternative and stays
     (Pinned by: test_core_html.py::TestFallbackContentOfObjectAndCanvas).
     """
-    _decompose_all([canvas for canvas in soup.find_all("canvas") if _is_canvas_notice(canvas)])
-
-
-def _is_canvas_notice(canvas: Tag) -> bool:
-    """Whether the fallback of `canvas` is nothing but the notice that the browser cannot draw it: text in one place (the
-    canvas itself or one element in it — no second paragraph, no link, table, list, picture or code), short, without a
-    digit (`HTML5` aside — figures are what the drawing shows), and made of at most two sentences that each either say
-    that the browser does not support or cannot show the canvas, or tell the reader to upgrade or update the browser."""
-    if canvas.find(_ALTERNATIVE_CONTENT) is not None:
-        return False
-    holders = {id(node.parent) for node in canvas.find_all(string=True) if node.strip()}
-    text = " ".join(canvas.get_text(" ").split())
-    if len(holders) != 1 or len(text) > _CANVAS_NOTICE_CHARS or any(character.isdigit() for character in _HTML5.sub("", text)):
-        return False
-    sentences = [sentence for sentence in _SENTENCE_END.split(text) if sentence.strip()]
-    return 0 < len(sentences) <= _CANVAS_NOTICE_SENTENCES and all(
-        _UPGRADE_THE_BROWSER.search(sentence) or (_CANVAS_NOTICE.search(sentence) and _CANNOT.search(sentence))
-        for sentence in sentences)
+    notices = []
+    for canvas in soup.find_all("canvas"):
+        text = " ".join(canvas.get_text(" ").split())
+        if (text and len(text) <= _CANVAS_NOTICE_CHARS and _BROWSER.search(text) and _SUPPORT.search(text)
+                and canvas.find(_ALTERNATIVE_CONTENT) is None):
+            notices.append(canvas)
+    _decompose_all(notices)
 
 
 def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool = True) -> None:
