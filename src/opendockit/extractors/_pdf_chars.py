@@ -259,3 +259,45 @@ def _scripted_text(chars: list[dict], line_text: str) -> str | None:
 
 def _is_hangul(text: str) -> bool:
     return len(text) == 1 and "가" <= text <= "힣"
+
+
+# A drop cap (`_drop_cap`): an initial letter this many times the size of the text beside it, at most this far from the first
+# letter after it and from the top of the line (relative to the text size).
+_DROP_CAP_MIN_RATIO = 2.0
+_DROP_CAP_MAX_RATIO = 6.0
+_DROP_CAP_GAP_RATIO = 1.0
+_DROP_CAP_TOP_RATIO = 1.0
+
+
+def _drop_cap(chars: list[dict], line_text: str) -> tuple[str, float, float] | None:
+    """(text, top, bottom) of a line that opens with a drop cap, the initial joined to the rest of its word and the line as high as
+    the text beside the initial. None for any other line.
+
+    A paragraph that opens with a large initial hanging beside its first lines ('T' + 'he quick brown') was read 'T he quick
+    brown', and the height of the initial kept the first line apart from the rest of its paragraph (Pinned by:
+    test_pdf_reading_order.py::TestDropCaps). Only a capital letter, `_DROP_CAP_MIN_RATIO` to `_DROP_CAP_MAX_RATIO` times the size
+    of every other character of the line, followed within `_DROP_CAP_GAP_RATIO` by a lower-case letter, whose top is within
+    `_DROP_CAP_TOP_RATIO` of the line's top and which reaches at least one more line below it. A large label beside a line (a
+    capital or a digit after it, a letter standing on the line's baseline) keeps its space. Known limitation: a one-letter word
+    set as a drop cap ('A' + 'long time ago') is joined to the next word as well.
+    """
+    solid = sorted((char for char in chars if char["text"].strip() and char.get("size")), key=lambda char: char["x0"])
+    if len(solid) < 3:
+        return None
+    initial, others = solid[0], solid[1:]
+    # The characters at the level of a line reach as low as the initial, so they hold the lines beside it below as well: the
+    # line itself is the top row of them.
+    first_top = min(char["top"] for char in others)
+    rest = [char for char in others if char["top"] < first_top + char["size"] / 2]
+    letter, size = initial["text"], max(char["size"] for char in rest)
+    if not (len(letter) == 1 and letter.isalpha() and letter.isupper() and rest[0]["text"][:1].islower()):
+        return None
+    if not _DROP_CAP_MIN_RATIO * size <= initial["size"] <= _DROP_CAP_MAX_RATIO * size:
+        return None
+    top, bottom = first_top, max(char["bottom"] for char in rest)
+    if (not -_DROP_CAP_GAP_RATIO * size <= rest[0]["x0"] - initial["x1"] <= _DROP_CAP_GAP_RATIO * size
+            or abs(initial["top"] - top) > _DROP_CAP_TOP_RATIO * size or initial["bottom"] < bottom + size):
+        return None
+    if not line_text.startswith(letter + " ") or not line_text[2:3] == rest[0]["text"][:1]:
+        return None
+    return letter + line_text[2:], top, bottom

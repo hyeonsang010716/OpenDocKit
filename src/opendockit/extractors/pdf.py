@@ -68,7 +68,15 @@ from opendockit.extractors._pdf_artifacts import (
     _without_drawing_artifacts,
     _xobject_owners,
 )
-from opendockit.extractors._pdf_chars import _drawn_text, _gap_parts, _letter_spaced_text, _letter_spacings, _scripted_text, _text_from_chars
+from opendockit.extractors._pdf_chars import (
+    _drawn_text,
+    _drop_cap,
+    _gap_parts,
+    _letter_spaced_text,
+    _letter_spacings,
+    _scripted_text,
+    _text_from_chars,
+)
 from opendockit.extractors._pdf_continued_tables import _carry_table_headers, _join_ruled_header_lines
 from opendockit.extractors._pdf_figures import _figure_boxes, _open_pdfium, _page_images, _PageRenderer, _untrusted_text_layer_pages
 from opendockit.extractors._pdf_forms import _annotated_attachments, _form_values, _has_xfa, _named_attachments
@@ -902,9 +910,10 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
             text = kept
         kept_lines.setdefault(text, []).append(line)
         text = _scripted_text(inside, text) or text
+        text, top, bottom = _drop_cap(inside, text) or (text, line["top"], line["bottom"])
         sizes = [char["size"] for char in inside if char["text"].strip()]
         size = statistics.median(sizes) if sizes else 0.0
-        lines.append(_Line(top=line["top"], bottom=line["bottom"], x0=line["x0"], x1=line["x1"], text=_drawn_text(text),
+        lines.append(_Line(top=top, bottom=bottom, x0=line["x0"], x1=line["x1"], text=_drawn_text(text),
                            size=size, parts=_gap_parts(inside, _drawn_text(text), size),
                            fine_parts=_gap_parts(inside, _drawn_text(text), size, _UNSPACED_GAP_RATIO)))
         line_owners.append(owner)

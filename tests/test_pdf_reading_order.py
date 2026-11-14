@@ -374,3 +374,41 @@ class TestSidebarBesideTheBody:
         before = convert(self._pdf(notes), "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert before.index("경력") < before.index("김민준")
+
+
+class TestDropCaps:
+    """A paragraph that opens with a drop cap: a large initial hanging beside its first lines. pdfminer put the initial in the
+    first line with a space after it ('T he quick'), and its height kept the first line apart from the rest of the
+    paragraph."""
+
+    _LINES = ["he quick brown fox jumps over the", "lazy dog and keeps running far", "away from the hunters in the woods"]
+    _NEXT = ["Next paragraph starts here and continues", "on another line for a while."]
+
+    def _pdf(self, initial: str, lines: list[str], size: float = 36, baseline: float | None = None) -> bytes:
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", size)
+            pdf.drawString(72, 700 + 0.718 * 11 - 0.718 * size if baseline is None else baseline, initial)
+            left = 72 + pdf.stringWidth(initial, "Helvetica", size) + 2
+            pdf.setFont("Helvetica", 11)
+            for number, text in enumerate(lines):
+                pdf.drawString(left, 700 - 13 * number, text)
+            for number, text in enumerate(self._NEXT):
+                pdf.drawString(72, 640 - 13 * number, text)
+
+        return _korean_pdf(draw)
+
+    @pytest.mark.parametrize("baseline", [None, 676])
+    def test_a_drop_cap_is_joined_to_its_word_and_paragraph(self, baseline):
+        text = convert(self._pdf("T", self._LINES, baseline=baseline), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == "\n".join(["The quick brown fox jumps over the", *self._LINES[1:]]) + "\n\n" + "\n".join(self._NEXT)
+
+    @pytest.mark.parametrize(("initial", "lines", "size", "baseline"), [
+        ("A", ["General terms of the agreement apply", "to every order placed by the buyer"], 36, None),  # a capital follows
+        ("B", ["grade awarded to the second team", "for the final round of the season"], 24, 700),  # sits on the line
+        ("2", ["overview of the results we found", "in the survey of the last two years"], 36, None),  # a number
+        ("T", ["he quick brown fox jumps over the", "lazy dog and keeps running far"], 15, None)])  # hardly larger
+    def test_a_large_label_that_is_no_drop_cap_keeps_its_space(self, initial, lines, size, baseline):
+        text = convert(self._pdf(initial, lines, size, baseline), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert f"{initial} {lines[0]}" in text
