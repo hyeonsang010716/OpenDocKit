@@ -1087,6 +1087,7 @@ class _Renderer:
             repeat = _repeat(row, _ROWS_REPEATED)
             values: dict[int, str] = {}
             spans: list[tuple[int, int, str]] = []
+            merged_left: int | None = None   # leftmost column merged down into this row, found once at its first text cell
             column = -offset
             for cell in row:
                 tag = cell.tag
@@ -1104,8 +1105,12 @@ class _Renderer:
                     for copy in range(copies):
                         values[column + copy] = text
                     if copies == 1:
-                        labelled = bool(values.keys() - {column}) or any(
-                            left < column and last_row >= row_number for left, (_, last_row, _) in merged_down.items())
+                        # Both tests are constant time per cell: a set difference or a pass over the merges for every cell made
+                        # a wide row quadratic (Pinned by: test_odf.py::TestHostileInput::test_wide_sheet_row_converts_in_linear_time).
+                        if merged_left is None:
+                            merged_left = min((left for left, (_, last_row, _) in merged_down.items() if last_row >= row_number),
+                                              default=_FAR)
+                        labelled = len(values) > 1 or merged_left < column
                         last = min(column + max(decimal_int(cell.get(_COLS_SPANNED), 1), 1), limit) - 1 if labelled else column
                         if last > column:
                             spans.append((column + 1, last + 1, text))

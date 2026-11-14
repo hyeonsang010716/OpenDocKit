@@ -1054,3 +1054,19 @@ class TestHostileInput:
 
         small = max(elapsed(5_000), 0.01)
         assert elapsed(20_000) < small * 10
+
+    @pytest.mark.timing
+    def test_wide_sheet_row_converts_in_linear_time(self):
+        """With `max_sheet_cols` raised, a row 4× as wide takes well under 16× the time. Deciding whether a text cell has a label
+        to its left built a set of the row's columns and passed over every merge from above for each cell."""
+        def elapsed(count: int) -> float:
+            merged = _row(*[_cell(f"m{index}", 'table:number-rows-spanned="2"') for index in range(count)])
+            plain = _row(*[_cell("x") for _ in range(count)])
+            data = _package("spreadsheet", _sheet("S", merged, plain, plain))
+            started = time.perf_counter()
+            result = convert(data, "a.ods", ConvertOptions(max_sheet_cols=16_384, max_chars=None))
+            assert f"m{count - 1}" in result.text
+            return time.perf_counter() - started
+
+        small = max(elapsed(3_000), 0.01)
+        assert elapsed(12_000) < small * 10
