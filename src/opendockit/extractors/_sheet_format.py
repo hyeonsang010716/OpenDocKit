@@ -412,7 +412,7 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     scale = len(whole) - len(whole.rstrip(",")) + len(fraction) - len(fraction.rstrip(","))
     whole = whole.rstrip(",")
     places = "".join(char for char in fraction if char in "0#?")
-    decimals, optional = len(places), len(places) - len(places.rstrip("#"))  # trailing `#` decimal places are not shown when they are 0
+    decimals = len(places)
     try:
         number = _rounded(value, percent, scale, decimals)
     except InvalidOperation:
@@ -422,18 +422,19 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     # section the sign is shown by the format's literals.
     sign = "-" if text.startswith("-") and not signed_by_format else ""
     integer, dot, rest = text.removeprefix("-").partition(".")
-    if optional:
-        rest = rest[:decimals - optional] + rest[decimals - optional:].rstrip("0")
+    if places.endswith(("#", "?")):
+        rest = _without_trailing_zeros(places, rest)
         dot = dot if rest else ""  # 12 under `0.###` → 12 (same as LibreOffice)
     if any(char not in "0#?,%" for char in fraction):
         # Literals between decimal places (`0.0\E+0`, `0.00" "00`) stay where they are, the decimal digits filling the places from
         # the left as in Excel. They were dropped, so 5 under `0.0\E+0` came out as `5.00` instead of `5.0E+0`
         # (Pinned by: test_audit_spreadsheet_fixes.py::TestLiteralsBetweenDecimalPlaces).
         rest = _fill_decimals(fraction, literals[literals_before + whole.count("\x00"):], rest)
-    if any(char not in "0#?," for char in whole) and "," not in whole:
+    if (any(char not in "0#?," for char in whole) or "?" in whole) and "," not in whole:
         # A format with literals between digit places (phone number `0##\-####\-####`, date shape `0000\-00\-00`) fills the places
         # from the right and inserts the literals. Dropping the literals turned 010-1234-5678 into 1012345678
-        # (Pinned by: test_quality.py::TestSpreadsheetNumberFormats).
+        # (Pinned by: test_quality.py::TestSpreadsheetNumberFormats). An integer place `?` without a digit is a space, as in
+        # Excel (0.5 under `?.??` → ` .5 `, Pinned by: test_audit_spreadsheet.py::TestQuestionMarkPlaces).
         integer = _fill_digits(whole, literals[literals_before:], integer)
     elif whole.count("0") > 1 and "," not in whole:
         # The 0s of the integer part are the minimum number of digits (employee number / postal code 001234 written as `000000`)
@@ -441,6 +442,20 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     elif not whole and integer == "0":
         integer = ""  # for a format without integer places Excel does not show the 0 either (0.5 under `.00` → .50)
     return f"{sign}{prefix}{integer}{dot}{rest}{'%' if percent else ''}{suffix}"
+
+
+def _without_trailing_zeros(places: str, digits: str) -> str:
+    """The decimal digits with the zeros at the end that fall on optional places taken away: a `#` place shows nothing and a `?`
+    place a space, as in Excel. A `0` place or a digit other than 0 ends it.
+
+    A `?` place showed its 0, so 1.5 under `0.??` came out as `1.50` instead of Excel's `1.5 ` (the space keeps the column
+    aligned on the decimal point; Pinned by: test_audit_spreadsheet.py::TestQuestionMarkPlaces)."""
+    kept = list(digits)
+    for index in range(len(places) - 1, -1, -1):
+        if places[index] == "0" or kept[index] != "0":
+            break
+        kept[index] = " " if places[index] == "?" else ""
+    return "".join(kept)
 
 
 def _rounded(value: float, percent: bool, scale: int, decimals: int) -> Decimal:

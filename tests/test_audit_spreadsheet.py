@@ -848,3 +848,34 @@ class TestXlsNumberThatIsNotFinite:
 
         assert result.text == "## Sheet: Sheet 1\n\n| name | value |\n| --- | --- |\n| a | |\n| b | |\n| c | |\n| d | 12.5 |"
         assert result.warnings == ["3 number cell value(s) that are not finite numbers were left blank."]
+
+
+class TestQuestionMarkPlaces:
+    """A `?` digit place without a significant digit is a space in Excel (it keeps a column aligned on the decimal point). A `?`
+    decimal place showed its 0 (1.5 under `0.??` came out as `1.50`) and a `?` integer place its 0 (`?.??` → `0.50`)."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (1.5, "0.??", "1.5 "),
+        (0.5, "0.0?", "0.5 "),
+        (0.5, "?.??", " .5 "),
+        (1.05, "0.??", "1.05"),
+        (12, "0.??", "12.  "),
+        (5, "???", "  5"),
+        (1234.5, "#,##0.0?", "1,234.5 "),
+        (12, "0.###", "12"),  # `#` places show nothing, as before
+        (1.5, "0.0#", "1.5"),
+        (1.5, "0.00", "1.50"),
+    ])
+    def test_place_without_a_digit(self, value, number_format, expected):
+        assert format_cell(value, number_format) == expected
+
+    def test_cell_text_has_no_padding_spaces(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["item", "weight"])
+        sheet.append(["a", 1.5])
+        sheet["B2"].number_format = '0.?? "kg"'
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        assert convert(buffer.getvalue(), "a.xlsx").text.endswith("| a | 1.5 kg |")  # runs of spaces in a cell are one space
