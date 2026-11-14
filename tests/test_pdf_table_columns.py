@@ -685,6 +685,17 @@ class TestAbuttingTablesWithDifferentColumns:
                                "| Head0 | | | r1c3 |\n| r2c0 | r2c1 | r2c2 | |\n| r3c0 | r3c1 | r2c2 | |\n"
                                "| r4c0 | r4c1 | r2c2 | |\n\nEnd of the form.")
 
+    def test_blocks_stacked_in_the_same_columns_keep_one_table(self):
+        """A block over the two left columns of rows 0-1, then a block over columns 1-2 of rows 2-3 and another one over
+        the same columns of rows 4-5: the two lower blocks are rows with the same boundaries, so one group, and neither
+        reaches over all of it. Split after row 1, the upper half lost a column and the lower took 'r2c0' as its header."""
+        result = convert(self._form_pdf([(0, 0, 2), (2, 1, 2), (4, 1, 2)], [20] * 8), "a.pdf", ConvertOptions(page_markers=False))
+
+        table = result.text.split("\n\n")[1].split("\n")
+        assert len(table) == 9 and all(line.count("|") == 5 for line in table)
+        assert table[0] == "| Head0 | | Head2 | Head3 |" and table[3] == "| r2c0 | r2c1 | | r2c3 |"
+        assert result.text.endswith("| r7c0 | r7c1 | r7c2 | r7c3 |\n\nEnd of the form.")
+
     def test_rows_merged_from_a_column_that_a_block_above_covers_keep_one_table(self):
         """Two last rows whose three right columns are merged, right below a block over the two left columns of rows 3-4:
         the merged cells start at the boundary between the two left columns, which the rows of the block lack but the rows

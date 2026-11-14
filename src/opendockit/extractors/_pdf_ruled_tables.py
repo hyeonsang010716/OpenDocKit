@@ -3,6 +3,7 @@ rules, tables open at the sides, text wrapped inside a cell, and the highlights 
 """
 
 from bisect import bisect_left, bisect_right, insort
+from collections import Counter
 import math
 
 from pdfplumber.table import TableFinder, TableSettings
@@ -395,8 +396,8 @@ def _split_column_sections(table: object, bbox: tuple[float, float, float, float
         above, below = edges[previous[0]], edges[run[0]]
         apart = (len(previous) >= _SECTION_MIN_ROWS and len(run) >= _SECTION_MIN_ROWS
                  and not _edges_within(above, below) and not _edges_within(below, above)
-                 and not (_merged_from(held[previous[0]], held[previous[-1]], below, set(below))
-                          and _merged_from(held[run[0]], held[run[-1]], above, grid)))
+                 and not (_merged_from([held[index] for index in previous], below, set(below))
+                          and _merged_from([held[index] for index in run], above, grid)))
         if apart:
             sections.append(list(run))
             grid = set(below)
@@ -461,19 +462,29 @@ def _edges_within(edges: tuple[int, ...], others: tuple[int, ...]) -> bool:
     return all(any(abs(edge - other) <= 1 for other in others) for edge in edges)
 
 
-def _merged_from(first: list[tuple], last: list[tuple], others: tuple[int, ...], grid: set[int]) -> bool:
-    """Whether a group of rows (the cells of its first and of its last row, `_row_cells`) can be rows of the same table as the
-    rows with the column boundaries `others`, with some cells merged: the two have the same outer edges, and every cell of the
-    group that lies across a boundary of `others` either is one cell reaching over all rows of the group (a merged block) or
-    starts and ends at a boundary of `grid` — it is made of whole columns. `_split_column_sections` says what this decides.
-    The positions are compared as rounded numbers: the table finder has already snapped the rules of one boundary to one position."""
-    spans = [(round(cell[0]), round(cell[2]), cell) for cell in first]
-    if not spans or min(spans)[0] != others[0] or max(right for _, right, _ in spans) != others[-1]:
+def _merged_from(group: list[list[tuple]], others: tuple[int, ...], grid: set[int]) -> bool:
+    """Whether a group of rows (the cells of each of its rows, `_row_cells`) can be rows of the same table as the rows with
+    the column boundaries `others`, with some cells merged: the two have the same outer edges, and every cell of the group
+    that lies across a boundary of `others` either is a merged block — one cell reaching over all rows of the group, or over
+    two or more of them — or starts and ends at a boundary of `grid`: it is made of whole columns.
+    `_split_column_sections` says what this decides. The positions are compared as rounded numbers: the table finder has
+    already snapped the rules of one boundary to one position.
+
+    A block has to reach over more than one row, not over the whole group: two blocks merged in the same columns right
+    below each other are rows with the same boundaries, so one group, and neither block reaches over all of it. A table of
+    three columns with the first two merged over rows 1-2 and the last two merged over rows 3-4 and again over rows 5-6 was
+    split after its second row and lost a column
+    (Pinned by: test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_blocks_stacked_in_the_same_columns_keep_one_table).
+    """
+    first = group[0]
+    if not first or min(round(cell[0]) for cell in first) != others[0] or max(round(cell[2]) for cell in first) != others[-1]:
         return False
-    blocks = set(last)
-    for left, right, cell in spans:
+    reach = Counter(cell for row in group for cell in row)  # how many rows of the group each cell reaches over
+    enough = min(len(group), 2)
+    for cell, rows in reach.items():
+        left, right = round(cell[0]), round(cell[2])
         crossed = bisect_left(others, right) > bisect_right(others, left)  # a boundary of `others` inside the cell
-        if crossed and cell not in blocks and not (left in grid and right in grid):
+        if crossed and rows < enough and not (left in grid and right in grid):
             return False
     return True
 
