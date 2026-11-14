@@ -74,6 +74,24 @@ class TestIsolatedConverter:
         with pytest.raises(CorruptedDocumentError, match="The file is empty"):
             asyncio.run(scenario())
 
+    def test_oversized_or_empty_input_is_refused_before_a_worker_starts(self):
+        """An upload over `max_file_bytes` was pickled into a worker (copied through a pipe and again there) only to be
+        refused by the first check of `convert`. It is refused in the server process with the same error; so is an empty file."""
+        submitted = []
+
+        async def scenario(data):
+            async with IsolatedConverter() as converter:
+                for pool in converter._pools:
+                    original = pool.submit
+                    pool.submit = lambda *args, _original=original, **kwargs: submitted.append(args) or _original(*args, **kwargs)
+                await converter.convert(data, "a.txt", ConvertOptions(max_file_bytes=1024))
+
+        with pytest.raises(DocumentTooLargeError, match=r"^The file is too large \(maximum 1KB\)\.$"):
+            asyncio.run(scenario(b"a" * 4096))
+        with pytest.raises(CorruptedDocumentError, match="^The file is empty.$"):
+            asyncio.run(scenario(b""))
+        assert submitted == []
+
     def test_wrong_argument_is_a_type_error_before_reaching_a_worker(self):
         async def scenario():
             async with IsolatedConverter() as converter:

@@ -15,7 +15,7 @@ import zipfile
 
 import olefile
 
-from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
+from opendockit.exceptions import ConversionError, CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._encoding import decode_text, is_cp949_text, is_utf8_text, unicode_bom_codec, utf16_encoding
 from opendockit.extractors._html_mail import is_mhtml, mail_reads_as_html, mhtml_html_part
 from opendockit.extractors._mail import is_encrypted_mail, mail_box
@@ -146,7 +146,23 @@ def extension_of(filename: str | None) -> str:
 
 
 def detect_format(data: bytes, filename: str | None = None) -> DocumentFormat:
-    """Detect the format. Raises an exception carrying the reason if the file is unsupported or password-protected."""
+    """Detect the format. Raises a `ConversionError` carrying the reason if the file is unsupported, password-protected or
+    cannot be inspected.
+
+    Detection opens ZIP and OLE containers, so a library exception can come out of it (an encrypted ZIP part is a
+    `RuntimeError`, an unknown compression method a `NotImplementedError`). `convert` gathers those at its own boundary, but
+    called on its own this function let them out with the library's wording (Pinned by:
+    test_detect.py::TestDetectionOnItsOwn::test_container_that_cannot_be_inspected_is_a_conversion_error).
+    """
+    try:
+        return _detect(data, filename)
+    except ConversionError:
+        raise
+    except Exception as exc:  # the same boundary as `convert`: arbitrary container-library exceptions become one failure
+        raise CorruptedDocumentError("Could not parse the file format. The file may be corrupted.") from exc
+
+
+def _detect(data: bytes, filename: str | None) -> DocumentFormat:
     if _is_pdf(data):
         return DocumentFormat.PDF
     if data.startswith(_ZIP_MAGIC):

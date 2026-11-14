@@ -26,7 +26,7 @@ try:
 except ImportError:  # not available on Windows. Only the time limit applies, without a memory limit
     resource = None
 
-from opendockit.converter import _check_arguments, _content_bytes, convert
+from opendockit.converter import _check_arguments, _content_bytes, check_size, convert
 from opendockit.exceptions import ConversionError, DocumentTooLargeError
 from opendockit.models import ConversionResult, ConvertOptions
 
@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 TOO_COMPLEX_MESSAGE = "The document is too large or too complex to convert."
 _DEFAULT_MEMORY_LIMIT = 2 * 1024**3
 _DEFAULT_TIMEOUT = 120.0
+_DEFAULT_OPTIONS = ConvertOptions()
 
 
 # How often a worker looks whether its server is still there (`_leave_with`).
@@ -86,12 +87,17 @@ class IsolatedConverter:
 
         Exceeding the time limit, hitting the memory limit, or the worker dying raises `DocumentTooLargeError`
         (`TOO_COMPLEX_MESSAGE`). Any other failure is the same `ConversionError` subclass `convert` raises. An argument type
-        error is a `TypeError` raised before anything is sent to the worker.
+        error is a `TypeError`, and a file over `max_file_bytes` or an empty one the same error `convert` raises, before
+        anything is sent to the worker.
         """
         data = _content_bytes(data)  # a memoryview cannot be sent to a worker (not picklable)
         _check_arguments(filename, options)
         if self._closed:
             raise RuntimeError("This IsolatedConverter is closed.")
+        # The size checks of `convert`, here in the server process: an upload over `max_file_bytes` was pickled into a worker
+        # (a copy through a pipe and a second copy there) only to be refused by the first line of `convert`
+        # (Pinned by: test_isolated.py::TestIsolatedConverter::test_oversized_or_empty_input_is_refused_before_a_worker_starts).
+        check_size(data, options or _DEFAULT_OPTIONS)
         if self._server != os.getpid():
             # The process was forked after this converter was built (gunicorn --preload). The pools carry the pid their
             # workers watch (`_leave_with`), and that was the master's: a server killed outright left its idle worker behind

@@ -14,9 +14,12 @@ from collections.abc import Iterator, Sequence
 import os
 from pathlib import Path
 
-from opendockit.converter import convert, convert_file
+from opendockit.converter import convert, convert_file, read_limited
 from opendockit.integrations._documents import Mode, check_mode, pieces
 from opendockit.models import ConvertOptions
+
+
+_DEFAULT_OPTIONS = ConvertOptions()
 
 
 try:
@@ -70,6 +73,13 @@ class OpenDocKitParser(BaseBlobParser):
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:
         source = blob.source
         name = Path(str(blob.path)).name if blob.path else None
-        result = convert(blob.as_bytes(), name, self.options)
+        if blob.data is not None:   # already in memory (bytes, or text that `as_bytes` encodes)
+            data = blob.as_bytes()
+        else:
+            # A blob backed by a file is read only up to `max_file_bytes`: `as_bytes()` read it whole before the size limit
+            # refused it (Pinned by: test_integrations.py::TestLangChainLoader::test_parser_reads_a_blob_only_up_to_the_size_limit).
+            with blob.as_bytes_io() as stream:
+                data = read_limited(stream, (self.options or _DEFAULT_OPTIONS).max_file_bytes)
+        result = convert(data, name, self.options)
         for text, metadata in pieces(result, source, self.mode):
             yield Document(page_content=text, metadata={**blob.metadata, **metadata})
