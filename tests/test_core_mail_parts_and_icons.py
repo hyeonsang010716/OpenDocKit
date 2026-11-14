@@ -346,6 +346,16 @@ class TestMailsAreRenderedApart:
         assert "나" not in result.text
         assert result.metadata["title"] == "셋째 제목"
 
+    def test_title_of_a_part_after_the_limit_is_the_one_reading_it_gives(self):
+        """A title that is never closed is the title of a part that is read, so it is of one that is not."""
+        bodies = ["<p>나</p><title>닫히지 않은 제목"]
+        read = convert(_html_mbox(*bodies), "a.eml").metadata["title"]
+
+        result = convert(_html_mbox(f"<p>{'가' * 300}</p>", *bodies), "box.mbox", ConvertOptions(max_chars=100))
+
+        assert result.exceeded
+        assert result.metadata["title"] == read == "닫히지 않은 제목"
+
     def test_title_cut_off_where_the_look_for_a_title_ends_is_not_a_title(self, monkeypatch):
         from opendockit.extractors import html as html_extractor
 

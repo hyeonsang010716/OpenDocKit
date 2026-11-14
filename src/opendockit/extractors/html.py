@@ -267,9 +267,11 @@ def _unread_title(documents: list[str]) -> str:
 
     When the parts of a mail were one document the title of a later part was still found (`metadata["title"]`), and a mail
     over the limit lost it once each part was read on its own. Only the start of the documents is parsed for it
-    (`_UNREAD_TITLE_CHARS` in all), and of a document only what ends with a closed `<title>` element — a title is in the
-    head, and the documents are not read so that a large mail over the limit stays cheap
-    (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::test_title_of_a_part_after_the_limit_is_still_found).
+    (`_UNREAD_TITLE_CHARS` in all) — a title is in the head, and the documents are not read so that a large mail over the
+    limit stays cheap. A document that fits is parsed as it would have been read; of one that is cut off only what ends
+    with a closed `<title>` element, so that a title is never half of one
+    (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::test_title_of_a_part_after_the_limit_is_still_found,
+    test_title_cut_off_where_the_look_for_a_title_ends_is_not_a_title).
     """
     left = _UNREAD_TITLE_CHARS
     for document in documents:
@@ -278,11 +280,15 @@ def _unread_title(documents: list[str]) -> str:
         start = document[:left]
         left -= len(start)
         opening = _TITLE_OPENING.search(start)
-        closings = list(_TITLE_CLOSING.finditer(start, opening.end())) if opening is not None else []
-        if not closings:
+        if opening is None:
             continue
+        if len(start) < len(document):
+            closings = list(_TITLE_CLOSING.finditer(start, opening.end()))
+            if not closings:
+                continue
+            start = start[:closings[-1].end()]
         with quiet_warnings((XMLParsedAsHTMLWarning, _PARSER_CALLERS)):
-            title = _document_title(BeautifulSoup(start[:closings[-1].end()], "lxml"))
+            title = _document_title(BeautifulSoup(start, "lxml"))
         if title:
             return title
     return ""
