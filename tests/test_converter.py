@@ -593,3 +593,39 @@ class TestTimeLimitedResults:
         result = convert(builder.pdf_bytes(pages=2), "a.pdf", ConvertOptions(pdf_time_budget=0.0))
 
         assert render(replace(result)).time_limited
+
+
+class TestMetadataIsCleaned:
+    """Metadata was handed over as the file wrote it: not NFC, with zero-width and control characters, and with line breaks."""
+
+    def test_docx_title_is_nfc_without_invisible_characters(self):
+        import unicodedata
+
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("본문")
+        document.core_properties.title = unicodedata.normalize("NFD", "분기 보고서") + "​x"
+        document.core_properties.subject = " ​ "
+        buffer = BytesIO()
+        document.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.docx")
+
+        assert result.metadata["title"] == "분기 보고서x"
+        assert "subject" not in result.metadata
+
+    def test_pdf_metadata_is_one_line_without_control_characters(self):
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer)
+        pdf.setTitle("Quarterly\x01\x02  report")
+        pdf.setAuthor("a\nb\n# Heading")
+        pdf.drawString(100, 700, "hello")
+        pdf.save()
+
+        result = convert(buffer.getvalue(), "a.pdf")
+
+        assert result.metadata["title"] == "Quarterly report"
+        assert result.metadata["author"] == "a b # Heading"

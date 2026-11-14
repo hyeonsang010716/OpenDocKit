@@ -18,7 +18,7 @@ from opendockit.extractors import EXTRACTORS
 from opendockit.extractors._inline import _escape_link_text
 from opendockit.extractors._package import uncompressed_size
 from opendockit.image import ImageSkipped, ImageTooLarge, ImageUnreadable, PreparedImage, needs_heif_plugin, prepare_image
-from opendockit.markdown import clean_text, code_fences, neutralize_table_tags, solid_length
+from opendockit.markdown import clean_line, clean_text, code_fences, neutralize_table_tags, solid_length
 from opendockit.models import (
     ConversionResult,
     ConvertOptions,
@@ -133,11 +133,23 @@ def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
     text_chars = sum(solid_length(section.template) for section in sections)
     exceeded = extraction.exceeded or (options.max_chars is not None and text_chars > options.max_chars)
     images, fallbacks = _prepare_images([] if exceeded else extraction.images, sections, options, warnings, key)
-    result = ConversionResult(format=document_format, text="", sections=sections, metadata=dict(extraction.metadata),
+    result = ConversionResult(format=document_format, text="", sections=sections, metadata=_clean_metadata(extraction.metadata),
                               images=images, base_warnings=warnings, options=options, fallbacks=fallbacks,
                               exceeded=exceeded, counted=max(extraction.chars, text_chars) if exceeded else 0,
                               marker_key=key, time_limited=extraction.time_limited)
     return render(result)
+
+
+def _clean_metadata(metadata: dict[str, str]) -> dict[str, str]:
+    """The document metadata as clean one-line values (`markdown.clean_line`: NFC, invisible and control characters removed,
+    whitespace and line breaks collapsed to one space); a value left empty is dropped.
+
+    Metadata was handed over as the file wrote it: a title in decomposed jamo was not NFC, a zero-width space or control
+    characters stayed in it, and an author with line breaks (`a\nb\n# Heading`) put Markdown lines into whatever template
+    printed it (Pinned by: test_converter.py::TestMetadataIsCleaned).
+    """
+    cleaned = {key: clean_line(value) if isinstance(value, str) else value for key, value in metadata.items()}
+    return {key: value for key, value in cleaned.items() if value != ""}
 
 
 def check_size(data: bytes, options: ConvertOptions) -> None:

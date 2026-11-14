@@ -276,6 +276,15 @@ def _empty_item_holding_a_list(source: list[str], index: int, previous: str) -> 
     return bare if following is not None and len(following.group(1)) == column else None
 
 
+def clean_line(text: str) -> str:
+    """`text` as one clean line: the characters `clean_text` removes are removed, NFC, and every run of whitespace (line breaks
+    included) is one space, stripped. Without the Markdown handling of `clean_text` (fences, list indentation): for values such
+    as document metadata that are not body text."""
+    text = _INVISIBLE.sub("", text.translate(_LINE_BREAK_CONTROLS))
+    text = _PRIVATE_USE.sub("", _CONTROL.sub("", text).translate(_SYMBOL_FONT_GLYPHS))
+    return " ".join(unicodedata.normalize("NFC", text).split())
+
+
 def solid_length(text: str) -> int:
     """The number of characters certain to remain after cleaning (`clean_text`) and rendering. Used to decide the character limit midway.
 
