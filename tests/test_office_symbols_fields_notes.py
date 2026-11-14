@@ -371,3 +371,40 @@ class TestPptxHandTypedLinesInsideAnItem:
         body = _slide_body(data)
 
         assert body == "- 1단계 착수\n  - 3) 예산 확정"
+
+
+class TestDocxFieldCharactersInHiddenRuns:
+    """A hidden run (w:vanish) was skipped whole, field characters included. With only the separate hidden, the field stayed on
+    the instruction side and its visible result was dropped as instruction text. Only the text of a hidden run is left out."""
+
+    @staticmethod
+    def _field_char(kind: str, hidden: bool) -> str:
+        properties = "<w:rPr><w:vanish/></w:rPr>" if hidden else ""
+        return f'<w:r>{properties}<w:fldChar w:fldCharType="{kind}"/></w:r>'
+
+    @staticmethod
+    def _instruction(text: str, hidden: bool) -> str:
+        properties = "<w:rPr><w:vanish/></w:rPr>" if hidden else ""
+        return f'<w:r>{properties}<w:instrText xml:space="preserve">{text}</w:instrText></w:r>'
+
+    @pytest.mark.parametrize("hidden", [{"separate"}, {"begin", "instruction", "separate", "end"}, {"end"}, set()],
+                             ids=["separate", "whole-code", "end", "none"])
+    def test_visible_result_is_kept(self, hidden):
+        body = ("<w:p>" + _run("Total: ") + self._field_char("begin", "begin" in hidden)
+                + self._instruction(" =SUM(ABOVE) ", "instruction" in hidden) + self._field_char("separate", "separate" in hidden)
+                + _run("1,200") + self._field_char("end", "end" in hidden) + _run(" won") + "</w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "Total: 1,200 won"
+
+    def test_hidden_field_with_its_result_stays_hidden(self):
+        hidden_result = "<w:r><w:rPr><w:vanish/></w:rPr><w:t>42</w:t></w:r>"
+        body = ("<w:p>" + _run("앞") + self._field_char("begin", True) + self._instruction(" PAGE ", True)
+                + self._field_char("separate", True) + hidden_result + self._field_char("end", True) + _run("뒤") + "</w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "앞뒤"
+
+    def test_hidden_enclosed_character_field_writes_nothing(self):
+        body = ("<w:p>" + _run("앞") + self._field_char("begin", True) + self._instruction(" eq \\o\\ac(○,21) ", True)
+                + self._field_char("end", True) + _run("뒤") + "</w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "앞뒤"
