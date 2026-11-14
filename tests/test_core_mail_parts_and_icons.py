@@ -360,9 +360,10 @@ class TestMailsAreRenderedApart:
         from opendockit.extractors import html as html_extractor
 
         monkeypatch.setattr(html_extractor, "_UNREAD_TITLE_CHARS", 60)
-        data = _html_mbox(f"<p>{'가' * 300}</p>", "<svg><title>아이콘</title></svg><title>" + "긴 제목 " * 20 + "</title>")
+        data = _html_parts(f"<p>{'가' * 300}</p>", "<svg><title>아이콘</title></svg><title>" + "긴 제목 " * 20 + "</title>",
+                           "<title>보지 않는 제목</title>")
 
-        result = convert(data, "box.mbox", ConvertOptions(max_chars=100))
+        result = convert(data, "a.eml", ConvertOptions(max_chars=100))
 
         assert result.exceeded
         assert "title" not in result.metadata

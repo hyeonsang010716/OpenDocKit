@@ -339,8 +339,8 @@ def _extract_front(text: str, encoding: str, options: ConvertOptions,
     `<head><style>` filled it, no text was found in it and the whole part was parsed only to be cut off (a 21.6MB mail:
     12.9 s and 1.3GB, 1.5 s when the parts were one document). The sizes are measured from the end of `<head>`, which holds
     no text: with a small limit the head of a mail part alone is longer than the last front part, and while the parts were
-    one document the text of the part before it had kept the front part growing; the text density is that of what follows
-    the head
+    one document the text of the part before it had kept the front part growing; the front part grows by the text density
+    of what follows the head
     (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::test_large_part_over_what_is_left_of_the_limit_is_not_parsed_whole).
     """
     limit = options.max_chars
@@ -369,7 +369,7 @@ def _extract_front(text: str, encoding: str, options: ConvertOptions,
             if omitted is not None and rows:
                 omitted.extend(rows)
             return extraction
-        if counted * (len(text) - start) <= left * (len(front) - start):
+        if counted * len(text) <= left * len(front):
             if size >= last:
                 return None  # at this density the whole may also be within the limit
             size = last
