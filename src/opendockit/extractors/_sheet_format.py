@@ -166,23 +166,26 @@ def _is_weekday_only(number_format: str | None) -> bool:
 def _elapsed_text(value: timedelta, number_format: str | None) -> str:
     """Turn a duration into Excel's elapsed-time shape (`26:00`). Python's default shape (`1 day, 2:00:00`) is easy for an LLM to
     misread (Pinned by: test_spreadsheet.py::TestElapsedTime). The literals of the format (`[h]"시간" mm"분"` → `36시간 00분`) are
-    kept by `_clock_text`."""
+    kept by `_clock_text`.
+
+    Below the smallest unit shown the value is truncated, as for `h:mm` (`_clock_text`): 1:29:45 under `[h]:mm` is `1:29`. It was
+    rounded to `1:30` while the same value under `h:mm` gave `1:29` (Pinned by: test_audit_spreadsheet.py::TestElapsedMinutes).
+    A value that truncates to zero carries no sign."""
     pattern = (number_format or "[h]:mm:ss").lower()
     seconds = round(value.total_seconds())
     sign, seconds = ("-" if seconds < 0 else ""), abs(seconds)
     if number_format and _FORMAT_QUOTED.search(_first_section(number_format)):
-        rounded = seconds if _shows_seconds(number_format) else (seconds + 30) // 60 * 60
-        clock = _clock_text(rounded, number_format, elapsed=True)
+        clock = _clock_text(seconds, number_format, elapsed=True)
         if clock is not None:
-            return sign + clock
+            return (sign if seconds >= _smallest_unit(number_format) else "") + clock
     units = {match.group(0)[1] for match in _ELAPSED_FORMAT.finditer(pattern)}  # a colour name (`[Magenta]`) is not an elapsed section
     if units == {"s"}:
         return f"{sign}{seconds}"
     if "h" not in units and "m" in units:
         return f"{sign}{seconds // 60}:{seconds % 60:02d}"
     if "s" not in _FORMAT_QUOTED.sub("", pattern):
-        minutes = (seconds + 30) // 60
-        return f"{sign}{minutes // 60}:{minutes % 60:02d}"
+        minutes = seconds // 60
+        return f"{sign if minutes else ''}{minutes // 60}:{minutes % 60:02d}"
     return f"{sign}{seconds // 3600}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
 
 
@@ -192,6 +195,15 @@ def _shows_seconds(number_format: str) -> bool:
     codes = _FORMAT_ESCAPED.sub("", _FORMAT_BRACKET.sub(
         lambda match: match.group(0) if _ELAPSED_FORMAT.fullmatch(match.group(0)) else "", _FORMAT_QUOTED.sub("", number_format)))
     return "s" in codes.lower()
+
+
+def _smallest_unit(number_format: str) -> int:
+    """Seconds in the smallest time unit the first section shows: 1 for seconds, 60 for minutes, otherwise 3,600. Quoted text,
+    backslash-escaped characters and bracket sections other than elapsed ones (`[Magenta]`) are not format codes."""
+    codes = _FORMAT_ESCAPED.sub("", _FORMAT_BRACKET.sub(
+        lambda match: match.group(0) if _ELAPSED_FORMAT.fullmatch(match.group(0)) else "",
+        _FORMAT_QUOTED.sub("", _first_section(number_format)))).lower()
+    return 1 if "s" in codes else 60 if "m" in codes else 3600
 
 
 def _first_section(number_format: str) -> str:

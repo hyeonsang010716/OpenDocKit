@@ -1,6 +1,8 @@
 """Spreadsheets: small files that used to cost seconds or gigabytes, and single odd values that used to reject the whole
 document (audit of `extractors/spreadsheet.py`)."""
 
+from datetime import time as clock_time
+from datetime import timedelta
 from io import BytesIO
 import struct
 import time
@@ -13,6 +15,7 @@ import pytest
 from opendockit import convert
 from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors import _sheet_layout, _xlsx_parts, spreadsheet, xls, xml_spreadsheet
+from opendockit.extractors._sheet_format import format_cell
 from opendockit.models import ConvertOptions
 from tests import builder
 from tests.test_spreadsheet_cell_values_and_controls import (
@@ -808,3 +811,26 @@ class TestSharedFormulasThatCannotBeMoved:
         result = convert(_with_sheet_xml(_sheet_xml(rows)), "a.xlsx")
 
         assert result.text == "## Sheet: Sheet\n\n| a | b | c |\n| --- | --- | --- |\n| | 5 | |"
+
+
+class TestElapsedMinutes:
+    """An elapsed `[h]:mm` value was rounded to the minute (1:29:45 → `1:30`) while the same value under `h:mm` was truncated
+    (`1:29`), the rule recorded for time formats. Both truncate now."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (timedelta(hours=1, minutes=29, seconds=45), "[h]:mm", "1:29"),
+        (timedelta(hours=1, minutes=29, seconds=45), '[h]"h" mm"m"', "1h 29m"),
+        (timedelta(hours=26, minutes=59, seconds=59), "[h]:mm", "26:59"),
+        (timedelta(hours=26), "[h]:mm", "26:00"),
+        (timedelta(hours=1, minutes=29, seconds=45), "[h]:mm:ss", "1:29:45"),
+        (timedelta(seconds=-45), "[h]:mm", "0:00"),  # truncated to zero: no sign
+        (timedelta(seconds=-89), "[h]:mm", "-0:01"),
+        (timedelta(seconds=-45), '[h]"h" mm"m"', "0h 00m"),
+        (timedelta(seconds=-61), '[h]"h" mm"m"', "-0h 01m"),
+        (timedelta(seconds=-5), "[h]:mm:ss", "-0:00:05"),
+    ])
+    def test_below_the_minute_is_truncated(self, value, number_format, expected):
+        assert format_cell(value, number_format) == expected
+
+    def test_same_as_a_clock_time(self):
+        assert format_cell(clock_time(1, 29, 45), "h:mm") == format_cell(timedelta(hours=1, minutes=29, seconds=45), "[h]:mm")
