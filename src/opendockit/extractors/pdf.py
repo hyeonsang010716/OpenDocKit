@@ -356,7 +356,8 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                     # A page found crowded with text boxes only while being read (`crammed`) was read from `pdf` and is read
                     # from it again, with the grouping cost of the page reset — the same layouts are left ungrouped. Taking it
                     # for `dense` sent it to `ungrouped`, which had not been opened, and the whole document failed (Pinned by:
-                    # test_audit_pdf_text.py::TestTooManyTextBoxes::test_a_crowded_page_read_again_keeps_its_first_reading)
+                    # test_audit_pdf_text.py::TestTooManyTextBoxes::test_a_crowded_page_read_again_keeps_its_first_reading;
+                    # the reset: ::test_a_page_read_again_is_not_charged_for_the_forms_of_the_page_read_before_it)
                     page = (ungrouped if read.number in dense | grids else pdf).pages[read.number - 1]
                     ungrouped_before = budget.ungrouped_layouts
                     budget.new_page()
@@ -840,9 +841,11 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
         spot = (line["x0"], line["x1"], line["top"], line["bottom"])
         if not all(abs(value) < _LAYOUT_INF for value in spot):
             # A line whose characters sit at a position that is not a finite number (a text matrix overflowing to infinity) is
-            # drawn nowhere; pdfminer gives it its 'infinite' box (2**31 - 1). Its characters are already dropped as outside the
-            # view, but the layout line kept their text and every copy came out as a body line (Pinned by:
-            # test_audit_pdf_text.py::TestCharactersAtNonFinitePositions). No page reaches that far (14,400pt × UserUnit 75,000).
+            # drawn nowhere; pdfminer gives it its 'infinite' box (2**31 - 1). Its characters are already dropped (as outside
+            # the view or, on a rotated page, for their position: `_without_drawing_artifacts`), but the layout line kept
+            # their text and every copy came out as a body line (Pinned by: test_audit_pdf_text.py::
+            # TestCharactersAtNonFinitePositions::test_a_rotated_page_is_read_too — on an upright page `_beyond_view` drops
+            # such a line as well). No page reaches that far (14,400pt × UserUnit 75,000).
             continue
         if shown and _beyond_view(line, shown[0]):
             continue
@@ -933,9 +936,12 @@ def _beyond_view(line: dict, view: tuple[float, float, float, float]) -> bool:
     """Whether a layout line lies where no character kept on the page can belong to it: above or below the visible area, or
     more than 1pt right of it. Every character of such a line is outside the view and dropped (`_without_drawing_artifacts`),
     so the line would be dropped as a copy of removed characters anyway (`_text_without_artifacts`) — but finding that out
-    scans the removed characters at its height, and 6,000 characters placed apart far right of the page (x = 2e9) on one row
-    took that scan for every one of them (Pinned by: test_audit_pdf_text.py::TestTooManyTextBoxes). The left side is not
-    judged: a wide kept character starting left of the view could still be centred inside it."""
+    picks the kept characters at its height and scans the removed ones, and 6,000 characters placed apart far right of the
+    page (x = 2e9) on one row took that scan for every one of them. The removed ones are indexed now (`_CopyIndex`); the
+    kept ones are still picked line by line, so 8,000 characters right of the page on the rows of 40,000 small ones (21KB)
+    take 27 seconds without this and 1.9 with (Pinned by: test_audit_pdf_text.py::TestTooManyTextBoxes::
+    test_lines_beyond_the_view_are_not_matched_against_the_characters_of_the_page). The left side is not judged: a wide
+    kept character starting left of the view could still be centred inside it."""
     return line["bottom"] < view[1] or line["top"] > view[3] or line["x0"] - 1 > view[2]
 
 

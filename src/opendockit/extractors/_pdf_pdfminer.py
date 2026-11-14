@@ -128,7 +128,9 @@ class _InflateBudget:
     line_work: int | None = None  # line-grouping work left to the layout being grouped (None outside `group_textlines`)
 
     def new_page(self) -> None:
-        """Resets the per-page allowances of layout analysis (`_PAGE_GROUPING_COST`, `_LINE_GROUPING_WORK`)."""
+        """Resets the per-page allowances of layout analysis (`_PAGE_GROUPING_COST`, `_LINE_GROUPING_WORK`). Pinned by:
+        test_audit_pdf_text.py::TestTooManyTextBoxes::test_the_forms_of_a_page_are_not_charged_for_those_of_the_page_before,
+        TestTooMuchLineGrouping::test_the_forms_of_a_page_start_with_a_whole_allowance."""
         self.grouping_cost, self.figure_line_work = 0, _LINE_GROUPING_WORK
 
 
@@ -467,7 +469,8 @@ def _render_char_few_copies(self: PDFPageAggregatorWithMarkedContent, *args: obj
         _symbol_font_glyph(char, kwargs.get("font", args[1] if len(args) > 1 else None))
         copies = self.cur_item.__dict__.setdefault("_opendockit_copies", Counter())
         # NaN is keyed as None: it is unequal even to itself, so copies drawn at a NaN position each got a key of their own and
-        # were never capped (Pinned by: test_audit_pdf_text.py::TestCharactersAtNonFinitePositions)
+        # were never capped (Pinned by: test_audit_pdf_text.py::TestCharactersAtNonFinitePositions::
+        # test_copies_at_a_nan_position_are_counted_as_copies)
         key = (char.get_text(), char.fontname, *(None if value != value else round(value, 1)
                                                  for value in (char.size, char.x0, char.y0)))
         copies[key] += 1
@@ -523,7 +526,9 @@ PDFPageAggregatorWithMarkedContent.render_char = _render_char_few_copies  # outs
 # the same spot. One shared page allowance charged the body for the grouping that joining pieces discards and for the forms
 # analysed before it, so pages within the bound lost their column order. Over the 983 pages of the 566 PDFs of the review
 # corpus the largest page spends 848² (0.72 of it, 2.0 seconds to read), the next 320² (0.10). Pinned by:
-# test_audit_pdf_text.py::TestTooManyTextBoxes.
+# test_audit_pdf_text.py::TestTooManyTextBoxes (the allowance of forms per page:
+# ::test_the_forms_of_a_page_are_not_charged_for_those_of_the_page_before,
+# ::test_a_page_read_again_is_not_charged_for_the_forms_of_the_page_read_before_it).
 _PAGE_GROUPING_COST = 1_000_000
 _group_all_textboxes = LTLayoutContainer.group_textboxes
 
@@ -575,7 +580,8 @@ def _charge_line_work(budget: _InflateBudget, work: float) -> None:
 
 def _find_counted(self: Plane, bbox: tuple[float, float, float, float]) -> object:
     """`Plane.find` that, inside `group_textlines` during a conversion, first charges the objects in the cells it will look
-    through (and, before counting them, the number of cells). The function is not copied."""
+    through (and, before counting them, the number of cells). The function is not copied (Pinned by:
+    test_audit_pdf_text.py::TestTooMuchLineGrouping::test_each_kind_of_work_counts_towards_the_allowance)."""
     budget = _INFLATE_BUDGET.get()
     if budget is not None and budget.line_work is not None:
         x0, y0, x1, y1 = (max(self.x0, bbox[0]), max(self.y0, bbox[1]), min(self.x1, bbox[2]), min(self.y1, bbox[3]))
@@ -586,7 +592,8 @@ def _find_counted(self: Plane, bbox: tuple[float, float, float, float]) -> objec
 
 
 # Work charged for each distinct line `group_textlines` adds to a box (`_uniq_counted`), against 1 for each line it only looks
-# at: adding updates the box (measured: about 0.5µs, a repeated member about 0.03µs).
+# at: adding updates the box (measured: about 0.5µs, a repeated member about 0.03µs). Pinned by:
+# test_audit_pdf_text.py::TestTooMuchLineGrouping::test_each_kind_of_work_counts_towards_the_allowance.
 _LINE_ADD_WORK = 10
 
 
@@ -625,6 +632,8 @@ def _group_textlines_within(self: LTLayoutContainer, laparams: object, lines: li
         boxes = None
     finally:
         if figure:
+            # What this form left is what the next form of the page may spend (Pinned by:
+            # test_audit_pdf_text.py::TestTooMuchLineGrouping::test_the_forms_drawn_on_a_page_share_one_allowance)
             budget.figure_line_work = max(budget.line_work, 0)
         budget.line_work = None
     if boxes is None:

@@ -300,7 +300,11 @@ def _without_drawing_artifacts(page: object) -> tuple[object, list[dict]]:
     coarse: dict[tuple, list[dict]] = {}  # the same key on the `_SHADOW_GRID` grid (for finding shadows)
     for char in page.chars:
         if (char["size"] < _MIN_VISIBLE_SIZE or (_is_tilted(char) and char["size"] > watermark_size) or id(char) in faint
-                or (view and not _inside_any(char, view))):
+                or (view and not _inside_any(char, view)) or not (math.isfinite(char["x0"]) and math.isfinite(char["top"]))):
+            # The last condition: a character at a position that is not a finite number is drawn nowhere. The view drops it
+            # on an upright page; a rotated page has no view (`_text_view`), and rounding its position for the cells below
+            # raised ValueError, so the whole document was reported corrupted (Pinned by:
+            # test_audit_pdf_text.py::TestCharactersAtNonFinitePositions::test_a_rotated_page_is_read_too).
             dropped.append(char)
             continue
         if char["text"].strip():
@@ -336,7 +340,11 @@ def _faint_watermark(chars: list[dict], min_size: float) -> set[int]:
     """
     groups: dict[tuple, list[dict]] = {}
     for char in chars:
-        if char["text"].strip() and char["size"] >= min_size and not _is_tilted(char):
+        # A top edge or size that is not a finite number cannot be rounded into a group key (`round` raises): a character
+        # 1.5e308pt tall, whose height overflows to infinity, failed the whole document as corrupted (Pinned by:
+        # test_audit_pdf_text.py::TestCharactersAtNonFinitePositions::test_a_faint_character_of_infinite_size_is_no_watermark)
+        if (char["text"].strip() and char["size"] >= min_size and not _is_tilted(char)
+                and math.isfinite(char["top"]) and math.isfinite(char["size"])):
             colour = char.get("non_stroking_color")
             colour = (colour,) if isinstance(colour, (int, float)) else colour
             if len(colour or ()) == 4:  # CMYK

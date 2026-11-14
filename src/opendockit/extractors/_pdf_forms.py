@@ -147,8 +147,11 @@ class _LinesBeside:
             return line.x1 <= x0 + 1 and overlap >= min(line.height, bottom - top) / 2
 
         # A line beside the box overlaps it (overlap ≥ 0), so it starts at most at the box bottom and, being short, at most
-        # `_TALL` above the box top
-        start, end = bisect_left(self._tops, top - self._TALL), bisect_right(self._tops, bottom)
+        # `_TALL` above the box top. 1pt of slack for rounding, as in `_LinesSpanning`: a line whose height rounds to exactly
+        # `_TALL` can start a hair more than `_TALL` above a box on its bottom edge, and without the slack the index missed
+        # the label the scan found (Pinned by: test_audit_pdf_text.py::TestManyFreeTextAnnotations::
+        # test_a_line_exactly_as_tall_as_the_index_allows_is_found_from_its_bottom_edge)
+        start, end = bisect_left(self._tops, top - self._TALL - 1.0), bisect_right(self._tops, bottom)
         if end - start + len(self._tall) > self._work:
             self._work = 0
             return None
