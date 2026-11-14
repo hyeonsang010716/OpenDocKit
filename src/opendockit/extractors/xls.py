@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 import hashlib
 from io import BytesIO, StringIO
+import math
 import struct
 import zlib
 
@@ -69,6 +70,7 @@ def extract_xls(data: bytes, options: ConvertOptions) -> Extraction:
                                    "calculate), so those cells were read as blank "
                                    "(opening and re-saving the file in Excel converts them to values).")
     holding_charts = _xls_sheets_holding_charts(stream)
+    not_finite: list[tuple[int, int]] = []  # number cells whose value is not a finite number (NaN, infinity), left blank
     for sheet_index in range(book.nsheets):
         sheet = book.sheet_by_index(sheet_index)
         if sheet.visibility != 0 and not options.include_hidden_sheets:
@@ -81,7 +83,7 @@ def extract_xls(data: bytes, options: ConvertOptions) -> Extraction:
         blank = placeholder_zeros.get(sheet_index, set())  # formula cells whose 0 in the result slot cannot be trusted
 
         offset = _xls_first_used_column(sheet)  # the column limit counts from the first used column (`_first_used_column`)
-        rows = _collect_rows((_xls_row(book, sheet, row_index, blank, options.max_sheet_cols, offset)
+        rows = _collect_rows((_xls_row(book, sheet, row_index, blank, options.max_sheet_cols, offset, not_finite)
                               for row_index in range(sheet.nrows)), options, sheet.name, extraction)
         across = _fill_xls_merges(sheet, rows, extraction.warnings, options.max_sheet_cols, offset)
         drawn = (_xls_drawing_blocks(drawings[sheet_index], sheet.name, extraction, options)
@@ -94,6 +96,8 @@ def extract_xls(data: bytes, options: ConvertOptions) -> Extraction:
         _append_sheet(extraction, sheet.name, rows, drawn, across)
         if extraction.exceeded:
             break
+    if not_finite:
+        extraction.warnings.append(f"{len(not_finite):,} number cell value(s) that are not finite numbers were left blank.")
 
     extraction.metadata["sheet_count"] = str(len(extraction.sections))
     return extraction
@@ -234,17 +238,23 @@ def _xls_first_used_column(sheet: xlrd.sheet.Sheet) -> int:
 
 
 def _xls_row(book: xlrd.book.Book, sheet: xlrd.sheet.Sheet, row_index: int, blank: set[tuple[int, int]],
-             max_cols: int, offset: int = 0) -> tuple[str, ...]:
+             max_cols: int, offset: int = 0, not_finite: list[tuple[int, int]] | None = None) -> tuple[str, ...]:
     """Cell texts of one XLS row. As for XLSX, it builds only up to the column limit, and the first value beyond the limit is placed
     at position limit+1 just so that the 'columns excluded' warning fires. `blank` is the formula cells emptied because the 0 in
     their result slot cannot be trusted; `offset` is the number of leading empty columns dropped from the row
-    (`_xls_first_used_column`)."""
+    (`_xls_first_used_column`). A number cell that is not a finite number (NaN, infinity) is blank and is added to `not_finite`.
+    It came out as `nan` / `inf`; an XLS has no text written for the cell to keep as XLSX and Excel 2003 XML do
+    (Pinned by: test_audit_spreadsheet.py::TestXlsNumberThatIsNotFinite)."""
     rich = sheet.rich_text_runlist_map
 
     def text(col: int) -> str:
         if (row_index, col) in blank:
             return ""
         cell = sheet.cell(row_index, col)
+        if cell.ctype in (xlrd.XL_CELL_NUMBER, xlrd.XL_CELL_DATE) and not math.isfinite(cell.value):
+            if not_finite is not None and col < offset + max_cols:
+                not_finite.append((row_index, col))
+            return ""
         if (row_index, col) in rich and cell.ctype == xlrd.XL_CELL_TEXT:
             return _xls_rich_text(cell.value, rich[row_index, col], lambda index: _xls_escapement(book, index))
         return _xls_cell_text(cell, book)

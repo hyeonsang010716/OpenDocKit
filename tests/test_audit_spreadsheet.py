@@ -834,3 +834,17 @@ class TestElapsedMinutes:
 
     def test_same_as_a_clock_time(self):
         assert format_cell(clock_time(1, 29, 45), "h:mm") == format_cell(timedelta(hours=1, minutes=29, seconds=45), "[h]:mm")
+
+
+class TestXlsNumberThatIsNotFinite:
+    """An XLS number cell holding NaN or infinity came out as `nan` / `inf` without a warning. XLSX and Excel 2003 XML keep the
+    text written in the file with a count warning; an XLS has no such text, so the cell is blank, with the count warning."""
+
+    def test_cells_are_blank_with_one_warning(self):
+        data = builder.raw_biff_xls([["name", "value"], ["a", float("nan")], ["b", float("inf")], ["c", -float("inf")],
+                                     ["d", 12.5]])
+
+        result = convert(data, "a.xls")
+
+        assert result.text == "## Sheet: Sheet 1\n\n| name | value |\n| --- | --- |\n| a | |\n| b | |\n| c | |\n| d | 12.5 |"
+        assert result.warnings == ["3 number cell value(s) that are not finite numbers were left blank."]
