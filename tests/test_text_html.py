@@ -1282,6 +1282,9 @@ class TestDeclaredUtf8WithABrokenByte:
     @pytest.mark.parametrize(("data", "expected"), [
         ("naïve café".encode("cp1252"), ("naïve café", "cp1252")),
         ("회의록 요약입니다".encode("cp949"), ("회의록 요약입니다", "cp949")),
+        # `B1 E2 B0 A3`: the last three bytes are a complete UTF-8 character (`Ⱓ`) for one broken byte. CP949 reads it whole.
+        ("기간".encode("cp949"), ("기간", "cp949")),
+        ("계약 기간".encode("cp949"), ("계약 기간", "cp949")),
     ])
     def test_another_encoding_labelled_utf8_is_still_recognised(self, data, expected):
         assert decode_text(data, "utf-8") == expected
@@ -1319,6 +1322,114 @@ class TestAsciiUtf16WithoutBom:
         data = "이름\x00\x00\x00\x00나이\x00\x00\x00\x00주소".encode()
 
         assert decode_text(data) == ("이름\x00\x00\x00\x00나이\x00\x00\x00\x00주소", "utf-8")
+
+    def test_nul_terminated_names_stay_utf8(self):
+        """A quarter of the bytes are NULs, all at one parity: fewer than every third byte. As UTF-16 it is `楋m敌e慈n`."""
+        data = b"Kim\x00Lee\x00Han\x00"
+
+        assert decode_text(data) == ("Kim\x00Lee\x00Han\x00", "utf-8")
+
+    def test_nuls_at_both_parities_stay_utf8(self):
+        """Fields separated by two NULs: nearly half of the bytes are NULs, half of them at each parity. Read as UTF-16 the
+        letters next to them became ideographs (`A䈀C䐀…`)."""
+        data = b"A\x00\x00BC\x00\x00DE\x00\x00FG\x00\x00H"
+
+        assert decode_text(data) == (data.decode(), "utf-8")
+
+    def test_last_letter_cut_after_its_first_byte_is_kept(self):
+        assert decode_text("OK thanks".encode("utf-16-le")[:-1]) == ("OK thanks", "utf-16-le")
+        assert convert("OK thanks".encode("utf-16-le")[:-1], "a.txt").text == "OK thanks"
+
+    def test_cut_byte_after_a_character_outside_ascii_is_dropped(self):
+        """The first byte of `한` (U+D55C) is `\\`; after another syllable it is not taken for a letter."""
+        assert decode_text("Thanks a lot 감한".encode("utf-16-le")[:-1]) == ("Thanks a lot 감", "utf-16-le")
+
+    def test_only_the_byte_order_of_the_nuls_is_tried_first(self):
+        """Big-endian text with two broken bytes does not decode as such; in the other byte order it is `伀䯾 琀栀…`. With a
+        declared charset it is read as before."""
+        data = bytearray("OK thanks".encode("utf-16-be"))
+        data[2] = data[12] = 0xFE
+
+        text, encoding = decode_text(bytes(data), "windows-1251")
+
+        assert encoding == "cp1251"
+        assert text.replace("\x00", "") == "OюK thaюnks"
+
+
+class TestDeclaredUtf16WithoutBom:
+    """A declared `utf-16le` / `utf-16be` is taken only when the bytes bear it out. Taken whenever the bytes decoded into
+    printable characters, ASCII and UTF-8 text carrying that label came out as ideographs without a warning."""
+
+    @pytest.mark.parametrize("charset", ["utf-16le", "UTF-16BE"])
+    def test_ascii_page_with_the_wrong_label(self, charset):
+        data = f'<html><head><meta charset="{charset}"><title>Invoice</title></head><body><p>Total: 1,250 USD.</p></body></html>'.encode()
+        assert len(data) % 2 == 0
+
+        result = convert(data, "a.html")
+
+        assert result.text == "# Invoice\n\nTotal: 1,250 USD."
+        assert result.warnings == []
+
+    @pytest.mark.parametrize("body", [b"Total: 1,250 USD", b"See you at 10:30", b"OK thanks "])
+    def test_ascii_mail_part_with_the_wrong_label(self, body):
+        data = (b"From: a@example.com\r\nTo: b@example.com\r\nSubject: S\r\nMIME-Version: 1.0\r\n"
+                b'Content-Type: text/plain; charset="utf-16le"\r\nContent-Transfer-Encoding: base64\r\n\r\n'
+                + base64.encodebytes(body))
+
+        result = convert(data, "a.eml")
+
+        assert result.text.endswith("\n\n" + body.decode().strip())
+        assert result.warnings == []
+
+    @pytest.mark.parametrize("charset", ["utf-16le", "utf-16be"])
+    @pytest.mark.parametrize("text", ["매출 보고서 2024년", "회의록 요약입니다.", "café déjà vu!", "Привет"])
+    def test_utf8_with_the_wrong_label(self, charset, text):
+        data = text.encode()
+        assert len(data) % 2 == 0
+
+        assert decode_text(data, charset) == (text, "utf-8")
+
+    @pytest.mark.parametrize(("data", "charset"), [(b"Thanks", "utf-16be"), (b"Report", "utf-16be"), (b"Mail", "utf-16le")])
+    def test_ascii_word_whose_byte_pairs_are_everyday_ideographs(self, data, charset):
+        """`Thanks` is `周慮歳` and `Mail` is `慍汩`: everyday characters, but valid UTF-8 first."""
+        assert decode_text(data, charset) == (data.decode(), "utf-8")
+
+    def test_korean_utf8_page_with_the_wrong_label(self):
+        data = '<html><head><meta charset="utf-16le"></head><body><p>매출 보고서 2024</p></body></html>'.encode()
+        assert len(data) % 2 == 0
+
+        assert convert(data, "a.html").text == "매출 보고서 2024"
+
+    @pytest.mark.parametrize("text", [
+        "매출 보고서입니다", "확인했습니다", "これは日本語です", "这是简体中文文本",   # CJK: no NUL at all without a space
+        "Это русский текст", "Привет", "مرحبا", "नमस्ते", "Γειά σου", "OK thanks",    # below U+2000: a control byte in every pair
+    ])
+    @pytest.mark.parametrize("order", ["le", "be"])
+    def test_real_utf16_as_declared(self, text, order):
+        assert decode_text(text.encode(f"utf-16-{order}"), f"utf-16{order}") == (text, f"utf-16-{order}")
+
+    def test_word_without_a_space_is_valid_utf8_too(self):
+        """Why 'valid UTF-8 without a NUL' is not the test for a wrong label: every Cyrillic letter is `xx 04`."""
+        data = "Привет".encode("utf-16-le")
+
+        assert b"\x00" not in data
+        assert data.decode() == "\x1f\x04@\x048\x042\x045\x04B\x04"
+        assert decode_text(data, "utf-16le")[0] == "Привет"
+
+    @pytest.mark.parametrize(("declared", "actual"), [("utf-16be", "utf-16-le"), ("utf-16le", "utf-16-be")])
+    def test_ascii_utf16_declared_in_the_other_byte_order(self, declared, actual):
+        """`OK thank` little-endian read as big-endian is `伀䬀 琀栀…`, all printable."""
+        assert decode_text("OK thank".encode(actual), declared) == ("OK thank", actual)
+
+    @pytest.mark.parametrize("data", [
+        b"OK t\x80hanks", b"name,age,city\nKim,30,Seoul\xffLee,25,Busan\n",   # a broken byte
+        "naïve café!".encode("cp1252") + b" ",
+    ])
+    def test_other_byte_text_with_the_wrong_label(self, data):
+        assert len(data) % 2 == 0
+
+        assert not decode_text(data, "utf-16be")[1].startswith("utf-16")
+        assert not decode_text(data, "utf-16le")[1].startswith("utf-16")
 
 
 class TestMalformedNesting:

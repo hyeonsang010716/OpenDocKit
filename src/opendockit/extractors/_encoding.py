@@ -67,11 +67,11 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     """Decode bytes to a string. Returns (string, encoding name). `declared` is the charset name the document itself states
     (HTML meta etc.).
 
-    Order: BOM → BOM-less UTF-16 declared, or with NULs at every other byte → strict UTF-8 → almost UTF-8 (only when the end
-    is cut or very few bytes are broken, or UTF-8 is declared and has a complete multi-byte character per broken one;
-    replacement) → declared charset, strict → BOM-less UTF-16 → strict CP949 → CP949 with replacement (only when very few bytes are broken)
-    → statistical detection → UTF-8 with replacement characters. The name of an encoding decoded with replacement characters (�)
-    gets `(replaced)` appended (`decoding_warning` turns it into a warning).
+    Order: BOM → BOM-less UTF-16 declared and borne out by the bytes, or with NULs at every other byte → strict UTF-8 →
+    almost UTF-8 (only when the end is cut or very few bytes are broken, or UTF-8 is declared and has a complete multi-byte
+    character per broken one; replacement) → declared charset, strict → BOM-less UTF-16 → strict CP949 → CP949 with
+    replacement (only when very few bytes are broken) → statistical detection → UTF-8 with replacement characters. The name
+    of an encoding decoded with replacement characters (�) gets `(replaced)` appended (`decoding_warning` turns it into a warning).
     Checking CP949 before statistical detection is deliberate: charset-normalizer sometimes misjudges short CP949 Hangul as
     UTF-16, Big5 etc. and emits unrelated characters in the Hangul syllable range. Strict CP949 decoding mostly fails on
     Latin-family text, so false positives are few (Shift_JIS, GB2312 and EUC-JP, which have the same byte structure, lean toward
@@ -115,11 +115,12 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     # UTF-16 without a BOM whose text is all ASCII decodes strictly as UTF-8 too, with a NUL after every letter: an HTML page
     # or a mail part saved that way came out as `<\x00h\x00t\x00…` (Pinned by: test_text_html.py::TestAsciiUtf16WithoutBom).
     # Only NUL bytes that sit at one parity of nearly every other byte go to this check first (`_alternating_nuls`); UTF-8 with
-    # stray NULs or NUL-padded fields keeps the order below. A mail part declared UTF-16LE or UTF-16BE is read so when it
-    # decodes strictly into printable text.
-    utf16 = _declared_utf16(data, declared) or (utf16_encoding(data) if _alternating_nuls(data) else None)
+    # stray NULs or NUL-padded fields keeps the order below, and only the byte order the NULs point to is tried here: broken
+    # big-endian text read in the other order is `伀䯾…`. A mail part declared UTF-16LE or UTF-16BE is read so when its bytes
+    # bear the label out (`_declared_utf16`).
+    utf16 = _declared_utf16(data, declared) or (utf16_encoding(data, by_nul_side_only=True) if _alternating_nuls(data) else None)
     if utf16:
-        return data[:len(data) - len(data) % 2].decode(utf16), utf16
+        return data[:len(data) - len(data) % 2].decode(utf16) + _cut_ascii_character(data, utf16), utf16
 
     text = _strict(data, "utf-8")
     if text is not None:
@@ -382,7 +383,8 @@ def _mostly_utf8(data: bytes) -> bool:
     A declared UTF-8 page or mail part with one broken byte and only a few accented letters fell short of `_almost_utf8` and
     was read as Windows-1252 or Windows-1250 without a warning (`café` → `cafÃ©`). Text with no multi-byte character at all
     (Windows-1252 labelled UTF-8, as old servers send it) and CP949 Hangul labelled UTF-8, which CP949 reads cleanly, are left
-    to the steps below (Pinned by: test_text_html.py::TestDeclaredUtf8WithABrokenByte)."""
+    to the steps below: `기간` is `B1 E2 B0 A3`, whose last three bytes are the UTF-8 character `Ⱓ`
+    (Pinned by: test_text_html.py::TestDeclaredUtf8WithABrokenByte)."""
     text = data.decode("utf-8", errors="replace")
     replaced = text.count("\ufffd")
     multibyte = sum(1 for ch in text if ord(ch) > 0x7F) - replaced
@@ -390,18 +392,42 @@ def _mostly_utf8(data: bytes) -> bool:
 
 
 def _declared_utf16(data: bytes, name: str | None) -> str | None:
-    """"utf-16-le"/"utf-16-be" when the text declares that byte order (a mail part `charset=utf-16le`) and decodes strictly into
-    printable text (`_printable`), otherwise None."""
+    """"utf-16-le"/"utf-16-be" when the text declares that byte order (a mail part `charset=utf-16le`), decodes strictly into
+    printable text (`_printable`) and its bytes bear the label out, otherwise None (the steps below then read it like any
+    other text). The bytes bear it out in one of two ways:
+
+    1. At least half of the characters are below U+2000, the high byte of the pair being a NUL or a control byte: ASCII
+       (`xx 00`), Cyrillic (`xx 04`), Arabic (`xx 06`), Devanagari (`xx 09`), Thai (`xx 0E`). Byte-oriented text has a control
+       byte here and there, not in every other position of one parity. Such text is often valid UTF-8 as well — a Russian or
+       an Arabic word without a space has not even a NUL — so 'valid UTF-8 without a NUL' cannot be the test for a wrong label.
+    2. Otherwise it is not valid UTF-8, and every character outside ASCII is an everyday CJK one (`_everyday_cjk`): Korean,
+       Japanese or Chinese text, whose byte pairs are otherwise as ordinary as those of byte-oriented text.
+
+    The label alone is not enough: pairs of ASCII bytes are nearly always printable ideographs, so an ASCII page with
+    `<meta charset="utf-16le">` and a mail part `charset="utf-16le"` holding `Total: 1,250 USD` came out as `格浴㹬…` and
+    `潔慴㩬ㄠ㈬〵唠䑓` without a warning; 82% of English snippets of 8 bytes and 34% of those of 32 bytes did. So did UTF-8 Korean,
+    Windows-1252 and broken UTF-8 with that label, and UTF-16 labelled with the other byte order
+    (Pinned by: test_text_html.py::TestDeclaredUtf16WithoutBom). Known accepted gap: two to five ideographs or kana whose
+    bytes all are ASCII (`你好` is `` `O}Y ``) are read as the UTF-8 they also are (at most 94 of 19,800 pieces of 2 to 100
+    characters cut from Japanese or Chinese text, 3 from Korean), and a table of one-digit numbers between tabs labelled
+    UTF-16 reads as Devanagari."""
     codec = {"utf-16-le": "utf-16-le", "utf-16-be": "utf-16-be"}.get(_lookup(name) or "")
     if codec is None or len(data) % 2:
         return None
     text = _strict(data, codec)
-    return codec if text and all(_printable(ch) for ch in text[:20_000]) else None
+    if not text or not all(_printable(ch) for ch in text[:20_000]):
+        return None
+    high_bytes = data[:8192][1 if codec == "utf-16-le" else 0::2]
+    if sum(1 for byte in high_bytes if byte < 0x20) * 2 >= len(high_bytes):
+        return codec
+    return codec if _strict(data, "utf-8") is None and _everyday_cjk("".join(ch for ch in text[:20_000] if not ch.isascii())) else None
 
 
 def _alternating_nuls(data: bytes) -> bool:
     """Does the head hold NUL bytes at nearly every other byte, nearly all at one parity — the shape of UTF-16 text that is mostly
-    ASCII. A third of the bytes at least, and nine in ten of them at the same parity."""
+    ASCII. A third of the bytes at least (NUL-terminated names `Kim\x00Lee\x00Han\x00` have a quarter, and read `楋m敌e慈n`),
+    and nine in ten of them at the same parity (fields between two NULs, `A\x00\x00BC\x00\x00D`, have half at each)
+    (Pinned by: test_text_html.py::TestAsciiUtf16WithoutBom)."""
     sample = data[:8192]
     nuls = sample.count(0)
     if not nuls or nuls * 3 < len(sample):
@@ -560,8 +586,22 @@ def _with_filler_syllables(text: str) -> str:
     return _FILLER_SEQUENCE.sub(syllable, text)
 
 
-def utf16_encoding(data: bytes) -> str | None:
-    """Return "utf-16-le"/"utf-16-be" for BOM-less UTF-16, otherwise None.
+def _cut_ascii_character(data: bytes, utf16: str) -> str:
+    """The last character of mostly-ASCII little-endian UTF-16 (`_alternating_nuls`) cut after its first byte, when that byte
+    and the character before it are ASCII; otherwise "".
+
+    The first byte of a little-endian character is the letter itself and the missing one its NUL. Dropped with the odd
+    byte, the last letter of a file cut one byte short was lost (`OK thanks` → `OK thank`), where reading the same bytes
+    as UTF-8 kept it (Pinned by: test_text_html.py::TestAsciiUtf16WithoutBom::test_last_letter_cut_after_its_first_byte_is_kept)."""
+    if not len(data) % 2 or utf16 != "utf-16-le" or len(data) < 3 or data[-2] != 0:
+        return ""
+    last = chr(data[-1])
+    return last if last.isascii() and (last.isprintable() or last in _TEXT_CONTROLS) else ""
+
+
+def utf16_encoding(data: bytes, *, by_nul_side_only: bool = False) -> str | None:
+    """Return "utf-16-le"/"utf-16-be" for BOM-less UTF-16, otherwise None. `by_nul_side_only` tries only the byte order the NUL
+    positions point to.
 
     UTF-16 text saved without a BOM by Windows tools was rejected as binary because of its NUL bytes. The byte order candidates
     are ordered by the NUL byte positions of ASCII characters (space, line break, digits), and the data counts as UTF-16 only
@@ -582,7 +622,7 @@ def utf16_encoding(data: bytes) -> str | None:
     big = sum(1 for index in range(0, len(sample) - 1, 2) if sample[index] == 0 and sample[index + 1] != 0)
     candidates = ("utf-16-le", "utf-16-be") if little >= big else ("utf-16-be", "utf-16-le")
 
-    for encoding in candidates:
+    for encoding in candidates[:1] if by_nul_side_only else candidates:
         try:
             text = data.decode(encoding)
         except UnicodeDecodeError:
