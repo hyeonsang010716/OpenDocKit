@@ -228,6 +228,8 @@ class ConversionResult:
     # The image placeholder key of this result (`image_marker`). Placeholders are found by the same key even when the descriptions
     # are filled in from another process.
     marker_key: str = field(default="", repr=False)
+    # `Extraction.time_limited` carried over: the result depends on how fast the machine was (the MCP server does not keep it).
+    time_limited: bool = field(default=False, repr=False)
 
     @property
     def is_empty(self) -> bool:
@@ -256,6 +258,10 @@ class Extraction:
     # page by page, row by row or slide by slide fill these in with `count`.
     chars: int = 0
     exceeded: bool = False
+    # A wall-clock limit changed what was read (the PDF time budget sent pages to simple extraction or left pages unread
+    # again): the same file can come out differently on a less busy machine. Callers that keep results must not keep this one
+    # (Pinned by: test_mcp_server.py::TestRepeatedCalls::test_result_cut_short_by_the_time_budget_is_not_kept).
+    time_limited: bool = False
 
     def count(self, chars: int, options: ConvertOptions) -> bool:
         """Add the number of characters just extracted. True once the limit (`options.max_chars`) is exceeded — the signal to stop extracting.

@@ -265,6 +265,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                                                     else _survey_page(fallback, page.page_number - 1))
                         if late:
                             over_budget += 1
+                            extraction.time_limited = True
                             try:
                                 pages.append(_pdfium_page(fallback, page.page_number - 1))
                             except pdfium.PdfiumError:
@@ -342,6 +343,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                     if placement_fit is None or not read.placement_pending or extraction.exceeded:
                         continue
                     if options.pdf_time_budget is not None and time.perf_counter() - started > options.pdf_time_budget:
+                        extraction.time_limited = True
                         break
                     page = (ungrouped if read.number in dense | grids else pdf).pages[read.number - 1]
                     try:
