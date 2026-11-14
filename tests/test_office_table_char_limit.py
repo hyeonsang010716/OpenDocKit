@@ -5,6 +5,7 @@ check as `test_converter.py::TestLimitIsExact`)."""
 
 import re
 import struct
+import time
 
 import pytest
 
@@ -45,6 +46,27 @@ def _docx_big_table() -> bytes:
     base = _docx_with_body("<w:p><w:r><w:t>BIGTABLE</w:t></w:r></w:p>")
     return builder.zip_with(base, edit={"word/document.xml": lambda xml: re.sub(r"<w:p>(?:(?!<w:p>).)*?BIGTABLE.*?</w:p>",
                                                                                 lambda _: table, xml, count=1)})
+
+
+def _docx_big_header_table(kind: str, rows: int, cell: str = "") -> bytes:
+    """A table of `rows` rows in the header (or footer) part, and a short body."""
+    from io import BytesIO
+
+    from docx import Document
+
+    document = Document()
+    getattr(document.sections[0], kind).paragraphs[0].text = "STORY"
+    document.add_paragraph("body")
+    buffer = BytesIO()
+    document.save(buffer)
+    table = _docx_table(["".join(_docx_cell(f"r{row}c{col}{cell}") for col in range(_COLS)) for row in range(rows)])
+    return builder.zip_with(buffer.getvalue(), edit={f"word/{kind}1.xml": lambda xml: xml.replace("<w:p>", table + "<w:p>", 1)})
+
+
+def _seconds(action) -> float:
+    started = time.perf_counter()
+    action()
+    return time.perf_counter() - started
 
 
 def _hwpx_table(cells: str, rows: int) -> str:
@@ -109,6 +131,28 @@ class TestCharacterLimitInsideOneTable:
         result = convert(buffer.getvalue(), "a.docx", ConvertOptions(max_chars=110, include_headers_footers=True))
 
         assert result.exceeded and result.text == full[:110].rstrip()
+
+    @pytest.mark.parametrize("kind", ["header", "footer"])
+    def test_header_table_longer_than_the_limit_stops_reading_rows(self, kind):
+        """A header table is not charged the characters of the body, but its own text is part of the output: a table that passes
+        the limit alone is not read to the end."""
+        data = _docx_big_header_table(kind, _ROWS)
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=_LIMIT, include_headers_footers=True))
+
+        assert result.exceeded
+        assert result.char_count < _LIMIT * 3  # drawn to the end it would be over 500,000 characters
+        assert "| r0c0 |" in result.text
+
+    @pytest.mark.timing
+    def test_header_table_of_many_rows_is_not_rendered_to_the_end(self):
+        """With no check at all on a header table, 60,000 rows in word/header1.xml took 13 s under the default limit (200,000 rows
+        39 s and 2.0 GB); stopped at the limit it is the time of parsing the XML."""
+        data = _docx_big_header_table("header", 60_000, cell="cell text abcdefghij")
+
+        elapsed = _seconds(lambda: convert(data, "a.docx", ConvertOptions(include_headers_footers=True)))
+
+        assert elapsed < 4.0
 
     def test_hwpx_stops_reading_rows_of_a_huge_table(self):
         data = _hwpx_big_table()

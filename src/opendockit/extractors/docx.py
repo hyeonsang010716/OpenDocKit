@@ -444,11 +444,15 @@ class _DocxRenderer:
         # the cell above.
         grid = TableGrid()
         # The top-level table checks the character limit while reading its cells (`_notation.TableBudget`). The text of an inner table
-        # is not counted as cell text of the outer table (it undercounts). A header or footer table is not checked: headers are read
-        # after the body but written before it, so the body's characters stopped a header table after its first row and the text
-        # returned was not the front of the full conversion (Pinned by: test_office_table_char_limit.py::
-        # TestCharacterLimitInsideOneTable::test_header_table_is_not_cut_by_the_characters_of_the_body).
-        budget = TableBudget(self._extraction, self._options) if not self._grids and self._in_body else None
+        # is not counted as cell text of the outer table (it undercounts). A header or footer table is checked against its own
+        # characters only: headers are read after the body but written before it, so with the body's characters charged to it a
+        # header table stopped after its first row and the text returned was not the front of the full conversion (Pinned by:
+        # test_office_table_char_limit.py::TestCharacterLimitInsideOneTable::
+        # test_header_table_is_not_cut_by_the_characters_of_the_body). Left unchecked, a header table of 200,000 rows was rendered to
+        # the end (39 s) — its text is part of the output, so a table that passes the limit alone is over wherever it is written
+        # (Pinned by: test_office_table_char_limit.py::TestCharacterLimitInsideOneTable::
+        # test_header_table_longer_than_the_limit_stops_reading_rows).
+        budget = None if self._grids else TableBudget(self._extraction if self._in_body else Extraction(), self._options)
         outer = self._grids[-1] if self._grids else None
         self._grids.append(grid)
         try:
