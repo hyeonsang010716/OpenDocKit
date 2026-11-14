@@ -493,8 +493,9 @@ class TestBrokenRelationshipsPart:
         assert "본문 첫 문단입니다." in result.text and "끝 | 파이프" in result.text
         assert any("detaching 1 missing or broken part(s)" in warning for warning in result.warnings)
 
-    @pytest.mark.parametrize(("name", "data"), [("a.docx", builder.docx_bytes()), ("a.pptx", builder.pptx_bytes())])
-    def test_package_relationships_that_are_not_xml_find_the_main_part_by_its_content_type(self, name, data):
+    @pytest.mark.parametrize(("name", "make"), [("a.docx", builder.docx_bytes), ("a.pptx", builder.pptx_bytes)])
+    def test_package_relationships_that_are_not_xml_find_the_main_part_by_its_content_type(self, name, make):
+        data = make()  # built here: as a parameter its bytes were the test's name, which differed between test workers
         expected = convert(data, name).text
 
         result = convert(builder.zip_with(data, edit={"_rels/.rels": lambda xml: xml[:-5]}), name)
