@@ -907,3 +907,45 @@ class TestEnglishUnitNotesInTitleRows:
         data = b"Revenue by region,,,,(in thousands)\nRegion,Q1,Q2,Q3,Total\nEast,100,50,150,300\n"
 
         assert convert(data, "a.csv").text.startswith("Revenue by region (in thousands)\n\n| Region | Q1 | Q2 | Q3 | Total |")
+
+
+def _biff5_workbook(chart_name: bytes, sheet_name: bytes, codepage: int, hidden: int = 0) -> bytes:
+    """BIFF5 (Excel 5/95) workbook stream: one worksheet with one text cell and one chart sheet listed in BOUNDSHEET. A BIFF5
+    BOUNDSHEET has the name length in byte 6 and the name at byte 7, in the workbook's code page (BIFF8: a flags byte at 7, the
+    name at 8)."""
+    def begin(kind: int) -> bytes:
+        return builder.xls_record(0x0809, struct.pack("<HHHH", 0x0500, kind, 0x0DBB, 0x07CC))
+
+    def bound(position: int, kind: int, name: bytes, visibility: int = 0) -> bytes:
+        return builder.xls_record(0x0085, struct.pack("<IBBB", position, visibility, kind, len(name)) + name)
+
+    cell = builder.xls_record(0x0204, struct.pack("<HHHH", 0, 0, 0, 1) + b"x")
+    sheet = begin(0x0010) + builder.xls_record(0x0200, struct.pack("<HHHHH", 0, 1, 0, 1, 0)) + cell + builder.xls_record(0x000A)
+    head = begin(0x0005) + builder.xls_record(0x0042, struct.pack("<H", codepage))
+    position = len(head) + len(bound(0, 0, sheet_name)) + len(bound(0, 2, chart_name)) + 4
+    return (head + bound(position, 0, sheet_name) + bound(position, 2, chart_name, hidden) + builder.xls_record(0x000A)
+            + sheet)
+
+
+class TestBiff5ChartSheetNames:
+    """The chart-sheet warning read BOUNDSHEET names at the BIFF8 offsets and as Latin-1: in a BIFF5 workbook the first byte of
+    the name was taken for the flags byte and Korean names came out garbled."""
+
+    def test_name_is_read_at_the_biff5_offset_in_the_code_page(self):
+        data = _biff5_workbook("매출 차트".encode("cp949"), "표".encode("cp949"), 949)
+
+        extraction = xls.extract_xls(data, ConvertOptions())
+
+        assert extraction.warnings == ["Chart sheet '매출 차트' was not read "
+                                       "(XLS charts are not converted to value tables — saving as XLSX converts them)."]
+        assert extraction.sections[0].title == "표"
+
+    def test_western_code_page(self):
+        data = _biff5_workbook("Ventes €".encode("cp1252"), b"Data", 1252)
+
+        assert xls.extract_xls(data, ConvertOptions()).warnings[0].startswith("Chart sheet 'Ventes €' was not read")
+
+    def test_hidden_chart_sheet_is_left_out(self):
+        data = _biff5_workbook(b"Chart", b"Data", 1252, hidden=1)
+
+        assert xls.extract_xls(data, ConvertOptions()).warnings == []
