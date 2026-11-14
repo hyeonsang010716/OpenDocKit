@@ -10,14 +10,21 @@ import unicodedata
 from opendockit.models import IMAGE_MARKER
 
 
-# Zero-width characters, direction controls, BOM, soft hyphen. Invisible on screen, but they ruin tokens and search matching.
-_INVISIBLE = re.compile("[​-‏‪-‮⁠-⁤﻿­]")
-# Remove the C0 control characters and DEL, keeping only tab (\t) and newline (\n). Form feed (\f) and vertical tab (\v) are
-# text boundaries, so they are turned into line breaks instead of being removed (`_LINE_BREAK_CONTROLS`) — removed, the numbers on
-# either side in `합계 100\f200` (합계 = total) ran together and the CSV cell `2\f3` became `23` (Pinned by: test_markdown.py::
-# TestCleanText::test_page_break_and_vertical_tab_become_line_breaks, TestRenderTable::test_page_break_and_vertical_tab_inside_a_cell_become_br).
-_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
-_LINE_BREAK_CONTROLS = str.maketrans({"\x0b": "\n", "\x0c": "\n"})
+# Zero-width characters, direction controls (embeddings, overrides, isolates, the Arabic letter mark U+061C), the Mongolian
+# vowel separator U+180E, BOM, soft hyphen. Invisible on screen, but they ruin tokens and search matching. The isolates
+# (U+2066–2069) are what current editors write around a right-to-left name; only the older embeddings were removed and the
+# isolates stayed between the letters (Pinned by: test_markdown.py::TestCleanText::test_removes_bidi_isolates_and_other_invisible_marks).
+_INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u061c\u180e\ufeff\u00ad]")
+# Remove the C0 and C1 control characters and DEL, keeping only tab (\t) and newline (\n). Form feed (\f), vertical tab (\v) and
+# next line (U+0085, the C1 line break) are text boundaries, so they are turned into line breaks instead of being removed
+# (`_LINE_BREAK_CONTROLS`) — removed, the numbers on either side in `합계 100\f200` (합계 = total) ran together and the CSV cell
+# `2\f3` became `23` (Pinned by: test_markdown.py::TestCleanText::test_page_break_and_vertical_tab_become_line_breaks,
+# TestRenderTable::test_page_break_and_vertical_tab_inside_a_cell_become_br). C1 means the code points U+0080–009F after
+# decoding: Windows-1252 bytes 0x80–0x9F (€, curly quotes) decode to other characters and are not touched; a C1 code point is
+# left only by a latin-1 decode or a numeric reference, and is never text (Pinned by:
+# test_markdown.py::TestCleanText::test_removes_c1_controls_and_breaks_lines_at_next_line).
+_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f]")
+_LINE_BREAK_CONTROLS = str.maketrans({"\x0b": "\n", "\x0c": "\n", "\x85": "\n"})
 # The private use areas (BMP and supplementary planes 15 and 16). Symbols of fonts specific to Hangul (HWP) and Office are mapped
 # here and become meaningless characters in any other environment. Hancom fonts use the supplementary areas too (U+F02B1 etc.)
 # (Pinned by: test_markdown.py::TestCleanText::test_removes_supplementary_private_use_characters).

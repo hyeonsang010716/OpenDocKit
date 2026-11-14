@@ -824,3 +824,29 @@ class TestBlankLinesInsideCodeFences:
         result = clean_text(text, collapse_spaces=False)
 
         assert result == "```\n가\n\n나"
+
+
+class TestInvisibleAndControlCharacters:
+    def test_removes_bidi_isolates_and_other_invisible_marks(self):
+        """Editors write the isolates U+2066–2069 around a right-to-left name; they stayed between the letters, as did the Arabic
+        letter mark and the Mongolian vowel separator."""
+        text = "a\u2066b\u2067c\u2068d\u2069e\u061cf\u180eg"
+
+        result = clean_text(text)
+
+        assert result == "abcdefg"
+
+    @pytest.mark.parametrize("collapse_spaces", [True, False])
+    def test_removes_c1_controls_and_breaks_lines_at_next_line(self, collapse_spaces):
+        """C1 controls (U+0080–009F, left by a latin-1 decode) stayed in the text. Next line (U+0085) is a line break, as form
+        feed and vertical tab are; Windows-1252 characters such as € and curly quotes are untouched."""
+        text = "합계 100\x85200\x80\x9b31m \u20ac \u201cq\u201d"
+
+        result = clean_text(text, collapse_spaces=collapse_spaces)
+
+        assert result == "합계 100\n20031m € “q”"
+
+    def test_next_line_inside_a_cell_becomes_br(self):
+        result = render_table([["a", "b"], ["1\x852", "3"]])
+
+        assert result == "| a | b |\n| --- | --- |\n| 1<br>2 | 3 |"
