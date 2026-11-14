@@ -50,7 +50,7 @@ def test_json_output_has_no_internal_fields(tmp_path, monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert code == 0
     assert payload["text"] == "본문"
-    assert not {"marker_key", "base_warnings", "options", "fallbacks", "counted"} & payload.keys()
+    assert not {"marker_key", "base_warnings", "options", "fallbacks", "counted", "time_limited"} & payload.keys()
 
 
 class TestFileErrors:

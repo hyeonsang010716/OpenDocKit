@@ -107,11 +107,11 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
         file = _checked_path(path, allowed)
         options = ConvertOptions(max_chars=limit)
         try:
-            data = await asyncio.to_thread(_read, file, options.max_file_bytes)
+            data, digest = await asyncio.to_thread(_read, file, options.max_file_bytes)
             # The few last results are kept by what the file holds (its SHA-256), not by its path and times: a file changed
             # in place is converted again even when its size and modification time stay the same, and reading and hashing is
             # far cheaper than converting (Pinned by: test_mcp_server.py::TestRepeatedCalls).
-            key = (hashlib.sha256(data).hexdigest(), file.name, limit)
+            key = (digest, file.name, limit)
             if key in cache:
                 cache.move_to_end(key)
                 return cache[key]
@@ -129,7 +129,10 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
             raise ToolError(str(error)) from error
         except OSError as error:   # no permission, a file removed meanwhile
             raise ToolError("The file could not be read.") from error
-        if len(result.text) + sum(len(section.text) for section in result.sections) <= _CACHE_MAX_CHARS:
+        # A result a wall-clock limit cut short (the PDF time budget on a busy machine) is not kept: the next call may get the
+        # full reading. A worker that ran out of time raises and is never kept either
+        # (Pinned by: test_mcp_server.py::TestRepeatedCalls::test_result_cut_short_by_the_time_budget_is_not_kept).
+        if not result.time_limited and len(result.text) + sum(len(section.text) for section in result.sections) <= _CACHE_MAX_CHARS:
             # The pictures are not needed for any answer (they stay placeholders), so they are not kept.
             cache[key] = replace(result, images=[], fallbacks={})
             while len(cache) > _CACHE_ENTRIES:
@@ -191,14 +194,16 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
     return server
 
 
-def _read(file: Path, limit: int) -> bytes:
-    """The content of a regular file (`_checked_path`), refused from its size when over `limit` and otherwise read only up to
-    one byte past it, so a file that grows meanwhile is refused by `convert` instead of being read whole."""
+def _read(file: Path, limit: int) -> tuple[bytes, str]:
+    """The content of a regular file (`_checked_path`) and its SHA-256, refused from its size when over `limit` and otherwise
+    read only up to one byte past it, so a file that grows meanwhile is refused by `convert` instead of being read whole. Run
+    in a thread: hashing 50 MB takes tens of milliseconds, which would stall the event loop."""
     with file.open("rb") as stream:
         size = os.fstat(stream.fileno()).st_size
         if size > limit:
             raise DocumentTooLargeError(f"The file is too large (maximum {_size_text(limit)}).")
-        return read_limited(stream, limit, size_hint=size)
+        data = read_limited(stream, limit, size_hint=size)
+    return data, hashlib.sha256(data).hexdigest()
 
 
 def _identity(folder: Path) -> tuple[int, int] | None:

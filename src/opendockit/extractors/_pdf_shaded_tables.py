@@ -241,6 +241,8 @@ class _ShadingTest:
         if known is not None and known[0] is table:
             return known[1]
         x0, top, x1, bottom = table.bbox
+        # (a rectangle with a coordinate that is not a number fails these comparisons and adds nothing; added for every
+        # cell, `min`/`max` in `_fill_cover` took it for one covering the whole cell)
         near = [shade for shade in self._shades
                 if shade["x0"] < x1 and shade["x1"] > x0 and shade["top"] < bottom and shade["bottom"] > top]
         verdict = bool(near) and any(cell and _fill_cover(cell, touching) >= _FILL_MIN_COVER

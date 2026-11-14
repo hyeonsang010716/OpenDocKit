@@ -237,13 +237,18 @@ class TestRepeatedCalls:
     whole file again. The last few results are kept by the file's content, so a changed file is never answered from them."""
 
     @staticmethod
-    def _calls(monkeypatch, steps) -> tuple[list[str], list[str]]:
+    def _calls(monkeypatch, steps, *, time_limited: bool = False) -> tuple[list[str], list[str]]:
+        """`time_limited` makes every conversion come back as one a wall-clock limit cut short (the worker runs in another
+        process, so its clock cannot be patched from here)."""
+        from dataclasses import replace
+
         converted: list[str] = []
         convert = mcp_server.IsolatedConverter.convert
 
         async def spy(self, data, filename, options=None, **more):
             converted.append(filename)
-            return await convert(self, data, filename, options, **more)
+            result = await convert(self, data, filename, options, **more)
+            return replace(result, time_limited=True) if time_limited else result
 
         monkeypatch.setattr(mcp_server.IsolatedConverter, "convert", spy)
 
@@ -261,6 +266,18 @@ class TestRepeatedCalls:
             return answers
 
         return asyncio.run(run()), converted
+
+    def test_result_cut_short_by_the_time_budget_is_not_kept(self, files, monkeypatch):
+        """A PDF read on a busy machine can come out degraded by the PDF time budget (pages read with simple extraction).
+        Kept, every later call would get the degraded reading; it is converted again instead."""
+        path = str(files["paper.pdf"])
+        answers, converted = self._calls(monkeypatch, [
+            ("document_outline", {"path": path}),
+            ("convert_document", {"path": path, "sections": "1"}),
+        ], time_limited=True)
+
+        assert answers[0].startswith("Format: pdf") and answers[1].startswith("<!-- Page 1 -->")
+        assert converted == ["paper.pdf", "paper.pdf"]
 
     def test_outline_and_sections_of_one_file_convert_it_once(self, files, monkeypatch):
         path = str(files["paper.pdf"])

@@ -542,3 +542,54 @@ class TestReadingWithinTheSizeLimit:
         assert read_limited(BytesIO(b"abc"), 10) == b"abc"
         assert read_limited(BytesIO(b"abc"), 10, size_hint=3) == b"abc"
         assert read_limited(BytesIO(b"abcdef"), 3, size_hint=2) == b"abcd"
+
+
+class TestTimeLimitedResults:
+    """`ConversionResult.time_limited` (internal) says that a wall-clock limit changed what was read, so a caller that keeps
+    results (the MCP server) does not keep this one: the same file can read fully on a less busy machine."""
+
+    def test_ordinary_conversion_is_not_time_limited(self):
+        assert not convert(builder.pdf_bytes(pages=2), "a.pdf").time_limited
+        assert not convert(builder.docx_bytes(), "a.docx").time_limited
+
+    def test_pages_sent_to_simple_extraction_by_the_time_budget(self):
+        result = convert(builder.pdf_bytes(pages=2), "a.pdf", ConvertOptions(pdf_time_budget=0.0))
+
+        assert result.time_limited
+        assert any("time budget" in warning for warning in result.warnings)
+
+    def test_pages_left_unread_again_after_the_budget_without_a_warning(self, monkeypatch):
+        """The budget can run out after the last page was read and before pending pages are read again: no page went to
+        simple extraction, so there is no warning, but the reading still depends on the clock."""
+        from opendockit.extractors import pdf as pdf_module
+        from tests.test_audit_pdf_head import _stream
+        from tests.test_audit_pdf_text import _pages
+
+        clock = [0.0]
+        read_page = pdf_module._read_page
+
+        def read(page, placement_fit=None):
+            result = read_page(page, placement_fit)
+            if page.page_number == 1:
+                result.placement_pending = True
+            else:
+                result.placement_fit = (0.9, 0.25)
+                clock[0] = 1_000.0  # the budget is spent while the last page is read
+            return result
+
+        monkeypatch.setattr(pdf_module, "_read_page", read)
+        monkeypatch.setattr(pdf_module.time, "perf_counter", lambda: clock[0])
+
+        result = convert(_pages(2, _stream(b"BT /F1 12 Tf 72 700 Td (Hello world) Tj ET")), "a.pdf", ConvertOptions(pdf_time_budget=10))
+
+        assert result.time_limited
+        assert not any("time budget" in warning for warning in result.warnings)
+
+    def test_flag_survives_description(self):
+        from dataclasses import replace
+
+        from opendockit.converter import render
+
+        result = convert(builder.pdf_bytes(pages=2), "a.pdf", ConvertOptions(pdf_time_budget=0.0))
+
+        assert render(replace(result)).time_limited

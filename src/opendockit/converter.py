@@ -134,7 +134,7 @@ def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
     result = ConversionResult(format=document_format, text="", sections=sections, metadata=dict(extraction.metadata),
                               images=images, base_warnings=warnings, options=options, fallbacks=fallbacks,
                               exceeded=exceeded, counted=max(extraction.chars, text_chars) if exceeded else 0,
-                              marker_key=key)
+                              marker_key=key, time_limited=extraction.time_limited)
     return render(result)
 
 

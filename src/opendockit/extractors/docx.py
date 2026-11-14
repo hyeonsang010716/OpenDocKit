@@ -154,7 +154,7 @@ class _DocxRenderer:
         # Footnote / endnote parts (kind → (part, root)) and the references seen in the body with their labels. Only notes with
         # something to write take a label (`_written_notes`)
         self.note_parts = _note_parts(document, self.placeholders) if options.include_footnotes else {}
-        self.notes = _NoteLabels(_written_notes(self.note_parts, options))
+        self.notes = _NoteLabels(self._written_notes())
         # Tables being rendered. A table inside a cell is handed to the table at the top of the stack (markdown.TableGrid.embed)
         self._grids: list[TableGrid] = []
         self._chunks: dict[object, Extraction] = {}  # imported-content part → its conversion (`_chunk_blocks`)
@@ -495,14 +495,40 @@ class _DocxRenderer:
         are skipped. An OLE object (w:object) gets its preview picture, or a placeholder if that cannot be registered (`_ole_marker`)."""
         if element.tag == _w("object"):
             return self._ole_marker(element)
-        if not self._options.extract_images:
-            return ""
-        rel_id = element.get(f"{{{_R}}}embed") or element.get(f"{{{_R}}}id")
-        part = self._part.related_parts.get(rel_id) if rel_id else None
-        blob = getattr(part, "blob", None)
+        blob = self._image_blob(element)
         if not blob:
             return ""
         return f" {self._extraction.add_image(blob, alt=_drawing_alt(element))} "
+
+    def _image_blob(self, element: etree._Element) -> bytes | None:
+        """Bytes of the picture a:blip (r:embed) / v:imagedata (r:id) points at in the part being read. None when pictures are not
+        extracted, the picture is only linked or its relationship is broken."""
+        if not self._options.extract_images:
+            return None
+        rel_id = element.get(f"{{{_R}}}embed") or element.get(f"{{{_R}}}id")
+        part = self._part.related_parts.get(rel_id) if rel_id else None
+        return getattr(part, "blob", None) or None
+
+    def _written_notes(self) -> set[tuple[str, str]]:
+        """The notes (kind, id) that will have content below the body (`_NoteLabels`). Decided with the same walk that writes the
+        notes (`_paragraph_text` over the paragraphs `_note_block` reads), with a probe in place of the picture registration: an
+        OLE object (its preview or placeholder) and, when pictures are extracted, a picture that can be read count as content.
+        Deleted, moved-away and hidden content, compatibility copies and objects that are not OLE objects (an ActiveX control)
+        therefore count exactly when they are written — searched for separately, they left a mark with no definition (Pinned by:
+        test_office_symbols_fields_notes.py::TestDocxNoteReferenceWithoutContent)."""
+        def probe(element: etree._Element) -> str:
+            if element.tag == _w("object"):
+                return OLE_PLACEHOLDER
+            return "picture" if self._image_blob(element) else ""
+
+        written = set()
+        for kind, (part, root) in self.note_parts.items():
+            with self.in_part(part):
+                for note in root.iterchildren(_w(kind)):
+                    paragraphs = (paragraph for paragraph in note.iter(_w("p")) if not _inside_fallback(paragraph))
+                    if any(_paragraph_text(paragraph, None, probe).strip() for paragraph in paragraphs):
+                        written.add((kind, note.get(_w("id"), "")))
+        return written
 
     def _ole_marker(self, element: etree._Element) -> str:
         """Preview picture (v:imagedata / a:blip) of an OLE object (a pasted Excel sheet or document). When image extraction is off or
@@ -874,20 +900,6 @@ def _note_parts(document: object, placeholders: dict[str, str]) -> dict[str, tup
             _keep_filled_placeholders(root, placeholders)
             found[kind] = (part, root)
     return found
-
-
-def _written_notes(note_parts: dict[str, tuple[object, etree._Element]], options: ConvertOptions) -> set[tuple[str, str]]:
-    """The notes (kind, id) that will have content below the body: text, an OLE object (its placeholder) or, when pictures are
-    extracted, a picture. A reference to any other note writes no mark (`_NoteLabels`)."""
-    written = set()
-    for kind, (_, root) in note_parts.items():
-        for note in root.iterchildren(_w(kind)):
-            paragraphs = [paragraph for paragraph in note.iter(_w("p")) if not _inside_fallback(paragraph)]
-            has_object = (next(note.iter(_w("object")), None) is not None
-                          or (options.extract_images and next(note.iter(f"{{{_A}}}blip", f"{{{_V}}}imagedata"), None) is not None))
-            if has_object or any(_paragraph_text(paragraph, None).strip() for paragraph in paragraphs):
-                written.add((kind, note.get(_w("id"), "")))
-    return written
 
 
 _W14_PARA_ID = "{http://schemas.microsoft.com/office/word/2010/wordml}paraId"

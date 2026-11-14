@@ -15,7 +15,7 @@ from bs4.element import PageElement, PreformattedString
 from opendockit.extractors._html_base import (
     _BLOCK_GAP,
     _CHECKED,
-    _CODE_ELEMENTS,
+    _CODE_BLOCKS,
     _FOLDED_STYLE,
     _HEADER_PROBE_ROWS,
     _HEADINGS,
@@ -62,6 +62,8 @@ _MAX_REOPENED = 16
 
 _STRIKE_TAGS = ["del", "s", "strike"]
 _STRIKE = "~~"
+# Where a run of struck text is cut by a code block (`_struck_runs`): no cell is this object, so the next text opens a new run.
+_RUN_BREAK = object()
 # CSS strikethrough. Both `text-decoration: underline line-through` and `text-decoration-line: line-through`.
 # Each declaration (up to the next `;`) is read once, from its first `text-decoration…:` — a later one in the same declaration
 # has less after it, so it cannot match when the first does not. Starting again at every occurrence took 15 seconds on a
@@ -391,15 +393,20 @@ def _with_title_heading(text: str, title: str | None) -> str:
 def _outside_code_blocks(text: str) -> str:
     """The lines of `text` outside its code blocks (``` fences). A `# comment` line of a shell or Python example is not a
     heading, and the title was left out of a page whose only `#` lines were code
-    (Pinned by: test_audit_web_fixes.py::TestTitleOfAPageWhoseCodeHasCommentLines)."""
-    lines: list[str] = []
+    (Pinned by: test_audit_web_fixes.py::TestTitleOfAPageWhoseCodeHasCommentLines). Fences are paired as `clean_text` pairs
+    them: with an odd number of fence lines the last one is not a fence (it is neutralized as `\\````), so the headings after a
+    stray ``` paragraph still count (Pinned by: TestTitleOfAPageWhoseCodeHasCommentLines::test_stray_fence_line_does_not_hide_a_heading)."""
+    lines = text.split("\n")
+    fences = [index for index, line in enumerate(lines) if line.lstrip().startswith("```")]
+    unpaired = fences[-1] if len(fences) % 2 else None
+    kept: list[str] = []
     fenced = False
-    for line in text.split("\n"):
-        if line.lstrip().startswith("```"):
+    for index, line in enumerate(lines):
+        if index != unpaired and line.lstrip().startswith("```"):
             fenced = not fenced
         elif not fenced:
-            lines.append(line)
-    return "\n".join(lines)
+            kept.append(line)
+    return "\n".join(kept)
 
 
 def _document_nodes(soup: BeautifulSoup) -> list:
@@ -878,9 +885,9 @@ def _mark_scripts(soup: BeautifulSoup) -> None:
     (Pinned by: test_text_html.py::TestNestedScriptsAndStrikethrough::test_nested_superscript_marks_the_inner_one_first)."""
     places: _Places = {}
     scripts = soup.find_all(["sup", "sub"])
-    # Not inside code: `x<sup>2</sup>` in a code block or inline code is code as written, and a mark would change it
+    # Not inside a code block: `x<sup>2</sup>` there is code as written, and a mark would change it
     # (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode)
-    in_code = _lying_inside(scripts, _CODE_ELEMENTS)
+    in_code = _lying_inside(scripts, _CODE_BLOCKS)
 
     for outer in scripts:
         if outer.parent is None or id(outer) in in_code:
@@ -902,19 +909,16 @@ def _mark_struck_text(soup: BeautifulSoup) -> None:
     when a table inside a cell was kept as an HTML table the closing mark landed in the inner table's last cell.
     """
     nested: set[int] = set()
-    # Text inside code (a code block, inline code) gets no marks — it is code as written, and `<del>` lines of a diff view in
-    # `<pre>` came out as `~~…~~` inside the fence (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode). What was
-    # learned climbing up is shared by all the strikethroughs (linear even under deep nesting).
-    in_code: dict[int, bool] = {}
-    for struck in soup.find_all(_is_struck):
-        if id(struck) in nested:
+    # Text inside a code block gets no marks — it is code as written, and the `<del>` lines of a diff view in `<pre>` came out as
+    # `~~…~~` inside the fence. A strikethrough holding a code block is marked in pieces around it (`_struck_runs`)
+    # (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode).
+    struck_elements = soup.find_all(_is_struck)
+    in_code = _lying_inside(struck_elements, _CODE_BLOCKS)
+    for struck in struck_elements:
+        if id(struck) in nested or id(struck) in in_code or struck.name in _CODE_BLOCKS:
             continue
         nested.update(id(inner) for inner in struck.find_all(_is_struck))
-        texts = [string for string in struck.find_all(string=True) if string.strip()]
-        code = _lying_inside(texts, _CODE_ELEMENTS, in_code)
-        strings = {id(string) for string in texts if id(string) not in code}
-        if not strings:
-            continue
+        strings = {id(string) for string in struck.find_all(string=True) if string.strip()}
         for run in _struck_runs(struck, strings):
             _mark_run(run)
 
@@ -926,15 +930,20 @@ def _struck_runs(struck: Tag, strings: set[int]) -> list[list[tuple[NavigableStr
     (`(text, table)`) and the marks go outside the table, before and after. Flattened into cell text that is `~~… 20~~` as before; kept as
     an HTML table it is `~~… <table>…</table>~~`. A table held by a strikethrough outside any cell, or a strikethrough on a row or table
     itself, is paired per cell. The document tree is scanned once — no climbing up the ancestors for every text node in deep nesting.
+    A code block (`<pre>`) is not descended into and ends the run: the text before it and the text after it are paired
+    separately, and the fence gets no mark inside (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode).
     """
     base = struck if struck.name in ("td", "th") else struck.find_parent(["td", "th"])
     runs: list[list[tuple[NavigableString, Tag | None]]] = []
-    last_cell: Tag | None = None
+    last_cell: object = None
     stack: list[tuple[object, Tag | None, Tag | None]] = [(child, None, base) for child in reversed(struck.contents)]
 
     while stack:
         node, table, cell = stack.pop()
         if isinstance(node, Tag):
+            if table is None and node.name in _CODE_BLOCKS:
+                last_cell = _RUN_BREAK  # the next text starts a new run
+                continue
             if table is None and node.name == "table" and cell is not None:
                 table = node
             elif table is None and node.name in ("td", "th"):

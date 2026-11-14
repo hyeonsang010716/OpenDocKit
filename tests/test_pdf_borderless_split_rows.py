@@ -13,25 +13,29 @@ from tests.test_pdf import _FONT, _korean_pdf
 _REGIONS = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "제주", "수원", "청주", "전주", "포항"]
 
 
-def _regions_pdf(before: int, after: int, merged: tuple[int, ...] = ()) -> bytes:
+def _regions_pdf(before: int, after: int, merged: tuple[int, ...] = (), *, rows: list[tuple[str, ...]] | None = None,
+                 space: dict[int, float] | None = None, odd: bool = True) -> bytes:
     """Borderless four-column table as printed by Chrome (narrow cells, no ruling lines). pdfminer merges the first two cells
     of every row ('서울 1,000') except row `before` and the rows in `merged`, where it merges the last two ('4.3% 증가'), so
-    the rows above and below that row are found as two separate tables first. `after` rows follow it."""
-    rows = [(name, f"{1000 + number * 111:,}", f"{number + 1}.{number}%", "증가")
-            for number, name in enumerate(_REGIONS[:before + 1 + after])]
+    the rows above and below that row are found as two separate tables first. `after` rows follow it. `rows` replaces the
+    rows after row `before`, `space` adds space (pt) above the rows it names, and with `odd` False row `before` is merged
+    like the others."""
+    rows = [*[(name, f"{1000 + number * 111:,}", f"{number + 1}.{number}%", "증가")
+              for number, name in enumerate(_REGIONS[:before + 1 + (0 if rows is not None else after)])], *(rows or [])]
+    space = space or {}
     joined, apart = 14.0, 24.0  # pdfminer joins a gap within twice the character width (10pt) into one piece
 
     def draw(pdf, index):
         pdf.setFont(_FONT, 10)
         pdf.drawString(34, 760, "지역별 실적은 다음과 같다.")
         for row, cells in enumerate(rows):
-            gaps = (apart, apart, joined) if row == before or row in merged else (joined, apart, apart)
-            x, y = 44.0, 736 - row * 20
+            gaps = (apart, apart, joined) if (row == before and odd) or row in merged else (joined, apart, apart)
+            x, y = 44.0, 736 - row * 20 - sum(extra for at, extra in space.items() if at <= row)
             for column, text in enumerate(cells):
                 pdf.drawString(x, y, text)
                 if column < len(gaps):
                     x += pdf.stringWidth(text, _FONT, 10) + gaps[column]
-        pdf.drawString(34, 736 - len(rows) * 20 - 10, "이상.")
+        pdf.drawString(34, 736 - len(rows) * 20 - 10 - sum(space.values()), "이상.")
 
     return _korean_pdf(draw)
 
@@ -87,6 +91,50 @@ class TestRowMergedDifferentlyBetweenTwoTables:
 
         assert len(_tables(text)) == 1
         assert all(text.count(name) == 1 for name in _REGIONS[:7])
+
+
+_PRODUCTS = [("품목", "단가", "수량", "금액"), ("사과", "1,200", "30", "36,000"), ("배", "2,500", "12", "30,000"),
+             ("포도", "3,100", "8", "24,800"), ("귤", "900", "50", "45,000")]
+_PRODUCT_TABLE = ("| 품목 | 단가 | 수량 | 금액 |\n| --- | --- | --- | --- |\n| 사과 | 1,200 | 30 | 36,000 |\n"
+                  "| 배 | 2,500 | 12 | 30,000 |\n| 포도 | 3,100 | 8 | 24,800 |\n| 귤 | 900 | 50 | 45,000 |")
+
+
+class TestSeparateTableBelowARowInNoTable:
+    """Joining a table with the table its rows below lead into is meant for one table cut at a row merged differently. It
+    joined a separate table with its own header ('품목 | 단가 | …') into the table above, and the rows that table would have
+    grown below itself ('귤') fell out as paragraphs."""
+
+    def test_totals_row_then_a_table_with_its_own_header(self):
+        data = _regions_pdf(2, 0, rows=[("합계", "3,333"), *_PRODUCTS], odd=False)
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| 대구 | 1,222 | 3.2% | 증가 |\n| 합계 | 3,333 | | |\n\n" + _PRODUCT_TABLE in text
+
+    @pytest.mark.parametrize("space", [0.0, 12.0])
+    def test_row_merged_differently_then_a_table_with_its_own_header(self, space):
+        text = convert(_regions_pdf(3, 0, rows=_PRODUCTS, space={4: space}), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| 인천 | 1,333 | 4.3% | 증가 |\n\n" + _PRODUCT_TABLE in text
+
+    @pytest.mark.parametrize("space", [4.0, 12.0])
+    def test_rows_set_apart_from_the_row_pitch_are_not_joined(self, space):
+        """Space above the rows after the merged row: the two parts are two tables (each row once), not one."""
+        text = convert(_regions_pdf(3, 4, space={4: space}), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert len(_tables(text)) == 2
+        assert all(text.count(name) == 1 for name in _REGIONS[:8])
+        assert "| 인천 | 1,333 | 4.3% | 증가 |\n\n| 광주 | 1,444 | 5.4% | 증가 |" in text
+
+    @pytest.mark.parametrize("after", [5, 6])
+    def test_joined_table_grows_below_the_end_of_the_other_table(self, after):
+        """The last row of the lower table is merged differently too, so that table took it only while growing below itself;
+        the joined table takes it as well."""
+        text = convert(_regions_pdf(3, after, merged=(3 + after,)), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert len(_tables(text)) == 1
+        assert all(text.count(name) == 1 for name in _REGIONS[:4 + after])
+        last = 3 + after
+        assert f"| {_REGIONS[last]} | {1000 + last * 111:,} | {last + 1}.{last}% | 증가 |\n\n이상." in text
 
 
 def _random_ruled_tables(seed: int) -> tuple[bytes, list[str]]:

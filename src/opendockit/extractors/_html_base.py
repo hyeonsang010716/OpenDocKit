@@ -35,9 +35,10 @@ _MAIN_CONTENT_TAGS = ["main", "article"]
 _CHECKED, _UNCHECKED = "☒", "☐"
 
 
-# Code: a code block and inline code. Their text is the code as written, so no script or strikethrough marks are put inside
-# (`_html_dom._mark_scripts`, `_mark_struck_text`).
-_CODE_ELEMENTS = frozenset({"pre", "code", "kbd", "samp", "tt"})
+# A code block. Its text is the code as written, so no script or strikethrough marks are put inside (`_html_dom._mark_scripts`,
+# `_mark_struck_text`). Inline code is not protected: it is written without backticks, and `<del><code>foo()</code></del>`
+# would lose that it is struck.
+_CODE_BLOCKS = frozenset({"pre"})
 
 
 _HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}

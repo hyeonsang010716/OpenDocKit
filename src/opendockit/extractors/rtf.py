@@ -128,21 +128,24 @@ _TABLE_CUT = f"A table has more than {_MAX_TABLE_CELLS:,} cells; the cells after
 _TOO_MANY_PICTURES = f"The document has more than {_MAX_PICTURES:,} pictures; the rest were left out."
 
 
-_PRINTABLE_ASCII = bytes(range(0x20, 0x7F))
+# The characters an RTF file is written in: letters and digits, and the backslash and braces of its syntax. A code page that reads
+# them as other characters is not one RTF text can be in (CP864 draws '%' differently and is still a real code page).
+_RTF_ASCII = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789\\{} "
 
 
 @lru_cache(maxsize=256)
 def _page_codec(page: int) -> str | None:
     """Python codec of a Windows code page number, None when there is none (the document's code page is used then).
 
-    A code page that does not read ASCII as ASCII (EBCDIC: 037, 500, 875, 1026, …) is none: RTF is ASCII text, and once a run
-    held one 8-bit byte the whole run, letters included, was decoded as EBCDIC — 'hello' became 'ΪΧ%%?'
+    A code page that does not read letters, digits, backslash and braces as ASCII (EBCDIC: 500, 875, 1026, …) is none: RTF
+    is ASCII text, and once a run held one 8-bit byte the whole run, letters included, was decoded as EBCDIC — 'hello'
+    became 'ΪΧ%%?'. Only those characters are compared: CP864 draws '%' as '٪' and is still a code page RTF can be in
     (Pinned by: test_rtf.py::TestCharacters::test_code_page_that_is_not_ascii_compatible_is_ignored)."""
     if not 0 < page < 100_000:
         return None
     try:
         name = codecs.lookup(_PAGE_CODECS.get(page) or f"cp{page}").name
-        return name if _PRINTABLE_ASCII.decode(name) == _PRINTABLE_ASCII.decode("ascii") else None
+        return name if _RTF_ASCII.decode(name) == _RTF_ASCII.decode("ascii") else None
     except (LookupError, UnicodeDecodeError):
         return None
 
@@ -538,8 +541,9 @@ class _Reader:
         self._fresh = False  # nothing but white space has been read since the last `{`
         self._raw: list[bytes] = []  # text bytes waiting to be decoded with the code page of the state they were read in
         self._skip = 0  # fallback characters still to drop after `\uN`
-        self._dropped: list[bytes] = []  # … the bytes dropped so far, and the lead byte of a double-byte character they ended in
+        self._dropped: list[bytes] = []  # … the bytes dropped so far, and the start of a multi-byte character they ended in
         self._lead: bytes | None = None
+        self._decoders: dict[tuple[str, str], codecs.IncrementalDecoder] = {}  # per code page and error mode, reset before each use
         self._high = 0  # a high surrogate waiting for its low half
 
         self._document_codec = "cp1252"
@@ -605,12 +609,14 @@ class _Reader:
                     continue
                 if b"\n" in chunk or b"\r" in chunk:
                     chunk = chunk.translate(None, b"\r\n")
-                if self._lead is not None and chunk:
-                    chunk = chunk[self._drop_trail(chunk[:1]):]
                 if self._skip and chunk:
                     dropped = min(self._skip, len(chunk))
                     self._drop(chunk[:dropped])
                     chunk = chunk[dropped:]
+                # The rest of a character the fallback ended in, as plain 8-bit text in this chunk or at the start of the next
+                # (Pinned by: test_rtf.py::TestCharacters::test_fallback_counted_in_characters_drops_the_whole_double_byte_character).
+                while self._lead is not None and chunk and self._drop_trail(chunk[:1]):
+                    chunk = chunk[1:]
                 if chunk:
                     self._raw.append(chunk)
             elif kind == 3:
@@ -690,29 +696,49 @@ class _Reader:
             self._state = self._stack.pop()
 
     def _drop(self, data: bytes) -> None:
-        """Drop fallback bytes after `\\uN`. When the last one is the lead byte of a double-byte character of the run's code page,
-        the byte that completes it is dropped too (`_drop_trail`): writers that count `\\ucN` in characters, not bytes, write
+        """Drop fallback bytes after `\\uN`. When they end inside a multi-byte character of the run's code page, the bytes that
+        complete it are dropped too (`_drop_trail`): writers that count `\\ucN` in characters, not bytes, write
         `\\uc1\\u44032\\'b0\\'a1`, and the stray second byte came out as '�' (Pinned by:
-        test_rtf.py::TestCharacters::test_fallback_counted_in_characters_drops_the_whole_double_byte_character)."""
+        test_rtf.py::TestCharacters::test_fallback_counted_in_characters_drops_the_whole_double_byte_character).
+        The dropped bytes are only looked at when a byte follows them directly; after a correct fallback the next thing is
+        nearly always a control word, which ends the dropping, so they cost nothing to decode."""
         self._skip -= len(data)
         self._dropped.append(data)
-        if self._skip:
-            return
-        dropped, self._dropped, self._lead = b"".join(self._dropped), [], None
-        if dropped.isascii():
-            return   # the usual '?': ASCII ends no character half-way (every code page read here is ASCII-compatible)
-        decoder = codecs.getincrementaldecoder(self._codec())(errors="ignore")
-        decoder.decode(dropped)
-        pending = decoder.getstate()[0]
-        self._lead = pending if len(pending) == 1 else None
+        if not self._skip:
+            dropped = b"".join(self._dropped) if len(self._dropped) > 1 else data
+            self._dropped = []
+            # The usual '?': ASCII ends no character half-way (every code page read here is ASCII-compatible)
+            self._lead = None if dropped.isascii() else dropped
 
     def _drop_trail(self, byte: bytes) -> bool:
-        """True (and the byte is dropped) when `byte` completes the double-byte character whose lead byte ended the fallback."""
-        lead, self._lead = self._lead or b"", None
+        """True (and the byte is dropped) when `byte` continues the multi-byte character the dropped bytes end in (`_lead`): it
+        completes it, or it is a further byte of a character not complete yet (UTF-8). Anything else ends the dropping."""
+        dropped, self._lead = self._lead or b"", None
+        decoder = self._decoder("ignore")
+        decoder.decode(dropped)
+        pending = decoder.getstate()[0]
+        if not 0 < len(pending) < 4:
+            return False
+        decoder = self._decoder("strict")
         try:
-            return len((lead + byte).decode(self._codec())) == 1
+            decoder.decode(pending)
+            text = decoder.decode(byte)
         except UnicodeDecodeError:
             return False
+        rest = decoder.getstate()[0]
+        if not text and 0 < len(rest) < 4:
+            self._lead = rest
+            return True
+        return len(text) == 1 and not rest
+
+    def _decoder(self, errors: str) -> codecs.IncrementalDecoder:
+        """The incremental decoder of the run's code page and error mode, reset; made once per document rather than per use."""
+        key = (self._codec(), errors)
+        decoder = self._decoders.get(key)
+        if decoder is None:
+            decoder = self._decoders[key] = codecs.getincrementaldecoder(key[0])(errors=errors)
+        decoder.reset()
+        return decoder
 
     def _binary(self, pos: int, length: int) -> int:
         """`\\binN`: the next N bytes are raw data. A length past the end of the file takes what is there

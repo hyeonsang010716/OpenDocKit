@@ -95,7 +95,7 @@ def _print_result(result: ConversionResult, args: argparse.Namespace) -> None:
             print(f"[warning] {warning}", file=sys.stderr)
     elif args.json:
         payload = asdict(result)
-        for key in ("base_warnings", "options", "fallbacks", "counted", "marker_key"):
+        for key in ("base_warnings", "options", "fallbacks", "counted", "marker_key", "time_limited"):
             payload.pop(key)
         for section in payload["sections"]:
             section.pop("template")

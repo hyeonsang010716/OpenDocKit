@@ -1,6 +1,7 @@
 """Content-based format detection."""
 
 from io import BytesIO
+from pathlib import Path
 import time
 
 import pytest
@@ -704,3 +705,16 @@ class TestDetectionOnItsOwn:
         assert str(raised.value) == "Could not parse the file format. The file may be corrupted."
         with pytest.raises(CorruptedDocumentError, match="^Could not parse the file format"):
             convert(data, "book.epub")
+
+    @pytest.mark.parametrize("wrap", [bytes, bytearray, memoryview])
+    def test_content_is_taken_as_convert_takes_it(self, wrap):
+        assert detect_format(wrap(b"%PDF-1.4\n%%EOF"), "a.pdf") is DocumentFormat.PDF
+        assert detect_format(wrap(builder.docx_bytes())) is DocumentFormat.DOCX
+
+    @pytest.mark.parametrize("data", ["%PDF-1.4", None, Path("a.pdf"), 42], ids=["str", "none", "path", "int"])
+    def test_arguments_are_checked_like_those_of_convert(self, data):
+        """Misuse is a `TypeError` before detection, as in `convert` — not a 'corrupted file'."""
+        with pytest.raises(TypeError, match="takes the file content as bytes"):
+            detect_format(data)
+        with pytest.raises(TypeError, match="file name must be a str"):
+            detect_format(b"plain text", Path("a.txt"))
