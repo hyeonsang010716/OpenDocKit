@@ -19,7 +19,7 @@ from pdfminer import layout as pdfminer_layout
 from pdfminer import pdffont
 from pdfminer.ascii85 import ascii85decode, asciihexdecode
 from pdfminer.cmapdb import CMap, CMapParser, FileUnicodeMap
-from pdfminer.layout import LTChar, LTLayoutContainer, LTTextBoxVertical
+from pdfminer.layout import LTChar, LTFigure, LTLayoutContainer, LTTextBoxVertical
 from pdfminer.pdfinterp import PDFGraphicState, PDFPageInterpreter
 from pdfminer.pdftypes import (
     LITERALS_ASCII85_DECODE,
@@ -111,7 +111,7 @@ class _InflateBudget:
     forms: dict[tuple[int, int], tuple[object, ...]] = field(default_factory=dict)  # form → drawn object count (`_content_objects`)
     undecoded_fonts: bool = False  # met a CID font whose encoding CMap was not found, so no character decodes (`_cmap_or_embedded`)
     ungrouped_layouts: int = 0  # layouts laid out without text-box grouping for having too many text boxes (`_group_few_textboxes`)
-    grouping_cost: int = 0  # text-box grouping cost spent on the page being read (`_PAGE_GROUPING_COST`, reset per page)
+    grouping_cost: int = 0  # text-box grouping cost the Form XObjects of the page being read spent (`_PAGE_GROUPING_COST`, reset per page)
 
 
 _INFLATE_BUDGET: ContextVar[_InflateBudget | None] = ContextVar("pdf_inflate_budget", default=None)
@@ -494,30 +494,38 @@ def _symbol_font_glyph(char: LTChar, font: object) -> None:
 PDFPageAggregatorWithMarkedContent.render_char = _render_char_few_copies  # outside a conversion (no budget) it behaves as before
 
 
-# Cost of pdfminer's text-box grouping (`group_textboxes`) a page may spend, as the sum over the page's layouts — the page itself
-# and every drawn Form XObject (`all_texts`) — of the square of their text-box counts (`_group_few_textboxes`). Grouping keeps a
+# Cost bound of pdfminer's text-box grouping (`group_textboxes`), counted as the square of a layout's text-box count
+# (`_group_few_textboxes`). The page's own layout (the body, and its regrouping after joining pieces, `_rejoined_lines`) may cost
+# up to this on its own, and the layouts of every Form XObject drawn on the page (`all_texts`) share another such allowance
+# (`grouping_cost`, reset per page read by the caller), so a page spends at most about twice 1,000² ≈ 4 seconds. Grouping keeps a
 # heap of every pair of boxes: one layout of 1,000 separate boxes took 2 seconds, 1,500 6 seconds, 2,000 14 seconds, and a 68KB
 # page whose 6,000 characters lie far off the page (each its own box) 122 seconds inside one page, where the time budget does
 # not look. Per layout, a 4.3KB form of 1,400 boxes drawn 15 times spent 54 seconds. The pdfium estimate of line pieces
 # (`_survey_page`) did not see either: pdfium keeps positions in single precision, so characters 20pt apart at x = 2e9 fell on
-# the same spot. 1,000² ≈ 2 seconds; over the 983 pages of the 566 PDFs of the review corpus the largest page spends 848² (0.72 of
-# it, 2.0 seconds to read), the next 320² (0.10). Pinned by: test_audit_pdf_text.py::TestTooManyTextBoxes.
+# the same spot. One shared page allowance charged the body for the grouping that joining pieces discards and for the forms
+# analysed before it, so pages within the bound lost their column order. Over the 983 pages of the 566 PDFs of the review
+# corpus the largest page spends 848² (0.72 of it, 2.0 seconds to read), the next 320² (0.10). Pinned by:
+# test_audit_pdf_text.py::TestTooManyTextBoxes.
 _PAGE_GROUPING_COST = 1_000_000
 _group_all_textboxes = LTLayoutContainer.group_textboxes
 
 
 def _group_few_textboxes(self: LTLayoutContainer, laparams: object, boxes: list) -> list:
-    """Replacement of pdfminer's `group_textboxes`: during a conversion, a layout whose square of the box count would take the
-    page's grouping cost (`grouping_cost`, reset per page by the caller) beyond `_PAGE_GROUPING_COST` is ordered as pdfminer
-    orders it without grouping (`boxes_flow` None: vertical boxes right to left, then horizontal boxes top to bottom and left to
-    right) — the boxes are analysed, numbered in that order and no group is returned, so `analyze` sorts them by those numbers.
-    The conversion is told (`ungrouped_layouts`) so that the page gets the warning of pages read without text-box grouping. The
-    function is not copied (same reason as `_first_seen_order`)."""
+    """Replacement of pdfminer's `group_textboxes`: during a conversion, a layout whose grouping cost (the square of its box
+    count) is beyond its allowance — `_PAGE_GROUPING_COST` for the page's own layout, what is left of the page's shared
+    allowance for Form XObjects (`grouping_cost`) — is ordered as pdfminer orders it without grouping (`boxes_flow` None:
+    vertical boxes right to left, then horizontal boxes top to bottom and left to right) — the boxes are analysed, numbered in
+    that order and no group is returned, so `analyze` sorts them by those numbers. The conversion is told
+    (`ungrouped_layouts`) so that the page gets the warning of pages read without text-box grouping. The function is not copied
+    (same reason as `_first_seen_order`)."""
     budget = _INFLATE_BUDGET.get()
     if budget is None:
         return _group_all_textboxes(self, laparams, boxes)
     cost = len(boxes) ** 2
-    if budget.grouping_cost + cost <= _PAGE_GROUPING_COST:
+    if not isinstance(self, LTFigure):
+        if cost <= _PAGE_GROUPING_COST:
+            return _group_all_textboxes(self, laparams, boxes)
+    elif budget.grouping_cost + cost <= _PAGE_GROUPING_COST:
         budget.grouping_cost += cost
         return _group_all_textboxes(self, laparams, boxes)
     budget.ungrouped_layouts += 1
