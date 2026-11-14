@@ -390,3 +390,55 @@ class TestPendingPagesAfterTheTimeBudget:
         convert(_pages(2, _stream(b"BT /F1 12 Tf 72 700 Td (Hello world) Tj ET")), "a.pdf")
 
         assert calls == [1, 2, 1]
+
+
+class TestTooManyTextBoxes:
+    """pdfminer's text-box grouping keeps a heap of every pair of text boxes, so a 68KB page whose 6,000 characters lie far off
+    the page (each its own box) took 122 seconds inside one page, where the time budget does not look. The pdfium estimate of
+    line pieces did not see them (single-precision positions put characters 20pt apart at x = 2e9 on one spot). A layout with
+    more than `_MAX_GROUPED_TEXT_BOXES` boxes is ordered as without grouping, with the warning of such pages."""
+
+    @staticmethod
+    def _scattered(count: int, far: int = 0) -> bytes:
+        side = int(count ** 0.5) + 1
+        body = b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d %d Tm (o) Tj " % (20 + index % side * 30, 20 + index // side * 30)
+                                          for index in range(count))
+        body += b"".join(b"1 0 0 1 %d 500 Tm (o) Tj " % (2_000_000_000 + index * 20) for index in range(far))
+        return _one_page(_flate(body + b"1 0 0 1 20 5 Tm (Hello world) Tj ET"),
+                         mediabox=b"[0 0 %d %d]" % (side * 30 + 40, side * 30 + 40))
+
+    @pytest.mark.timing
+    def test_characters_far_off_the_page_are_not_grouped_box_by_box(self):
+        started = time.perf_counter()
+        result = convert(self._scattered(100, far=4_000), "a.pdf")
+
+        assert time.perf_counter() - started < allowed(3)  # about 50 seconds before
+        assert "Hello world" in result.sections[0].text and result.sections[0].text.count("o") == 100 + 2  # no far-off character
+
+    def test_a_layout_with_too_many_boxes_is_ordered_as_without_grouping(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_GROUPED_TEXT_BOXES", 50)
+        data = self._scattered(200)
+        expected = pdf_module._extract_pdf.__globals__["_UNGROUPED_LAPARAMS"]
+        token = _pdf_pdfminer._INFLATE_BUDGET.set(_pdf_pdfminer._InflateBudget(10**9))
+        try:
+            grouped = pdfplumber.open(BytesIO(data), laparams=_pdf_pdfminer._LAPARAMS).pages[0].objects["textlinehorizontal"]
+            ungrouped = pdfplumber.open(BytesIO(data), laparams=expected).pages[0].objects["textlinehorizontal"]
+            assert _pdf_pdfminer._INFLATE_BUDGET.get().ungrouped_layouts == 1
+        finally:
+            _pdf_pdfminer._INFLATE_BUDGET.reset(token)
+
+        assert [(line["text"], line["x0"], line["top"]) for line in grouped] == [
+            (line["text"], line["x0"], line["top"]) for line in ungrouped]
+        warnings = convert(data, "a.pdf").warnings
+        assert any("read without text-box reading-order analysis" in warning for warning in warnings)
+
+    def test_a_layout_within_the_bound_is_still_grouped(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_GROUPED_TEXT_BOXES", 500)
+        result = convert(self._scattered(200), "a.pdf")
+
+        assert not any("reading-order analysis" in warning for warning in result.warnings)
+        assert result.sections[0].text.count("o") == 200 + 2  # and the two of "Hello world"
