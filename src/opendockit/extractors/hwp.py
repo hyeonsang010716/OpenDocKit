@@ -88,6 +88,11 @@ _CHAR_REPLACEMENTS = {9: "\t", 10: "\n", 24: "-", 30: " ", 31: " "}
 _FLAG_COMPRESSED = 0x01
 _FLAG_PASSWORD = 0x02
 _FLAG_DISTRIBUTION = 0x04
+# Bodies encrypted by DRM or with a public certificate (FileHeader attribute bits 4 'DRM 보안 문서', 8 '공인 인증서 암호화' and
+# 10 '공인 인증서 DRM 보안 문서' of the 5.0 spec; pyhwp `drm`, `cert_encrypted`, `cert_drm`; hwp.js the same). Their streams are
+# not readable without the key: they came out as an empty result or as a 'corrupted' document
+# (Pinned by: test_hwp.py::TestProtectedDocuments).
+_FLAG_PROTECTED = 0x10 | 0x100 | 0x400
 
 # Paragraph head kind in bits 23-24 of paragraph shape attribute 1 (spec table 44)
 _HEAD_OUTLINE, _HEAD_NUMBER, _HEAD_BULLET = 1, 2, 3
@@ -855,10 +860,22 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
         metadata = _summary_metadata(ole)
         if flags & _FLAG_DISTRIBUTION:
             return _distribution_fallback(preview, metadata)
+        if flags & _FLAG_PROTECTED:
+            raise EncryptedDocumentError("The HWP document is protected by DRM or certificate encryption, so its body cannot be read. "
+                                         "Please save it as a regular document and upload it again.")
 
         budget = _InflateBudget(options.max_uncompressed_bytes)
         records = _RecordBudget(options.max_uncompressed_bytes // _BYTES_PER_RECORD_BUDGET)
-        doc_info_stream = _read_stream(ole, "DocInfo", compressed, budget) if ole.exists("DocInfo") else b""
+        extraction = Extraction(metadata=metadata)
+        # DocInfo holds styles, numbering, character shapes and the picture list, not text. When its compression is broken the
+        # body is read without them, with a warning — one broken DocInfo rejected documents whose sections were fine (the
+        # same rule as HWPX header.xml. Pinned by: test_hwp_robustness.py::TestBrokenDocInfo).
+        try:
+            doc_info_stream = _read_stream(ole, "DocInfo", compressed, budget) if ole.exists("DocInfo") else b""
+        except zlib.error:
+            doc_info_stream = b""
+            extraction.warnings.append("The document style information (DocInfo) could not be read, so the document was converted "
+                                       "without headings, numbering, character formatting and pictures.")
         doc_info = _flatten(parse_records(doc_info_stream, records))
         bin_items = parse_bin_items(doc_info)
 
@@ -879,7 +896,6 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
                     loaded[item_id] = None
             return loaded[item_id]
 
-        extraction = Extraction(metadata=metadata)
         renderer = HwpRenderer(parse_styles(doc_info), options, extraction, load_bin, parse_paragraph_heads(doc_info),
                                parse_char_scripts(doc_info), parse_struck_shapes(doc_info))
         blocks = []

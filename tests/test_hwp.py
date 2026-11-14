@@ -276,6 +276,24 @@ class TestHwp:
             convert(data, "배포.hwp")
 
 
+class TestProtectedDocuments:
+    """FileHeader attribute bits 4 (DRM), 8 (public-certificate encryption) and 10 (public-certificate DRM) mean the body
+    streams are encrypted. Read as usual, such a body came out as an empty result or as a 'corrupted' document."""
+
+    @pytest.mark.parametrize("flag", [0x10, 0x100, 0x400])
+    def test_drm_and_certificate_encrypted_documents_raise(self, monkeypatch, flag):
+        data = _fake_hwp(monkeypatch, flags=1 | flag, extra={"BodyText/Section0": bytes(range(256)) * 4})
+
+        with pytest.raises(EncryptedDocumentError, match="DRM or certificate encryption"):
+            convert(data, "보안.hwp")
+
+    def test_other_attribute_bits_do_not_stop_reading(self, monkeypatch):
+        """Script (3), history (6), signature (7), CCL (11), change tracking (14) and the like say nothing about the body."""
+        data = _fake_hwp(monkeypatch, flags=1 | 0x8 | 0x40 | 0x80 | 0x800 | 0x4000, sections=[_sample_section()])
+
+        assert convert(data, "문서.hwp").text.startswith("# 1. 개요")
+
+
 def _summary_stream(properties: list[tuple[int, int, bytes]]) -> bytes:
     """Property set stream (MS-OLEPS): 28-byte header + offset of the first section → section (size, count, (ID, offset) list,
     values)."""

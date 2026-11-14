@@ -30,7 +30,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **WMF and EMF pictures** (common in HWP and legacy Office) cannot be rendered on macOS and Linux. They stay as `[Image]`, and a warning reports how many there were.
 - **Superscripts and subscripts** are written as `10^6`, `10^{-3}`, `H_2O`. An ordinal suffix after a number (21st) and a superscript containing Hangul or Hanja ('1,000원') are left as they are. In PDF they are inferred from font size and baseline position, so they can be wrong, and they are not marked inside table cells. In Excel only scripts on part of a cell's text are marked (not in large XLSX read in streaming mode).
 - **Unsupported formats**: SVG, Word XML (Word 2003 XML and the like), ODF single-file XML (.fodt, .fods, .fodp) and Hangul XML (HWPML, .hml) raise `UnsupportedFormatError`, as do Excel Binary Workbooks (.xlsb), Hangul 3.x, Office files saved as Strict Open XML and the other OpenDocument kinds (drawings, formulas, databases). Save Hangul XML as HWPX and upload that. A UTF-8 note that merely contains `%PDF-` and PDF structure words is read as text when it cannot be read as a PDF (known accepted gap: a CP949 note is still reported as a corrupted PDF).
-- **Partly broken files** (a single slide, speaker notes, an HWP section stream, an HWPX style part): only the broken part is skipped, with a warning. In a very large table (grid over 5 million cells) the lower rows are discarded with a warning.
+- **Partly broken files** (a single slide, speaker notes, an HWP section stream or its DocInfo stream, an HWPX style part): only the broken part is skipped, with a warning. In a very large table (grid over 5 million cells) the lower rows are discarded with a warning.
 - **Table merges are capped.** A single cell's merge is expanded up to 10,000 cells and the merges of one table up to 500,000 cells in total; beyond that the value is kept in the first cell only. Trusting the merge counts written in a file would let a crafted file of a few KB exhaust memory. Normal documents do not reach these caps.
 - **Crafted files can still be slow.** The limits bound memory and the size of the output, and a review removed the cases found where a small file took tens of seconds, but some inputs still take time that grows faster than their size (the decision records name them under "Known accepted gap"). For untrusted uploads use `IsolatedConverter`, which ends a conversion after its time limit.
 
@@ -144,6 +144,8 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 ## HWP and HWPX
 
 - **Hangul comments** (review comments) are included only for HWPX, at the end of the document, as the same `> Comment(…)` lines as Word. Comments of binary HWP are not included (the record holding the comment text has not been identified).
+- **Protected HWP documents**: a password, DRM or certificate-encrypted body is not read (`EncryptedDocumentError`); a
+  distribution (read-only) document gives only the preview text Hancom Office saved.
 - **Hangul equations** are converted to LaTeX (`{1} over {n}` → `$\frac{1}{n}$`, following Hancom's published equation specification). An equation that cannot be converted, such as a long-division layout (LONGDIV), is left as its script (`[Equation: …]`).
 
 ## OpenDocument, RTF and EPUB
@@ -154,6 +156,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   inside spreadsheet cells are not kept. A repeated row is written at most 10,000 times, and all the repeats of a document
   add at most 5 million characters and 2 million sheet cells (200,000 cells in the tables of text documents and slides);
   beyond that it is cut, with a warning. Columns beyond 16,384 are never read. An object shown by several frames gives its values once.
+  Hidden text is left out; for text hidden by a condition the state saved in the file is used (conditions are not evaluated).
 - **RTF**: equations, comments and the contents of embedded OLE objects are not read (an OLE preview picture is kept).
   Text in symbol fonts (Symbol, Wingdings) is dropped. Letter and roman list numbers are written as `1.`, `2.`, and the
   automatic number of a numbered heading is not reproduced. Underline, strikethrough and superscript are not kept. HTML
