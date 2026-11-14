@@ -226,6 +226,23 @@ class TestRowsBetweenTwoTablesThatBelongToTheTableBelow:
         assert "| 총무부 | 84 | 65,996 | 감소 |\n| 기획부 | 57 | 95,607 | 증가 |\n\n" + _ITEM_TABLE in text
         assert text.count("구분") == 1 and text.count("여수") == 1
 
+    @pytest.mark.parametrize(("size", "upper", "lefts", "pitch", "wrapped_at", "lower_lefts", "expected"), [
+        (11, [row[:3] for row in _DEPARTMENTS], (40, 353.6, 496.4), 26.4, 353.6, (40, 82.9, 146.9, 195.3),
+         "| 기획부 | 57<br>추가설명 | 95,607 |"),
+        (10, _DEPARTMENTS, (40, 160, 280, 400), 18, 280, (40, 79, 137, 181), "| 기획부 | 57 | 95,607<br>추가설명 | 증가 |"),
+    ])
+    def test_second_line_of_a_wrapped_cell_stays_in_its_row(self, size, upper, lefts, pitch, wrapped_at, lower_lefts, expected):
+        """The last row of the upper table has a cell of two lines. With the header of the lower table left to that table,
+        the upper table ended at the second line, which is no row of its own, and it came out as a paragraph between the
+        two tables. The upper table then takes the rows below it as before."""
+        data = _stacked_pdf(size, (upper, lefts, pitch, 0), ([("추가설명",)], (wrapped_at,), pitch, 12),
+                            (_ITEMS, lower_lefts, 18, 20))
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert expected in text
+        assert text.count("추가설명") == 1 and text.count("여수") == 1
+
     @pytest.mark.parametrize("gap", [22.0, 30.0])
     def test_first_data_rows_of_a_lower_table_without_a_header(self, gap):
         """The first two rows of the lower table are grouped differently ('28.7% pending') from the row the table is

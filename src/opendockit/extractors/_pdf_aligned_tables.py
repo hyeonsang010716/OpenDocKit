@@ -360,8 +360,20 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
     data_row = kept < len(after) and any(_measured_value(text) for line in after[kept] for _, _, text in _cell_pieces(line))
 
     def without_the_rows_of_the_table_below() -> list[list[_Line]] | None:
+        # The table may end at one of the rows below only when that row is a whole row. A row of fewer pieces is the second
+        # line of a wrapped cell: in the middle of the table it is joined to its row, as the last row of the table it fell
+        # out as a paragraph between the two tables (Pinned by: test_pdf_borderless_split_rows.py::
+        # TestRowsBetweenTwoTablesThatBelongToTheTableBelow::test_second_line_of_a_wrapped_cell_stays_in_its_row).
+        if kept and 2 * sum(1 for line in after[kept - 1] for _ in _cell_pieces(line)) < len(run[0]):
+            return None
         found = _found_again([*above, *run, *after[:kept]], {id(line) for row in run for line in row}, len(run[0]),
-                             max_cell) or run
+                             max_cell)
+        if found is None:
+            # Without the rows left to the table below, the rows this table keeps hold no line to split, and falling back
+            # on the rows first found would drop the others. The table then takes all the rows below it, as it did before.
+            if above or kept:
+                return None
+            found = run
         if settle and following is not None:
             grown, _ = _split_merged_cells(following, rows, taken | _original_lines(found), max_cell, rules,
                                            {position: table for position, table in (starts or {}).items()
