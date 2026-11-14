@@ -384,3 +384,65 @@ class TestDamagedZipMember:
 
         for error in (zipfile.BadZipFile, zlib.error, lzma.LZMAError, EOFError, OSError, RuntimeError, NotImplementedError):
             assert issubclass(error, ZIP_MEMBER_ERRORS)
+
+
+_NOTE_PICTURE_RELATIONSHIP = f'<Relationship Id="rIdImg" Type="{_RELATIONSHIPS_NS}/image" Target="media/note.png"/>'
+_OLE = ('<w:r><w:object xmlns:o="urn:schemas-microsoft-com:office:office">'
+        '<o:OLEObject Type="Embed" ProgID="Excel.Sheet.12" ShapeID="s1"/></w:object></w:r>')
+
+
+class TestDocxNoteWithOnlyUnwrittenContent:
+    """Whether a footnote has content was decided by searching it for pictures and objects, while the footnote itself is written
+    by the paragraph walk, which leaves out deleted, moved-away and hidden content, compatibility copies, linked pictures and
+    objects that are not OLE objects. Such a footnote got a body mark `[^1]` and no definition. The decision now uses the same
+    walk (`_DocxRenderer._written_notes`)."""
+
+    @pytest.mark.parametrize("note", [
+        pytest.param(f'<w:p><w:del w:id="5" w:author="a">{_PICTURE}</w:del></w:p>', id="deleted picture"),
+        pytest.param(f'<w:p><w:moveFrom w:id="6" w:author="a">{_PICTURE}</w:moveFrom></w:p>', id="moved-away picture"),
+        pytest.param("<w:p>" + _PICTURE.replace("<w:r>", "<w:r><w:rPr><w:vanish/></w:rPr>", 1) + "</w:p>", id="hidden picture"),
+        pytest.param("<w:p><w:r><mc:AlternateContent><mc:Choice Requires='x'/><mc:Fallback>" + _PICTURE[5:-6]
+                     + "</mc:Fallback></mc:AlternateContent></w:r></w:p>", id="picture only in the compatibility copy"),
+        pytest.param("<w:p>" + _PICTURE.replace("r:embed='rIdImg'", "r:link='rIdImg'") + "</w:p>", id="linked picture"),
+        pytest.param('<w:p><w:r><w:object><w:control r:id="rIdImg" w:name="x"/></w:object></w:r></w:p>', id="ActiveX control"),
+        pytest.param(f'<w:p><w:del w:id="5" w:author="a">{_OLE}</w:del></w:p>', id="deleted OLE object"),
+    ])
+    @pytest.mark.parametrize("extract_images", [True, False])
+    def test_footnote_with_nothing_that_is_written_writes_no_mark(self, note, extract_images):
+        data = _docx_with_footnote(note, note_relationships=_NOTE_PICTURE_RELATIONSHIP,
+                                   add={"word/media/note.png": builder.png_bytes(300, 200, seed=3)})
+
+        assert convert(data, "a.docx", ConvertOptions(extract_images=extract_images)).text == "본문"
+
+    def test_footnote_whose_picture_is_written_keeps_its_mark(self):
+        data = _docx_with_footnote(f"<w:p>{_PICTURE}</w:p>", note_relationships=_NOTE_PICTURE_RELATIONSHIP,
+                                   add={"word/media/note.png": builder.png_bytes(300, 200, seed=3)})
+
+        result = convert(data, "a.docx")
+
+        assert result.text.startswith("본문[^1]\n\n[^1]:") and len(result.images) == 1
+
+    @pytest.mark.parametrize("extract_images", [True, False])
+    def test_footnote_with_an_ole_object_keeps_its_mark_and_placeholder(self, extract_images):
+        data = _docx_with_footnote(f"<w:p>{_OLE}</w:p>")
+
+        result = convert(data, "a.docx", ConvertOptions(extract_images=extract_images))
+
+        assert result.text == "본문[^1]\n\n[^1]: [OLE object]"
+
+    def test_endnotes_follow_the_same_rule(self):
+        body = ("<w:p>" + _run("본문") + '<w:r><w:endnoteReference w:id="1"/></w:r><w:r><w:endnoteReference w:id="2"/></w:r>'
+                + '<w:r><w:endnoteReference w:id="3"/></w:r></w:p>')
+        notes = (f'<w:endnotes {_NOTE_NAMESPACES}><w:endnote w:id="1"><w:p>'
+                 f'<w:del w:id="5" w:author="a"><w:r><w:delText>지움</w:delText></w:r></w:del></w:p></w:endnote>'
+                 f"<w:endnote w:id=\"2\"><w:p>{_run('미주')}</w:p></w:endnote></w:endnotes>")
+        data = builder.zip_with(_docx_with_body(body), edit={
+            "word/_rels/document.xml.rels": lambda xml: xml.replace(
+                "</Relationships>", f'<Relationship Id="rIdEnd" Type="{_RELATIONSHIPS_NS}/endnotes" Target="endnotes.xml"/>'
+                                    "</Relationships>"),
+            "[Content_Types].xml": lambda xml: xml.replace(
+                "</Types>", '<Override PartName="/word/endnotes.xml" '
+                            'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml"/></Types>'),
+        }, add={"word/endnotes.xml": notes})
+
+        assert convert(data, "a.docx").text == "본문[^endnote1]\n\n[^endnote1]: 미주"
