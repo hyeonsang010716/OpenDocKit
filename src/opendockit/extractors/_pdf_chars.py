@@ -261,9 +261,12 @@ def _is_hangul(text: str) -> bool:
     return len(text) == 1 and "가" <= text <= "힣"
 
 
-# A drop cap (`_drop_cap`), relative to the size of the text beside it: how far the first letter of the text may be from the
-# initial, how far the top of the initial may be from the top of the capitals of the first line, how far below the first line
-# the initial stands at least, and how far its baseline may be from the baseline of the line it rests on.
+# A drop cap (`_drop_cap`), relative to the size of the text beside it: how large the initial is at least and at most, how far
+# the first letter of the text may be from the initial, how far the top of the initial may be from the top of the capitals of
+# the first line, how far below the first line the initial stands at least, and how far its baseline may be from the baseline
+# of the line it rests on.
+_DROP_CAP_MIN_RATIO = 2.0
+_DROP_CAP_MAX_RATIO = 6.0
 _DROP_CAP_GAP_RATIO = 1.0
 _DROP_CAP_TOP_RATIO = 0.5
 _DROP_CAP_DROP_RATIO = 0.75
@@ -319,12 +322,18 @@ def _drop_cap(chars: list[dict], line_text: str) -> tuple[str, float, float] | N
     test_pdf_reading_order.py::TestDropCaps::test_a_drop_cap_is_joined_to_its_word_and_paragraph). A drop cap is a capital
     letter followed no further than `_DROP_CAP_GAP_RATIO` away by a lower-case letter, the top of its capital within `_DROP_CAP_TOP_RATIO` of
     the capitals of the first line, standing at least `_DROP_CAP_DROP_RATIO` below the baseline of that line on the baseline
-    (within `_DROP_CAP_FOOT_RATIO`) of a character of a later line beside it. Its size follows from that, so there is no bound
-    on the size itself. A large letter that is a label keeps its space as before: 'Q' beside one line, 'B' centred beside three
-    lines or standing in the margin, a letter on the baseline of the first line, a capital or a digit after it (Pinned by:
+    (within `_DROP_CAP_FOOT_RATIO`) of a character of a later line beside it, and `_DROP_CAP_MIN_RATIO` to
+    `_DROP_CAP_MAX_RATIO` times the size of the text. The baselines alone do not tell a drop cap from an option or step letter:
+    a letter 1.8 times the text on the second line of text set solid, or 6.5 to 8 times beside four lines, stands the same way,
+    and 'D' + 'press and hold the button' was read 'Dpress and hold the button' — 21 of 2,000 such labels that had kept their
+    space under the size bounds alone (Pinned by: test_a_letter_under_twice_or_over_six_times_the_text_is_no_drop_cap). A cap
+    over two lines of text set solid is about 2.4 times the text, one over three lines of text set 1.4 apart about 5 times. A large letter that
+    is a label keeps its space as before: 'Q' beside one line, 'B' centred beside three lines or standing in the margin, a
+    letter on the baseline of the first line, a capital or a digit after it (Pinned by:
     test_a_large_label_that_is_no_drop_cap_keeps_its_space). Deliberate: a letter set like a drop cap by chance of the sizes (a
-    label as high as the block beside it, resting on one of its baselines) is joined, and a drop cap set loosely (resting
-    between two lines, as a floated first letter of a web page does) is not.
+    label as high as the block beside it, resting on one of its baselines) is joined, a drop cap set loosely (resting
+    between two lines, as a floated first letter of a web page does) is not, and neither is a cap over four or more lines
+    that is more than six times the text (four lines about 1.2 or more apart).
 
     The initial may be a word of its own ('A long time ago', 'I was born'): joining gave 'Along time ago' and 'Iwas born'. The
     page decides first: a space glyph drawn between the initial and the text (Word, InDesign and LaTeX write the space of 'A
@@ -348,6 +357,8 @@ def _drop_cap(chars: list[dict], line_text: str) -> tuple[str, float, float] | N
     if not (len(letter) == 1 and letter.isalpha() and letter.isupper() and rest[0]["text"][:1].islower()):
         return None
     if rest[0]["x0"] - initial["x1"] > _DROP_CAP_GAP_RATIO * size:
+        return None
+    if not _DROP_CAP_MIN_RATIO * size <= initial["size"] <= _DROP_CAP_MAX_RATIO * size:
         return None
     top, bottom = first_top, max(char["bottom"] for char in rest)
     foot, first_foot = initial["bottom"] - _DESCENT * initial["size"], bottom - _DESCENT * size  # baselines

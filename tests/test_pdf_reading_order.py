@@ -526,19 +526,19 @@ class TestDropCaps:
     _NEXT = ["Next paragraph starts here and continues", "on another line for a while."]
 
     def _pdf(self, initial: str, lines: list[str], size: float | None = None, baseline: float | None = None, *, rows: int = 2,
-             gap: float = 2, space: str | None = None, spaces: bool = True) -> bytes:
-        """A large `initial` and the 11pt `lines` beside it, 13pt apart, the first on the baseline 700. By default the initial
-        is a drop cap over `rows` lines: it stands on the baseline of the last of them and its top is level with the
+             gap: float = 2, space: str | None = None, spaces: bool = True, leading: float = 13) -> bytes:
+        """A large `initial` and the 11pt `lines` beside it, `leading` apart, the first on the baseline 700. By default the
+        initial is a drop cap over `rows` lines: it stands on the baseline of the last of them and its top is level with the
         capitals of the first. `space` writes a space glyph after the initial ('big') or before the text ('small');
         without `spaces` every word is placed by itself and the page has no space glyph at all."""
         def draw(pdf, index):
-            height = (0.718 * 11 + 13 * (rows - 1)) / 0.718 if size is None else size
+            height = (0.718 * 11 + leading * (rows - 1)) / 0.718 if size is None else size
             pdf.setFont("Helvetica", height)
-            pdf.drawString(72, 700 - 13 * (rows - 1) if baseline is None else baseline, initial + (" " if space == "big" else ""))
+            pdf.drawString(72, 700 - leading * (rows - 1) if baseline is None else baseline, initial + (" " if space == "big" else ""))
             left = 72 + pdf.stringWidth(initial, "Helvetica", height) + gap
             pdf.setFont("Helvetica", 11)
             for number, text in enumerate([*lines, *self._NEXT]):
-                x, y = (left, 700 - 13 * number) if number < len(lines) else (72, 640 - 13 * (number - len(lines)))
+                x, y = (left, 700 - leading * number) if number < len(lines) else (72, 640 - 13 * (number - len(lines)))
                 text = " " + text if space == "small" and number == 0 else text
                 for word in [text] if spaces else text.split():
                     pdf.drawString(x, y, word)
@@ -566,6 +566,22 @@ class TestDropCaps:
         text = convert(self._pdf(initial, lines, **options), "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert f"{initial} {lines[0]}" in text
+
+    _STEP = ["ress and hold the button until", "the light goes out and then", "let go of it and wait for", "the unit to start again"]
+
+    @pytest.mark.parametrize(("options", "joined"), [
+        ({"size": 19.8, "baseline": 689, "leading": 11}, False),  # 1.8 times the text, on the second line of text set solid
+        ({"size": 22.6, "baseline": 689, "leading": 11}, True),  # the same place at 2.05 times
+        ({"rows": 4, "leading": 13}, True),  # beside four lines: 5.9 times
+        ({"rows": 4, "leading": 15}, False),  # beside four lines set wider apart: 6.7 times
+    ])
+    def test_a_letter_under_twice_or_over_six_times_the_text_is_no_drop_cap(self, options, joined):
+        """A letter that stands on a line beside it like a drop cap, but is less than twice or more than six times the size
+        of the text: an option or step letter ('D' + 'press and hold the button' was read 'Dpress and hold the button').
+        Without a bound on the size, the baselines alone joined 21 of 2,000 such labels that had kept their space before."""
+        text = convert(self._pdf("P", self._STEP, **options), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text.startswith("Press and hold the button until\n" if joined else "P ress and hold the button until\n")
 
     def test_a_space_glyph_at_the_start_of_a_later_line_does_not_part_the_initial_from_its_word(self):
         """Only a space between the initial and the first line is the space after a one-letter word."""
