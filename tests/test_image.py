@@ -1789,7 +1789,13 @@ class TestTransparencyOfEveryMode:
     def test_transparent_background_stays_transparent(self, mode, image_format):
         picture = Image.new("RGBA", (300, 120), (0, 0, 0, 0))
         picture.paste((0, 0, 0, 255), (20, 20, 280, 100))
-        picture = picture.convert(mode) if mode != "PA" else picture.convert("RGBA").convert("PA")
+        if mode == "PA":
+            # Converted straight from RGBA, Pillow before 12 drops the alpha of a PA picture; the alpha is put in on its own.
+            alpha = picture.getchannel("A")
+            picture = picture.convert("RGB").convert("P").convert("PA")
+            picture.putalpha(alpha)
+        else:
+            picture = picture.convert(mode)
         buffer = BytesIO()
         picture.save(buffer, format=image_format)
 
