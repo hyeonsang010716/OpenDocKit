@@ -20,7 +20,6 @@ from tests.test_hwp import (
     _fake_hwp,
 )
 from tests.test_office import _docx_with_body
-from tests.timing import allowed
 
 
 _ROWS = 20_000
@@ -50,18 +49,20 @@ def _docx_big_table() -> bytes:
 
 
 def _docx_big_header_table(kind: str, rows: int, cell: str = "") -> bytes:
-    """A table of `rows` rows in the header (or footer) part, and a short body."""
+    """A table of `rows` rows in the header (or footer) part, and a short body. With kind "body" the same table is put in
+    the body instead (the header then holds only its paragraph)."""
     from io import BytesIO
 
     from docx import Document
 
     document = Document()
-    getattr(document.sections[0], kind).paragraphs[0].text = "STORY"
+    getattr(document.sections[0], "header" if kind == "body" else kind).paragraphs[0].text = "STORY"
     document.add_paragraph("body")
     buffer = BytesIO()
     document.save(buffer)
     table = _docx_table(["".join(_docx_cell(f"r{row}c{col}{cell}") for col in range(_COLS)) for row in range(rows)])
-    return builder.zip_with(buffer.getvalue(), edit={f"word/{kind}1.xml": lambda xml: xml.replace("<w:p>", table + "<w:p>", 1)})
+    part = "word/document.xml" if kind == "body" else f"word/{kind}1.xml"
+    return builder.zip_with(buffer.getvalue(), edit={part: lambda xml: xml.replace("<w:p>", table + "<w:p>", 1)})
 
 
 def _seconds(action) -> float:
@@ -148,12 +149,16 @@ class TestCharacterLimitInsideOneTable:
     @pytest.mark.timing
     def test_header_table_of_many_rows_is_not_rendered_to_the_end(self):
         """With no check at all on a header table, 60,000 rows in word/header1.xml took 13 s under the default limit (200,000 rows
-        39 s and 2.0 GB); stopped at the limit it is the time of parsing the XML."""
-        data = _docx_big_header_table("header", 60_000, cell="cell text abcdefghij")
+        39 s and 2.0 GB); stopped at the limit it is the time of parsing the XML — the time the same table takes in the body,
+        where it always was stopped (measured against that, so the speed of the machine does not matter: rendered to the end
+        the header table took 5 to 7 times as long)."""
+        options = ConvertOptions(include_headers_footers=True)
 
-        elapsed = min(_seconds(lambda: convert(data, "a.docx", ConvertOptions(include_headers_footers=True))) for _ in range(2))
+        def best(kind: str) -> float:
+            data = _docx_big_header_table(kind, 60_000, cell="cell text abcdefghij")
+            return min(_seconds(lambda: convert(data, "a.docx", options)) for _ in range(2))
 
-        assert elapsed < allowed(4.0)
+        assert best("header") < best("body") * 2.5 + 0.5
 
     def test_hwpx_stops_reading_rows_of_a_huge_table(self):
         data = _hwpx_big_table()
