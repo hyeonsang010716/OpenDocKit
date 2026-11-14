@@ -323,6 +323,31 @@ class TestAssembly:
         assert result.text.startswith("## Sheet: 매출\n")
         assert unicodedata.is_normalized("NFC", result.text)
 
+    @pytest.mark.parametrize("title", ["~~~ 감사합니다 ~~~", "```", "- > ~~~ 끝"])
+    def test_title_or_alt_text_that_starts_like_a_fence_gets_no_backslash(self, title):
+        """A sheet name, a slide title and the alt text of a picture are written inside a line (`## Sheet: …`, `[Image: …]`),
+        where no fence can open. Cleaned as a text of their own they got the backslash of a line that opens one."""
+        import base64
+
+        import openpyxl
+        from pptx import Presentation
+
+        workbook = openpyxl.Workbook()
+        workbook.active.title = title
+        workbook.active.append(["a", 1])
+        sheet = BytesIO()
+        workbook.save(sheet)
+        presentation = Presentation()
+        presentation.slides.add_slide(presentation.slide_layouts[5]).shapes.title.text = title
+        slides = BytesIO()
+        presentation.save(slides)
+        picture = base64.b64encode(builder.png_bytes()).decode()
+        html = f'<p>a</p><img src="data:image/png;base64,{picture}" alt="{title}">'
+
+        assert convert(sheet.getvalue(), "a.xlsx").text.startswith(f"## Sheet: {title}\n")
+        assert convert(slides.getvalue(), "a.pptx").text == f"## Slide 1: {title}"
+        assert convert(html.encode(), "a.html").text == f"a\n\n[Image: {title}]"
+
     def test_text_that_looks_like_an_image_placeholder_is_kept_as_text(self):
         """A literal `⟦IMG:1⟧` typed in the body was taken for a placeholder and removed. If a real picture #1 existed, that picture
         was inserted twice."""

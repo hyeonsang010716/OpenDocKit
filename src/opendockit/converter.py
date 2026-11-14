@@ -166,7 +166,11 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
         template = clean_text(section.text, collapse_spaces=collapse)
         # Section headings (sheet and slide titles) are cleaned like the body. With a title in decomposed jamo, the result was not NFC
         # (Pinned by: test_converter.py::TestAssembly::test_sheet_and_slide_titles_are_normalized_to_nfc).
-        title = " ".join(clean_text(section.title).split()) if section.title else section.title
+        # As one line (`clean_line`), not as a text of its own: a title is written after `## Slide 1: `, where no fence can
+        # open, and cleaned as a text a title that starts with tildes or backticks got the backslash of a fence line
+        # (`## Slide 1: \~~~ 감사합니다 ~~~`)
+        # (Pinned by: test_converter.py::TestAssembly::test_title_or_alt_text_that_starts_like_a_fence_gets_no_backslash).
+        title = clean_line(section.title) if section.title else section.title
         if template or section.kind is SectionKind.SLIDE:
             sections.append(Section(section.kind, section.index, "", title, template))
 
@@ -360,8 +364,9 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     decoded: dict[tuple[bytes, bool], tuple[PreparedImage, str] | ImageSkipped | ImageUnreadable] = {}
     for raw in raw_images:
         # Placeholder text goes in after cleaning (clean_text), so it is cleaned into one line here. NFD and line breaks stayed as
-        # they were and broke table rows.
-        alt = " ".join(clean_text(raw.alt).split()) if raw.alt and not _USELESS_ALT.match(raw.alt.strip()) else None
+        # they were and broke table rows. It is written inside `[Image: …]`, so like a section title it is cleaned as one line
+        # and not as a text whose first line may open a fence.
+        alt = clean_line(raw.alt) if raw.alt and not _USELESS_ALT.match(raw.alt.strip()) else None
         key = (raw.data, raw.kind is not ImageKind.STANDALONE)
         if key not in decoded:
             try:
