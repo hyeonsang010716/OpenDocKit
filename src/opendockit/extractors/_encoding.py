@@ -420,7 +420,7 @@ def _declared_utf16(data: bytes, name: str | None) -> str | None:
     Russian, Arabic, Hindi, Punjabi, Thai, Greek, Hebrew and English text (1,593 of 399,712), all of them one to six letters
     of Hindi or Punjabi (`नमस्ते` is `(\t.\t8\tM\t$\tG\t`) — the Japanese and Chinese ones (one to eight characters) were read as
     UTF-8 already (Pinned by: test_text_html.py::TestDeclaredUtf16WithoutBom::test_plain_ascii_bytes_are_ascii_whatever_the_label).
-    Known accepted gap: such a word — one to six Devanagari or Gurmukhi letters without a space or a line break, two to
+    Known accepted gap: such a word — a single word of up to eight Devanagari, Gurmukhi or Malayalam letters without a space or a line break, two to
     five ideographs or kana whose bytes all are ASCII (`你好` is `` `O}Y ``; at most 94 of 19,800 pieces of 2 to 100 characters
     cut from Japanese or Chinese text, 3 from Korean) — is read as the ASCII it also is."""
     codec = {"utf-16-le": "utf-16-le", "utf-16-be": "utf-16-be"}.get(_lookup(name) or "")
