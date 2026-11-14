@@ -292,7 +292,8 @@ def _unread_title(documents: list[str], read: int = 0) -> str:
     left = _UNREAD_TITLE_CHARS
     for document in documents:
         start, read = read, 0
-        opening = _TITLE_OPENING.search(document, start)
+        # from the last tag the part read ended in: its `<title>` may be that tag, with the title text still unread
+        opening = _TITLE_OPENING.search(document, max(document.rfind("<", 0, start), 0))
         if opening is None:
             continue
         end = min(len(document), start + left)

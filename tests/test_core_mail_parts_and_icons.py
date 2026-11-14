@@ -399,6 +399,18 @@ class TestMailsAreRenderedApart:
         assert convert(data, "a.eml", ConvertOptions(max_chars=None)).metadata["title"] == "둘째 제목"
         assert "title" not in result.metadata
 
+    def test_title_whose_opening_tag_ends_the_front_part_is_not_passed_over(self):
+        """The front part of the part over the limit can end right at the `>` of its `<title>`: looked for only behind that
+        point, the title was missed and the title of the next part was taken."""
+        paragraph = "<p>" + "word " * 20 + "</p>"
+        data = _html_parts(paragraph * 20 + "<title>첫째 제목</title>" + paragraph * 40,
+                           "<html><head><title>둘째 제목</title></head><body><p>다</p></body></html>")
+
+        titles = {convert(data, "a.eml", ConvertOptions(max_chars=limit)).metadata.get("title") for limit in range(1040, 1100)}
+
+        assert convert(data, "a.eml", ConvertOptions(max_chars=None)).metadata["title"] == "첫째 제목"
+        assert titles == {"첫째 제목"}
+
     def test_title_after_a_long_part_without_one_is_still_found(self, monkeypatch):
         """A part that holds no `<title` has no title however long it is, so the look goes on behind it."""
         from opendockit.extractors import html as html_extractor
