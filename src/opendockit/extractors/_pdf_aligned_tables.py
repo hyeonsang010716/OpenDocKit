@@ -166,8 +166,47 @@ def _aligned_table_runs(page: _Page) -> list[list[list[_Line]]]:
     # The original line (source) of a split piece is a used line too. When it was left out, the table below took that row
     # again while growing upward and it came out in two tables
     # (pinned by: test_pdf_table_columns.py::TestRowsOfASplitTableAreNotTakenAgain)
-    taken = {id(original) for run in runs for row in run for line in row for original in (line, line.source) if original is not None}
-    return [_split_merged_cells(run, rows, taken, max_cell, page.rules) for run in runs]
+    # The original lines of a cell joined from several lines are used lines as well.
+    taken = {id(original) for run in runs for row in run for line in row for original in (line, line.source, *line.joined)
+             if original is not None}
+    return _split_runs(runs, rows, taken, max_cell, page.rules)
+
+
+def _split_runs(runs: list[list[list[_Line]]], rows: list[list[_Line]], taken: set[int], max_cell: float,
+                rules: list[tuple[float, float, float]]) -> list[list[list[_Line]]]:
+    """`_split_merged_cells` for every borderless table of the page (`runs`, in the same order), top to bottom. The rows a
+    table took above or below it count as used for the tables after it, and a table that the rows below a table lead into
+    is searched for together with that table (`_split_merged_cells`); it is then left out.
+
+    Each table used to grow on its own from the same used lines, so a row that pdfminer merged differently between two
+    tables was taken by the table above (downwards) and by the table below (upwards): it came out in both tables, and the
+    one table stayed split in two (Pinned by: test_pdf_borderless_split_rows.py::TestRowMergedDifferentlyBetweenTwoTables).
+    """
+    starts: dict[int, int] = {}  # position in `rows` of the first row of a table → the number of that table
+    for number, run in enumerate(runs):
+        first = _row_positions(run[0], rows)
+        if first:
+            starts.setdefault(min(first), number)
+    result: list[list[list[_Line]] | None] = list(runs)
+    for number in sorted(range(len(runs)), key=lambda number: min(line.top for line in runs[number][0])):
+        if result[number] is None:
+            continue  # searched for together with a table above it
+        found, joined = _split_merged_cells(runs[number], rows, taken, max_cell, rules,
+                                            {position: runs[other] for position, other in starts.items()
+                                             if other != number and result[other] is not None})
+        result[number] = found
+        if joined is not None:
+            result[next(other for other, run in enumerate(runs) if run is joined)] = None
+        taken.update(id(original) for row in found for line in row for original in (line, line.source, *line.joined)
+                     if original is not None)
+    return [run for run in result if run is not None]
+
+
+def _row_positions(table_row: list[_Line], rows: list[list[_Line]]) -> list[int]:
+    """The positions in `rows` that hold the original lines of a table row (for a cell joined from several lines, those
+    lines)."""
+    members = {id(original) for line in table_row for original in (line, *line.joined)}
+    return [index for index, row in enumerate(rows) if any(id(line) in members for line in row)]
 
 
 def _cut_at_closing_rule(run: list[list[_Line]], rules: list[tuple[float, float, float]]) -> list[list[_Line]]:
@@ -201,7 +240,8 @@ def _cut_at_closing_rule(run: list[list[_Line]], rules: list[tuple[float, float,
 
 
 def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: set[int],
-                        max_cell: float, rules: list[tuple[float, float, float]]) -> list[list[_Line]]:
+                        max_cell: float, rules: list[tuple[float, float, float]],
+                        starts: dict[int, list[list[_Line]]] | None = None) -> tuple[list[list[_Line]], list[list[_Line]] | None]:
     """In a found borderless table (`run`) and the rows right above and below it, split the pieces in which pdfminer merged
     neighbouring cells at the wide gaps inside the line (`_Line.parts`) and search for the table again. Only rows above and
     below that continue at the row pitch and lie within the table's horizontal range are considered. The table is replaced
@@ -217,10 +257,12 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
     width, and lines of consecutive single Hangul or Hanja character pieces (letter-spaced '구    분',
     `_letter_spaced_parts`), are not split. Known accepted gap: rows whose cells are as close as ordinary word spacing
     (LibreOffice's 3px cell padding) and so have no wide gap are left as they are.
-    """
-    def splittable(line: _Line) -> bool:
-        return _splittable(line, max_cell)
 
+    Returns (table, the other table it was joined with or None). When the rows below lead, at the row pitch, into the first
+    row of another found table (`starts`: position in `rows` of a table's first row → that table), the region down to the
+    end of that table is searched for first, and it becomes one table only when exactly one table is found that holds
+    every line of both (the same conditions as above). Otherwise this table is searched for alone.
+    """
     # Only rows above and below that continue at the row pitch and lie within the table's horizontal range are considered.
     # A body line reaching into the neighbouring column is not a table header.
     # Rows below are considered too because when a row whose cells were merged differently ('광주 | 5,955 | 10.8% 감소')
@@ -239,9 +281,7 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
                        or (line.x1 > right and line.x1 - line.x0 > max_cell) for line in row)
 
     def spans(table_row: list[_Line]) -> list[int]:
-        # the positions in `rows` that hold the original lines of the table row (for a cell joined from several lines, those lines)
-        members = {id(original) for line in table_row for original in (line, *line.joined)}
-        return [index for index, row in enumerate(rows) if any(id(line) in members for line in row)]
+        return _row_positions(table_row, rows)
 
     above: list[list[_Line]] = []
     start = min(spans(run[0]), default=None)
@@ -254,20 +294,49 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
             below = row
 
     after: list[list[_Line]] = []
+    following: list[list[_Line]] | None = None  # another table the rows below lead into
     end = max(spans(run[-1]), default=None)
     if end is not None:
         upper = run[-1]
-        for row in rows[end + 1:]:
+        for position in range(end + 1, len(rows)):
+            row = rows[position]
             floor, ceiling = max(line.bottom for line in upper), min(line.top for line in row)
-            if (not joins(row) or ceiling - floor > upper[0].height * 2.5
+            if (ceiling - floor > upper[0].height * 2.5
                     or any(floor - 1 <= y <= ceiling + 1 and x0 < right and x1 > left for y, x0, x1 in rules)):
+                break
+            if not joins(row):
+                if after and starts and position in starts:
+                    following = starts[position]
                 break
             after.append(row)
             upper = row
 
-    region = [line for row in [*above, *run, *after] for line in row]
+    if following is not None:
+        last = max(_row_positions(following[-1], rows), default=-1)
+        lower = rows[end + 1 + len(after):last + 1]
+        members = {id(original) for row in following for line in row for original in (line, line.source, *line.joined)
+                   if original is not None}
+        if lower and all(id(line) in members for row in lower for line in row):
+            originals = {id(line) for row in [*run, *lower] for line in row}
+            found = _found_again([*above, *run, *after, *lower], originals, max(len(run[0]), len(following[0])), max_cell)
+            if found is not None:
+                return found, following
+
+    found = _found_again([*above, *run, *after], {id(line) for row in run for line in row}, len(run[0]), max_cell)
+    return (run if found is None else found), None
+
+
+def _found_again(region_rows: list[list[_Line]], in_run: set[int], columns: int,
+                 max_cell: float) -> list[list[_Line]] | None:
+    """The single borderless table found again from the rows `region_rows` with the merged pieces split
+    (`_split_merged_cells`): it has at least `columns` columns, holds every piece of the lines in `in_run`, and every column
+    holding a split piece has cells on two or more rows. None otherwise."""
+    def splittable(line: _Line) -> bool:
+        return _splittable(line, max_cell)
+
+    region = [line for row in region_rows for line in row]
     if not any(splittable(line) for line in region):
-        return run
+        return None
 
     # A cell joined from several lines (`_centred_band_row` etc.) is put back as its original lines. Joined cells differ in
     # height from row to row, so regrouping by top edge would scatter one row line by line. They are joined again by the
@@ -281,23 +350,22 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
             pieces += [original for original in line.joined if not original.joined] or [line]
 
     found = _table_runs(_visual_rows(pieces), max_cell)
-    if len(found) != 1 or len(found[0][0]) < len(run[0]):
-        return run
+    if len(found) != 1 or len(found[0][0]) < columns:
+        return None
     # Original lines that the re-found table holds inside a cell joined from several lines (`_row_with_lead_lines` etc.) also
     # count as held. Only after the right-aligned header '3월 비고' was split did the lead line of the first row's remark get
     # joined to '예정', so '예정' was counted as missing and the header and first row stayed outside the table (pinned by:
     # test_pdf_round47.py::TestWrappedNoteUnderARightAlignedMergedHeader)
     kept = {id(original) for row in found[0] for line in row for original in (line, *line.joined)}
-    in_run = {id(line) for row in run for line in row}
     if not all(id(piece) in kept for piece in pieces if id(piece.source or piece) in in_run):
-        return run
+        return None
 
     # A column containing a split piece must have cells on other rows too. A column produced by splitting justified text
     # inside a cell exists only on that row
     header = found[0][0]
     used = Counter(column for row in found[0] for column in {_column_of(line, header, row) for line in row})
     if any(used[_column_of(line, header, row)] < 2 for row in found[0] for line in row if line.source is not None):
-        return run
+        return None
     return found[0]
 
 

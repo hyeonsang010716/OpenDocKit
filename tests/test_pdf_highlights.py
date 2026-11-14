@@ -371,3 +371,49 @@ class TestScatteredHighlightsInAParagraph:
         assert _remaining_rects(data) == 0
         result = convert(data, "ruled.pdf")
         assert "| 항목 | 1차년도 | 2차년도 |\n| --- | --- | --- |\n| 인건비 | 300 | 320 |\n| 장비 | 150 | 50 |" in result.text
+
+
+class TestManyHighlightedLines:
+    """Telling the cells of a filled table row from highlights looked at every word of the page for every highlighted line,
+    so a tall page of 4,000 lines, each with two touching highlights, took 15 seconds."""
+
+    @staticmethod
+    def _page(lines: int) -> bytes:
+        from io import BytesIO
+
+        from reportlab.pdfgen import canvas
+
+        height = lines * 12 + 100
+        buffer = BytesIO()
+        page = canvas.Canvas(buffer, pagesize=(600, height))
+        page.setFont("Helvetica", 10)
+        first, second = page.stringWidth("ab", "Helvetica", 10), page.stringWidth("ab cd", "Helvetica", 10)
+        for line in range(lines):
+            y = height - 50 - line * 12
+            page.setFillColorRGB(1, 1, 0)
+            page.rect(40, y - 2, first, 10.5, stroke=0, fill=1)
+            page.rect(40 + first, y - 2, second - first, 10.5, stroke=0, fill=1)
+            page.setFillColorRGB(0, 0, 0)
+            page.drawString(40, y, "ab cd ef gh ij kl mn op qr st")
+        page.save()
+        return buffer.getvalue()
+
+    @pytest.mark.timing
+    def test_each_line_looks_only_at_the_words_near_it(self):
+        from io import BytesIO
+        import time
+
+        import pdfplumber
+
+        from opendockit.extractors._pdf_table_filters import _without_highlights
+
+        with pdfplumber.open(BytesIO(self._page(4000))) as document:
+            first = document.pages[0]
+            objects = (first.chars, first.rects)  # parsing time is not measured
+
+            started = time.perf_counter()
+            left = _without_highlights(first)
+            elapsed = time.perf_counter() - started
+
+            assert len(objects[1]) == 8000 and len(left.rects) == 0  # the highlights of every line are removed
+        assert elapsed < 4  # 15 seconds before
