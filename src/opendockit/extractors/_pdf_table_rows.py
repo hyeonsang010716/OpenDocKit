@@ -374,13 +374,16 @@ def _table_rows_above(above: list[list[_Line]], run: list[list[_Line]], max_cell
     and came out as lines scattered column by column (Pinned by:
     test_pdf_borderless_split_rows.py::TestSparseRowsAboveABorderlessTable). The topmost of them becomes the header row,
     with an empty fragment put in each of its empty columns (as `_blank_corner_header` does), since the header row sets
-    the table's columns.
+    the table's columns. A table whose first row holds no numeric value already has its header (text in every column), and
+    nothing above a header is a data row: the lines of a table of contents right above a 'Region | Units | Revenue' table
+    ('1. Overview of the year … 3', the page number under 'Units') became its header and the real header a data row (Pinned
+    by: test_pdf_borderless_split_rows.py::TestSparseRowsAboveABorderlessTable::test_lines_above_a_text_header_stay_out_of_the_table).
     """
     found = 0  # Number of rows to accept (from the end of `above`)
     padded = False  # whether the topmost accepted row is a data row whose empty columns get empty fragments
     below = run[0]
     columns = _cells_by_column(run)
-    data_rows = True  # every row looked at so far is a data row in the table's columns
+    data_rows = _has_number_cell(run[0])  # every row looked at so far, and the table's first row, is a data row in its columns
     for number, row in enumerate(reversed(above), start=1):
         gap = below[0].top - max(line.bottom for line in row)
         if len(row) < 2 or not _has_one_wide_cell_at_most(row, max_cell) or gap > row[0].height * 2.5:

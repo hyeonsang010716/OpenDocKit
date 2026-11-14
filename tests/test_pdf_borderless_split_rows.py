@@ -466,6 +466,28 @@ class TestSparseRowsAboveABorderlessTable:
 
         assert "| 합계 | 62,595 | 54,915 |\n| --- | --- | --- |" in text and "| 표 1" not in text
 
+    def test_lines_above_a_text_header_stay_out_of_the_table(self):
+        """The lines of a table of contents right above a table that has its header: the page number of a line sits under
+        the second column, but nothing above a header row without a numeric value is a data row. The first contents line
+        became the header and the real header a data row."""
+        def draw(pdf, index):
+            pdf.drawString(60, 790, "Contents")
+            for number, (title, page) in enumerate([("1. Overview of the year", "3"), ("2. Sales by region", "12"), ("3. Outlook", "27")]):
+                pdf.drawString(64, 770 - number * 16, title)
+                pdf.drawRightString(252, 770 - number * 16, page)
+            for number, row in enumerate([("Region", "Units", "Revenue"), ("North", "1,250", "44,288"), ("South", "980", "46,001"),
+                                          ("East", "2,680", "37,138"), ("West", "770", "66,585")]):
+                pdf.drawString(64, 722 - number * 16, row[0])
+                pdf.drawRightString(252, 722 - number * 16, row[1])
+                pdf.drawRightString(352, 722 - number * 16, row[2])
+            pdf.drawString(60, 622, "This report was prepared by the finance team.")
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == ("Contents\n1. Overview of the year 3\n2. Sales by region 12\n3. Outlook 27\n\n| Region | Units | Revenue |\n"
+                        "| --- | --- | --- |\n| North | 1,250 | 44,288 |\n| South | 980 | 46,001 |\n| East | 2,680 | 37,138 |\n"
+                        "| West | 770 | 66,585 |\n\nThis report was prepared by the finance team.")
+
     def test_two_label_rows_in_a_row_stay_in_the_table(self):
         data = _three_column_pdf(["항목0/항목1/항목2", "합계/27,368/71,946", "금액/67,601/", "비고//", "해당 없음//",
                                   "금액/88,763/", "부산//96,157", "포도/2.6%/"], header=False)
