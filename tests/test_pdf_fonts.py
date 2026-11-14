@@ -119,3 +119,47 @@ class TestType3DigitsOnALine:
         result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
 
         assert result.text == "2023"
+
+
+class TestWinAnsiUnusedCodesAreBullets:
+    """WinAnsiEncoding leaves some codes above 32 unused (7F, 81, 8D, 8F, 90, 9D), and the specification (Appendix D, note 6)
+    draws a bullet for every one of them; reportlab writes its list bullets as 7F. pdfminer has no character for them, so the
+    bullets came out as `(cid:127)`, were removed and the page got a 'no Unicode mapping' warning."""
+
+    _CONTENT = b"BT /F1 11 Tf 14 TL 72 700 Td (Intro text here) Tj T* (%s first item) Tj T* (%s second item) Tj ET"
+    _CMAP = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /X def 1 begincodespacerange <00> <FF>"
+             b" endcodespacerange 1 beginbfchar <7F> <2192> endbfchar endcmap CMapName currentdict /CMap defineresource pop end end")
+
+    def _lines(self, font: bytes, code: int = 0x7F, extra: dict[int, bytes] | None = None) -> tuple[list[str], list[str]]:
+        mark = b"\\%03o" % code
+        result = convert(_page_pdf(self._CONTENT % (mark, mark), {b"F1": font}, extra), "a.pdf",
+                         ConvertOptions(page_markers=False))
+        return [line for line in result.text.splitlines() if line], result.warnings
+
+    @pytest.mark.parametrize("code", [0x7F, 0x81, 0x8D, 0x8F, 0x90, 0x9D])
+    def test_an_unused_win_ansi_code_is_read_as_a_bullet(self, code):
+        lines, warnings = self._lines(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>", code)
+
+        assert lines == ["Intro text here", "• first item", "• second item"]
+        assert not warnings
+
+    def test_a_to_unicode_entry_for_the_code_is_kept(self):
+        lines, _ = self._lines(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding"
+                               b" /ToUnicode 9 0 R >>",
+                               extra={9: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(self._CMAP), self._CMAP)})
+
+        assert lines == ["Intro text here", "→ first item", "→ second item"]
+
+    def test_differences_naming_the_code_are_kept(self):
+        lines, _ = self._lines(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica"
+                               b" /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [127 /arrowright] >> >>")
+
+        assert lines == ["Intro text here", "→ first item", "→ second item"]
+
+    @pytest.mark.parametrize("font", [
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",  # StandardEncoding has no bullet rule
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /MacRomanEncoding >>"])
+    def test_other_encodings_get_no_bullet(self, font):
+        lines, _ = self._lines(font)
+
+        assert "•" not in "".join(lines)
