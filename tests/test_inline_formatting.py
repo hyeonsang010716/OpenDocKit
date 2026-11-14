@@ -863,3 +863,34 @@ class TestStruckScriptRuns:
             paragraph.add_run().text = "m"
 
         assert convert(_deck(build), "a.pptx").sections[0].text == "면적 10~~^2~~ m"
+
+
+class TestScriptAndStrikeAcrossALineBreak:
+    """The script and strikethrough marks of a run held its line break: a superscript run with a line break joined the two lines
+    (`x^{a b}`), and a struck superscript followed by a struck line break gave `10~~^{2~~}`, neither superscript nor strikethrough.
+    The marks close before a line break and open again after it."""
+
+    _STRUCK_SUPERSCRIPT = '<w:rPr><w:strike/><w:vertAlign w:val="superscript"/></w:rPr>'
+    _SUPERSCRIPT = '<w:rPr><w:vertAlign w:val="superscript"/></w:rPr>'
+
+    def test_struck_superscript_before_a_struck_line_break(self):
+        body = (f'<w:p><w:r><w:t>10</w:t></w:r><w:r>{self._STRUCK_SUPERSCRIPT}<w:t>2</w:t></w:r>'
+                f'<w:r>{self._STRUCK_SUPERSCRIPT}<w:br/></w:r><w:r><w:t>next line</w:t></w:r></w:p>')
+
+        assert _docx_text(body) == "10~~^2~~\nnext line"
+
+    def test_struck_superscript_run_ending_in_a_line_break(self):
+        body = (f'<w:p><w:r><w:t>x</w:t></w:r><w:r>{self._STRUCK_SUPERSCRIPT}<w:t>2</w:t><w:br/></w:r>'
+                '<w:r><w:t>y</w:t></w:r></w:p>')
+
+        assert _docx_text(body) == "x~~^2~~\ny"
+
+    def test_superscript_run_holding_a_line_break_keeps_both_lines(self):
+        body = f'<w:p><w:r><w:t>x</w:t></w:r><w:r>{self._SUPERSCRIPT}<w:t>a</w:t><w:br/><w:t>b</w:t></w:r></w:p>'
+
+        assert _docx_text(body) == "x^a\n^b"
+
+    def test_marks_without_a_line_break_are_unchanged(self):
+        from opendockit.extractors._inline import SUPERSCRIPT, mark_script, mark_strike, resolve_scripts, resolve_strikes
+
+        assert resolve_scripts(resolve_strikes("x" + mark_strike(mark_script("2", SUPERSCRIPT)))) == "x~~^2~~"
