@@ -484,6 +484,21 @@ class TestBrokenRelationshipsPart:
         assert result.text == expected
         assert any("detaching 1 missing or broken part(s)" in warning for warning in result.warnings)
 
+    def test_two_parts_of_a_main_document_type_name_no_main_part(self):
+        """With the package relationships gone, the content types name the main part only when one part has a main-document
+        type. With two, one of them was not picked: which one the document shows is not known."""
+        from opendockit.exceptions import CorruptedDocumentError
+
+        other = ('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r>'
+                 "<w:t>another document</w:t></w:r></w:p></w:body></w:document>")
+        override = ('<Override PartName="/word/another.xml" ContentType="application/vnd.openxmlformats-officedocument.'
+                    'wordprocessingml.document.main+xml"/></Types>')
+        data = builder.zip_with(builder.docx_bytes(), add={"word/another.xml": other}, edit={
+            "_rels/.rels": lambda xml: xml[:-5], "[Content_Types].xml": lambda xml: xml.replace("</Types>", override)})
+
+        with pytest.raises(CorruptedDocumentError):
+            convert(data, "a.docx")
+
     def test_percent_encoded_target_is_decoded(self):
         """`sty%6Ces.xml` is the URI form of `styles.xml`. It was looked up as written, counted as missing and the styles were
         detached with a warning."""
@@ -505,7 +520,133 @@ class TestBrokenRelationshipsPart:
         assert result.text == convert(builder.docx_bytes(), "a.docx").text and result.warnings == []
 
 
-_NOTE_PICTURE_RELATIONSHIP = f'<Relationship Id="rIdImg" Type="{_RELATIONSHIPS_NS}/image" Target="media/note.png"/>'
+_MISSING_PICTURE = f'<Relationship Id="rIdGone" Type="{_RELATIONSHIPS_NS}/image" Target="media/gone.png"/></Relationships>'
+_SHEET_NAMED_AS_WRITTEN = ('<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">'
+                           '<c r="A1" t="inlineStr"><is><t>named as written</t></is></c></row></sheetData></worksheet>')
+
+
+def _xlsx_with_parts() -> bytes:
+    """Two sheets; the first has a comment, a chart and a picture."""
+    import openpyxl
+    from openpyxl.chart import BarChart, Reference
+    from openpyxl.comments import Comment
+    from openpyxl.drawing.image import Image
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "One"
+    for row in range(1, 5):
+        sheet.append([f"a{row}", row])
+    sheet["A1"].comment = Comment("remark", "me")
+    chart = BarChart()
+    chart.title = "Chart T"
+    chart.add_data(Reference(sheet, min_col=2, min_row=1, max_row=4))
+    sheet.add_chart(chart, "D2")
+    sheet.add_image(Image(BytesIO(builder.png_bytes())), "D20")
+    workbook.create_sheet("Two").append(["second sheet"])
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+class TestPercentEncodedTargets:
+    """A relationship target is a URI: `im%61ge1.png` names the part `image1.png` (OPC). Only a package that failed to open had
+    its targets decoded (`_package.repair_package`), and that is a DOCX: python-pptx and openpyxl leave out a part they do not
+    find under the name as written, so a slide was reported as unreadable, a sheet was left out without a word, and pictures,
+    notes, comments and charts were gone. A part named as written wins when it exists (a file name may hold a percent sign)."""
+
+    @pytest.mark.parametrize(("relationships", "written", "encoded"), [
+        pytest.param("ppt/_rels/presentation.xml.rels", "slides/slide1.xml", "slides/slide%31.xml", id="slide"),
+        pytest.param("ppt/slides/_rels/slide1.xml.rels", "../media/image1.png", "../media/im%61ge1.png", id="picture"),
+        pytest.param("ppt/slides/_rels/slide2.xml.rels", "../notesSlides/notesSlide1.xml", "../notesSlides/notesSl%69de1.xml",
+                     id="notes"),
+        pytest.param("ppt/slides/_rels/slide3.xml.rels", "../charts/chart1.xml", "../charts/ch%61rt1.xml", id="chart"),
+        pytest.param("_rels/.rels", "ppt/presentation.xml", "ppt/present%61tion.xml", id="main part"),
+    ])
+    def test_pptx_part_is_read(self, relationships, written, encoded):
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        presentation = Presentation(BytesIO(builder.pptx_bytes()))
+        presentation.slides[0].shapes.add_picture(BytesIO(builder.png_bytes()), Inches(1), Inches(1))
+        buffer = BytesIO()
+        presentation.save(buffer)
+        data = buffer.getvalue()
+        expected = convert(data, "a.pptx")
+        assert len(expected.images) == 1 and "[Chart]" in expected.text and "여기서 수치를 강조" in expected.text
+
+        result = convert(builder.zip_with(data, edit={relationships: lambda xml: xml.replace(written, encoded)}), "a.pptx")
+
+        assert (result.text, len(result.images), result.warnings) == (expected.text, 1, [])
+
+    def test_pptx_part_named_as_written_wins_over_the_decoded_name(self):
+        data = builder.zip_with(
+            builder.pptx_with_image(),
+            edit={"ppt/slides/_rels/slide1.xml.rels": lambda xml: xml.replace("../media/image1.png", "../media/im%61ge1.png")},
+            add={"ppt/media/im%61ge1.png": builder.png_bytes(120, 200, seed=7)})
+
+        result = convert(data, "a.pptx")
+
+        assert [(image.width, image.height) for image in result.images] == [(120, 200)]
+
+    def test_docx_literal_name_is_kept_in_a_repaired_package_when_only_it_exists(self):
+        """A missing picture sends the package through the repair; the styles part exists only under the name with the percent
+        sign. Decoded without looking, the relationship pointed at no part and the document was rejected."""
+        data = _rebuilt(builder.docx_bytes(), rename={"word/styles.xml": "word/sty%6Ces.xml"}, edit={
+            "word/_rels/document.xml.rels": lambda xml: (xml.replace('Target="styles.xml"', 'Target="sty%6Ces.xml"')
+                                                         .replace("</Relationships>", _MISSING_PICTURE)),
+            "[Content_Types].xml": lambda xml: xml.replace("/word/styles.xml", "/word/sty%6Ces.xml")})
+
+        result = convert(data, "a.docx")
+
+        assert result.text == convert(builder.docx_bytes(), "a.docx").text
+        assert len(result.warnings) == 1 and "detaching 1 missing or broken part(s) (gone.png)" in result.warnings[0]
+
+    def test_docx_part_named_as_written_wins_in_a_repaired_package(self):
+        data = _rebuilt(
+            builder.docx_with_images(),
+            edit={"word/_rels/document.xml.rels": lambda xml: (xml.replace("media/image1.png", "media/im%61ge1.png")
+                                                               .replace("</Relationships>", _MISSING_PICTURE))},
+            add={"word/media/im%61ge1.png": builder.png_bytes(120, 200, seed=7)})
+
+        result = convert(data, "a.docx")
+
+        assert (result.images[0].width, result.images[0].height) == (120, 200)
+        assert len(result.warnings) == 1 and "detaching 1 missing or broken part(s) (gone.png)" in result.warnings[0]
+
+    @pytest.mark.parametrize(("relationships", "written", "encoded"), [
+        pytest.param("xl/_rels/workbook.xml.rels", "worksheets/sheet1.xml", "worksheets/sh%65et1.xml", id="first sheet"),
+        pytest.param("xl/_rels/workbook.xml.rels", "worksheets/sheet2.xml", "worksheets/sh%65et2.xml", id="second sheet"),
+        pytest.param("xl/worksheets/_rels/sheet1.xml.rels", "comment1.xml", "comm%65nt1.xml", id="comments"),
+        pytest.param("xl/worksheets/_rels/sheet1.xml.rels", "drawing1.xml", "dr%61wing1.xml", id="drawing"),
+        pytest.param("xl/drawings/_rels/drawing1.xml.rels", "chart1.xml", "ch%61rt1.xml", id="chart"),
+        pytest.param("xl/drawings/_rels/drawing1.xml.rels", "image1.png", "im%61ge1.png", id="picture"),
+    ])
+    def test_xlsx_part_is_read(self, relationships, written, encoded):
+        data = _xlsx_with_parts()
+        expected = convert(data, "a.xlsx")
+        assert len(expected.images) == 1 and len(expected.sections) == 2
+        assert "remark" in expected.text and "Chart T" in expected.text and "second sheet" in expected.text
+
+        result = convert(builder.zip_with(data, edit={relationships: lambda xml: xml.replace(written, encoded)}), "a.xlsx")
+
+        assert (result.text, len(result.images), result.warnings) == (expected.text, 1, [])
+
+    def test_xlsx_part_named_as_written_wins_over_the_decoded_name(self):
+        data = builder.zip_with(
+            _xlsx_with_parts(),
+            edit={"xl/_rels/workbook.xml.rels": lambda xml: xml.replace("worksheets/sheet2.xml", "worksheets/sh%65et2.xml"),
+                  "[Content_Types].xml": lambda xml: xml.replace(
+                      "</Types>", '<Override PartName="/xl/worksheets/sh%65et2.xml" ContentType="application/vnd.openxmlformats-'
+                                  'officedocument.spreadsheetml.worksheet+xml"/></Types>')},
+            add={"xl/worksheets/sh%65et2.xml": _SHEET_NAMED_AS_WRITTEN})
+
+        result = convert(data, "a.xlsx")
+
+        assert "named as written" in result.sections[1].text and "second sheet" not in result.text
+
+
+_NOTE_PICTURE_RELATIONSHIP =f'<Relationship Id="rIdImg" Type="{_RELATIONSHIPS_NS}/image" Target="media/note.png"/>'
 _OLE = ('<w:r><w:object xmlns:o="urn:schemas-microsoft-com:office:office">'
         '<o:OLEObject Type="Embed" ProgID="Excel.Sheet.12" ShapeID="s1"/></w:object></w:r>')
 

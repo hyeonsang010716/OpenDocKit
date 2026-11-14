@@ -16,7 +16,7 @@ import re
 from lxml import etree
 
 from opendockit.extractors._lists import MAX_LEVEL, cell_level_mark
-from opendockit.extractors._package import _PACKAGE_RELATIONSHIPS, _relationships_of, _resolve_target, decimal_int, parse_part
+from opendockit.extractors._package import _PACKAGE_RELATIONSHIPS, _relationships_of, _resolve_target, decimal_int, named_part, parse_part
 from opendockit.markdown import TableGrid, render_table
 
 
@@ -132,7 +132,8 @@ def package_loader(load_part: Callable[[str], bytes | None], name: str) -> Calla
         root = parse_part(data) if data else None
         for element in root.iter(f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship") if root is not None else []:
             if element.get("Id") == relationship and element.get("TargetMode") != "External":
-                return load_part(_resolve_target(posixpath.dirname(name), element.get("Target", "")))
+                target = _resolve_target(posixpath.dirname(name), element.get("Target", ""))
+                return load_part(named_part(target, lambda part: load_part(part) is not None))
         return None
 
     return load

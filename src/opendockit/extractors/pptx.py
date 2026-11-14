@@ -6,11 +6,14 @@ a person reads a slide.
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from io import BytesIO
 import re
+from urllib.parse import unquote
 
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.exc import InvalidXmlError, PackageNotFoundError
-from pptx.opc.package import PartFactory
+from pptx.opc.package import PartFactory, _PackageLoader
+from pptx.opc.packuri import PACKAGE_URI, PackURI
 from pptx.package import Package
 from pptx.parts.presentation import PresentationPart
 from pptx.shapes.group import GroupShape
@@ -132,6 +135,37 @@ def _reject_strict(data: bytes) -> None:
                                      "Please save the file again in PowerPoint as 'PowerPoint Presentation (.pptx)'.")
 
 
+class _DecodingLoader(_PackageLoader):
+    """python-pptx's package loader, reading a percent-encoded relationship target as the part it names. A target is a URI, so
+    `im%61ge1.png` stands for `image1.png` (OPC). The library looks a target up as written and leaves a part it does not find out
+    without an error, so `_package.repair_package`, which decodes targets for a package that fails to open, was never reached: the
+    picture, the notes and the chart of such a relationship were gone with no warning, and a slide was reported as unreadable.
+    The rule is that of `repair_package`: the part named as written wins when it exists, otherwise the decoded name is used when
+    that part exists (Pinned by: test_office_robustness.py::TestPercentEncodedTargets)."""
+
+    def _xml_rels_for(self, partname: PackURI) -> object:
+        relationships = super()._xml_rels_for(partname)
+        base = partname.baseURI
+        for relationship in relationships.relationship_lst:
+            written = relationship.get("Target") or ""
+            if "%" not in written or relationship.get("TargetMode") == "External":
+                continue
+            decoded = unquote(written)
+            # `from_rel_ref` only joins and normalizes the path, as it does for every target the library reads
+            if (PackURI.from_rel_ref(base, written) not in self._package_reader
+                    and PackURI.from_rel_ref(base, decoded) in self._package_reader):
+                relationship.set("Target", decoded)
+        return relationships
+
+
+def _open_presentation(stream: BytesIO) -> Package:
+    """`Package.open` with `_DecodingLoader` in place of the library's loader (the two lines of `OpcPackage._load`)."""
+    package = Package(stream)
+    package_relationships, parts = _DecodingLoader.load(stream, package)
+    package._rels.load_from_xml(PACKAGE_URI, package_relationships, parts)
+    return package
+
+
 def extract_pptx(data: bytes, options: ConvertOptions) -> Extraction:
     # `pptx.Presentation()` accepts only a main part whose content type name is .pptx or .pptm. Shows (.ppsx, .ppsm) and templates
     # (.potx, .potm) differ only in name and have the same structure, so the package is opened directly and only checked for being a
@@ -142,7 +176,7 @@ def extract_pptx(data: bytes, options: ConvertOptions) -> Extraction:
     # (`_package.is_strict_package`).
     extraction = Extraction()
     try:
-        part = open_package(Package.open, data, extraction.warnings).main_document_part
+        part = open_package(_open_presentation, data, extraction.warnings).main_document_part
     except (PackageNotFoundError, KeyError, ValueError) as exc:
         _reject_strict(data)
         raise CorruptedDocumentError("The PPTX document structure could not be read.") from exc

@@ -15,7 +15,7 @@ from openpyxl.utils.cell import coordinate_to_tuple
 
 from opendockit.extractors._charts import package_loader, render_chart, render_chartex, render_smartart
 from opendockit.extractors._openpyxl_reading import _READING, _CellPicture
-from opendockit.extractors._package import _XML_PARSER, decimal_int, parse_part
+from opendockit.extractors._package import _XML_PARSER, decimal_int, named_part, parse_part
 from opendockit.extractors._sheet_layout import (
     _CHECKED,
     _UNCHECKED,
@@ -53,7 +53,7 @@ def _workbook_path(archive: zipfile.ZipFile, names: set[str]) -> str:
             return "xl/workbook.xml"
         for relationship in root.iter(_RELATIONSHIPS):
             if relationship.get("Type") == _OFFICE_DOCUMENT:
-                return relationship.get("Target", "").lstrip("/")
+                return named_part(relationship.get("Target", "").lstrip("/"), names.__contains__)
     return "xl/workbook.xml"
 
 
@@ -546,7 +546,7 @@ def _related(archive: zipfile.ZipFile, names: set[str], source: str, kind: str |
             continue
         target = relationship.get("Target", "")
         path = target.lstrip("/") if target.startswith("/") else posixpath.normpath(posixpath.join(folder, target))
-        targets[relationship.get("Id", "")] = path
+        targets[relationship.get("Id", "")] = named_part(path, names.__contains__)
     return targets
 
 

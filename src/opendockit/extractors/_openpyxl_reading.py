@@ -32,7 +32,7 @@ from openpyxl.worksheet.merge import MergeCell, MergeCells
 from openpyxl.xml.constants import SHEET_MAIN_NS
 from openpyxl.xml.functions import iterparse as _openpyxl_iterparse
 
-from opendockit.extractors._package import _XML_PARSER, decimal_int
+from opendockit.extractors._package import _XML_PARSER, decimal_int, named_part
 
 
 # When the value of a date-formatted cell is outside the date range (9999-12-31), openpyxl turns it into a '#VALUE!' error cell and
@@ -396,8 +396,30 @@ _RELATIONS_LEFT_UNREAD = frozenset((
 _get_dependents = _openpyxl_excel_reader.get_dependents
 
 
-def _dependents_left_to_openpyxl(archive: object, filename: str) -> object:
+def _dependents_with_named_parts(archive: object, filename: str) -> object:
+    """openpyxl's relationships of a part; while reading, a percent-encoded target that names no part as written is replaced by
+    the part its decoded form names (`_package.named_part`). openpyxl looks a target up as written: the sheet behind
+    `worksheets/sh%65et1.xml` was left out of the workbook without a warning
+    (Pinned by: test_office_robustness.py::TestPercentEncodedTargets::test_xlsx_part_is_read)."""
     relations = _get_dependents(archive, filename)
+    if _READING.get() is None:
+        return relations
+
+    def exists(name: str) -> bool:
+        try:
+            archive.getinfo(name)
+        except KeyError:
+            return False
+        return True
+
+    for relation in relations:
+        if relation.TargetMode != "External" and relation.target and "%" in relation.target:
+            relation.target = named_part(relation.target, exists)
+    return relations
+
+
+def _dependents_left_to_openpyxl(archive: object, filename: str) -> object:
+    relations = _dependents_with_named_parts(archive, filename)
     if _READING.get() is None:
         return relations
 
@@ -410,6 +432,7 @@ def _dependents_left_to_openpyxl(archive: object, filename: str) -> object:
 
 _openpyxl_sheet_reader.WorkSheetParser.parse = _parse_cells_and_merges
 _openpyxl_excel_reader.get_dependents = _dependents_left_to_openpyxl
+_openpyxl_workbook_reader.get_dependents = _dependents_with_named_parts
 
 
 # The conversion uses only the title (`metadata["title"]`) from the document properties. When openpyxl could not read a single

@@ -190,10 +190,12 @@ def repair_package(data: bytes) -> tuple[bytes, str | None] | None:
                 written = relationship.get("Target", "")
                 target = _resolve_target(base, written)
                 # A target is a URI, so `%6C` stands for 'l' (OPC). The libraries look the target up as written, so a decoded
-                # target that names a readable part is written back decoded; the literal name is kept when only it exists
-                # (Pinned by: test_office_robustness.py::TestBrokenRelationshipsPart::test_percent_encoded_target_is_decoded).
+                # target that names a readable part is written back decoded. A part named as written wins when it exists (a
+                # file name may hold a percent sign), also over a part with the decoded name
+                # (Pinned by: test_office_robustness.py::TestPercentEncodedTargets).
                 decoded = unquote(written)
-                if decoded != written and _is_readable(archive, names, content_type_of, readable, _resolve_target(base, decoded)):
+                if (decoded != written and target not in names
+                        and _is_readable(archive, names, content_type_of, readable, _resolve_target(base, decoded))):
                     relationship.set("Target", decoded)
                     decoded_targets += 1
                     changed = True
@@ -260,6 +262,18 @@ def _resolve_target(base: str, target: str) -> str:
     return posixpath.normpath(posixpath.join("/" + base, target)).lstrip("/")
 
 
+def named_part(name: str, exists: Callable[[str], bool]) -> str:
+    """The part a resolved relationship target names, for the readers that look parts up themselves (XLSX parts, HWPX chart
+    relationships): `name` as written when that part exists or holds no percent sign, otherwise its decoded form when that part
+    exists — the rule of `repair_package`. openpyxl and the part readers of the converter looked the target up as written, so a
+    sheet behind `sh%65et1.xml` was left out without a word, and so were the comments, pictures and charts of a sheet
+    (Pinned by: test_office_robustness.py::TestPercentEncodedTargets)."""
+    if "%" not in name or exists(name):
+        return name
+    decoded = posixpath.normpath(unquote(name))
+    return decoded if exists(decoded) else name
+
+
 def _parse_member(archive: zipfile.ZipFile, name: str) -> etree._Element | None:
     """Root of an XML member. None when it does not parse or cannot be read out of the archive."""
     try:
@@ -311,7 +325,9 @@ def _main_part(archive: zipfile.ZipFile, names: set[str]) -> str | None:
 
 def _main_part_by_content_type(archive: zipfile.ZipFile, names: set[str]) -> str | None:
     """The only part whose content-type override is a main-document type (`document.main+xml`, `presentation.main+xml`, their
-    macro-enabled and template forms). None when there is not exactly one or it is not in the package."""
+    macro-enabled and template forms). None when there is not exactly one or it is not in the package: with two, which of them
+    the document shows is not known (Pinned by: test_office_robustness.py::TestBrokenRelationshipsPart::
+    test_two_parts_of_a_main_document_type_name_no_main_part)."""
     root = _parse_member(archive, "[Content_Types].xml") if "[Content_Types].xml" in names else None
     if root is None:
         return None

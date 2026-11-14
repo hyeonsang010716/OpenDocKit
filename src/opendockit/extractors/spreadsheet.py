@@ -24,7 +24,7 @@ from openpyxl.worksheet.formula import ArrayFormula
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._openpyxl_reading import _RAW_OUT_OF_RANGE_SERIALS, _READING, _CellPicture, _CellReading, _is_number
-from opendockit.extractors._package import _XML_PARSER
+from opendockit.extractors._package import _XML_PARSER, named_part
 from opendockit.extractors._sheet_format import _format_value, _format_within_length, _is_weekday_only, _shows_date, format_cell
 from opendockit.extractors._sheet_layout import (
     _MAX_MERGED_CELLS,
@@ -488,8 +488,8 @@ def _written_without_calculation(archive: zipfile.ZipFile) -> bool:
             package = etree.fromstring(archive.read("_rels/.rels"), parser=_XML_PARSER)
         except etree.XMLSyntaxError:
             return False
-        path = next((relationship.get("Target", "").lstrip("/") for relationship in package.iter(_RELATIONSHIPS)
-                     if relationship.get("Type") == _EXTENDED_PROPERTIES), path)
+        path = next((named_part(relationship.get("Target", "").lstrip("/"), names.__contains__)
+                     for relationship in package.iter(_RELATIONSHIPS) if relationship.get("Type") == _EXTENDED_PROPERTIES), path)
     try:
         properties = etree.fromstring(archive.read(path), parser=_XML_PARSER)
     except (KeyError, etree.XMLSyntaxError):
