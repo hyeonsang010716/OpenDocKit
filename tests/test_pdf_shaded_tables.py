@@ -276,3 +276,202 @@ def test_many_bands_on_a_page_with_many_letters_take_linear_time():
         elapsed = time.perf_counter() - started
 
     assert len(objects) > 40000 and elapsed < 4
+
+
+def _striped_pages_pdf(pages: int) -> bytes:
+    """`pages` pages, each with a table whose every second row is shaded cell by cell (no rules)."""
+    def draw(pdf, index):
+        from reportlab.lib import colors
+
+        edges = [60.0]
+        for width in _WIDTHS:
+            edges.append(edges[-1] + width)
+        for row, cells in enumerate(_ROWS):
+            y = 740.0 - row * 22
+            if row % 2:
+                pdf.setFillColor(colors.HexColor("#E8EEF7"))
+                for x0, x1 in zip(edges, edges[1:], strict=False):
+                    pdf.rect(x0, y - 22, x1 - x0, 22, stroke=0, fill=1)
+            pdf.setFillColor(colors.black)
+            for x0, text in zip(edges, cells, strict=False):
+                pdf.drawString(x0 + 6, y - 15, text)
+        pdf.drawString(60, 200, f"{index + 1}쪽 본문")
+
+    return _korean_pdf(draw, pages=pages)
+
+
+class TestCharactersByTop:
+    """The page's characters sorted by top (`_chars_by_top`) were kept on the pdfplumber page by themselves: every page read
+    held its characters until the end of the document, and a page read again got the old characters."""
+
+    def test_the_list_is_dropped_when_the_page_tables_have_been_read(self, monkeypatch):
+        import opendockit.extractors.pdf as pdf_module
+
+        read, holding = pdf_module._read_page, []
+
+        def spy(page, *args, **kwargs):
+            result = read(page, *args, **kwargs)
+            holding.append(any(key in page.__dict__ for key in ("_chars_by_top", "_page_indexes")))
+            return result
+
+        monkeypatch.setattr(pdf_module, "_read_page", spy)
+        result = convert(_striped_pages_pdf(3), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert holding == [False, False, False]
+        assert result.text.count("| 서울 본점 | 1,250 | +12% | 김민수 |") == 3
+
+    def test_a_page_read_again_gets_its_new_characters(self):
+        from io import BytesIO
+
+        import pdfplumber
+
+        from opendockit.extractors._pdf_shaded_tables import _chars_by_top
+
+        with pdfplumber.open(BytesIO(_striped_pages_pdf(1))) as document:
+            page = document.pages[0]
+            old = _chars_by_top(page)[1][0]
+            page.close()
+            fresh = min((char for char in page.chars if char["text"].strip()), key=lambda char: char["top"])
+
+            assert _chars_by_top(page)[1][0] is fresh
+            assert fresh is not old
+
+
+def _grid_beside_bars_pdf(size: int, bars: int) -> bytes:
+    """A ruled `size` × `size` grid of small cells and, to its right, `bars` small filled squares (a bar chart)."""
+    from io import BytesIO
+
+    from reportlab.lib import colors
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(1200, 1200))
+    pdf.setFont("Helvetica", 5)
+    for line in range(size + 1):
+        pdf.line(20, 20 + line * 10, 20 + size * 10, 20 + line * 10)
+        pdf.line(20 + line * 10, 20, 20 + line * 10, 20 + size * 10)
+    for row in range(size):
+        for column in range(size):
+            pdf.drawString(22 + column * 10, 23 + row * 10, str((row * size + column) % 10))
+    pdf.setFillColor(colors.HexColor("#3366cc"))
+    for bar in range(bars):
+        pdf.rect(700 + (bar % 60) * 7, 20 + (bar // 60) * 7, 4, 4, stroke=0, fill=1)
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestShadingOutsideTheTable:
+    """Whether a ruled table has cell shading was measured against every shading rectangle of the page for every cell (and
+    measured twice), so a 60 × 60 grid beside 3,000 small filled bars spent 10 seconds there."""
+
+    def test_rectangles_away_from_a_table_are_not_measured_for_its_cells(self, monkeypatch):
+        import opendockit.extractors._pdf_shaded_tables as shaded
+
+        fill_cover, measured = shaded._fill_cover, [0]
+
+        def counting(cell, fills):
+            measured[0] += len(fills)
+            return fill_cover(cell, fills)
+
+        monkeypatch.setattr(shaded, "_fill_cover", counting)
+        text = convert(_grid_beside_bars_pdf(20, 600), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert measured[0] < 20_000  # 480,000 before: 400 cells × 600 bars, twice
+        assert "| 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 0 | 1 |" in text
+
+    def test_fill_cover_of_the_touching_rectangles_equals_the_full_sum(self):
+        import random
+
+        from opendockit.extractors._pdf_shaded_tables import _by_area, _fill_cover, _touching_each
+
+        rng = random.Random(7)
+        rects = _by_area([{"x0": x, "x1": x + rng.uniform(1, 40), "top": y, "bottom": y + rng.uniform(1, 40)}
+                          for x, y in ((rng.uniform(0, 300), rng.uniform(-50, 300)) for _ in range(400))]
+                         + [{"x0": -1e9, "x1": 1e9, "top": 0.0, "bottom": float("inf")}])
+        cells = [(x, y, x + rng.uniform(0.5, 60), y + rng.uniform(0.5, 60))
+                 for x, y in ((rng.uniform(0, 300), rng.uniform(0, 300)) for _ in range(300))] + [None]
+
+        assert [_fill_cover(cell, touching) if cell else None for cell, touching in _touching_each(cells, rects)] == [
+            _fill_cover(cell, rects) if cell else None for cell in cells]
+
+
+def _long_zebra_with_groups_pdf(rows: int) -> bytes:
+    """A striped table of `rows` rows (shaded cell by cell on even rows, no rules) whose first column has a group cell
+    merged over two rows starting on every shaded row, so the table found from the fill rectangles has holes on the unshaded
+    rows (`_regridded_fragments`)."""
+    from io import BytesIO
+
+    from reportlab.lib import colors
+    from reportlab.pdfgen import canvas
+
+    edges, height = [40.0, 140.0, 240.0, 340.0, 440.0], 18.0
+    size = rows * height + 120
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(600, size))
+    pdf.setFont("Helvetica", 10)
+    for row in range(rows):
+        y = size - 60 - row * height
+        pdf.setFillColor(colors.HexColor("#DDDDDD"))
+        if row % 2 == 0:
+            pdf.rect(edges[0], y - 2 * height, edges[1] - edges[0], 2 * height, stroke=0, fill=1)
+            for x0, x1 in zip(edges[1:], edges[2:], strict=False):
+                pdf.rect(x0, y - height, x1 - x0, height, stroke=0, fill=1)
+        pdf.setFillColor(colors.black)
+        if row % 2 == 0:
+            pdf.drawString(edges[0] + 5, y - height - 4, f"G{row // 2}")
+        for column, x0 in enumerate(edges[1:4]):
+            pdf.drawString(x0 + 5, y - 13, f"{row}-{column} abcdef")
+    pdf.drawString(40, 30, "end.")
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestLongZebraTableWithMergedGroups:
+    """Joining the fragments of a long striped table with merged groups looked at every character of the table for every row
+    boundary and column, and compared every pair of characters of neighbouring columns: 14 seconds for 700 rows."""
+
+    def test_rows_stay_in_order_with_their_groups(self):
+        text = convert(_long_zebra_with_groups_pdf(40), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text.startswith("| G0 | 0-0 abcdef | 0-1 abcdef | 0-2 abcdef |\n| --- | --- | --- | --- |\n"
+                               "| G0 | 1-0 abcdef | 1-1 abcdef | 1-2 abcdef |\n| G1 | 2-0 abcdef |")
+        assert "| G19 | 39-0 abcdef | 39-1 abcdef | 39-2 abcdef |" in text
+
+    @pytest.mark.timing
+    def test_fragments_of_a_long_table_are_joined_in_linear_time(self, monkeypatch):
+        import time
+
+        import opendockit.extractors._pdf_shaded_tables as shaded
+
+        regridded, spent = shaded._regridded_fragments, [0.0]
+
+        def timed(*args):
+            started = time.perf_counter()
+            try:
+                return regridded(*args)
+            finally:
+                spent[0] += time.perf_counter() - started
+
+        monkeypatch.setattr(shaded, "_regridded_fragments", timed)
+        text = convert(_long_zebra_with_groups_pdf(400), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| G199 | 399-0 abcdef | 399-1 abcdef | 399-2 abcdef |" in text
+        assert spent[0] < 1.5  # about 4 seconds before
+
+
+def test_band_whose_only_text_lies_on_its_edge_does_not_end_the_text():
+    """Characters of no height lying exactly on the top edge of a band are the band's text for `_band_cells` but have no
+    middle inside it, so `_ends_the_text` took the end of an empty list."""
+    from opendockit.extractors._pdf_shaded_tables import _band_cells, _ends_the_text
+
+    class Page:
+        objects: dict = {}
+
+        def __init__(self, chars):
+            self.chars = chars
+
+    page = Page([{"text": text, "x0": x, "x1": x + 5, "top": 10.0, "bottom": 10.0, "size": 10} for text, x in (("a", 10), ("b", 60))])
+
+    assert _band_cells(page, (10.0, 20.0), [0.0, 50.0, 100.0]) == [(10, 15), (60, 65)]
+    assert _ends_the_text(page, (10.0, 20.0), 1, 0.0, 100.0, 10.0) is False
+    assert _ends_the_text(page, (10.0, 20.0), -1, 0.0, 100.0, 10.0) is False

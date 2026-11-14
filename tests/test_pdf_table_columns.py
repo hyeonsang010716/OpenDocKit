@@ -154,6 +154,33 @@ class TestTableContinuedOnTheNextPage:
     that starts at the very top of a page with nothing in between and has the same columns (count and horizontal positions) as the table at the
     bottom of the previous page reuses that table's header."""
 
+    def test_header_cell_on_two_lines_is_measured_without_its_line_break(self):
+        """The length bound of a header cell (`_HEADER_CELL_MAX_CHARS`, line breaks excluded) counted the line break of a
+        ruled cell's text, so a 30-character header cell set on two lines was too long and the header was not carried."""
+        columns, height = [60.0, 120.0, 330.0, 420.0], 30.0
+
+        def row(pdf, top, cells):
+            pdf.line(columns[0], top, columns[-1], top)
+            pdf.line(columns[0], top - height, columns[-1], top - height)
+            for x in columns:
+                pdf.line(x, top, x, top - height)
+            for x, text in zip(columns, cells, strict=False):
+                for line, part in enumerate(text.split("\n")):
+                    pdf.drawString(x + 5, top - 12 - line * 11, part)
+
+        def draw(pdf, index):
+            top = 780.0
+            rows = ([["번호", "구분\n(unit: KRW thousand, FY2024)", "비고"], *([str(n), f"항목 {n}", "확인"] for n in range(1, 5))]
+                    if index == 0 else [[str(n), f"항목 {n}", "확인"] for n in range(5, 8)])
+            for cells in rows:
+                row(pdf, top, cells)
+                top -= height
+
+        sections = convert(_korean_pdf(draw, pages=2), "a.pdf", ConvertOptions(page_markers=False)).sections
+
+        assert sections[1].text.startswith("| 번호 | 구분<br>(unit: KRW thousand, FY2024) | 비고 |\n| --- | --- | --- |\n"
+                                           "| 5 | 항목 5 | 확인 |")
+
     @pytest.mark.parametrize("ruled", [True, False], ids=["ruled", "borderless"])
     def test_table_continued_without_its_header_reuses_the_header_of_the_previous_page(self, ruled):
         result = convert(_long_table_pdf(ruled), "a.pdf")
@@ -809,6 +836,44 @@ class TestMergedCellOpenAtThePageEnd:
         assert f"| {cell} | 과제 5 | 5,555 |\n| {cell} | 과제 6 | 6,666 |" in sections[0].text
         assert sections[0].text.count("팀2") == 2
         assert f"| {cell} | 과제 7 | 7,777 |" in sections[1].text
+
+    def test_new_table_with_its_own_header_does_not_get_the_open_cell(self):
+        """A different table with the same columns at the top of the next page, starting with its own header (no numbers,
+        numbers in the row below) and a blank corner cell, got the open cell's text '그룹2 담당: 팀2' in that corner."""
+        columns, height = [60.0, 160.0, 260.0, 360.0], 22.0
+
+        def row_lines(pdf, top, cells, first_open=False, last_open=False):
+            pdf.line(columns[1] if first_open else columns[0], top, columns[-1], top)
+            pdf.line(columns[1] if last_open else columns[0], top - height, columns[-1], top - height)
+            for x in columns:
+                pdf.line(x, top, x, top - height)
+            for x, text in zip(columns, cells, strict=False):
+                if text:
+                    pdf.drawString(x + 5, top - 15, text)
+
+        def draw(pdf, index):
+            top = 780.0
+            if index == 0:
+                row_lines(pdf, top, ["그룹", "과제", "예산"])
+                top -= height
+                for number in range(1, 5):
+                    row_lines(pdf, top, ["그룹1 담당: 팀1" if number == 1 else "", f"과제 {number}", f"{number * 1111:,}"],
+                              first_open=number > 1, last_open=number < 4)
+                    top -= height
+                for number in (5, 6):
+                    row_lines(pdf, top, ["그룹2 담당: 팀2" if number == 5 else "", f"과제 {number}", f"{number * 1111:,}"],
+                              first_open=number > 5, last_open=True)
+                    top -= height
+            else:
+                for cells in (["", "지출 항목", "금액"], ["교통", "택시", "12,000"], ["식비", "점심", "9,000"],
+                              ["숙박", "호텔", "80,000"]):
+                    row_lines(pdf, top, cells)
+                    top -= height
+
+        sections = convert(_korean_pdf(draw, pages=2), "a.pdf", ConvertOptions(page_markers=False)).sections
+
+        assert sections[1].text.startswith("| | 지출 항목 | 금액 |\n| --- | --- | --- |\n| 교통 | 택시 | 12,000 |")
+        assert "그룹2" not in sections[1].text
 
 
 def _wide_first_column_pdf(centred: bool = False) -> bytes:

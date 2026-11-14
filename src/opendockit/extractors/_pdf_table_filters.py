@@ -5,6 +5,7 @@ advance, highlights drawn behind text, and rows of cells that are a tiled backgr
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable
 from itertools import accumulate, pairwise
+import math
 
 
 # Highlighter rectangle (`_without_highlights`): its height is at most this multiple of the size of the covered characters, its
@@ -195,12 +196,24 @@ def _without_cell_rows(page: object, marks: list[tuple[dict, list[dict]]]) -> li
     painted = {(round(char["x0"], 1), round(char["top"], 1)) for _, inside in marks for char in inside}
     words = [word for word in page.extract_words(return_chars=True)
              if (round(word["chars"][0]["x0"], 1), round(word["chars"][0]["top"], 1)) not in painted]
+    # Each line looks only at the words within its reach, sorted by top once — scanning every word of the page for every
+    # line took time with the square of the lines (2,000 highlighted lines: 2.7 seconds) (Pinned by:
+    # test_pdf_highlights.py::TestManyHighlightedLines)
+    ordered = sorted((word for word in words if math.isfinite(word["top"])), key=lambda word: word["top"])
+    tops = [word["top"] for word in ordered]
     cells = set()
     for top, line in lines.items():
+        if len(line) < 2 or not _tiled_row(line):
+            continue
         size = max(char["size"] for _, inside in line for char in inside)
         reach = size * _CELL_ROW_REACH
-        near = [word for word in words if size / 2 < abs(word["top"] - top) <= reach]
-        if (len(line) >= 2 and _tiled_row(line) and not any(abs(word["top"] - top) <= size / 2 for word in words)
+        if math.isfinite(top) and math.isfinite(reach):
+            window = abs(reach) + abs(size) + 1
+            nearby = ordered[bisect_left(tops, top - window):bisect_right(tops, top + window)]
+        else:
+            nearby = words
+        near = [word for word in nearby if size / 2 < abs(word["top"] - top) <= reach]
+        if (not any(abs(word["top"] - top) <= size / 2 for word in nearby)
                 and all(_aligned_with_any(inside, near) for _, inside in line)):
             cells.update(id(rect) for rect, _ in line)
     return [mark for mark in marks if id(mark[0]) not in cells]

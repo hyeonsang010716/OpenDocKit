@@ -95,3 +95,38 @@ class TestNestedTables:
 
         assert ("| 학력 | 2015~2017 | 한국대학교 대학원 | 인공지능 | 석사 |\n| 학력 | (단위: 천원) | | | |\n"
                 "| 경력 | 기간 | 회사명 | 직위 | 담당업무 |") in result.text
+
+    def test_columns_right_of_the_inner_table_stay_aligned(self):
+        """When the cell holding the inner table is in the middle of the row, the rows of the outer table were only padded at
+        their ends, so the remarks column ('비고1', '비고3') went under the inner table's second column while '비고2' stood
+        at the far right. Every other row gets empty cells where the inner table is wider than its cell."""
+        def draw(pdf, index):
+            xs, ys = [50, 130, 400, 545], [780, 758, 736, 666, 644]
+            pdf.setLineWidth(0.6)
+            for y in ys:
+                pdf.line(xs[0], y, xs[-1], y)
+            for x in xs:
+                pdf.line(x, ys[0], x, ys[-1])
+            pdf.setFont(_FONT, 10)
+            for row, values in {0: ["구분", "내용", "비고"], 1: ["성명", "홍길동", "비고1"], 3: ["연락처", "010-1234", "비고3"]}.items():
+                for column, value in enumerate(values):
+                    pdf.drawString(xs[column] + 5, ys[row] - 15, value)
+            pdf.drawString(xs[0] + 5, 697, "학력")
+            pdf.drawString(xs[2] + 5, 697, "비고2")
+            x0, x1, y0, y1 = xs[1] + 6, xs[2] - 6, ys[2] - 6, ys[3] + 6
+            height, columns = (y0 - y1) / 3, [x0, x0 + 80, x0 + 170, x1]
+            pdf.setLineWidth(0.4)
+            for line in range(4):
+                pdf.line(x0, y0 - line * height, x1, y0 - line * height)
+            for x in columns:
+                pdf.line(x, y0, x, y1)
+            pdf.setFont(_FONT, 9)
+            for row, values in enumerate([["기간", "학교명", "전공"], ["2009", "한국대", "컴공"], ["2015", "대학원", "AI"]]):
+                for column, value in enumerate(values):
+                    pdf.drawString(columns[column] + 3, y0 - (row + 1) * height + 6, value)
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == ("| 구분 | 내용 | | | 비고 |\n| --- | --- | --- | --- | --- |\n| 성명 | 홍길동 | | | 비고1 |\n"
+                        "| 학력 | 기간 | 학교명 | 전공 | 비고2 |\n| 학력 | 2009 | 한국대 | 컴공 | 비고2 |\n"
+                        "| 학력 | 2015 | 대학원 | AI | 비고2 |\n| 연락처 | 010-1234 | | | 비고3 |")

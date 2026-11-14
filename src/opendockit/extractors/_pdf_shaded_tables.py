@@ -4,6 +4,7 @@ table grown from shaded bands where no rule is drawn.
 
 from bisect import bisect_left, bisect_right
 from itertools import pairwise
+import math
 import statistics
 
 from opendockit.extractors._pdf_model import (
@@ -14,6 +15,7 @@ from opendockit.extractors._pdf_model import (
     _TABLE_SETTINGS,
     _encloses,
     _is_shade,
+    _page_index,
 )
 
 
@@ -155,11 +157,12 @@ def _with_shaded_rows(page: object, tables: list[object]) -> list[object]:
         return tables
     rules: list[tuple[float, float, float]] | None = None  # collected the first time they are needed
     result = list(tables)
+    shaded = _ShadingTest(shades)
 
     for table in sorted(tables, key=lambda table: table.bbox[1]):
         if not any(other is table for other in result):
             continue  # merged into an earlier table
-        if not any(cell and _fill_cover(cell, shades) >= _FILL_MIN_COVER for cell in table.cells):
+        if not shaded(table):
             continue
         rules = _horizontal_rules(page) if rules is None else rules
         grown = _grown_shaded_table(page, table, result, rules)
@@ -169,10 +172,11 @@ def _with_shaded_rows(page: object, tables: list[object]) -> list[object]:
         position = min(index for index, other in enumerate(result) if any(other is old for old in replaced))
         result = [other for other in result if not any(other is old for old in replaced)]
         result.insert(position, new)
-    return _with_merged_column_fragments(page, result, shades)
+    return _with_merged_column_fragments(page, result, shades, shaded)
 
 
-def _with_merged_column_fragments(page: object, tables: list[object], shades: list[dict]) -> list[object]:
+def _with_merged_column_fragments(page: object, tables: list[object], shades: list[dict],
+                                  shaded: "_ShadingTest | None" = None) -> list[object]:
     """The table list found again after joining, among shaded table fragments, those whose column boundaries are a subset of
     another fragment's (a fragment missing its leading column because of a vertically merged cell) with that wider fragment
     into one table. `tables` as is when there is nothing to change.
@@ -188,7 +192,7 @@ def _with_merged_column_fragments(page: object, tables: list[object], shades: li
     Fragments with the same column boundaries are left alone (so the in-between bands the growing step rejected are not
     revived).
     """
-    shaded = [table for table in tables if any(cell and _fill_cover(cell, shades) >= _FILL_MIN_COVER for cell in table.cells)]
+    shaded = [table for table in tables if (shaded or _ShadingTest(shades))(table)]
     if len(shaded) < 2 and not any(_has_holes(table) for table in shaded):
         return tables
     result = list(tables)
@@ -218,6 +222,67 @@ def _with_merged_column_fragments(page: object, tables: list[object], shades: li
         position = min(index for index, other in enumerate(result) if any(other is member for member in members))
         result = [other for other in result if not any(other is member for member in members)]
         result.insert(position, merged)
+    return result
+
+
+class _ShadingTest:
+    """Whether a ruled table has cell shading: a cell covered by the shading rectangles (`shades`, largest first) for at
+    least `_FILL_MIN_COVER` of its area (`_with_shaded_rows`, `_with_merged_column_fragments`). The verdict of each table is
+    kept, and a table is measured only against the rectangles that overlap its box — the rest add nothing to any cell, and
+    adding them for every cell of a table without shading took 10 seconds on a page of a 60 × 60 grid beside 3,000 small
+    filled bars (Pinned by: test_pdf_shaded_tables.py::TestShadingOutsideTheTable)."""
+
+    def __init__(self, shades: list[dict]) -> None:
+        self._shades = shades
+        self._verdicts: dict[int, tuple[object, bool]] = {}  # id of the table → (the table, verdict)
+
+    def __call__(self, table: object) -> bool:
+        known = self._verdicts.get(id(table))
+        if known is not None and known[0] is table:
+            return known[1]
+        x0, top, x1, bottom = table.bbox
+        near = [shade for shade in self._shades
+                if shade["x0"] < x1 and shade["x1"] > x0 and shade["top"] < bottom and shade["bottom"] > top]
+        verdict = bool(near) and any(cell and _fill_cover(cell, touching) >= _FILL_MIN_COVER
+                                     for cell, touching in _touching_each(table.cells, near))
+        self._verdicts[id(table)] = (table, verdict)
+        return verdict
+
+
+_TOUCH_BAND = 16.0  # height (pt) of the bands `_touching_each` sorts rectangles into
+_TOUCH_MAX_BANDS = 128  # a rectangle or cell taller than this many bands (or not finite) is matched without bands
+
+
+def _touching_each(cells: list[tuple | None], rects: list[dict]) -> list[tuple[tuple | None, list[dict]]]:
+    """Each cell box with the rectangles of `rects` that overlap it, in the order of `rects` — the rectangles `_fill_cover`
+    adds anything for (the others add nothing). Rectangles are sorted into height bands once, so a cell looks only at the
+    rectangles of its own bands: a table over thousands of small filled bars scanned every bar for every cell."""
+    def overlaps(cell: tuple, rect: dict) -> bool:
+        return rect["x0"] < cell[2] and rect["x1"] > cell[0] and rect["top"] < cell[3] and rect["bottom"] > cell[1]
+
+    def bands(top: float, bottom: float) -> range | None:
+        if not (math.isfinite(top) and math.isfinite(bottom)) or bottom - top > _TOUCH_BAND * _TOUCH_MAX_BANDS:
+            return None
+        return range(math.floor(top / _TOUCH_BAND), math.floor(bottom / _TOUCH_BAND) + 1)
+
+    banded: dict[int, list[int]] = {}
+    unbanded: list[int] = []  # positions of rectangles matched against every cell
+    for position, rect in enumerate(rects):
+        spread = bands(rect["top"], rect["bottom"])
+        if spread is None:
+            unbanded.append(position)
+        else:
+            for band in spread:
+                banded.setdefault(band, []).append(position)
+    result = []
+    for cell in cells:
+        if not cell:
+            result.append((cell, []))
+            continue
+        spread = bands(cell[1], cell[3])
+        positions = (range(len(rects)) if spread is None
+                     else sorted({*unbanded, *(position for band in spread for position in banded.get(band, ()))}))
+        result.append((cell, [rects[position] for position in positions if overlaps(cell, rects[position])]))
     return result
 
 
@@ -283,12 +348,21 @@ def _regridded_fragments(page: object, members: list[object], edges: list[float]
     heights = sorted({top, bottom, *(y for member in members for row in member.rows for y in (row.bbox[1], row.bbox[3])),
                       *(y for shade in covers for y in (shade["top"], shade["bottom"]))})
     boundaries = [y for index, y in enumerate(heights) if index == 0 or y - heights[index - 1] > _TABLE_ROW_TOLERANCE]
-    chars = [char for char in page.chars if char["text"].strip() and left < (char["x0"] + char["x1"]) / 2 < right]
+    # Only a character whose top lies above the boundary by less than the tallest character can reach across it (a character
+    # with a box that is not finite or not positive never does), so the characters are sorted by top once and each boundary
+    # looks only at that slice — scanning every character of the region for every boundary and column took 14 seconds on a
+    # striped table of 700 rows (Pinned by: test_pdf_shaded_tables.py::TestLongZebraTableWithMergedGroups)
+    chars = sorted((char for char in page.chars if char["text"].strip() and left < (char["x0"] + char["x1"]) / 2 < right
+                    and math.isfinite(char["top"]) and math.isfinite(char["bottom"]) and char["bottom"] > char["top"]),
+                   key=lambda char: char["top"])
+    char_tops = [char["top"] for char in chars]
+    tallest = max((char["bottom"] - char["top"] for char in chars), default=0.0)
 
     def crossed(y: float, x0: float, x1: float) -> bool:  # whether boundary y lies inside a single cell in this column
+        near = chars[bisect_left(char_tops, y - tallest - 1):bisect_right(char_tops, y + 1)]
         return (any(x0 < (char["x0"] + char["x1"]) / 2 < x1
                     and min(y - char["top"], char["bottom"] - y) > (char["bottom"] - char["top"]) * _MERGED_TEXT_CROSSING
-                    for char in chars)
+                    for char in near)
                 or any(shade["x0"] <= x0 + 1 and shade["x1"] >= x1 - 1 and shade["top"] + 1 < y < shade["bottom"] - 1
                        for shade in covers))
 
@@ -482,6 +556,10 @@ def _ends_the_text(page: object, band: tuple[float, float], direction: int, left
     (a list under a shaded title box) is not the table's last row."""
     chars = [char for char in page.chars if char["text"].strip() and char["x1"] > left and char["x0"] < right]
     inside = [char for char in chars if band[0] < (char["top"] + char["bottom"]) / 2 < band[1]]
+    if not inside:
+        # The band's text (`_band_chars`) may be characters of no height lying exactly on its edge: no text of its own ends
+        # here (Pinned by: test_pdf_shaded_tables.py::test_band_whose_only_text_lies_on_its_edge_does_not_end_the_text)
+        return False
     if direction > 0:
         end = max(char["bottom"] for char in inside)
         return all(char["top"] - end >= row_height / 2 for char in chars if char["top"] >= band[1] - 1)
@@ -545,11 +623,21 @@ def _band_chars(page: object, band: tuple[float, float], edges: list[float]) -> 
 
     # when the text of two neighbouring columns on the same line sits at word spacing on either side of a column boundary, the
     # text crosses that boundary
+    # (each character looks only at the characters of the next column whose top is within its reach, sorted by top once —
+    # comparing every pair took time with the square of the band's characters when the band is a whole table,
+    # `_regridded_fragments`)
     for index in range(1, len(cells)):
+        others = sorted((other for other in cells[index] if math.isfinite(other["top"])), key=lambda other: other["top"])
+        other_tops = [other["top"] for other in others]
         for char in cells[index - 1]:
             size = char.get("size") or (char["bottom"] - char["top"])
+            if math.isfinite(size) and math.isfinite(char["top"]):
+                reach = abs(size) / 2 + 1
+                near = others[bisect_left(other_tops, char["top"] - reach):bisect_right(other_tops, char["top"] + reach)]
+            else:
+                near = cells[index]
             if any(abs(other["top"] - char["top"]) <= size / 2 and other["x0"] - char["x1"] < size * _CELL_GAP_MIN_RATIO
-                   for other in cells[index]):
+                   for other in near):
                 return None
     if sum(1 for cell in cells if cell) < 2:
         return None
@@ -558,18 +646,20 @@ def _band_chars(page: object, band: tuple[float, float], edges: list[float]) -> 
 
 def _chars_by_top(page: object) -> tuple[list[float], list[dict], float]:
     """The page's non-blank characters in order of their top edge, as (list of top edges, list of characters, tallest character
-    height). Built once per page (`_band_chars`).
+    height). Built once per page (`_band_chars`) as one of the page's lists for its tables (`_page_index`), so it is dropped
+    with them when the tables have been read and built again for a page read again.
 
     Scanning every character of the page for every band took 48 seconds on a large page with many shaded bands and tables
     (1500pt square, 50,000 characters, 196 tables) (pinned by:
-    test_pdf_shaded_tables.py::test_many_bands_on_a_page_with_many_letters_take_linear_time).
+    test_pdf_shaded_tables.py::test_many_bands_on_a_page_with_many_letters_take_linear_time). Kept on the page object by
+    itself, it held the characters of every page read until the end of the document and gave the old characters to a page
+    read again (Pinned by: test_pdf_shaded_tables.py::TestCharactersByTop).
     """
-    index = page.__dict__.get("_chars_by_top")
-    if index is None:
+    def build() -> tuple[list[float], list[dict], float]:
         ordered = sorted((char for char in page.chars if char["text"].strip()), key=lambda char: char["top"])
-        index = ([char["top"] for char in ordered], ordered, max((char["bottom"] - char["top"] for char in ordered), default=0.0))
-        page.__dict__["_chars_by_top"] = index
-    return index
+        return [char["top"] for char in ordered], ordered, max((char["bottom"] - char["top"] for char in ordered), default=0.0)
+
+    return _page_index(page, "chars_by_top", build)
 
 
 def _aligned_cells(cells: list[tuple[float, float] | None] | None,
