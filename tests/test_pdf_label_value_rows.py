@@ -420,3 +420,72 @@ class TestLabelsCenteredOnTheirValues:
         result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
 
         assert "제목 12 오른쪽" not in result.text and "제목 13 오른쪽" not in result.text
+
+
+class TestLongRunsOfLinesForCentredLabels:
+    """Looking for labels centred on value blocks walked from every row of a long paragraph (one value column) to its end,
+    and a group of thousands of wrapped value lines gathered its pairs again for every line: both took time with the
+    square of the lines (a paragraph of 6,000 lines: 29 seconds)."""
+
+    @staticmethod
+    def _rows(shape: str, count: int):
+        from opendockit.extractors._pdf_model import _Line, _visual_rows
+
+        lines = []
+        for number in range(count):
+            top = 20.0 + number * 12
+            if shape == "paragraph":
+                lines.append(_Line(top=top, bottom=top + 10, x0=100.0, x1=160.0, text=f"line {number}", size=10.0))
+            else:  # two labels, and the second value wrapped over all the other lines
+                if number < 2:
+                    lines.append(_Line(top=top, bottom=top + 10, x0=60.0, x1=90.0, text=f"항목 {number}", size=10.0))
+                lines.append(_Line(top=top, bottom=top + 10, x0=200.0, x1=260.0, text=f"내용 {number}", size=10.0))
+        return _visual_rows(lines)
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("shape", ["paragraph", "wrapped"])
+    def test_label_value_rows_of_thousands_of_lines_take_linear_time(self, shape):
+        import time
+
+        from opendockit.extractors._pdf_label_values import _label_value_rows
+
+        count = {"paragraph": 4000, "wrapped": 8000}[shape]
+        rows = self._rows(shape, count)
+
+        started = time.perf_counter()
+        found = _label_value_rows(rows, 600.0)
+        elapsed = time.perf_counter() - started
+
+        assert elapsed < 1.5  # 5.4 and 4.4 seconds before
+        if shape == "wrapped":
+            assert [len(row) for row in found] == [2, count - 1 + 1]
+
+    @pytest.mark.parametrize("seed", range(6))
+    def test_the_kept_walks_give_the_groups_of_the_full_walk(self, seed):
+        """`_centered_label_rows` with what it learned kept (`reach`) against the full walk on random rows: labels beside
+        value blocks, with offsets, sizes and gaps that make the walk stop at many places."""
+        import random
+
+        from opendockit.extractors._pdf_label_values import _centered_label_rows
+        from opendockit.extractors._pdf_model import _Line, _visual_rows
+
+        rng = random.Random(seed)
+        for _ in range(200):
+            lines, top = [], 0.0
+            for block in range(rng.randint(1, 8)):
+                size, tops = rng.choice([1, 2, 3, 4]), []
+                for line in range(size):
+                    top += rng.choice([12.0, 12.0, 11.5]) if line else rng.choice([20.0, 24.0, 12.0, 30.0])
+                    tops.append(top)
+                    x0 = rng.choice([200.0, 200.0, 200.0, 201.0, 205.0])
+                    lines.append(_Line(top=top, bottom=top + 10, x0=x0, x1=x0 + rng.choice([60.0, 200.0]),
+                                       text=f"값 {block} {line}", size=10.0))
+                if rng.random() < 0.9:
+                    middle = (tops[0] + tops[-1]) / 2 + rng.choice([0.0, 0.0, 6.0, -6.0, 1.0])
+                    x0 = rng.choice([60.0, 60.0, 61.0, 70.0, 210.0])
+                    lines.append(_Line(top=middle, bottom=middle + 10, x0=x0, x1=x0 + rng.choice([20.0, 30.0, 160.0]),
+                                       text=rng.choice(["성명", "주소", "1", "연락 처"]), size=rng.choice([10.0, 10.0, 12.0])))
+            rows = _visual_rows(lines)
+            reach: dict = {}
+            for index in range(len(rows)):
+                assert _centered_label_rows(rows, index, 150.0, reach) == _centered_label_rows(rows, index, 150.0)
