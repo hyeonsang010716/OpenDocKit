@@ -50,6 +50,26 @@ class TestContentOutsideTheBody:
         assert result.text == "# t\n\nx"
 
 
+class TestTitleInsideSvg:
+    """The `<title>` of an inline SVG icon (its tooltip) became the title and the heading of a page that had none."""
+
+    def test_svg_title_is_not_the_page_title(self):
+        html = ('<html><body><p>Intro text here.</p><svg viewBox="0 0 10 10"><title>Close icon</title><path d="M0"/></svg>'
+                "<p>Text</p></body></html>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "Intro text here.\n\nText"
+        assert "title" not in result.metadata
+
+    def test_page_title_after_an_svg_title_is_still_found(self):
+        html = '<html><body><svg><title>Logo</title></svg><p>Text</p><title>Report</title></body></html>'
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.metadata["title"] == "Report"
+
+
 class TestMathMl:
     """MathML was read by joining its characters only, so `r²π` read as `r2π` and the fraction 3/4 as `34`. The LaTeX the document
     wrote (annotation, alttext) is used; without it the structure is linearized LaTeX-style. The same ` $…$ ` notation as Office

@@ -72,6 +72,10 @@ from opendockit.markdown import solid_length
 from opendockit.models import ConvertOptions, Extraction, RawImage, Section, SectionKind, quiet_warnings
 
 
+# Elements whose `<title>` is not the document title: SVG (a tooltip) and MathML.
+_FOREIGN_CONTENT = ("svg", "math")
+
+
 # An unclosed select, which the front-part check (`_extract_front`) cannot trust.
 _SELECT_OPENING = re.compile(r"<select\b", re.IGNORECASE)
 _SELECT_CLOSING = re.compile(r"</select\s*>", re.IGNORECASE)
@@ -328,7 +332,13 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     metadata = {"encoding": encoding}
     # Whitespace in a title collapses to single spaces, as browsers show it: a `<title>` written over several lines became a
     # heading line followed by loose lines, one of them a list item (Pinned by: test_audit_web_fixes.py::TestTitleOverSeveralLines)
-    title = " ".join(soup.title.string.split()) if soup.title and soup.title.string else ""
+    # The title is the first `<title>` outside SVG and MathML: an icon's `<svg><title>Close icon</title>` (its tooltip) became
+    # the heading of a page, or of an EPUB chapter, that has no title of its own
+    # (Pinned by: test_core_html.py::TestTitleInsideSvg, test_epub.py::TestTitleInsideSvg).
+    element = soup.title
+    if element is not None and element.find_parent(_FOREIGN_CONTENT) is not None:
+        element = next((element for element in soup.find_all("title") if element.find_parent(_FOREIGN_CONTENT) is None), None)
+    title = " ".join(element.string.split()) if element is not None and element.string else ""
     if title:
         metadata["title"] = title
 

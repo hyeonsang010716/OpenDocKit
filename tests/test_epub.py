@@ -267,6 +267,17 @@ class TestChapterMarkup:
         assert result.warnings == []
 
 
+class TestTitleInsideSvg:
+    """The `<title>` of an SVG ornament in a chapter became that chapter's heading."""
+
+    def test_svg_title_is_not_a_chapter_heading(self):
+        page = _page('<p>Chapter text.</p><svg xmlns="http://www.w3.org/2000/svg"><title>Decorative flourish</title></svg>')
+
+        result = convert(_epub({"a.xhtml": page}), "a.epub")
+
+        assert result.text == "Chapter text."
+
+
 class TestLinks:
     def test_links_between_chapters_keep_their_text_and_lose_the_file_name(self) -> None:
         """Cross references `chapter2.xhtml#sec`, `#local` and `../notes.xhtml` point at files of the package, which do not
