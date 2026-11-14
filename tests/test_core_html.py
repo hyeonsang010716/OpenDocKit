@@ -124,6 +124,11 @@ class TestItemTextStartingLikeABlock:
 
         assert convert(html.encode(), "a.html").text == "-\n\n| a | b |\n| --- | --- |"
 
+    def test_quote_of_several_lines_at_the_start_of_an_item_goes_below(self):
+        html = "<ul><li><blockquote>quoted<br>second</blockquote></li><li>x</li><li><blockquote>one</blockquote></li></ul>"
+
+        assert convert(html.encode(), "a.html").text == "-\n\n> quoted\n> second\n\n- x\n- > one"
+
 
 class TestLineBreaksInALinkAddress:
     """A line break or tab in an `href` was percent-encoded into the address (`%0Afoo`); a browser removes them first."""

@@ -502,8 +502,8 @@ def _render_list_items(node: Tag, list_depth: int) -> str:
         finally:
             for child, slot in zip(nested, slots, strict=True):
                 _replace(slot, child, places)
-        # A code block or table opens the item on the line below. Text that only starts like one (`| a | b |`, `` ```js ``) is a
-        # single line and stays on the bullet line, a fence escaped — it was moved under an empty bullet
+        # A code block, table or quote block of several lines opens the item on the line below. Text that only starts like one
+        # (`| a | b |`, `` ```js ``) is a single line and stays on the bullet line, a fence escaped — it was moved under an empty bullet
         # (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock).
         first = pieces.pop(0) if pieces and isinstance(pieces[0], str) and not _is_drawn_block(pieces[0]) else ""
         if first.startswith("```"):
@@ -525,9 +525,11 @@ def _render_list_items(node: Tag, list_depth: int) -> str:
 
 
 def _is_drawn_block(block: str) -> bool:
-    """Is this item block a code block or table (`_item_blocks`), which takes more than one line, not a line of text that starts
-    with a fence or `|`."""
-    return block.startswith(("```", "|")) and "\n" in block
+    """Is this item block a code block, table or quote block (`_item_blocks`), which takes more than one line, not a line of text
+    that starts with a fence or `|`. A quote of several lines on the bullet line kept only its first line in the item: the
+    second line (`> second`) started a quote outside the list and split it
+    (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock::test_quote_of_several_lines_at_the_start_of_an_item_goes_below)."""
+    return block.startswith(("```", "|", ">")) and "\n" in block
 
 
 def _item_pieces(blocks: list[str], nested_count: int) -> list[str | int]:
