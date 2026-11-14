@@ -286,13 +286,19 @@ def _sheet_segments(rows: list[list[str]], left: int) -> list[tuple[bool, list[l
     segments: list[tuple[bool, list[list[str]]]] = []
     table: list[list[str]] | None = None
     notes: list[list[str]] = []
+    # The header (first row after the leading title rows) and the column count of the current table, kept up to date as blocks
+    # are added instead of being worked out again from the whole table for every block. Worked out again, a sheet of 300,000
+    # one-row blocks took 226 s (Pinned by: test_audit_spreadsheet.py::TestManyEmptyRowBlocks).
+    header: tuple[str, ...] = ()
+    width = 0
 
     for block in blocks:
         if all(_is_note_row(row, left) for row in block):
             notes.extend(block)
             continue
-        if table is not None and not _starts_new_table(table, block, left, titled=bool(notes)):
+        if table is not None and not _starts_new_table(header, width, block, left, titled=bool(notes)):
             table.extend([*notes, *block])
+            width = max(width, _width(notes), _width(block))
             notes = []
             continue
         if table is not None:
@@ -300,6 +306,8 @@ def _sheet_segments(rows: list[list[str]], left: int) -> list[tuple[bool, list[l
         if notes:
             segments.append((False, notes))
         table, notes = list(block), []
+        body = block[_leading_note_rows(block, left):]
+        header, width = _trimmed(body[0]), _width(body)
 
     if table is None:
         return None
@@ -331,8 +339,9 @@ def _note_text(row: list[str]) -> str:
     return next(value for value in row if value).strip()
 
 
-def _starts_new_table(table: list[list[str]], block: list[list[str]], left: int, titled: bool) -> bool:
-    """Whether the block `block` after an empty row is a new table different from the preceding one (`table`). True when the
+def _starts_new_table(header: tuple[str, ...], width: int, block: list[list[str]], left: int, titled: bool) -> bool:
+    """Whether the block `block` after an empty row is a new table different from the preceding one (header row `header`, `width`
+    columns without its leading title rows). True when the
     block's first table row (after its leading title rows) equals the preceding table's header, or when it looks like a header
     (`_looks_like_header`) and either a title precedes it (inside the block or as the one-cell block right before, `titled`) or
     the column count differs.
@@ -344,12 +353,11 @@ def _starts_new_table(table: list[list[str]], block: list[list[str]], left: int,
     lead = _leading_note_rows(block, left)
     body = block[lead:]
     first = _trimmed(body[0])
-    table_body = table[_leading_note_rows(table, left):]
-    if first == _trimmed(table_body[0]):
+    if first == header:
         return True
     if not _looks_like_header(first, body[1:1 + _HEADER_PROBE_ROWS]):
         return False
-    return titled or lead > 0 or _width(body) != _width(table_body)
+    return titled or lead > 0 or _width(body) != width
 
 
 def _trimmed(row: list[str]) -> tuple[str, ...]:

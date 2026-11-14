@@ -733,3 +733,42 @@ class TestXmlCellAtPositionZero:
 
         assert result.text == "## Sheet: s\n\n| a | | b | c |\n| --- | --- | --- | --- |\n| 1 | 2 | 3 | 4 |"
         assert not result.warnings
+
+
+@pytest.mark.timing
+class TestManyEmptyRowBlocks:
+    """Every block after an empty row was compared with the table above by working out that table's header and column count
+    again from all its rows: quadratic in the number of blocks. A CSV of 300,000 one-row blocks took 226 s (80,000: 8 s)."""
+
+    def test_csv_of_one_row_blocks(self):
+        data = ("h,v\n" + "1\n\n" * 100_000).encode()
+        started = time.perf_counter()
+
+        result = convert(data, "a.csv", ConvertOptions(max_chars=None))
+
+        assert time.perf_counter() - started < allowed(5)  # about 1 s now, 13 s or more before
+        assert result.text.startswith("| h | v |\n| --- | --- |\n| 1 | |\n| 1 | |")
+        assert result.text.count("| 1 | |") == 100_000
+
+    def test_xlsx_rows_with_gaps(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["h", "v"])
+        for index in range(40_000):
+            sheet.cell(row=3 + 2 * index, column=1, value=1)
+        buffer = BytesIO()
+        workbook.save(buffer)
+        started = time.perf_counter()
+
+        result = convert(buffer.getvalue(), "a.xlsx", ConvertOptions(max_chars=None))
+
+        assert time.perf_counter() - started < allowed(8)  # about 2 s now, 25 s or more before
+        assert result.text.count("| 1 | |") == 40_000
+
+    def test_a_new_table_below_many_blocks_is_still_split(self):
+        rows = "h,v\n" + "1,2\n\n" * 300 + "name,count,unit\nx,3,kg\n\nh,v\n4,5\n"
+
+        text = convert(rows.encode(), "a.csv").text
+
+        assert text.endswith("| 1 | 2 |\n\n| name | count | unit |\n| --- | --- | --- |\n| x | 3 | kg |\n\n"
+                             "| h | v |\n| --- | --- |\n| 4 | 5 |")  # the header of the new table is compared, not the first one
