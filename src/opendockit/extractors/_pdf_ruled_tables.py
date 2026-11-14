@@ -294,8 +294,7 @@ def _split_column_sections(table: object, bbox: tuple[float, float, float, float
     table_rows = table.rows  # a property that regroups all the cells on every access
     if any(len(row.cells) != len(rows[0]) for row in table_rows):
         return [(bbox, rows, list(table.cells))]
-    edges = [tuple(round(edge) for edge in sorted({edge for cell in row.cells if cell is not None for edge in (cell[0], cell[2])}))
-             for row in table_rows]
+    edges = _row_edges(table_rows, table.cells)
     runs: list[list[int]] = []  # consecutive row numbers with the same boundaries
 
     for index, edge in enumerate(edges):
@@ -326,6 +325,28 @@ def _split_column_sections(table: object, bbox: tuple[float, float, float, float
         area = (min(box[0] for box in boxes), min(box[1] for box in boxes), max(box[2] for box in boxes), max(box[3] for box in boxes))
         split.append((area, [[rows[index][column] for column in columns] for index in section], boxes))
     return split
+
+
+def _row_edges(table_rows: list[object], cells: list[tuple]) -> list[tuple[int, ...]]:
+    """The column boundaries (rounded) of each row of a ruled table: the left and right edges of every cell whose vertical extent
+    covers the middle of that row, so a vertically merged cell counts in every row it spans, not only in the row it starts in.
+
+    With only the cells starting in a row, a merged cell at the outer edge (the right column merged over rows 1-3, the left
+    column over rows 3-5) left the outer boundary out of the rows it covered, the rows looked like two groups with different
+    boundaries, and the table was split in two, losing the left merged cell ('채소') (Pinned by:
+    test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_merged_cells_at_the_outer_edges_keep_one_table).
+    """
+    middles = [(row.bbox[1] + row.bbox[3]) / 2 for row in table_rows]
+    order = sorted(range(len(middles)), key=middles.__getitem__)
+    ordered = [middles[index] for index in order]
+    found: list[set[float]] = [set() for _ in table_rows]
+
+    for cell in cells:
+        if cell is None:
+            continue
+        for position in range(bisect_left(ordered, cell[1]), bisect_right(ordered, cell[3])):
+            found[order[position]].update((cell[0], cell[2]))
+    return [tuple(round(edge) for edge in sorted(edges)) for edges in found]
 
 
 def _same_edges(edges: tuple[int, ...], others: tuple[int, ...]) -> bool:

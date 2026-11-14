@@ -571,6 +571,40 @@ class TestAbuttingTablesWithDifferentColumns:
         assert sum(1 for line in result.text.splitlines() if line.startswith("| ---")) == 1
         assert "| 상반기 1분기 | 상반기 2분기 | 하반기 3분기 | 하반기 4분기 |" in result.text
 
+    def test_merged_cells_at_the_outer_edges_keep_one_table(self):
+        """The right column merged over data rows 1-3 and the left column over rows 3-5: every row has the same outer
+        boundaries, so the table is not split in two and the left merged cell ('채소') is kept on its rows."""
+        owner = [["h0", "h1", "h2", "h3"], ["a", "b", "c", "N"], ["d", "e", "f", "N"], ["V", "g", "i", "N"],
+                 ["V", "j", "k", "l"], ["V", "m", "n", "o"]]
+        text = {"h0": "구분", "h1": "품목", "h2": "금액", "h3": "비고", "a": "과일", "b": "사과", "c": "1,000", "N": "공통 비고",
+                "d": "과일", "e": "배", "f": "2,000", "V": "채소", "g": "오이", "i": "3,000", "j": "당근", "k": "4,000",
+                "l": "국산", "m": "무", "n": "5,000", "o": "수입"}
+        xs = [60, 160, 260, 360, 460]
+        ys = [740 - 18 * index for index in range(7)]
+
+        def draw(pdf, index):
+            pdf.drawString(72, 780, "본문 단락입니다.")
+            for row in range(7):
+                for column in range(4):
+                    if 0 < row < 6 and owner[row - 1][column] == owner[row][column]:
+                        continue
+                    pdf.line(xs[column], ys[row], xs[column + 1], ys[row])
+            for column in range(5):
+                for row in range(6):
+                    if 0 < column < 4 and owner[row][column - 1] == owner[row][column]:
+                        continue
+                    pdf.line(xs[column], ys[row], xs[column], ys[row + 1])
+            for key, value in text.items():
+                places = [(row, column) for row in range(6) for column in range(4) if owner[row][column] == key]
+                first, last = places[0][0], places[-1][0]
+                pdf.drawString(xs[places[0][1]] + 4, (ys[first] + ys[last + 1]) / 2 - 3, value)
+            pdf.drawString(72, ys[-1] - 40, "표 아래 본문입니다.")
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert sum(1 for line in result.text.splitlines() if line.startswith("| ---")) == 1
+        assert "| 채소 | 오이 | 3,000 | 공통 비고 |\n| 채소 | 당근 | 4,000 | 국산 |\n| 채소 | 무 | 5,000 | 수입 |" in result.text
+
 
 def _three_rule_statement(header_lines: list[tuple[float, list[tuple[float, str]]]], header_height: float = 30.0) -> bytes:
     """A three-rule table (financial statement) with horizontal rules only at the top, below the header and at the bottom. `header_lines` is a list
