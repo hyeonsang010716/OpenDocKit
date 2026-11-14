@@ -265,16 +265,22 @@ def _out_of_line(row: list[_Line], run: list[list[_Line]], header: list[_Line]) 
     cells of the second landed in the wrong columns ('| 부서 | 인원 | | 비고 |', Pinned by:
     test_pdf_round45.py::TestBorderlessTablesWithDifferentColumnsNextToEachOther). A centred header does not match
     left-aligned cells, so the header is left out of the reference, and the check runs only when there are two or more
-    reference data rows (the first column is not checked because it often holds indented sub-items).
+    reference data rows with a fragment outside the first column (the first column is not checked because it often holds
+    indented sub-items; section rows right under the header are no reference, `_section_rows`).
     The reference is the `_OUT_OF_LINE_ROWS` data rows right above — looking at the whole table for every row takes
     quadratic time on a long table."""
     later = [line for line in row if _column_of(line, header, row) > 0]
     if len(later) < 2:
         return False
     placed: dict[int, list[_Line]] = {}
+    references = 0  # data rows with a fragment outside the first column (section rows hold none)
     for other in run[max(1, len(run) - _OUT_OF_LINE_ROWS):]:
-        for line in other:
-            placed.setdefault(_column_of(line, header, other), []).append(line)
+        columns = [_column_of(line, header, other) for line in other]
+        references += any(columns)
+        for line, column in zip(other, columns, strict=True):
+            placed.setdefault(column, []).append(line)
+    if references < 2:
+        return False
     return not any(_edge_aligned(line, other) for line in later for other in placed.get(_column_of(line, header, row), ()))
 
 
@@ -362,19 +368,71 @@ def _table_rows_above(above: list[list[_Line]], run: list[list[_Line]], max_cell
     more short fragments), and the fragments of every row below it must fall into different columns of that header
     (Pinned by:
     test_pdf.py::TestBorderlessTableWithWideCells::test_table_found_among_short_rows_starts_at_the_header_above_the_wide_rows).
+    Rows with empty cells are taken as well while every row from the table up is a data row in its columns
+    (`_data_row_in_columns`): in a sparse three-column table, or on a page continuing a table without its header, the rows
+    of two cells above the first row of three could never be headed by a row of three, so they were left out of the table
+    and came out as lines scattered column by column (Pinned by:
+    test_pdf_borderless_split_rows.py::TestSparseRowsAboveABorderlessTable). The topmost of them becomes the header row,
+    with an empty fragment put in each of its empty columns (as `_blank_corner_header` does), since the header row sets
+    the table's columns.
     """
     found = 0  # Number of rows to accept (from the end of `above`)
+    padded = False  # whether the topmost accepted row is a data row whose empty columns get empty fragments
     below = run[0]
+    columns = _cells_by_column(run)
+    data_rows = True  # every row looked at so far is a data row in the table's columns
     for number, row in enumerate(reversed(above), start=1):
         gap = below[0].top - max(line.bottom for line in row)
         if len(row) < 2 or not _has_one_wide_cell_at_most(row, max_cell) or gap > row[0].height * 2.5:
             break
+        data_rows = data_rows and _data_row_in_columns(row, run[0], columns, max_cell)
         is_header = len(row) >= _TABLE_MIN_COLUMNS and all(line.x1 - line.x0 <= max_cell for line in row)
         if is_header and all(len({_column_of(line, row) for line in lower}) == len(lower)
                              for lower in [*above[len(above) - number + 1:], *run]):
-            found = number
+            found, padded = number, False
+        elif data_rows:
+            found, padded = number, True
         below = row
-    return above[len(above) - found:] if found else []
+    if not found:
+        return []
+    rows = above[len(above) - found:]
+    return [_with_empty_cells(rows[0], run[0]), *rows[1:]] if padded else rows
+
+
+def _with_empty_cells(row: list[_Line], header: list[_Line]) -> list[_Line]:
+    """The row with an empty fragment of no width, at the middle of the header cell, in each column of `header` that none of
+    its fragments falls into."""
+    taken = {_column_of(line, header, row) for line in row}
+    empty = [_Line(top=row[0].top, bottom=row[0].bottom, x0=(cell.x0 + cell.x1) / 2, x1=(cell.x0 + cell.x1) / 2, text="",
+                   size=row[0].size) for column, cell in enumerate(header) if column not in taken]
+    return sorted([*row, *empty], key=lambda line: line.x0)
+
+
+def _cells_by_column(run: list[list[_Line]]) -> dict[int, list[_Line]]:
+    """The fragments of a borderless table's rows by the column they fall into under its first row (`_column_of`)."""
+    placed: dict[int, list[_Line]] = {}
+    for row in run:
+        for line in row:
+            placed.setdefault(_column_of(line, run[0], row), []).append(line)
+    return placed
+
+
+def _data_row_in_columns(row: list[_Line], header: list[_Line], columns: dict[int, list[_Line]], max_cell: float) -> bool:
+    """Whether a row above a borderless table is a data row of it with some cells empty: its fragments are short, fall into
+    different columns, each lines up with a fragment of the same column in the table (left edge, right edge or centre,
+    `_edge_aligned`) and stays clear of the cells of the neighbouring columns, none is a line that merged neighbouring cells
+    (`_splittable` — such a row is left to the search that splits it, `_split_merged_cells`), and one of them holds only a
+    numeric value — so a caption or a unit line ('(단위: 원)') at the right edge of the last column is not one."""
+    placed = [_column_of(line, header, row) for line in row]
+    if (len(set(placed)) != len(placed) or not _has_number_cell(row)
+            or any(line.x1 - line.x0 > max_cell or _splittable(line, max_cell) for line in row)):
+        return False
+    for line, column in zip(row, placed, strict=True):
+        before, after = columns.get(column - 1, ()), columns.get(column + 1, ())
+        if (not any(_edge_aligned(line, other) for other in columns.get(column, ()))
+                or any(line.x0 < other.x1 for other in before) or any(line.x1 > other.x0 for other in after)):
+            return False
+    return True
 
 
 def _column_of(line: _Line, header: list[_Line], row: list[_Line] | tuple[()] = ()) -> int:

@@ -441,3 +441,45 @@ class TestLabelOnlyRowAmongMergedCells:
         text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert "| 비고 | 16,293 | 감소 |\n| 비고 | | |\n| 미정 | | 보류 |\n| 포도 | 69.0% | 증가 |\n| 배 | 68,717 | 유지 |" in text
+
+
+class TestSparseRowsAboveABorderlessTable:
+    """In a sparse three-column table the rows with an empty cell have two fragments, so they could not start a table, and
+    the table found from the first full row below could only take rows above it under a row of three. They came out as
+    lines scattered column by column above the table."""
+
+    def test_rows_with_empty_cells_above_the_first_full_row_join_the_table(self):
+        data = _three_column_pdf(["배//27,789", "Alpha//5,660", "Alpha/59,905/", "합계/62,595/54,915", "금액/30,360/71,902",
+                                  "비고/11,051/9.6%", "합계/54,627/89,307"], header=False)
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| 배 | | 27,789 |\n| --- | --- | --- |\n| Alpha | | 5,660 |\n| Alpha | 59,905 | |\n"
+                "| 합계 | 62,595 | 54,915 |\n| 금액 | 30,360 | 71,902 |\n| 비고 | 11,051 | 9.6% |\n| 합계 | 54,627 | 89,307 |") in text
+
+    def test_caption_with_a_unit_above_the_table_stays_a_line(self):
+        """A line of two fragments without a numeric value, its unit at the right edge of the last column, is no row."""
+        data = _three_column_pdf(["표 1//(단위: 원)", "합계/62,595/54,915", "금액/30,360/71,902", "비고/11,051/9.6%"],
+                                 header=False)
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| 합계 | 62,595 | 54,915 |\n| --- | --- | --- |" in text and "| 표 1" not in text
+
+    def test_two_label_rows_in_a_row_stay_in_the_table(self):
+        data = _three_column_pdf(["항목0/항목1/항목2", "합계/27,368/71,946", "금액/67,601/", "비고//", "해당 없음//",
+                                  "금액/88,763/", "부산//96,157", "포도/2.6%/"], header=False)
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| 금액 | 67,601 | |\n| 비고 | | |\n| 해당 없음 | | |\n| 금액 | 88,763 | |\n| 부산 | | 96,157 |\n"
+                "| 포도 | 2.6% | |") in text
+
+    def test_label_rows_right_under_the_header_stay_in_the_table(self):
+        data = _three_column_pdf(["항목0/항목1/항목2", "금액//", "배//", "서울//", "비고/99,598/3,646", "서울//",
+                                  "미정//73,270", "미정/60.1%/"], header=False)
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| 항목0 | 항목1 | 항목2 |\n| --- | --- | --- |\n| 금액 | | |\n| 배 | | |\n| 서울 | | |\n"
+                "| 비고 | 99,598 | 3,646 |\n| 서울 | | |\n| 미정 | | 73,270 |\n| 미정 | 60.1% | |") in text
