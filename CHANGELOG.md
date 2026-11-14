@@ -16,8 +16,12 @@ A second review of the whole source. The sample outputs in `examples/` are uncha
 - **XLS**: merge ranges written back to front no longer cancel out the merged-cell limit (a 461 KB file took 16 seconds).
 - **PDF**: a small crafted file no longer holds one page for tens of seconds through thousands of FreeText annotations, one
   long letter-spaced line, thousands of check-box shapes, faint watermark characters, shading beside a ruled table, a long
-  zebra table or many highlighted lines. The running character limit also counts sideways text and form values, so such a
-  document stops at the limit.
+  zebra table, many highlighted lines, a borderless "table" of a thousand columns, a long paragraph or stacked text drawn
+  many times. The running character limit also counts sideways text and form values, so such a document stops at the limit.
+- **PDF layout analysis**: pdfminer's grouping of lines into text boxes and of text boxes into reading order is bounded per
+  page (the page itself and every form drawn on it); past the bound the page is read in pdfminer's plain order with the
+  existing "read without text-box reading-order analysis" warning. A 20 KB page took 62 seconds, a 68 KB page two minutes.
+  A single huge character, or two characters far apart, no longer makes pdfminer fill millions of index cells.
 - **XLSX**: scanning a sheet for formula results, the shared strings and the sheet parser no longer keep every row in memory
   (a 600,000-row sheet took 948 MB more), and a sheet without `<dimension>` is no longer parsed twice to measure it.
 - **Mail**: mail forwarded inside forwarded mails is limited to 100 levels.
@@ -28,7 +32,8 @@ A second review of the whole source. The sample outputs in `examples/` are uncha
 - **PDF**: a row of a borderless table that pdfminer grouped differently came out in two tables, splitting the table in
   two; columns to the right of a nested table were shifted; FreeText labels were lost on pages whose MediaBox does not start
   at 0,0 or that are rotated, and image clips were ignored when the MediaBox starts right of 0; text at a non-finite position
-  rejected the whole document or leaked off-page copies into the body.
+  rejected the whole document or leaked off-page copies into the body; a ruled table continued on the next page without its
+  header lost the text of a merged cell left open at the page end.
 - **DOCX/PPTX**: one damaged picture member rejected the whole document; an empty equation wrote `$$`, which swallowed the
   following text, and `$ % # { } \` typed in an equation were read as LaTeX; a footnote reference with no note left a
   dangling `[^1]`; a struck superscript ending in a space gave `~~^2 ~~`; a comment quoted moved-away, deleted or hidden text.
@@ -58,7 +63,8 @@ A second review of the whole source. The sample outputs in `examples/` are uncha
 - HWP documents protected with DRM or a public certificate raise `EncryptedDocumentError`.
 - The MCP server keeps its last four results (by file content), so `document_outline` followed by `convert_document` by
   sections converts the file once.
-- Code blocks inside list items are indented under the item.
+- `detect_format` raises `TypeError` for content that is not bytes, bytearray or memoryview, and for a file name that is
+  not a `str`, as `convert` does.
 
 ## [0.3.3] - 2026-11-14
 
