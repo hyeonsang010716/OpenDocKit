@@ -913,17 +913,34 @@ def _mark_struck_text(soup: BeautifulSoup) -> None:
     # `~~…~~` inside the fence. A strikethrough holding a code block is marked in pieces around it (`_struck_runs`)
     # (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode).
     struck_elements = soup.find_all(_is_struck)
+    if not struck_elements:
+        return
     in_code = _lying_inside(struck_elements, _CODE_BLOCKS)
+    holding_code = _holding(soup.find_all(_CODE_BLOCKS))
     for struck in struck_elements:
         if id(struck) in nested or id(struck) in in_code or struck.name in _CODE_BLOCKS:
             continue
         nested.update(id(inner) for inner in struck.find_all(_is_struck))
         strings = {id(string) for string in struck.find_all(string=True) if string.strip()}
-        for run in _struck_runs(struck, strings):
+        for run in _struck_runs(struck, strings, holding_code):
             _mark_run(run)
 
 
-def _struck_runs(struck: Tag, strings: set[int]) -> list[list[tuple[NavigableString, Tag | None]]]:
+def _holding(nodes: list[Tag]) -> set[int]:
+    """`id`s of the ancestors of `nodes`. Each node climbs until it reaches an element already found, so it is linear time —
+    asking `find("pre")` of every table nested in a struck cell walked the whole subtree each time: 8,000 nested tables took
+    19 seconds (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode::test_deeply_nested_tables_in_a_struck_cell_take_linear_time)."""
+    found: set[int] = set()
+    for node in nodes:
+        parent = node.parent
+        while parent is not None and id(parent) not in found:
+            found.add(id(parent))
+            parent = parent.parent
+    return found
+
+
+def _struck_runs(struck: Tag, strings: set[int],
+                 holding_code: set[int] = frozenset()) -> list[list[tuple[NavigableString, Tag | None]]]:
     """Split the text nodes inside a strikethrough into consecutive runs per table cell. Each run gets one pair of `~~`.
 
     A table held by a strikethrough inside a table cell is part of the cell text as a whole — its text nodes are grouped with the table
@@ -946,7 +963,7 @@ def _struck_runs(struck: Tag, strings: set[int]) -> list[list[tuple[NavigableStr
             if table is None and node.name in _CODE_BLOCKS:
                 last_cell = _RUN_BREAK  # the next text starts a new run
                 continue
-            if table is None and node.name == "table" and cell is not None and node.find(_CODE_BLOCKS) is None:
+            if table is None and node.name == "table" and cell is not None and id(node) not in holding_code:
                 table = node
             elif table is None and node.name in ("td", "th"):
                 cell = node
