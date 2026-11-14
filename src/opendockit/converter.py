@@ -5,7 +5,6 @@ from concurrent.futures import Executor
 from dataclasses import replace
 from functools import partial
 import hashlib
-from io import BytesIO
 import os
 from pathlib import Path
 import re
@@ -15,6 +14,7 @@ import zipfile
 from opendockit.detect import detect_format, extension_mismatch, pdf_lookalike_text_format
 from opendockit.exceptions import ConversionError, CorruptedDocumentError, DocumentTooLargeError, UnsupportedFormatError
 from opendockit.extractors import EXTRACTORS
+from opendockit.extractors._package import uncompressed_size
 from opendockit.image import ImageSkipped, ImageTooLarge, ImageUnreadable, PreparedImage, needs_heif_plugin, prepare_image
 from opendockit.markdown import clean_text, neutralize_table_tags, solid_length
 from opendockit.models import (
@@ -528,8 +528,7 @@ def _cell_text(images: dict[int, DocumentImage], fallbacks: dict[int, str], imag
 def _guard_zip(data: bytes, options: ConvertOptions) -> None:
     """Zip-bomb defense: check the total uncompressed size first, from the central directory."""
     try:
-        with zipfile.ZipFile(BytesIO(data)) as archive:
-            total = sum(info.file_size for info in archive.infolist())
+        total = uncompressed_size(data)
     except zipfile.BadZipFile as exc:
         raise CorruptedDocumentError("The document's archive structure is corrupted.") from exc
     if total > options.max_uncompressed_bytes:

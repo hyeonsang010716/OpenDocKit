@@ -2796,7 +2796,8 @@ class TestOneOddValueDoesNotRejectTheDocument:
 
         result = convert(data, "a.docx")
 
-        assert result.text == "본문 문단[^1]"
+        # The body is kept. The reference writes no mark: its note cannot be read, so there is no definition for it to point at
+        assert result.text == "본문 문단"
 
 
 def _without_parts(data: bytes, *names: str) -> bytes:

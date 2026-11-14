@@ -27,6 +27,7 @@ from opendockit.exceptions import (
     EncryptedDocumentError,
     UnsupportedFormatError,
 )
+from opendockit.extractors._package import uncompressed_size
 from opendockit.extractors.docx import extract_docx
 from opendockit.extractors.pptx import extract_pptx
 from opendockit.models import ConvertOptions, Extraction
@@ -333,11 +334,11 @@ def _kill(process: subprocess.Popen, own_group: bool) -> None:
 
 
 def _guard_converted_zip(data: bytes, options: ConvertOptions) -> None:
-    """Zip-bomb defense for the converted file: the same check as `converter._guard_zip`, which ran on DOC / PPT detection and
-    so never saw this ZIP. Repeated here because extractors do not import the converter (dependency direction, core.md)."""
+    """Zip-bomb defense for the converted file: the same check as `converter._guard_zip` (both use `_package.uncompressed_size`),
+    which ran on DOC / PPT detection and so never saw this ZIP. Called here because extractors do not import the converter
+    (dependency direction, core.md)."""
     try:
-        with zipfile.ZipFile(BytesIO(data)) as archive:
-            total = sum(info.file_size for info in archive.infolist())
+        total = uncompressed_size(data)
     except zipfile.BadZipFile as exc:
         raise CorruptedDocumentError(_NO_OUTPUT) from exc
     if total > options.max_uncompressed_bytes:

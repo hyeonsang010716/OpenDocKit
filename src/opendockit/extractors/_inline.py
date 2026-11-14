@@ -25,6 +25,7 @@ _SCRIPT_MAX_CHARS = 10
 # XML text.
 _SCRIPT_OPEN = {SUPERSCRIPT: "\x02", SUBSCRIPT: "\x04"}
 _SCRIPT_CLOSE = "\x03"
+_SCRIPT_OPENS = frozenset(_SCRIPT_OPEN.values())
 _SCRIPT_SPLIT = re.compile(r"([\x02\x04])([^\x02-\x04]*)\x03\1")
 _SCRIPT_SPAN = re.compile(r"([\x02\x04])([^\x02-\x04]*)\x03")
 
@@ -150,12 +151,24 @@ def _is_blank(text: str) -> bool:
 def _strike_line(inner: str, at_line_start: bool) -> str:
     """A struck-through span within one line → `~~text~~`. Surrounding whitespace and, at the start of a line, the bullet stay
     outside the marks."""
-    body = inner.strip()
-    if not body:
+    # Whitespace just inside the marks of a script run (`\x02 … \x03`) is at the edge of the span too: a struck superscript
+    # whose run ends in a space gave `~~^2 ~~`, which a renderer does not read as strikethrough, and a struck script run of
+    # spaces alone `~~ ~~` (Pinned by: test_inline_formatting.py::TestStruckScriptRuns). The marks stay, the whitespace goes out.
+    start, end = 0, len(inner)
+    while start < end and (inner[start].isspace() or inner[start] in _SCRIPT_OPENS):
+        start += 1
+    while end > start and (inner[end - 1].isspace() or inner[end - 1] == _SCRIPT_CLOSE):
+        end -= 1
+    if start == end:
         return inner
+    before, after = inner[:start], inner[end:]
+    body = "".join(char for char in before if not char.isspace()) + inner[start:end] + "".join(
+        char for char in after if not char.isspace())
     lead = _STRIKE_LEAD.match(body) if at_line_start else None
     head = lead.group(0) if lead and lead.end() < len(body) else ""
-    return f"{inner[:len(inner) - len(inner.lstrip())]}{head}~~{body[len(head):]}~~{inner[len(inner.rstrip()):]}"
+    leading = "".join(char for char in before if char.isspace())
+    trailing = "".join(char for char in after if char.isspace())
+    return f"{leading}{head}~~{body[len(head):]}~~{trailing}"
 
 
 # ---- Links and emphasis ------------------------------------------------------------------------------------------

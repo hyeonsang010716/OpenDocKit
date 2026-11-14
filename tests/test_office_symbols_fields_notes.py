@@ -292,6 +292,36 @@ class TestDocxTableInsideFootnote:
         assert result.text.endswith("[^1]: 연도 / 값 (톤)")
 
 
+class TestDocxNoteReferenceWithoutContent:
+    """A footnote reference whose note does not exist (no such id, no footnotes part) or has nothing in it left `[^1]` in the body
+    with no `[^1]:` definition anywhere — a mark pointing nowhere, which the include_footnotes=False rule already removes."""
+
+    def test_reference_to_a_missing_note_writes_no_mark(self):
+        data = _docx_with_footnote("<w:p>" + _run("출처") + "</w:p>")
+        data = builder.zip_with(data, edit={"word/document.xml": lambda xml: xml.replace(
+            '<w:footnoteReference w:id="1"/></w:r>', '<w:footnoteReference w:id="1"/></w:r><w:r><w:footnoteReference w:id="9"/></w:r>')})
+
+        result = convert(data, "a.docx")
+
+        assert result.text == "배출량[^1]\n\n[^1]: 출처"
+
+    def test_reference_without_a_footnotes_part_writes_no_mark(self):
+        data = _docx_with_body("<w:p>" + _run("주장") + '<w:r><w:footnoteReference w:id="7"/></w:r>' + _run(" 끝") + "</w:p>")
+
+        assert convert(data, "a.docx").text == "주장 끝"
+
+    def test_empty_note_writes_no_mark_and_the_next_note_takes_the_first_number(self):
+        data = _docx_with_footnote('<w:p><w:r><w:t xml:space="preserve">  </w:t></w:r></w:p>')
+        notes = (f'<w:footnotes xmlns:w="{_WORD_NS}"><w:footnote w:id="1"><w:p/></w:footnote>'
+                 f'<w:footnote w:id="2"><w:p>{_run("둘째 각주")}</w:p></w:footnote></w:footnotes>')
+        data = builder.zip_with(data, edit={
+            "word/footnotes.xml": lambda xml: notes,
+            "word/document.xml": lambda xml: xml.replace(
+                '<w:footnoteReference w:id="1"/></w:r>', '<w:footnoteReference w:id="1"/></w:r><w:r><w:footnoteReference w:id="2"/></w:r>')})
+
+        assert convert(data, "a.docx").text == "배출량[^1]\n\n[^1]: 둘째 각주"
+
+
 class TestStrikeResolutionIsLinear:
     @pytest.mark.timing
     def test_many_struck_runs_on_one_line_resolve_in_linear_time(self):

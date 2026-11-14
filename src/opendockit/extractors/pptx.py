@@ -260,8 +260,6 @@ def _render_slide(slide: object, index: int, options: ConvertOptions, extraction
 # Comments. The old format (p:cmLst, authors p:cmAuthorLst) and the new PowerPoint 365 format (p188:cmLst, replies p188:replyLst,
 # authors p188:authorLst)
 _P188 = "http://schemas.microsoft.com/office/powerpoint/2018/8/main"
-_PRESENTATION = "http://schemas.openxmlformats.org/presentationml/2006/main"
-_DRAWING = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 
 def _related_roots(part: object, name: str) -> list[object]:

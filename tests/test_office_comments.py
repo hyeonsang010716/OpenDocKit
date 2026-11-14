@@ -72,6 +72,20 @@ class TestDocxComments:
         assert '> Comment(갑, on "첫 문단 둘째"): 두 문단에 단 메모' in result.text
         assert f'> Comment(을, on "{"가" * 40}…"): 긴 구간' in result.text
 
+    def test_moved_away_and_hidden_text_is_not_part_of_the_range(self):
+        """The original position of moved text (w:moveFrom) and a hidden run (w:vanish) are not in the body, yet they were quoted as
+        the commented range ('MOVED-AWAYkept'). A range mark inside such content still opens the range."""
+        body = ('<w:p><w:commentRangeStart w:id="1"/><w:moveFrom w:id="7" w:author="a">' + _run("옮겨 간 문장")
+                + '</w:moveFrom><w:r><w:rPr><w:vanish/></w:rPr><w:t>숨김</w:t></w:r>' + _run("남은 문장")
+                + '<w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r></w:p>'
+                + '<w:p><w:del w:id="8" w:author="a"><w:commentRangeStart w:id="2"/><w:r><w:delText>지움</w:delText></w:r></w:del>'
+                + _run("새 값") + '<w:commentRangeEnd w:id="2"/></w:p>')
+        comments = _comment("1", "갑", "확인") + _comment("2", "을", "값 확인")
+
+        result = convert(_docx_with_comments(body, comments), "a.docx")
+
+        assert result.text == ('남은 문장\n\n새 값\n\n> Comment(갑, on "남은 문장"): 확인\n> Comment(을, on "새 값"): 값 확인')
+
     def test_reply_is_marked_and_follows_its_comment(self):
         body = _commented("1", "", "표지", "")
         comments = _comment("1", "갑", "지표명과 맞출 것", "0A") + _comment("2", "을", "반영했습니다", "0B")
