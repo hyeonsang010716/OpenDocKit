@@ -505,6 +505,7 @@ class TestFileSwappedAfterTheCheck:
         assert _open_descriptors() == before
 
 
+@pytest.mark.skipif(os.name != "posix", reason="worker processes are used on POSIX only")
 class TestRepeatedCalls:
     """An agent reads a long document as document_outline and then convert_document by sections; each call converted the
     whole file again. The last few results are kept by the file's content, so a changed file is never answered from them."""
