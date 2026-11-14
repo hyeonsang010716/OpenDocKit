@@ -161,7 +161,7 @@ def _extract_html(data: bytes, options: ConvertOptions) -> Extraction:
     text = _with_table_around_bare_rows(text)
     extraction = _extract_front(text, encoding, options, saved_picture)
     if extraction is None:
-        extraction = _extract(text, encoding, options, saved_picture, mail=mail is not None)
+        extraction = _extract(text, encoding, options, saved_picture)
 
     if mail is None:
         section = extraction.sections[0]
@@ -243,7 +243,7 @@ def _extract_documents(documents: list[str], encoding: str, options: ConvertOpti
     for document in documents:
         read += 1
         piece = (_extract_front(document, encoding, options, saved_picture, combined.images, omitted, combined.chars, front)
-                 or _extract(document, encoding, options, saved_picture, images=combined.images, omitted=omitted, mail=True))
+                 or _extract(document, encoding, options, saved_picture, images=combined.images, omitted=omitted))
         combined.images = piece.images
         if "title" in piece.metadata and "title" not in combined.metadata:
             combined.metadata["title"] = piece.metadata["title"]
@@ -417,10 +417,9 @@ def _document_title(soup: BeautifulSoup) -> str:
 def _extract(text: str, encoding: str, options: ConvertOptions,
              saved_picture: Callable[[str], bytes | None] | None = None, whole: bool = True,
              closed: frozenset[str] | None = None, images: list[RawImage] | None = None,
-             omitted: list[int] | None = None, mail: bool = False) -> Extraction:
+             omitted: list[int] | None = None) -> Extraction:
     """One HTML document as one section. Pictures are numbered on after `images` (copied, not changed). When `omitted` is
-    given, the rows left out of tables are added to it instead of being reported here. `mail` is a body part of a mail
-    (`_drop_hidden`)."""
+    given, the rows left out of tables are added to it instead of being reported here."""
     # For an HTML fragment starting with an XML declaration (`<?xml …?><TABLE>`), bs4 emitted XMLParsedAsHTMLWarning to the
     # caller. This is a document already decided to be read with this parser — XML data goes to text at detection
     # (Pinned by: test_core_html.py::TestXmlDataWithHtmlElementNames).
@@ -443,7 +442,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     # Not only comments: a DOCTYPE in the middle of the body is a node of its own too, and its name came out as the paragraph
     # `html` (Pinned by: test_audit_html_text.py::TestDoctypeInsideTheBody)
     _decompose_all(soup.find_all(string=lambda node: isinstance(node, PreformattedString)))
-    _drop_hidden(soup, kept=folded, whole=whole, mail=mail)
+    _drop_hidden(soup, kept=folded, whole=whole)
 
     extraction = Extraction(metadata=metadata, images=list(images or ()))
     warning = decoding_warning(encoding)

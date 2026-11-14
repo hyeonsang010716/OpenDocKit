@@ -1364,7 +1364,7 @@ def _drop_canvas_notices(soup: BeautifulSoup) -> None:
     _decompose_all(notices)
 
 
-def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool = True, mail: bool = False) -> None:
+def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool = True) -> None:
     """Remove hidden elements: first `hidden`, `display:none` and `visibility:hidden` (folded answers in `kept` stay), then those
     `aria-hidden="true"` elements that do not hold the main content.
 
@@ -1377,10 +1377,10 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     terms-of-service layer too got the app root removed. Elements holding the content are collected by climbing up just once from each
     content element, and the body text is measured only once — re-measuring for every aria-hidden element took 47 seconds on 468KB.
 
-    A body part of a mail (`mail`) is not an app under a modal: there an aria-hidden child of body stays only when it holds all
-    the text of the part. Each part is measured on its own now, and the hidden preview text of a forwarded body, longer than
-    the one visible line under it, was 'half of the document' and came out
-    (Pinned by: test_core_html_mail_hidden_and_frames.py::TestAriaHiddenPreviewInAMailPart).
+    The body parts of a mail are measured like a page, each on its own: a newsletter whose whole content sits in one aria-hidden
+    block next to a spacer, a dot or an unsubscribe line converted to nothing while the block had to hold all the text of its part.
+    The cost is known: a hidden preview block longer than the visible text of its part is shown
+    (Pinned by: test_core_html_mail_hidden_and_frames.py::TestAriaHiddenBlockHoldingAMailPart).
     """
     _decompose_all(_hidden_nodes(soup, [tag for tag in soup.find_all(_hidden_by_style) if id(tag) not in kept]))
 
@@ -1390,9 +1390,8 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     holders = _content_holders(soup)
     body = soup.body
     page = max(_solid_length(body), 1) if body is not None else 1
-    share = 1 if mail else 2  # the part of the document text a child of body has to hold to stay: all of it, or half
     _decompose_all([tag for tag in marked if id(tag) not in holders
-                    and not (whole and body is not None and tag.parent is body and share * _solid_length(tag) >= page)])
+                    and not (whole and body is not None and tag.parent is body and 2 * _solid_length(tag) >= page)])
 
 
 def _hidden_nodes(soup: BeautifulSoup, hidden: list[Tag]) -> list[PageElement]:
