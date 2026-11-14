@@ -42,6 +42,9 @@ _TOKEN = re.compile(
     rb"|([^\\{}]+)",                          # 6: text (or the hex digits of a picture)
     re.DOTALL)
 _NOT_HEX = re.compile(rb"[^0-9a-fA-F]+")
+# The text that follows a place directly, read ahead a little (`_Reader._text_ahead`): some `\'hh`, or a bounded piece of plain text
+_TEXT_AHEAD = re.compile(rb"((?:\\'[0-9a-fA-F]{2}){1,16})|([^\\{}]{1,16})")
+_TEXT_AHEAD_BYTES = 16
 _BYTES = [bytes([value]) for value in range(256)]
 
 _MAGIC = b"{\\rtf"
@@ -131,6 +134,15 @@ _TOO_MANY_PICTURES = f"The document has more than {_MAX_PICTURES:,} pictures; th
 # The characters an RTF file is written in: letters and digits, and the backslash and braces of its syntax. A code page that reads
 # them as other characters is not one RTF text can be in (CP864 draws '%' differently and is still a real code page).
 _RTF_ASCII = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789\\{} "
+
+
+def _reads(data: bytes, codec: str, cut: bool) -> bool:
+    """Are these bytes text of the code page (`cut`: they may end inside a character)?"""
+    try:
+        codecs.getincrementaldecoder(codec)().decode(data, not cut)
+    except UnicodeDecodeError:
+        return False
+    return True
 
 
 @lru_cache(maxsize=256)
@@ -541,9 +553,9 @@ class _Reader:
         self._fresh = False  # nothing but white space has been read since the last `{`
         self._raw: list[bytes] = []  # text bytes waiting to be decoded with the code page of the state they were read in
         self._skip = 0  # fallback characters still to drop after `\uN`
-        self._dropped: list[bytes] = []  # … the bytes dropped so far, and the start of a multi-byte character they ended in
+        self._dropped: list[bytes] = []  # … the bytes dropped so far, and those of them that may start the escaped character
         self._lead: bytes | None = None
-        self._decoders: dict[tuple[str, str], codecs.IncrementalDecoder] = {}  # per code page and error mode, reset before each use
+        self._escaped = ""  # the character the last `\uN` stood for ('' when it gave none)
         self._high = 0  # a high surrogate waiting for its low half
 
         self._document_codec = "cp1252"
@@ -613,9 +625,9 @@ class _Reader:
                     dropped = min(self._skip, len(chunk))
                     self._drop(chunk[:dropped])
                     chunk = chunk[dropped:]
-                # The rest of a character the fallback ended in, as plain 8-bit text in this chunk or at the start of the next
+                # The rest of the escaped character the fallback started, as plain 8-bit text in this chunk or at the start of the next
                 # (Pinned by: test_rtf.py::TestCharacters::test_fallback_counted_in_characters_drops_the_whole_double_byte_character).
-                while self._lead is not None and chunk and self._drop_trail(chunk[:1]):
+                while self._lead is not None and chunk and self._drop_trail(chunk[:1], chunk, pos):
                     chunk = chunk[1:]
                 if chunk:
                     self._raw.append(chunk)
@@ -625,7 +637,7 @@ class _Reader:
                 value = _BYTES[int(token.group(3), 16)]
                 if self._skip:
                     self._drop(value)
-                elif self._lead is None or not self._drop_trail(value):
+                elif self._lead is None or not self._drop_trail(value, b"", pos):
                     self._raw.append(value)
             elif kind == 5:
                 if self._raw:
@@ -696,8 +708,8 @@ class _Reader:
             self._state = self._stack.pop()
 
     def _drop(self, data: bytes) -> None:
-        """Drop fallback bytes after `\\uN`. When they end inside a multi-byte character of the run's code page, the bytes that
-        complete it are dropped too (`_drop_trail`): writers that count `\\ucN` in characters, not bytes, write
+        """Drop fallback bytes after `\\uN`. When they are only the start of the escaped character in the run's code page, the
+        bytes that complete it are dropped too (`_drop_trail`): writers that count `\\ucN` in characters, not bytes, write
         `\\uc1\\u44032\\'b0\\'a1`, and the stray second byte came out as '�' (Pinned by:
         test_rtf.py::TestCharacters::test_fallback_counted_in_characters_drops_the_whole_double_byte_character).
         The dropped bytes are only looked at when a byte follows them directly; after a correct fallback the next thing is
@@ -707,38 +719,71 @@ class _Reader:
         if not self._skip:
             dropped = b"".join(self._dropped) if len(self._dropped) > 1 else data
             self._dropped = []
-            # The usual '?': ASCII ends no character half-way (every code page read here is ASCII-compatible)
+            # The usual '?': ASCII starts no multi-byte character (every code page read here is ASCII-compatible)
             self._lead = None if dropped.isascii() else dropped
 
-    def _drop_trail(self, byte: bytes) -> bool:
-        """True (and the byte is dropped) when `byte` continues the multi-byte character the dropped bytes end in (`_lead`): it
-        completes it, or it is a further byte of a character not complete yet (UTF-8). Anything else ends the dropping."""
-        dropped, self._lead = self._lead or b"", None
-        decoder = self._decoder("ignore")
-        decoder.decode(dropped)
-        pending = decoder.getstate()[0]
-        if not 0 < len(pending) < 4:
-            return False
-        decoder = self._decoder("strict")
-        try:
-            decoder.decode(pending)
-            text = decoder.decode(byte)
-        except UnicodeDecodeError:
-            return False
-        rest = decoder.getstate()[0]
-        if not text and 0 < len(rest) < 4:
-            self._lead = rest
-            return True
-        return len(text) == 1 and not rest
+    def _drop_trail(self, byte: bytes, rest: bytes, pos: int) -> bool:
+        """True (and the byte is dropped) when the dropped bytes (`_lead`) followed by `byte` are the escaped character itself
+        in the run's code page, or the start of it (UTF-8, three bytes or more). Anything else ends the dropping and is text.
+        `rest[1:]` and the tokens from `pos` are what follows the byte.
 
-    def _decoder(self, errors: str) -> codecs.IncrementalDecoder:
-        """The incremental decoder of the run's code page and error mode, reset; made once per document rather than per use."""
-        key = (self._codec(), errors)
-        decoder = self._decoders.get(key)
-        if decoder is None:
-            decoder = self._decoders[key] = codecs.getincrementaldecoder(key[0])(errors=errors)
-        decoder.reset()
-        return decoder
+        That the pair is *some* character of the code page is not enough: Word writes `\\uc1\\u8217\\'92s` for "’s" in a
+        Western font of a Chinese or Korean document, 0x92 0x73 is a GBK character, and the 's' was dropped with the
+        fallback (Pinned by: test_rtf.py::TestCharacters::test_one_byte_fallback_never_takes_the_letter_after_it).
+
+        A fallback that is only the first byte of the escaped character, followed by a character that happens to start with
+        its second byte, is written with the same bytes. The byte is text then when the text after it cannot be read without
+        it and can with it (Pinned by: test_rtf.py::TestCharacters::test_byte_that_the_text_after_it_needs_is_not_dropped).
+
+        One byte that is the escaped character in CP1252 is a whole fallback when the font is Western or not named: '¢'
+        is 0xA2 there and 0xA2 0x46 in Big5, and the 'F' of "¢F" is text, as the specification reads it."""
+        dropped, self._lead = self._lead or b"", None
+        escaped = self._escaped
+        if not escaped or byte < b"0":  # no code page continues a character with a space or '!' … '/'
+            return False
+        font = self._font_codec()
+        if not font:
+            if len(dropped) == 1 and dropped.decode("cp1252", "replace") == escaped:
+                return False
+            codec = self._document_codec if font is None or self._document_codec in _DOUBLE_BYTE else "cp1252"  # as `_codec`
+        else:
+            codec = font
+        try:
+            whole = escaped.encode(codec)
+        except UnicodeEncodeError:
+            whole = b""
+        if whole == dropped:  # a fallback counted in bytes
+            return False
+        candidate = dropped + byte
+        if whole.startswith(candidate):
+            if len(whole) > len(candidate):
+                self._lead = candidate
+                return True
+        else:
+            try:
+                # A second encoding of the same character (CP932 and CP950 hold some characters twice)
+                if candidate.decode(codec) != escaped:
+                    return False
+            except UnicodeDecodeError:
+                return False
+        ahead, cut = self._text_ahead(rest, pos)
+        return ahead.isascii() or _reads(ahead, codec, cut) or not _reads(byte + ahead, codec, cut)
+
+    def _text_ahead(self, rest: bytes, pos: int) -> tuple[bytes, bool]:
+        """The first bytes (`_TEXT_AHEAD_BYTES` at most) of the text that follows directly — `rest[1:]`, then the plain text and
+        `\\'hh` from `pos` up to a control word or brace — and whether they were cut at that length."""
+        data, match = self._data, _TEXT_AHEAD.match
+        ahead = rest[1:_TEXT_AHEAD_BYTES + 1]
+        while len(ahead) < _TEXT_AHEAD_BYTES:
+            token = match(data, pos)
+            if token is None:
+                return ahead, False
+            pos = token.end()
+            if token.lastindex == 1:
+                ahead += bytes.fromhex(token.group(1).replace(b"\\'", b"").decode("ascii"))
+            else:
+                ahead += token.group(2).translate(None, b"\r\n")
+        return ahead[:_TEXT_AHEAD_BYTES], True
 
     def _binary(self, pos: int, length: int) -> int:
         """`\\binN`: the next N bytes are raw data. A length past the end of the file takes what is there
@@ -828,14 +873,17 @@ class _Reader:
         skip = self._state.uc
         code = number + 65536 if number < 0 else number
         high, self._high = self._high, 0
+        escaped = ""
         if 0xD800 <= code < 0xDC00:
             self._high = code
         elif 0xDC00 <= code < 0xE000:
             if high:
-                self._deliver(chr(0x10000 + ((high - 0xD800) << 10) + (code - 0xDC00)))
+                escaped = chr(0x10000 + ((high - 0xD800) << 10) + (code - 0xDC00))
         elif code:
-            self._deliver(chr(code))
-        self._skip, self._dropped, self._lead = skip, [], None
+            escaped = chr(code)
+        if escaped:
+            self._deliver(escaped)
+        self._skip, self._dropped, self._lead, self._escaped = skip, [], None, escaped
 
     def _symbol(self, symbol: bytes) -> None:
         if symbol == b"*":
