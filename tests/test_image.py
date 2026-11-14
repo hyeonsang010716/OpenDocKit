@@ -1710,3 +1710,85 @@ class TestOutOfMemoryWhileReadingAPicture:
         with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
             isolated._run(b"x", "a.txt", None)
 
+
+def _tiff_with_a_tag_of_the_wrong_count() -> bytes:
+    """A readable TIFF whose PlanarConfiguration tag holds two values where one is expected: Pillow reads it with a UserWarning."""
+    from PIL import ImageDraw
+
+    image = Image.new("RGB", (300, 160), "white")
+    ImageDraw.Draw(image).text((20, 60), "INVOICE 4411", fill="black")
+    buffer = BytesIO()
+    image.save(buffer, format="TIFF")
+    data = bytearray(buffer.getvalue())
+    directory = struct.unpack_from("<I", data, 4)[0]
+    for index in range(struct.unpack_from("<H", data, directory)[0]):
+        entry = directory + 2 + 12 * index
+        if struct.unpack_from("<H", data, entry)[0] == 284:
+            struct.pack_into("<IHH", data, entry + 4, 2, 1, 1)
+    return bytes(data)
+
+
+class TestPillowWarnings:
+    """Pillow's UserWarning about a tag it could not take as written leaked out of the single-picture path, so a program that
+    turns warnings into errors had a readable picture rejected as 'corrupted' (and left as placeholder text inside a document)."""
+
+    def test_uploaded_picture_with_a_metadata_warning_is_read_with_warnings_as_errors(self):
+        import warnings
+
+        data = _tiff_with_a_tag_of_the_wrong_count()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = convert(data, "scan.tiff")
+
+        assert len(result.images) == 1
+
+    def test_picture_with_a_metadata_warning_inside_a_document_gives_no_warning(self):
+        import warnings
+
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("Body")
+        document.add_picture(BytesIO(_tiff_with_a_tag_of_the_wrong_count()))
+        buffer = BytesIO()
+        document.save(buffer)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = convert(buffer.getvalue(), "a.docx")
+
+        assert len(result.images) == 1
+        assert not result.warnings
+        assert not [warning for warning in caught if "PIL" in (warning.filename or "")]
+
+
+class TestTransparencyOfEveryMode:
+    """Only RGBA, LA and P counted as transparent, so a PA picture (palette with alpha, as TIFF stores it) became a JPEG and
+    its transparent background black."""
+
+    @pytest.mark.parametrize(("mode", "image_format"), [("PA", "TIFF"), ("LA", "PNG"), ("RGBA", "WEBP")])
+    def test_transparent_background_stays_transparent(self, mode, image_format):
+        picture = Image.new("RGBA", (300, 120), (0, 0, 0, 0))
+        picture.paste((0, 0, 0, 255), (20, 20, 280, 100))
+        picture = picture.convert(mode) if mode != "PA" else picture.convert("RGBA").convert("PA")
+        buffer = BytesIO()
+        picture.save(buffer, format=image_format)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        decoded = Image.open(BytesIO(result.data)).convert("RGBA")
+        assert result.mime_type == "image/png"
+        assert decoded.getpixel((2, 2))[3] == 0
+        assert decoded.getpixel((150, 60))[3] == 255
+
+    def test_grey_png_with_a_transparent_level_stays_transparent(self):
+        picture = Image.new("L", (300, 120), 0)
+        picture.paste(255, (20, 20, 280, 100))
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG", transparency=0)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/png"
+        assert Image.open(BytesIO(result.data)).convert("RGBA").getpixel((2, 2))[3] == 0

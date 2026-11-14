@@ -52,6 +52,11 @@ MAX_TIFF_PAGES = 1000
 # With only a per-page limit, a 650KB file of 100 bilevel pages of 10,000×10,000 took 9 seconds and 400MB. Pages from the one
 # that goes over are not read.
 _MAX_TIFF_PIXELS = 10 * _MAX_DECODE_PIXELS
+# The warnings Pillow gives while reading and writing a picture: metadata it could not take as written (an EXIF or TIFF tag
+# of the wrong count), palette transparency, and the decompression-bomb warning below the limit. The outcome is what counts
+# (read, or `ImageUnreadable`); left on, a program that turns warnings into errors had a readable picture rejected as
+# 'corrupted' (Pinned by: test_image.py::TestPillowWarnings). Narrow to Pillow's modules (`models.quiet_warnings`).
+_PILLOW_WARNINGS = ((UserWarning, r"PIL\."), (Image.DecompressionBombWarning, r"PIL\."))
 _TIFF_MAGIC = (b"II*\x00", b"MM\x00*")
 _JPEG_MAGIC = b"\xff\xd8\xff"
 # Minimum share for salvaging a JPEG with a truncated end: the height actually drawn must be at least this much of the whole.
@@ -126,9 +131,14 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
         elif image.mode in ("I", "F"):
             image = _stretch_to_8bit(image)
 
-        has_alpha = image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info)
-        tiles = tuple(_encoded(tile, max_side, has_alpha)[0] for tile in _tiles(image, max_side))
-        data, mime_type, (shrunk_width, shrunk_height) = _encoded(image, max_side, has_alpha)
+        # Any alpha band (RGBA, LA, PA, premultiplied RGBa and La) or a transparent colour (`transparency`: a palette entry,
+        # or the tRNS grey level or colour of an L or RGB PNG) keeps the picture transparent. Only RGBA, LA and P were looked
+        # at, so a PA TIFF became a JPEG with its transparent background turned black
+        # (Pinned by: test_image.py::TestTransparencyOfEveryMode).
+        has_alpha = "A" in image.getbands() or "a" in image.getbands() or "transparency" in image.info
+        with quiet_warnings(*_PILLOW_WARNINGS):
+            tiles = tuple(_encoded(tile, max_side, has_alpha)[0] for tile in _tiles(image, max_side))
+            data, mime_type, (shrunk_width, shrunk_height) = _encoded(image, max_side, has_alpha)
     except MemoryError:
         raise
     except Exception as exc:  # a failed downscale or re-encode is also an "unreadable image", like a failed decode (same reason)
@@ -138,7 +148,7 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
 
 def _decoded(data: bytes, max_side: int) -> Image.Image:
     """The picture, decoded and with its orientation (EXIF) corrected."""
-    with quiet_warnings((Image.DecompressionBombWarning, r"PIL\.")):  # thread-safe (`models.quiet_warnings`)
+    with quiet_warnings(*_PILLOW_WARNINGS):  # thread-safe (`models.quiet_warnings`)
         with _open_within_pixel_limit(data, max_side) as opened:
             opened.seek(0)  # first frame only for an animated GIF/AVIF. A multi-page TIFF is split per page by the extractor first (split_tiff_pages)
             image = ImageOps.exif_transpose(opened)
@@ -285,7 +295,7 @@ def split_tiff_pages(data: bytes) -> TiffPages:
         # EXIF warnings from a corrupted later page and the like (Pillow's UserWarning). The outcome (the page it stopped at) is
         # reported in the warning text. This used to ignore every warning — the thread-safe `models.quiet_warnings` applies to the
         # whole process for the duration of the block, so it was narrowed to Pillow warnings
-        with quiet_warnings((UserWarning, r"PIL\."), (Image.DecompressionBombWarning, r"PIL\.")):
+        with quiet_warnings(*_PILLOW_WARNINGS):
             with Image.open(BytesIO(data), formats=_OPEN_FORMATS) as opened:
                 if not _has_frame(opened, 1):
                     return TiffPages([])
