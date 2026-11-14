@@ -130,6 +130,23 @@ class TestCharacters:
         fonts = r"{\fonttbl{\f0\fcharset0 Gulim;}}"
         assert _text(fonts + r"\f0 " + _cp949("안녕") + r"\par caf\'e9 au lait\par", head=r"\ansi\ansicpg949") == "안녕\n\ncafé au lait"
 
+    def test_fallback_counted_in_characters_drops_the_whole_double_byte_character(self):
+        """`\\uc1` followed by a two-byte CP949 fallback (writers that count `\\ucN` in characters): the byte that completes the
+        dropped lead byte is dropped too — it came out as '가�'. A fallback counted in bytes (`\\uc2`), a one-byte fallback
+        followed by real CP949 text, and a CP932 half-width katakana (one byte) are read as before."""
+        head = r"\ansi\ansicpg949"
+        assert _text(r"\uc1\u44032\'b0\'a1 end\par", head=head) == "가 end"
+        assert _text(r"\uc2\u44032\'b0\'a1 end\par", head=head) == "가 end"
+        assert _text(r"\uc1\u44032?" + _cp949("가") + r"\par", head=head) == "가가"
+        assert _text(r"\uc1\u44032\'b0 x\par", head=head) == "가 x"
+        assert _text(r"\uc1\u65393\'b1\'82\'a0\par", head=r"\ansi\ansicpg932") == "ｱあ"
+
+    def test_code_page_that_is_not_ascii_compatible_is_ignored(self):
+        """`\\ansicpg875` (EBCDIC Greek) turned a whole run with one 8-bit byte into noise ('hello' → 'ΪΧ%%?'). RTF is ASCII
+        text, so such a code page is ignored and the default (CP1252) is used."""
+        assert _text(r"hello \'e9\par", head=r"\ansi\ansicpg875") == "hello é"
+        assert _text(r"{\fonttbl{\f1\cpg037 F;}}\f1 caf\'e9\par") == "café"
+
     def test_unicode_escapes_cover_negative_values_and_surrogate_pairs(self):
         """'한' (U+D55C) is `\\u-10916`, '😀' is the surrogate pair `\\u-10179\\u-8704`; each escape is followed by one fallback
         character that is dropped. A lone surrogate half is dropped (it cannot be encoded)."""

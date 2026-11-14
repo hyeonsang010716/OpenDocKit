@@ -128,14 +128,22 @@ _TABLE_CUT = f"A table has more than {_MAX_TABLE_CELLS:,} cells; the cells after
 _TOO_MANY_PICTURES = f"The document has more than {_MAX_PICTURES:,} pictures; the rest were left out."
 
 
+_PRINTABLE_ASCII = bytes(range(0x20, 0x7F))
+
+
 @lru_cache(maxsize=256)
 def _page_codec(page: int) -> str | None:
-    """Python codec of a Windows code page number, None when there is none (the document's code page is used then)."""
+    """Python codec of a Windows code page number, None when there is none (the document's code page is used then).
+
+    A code page that does not read ASCII as ASCII (EBCDIC: 037, 500, 875, 1026, …) is none: RTF is ASCII text, and once a run
+    held one 8-bit byte the whole run, letters included, was decoded as EBCDIC — 'hello' became 'ΪΧ%%?'
+    (Pinned by: test_rtf.py::TestCharacters::test_code_page_that_is_not_ascii_compatible_is_ignored)."""
     if not 0 < page < 100_000:
         return None
     try:
-        return codecs.lookup(_PAGE_CODECS.get(page) or f"cp{page}").name
-    except LookupError:
+        name = codecs.lookup(_PAGE_CODECS.get(page) or f"cp{page}").name
+        return name if _PRINTABLE_ASCII.decode(name) == _PRINTABLE_ASCII.decode("ascii") else None
+    except (LookupError, UnicodeDecodeError):
         return None
 
 
@@ -530,6 +538,8 @@ class _Reader:
         self._fresh = False  # nothing but white space has been read since the last `{`
         self._raw: list[bytes] = []  # text bytes waiting to be decoded with the code page of the state they were read in
         self._skip = 0  # fallback characters still to drop after `\uN`
+        self._dropped: list[bytes] = []  # … the bytes dropped so far, and the lead byte of a double-byte character they ended in
+        self._lead: bytes | None = None
         self._high = 0  # a high surrogate waiting for its low half
 
         self._document_codec = "cp1252"
@@ -595,23 +605,26 @@ class _Reader:
                     continue
                 if b"\n" in chunk or b"\r" in chunk:
                     chunk = chunk.translate(None, b"\r\n")
+                if self._lead is not None and chunk:
+                    chunk = chunk[self._drop_trail(chunk[:1]):]
                 if self._skip and chunk:
                     dropped = min(self._skip, len(chunk))
-                    self._skip -= dropped
+                    self._drop(chunk[:dropped])
                     chunk = chunk[dropped:]
                 if chunk:
                     self._raw.append(chunk)
             elif kind == 3:
                 if dest == _SKIP or dest == _PICT:
                     continue
+                value = _BYTES[int(token.group(3), 16)]
                 if self._skip:
-                    self._skip -= 1
-                else:
-                    self._raw.append(_BYTES[int(token.group(3), 16)])
+                    self._drop(value)
+                elif self._lead is None or not self._drop_trail(value):
+                    self._raw.append(value)
             elif kind == 5:
                 if self._raw:
                     self._flush()
-                self._skip = 0
+                self._skip, self._lead = 0, None
                 self._star = False
                 self._fresh = token.group(5) == b"{"
                 if self._fresh:
@@ -624,7 +637,7 @@ class _Reader:
             elif kind == 4:
                 if self._raw:
                     self._flush()
-                self._skip = 0
+                self._skip, self._lead = 0, None
                 self._symbol(token.group(4))
                 if self._star and not fresh:
                     # `\*` that is not the first thing in its group. It still makes an unknown word that follows an ignorable
@@ -634,7 +647,7 @@ class _Reader:
             else:
                 if self._raw:
                     self._flush()
-                self._skip = 0
+                self._skip, self._lead = 0, None
                 star, self._star = self._star, False
                 word = token.group(1)
                 number = int(token.group(2)) if kind == 2 else None
@@ -676,6 +689,31 @@ class _Reader:
         if self._stack:
             self._state = self._stack.pop()
 
+    def _drop(self, data: bytes) -> None:
+        """Drop fallback bytes after `\\uN`. When the last one is the lead byte of a double-byte character of the run's code page,
+        the byte that completes it is dropped too (`_drop_trail`): writers that count `\\ucN` in characters, not bytes, write
+        `\\uc1\\u44032\\'b0\\'a1`, and the stray second byte came out as '�' (Pinned by:
+        test_rtf.py::TestCharacters::test_fallback_counted_in_characters_drops_the_whole_double_byte_character)."""
+        self._skip -= len(data)
+        self._dropped.append(data)
+        if self._skip:
+            return
+        dropped, self._dropped, self._lead = b"".join(self._dropped), [], None
+        if dropped.isascii():
+            return   # the usual '?': ASCII ends no character half-way (every code page read here is ASCII-compatible)
+        decoder = codecs.getincrementaldecoder(self._codec())(errors="ignore")
+        decoder.decode(dropped)
+        pending = decoder.getstate()[0]
+        self._lead = pending if len(pending) == 1 else None
+
+    def _drop_trail(self, byte: bytes) -> bool:
+        """True (and the byte is dropped) when `byte` completes the double-byte character whose lead byte ended the fallback."""
+        lead, self._lead = self._lead or b"", None
+        try:
+            return len((lead + byte).decode(self._codec())) == 1
+        except UnicodeDecodeError:
+            return False
+
     def _binary(self, pos: int, length: int) -> int:
         """`\\binN`: the next N bytes are raw data. A length past the end of the file takes what is there
         (Pinned by: test_rtf.py::TestHostileInput::test_binary_length_past_the_end_of_the_file_is_cut_to_the_file)."""
@@ -716,23 +754,29 @@ class _Reader:
         """
         if raw.isascii():
             return raw.decode("ascii")
-        state = self._state
-        codec = None
-        if state.dest == _BODY or state.dest == _FLDINST:
-            codec = self._fonts.get(state.font if state.font is not None else self._default_font)
-        if codec == _ANSI:
-            if self._document_codec in _DOUBLE_BYTE:
-                try:
-                    return raw.decode(self._document_codec)
-                except UnicodeDecodeError:
-                    pass
-            codec = "cp1252"
-        elif codec is None:
-            codec = self._document_codec
+        codec = self._codec()
+        if self._font_codec() == _ANSI and codec != "cp1252":
+            try:
+                return raw.decode(codec)
+            except UnicodeDecodeError:
+                codec = "cp1252"
         try:
             return raw.decode(codec)
         except UnicodeDecodeError:
             return raw.decode(codec, "replace")
+
+    def _font_codec(self) -> str | None:
+        state = self._state
+        if state.dest == _BODY or state.dest == _FLDINST:
+            return self._fonts.get(state.font if state.font is not None else self._default_font)
+        return None
+
+    def _codec(self) -> str:
+        """The code page the bytes of the current run are read with first (`_decode`)."""
+        codec = self._font_codec()
+        if codec == _ANSI:
+            return self._document_codec if self._document_codec in _DOUBLE_BYTE else "cp1252"
+        return codec or self._document_codec
 
     def _deliver(self, text: str) -> None:
         self._high = 0
@@ -765,7 +809,7 @@ class _Reader:
                 self._deliver(chr(0x10000 + ((high - 0xD800) << 10) + (code - 0xDC00)))
         elif code:
             self._deliver(chr(code))
-        self._skip = skip
+        self._skip, self._dropped, self._lead = skip, [], None
 
     def _symbol(self, symbol: bytes) -> None:
         if symbol == b"*":
