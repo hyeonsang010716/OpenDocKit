@@ -76,6 +76,8 @@ _LIST_NUMBER_SHAPES = {"a": "LATIN_SMALL", "A": "LATIN_CAPITAL", "i": "ROMAN_SMA
 
 
 _BLANK_LINES = re.compile(r"\n{2,}")
+# Characters a browser removes from anywhere in an address before reading it (the URL standard: ASCII tab or newline).
+_ADDRESS_BREAKS = re.compile("[\t\n\r]")
 # Placeholder for a nested list detached while its list item is rendered (private-use characters — clean_text removes them
 # if they are left in the body). A key of private-use characters drawn once per process sits after the opening character, so
 # text of the same shape written in the document (`\ue0240\ue025`, or the entity `&#xe024;`) is never taken for a placeholder:
@@ -234,7 +236,9 @@ def _link_address(anchor: Tag, inline: _Inline) -> str | None:
     if not inline.links or id(anchor) in inline.cut:
         return None
     address = anchor.get("href")
-    return link_target(address) if isinstance(address, str) else None
+    # Tabs and line breaks in an address are removed first, as a browser does when it parses it: `https://e.com/\nfoo` was
+    # written with `%0A` in it (Pinned by: test_core_html.py::TestLineBreaksInALinkAddress).
+    return link_target(_ADDRESS_BREAKS.sub("", address)) if isinstance(address, str) else None
 
 
 def _single_blank_lines(text: str) -> str:

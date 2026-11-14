@@ -118,6 +118,20 @@ class TestItemTextStartingLikeABlock:
         assert convert(html.encode(), "a.html").text == "-\n\n| a | b |\n| --- | --- |"
 
 
+class TestLineBreaksInALinkAddress:
+    """A line break or tab in an `href` was percent-encoded into the address (`%0Afoo`); a browser removes them first."""
+
+    @pytest.mark.parametrize(("href", "expected"), [
+        ("https://example.com/\nfoo", "https://example.com/foo"),
+        ("https://example.com/a\r\n\tb c", "https://example.com/ab%20c"),
+        ("ht\ntps://example.com/", "https://example.com/"),
+    ])
+    def test_are_removed(self, href, expected):
+        html = f'<p><a href="{href}">열기</a></p>'
+
+        assert convert(html.encode(), "a.html", ConvertOptions(keep_links=True)).text == f"[열기]({expected})"
+
+
 class TestMathMl:
     """MathML was read by joining its characters only, so `r²π` read as `r2π` and the fraction 3/4 as `34`. The LaTeX the document
     wrote (annotation, alttext) is used; without it the structure is linearized LaTeX-style. The same ` $…$ ` notation as Office
