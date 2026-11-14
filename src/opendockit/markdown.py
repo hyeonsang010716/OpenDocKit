@@ -168,9 +168,12 @@ _QUOTE_PREFIX = re.compile(r"[ \t]*(>(?:[ \t]*>)*[ \t]?)")
 # The opening of a code fence: three or more backticks or tildes, after any indentation, and the rest of the line (the info
 # string). A backtick fence whose info string holds a backtick is not a fence (CommonMark): it is inline code.
 _FENCE_OPENING = re.compile(r"\s*(`{3,}|~{3,})(.*)", re.DOTALL)
-# Where a line of a document that is not Markdown would open a tilde fence: at its start, or after the list markers it starts
-# with (`- ~~~` opens a fence inside the item). The line is already stripped.
-_TILDE_OPENING = re.compile(r"^((?:(?:[-*+]|\d{1,9}[.)])[ \t]+)*)(?=~~~)")
+# Where a line of a document that is not Markdown would open a tilde fence: at its start, or after the list markers and
+# quote marks it starts with, in any order (`- ~~~` opens a fence inside the item, `- > ~~~` inside the quote in the item).
+# With list markers only, `- > ~~~`, `1. > ~~~` and `> - > ~~~` were left as fences
+# (Pinned by: test_markdown.py::TestFencesThatAreText::test_tilde_line_behind_quote_marks_and_list_markers_is_neutralized).
+# The line is already stripped.
+_TILDE_OPENING = re.compile(r"^((?:>[ \t]*|(?:[-*+]|\d{1,9}[.)])[ \t]+)*)(?=~~~)")
 
 
 def _clean_quoted_line(line: str, unpaired: bool, tildes: bool) -> str:

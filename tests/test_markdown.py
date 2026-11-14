@@ -1011,6 +1011,14 @@ class TestFencesThatAreText:
 
         assert result == "> > \\~~~\n- \\~~~ 끝\n  - \\~~~~\n1. \\~~~\n> - \\~~~"
 
+    @pytest.mark.parametrize("line", ["- > ~~~", "1. > ~~~", "> - > ~~~", "- - > ~~~", "- >~~~", "> 1) >  ~~~ 끝", "* > - ~~~~"])
+    def test_tilde_line_behind_quote_marks_and_list_markers_is_neutralized(self, line):
+        """Only list markers were allowed before the tildes: a quote inside an item still opened a fence."""
+        result = clean_text(line)
+
+        assert result == " ".join(line.replace("~~~", "\\~~~", 1).split())
+        assert clean_text(result) == result
+
     def test_tildes_that_do_not_start_a_line_are_left_alone(self):
         text = "가격 ~~~ 미정\n~~취소~~ 됨\n- ~~취소~~"
 
