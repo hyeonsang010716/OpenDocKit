@@ -1049,7 +1049,6 @@ def _joined_runs(soup: BeautifulSoup, runs: list[_Run], *, links: bool, emphasis
     # (in texts seen), and where the tables, lists and code blocks begin (in elements seen)
     block_edges: list[int] = []
     leaf_blocks: list[int] = []
-    pictures: list[int] = []  # the texts that hold a picture placeholder (`_image_placeholder`): no emphasis goes around one
     stack: list[object] = [soup]
 
     while stack:
@@ -1071,8 +1070,6 @@ def _joined_runs(soup: BeautifulSoup, runs: list[_Run], *, links: bool, emphasis
             if index is not None:
                 gap = _Gap()
                 last_text[index] = texts
-            if "[Image" in node or "⟦IMG:" in node:
-                pictures.append(texts)
             texts += 1
         elif isinstance(node, tuple):  # the end of an element
             tag, span, apart = node
@@ -1113,17 +1110,16 @@ def _joined_runs(soup: BeautifulSoup, runs: list[_Run], *, links: bool, emphasis
             stack.append((node, span, apart))
             stack.extend(reversed(node.contents))
 
-    def marked(span: list, first: int, last: int) -> bool:
-        """Whether the mark of a span that holds one end of the joined pair is written between the two runs. `first` …
-        `last`: the texts of the span on the side of that end. Not when the span is not written (it holds a table, list or
-        code block, or a block begins or ends between two of its words), and not when a picture is among those texts: the
-        emphasis stops at the placeholder, so the piece of the span next to the other run lies wholly inside the pair."""
+    def marked(span: list) -> bool:
+        """Whether the mark of a span that holds one end of the joined pair is written between the two runs. Not when the
+        span is not written (it holds a table, list or code block, or a block begins or ends between two of its words). A
+        picture in the span does not make it unwritten: a link around `[Image: …]` is written, and a pair joined over its
+        bracket opened inside the link text and closed outside it
+        (Pinned by: test_audit_web_fixes.py::TestAdjacentStruckRuns::test_runs_are_not_joined_over_the_edge_of_a_span_with_a_picture)."""
         leaf = bisect.bisect_right(leaf_blocks, span[2])
         edge = bisect.bisect_right(block_edges, span[0])
-        picture = bisect.bisect_left(pictures, first)
         return not ((leaf < len(leaf_blocks) and leaf_blocks[leaf] < span[3])
-                    or (edge < len(block_edges) and block_edges[edge] < span[1])
-                    or (picture < len(pictures) and pictures[picture] <= last))
+                    or (edge < len(block_edges) and block_edges[edge] < span[1]))
 
     joined: list[_Run] = [runs[0]]
     spaces: list[tuple[Tag, bool]] = []
@@ -1141,8 +1137,8 @@ def _joined_runs(soup: BeautifulSoup, runs: list[_Run], *, links: bool, emphasis
                 spaces.append((table, behind))
         before, after = str(joined[-1][-1][0]), str(run[0][0])
         # A bold span that ends and one that begins there are written as one span (`_inline.resolve_inline`): no mark between
-        ended = sorted(span[4] for span in gap.closed if span[0] <= start and marked(span, start, span[1] - 1))
-        begun = sorted(span[4] for span in gap.opened if span[1] > last_text[index] and marked(span, span[0], last_text[index]))
+        ended = sorted(span[4] for span in gap.closed if span[0] <= start and marked(span))
+        begun = sorted(span[4] for span in gap.opened if span[1] > last_text[index] and marked(span))
         if (not gap.apart and not before[-1].isspace() and not after[0].isspace() and ended == begun and "a" not in ended):
             joined[-1].extend(run)
         else:

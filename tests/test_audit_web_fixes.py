@@ -482,6 +482,22 @@ class TestAdjacentStruckRuns:
 
         assert convert(html.encode(), "a.html").text == f"| {expected} | z |\n| --- | --- |"
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ('<p><a href="https://e.example/u">more <del>old <img src="x.png" alt="pic"> name</del></a><del>10,000</del></p>',
+         "[more ~~old [Image: pic] name~~](https://e.example/u)~~10,000~~"),
+        ('<p><del>10,000</del><a href="https://e.example/u"><del>old <img src="x.png" alt="pic"></del> more</a></p>',
+         "~~10,000~~[~~old [Image: pic]~~ more](https://e.example/u)"),
+        ('<p><s>was</s><i><del>old <img src="x.png" alt="pic"></del> kept</i></p>', "~~was~~*~~old [Image: pic]~~ kept*"),
+        ('<p><b>Now <s><img src="x.png" alt="pic">old</s></b><s>10,000</s></p>', "**Now ~~[Image: pic] old~~**~~10,000~~"),
+    ])
+    def test_runs_are_not_joined_over_the_edge_of_a_span_with_a_picture(self, html, expected):
+        """A link or emphasis span that holds a picture placeholder is written like any other. Taken for unwritten, the runs
+        on both sides of its edge were joined: the pair opened inside the link text and closed after the address
+        (`[more ~~old [Image: pic] name](https://e.example/u)10,000~~`), and emphasis around a word outside the
+        strikethrough was dropped."""
+        assert convert(html.encode(), "a.html").text == expected
+
+
 
 class TestAltTextCannotMakeALink:
     """Rows of inline-formatting.md: link text has its unbalanced brackets escaped (`_inline._escape_link_text`). Alt text inside
