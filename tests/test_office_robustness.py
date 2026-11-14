@@ -683,13 +683,24 @@ class TestPercentEncodedTargets:
 
 
 class TestExternalTargetsAreNotParts:
-    """A relationship marked `TargetMode="External"` holds an address or a file outside the package. Its target is never a
-    part, even when it reads like the name of one — as written, or once percent-decoded."""
+    """A relationship marked `TargetMode="External"` holds an address or a file outside the package: it is not
+    percent-decoded into the name of a part."""
 
-    @pytest.mark.parametrize("target", ["/xl/media/image1.png", "../media/im%61ge1.png", "/xl/media/im%61ge1.png"])
-    def test_xlsx_linked_picture_is_not_the_part_its_address_names(self, target):
-        """The converter resolved the relationships of a drawing without looking at the mode: the linked picture was read
-        from the package."""
+    def test_xlsx_part_named_as_written_by_a_relationship_marked_external_is_still_read(self):
+        """A producer that marks the relationship of a part of the package External by mistake: the part is there under the
+        name as written, and leaving it out lost a picture (a chart, the comments of a sheet) that was read before."""
+        data = _xlsx_with_parts()
+        expected = convert(data, "a.xlsx")
+
+        result = convert(builder.zip_with(data, edit={"xl/drawings/_rels/drawing1.xml.rels": lambda xml: xml.replace(
+            'Target="/xl/media/image1.png"', 'Target="/xl/media/image1.png" TargetMode="External"')}), "a.xlsx")
+
+        assert len(result.images) == 1 and result.text == expected.text and result.warnings == expected.warnings
+
+    @pytest.mark.parametrize("target", ["../media/im%61ge1.png", "/xl/media/im%61ge1.png"])
+    def test_xlsx_linked_picture_is_not_the_part_its_address_decodes_to(self, target):
+        """The address of a linked picture was percent-decoded like the target of a part, and the picture was read from the
+        package."""
         data = _xlsx_with_parts()
         expected = convert(data, "a.xlsx")
         assert len(expected.images) == 1 and "[Image]" in expected.text
