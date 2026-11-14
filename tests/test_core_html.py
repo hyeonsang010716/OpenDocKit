@@ -132,6 +132,20 @@ class TestLineBreaksInALinkAddress:
         assert convert(html.encode(), "a.html", ConvertOptions(keep_links=True)).text == f"[열기]({expected})"
 
 
+class TestFallbackContentOfObjectAndCanvas:
+    """The fallback content of `<object>` and `<canvas>`, which a page shows where the object or drawing cannot be shown, was
+    removed with the element: a page made of an embedded PDF with a fallback paragraph gave 'No text was extracted'."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ('<object data="x.pdf" type="application/pdf"><param name="a" value="b"><p>보고서를 내려받으세요.</p></object>',
+         "보고서를 내려받으세요."),
+        ('<p>앞</p><canvas width="300" height="150"><p>매출 그래프: 1분기 10억</p></canvas>', "앞\n\n매출 그래프: 1분기 10억"),
+        ('<p>본문</p><embed src="x.swf"><iframe src="x.html">프레임</iframe>', "본문"),
+    ])
+    def test_is_read(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+
 class TestMathMl:
     """MathML was read by joining its characters only, so `r²π` read as `r2π` and the fraction 3/4 as `34`. The LaTeX the document
     wrote (annotation, alttext) is used; without it the structure is linearized LaTeX-style. The same ` $…$ ` notation as Office
