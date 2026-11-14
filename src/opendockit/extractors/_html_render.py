@@ -427,9 +427,7 @@ _LEAF_RENDERERS = {
 }
 
 
-def _render_list(node: Tag, list_depth: int, open_chain: bool = True) -> str:
-    """A list as Markdown lines. `open_chain`: every enclosing list item is still open on the lines drawn so far (no block of
-    its own at the left margin has ended it) — only then may a code block be indented into an item (`_item_text`)."""
+def _render_list(node: Tag, list_depth: int) -> str:
     if list_depth >= _MAX_LIST_DEPTH:
         return f"{'  ' * list_depth}- {' '.join(node.get_text(' ').split())}"
 
@@ -454,7 +452,7 @@ def _render_list(node: Tag, list_depth: int, open_chain: bool = True) -> str:
             lines.append(f"{'  ' * list_depth}- {item}")  # text outside the items. No number is written
             continue
         if item.name in {"ul", "ol"}:
-            lines.append(_render_list(item, list_depth + 1, open_chain))
+            lines.append(_render_list(item, list_depth + 1))
             continue
         if item.name != "li":
             lines.append(f"\n{_render(item, list_depth).strip()}\n")  # a table or code block outside the items
@@ -492,8 +490,7 @@ def _render_list(node: Tag, list_depth: int, open_chain: bool = True) -> str:
             marker += f" {_CHECKED if 'checked' in item.get_attribute_list('class') else _UNCHECKED}"
         elif to_do_list and (box := item.find(class_=["checkbox-on", "checkbox-off"], recursive=False)) is not None:
             marker += f" {_CHECKED if 'checkbox-on' in box.get_attribute_list('class') else _UNCHECKED}"
-        lead = f"{'  ' * list_depth}{marker} "
-        lines.append(_item_text(f"{lead}{first}".rstrip(), pieces, nested, list_depth, len(lead), open_chain))
+        lines.append(_item_text(f"{'  ' * list_depth}{marker} {first}".rstrip(), pieces, nested, list_depth))
         number += step
     return "\n".join(line for line in lines if line.strip()).rstrip("\n")  # leading whitespace is the indentation of nested lists
 
@@ -520,8 +517,7 @@ def _item_pieces(blocks: list[str], nested_count: int) -> list[str | int]:
     return pieces
 
 
-def _item_text(line: str, pieces: list[str | int], nested: list[Tag], list_depth: int, width: int = 0,
-               open_chain: bool = False) -> str:
+def _item_text(line: str, pieces: list[str | int], nested: list[Tag], list_depth: int) -> str:
     """Append the text blocks and nested lists after the item line, in source order.
 
     Previously, after the nested lists were detached, all the remaining text was drawn as the item line and blocks and the nested lists
@@ -530,31 +526,17 @@ def _item_text(line: str, pieces: list[str | int], nested: list[Tag], list_depth
     under the item as a block set off by a blank line — merged into one line, a multi-line command gets joined with spaces. A nested list
     goes on the line right below an item line or a list, and after a blank line when it follows a block. An item that ends with a block is
     set off from the next item by a blank line.
-    A code block is indented to the item's content column (`width`, the width of the item's bullet or number and its
-    indentation) so that it stays inside the item: at the left margin it ended the list, in CommonMark, and the item lost the
-    code it holds. The lines inside the fence are indented by the same amount, which a fence that is indented takes off again
-    (Pinned by: test_audit_web_fixes.py::TestCodeBlockInsideAListItem). Only while the item is still open: right after its line,
-    a nested list or another indented code block. A paragraph or table of the item stays at the left margin (`clean_text`
-    removes leading whitespace there) and so ends the list; a fence indented after it by four or more columns became an
-    indented code block that shows the ``` lines. Not either when an enclosing item has already ended (`open_chain`), or right
-    after an empty item line (`-` alone, a blank line after it ends the item)
-    (Pinned by: test_audit_web_fixes.py::TestCodeBlockInsideAListItem::test_fence_after_a_paragraph_of_the_item_is_not_indented).
     """
     text, previous = line, "line"
-    item_open = open_chain and bool(width)
-    empty_line = not line[width:].strip()
 
     for piece in pieces:
         if isinstance(piece, int):
-            rendered = _render_list(nested[piece], list_depth + 1, item_open)
+            rendered = _render_list(nested[piece], list_depth + 1)
             if not rendered.strip():
                 continue
             text += ("\n" if previous in ("line", "list") else "\n\n") + rendered
             previous = "list"
         else:
-            item_open = item_open and piece.startswith("```") and not (previous == "line" and empty_line)
-            if item_open:
-                piece = "\n".join(f"{' ' * width}{code}" if code else code for code in piece.split("\n"))
             text += "\n\n" + piece
             previous = "block"
     return text + "\n" if previous == "block" else text
