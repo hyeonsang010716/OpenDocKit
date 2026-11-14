@@ -16,6 +16,7 @@ from opendockit import convert
 from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors import _sheet_layout, _xlsx_parts, spreadsheet, xls, xml_spreadsheet
 from opendockit.extractors._sheet_format import format_cell
+from opendockit.markdown import render_table
 from opendockit.models import ConvertOptions
 from tests import builder
 from tests.test_spreadsheet_cell_values_and_controls import (
@@ -879,3 +880,30 @@ class TestQuestionMarkPlaces:
         workbook.save(buffer)
 
         assert convert(buffer.getvalue(), "a.xlsx").text.endswith("| a | 1.5 kg |")  # runs of spaces in a cell are one space
+
+
+class TestEnglishUnitNotesInTitleRows:
+    """A top row of a title and a unit or as-of note is moved above the table only when the note was Korean (`(단위: 천원)`).
+    `Revenue by region | … | (in thousands)` became the header row and the real header dropped into the data."""
+
+    _BELOW = [["Region", "Q1", "Q2", "Q3", "Total"], ["East", "100", "50", "150", "300"]]
+
+    @pytest.mark.parametrize("note", ["(Unit: USD)", "(units: thousands)", "Unit: KRW", "[Units: kg]", "(in thousands)",
+                                      "(In Millions of USD)", "(in billions)", "As of 2024-12-31", "(as of Dec 31, 2024)"])
+    def test_note_makes_a_title(self, note):
+        result = render_table([["Revenue by region", "", "", "", note], *self._BELOW])
+
+        assert result.startswith(f"Revenue by region {note}\n\n| Region | Q1 |")
+
+    @pytest.mark.parametrize("note", ["Unit", "Units", "in thousands", "Unit price", "As", "Assets", "Unit cost: avg"])
+    def test_other_second_cells_stay_the_header(self, note):
+        """A bare `Unit` or `in thousands` without a colon or bracket can be a column name. (`Unit cost: avg` has no colon right
+        after `Unit`.)"""
+        result = render_table([["Revenue by region", "", "", "", note], *self._BELOW])
+
+        assert result.startswith("| Revenue by region |")
+
+    def test_csv(self):
+        data = b"Revenue by region,,,,(in thousands)\nRegion,Q1,Q2,Q3,Total\nEast,100,50,150,300\n"
+
+        assert convert(data, "a.csv").text.startswith("Revenue by region (in thousands)\n\n| Region | Q1 | Q2 | Q3 | Total |")

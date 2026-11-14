@@ -254,8 +254,11 @@ def _has_open_cell(row: list[str | None], columns: list[int]) -> bool:
 
 
 # A unit or as-of note in the second cell of a title row (`(단위: 천원)` (unit: thousand won), `[기준: 2024.12.31]` (as of),
-# `기준일: …` (as-of date)).
-_UNIT_NOTE = re.compile(r"[(\[<]\s*(?:단위|기준)|(?:단위|기준(?:일자?|일시|시점)?)\s*[:：]")
+# `기준일: …` (as-of date)), and the English ones (`(Unit: USD)`, `Units: thousands`, `(in millions)`, `As of 2024-12-31`).
+# Deliberately narrow: a bare `Unit` or `in thousands` without the colon or bracket can be a column name
+# (Pinned by: test_audit_spreadsheet.py::TestEnglishUnitNotesInTitleRows).
+_UNIT_NOTE = re.compile(r"[(\[<]\s*(?:단위|기준)|(?:단위|기준(?:일자?|일시|시점)?)\s*[:：]"
+                        r"|(?i:[(\[<]?\s*units?\s*[:：]|[(\[<]\s*in\s+(?:thousands|millions|billions)\b|[(\[<]?\s*as\s+of\s+\S)")
 
 
 # Cell text counted as a number when deciding the title row of a two-column table (sign, currency, thousands separators, decimals,
