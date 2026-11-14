@@ -27,7 +27,8 @@ _PARSER_CALLERS = r"opendockit\.extractors\._?html"
 # (Pinned by: test_core_html_mail_hidden_and_frames.py::TestNoFrames).
 # `<object>` and `<canvas>` are not removed: what they hold is the fallback content a page shows where the object or the drawing
 # cannot be shown, which is the case here (`<object data="x.pdf"><p>…</p></object>` gave 'No text was extracted')
-# (Pinned by: test_core_html.py::TestFallbackContentOfObjectAndCanvas).
+# (Pinned by: test_core_html.py::TestFallbackContentOfObjectAndCanvas). A canvas whose fallback is only the notice that the
+# browser does not support it is removed (`_html_dom._drop_canvas_notices`).
 _DROP_TAGS = ["script", "style", "noscript", "noframes", "noembed", "template", "svg", "iframe", "embed", "button", "head", "nav"]
 # An aside inside these elements is a warning/note box of the main content (`_drop_sidebars`).
 _MAIN_CONTENT_TAGS = ["main", "article"]

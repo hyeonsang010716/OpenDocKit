@@ -171,6 +171,29 @@ class TestFallbackContentOfObjectAndCanvas:
     def test_is_read(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected
 
+    @pytest.mark.parametrize("notice", [
+        "Your browser does not support the HTML5 canvas tag.",
+        "Sorry, your browser doesn't support canvas. Please <a href='https://example.com'>upgrade your browser</a>.",
+        "<p>이 브라우저는 캔버스를 지원하지 않습니다.</p>",
+    ])
+    def test_notice_that_the_browser_cannot_draw_a_canvas_is_not_content(self, notice):
+        html = f'<p>앞</p><canvas id="chart" width="300" height="150">{notice}</canvas><p>뒤</p>'
+
+        assert convert(html.encode(), "a.html").text == "앞\n\n뒤"
+
+    @pytest.mark.parametrize(("fallback", "expected"), [
+        ("Browser share: Chrome 65%, Safari 18%", "Browser share: Chrome 65%, Safari 18%"),
+        ("<p>Your browser does not support canvas.</p><table><tr><th>분기</th><th>매출</th></tr><tr><td>1</td><td>10억</td></tr></table>",
+         "Your browser does not support canvas.\n\n| 분기 | 매출 |\n| --- | --- |\n| 1 | 10억 |"),
+        ("지원 부서별 문의 건수: 영업 12건, 개발 30건", "지원 부서별 문의 건수: 영업 12건, 개발 30건"),
+        ("Share of browsers that support the feature, by year. " + "2021: 61%, 2022: 74%, 2023: 88%. " * 5,
+         "Share of browsers that support the feature, by year. " + ("2021: 61%, 2022: 74%, 2023: 88%. " * 5).strip()),
+    ], ids=["names-the-browser-only", "holds-a-table", "names-support-only", "long"])
+    def test_text_alternative_of_a_canvas_stays(self, fallback, expected):
+        html = f'<p>앞</p><canvas width="300" height="150">{fallback}</canvas>'
+
+        assert convert(html.encode(), "a.html").text == f"앞\n\n{expected}"
+
 
 class TestMathMl:
     """MathML was read by joining its characters only, so `r²π` read as `r2π` and the fraction 3/4 as `34`. The LaTeX the document
