@@ -2,9 +2,11 @@
 
 
 from bisect import bisect_left, bisect_right
+from itertools import islice
 import math
 
 from pdfminer.pdftypes import (
+    PDFObjRef,
     resolve1,
 )
 from pdfminer.utils import apply_matrix_pt
@@ -254,52 +256,75 @@ def _field_string(value: object) -> str:
     return " ".join(text.split())
 
 
-def _annotated_attachments(page: object, found: dict[int, str]) -> None:
-    """Add the attachments referenced by the page's FileAttachment annotations to `found` (file specification id → name)."""
+def _annotated_attachments(page: object, found: dict[object, str]) -> None:
+    """Add the attachments referenced by the page's FileAttachment annotations to `found` (file specification → name, keyed as in
+    `_add_attachment`)."""
     try:
         for reference in resolve1(page.annots) or []:
             annotation = resolve1(reference)
             if isinstance(annotation, dict) and _name_of(annotation.get("Subtype")) == "FileAttachment":
-                _add_attachment(resolve1(annotation.get("FS")), None, found)
+                _add_attachment(annotation.get("FS"), None, found)
     except Exception:  # noqa: BLE001 — the page body is still read even if the annotations cannot be parsed
         return
 
 
-def _named_attachments(catalog: dict, found: dict[int, str]) -> None:
+def _named_attachments(catalog: dict, found: dict[object, str]) -> None:
     """Add the attachments in the document catalog's `/Names /EmbeddedFiles` name tree to `found` (following `/Kids`, up to
     `_ATTACHMENT_TREE_NODES` nodes, visiting a reference that comes back only once).
 
     Attachments are not page content and were dropped without a warning. Their names and count are reported like the attachments of
     an .eml (Pinned by: test_pdf_attachments.py::TestEmbeddedFiles). The attachments themselves are not read (deliberate) — their
-    formats vary, and they are converted when uploaded separately.
+    formats vary, and they are converted when uploaded separately. Only as many kids are taken from a `/Kids` array as nodes are
+    left to look at: the whole array was resolved first, so one node with millions of kids resolved every one of them (Pinned by:
+    test_pdf_attachments.py::TestEmbeddedFiles::test_a_huge_kids_array_is_looked_at_only_up_to_the_node_bound). The nodes looked
+    at are held in `seen`, so the id of one cannot pass to another node built later.
     """
     try:
         names = resolve1(catalog.get("Names"))
         pending = [resolve1(names.get("EmbeddedFiles"))] if isinstance(names, dict) else []
-        seen: set[int] = set()
+        seen: dict[int, object] = {}
         while pending and len(seen) < _ATTACHMENT_TREE_NODES:
             node = pending.pop()
             if not isinstance(node, dict) or id(node) in seen:
                 continue
-            seen.add(id(node))
+            seen[id(node)] = node
             pairs = resolve1(node.get("Names"))
             if isinstance(pairs, list):
                 for key, value in zip(pairs[::2], pairs[1::2], strict=False):
-                    _add_attachment(resolve1(value), resolve1(key), found)
+                    _add_attachment(value, resolve1(key), found)
             kids = resolve1(node.get("Kids"))
             if isinstance(kids, list):
-                pending.extend(resolve1(kid) for kid in kids)
+                room = max(_ATTACHMENT_TREE_NODES - len(seen) - len(pending), 0)
+                pending.extend(resolve1(kid) for kid in islice(kids, room))
     except Exception:  # noqa: BLE001 — the body is still read even if the name tree cannot be parsed
         return
 
 
-def _add_attachment(spec: object, key: object, found: dict[int, str]) -> None:
-    """Put one file specification into `found` with its name (`/UF` → `/F` → name tree key)."""
+class _Held:
+    """Key of a direct object in `found` (`_add_attachment`): equal only to itself, and it keeps the object alive."""
+
+    __slots__ = ("value",)
+
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+
+def _add_attachment(value: object, key: object, found: dict[object, str]) -> None:
+    """Put one file specification (`value`, a reference or the object itself) into `found` with its name (`/UF` → `/F` → name
+    tree key).
+
+    A specification is keyed by its object number when it is referenced, so that one reached through an annotation and through the
+    name tree is counted once; a direct object gets a key that holds it (`_Held`). Keyed by `id()`, a direct specification freed
+    after it was counted passed its id to the next one, which was then dropped (Pinned by:
+    test_pdf_attachments.py::TestEmbeddedFiles::test_attachments_given_as_direct_objects_are_each_counted).
+    """
+    spec = resolve1(value)
+    slot = value.objid if isinstance(value, PDFObjRef) else _Held(spec)
     if isinstance(spec, dict):
         name = next((text for text in (_field_string(resolve1(spec.get(field))) for field in ("UF", "F")) if text), "")
-        found.setdefault(id(spec), name or _field_string(key) or "unnamed")
+        found.setdefault(slot, name or _field_string(key) or "unnamed")
     elif isinstance(spec, bytes):
-        found.setdefault(id(spec), _field_string(spec) or "unnamed")  # a specification that is just a file name
+        found.setdefault(slot, _field_string(spec) or "unnamed")  # a specification that is just a file name
 
 
 def _has_xfa(pdf: object) -> bool:

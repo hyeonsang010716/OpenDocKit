@@ -250,7 +250,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
             dense = set()
             crammed: set[int] = set()  # pages found with too much text-box grouping while being read (`_PAGE_GROUPING_COST`)
             grids: set[int] = set()  # ruled grid pages (read without text-box grouping, but not reported since cell text goes into the table)
-            attachments: dict[int, str] = {}  # attachment file specification (id) → name
+            attachments: dict[object, str] = {}  # attachment file specification (object number or held object) → name
             started = time.perf_counter()
             over_budget = 0
             failed = []
