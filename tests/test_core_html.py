@@ -4,7 +4,8 @@ import warnings
 
 import pytest
 
-from opendockit import DocumentFormat, convert
+from opendockit import ConvertOptions, DocumentFormat, convert
+from opendockit.extractors.html import extract_html
 from tests import needs_html5_tokenizer
 
 
@@ -48,6 +49,113 @@ class TestContentOutsideTheBody:
         result = convert(html.encode(), "a.html")
 
         assert result.text == "# t\n\nx"
+
+
+class TestTitleInsideSvg:
+    """The `<title>` of an inline SVG icon (its tooltip) became the title and the heading of a page that had none."""
+
+    def test_svg_title_is_not_the_page_title(self):
+        html = ('<html><body><p>Intro text here.</p><svg viewBox="0 0 10 10"><title>Close icon</title><path d="M0"/></svg>'
+                "<p>Text</p></body></html>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "Intro text here.\n\nText"
+        assert "title" not in result.metadata
+
+    def test_page_title_after_an_svg_title_is_still_found(self):
+        html = '<html><body><svg><title>Logo</title></svg><p>Text</p><title>Report</title></body></html>'
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.metadata["title"] == "Report"
+
+
+class TestTextShapedLikeAListPlaceholder:
+    """Private-use text in a list item shaped like the placeholder of a nested list (`\ue0240\ue025`) pointed at a list that did
+    not exist, and the whole document was rejected as corrupted."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<ul><li>a \ue0240\ue025 b</li></ul>", "- a 0 b"),
+        ("<ul><li>a &#xe024;0&#xe025; b</li></ul>", "- a 0 b"),
+        ("<ul><li>a \ue0240\ue025 b<ul><li>x</li></ul></li></ul>", "- a 0 b\n  - x"),
+    ])
+    def test_is_text(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+
+class TestListInsideAQuoteInsideAnItem:
+    """A list in a quote block inside a list item was taken out of the quote and put under the item, and the quote block left
+    behind was folded onto one line."""
+
+    def test_list_stays_in_the_quote(self):
+        html = "<ul><li>a<blockquote><p>q</p><ul><li>b<ul><li>c</li></ul></li></ul></blockquote></li><li>z</li></ul>"
+
+        extraction = extract_html(html.encode(), ConvertOptions())
+
+        assert extraction.sections[0].text.strip() == "- a\n\n> q\n>\n> - b\n>   - c\n\n- z"
+
+    def test_deeply_nested_quotes_and_lists_stay_bounded(self):
+        html = "<ul><li>a<blockquote>" * 800 + "끝"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text.endswith("끝")
+
+    def test_quote_with_paragraphs_keeps_its_lines(self):
+        html = "<ul><li>a<blockquote><p>q1</p><p>q2</p></blockquote></li></ul>"
+
+        assert convert(html.encode(), "a.html").text == "- a\n\n> q1\n>\n> q2"
+
+
+class TestItemTextStartingLikeABlock:
+    """List item text that starts with `|` or a fence was taken for a table or code block: the bullet was left empty and the
+    text moved under it."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<ul><li>| a | b |</li><li>```js</li></ul>", "- | a | b |\n- \\```js"),
+        ("<ul><li>| a | b |<ul><li>n</li></ul></li></ul>", "- | a | b |\n  - n"),
+    ])
+    def test_text_stays_on_the_bullet_line(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    def test_table_in_an_item_still_goes_below(self):
+        html = "<ul><li><table><tr><td>a</td><td>b</td></tr></table></li></ul>"
+
+        assert convert(html.encode(), "a.html").text == "-\n\n| a | b |\n| --- | --- |"
+
+    def test_quote_of_several_lines_at_the_start_of_an_item_goes_below(self):
+        html = "<ul><li><blockquote>quoted<br>second</blockquote></li><li>x</li><li><blockquote>one</blockquote></li></ul>"
+
+        assert convert(html.encode(), "a.html").text == "-\n\n> quoted\n> second\n\n- x\n- > one"
+
+
+class TestLineBreaksInALinkAddress:
+    """A line break or tab in an `href` was percent-encoded into the address (`%0Afoo`); a browser removes them first."""
+
+    @pytest.mark.parametrize(("href", "expected"), [
+        ("https://example.com/\nfoo", "https://example.com/foo"),
+        ("https://example.com/a\r\n\tb c", "https://example.com/ab%20c"),
+        ("ht\ntps://example.com/", "https://example.com/"),
+    ])
+    def test_are_removed(self, href, expected):
+        html = f'<p><a href="{href}">열기</a></p>'
+
+        assert convert(html.encode(), "a.html", ConvertOptions(keep_links=True)).text == f"[열기]({expected})"
+
+
+class TestFallbackContentOfObjectAndCanvas:
+    """The fallback content of `<object>` and `<canvas>`, which a page shows where the object or drawing cannot be shown, was
+    removed with the element: a page made of an embedded PDF with a fallback paragraph gave 'No text was extracted'."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ('<object data="x.pdf" type="application/pdf"><param name="a" value="b"><p>보고서를 내려받으세요.</p></object>',
+         "보고서를 내려받으세요."),
+        ('<p>앞</p><canvas width="300" height="150"><p>매출 그래프: 1분기 10억</p></canvas>', "앞\n\n매출 그래프: 1분기 10억"),
+        ('<p>본문</p><embed src="x.swf"><iframe src="x.html">프레임</iframe>', "본문"),
+    ])
+    def test_is_read(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
 
 
 class TestMathMl:

@@ -98,6 +98,21 @@ class TestHwpxObjects:
 
         assert result.text == "그림 3. 조직도\n\n(식 1) 수익률 $\\frac{a}{b}$"
 
+    def test_switch_branch_without_text_leaves_nothing_behind(self):
+        """hp:case is read first and hp:default only when the case gives no text. A case with only an empty table counted as
+        output, so the fallback text was lost; a case with only a comment let the fallback register the same comment again."""
+        memo = ('<hp:ctrl><hp:fieldBegin id="5" type="MEMO"><hp:subList><hp:p><hp:run><hp:t>check</hp:t></hp:run></hp:p>'
+                "</hp:subList></hp:fieldBegin></hp:ctrl>")
+        body = ("<hp:p><hp:run><hp:t>Before </hp:t><hp:switch><hp:case>" + memo + "<hp:tbl></hp:tbl></hp:case>"
+                "<hp:default>" + memo + '<hp:t>fallback</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="5"/></hp:ctrl></hp:default>'
+                "</hp:switch></hp:run></hp:p>")
+
+        result = convert(builder.hwpx_bytes(body), "a.hwpx")
+
+        assert result.text == 'Before\n\nfallback\n\n> Comment(on "fallback"): check'
+        only_memo = convert(builder.hwpx_bytes(body.replace("<hp:tbl></hp:tbl>", "")), "a.hwpx")
+        assert only_memo.text == 'Before fallback\n\n> Comment(on "fallback"): check'
+
     def test_text_art_is_kept(self):
         """The text of text art (hp:textart) is in the text attribute, not the element text, so it was dropped. ␍␊ is a line break."""
         body = '<hp:p><hp:run><hp:textart text="hwpx 라이브러리 테스트␍␊neolord"/></hp:run></hp:p>'
@@ -105,6 +120,15 @@ class TestHwpxObjects:
         result = convert(builder.hwpx_bytes(body), "a.hwpx")
 
         assert result.text == "hwpx 라이브러리 테스트\nneolord"
+
+    def test_text_art_caption_is_kept(self):
+        """hp:textart has an hp:caption like a picture or equation; it was dropped. It is a block before (TOP) or after the art."""
+        def art(side: str) -> str:
+            return (f'<hp:p><hp:run><hp:textart text="Slogan"><hp:caption side="{side}"><hp:subList><hp:p><hp:run>'
+                    "<hp:t>그림 2. 표어</hp:t></hp:run></hp:p></hp:subList></hp:caption></hp:textart></hp:run></hp:p>")
+
+        assert convert(builder.hwpx_bytes(art("BOTTOM")), "a.hwpx").text == "Slogan\n\n그림 2. 표어"
+        assert convert(builder.hwpx_bytes(art("TOP")), "a.hwpx").text == "그림 2. 표어\n\nSlogan"
 
     def test_paragraph_numbers_and_bullets_are_kept(self):
         """Paragraph numbers and bullets are a paragraph shape (hh:heading), not characters, so "1." "가." "•" were dropped. The
@@ -1375,3 +1399,109 @@ class TestHwpRecordBudget:
         result = convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=1_000_000, max_chars=50))
 
         assert result.exceeded
+
+
+def _hwp_paragraph(level: int, *text, shape_id: int = 0) -> bytes:
+    return (builder.hwp_record(TAG_PARA_HEADER, level, _para_header(shape_id))
+            + builder.hwp_record(TAG_PARA_TEXT, level + 1, builder.hwp_text(*text)))
+
+
+def _hwp_note(level: int, *paragraphs: bytes) -> bytes:
+    """Footnote control of a paragraph at `level`, with its paragraphs (built at `level + 2`) under a LIST_HEADER."""
+    return (builder.hwp_record(TAG_CTRL_HEADER, level + 1, builder.hwp_ctrl("fn  "))
+            + builder.hwp_record(TAG_LIST_HEADER, level + 2, b"\x01\x00" + b"\x00" * 6) + b"".join(paragraphs))
+
+
+def _hwpx_note(*paragraphs: str) -> str:
+    return "<hp:ctrl><hp:footNote><hp:subList>" + "".join(paragraphs) + "</hp:subList></hp:footNote></hp:ctrl>"
+
+
+def _hwpx_p(inner: str, shape: str = "0") -> str:
+    return f'<hp:p paraPrIDRef="{shape}"><hp:run>{inner}</hp:run></hp:p>'
+
+
+class TestNotesInsideNotes:
+    """A note took its number before its text was rendered, and the reference and definition read the counter afterwards, so a note
+    inside a note gave both the inner number: 'Body[^2] end / [^2]: inner / [^2]: outer[^2]'. As in RTF and ODF, a note inside a
+    note is left out; a note without text leaves neither reference nor definition (as in DOCX, RTF and ODF) and does not use up a
+    number."""
+
+    def test_hwp_note_inside_a_note_is_left_out(self, monkeypatch):
+        inner = _hwp_note(2, _hwp_paragraph(4, "inner"))
+        outer = _hwp_note(0, _hwp_paragraph(2, "outer", (17, "fn  ")) + inner)
+        data = _fake_hwp(monkeypatch, sections=[_hwp_paragraph(0, "Body", (17, "fn  "), " end") + outer])
+
+        assert convert(data, "a.hwp").text == "Body[^1] end\n\n[^1]: outer"
+
+    def test_hwpx_note_inside_a_note_is_left_out(self):
+        body = _hwpx_p("<hp:t>Body</hp:t>" + _hwpx_note(_hwpx_p("<hp:t>outer</hp:t>" + _hwpx_note(_hwpx_p("<hp:t>inner</hp:t>"))))
+                       + "<hp:t> end</hp:t>")
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "Body[^1] end\n\n[^1]: outer"
+
+    def test_hwp_empty_note_leaves_nothing_and_the_next_note_is_one(self, monkeypatch):
+        section = (_hwp_paragraph(0, "A", (17, "fn  "), " B", (17, "fn  "))
+                   + _hwp_note(0, _hwp_paragraph(2, "")) + _hwp_note(0, _hwp_paragraph(2, "second")))
+        data = _fake_hwp(monkeypatch, sections=[section])
+
+        assert convert(data, "a.hwp").text == "A B[^1]\n\n[^1]: second"
+
+    def test_hwpx_empty_note_leaves_nothing_and_the_next_note_is_one(self):
+        body = _hwpx_p("<hp:t>A</hp:t>" + _hwpx_note(_hwpx_p("<hp:t></hp:t>")) + "<hp:t> B</hp:t>"
+                       + _hwpx_note(_hwpx_p("<hp:t>second</hp:t>")))
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "A B[^1]\n\n[^1]: second"
+
+    def test_hwpx_note_inside_a_comment_takes_its_own_number(self):
+        memo = ('<hp:ctrl><hp:fieldBegin id="1" type="MEMO"><hp:subList>'
+                + _hwpx_p("<hp:t>see</hp:t>" + _hwpx_note(_hwpx_p("<hp:t>memo note</hp:t>")))
+                + "</hp:subList></hp:fieldBegin></hp:ctrl>")
+        body = _hwpx_p(memo + "<hp:t>Body</hp:t>" + '<hp:ctrl><hp:fieldEnd beginIDRef="1"/></hp:ctrl>'
+                       + _hwpx_note(_hwpx_p("<hp:t>body note</hp:t>")))
+
+        text = convert(builder.hwpx_bytes(body), "a.hwpx").text
+
+        assert text.startswith("Body[^2]")
+        assert "[^1]: memo note" in text and "[^2]: body note" in text and 'on "Body"): see[^1]' in text
+
+
+class TestNumberingOutsideTheBody:
+    """A numbered paragraph in a header, footer or note advanced the body's counters, so the body went '1. 2. 4.'. They are
+    counted on their own."""
+
+    _HWPX_HEADS = ('<hh:numberings itemCnt="1"><hh:numbering id="1" start="0">'
+                   '<hh:paraHead start="1" level="1" numFormat="DIGIT">^1.</hh:paraHead></hh:numbering></hh:numberings>'
+                   '<hh:paraProperties itemCnt="2"><hh:paraPr id="0"><hh:heading type="NONE" idRef="0" level="0"/></hh:paraPr>'
+                   '<hh:paraPr id="1"><hh:heading type="NUMBER" idRef="1" level="0"/></hh:paraPr></hh:paraProperties>')
+
+    def _hwpx(self, body: str) -> bytes:
+        return builder.zip_with(builder.hwpx_bytes(body), edit={
+            "Contents/header.xml": lambda xml: xml.replace("</hh:refList>", self._HWPX_HEADS + "</hh:refList>")})
+
+    def test_hwpx_header_and_note_numbers_do_not_advance_the_body(self):
+        header = ("<hp:ctrl><hp:header><hp:subList>" + _hwpx_p("<hp:t>head item</hp:t>", "1")
+                  + "</hp:subList></hp:header></hp:ctrl>")
+        body = (_hwpx_p(header + "<hp:t>one</hp:t>", "1")
+                + _hwpx_p("<hp:t>two</hp:t>" + _hwpx_note(_hwpx_p("<hp:t>note item</hp:t>", "1")), "1")
+                + _hwpx_p("<hp:t>three</hp:t>", "1"))
+
+        result = convert(self._hwpx(body), "a.hwpx", ConvertOptions(include_headers_footers=True))
+
+        assert "1. one\n2. two[^1]\n3. three" in result.text
+        assert "1. head item" in result.text and "[^1]: 1. note item" in result.text
+
+    def test_hwp_header_and_note_numbers_do_not_advance_the_body(self, monkeypatch):
+        record = builder.hwp_record
+        docinfo = (record(TAG_NUMBERING, 0, _numbering(("^1.", 0)))
+                   + record(TAG_PARA_SHAPE, 0, _para_shape()) + record(TAG_PARA_SHAPE, 0, _para_shape(2, 0, 1)))
+        header = (record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("head")) + record(TAG_LIST_HEADER, 2, b"\x01\x00" + b"\x00" * 6)
+                  + _hwp_paragraph(2, "head item", shape_id=1))
+        section = (_hwp_paragraph(0, (16, "head"), "one", shape_id=1) + header
+                   + _hwp_paragraph(0, "two", (17, "fn  "), shape_id=1) + _hwp_note(0, _hwp_paragraph(2, "note item", shape_id=1))
+                   + _hwp_paragraph(0, "three", shape_id=1))
+        data = _fake_hwp(monkeypatch, sections=[section], docinfo_extra=docinfo)
+
+        result = convert(data, "a.hwp", ConvertOptions(include_headers_footers=True))
+
+        assert "1. one\n2. two[^1]\n3. three" in result.text
+        assert "1. head item" in result.text and "[^1]: 1. note item" in result.text

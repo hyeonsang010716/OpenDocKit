@@ -76,6 +76,10 @@ _INTEGER_OPTIONS = frozenset(("max_file_bytes", "max_uncompressed_bytes", "max_c
                               "min_image_side", "repeated_image_threshold", "image_max_side"))
 _NUMBER_OPTIONS = frozenset(("pdf_time_budget", "pdf_render_scale"))
 _OPTIONAL_OPTIONS = frozenset(("max_chars", "max_pages", "max_images", "pdf_time_budget"))
+# The switches. Only True and False are accepted: a string is always true (`page_markers="false"` kept the markers) and 0 or 1 hides
+# a mix-up with a limit (Pinned by: test_converter.py::TestLimits::test_switch_of_the_wrong_type_is_rejected_when_options_are_made).
+_BOOLEAN_OPTIONS = frozenset(("include_speaker_notes", "include_hidden_sheets", "include_headers_footers", "include_footnotes",
+                              "keep_links", "keep_emphasis", "remove_repeated_page_lines", "page_markers", "extract_images"))
 
 
 def _checked_number(name: str, value: object) -> object:
@@ -152,6 +156,10 @@ class ConvertOptions:
     pdf_render_scale: float = 2.0
 
     def __post_init__(self) -> None:
+        for name in _BOOLEAN_OPTIONS:
+            value = getattr(self, name)
+            if not isinstance(value, bool):
+                raise TypeError(f"ConvertOptions.{name} must be True or False (got {value!r}).")
         for name in _INTEGER_OPTIONS | _NUMBER_OPTIONS:
             object.__setattr__(self, name, _checked_number(name, getattr(self, name)))
         for name, minimum in _OPTION_MINIMUMS.items():

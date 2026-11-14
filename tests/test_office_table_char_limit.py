@@ -86,6 +86,30 @@ class TestCharacterLimitInsideOneTable:
         assert result.char_count < _LIMIT * 3  # drawn to the end it would be over 500,000 characters
         assert result.text.startswith("| r0c0 |")
 
+    @pytest.mark.parametrize("kind", ["header", "footer"])
+    def test_header_table_is_not_cut_by_the_characters_of_the_body(self, kind):
+        """Headers are read after the body but written before it. The body's characters stopped the header table after its first
+        row, so the text returned under the limit was not the front of the full conversion."""
+        from io import BytesIO
+
+        from docx import Document
+        from docx.shared import Inches
+
+        document = Document()
+        story = getattr(document.sections[0], kind)
+        table = story.add_table(rows=4, cols=2, width=Inches(4))
+        for row in range(4):
+            for col in range(2):
+                table.cell(row, col).text = f"H{row}{col}xxxxxxxx"
+        document.add_paragraph("B" * 95)
+        buffer = BytesIO()
+        document.save(buffer)
+        full = convert(buffer.getvalue(), "a.docx", ConvertOptions(include_headers_footers=True)).text
+
+        result = convert(buffer.getvalue(), "a.docx", ConvertOptions(max_chars=110, include_headers_footers=True))
+
+        assert result.exceeded and result.text == full[:110].rstrip()
+
     def test_hwpx_stops_reading_rows_of_a_huge_table(self):
         data = _hwpx_big_table()
 

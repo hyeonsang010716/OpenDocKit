@@ -4,6 +4,7 @@ tables and the text of their cells.
 
 from contextvars import ContextVar
 import re
+import secrets
 
 from bs4 import NavigableString, Tag
 
@@ -75,13 +76,22 @@ _LIST_NUMBER_SHAPES = {"a": "LATIN_SMALL", "A": "LATIN_CAPITAL", "i": "ROMAN_SMA
 
 
 _BLANK_LINES = re.compile(r"\n{2,}")
+# Characters a browser removes from anywhere in an address before reading it (the URL standard: ASCII tab or newline).
+_ADDRESS_BREAKS = re.compile("[\t\n\r]")
 # Placeholder for a nested list detached while its list item is rendered (private-use characters — clean_text removes them
-# if they are left in the body).
-_LIST_SLOT_OPEN, _LIST_SLOT_CLOSE = "\ue024", "\ue025"
-_LIST_SLOT = re.compile(f"{_LIST_SLOT_OPEN}(\\d+){_LIST_SLOT_CLOSE}")
+# if they are left in the body). A key of private-use characters drawn once per process sits after the opening character, so
+# text of the same shape written in the document (`\ue0240\ue025`, or the entity `&#xe024;`) is never taken for a placeholder:
+# it pointed at a list that did not exist and rejected the whole document with an IndexError
+# (Pinned by: test_core_html.py::TestTextShapedLikeAListPlaceholder). The key never reaches the output — a placeholder left in
+# the body is private-use characters around a number, as before.
+_LIST_SLOT_OPEN = "\ue024" + "".join(chr(0xE100 + byte) for byte in secrets.token_bytes(8))
+_LIST_SLOT_CLOSE = "\ue025"
+_LIST_SLOT = re.compile(f"{re.escape(_LIST_SLOT_OPEN)}(\\d+){_LIST_SLOT_CLOSE}")
 # Maximum list indentation depth. Deeper lists are folded onto one line (a list 14,000 levels deep was rejected with a
 # recursion-limit error) (Pinned by: test_text_html.py::TestDeepNesting).
 _MAX_LIST_DEPTH = 20
+# How many lists are being drawn inside one another (`_render_list`).
+_list_nesting: ContextVar[int] = ContextVar("list_nesting", default=0)
 # Maximum depth of stacked quote marks (`> `). Deeper quote blocks are only separated as blocks. The parser nests an unclosed
 # `<blockquote>` one level per occurrence, and prefixing `> ` to the whole inner text again at every level is quadratic in the
 # depth (4,500 levels, 58KB took 48 s and 2.9GB) (Pinned by: test_text_html.py::TestMalformedNesting).
@@ -228,7 +238,9 @@ def _link_address(anchor: Tag, inline: _Inline) -> str | None:
     if not inline.links or id(anchor) in inline.cut:
         return None
     address = anchor.get("href")
-    return link_target(address) if isinstance(address, str) else None
+    # Tabs and line breaks in an address are removed first, as a browser does when it parses it: `https://e.com/\nfoo` was
+    # written with `%0A` in it (Pinned by: test_core_html.py::TestLineBreaksInALinkAddress).
+    return link_target(_ADDRESS_BREAKS.sub("", address)) if isinstance(address, str) else None
 
 
 def _single_blank_lines(text: str) -> str:
@@ -428,9 +440,19 @@ _LEAF_RENDERERS = {
 
 
 def _render_list(node: Tag, list_depth: int) -> str:
-    if list_depth >= _MAX_LIST_DEPTH:
+    # The lists being drawn inside one another count too, not only the indentation: a list inside a quote block of an item is
+    # drawn by the quote at the item's own depth, and `<ul><li>a<blockquote>` repeated 800 times (unclosed) hit the recursion
+    # limit (Pinned by: test_core_html.py::TestListInsideAQuoteInsideAnItem::test_deeply_nested_quotes_and_lists_stay_bounded).
+    if list_depth >= _MAX_LIST_DEPTH or _list_nesting.get() >= _MAX_LIST_DEPTH:
         return f"{'  ' * list_depth}- {' '.join(node.get_text(' ').split())}"
+    token = _list_nesting.set(_list_nesting.get() + 1)
+    try:
+        return _render_list_items(node, list_depth)
+    finally:
+        _list_nesting.reset(token)
 
+
+def _render_list_items(node: Tag, list_depth: int) -> str:
     lines = []
     ordered = node.name == "ol"
     entries = _list_entries(node)
@@ -466,7 +488,9 @@ def _render_list(node: Tag, list_depth: int) -> str:
         # The detached lists are restored after drawing — a table with tables inside its cells draws the same cell twice
         # (`_render_table`), and the second drawing saw only the placeholder text and rejected the whole document with an IndexError
         # (Pinned by: test_core_html.py::TestNestedListInsideATableCell).
-        nested = _nearest(item, wanted={"ul", "ol"}, stop={"li", "table"})
+        # A list inside a quote block of the item stays in the quote, which draws it (Pinned by:
+        # test_core_html.py::TestListInsideAQuoteInsideAnItem).
+        nested = _nearest(item, wanted={"ul", "ol"}, stop={"li", "table", "blockquote"})
         slots = [NavigableString(f"{_LIST_SLOT_OPEN}{index}{_LIST_SLOT_CLOSE}") for index in range(len(nested))]
         # Swapped through `_replace` (one position lookup per parent): `replace_with` per list took 6.4 seconds for one item
         # with 20,000 lists (Pinned by: test_audit_html_text.py::TestManyListsOrTablesSetAsideWhileTheirParentIsRendered)
@@ -478,7 +502,12 @@ def _render_list(node: Tag, list_depth: int) -> str:
         finally:
             for child, slot in zip(nested, slots, strict=True):
                 _replace(slot, child, places)
-        first = pieces.pop(0) if pieces and isinstance(pieces[0], str) and not pieces[0].startswith(("```", "|")) else ""
+        # A code block, table or quote block of several lines opens the item on the line below. Text that only starts like one
+        # (`| a | b |`, `` ```js ``) is a single line and stays on the bullet line, a fence escaped — it was moved under an empty bullet
+        # (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock).
+        first = pieces.pop(0) if pieces and isinstance(pieces[0], str) and not _is_drawn_block(pieces[0]) else ""
+        if first.startswith("```"):
+            first = "\\" + first
 
         # Markdown numbered lists use digits only. A letter number is written after a bullet — it has to stay a list line for the nested
         # indentation to be kept.
@@ -495,6 +524,14 @@ def _render_list(node: Tag, list_depth: int) -> str:
     return "\n".join(line for line in lines if line.strip()).rstrip("\n")  # leading whitespace is the indentation of nested lists
 
 
+def _is_drawn_block(block: str) -> bool:
+    """Is this item block a code block, table or quote block (`_item_blocks`), which takes more than one line, not a line of text
+    that starts with a fence or `|`. A quote of several lines on the bullet line kept only its first line in the item: the
+    second line (`> second`) started a quote outside the list and split it
+    (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock::test_quote_of_several_lines_at_the_start_of_an_item_goes_below)."""
+    return block.startswith(("```", "|", ">")) and "\n" in block
+
+
 def _item_pieces(blocks: list[str], nested_count: int) -> list[str | int]:
     """Split the item blocks at the nested-list placeholders into text blocks (str) and nested-list indices (int), in source order. A
     placeholder inside a code block or table does not split the block; it goes after that block. Lists whose placeholder vanished while
@@ -502,7 +539,7 @@ def _item_pieces(blocks: list[str], nested_count: int) -> list[str | int]:
     pieces: list[str | int] = []
 
     for block in blocks:
-        if block.startswith(("```", "|")):
+        if _is_drawn_block(block):
             pieces.append(_LIST_SLOT.sub("", block))
             pieces.extend(int(found) for found in _LIST_SLOT.findall(block))
             continue
@@ -601,8 +638,9 @@ def _split_at_fenced(text: str) -> list[str]:
 
 
 def _item_blocks(text: str) -> list[str]:
-    """Split a list item's content into blocks. Code blocks and tables keep their line structure; in other paragraphs whitespace is
-    collapsed to single spaces."""
+    """Split a list item's content into blocks. Code blocks, tables and quote blocks (every line starting with `>`) keep their
+    line structure; in other paragraphs whitespace is collapsed to single spaces. A quote block in an item was folded onto one
+    line, its nested list and all (`> - b > - c`) (Pinned by: test_core_html.py::TestListInsideAQuoteInsideAnItem)."""
     blocks = []
     for part in _split_at_fenced(text):
         if part.startswith("```"):
@@ -610,8 +648,8 @@ def _item_blocks(text: str) -> list[str]:
             continue
         for paragraph in _BLANK_LINES.split(part):
             if paragraph.strip():
-                is_table = paragraph.lstrip().startswith("|")
-                blocks.append(paragraph.strip() if is_table else " ".join(paragraph.split()))
+                kept = paragraph.lstrip().startswith("|") or all(line.lstrip().startswith(">") for line in paragraph.strip().split("\n"))
+                blocks.append(paragraph.strip() if kept else " ".join(paragraph.split()))
     return blocks
 
 

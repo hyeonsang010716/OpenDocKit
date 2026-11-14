@@ -157,6 +157,8 @@ class _DocxRenderer:
         self.notes = _NoteLabels(self._written_notes())
         # Tables being rendered. A table inside a cell is handed to the table at the top of the stack (markdown.TableGrid.embed)
         self._grids: list[TableGrid] = []
+        # Whether a top-level table being read is a body table, which checks the character limit cell by cell (`_render_table`)
+        self._in_body = True
         self._chunks: dict[object, Extraction] = {}  # imported-content part → its conversion (`_chunk_blocks`)
         self._chart_titles: dict[object, str] = {}  # chart part already written → its `[Chart] title` line (`_object_block`)
         self._drop_cap: tuple[etree._Element, str] | None = None  # (drop-cap paragraph, its text). Prepended to the very next paragraph
@@ -189,8 +191,12 @@ class _DocxRenderer:
         """Content of a part other than the body, such as a header or footer. Relationship ids of pictures and charts are looked up in
         that part. Looked up in the body part, a different part with the same id was registered as the picture
         (Pinned by: test_office.py::TestDocxObjects::test_header_picture_comes_from_the_header_part)."""
-        with self.in_part(part), self._own_lists():
-            return self.render_container(container)
+        in_body, self._in_body = self._in_body, False
+        try:
+            with self.in_part(part), self._own_lists():
+                return self.render_container(container)
+        finally:
+            self._in_body = in_body
 
     @contextmanager
     def in_part(self, part: object) -> Iterator[None]:
@@ -438,8 +444,11 @@ class _DocxRenderer:
         # the cell above.
         grid = TableGrid()
         # The top-level table checks the character limit while reading its cells (`_notation.TableBudget`). The text of an inner table
-        # is not counted as cell text of the outer table (it undercounts).
-        budget = None if self._grids else TableBudget(self._extraction, self._options)
+        # is not counted as cell text of the outer table (it undercounts). A header or footer table is not checked: headers are read
+        # after the body but written before it, so the body's characters stopped a header table after its first row and the text
+        # returned was not the front of the full conversion (Pinned by: test_office_table_char_limit.py::
+        # TestCharacterLimitInsideOneTable::test_header_table_is_not_cut_by_the_characters_of_the_body).
+        budget = TableBudget(self._extraction, self._options) if not self._grids and self._in_body else None
         outer = self._grids[-1] if self._grids else None
         self._grids.append(grid)
         try:

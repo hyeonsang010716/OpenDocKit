@@ -68,7 +68,15 @@ from opendockit.extractors._pdf_artifacts import (
     _without_drawing_artifacts,
     _xobject_owners,
 )
-from opendockit.extractors._pdf_chars import _drawn_text, _gap_parts, _letter_spaced_text, _letter_spacings, _scripted_text, _text_from_chars
+from opendockit.extractors._pdf_chars import (
+    _drawn_text,
+    _drop_cap,
+    _gap_parts,
+    _letter_spaced_text,
+    _letter_spacings,
+    _scripted_text,
+    _text_from_chars,
+)
 from opendockit.extractors._pdf_continued_tables import _carry_table_headers, _join_ruled_header_lines
 from opendockit.extractors._pdf_figures import _figure_boxes, _open_pdfium, _page_images, _PageRenderer, _untrusted_text_layer_pages
 from opendockit.extractors._pdf_forms import _annotated_attachments, _form_values, _has_xfa, _named_attachments
@@ -113,7 +121,12 @@ from opendockit.extractors._pdf_reading_order import (
 from opendockit.extractors._pdf_row_joins import _join_row_fragments
 from opendockit.extractors._pdf_ruled_tables import _real_tables, _ruled_table, _with_open_below
 from opendockit.extractors._pdf_shaded_tables import _shade_bands, _thin_rules
-from opendockit.extractors._pdf_table_filters import _without_glyph_outlines, _without_highlights, _without_unadvanced_spaces
+from opendockit.extractors._pdf_table_filters import (
+    _without_glyph_outlines,
+    _without_highlights,
+    _without_unadvanced_spaces,
+    _without_unbounded_shapes,
+)
 from opendockit.markdown import solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -242,7 +255,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
             dense = set()
             crammed: set[int] = set()  # pages found with too much text-box grouping while being read (`_PAGE_GROUPING_COST`)
             grids: set[int] = set()  # ruled grid pages (read without text-box grouping, but not reported since cell text goes into the table)
-            attachments: dict[int, str] = {}  # attachment file specification (id) → name
+            attachments: dict[object, str] = {}  # attachment file specification (object number or held object) → name
             started = time.perf_counter()
             over_budget = 0
             failed = []
@@ -400,6 +413,9 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
     if dense:
         extraction.warnings.append(f"{len(dense)} PDF page(s) ({_page_list(sorted(dense))}) have too many text pieces and were read "
                                    "without text-box reading-order analysis (the order may be off).")
+    if budget.unruled_pages:
+        extraction.warnings.append(f"{len(budget.unruled_pages)} PDF page(s) ({_page_list(sorted(budget.unruled_pages))}) have too "
+                                   "many ruling lines, so ruled tables were not looked for on them (their text is read as paragraphs).")
     if refused:
         extraction.warnings.append(f"{len(refused)} PDF page(s) ({_page_list(refused)}){_REPEATED_FORMS_SKIPPED}")
     if crowded:
@@ -438,12 +454,15 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
     heading_levels = _heading_levels(pages, body_size, line_gap)
 
     scanned = []
+    unrendered: list[int] = []  # pages with an untrusted text layer whose whole-page picture was not rendered (picture budget)
     has_cid = False
     # Once the limit is exceeded no pictures are rendered (that leads on to image decoding and vision model calls, all of it wasted).
     renderer = _PageRenderer(data, options) if options.extract_images and not extraction.exceeded else None
     try:
         for page in pages:
             images = _page_images(page, renderer, extraction) if renderer else []
+            if page.text_untrusted and not images:
+                unrendered.append(page.number)
             text = _render_page(page, heading_levels, line_gap, images)
             if _CID.search(text):
                 has_cid = True
@@ -457,10 +476,18 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
 
     if renderer and renderer.skipped:
         extraction.warnings.append(f"There are too many pictures, so {renderer.skipped} of them were not extracted as images.")
-    if untrusted:
+    # Only the pages whose picture was rendered were handed over: with `max_images` low (or 0) the render budget runs out, and
+    # those pages kept only their text layer, while the warning said every page was handed over as an image (Pinned by:
+    # test_image.py::TestPdfImages::test_untrusted_pages_beyond_the_picture_budget_are_not_said_to_be_handed_over).
+    handed = [page.number for page in untrusted if page.number not in unrendered]
+    if handed:
         extraction.warnings.append(
-            f"{len(untrusted)} PDF page(s) ({_page_list([page.number for page in untrusted])}) appear to have no body text in their "
+            f"{len(handed)} PDF page(s) ({_page_list(handed)}) appear to have no body text in their "
             "text layer (no Hangul and sparse characters), so each whole page was handed over as an image.")
+    if unrendered:
+        extraction.warnings.append(
+            f"{len(unrendered)} PDF page(s) ({_page_list(unrendered)}) appear to have no body text in their text layer, but "
+            "there were too many pictures to hand them over as images, so only their text layer was read.")
     if scanned:
         extraction.warnings.append(
             f"{len(scanned)} page(s) ({_page_list(scanned)}) whose text exists only as images are empty because they need OCR.")
@@ -750,6 +777,16 @@ def _normalize_page_boxes(page: object) -> None:
                 and (box[0] > box[2] or box[1] > box[3])):
             x0, y0, x1, y1 = box
             setattr(source, name, (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)))
+    # A MediaBox without area (`[0 0 0 0]`, `[0 0 612 0]`) made a page of height 0, so every character lay outside the visible
+    # area and was dropped, and pdfium read no more than that, so nothing took its place. Such a page is read as US Letter, the
+    # size pdfium shows it at (Pinned by: test_pdf_page_boxes.py::TestEmptyMediaBox).
+    media = getattr(source, "mediabox", None)
+    if (isinstance(media, list | tuple) and len(media) == 4 and all(isinstance(value, int | float) for value in media)
+            and (media[2] - media[0] <= 0 or media[3] - media[1] <= 0)):
+        source.mediabox = source.cropbox = (0.0, 0.0, 612.0, 792.0)
+        width, height = (612.0, 792.0) if getattr(page, "rotation", 0) % 180 == 0 else (792.0, 612.0)
+        page.mediabox = page.cropbox = page.bbox = (0.0, 0.0, width, height)
+        page.flush_cache(["_layout", "_objects"])  # characters already read were placed on the page without area
 
 
 def _is_ruled_grid(pieces: int, paths: int) -> bool:
@@ -801,7 +838,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     page, dropped = _without_drawing_artifacts(page)
     hidden_chars = sum(1 for char in dropped if char["text"].strip())
     placement_fit, placement_pending = _repair_placed_runs(page, placement_fit)
-    tables = _real_tables(_without_unadvanced_spaces(_without_highlights(_without_glyph_outlines(page))))
+    tables = _real_tables(_without_unadvanced_spaces(_without_highlights(_without_glyph_outlines(_without_unbounded_shapes(page)))))
     # What is taken out of the body flow is not the whole table area but the characters actually inside cells. Characters where the
     # table finder could not build a cell (e.g. a table continued onto the next page without a bottom border) are not held by any
     # cell, so removing by area would make them vanish silently
@@ -893,9 +930,10 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
             text = kept
         kept_lines.setdefault(text, []).append(line)
         text = _scripted_text(inside, text) or text
+        text, top, bottom = _drop_cap(inside, text) or (text, line["top"], line["bottom"])
         sizes = [char["size"] for char in inside if char["text"].strip()]
         size = statistics.median(sizes) if sizes else 0.0
-        lines.append(_Line(top=line["top"], bottom=line["bottom"], x0=line["x0"], x1=line["x1"], text=_drawn_text(text),
+        lines.append(_Line(top=top, bottom=bottom, x0=line["x0"], x1=line["x1"], text=_drawn_text(text),
                            size=size, parts=_gap_parts(inside, _drawn_text(text), size),
                            fine_parts=_gap_parts(inside, _drawn_text(text), size, _UNSPACED_GAP_RATIO)))
         line_owners.append(owner)

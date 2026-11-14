@@ -1,6 +1,8 @@
 """Spreadsheets: small files that used to cost seconds or gigabytes, and single odd values that used to reject the whole
 document (audit of `extractors/spreadsheet.py`)."""
 
+from datetime import time as clock_time
+from datetime import timedelta
 from io import BytesIO
 import struct
 import time
@@ -8,11 +10,14 @@ from types import SimpleNamespace
 import zipfile
 
 import openpyxl
+from openpyxl.comments import Comment
 import pytest
 
 from opendockit import convert
 from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors import _sheet_layout, _xlsx_parts, spreadsheet, xls, xml_spreadsheet
+from opendockit.extractors._sheet_format import format_cell
+from opendockit.markdown import render_table
 from opendockit.models import ConvertOptions
 from tests import builder
 from tests.test_spreadsheet_cell_values_and_controls import (
@@ -733,3 +738,257 @@ class TestXmlCellAtPositionZero:
 
         assert result.text == "## Sheet: s\n\n| a | | b | c |\n| --- | --- | --- | --- |\n| 1 | 2 | 3 | 4 |"
         assert not result.warnings
+
+
+@pytest.mark.timing
+class TestManyEmptyRowBlocks:
+    """Every block after an empty row was compared with the table above by working out that table's header and column count
+    again from all its rows: quadratic in the number of blocks. A CSV of 300,000 one-row blocks took 226 s (80,000: 8 s)."""
+
+    def test_csv_of_one_row_blocks(self):
+        data = ("h,v\n" + "1\n\n" * 100_000).encode()
+        started = time.perf_counter()
+
+        result = convert(data, "a.csv", ConvertOptions(max_chars=None))
+
+        assert time.perf_counter() - started < allowed(5)  # about 1 s now, 13 s or more before
+        assert result.text.startswith("| h | v |\n| --- | --- |\n| 1 | |\n| 1 | |")
+        assert result.text.count("| 1 | |") == 100_000
+
+    def test_xlsx_rows_with_gaps(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["h", "v"])
+        for index in range(40_000):
+            sheet.cell(row=3 + 2 * index, column=1, value=1)
+        buffer = BytesIO()
+        workbook.save(buffer)
+        started = time.perf_counter()
+
+        result = convert(buffer.getvalue(), "a.xlsx", ConvertOptions(max_chars=None))
+
+        assert time.perf_counter() - started < allowed(8)  # about 2 s now, 25 s or more before
+        assert result.text.count("| 1 | |") == 40_000
+
+    def test_a_new_table_below_many_blocks_is_still_split(self):
+        rows = "h,v\n" + "1,2\n\n" * 300 + "name,count,unit\nx,3,kg\n\nh,v\n4,5\n"
+
+        text = convert(rows.encode(), "a.csv").text
+
+        assert text.endswith("| 1 | 2 |\n\n| name | count | unit |\n| --- | --- | --- |\n| x | 3 | kg |\n\n"
+                             "| h | v |\n| --- | --- |\n| 4 | 5 |")  # the header of the new table is compared, not the first one
+
+
+class TestSharedFormulasThatCannotBeMoved:
+    """A shared formula whose reference moves off the sheet when it is rewritten for another cell (a dependent cell left of the
+    first one, `=A1` moved one column left) made openpyxl raise TranslatorError, and the whole workbook was rejected as
+    corrupted. Such a cell is left blank, as one whose formula cannot be read."""
+
+    _HEADER = _text_row(1, "a", "b", "c")
+    _SHARED = ('<row r="2"><c r="C2"><f t="shared" ref="B2:C3" si="0">A1</f></c></row>'
+               '<row r="3"><c r="B3"><f t="shared" si="0"/></c></row>')
+
+    def test_when_formulas_are_read(self):
+        """No formula has a result, so openpyxl reads formulas (`data_only=False`) and moves the shared formula itself."""
+        result = convert(_with_sheet_xml(_sheet_xml(self._HEADER + self._SHARED)), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| a | b | c |\n| --- | --- | --- |\n| | | =A1 |"
+        assert result.warnings == ["Formula results are not stored in the file, so the formulas were copied as written "
+                                   "(opening and re-saving the file in Excel converts them to values)."]
+
+    def test_when_values_are_read(self):
+        """One formula has a result, so values are read and the formulas without results are looked up in the sheet XML."""
+        stored = '<row r="4"><c r="A4"><f>1+1</f><v>2</v></c></row>'
+
+        result = convert(_with_sheet_xml(_sheet_xml(self._HEADER + self._SHARED + stored)), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| a | b | c |\n| --- | --- | --- |\n| | | =A1 |\n| 2 | | |"
+        assert result.warnings == ["Sheet 'Sheet': 1 formula(s) with no stored result were copied as written "
+                                   "(opening and re-saving the file in Excel converts them to values)."]
+
+    def test_formula_that_cannot_be_tokenized(self):
+        """An unterminated string in a shared formula made openpyxl raise TokenizerError."""
+        rows = self._HEADER + '<row r="2"><c r="A2"><f t="shared" ref="A2:A3" si="0">"abc</f></c><c r="B2"><v>5</v></c></row>'
+
+        result = convert(_with_sheet_xml(_sheet_xml(rows)), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| a | b | c |\n| --- | --- | --- |\n| | 5 | |"
+
+
+class TestElapsedMinutes:
+    """An elapsed `[h]:mm` value was rounded to the minute (1:29:45 → `1:30`) while the same value under `h:mm` was truncated
+    (`1:29`), the rule recorded for time formats. Both truncate now."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (timedelta(hours=1, minutes=29, seconds=45), "[h]:mm", "1:29"),
+        (timedelta(hours=1, minutes=29, seconds=45), '[h]"h" mm"m"', "1h 29m"),
+        (timedelta(hours=26, minutes=59, seconds=59), "[h]:mm", "26:59"),
+        (timedelta(hours=26), "[h]:mm", "26:00"),
+        (timedelta(hours=1, minutes=29, seconds=45), "[h]:mm:ss", "1:29:45"),
+        (timedelta(seconds=-45), "[h]:mm", "0:00"),  # truncated to zero: no sign
+        (timedelta(seconds=-89), "[h]:mm", "-0:01"),
+        (timedelta(seconds=-45), '[h]"h" mm"m"', "0h 00m"),
+        (timedelta(seconds=-61), '[h]"h" mm"m"', "-0h 01m"),
+        (timedelta(seconds=-5), "[h]:mm:ss", "-0:00:05"),
+    ])
+    def test_below_the_minute_is_truncated(self, value, number_format, expected):
+        assert format_cell(value, number_format) == expected
+
+    def test_same_as_a_clock_time(self):
+        assert format_cell(clock_time(1, 29, 45), "h:mm") == format_cell(timedelta(hours=1, minutes=29, seconds=45), "[h]:mm")
+
+
+class TestXlsNumberThatIsNotFinite:
+    """An XLS number cell holding NaN or infinity came out as `nan` / `inf` without a warning. XLSX and Excel 2003 XML keep the
+    text written in the file with a count warning; an XLS has no such text, so the cell is blank, with the count warning."""
+
+    def test_cells_are_blank_with_one_warning(self):
+        data = builder.raw_biff_xls([["name", "value"], ["a", float("nan")], ["b", float("inf")], ["c", -float("inf")],
+                                     ["d", 12.5]])
+
+        result = convert(data, "a.xls")
+
+        assert result.text == "## Sheet: Sheet 1\n\n| name | value |\n| --- | --- |\n| a | |\n| b | |\n| c | |\n| d | 12.5 |"
+        assert result.warnings == ["3 number cell value(s) that are not finite numbers were left blank."]
+
+
+class TestQuestionMarkPlaces:
+    """A `?` digit place without a significant digit is a space in Excel (it keeps a column aligned on the decimal point). A `?`
+    decimal place showed its 0 (1.5 under `0.??` came out as `1.50`) and a `?` integer place its 0 (`?.??` → `0.50`)."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (1.5, "0.??", "1.5 "),
+        (0.5, "0.0?", "0.5 "),
+        (0.5, "?.??", " .5 "),
+        (1.05, "0.??", "1.05"),
+        (12, "0.??", "12.  "),
+        (5, "???", "  5"),
+        (1234.5, "#,##0.0?", "1,234.5 "),
+        (12, "0.###", "12"),  # `#` places show nothing, as before
+        (1.5, "0.0#", "1.5"),
+        (1.5, "0.00", "1.50"),
+    ])
+    def test_place_without_a_digit(self, value, number_format, expected):
+        assert format_cell(value, number_format) == expected
+
+    def test_cell_text_has_no_padding_spaces(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["item", "weight"])
+        sheet.append(["a", 1.5])
+        sheet["B2"].number_format = '0.?? "kg"'
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        assert convert(buffer.getvalue(), "a.xlsx").text.endswith("| a | 1.5 kg |")  # runs of spaces in a cell are one space
+
+
+class TestEnglishUnitNotesInTitleRows:
+    """A top row of a title and a unit or as-of note is moved above the table only when the note was Korean (`(단위: 천원)`).
+    `Revenue by region | … | (in thousands)` became the header row and the real header dropped into the data."""
+
+    _BELOW = [["Region", "Q1", "Q2", "Q3", "Total"], ["East", "100", "50", "150", "300"]]
+
+    @pytest.mark.parametrize("note", ["(Unit: USD)", "(units: thousands)", "Unit: KRW", "[Units: kg]", "(in thousands)",
+                                      "(In Millions of USD)", "(in billions)", "As of 2024-12-31", "(as of Dec 31, 2024)"])
+    def test_note_makes_a_title(self, note):
+        result = render_table([["Revenue by region", "", "", "", note], *self._BELOW])
+
+        assert result.startswith(f"Revenue by region {note}\n\n| Region | Q1 |")
+
+    @pytest.mark.parametrize("note", ["Unit", "Units", "in thousands", "Unit price", "As", "Assets", "Unit cost: avg"])
+    def test_other_second_cells_stay_the_header(self, note):
+        """A bare `Unit` or `in thousands` without a colon or bracket can be a column name. (`Unit cost: avg` has no colon right
+        after `Unit`.)"""
+        result = render_table([["Revenue by region", "", "", "", note], *self._BELOW])
+
+        assert result.startswith("| Revenue by region |")
+
+    def test_csv(self):
+        data = b"Revenue by region,,,,(in thousands)\nRegion,Q1,Q2,Q3,Total\nEast,100,50,150,300\n"
+
+        assert convert(data, "a.csv").text.startswith("Revenue by region (in thousands)\n\n| Region | Q1 | Q2 | Q3 | Total |")
+
+
+def _biff5_workbook(chart_name: bytes, sheet_name: bytes, codepage: int, hidden: int = 0) -> bytes:
+    """BIFF5 (Excel 5/95) workbook stream: one worksheet with one text cell and one chart sheet listed in BOUNDSHEET. A BIFF5
+    BOUNDSHEET has the name length in byte 6 and the name at byte 7, in the workbook's code page (BIFF8: a flags byte at 7, the
+    name at 8)."""
+    def begin(kind: int) -> bytes:
+        return builder.xls_record(0x0809, struct.pack("<HHHH", 0x0500, kind, 0x0DBB, 0x07CC))
+
+    def bound(position: int, kind: int, name: bytes, visibility: int = 0) -> bytes:
+        return builder.xls_record(0x0085, struct.pack("<IBBB", position, visibility, kind, len(name)) + name)
+
+    cell = builder.xls_record(0x0204, struct.pack("<HHHH", 0, 0, 0, 1) + b"x")
+    sheet = begin(0x0010) + builder.xls_record(0x0200, struct.pack("<HHHHH", 0, 1, 0, 1, 0)) + cell + builder.xls_record(0x000A)
+    head = begin(0x0005) + builder.xls_record(0x0042, struct.pack("<H", codepage))
+    position = len(head) + len(bound(0, 0, sheet_name)) + len(bound(0, 2, chart_name)) + 4
+    return (head + bound(position, 0, sheet_name) + bound(position, 2, chart_name, hidden) + builder.xls_record(0x000A)
+            + sheet)
+
+
+class TestBiff5ChartSheetNames:
+    """The chart-sheet warning read BOUNDSHEET names at the BIFF8 offsets and as Latin-1: in a BIFF5 workbook the first byte of
+    the name was taken for the flags byte and Korean names came out garbled."""
+
+    def test_name_is_read_at_the_biff5_offset_in_the_code_page(self):
+        data = _biff5_workbook("매출 차트".encode("cp949"), "표".encode("cp949"), 949)
+
+        extraction = xls.extract_xls(data, ConvertOptions())
+
+        assert extraction.warnings == ["Chart sheet '매출 차트' was not read "
+                                       "(XLS charts are not converted to value tables — saving as XLSX converts them)."]
+        assert extraction.sections[0].title == "표"
+
+    def test_western_code_page(self):
+        data = _biff5_workbook("Ventes €".encode("cp1252"), b"Data", 1252)
+
+        assert xls.extract_xls(data, ConvertOptions()).warnings[0].startswith("Chart sheet 'Ventes €' was not read")
+
+    def test_hidden_chart_sheet_is_left_out(self):
+        data = _biff5_workbook(b"Chart", b"Data", 1252, hidden=1)
+
+        assert xls.extract_xls(data, ConvertOptions()).warnings == []
+
+
+def _two_sheets(second_name: str, second_state: str = "") -> bytes:
+    """Workbook of sheet `Data` (`first`) and a second sheet (`second`, with a comment on A1) renamed in workbook.xml to
+    `second_name`, in the sheet state `second_state`."""
+    workbook = openpyxl.Workbook()
+    first = workbook.active
+    first.title = "Data"
+    first["A1"] = "first"
+    second = workbook.create_sheet("Other")
+    second["A1"] = "second"
+    second["A1"].comment = Comment("note on the second sheet", "Kim")
+    second.sheet_state = second_state or "visible"
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return builder.zip_with(buffer.getvalue(), edit={
+        "xl/workbook.xml": lambda xml: xml.replace('name="Other"', f'name="{second_name}"')})
+
+
+class TestSheetsWithTheSameName:
+    """A fully loaded sheet was matched with its part and hidden state by its name. openpyxl renames a sheet whose name repeats
+    another (case ignored), so a hidden duplicate hid both sheets, and the comments and drawings of the renamed sheet were lost
+    or went to the other sheet."""
+
+    def test_hidden_duplicate_hides_only_itself(self):
+        result = convert(_two_sheets("Data", "hidden"), "a.xlsx")
+
+        assert result.text == "## Sheet: Data\n\nfirst"
+        assert result.warnings == ["Hidden sheet 'Data1' was excluded."]
+
+    def test_comment_stays_with_its_sheet(self):
+        result = convert(_two_sheets("data"), "a.xlsx")
+
+        first, second = result.text.split("## Sheet: ")[1:]
+        assert first.strip() == "Data\n\nfirst"
+        assert second.startswith("data1\n\nsecond")
+        assert "note on the second sheet" in second
+
+    def test_hidden_duplicate_is_read_when_asked(self):
+        result = convert(_two_sheets("Data", "hidden"), "a.xlsx", ConvertOptions(include_hidden_sheets=True))
+
+        assert "note on the second sheet" in result.text.split("## Sheet: Data1")[1]

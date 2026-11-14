@@ -87,12 +87,14 @@ _STRIKE_STYLE = re.compile(r"(?:^|;)(?>[^;]*?text-decoration(?:-line)?\s*:)[^;]*
 
 # Only the `display` / `visibility` (and `content-visibility`) properties themselves: matched anywhere, the pattern removed a
 # visible element styled `backface-visibility:hidden`, text and all
-# (Pinned by: test_audit_html_text.py::TestStylePropertiesThatOnlyEndLikeAHidingOne).
-_HIDDEN_STYLE = re.compile(r"(?<![\w-])(?:display\s*:\s*none|(?:content-)?visibility\s*:\s*hidden)", re.IGNORECASE)
+# (Pinned by: test_audit_html_text.py::TestStylePropertiesThatOnlyEndLikeAHidingOne). Only the values themselves too, followed
+# by the end, `;`, whitespace or `!important`: `display:none-ish` or `visibility:hiddenx` is not a value CSS knows, and the
+# element was removed (Pinned by: test_core_html_mail_hidden_and_frames.py::TestStyleValuesThatOnlyStartLikeAHidingOne).
+_HIDDEN_STYLE = re.compile(r"(?<![\w-])(?:display\s*:\s*none|(?:content-)?visibility\s*:\s*hidden)(?![\w-])", re.IGNORECASE)
 # Hiding that a descendant cannot undo (`display:none`, `content-visibility:hidden`), and the inherited `visibility`, which a
 # descendant can set back with `visibility:visible` (`_drop_hidden`).
-_UNDOABLE_HIDING = re.compile(r"(?<![\w-])(?:display\s*:\s*none|content-visibility\s*:\s*hidden)", re.IGNORECASE)
-_VISIBLE_STYLE = re.compile(r"(?<![\w-])visibility\s*:\s*visible", re.IGNORECASE)
+_UNDOABLE_HIDING = re.compile(r"(?<![\w-])(?:display\s*:\s*none|content-visibility\s*:\s*hidden)(?![\w-])", re.IGNORECASE)
+_VISIBLE_STYLE = re.compile(r"(?<![\w-])visibility\s*:\s*visible(?![\w-])", re.IGNORECASE)
 # Elements whose `visibility:hidden` is not taken as hiding: the page itself, hidden by an anti-flicker snippet until a script
 # shows it.
 _PAGE_ROOTS = {"html", "body"}

@@ -166,13 +166,42 @@ def _with_shaded_rows(page: object, tables: list[object]) -> list[object]:
             continue
         rules = _horizontal_rules(page) if rules is None else rules
         grown = _grown_shaded_table(page, table, result, rules)
-        if grown is None:
-            continue
-        new, replaced = grown
+        new, replaced = grown if grown is not None else (table, [table])
         position = min(index for index, other in enumerate(result) if any(other is old for old in replaced))
         result = [other for other in result if not any(other is old for old in replaced)]
-        result.insert(position, new)
+        if not _leaves_aligned_rows(page, new, [other for other in result if other is not new], shaded):
+            result.insert(position, new)
     return _with_merged_column_fragments(page, result, shades, shaded)
+
+
+def _leaves_aligned_rows(page: object, table: object, others: list[object], shaded: "_ShadingTest") -> bool:
+    """Whether a shaded table, as far as it could be grown (`_grown_shaded_table`), stops short of rows of the same columns:
+    the band of one row height right above or below it has text in two or more columns that lines up with the table's own
+    rows (`_band_cells`, `_aligned_cells`) and belongs to no other table found on the page (`others`). Never while another
+    shaded table lies within `_SHADED_ROW_REACH` row heights beside it: that is a fragment of the same table that
+    `_with_merged_column_fragments` may still join (a vertically merged cell left it with fewer columns).
+
+    Such a table is dropped and the region is left to the borderless table search, which reads the whole table as if it had
+    no shading. A single shaded data row in a borderless table could be grown by only one open band each way, so the table
+    was cut at that row and the rows beyond it came out as a second table or as lines scattered column by column (Pinned by:
+    test_pdf_shaded_tables.py::TestOneShadedRowInABorderlessTable).
+    """
+    edges = _column_edges(table)
+    if len(edges) < 3:
+        return False
+    row_height = _row_pitch([table])
+    references = [cells for row in table.rows if (cells := _band_cells(page, (row.bbox[1], row.bbox[3]), edges)) is not None]
+    x0, top, x1, bottom = table.bbox
+    reach = row_height * _SHADED_ROW_REACH
+    if any(other.bbox[0] < x1 and other.bbox[2] > x0 and other.bbox[1] - bottom <= reach and top - other.bbox[3] <= reach
+           and shaded(other) for other in others):
+        return False
+    for band in ((top - row_height, top), (bottom, bottom + row_height)):
+        if any(other.bbox[1] < band[1] - 1 and other.bbox[3] > band[0] + 1 for other in others):
+            continue
+        if _aligned_cells(_band_cells(page, band, edges), references):
+            return True
+    return False
 
 
 def _with_merged_column_fragments(page: object, tables: list[object], shades: list[dict],

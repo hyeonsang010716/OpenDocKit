@@ -6,6 +6,7 @@ Elements are compared **by local name only**: the namespace URI (2011/2016) diff
 """
 
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from io import BytesIO
 import re
@@ -143,6 +144,7 @@ class HwpxRenderer:
         # Comments (review remarks): (author, text, pieces of the body range the comment is attached to). The range is the text between
         # fieldBegin and the fieldEnd with the same id
         self.memos: list[tuple[str, str, list[str]]] = []
+        self._memo_ids: list[str] = []  # the id of each comment above, to take back those of a passed-over hp:switch branch
         self._open_memos: dict[str, list[str]] = {}  # comment id not yet closed by fieldEnd and still being gathered → range pieces
         self._memo_lengths: dict[str, int] = {}  # comment id above → number of characters gathered
         self._unspaced_memos: dict[str, None] = {}  # comments above with a non-empty range not ending in whitespace (get a space between paragraphs)
@@ -210,9 +212,12 @@ class HwpxRenderer:
             blocks.extend(block for block in ((caption, chart) if before else (chart, caption)) if block)
         elif name == "textart":
             # Text art: the characters are in the text attribute, not the element text
-            # (Pinned by: test_hwp.py::TestHwpxObjects::test_text_art_is_kept).
+            # (Pinned by: test_hwp.py::TestHwpxObjects::test_text_art_is_kept). Its caption is a block beside it, as for a chart
+            # (Pinned by: test_hwp.py::TestHwpxObjects::test_text_art_caption_is_kept).
             flush()
-            blocks.append(_TEXTART_BREAKS.sub("\n", node.get("text", "")).strip())
+            caption, before = self._caption(node)
+            art = _TEXTART_BREAKS.sub("\n", node.get("text", "")).strip()
+            blocks.extend(block for block in ((caption, art) if before else (art, caption)) if block)
         elif name == "dutmal":
             # Ruby text (dutmal): the main text (hp:mainText) is also inside this element, not in hp:t, so even the main text was dropped
             # (Pinned by: test_hwp.py::TestDutmal).
@@ -230,16 +235,7 @@ class HwpxRenderer:
         elif name == "secPr":
             self._outline_numbering = node.get("outlineShapeIDRef", self._outline_numbering)
         elif name == "switch":
-            # Compatibility switch: read the newer object (hp:case, e.g. an OOXML chart) first, and if nothing comes out read the
-            # fallback object (hp:default).
-            for branch in (_child(node, "case"), _child(node, "default")):
-                if branch is None:
-                    continue
-                buffered, emitted = len(buffer), len(blocks)
-                for child in branch:
-                    self._render_object(child, buffer, blocks, flush)
-                if len(blocks) > emitted or "".join(buffer[buffered:]).strip():
-                    break
+            self._render_switch(node, buffer, blocks, flush)
         elif name == "container":
             # Group object: handle the pictures and text boxes inside in order.
             for child in node:
@@ -252,6 +248,37 @@ class HwpxRenderer:
                 flush()
             for sublist in sublists:
                 blocks.extend(self.render_paragraphs(sublist))
+
+    def _render_switch(self, switch: etree._Element, buffer: list[str], blocks: list[str], flush: Callable[[], None]) -> None:
+        """Compatibility switch: read the newer object (hp:case, e.g. an OOXML chart) first, and if no text comes out read the
+        fallback object (hp:default). A branch that is passed over for the next one leaves nothing behind: the notes and comments it registered are
+        taken back (they were registered twice when the fallback held them too), and an empty block, such as an empty table, is not
+        text (Pinned by: test_hwp.py::TestHwpxObjects::test_switch_branch_without_text_leaves_nothing_behind).
+
+        A text-box or table in the branch flushes the paragraph text before the switch into a block of its own; that block is not the
+        branch's, so `flush` is wrapped to tell the two apart."""
+        branches = [branch for branch in (_child(switch, "case"), _child(switch, "default")) if branch is not None]
+        for index, branch in enumerate(branches):
+            start, own = len(buffer), len(blocks)   # where this branch's pieces and blocks begin
+            notes, note_count, memos = len(self.notes), self._note_count, len(self.memos)
+            produced = False
+
+            def branch_flush() -> None:
+                nonlocal start, own, produced
+                produced = produced or bool("".join(buffer[start:]).strip())
+                flush()
+                start, own = 0, len(blocks)
+
+            for child in branch:
+                self._render_object(child, buffer, blocks, branch_flush)
+            if index == len(branches) - 1 or produced or "".join(buffer[start:]).strip() or any(block.strip() for block in blocks[own:]):
+                return
+            del buffer[start:], blocks[own:], self.notes[notes:]
+            self._note_count = note_count
+            for memo_id, (_, _, target) in zip(self._memo_ids[memos:], self.memos[memos:], strict=True):
+                if self._open_memos.get(memo_id) is target:
+                    self._close_memo(memo_id)
+            del self.memos[memos:], self._memo_ids[memos:]
 
     def unread_warnings(self) -> list[str]:
         """Warnings per kind for objects left as placeholders only (OLE, video)."""
@@ -354,28 +381,49 @@ class HwpxRenderer:
                 self._open_memo(node)
             elif name == "fieldEnd":
                 self._close_memo(node.get("beginIDRef", ""))
-            elif name in ("footNote", "endNote") and self._options.include_footnotes:
-                self._note_count += 1
-                self._grids.append(None)  # footnote text is not cell text — handing its table to the outer cell leaks the placeholder to the note
-                self._note_depth += 1
-                try:
-                    note = " ".join(" ".join(block.split()) for sub in _top_sublists(node)
-                                    for block in self.render_paragraphs(sub))
-                finally:
-                    self._note_depth -= 1
-                    self._grids.pop()
-                buffer.append(f"[^{self._note_count}]")
-                self.notes.append(f"[^{self._note_count}]: {note}")
+            elif name in ("footNote", "endNote") and self._options.include_footnotes and not self._note_depth:
+                self._render_note(node, buffer)
             elif name in ("header", "footer") and self._options.include_headers_footers:
                 self._grids.append(None)
                 try:
-                    text = join_blocks(block for sub in _top_sublists(node) for block in self.render_paragraphs(sub))
+                    with self._own_numbering():
+                        text = join_blocks(block for sub in _top_sublists(node) for block in self.render_paragraphs(sub))
                 finally:
                     self._grids.pop()
                 if text:
                     self.headers_footers.setdefault(text)
             elif name == "autoNum":
                 buffer.append(_auto_number(node))
+
+    def _render_note(self, note: etree._Element, buffer: list[str]) -> None:
+        """A footnote or endnote: `[^n]` in place and `[^n]: text` at the end. The number is taken once the text is known, so a
+        note without text leaves neither reference nor definition and the notes after it stay consecutive; a note inside a note is
+        left out (the caller checks `_note_depth`), as in RTF and ODF — Markdown cannot reference it from a definition, and numbering
+        it first gave the outer note's number to both. A note inside a comment is numbered the same way
+        (Pinned by: test_hwp.py::TestNotesInsideNotes)."""
+        self._grids.append(None)  # footnote text is not cell text — handing its table to the outer cell leaks the placeholder to the note
+        self._note_depth += 1
+        try:
+            with self._own_numbering():
+                text = " ".join(" ".join(block.split()) for sub in _top_sublists(note) for block in self.render_paragraphs(sub))
+        finally:
+            self._note_depth -= 1
+            self._grids.pop()
+        if not text.strip():
+            return
+        self._note_count += 1
+        buffer.append(f"[^{self._note_count}]")
+        self.notes.append(f"[^{self._note_count}]: {text}")
+
+    @contextmanager
+    def _own_numbering(self) -> Iterator[None]:
+        """Paragraph numbers of a header, footer, note or comment counted on their own: a numbered paragraph there advanced the
+        body's counters, so the body's next item skipped a number (Pinned by: test_hwp.py::TestNumberingOutsideTheBody)."""
+        saved, self._numberings = self._numberings, {}
+        try:
+            yield
+        finally:
+            self._numberings = saved
 
     def _open_memo(self, field: etree._Element) -> None:
         """Record one comment and start gathering its range. The author is the Author parameter; the text is the subList paragraphs on one line.
@@ -390,12 +438,14 @@ class HwpxRenderer:
         self._grids.append(None)
         self._memo_depth += 1
         try:
-            text = " ".join(" ".join(block.split()) for sub in _top_sublists(field) for block in self.render_paragraphs(sub))
+            with self._own_numbering():
+                text = " ".join(" ".join(block.split()) for sub in _top_sublists(field) for block in self.render_paragraphs(sub))
         finally:
             self._memo_depth -= 1
             self._grids.pop()
         target: list[str] = []
         self.memos.append((author, text, target))
+        self._memo_ids.append(field.get("id", ""))
         self._open_memos[field.get("id", "")] = target
         self._memo_lengths[field.get("id", "")] = 0
         self._unspaced_memos.pop(field.get("id", ""), None)

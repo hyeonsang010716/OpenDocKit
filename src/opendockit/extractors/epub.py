@@ -309,6 +309,9 @@ class _Book:
           in the Markdown (Pinned by: test_epub.py::TestLinks).
         - Pictures of the package are put into `src` as `data:` URIs, the one form the HTML extractor takes pictures from
           without fetching anything (Pinned by: test_epub.py::TestPictures).
+        - `<style>` and `<script>` are removed (the HTML extractor drops them anyway): written out as HTML their text is raw, so
+          a CDATA section holding `</style><p>…` closed the element early and the rest came out as text
+          (Pinned by: test_epub.py::TestChapterMarkup::test_style_holding_a_closing_tag_in_cdata_shows_nothing).
         """
         root = _parse_chapter(data, self._extraction.warnings)
         if root is None:
@@ -316,11 +319,14 @@ class _Book:
         elements = list(root.iter(etree.Element))
         body = None
         pictures: list[tuple[etree._Element, str]] = []
+        raw: list[etree._Element] = []
         for element in elements:
             name = _local(element)
             if name != element.tag:
                 element.tag = name
-            if name == "body" and body is None:
+            if name in _UNREAD_TAGS:
+                raw.append(element)
+            elif name == "body" and body is None:
                 body = element
             elif name == "aside":
                 element.tag = "div"
@@ -331,6 +337,8 @@ class _Book:
                 source = self._existing(posixpath.dirname(path), element.get("src"))
                 if source:
                     pictures.append((element, source))
+        for element in raw:
+            _remove_keeping_tail(element)
         if body is None:
             body = root
             for element in elements:
@@ -426,6 +434,20 @@ def _is_cut_by_depth(root: etree._Element) -> bool:
         if depth >= _HTML_PARSER_DEPTH:
             return True
     return False
+
+
+def _remove_keeping_tail(element: etree._Element) -> None:
+    """Take `element` out of its parent, leaving the text that follows it (its tail) in place."""
+    parent = element.getparent()
+    if parent is None:
+        return
+    if element.tail:
+        previous = element.getprevious()
+        if previous is not None:
+            previous.tail = (previous.tail or "") + element.tail
+        else:
+            parent.text = (parent.text or "") + element.tail
+    parent.remove(element)
 
 
 def _has_text(body: etree._Element) -> bool:

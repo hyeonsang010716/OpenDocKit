@@ -3,6 +3,7 @@ a list item, level marks inside a table cell, and the head and bullet level of a
 """
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 import re
 
 from opendockit.extractors._notation import OLE_PLACEHOLDER
@@ -13,6 +14,18 @@ from opendockit.models import IMAGE_MARKER
 # Upper bound for list indent levels (PowerPoint and Word use 0-8)
 # (Pinned by: test_office.py::TestPptx::test_absurd_paragraph_level_does_not_build_a_huge_indent).
 MAX_LEVEL = 8
+# Largest start number of a list that Word (w:start, w:startOverride) and PowerPoint (a:buAutoNum startAt) accept. A start number
+# past it is an odd value and reads as the default (`start_number`).
+MAX_START_NUMBER = 32767
+
+
+def start_number(value: int, default: int = 1) -> int:
+    """A list start number read from a file, or `default` when it is outside 0-32767 (`MAX_START_NUMBER`).
+
+    A start number of exactly 4,300 digits passed `decimal_int`, and the next item's number (one more digit) could not be written
+    with `str()`, so the document was rejected as corrupted (Pinned by: test_office_robustness.py::TestHugeNumbersInOfficeDocuments::
+    test_docx_start_number_too_large_for_word_is_the_default)."""
+    return value if 0 <= value <= MAX_START_NUMBER else default
 
 
 # ---- Hand-typed bullets ------------------------------------------------------------------------------------------
@@ -154,6 +167,8 @@ DOCX_NUMBER_SHAPES = {
     "none": "NONE",
 }
 _FULLWIDTH_DIGITS = str.maketrans("0123456789", "０１２３４５６７８９")
+# Numbers below this have far fewer digits than `str()` accepts (`_arabic`)
+_SHORT_NUMBER = 10**4000
 _ROMAN = ((1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"),
           (9, "IX"), (5, "V"), (4, "IV"), (1, "I"))
 
@@ -164,7 +179,7 @@ def format_number(value: int, shape: str) -> str:
     if shape == "NONE":
         return ""
     if value < 1:
-        return str(value)
+        return _arabic(value)
     if shape in _CIRCLED:
         circled = _CIRCLED[shape]
         return circled[value - 1] if value <= len(circled) else format_number(value, _UNCIRCLED[shape])
@@ -181,12 +196,19 @@ def format_number(value: int, shape: str) -> str:
     if shape in _COUNTING and value < 10_000:
         return _counting_number(value, *_COUNTING[shape])
     if shape == "HANGUL_DIGIT":
-        return "".join(_HANGUL_DIGIT_LETTERS[int(digit)] for digit in str(value))
+        return "".join(_HANGUL_DIGIT_LETTERS[int(digit)] for digit in _arabic(value))
     if shape == "ZERO_PADDED_DIGIT":
-        return f"{value:02d}"
+        return _arabic(value).zfill(2)
     if shape == "FULLWIDTH_DIGIT":
-        return str(value).translate(_FULLWIDTH_DIGITS)
-    return str(value)
+        return _arabic(value).translate(_FULLWIDTH_DIGITS)
+    return _arabic(value)
+
+
+def _arabic(value: int) -> str:
+    """Decimal digits of a number. `str()` refuses an integer of more than 4,300 digits (Python's integer string length limit), and a
+    number read from a file with the most digits `decimal_int` accepts gains one when counted on; `Decimal` writes it exactly
+    (Pinned by: test_office_robustness.py::TestHugeNumbersInOfficeDocuments::test_number_one_digit_past_the_string_limit_is_written)."""
+    return str(value) if -_SHORT_NUMBER < value < _SHORT_NUMBER else str(Decimal(value))
 
 
 def list_item_prefix(number: str, depth: int) -> str:

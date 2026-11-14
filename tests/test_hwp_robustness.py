@@ -14,11 +14,14 @@ import pytest
 from opendockit import CorruptedDocumentError, convert
 from tests import builder
 from tests.test_hwp import (
+    TAG_BIN_DATA,
     TAG_CTRL_HEADER,
     TAG_LIST_HEADER,
     TAG_PARA_CHAR_SHAPE,
     TAG_PARA_HEADER,
     TAG_PARA_TEXT,
+    TAG_SHAPE_PICTURE,
+    TAG_STYLE,
     TAG_TABLE,
     _fake_hwp,
 )
@@ -167,6 +170,32 @@ class TestBrokenDocInfo:
 
         with pytest.raises(CorruptedDocumentError):
             convert(data, "a.hwp")
+
+
+class TestBrokenDocInfoRecordsKeepTheirPlace:
+    """Style and BinItem IDs are positions in DocInfo. A STYLE or BIN_DATA record shorter than 2 bytes was skipped, so every later
+    style took the name of the next one and every later picture the stream of the next one. It keeps its place, empty."""
+
+    def test_broken_style_record_does_not_shift_later_styles(self, monkeypatch):
+        # _fake_hwp gives styles 0-2; 3 is broken and 4 is an outline style.
+        docinfo = builder.hwp_record(TAG_STYLE, 0, b"\x01") + builder.hwp_record(TAG_STYLE, 0, builder.hwp_style("개요 1"))
+        section = (builder.hwp_record(TAG_PARA_HEADER, 0, builder.hwp_para_header(style_id=4))
+                   + builder.hwp_record(TAG_PARA_TEXT, 1, builder.hwp_text("Chapter one")))
+        data = _fake_hwp(monkeypatch, sections=[section], docinfo_extra=docinfo)
+
+        assert convert(data, "a.hwp").text == "# Chapter one"
+
+    def test_broken_bin_data_record_does_not_shift_later_pictures(self, monkeypatch):
+        record = builder.hwp_record
+        docinfo = record(TAG_BIN_DATA, 0, b"\x01") + record(TAG_BIN_DATA, 0, struct.pack("<HHH", 0x1, 2, 3) + "png".encode("utf-16-le"))
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("앞", (11, "gso ")))
+                   + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("gso "))
+                   + record(TAG_SHAPE_PICTURE, 2, b"\x00" * 71 + struct.pack("<H", 2) + b"\x00" * 18))
+        data = _fake_hwp(monkeypatch, sections=[section], docinfo_extra=docinfo, extra={"BinData/BIN0002.png": builder.png_bytes()})
+
+        result = convert(data, "a.hwp")
+
+        assert len(result.images) == 1
 
 
 class TestHwpxPartsOutsideTheBody:

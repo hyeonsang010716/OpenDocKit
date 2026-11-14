@@ -6,6 +6,68 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+A third review of the whole source. The sample outputs in `examples/` are unchanged.
+
+### Security
+
+- **PDF**: a page whose ruling lines cross more than 5,000 times is read without ruled tables, with a warning; an empty
+  150 × 150 grid took 14 seconds per page and a 300 × 300 grid 96 seconds. Finding the cells inside merged ruled cells no
+  longer takes quadratic time. The attachment name tree takes only as many `/Kids` as its node bound allows.
+- **Spreadsheets and CSV**: splitting a sheet into tables takes linear time however many empty-row blocks it has (a 900 KB
+  CSV of one-row blocks took 226 seconds). A very wide ODS row (with `max_sheet_cols` raised) converts in linear time.
+- **MCP server**: a checked file is opened once and read only when it is a regular file the checked path still leads to;
+  `create_server` refuses a root that is not a folder.
+- **Pictures**: running out of memory on a picture is reported as "too large or too complex" instead of a corrupted image.
+
+### Fixed
+
+- **Mail**: each mail of an mbox, each forwarded mail, body part and meeting invitation is rendered as a document of its
+  own, so an unclosed comment, style, title, quote or hidden element in one mail no longer swallows or deforms the mails
+  after it; an event with `STATUS:CANCELLED` is marked cancelled; a character split over two encoded words in a header
+  with raw 8-bit text is joined.
+- **Encoding**: BOM-less UTF-16 whose text is ASCII (or a part declared UTF-16LE/BE) is read as UTF-16 instead of UTF-8
+  with NULs; declared UTF-8 with a broken byte is read as UTF-8 with a warning instead of Windows-1252.
+- **HTML/EPUB**: an inline SVG title no longer becomes the page or chapter heading; text shaped like the nested-list
+  placeholder no longer rejects the document; lists in quotes inside list items stay in the quote, and item text starting
+  with `|` or a fence stays on its bullet; `display:noneX` no longer hides; line breaks in an `href` are removed;
+  `<object>` and `<canvas>` fallback text is read; CDATA in an EPUB style no longer leaks markup.
+- **Text**: `~~~` fences are recognised and fences are paired as CommonMark pairs them; a nested list or code block inside
+  a blockquote keeps its indentation; bidi isolates, C1 controls and other invisible marks are removed (U+0085 becomes a
+  line break); document metadata comes out as clean one-line NFC values.
+- **PDF**: a page whose MediaBox has no area is read as US Letter, like pdfium, instead of losing all of its text; unused
+  WinAnsiEncoding codes (reportlab's list bullet 0x7F) are read as `•` instead of being dropped with a mapping warning;
+  words drawn right to left without space glyphs are read in place; a drop cap is joined to its word without splitting the
+  paragraph; a direct file specification can no longer hide another attachment; a rule or shape drawn to an infinite
+  position no longer rejects the whole document.
+- **PDF tables**: a ruled table whose outer columns are merged over different rows stays one table; a borderless table
+  with one or two shaded data rows reads as if it had no shading; sparse borderless tables keep their rows with empty
+  cells and label-only rows instead of scattering them column by column; a label-only row no longer leaves the merged
+  cells of a borderless table unsplit.
+- **DOCX/PPTX**: a relationships part that is not XML no longer rejects the document (the part that owns it opens without
+  relationships), and percent-encoded relationship targets are decoded; a list start number or chart point index of 4,300
+  digits no longer rejects the document; a field whose `separate` is in a hidden run keeps its result; a header table is
+  no longer cut short by the body's characters under `max_chars`; whole chart values from 10^15 on keep all their digits.
+- **Inline formatting**: script and strikethrough marks close at a line break (`10~~^2~~` instead of `10~~^{2~~}`); a
+  non-breaking hyphen or symbol stays inside its run's bold or struck span.
+- **Spreadsheets**: a shared formula that cannot be moved to its cell no longer rejects the workbook; two sheets with the
+  same name each keep their own comments, drawings and hidden state; `[h]:mm` truncates below the minute like `h:mm`;
+  `?` digit places pad with spaces; XLS NaN and infinity cells are blank with a warning; BIFF5 chart-sheet names are read
+  in the workbook's code page; English unit and as-of notes (`(Unit: USD)`, `(in thousands)`, `As of …`) in a table's top
+  row are moved above the table, as the Korean ones were.
+- **HWP/HWPX**: a note inside a note no longer gives both notes the inner note's number, and empty notes leave no
+  `[^n]:`; numbered paragraphs in headers, footers and notes no longer move the body's numbering; text art keeps its
+  caption; an `hp:switch` case without text no longer hides the fallback or registers its notes and comments twice; a
+  broken style or picture record in DocInfo no longer shifts the styles and pictures after it.
+- **ODF**: `text:numbered-paragraph` keeps its label. **Equations**: a backslash, caret or tilde in Hancom equation text
+  is valid inside `\text{}`.
+- **Pictures**: Pillow warnings no longer leak (a readable picture was rejected when warnings are errors); PA and other
+  alpha modes stay transparent; scanned pages left out by `max_images` are named in the warnings, and PDF pages past the
+  render budget are no longer said to be handed over as images.
+
+### Changed
+
+- `ConvertOptions` switches accept only `True` or `False`; any other value raises `TypeError` when the options are made.
+
 ## [0.3.4] - 2026-11-14
 
 A second review of the whole source. The sample outputs in `examples/` are unchanged.

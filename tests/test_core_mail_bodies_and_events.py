@@ -95,3 +95,23 @@ class TestAllDayAndRecurringEvents:
         result = convert(_invite(event), "a.eml")
 
         assert result.text.endswith("- Start: 2024-03-05 09:00 UTC\n- End: 2024-03-05 10:00 UTC")
+
+
+class TestCancelledEvent:
+    """An event with its own STATUS:CANCELLED in an ordinary invitation (METHOD:REQUEST or PUBLISH) was written as an ordinary
+    `Event:`, as if the meeting would take place."""
+
+    @pytest.mark.parametrize("html", [False, True])
+    def test_event_is_marked_cancelled(self, html):
+        data = _invite("STATUS:CANCELLED\r\nDTSTART;VALUE=DATE:20240305\r\n")
+        if html:
+            data = data.replace("text/plain; charset=utf-8\n\n일정입니다.".encode(), "text/html; charset=utf-8\n\n<p>일정입니다.</p>".encode())
+
+        result = convert(data, "a.eml")
+
+        assert result.text.endswith("일정입니다.\n\nEvent (cancelled):\n\n- Title: 워크숍\n- Start: 2024-03-05")
+
+    def test_confirmed_event_is_an_ordinary_one(self):
+        result = convert(_invite("STATUS:CONFIRMED\r\nDTSTART;VALUE=DATE:20240305\r\n"), "a.eml")
+
+        assert result.text.endswith("일정입니다.\n\nEvent:\n\n- Title: 워크숍\n- Start: 2024-03-05")

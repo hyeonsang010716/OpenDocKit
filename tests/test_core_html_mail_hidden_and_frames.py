@@ -377,3 +377,26 @@ class TestMhtmlWhoseBodyIsInAFrame:
         result = convert(_mhtml(page, "<p>광고: 할인</p>"), "notice.mhtml")
 
         assert result.warnings == []
+
+
+class TestStyleValuesThatOnlyStartLikeAHidingOne:
+    """`display:noneX` was taken for `display:none`, and the element was removed, text and all — CSS ignores a value it does not
+    know."""
+
+    @pytest.mark.parametrize("style", ["display:noneX", "display: none-ish", "visibility:hiddenx", "content-visibility:hidden-ish"])
+    def test_element_stays(self, style):
+        html = f'<p>앞</p><div style="{style}">본문</div>'
+
+        assert convert(html.encode(), "a.html").text == "앞\n\n본문"
+
+    @pytest.mark.parametrize("style", ["display:none", "display: none;", "display:none !important", "DISPLAY:NONE!important",
+                                       "visibility:hidden ", "color:red;display:none;margin:0"])
+    def test_hiding_values_still_hide(self, style):
+        html = f'<p>앞</p><div style="{style}">숨김</div>'
+
+        assert convert(html.encode(), "a.html").text == "앞"
+
+    def test_visible_needs_the_whole_value_too(self):
+        html = '<div style="visibility:hidden"><p>숨김</p><p style="visibility:visiblex">숨김 2</p></div><p>끝</p>'
+
+        assert convert(html.encode(), "a.html").text == "끝"

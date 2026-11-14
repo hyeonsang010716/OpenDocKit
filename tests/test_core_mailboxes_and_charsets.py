@@ -239,3 +239,25 @@ class TestSevenBitEscapeCharsets:
         text, _ = decode_text(data, "utf-7")
 
         assert text == "price 1+2 = 3, a+b"
+
+
+class TestEightBitHeaderWithSplitEncodedWords:
+    """In a header that mixes raw 8-bit text with RFC 2047 words, each word was decoded on its own, so a character whose bytes
+    a mail program split over two words stayed as the words as written."""
+
+    @pytest.mark.parametrize("filename", ["a.eml", "a.txt"])
+    def test_character_split_over_two_words_is_joined(self, filename):
+        data = ("From: kim@example.com\r\nTo: lee@example.com\r\nMIME-Version: 1.0\r\n"
+                "Subject: 제목 =?utf-8?b?7JU=?= =?utf-8?b?iOuFlQ==?= 끝\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문").encode()
+
+        result = convert(data, filename)
+
+        assert result.text.startswith("Subject: 제목 안녕 끝\n")
+
+    def test_one_broken_word_does_not_leave_the_run_encoded(self):
+        data = ("From: kim@example.com\r\nMIME-Version: 1.0\r\n"
+                "Subject: 제목 =?utf-8?b?6rCA64KY?= =?utf-8?b?A?=\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문").encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.startswith("Subject: 제목 가나 =?utf-8?b?A?=\n")

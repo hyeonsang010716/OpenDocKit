@@ -321,6 +321,20 @@ class TestDocxEmphasis:
 
         assert _docx_text(body) == "변경 사항 중 **호환성 파괴**는 *이전 안내*가 필요하고 ***필수***입니다."
 
+    @pytest.mark.parametrize(("properties", "piece", "expected"), [
+        ("<w:b/>", "<w:noBreakHyphen/>", "**well-known**"),
+        ("<w:b/>", '<w:sym w:font="Symbol" w:char="F061"/>', "**wellαknown**"),
+        ("<w:strike/>", "<w:noBreakHyphen/>", "~~well-known~~"),
+        ("<w:strike/>", '<w:sym w:font="Symbol" w:char="F061"/>', "~~wellαknown~~"),
+    ])
+    def test_hyphen_and_symbol_inside_a_marked_run_stay_inside_its_span(self, properties, piece, expected):
+        """A non-breaking hyphen and a w:sym symbol are written without w:t, so they had no marks and split the run's span:
+        `**well**-**known**`, `~~well~~α~~known~~`."""
+        body = _paragraph(_run("plain "), f"<w:r><w:rPr>{properties}</w:rPr><w:t>well</w:t>{piece}<w:t>known</w:t></w:r>",
+                          _run(" end"))
+
+        assert _docx_text(body) == f"plain {expected} end"
+
     def test_value_zero_or_false_switches_the_emphasis_off(self):
         body = _paragraph(_run("보통 ", '<w:b w:val="0"/>'), _run("글자 ", '<w:i w:val="false"/>'), _run("굵게", '<w:b w:val="1"/>'),
                           _run(" 기울임", '<w:i w:val="true"/>'), _run(" 끝"))
@@ -863,3 +877,34 @@ class TestStruckScriptRuns:
             paragraph.add_run().text = "m"
 
         assert convert(_deck(build), "a.pptx").sections[0].text == "면적 10~~^2~~ m"
+
+
+class TestScriptAndStrikeAcrossALineBreak:
+    """The script and strikethrough marks of a run held its line break: a superscript run with a line break joined the two lines
+    (`x^{a b}`), and a struck superscript followed by a struck line break gave `10~~^{2~~}`, neither superscript nor strikethrough.
+    The marks close before a line break and open again after it."""
+
+    _STRUCK_SUPERSCRIPT = '<w:rPr><w:strike/><w:vertAlign w:val="superscript"/></w:rPr>'
+    _SUPERSCRIPT = '<w:rPr><w:vertAlign w:val="superscript"/></w:rPr>'
+
+    def test_struck_superscript_before_a_struck_line_break(self):
+        body = (f'<w:p><w:r><w:t>10</w:t></w:r><w:r>{self._STRUCK_SUPERSCRIPT}<w:t>2</w:t></w:r>'
+                f'<w:r>{self._STRUCK_SUPERSCRIPT}<w:br/></w:r><w:r><w:t>next line</w:t></w:r></w:p>')
+
+        assert _docx_text(body) == "10~~^2~~\nnext line"
+
+    def test_struck_superscript_run_ending_in_a_line_break(self):
+        body = (f'<w:p><w:r><w:t>x</w:t></w:r><w:r>{self._STRUCK_SUPERSCRIPT}<w:t>2</w:t><w:br/></w:r>'
+                '<w:r><w:t>y</w:t></w:r></w:p>')
+
+        assert _docx_text(body) == "x~~^2~~\ny"
+
+    def test_superscript_run_holding_a_line_break_keeps_both_lines(self):
+        body = f'<w:p><w:r><w:t>x</w:t></w:r><w:r>{self._SUPERSCRIPT}<w:t>a</w:t><w:br/><w:t>b</w:t></w:r></w:p>'
+
+        assert _docx_text(body) == "x^a\n^b"
+
+    def test_marks_without_a_line_break_are_unchanged(self):
+        from opendockit.extractors._inline import SUPERSCRIPT, mark_script, mark_strike, resolve_scripts, resolve_strikes
+
+        assert resolve_scripts(resolve_strikes("x" + mark_strike(mark_script("2", SUPERSCRIPT)))) == "x~~^2~~"

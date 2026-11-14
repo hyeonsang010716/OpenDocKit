@@ -20,6 +20,9 @@ _MAX_CALENDAR_BYTES = 1 << 20
 # iCalendar date/time values (`20240307`, `20240307T150000`, `20240307T060000Z`) and escapes (`\,`, `\;`, `\n`, `\\`).
 _CALENDAR_TIME = re.compile(r"(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})\d{2}(Z?))?")
 _CALENDAR_ESCAPE = re.compile(r"\\(.)")
+# The status property of an event, and its value for an event that was called off.
+_STATUS = "STATUS"
+_CANCELLED = "CANCELLED"
 # Folded lines (line break + space or tab). Unfolded on the bytes (`mail_calendar_events`).
 _CALENDAR_FOLD = re.compile(rb"\r?\n[ \t]")
 # Splits a property line `name;parameters:value` at the first `:` outside quotes.
@@ -62,9 +65,12 @@ def mail_calendar_events(message: Message) -> list[tuple[str, list[tuple[str, st
         # to text garbled that character into '예��'
         # (Pinned by: test_core_html_mail_hidden_and_frames.py::TestCalendarLinesFoldedInsideACharacter).
         text = decode_text(_CALENDAR_FOLD.sub(b"", payload), part.get_content_charset())[0]
+        # An event of its own STATUS:CANCELLED is cancelled too, as a whole cancellation notice (METHOD:CANCEL) is: a calendar
+        # that kept the cancelled event published it as an ordinary `Event:` (Pinned by:
+        # test_core_mail_bodies_and_events.py::TestCancelledEvent).
         cancelled = str(part.get_param("method") or "").upper() == "CANCEL" or "\nMETHOD:CANCEL" in text.upper()
-        title = "Event (cancelled)" if cancelled else "Event"
-        events += [(title, fields) for fields in _calendar_events(text)][:_MAX_CALENDAR_EVENTS - len(events)]
+        events += [("Event (cancelled)" if cancelled or own_status == _CANCELLED else "Event", fields)
+                   for fields, own_status in _calendar_events(text)][:_MAX_CALENDAR_EVENTS - len(events)]
     return events
 
 
@@ -75,16 +81,16 @@ def mail_calendar_text(message: Message) -> str:
                        for title, fields in mail_calendar_events(message))
 
 
-def _calendar_events(text: str) -> list[list[tuple[str, str]]]:
-    """[(label, value)] for each VEVENT of iCalendar text. Unfolds folded lines (line break + space or tab) and leaves out events
-    without a single value. Only the event's own properties are read: those of a component inside it (a VALARM reminder, which
-    has its own SUMMARY and ATTENDEE) are not — an e-mail reminder written before the event's SUMMARY became the title, and its
-    recipient an attendee (Pinned by: test_audit_web_fixes.py::TestReminderInsideAnEvent). A component that is opened and never
-    closed before the event ends holds nothing: the lines after its BEGIN are the event's, as they were before components were
-    told apart — the rest of the event went missing after one stray BEGIN
+def _calendar_events(text: str) -> list[tuple[list[tuple[str, str]], str]]:
+    """([(label, value)], STATUS in capitals or '') for each VEVENT of iCalendar text. Unfolds folded lines (line break + space
+    or tab) and leaves out events without a single value. Only the event's own properties are read: those of a component
+    inside it (a VALARM reminder, which has its own SUMMARY and ATTENDEE) are not — an e-mail reminder written before the
+    event's SUMMARY became the title, and its recipient an attendee (Pinned by: test_audit_web_fixes.py::TestReminderInsideAnEvent).
+    A component that is opened and never closed before the event ends holds nothing: the lines after its BEGIN are the
+    event's, as they were before components were told apart — the rest of the event went missing after one stray BEGIN
     (Pinned by: test_audit_web_fixes.py::TestUnclosedComponentInsideAnEvent)."""
     lines = re.sub(r"\r?\n[ \t]", "", text).splitlines()
-    events: list[list[tuple[str, str]]] = []
+    events: list[tuple[list[tuple[str, str]], str]] = []
     current: list[tuple[str, str, str]] | None = None  # (key, name with parameters, value) of the event's own lines so far
     opened: list[int] = []  # for each component open inside the event, how many lines the event had when it began
 
@@ -105,14 +111,14 @@ def _calendar_events(text: str) -> list[list[tuple[str, str]]]:
         elif key == "END":
             events.extend(_event_fields(current))
             current = None
-        elif key in _CALENDAR_FIELDS and rest.strip():
+        elif (key in _CALENDAR_FIELDS or key == _STATUS) and rest.strip():
             current.append((key, name, rest.strip()))
     return events
 
 
-def _event_fields(lines: list[tuple[str, str, str]]) -> list[list[tuple[str, str]]]:
-    """[[(label, value)]] of one event from its own property lines (key, name with parameters, value), or [] when it has no
-    value: the first value of each property, and up to `_MAX_CALENDAR_ATTENDEES` attendees."""
+def _event_fields(lines: list[tuple[str, str, str]]) -> list[tuple[list[tuple[str, str]], str]]:
+    """[([(label, value)], STATUS)] of one event from its own property lines (key, name with parameters, value), or [] when it
+    has no value: the first value of each property, and up to `_MAX_CALENDAR_ATTENDEES` attendees."""
     event: dict[str, list[str]] = {}
     for key, name, value in lines:
         values = event.setdefault(key, [])
@@ -120,7 +126,8 @@ def _event_fields(lines: list[tuple[str, str, str]]) -> list[list[tuple[str, str
             values.append(_calendar_value(key, name, value))
     _end_of_all_day_event(event)
     fields = [(label, ", ".join(event[field])) for field, label in _CALENDAR_FIELDS.items() if event.get(field)]
-    return [fields] if fields else []
+    status = next(iter(event.get(_STATUS, [])), "").strip().upper()
+    return [(fields, status)] if fields else []
 
 
 def _end_of_all_day_event(event: dict[str, list[str]]) -> None:

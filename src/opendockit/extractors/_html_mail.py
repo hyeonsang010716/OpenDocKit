@@ -123,10 +123,10 @@ def mail_reads_as_html(message: Message) -> bool:
         for forwarded in messages[1:])
 
 
-def _mail_body_html(message: Message) -> tuple[str, list[str]]:
-    """The body HTML of one mail and the encodings decoded: the body parts (`_mail.mail_body_sequence` — the HTML branch of an
-    alternative, and all plain-text and HTML parts of a mixed) joined in order or, when there is no HTML part, the plain-text
-    body as paragraphs (Pinned by: test_core_html_mail_hidden_and_frames.py::TestPlainAndHtmlBodiesSideBySide).
+def _mail_body_html(message: Message) -> tuple[list[str], list[str]]:
+    """The body HTML documents of one mail and the encodings decoded: the body parts (`_mail.mail_body_sequence` — the HTML
+    branch of an alternative, and all plain-text and HTML parts of a mixed) in order, one document each, or, when there is no
+    HTML part, the plain-text body as paragraphs (Pinned by: test_core_html_mail_hidden_and_frames.py::TestPlainAndHtmlBodiesSideBySide).
 
     When the HTML parts hold no visible text at all (an alternative branch with nothing but a logo picture), the plain-text
     branch is placed after the HTML as paragraphs (the picture stays). With the plain text in front, the `<head>` of the HTML
@@ -136,15 +136,14 @@ def _mail_body_html(message: Message) -> tuple[str, list[str]]:
     """
     if not mail_html_parts(message):
         plain = mail_plain_body(message)
-        return (_plain_paragraphs(plain[0]), plain[1]) if plain else ("", [])
+        return ([_plain_paragraphs(plain[0])], plain[1]) if plain else ([], [])
     documents: list[str] = []
     encodings: list[str] = []
     read: set[int] = set()
     has_text = False
 
     # Plain-text parts outside an alternative (the plain-text body or footer of a mixed) are placed in order with the HTML
-    # parts. Plain text is wrapped in a document of its own — so that the `<head>` of the HTML document that follows does not
-    # land inside a plain-text paragraph.
+    # parts, each a document of its own (`html._extract_documents`).
     for part in mail_body_sequence(message):
         payload = part.get_payload(decode=True)
         if not isinstance(payload, bytes) or not payload.strip():
@@ -155,17 +154,16 @@ def _mail_body_html(message: Message) -> tuple[str, list[str]]:
             has_text = has_text or _has_text(text)
         else:
             text, encoding = decode_text(payload, part.get_content_charset())
-            documents.append(f"<html><body>{_plain_paragraphs(text)}</body></html>")
+            documents.append(_plain_paragraphs(text))
             read.add(id(part))
         encodings.append(encoding)
 
     # When the HTML has no visible text, the plain-text branch of the alternative goes after it
     leftover = [part for part in mail_body_parts(message) if part.get_content_type() == "text/plain" and id(part) not in read]
     plain = mail_plain_body(message, leftover) if leftover and not has_text else None
-    html = "\n".join(documents)
     if plain:
-        return html + _plain_paragraphs(plain[0]), [*encodings, *plain[1]]
-    return html, encodings
+        return [*documents, _plain_paragraphs(plain[0])], [*encodings, *plain[1]]
+    return documents, encodings
 
 
 def _unread_frame_warning(message: Message, page: str) -> str | None:

@@ -40,6 +40,10 @@ _HORIZONTAL_AXIS_POSITIONS = {"b", "t"}
 # (Pinned by: test_audit_core.py::TestChartFormatWithManyOpenBrackets).
 _FORMAT_LITERALS = re.compile(r'"[^"]*"|\[(?![hms]+\])[^\[\]]*\]|[\\_*].')
 _LAST_DATE_SERIAL = 2_958_465  # 9999-12-31
+# Largest point index a chart can write (`_point_index`; xsd:unsignedInt)
+_MAX_POINT_INDEX = 2**32 - 1
+# Digits a whole chart value is always written with in full (`_whole_number`)
+_WHOLE_DIGITS = 21
 # Longest display format that is applied (the longest Excel accepts). A format is read again for every point of a chart, so a
 # 20,000-character format on 8,000 points (a 40 KB file) took 30 seconds. With a longer format the value stays as written, as with
 # any format that is not handled (Pinned by: test_audit_core.py::TestChartFormatWithManyOpenBrackets).
@@ -197,8 +201,8 @@ def _chartex_points(dimension: etree._Element | None) -> dict[int, str]:
     level = dimension.find(f"{{{_CX}}}lvl") if dimension is not None else None
     if level is None:
         return {}
-    return {decimal_int(point.get("idx"), 0): point.text or ""
-            for point in level.iterchildren(f"{{{_CX}}}pt") if point.get("idx", "").isdecimal()}
+    return {index: point.text or "" for point in level.iterchildren(f"{{{_CX}}}pt")
+            if (index := _point_index(point.get("idx"))) is not None}
 
 
 def _chartex_text(text: etree._Element | None) -> str:
@@ -368,11 +372,20 @@ def _points(element: etree._Element | None) -> dict[int, str]:
 def _level_points(container: etree._Element) -> dict[int, str]:
     points = {}
     for point in container.iter(f"{{{_C}}}pt"):
-        index = point.get("idx", "")
+        index = _point_index(point.get("idx"))
         value = point.find(f"{{{_C}}}v")
-        if index.isdecimal() and value is not None:
-            points.setdefault(decimal_int(index, 0), value.text or "")
+        if index is not None and value is not None:
+            points.setdefault(index, value.text or "")
     return points
+
+
+def _point_index(value: str | None) -> int | None:
+    """Point index (`idx` of c:pt / cx:pt, an unsigned 32-bit number). None when it is not decimal digits or is past that range: a
+    point that cannot exist is left out. An index of exactly 4,300 digits passed `decimal_int`, and the category written for it
+    (`index + 1`) could not be turned into text, so the document was rejected (Pinned by:
+    test_office_robustness.py::TestHugeNumbersInOfficeDocuments::test_chart_point_index_past_the_unsigned_range_is_left_out)."""
+    index = decimal_int(value, None)
+    return index if index is not None and index <= _MAX_POINT_INDEX else None
 
 
 def _value_points(element: etree._Element | None, shown_format: str = "") -> dict[int, str]:
@@ -390,8 +403,8 @@ def _value_points(element: etree._Element | None, shown_format: str = "") -> dic
     cache_format = cache.findtext(f"{{{_C}}}formatCode") or ""
     if cache_format.strip().lower() in ("", "general"):
         cache_format = shown_format or cache_format
-    formats = {decimal_int(point.get("idx"), 0): point.get("formatCode") for point in cache.iterchildren(f"{{{_C}}}pt")
-               if point.get("formatCode") and point.get("idx", "").isdecimal()}
+    formats = {index: point.get("formatCode") for point in cache.iterchildren(f"{{{_C}}}pt")
+               if point.get("formatCode") and (index := _point_index(point.get("idx"))) is not None}
     if not cache_format and not formats:
         return points
     return {index: _format_value(value, formats.get(index, cache_format)) for index, value in points.items()}
@@ -612,14 +625,34 @@ def _title_text(title: etree._Element) -> str:
 
 def _number(value: str) -> str:
     """Cached values are strings. A number is written with all its digits. `:g` gives 6 significant digits, so 1234567890 became
-    1.23457e+09 (Pinned by: test_office.py::TestPptx::test_chart_values_keep_all_their_digits)."""
+    1.23457e+09 (Pinned by: test_office.py::TestPptx::test_chart_values_keep_all_their_digits).
+
+    An integer from 10^15 on is written from its decimal text (`_whole_number`): through a float with 15 significant digits,
+    2401189000000000 became 2.401189e+15 and 1234567890123456 lost its last digit (Pinned by: test_office.py::TestPptx::
+    test_large_whole_chart_values_keep_all_their_digits)."""
     try:
         number = float(value)
     except ValueError:
         return value
     if number != number or number in (float("inf"), float("-inf")):
         return value
-    return str(int(number)) if number.is_integer() and abs(number) < 1e15 else format(number, ".15g")
+    if number.is_integer() and abs(number) < 1e15:
+        return str(int(number))
+    return (_whole_number(value) if number.is_integer() else None) or format(number, ".15g")
+
+
+def _whole_number(value: str) -> str | None:
+    """All the digits of an integer value at least 10^15 (`2.401189E+15` → `2401189000000000`). None when the text is not exactly
+    an integer, or when its digits would run past both 21 and the number of digits the file wrote (`1E+300` stays `1e+300`)."""
+    try:
+        number = Decimal(value)
+    except InvalidOperation:
+        return None
+    if not number.is_finite() or number != number.to_integral_value():
+        return None
+    if number.adjusted() + 1 > max(_WHOLE_DIGITS, len(number.as_tuple().digits)):
+        return None
+    return f"{number.to_integral_value():f}"
 
 
 def drawing_paragraph_lines(paragraph: etree._Element) -> list[str]:
