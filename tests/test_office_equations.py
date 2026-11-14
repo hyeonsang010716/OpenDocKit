@@ -224,6 +224,17 @@ class TestOmmlLiteralText:
 
         assert convert(_docx_with_body(_equations(styled)), "a.docx").text == "$\\mathbb{R}\\%$"
 
+    def test_braces_the_converter_adds_are_not_escaped(self):
+        """Two m:t in one run: the braces put around the script `2` before the letter are LaTeX, not text (`x^\\{2\\}a`).
+        Braces that were typed are still escaped, in the same run too."""
+        plain = "<m:r><m:t>x^2</m:t><m:t>a</m:t></m:r>"
+        styled = '<m:r><m:rPr><m:scr m:val="double-struck"/></m:rPr><m:t>R^2</m:t><m:t>a</m:t></m:r>'
+        typed = "<m:r><m:t>{x_n</m:t><m:t>y}</m:t></m:r>"
+
+        result = convert(_docx_with_body(_equations(plain, styled, typed)), "a.docx")
+
+        assert result.text == "$x^{2}a$\n\n$\\mathbb{R}^{\\mathbb{2}}\\mathbb{a}$\n\n$\\{x_{n}y\\}$"
+
     def test_ordinary_equation_is_unchanged(self):
         body = _equations(_script("sSup", "x", "2") + _run("+") + _fraction("a", "b") + _delimiters(_run("a,b"), "{", "}"))
 
