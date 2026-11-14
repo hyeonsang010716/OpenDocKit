@@ -528,24 +528,45 @@ def _win_ansi_bullet(char: LTChar, font: object, cid: object) -> None:
     reportlab writes the bullets of its lists as code 7F in WinAnsiEncoding Helvetica. pdfminer has no character for the code,
     so the bullets came out as `(cid:127)`, were removed and the page was reported as having characters without a Unicode
     mapping (Pinned by: test_pdf_fonts.py::TestWinAnsiUnusedCodesAreBullets). Only a code pdfminer could not map is read so —
-    one a ToUnicode entry or the font's /Differences name keeps that character — and only in a font whose encoding is
-    WinAnsiEncoding without /Differences (pdfminer then uses its shared WinAnsi table itself). A Type 3 font draws its own
-    glyphs and a symbolic font (descriptor flag 4) uses the encoding built into the font, so both are left alone. The descriptor
-    and its flags may be indirect objects: read as they were written, flags given as `9 0 R` were taken for no flags and a
-    symbolic font got bullets (Pinned by: test_pdf_fonts.py::TestWinAnsiUnusedCodesAreBullets::test_a_symbolic_font_gets_no_bullet).
+    one a ToUnicode entry or the font's /Differences name keeps that character — and only in a font whose /Encoding names
+    WinAnsiEncoding without /Differences (`_names_win_ansi`; pdfminer then uses its shared WinAnsi table itself: /Differences
+    may give the code a glyph under a name pdfminer does not know, '/G7F' in a subset font). pdfminer reads
+    a TrueType font without /Encoding with the same table, but a viewer draws such a font with its built-in encoding or, when
+    it is not symbolic, StandardEncoding, where these codes have no glyph: it gets no bullet. A Type 3 font draws its own glyphs
+    and a symbolic font (descriptor flag 4) uses the encoding built into the font, so both are left alone (Pinned by:
+    test_pdf_fonts.py::TestWinAnsiUnusedCodesAreBullets::test_fonts_that_do_not_draw_the_win_ansi_bullet_get_none). The flags
+    may be an indirect object, or a whole number written as a real ('4.0'): read as they were written, they were taken for no
+    flags and a symbolic font got bullets (Pinned by: ::test_a_symbolic_font_gets_no_bullet).
     """
     if cid not in _WIN_ANSI_BULLET_CODES or char._text != f"(cid:{cid})":
         return
     if (not isinstance(font, pdffont.PDFSimpleFont) or isinstance(font, pdffont.PDFType3Font)
-            or getattr(font, "cid2unicode", None) is not EncodingDB.win2unicode):
+            or getattr(font, "cid2unicode", None) is not EncodingDB.win2unicode or not getattr(font, _NAMES_WIN_ANSI, False)):
         return
-    descriptor = resolve1(font.descriptor)
-    flags = resolve1(descriptor.get("Flags")) if isinstance(descriptor, dict) else None
+    flags = resolve1(font.descriptor.get("Flags")) if isinstance(font.descriptor, dict) else None
+    if isinstance(flags, float) and flags.is_integer():
+        flags = int(flags)
     if isinstance(flags, int) and flags & _SYMBOLIC_FONT_FLAG:
         return
     char._text = "•"
 
 
+_NAMES_WIN_ANSI = "opendockit_names_win_ansi"  # attribute of a pdfminer font (`_names_win_ansi`)
+_simple_font_init = pdffont.PDFSimpleFont.__init__
+
+
+def _names_win_ansi(self: pdffont.PDFSimpleFont, descriptor: object, widths: object, spec: object) -> None:
+    """Initializer used instead of `PDFSimpleFont.__init__`: it also notes on the font whether its dictionary names
+    WinAnsiEncoding (as /Encoding, or as the /BaseEncoding of an encoding dictionary). pdfminer keeps only the table it chose,
+    and it chooses the WinAnsi table for a TrueType font without /Encoding as well (`_win_ansi_bullet`)."""
+    _simple_font_init(self, descriptor, widths, spec)
+    encoding = resolve1(spec.get("Encoding")) if isinstance(spec, dict) else None
+    if isinstance(encoding, dict):
+        encoding = resolve1(encoding.get("BaseEncoding"))
+    setattr(self, _NAMES_WIN_ANSI, getattr(encoding, "name", None) == "WinAnsiEncoding")
+
+
+pdffont.PDFSimpleFont.__init__ = _names_win_ansi
 PDFPageAggregatorWithMarkedContent.render_char = _render_char_few_copies  # outside a conversion (no budget) it behaves as before
 
 

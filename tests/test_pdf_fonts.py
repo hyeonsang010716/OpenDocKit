@@ -168,7 +168,8 @@ class TestWinAnsiUnusedCodesAreBullets:
         (b"<< /Type /FontDescriptor /FontName /Custom /Flags 32 >>", {}, True),
         (b"<< /Type /FontDescriptor /FontName /Custom /Flags 4 >>", {}, False),
         (b"<< /Type /FontDescriptor /FontName /Custom /Flags 9 0 R >>", {9: b"4"}, False),  # the flags as an indirect object
-        (b"9 0 R", {9: b"<< /Type /FontDescriptor /FontName /Custom /Flags 10 0 R >>", 10: b"4"}, False),
+        (b"<< /Type /FontDescriptor /FontName /Custom /Flags 4.0 >>", {}, False),  # a whole number written as a real
+        (b"<< /Type /FontDescriptor /FontName /Custom /Flags 4.5 >>", {}, True),  # not a number of flags
     ])
     def test_a_symbolic_font_gets_no_bullet(self, descriptor, extra, bullet):
         # A font of its own (not one of the standard 14, whose descriptor pdfminer takes from its own metrics), with widths so
@@ -176,5 +177,25 @@ class TestWinAnsiUnusedCodesAreBullets:
         widths = b" ".join([b"500"] * 224)
         lines, _ = self._lines(b"<< /Type /Font /Subtype /Type1 /BaseFont /Custom /Encoding /WinAnsiEncoding"
                                b" /FirstChar 32 /LastChar 255 /Widths [%s] /FontDescriptor %s >>" % (widths, descriptor), extra=extra)
+
+        assert ("• first item" in lines) is bullet
+
+    _WIDTHS = b" ".join([b"500"] * 224)
+    _OWN = (b"/BaseFont /Custom /FirstChar 32 /LastChar 255 /Widths [" + _WIDTHS + b"] /FontDescriptor << /Type /FontDescriptor "
+            b"/FontName /Custom /Flags 32 >>")
+
+    @pytest.mark.parametrize(("font", "bullet"), [
+        (b"<< /Type /Font /Subtype /TrueType /Encoding /WinAnsiEncoding " + _OWN + b" >>", True),
+        (b"<< /Type /Font /Subtype /TrueType /Encoding << /BaseEncoding /WinAnsiEncoding >> " + _OWN + b" >>", True),
+        # The code has a glyph of its own, under a name that is not in the glyph list.
+        (b"<< /Type /Font /Subtype /TrueType /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [127 /G7F] >> " + _OWN + b" >>", False),
+        # No /Encoding: pdfminer reads a TrueType font as WinAnsi, a viewer does not.
+        (b"<< /Type /Font /Subtype /TrueType " + _OWN + b" >>", False),
+        (b"<< /Type /Font /Subtype /TrueType /Encoding << /Type /Encoding >> " + _OWN + b" >>", False),
+        # A Type 3 font draws its own glyphs, and has none for the code.
+        (b"<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << >> "
+         b"/Encoding /WinAnsiEncoding /FirstChar 32 /LastChar 255 /Widths [" + _WIDTHS + b"] >>", False)])
+    def test_fonts_that_do_not_draw_the_win_ansi_bullet_get_none(self, font, bullet):
+        lines, _ = self._lines(font)
 
         assert ("• first item" in lines) is bullet
