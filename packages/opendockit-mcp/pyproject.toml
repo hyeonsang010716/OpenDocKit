@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opendockit-mcp"
-version = "0.3.3"
+version = "0.3.4"
 description = "MCP server that lets an agent read local documents (PDF, Office, HWP and more) as Markdown. Launcher for opendockit[mcp]."
 readme = "README.md"
 license = "MIT"
@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Text Processing :: Markup :: Markdown",
 ]
 # No code of its own: the server is opendockit.mcp_server. The pin keeps `uvx opendockit-mcp==X` meaning opendockit X.
-dependencies = ["opendockit[mcp]==0.3.3"]
+dependencies = ["opendockit[mcp]==0.3.4"]
 
 [project.scripts]
 opendockit-mcp = "opendockit.mcp_server:main"

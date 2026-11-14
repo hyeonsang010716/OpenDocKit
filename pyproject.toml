@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opendockit"
-version = "0.3.3"
+version = "0.3.4"
 description = "Convert PDF, Office, HWP/HWPX, OpenDocument, RTF, EPUB, HTML, email and images into clean, LLM-ready Markdown."
 readme = "README.md"
 license = "MIT"
