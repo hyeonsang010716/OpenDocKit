@@ -70,6 +70,19 @@ class TestTitleInsideSvg:
         assert result.metadata["title"] == "Report"
 
 
+class TestTextShapedLikeAListPlaceholder:
+    """Private-use text in a list item shaped like the placeholder of a nested list (`\ue0240\ue025`) pointed at a list that did
+    not exist, and the whole document was rejected as corrupted."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<ul><li>a \ue0240\ue025 b</li></ul>", "- a 0 b"),
+        ("<ul><li>a &#xe024;0&#xe025; b</li></ul>", "- a 0 b"),
+        ("<ul><li>a \ue0240\ue025 b<ul><li>x</li></ul></li></ul>", "- a 0 b\n  - x"),
+    ])
+    def test_is_text(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+
 class TestMathMl:
     """MathML was read by joining its characters only, so `r²π` read as `r2π` and the fraction 3/4 as `34`. The LaTeX the document
     wrote (annotation, alttext) is used; without it the structure is linearized LaTeX-style. The same ` $…$ ` notation as Office

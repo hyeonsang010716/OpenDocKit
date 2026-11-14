@@ -4,6 +4,7 @@ tables and the text of their cells.
 
 from contextvars import ContextVar
 import re
+import secrets
 
 from bs4 import NavigableString, Tag
 
@@ -76,9 +77,14 @@ _LIST_NUMBER_SHAPES = {"a": "LATIN_SMALL", "A": "LATIN_CAPITAL", "i": "ROMAN_SMA
 
 _BLANK_LINES = re.compile(r"\n{2,}")
 # Placeholder for a nested list detached while its list item is rendered (private-use characters — clean_text removes them
-# if they are left in the body).
-_LIST_SLOT_OPEN, _LIST_SLOT_CLOSE = "\ue024", "\ue025"
-_LIST_SLOT = re.compile(f"{_LIST_SLOT_OPEN}(\\d+){_LIST_SLOT_CLOSE}")
+# if they are left in the body). A key of private-use characters drawn once per process sits after the opening character, so
+# text of the same shape written in the document (`\ue0240\ue025`, or the entity `&#xe024;`) is never taken for a placeholder:
+# it pointed at a list that did not exist and rejected the whole document with an IndexError
+# (Pinned by: test_core_html.py::TestTextShapedLikeAListPlaceholder). The key never reaches the output — a placeholder left in
+# the body is private-use characters around a number, as before.
+_LIST_SLOT_OPEN = "\ue024" + "".join(chr(0xE100 + byte) for byte in secrets.token_bytes(8))
+_LIST_SLOT_CLOSE = "\ue025"
+_LIST_SLOT = re.compile(f"{re.escape(_LIST_SLOT_OPEN)}(\\d+){_LIST_SLOT_CLOSE}")
 # Maximum list indentation depth. Deeper lists are folded onto one line (a list 14,000 levels deep was rejected with a
 # recursion-limit error) (Pinned by: test_text_html.py::TestDeepNesting).
 _MAX_LIST_DEPTH = 20
