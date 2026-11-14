@@ -752,6 +752,34 @@ class TestTooMuchLineGrouping:
         assert all(f"Line {index} of the paragraph" in result.text for index in range(10))
         assert any("read without text-box reading-order analysis" in warning for warning in result.warnings)
 
+    @pytest.mark.parametrize("in_a_form", [False, True])
+    def test_lines_left_ungrouped_are_not_grouped_as_boxes(self, monkeypatch, in_a_form):
+        """Lines that spend the allowance lie within the line margin of each other, and as a box each they lie on top of each
+        other — what pdfminer's text-box grouping is slowest at. 500 to 1,000 of them stayed under the bound of that grouping
+        and took 8 seconds (500 on a page, 1.8KB) to 52 (1,000 in a form, 29KB), against 0.6 and 2 before the allowance
+        existed. The layout that gave up is ordered without grouping; the other layout of the page is grouped as usual."""
+        from opendockit.extractors import _pdf_pdfminer
+
+        grouped = []
+        group_all = _pdf_pdfminer._group_all_textboxes
+
+        def recording(layout, laparams, boxes):
+            grouped.append(len(boxes))
+            return group_all(layout, laparams, boxes)
+
+        monkeypatch.setattr(_pdf_pdfminer, "_group_all_textboxes", recording)
+        stack = b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d %g Tm (%s) Tj " % (100 + index % 2 * 300, 100 + index // 2 * 0.1,
+                                                                          b"AB"[index % 2:index % 2 + 1])
+                                           for index in range(600)) + b"ET"
+        data = (self._in_a_large_form(stack, 600) if in_a_form
+                else _one_page(_flate(stack + b" BT /F1 10 Tf 1 0 0 1 72 800 Tm (Hello world) Tj ET")))
+
+        result = convert(data, "a.pdf")
+
+        assert "Hello world" in result.text
+        assert any("read without text-box reading-order analysis" in warning for warning in result.warnings)
+        assert grouped and max(grouped) < 10 if in_a_form else not grouped  # the body of the form page (one line) is grouped
+
     @staticmethod
     def _crowd(count: int) -> bytes:
         """`count` small characters 1pt apart inside one 50pt cell of pdfminer's plane, none within the line margin of

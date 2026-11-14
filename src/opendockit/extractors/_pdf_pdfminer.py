@@ -126,6 +126,7 @@ class _InflateBudget:
     grouping_cost: int = 0  # text-box grouping cost the Form XObjects of the page being read spent (`_PAGE_GROUPING_COST`, reset per page)
     figure_line_work: int = _LINE_GROUPING_WORK  # line-grouping work left to the Form XObjects of the page being read (`_LINE_GROUPING_WORK`)
     line_work: int | None = None  # line-grouping work left to the layout being grouped (None outside `group_textlines`)
+    line_spent_layout: object = None  # the layout whose line grouping gave up last: its boxes are not grouped (`_group_few_textboxes`)
 
     def new_page(self) -> None:
         """Resets the per-page allowances of layout analysis (`_PAGE_GROUPING_COST`, `_LINE_GROUPING_WORK`). Pinned by:
@@ -525,9 +526,8 @@ PDFPageAggregatorWithMarkedContent.render_char = _render_char_few_copies  # outs
 # boxes takes 2 seconds when they lie 30pt apart on an A4-sized page and about 4 when they are scattered over a 6,900pt page.
 # Known remaining cost (inside one page, where the time budget does not look): a 12KB page under every bound — 990 characters
 # scattered over the page, 990 more in a form and one line drawn in two pieces, so that the body is grouped twice — takes 10 to
-# 12 seconds (the same on main), and 450 to 1,000 lines crowded within the line margin, which spend `_LINE_GROUPING_WORK` and
-# become a box each, lying on top of each other, take 8 seconds at 500 on the page (1.8KB), 19 at 700 and 52 at 1,000 in a form
-# (main, which grouped them into two boxes: 0.6, 1.0 and 2.0). Grouping keeps a
+# 12 seconds (the same on main). A layout whose line grouping gave up is not grouped at all, whatever its box count
+# (`line_spent_layout`). Grouping keeps a
 # heap of every pair of boxes: one layout of 1,000 separate boxes took 2 seconds, 1,500 6 seconds, 2,000 14 seconds, and a 68KB
 # page whose 6,000 characters lie far off the page (each its own box) 122 seconds inside one page, where the time budget does
 # not look. Per layout, a 4.3KB form of 1,400 boxes drawn 15 times spent 54 seconds. The pdfium estimate of line pieces
@@ -553,14 +553,21 @@ def _group_few_textboxes(self: LTLayoutContainer, laparams: object, boxes: list)
     budget = _INFLATE_BUDGET.get()
     if budget is None:
         return _group_all_textboxes(self, laparams, boxes)
-    cost = len(boxes) ** 2
-    if not isinstance(self, LTFigure):
-        if cost <= _PAGE_GROUPING_COST:
+    if budget.line_spent_layout is self:
+        # Its lines were left a box each (`_group_textlines_within`, which counted the layout already). Such lines lie within
+        # the line margin of each other, and boxes lying on top of each other are what pdfminer groups slowest: 500 of them
+        # on a page (1.8KB) took 8 seconds, 1,000 in a form (29KB) 52, under the bound below
+        # (Pinned by: test_audit_pdf_text.py::TestTooMuchLineGrouping::test_lines_left_ungrouped_are_not_grouped_as_boxes).
+        budget.line_spent_layout = None
+    else:
+        cost = len(boxes) ** 2
+        if not isinstance(self, LTFigure):
+            if cost <= _PAGE_GROUPING_COST:
+                return _group_all_textboxes(self, laparams, boxes)
+        elif budget.grouping_cost + cost <= _PAGE_GROUPING_COST:
+            budget.grouping_cost += cost
             return _group_all_textboxes(self, laparams, boxes)
-    elif budget.grouping_cost + cost <= _PAGE_GROUPING_COST:
-        budget.grouping_cost += cost
-        return _group_all_textboxes(self, laparams, boxes)
-    budget.ungrouped_layouts += 1
+        budget.ungrouped_layouts += 1
     for box in boxes:
         box.analyze(laparams)
     ordered = sorted(boxes, key=lambda box: (0, -box.x1, -box.y0) if isinstance(box, LTTextBoxVertical) else (1, -box.y0, box.x0))
@@ -626,9 +633,9 @@ def _charged_distinct(objs: list, budget: _InflateBudget) -> object:
 def _group_textlines_within(self: LTLayoutContainer, laparams: object, lines: list) -> object:
     """Replacement of pdfminer's `group_textlines`: during a conversion it runs with the work allowance of the layout (its own
     `_LINE_GROUPING_WORK` for the page's layout, the page's shared allowance for Form XObjects). If the allowance is spent,
-    every line becomes a text box of its own (linear; the text-box grouping that follows is bounded by
-    `_group_few_textboxes`), and the page gets the warning of pages read without text-box grouping (`ungrouped_layouts`). The
-    function is not copied."""
+    every line becomes a text box of its own (linear), those boxes are ordered without text-box grouping
+    (`_group_few_textboxes`, `line_spent_layout`), and the page gets the warning of pages read without text-box grouping
+    (`ungrouped_layouts`). The function is not copied."""
     budget = _INFLATE_BUDGET.get()
     if budget is None:
         yield from _group_all_textlines(self, laparams, lines)
@@ -645,8 +652,10 @@ def _group_textlines_within(self: LTLayoutContainer, laparams: object, lines: li
             # test_audit_pdf_text.py::TestTooMuchLineGrouping::test_the_forms_drawn_on_a_page_share_one_allowance)
             budget.figure_line_work = max(budget.line_work, 0)
         budget.line_work = None
+    budget.line_spent_layout = None
     if boxes is None:
         budget.ungrouped_layouts += 1
+        budget.line_spent_layout = self
         boxes = []
         for line in lines:
             box = LTTextBoxHorizontal() if isinstance(line, LTTextLineHorizontal) else LTTextBoxVertical()
