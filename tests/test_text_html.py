@@ -1660,6 +1660,16 @@ class TestTextThatLooksLikeAFence:
 
         assert result.text == "- \\``` open\n\n```\ncode   here\n```\n\n\\``` x"
 
+    @pytest.mark.parametrize(("between", "expected"), [("<br>가운데   글<br>", "가운데 글"), ("<pre>x   y</pre>", "```\nx   y\n```")],
+                             ids=["text", "code-block"])
+    def test_every_fenced_text_of_a_list_item_is_cut_out(self, between, expected):
+        """After a block is cut out of an item, the next line of text that may open one is looked for again from there."""
+        html = f"<ul><li>a<br>```<br>code one<br>```{between}```<br>code two<br>```<br>끝</li></ul>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == f"- a\n\n```\ncode one\n```\n\n{expected}\n\n```\ncode two\n```\n\n끝"
+
     def test_fence_paragraphs_that_pair_with_each_other_stay_a_code_block(self):
         """As in every other format (`test_markdown.py::TestUnclosedCodeFence`): only the unpaired one is neutralized."""
         html = "<pre>x</pre><p>```</p><p>code</p><p>```</p><p>```</p>"
