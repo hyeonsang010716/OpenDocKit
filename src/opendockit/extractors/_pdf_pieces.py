@@ -141,8 +141,9 @@ def _late_symbols_in_place(piece: LTTextLineHorizontal, word_margin: float) -> L
     bright', Pinned by: test_words_drawn_from_right_to_left_without_spaces_are_read_in_place). The whole line is re-laid in x
     order when no character placed to the left of characters drawn before it (the characters to be moved back) is whitespace,
     and the characters do not overlap when laid in x order (`_glyphs_collide` — copies drawn on top of each other, fake bold, a
-    mark drawn over its letter). Word characters are moved back only on a line whose characters are all drawn facing right: text
-    turned upside down (a page rotated by 180°) runs right to left on the page, and laying it in x order reversed it (Pinned by:
+    mark drawn over its letter). Word characters are moved back only on a line whose characters all advance to the right
+    (`_advances_leftwards`): text turned upside down (a page rotated by 180°) runs right to left on the page, and laying it in x
+    order reversed it (Pinned by:
     test_pdf.py::TestDrawingArtifacts::test_rotated_page_with_an_off_centre_crop_box_keeps_its_visible_text). Deliberate: a line
     containing right-to-left characters (Hebrew, Arabic) is not touched — for text drawn in logical order a decreasing x is
     correct, and laying it in x order would reverse it (Pinned by: test_right_to_left_text_drawn_in_logical_order_is_not_reversed).
@@ -160,7 +161,7 @@ def _late_symbols_in_place(piece: LTTextLineHorizontal, word_margin: float) -> L
 
     if not moved or any(not char.get_text().strip() for char in moved):
         return None
-    if any(_WORD_CHAR.search(char.get_text()) for char in moved) and any(char.matrix[0] <= 0 for char in chars):
+    if any(_WORD_CHAR.search(char.get_text()) for char in moved) and any(_advances_leftwards(char) for char in chars):
         return None  # text turned upside down (a page rotated by 180°) runs right to left on the page and is read in drawing order
     ordered = sorted(chars, key=lambda char: char.x0)
     if _glyphs_collide(ordered):
@@ -170,6 +171,22 @@ def _late_symbols_in_place(piece: LTTextLineHorizontal, word_margin: float) -> L
     for char in ordered:
         line.add(char)
     return line
+
+
+def _advances_leftwards(char: LTChar) -> bool:
+    """Whether the text of the character does not run to the right on the page: the next character of its string is drawn to
+    its left (or straight above or below it).
+
+    The pen moves by `adv` (glyph width × font size × horizontal scaling) along the x axis of the text matrix, whose page x
+    component is `matrix[0]`, so the sign of their product is the direction on the page. A matrix turned by 180° or mirrored
+    (a < 0) with an ordinary size runs leftwards. So does an upright matrix with a negative font size ('/F1 -11 Tf', the same
+    180° turn written without a matrix) or negative horizontal scaling ('-100 Tz', mirrored): the matrix alone looked like
+    ordinary text there, and words separated by kerning instead of space glyphs were laid in x order, last word first
+    ('Total amount due today' → 'yadot eud tnuoma latoT'; Pinned by:
+    test_pdf_reading_order.py::TestSymbolsDrawnAfterTheirLine::test_text_running_leftwards_without_a_turned_matrix_is_not_reversed).
+    Both at once (negative size in a 180° matrix) run rightwards again. A glyph of no width moves nothing and tells no
+    direction: its line is left in drawing order, as text turned by 90° (a = 0) is."""
+    return char.matrix[0] * char.adv <= 0
 
 
 def _merged_overlapping_pieces(pieces: list[LTTextLineHorizontal], word_margin: float) -> tuple[list[LTTextLineHorizontal], bool]:

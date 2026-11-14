@@ -277,6 +277,29 @@ class TestSymbolsDrawnAfterTheirLine:
 
         assert "שלום" in result.text
 
+    @pytest.mark.parametrize(("state", "matrix", "expected"), [
+        (b"/F1 -11 Tf", b"1 0 0 1 400 700 Tm", "Totalamountduetoday"),   # a negative font size: turned by 180° without a matrix
+        (b"/F1 11 Tf -100 Tz", b"1 0 0 1 400 700 Tm", "Totalamountduetoday"),  # negative horizontal scaling: mirrored
+        (b"/F1 11 Tf", b"-1 0 0 -1 400 700 Tm", "Totalamountduetoday"),  # the same turn written in the matrix
+        (b"/F1 -11 Tf", b"-1 0 0 -1 72 700 Tm", "Total amount due today"),  # both at once: ordinary text running rightwards
+    ])
+    def test_text_running_leftwards_without_a_turned_matrix_is_not_reversed(self, state, matrix, expected):
+        """Text turned upside down by a negative font size, or mirrored by negative horizontal scaling, runs right to left
+        on the page under an upright text matrix. With its words set apart by kerning instead of space glyphs it was taken
+        for words drawn last to first and laid in x order: 'yadot eud tnuoma latoT'. Text turned twice (a negative size in
+        a turned matrix) runs rightwards and keeps its word gaps."""
+        from tests.test_pdf import _raw_pdf
+
+        content = b"BT " + state + b" " + matrix + b" [(Total) -278 (amount) -278 (due) -278 (today)] TJ ET"
+        data = _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                         3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 "
+                            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> >> >> >>",
+                         4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content)})
+
+        result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == expected
+
 
 class TestEquationNumbers:
     """A centred equation and its equation number '(1)' at the right edge are lines beside each other, so an equation that had been read behind the
