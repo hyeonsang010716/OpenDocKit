@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import zipfile
 
 import openpyxl
+from openpyxl.comments import Comment
 import pytest
 
 from opendockit import convert
@@ -949,3 +950,45 @@ class TestBiff5ChartSheetNames:
         data = _biff5_workbook(b"Chart", b"Data", 1252, hidden=1)
 
         assert xls.extract_xls(data, ConvertOptions()).warnings == []
+
+
+def _two_sheets(second_name: str, second_state: str = "") -> bytes:
+    """Workbook of sheet `Data` (`first`) and a second sheet (`second`, with a comment on A1) renamed in workbook.xml to
+    `second_name`, in the sheet state `second_state`."""
+    workbook = openpyxl.Workbook()
+    first = workbook.active
+    first.title = "Data"
+    first["A1"] = "first"
+    second = workbook.create_sheet("Other")
+    second["A1"] = "second"
+    second["A1"].comment = Comment("note on the second sheet", "Kim")
+    second.sheet_state = second_state or "visible"
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return builder.zip_with(buffer.getvalue(), edit={
+        "xl/workbook.xml": lambda xml: xml.replace('name="Other"', f'name="{second_name}"')})
+
+
+class TestSheetsWithTheSameName:
+    """A fully loaded sheet was matched with its part and hidden state by its name. openpyxl renames a sheet whose name repeats
+    another (case ignored), so a hidden duplicate hid both sheets, and the comments and drawings of the renamed sheet were lost
+    or went to the other sheet."""
+
+    def test_hidden_duplicate_hides_only_itself(self):
+        result = convert(_two_sheets("Data", "hidden"), "a.xlsx")
+
+        assert result.text == "## Sheet: Data\n\nfirst"
+        assert result.warnings == ["Hidden sheet 'Data1' was excluded."]
+
+    def test_comment_stays_with_its_sheet(self):
+        result = convert(_two_sheets("data"), "a.xlsx")
+
+        first, second = result.text.split("## Sheet: ")[1:]
+        assert first.strip() == "Data\n\nfirst"
+        assert second.startswith("data1\n\nsecond")
+        assert "note on the second sheet" in second
+
+    def test_hidden_duplicate_is_read_when_asked(self):
+        result = convert(_two_sheets("Data", "hidden"), "a.xlsx", ConvertOptions(include_hidden_sheets=True))
+
+        assert "note on the second sheet" in result.text.split("## Sheet: Data1")[1]

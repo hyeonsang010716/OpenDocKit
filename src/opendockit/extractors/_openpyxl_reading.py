@@ -22,6 +22,7 @@ from openpyxl.formula.tokenizer import TokenizerError
 from openpyxl.formula.translate import TranslatorError
 from openpyxl.packaging.relationship import RelationshipList
 from openpyxl.reader import excel as _openpyxl_excel_reader
+from openpyxl.reader import workbook as _openpyxl_workbook_reader
 from openpyxl.styles.cell_style import CellStyleList
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from openpyxl.utils.datetime import from_excel, from_ISO8601
@@ -85,6 +86,7 @@ class _CellReading:
     picture_text: Callable[[_CellPicture], str] | None = None
     row_numbers: list[int] | None = None  # row numbers of the streamed sheet being read, in the order read (`_streamed_rows`)
     part_results: dict[tuple[str, ...], object] = field(default_factory=dict)  # what a part gave, kept for this workbook (`_once_per_part`)
+    sheet_parts: dict[int, str] = field(default_factory=dict)  # `id` of a sheet object → path of its part (`_sheets_noting_parts`)
 
 
 # Deliberate: the cell interpretation of openpyxl's sheet parser (`WorkSheetParser.parse_cell`) and the place that knows the number
@@ -445,10 +447,30 @@ def _chartsheet_without_parts(reader: _openpyxl_excel_reader.ExcelReader, sheet:
 
     chartsheet = Chartsheet(parent=reader.wb)
     chartsheet.title = sheet.name
+    chartsheet.sheet_state = sheet.state  # as openpyxl does for a worksheet; its own read leaves a chart sheet visible
     reader.wb._add_sheet(chartsheet)
 
 
 _read_chartsheet = _openpyxl_excel_reader.ExcelReader.read_chartsheet
+
+
+def _sheets_noting_parts(parser: _openpyxl_workbook_reader.WorkbookParser) -> Iterator[tuple[object, object]]:
+    """openpyxl's walk over the workbook's sheet list (`WorkbookParser.find_sheets`); while reading, every sheet object the reader
+    adds for an entry is noted with the path of that entry's part (`_CellReading.sheet_parts`).
+
+    A fully loaded sheet does not know its part, so it was looked up by its name in workbook.xml. openpyxl renames a sheet whose
+    name repeats another one (case ignored: `Data`, `data` → `Data`, `data1`), so the renamed sheet found no part (no pictures,
+    charts or comments) or the part of another sheet, and the hidden state of one went to both
+    (Pinned by: test_audit_spreadsheet.py::TestSheetsWithTheSameName)."""
+    reading = _READING.get()
+    for sheet, rel in _find_sheets(parser):
+        count = len(parser.wb._sheets)
+        yield sheet, rel
+        if reading is not None and len(parser.wb._sheets) > count:
+            reading.sheet_parts[id(parser.wb._sheets[-1])] = str(rel.target)
+
+
+_find_sheets = _openpyxl_workbook_reader.WorkbookParser.find_sheets
 
 
 # A streamed sheet looks for `<dimension>` when it is opened (`ReadOnlyWorksheet._get_size`). Without one, openpyxl's search runs to
@@ -467,6 +489,7 @@ ReadOnlyWorksheet._get_size = _size_unless_reading
 _openpyxl_excel_reader.ExcelReader.read_properties = _properties_or_title
 _openpyxl_excel_reader.ExcelReader.read_custom = _skipped_while_reading(_openpyxl_excel_reader.ExcelReader.read_custom)
 _openpyxl_excel_reader.ExcelReader.read_chartsheet = _chartsheet_without_parts
+_openpyxl_workbook_reader.WorkbookParser.find_sheets = _sheets_noting_parts
 
 
 def _is_number(value: str | None) -> bool:
