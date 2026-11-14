@@ -212,6 +212,64 @@ class TestTextDocument:
                     styles=_LIST_STYLES)
 
         assert text == "1. 하나\n2. 둘\n  - (다) 세부\n1. 셋\n5. 넷\n6. 다섯"
+        # An Arabic level is written '3.' whatever the label holds around the number, as a list of that style is
+        assert _odt(numbered("a", "Step 3:") + numbered("b"), styles=_LIST_STYLES) == "3. a\n4. b"
+
+    @pytest.mark.parametrize("style", ["", 'text:style-name="Nowhere"'], ids=["no style name", "style that is not defined"])
+    def test_numbered_paragraph_without_a_list_style_keeps_the_label_it_carries(self, style):
+        """With no list style there is no list: the label written in the file is the head of the paragraph, and a paragraph
+        without one is a paragraph. The label was dropped and a bullet nobody wrote took its place ('- first')."""
+        def numbered(inner: str, label: str | None = None) -> str:
+            number = f"<text:number>{label}</text:number>" if label is not None else ""
+            return f"<text:numbered-paragraph {style}>{number}{inner}</text:numbered-paragraph>"
+
+        text = _odt(numbered("<text:p>first</text:p>", "Art. 1") + numbered("<text:p>second</text:p>", "7.")
+                    + numbered("<text:p>third</text:p>", "1.1.") + numbered("<text:p>no label</text:p>")
+                    + numbered('<text:h text:outline-level="2">Chapter</text:h>', "IV."), styles=_LIST_STYLES)
+
+        assert text == "Art. 1 first\n\n7. second\n\n1.1. third\n\nno label\n\n## IV. Chapter"
+        cell = _odt("<table:table><table:table-row><table:table-cell>" + numbered("<text:p>cell</text:p>", "§ 2")
+                    + numbered("<text:p>next</text:p>") + "</table:table-cell></table:table-row></table:table>")
+        assert cell == "§ 2 cell\nnext"
+
+    def test_list_label_that_is_a_heading_or_quote_mark_stays_text(self):
+        """A label is text. `#` or `>` as the label of a numbered paragraph, or as the prefix of a number style, made the
+        paragraph a heading or a block quote."""
+        def numbered(text: str, label: str, style: str = 'text:style-name="Numbers"') -> str:
+            return (f"<text:numbered-paragraph {style} text:level=\"2\"><text:number>{label}</text:number><text:p>{text}</text:p>"
+                    "</text:numbered-paragraph>")
+
+        assert _odt(numbered("a", "#", "") + numbered("b", "&gt;", "") + numbered("c", "#1", "") + numbered("d", "-", "")) == (
+            "\\# a\n\n\\> b\n\n#1 c\n\n- d")
+        styles = ('<office:styles><text:list-style style:name="Numbers"><text:list-level-style-number text:level="1" '
+                  'style:num-format="a" style:num-prefix="&gt; " style:num-suffix=""/><text:list-level-style-number text:level="2" '
+                  'style:num-format="a" style:num-prefix="## " style:num-suffix=""/></text:list-style></office:styles>')
+        assert _odt('<text:list text:style-name="Numbers"><text:list-item><text:p>top</text:p></text:list-item></text:list>'
+                    + numbered("sub", "##"), styles=styles) == "\\> a top\n\n  - \\## sub"
+
+    def test_numbered_paragraph_level_is_kept_within_the_ten_levels(self):
+        """`text:level` is 1 to 10. Level 0 read the level before the first (no such level: a bullet), and a level past the
+        tenth one no style defines."""
+        styles = ('<office:styles><text:list-style style:name="Ten">'
+                  + "".join(f'<text:list-level-style-number text:level="{level}" style:num-format="1" style:num-suffix="."/>'
+                            for level in range(1, 11)) + "</text:list-style></office:styles>")
+
+        def numbered(text: str, level: str) -> str:
+            return (f'<text:numbered-paragraph text:style-name="Ten" text:level="{level}"><text:p>{text}</text:p>'
+                    "</text:numbered-paragraph>")
+
+        text = _odt(numbered("a", "0") + numbered("b", "12") + numbered("c", "10"), styles=styles)
+
+        assert text == "1. a\n" + " " * 18 + "1. b\n" + " " * 18 + "2. c"
+
+    def test_numbered_paragraphs_nested_past_the_depth_limit(self):
+        """Deeper than the depth limit of blocks only the characters are read, as for every other block that holds blocks."""
+        def nested(depth: int) -> str:
+            return ("<text:numbered-paragraph>" * depth + "<text:number>1.</text:number><text:p>first</text:p><text:p>second</text:p>"
+                    + "</text:numbered-paragraph>" * depth)
+
+        assert _odt(nested(39)) == "1. first\n\nsecond"
+        assert _odt(nested(45)) == "1.firstsecond"
 
     def test_heading_label_is_written_once_where_the_heading_is_a_paragraph(self):
         """In a table cell or a footnote a heading is a paragraph. A list item heading that carries its label gave '1. 1. H';
@@ -668,6 +726,19 @@ class TestSpreadsheet:
             parts={"Object 1/content.xml": chart, "ObjectReplacements/Object 1": b"VCLMTF"}).sections[0].text
         assert text == ("| 분기 | 매출 |\n| --- | --- |\n| 1분기 | 120 |\n\n[Chart] 분기별 매출\n\n"
                         "> Comment(박철수, cell B2): 잠정치")
+
+    def test_merge_across_in_a_row_labelled_only_by_a_merge_from_above_is_filled(self):
+        """The text to the left of a horizontal merge may be a cell merged down from the row above: the merge is still a value
+        of a labelled row and fills its columns."""
+        covered = "<table:covered-table-cell/>"
+        text = _convert("spreadsheet", _sheet(
+            "S", _row(_cell("Region"), _cell("Item"), _cell("Q1"), _cell("Q2")),
+            _row(_cell("Seoul", 'table:number-rows-spanned="2"'), _cell("apples"), _cell("1"), _cell("2")),
+            _row(covered, _cell("closed", 'table:number-columns-spanned="3"'), covered, covered),
+            _row(_cell("Busan"), _cell("pears"), _cell("3"), _cell("4")))).sections[0].text
+
+        assert text == ("| Region | Item | Q1 | Q2 |\n| --- | --- | --- | --- |\n| Seoul | apples | 1 | 2 |\n"
+                        "| Seoul | closed | closed | closed |\n| Busan | pears | 3 | 4 |")
 
     def test_trailing_repeats_of_empty_rows_and_cells_cost_nothing(self):
         """What LibreOffice writes at the end of every sheet: rows of 16,384 repeated empty cells and a row repeated 1,048,564
