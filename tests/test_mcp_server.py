@@ -3,11 +3,14 @@
 import asyncio
 import os
 from pathlib import Path
+import shutil
 import sys
+import threading
 
 import pytest
 
 from opendockit import mcp_server
+from opendockit.exceptions import ConversionError
 from tests import builder
 
 
@@ -212,34 +215,6 @@ class TestWhichFilesMayBeRead:
         with pytest.raises(ValueError, match="Every root must be an existing folder."):
             mcp_server.create_server([files["report.docx"]])
 
-    @pytest.mark.skipif(os.name != "posix", reason="symbolic links and FIFOs are made without privilege only on POSIX")
-    @pytest.mark.parametrize("replacement", ["link", "fifo", "other file"])
-    def test_file_swapped_after_the_check_is_refused(self, files, tmp_path_factory, replacement):
-        """The path was checked by name and then opened by name again: a file replaced in between by a link out of the allowed
-        folder was read, and a FIFO blocked the read for ever. The file is now opened once (never through a link, without
-        waiting on a FIFO), and the opened file must be a regular file that the checked name still leads to."""
-        inbox = files["report.docx"].parent
-        outside = tmp_path_factory.mktemp("outside") / "secret.docx"
-        outside.write_bytes(builder.docx_bytes())
-        target = inbox / "swapped.docx"
-        target.write_bytes(builder.docx_bytes())
-        allowed = [(inbox.stat().st_dev, inbox.stat().st_ino)]
-        checked = mcp_server._checked_path(str(target), allowed)
-        target.unlink()
-        if replacement == "link":
-            target.symlink_to(outside)
-        elif replacement == "fifo":
-            os.mkfifo(target)
-        else:
-            target.write_bytes(b"replaced")
-
-        if replacement == "other file":
-            data, _ = mcp_server._read(checked, 1024)
-            assert data == b"replaced"
-        else:
-            with pytest.raises(ToolError, match="No file at that path"):
-                mcp_server._read(checked, 1024)
-
     @pytest.mark.skipif(os.name != "posix", reason="FIFOs are made without privilege only on POSIX")
     def test_fifo_is_no_file(self, tmp_path):
         os.mkfifo(tmp_path / "pipe.txt")
@@ -273,6 +248,263 @@ class TestWhichFilesMayBeRead:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="worker processes are used on POSIX only")
+def _within(seconds: float, action, unblock=None):
+    """The result of `action` (or the exception it raised), run in a thread: a call that hangs fails the test after `seconds`
+    instead of hanging the whole run. `unblock` is called to let a hanging thread go."""
+    outcome: list = []
+
+    def run() -> None:
+        try:
+            outcome.append((action(), None))
+        except BaseException as error:  # noqa: BLE001 — handed back to the test
+            outcome.append((None, error))
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if thread.is_alive():
+        if unblock is not None:
+            unblock()
+        pytest.fail(f"still running after {seconds} seconds")
+    result, error = outcome[0]
+    if error is not None:
+        raise error
+    return result
+
+
+def _open_descriptors() -> int:
+    return len(os.listdir("/dev/fd"))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symbolic links and FIFOs are made without privilege only on POSIX")
+class TestFileSwappedAfterTheCheck:
+    """The path was checked by name and then opened by name again: a file replaced in between by a link out of the allowed
+    folder was read, and a FIFO blocked the read for ever. The file is opened once, reached from the allowed folder one name
+    at a time and never through a link, and what was opened must be a regular file."""
+
+    @pytest.fixture
+    def inbox(self, tmp_path) -> Path:
+        folder = tmp_path / "inbox"
+        (folder / "sub" / "deeper").mkdir(parents=True)
+        (folder / "a.txt").write_bytes(b"in the root")
+        (folder / "sub" / "deeper" / "b.txt").write_bytes(b"two folders down")
+        return folder.resolve()
+
+    @pytest.fixture
+    def outside(self, tmp_path) -> Path:
+        folder = tmp_path / "outside"
+        folder.mkdir()
+        (folder / "b.txt").write_bytes(b"SECRET")
+        (folder / "a.txt").write_bytes(b"SECRET")
+        return folder.resolve()
+
+    @staticmethod
+    def _allowed(folder: Path) -> list[tuple[int, int]]:
+        return [(folder.stat().st_dev, folder.stat().st_ino)]
+
+    @pytest.fixture(params=[True, False], ids=["opened from the root", "opened by name"])
+    def from_folder(self, request, monkeypatch) -> bool:
+        """Both ways of opening: relative to the opened root (Linux, macOS), and by name with the path looked at again after
+        the open (what is left where that does not exist)."""
+        monkeypatch.setattr(mcp_server, "_OPENS_FROM_FOLDER", request.param)
+        return request.param
+
+    def test_ordinary_files_are_read(self, inbox, from_folder):
+        allowed = self._allowed(inbox)
+
+        for name, content in (("a.txt", b"in the root"), ("sub/deeper/b.txt", b"two folders down")):
+            checked = mcp_server._checked_path(str(inbox / name), allowed)
+            assert mcp_server._read(checked, 1024, allowed)[0] == content
+
+    def test_links_that_stay_inside_the_root_are_read(self, inbox, from_folder):
+        (inbox / "link.txt").symlink_to(inbox / "sub" / "deeper" / "b.txt")
+        (inbox / "folder").symlink_to(inbox / "sub", target_is_directory=True)
+        allowed = self._allowed(inbox)
+
+        for name in ("link.txt", "folder/deeper/b.txt"):
+            checked = mcp_server._checked_path(str(inbox / name), allowed)
+            assert mcp_server._read(checked, 1024, allowed)[0] == b"two folders down"
+
+    def test_file_two_roots_down_is_read_from_either(self, inbox, from_folder):
+        allowed = self._allowed(inbox / "sub") + self._allowed(inbox)
+        checked = mcp_server._checked_path(str(inbox / "sub" / "deeper" / "b.txt"), allowed)
+
+        assert mcp_server._read(checked, 1024, allowed)[0] == b"two folders down"
+
+    @pytest.mark.parametrize("swapped", ["sub", "sub/deeper"])
+    def test_parent_folder_swapped_for_a_link_is_refused(self, inbox, outside, from_folder, swapped):
+        """`O_NOFOLLOW` guards the last name only: with `sub/deeper` replaced by a link to a folder outside, the file of the
+        same name there was read, and looking the name up again went through the same link."""
+        allowed = self._allowed(inbox)
+        checked = mcp_server._checked_path(str(inbox / "sub" / "deeper" / "b.txt"), allowed)
+        if swapped == "sub":
+            (outside / "deeper").mkdir()
+            (outside / "deeper" / "b.txt").write_bytes(b"SECRET")
+        shutil.rmtree(inbox / swapped)
+        (inbox / swapped).symlink_to(outside, target_is_directory=True)
+        before = _open_descriptors()
+
+        with pytest.raises(ToolError, match="No file at that path"):
+            mcp_server._read(checked, 1024, allowed)
+        assert _open_descriptors() == before
+
+    def test_parent_folder_swapped_between_the_check_and_the_open_of_one_call(self, inbox, outside, monkeypatch):
+        """The same through the tool: the folder is swapped right after the server checked the path."""
+        check = mcp_server._checked_path
+
+        def check_then_swap(path, allowed):
+            checked = check(path, allowed)
+            shutil.rmtree(inbox / "sub" / "deeper")
+            (inbox / "sub" / "deeper").symlink_to(outside, target_is_directory=True)
+            return checked
+
+        monkeypatch.setattr(mcp_server, "_checked_path", check_then_swap)
+
+        with pytest.raises(ToolError, match="No file at that path"):
+            call("convert_document", {"path": str(inbox / "sub" / "deeper" / "b.txt")}, roots=[inbox])
+
+    @pytest.mark.parametrize("replacement", ["link", "folder", "other file"])
+    def test_file_swapped_after_the_check(self, inbox, outside, from_folder, replacement):
+        allowed = self._allowed(inbox)
+        target = inbox / "a.txt"
+        checked = mcp_server._checked_path(str(target), allowed)
+        target.unlink()
+        if replacement == "link":
+            target.symlink_to(outside / "a.txt")
+        elif replacement == "folder":
+            target.mkdir()
+        else:
+            target.write_bytes(b"replaced")
+
+        if replacement == "other file":
+            assert mcp_server._read(checked, 1024, allowed)[0] == b"replaced"
+        else:
+            with pytest.raises(ToolError, match="No file at that path"):
+                mcp_server._read(checked, 1024, allowed)
+
+    @pytest.mark.parametrize("roots", [True, False])
+    def test_fifo_swapped_in_is_refused_at_once(self, inbox, roots):
+        """Opened the ordinary way, a FIFO nobody writes to never returns."""
+        allowed = self._allowed(inbox) if roots else []
+        target = inbox / "a.txt"
+        checked = mcp_server._checked_path(str(target), allowed)
+        target.unlink()
+        os.mkfifo(target)
+
+        def unblock() -> None:
+            os.close(os.open(target, os.O_WRONLY | os.O_NONBLOCK))
+
+        with pytest.raises(ToolError, match="No file at that path"):
+            _within(10, lambda: mcp_server._read(checked, 1024, allowed), unblock)
+
+    def test_fifo_swapped_in_between_the_check_and_the_open_of_one_call(self, inbox, monkeypatch):
+        check = mcp_server._checked_path
+        target = inbox / "a.txt"
+
+        def check_then_swap(path, allowed):
+            checked = check(path, allowed)
+            target.unlink()
+            os.mkfifo(target)
+            return checked
+
+        def unblock() -> None:
+            os.close(os.open(target, os.O_WRONLY | os.O_NONBLOCK))
+
+        monkeypatch.setattr(mcp_server, "_checked_path", check_then_swap)
+
+        with pytest.raises(ToolError, match="No file at that path"):
+            _within(20, lambda: call("document_outline", {"path": str(target)}), unblock)
+
+    @pytest.mark.parametrize("roots", [True, False])
+    def test_no_descriptor_is_left_open_by_a_refusal(self, inbox, outside, roots):
+        """A folder put in place of the file was opened, and `os.fdopen` raised without closing it: 50 calls, 50 descriptors."""
+        allowed = self._allowed(inbox) if roots else []
+        swaps = {"folder": lambda target: target.mkdir(), "fifo": os.mkfifo,
+                 "link": lambda target: target.symlink_to(outside / "a.txt"),
+                 "too large": lambda target: target.write_bytes(b"x" * 5000), "removed": lambda target: None}
+        for name, swap in swaps.items():
+            target = inbox / f"{name}.txt"
+            target.write_bytes(b"x")
+            checked = mcp_server._checked_path(str(target), allowed)
+            target.unlink()
+            swap(target)
+            before = _open_descriptors()
+
+            def unblock(fifo: Path = target) -> None:
+                os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+
+            for _ in range(5):
+                with pytest.raises((ToolError, ConversionError, OSError)):
+                    _within(10, lambda: mcp_server._read(checked, 1024, allowed), unblock if name == "fifo" else None)
+
+            assert _open_descriptors() == before, name
+
+    def test_no_descriptor_is_left_open_by_a_read(self, inbox):
+        allowed = self._allowed(inbox)
+        checked = mcp_server._checked_path(str(inbox / "sub" / "deeper" / "b.txt"), allowed)
+        before = _open_descriptors()
+
+        for _ in range(5):
+            mcp_server._read(checked, 1024, allowed)
+
+        assert _open_descriptors() == before
+
+    def test_root_swapped_for_another_folder_is_refused(self, inbox, outside):
+        """The root is the folder the server was given (its device and inode), not whatever has its name now."""
+        allowed = self._allowed(inbox)
+        checked = mcp_server._checked_path(str(inbox / "a.txt"), allowed)
+        inbox.rename(inbox.with_name("moved"))
+        outside.rename(inbox)
+
+        with pytest.raises(ToolError, match="outside the folders this server may read"):
+            mcp_server._read(checked, 1024, allowed)
+
+    def test_root_swapped_between_its_name_and_its_open_is_refused(self, inbox, outside, monkeypatch):
+        """The root is recognised by name first and then opened: what was opened is compared again, on the descriptor."""
+        allowed = self._allowed(inbox)
+        checked = mcp_server._checked_path(str(inbox / "a.txt"), allowed)
+        identity = mcp_server._identity
+
+        def identity_then_swap(folder):
+            found = identity(folder)
+            if found in allowed and folder == inbox:
+                inbox.rename(inbox.with_name("moved"))
+                outside.rename(inbox)
+            return found
+
+        monkeypatch.setattr(mcp_server, "_identity", identity_then_swap)
+        before = _open_descriptors()
+
+        with pytest.raises(ToolError, match="outside the folders this server may read"):
+            mcp_server._read(checked, 1024, allowed)
+        assert _open_descriptors() == before
+
+    def test_folder_swapped_only_while_the_file_is_opened_by_name(self, inbox, outside, monkeypatch):
+        """Where files are opened by name: the link is put in for the open and taken out again, so the real path is back
+        under the root — but it no longer names the file that was opened."""
+        monkeypatch.setattr(mcp_server, "_OPENS_FROM_FOLDER", False)
+        allowed = self._allowed(inbox)
+        folder = inbox / "sub" / "deeper"
+        checked = mcp_server._checked_path(str(folder / "b.txt"), allowed)
+        open_by_name = mcp_server._opened_by_name
+
+        def swapped_during_the_open(file):
+            folder.rename(folder.with_name("kept"))
+            folder.symlink_to(outside, target_is_directory=True)
+            try:
+                return open_by_name(file)
+            finally:
+                folder.unlink()
+                folder.with_name("kept").rename(folder)
+
+        monkeypatch.setattr(mcp_server, "_opened_by_name", swapped_during_the_open)
+        before = _open_descriptors()
+
+        with pytest.raises(ToolError, match="No file at that path"):
+            mcp_server._read(checked, 1024, allowed)
+        assert _open_descriptors() == before
+
+
 class TestRepeatedCalls:
     """An agent reads a long document as document_outline and then convert_document by sections; each call converted the
     whole file again. The last few results are kept by the file's content, so a changed file is never answered from them."""

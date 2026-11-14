@@ -16,9 +16,10 @@ Conversion is offline (no vision model, nothing fetched); pictures stay `[Image]
 import argparse
 import asyncio
 from collections import OrderedDict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import replace
+import errno
 import hashlib
 import os
 from pathlib import Path
@@ -113,7 +114,7 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
         file = _checked_path(path, allowed)
         options = ConvertOptions(max_chars=limit)
         try:
-            data, digest = await asyncio.to_thread(_read, file, options.max_file_bytes)
+            data, digest = await asyncio.to_thread(_read, file, options.max_file_bytes, allowed)
             # The few last results are kept by what the file holds (its SHA-256), not by its path and times: a file changed
             # in place is converted again even when its size and modification time stay the same, and reading and hashing is
             # far cheaper than converting (Pinned by: test_mcp_server.py::TestRepeatedCalls).
@@ -200,46 +201,105 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
     return server
 
 
-# How a checked file is opened (`_read`): never through a symbolic link (the final name was resolved already, so a link there
-# now was put in after the check), and without waiting on a FIFO put in place of the file — the regular-file check comes after
+# How a checked file is opened (`_read`): never through a symbolic link (the name was resolved already, so a link there now
+# was put in after the check), and without waiting on a FIFO put in place of the file — the regular-file check comes after
 # the open, on what was opened. Where a flag does not exist (Windows) it is 0, and binary mode is asked for there.
 _OPEN_FLAGS = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
                | getattr(os, "O_BINARY", 0))
+# How the folders on the way to it are opened (`_opened_under_a_root`): as folders, and never through a link either.
+_FOLDER_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+# Whether a name can be opened relative to an open folder (`openat`): Linux and macOS, not Windows.
+_OPENS_FROM_FOLDER = os.open in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY")
+# What opening a symbolic link without following it fails with: ELOOP, or ENOTDIR when a folder was asked for (Linux).
+_LINK_ERRORS = (errno.ELOOP, errno.ENOTDIR, errno.EMLINK)
 
 
-def _read(file: Path, limit: int) -> tuple[bytes, str]:
+def _read(file: Path, limit: int, allowed: Sequence[tuple[int, int] | None]) -> tuple[bytes, str]:
     """The content of the regular file `_checked_path` returned and its SHA-256, refused from its size when over `limit` and
     otherwise read only up to one byte past it, so a file that grows meanwhile is refused by `convert` instead of being read
     whole. Run in a thread: hashing 50 MB takes tens of milliseconds, which would stall the event loop.
 
-    The file is opened once and everything is decided on that descriptor: it must be a regular file, and the checked name
-    must still lead to it (same device and inode). Checked by name and then opened by name again, the file could be swapped
-    in between — for a link out of the allowed folders or a FIFO that blocks the read for ever
-    (Pinned by: test_mcp_server.py::TestWhichFilesMayBeRead::test_file_swapped_after_the_check_is_refused).
+    The file is opened once and everything is decided on that descriptor, which is closed on every refusal (a folder put
+    in place of the file was opened and never closed: one descriptor lost per call
+    — Pinned by: test_mcp_server.py::TestFileSwappedAfterTheCheck::test_no_descriptor_is_left_open_by_a_refusal). It must be
+    a regular file, and with `allowed` roots (empty: no restriction) it must have been reached from one of them
+    (`_opened_under_a_root`). Checked by
+    name and then opened by name again, the file could be swapped in between — for a link out of the allowed folders, or a
+    FIFO that blocks the read for ever; and with only the last name guarded, so could any folder above it
+    (Pinned by: test_mcp_server.py::TestFileSwappedAfterTheCheck).
     """
+    walked = bool(allowed) and _OPENS_FROM_FOLDER
+    descriptor = _opened_under_a_root(file, allowed) if walked else _opened_by_name(file)
     try:
-        descriptor = os.open(file, _OPEN_FLAGS)
-    except OSError as error:
-        if not file.is_symlink():
-            raise
-        raise ToolError("No file at that path.") from error
-    with os.fdopen(descriptor, "rb") as stream:
         status = os.fstat(descriptor)
-        if not stat.S_ISREG(status.st_mode) or not _names(file, status):
+        if not stat.S_ISREG(status.st_mode) or (allowed and not walked and not _still_under_a_root(file, status, allowed)):
             raise ToolError("No file at that path.")
         if status.st_size > limit:
             raise DocumentTooLargeError(f"The file is too large (maximum {_size_text(limit)}).")
+        stream = os.fdopen(descriptor, "rb")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    with stream:
         data = read_limited(stream, limit, size_hint=status.st_size)
     return data, hashlib.sha256(data).hexdigest()
 
 
-def _names(file: Path, opened: os.stat_result) -> bool:
-    """Whether the name `file` leads, without following a link, to the file that was opened."""
+def _opened_by_name(file: Path) -> int:
+    """A descriptor of `file`, opened by its whole name without following a link in the last place."""
     try:
-        status = os.stat(file, follow_symlinks=False)
+        return os.open(file, _OPEN_FLAGS)
+    except OSError as error:
+        if not file.is_symlink():
+            raise
+        raise ToolError("No file at that path.") from error
+
+
+def _opened_under_a_root(file: Path, allowed: Sequence[tuple[int, int] | None]) -> int:
+    """A descriptor of `file`, reached from an allowed folder one name at a time, each opened relative to the folder
+    before it and none through a symbolic link.
+
+    Nothing between the check and the open can then lead out of the root: the root is the folder that was opened (its
+    device and inode are compared on the descriptor), and a folder below it that was swapped for a link is refused where
+    it is met. `O_NOFOLLOW` on the whole name guards only the last name: a parent folder replaced after the check by a
+    link to a folder outside was followed, and comparing the opened file with the name again went through the same link
+    (Pinned by: test_mcp_server.py::TestFileSwappedAfterTheCheck::test_parent_folder_swapped_for_a_link_is_refused).
+    Known accepted gap: a hard link inside a root to a file outside it is that file under another name, and is read.
+    """
+    for root in file.parents:
+        if _identity(root) not in allowed:
+            continue
+        folder = os.open(root, _FOLDER_FLAGS & ~os.O_NOFOLLOW)   # the root itself was resolved when the server started
+        try:
+            opened = os.fstat(folder)
+            if (opened.st_dev, opened.st_ino) not in allowed:
+                continue
+            *folders, name = file.relative_to(root).parts
+            for part in folders:
+                below = os.open(part, _FOLDER_FLAGS, dir_fd=folder)
+                os.close(folder)
+                folder = below
+            return os.open(name, _OPEN_FLAGS, dir_fd=folder)
+        except OSError as error:
+            if error.errno not in _LINK_ERRORS:
+                raise
+            raise ToolError("No file at that path.") from error
+        finally:
+            os.close(folder)
+    raise ToolError("The file is outside the folders this server may read.")
+
+
+def _still_under_a_root(file: Path, opened: os.stat_result, allowed: Sequence[tuple[int, int] | None]) -> bool:
+    """Where a name cannot be opened relative to a folder (Windows): whether the file that was opened is the one its real
+    path names now, and that path is under an allowed folder. Deliberate: this narrows the time in which a folder can be
+    swapped, it does not close it — the names are looked up again after the open."""
+    try:
+        real = Path(os.path.realpath(file))
+        status = os.stat(real, follow_symlinks=False)
     except OSError:
         return False
-    return (status.st_dev, status.st_ino) == (opened.st_dev, opened.st_ino)
+    return ((status.st_dev, status.st_ino) == (opened.st_dev, opened.st_ino)
+            and any(identity in allowed for identity in map(_identity, real.parents) if identity))
 
 
 def _identity(folder: Path) -> tuple[int, int] | None:
