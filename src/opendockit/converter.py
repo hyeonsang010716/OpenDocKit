@@ -4,7 +4,6 @@ import asyncio
 from concurrent.futures import Executor
 from dataclasses import replace
 from functools import partial
-import gc
 import hashlib
 import os
 from pathlib import Path
@@ -383,9 +382,12 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
                 # worker's 2 GB (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture).
                 if raw.kind is ImageKind.STANDALONE:
                     raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
-                decoded[key] = ImageOutOfMemory()   # a new one: the one raised holds the frames, and with them the picture
-            if isinstance(decoded[key], ImageOutOfMemory):
-                gc.collect()   # what is left of the picture goes before the next one is read
+                # A new one: the one raised holds the frames it went through, and with them the half-read picture. With
+                # the raised one gone at the end of this block the picture is freed at once — a Pillow picture is part of
+                # no reference cycle, so no collection is run: a full one after every such picture costs with the heap
+                # of the process (500 small pictures 6.5 s for 0.2 s, and 55 s in a process holding 3 million objects)
+                # (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture::test_what_is_left_of_a_picture_is_released_before_the_next_one).
+                decoded[key] = ImageOutOfMemory()
 
         outcome = decoded[key]
         if isinstance(outcome, ImageTooLarge) and raw.kind is ImageKind.STANDALONE:

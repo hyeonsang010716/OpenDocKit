@@ -1808,30 +1808,45 @@ class TestOutOfMemoryWhileReadingAPicture:
 
     def test_what_is_left_of_a_picture_is_released_before_the_next_one(self, monkeypatch):
         """The MemoryError holds the frames it went through, and they hold the half-read picture: kept as the outcome of that
-        picture, it stayed in memory while the next ones were read."""
+        picture, it stayed in memory while the next ones were read. Dropping the error is enough — a Pillow picture is in no
+        reference cycle — so no collection is run: a full one after each picture took 6.5 s for 500 small pictures."""
+        import gc
         import weakref
 
         import opendockit.converter as converter_module
 
-        class HalfReadPicture:
-            def __init__(self) -> None:
-                self.itself = self   # part of a cycle, as a decoder and its buffers are
-
-        left: list[weakref.ref] = []
+        pictures: list[weakref.ref] = []
         still_there: list[int] = []
+        opened = Image.Image.__init__
 
-        def prepare(_data, **_options):
-            still_there.append(sum(1 for picture in left if picture() is not None))
-            half_read = HalfReadPicture()
-            left.append(weakref.ref(half_read))
-            raise MemoryError
+        def tracked(self, *args, **kwargs):
+            opened(self, *args, **kwargs)
+            pictures.append(weakref.ref(self))
+
+        def prepare(data, **options):
+            still_there.append(sum(1 for picture in pictures if picture() is not None))
+            return prepare_image(data, **options)
+
+        def collected(*_args):
+            raise AssertionError("a garbage collection was run")
 
         monkeypatch.setattr(converter_module, "prepare_image", prepare)
+        monkeypatch.setattr(Image.Image, "__init__", tracked)
+        monkeypatch.setattr(Image.Image, "thumbnail", self._out_of_memory)
+        monkeypatch.setattr(gc, "collect", collected)
         html = ("<p>Text</p>" + "".join(f'<img src="data:image/png;base64,{base64.b64encode(builder.png_bytes(seed=seed)).decode()}">'
                                        for seed in range(3))).encode()
 
-        result = convert(html, "a.html")
+        enabled = gc.isenabled()
+        gc.disable()   # reference counting alone
+        try:
+            result = convert(html, "a.html")
+            left = sum(1 for picture in pictures if picture() is not None)
+        finally:
+            if enabled:
+                gc.enable()
 
+        assert len(pictures) >= 3 and left == 0
         assert still_there == [0, 0, 0]
         assert [re.match(_OUT_OF_MEMORY_WARNING, warning).group(1) for warning in result.warnings] == ["3"]
 
