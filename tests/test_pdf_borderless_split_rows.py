@@ -488,6 +488,31 @@ class TestSparseRowsAboveABorderlessTable:
                         "| --- | --- | --- |\n| North | 1,250 | 44,288 |\n| South | 980 | 46,001 |\n| East | 2,680 | 37,138 |\n"
                         "| West | 770 | 66,585 |\n\nThis report was prepared by the finance team.")
 
+    def test_header_of_the_table_below_stays_out_of_a_key_value_block(self):
+        """Three lines of a key-value block (three pieces, one piece, two pieces) and, 32pt below, a table of four columns.
+        The header of the table lines up with no value of the block, and one value in its column is enough to see that: the
+        block became a table of three columns that took the header, and the values of the items moved one column left."""
+        def draw(pdf, index):
+            pdf.setFont(_FONT, 10)
+            pdf.drawString(60, 760, "항목")
+            pdf.drawString(264, 760, "221")
+            pdf.drawRightString(552, 760, "86,656")
+            pdf.drawString(60, 746, "감소")
+            pdf.drawString(60, 730, "수량")
+            pdf.drawString(264, 730, "81,951")
+            for number, row in enumerate([("단가", "없음", "공통", "품목"), ("자산", "63,571", "98.4%", ""), ("합계", "44,190", "", "25,339"),
+                                          ("품목", "52,636", "25,527", ""), ("합계", "", "48,985", "59,159")]):
+                pdf.drawString(64, 698 - number * 18, row[0])
+                for column in (1, 2, 3):
+                    pdf.drawRightString(152 + column * 100, 698 - number * 18, row[column])
+            pdf.drawString(60, 588, "전 지점 목표 달성률은 102%이다.")
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| 단가 | 없음 | 공통 | 품목 |\n| --- | --- | --- | --- |\n| 자산 | 63,571 | 98.4% | |\n| 합계 | 44,190 | | 25,339 |\n"
+                "| 품목 | 52,636 | 25,527 | |\n| 합계 | | 48,985 | 59,159 |") in text
+        assert "| 항목" not in text and "| 수량" not in text
+
     def test_two_label_rows_in_a_row_stay_in_the_table(self):
         data = _three_column_pdf(["항목0/항목1/항목2", "합계/27,368/71,946", "금액/67,601/", "비고//", "해당 없음//",
                                   "금액/88,763/", "부산//96,157", "포도/2.6%/"], header=False)

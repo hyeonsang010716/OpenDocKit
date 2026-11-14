@@ -264,24 +264,29 @@ def _out_of_line(row: list[_Line], run: list[list[_Line]], header: list[_Line]) 
     Two borderless tables with different column counts, set one row spacing apart, were merged into one table and the
     cells of the second landed in the wrong columns ('| 부서 | 인원 | | 비고 |', Pinned by:
     test_pdf_round45.py::TestBorderlessTablesWithDifferentColumnsNextToEachOther). A centred header does not match
-    left-aligned cells, so the header is left out of the reference, and the check runs only when there are two or more
-    reference data rows with a fragment outside the first column (the first column is not checked because it often holds
-    indented sub-items; section rows right under the header are no reference, `_section_rows`).
+    left-aligned cells, so the header is left out of the reference (the first column is not checked because it often holds
+    indented sub-items).
     The reference is the `_OUT_OF_LINE_ROWS` data rows right above — looking at the whole table for every row takes
-    quadratic time on a long table."""
-    later = [line for line in row if _column_of(line, header, row) > 0]
+    quadratic time on a long table.
+
+    Only the fragments whose column holds a cell in the reference rows are compared, and a row with none of them is not
+    out of line: there is nothing to measure it against. Label-only rows right under the header fill the first column
+    only, and the first row with values after them ('비고 | 99,598 | 3,646') was cut off as another table (Pinned by:
+    test_pdf_borderless_split_rows.py::TestSparseRowsAboveABorderlessTable::test_label_rows_right_under_the_header_stay_in_the_table).
+    One reference cell in the column is enough, though. Asking for two reference rows with values let the header of an
+    items table ('단가 | 없음 | 공통 | 품목') into the three lines of a key-value block above it ('항목 221 86,656', '감소',
+    '수량 81,951'), whose only value below the first line it did not line up with: the block became a table that took the
+    header, and the values of the items moved one column to the left (Pinned by:
+    test_pdf_borderless_split_rows.py::TestSparseRowsAboveABorderlessTable::test_header_of_the_table_below_stays_out_of_a_key_value_block)."""
+    later = [(line, column) for line in row if (column := _column_of(line, header, row)) > 0]
     if len(later) < 2:
         return False
     placed: dict[int, list[_Line]] = {}
-    references = 0  # data rows with a fragment outside the first column (section rows hold none)
     for other in run[max(1, len(run) - _OUT_OF_LINE_ROWS):]:
-        columns = [_column_of(line, header, other) for line in other]
-        references += any(columns)
-        for line, column in zip(other, columns, strict=True):
-            placed.setdefault(column, []).append(line)
-    if references < 2:
-        return False
-    return not any(_edge_aligned(line, other) for line in later for other in placed.get(_column_of(line, header, row), ()))
+        for line in other:
+            placed.setdefault(_column_of(line, header, other), []).append(line)
+    compared = [(line, placed[column]) for line, column in later if column in placed]
+    return bool(compared) and not any(_edge_aligned(line, other) for line, others in compared for other in others)
 
 
 def _has_number_cell(row: list[_Line], max_cell: float | None = None) -> bool:
