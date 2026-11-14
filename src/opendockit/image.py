@@ -98,11 +98,15 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
     """`filter_decorations=False` is for an image the user uploaded directly — it is not dropped even if small or thin."""
     try:
         image = _decoded(data, max_side)
-    except ImageUnreadable:
+    except (ImageUnreadable, MemoryError):
+        # Running out of memory is not a broken picture: it goes up as it is, so that `IsolatedConverter` reports the document as
+        # too large or too complex. Taken for an unreadable picture, an uploaded photo was 'corrupted' and a picture inside a
+        # document was left as placeholder text with a warning about its format
+        # (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture).
         raise
     except Exception as exc:  # Pillow raises all sorts of exceptions on a corrupted file (SyntaxError, struct.error, ...).
-        # A decoding failure is an "unreadable image" whatever its type. If it leaked, convert would die with an exception outside
-        # ConversionError (Pinned by: test_image.py::test_broken_png_is_unreadable_not_a_crash).
+        # A decoding failure is an "unreadable image" whatever its type (MemoryError aside). If it leaked, convert would die with
+        # an exception outside ConversionError (Pinned by: test_image.py::test_broken_png_is_unreadable_not_a_crash).
         image = _truncated_jpeg(data, max_side)
         if image is None:
             raise ImageUnreadable(type(exc).__name__) from exc
@@ -125,6 +129,8 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
         has_alpha = image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info)
         tiles = tuple(_encoded(tile, max_side, has_alpha)[0] for tile in _tiles(image, max_side))
         data, mime_type, (shrunk_width, shrunk_height) = _encoded(image, max_side, has_alpha)
+    except MemoryError:
+        raise
     except Exception as exc:  # a failed downscale or re-encode is also an "unreadable image", like a failed decode (same reason)
         raise ImageUnreadable(type(exc).__name__) from exc
     return PreparedImage(data, mime_type, shrunk_width, shrunk_height, tiles)
@@ -154,6 +160,8 @@ def _truncated_jpeg(data: bytes, max_side: int) -> Image.Image | None:
         return None
     try:
         image = _decoded(data + b"\xff\xd9", max_side)
+    except MemoryError:
+        raise
     except Exception:  # noqa: BLE001 — same reason as above. If it cannot be read again, the original failure is reported
         return None
     if _decoded_height(image) < image.height * _MIN_TRUNCATED_JPEG_SHARE:
@@ -293,6 +301,8 @@ def split_tiff_pages(data: bytes) -> TiffPages:
                     ImageOps.exif_transpose(opened).save(output, format="TIFF", compression="tiff_deflate")
                     pages.append(output.getvalue())
                 more = _has_frame(opened, MAX_TIFF_PAGES)
+    except MemoryError:
+        raise
     except Exception:  # noqa: BLE001 — same reason as prepare_image (Pillow's assorted decoding exceptions). The pages before it are used
         return TiffPages(pages, len(pages) + 1, unreadable=True) if pages else TiffPages([])
 

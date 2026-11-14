@@ -39,6 +39,8 @@ if TYPE_CHECKING:
     from opendockit.describe import ImageDescriber
 
 
+# The message of a conversion that ran out of memory or time (`IsolatedConverter`, and running out of memory on a picture here).
+TOO_COMPLEX_MESSAGE = "The document is too large or too complex to convert."
 _DEFAULT_OPTIONS = ConvertOptions()
 _ZIP_FORMATS = {DocumentFormat.DOCX, DocumentFormat.PPTX, DocumentFormat.XLSX, DocumentFormat.HWPX, DocumentFormat.ODT, DocumentFormat.ODS,
                 DocumentFormat.ODP, DocumentFormat.EPUB}
@@ -315,6 +317,10 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
                 decoded[key] = (image, hashlib.sha256(image.data).hexdigest())
             except (ImageSkipped, ImageUnreadable) as outcome:
                 decoded[key] = outcome
+            except MemoryError as exc:
+                # Not a broken picture but a document too large for the memory there is (`image.prepare_image`)
+                # (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture).
+                raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
 
         outcome = decoded[key]
         if isinstance(outcome, ImageTooLarge) and raw.kind is ImageKind.STANDALONE:

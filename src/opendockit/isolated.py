@@ -26,7 +26,7 @@ try:
 except ImportError:  # not available on Windows. Only the time limit applies, without a memory limit
     resource = None
 
-from opendockit.converter import _check_arguments, _content_bytes, check_size, convert
+from opendockit.converter import TOO_COMPLEX_MESSAGE, _check_arguments, _content_bytes, check_size, convert
 from opendockit.exceptions import ConversionError, DocumentTooLargeError
 from opendockit.models import ConversionResult, ConvertOptions
 
@@ -35,7 +35,6 @@ if TYPE_CHECKING:
     from opendockit.describe import ImageDescriber
 
 
-TOO_COMPLEX_MESSAGE = "The document is too large or too complex to convert."
 _DEFAULT_MEMORY_LIMIT = 2 * 1024**3
 _DEFAULT_TIMEOUT = 120.0
 _DEFAULT_OPTIONS = ConvertOptions()
@@ -277,12 +276,32 @@ def _limit_memory(limit: int | None) -> None:
 
 
 def _run(data: bytes, filename: str | None, options: ConvertOptions | None) -> ConversionResult:
-    """Runs in the worker. Out-of-memory is sorted out here — once an exception crosses the process, `__cause__` becomes a string traceback."""
+    """Runs in the worker. Out-of-memory is sorted out here — once an exception crosses the process, `__cause__` becomes a string traceback.
+
+    A MemoryError anywhere in the chain of causes and contexts counts, not only the direct cause: a parser that wraps it in
+    its own exception, which the converter wraps again, was reported as a corrupted document
+    (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture::test_memory_error_deeper_in_the_chain_is_too_complex).
+    """
     try:
         return convert(data, filename, options)
     except ConversionError as exc:
-        if isinstance(exc.__cause__, MemoryError):
+        if _ran_out_of_memory(exc):
             raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from None
         raise
     except MemoryError:
         raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from None
+
+
+def _ran_out_of_memory(exc: BaseException) -> bool:
+    """Whether a MemoryError is among the causes and contexts of `exc` (each exception visited once)."""
+    seen: set[int] = set()
+    waiting: list[BaseException] = [exc]
+    while waiting:
+        current = waiting.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, MemoryError):
+            return True
+        waiting.extend(link for link in (current.__cause__, current.__context__) if link is not None)
+    return False

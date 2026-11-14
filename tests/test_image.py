@@ -1657,3 +1657,56 @@ class TestHeicWithoutTheOptionalExtra:
 
         assert len(convert(buffer.getvalue(), "photo.avif").images) == 1
 
+
+
+class TestOutOfMemoryWhileReadingAPicture:
+    """A MemoryError while decoding or re-encoding a picture was taken for an unreadable picture: an uploaded photo was
+    'corrupted' and a picture inside a document a format warning, so `IsolatedConverter` never reported 'too large or too
+    complex'. Running out of address space under the worker's memory limit is simulated by making the re-encode fail."""
+
+    @pytest.fixture
+    def no_memory(self, monkeypatch):
+        import opendockit.image as image_module
+
+        def out_of_memory(*_args, **_kwargs):
+            raise MemoryError
+
+        monkeypatch.setattr(image_module, "_encoded", out_of_memory)
+
+    def test_uploaded_picture_is_too_complex_not_corrupted(self, no_memory):
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            convert(builder.png_bytes(400, 300), "photo.png")
+
+    def test_picture_inside_a_document_is_too_complex_not_a_format_warning(self, no_memory):
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+        from opendockit.isolated import _run
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            _run(builder.docx_with_images(), "a.docx", None)
+
+    def test_memory_error_is_not_an_unreadable_picture(self, no_memory):
+        with pytest.raises(MemoryError):
+            prepare_image(builder.png_bytes(400, 300), min_side=1, max_side=2048)
+
+    def test_memory_error_deeper_in_the_chain_is_too_complex(self, monkeypatch):
+        """A parser that wraps the MemoryError in its own exception, wrapped again by the converter, was a corrupted document:
+        only the direct cause was looked at."""
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+        import opendockit.isolated as isolated
+
+        def convert_that_runs_out(*_args):
+            try:
+                try:
+                    raise MemoryError
+                except MemoryError as inner:
+                    raise ValueError("parser") from inner
+            except ValueError as outer:
+                raise CorruptedDocumentError("Could not parse the file format. The file may be corrupted.") from outer
+
+        monkeypatch.setattr(isolated, "convert", convert_that_runs_out)
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            isolated._run(b"x", "a.txt", None)
+
