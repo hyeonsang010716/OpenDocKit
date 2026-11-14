@@ -57,6 +57,20 @@ class TestLimits:
             ConvertOptions(**{field: value})
 
     @pytest.mark.parametrize(("field", "value"), [
+        ("page_markers", "false"), ("keep_links", 0), ("extract_images", 1), ("include_footnotes", None),
+        ("include_hidden_sheets", "yes"),
+    ])
+    def test_switch_of_the_wrong_type_is_rejected_when_options_are_made(self, field, value):
+        """The switches were not checked: `page_markers="false"` is a true string and kept the markers."""
+        with pytest.raises(TypeError, match=f"ConvertOptions.{field} must be True or False"):
+            ConvertOptions(**{field: value})
+
+    def test_switches_take_true_and_false(self):
+        options = ConvertOptions(page_markers=False, keep_links=True)
+
+        assert options.page_markers is False
+
+    @pytest.mark.parametrize(("field", "value"), [
         ("pdf_render_scale", float("nan")), ("pdf_render_scale", float("inf")), ("pdf_time_budget", float("nan")),
         ("pdf_time_budget", float("inf")), ("pdf_time_budget", float("-inf")), ("max_chars", float("nan")), ("max_chars", float("inf")),
     ])
