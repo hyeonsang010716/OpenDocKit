@@ -24,16 +24,18 @@ A second review of the whole source. The sample outputs in `examples/` are uncha
   A single huge character, or two characters far apart, no longer makes pdfminer fill millions of index cells.
 - **XLSX**: scanning a sheet for formula results, the shared strings and the sheet parser no longer keep every row in memory
   (a 600,000-row sheet took 948 MB more), and a sheet without `<dimension>` is no longer parsed twice to measure it.
-- **Mail**: mail forwarded inside forwarded mails is limited to 100 levels.
+- **Mail**: mail forwarded inside forwarded mails is limited to 100 levels, counted along the structure the mail parser
+  follows (part headers quoted in a body or in a text attachment are text).
 - **Release**: the PyPI publish action is pinned to a commit.
 
 ### Fixed
 
 - **PDF**: a row of a borderless table that pdfminer grouped differently came out in two tables, splitting the table in
-  two; columns to the right of a nested table were shifted; FreeText labels were lost on pages whose MediaBox does not start
-  at 0,0 or that are rotated, and image clips were ignored when the MediaBox starts right of 0; text at a non-finite position
-  rejected the whole document or leaked off-page copies into the body; a ruled table continued on the next page without its
-  header lost the text of a merged cell left open at the page end.
+  two, and the header of the lower of two stacked borderless tables also ended the table above as a row of its own;
+  columns to the right of a nested table were shifted; FreeText labels were lost on pages whose MediaBox does not start
+  at 0,0 or that are rotated, and image clips were ignored when the MediaBox starts right of 0; text at a non-finite
+  position rejected the whole document or leaked off-page copies into the body; a ruled table continued on the next page
+  without its header lost the text of a merged cell left open at the page end.
 - **DOCX/PPTX**: one damaged picture member rejected the whole document; an empty equation wrote `$$`, which swallowed the
   following text, and `$ % # { } \` typed in an equation were read as LaTeX; a footnote reference with no note left a
   dangling `[^1]`; a struck superscript ending in a space gave `~~^2 ~~`; a comment quoted moved-away, deleted or hidden text.
@@ -44,10 +46,12 @@ A second review of the whole source. The sample outputs in `examples/` are uncha
   `<body style="visibility:hidden">` until a script runs, came out empty; a page title written over several lines broke the
   heading; a `# comment` in a code block kept the title out; `~~`, `^` and `_` marks were put inside code; an empty list item
   holding a nested list lost its indentation; `rowspan="0"` spanned one row; alt text could close `[Image: …]` and form a
-  link.
+  link; struck elements next to each other (`<del>a</del><del>b</del>`) gave `~~a~~~~b~~`, which is not strikethrough for a
+  renderer.
 - **Mail**: one HTML-only mail left a whole `.txt` mailbox undecoded; an HTML attachment was read instead of the body of an
   MHTML-shaped mail; a forwarded mail that is itself a forward lost its body; meeting invitations took the reminder's title and
-  attendees, and a recurrence rule ending in `;` stayed raw; short broken UTF-8 could be read as UTF-16.
+  attendees, and a recurrence rule ending in `;` stayed raw; short broken UTF-8 could be read as UTF-16; a multipart mail
+  with an empty boundary (`boundary=""`) was rejected, as was a mail whose parts were counted deeper than they nest.
 - **ODF**: hidden text (hidden spans, hidden text fields and paragraphs, hidden conditional sections) came out as body text;
   a nested list with its own style never restarted its numbering; a heading's number was glued to it (`# 1.Intro`), and a
   heading in a numbered list was not counted; `text:continue-list` now continues the list it names.
