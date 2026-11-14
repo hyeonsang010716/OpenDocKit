@@ -357,15 +357,29 @@ def _split_column_sections(table: object, bbox: tuple[float, float, float, float
     the column boundaries of both, so empty columns were inserted and the lower table's header became a data row (Pinned by:
     test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns).
     Header rows and total rows that span columns are part of rows with different boundaries and are not split off.
-    Nor are two groups split when some row of the grid has the boundaries of both: they are then rows of one table with
-    different cells merged. A form with a block of two columns merged over rows 1-2 and, right below, a block of two other
-    columns merged over rows 3-5 was split between the blocks, and its second half took a data row as its header (Pinned by:
-    test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_merged_blocks_below_each_other_keep_one_table).
+
+    Nor are two groups split when the difference between them is merged cells of one grid (`_merged_from`, both ways): the
+    groups have the same outer edges, and every cell of one that lies across a boundary of the other is either a block
+    merged over all rows of its group or made of whole columns — it starts and ends at a boundary of the other group (for the
+    lower group: of any row of the table above it, as far as that has been kept together). The cells of two tables drawn
+    with different columns lie across each other's boundaries row by row and end in between them. A form with a block of
+    two columns merged over rows 1-2 and, right below, a block of two other columns merged over rows 3-5 was split between
+    the blocks, and its second half took a data row as its header (Pinned by:
+    test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_merged_blocks_below_each_other_keep_one_table,
+    test_merged_blocks_with_no_row_of_all_columns_keep_one_table, test_merged_blocks_overlapping_in_a_column_keep_one_table,
+    test_rows_merged_from_a_column_that_a_block_above_covers_keep_one_table).
+    A row elsewhere in the grid that has the boundaries of both groups says nothing: under a grid of four columns and a
+    table of six, a month grid of twelve columns had the boundaries of both, and the three were read as one table of twelve
+    columns (Pinned by: test_three_abutting_tables_stay_apart_when_the_third_has_the_columns_of_both,
+    test_tables_stay_apart_when_the_rows_above_them_have_the_columns_of_both,
+    test_table_below_a_block_with_a_boundary_of_its_own_is_another_table, test_narrower_table_below_a_grid_is_another_table).
+    Each pair of neighbouring groups is looked at once, so the time grows with the number of rows.
     """
     table_rows = table.rows  # a property that regroups all the cells on every access
     if any(len(row.cells) != len(rows[0]) for row in table_rows):
         return [(bbox, rows, list(table.cells))]
-    edges = _row_edges(table_rows, table.cells)
+    held = _row_cells(table_rows, table.cells)
+    edges = [tuple(sorted({round(edge) for cell in row for edge in (cell[0], cell[2])})) for row in held]
     runs: list[list[int]] = []  # consecutive row numbers with the same boundaries
 
     for index, edge in enumerate(edges):
@@ -375,17 +389,20 @@ def _split_column_sections(table: object, bbox: tuple[float, float, float, float
             runs.append([index])
 
     sections = [list(runs[0])]
-    near = [frozenset(edge + step for edge in edges[run[0]] for step in (-1, 0, 1)) for run in runs]  # within 1pt of a boundary
+    grid = set(edges[0])  # the column boundaries of the rows of the section so far
 
     for previous, run in zip(runs, runs[1:], strict=False):
+        above, below = edges[previous[0]], edges[run[0]]
         apart = (len(previous) >= _SECTION_MIN_ROWS and len(run) >= _SECTION_MIN_ROWS
-                 and not _edges_within(edges[previous[0]], edges[run[0]])
-                 and not _edges_within(edges[run[0]], edges[previous[0]])
-                 and not any(all(edge in other for edge in (*edges[previous[0]], *edges[run[0]])) for other in near))
+                 and not _edges_within(above, below) and not _edges_within(below, above)
+                 and not (_merged_from(held[previous[0]], held[previous[-1]], below, set(below))
+                          and _merged_from(held[run[0]], held[run[-1]], above, grid)))
         if apart:
             sections.append(list(run))
+            grid = set(below)
         else:
             sections[-1].extend(run)
+            grid.update(below)
     if len(sections) == 1:
         return [(bbox, rows, list(table.cells))]
 
@@ -400,39 +417,39 @@ def _split_column_sections(table: object, bbox: tuple[float, float, float, float
     return split
 
 
-def _row_edges(table_rows: list[object], cells: list[tuple]) -> list[tuple[int, ...]]:
-    """The column boundaries (rounded) of each row of a ruled table: the left and right edges of every cell whose vertical extent
-    covers the middle of that row, so a vertically merged cell counts in every row it spans, not only in the row it starts in.
+def _row_cells(table_rows: list[object], cells: list[tuple]) -> list[list[tuple]]:
+    """The cells of each row of a ruled table: every cell whose vertical extent covers the middle of that row, so a vertically
+    merged cell counts in every row it spans, not only in the row it starts in. Their left and right edges are the column
+    boundaries of the row.
 
     With only the cells starting in a row, a merged cell at the outer edge (the right column merged over rows 1-3, the left
     column over rows 3-5) left the outer boundary out of the rows it covered, the rows looked like two groups with different
     boundaries, and the table was split in two, losing the left merged cell ('채소') (Pinned by:
     test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_merged_cells_at_the_outer_edges_keep_one_table).
 
-    A row reaches from its top to the top of the next row, or to the bottom of its shortest cell when that comes first (the last
-    row, a row above a gap). The box of the row is not used: it is the union of the cells that start in the row, so a cell merged
-    downwards makes it as tall as the merged cell (the pitfall recorded in `_cell_rows`), and its middle then lay in a row
-    further down. In a form with one block merged over rows 1-3 on the right and another over rows 3-5 on the left, rows 1 and 2
-    were measured inside row 3, lost the boundary between the two left columns, and the form was split in two after row 2
-    (Pinned by: test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_merged_blocks_sharing_a_row_keep_one_table).
+    A row reaches from its top to the top of the next row (the last row to its bottom). The box of the row is not used: it is
+    the union of the cells that start in the row, so a cell merged downwards makes it as tall as the merged cell (the pitfall
+    recorded in `_cell_rows`), and its middle then lay in a row further down. In a form of two rows of four boxes, a row of two
+    boxes beside a remarks box two rows high and a row of three boxes beside it, the row the remarks box starts in was measured
+    inside the row of three boxes, the two looked like a group with columns of its own, and the form was split in two after
+    its second row (Pinned by:
+    test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_row_beside_a_taller_box_is_measured_at_its_own_height).
     """
     tops = sorted({row.bbox[1] for row in table_rows})
     middles = []
     for row in table_rows:
-        top = row.bbox[1]
-        below = bisect_right(tops, top)
-        bottom = min([cell[3] for cell in row.cells if cell is not None] + tops[below:below + 1])
-        middles.append((top + bottom) / 2)
+        below = bisect_right(tops, row.bbox[1])
+        middles.append((row.bbox[1] + (tops[below] if below < len(tops) else row.bbox[3])) / 2)
     order = sorted(range(len(middles)), key=middles.__getitem__)
     ordered = [middles[index] for index in order]
-    found: list[set[float]] = [set() for _ in table_rows]
+    found: list[list[tuple]] = [[] for _ in table_rows]
 
     for cell in cells:
         if cell is None:
             continue
         for position in range(bisect_left(ordered, cell[1]), bisect_right(ordered, cell[3])):
-            found[order[position]].update((cell[0], cell[2]))
-    return [tuple(round(edge) for edge in sorted(edges)) for edges in found]
+            found[order[position]].append(cell)
+    return found
 
 
 def _same_edges(edges: tuple[int, ...], others: tuple[int, ...]) -> bool:
@@ -442,6 +459,23 @@ def _same_edges(edges: tuple[int, ...], others: tuple[int, ...]) -> bool:
 def _edges_within(edges: tuple[int, ...], others: tuple[int, ...]) -> bool:
     """Whether all column boundaries in `edges` are boundaries of `others` (within 1pt)."""
     return all(any(abs(edge - other) <= 1 for other in others) for edge in edges)
+
+
+def _merged_from(first: list[tuple], last: list[tuple], others: tuple[int, ...], grid: set[int]) -> bool:
+    """Whether a group of rows (the cells of its first and of its last row, `_row_cells`) can be rows of the same table as the
+    rows with the column boundaries `others`, with some cells merged: the two have the same outer edges, and every cell of the
+    group that lies across a boundary of `others` either is one cell reaching over all rows of the group (a merged block) or
+    starts and ends at a boundary of `grid` — it is made of whole columns. `_split_column_sections` says what this decides.
+    The positions are compared as rounded numbers: the table finder has already snapped the rules of one boundary to one position."""
+    spans = [(round(cell[0]), round(cell[2]), cell) for cell in first]
+    if not spans or min(spans)[0] != others[0] or max(right for _, right, _ in spans) != others[-1]:
+        return False
+    blocks = set(last)
+    for left, right, cell in spans:
+        crossed = bisect_left(others, right) > bisect_right(others, left)  # a boundary of `others` inside the cell
+        if crossed and cell not in blocks and not (left in grid and right in grid):
+            return False
+    return True
 
 
 def _with_inner_tables(table: object, rows: list[list[str]], inner: list[tuple]) -> list[list[str]] | None:

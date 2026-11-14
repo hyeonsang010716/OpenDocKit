@@ -606,19 +606,22 @@ class TestAbuttingTablesWithDifferentColumns:
         assert "| 채소 | 오이 | 3,000 | 공통 비고 |\n| 채소 | 당근 | 4,000 | 국산 |\n| 채소 | 무 | 5,000 | 수입 |" in result.text
 
     @staticmethod
-    def _form_pdf(blocks, heights):
-        """A ruled form of four columns with `blocks` (first row, first column, rows) of two columns merged, its rows of
-        the given heights. Every cell holds 'r<row>c<column>' of its first row and column."""
+    def _form_pdf(blocks, heights, above=None, below=None):
+        """A ruled form of four columns with `blocks` (first row, first column, rows[, columns, 2 if left out]) of cells
+        merged, its rows of the given heights. Every cell holds 'r<row>c<column>' of its first row and column ('Head<column>'
+        in the top row). `above` and `below` = (column edges, rows) are other tables ruled right above and right below the form."""
         rows = len(heights)
         owner = [[(row, column) for column in range(4)] for row in range(rows)]
-        for first, left, height in blocks:
+        for first, left, height, *width in blocks:
             for row in range(first, first + height):
-                owner[row][left:left + 2] = [(first, left)] * 2
+                owner[row][left:left + (width or [2])[0]] = [(first, left)] * (width or [2])[0]
         xs = [60, 160, 260, 360, 460]
         ys = [740 - sum(heights[:index]) for index in range(rows + 1)]
 
         def draw(pdf, index):
-            pdf.drawString(60, 780, "Application form")
+            pdf.drawString(60, 800, "Application form")
+            if above:
+                _grid(pdf, ys[0] + 20 * len(above[1]), 20, *above)
             for row in range(rows + 1):
                 for column in range(4):
                     if 0 < row < rows and owner[row - 1][column] == owner[row][column]:
@@ -632,9 +635,10 @@ class TestAbuttingTablesWithDifferentColumns:
             for row in range(rows):
                 for column in range(4):
                     if owner[row][column] == (row, column):
-                        last = max(below for below in range(rows) if owner[below][column] == (row, column))
+                        last = max(lower for lower in range(rows) if owner[lower][column] == (row, column))
                         pdf.drawString(xs[column] + 4, (ys[row] + ys[last + 1]) / 2 - 3, f"Head{column}" if row == 0 else f"r{row}c{column}")
-            pdf.drawString(60, ys[-1] - 30, "End of the form.")
+            bottom = _grid(pdf, ys[-1], 20, *below) if below else ys[-1]
+            pdf.drawString(60, bottom - 30, "End of the form.")
 
         return _korean_pdf(draw)
 
@@ -652,13 +656,117 @@ class TestAbuttingTablesWithDifferentColumns:
 
     def test_merged_blocks_below_each_other_keep_one_table(self):
         """A block merged over rows 1-2 of the two right columns and, right below it, one over rows 3-5 of the two left
-        columns: two groups of rows whose boundaries are not contained in each other, but the header row has the boundaries
-        of both, so they are rows of one table. Split, the second half took 'r3c0' as its header."""
+        columns: two groups of rows whose boundaries are not contained in each other, but every cell lying across a boundary
+        of the other group is made of whole columns of it, so they are rows of one table. Split, the second half took
+        'r3c0' as its header."""
         result = convert(self._form_pdf([(1, 2, 2), (3, 0, 3)], [20] * 7), "a.pdf", ConvertOptions(page_markers=False))
 
         assert result.text == ("Application form\n\n| Head0 | Head1 | Head2 | Head3 |\n| --- | --- | --- | --- |\n"
                                "| r1c0 | r1c1 | r1c2 | |\n| r2c0 | r2c1 | r1c2 | |\n| r3c0 | | r3c2 | r3c3 |\n| r3c0 | | r4c2 | r4c3 |\n"
                                "| r3c0 | | r5c2 | r5c3 |\n| r6c0 | r6c1 | r6c2 | r6c3 |\n\nEnd of the form.")
+
+    def test_merged_blocks_with_no_row_of_all_columns_keep_one_table(self):
+        """The same two blocks in a form that has no other row: no row has every column boundary, and the form is still one
+        table. It was split after row 2 and the second half took 'r2c0' as its header."""
+        result = convert(self._form_pdf([(0, 2, 2), (2, 0, 3)], [20] * 5), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("Application form\n\n| Head0 | Head1 | Head2 | |\n| --- | --- | --- | --- |\n"
+                               "| r1c0 | r1c1 | Head2 | |\n| r2c0 | | r2c2 | r2c3 |\n| r2c0 | | r3c2 | r3c3 |\n"
+                               "| r2c0 | | r4c2 | r4c3 |\n\nEnd of the form.")
+
+    def test_merged_blocks_overlapping_in_a_column_keep_one_table(self):
+        """A block over the three left columns of rows 1-2 and one over the two right columns of rows 3-5: the first lies
+        across a boundary the second ends at, so neither is made of whole columns of the other group — but each is one
+        cell over all rows of its group, which only a merged block is. Split, the upper half lost its columns
+        ('| Head0 | Head3 |') and the lower took 'r2c0' as its header."""
+        result = convert(self._form_pdf([(0, 0, 2, 3), (2, 2, 3)], [20] * 5), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("Application form\n\n| Head0 | | | Head3 |\n| --- | --- | --- | --- |\n"
+                               "| Head0 | | | r1c3 |\n| r2c0 | r2c1 | r2c2 | |\n| r3c0 | r3c1 | r2c2 | |\n"
+                               "| r4c0 | r4c1 | r2c2 | |\n\nEnd of the form.")
+
+    def test_rows_merged_from_a_column_that_a_block_above_covers_keep_one_table(self):
+        """Two last rows whose three right columns are merged, right below a block over the two left columns of rows 3-4:
+        the merged cells start at the boundary between the two left columns, which the rows of the block lack but the rows
+        above them have. Split, the two last rows became a table of their own with 'r5c0' as its header."""
+        result = convert(self._form_pdf([(3, 0, 2), (5, 1, 1, 3), (6, 1, 1, 3)], [20] * 7), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("Application form\n\n| Head0 | Head1 | Head2 | Head3 |\n| --- | --- | --- | --- |\n"
+                               "| r1c0 | r1c1 | r1c2 | r1c3 |\n| r2c0 | r2c1 | r2c2 | r2c3 |\n| r3c0 | | r3c2 | r3c3 |\n"
+                               "| r3c0 | | r4c2 | r4c3 |\n| r5c0 | r5c1 | | |\n| r6c0 | r6c1 | | |\n\nEnd of the form.")
+
+    def test_table_below_a_block_with_a_boundary_of_its_own_is_another_table(self):
+        """A table of two columns right below a form that ends in a block over its two left columns: the lower table's
+        boundary lies under the block but is no column boundary of the form, so it is a second table, not rows of the form
+        with cells merged — also when a third table above the form, cut off from it, has a boundary at that place."""
+        data = self._form_pdf([(3, 0, 2)], [20] * 5, above=([60, 210, 335, 460], [["Name", "Kim", "Sales"], ["Grade", "Manager", "1234"]]),
+                              below=([60, 210, 460], [["Item", "Amount"], ["Fee", "1,000"], ["Tax", "100"]]))
+        result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("Application form\n\n| Name | Kim | Sales |\n| --- | --- | --- |\n| Grade | Manager | 1234 |\n\n"
+                               "| Head0 | Head1 | Head2 | Head3 |\n| --- | --- | --- | --- |\n| r1c0 | r1c1 | r1c2 | r1c3 |\n"
+                               "| r2c0 | r2c1 | r2c2 | r2c3 |\n| r3c0 | | r3c2 | r3c3 |\n| r3c0 | | r4c2 | r4c3 |\n\n"
+                               "| Item | Amount |\n| --- | --- |\n| Fee | 1,000 |\n| Tax | 100 |\n\nEnd of the form.")
+
+    @pytest.mark.parametrize("edges", [[60, 110, 160], [360, 410, 460]], ids=["under the first column", "under the last column"])
+    def test_narrower_table_below_a_grid_is_another_table(self, edges):
+        """A table of two columns under one outer column of a grid, as wide as that column: the cell of the grid above it
+        is made of its two columns, but the two do not have the same outer edges, so they are two tables."""
+        data = self._form_pdf([], [20] * 3, below=(edges, [["Item", "Amount"], ["Fee", "1,000"]]))
+        result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text.endswith("| r2c0 | r2c1 | r2c2 | r2c3 |\n\n| Item | Amount |\n| --- | --- |\n| Fee | 1,000 |\n\nEnd of the form.")
+
+    def test_row_beside_a_taller_box_is_measured_at_its_own_height(self):
+        """Two rows of four boxes, then a row of two boxes and one of three boxes, both beside a remarks box two rows high.
+        The row the remarks box starts in is as tall as that box when measured by its cells, so its middle lay in the row
+        of three boxes: the two looked like a group of rows with columns of its own and the form was split after its
+        second row, 'Period' becoming the header of a second table."""
+        boxes = [(50, 700, 175, 20, "Name"), (175, 700, 300, 20, "Kim"), (300, 700, 425, 20, "Dept"), (425, 700, 550, 20, "Sales"),
+                 (50, 680, 175, 20, "Grade"), (175, 680, 300, 20, "Manager"), (300, 680, 425, 20, "Phone"), (425, 680, 550, 20, "1234"),
+                 (50, 660, 175, 16, "Period"), (175, 660, 300, 16, "March"), (300, 660, 550, 36, "Remarks"),
+                 (50, 644, 133, 20, "From"), (133, 644, 217, 20, "To"), (217, 644, 300, 20, "Days")]
+
+        def draw(pdf, index):
+            for x0, top, x1, height, text in boxes:
+                pdf.rect(x0, top - height, x1 - x0, height)
+                pdf.drawString(x0 + 4, top - 12, text)
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("| Name | | Kim | | Dept | Sales |\n| --- | --- | --- | --- | --- | --- |\n| Grade | | Manager | | Phone | 1234 |\n"
+                               "| Period | | March | | Remarks | |\n| From | To | | Days | Remarks | |")
+
+    def test_tables_stay_apart_when_the_rows_above_them_have_the_columns_of_both(self):
+        """The same three tables the other way round, the month grid on top: the table of six columns goes with the month
+        grid (its boundaries are all boundaries of that grid), and the grid of four below it is still a table of its own —
+        its cells lie across boundaries of the table of six and do not end at them."""
+        def draw(pdf, index):
+            bottom = _grid(pdf, 780, 18, [60 + 40 * month for month in range(13)],
+                           ["Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), [str(month * 3) for month in range(12)]])
+            bottom = _grid(pdf, bottom, 18, [60, 140, 220, 300, 380, 460, 540],
+                           [["3/1", "Taxi", "Seoul", "1", "12,000", "12,000"], ["3/2", "Lunch", "Busan", "2", "9,000", "18,000"]])
+            _grid(pdf, bottom, 18, [60, 180, 300, 420, 540], [["Name", "Kim", "Dept", "Sales"], ["Grade", "Manager", "Phone", "1234"]])
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text.endswith("\n\n| Name | Kim | Dept | Sales |\n| --- | --- | --- | --- |\n| Grade | Manager | Phone | 1234 |")
+
+    def test_three_abutting_tables_stay_apart_when_the_third_has_the_columns_of_both(self):
+        """A grid of four columns, a table of six and a month grid of twelve, all abutting, where every boundary of the first
+        two is one of the twelve: the first two are still two tables. Taking a row with the boundaries of both as the sign
+        of one table read all three as one of twelve columns ('| Name | | | Kim | | | Dept | | | Sales | | |')."""
+        def draw(pdf, index):
+            bottom = _grid(pdf, 780, 18, [60, 180, 300, 420, 540], [["Name", "Kim", "Dept", "Sales"], ["Grade", "Manager", "Phone", "1234"]])
+            bottom = _grid(pdf, bottom, 18, [60, 140, 220, 300, 380, 460, 540],
+                           [["Date", "Item", "Place", "Qty", "Price", "Amount"], ["3/1", "Taxi", "Seoul", "1", "12,000", "12,000"],
+                            ["3/2", "Lunch", "Busan", "2", "9,000", "18,000"]])
+            _grid(pdf, bottom, 18, [60 + 40 * month for month in range(13)],
+                  ["Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), [str(month * 3) for month in range(12)]])
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text.startswith("| Name | Kim | Dept | Sales |\n| --- | --- | --- | --- |\n| Grade | Manager | Phone | 1234 |\n\n| Date |")
 
 
 def _three_rule_statement(header_lines: list[tuple[float, list[tuple[float, str]]]], header_height: float = 30.0) -> bytes:
