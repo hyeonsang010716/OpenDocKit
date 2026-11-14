@@ -5,6 +5,7 @@ wrapped cells and labels, rows split over lines, and headers carried over a page
 from collections import Counter
 from itertools import pairwise
 import math
+import re
 import statistics
 
 from opendockit.extractors._pdf_continued_tables import _YEAR_OR_DATE
@@ -344,17 +345,18 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
         lower = rows[end + 1 + len(after):last + 1]
         members = {id(original) for row in following for line in row for original in (line, line.source, *line.joined)
                    if original is not None}
-        # Only the round-44 shape is joined: the other table starts with a data row (a numeric value cell that is not a
-        # year or date — not a header of its own such as '구분 | 2023 | 2024') and the rows between continue at the usual
-        # (median) row gap of the two tables. A totals row followed by a product table with its own header ('품목 | 단가 |
-        # …') was joined into the table above, and so was a table under a year header; with the widest row gap as the
-        # bound, one wide gap inside a table let an equally wide gap between two tables through (Pinned by:
-        # test_pdf_borderless_split_rows.py::TestSeparateTableBelowARowInNoTable)
+        # Only the round-44 shape is joined: the other table starts with a row holding a clearly measured value
+        # (`_measured_value`: a number with a thousands separator or a decimal point — not a bare integer, bare
+        # percentage, year or date, which are just as common in a header of its own: '구분 | 2023 | 2024',
+        # '구분 | 10% | 20%') and the rows between continue at the usual (median) row gap of the two tables. When in doubt
+        # the tables stay apart: that outcome has every row once, in two tables. A totals row followed by a product table
+        # with its own header ('품목 | 단가 | …') was joined into the table above, and so were tables under a year or
+        # percentage header; with the widest row gap as the bound, one wide gap inside a table let an equally wide gap
+        # between two tables through (Pinned by: test_pdf_borderless_split_rows.py::TestSeparateTableBelowARowInNoTable)
         pitch = [_row_gap(upper, lower_row) for table in (run, following) for upper, lower_row in pairwise(table)]
         chain = [_row_gap(upper, lower_row) for upper, lower_row in pairwise([run[-1], *after, following[0]])]
         if (lower and all(id(line) in members for row in lower for line in row)
-                and any(_NUMBER_CELL.match(line.text.strip()) and not _YEAR_OR_DATE.match(line.text.strip())
-                        for line in following[0])
+                and any(_measured_value(line.text) for line in following[0])
                 and pitch and max(chain) <= statistics.median(pitch) + 1.0):
             # The joined table grows downwards past the end of the other table as that table would have on its own
             wide_left = min(left, *(line.x0 - _TABLE_ROW_TOLERANCE for row in following for line in row))
@@ -375,6 +377,18 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
 
     found = _found_again([*above, *run, *after], {id(line) for row in run for line in row}, len(run[0]), max_cell)
     return (run if found is None else found), None
+
+
+# A number with a thousands separator or a decimal point ('5,483', '4.3%', '1.2') — a measured value, not a label (`_measured_value`)
+_MEASURED = re.compile(r"\d,\d{3}|\d\.\d")
+
+
+def _measured_value(text: str) -> bool:
+    """Whether a piece of text is a clearly measured value: a numeric value cell (`_NUMBER_CELL`) that is not a year or date
+    (`_YEAR_OR_DATE`) and has a thousands separator or a decimal point (`_MEASURED`). A bare integer ('1', '30') or a bare
+    percentage ('10%') is not, since a header of its own holds those as often as a data row."""
+    text = text.strip()
+    return bool(_NUMBER_CELL.match(text)) and not _YEAR_OR_DATE.match(text) and bool(_MEASURED.search(text))
 
 
 def _row_gap(upper: list[_Line], lower: list[_Line]) -> float:
