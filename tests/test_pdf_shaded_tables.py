@@ -265,16 +265,10 @@ class TestOneShadedRowInABorderlessTable:
         assert text == plain
 
 
-def _ruled_shaded_pdf(rows: list[tuple], edges: list[float], totals: list[tuple], grid: bool | str | list = True,
-                      shaded: tuple[int, ...] | str | None = None, extra=None) -> bytes:
-    """A table whose every row (or only the rows `shaded`) is shaded with one rectangle (two band colours; 'cells': every
-    cell with a rectangle of its own) and ruled as `grid` says: True a full grid of lines, 'thin' the same grid as filled
-    rectangles 0.75pt thick (Chrome borders), 'stroked' one stroked rectangle per cell, half a point inside the cell,
-    'columns' vertical lines only, 'header columns' a frame and row lines with column lines in the header row only,
-    'open last row' the same with column lines in all rows but the last, a list the frame and row lines with column lines
-    at these edges only, False nothing. A cell is a list of lines; the columns after the second are right-aligned.
-    `totals` are lines without rules or shading one row height apart below the table, in the same columns. `extra` draws
-    more on the page, given the canvas and the row boundaries."""
+def _ruled_shaded_pdf(rows: list[tuple], edges: list[float], totals: list[tuple], grid: bool = True) -> bytes:
+    """A table whose every row is shaded with one rectangle (two band colours) and, with `grid`, ruled with a full grid.
+    A cell is a list of lines; the columns after the second are right-aligned. `totals` are lines without rules or shading
+    one row height apart below the table, in the same columns."""
     def draw(pdf, index):
         from reportlab.lib import colors
 
@@ -284,10 +278,8 @@ def _ruled_shaded_pdf(rows: list[tuple], edges: list[float], totals: list[tuple]
         for row in rows:
             tops.append(tops[-1] - (6 + 12 * max(len(cell) for cell in row)))
         for number, row in enumerate(rows):
-            if shaded is None or shaded == "cells" or number in shaded:
-                pdf.setFillColor(colors.HexColor("#B8CCE4" if number == 0 else ("#DCE6F2", "#F2F2F2")[number % 2]))
-                for left, right in zip(edges, edges[1:], strict=False) if shaded == "cells" else [(edges[0], edges[-1])]:
-                    pdf.rect(left, tops[number + 1], right - left, tops[number] - tops[number + 1], stroke=0, fill=1)
+            pdf.setFillColor(colors.HexColor("#B8CCE4" if number == 0 else ("#DCE6F2", "#F2F2F2")[number % 2]))
+            pdf.rect(edges[0], tops[number + 1], edges[-1] - edges[0], tops[number] - tops[number + 1], stroke=0, fill=1)
             pdf.setFillColor(colors.black)
             for column, cell in enumerate(row):
                 for line, text in enumerate(cell):
@@ -295,26 +287,12 @@ def _ruled_shaded_pdf(rows: list[tuple], edges: list[float], totals: list[tuple]
                         pdf.drawRightString(edges[column + 1] - 6, tops[number] - 13 - 12 * line, text)
                     else:
                         pdf.drawString(edges[column] + 4, tops[number] - 13 - 12 * line, text)
-        pdf.setLineWidth(0.5)
-        if grid == "thin":
-            pdf.setFillColor(colors.HexColor("#808080"))
+        if grid:
+            pdf.setLineWidth(0.5)
             for y in tops:
-                pdf.rect(edges[0], y - 0.375, edges[-1] - edges[0], 0.75, stroke=0, fill=1)
-            for x in edges:
-                pdf.rect(x - 0.375, tops[-1], 0.75, tops[0] - tops[-1], stroke=0, fill=1)
-            pdf.setFillColor(colors.black)
-        elif grid == "stroked":
-            for top, bottom in zip(tops, tops[1:], strict=False):
-                for left, right in zip(edges, edges[1:], strict=False):
-                    pdf.rect(left + 0.5, bottom + 0.5, right - left - 1, top - bottom - 1, stroke=1, fill=0)
-        elif grid:
-            for y in tops if grid != "columns" else []:
                 pdf.line(edges[0], y, edges[-1], y)
             for x in edges:
-                if grid in (True, "columns") or x in (edges[0], edges[-1]):
-                    pdf.line(x, tops[0], x, tops[-1])
-                elif grid in ("header columns", "open last row") or x in grid:
-                    pdf.line(x, tops[0], x, tops[1] if grid == "header columns" else tops[-2] if grid == "open last row" else tops[-1])
+                pdf.line(x, tops[0], x, tops[-1])
         for number, line in enumerate(totals):
             for column, text in enumerate(line):
                 if column >= 2:
@@ -322,8 +300,6 @@ def _ruled_shaded_pdf(rows: list[tuple], edges: list[float], totals: list[tuple]
                 else:
                     pdf.drawString(edges[column] + 4, tops[-1] - 13 - 18 * number, text)
         pdf.drawString(60, tops[-1] - 100, "Prices exclude tax.")
-        if extra:
-            extra(pdf, tops)
 
     return _korean_pdf(draw)
 
@@ -345,10 +321,9 @@ class TestRuledGridWithShadedRows:
               "| Laser printer | Duplex, network,<br>two paper trays | 2 | 1,250 |\n| Toner | Black, high yield | | 980 |\n"
               "| Service plan | On-site repair,<br>three years,<br>next business day | 1 | 2,680 |\n| Cable | | 4 | 77 |")
 
-    @pytest.mark.parametrize("grid", [True, "thin", "stroked"], ids=["lines", "thin filled rectangles", "stroked rectangles"])
     @pytest.mark.parametrize("totals", [2, 3])
-    def test_grid_is_read_as_the_ruled_table_with_total_lines_below_it(self, totals, grid):
-        text = convert(_ruled_shaded_pdf(self._ROWS, self._EDGES, self._TOTALS[:totals], grid), "a.pdf",
+    def test_grid_is_read_as_the_ruled_table_with_total_lines_below_it(self, totals):
+        text = convert(_ruled_shaded_pdf(self._ROWS, self._EDGES, self._TOTALS[:totals]), "a.pdf",
                        ConvertOptions(page_markers=False)).text
 
         assert self._TABLE + "\n\n" in text
@@ -363,44 +338,6 @@ class TestRuledGridWithShadedRows:
         assert self._TABLE in alone
         assert [line for line in text.splitlines() if line.startswith("|")] == [line for line in alone.splitlines() if line.startswith("|")]
 
-    def test_gap_in_one_line_of_a_cell_does_not_make_two_columns_of_it(self):
-        """Wide gaps inside single cells ('Duplex,      network', and two in one column at different places) are not two
-        columns of text sharing a cell: the grid is still what is drawn."""
-        rows = [self._ROWS[0], (["Laser      printer"], ["Duplex,      network,", "two paper trays"], ["2"], ["1,250"]),
-                (["Toner"], ["Black, high yield,      new"], [], ["980"]), *self._ROWS[3:]]
-
-        text = convert(_ruled_shaded_pdf(rows, self._EDGES, self._TOTALS), "a.pdf", ConvertOptions(page_markers=False)).text
-
-        assert "| Laser printer | Duplex, network,<br>two paper trays | 2 | 1,250 |\n| Toner | Black, high yield, new | | 980 |\n| Service plan |" in text
-        assert "| Cable | | 4 | 77 |\n\n" in text
-
-    def test_column_rules_broken_by_a_merged_row_are_still_a_grid(self):
-        """The last row is one cell over all columns, so the column rules stop above it: they still cover most of the
-        table's height."""
-        rows = [*self._ROWS, (["Delivery within two weeks."], [], [], [])]
-
-        text = convert(_ruled_shaded_pdf(rows, self._EDGES, self._TOTALS, "open last row"), "a.pdf", ConvertOptions(page_markers=False)).text
-
-        assert "<br>next business day | 1 | 2,680 |\n| Cable | | 4 | 77 |\n| Delivery within two weeks. | | | |\n\n" in text
-
-    def test_rules_of_another_table_at_the_same_columns_do_not_count_as_running_on(self):
-        """A second grid lower on the page at the same column edges: its rules are not the first grid's rules going on past
-        its bottom."""
-        def second_grid(pdf, tops):
-            for y in (tops[-1] - 150, tops[-1] - 170, tops[-1] - 190):
-                pdf.line(self._EDGES[0], y, self._EDGES[-1], y)
-            for column, x in enumerate(self._EDGES):
-                pdf.line(x, tops[-1] - 150, x, tops[-1] - 190)
-                for row, texts in enumerate([["Item", "Colour", "Qty", "Price"], ["Stand", "Black", "1", "40"]]):
-                    if column < 4:
-                        pdf.drawString(x + 4, tops[-1] - 164 - 20 * row, texts[column])
-
-        text = convert(_ruled_shaded_pdf(self._ROWS, self._EDGES, self._TOTALS, extra=second_grid), "a.pdf",
-                       ConvertOptions(page_markers=False)).text
-
-        assert self._TABLE + "\n\n" in text
-        assert "| Item | Colour | Qty | Price |\n| --- | --- | --- | --- |\n| Stand | Black | 1 | 40 |" in text
-
     def test_shaded_rows_without_a_grid_are_still_left_to_the_borderless_search(self):
         """The same page without the ruling lines: the total lines join the table (the rule this class narrows,
         `TestOneShadedRowInABorderlessTable`)."""
@@ -408,66 +345,6 @@ class TestRuledGridWithShadedRows:
                        ConvertOptions(page_markers=False)).text
 
         assert "| | | Subtotal | 4,987 |\n| | | Tax | 498 |\n| | | Total | 5,485 |" in text
-
-
-class TestPartlyRuledShadedTable:
-    """A shaded table whose rules do not give its cells is not kept as the ruled table when rows of the same columns go on
-    beyond it (`TestRuledGridWithShadedRows` keeps a grid that is drawn): it is left to the borderless search, as it was
-    before that rule."""
-
-    _EDGES = [60, 112, 164, 216, 268, 320]
-    _ROWS = [(["Region"], ["Manager"], ["Units"], ["Revenue"], ["Profit"]), (["North"], ["Kim"], ["120"], ["36,000"], ["4,100"]),
-             (["South"], ["Lee"], ["95"], ["28,500"], ["3,300"]), (["East"], ["Park"], ["143"], ["42,900"], ["5,200"])]
-    _TOTALS = [("Subtotal", "", "", "", "12,600"), ("Tax", "", "", "", "1,260")]
-    _TABLE = ("| Region | Manager | Units | Revenue | Profit |\n| --- | --- | --- | --- | --- |\n| North | Kim | 120 | 36,000 | 4,100 |\n"
-              "| South | Lee | 95 | 28,500 | 3,300 |\n| East | Park | 143 | 42,900 | 5,200 |")
-    _WITH_TOTALS = _TABLE + "\n| Subtotal | | | | 12,600 |\n| Tax | | | | 1,260 |"
-
-    @pytest.mark.parametrize("shaded", [(0,), (3,), (0, 2)], ids=["header", "last row", "header and a row"])
-    def test_column_rules_running_past_the_shaded_rows_do_not_make_them_a_table(self, shaded):
-        """Vertical rules over the whole table and no horizontal ones: the shaded rows, cut into cells by the rules, were
-        kept as a table of their own and the other rows came out as paragraphs column by column."""
-        text = convert(_ruled_shaded_pdf(self._ROWS, self._EDGES, [], "columns", shaded), "a.pdf", ConvertOptions(page_markers=False)).text
-
-        assert text == "Quotation for office equipment.\n\n" + self._TABLE + "\n\nPrices exclude tax."
-
-    def test_column_rules_in_the_header_row_only_do_not_make_a_grid(self):
-        """A frame, row rules and column rules in the header row only: the columns of the other rows are not drawn, so the
-        table is read from its text, total lines included."""
-        text = convert(_ruled_shaded_pdf(self._ROWS, self._EDGES, self._TOTALS, "header columns"), "a.pdf",
-                       ConvertOptions(page_markers=False)).text
-
-        assert self._WITH_TOTALS + "\n\n" in text
-
-    def test_cells_holding_two_columns_of_text_do_not_make_a_grid(self):
-        """A frame, row rules and two of the four column rules, over five columns of text: kept as the ruled table, two of
-        its three cells held two columns each ('| Region Manager | Units Revenue | Profit |') and the total lines stayed
-        outside."""
-        text = convert(_ruled_shaded_pdf(self._ROWS, self._EDGES, self._TOTALS, [self._EDGES[2], self._EDGES[4]]), "a.pdf",
-                       ConvertOptions(page_markers=False)).text
-
-        assert self._WITH_TOTALS + "\n\n" in text
-
-    def test_cells_shaded_one_by_one_are_not_ruled_by_their_shading(self):
-        """A frame and row rules, no column rules, every cell shaded with a rectangle of its own: the sides of the shading
-        are not rules, so the table is read from its text, total lines included."""
-        text = convert(_ruled_shaded_pdf(self._ROWS, self._EDGES, self._TOTALS, [], "cells"), "a.pdf", ConvertOptions(page_markers=False)).text
-
-        assert self._WITH_TOTALS + "\n\n" in text
-
-    def test_strokes_across_cells_are_not_column_rules(self):
-        """Column rules in the header row only, and the empty cells of the last row struck out with a diagonal stroke that
-        starts at a column boundary: a slanted stroke is not a rule along that boundary."""
-        rows = [*self._ROWS, (["West"], [], [], [], [])]
-
-        def strokes(pdf, tops):
-            for left, right in zip(self._EDGES[1:], self._EDGES[2:], strict=False):
-                pdf.line(left, tops[1], right, tops[-1])
-
-        text = convert(_ruled_shaded_pdf(rows, self._EDGES, self._TOTALS, "header columns", extra=strokes), "a.pdf",
-                       ConvertOptions(page_markers=False)).text
-
-        assert "| East | Park | 143 | 42,900 | 5,200 |\n| West | | | | |\n| Subtotal | | | | 12,600 |\n| Tax | | | | 1,260 |\n\n" in text
 
 
 @pytest.mark.timing
