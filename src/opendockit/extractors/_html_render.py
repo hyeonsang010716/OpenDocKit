@@ -427,10 +427,7 @@ def _render_code_block(node: Tag, list_depth: int) -> str:
     (Pinned by: test_text_html.py::TestCodeBlockWithFenceInside). The neutralized notation is the same as `clean_text`'s unpaired
     fence. The fence lines carry a key until the document is rendered (`_CODE_FENCE`, `_settle_fences`).
 
-    The lines of the code are looked at as `clean_text` will leave them (`markdown.clean_characters`, which cleaning the
-    text again does not change): a code line that is ``` behind a zero-width space or a private-use character, or after a
-    form feed, was no fence line here, and once the character was removed it closed the block
-    (Pinned by: test_text_html.py::TestCodeBlockWithFenceInside::test_fence_line_behind_a_character_that_cleaning_removes).
+    The lines of the code are looked at as `clean_text` will leave them (`_escaped_fence_lines`).
     """
     places: _Places = {}
     for line_break in node.find_all("br"):
@@ -439,8 +436,31 @@ def _render_code_block(node: Tag, list_depth: int) -> str:
     if _in_cell.get():
         code = _CODE_FENCE_LINE.sub(r"\1\\", code)
         return f"\n{_CODE_INDENT.sub(_indent_entities, code)}\n"  # the fence was left in the cell text, mixed with `<br>` (`_cell_text`)
-    code = _CODE_FENCE_LINE.sub(r"\1\\", clean_characters(code))
-    return f"\n\n{_CODE_FENCE}\n{code}\n{_CODE_FENCE}\n\n"
+    return f"\n\n{_CODE_FENCE}\n{_escaped_fence_lines(code)}\n{_CODE_FENCE}\n\n"
+
+
+# What ends a line of code once the text is cleaned: a line break, and the controls `clean_text` turns into one.
+_CODE_LINE_END = re.compile("([\n\x0b\x0c\x85])")
+_BACKTICK = re.compile("[`\u1fef]")  # a backtick, or the Greek varia, which NFC turns into one
+
+
+def _escaped_fence_lines(code: str) -> str:
+    """`code` with a backslash before the backticks of every line that will start with ``` once the text is cleaned
+    (`markdown.clean_characters`). The code itself is left as written.
+
+    Only lines that start with ``` as written were neutralized: a code line that is ``` behind a zero-width space, a
+    private-use character or a wide space, or after a form feed, was no fence line here, and once `clean_text` had removed
+    the character (or made it a line break) the line closed the block and the code after it lost its whitespace
+    (Pinned by: test_text_html.py::TestCodeBlockWithFenceInside::test_fence_line_behind_a_character_that_cleaning_removes).
+    """
+    if "```" not in code and "```" not in clean_characters(code):
+        return code
+    lines = _CODE_LINE_END.split(code)
+    for index in range(0, len(lines), 2):
+        backtick = _BACKTICK.search(lines[index])
+        if backtick is not None and clean_characters(lines[index]).lstrip().startswith("```"):
+            lines[index] = lines[index][:backtick.start()] + "\\" + lines[index][backtick.start():]
+    return "".join(lines)
 
 
 def _is_code_fence(line: str) -> bool:
