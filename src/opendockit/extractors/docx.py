@@ -515,7 +515,8 @@ class _DocxRenderer:
         OLE object (its preview or placeholder) and, when pictures are extracted, a picture that can be read count as content.
         Deleted, moved-away and hidden content, compatibility copies and objects that are not OLE objects (an ActiveX control)
         therefore count exactly when they are written — searched for separately, they left a mark with no definition (Pinned by:
-        test_office_symbols_fields_notes.py::TestDocxNoteReferenceWithoutContent)."""
+        test_office_symbols_fields_notes.py::TestDocxNoteReferenceWithoutContent,
+        test_office_robustness.py::TestDocxNoteWithOnlyUnwrittenContent)."""
         def probe(element: etree._Element) -> str:
             if element.tag == _w("object"):
                 return OLE_PLACEHOLDER
