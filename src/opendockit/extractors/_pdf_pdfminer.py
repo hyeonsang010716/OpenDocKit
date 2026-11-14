@@ -19,7 +19,7 @@ from pdfminer import layout as pdfminer_layout
 from pdfminer import pdffont
 from pdfminer.ascii85 import ascii85decode, asciihexdecode
 from pdfminer.cmapdb import CMap, CMapParser, FileUnicodeMap
-from pdfminer.layout import LTChar
+from pdfminer.layout import LTChar, LTLayoutContainer, LTTextBoxVertical
 from pdfminer.pdfinterp import PDFGraphicState, PDFPageInterpreter
 from pdfminer.pdftypes import (
     LITERALS_ASCII85_DECODE,
@@ -110,6 +110,7 @@ class _InflateBudget:
     painted: dict[int, tuple[object, int]] = field(default_factory=dict)  # content stream → paint operator count (`_drawn_objects`)
     forms: dict[tuple[int, int], tuple[object, ...]] = field(default_factory=dict)  # form → drawn object count (`_content_objects`)
     undecoded_fonts: bool = False  # met a CID font whose encoding CMap was not found, so no character decodes (`_cmap_or_embedded`)
+    ungrouped_layouts: int = 0  # layouts laid out without text-box grouping for having too many text boxes (`_group_few_textboxes`)
 
 
 _INFLATE_BUDGET: ContextVar[_InflateBudget | None] = ContextVar("pdf_inflate_budget", default=None)
@@ -490,6 +491,38 @@ def _symbol_font_glyph(char: LTChar, font: object) -> None:
 
 
 PDFPageAggregatorWithMarkedContent.render_char = _render_char_few_copies  # outside a conversion (no budget) it behaves as before
+
+
+# Text boxes beyond which pdfminer's text-box grouping (`group_textboxes`) is not run on a layout (`_group_few_textboxes`).
+# Grouping keeps a heap of every pair of boxes: 1,000 separate boxes took 2 seconds, 1,500 6 seconds, 2,000 14 seconds, and a
+# 68KB page whose 6,000 characters lie far off the page (each its own box) 122 seconds inside one page, where the time budget
+# does not look. The pdfium estimate of line pieces (`_survey_page`) did not see them: pdfium keeps positions in single
+# precision, so characters 20pt apart at x = 2e9 fell on the same spot. Over the 566 PDFs of the review corpus the largest
+# layout has 848 boxes (2.1 seconds), the next 320. Pinned by:
+# test_audit_pdf_text.py::TestTooManyTextBoxes.
+_MAX_GROUPED_TEXT_BOXES = 1_500
+_group_all_textboxes = LTLayoutContainer.group_textboxes
+
+
+def _group_few_textboxes(self: LTLayoutContainer, laparams: object, boxes: list) -> list:
+    """Replacement of pdfminer's `group_textboxes`: during a conversion, a layout with more than `_MAX_GROUPED_TEXT_BOXES` text
+    boxes is ordered as pdfminer orders it without grouping (`boxes_flow` None: vertical boxes right to left, then horizontal
+    boxes top to bottom and left to right) — the boxes are analysed, numbered in that order and no group is returned, so
+    `analyze` sorts them by those numbers. The conversion is told (`ungrouped_layouts`) so that the page gets the warning of
+    pages read without text-box grouping. The function is not copied (same reason as `_first_seen_order`)."""
+    budget = _INFLATE_BUDGET.get()
+    if budget is None or len(boxes) <= _MAX_GROUPED_TEXT_BOXES:
+        return _group_all_textboxes(self, laparams, boxes)
+    budget.ungrouped_layouts += 1
+    for box in boxes:
+        box.analyze(laparams)
+    ordered = sorted(boxes, key=lambda box: (0, -box.x1, -box.y0) if isinstance(box, LTTextBoxVertical) else (1, -box.y0, box.x0))
+    for index, box in enumerate(ordered):
+        box.index = index
+    return []
+
+
+LTLayoutContainer.group_textboxes = _group_few_textboxes  # outside a conversion (no budget) it behaves as before
 # Fill opacity (ExtGState `/ca`). pdfminer does not read the `gs` operator (`do_gs` is an empty function), so a browser-printed
 # `color: rgba(0,0,0,0.08)` watermark looked like black text, slipped past the faint-watermark check (`_faint_watermark`) and got
 # into table cells as 'S AM P LE'. Only `/ca` is read from `gs` and attached to the graphics state (`copy` carries it over too so

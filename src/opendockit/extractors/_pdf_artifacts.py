@@ -305,14 +305,17 @@ class _CharGrid:
     A character goes to the level whose cell side `_CELL` × 8^k is the first at least its larger side, and there into every
     row of cells its height touches; each row keeps its characters sorted by left edge. A character overlapping a box then
     lies in a row the box's height touches, with its left edge between the box's left edge minus the widest character of its
-    level and the box's right edge — found by binary search over the rows that exist and over the row's left edges. The candidates come lazily, in
-    order of level and row, so the first overlapping one ends the caller's `any`. Only characters with a coordinate that is
-    not a finite number below 1e9 or an inverted box are kept aside and always given; a box like that gets every character.
+    level and the box's right edge — found by binary search over the rows that exist and over the row's left edges. The
+    candidates come lazily, in order of level and row, so the first overlapping one ends the caller's `any`. Boxes are taken
+    with their corners in order (an inverted box overlaps only within its own span). Characters with a NaN coordinate are left
+    out — they fail every comparison of the overlap test — and only characters with an infinite coordinate are kept aside and
+    always given; a box that is not finite gets every character.
 
     Every group of faint large characters scanned every character of the page, and the groups are keyed by exact colour, so a
     41KB page of 5,000 faint characters in slightly different greys took 13 seconds; with one 64pt-only grid, characters as
-    large as watermarks (70pt, 300pt) were all kept aside and an 85KB page of 12,000 such characters still took 12.5 seconds
-    (Pinned by: test_audit_pdf_text.py::TestManyFaintCharacters)."""
+    large as watermarks (70pt, 300pt) were all kept aside and an 85KB page of 12,000 such characters still took 12.5 seconds,
+    and characters far off the page (x = 2e9 + 20i, distinct, so the overprint cap does not catch them) were kept aside too:
+    6,000 of them took 1.8 seconds, 12,000 7.2 seconds (Pinned by: test_audit_pdf_text.py::TestManyFaintCharacters)."""
 
     _CELL = 64.0
     _GROWTH = 8.0
@@ -320,36 +323,45 @@ class _CharGrid:
     def __init__(self, chars: list[dict]) -> None:
         self._chars = chars
         self._other: list[dict] = []
-        rows: dict[tuple[int, int], list[dict]] = {}
+        rows: dict[tuple[int, int], list[tuple[float, dict]]] = {}
+        cells: dict[int, float] = {}
+        widest: dict[int, float] = {}
         for char in chars:
             box = (char["x0"], char["top"], char["x1"], char["bottom"])
-            if not (all(abs(value) < 1e9 for value in box) and box[0] <= box[2] and box[1] <= box[3]):
+            if any(value != value for value in box):
+                continue  # NaN: never overlaps anything
+            if not all(math.isfinite(value) for value in box):
                 self._other.append(char)
                 continue
+            left, right = min(box[0], box[2]), max(box[0], box[2])
+            low, high = min(box[1], box[3]), max(box[1], box[3])
             level, cell = 0, self._CELL
-            while max(box[2] - box[0], box[3] - box[1]) > cell:
+            while max(right - left, high - low) > cell:
                 level, cell = level + 1, cell * self._GROWTH
-            for row in range(math.floor(box[1] / cell), math.floor(box[3] / cell) + 1):
-                rows.setdefault((level, row), []).append(char)
+            cells[level] = cell
+            widest[level] = max(widest.get(level, 0.0), right - left)
+            for row in range(math.floor(low / cell), math.floor(high / cell) + 1):
+                rows.setdefault((level, row), []).append((left, char))
         # level → (cell side, widest character, sorted row numbers, row number → (left edges, characters by left edge))
         self._levels: dict[int, tuple[float, float, list[int], dict[int, tuple[list[float], list[dict]]]]] = {}
         for (level, row), members in sorted(rows.items(), key=lambda item: item[0]):
-            members.sort(key=lambda char: char["x0"])
-            cell, widest, numbers, by_row = self._levels.get(level, (self._CELL * self._GROWTH ** level, 0.0, [], {}))
+            members.sort(key=lambda member: member[0])
+            _, _, numbers, by_row = self._levels.setdefault(level, (cells[level], widest[level], [], {}))
             numbers.append(row)
-            by_row[row] = ([char["x0"] for char in members], members)
-            self._levels[level] = (cell, max(widest, *(char["x1"] - char["x0"] for char in members)), numbers, by_row)
+            by_row[row] = ([left for left, _ in members], [char for _, char in members])
 
     def overlapping(self, x0: float, top: float, x1: float, bottom: float) -> Iterator[dict]:
-        if not (all(abs(value) < 1e9 for value in (x0, top, x1, bottom)) and x0 <= x1 and top <= bottom):
+        if not (all(math.isfinite(value) for value in (x0, top, x1, bottom)) and x0 <= x1 and top <= bottom):
             yield from self._chars
             return
         yield from self._other
         for cell, widest, numbers, by_row in self._levels.values():
             first, last = bisect_left(numbers, math.floor(top / cell)), bisect_right(numbers, math.floor(bottom / cell))
+            # Slack for rounding: at large magnitudes a difference of floats is off by a few units in the last place
+            low = x0 - widest - (1.0 + (abs(x0) + widest) * 1e-12)
             for row in numbers[first:last]:
                 lefts, members = by_row[row]
-                yield from members[bisect_left(lefts, x0 - widest - 1.0):bisect_left(lefts, x1)]
+                yield from members[bisect_left(lefts, low):bisect_left(lefts, x1)]
 
 
 def _is_shadow_copy(char: dict, key: tuple, coarse: dict[tuple, list[dict]]) -> bool:

@@ -285,7 +285,10 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 grids.add(page.page_number)
                             if page.page_number in dense | grids:
                                 ungrouped = ungrouped or pdfplumber.open(BytesIO(data), laparams=_UNGROUPED_LAPARAMS)
+                            ungrouped_before = budget.ungrouped_layouts
                             read = _read_page_from(ungrouped if page.page_number in dense | grids else pdf, page, placement_fit)
+                            if budget.ungrouped_layouts > ungrouped_before:
+                                dense.add(page.page_number)  # too many text boxes to group (`_MAX_GROUPED_TEXT_BOXES`)
                             placement_fit = placement_fit or read.placement_fit
                             undecoded = budget.undecoded_fonts and not read.unmeasured and bool(
                                 read.lines or read.tables or read.sideways)
@@ -814,6 +817,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     # For lines on the same spot (copies of a line drawn on top of the same text) the characters at that height are picked only
     # once — same reason as `overprinted` below
     in_place: dict[tuple[float, float, float, float], list[dict]] = {}
+    shown = _text_view(page)
     for line, owner in zip(layout_lines, owners, strict=True):
         text = " ".join(line.get("text", "").split())
         if not text:
@@ -824,6 +828,8 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
             # drawn nowhere; pdfminer gives it its 'infinite' box (2**31 - 1). Its characters are already dropped as outside the
             # view, but the layout line kept their text and every copy came out as a body line (Pinned by:
             # test_audit_pdf_text.py::TestCharactersAtNonFinitePositions). No page reaches that far (14,400pt × UserUnit 75,000).
+            continue
+        if shown and _beyond_view(line, shown[0]):
             continue
         in_table = in_cells(line)
         if spot in in_place and not in_table:
@@ -906,6 +912,16 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                  hidden_chars=hidden_chars if not lines and not tables and not sideways_text else 0,
                  undecodable=blank and _has_undecodable_contents(layout_page), unmeasured=unmeasured,
                  rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [])
+
+
+def _beyond_view(line: dict, view: tuple[float, float, float, float]) -> bool:
+    """Whether a layout line lies where no character kept on the page can belong to it: above or below the visible area, or
+    more than 1pt right of it. Every character of such a line is outside the view and dropped (`_without_drawing_artifacts`),
+    so the line would be dropped as a copy of removed characters anyway (`_text_without_artifacts`) — but finding that out
+    scans the removed characters at its height, and 6,000 characters placed apart far right of the page (x = 2e9) on one row
+    took that scan for every one of them (Pinned by: test_audit_pdf_text.py::TestTooManyTextBoxes). The left side is not
+    judged: a wide kept character starting left of the view could still be centred inside it."""
+    return line["bottom"] < view[1] or line["top"] > view[3] or line["x0"] - 1 > view[2]
 
 
 def _metadata(decoded: dict, infos: list[dict]) -> dict[str, str]:
