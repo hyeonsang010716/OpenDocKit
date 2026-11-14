@@ -446,7 +446,10 @@ def _render_char_few_copies(self: PDFPageAggregatorWithMarkedContent, *args: obj
         _blended_fill(char.graphicstate)
         _symbol_font_glyph(char, kwargs.get("font", args[1] if len(args) > 1 else None))
         copies = self.cur_item.__dict__.setdefault("_opendockit_copies", Counter())
-        key = (char.get_text(), char.fontname, round(char.size, 1), round(char.x0, 1), round(char.y0, 1))
+        # NaN is keyed as None: it is unequal even to itself, so copies drawn at a NaN position each got a key of their own and
+        # were never capped (Pinned by: test_audit_pdf_text.py::TestCharactersAtNonFinitePositions)
+        key = (char.get_text(), char.fontname, *(None if value != value else round(value, 1)
+                                                 for value in (char.size, char.x0, char.y0)))
         copies[key] += 1
         if copies[key] > _MAX_OVERPRINTS:
             objs.pop()

@@ -3,6 +3,7 @@ text drawn outside the page view, and sideways text set apart to be read in its 
 """
 
 from bisect import bisect_left, bisect_right
+import math
 import statistics
 
 from pdfminer.layout import LTContainer, LTFigure, LTTextLineHorizontal
@@ -286,14 +287,52 @@ def _faint_watermark(chars: list[dict], min_size: float) -> set[int]:
                 groups.setdefault((round(char["top"]), round(char["size"]), tuple(colour)), []).append(char)
 
     faint: set[int] = set()
+    nearby = _CharGrid([char for char in chars if char["text"].strip()]) if groups else None
     for group in groups.values():
         ids = {id(char) for char in group}
         x0, x1 = min(char["x0"] for char in group), max(char["x1"] for char in group)
         top, bottom = min(char["top"] for char in group), max(char["bottom"] for char in group)
-        if any(id(char) not in ids and char["text"].strip() and char["x0"] < x1 and x0 < char["x1"] and char["top"] < bottom
-               and top < char["bottom"] for char in chars):
+        if any(id(char) not in ids and char["x0"] < x1 and x0 < char["x1"] and char["top"] < bottom and top < char["bottom"]
+               for char in nearby.overlapping(x0, top, x1, bottom)):
             faint |= ids
     return faint
+
+
+class _CharGrid:
+    """Characters in a grid of `_CELL` pt cells (each in every cell its box touches). `overlapping(x0, top, x1, bottom)` gives
+    every character that can overlap that box (possibly more than once): those in the cells the box touches, plus characters
+    over `_CELL` pt on a side or with coordinates that are not finite numbers below 1e9, which are always given (the caller
+    checks the overlap exactly). A box covering more than `_MAX_CELLS` cells gets every character.
+
+    Every group of faint large characters scanned every character of the page, and the groups are keyed by exact colour, so a
+    41KB page of 5,000 faint characters in slightly different greys took 13 seconds (Pinned by:
+    test_audit_pdf_text.py::TestManyFaintCharacters)."""
+
+    _CELL = 64.0
+    _MAX_CELLS = 4_096
+
+    def __init__(self, chars: list[dict]) -> None:
+        self._chars = chars
+        self._cells: dict[tuple[int, int], list[dict]] = {}
+        self._other: list[dict] = []
+        for char in chars:
+            box = (char["x0"], char["top"], char["x1"], char["bottom"])
+            if (all(abs(value) < 1e9 for value in box) and 0 <= box[2] - box[0] <= self._CELL
+                    and 0 <= box[3] - box[1] <= self._CELL):
+                for column in range(math.floor(box[0] / self._CELL), math.floor(box[2] / self._CELL) + 1):
+                    for row in range(math.floor(box[1] / self._CELL), math.floor(box[3] / self._CELL) + 1):
+                        self._cells.setdefault((column, row), []).append(char)
+            else:
+                self._other.append(char)
+
+    def overlapping(self, x0: float, top: float, x1: float, bottom: float) -> list[dict]:
+        if not (all(abs(value) < 1e9 for value in (x0, top, x1, bottom)) and x0 <= x1 and top <= bottom):
+            return self._chars
+        columns = range(math.floor(x0 / self._CELL), math.floor(x1 / self._CELL) + 1)
+        rows = range(math.floor(top / self._CELL), math.floor(bottom / self._CELL) + 1)
+        if len(columns) * len(rows) > self._MAX_CELLS:
+            return self._chars
+        return [*self._other, *(char for column in columns for row in rows for char in self._cells.get((column, row), ()))]
 
 
 def _is_shadow_copy(char: dict, key: tuple, coarse: dict[tuple, list[dict]]) -> bool:
