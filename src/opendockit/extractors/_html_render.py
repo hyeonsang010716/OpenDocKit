@@ -437,7 +437,8 @@ def _render_code_block(node: Tag, list_depth: int) -> str:
 
 
 def _is_code_fence(line: str) -> bool:
-    """Is this rendered line the fence of a code block written here: the key, after nothing but quote marks."""
+    """Is this rendered line the fence of a code block written here: the key, after nothing but quote marks
+    (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_line_that_only_ends_with_the_key_of_a_fence_is_text)."""
     return line.endswith(_CODE_FENCE) and not line[:-len(_CODE_FENCE)].strip("> \t")
 
 
@@ -449,8 +450,9 @@ def _settle_fences(text: str) -> str:
     `clean_text` cannot tell a paragraph that is "```" from the fence of a `<pre>`: it paired the paragraph with the opening
     fence of the code block after it, so the code lost its whitespace and the closing fence was neutralized as the unpaired
     one — the same inside a quote (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence). Text fences that pair with each
-    other between two code blocks stay a code block, as in every other format (docs/decisions/core.md). A fence line left
-    without its other fence line — none is written so, but a block may be folded onto one line — is text like the rest
+    other between two code blocks stay a code block, as in every other format (docs/decisions/core.md). The two fences of
+    a code block are the same line (the same quote marks before the key); a fence line whose next fence line is not —
+    none is written so, but a block may be folded onto one line — is text like the rest
     (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_fence_line_left_without_its_pair_is_text).
     """
     if _CODE_FENCE not in text:
@@ -461,22 +463,24 @@ def _settle_fences(text: str) -> str:
         return "\n".join(lines)
 
     lines = text.split("\n")
+    fences = [index for index, line in enumerate(lines) if _is_code_fence(line)]
     settled: list[str] = []
     start = 0  # where the text after the last code block starts
-    opening: int | None = None
-    for index, line in enumerate(lines):
-        if not _is_code_fence(line):
+    position = 0
+    while position < len(fences):
+        opening = fences[position]
+        closing = fences[position + 1] if position + 1 < len(fences) else None
+        if closing is None or lines[closing] != lines[opening]:
+            position += 1
             continue
-        if opening is None:
-            between = lines[start:index]
-            if any("```" in other for other in between):
-                escape_unpaired_fences(between)
-            settled += between
-            opening = index
-        else:
-            settled += lines[opening:index + 1]
-            opening, start = None, index + 1
-    rest = lines[start if opening is None else opening:]
+        between = lines[start:opening]
+        if any("```" in other for other in between):
+            escape_unpaired_fences(between)
+        settled += between
+        settled += lines[opening:closing + 1]
+        start = closing + 1
+        position += 2
+    rest = lines[start:]
     if any("```" in other for other in rest):
         escape_unpaired_fences(rest)
     settled += rest
@@ -675,10 +679,16 @@ def _list_entries(node: Tag) -> list[Tag | str]:
 
 def _split_at_fenced(text: str) -> list[str]:
     """The text split at its code blocks: text, block, text, block …, text. A block is a code block written here (from a
-    `_CODE_FENCE` + newline to the next newline + `_CODE_FENCE`) or lines of text that read as one (from a "```" + newline to
-    the next newline + "```") — what splitting with the lazy pattern `(```\\n.*?\\n```)` gave, except that lines of text are
-    never paired with the fence of a code block or across one: "```" before a `<pre>` took the opening fence of the block for
-    its closing line (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_fence_text_in_a_list_item_next_to_a_code_block).
+    line that is `_CODE_FENCE` to the next such line) or lines of text that read as one (from a line that is "```" to the next
+    line that starts with "```") — what splitting with the lazy pattern `(```\\n.*?\\n```)` gave, except that:
+
+    - lines of text are never paired with the fence of a code block or across one: "```" before a `<pre>` took the opening
+      fence of the block for its closing line
+      (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_fence_text_in_a_list_item_next_to_a_code_block);
+    - a fence is looked for at the start of a line only: the opening fence of a code block inside a quote (`> ```) was
+      taken, without its quote mark, with the lines down to the next code block of the item, and the quote and that block
+      came out in pieces
+      (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_code_block_in_a_quote_in_a_list_item_before_another_code_block).
 
     The pattern read on to the end of the text for every opening that has no closing: 20,000 of them in one list item
     (156KB) took 6 seconds. Once an opening finds no closing before the next code block, no later one before that block can
@@ -686,15 +696,15 @@ def _split_at_fenced(text: str) -> list[str]:
     """
     pieces: list[str] = []
     position = 0
-    block = text.find(f"{_CODE_FENCE}\n")  # the next code block written here
-    plain = text.find("```\n")  # the next line of text that may open a block
+    block = _line_start(text, f"{_CODE_FENCE}\n", 0)  # the next code block written here
+    plain = _line_start(text, "```\n", 0)  # the next line of text that may open a block
 
     while block >= 0 or plain >= 0:
         if 0 <= plain and (block < 0 or plain < block):
             limit = block if block >= 0 else len(text)
             end = text.find("\n```", plain + 4, limit)
             if end < 0:
-                plain = text.find("```\n", limit)
+                plain = _line_start(text, "```\n", limit)
                 continue
             start, stop = plain, end + 4
         else:
@@ -705,11 +715,20 @@ def _split_at_fenced(text: str) -> list[str]:
         pieces += [text[position:start], text[start:stop]]
         position = stop
         if block < position:
-            block = text.find(f"{_CODE_FENCE}\n", position)
+            block = _line_start(text, f"{_CODE_FENCE}\n", position)
         if plain < position:
-            plain = text.find("```\n", position)
+            plain = _line_start(text, "```\n", position)
     pieces.append(text[position:])
     return pieces
+
+
+def _line_start(text: str, mark: str, position: int) -> int:
+    """Where `mark` is next found at the start of a line, from `position` on; -1 if nowhere."""
+    while True:
+        found = text.find(mark, position)
+        if found <= 0 or text[found - 1] == "\n":
+            return found
+        position = found + 1
 
 
 def _item_blocks(text: str) -> list[str]:

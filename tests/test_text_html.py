@@ -1665,9 +1665,27 @@ class TestTextThatLooksLikeAFence:
     def test_fence_line_left_without_its_pair_is_text(self):
         from opendockit.extractors._html_render import _CODE_FENCE, _settle_fences
 
-        rendered = f"앞\n\n{_CODE_FENCE}\ncode\n{_CODE_FENCE}\n\n가운데 {_CODE_FENCE}\n\n> {_CODE_FENCE}\n> 뒤"
+        rendered = (f"앞\n\n{_CODE_FENCE}\ncode\n{_CODE_FENCE}\n\n가운데 {_CODE_FENCE}\n\n> {_CODE_FENCE}\n> 뒤\n\n"
+                    f"{_CODE_FENCE}\nx  y\n{_CODE_FENCE}\n\n{_CODE_FENCE}\n끝")
 
-        assert _settle_fences(rendered) == "앞\n\n```\ncode\n```\n\n가운데 ```\n\n> \\```\n> 뒤"
+        assert _settle_fences(rendered) == ("앞\n\n```\ncode\n```\n\n가운데 ```\n\n> \\```\n> 뒤\n\n"
+                                            "```\nx  y\n```\n\n\\```\n끝")
+
+    def test_line_that_only_ends_with_the_key_of_a_fence_is_text(self):
+        from opendockit.extractors._html_render import _CODE_FENCE, _settle_fences
+
+        rendered = f"가 {_CODE_FENCE}\n```\n가 {_CODE_FENCE}"
+
+        assert _settle_fences(rendered) == "가 ```\n\\```\n가 ```"
+
+    def test_code_block_in_a_quote_in_a_list_item_before_another_code_block(self):
+        html = ("<ol><li>항목<blockquote><pre>quoted  code</pre><p>인용 글</p></blockquote><pre>x = 1\n\n\ny  =  2</pre></li></ol>"
+                "<ol><li>다음<pre>a\n\n\nb</pre></li></ol>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == ("1. 항목\n\n> ```\n> quoted  code\n> ```\n>\n> 인용 글\n\n```\nx = 1\n\n\ny  =  2\n```\n\n"
+                               "1. 다음\n\n```\na\n\n\nb\n```")
 
     def test_text_that_holds_the_private_use_characters_of_a_fence_key_is_text(self):
         html = "<p>```&#xe026;</p><pre>a  b</pre>"
