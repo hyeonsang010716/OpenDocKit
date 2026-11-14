@@ -97,7 +97,8 @@ class _CopyIndex:
     """The removed characters of a page (`dropped`, copies and other drawing artifacts), indexed to tell for a layout line
     whether there is a removed character at its level under it and whether one of them is a shadow copy (`at`) — the same as
     `_chars_at_line_level(line, dropped, tops)` filtered to left edges between the line's left edge - 1 and right edge + 1,
-    which is all `_read_page` asks of that list.
+    which is all `_read_page` asks of that list. Exactly the same when no removed character has a NaN top; with one, sorting the
+    list by top left it unsorted and the scan's slice could miss copies on other lines, which the index still finds.
 
     The characters go into columns of `_COLUMN` pt by left edge, each sorted by vertical middle; a line looks only at the
     columns under its x-range and the middles within its height, and stops at the first character found (a second index holds
