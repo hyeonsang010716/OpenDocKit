@@ -23,14 +23,15 @@ A third review of the whole source. The sample outputs in `examples/` are unchan
 - **Pictures**: a picture inside a document that runs out of memory stays a placeholder with a warning and the text is
   kept; a picture that is the document is "too large or too complex". `convert` reports running out of memory anywhere
   that way instead of as a corrupted document. Preparing a large picture needs about a third less memory.
+- **DOCX**: header and footer parts that come after the text has passed `max_chars` are not rendered (40 header tables
+  of 5,000 rows took 72 seconds).
 
 ### Fixed
 
 - **Mail**: each mail of an mbox, each forwarded mail, body part and meeting invitation is rendered as a document of
   its own, so an unclosed comment, style, title, quote or hidden element in one mail no longer swallows or deforms the
   mails after it; an event with `STATUS:CANCELLED` is marked cancelled; one broken encoded word no longer leaves the
-  other words of a header encoded, and a character split over two encoded words is joined; an `aria-hidden` preview
-  block in a body part stays hidden unless it is the whole part.
+  other words of a header encoded, and a character split over two encoded words is joined.
 - **Encoding**: BOM-less UTF-16 whose text is ASCII is read as UTF-16 instead of UTF-8 with NULs, and so is a part
   declared UTF-16LE/BE when its bytes bear the label out (ASCII or UTF-8 text with that label is still read as what it
   is); declared UTF-8 with a broken byte is read as UTF-8 with a warning instead of Windows-1252.
@@ -56,10 +57,11 @@ A third review of the whole source. The sample outputs in `examples/` are unchan
   of a borderless table unsplit.
 - **DOCX/PPTX/XLSX**: a relationships part that is not XML no longer rejects the document (the part that owns it opens
   without relationships); percent-encoded relationship targets are read (pictures, slides, notes, charts, sheets,
-  comments and drawings; a part named as written wins over the decoded name); a list start number or chart point index
-  of 4,300 digits no longer rejects the document; a field whose `separate` is in a hidden run keeps its result; a
-  header table is no longer cut short by the body's characters under `max_chars` (its own characters still count);
-  whole chart values from 10^15 on keep all their digits.
+  comments and drawings; a part named as written wins over the decoded name), and an XLSX relationship marked external
+  is never read as a part of the package; a list start number or chart point index of 4,300 digits no longer rejects
+  the document; a field whose `separate` is in a hidden run keeps its result; a header table is no longer cut short by
+  the body's characters under `max_chars` (its own characters still count); whole chart values from 10^15 on keep all
+  their digits.
 - **Inline formatting**: script and strikethrough marks close at a line break (`10~~^2~~` instead of `10~~^{2~~}`); a
   non-breaking hyphen or symbol stays inside its run's bold or struck span.
 - **Spreadsheets**: a shared formula that cannot be moved to its cell no longer rejects the workbook; two sheets with the

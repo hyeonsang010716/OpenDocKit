@@ -1630,7 +1630,11 @@ class TestCodeBlockWithFenceInside:
         result = convert(html.encode(), "a.html")
 
         indent = " " if before.endswith((" ", "&#x3000;")) else ""
-        assert result.text == f"```\na   1\n{indent}\\```\n\n\nb   2\n```\n\n뒤 문단"
+        expected = [f"```\na   1\n{indent}\\```\n\n\nb   2\n```\n\n뒤 문단"]
+        if before == "&#x0c;":
+            # libxml2 before 2.14 drops the reference to a form feed: the backticks then stand in the line of the code
+            expected.append("```\na   1```\n\n\nb   2\n```\n\n뒤 문단")
+        assert result.text in expected
 
 
 class TestTextThatLooksLikeAFence:
