@@ -69,7 +69,7 @@ from opendockit.extractors._mail import (
 )
 from opendockit.extractors._notation import omitted_rows_warning
 from opendockit.markdown import solid_length
-from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, quiet_warnings
+from opendockit.models import ConvertOptions, Extraction, RawImage, Section, SectionKind, quiet_warnings
 
 
 # An unclosed select, which the front-part check (`_extract_front`) cannot trust.
@@ -99,7 +99,7 @@ _LINK_BRACKETS = re.compile(r"[\[\]]")
 
 
 # The HTML5 tokenizer arrived in libxml2 2.14. Reading malformed pages "like a browser" below (content after `</html>`, a
-# second concatenated document, raw-text elements such as <textarea>/<xmp>, mail whose HTML parts are joined) depends on it.
+# second concatenated document, raw-text elements such as <textarea>/<xmp>) depends on it.
 # lxml's wheels for Linux and macOS bundle 2.14 from lxml 6.0 on, but its Windows wheels still bundle 2.11, where those
 # inputs silently lose content. The result cannot be repaired here, so it is reported
 # (Pinned by: test_core_html.py::TestOlderHtmlParser; tests that need the tokenizer are skipped via `tests.needs_html5_tokenizer`).
@@ -163,15 +163,20 @@ def _extract_html(data: bytes, options: ConvertOptions) -> Extraction:
 
 def _extract_mail(mails: list[Message], total: int, options: ConvertOptions) -> Extraction:
     """Mails read as HTML (`_mail.mail_box` — an mbox mailbox holds several): for each mail, the bodies of that mail and of its
-    forwarded mails (`_mail.mail_messages`) are joined in order and rendered as one HTML.
+    forwarded mails (`_mail.mail_messages`) in order.
 
     Each body uses its HTML parts or, if there are none, its plain-text part turned into paragraphs. A forwarded mail is
     preceded by the 'Forwarded message' heading and that mail's header (the same shape as the text extractor's
     `_mail.forwarded_mail_head`). When the mailbox holds several mails, each is preceded by `## Message N` and its header
-    (`_mail.mail_box_title`, the same shape as the text extractor). Each body is decoded separately with its part's charset and
-    then joined — the joined HTML documents are rendered in order, as a browser would (`_document_nodes`). The HTML body of a
-    forwarded mail used to push out the outer plain-text body
-    (Pinned by: test_core_text_and_mail.py::TestForwardedMail, test_core_mail_parts_and_icons.py::TestMailboxWithSeveralMails).
+    (`_mail.mail_box_title`, the same shape as the text extractor). The HTML body of a forwarded mail used to push out the
+    outer plain-text body (Pinned by: test_core_text_and_mail.py::TestForwardedMail,
+    test_core_mail_parts_and_icons.py::TestMailboxWithSeveralMails).
+
+    Each body part, each header block and each meeting invitation is decoded and rendered as a document of its own, as a mail
+    program shows each mail apart, and the Markdown is joined (`_extract_documents`). Joined into one HTML and parsed once,
+    an unclosed `<!--`, `<style>`, `<title>`, attribute quote or `display:none` element in one mail swallowed every later
+    mail and forwarded mail without a warning, and an unclosed blockquote or pre took them into the quote
+    (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart).
     """
     documents: list[str] = []
     encodings: list[str] = []
@@ -179,19 +184,18 @@ def _extract_mail(mails: list[Message], total: int, options: ConvertOptions) -> 
     for number, mail in enumerate(mails, start=1):
         messages, _ = mail_messages(mail)
         for index, message in enumerate(messages):
-            body, found = _mail_body_html(message)
-            body += _calendar_html(message)
             if index:
-                body = f"<h2>{FORWARDED_MAIL_TITLE}</h2><p>{_head_html(message)}</p>{body}"
+                documents.append(f"<h2>{FORWARDED_MAIL_TITLE}</h2><p>{_head_html(message)}</p>")
             elif number > 1:
-                body = f"<h2>{mail_box_title(number)}</h2><p>{_head_html(message)}</p>{body}"
-            documents.append(body)
+                documents.append(f"<h2>{mail_box_title(number)}</h2><p>{_head_html(message)}</p>")
+            bodies, found = _mail_body_html(message)
+            documents.extend(bodies)
+            documents.append(_calendar_html(message))
             encodings.extend(found)
 
     encoding = encodings[0] if encodings else "utf-8"
     saved_picture = _first_picture([_mhtml_pictures(mail) for mail in mails]) if options.extract_images else None
-    text = "\n".join(documents)
-    extraction = _extract_front(text, encoding, options, saved_picture) or _extract(text, encoding, options, saved_picture)
+    extraction = _extract_documents([document for document in documents if document], encoding, options, saved_picture)
 
     section = extraction.sections[0]
     title = f"## {mail_box_title(1)}\n\n" if len(mails) > 1 else ""
@@ -203,8 +207,52 @@ def _extract_mail(mails: list[Message], total: int, options: ConvertOptions) -> 
     return extraction
 
 
+def _extract_documents(documents: list[str], encoding: str, options: ConvertOptions,
+                       saved_picture: Callable[[str], bytes | None] | None) -> Extraction:
+    """Several HTML documents rendered one by one and joined as one section, in order: what one document leaves open (a
+    comment, a raw-text element, a quote, a hidden element) ends with it. Pictures are numbered on across the documents, a
+    warning is given once and the rows left out of tables are added up. Once the documents read so far exceed the character
+    limit, the rest is not read; each document has what is left of the limit for its own front-part check
+    (`_extract_front`)."""
+    combined = Extraction(metadata={"encoding": encoding})
+    texts: list[str] = []
+    omitted: list[int] = []
+
+    for document in documents:
+        limit = None if options.max_chars is None else options.max_chars - combined.chars
+        piece = (_extract_front(document, encoding, options, saved_picture, combined.images, omitted, limit)
+                 or _extract(document, encoding, options, saved_picture, images=combined.images, omitted=omitted))
+        combined.images = piece.images
+        if "title" in piece.metadata and "title" not in combined.metadata:
+            combined.metadata["title"] = piece.metadata["title"]
+        combined.warnings.extend(warning for warning in piece.warnings if warning not in combined.warnings)
+        text = piece.sections[0].text
+        if text.strip():
+            texts.append(text)
+        if piece.exceeded:
+            combined.chars += piece.chars
+            combined.exceeded = True
+            break
+        if options.max_chars is not None and combined.count(_counted(text, options), options):
+            break
+
+    if sum(omitted):
+        combined.warnings.append(omitted_rows_warning(sum(omitted)))
+    combined.sections.append(Section(SectionKind.DOCUMENT, 1, "\n\n".join(texts)))
+    return combined
+
+
+def _counted(text: str, options: ConvertOptions) -> int:
+    """The characters of rendered text counted against the limit, never more than the final text holds: without Markdown
+    decoration (`_MARKDOWN_DECORATION`) and, with links kept, without link addresses and brackets."""
+    if options.keep_links:
+        text = _LINK_BRACKETS.sub("", _LINK_ADDRESS.sub("", text))
+    return solid_length(_MARKDOWN_DECORATION.sub("", text))
+
+
 def _extract_front(text: str, encoding: str, options: ConvertOptions,
-                   saved_picture: Callable[[str], bytes | None] | None) -> Extraction | None:
+                   saved_picture: Callable[[str], bytes | None] | None, images: list[RawImage] | None = None,
+                   omitted: list[int] | None = None, limit: int | None = None) -> Extraction | None:
     """For a large document, read only the front part first. If that alone exceeds the character limit, return that
     extraction and do not parse the rest. None when it cannot be told whether the limit will be exceeded (the whole document
     is read).
@@ -233,10 +281,11 @@ def _extract_front(text: str, encoding: str, options: ConvertOptions,
     characters (`_MARKDOWN_DECORATION`) — in broken markup a `<pre>`/`<math>` caught at the end of the front part exceeded the
     limit with a fence or `$` absent from the whole conversion (Pinned by: test_core_round45.py::TestLimitOnBrokenHtml).
     """
-    if options.max_chars is None:
+    limit = options.max_chars if limit is None else limit
+    if limit is None:
         return None
-    size = options.max_chars * _FIRST_FRONT_CHARS_PER_LIMIT
-    last = options.max_chars * _LAST_FRONT_CHARS_PER_LIMIT
+    size = limit * _FIRST_FRONT_CHARS_PER_LIMIT
+    last = limit * _LAST_FRONT_CHARS_PER_LIMIT
 
     while len(text) > size * 2:
         end = text.rfind(">", 0, size)
@@ -246,25 +295,30 @@ def _extract_front(text: str, encoding: str, options: ConvertOptions,
         if len(_SELECT_OPENING.findall(front)) > len(_SELECT_CLOSING.findall(front)):
             return None  # an unclosed select is interpreted differently depending on later markup
         closed = _closed_at_the_end(front) | _closed_after(text, end + 1)
-        extraction = _extract(front, encoding, options, saved_picture, whole=False, closed=closed)
-        front_text = extraction.sections[0].text
-        if options.keep_links:
-            front_text = _LINK_BRACKETS.sub("", _LINK_ADDRESS.sub("", front_text))
-        counted = solid_length(_MARKDOWN_DECORATION.sub("", front_text))
-        if extraction.count(counted, options):
+        rows: list[int] | None = None if omitted is None else []
+        extraction = _extract(front, encoding, options, saved_picture, whole=False, closed=closed, images=images, omitted=rows)
+        counted = _counted(extraction.sections[0].text, options)
+        extraction.chars += counted
+        if counted > limit:
+            extraction.exceeded = True
+            if omitted is not None and rows:
+                omitted.extend(rows)
             return extraction
-        if counted * len(text) <= options.max_chars * len(front):
+        if counted * len(text) <= limit * len(front):
             if size >= last:
                 return None  # at this density the whole may also be within the limit
             size = last
             continue
-        size = max(size * 3 // 2, len(front) * options.max_chars * 5 // (counted * 4))  # enough to exceed the limit + 1.25 times margin
+        size = max(size * 3 // 2, len(front) * limit * 5 // (counted * 4))  # enough to exceed the limit + 1.25 times margin
     return None
 
 
 def _extract(text: str, encoding: str, options: ConvertOptions,
              saved_picture: Callable[[str], bytes | None] | None = None, whole: bool = True,
-             closed: frozenset[str] | None = None) -> Extraction:
+             closed: frozenset[str] | None = None, images: list[RawImage] | None = None,
+             omitted: list[int] | None = None) -> Extraction:
+    """One HTML document as one section. Pictures are numbered on after `images` (copied, not changed). When `omitted` is
+    given, the rows left out of tables are added to it instead of being reported here."""
     # For an HTML fragment starting with an XML declaration (`<?xml …?><TABLE>`), bs4 emitted XMLParsedAsHTMLWarning to the
     # caller. This is a document already decided to be read with this parser — XML data goes to text at detection
     # (Pinned by: test_core_html.py::TestXmlDataWithHtmlElementNames).
@@ -290,7 +344,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _decompose_all(soup.find_all(string=lambda node: isinstance(node, PreformattedString)))
     _drop_hidden(soup, kept=folded, whole=whole)
 
-    extraction = Extraction(metadata=metadata)
+    extraction = Extraction(metadata=metadata, images=list(images or ()))
     warning = decoding_warning(encoding)
     if warning:
         extraction.warnings.append(warning)
@@ -312,8 +366,8 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _nest_google_docs_lists(soup)
     _nest_word_lists(soup)
     _drop_unsettled_cut_table(soup, cut)
-    omitted: list[int] = []
-    token = _omitted_rows.set(omitted)
+    rows: list[int] = []
+    token = _omitted_rows.set(rows)
     inline = _Inline(options.keep_links, options.keep_emphasis, cut) if options.keep_links or options.keep_emphasis else None
     inline_token = _inline.set(inline)
     try:
@@ -321,6 +375,8 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     finally:
         _inline.reset(inline_token)
         _omitted_rows.reset(token)
-    if sum(omitted):
-        extraction.warnings.append(omitted_rows_warning(sum(omitted)))
+    if omitted is not None:
+        omitted.append(sum(rows))
+    elif sum(rows):
+        extraction.warnings.append(omitted_rows_warning(sum(rows)))
     return extraction

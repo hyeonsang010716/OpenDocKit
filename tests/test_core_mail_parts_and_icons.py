@@ -2,10 +2,11 @@
 words with extended Hangul, encoded attachment names, an mbox holding several mails. HTML: SVG data: URI icons."""
 
 import base64
+import time
 
 import pytest
 
-from opendockit import DocumentFormat, convert
+from opendockit import ConvertOptions, DocumentFormat, convert
 from opendockit.extractors import _mail
 from tests import builder, needs_html5_tokenizer
 
@@ -233,6 +234,81 @@ class TestMailboxWithSeveralMails:
         assert "메일 3" not in result.text
         assert result.warnings == ["The mailbox (mbox) holds 3 messages, but only the first 2 were read. "
                                    "Split the rest off and convert it separately."]
+
+
+def _html_mbox(*bodies: str) -> bytes:
+    return "".join(f"From kim@example.com Mon Sep  1 10:00:00 2025\nFrom: kim@example.com\nTo: lee@example.com\n"
+                   f"Subject: 메일 {number}\nMIME-Version: 1.0\nContent-Type: text/html; charset=utf-8\n\n{body}\n\n"
+                   for number, body in enumerate(bodies, start=1)).encode()
+
+
+class TestMailsAreRenderedApart:
+    """The mails of an mbox, their forwarded mails and body parts were joined into one HTML and parsed once: an unclosed
+    comment, style, title, attribute quote or hidden element in one mail swallowed every later mail without a warning, and
+    an unclosed quote or pre took the later mails into it. Each is a document of its own, as a mail program shows it."""
+
+    @pytest.mark.parametrize("opened", ["<!-- tracking", "<style>p {}", "<script>x = 1", "<title>제목", '<a href="x',
+                                        '<div style="display:none">미리보기', "<blockquote>인용", "<pre>코드", "<p><del>삭제",
+                                        "<ul><li>항목"])
+    def test_what_one_mail_leaves_open_does_not_reach_the_next(self, opened):
+        data = _html_mbox(f"<p>첫 메일</p>{opened}", "<p>둘째 메일</p>", "<p>셋째 메일</p>")
+
+        result = convert(data, "box.mbox")
+
+        text = result.text
+        assert f"{_mbox_head(2)}\n\n둘째 메일\n\n{_mbox_head(3)}\n\n셋째 메일" in text
+        assert text.endswith(f"{_mbox_head(3)}\n\n셋째 메일")
+
+    def test_forwarded_mail_after_an_unclosed_comment_is_read(self):
+        data = ('From: kim@example.com\r\nTo: lee@example.com\r\nSubject: 전달\r\nMIME-Version: 1.0\r\n'
+                'Content-Type: multipart/mixed; boundary="X"\r\n\r\n--X\r\nContent-Type: text/html; charset=utf-8\r\n\r\n'
+                '<p>아래 참고</p><!-- 서명\r\n--X\r\nContent-Type: message/rfc822\r\n\r\nFrom: park@example.com\r\n'
+                'To: lee@example.com\r\nSubject: 계약\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n'
+                '계약 금액은 5,000,000원입니다.\r\n--X--\r\n').encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.endswith("아래 참고\n\n## Forwarded message\n\nSubject: 계약\nFrom: park@example.com\n"
+                                    "To: lee@example.com\n\n계약 금액은 5,000,000원입니다.")
+
+    def test_limit_counts_across_the_mails(self):
+        data = _html_mbox(*(f"<p>{'가' * 300} {number}</p>" for number in range(1, 11)))
+
+        whole = convert(data, "box.mbox").text
+        result = convert(data, "box.mbox", ConvertOptions(max_chars=1000))
+
+        assert result.exceeded
+        assert result.text == whole[:1000].rstrip()
+
+    def test_pictures_are_numbered_on_across_the_mails(self):
+        mails = ""
+        for number in (1, 2):
+            mails += (f"From kim@example.com Mon Sep  1 10:00:00 2025\nFrom: kim@example.com\nTo: lee@example.com\n"
+                      f"Subject: 메일 {number}\nMIME-Version: 1.0\nContent-Type: multipart/related; boundary=\"R\"\n\n"
+                      f"--R\nContent-Type: text/html; charset=utf-8\n\n<p>본문 {number}</p><img src=\"cid:p{number}\">\n"
+                      f"--R\nContent-Type: image/png\nContent-ID: <p{number}>\nContent-Transfer-Encoding: base64\n\n"
+                      f"{base64.b64encode(builder.png_bytes(seed=number)).decode()}\n--R--\n\n")
+
+        result = convert(mails.encode(), "box.mbox")
+
+        assert [image.id for image in result.images] == [1, 2]
+        assert result.text.endswith("본문 1\n\n[Image]\n\n" f"{_mbox_head(2)}\n\n본문 2\n\n[Image]")
+
+    @pytest.mark.timing
+    def test_mail_with_many_body_parts_takes_linear_time(self):
+        def seconds(count: int) -> float:
+            parts = "".join(f"--B\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>조각 {number}</p>\r\n"
+                            for number in range(count))
+            data = (f"From: kim@example.com\r\nTo: lee@example.com\r\nSubject: 조각\r\nMIME-Version: 1.0\r\n"
+                    f"Content-Type: multipart/mixed; boundary=B\r\n\r\n{parts}--B--\r\n").encode()
+            started = time.perf_counter()
+            result = convert(data, "a.eml")
+            assert f"조각 {count - 1}" in result.text
+            return time.perf_counter() - started
+
+        small, large = seconds(250), seconds(1_000)
+
+        assert large < 4 * small * 2 + 0.5
 
 
 _SVG_ICON = base64.b64encode(b'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle r="6"/></svg>').decode()
