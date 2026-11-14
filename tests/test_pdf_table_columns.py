@@ -837,6 +837,57 @@ class TestMergedCellOpenAtThePageEnd:
         assert sections[0].text.count("팀2") == 2
         assert f"| {cell} | 과제 7 | 7,777 |" in sections[1].text
 
+    @pytest.mark.parametrize(("values", "repeated"), [("dates", False), ("dates", True), ("pending", False), ("pending", True)])
+    def test_rows_continued_without_a_header_get_the_open_cell_whatever_their_values(self, values, repeated):
+        """With a date column ('2024.07.15') or a first row whose value is text ('미정') the first rows of page 2 looked like
+        a header of their own, and the rest of the merged cell lost its text. (Without a repeated header the top row of
+        page 2 shows its first cell empty, as before: the top row of a continued ruled table is passed with the cells that
+        have no top border as covered cells.)"""
+        remaining = 2
+        columns, height = [60.0, 160.0, 260.0, 360.0], 22.0
+
+        def value(number):
+            return f"2024.{number:02d}.15" if values == "dates" else "미정" if number == 7 else f"{number * 1111:,}"
+
+        def row_lines(pdf, top, cells, first_open=False, last_open=False):
+            pdf.line(columns[1] if first_open else columns[0], top, columns[-1], top)
+            pdf.line(columns[1] if last_open else columns[0], top - height, columns[-1], top - height)
+            for x in columns:
+                pdf.line(x, top, x, top - height)
+            for x, text in zip(columns, cells, strict=False):
+                if text:
+                    pdf.drawString(x + 5, top - 15, text)
+
+        def draw(pdf, index):
+            top = 780.0
+            if index == 0 or repeated:
+                row_lines(pdf, top, ["그룹", "과제", "기한"])
+                top -= height
+            if index == 0:
+                for number in range(1, 5):
+                    row_lines(pdf, top, ["그룹1 담당: 팀1" if number == 1 else "", f"과제 {number}", value(number)],
+                              first_open=number > 1, last_open=number < 4)
+                    top -= height
+                for number in (5, 6):
+                    row_lines(pdf, top, ["그룹2 담당: 팀2" if number == 5 else "", f"과제 {number}", value(number)],
+                              first_open=number > 5, last_open=True)
+                    top -= height
+            else:
+                rest = list(range(7, 7 + remaining))
+                for number in rest:
+                    row_lines(pdf, top, ["", f"과제 {number}", value(number)], first_open=True, last_open=number < rest[-1])
+                    top -= height
+                for number in range(rest[-1] + 1, rest[-1] + 4):
+                    row_lines(pdf, top, ["그룹3 담당: 팀3" if number == rest[-1] + 1 else "", f"과제 {number}", value(number)],
+                              first_open=number > rest[-1] + 1, last_open=number < rest[-1] + 3)
+                    top -= height
+
+        page = convert(_korean_pdf(draw, pages=2), "a.pdf", ConvertOptions(page_markers=False)).sections[1].text
+
+        for number in range(7 if repeated else 8, 7 + remaining):
+            assert f"| 그룹2 담당: 팀2 | 과제 {number} | {value(number)} |" in page
+        assert f"| 그룹3 담당: 팀3 | 과제 {7 + remaining} | {value(7 + remaining)} |" in page
+
     def test_new_table_with_its_own_header_does_not_get_the_open_cell(self):
         """A different table with the same columns at the top of the next page, starting with its own header (no numbers,
         numbers in the row below) and a blank corner cell, got the open cell's text '그룹2 담당: 팀2' in that corner."""

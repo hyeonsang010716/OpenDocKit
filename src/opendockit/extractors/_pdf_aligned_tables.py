@@ -3,6 +3,7 @@ wrapped cells and labels, rows split over lines, and headers carried over a page
 """
 
 from collections import Counter
+from itertools import pairwise
 import statistics
 
 from opendockit.extractors._pdf_model import (
@@ -24,6 +25,7 @@ from opendockit.extractors._pdf_table_rows import (
     _blank_corner_header,
     _column_of,
     _continues_cell,
+    _has_number_cell,
     _is_lone_value_row,
     _is_section_row,
     _is_separate,
@@ -258,10 +260,12 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
     `_letter_spaced_parts`), are not split. Known accepted gap: rows whose cells are as close as ordinary word spacing
     (LibreOffice's 3px cell padding) and so have no wide gap are left as they are.
 
-    Returns (table, the other table it was joined with or None). When the rows below lead, at the row pitch, into the first
-    row of another found table (`starts`: position in `rows` of a table's first row → that table), the region down to the
-    end of that table is searched for first, and it becomes one table only when exactly one table is found that holds
-    every line of both (the same conditions as above). Otherwise this table is searched for alone.
+    Returns (table, the other table it was joined with or None). When the rows below lead into the first row of another
+    found table (`starts`: position in `rows` of a table's first row → that table) that starts with a data row (a numeric
+    value cell) and every gap on the way is within the row pitch of the two tables, the region down to the end of that
+    table, and on below it as far as that table would have grown by itself, is searched for first, and it becomes one
+    table only when exactly one table is found that holds every line of both (the same conditions as above). Otherwise
+    this table is searched for alone.
     """
     # Only rows above and below that continue at the row pitch and lie within the table's horizontal range are considered.
     # A body line reaching into the neighbouring column is not a table header.
@@ -276,9 +280,13 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
     left = min(line.x0 for row in run for line in row) - _TABLE_ROW_TOLERANCE
     right = max(line.x1 for row in run for line in row) + _TABLE_ROW_TOLERANCE
 
-    def joins(row: list[_Line]) -> bool:
+    def joins(row: list[_Line], left: float = left, right: float = right) -> bool:
         return not any(id(line) in taken or line.x0 < left or line.x0 > right
                        or (line.x1 > right and line.x1 - line.x0 > max_cell) for line in row)
+
+    def ruled(upper: list[_Line], row: list[_Line], left: float = left, right: float = right) -> bool:
+        floor, ceiling = max(line.bottom for line in upper), min(line.top for line in row)
+        return any(floor - 1 <= y <= ceiling + 1 and x0 < right and x1 > left for y, x0, x1 in rules)
 
     def spans(table_row: list[_Line]) -> list[int]:
         return _row_positions(table_row, rows)
@@ -300,9 +308,7 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
         upper = run[-1]
         for position in range(end + 1, len(rows)):
             row = rows[position]
-            floor, ceiling = max(line.bottom for line in upper), min(line.top for line in row)
-            if (ceiling - floor > upper[0].height * 2.5
-                    or any(floor - 1 <= y <= ceiling + 1 and x0 < right and x1 > left for y, x0, x1 in rules)):
+            if _row_gap(upper, row) > upper[0].height * 2.5 or ruled(upper, row):
                 break
             if not joins(row):
                 if after and starts and position in starts:
@@ -316,14 +322,38 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
         lower = rows[end + 1 + len(after):last + 1]
         members = {id(original) for row in following for line in row for original in (line, line.source, *line.joined)
                    if original is not None}
-        if lower and all(id(line) in members for row in lower for line in row):
+        # Only the round-44 shape is joined: the other table starts with a data row (a numeric value cell — not a header of
+        # its own) and the rows between continue at the row pitch of the two tables. A totals row followed by a product
+        # table with its own header ('품목 | 단가 | …') was joined into the table above (Pinned by:
+        # test_pdf_borderless_split_rows.py::TestSeparateTableBelowARowInNoTable)
+        pitch = [_row_gap(upper, lower_row) for table in (run, following) for upper, lower_row in pairwise(table)]
+        chain = [_row_gap(upper, lower_row) for upper, lower_row in pairwise([run[-1], *after, following[0]])]
+        if (lower and all(id(line) in members for row in lower for line in row) and _has_number_cell(following[0])
+                and pitch and max(chain) <= max(pitch) + 1.0):
+            # The joined table grows downwards past the end of the other table as that table would have on its own
+            wide_left = min(left, *(line.x0 - _TABLE_ROW_TOLERANCE for row in following for line in row))
+            wide_right = max(right, *(line.x1 + _TABLE_ROW_TOLERANCE for row in following for line in row))
+            tail: list[list[_Line]] = []
+            upper = lower[-1]
+            for row in rows[last + 1:]:
+                if (_row_gap(upper, row) > upper[0].height * 2.5 or ruled(upper, row, wide_left, wide_right)
+                        or not joins(row, wide_left, wide_right)):
+                    break
+                tail.append(row)
+                upper = row
             originals = {id(line) for row in [*run, *lower] for line in row}
-            found = _found_again([*above, *run, *after, *lower], originals, max(len(run[0]), len(following[0])), max_cell)
+            found = _found_again([*above, *run, *after, *lower, *tail], originals, max(len(run[0]), len(following[0])),
+                                 max_cell)
             if found is not None:
                 return found, following
 
     found = _found_again([*above, *run, *after], {id(line) for row in run for line in row}, len(run[0]), max_cell)
     return (run if found is None else found), None
+
+
+def _row_gap(upper: list[_Line], lower: list[_Line]) -> float:
+    """The gap between the bottom of a row and the top of the row below it."""
+    return min(line.top for line in lower) - max(line.bottom for line in upper)
 
 
 def _found_again(region_rows: list[list[_Line]], in_run: set[int], columns: int,
