@@ -877,3 +877,29 @@ class TestHugeGlyphNextToOrdinaryText:
         assert time.perf_counter() - started < 10, "before the fix it never finished (10 seconds at font size 1e8)"
         assert "Ordinary line of text before." in result.text
         assert "Another ordinary line." in result.text
+
+
+class TestShapesWithoutAFinitePosition:
+    """A rule drawn to `1e400` reached the table finders with an infinite end, and rounding it raised an OverflowError that
+    rejected the whole PDF."""
+
+    _HUGE = b"1" + b"0" * 400 + b".0"
+
+    @pytest.mark.parametrize("shape", [
+        b"200 100 m 200 %s l S" % _HUGE,
+        b"200 100 m 200 -%s l S" % _HUGE,
+        b"60 100 m %s 107 l S" % _HUGE,
+        b"60 100 %s 10 re S" % _HUGE,
+    ])
+    def test_page_is_read_and_its_table_kept(self, shape):
+        rules = [b"50 %d m 250 %d l S" % (y, y) for y in (100, 107, 114)]
+        grid = [b"300 %d m 500 %d l S" % (y, y) for y in (600, 620, 640)] + [b"%d 600 m %d 640 l S" % (x, x) for x in (300, 400, 500)]
+        cells = [b"BT /F1 10 Tf %d %d Td (%s) Tj ET" % (x, y, text)
+                 for x, y, text in ((310, 626, b"Name"), (410, 626, b"Value"), (310, 606, b"Alpha"), (410, 606, b"One"))]
+        content = b"\n".join([b"0.5 w", *rules, *grid, shape, *cells, b"BT /F1 10 Tf 72 750 Td (Hello) Tj ET"])
+
+        result = convert(_pages_pdf(content))
+
+        assert "Hello" in result.text
+        assert "| Name | Value |" in result.text
+        assert "| Alpha | One |" in result.text

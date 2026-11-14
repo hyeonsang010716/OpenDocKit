@@ -121,7 +121,12 @@ from opendockit.extractors._pdf_reading_order import (
 from opendockit.extractors._pdf_row_joins import _join_row_fragments
 from opendockit.extractors._pdf_ruled_tables import _real_tables, _ruled_table, _with_open_below
 from opendockit.extractors._pdf_shaded_tables import _shade_bands, _thin_rules
-from opendockit.extractors._pdf_table_filters import _without_glyph_outlines, _without_highlights, _without_unadvanced_spaces
+from opendockit.extractors._pdf_table_filters import (
+    _without_glyph_outlines,
+    _without_highlights,
+    _without_unadvanced_spaces,
+    _without_unbounded_shapes,
+)
 from opendockit.markdown import solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -822,7 +827,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     page, dropped = _without_drawing_artifacts(page)
     hidden_chars = sum(1 for char in dropped if char["text"].strip())
     placement_fit, placement_pending = _repair_placed_runs(page, placement_fit)
-    tables = _real_tables(_without_unadvanced_spaces(_without_highlights(_without_glyph_outlines(page))))
+    tables = _real_tables(_without_unadvanced_spaces(_without_highlights(_without_glyph_outlines(_without_unbounded_shapes(page)))))
     # What is taken out of the body flow is not the whole table area but the characters actually inside cells. Characters where the
     # table finder could not build a cell (e.g. a table continued onto the next page without a bottom border) are not held by any
     # cell, so removing by area would make them vanish silently
