@@ -125,9 +125,12 @@ class TestSeparateTableBelowARowInNoTable:
         assert all(text.count(name) == 1 for name in _REGIONS[:8])
         assert "| 인천 | 1,333 | 4.3% | 증가 |\n\n| 광주 | 1,444 | 5.4% | 증가 |" in text
 
-    @pytest.mark.parametrize("periods", [("2023", "2024"), ("2024.01", "2024.02"), ("FY2023", "FY2024"), ("1분기", "2분기")])
+    @pytest.mark.parametrize("periods", [("2023", "2024"), ("2024.01", "2024.02"), ("FY2023", "FY2024"), ("1분기", "2분기"),
+                                         ("10%", "20%"), ("1", "2")])
     def test_table_under_a_header_of_years_or_dates_is_not_joined(self, periods):
-        """Years and dates in a header are not values: '구분 | 2023 | 2024 | 증감' starts a table of its own."""
+        """Years, dates, bare percentages and bare integers in a header are not measured values: '구분 | 2023 | 2024 |
+        증감' and '구분 | 10% | 20% | 증감' start a table of their own. Only a number with a thousands separator or a
+        decimal point is taken as a data row."""
         rows = [("구분", *periods, "증감"), ("매출", "1,200", "1,350", "+150"), ("비용", "800", "820", "+20"),
                 ("이익", "400", "530", "+130"), ("세금", "90", "110", "+20")]
 
@@ -136,8 +139,9 @@ class TestSeparateTableBelowARowInNoTable:
         regions = _tables(text)[0]
         assert regions[-1] == ["인천", "1,333", "4.3%", "증가"]
         assert not any(cell.startswith(("구분", "매출")) for row in regions for cell in row)
-        if periods == ("2023", "2024"):  # (the other headers merge into one piece and are not taken as a header row at all)
-            assert ("| 인천 | 1,333 | 4.3% | 증가 |\n\n| 구분 | 2023 | 2024 | 증감 |\n| --- | --- | --- | --- |\n"
+        if periods in (("2023", "2024"), ("10%", "20%")):  # (the other headers merge into one piece and are
+            # not taken as a header row at all)
+            assert (f"| 인천 | 1,333 | 4.3% | 증가 |\n\n| 구분 | {periods[0]} | {periods[1]} | 증감 |\n| --- | --- | --- | --- |\n"
                     "| 매출 | 1,200 | 1,350 | +150 |") in text
             assert "| 세금 | 90 | 110 | +20 |\n\n이상." in text
 
