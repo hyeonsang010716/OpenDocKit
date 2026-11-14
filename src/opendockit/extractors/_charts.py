@@ -40,6 +40,8 @@ _HORIZONTAL_AXIS_POSITIONS = {"b", "t"}
 # (Pinned by: test_audit_core.py::TestChartFormatWithManyOpenBrackets).
 _FORMAT_LITERALS = re.compile(r'"[^"]*"|\[(?![hms]+\])[^\[\]]*\]|[\\_*].')
 _LAST_DATE_SERIAL = 2_958_465  # 9999-12-31
+# Largest point index a chart can write (`_point_index`; xsd:unsignedInt)
+_MAX_POINT_INDEX = 2**32 - 1
 # Longest display format that is applied (the longest Excel accepts). A format is read again for every point of a chart, so a
 # 20,000-character format on 8,000 points (a 40 KB file) took 30 seconds. With a longer format the value stays as written, as with
 # any format that is not handled (Pinned by: test_audit_core.py::TestChartFormatWithManyOpenBrackets).
@@ -197,8 +199,8 @@ def _chartex_points(dimension: etree._Element | None) -> dict[int, str]:
     level = dimension.find(f"{{{_CX}}}lvl") if dimension is not None else None
     if level is None:
         return {}
-    return {decimal_int(point.get("idx"), 0): point.text or ""
-            for point in level.iterchildren(f"{{{_CX}}}pt") if point.get("idx", "").isdecimal()}
+    return {index: point.text or "" for point in level.iterchildren(f"{{{_CX}}}pt")
+            if (index := _point_index(point.get("idx"))) is not None}
 
 
 def _chartex_text(text: etree._Element | None) -> str:
@@ -368,11 +370,20 @@ def _points(element: etree._Element | None) -> dict[int, str]:
 def _level_points(container: etree._Element) -> dict[int, str]:
     points = {}
     for point in container.iter(f"{{{_C}}}pt"):
-        index = point.get("idx", "")
+        index = _point_index(point.get("idx"))
         value = point.find(f"{{{_C}}}v")
-        if index.isdecimal() and value is not None:
-            points.setdefault(decimal_int(index, 0), value.text or "")
+        if index is not None and value is not None:
+            points.setdefault(index, value.text or "")
     return points
+
+
+def _point_index(value: str | None) -> int | None:
+    """Point index (`idx` of c:pt / cx:pt, an unsigned 32-bit number). None when it is not decimal digits or is past that range: a
+    point that cannot exist is left out. An index of exactly 4,300 digits passed `decimal_int`, and the category written for it
+    (`index + 1`) could not be turned into text, so the document was rejected (Pinned by:
+    test_office_robustness.py::TestHugeNumbersInOfficeDocuments::test_chart_point_index_past_the_unsigned_range_is_left_out)."""
+    index = decimal_int(value, None)
+    return index if index is not None and index <= _MAX_POINT_INDEX else None
 
 
 def _value_points(element: etree._Element | None, shown_format: str = "") -> dict[int, str]:
@@ -390,8 +401,8 @@ def _value_points(element: etree._Element | None, shown_format: str = "") -> dic
     cache_format = cache.findtext(f"{{{_C}}}formatCode") or ""
     if cache_format.strip().lower() in ("", "general"):
         cache_format = shown_format or cache_format
-    formats = {decimal_int(point.get("idx"), 0): point.get("formatCode") for point in cache.iterchildren(f"{{{_C}}}pt")
-               if point.get("formatCode") and point.get("idx", "").isdecimal()}
+    formats = {index: point.get("formatCode") for point in cache.iterchildren(f"{{{_C}}}pt")
+               if point.get("formatCode") and (index := _point_index(point.get("idx"))) is not None}
     if not cache_format and not formats:
         return points
     return {index: _format_value(value, formats.get(index, cache_format)) for index, value in points.items()}

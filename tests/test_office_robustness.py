@@ -269,6 +269,60 @@ class TestHugeNumbersInOfficeDocuments:
         assert _slide_body(data) == "1. 항목"
 
 
+    # One number of exactly 4,300 digits passes `decimal_int` (Python's limit for `int()`), and the next number (one digit more)
+    # could not be written with `str()`: the document was rejected as corrupted. 4,299 digits gained no digit and passed.
+    @pytest.mark.parametrize("length", [4299, 4300])
+    @pytest.mark.parametrize("where", ["start", "startOverride"])
+    def test_docx_start_number_too_large_for_word_is_the_default(self, length, where):
+        big = "9" * length
+        start = big if where == "start" else "1"
+        override = f'<w:lvlOverride w:ilvl="0"><w:startOverride w:val="{big}"/></w:lvlOverride>' if where == "startOverride" else ""
+        numbering = (f'<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="{start}"/><w:numFmt w:val="decimal"/>'
+                     f'<w:lvlText w:val="%1."/></w:lvl></w:abstractNum>'
+                     f'<w:num w:numId="1"><w:abstractNumId w:val="0"/>{override}</w:num>')
+        item = '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>' + _run("항목") + "</w:p>"
+
+        result = convert(_docx_with_body(item * 2, numbering=numbering), "a.docx")
+
+        assert result.text == "1. 항목\n2. 항목"
+
+    @pytest.mark.parametrize("length", [4299, 4300])
+    def test_pptx_start_number_too_large_for_powerpoint_is_the_default(self, length):
+        data = builder.zip_with(_pptx_with_text_boxes("항목"), edit={
+            "ppt/slides/slide1.xml": lambda xml: xml.replace(
+                "<a:p><a:r>", f'<a:p><a:pPr><a:buAutoNum type="arabicPeriod" startAt="{"9" * length}"/></a:pPr><a:r>', 1)})
+
+        assert _slide_body(data) == "1. 항목"
+
+    def test_docx_start_number_at_the_word_maximum_is_kept(self):
+        numbering = ('<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="32767"/><w:numFmt w:val="decimal"/>'
+                     '<w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>')
+        item = '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>' + _run("항목") + "</w:p>"
+
+        assert convert(_docx_with_body(item * 2, numbering=numbering), "a.docx").text == "32767. 항목\n32768. 항목"
+
+    @pytest.mark.parametrize("length", [4299, 4300])
+    def test_chart_point_index_past_the_unsigned_range_is_left_out(self, length):
+        from tests.test_office import _chart_xml, _pptx_with_chart
+
+        points = f'<c:pt idx="{"9" * length}"><c:v>5</c:v></c:pt><c:pt idx="4294967295"><c:v>7</c:v></c:pt>'
+        series = ('<c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:v>S</c:v></c:tx><c:val><c:numRef><c:numCache>'
+                  f"{points}</c:numCache></c:numRef></c:val></c:ser>")
+        data = builder.zip_with(_pptx_with_chart(), edit={
+            "ppt/charts/chart1.xml": lambda xml: _chart_xml(f"<c:barChart>{series}</c:barChart>", "T")})
+
+        result = convert(data, "a.pptx")
+
+        assert "| 4294967296 | 7 |" in result.text and "| 5 |" not in result.text and result.warnings == []
+
+    @pytest.mark.parametrize("shape", ["DIGIT", "HANGUL_DIGIT", "ZERO_PADDED_DIGIT", "FULLWIDTH_DIGIT", "ROMAN_CAPITAL"])
+    def test_number_one_digit_past_the_string_limit_is_written(self, shape):
+        """HWPX list start numbers and other callers reach `format_number` with whatever `decimal_int` accepted."""
+        from opendockit.extractors._lists import format_number
+
+        assert len(format_number(int("9" * 4300) + 1, shape)) == 4301
+
+
 class TestDocxFootnoteBoxesAndPictures:
     def test_text_box_in_a_footnote_is_read_once(self):
         """Footnote paragraphs were collected with `iter(w:p)`, so even the compatibility copy of a text box (the VML in mc:Fallback)
