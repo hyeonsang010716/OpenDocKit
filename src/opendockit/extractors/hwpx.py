@@ -144,6 +144,7 @@ class HwpxRenderer:
         # Comments (review remarks): (author, text, pieces of the body range the comment is attached to). The range is the text between
         # fieldBegin and the fieldEnd with the same id
         self.memos: list[tuple[str, str, list[str]]] = []
+        self._memo_ids: list[str] = []  # the id of each comment above, to take back those of a passed-over hp:switch branch
         self._open_memos: dict[str, list[str]] = {}  # comment id not yet closed by fieldEnd and still being gathered → range pieces
         self._memo_lengths: dict[str, int] = {}  # comment id above → number of characters gathered
         self._unspaced_memos: dict[str, None] = {}  # comments above with a non-empty range not ending in whitespace (get a space between paragraphs)
@@ -231,16 +232,7 @@ class HwpxRenderer:
         elif name == "secPr":
             self._outline_numbering = node.get("outlineShapeIDRef", self._outline_numbering)
         elif name == "switch":
-            # Compatibility switch: read the newer object (hp:case, e.g. an OOXML chart) first, and if nothing comes out read the
-            # fallback object (hp:default).
-            for branch in (_child(node, "case"), _child(node, "default")):
-                if branch is None:
-                    continue
-                buffered, emitted = len(buffer), len(blocks)
-                for child in branch:
-                    self._render_object(child, buffer, blocks, flush)
-                if len(blocks) > emitted or "".join(buffer[buffered:]).strip():
-                    break
+            self._render_switch(node, buffer, blocks, flush)
         elif name == "container":
             # Group object: handle the pictures and text boxes inside in order.
             for child in node:
@@ -253,6 +245,37 @@ class HwpxRenderer:
                 flush()
             for sublist in sublists:
                 blocks.extend(self.render_paragraphs(sublist))
+
+    def _render_switch(self, switch: etree._Element, buffer: list[str], blocks: list[str], flush: Callable[[], None]) -> None:
+        """Compatibility switch: read the newer object (hp:case, e.g. an OOXML chart) first, and if no text comes out read the
+        fallback object (hp:default). A branch that is passed over for the next one leaves nothing behind: the notes and comments it registered are
+        taken back (they were registered twice when the fallback held them too), and an empty block, such as an empty table, is not
+        text (Pinned by: test_hwp.py::TestHwpxObjects::test_switch_branch_without_text_leaves_nothing_behind).
+
+        A text-box or table in the branch flushes the paragraph text before the switch into a block of its own; that block is not the
+        branch's, so `flush` is wrapped to tell the two apart."""
+        branches = [branch for branch in (_child(switch, "case"), _child(switch, "default")) if branch is not None]
+        for index, branch in enumerate(branches):
+            start, own = len(buffer), len(blocks)   # where this branch's pieces and blocks begin
+            notes, note_count, memos = len(self.notes), self._note_count, len(self.memos)
+            produced = False
+
+            def branch_flush() -> None:
+                nonlocal start, own, produced
+                produced = produced or bool("".join(buffer[start:]).strip())
+                flush()
+                start, own = 0, len(blocks)
+
+            for child in branch:
+                self._render_object(child, buffer, blocks, branch_flush)
+            if index == len(branches) - 1 or produced or "".join(buffer[start:]).strip() or any(block.strip() for block in blocks[own:]):
+                return
+            del buffer[start:], blocks[own:], self.notes[notes:]
+            self._note_count = note_count
+            for memo_id, (_, _, target) in zip(self._memo_ids[memos:], self.memos[memos:], strict=True):
+                if self._open_memos.get(memo_id) is target:
+                    self._close_memo(memo_id)
+            del self.memos[memos:], self._memo_ids[memos:]
 
     def unread_warnings(self) -> list[str]:
         """Warnings per kind for objects left as placeholders only (OLE, video)."""
@@ -419,6 +442,7 @@ class HwpxRenderer:
             self._grids.pop()
         target: list[str] = []
         self.memos.append((author, text, target))
+        self._memo_ids.append(field.get("id", ""))
         self._open_memos[field.get("id", "")] = target
         self._memo_lengths[field.get("id", "")] = 0
         self._unspaced_memos.pop(field.get("id", ""), None)

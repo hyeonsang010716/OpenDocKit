@@ -98,6 +98,21 @@ class TestHwpxObjects:
 
         assert result.text == "그림 3. 조직도\n\n(식 1) 수익률 $\\frac{a}{b}$"
 
+    def test_switch_branch_without_text_leaves_nothing_behind(self):
+        """hp:case is read first and hp:default only when the case gives no text. A case with only an empty table counted as
+        output, so the fallback text was lost; a case with only a comment let the fallback register the same comment again."""
+        memo = ('<hp:ctrl><hp:fieldBegin id="5" type="MEMO"><hp:subList><hp:p><hp:run><hp:t>check</hp:t></hp:run></hp:p>'
+                "</hp:subList></hp:fieldBegin></hp:ctrl>")
+        body = ("<hp:p><hp:run><hp:t>Before </hp:t><hp:switch><hp:case>" + memo + "<hp:tbl></hp:tbl></hp:case>"
+                "<hp:default>" + memo + '<hp:t>fallback</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="5"/></hp:ctrl></hp:default>'
+                "</hp:switch></hp:run></hp:p>")
+
+        result = convert(builder.hwpx_bytes(body), "a.hwpx")
+
+        assert result.text == 'Before\n\nfallback\n\n> Comment(on "fallback"): check'
+        only_memo = convert(builder.hwpx_bytes(body.replace("<hp:tbl></hp:tbl>", "")), "a.hwpx")
+        assert only_memo.text == 'Before fallback\n\n> Comment(on "fallback"): check'
+
     def test_text_art_is_kept(self):
         """The text of text art (hp:textart) is in the text attribute, not the element text, so it was dropped. ␍␊ is a line break."""
         body = '<hp:p><hp:run><hp:textart text="hwpx 라이브러리 테스트␍␊neolord"/></hp:run></hp:p>'
