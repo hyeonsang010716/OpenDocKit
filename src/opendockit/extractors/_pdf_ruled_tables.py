@@ -397,8 +397,21 @@ def _row_edges(table_rows: list[object], cells: list[tuple]) -> list[tuple[int, 
     column over rows 3-5) left the outer boundary out of the rows it covered, the rows looked like two groups with different
     boundaries, and the table was split in two, losing the left merged cell ('채소') (Pinned by:
     test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_merged_cells_at_the_outer_edges_keep_one_table).
+
+    A row reaches from its top to the top of the next row, or to the bottom of its shortest cell when that comes first (the last
+    row, a row above a gap). The box of the row is not used: it is the union of the cells that start in the row, so a cell merged
+    downwards makes it as tall as the merged cell (the pitfall recorded in `_cell_rows`), and its middle then lay in a row
+    further down. In a form with one block merged over rows 1-3 on the right and another over rows 3-5 on the left, rows 1 and 2
+    were measured inside row 3, lost the boundary between the two left columns, and the form was split in two after row 2
+    (Pinned by: test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_merged_blocks_sharing_a_row_keep_one_table).
     """
-    middles = [(row.bbox[1] + row.bbox[3]) / 2 for row in table_rows]
+    tops = sorted({row.bbox[1] for row in table_rows})
+    middles = []
+    for row in table_rows:
+        top = row.bbox[1]
+        below = bisect_right(tops, top)
+        bottom = min([cell[3] for cell in row.cells if cell is not None] + tops[below:below + 1])
+        middles.append((top + bottom) / 2)
     order = sorted(range(len(middles)), key=middles.__getitem__)
     ordered = [middles[index] for index in order]
     found: list[set[float]] = [set() for _ in table_rows]

@@ -605,6 +605,44 @@ class TestAbuttingTablesWithDifferentColumns:
         assert sum(1 for line in result.text.splitlines() if line.startswith("| ---")) == 1
         assert "| 채소 | 오이 | 3,000 | 공통 비고 |\n| 채소 | 당근 | 4,000 | 국산 |\n| 채소 | 무 | 5,000 | 수입 |" in result.text
 
+    @pytest.mark.parametrize("heights", [[20] * 7, [20, 34, 14, 20, 46, 14, 26]], ids=["even rows", "rows of unequal height"])
+    def test_merged_blocks_sharing_a_row_keep_one_table(self, heights):
+        """A form with a block merged over rows 1-3 of the two right columns and another over rows 3-5 of the two left
+        columns. The rows the right block starts in are as tall as the block when measured by their cells, so their middle
+        lay in row 3, where the left columns are merged: the form was split after row 2, 'r3c0' fell out as a paragraph
+        and the second table took a data row as its header."""
+        owner = [[(row, column) for column in range(4)] for row in range(7)]
+        for first, left in ((1, 2), (3, 0)):
+            for row in range(first, first + 3):
+                owner[row][left:left + 2] = [(first, left)] * 2
+        xs = [60, 160, 260, 360, 460]
+        ys = [740 - sum(heights[:index]) for index in range(8)]
+
+        def draw(pdf, index):
+            pdf.drawString(60, 780, "Application form")
+            for row in range(8):
+                for column in range(4):
+                    if 0 < row < 7 and owner[row - 1][column] == owner[row][column]:
+                        continue
+                    pdf.line(xs[column], ys[row], xs[column + 1], ys[row])
+            for column in range(5):
+                for row in range(7):
+                    if 0 < column < 4 and owner[row][column - 1] == owner[row][column]:
+                        continue
+                    pdf.line(xs[column], ys[row], xs[column], ys[row + 1])
+            for row in range(7):
+                for column in range(4):
+                    if owner[row][column] == (row, column):
+                        last = max(below for below in range(7) if owner[below][column] == (row, column))
+                        pdf.drawString(xs[column] + 4, (ys[row] + ys[last + 1]) / 2 - 3, f"Head{column}" if row == 0 else f"r{row}c{column}")
+            pdf.drawString(60, ys[-1] - 30, "End of the form.")
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("Application form\n\n| Head0 | Head1 | Head2 | Head3 |\n| --- | --- | --- | --- |\n"
+                               "| r1c0 | r1c1 | r1c2 | |\n| r2c0 | r2c1 | r1c2 | |\n| r3c0 | | | |\n| r3c0 | | r4c2 | r4c3 |\n"
+                               "| r3c0 | | r5c2 | r5c3 |\n| r6c0 | r6c1 | r6c2 | r6c3 |\n\nEnd of the form.")
+
 
 def _three_rule_statement(header_lines: list[tuple[float, list[tuple[float, str]]]], header_height: float = 30.0) -> bytes:
     """A three-rule table (financial statement) with horizontal rules only at the top, below the header and at the bottom. `header_lines` is a list
