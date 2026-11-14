@@ -200,6 +200,26 @@ class TestTooManyRules:
 
         assert not result.warnings
 
+    @pytest.mark.parametrize(("horizontals", "too_many"), [(2_000, False), (2_001, True)])
+    def test_rules_that_never_cross_are_bounded_by_their_pairs(self, horizontals, too_many):
+        """Horizontal rules stacked on the left and 2,000 vertical rules side by side on the right, none crossing another:
+        the finder still compares every horizontal rule with every vertical one, so more than 4,000,000 pairs
+        (`_MAX_RULE_PAIRS`) are too many although no crossing is counted."""
+        import pdfplumber
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(8_400, 8_300))
+        pdf.setLineWidth(0.3)
+        for index in range(horizontals):
+            pdf.line(40, 100 + 4 * index, 240, 100 + 4 * index)
+        for index in range(2_000):
+            pdf.line(300 + 4 * index, 20, 300 + 4 * index, 80)
+        pdf.save()
+
+        with pdfplumber.open(BytesIO(buffer.getvalue())) as document:
+            assert _pdf_ruled_tables._too_many_rules(document.pages[0]) is too_many
+
 
 def _staggered_grid_pdf(columns: int, rows: int, width: float = 12.0, height: float = 7.0) -> bytes:
     """A ruled table whose every cell spans two rows, the cells of neighbouring columns offset by one row, with a letter in
