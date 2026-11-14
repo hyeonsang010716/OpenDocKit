@@ -145,15 +145,24 @@ def extension_of(filename: str | None) -> str:
     return PurePath(filename).suffix.lower() if filename else ""
 
 
-def detect_format(data: bytes, filename: str | None = None) -> DocumentFormat:
+def detect_format(data: bytes | bytearray | memoryview, filename: str | None = None) -> DocumentFormat:
     """Detect the format. Raises a `ConversionError` carrying the reason if the file is unsupported, password-protected or
-    cannot be inspected.
+    cannot be inspected. Takes the same arguments as `convert`: content that is not bytes, bytearray or memoryview, or a
+    file name that is not a str, is a `TypeError` before anything is looked at — inside the boundary below a path string or
+    None was reported as a corrupted file, and a memoryview `convert` accepts was rejected (Pinned by:
+    test_detect.py::TestDetectionOnItsOwn::test_arguments_are_checked_like_those_of_convert).
 
     Detection opens ZIP and OLE containers, so a library exception can come out of it (an encrypted ZIP part is a
     `RuntimeError`, an unknown compression method a `NotImplementedError`). `convert` gathers those at its own boundary, but
     called on its own this function let them out with the library's wording (Pinned by:
     test_detect.py::TestDetectionOnItsOwn::test_container_that_cannot_be_inspected_is_a_conversion_error).
     """
+    if isinstance(data, (bytearray, memoryview)):
+        data = bytes(data)
+    elif not isinstance(data, bytes):
+        raise TypeError(f"detect_format takes the file content as bytes (got {type(data).__name__}).")
+    if filename is not None and not isinstance(filename, str):
+        raise TypeError(f"The file name must be a str (got {type(filename).__name__}).")
     try:
         return _detect(data, filename)
     except ConversionError:
