@@ -300,6 +300,68 @@ class TestSymbolsDrawnAfterTheirLine:
 
         assert result.text == expected
 
+    # A font whose '~' has no width, as a zero-width mark has in an embedded font.
+    _NO_WIDTH_FONT = (b"<< /Type /Font /Subtype /TrueType /BaseFont /Custom /Encoding /WinAnsiEncoding /FirstChar 32 /LastChar 255"
+                      b" /Widths [%s] /FontDescriptor << /Type /FontDescriptor /FontName /Custom /Flags 32 /Ascent 900"
+                      b" /Descent -200 /FontBBox [0 -200 1000 900] >> >>"
+                      % b" ".join(b"0" if code == 0x7E else b"556" for code in range(32, 256)))
+
+    def _letters_drawn_backwards(self, mark: bytes, as_pdf: bool = False) -> str | bytes:
+        """Text of a page (or the page itself) whose line 'Total amount due today' is drawn letter by letter, last to first,
+        followed by `mark` (operators drawing one more glyph before the line)."""
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+
+        from tests.test_pdf import _raw_pdf
+
+        x, placed = 72.0, []
+        for word in "Total amount due today".split():
+            placed.extend((x + stringWidth(word[:at], "Helvetica", 11), word[at]) for at in range(len(word)))
+            x += stringWidth(word + " ", "Helvetica", 11)
+        content = b"BT /F1 11 Tf " + b" ".join(b"1 0 0 1 %.2f 700 Tm (%s) Tj" % (left, letter.encode()) for left, letter in reversed(placed))
+        content += b" " + mark + b" ET"
+        data = _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                         3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 "
+                            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> /F2 "
+                            + self._NO_WIDTH_FONT + b" >> >> >>",
+                         4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content)})
+        return data if as_pdf else convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+    @pytest.mark.parametrize(("mark", "expected"), [
+        (b"1 0 0 1 66 700 Tm (\\177) Tj", "• Total amount due today"),  # the list bullet of reportlab: no width in pdfminer
+        (b"/F2 11 Tf 1 0 0 1 66 700 Tm (~) Tj", "~ Total amount due today"),  # a glyph whose font gives it the width 0
+    ])
+    def test_a_glyph_without_advance_does_not_keep_its_line_in_drawing_order(self, mark, expected):
+        """A glyph of no width moves the pen nowhere, so it tells no direction. It was taken for text running leftwards,
+        and the line it stood on — ordinary text whose letters were drawn last to first — stayed in drawing order:
+        'yadoteudtnuomalatoT•'."""
+        assert self._letters_drawn_backwards(mark) == expected
+
+    @pytest.mark.parametrize(("mark", "laid_in_x_order"), [(b"1 0 0 1 60 700 Tm (*) Tj", True), (b"0 1 -1 0 66 700 Tm (*) Tj", False)])
+    def test_a_piece_holding_a_glyph_turned_by_a_quarter_is_left_in_drawing_order(self, mark, laid_in_x_order):
+        """A glyph turned by 90° does not run along x: a piece holding one is not laid in x order, as it was not before
+        the direction was told by the advance. pdfminer puts such a glyph on a line of its own on the pages tried, so the
+        piece is put together here from the characters of the page."""
+        from pdfminer.high_level import extract_pages
+        from pdfminer.layout import LTChar, LTTextLineHorizontal
+
+        from opendockit.extractors._pdf_pieces import _late_symbols_in_place
+
+        def chars(node):
+            return [node] if isinstance(node, LTChar) else [char for child in getattr(node, "_objs", []) for char in chars(child)]
+
+        page = next(iter(extract_pages(BytesIO(self._letters_drawn_backwards(mark, as_pdf=True)))))
+        drawn = sorted(chars(page), key=lambda char: -char.x0)  # last letter first, the mark at the end
+        assert len(drawn) == 20
+        piece = LTTextLineHorizontal(0.1)
+        for char in drawn:
+            piece.add(char)
+
+        relaid = _late_symbols_in_place(piece, 0.1)
+
+        assert (relaid is not None) == laid_in_x_order
+        if relaid is not None:
+            assert relaid.get_text().strip() == "* Total amount due today"
+
 
 class TestEquationNumbers:
     """A centred equation and its equation number '(1)' at the right edge are lines beside each other, so an equation that had been read behind the

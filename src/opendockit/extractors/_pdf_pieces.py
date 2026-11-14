@@ -184,9 +184,14 @@ def _advances_leftwards(char: LTChar) -> bool:
     ordinary text there, and words separated by kerning instead of space glyphs were laid in x order, last word first
     ('Total amount due today' → 'yadot eud tnuoma latoT'; Pinned by:
     test_pdf_reading_order.py::TestSymbolsDrawnAfterTheirLine::test_text_running_leftwards_without_a_turned_matrix_is_not_reversed).
-    Both at once (negative size in a 180° matrix) run rightwards again. A glyph of no width moves nothing and tells no
-    direction: its line is left in drawing order, as text turned by 90° (a = 0) is."""
-    return char.matrix[0] * char.adv <= 0
+    Both at once (negative size in a 180° matrix) run rightwards again. Text turned by 90° (a = 0) does not run along x at all
+    and is left in drawing order whatever its advance (Pinned by:
+    test_a_piece_holding_a_glyph_turned_by_a_quarter_is_left_in_drawing_order). A glyph of no width moves nothing and tells no direction, so it does
+    not speak for its line: the list bullet of reportlab (code 7F of Helvetica, which pdfminer gives no width) or a zero-width
+    mark on an ordinary line whose letters were drawn last to first kept the whole line in drawing order
+    ('• Total amount due today' → 'yadoteudtnuomalatoT•'; Pinned by:
+    test_pdf_reading_order.py::TestSymbolsDrawnAfterTheirLine::test_a_glyph_without_advance_does_not_keep_its_line_in_drawing_order)."""
+    return char.matrix[0] == 0 or char.matrix[0] * char.adv < 0
 
 
 def _merged_overlapping_pieces(pieces: list[LTTextLineHorizontal], word_margin: float) -> tuple[list[LTTextLineHorizontal], bool]:
