@@ -3,6 +3,7 @@
 import asyncio
 from io import BytesIO
 from pathlib import Path
+import sys
 import zipfile
 
 import pytest
@@ -462,3 +463,82 @@ class TestInputTypes:
     def test_other_types_are_a_type_error_pointing_at_convert_file(self, value):
         with pytest.raises(TypeError, match="convert_file"):
             convert(value, "a.txt")
+
+
+class WritingPipe:
+    """A named pipe whose writer keeps sending `total` bytes until the reader closes it; `written` is what got through."""
+
+    def __init__(self, path: Path, total: int, content: bytes = b"a") -> None:
+        import os
+        import threading
+
+        os.mkfifo(path)
+        self.path, self.written = path, 0
+        self._thread = threading.Thread(target=self._write, args=(total, content), daemon=True)
+        self._thread.start()
+
+    def _write(self, total: int, content: bytes) -> None:
+        chunk = (content * (1024 * 1024 // len(content) + 1))[:1024 * 1024] if total > len(content) else content
+        try:
+            with open(self.path, "wb") as stream:
+                while self.written < total:
+                    piece = chunk[:total - self.written]
+                    stream.write(piece)
+                    self.written += len(piece)
+        except BrokenPipeError:   # the reader stopped reading and closed its end
+            pass
+
+    def finish(self) -> int:
+        self._thread.join(timeout=10)
+        return self.written
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="named pipes are POSIX")
+class TestReadingWithinTheSizeLimit:
+    """`convert_file` refused a file over `max_file_bytes` from the size the file system reports, which is 0 for a pipe or a
+    device: such a file was read to its end first (`opendockit /dev/zero` grew without bound). It is now read only up to the
+    limit."""
+
+    def test_pipe_is_read_only_up_to_the_size_limit(self, tmp_path):
+        pipe = WritingPipe(tmp_path / "upload.txt", total=64 * 1024 * 1024)
+
+        with pytest.raises(DocumentTooLargeError):
+            convert_file(pipe.path, ConvertOptions(max_file_bytes=1024))
+
+        assert pipe.finish() < 8 * 1024 * 1024, "the writer was cut off soon after the limit, not read to its end"
+
+    def test_pipe_within_the_limit_is_converted(self, tmp_path):
+        """Reading a pipe still works (`opendockit /dev/stdin`): only how much is read is bounded."""
+        pipe = WritingPipe(tmp_path / "note.txt", total=len("hello pipe"), content=b"hello pipe")
+
+        result = convert_file(pipe.path)
+
+        assert result.text == "hello pipe"
+        assert pipe.finish() == len("hello pipe")
+
+    def test_regular_file_is_read_whole_and_over_the_limit_is_refused(self, tmp_path):
+        path = tmp_path / "note.txt"
+        path.write_bytes(b"x" * 2048)
+
+        assert convert_file(path, ConvertOptions(max_file_bytes=2048)).text == "x" * 2048
+        with pytest.raises(DocumentTooLargeError):
+            convert_file(path, ConvertOptions(max_file_bytes=2047))
+
+    def test_reading_stops_one_byte_past_the_limit(self):
+        from opendockit.converter import read_limited
+
+        class Endless:
+            def __init__(self):
+                self.handed = 0
+
+            def read(self, size):
+                self.handed += size
+                return b"z" * size
+
+        stream = Endless()
+        data = read_limited(stream, 5 * 1024 * 1024)
+
+        assert len(data) == 5 * 1024 * 1024 + 1 and stream.handed == len(data)
+        assert read_limited(BytesIO(b"abc"), 10) == b"abc"
+        assert read_limited(BytesIO(b"abc"), 10, size_hint=3) == b"abc"
+        assert read_limited(BytesIO(b"abcdef"), 3, size_hint=2) == b"abcd"

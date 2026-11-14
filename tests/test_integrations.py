@@ -1,11 +1,13 @@
 """The LangChain loader / parser and the LlamaIndex reader (`opendockit.integrations`)."""
 
 from pathlib import Path
+import sys
 
 import pytest
 
-from opendockit import ConvertOptions, CorruptedDocumentError
+from opendockit import ConvertOptions, CorruptedDocumentError, DocumentTooLargeError
 from tests import builder
+from tests.test_converter import WritingPipe
 
 
 try:   # the adapters raise ImportError with the install command; `importorskip` skips only on ModuleNotFoundError
@@ -150,6 +152,37 @@ class TestLangChainLoader:
         assert documents[0].metadata["tenant"] == "acme" and documents[0].metadata["format"] == "pptx"
         assert documents[0].metadata["source"] == "uploads/quarterly.bin"
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="named pipes are POSIX")
+    def test_loader_reads_a_pipe_only_up_to_the_size_limit(self, tmp_path):
+        """The loader goes through `convert_file`, which reads a file without a reported size (a pipe) only up to
+        `max_file_bytes` instead of to its end."""
+        pipe = WritingPipe(tmp_path / "upload.txt", total=64 * 1024 * 1024)
+
+        with pytest.raises(DocumentTooLargeError):
+            langchain.OpenDocKitLoader(pipe.path, options=ConvertOptions(max_file_bytes=1024)).load()
+
+        assert pipe.finish() < 8 * 1024 * 1024
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="named pipes are POSIX")
+    def test_parser_reads_a_blob_only_up_to_the_size_limit(self, tmp_path):
+        """A blob backed by a file was read whole (`as_bytes`) before the size limit refused it."""
+        from langchain_core.document_loaders import Blob
+
+        pipe = WritingPipe(tmp_path / "upload.txt", total=64 * 1024 * 1024)
+
+        with pytest.raises(DocumentTooLargeError):
+            langchain.OpenDocKitParser(options=ConvertOptions(max_file_bytes=1024)).parse(Blob.from_path(pipe.path))
+
+        assert pipe.finish() < 8 * 1024 * 1024
+
+    def test_parser_reads_a_blob_of_text(self):
+        """A blob holding text (not bytes) is still read: only blobs backed by a file are streamed."""
+        from langchain_core.document_loaders import Blob
+
+        documents = langchain.OpenDocKitParser().parse(Blob.from_data("plain note", path="note.txt"))
+
+        assert [document.page_content for document in documents] == ["plain note"]
+
 
 class TestLlamaIndexReader:
     def test_load_data_gives_documents_with_the_same_pieces_as_the_loader(self, files):
@@ -202,3 +235,28 @@ class TestLlamaIndexReader:
         reader = llama_index.OpenDocKitReader(mode="sections")
 
         assert [d.text for d in reader.lazy_load_data(files["book.xlsx"])] == [d.text for d in reader.load_data(files["book.xlsx"])]
+
+    def test_file_from_a_file_system_is_read_only_up_to_the_size_limit(self):
+        """Read through `fs.open(...).read()`, a file over `max_file_bytes` was held in memory whole before it was refused."""
+        class Endless:
+            handed = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self, size=-1):
+                assert size >= 0, "never read to the end"
+                Endless.handed += size
+                return b"a" * size
+
+        class FileSystem:
+            def open(self, path, mode):
+                return Endless()
+
+        with pytest.raises(DocumentTooLargeError):
+            llama_index.OpenDocKitReader(options=ConvertOptions(max_file_bytes=1024)).load_data("bucket/upload.txt", fs=FileSystem())
+
+        assert Endless.handed == 1025

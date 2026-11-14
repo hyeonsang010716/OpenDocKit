@@ -72,7 +72,7 @@ async def upload(file: UploadFile):
 - When the time or memory limit is exceeded, or the worker dies, only that file ends with `DocumentTooLargeError` (`document_too_large`, message `TOO_COMPLEX_MESSAGE`: the document is too large or too complex to convert). The server and the next file are unaffected. When the request is cancelled (client disconnect), that worker is terminated too.
 - A new worker is started for every file (a few ms, because the package is preloaded in the forkserver). No memory is left behind after a large document. Plain `fork` is not used: a server process runs database-driver and asyncio threads, and a forked child can hang.
 - `workers` is the number of files converted at the same time. Further files wait until a slot is free. Memory use is at most `workers × 2 GB` (multiplied again by the number of uvicorn workers, if you run several).
-- The upload size check (`max_file_bytes`) happens after the file has been received into memory, so limit the request size earlier, at the reverse proxy or endpoint.
+- The upload size check (`max_file_bytes`) happens after the file has been received into memory, so limit the request size earlier, at the reverse proxy or endpoint. `IsolatedConverter.convert` makes that check (and the empty-file check) in the server process, so a file over the limit is not copied into a worker first.
 - Image description is sent by the server's event loop, outside the time limit (it is network waiting, so a long duration is normal). It takes seconds to tens of seconds, so rather than making the upload response wait, run it as a background task. To add descriptions later, convert without a `describer`, store the result, and call `await describe_images(result, describer)` separately.
 - An `OpenAIImageDescriber()` created without a model builds a separate httpx client per event loop. A worker that calls `asyncio.run` several times should close that loop's client with `await describer.aclose()` before the loop ends. A server that keeps using one loop does not need this.
 - `aconvert(..., executor=...)` is for scripts and batch jobs, where a bad file is acceptable.
@@ -115,10 +115,11 @@ Known accepted gap: for a DOCX with a large empty XML, lxml reports running out 
 
 ### What the limits cannot stop
 
-Both of the following happen outside the worker, in the main process. They do not occur with normal documents, only with crafted image files, so they are to be fixed in the library before opening a public service where anyone can upload.
+The following happens outside the worker, in the main process. It does not occur with normal documents, only with crafted image files, so it is to be fixed in the library before opening a public service where anyone can upload.
 
 - **Memory when the conversion result is copied to the main process.** The result (including images) crosses to the main process by pickle, and the main process uses about 2.2 times the total image size (a result with 2.4 GB of images cost the main process 5.3 GB). Even within the 2 GB worker limit, 1.5–2 GB may appear in the main process (estimate). For normal documents, even a 50 MB scanned PDF has 134–141 MB of images in total. Where to fix: a limit on the total bytes of result images.
-- **CPU in the image description step.** Each time a picture is judged decorative (SKIP), the whole text is assembled again; in a document just under the limit, 10,000 pictures block the event loop (including chat responses) for 245 s. Real documents have tens of pictures, which takes under 1 s. Where to fix: make `converter.image_length_bound` return 0 for decorative pictures.
+
+Fixed: **CPU in the image description step.** Each picture judged decorative (SKIP) used to use up headroom of the limit check as if it had added three characters, so in a document just under the limit the whole text was assembled again every few pictures (10,000 pictures blocked the event loop for 245 s). An erased picture now counts as adding nothing (`converter.image_length_bound` returns 0 for it), and description assembles the document only when a picture that really adds text uses the headroom up.
 
 **Legacy `.doc` and `.ppt`.** These start LibreOffice from inside the worker, with its own fixed limit of 60 seconds — below
 the 2-minute default, so the conversion normally ends with its own `document_too_large` error. If you set `timeout` below

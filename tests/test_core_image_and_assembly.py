@@ -185,3 +185,36 @@ class TestTallPictures:
         assert len(urls) == len(image.tiles)
         assert urls[0].endswith(base64.b64encode(image.tiles[0]).decode())
         assert "tile(s)" in parts[0]["text"]
+
+
+class TestDecorativeAnswersNearTheLimit:
+    """A picture judged decorative (SKIP, no alt text) is erased and adds nothing, so it must not use up the headroom of the
+    limit check during description. Counted as 3 characters, it made `describe_images` assemble the whole document again every
+    few pictures when the text was just under the limit — quadratic in the number of pictures, on the event loop."""
+
+    def test_skip_answers_do_not_make_description_assemble_the_document_again(self, monkeypatch):
+        import asyncio
+
+        from opendockit import describe
+        from opendockit.describe import describe_images
+
+        parts = [f"<p>paragraph {index}</p><img src='data:image/png;base64,"
+                 + base64.b64encode(builder.png_bytes(width=200 + index, seed=index % 20)).decode() + "'>" for index in range(200)]
+        html = ("<html><body>" + "".join(parts) + "</body></html>").encode()
+        body = len(convert(html, "a.html", ConvertOptions(max_chars=None, extract_images=False)).text)
+        result = convert(html, "a.html", ConvertOptions(max_chars=body + 10))
+        assert len(result.images) == 200
+
+        class Skip:
+            async def describe(self, image):
+                return "SKIP"
+
+        renders = []
+        original = describe.render
+        monkeypatch.setattr(describe, "render", lambda result: renders.append(1) or original(result))
+
+        described = asyncio.run(describe_images(result, Skip()))
+
+        assert not described.exceeded and described.char_count == body
+        assert all(image.decorative for image in described.images)
+        assert len(renders) <= 3, "the floor once at the start and the final assembly; not once every few pictures"
