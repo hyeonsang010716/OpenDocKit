@@ -295,14 +295,17 @@ def _piece_joints(pieces: list[LTTextLineHorizontal]) -> dict[int, int]:
     Pieces that start within one space width (`_PIECE_SPACE_GAP_RATIO`) of where the previous piece ended (`_piece_ends`) are the
     candidates, and `_continues_piece` decides whether to join.
     """
-    edges = [_edge_chars(piece) for piece in pieces]
+    # A piece or edge character with a coordinate that is not a finite number joins nothing — rounding it raised ValueError and
+    # the whole document was reported corrupted (Pinned by: test_audit_pdf_text.py::TestCharactersAtNonFinitePositions)
+    edges = [edge if edge is not None and _finite_piece(piece, edge) else None
+             for piece, edge in ((piece, _edge_chars(piece)) for piece in pieces)]
     starts: dict[tuple[int, int], list[int]] = {}  # (start x, height band) — same-column pieces of other rows are skipped (thousands of table cells)
     spaces: dict[int, list[LTTextLineHorizontal]] = {}
     for index, piece in enumerate(pieces):
         if edges[index] is not None:
             for x in {round(piece.x0), round(edges[index][0].x0)}:
                 starts.setdefault((x, math.floor(piece.y0 / _PIECE_BAND)), []).append(index)
-        elif _space_piece(piece):
+        elif _space_piece(piece) and all(math.isfinite(value) for value in piece.bbox):
             spaces.setdefault(round(piece.x0), []).append(piece)
 
     # height band → the start x values in that band (sorted). Scanning integer x over a space width never finished at character size 1e9
@@ -329,6 +332,11 @@ def _piece_joints(pieces: list[LTTextLineHorizontal]) -> dict[int, int]:
             following[index] = other
             taken.add(other)
     return following
+
+
+def _finite_piece(piece: LTTextLineHorizontal, edge: tuple[LTChar, LTChar]) -> bool:
+    """Whether the piece box and its two edge characters have finite coordinates (and a finite size)."""
+    return all(math.isfinite(value) for value in (*piece.bbox, *edge[0].bbox, *edge[1].bbox, edge[0].size, edge[1].size))
 
 
 def _starts_between(columns: dict[int, list[int]], bands: tuple[int, ...], low: int, high: int) -> list[int]:

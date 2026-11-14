@@ -45,6 +45,7 @@ import time
 from pdfminer.pdftypes import (
     resolve1,
 )
+from pdfminer.utils import INF as _LAYOUT_INF
 import pdfplumber
 from pdfplumber.utils.exceptions import PdfminerException
 import pypdfium2 as pdfium
@@ -333,10 +334,15 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                         break
 
                 # A page with few characters, such as a cover or table of contents, cannot determine the character width on its
-                # own. If a later page determined it, only those pages are read again.
+                # own. If a later page determined it, only those pages are read again — while the time budget lasts: past it a
+                # page keeps its first reading (its words placed without spaces stay joined). Re-reading ignored the budget, so
+                # every pending page was analysed a second time after the budget had sent the remaining pages to plain
+                # extraction (Pinned by: test_audit_pdf_text.py::TestPendingPagesAfterTheTimeBudget).
                 for index, read in enumerate(pages):
                     if placement_fit is None or not read.placement_pending or extraction.exceeded:
                         continue
+                    if options.pdf_time_budget is not None and time.perf_counter() - started > options.pdf_time_budget:
+                        break
                     page = (ungrouped if read.number in dense | grids else pdf).pages[read.number - 1]
                     try:
                         pages[index] = _read_page(page, placement_fit)
@@ -548,6 +554,10 @@ def _countable_chars(page: _Page, tally: _EdgeTally | None = None) -> int:
     document whose result is 2,741 characters was rejected as over a limit of 8,223 characters
     (Pinned by: test_pdf_toc_and_checkboxes.py::
     TestDotLeaderPageNumbers::test_long_dot_leaders_do_not_count_against_the_limit_before_they_are_shortened).
+
+    Text read sideways (`page.sideways`) and form values (`page.form_values`) are counted too — both are always written at the end
+    of the page. Left out, a document whose text is all rotated by 90 degrees was analysed page after page far beyond the limit
+    until the time budget stopped it (Pinned by: test_audit_pdf_text.py::TestLimitCountsSidewaysTextAndFormValues).
     """
     lines = page.lines
     if not page.simple:
@@ -558,7 +568,8 @@ def _countable_chars(page: _Page, tally: _EdgeTally | None = None) -> int:
         if tally is not None:
             lines.extend(tally.unrepeatable(page.number, rim))
     return sum(solid_length(_LEADER_DOTS.sub("", _CID.sub("", text)))
-               for text in [*(line.text for line in lines), *(table.text for table in page.tables)])
+               for text in [*(line.text for line in lines), *(table.text for table in page.tables), *page.sideways,
+                            *page.form_values])
 
 
 def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
@@ -806,6 +817,12 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
         if not text:
             continue
         spot = (line["x0"], line["x1"], line["top"], line["bottom"])
+        if not all(abs(value) < _LAYOUT_INF for value in spot):
+            # A line whose characters sit at a position that is not a finite number (a text matrix overflowing to infinity) is
+            # drawn nowhere; pdfminer gives it its 'infinite' box (2**31 - 1). Its characters are already dropped as outside the
+            # view, but the layout line kept their text and every copy came out as a body line (Pinned by:
+            # test_audit_pdf_text.py::TestCharactersAtNonFinitePositions). No page reaches that far (14,400pt × UserUnit 75,000).
+            continue
         in_table = in_cells(line)
         if spot in in_place and not in_table:
             prepared.append((line, owner, text, in_place[spot]))

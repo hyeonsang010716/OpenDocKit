@@ -1,6 +1,8 @@
 """The text of a run of characters: characters laid left to right with the spaces their gaps stand for, letter-spaced words
 closed up, and superscripts and subscripts marked."""
 
+from bisect import bisect_left, bisect_right
+import math
 import re
 import statistics
 
@@ -141,26 +143,57 @@ def _gap_parts(chars: list[dict], text: str, size: float, unspaced: float | None
     more apart. With `unspaced`, also split where there is no space character yet the gap is that multiple or more (Chrome table cell
     padding 0.75x — between words there is a space character. Between a number and a number from `_NUMBER_GAP_RATIO` times). An
     empty tuple when there is no such gap or when the joined split text differs from the line text (`text`) (script marks,
-    overlapping copies, lines in a different order)."""
+    overlapping copies, lines in a different order).
+
+    The space characters are looked up by binary search on their sorted x0 (`_SpaceStarts`). Scanning them all for every gap and
+    every piece took 36 seconds for one 659-byte line of 16,000 letter-spaced words (Pinned by:
+    test_audit_pdf_text.py::TestLongLetterSpacedLine)."""
     glyphs = sorted((char for char in chars if char["text"].strip()), key=lambda char: char["x0"])
     if len(glyphs) < 2 or size <= 0:
         return ()
-    spaces = [char for char in chars if not char["text"].strip()]
+    spaces = _SpaceStarts([char for char in chars if not char["text"].strip()])
 
     groups = [[glyphs[0]]]
     for previous, char in zip(glyphs, glyphs[1:], strict=False):
         gap = char["x0"] - previous["x1"]
         wide = unspaced is not None and (gap >= size * unspaced or (
             gap >= size * _NUMBER_GAP_RATIO and _NUMBER_EDGE.match(previous["text"]) and _NUMBER_START.match(char["text"])))
-        if gap >= size * _CELL_GAP_RATIO or (wide and not any(previous["x0"] < space["x0"] < char["x1"] for space in spaces)):
+        if gap >= size * _CELL_GAP_RATIO or (wide and not spaces.any_between(previous["x0"], char["x1"])):
             groups.append([])
         groups[-1].append(char)
     if len(groups) < 2:
         return ()
     parts = tuple((group[0]["x0"], max(char["x1"] for char in group),
-                   _drawn_text(_text_from_chars([*group, *(space for space in spaces if group[0]["x0"] < space["x0"] < group[-1]["x1"])])))
+                   _drawn_text(_text_from_chars([*group, *spaces.between(group[0]["x0"], group[-1]["x1"])])))
                   for group in groups)
     return parts if " ".join(part[2] for part in parts) == text else ()
+
+
+class _SpaceStarts:
+    """The space characters of a line indexed by x0, answering 'which start strictly between a and b' (in their original order,
+    as a scan gives them). With an x0 that is not a finite number the list is scanned as before — such a value has no place in the
+    order."""
+
+    def __init__(self, spaces: list[dict]) -> None:
+        self._spaces = spaces
+        self._sorted = all(math.isfinite(space["x0"]) for space in spaces)
+        if self._sorted:
+            self._order = sorted(range(len(spaces)), key=lambda index: spaces[index]["x0"])
+            self._starts = [spaces[index]["x0"] for index in self._order]
+
+    def between(self, low: float, high: float) -> list[dict]:
+        if not self._sorted:
+            return [space for space in self._spaces if low < space["x0"] < high]
+        if not low < high:
+            return []
+        found = sorted(self._order[bisect_right(self._starts, low):bisect_left(self._starts, high)])
+        return [self._spaces[index] for index in found]
+
+    def any_between(self, low: float, high: float) -> bool:
+        if not self._sorted:
+            return any(low < space["x0"] < high for space in self._spaces)
+        index = bisect_right(self._starts, low)
+        return index < len(self._starts) and self._starts[index] < high
 
 
 def _scripted_text(chars: list[dict], line_text: str) -> str | None:

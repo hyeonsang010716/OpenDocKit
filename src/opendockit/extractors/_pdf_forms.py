@@ -1,14 +1,20 @@
 """What is not in the page content: the values of a fillable form (AcroForm), free-text annotations and attached files."""
 
 
+from bisect import bisect_left, bisect_right
+import math
+
 from pdfminer.pdftypes import (
     resolve1,
 )
+from pdfminer.utils import apply_matrix_pt
 
 from opendockit.extractors._pdf_model import _info_text, _Line
 
 
 _ATTACHMENT_TREE_NODES = 10_000  # number of nodes to look at in the attachment name tree
+# Candidate body lines a page may look at in all while finding the labels of its FreeText annotations (`_LinesBeside`).
+_LABEL_SEARCH_WORK = 2_000_000
 
 
 # Form field flags (/Ff): password field (bit 14), radio (bit 16), push button (bit 17). Maximum number of levels to follow
@@ -45,6 +51,7 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
     """
     try:
         placed = []
+        beside: _LinesBeside | None = None  # built on the first FreeText annotation
         for reference in resolve1(page.page_obj.annots) or []:
             # One annotation that cannot be read (a `/Rect` holding something that is not a number) is skipped on its own — it
             # used to drop the values of every other field of the page. The numbers of `/Rect` may be indirect objects
@@ -57,7 +64,9 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
                     continue
                 x0, x1 = sorted(float(resolve1(value)) for value in rect[0::2])
                 low, high = sorted(float(resolve1(value)) for value in rect[1::2])
-                text = _field_text(widget) if subtype == "Widget" else _free_text(page, widget, (x0, low, x1, high), lines)
+                if subtype == "FreeText" and beside is None:
+                    beside = _LinesBeside(lines)
+                text = _field_text(widget) if subtype == "Widget" else _free_text(page, widget, (x0, low, x1, high), beside)
                 if text:
                     placed.append((-high, x0, text))
             except Exception:  # noqa: BLE001 — the other annotations of the page are still read
@@ -67,25 +76,86 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
         return []
 
 
-def _free_text(page: object, annotation: dict, rect: tuple[float, float, float, float], lines: list[_Line]) -> str | None:
+def _free_text(page: object, annotation: dict, rect: tuple[float, float, float, float], lines: "_LinesBeside") -> str | None:
     """Text of a FreeText annotation. Among the body lines on the same row (vertical overlap of at least half the height of the
     shorter one) that end before the left edge of the annotation box, the nearest one is attached as the label ('Name:' →
-    'Name: value'). None for a hidden annotation (`/F` bit 2)."""
+    'Name: value'). None for a hidden annotation (`/F` bit 2).
+
+    The annotation box is in PDF user space; it is moved into the coordinates of the page's lines the way pdfminer and pdfplumber
+    move characters (`_page_box`). Measured from the paper's top edge, the box missed its label on every page whose MediaBox does
+    not start at 0,0 or that is rotated (Pinned by: test_audit_pdf_text.py::TestFreeTextLabelsOnShiftedAndRotatedPages)."""
     flags = resolve1(annotation.get("F"))
     value = " ".join(_field_string(resolve1(annotation.get("Contents"))).split())
     if not value or (isinstance(flags, int) and flags & 2):
         return None
-    left, page_top = float(page.mediabox[0]), float(page.mediabox[3])
-    x0, top, bottom = rect[0] - left, page_top - rect[3], page_top - rect[1]
-
-    def beside(line: _Line) -> bool:
-        overlap = min(line.bottom, bottom) - max(line.top, top)
-        return line.x1 <= x0 + 1 and overlap >= min(line.height, bottom - top) / 2
-
-    label = max((line for line in lines if beside(line)), key=lambda line: line.x1, default=None)
+    box = _page_box(page, rect)
+    label = lines.label(*box) if box is not None else None
     if label is None:
         return value
     return f"{label.text.rstrip(': ')}: {value}"
+
+
+def _page_box(page: object, rect: tuple[float, float, float, float]) -> tuple[float, float, float] | None:
+    """(left, top, bottom) of the user-space box `rect` (x0, y0, x1, y1) in the coordinates of the page's characters: pdfminer's
+    page matrix (MediaBox origin and `/Rotate`), then pdfplumber's flip with its MediaBox offset. None if the page box cannot be
+    read."""
+    box = page.page_obj.mediabox
+    if not (isinstance(box, list | tuple) and len(box) == 4 and all(isinstance(value, int | float) for value in box)):
+        return None
+    x0, y0, x1, y1 = (float(value) for value in box)
+    rotate = page.page_obj.rotate
+    matrix = ((0, -1, 1, 0, -y0, x1) if rotate == 90 else (-1, 0, 0, -1, x1, y1) if rotate == 180
+              else (0, 1, -1, 0, y1, -x0) if rotate == 270 else (1, 0, 0, 1, -x0, -y0))
+    corners = [apply_matrix_pt(matrix, point) for point in ((rect[0], rect[1]), (rect[2], rect[3]))]
+    left, top = float(page.mediabox[0]), float(page.mediabox[1])
+    height = float(page.height)
+    return (min(x for x, _ in corners) + left, height - max(y for _, y in corners) + top,
+            height - min(y for _, y in corners) + top)
+
+
+class _LinesBeside:
+    """Index of a page's body lines by top edge, for finding the label of a FreeText annotation (`_free_text`). `label` gives
+    exactly what scanning every line gives (the first line, in page order, with the largest right edge among those beside the
+    box) — until the page has looked at `_LABEL_SEARCH_WORK` candidate lines in all; after that the remaining annotations get
+    no label (their values still come out, without 'label: ').
+
+    Every annotation scanned every line, so a 38KB PDF with 200,000 FreeText annotations over 1,800 lines took 52 seconds inside
+    one page, where the time budget never looks. The index alone does not help when the boxes are as tall as the page (every
+    line is a candidate), hence the work bound; a page of real annotations looks at a few lines each (Pinned by:
+    test_audit_pdf_text.py::TestManyFreeTextAnnotations). Lines taller than `_TALL` pt or with coordinates that are not finite
+    numbers are kept aside and always looked at."""
+
+    _TALL = 64.0
+
+    def __init__(self, lines: list[_Line]) -> None:
+        self._lines = lines
+        self._work = _LABEL_SEARCH_WORK
+        short = []
+        self._tall = []
+        for index, line in enumerate(lines):
+            if math.isfinite(line.top) and math.isfinite(line.bottom) and line.bottom - line.top <= self._TALL:
+                short.append((line.top, index))
+            else:
+                self._tall.append(index)
+        short.sort()
+        self._tops = [top for top, _ in short]
+        self._order = [index for _, index in short]
+
+    def label(self, x0: float, top: float, bottom: float) -> _Line | None:
+        def beside(line: _Line) -> bool:
+            overlap = min(line.bottom, bottom) - max(line.top, top)
+            return line.x1 <= x0 + 1 and overlap >= min(line.height, bottom - top) / 2
+
+        # A line beside the box overlaps it (overlap ≥ 0), so it starts at most at the box bottom and, being short, at most
+        # `_TALL` above the box top
+        start, end = bisect_left(self._tops, top - self._TALL), bisect_right(self._tops, bottom)
+        if end - start + len(self._tall) > self._work:
+            self._work = 0
+            return None
+        self._work -= end - start + len(self._tall)
+        candidates = sorted([*self._order[start:end], *self._tall])
+        return max((self._lines[index] for index in candidates if beside(self._lines[index])),
+                   key=lambda line: line.x1, default=None)
 
 
 def _field_text(widget: dict) -> str | None:

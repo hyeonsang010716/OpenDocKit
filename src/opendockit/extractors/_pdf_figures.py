@@ -63,6 +63,12 @@ def _figure_boxes(page: object, view: tuple[float, float, float, float]) -> list
     """Display areas of the images on the page (pt, clipped to the visible area and the clip region) and their native resolution
     scale. Icon-sized ones are discarded, and images drawn on top of each other at the same position count as one."""
     clips = _image_clips(page) if page.images else []
+    # pdfplumber moves x by the MediaBox's left edge and leaves y0/y1 in pdfminer's page coordinates, so the recorded boxes and
+    # clips are moved the same way. Left in pdfminer's x, no clip matched its picture on a page whose MediaBox does not start at
+    # x = 0 and the clipping was silently lost (Pinned by: test_audit_pdf_text.py::TestClipWithOffsetMediaBox).
+    shift = float(page.mediabox[0])
+    if shift:
+        clips = [(_shifted(box, shift), None if clip is None else _shifted(clip, shift)) for box, clip in clips]
     shown = []
     for image in page.images:
         x0, top = max(image["x0"], view[0]), max(image["top"], view[1])
@@ -84,6 +90,10 @@ def _figure_boxes(page: object, view: tuple[float, float, float, float]) -> list
         key = (round(x0), round(top), round(x1), round(bottom))
         boxes[key] = (x0, top, x1, bottom, max(native, boxes.get(key, (0, 0, 0, 0, 0.0))[4]))
     return sorted(boxes.values(), key=lambda box: (box[1], box[0]))
+
+
+def _shifted(box: tuple[float, float, float, float], dx: float) -> tuple[float, float, float, float]:
+    return (box[0] + dx, box[1], box[2] + dx, box[3])
 
 
 class _ClipRecorder(PDFDevice):
