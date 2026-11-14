@@ -86,6 +86,43 @@ class TestCalendarLinesFoldedInsideACharacter:
 _ARTICLE = "<article><h1>2024 하반기 채용 공고</h1><p>모집 분야: 백엔드 개발</p><p>접수 기간: 10월 1일 ~ 10월 31일</p></article>"
 
 
+class TestAriaHiddenPreviewInAMailPart:
+    """An aria-hidden child of body that holds at least half of the document text is kept: on a saved page it is the app root
+    under a modal. Each body part of a mail is a document of its own, so the hidden preview text of a forwarded body — longer
+    than the one visible line under it — was 'half' of its part and came out. In a mail it stays only when the part has no
+    other text."""
+
+    _PREVIEW = "<div aria-hidden='true'>hidden preview text, longer than the visible text</div>"
+
+    @staticmethod
+    def _forwarding(inner: str) -> bytes:
+        return ("Subject: outer\r\nFrom: a@b.c\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+                "--B\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>outer body text</p>\r\n"
+                "--B\r\nContent-Type: message/rfc822\r\n\r\nSubject: inner\r\nFrom: a@b.c\r\nMIME-Version: 1.0\r\n"
+                f"Content-Type: text/html; charset=utf-8\r\n\r\n<html><body>{inner}</body></html>\r\n\r\n--B--\r\n").encode()
+
+    def test_hidden_preview_of_a_forwarded_body_stays_hidden(self):
+        result = convert(self._forwarding(f"{self._PREVIEW}<p>short</p>"), "m.eml")
+
+        assert result.text.endswith("Subject: inner\nFrom: a@b.c\n\nshort")
+
+    def test_hidden_preview_of_a_mail_with_one_html_body_stays_hidden(self):
+        data = ("Subject: news\r\nFrom: a@b.c\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+                f"<html><body>{self._PREVIEW}<p>short</p></body></html>\r\n").encode()
+
+        assert convert(data, "m.eml").text == "Subject: news\nFrom: a@b.c\n\nshort"
+
+    def test_aria_hidden_block_that_is_the_whole_part_is_kept(self):
+        result = convert(self._forwarding("<div aria-hidden='true'><p>the whole body of the mail</p></div>"), "m.eml")
+
+        assert result.text.endswith("Subject: inner\nFrom: a@b.c\n\nthe whole body of the mail")
+
+    def test_saved_page_keeps_the_block_that_holds_half_of_its_text(self):
+        html = f"<html><body>{self._PREVIEW}<p>short</p></body></html>"
+
+        assert convert(html.encode(), "saved.html").text == "hidden preview text, longer than the visible text\n\nshort"
+
+
 class TestAriaHiddenAppRootUnderAModal:
     """react-modal and MUI put `aria-hidden="true"` on the app root (`#root`, `#__next`) while a modal is open. A page saved in that
     state had its whole body removed as a hidden element, leaving only the text of the cookie notice modal. An aria-hidden element

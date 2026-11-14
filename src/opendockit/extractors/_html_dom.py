@@ -1336,7 +1336,7 @@ def _hidden_by_style(tag: Tag) -> bool:
     return tag.attrs is not None and (tag.has_attr("hidden") or bool(_HIDDEN_STYLE.search(str(tag.get("style", "")))))
 
 
-def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool = True) -> None:
+def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool = True, mail: bool = False) -> None:
     """Remove hidden elements: first `hidden`, `display:none` and `visibility:hidden` (folded answers in `kept` stay), then those
     `aria-hidden="true"` elements that do not hold the main content.
 
@@ -1348,6 +1348,11 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     glyphs and cloned slides are removed. 'Half' is measured on the text after hidden elements are removed — counting the text of a hidden
     terms-of-service layer too got the app root removed. Elements holding the content are collected by climbing up just once from each
     content element, and the body text is measured only once — re-measuring for every aria-hidden element took 47 seconds on 468KB.
+
+    A body part of a mail (`mail`) is not an app under a modal: there an aria-hidden child of body stays only when it holds all
+    the text of the part. Each part is measured on its own now, and the hidden preview text of a forwarded body, longer than
+    the one visible line under it, was 'half of the document' and came out
+    (Pinned by: test_core_html_mail_hidden_and_frames.py::TestAriaHiddenPreviewInAMailPart).
     """
     _decompose_all(_hidden_nodes(soup, [tag for tag in soup.find_all(_hidden_by_style) if id(tag) not in kept]))
 
@@ -1357,8 +1362,9 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     holders = _content_holders(soup)
     body = soup.body
     page = max(_solid_length(body), 1) if body is not None else 1
+    share = 1 if mail else 2  # the part of the document text a child of body has to hold to stay: all of it, or half
     _decompose_all([tag for tag in marked if id(tag) not in holders
-                    and not (whole and body is not None and tag.parent is body and 2 * _solid_length(tag) >= page)])
+                    and not (whole and body is not None and tag.parent is body and share * _solid_length(tag) >= page)])
 
 
 def _hidden_nodes(soup: BeautifulSoup, hidden: list[Tag]) -> list[PageElement]:
