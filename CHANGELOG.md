@@ -61,7 +61,8 @@ A third review of the whole source. The sample outputs in `examples/` are unchan
 - **ODF**: `text:numbered-paragraph` keeps its label. **Equations**: a backslash, caret or tilde in Hancom equation text
   is valid inside `\text{}`.
 - **Pictures**: Pillow warnings no longer leak (a readable picture was rejected when warnings are errors); PA and other
-  alpha modes stay transparent; scanned pages left out by `max_images` are named in the warnings.
+  alpha modes stay transparent; scanned pages left out by `max_images` are named in the warnings, and PDF pages past the
+  render budget are no longer said to be handed over as images.
 
 ### Changed
 
