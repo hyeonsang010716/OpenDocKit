@@ -273,7 +273,7 @@ class TestHugeNumbersInOfficeDocuments:
     # could not be written with `str()`: the document was rejected as corrupted. 4,299 digits gained no digit and passed.
     @pytest.mark.parametrize("length", [4299, 4300])
     @pytest.mark.parametrize("where", ["start", "startOverride"])
-    def test_docx_start_number_too_large_for_word_is_the_default(self, length, where):
+    def test_docx_start_number_of_thousands_of_digits_is_the_default(self, length, where):
         big = "9" * length
         start = big if where == "start" else "1"
         override = f'<w:lvlOverride w:ilvl="0"><w:startOverride w:val="{big}"/></w:lvlOverride>' if where == "startOverride" else ""
@@ -287,19 +287,37 @@ class TestHugeNumbersInOfficeDocuments:
         assert result.text == "1. 항목\n2. 항목"
 
     @pytest.mark.parametrize("length", [4299, 4300])
-    def test_pptx_start_number_too_large_for_powerpoint_is_the_default(self, length):
+    def test_pptx_start_number_of_thousands_of_digits_is_the_default(self, length):
         data = builder.zip_with(_pptx_with_text_boxes("항목"), edit={
             "ppt/slides/slide1.xml": lambda xml: xml.replace(
                 "<a:p><a:r>", f'<a:p><a:pPr><a:buAutoNum type="arabicPeriod" startAt="{"9" * length}"/></a:pPr><a:r>', 1)})
 
         assert _slide_body(data) == "1. 항목"
 
-    def test_docx_start_number_at_the_word_maximum_is_kept(self):
-        numbering = ('<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="32767"/><w:numFmt w:val="decimal"/>'
-                     '<w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>')
+    @pytest.mark.parametrize(("start", "first", "second"), [
+        ("32767", "32767", "32768"), ("40000", "40000", "40001"), ("2147483647", "2147483647", "2147483648"),
+        ("2147483648", "1", "2"), ("99999999999", "1", "2"),
+    ])
+    @pytest.mark.parametrize("where", ["start", "startOverride"])
+    def test_start_number_past_what_word_lets_a_user_type_is_kept(self, start, first, second, where):
+        """The bound that keeps a number of thousands of digits out is on its width (ten digits, a signed 32-bit integer), not
+        Word's 32,767: a list written to start at 40000 read '1. 2.'."""
+        level_start = start if where == "start" else "1"
+        override = f'<w:lvlOverride w:ilvl="0"><w:startOverride w:val="{start}"/></w:lvlOverride>' if where == "startOverride" else ""
+        numbering = (f'<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="{level_start}"/>'
+                     '<w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum>'
+                     f'<w:num w:numId="1"><w:abstractNumId w:val="0"/>{override}</w:num>')
         item = '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>' + _run("항목") + "</w:p>"
 
-        assert convert(_docx_with_body(item * 2, numbering=numbering), "a.docx").text == "32767. 항목\n32768. 항목"
+        assert convert(_docx_with_body(item * 2, numbering=numbering), "a.docx").text == f"{first}. 항목\n{second}. 항목"
+
+    @pytest.mark.parametrize(("start", "shown"), [("40000", "40000"), ("2147483648", "1")])
+    def test_pptx_start_number_past_what_powerpoint_lets_a_user_type_is_kept(self, start, shown):
+        data = builder.zip_with(_pptx_with_text_boxes("항목"), edit={
+            "ppt/slides/slide1.xml": lambda xml: xml.replace(
+                "<a:p><a:r>", f'<a:p><a:pPr><a:buAutoNum type="arabicPeriod" startAt="{start}"/></a:pPr><a:r>', 1)})
+
+        assert _slide_body(data) == f"{shown}. 항목"
 
     @pytest.mark.parametrize("length", [4299, 4300])
     def test_chart_point_index_past_the_unsigned_range_is_left_out(self, length):

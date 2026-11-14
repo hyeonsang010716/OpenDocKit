@@ -862,7 +862,7 @@ def _auto_number(number: int, scheme: str) -> str:
     """One auto number: 'arabicPeriod' → '3.', 'alphaLcParenR' → 'c)', 'circleNumDbPlain' → '③'."""
     shape = next((shape for prefix, shape in _AUTO_NUMBER_KINDS if scheme.startswith(prefix)), "DIGIT")
     if shape == "BLACK_CIRCLED_DIGIT":
-        digits = _BLACK_CIRCLED[number - 1] if 1 <= number <= len(_BLACK_CIRCLED) else format_number(number, "DIGIT")
+        digits = _BLACK_CIRCLED[number - 1] if 1 <= number <= len(_BLACK_CIRCLED) else str(number)
     else:
         digits = format_number(number, shape)
     template = next((template for suffix, template in _AUTO_NUMBER_DECORATIONS if scheme.endswith(suffix)), "{}")

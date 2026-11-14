@@ -14,17 +14,19 @@ from opendockit.models import IMAGE_MARKER
 # Upper bound for list indent levels (PowerPoint and Word use 0-8)
 # (Pinned by: test_office.py::TestPptx::test_absurd_paragraph_level_does_not_build_a_huge_indent).
 MAX_LEVEL = 8
-# Largest start number of a list that Word (w:start, w:startOverride) and PowerPoint (a:buAutoNum startAt) accept. A start number
-# past it is an odd value and reads as the default (`start_number`).
-MAX_START_NUMBER = 32767
+# Largest list start number that is read as written (w:start, w:startOverride, a:buAutoNum startAt): what a signed 32-bit integer
+# holds, ten digits. A longer one is not a number anybody set and reads as the default (`start_number`).
+MAX_START_NUMBER = 2**31 - 1
 
 
 def start_number(value: int, default: int = 1) -> int:
-    """A list start number read from a file, or `default` when it is outside 0-32767 (`MAX_START_NUMBER`).
+    """A list start number read from a file, or `default` when it is outside 0-2,147,483,647 (`MAX_START_NUMBER`).
 
     A start number of exactly 4,300 digits passed `decimal_int`, and the next item's number (one more digit) could not be written
     with `str()`, so the document was rejected as corrupted (Pinned by: test_office_robustness.py::TestHugeNumbersInOfficeDocuments::
-    test_docx_start_number_too_large_for_word_is_the_default)."""
+    test_docx_start_number_of_thousands_of_digits_is_the_default). The bound is on the width of the number, not on what the
+    applications let a user type (32,767): with that bound a list written to start at 40000 read '1. 2.'
+    (Pinned by: same class, test_start_number_past_what_word_lets_a_user_type_is_kept)."""
     return value if 0 <= value <= MAX_START_NUMBER else default
 
 
@@ -179,7 +181,7 @@ def format_number(value: int, shape: str) -> str:
     if shape == "NONE":
         return ""
     if value < 1:
-        return _arabic(value)
+        return str(value)  # no caller counts down, so a number below 1 is never longer than the one read from the file
     if shape in _CIRCLED:
         circled = _CIRCLED[shape]
         return circled[value - 1] if value <= len(circled) else format_number(value, _UNCIRCLED[shape])
