@@ -585,3 +585,65 @@ class TestTooManyTextBoxes:
         warnings = convert(data, "a.pdf").warnings
 
         assert any(warning.startswith("1 PDF page(s) (1) have too many text pieces") for warning in warnings)
+
+
+class TestTooMuchLineGrouping:
+    """pdfminer's grouping of text lines into boxes (`group_textlines`) is quadratic when many lines sit within the line
+    margin of each other — each finds every other one and re-adds the whole box it joins: 4,000 characters drawn alternately
+    at two places, rising 0.1pt every two (10KB), took 16 seconds inside one page, with no warning. pdfminer's planes file an
+    object under every 50pt cell it covers, so one huge character, or two far apart in a form with a large BBox, filled
+    millions of cells."""
+
+    @staticmethod
+    def _stack(count: int) -> bytes:
+        body = b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d %g Tm (%s) Tj " % (100 + index % 2 * 300, 100 + index // 2 * 0.1,
+                                                                         b"AB"[index % 2:index % 2 + 1])
+                                          for index in range(count)) + b" 1 0 0 1 72 800 Tm (Hello world) Tj ET"
+        return _one_page(_flate(body))
+
+    @staticmethod
+    def _in_a_large_form(content: bytes, side: int) -> bytes:
+        form = (b"<< /Type /XObject /Subtype /Form /BBox [0 0 %d %d] /Resources << /Font << /F1 5 0 R >> >> /Length %d >>"
+                b"\nstream\n" % (side, side, len(content)) + content + b"\nendstream")
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 850] /Contents 4 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> /XObject << /X1 6 0 R >> >> >>")
+        return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
+                         4: _flate(b"BT /F1 12 Tf 72 800 Td (Hello world) Tj ET q /X1 Do Q"), 5: _FONT, 6: form})
+
+    @pytest.mark.timing
+    def test_lines_crowded_within_the_line_margin_are_grouped_in_bounded_time(self):
+        started = time.perf_counter()
+        result = convert(self._stack(4_000), "a.pdf")
+
+        assert time.perf_counter() - started < allowed(3)  # 16 seconds before
+        assert "Hello world" in result.text
+        assert any("read without text-box reading-order analysis" in warning for warning in result.warnings)
+
+    def test_a_layout_past_its_allowance_gets_a_box_per_line_and_the_warning(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        monkeypatch.setattr(_pdf_pdfminer, "_LINE_GROUPING_WORK", 50)
+        lines = b"".join(b"BT /F1 10 Tf 72 %d Td (Line %d of the paragraph) Tj ET " % (700 - index * 12, index) for index in range(10))
+        result = convert(_one_page(_stream(lines)), "a.pdf")
+
+        assert all(f"Line {index} of the paragraph" in result.text for index in range(10))
+        assert any("read without text-box reading-order analysis" in warning for warning in result.warnings)
+
+    def test_an_ordinary_page_is_grouped_as_before(self):
+        lines = b"".join(b"BT /F1 10 Tf 72 %d Td (Line %d of the paragraph) Tj ET " % (700 - index * 12, index) for index in range(10))
+        result = convert(_one_page(_stream(lines)), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.sections[0].text == "\n".join(f"Line {index} of the paragraph" for index in range(10))
+        assert result.warnings == []
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize(("content", "side"), [
+        (b"BT /F1 200000 Tf 1 0 0 1 0 0 Tm (o) Tj ET", 3_000_000),  # 8.6 seconds before (859 bytes)
+        (b"BT /F1 10 Tf 1 0 0 1 10 10 Tm (a) Tj 1 0 0 1 300000 300000 Tm (b) Tj ET", 300_100),  # 18 seconds before
+    ])
+    def test_far_apart_or_huge_characters_do_not_fill_the_plane_cell_by_cell(self, content, side):
+        started = time.perf_counter()
+        result = convert(self._in_a_large_form(content, side), "a.pdf")
+
+        assert time.perf_counter() - started < allowed(1)
+        assert "Hello world" in result.text

@@ -19,7 +19,7 @@ from pdfminer import layout as pdfminer_layout
 from pdfminer import pdffont
 from pdfminer.ascii85 import ascii85decode, asciihexdecode
 from pdfminer.cmapdb import CMap, CMapParser, FileUnicodeMap
-from pdfminer.layout import LTChar, LTFigure, LTLayoutContainer, LTTextBoxVertical
+from pdfminer.layout import LTChar, LTFigure, LTLayoutContainer, LTTextBoxHorizontal, LTTextBoxVertical, LTTextLineHorizontal
 from pdfminer.pdfinterp import PDFGraphicState, PDFPageInterpreter
 from pdfminer.pdftypes import (
     LITERALS_ASCII85_DECODE,
@@ -29,7 +29,7 @@ from pdfminer.pdftypes import (
     PDFStream,
     resolve1,
 )
-from pdfminer.utils import choplist
+from pdfminer.utils import Plane, choplist
 from pdfplumber.page import PDFPageAggregatorWithMarkedContent
 
 from opendockit.exceptions import DocumentTooLargeError
@@ -95,6 +95,18 @@ _TOO_LARGE = "The document becomes too large when decompressed."  # same wording
 _INFLATE_CHUNK = 1 << 20  # amount inflated at a time when measuring size (only this much is held in memory)
 
 
+# Work pdfminer's grouping of text lines into text boxes (`group_textlines`) may do on one layout: the objects in the plane cells
+# it looks through to find each line's neighbours (`Plane.find`) plus the lines it gathers to merge their boxes (`uniq`), counted
+# by `_find_counted` and `_uniq_counted`. The page's own layout may spend this on its own and the Form XObjects drawn on the page
+# share another such allowance (reset per page read), as for text-box grouping. Lines within the line margin of each other all
+# find each other and every line re-adds the whole box it joins: characters drawn alternately at two places, rising 0.1pt every
+# two characters, took 4.3 seconds at 2,000 characters (5.4KB), 15.8 seconds at 4,000 and 62.5 seconds at 8,000, inside one page
+# and with no warning (boxes_flow None does not avoid it, and the result is few boxes). Over the 566 PDFs of the review corpus the
+# largest layout does 3.5 million (0.1 seconds), p99 27,000; 20 million costs about 0.5 seconds. Pinned by:
+# test_audit_pdf_text.py::TestTooMuchLineGrouping.
+_LINE_GROUPING_WORK = 20_000_000
+
+
 @dataclass(slots=True)
 class _InflateBudget:
     """Total bytes one document may inflate to (`max_uncompressed_bytes`, the same limit as ZIP/HWP). Measured streams (`charged`)
@@ -112,6 +124,12 @@ class _InflateBudget:
     undecoded_fonts: bool = False  # met a CID font whose encoding CMap was not found, so no character decodes (`_cmap_or_embedded`)
     ungrouped_layouts: int = 0  # layouts laid out without text-box grouping for having too many text boxes (`_group_few_textboxes`)
     grouping_cost: int = 0  # text-box grouping cost the Form XObjects of the page being read spent (`_PAGE_GROUPING_COST`, reset per page)
+    figure_line_work: int = _LINE_GROUPING_WORK  # line-grouping work left to the Form XObjects of the page being read (`_LINE_GROUPING_WORK`)
+    line_work: int | None = None  # line-grouping work left to the layout being grouped (None outside `group_textlines`)
+
+    def new_page(self) -> None:
+        """Resets the per-page allowances of layout analysis (`_PAGE_GROUPING_COST`, `_LINE_GROUPING_WORK`)."""
+        self.grouping_cost, self.figure_line_work = 0, _LINE_GROUPING_WORK
 
 
 _INFLATE_BUDGET: ContextVar[_InflateBudget | None] = ContextVar("pdf_inflate_budget", default=None)
@@ -538,6 +556,121 @@ def _group_few_textboxes(self: LTLayoutContainer, laparams: object, boxes: list)
 
 
 LTLayoutContainer.group_textboxes = _group_few_textboxes  # outside a conversion (no budget) it behaves as before
+
+
+_group_all_textlines = LTLayoutContainer.group_textlines
+_find_unbounded = Plane.find
+_uniq_unbounded = pdfminer_layout.uniq
+
+
+class _LineGroupingSpent(Exception):
+    """The layout being grouped into text boxes has spent its line-grouping allowance (`_LINE_GROUPING_WORK`)."""
+
+
+def _charge_line_work(budget: _InflateBudget, work: float) -> None:
+    budget.line_work -= work
+    if budget.line_work < 0:
+        raise _LineGroupingSpent
+
+
+def _find_counted(self: Plane, bbox: tuple[float, float, float, float]) -> object:
+    """`Plane.find` that, inside `group_textlines` during a conversion, first charges the objects in the cells it will look
+    through (and, before counting them, the number of cells). The function is not copied."""
+    budget = _INFLATE_BUDGET.get()
+    if budget is not None and budget.line_work is not None:
+        x0, y0, x1, y1 = (max(self.x0, bbox[0]), max(self.y0, bbox[1]), min(self.x1, bbox[2]), min(self.y1, bbox[3]))
+        if x0 < x1 and y0 < y1:
+            _charge_line_work(budget, (math.floor((x1 - x0) / self.gridsize) + 1) * (math.floor((y1 - y0) / self.gridsize) + 1))
+            _charge_line_work(budget, sum(len(self._grid.get(cell, ())) for cell in self._getrange(bbox)))
+    return _find_unbounded(self, bbox)
+
+
+# Work charged for each distinct line `group_textlines` adds to a box (`_uniq_counted`), against 1 for each line it only looks
+# at: adding updates the box (measured: about 0.5µs, a repeated member about 0.03µs).
+_LINE_ADD_WORK = 10
+
+
+def _uniq_counted(objs: object) -> object:
+    """pdfminer's `uniq` (used in `group_textlines` only) that, inside `group_textlines` during a conversion, charges the
+    lines gathered for one box, and `_LINE_ADD_WORK` more for each distinct one, which pdfminer then adds to the box."""
+    budget = _INFLATE_BUDGET.get()
+    if budget is None or budget.line_work is None:
+        return _uniq_unbounded(objs)
+    objs = objs if isinstance(objs, list) else list(objs)  # pdfminer passes its list of members
+    _charge_line_work(budget, len(objs))
+    return _charged_distinct(objs, budget)
+
+
+def _charged_distinct(objs: list, budget: _InflateBudget) -> object:
+    for obj in _uniq_unbounded(objs):
+        _charge_line_work(budget, _LINE_ADD_WORK)
+        yield obj
+
+
+def _group_textlines_within(self: LTLayoutContainer, laparams: object, lines: list) -> object:
+    """Replacement of pdfminer's `group_textlines`: during a conversion it runs with the work allowance of the layout (its own
+    `_LINE_GROUPING_WORK` for the page's layout, the page's shared allowance for Form XObjects). If the allowance is spent,
+    every line becomes a text box of its own (linear; the text-box grouping that follows is bounded by
+    `_group_few_textboxes`), and the page gets the warning of pages read without text-box grouping (`ungrouped_layouts`). The
+    function is not copied."""
+    budget = _INFLATE_BUDGET.get()
+    if budget is None:
+        yield from _group_all_textlines(self, laparams, lines)
+        return
+    figure = isinstance(self, LTFigure)
+    budget.line_work = budget.figure_line_work if figure else _LINE_GROUPING_WORK
+    try:
+        boxes = list(_group_all_textlines(self, laparams, lines))
+    except _LineGroupingSpent:
+        boxes = None
+    finally:
+        if figure:
+            budget.figure_line_work = max(budget.line_work, 0)
+        budget.line_work = None
+    if boxes is None:
+        budget.ungrouped_layouts += 1
+        boxes = []
+        for line in lines:
+            box = LTTextBoxHorizontal() if isinstance(line, LTTextLineHorizontal) else LTTextBoxVertical()
+            box.add(line)
+            if not box.is_empty():
+                boxes.append(box)
+    yield from boxes
+
+
+# Plane cells the objects handed to one of pdfminer's planes may span together, at most (`_extend_coarsely`). An object is filed
+# under every 50pt cell it covers, and the groups of text-box grouping cover the union of their boxes, so one character of size
+# 200,000 in a form with a large BBox (859 bytes) took 8.6 seconds, two characters 100,000pt apart 1.6 seconds (both grow with the
+# square of the size). 20,000 cells hold 7,000pt × 7,000pt at 50pt — an A0 poster is 3,300 cells. Pinned by:
+# test_audit_pdf_text.py::TestTooMuchLineGrouping::test_far_apart_or_huge_characters_do_not_fill_the_plane_cell_by_cell.
+_PLANE_CELLS = 20_000
+_extend_unbounded = Plane.extend
+
+
+def _extend_coarsely(self: Plane, objs: object) -> None:
+    """`Plane.extend` that, during a conversion and on an empty plane, first widens the cells (doubling the 50pt size) until the
+    union of the objects (within the plane) spans at most `_PLANE_CELLS` of them. The cells only index the objects — `find`
+    still checks each object's box — so only the order in which `find` gives its objects can change, and only on planes whose
+    objects span more than `_PLANE_CELLS` cells, which no page reaches (14,400pt square is 83,000 cells, but text spread over all
+    of it is unknown in the corpus). The function is not copied."""
+    if _INFLATE_BUDGET.get() is None or self._seq:
+        _extend_unbounded(self, objs)
+        return
+    objs = list(objs)
+    inside = [(max(self.x0, obj.x0), max(self.y0, obj.y0), min(self.x1, obj.x1), min(self.y1, obj.y1)) for obj in objs]
+    inside = [box for box in inside if all(math.isfinite(value) for value in box) and box[0] <= box[2] and box[1] <= box[3]]
+    if inside:
+        width = max(box[2] for box in inside) - min(box[0] for box in inside)
+        height = max(box[3] for box in inside) - min(box[1] for box in inside)
+        while (width // self.gridsize + 2) * (height // self.gridsize + 2) > _PLANE_CELLS:
+            self.gridsize *= 2
+    _extend_unbounded(self, objs)
+
+
+LTLayoutContainer.group_textlines = _group_textlines_within  # outside a conversion (no budget) it behaves as before
+Plane.find = _find_counted
+Plane.extend = _extend_coarsely
+pdfminer_layout.uniq = _uniq_counted
 # Fill opacity (ExtGState `/ca`). pdfminer does not read the `gs` operator (`do_gs` is an empty function), so a browser-printed
 # `color: rgba(0,0,0,0.08)` watermark looked like black text, slipped past the faint-watermark check (`_faint_watermark`) and got
 # into table cells as 'S AM P LE'. Only `/ca` is read from `gs` and attached to the graphics state (`copy` carries it over too so
