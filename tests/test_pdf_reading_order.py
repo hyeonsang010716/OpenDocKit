@@ -5,7 +5,7 @@ from io import BytesIO
 import pytest
 
 from opendockit import ConvertOptions, convert
-from opendockit.extractors._pdf_chars import _drop_cap
+from opendockit.extractors._pdf_chars import _drop_cap, _initial_is_a_word
 from tests import builder
 from tests.test_pdf import _FONT, _korean_pdf
 
@@ -400,6 +400,61 @@ class TestSidebarBesideTheBody:
         assert before.index("경력") < before.index("김민준")
 
 
+# Sentence openers set as drop caps, by what the initial is: the first letter of the first word, or a word of its own
+# (TestDropCaps.test_how_often_the_letters_alone_misjudge_a_sentence_opener).
+_WORDS_BEGINNING_WITH_A = """
+    After a long day|Although the weather|All the children|As the sun rose|At the end of|An old man|And then there|
+    Among the many|About a year ago|Another way of|Any attempt to|Are we alone|Around the world|Again and again|Also known as|
+    Always the first|Across the river|According to the|Above the town|Almost every day|Already the leaves|Along the coast|
+    Alone in the house|Anyone who has|Anything can happen|Ancient maps show|Art has always|Air travel was|Age is only|
+    Animals of every|Autumn came early|August was hot|April showers bring|America was changing|Americans love their|
+    Alice was beginning|Arthur had never|Adam looked up|Anna opened the|Actually it was|Additionally the report|
+    Admittedly the plan|Apparently no one|Afterwards they went|Amid the chaos|Against all odds|Ahead of the|Apart from the|
+    Aside from that|Asked about the|Asking for help|Away from home|Able to walk|Advances in medicine|Agriculture remains the|
+    Architecture is frozen|Attention to detail|Authors often say|Average incomes rose|Awareness of the|Access to water|
+    Adults and children|Africa is a|Australia has long|Algorithms now decide|Apples were cheap|Armed with a|Army units moved|
+    Aunt Mary came|Awards were given|Afternoon light fell|Ask anyone who|Anger is a|Angels we have|Answers to these|
+    Anybody can learn|Applications are due|Areas of the|Artists have long|Aspects of this""".replace("\n    ", "").strip().split("|")
+_A_AND_A_WORD = """
+    A long time ago|A few years ago|A man walked into|A new study shows|A small village lay|A great deal of|A good friend once|
+    A year ago I|A single candle|A century ago the|A young woman|A little girl|A woman stood|A boy and his|A day in the|
+    A week before the|A month later|A decade of|A number of|A lot has changed|A couple of|A group of|A recent report|
+    A growing number|A common mistake|A simple question|A typical day|A large crowd|A big part of|A strange thing|A dark cloud|
+    A cold wind|A quiet morning|A light rain|A soft knock|A loud bang|A sudden noise|A sharp turn|A deep breath|A low hum|
+    A high wall|A thin line|A thick fog|A tall man|A short walk|A hundred years|A thousand miles|A million people|
+    A friend of mine|A letter arrived|A dog barked|A child is|A story is|A book can|A house stood|A river runs|A person who|
+    A family of|A storm was|A fire broke|A door opened|A voice called|A bird sang|A train passed|A few miles|A good book|
+    A team of|A survey of|A majority of|A key question|A second look|A third of|A quarter of|A half century|A brief history|
+    A closer look|A funny thing|A wise man|A rich merchant|A poor farmer|A king once|A unique feature|A useful rule|
+    A university town|A one in a|A round table|A cross word|A lone wolf|A part of me|A way out|A head of state|A while ago|
+    A piece of|A rose is|A gain of ten|A bout of flu|A like mind|A live wire|A broad smile|A far cry|A field of|A foot of snow|
+    A top official|A side effect|A sleep study|A wake was held|A go at it|A mid sized firm""".replace("\n    ", "").strip().split("|")
+_WORDS_BEGINNING_WITH_I = """
+    In the beginning|It was a|If you have|Is there a|Indeed it was|Imagine a world|Instead of going|Its walls were|
+    Into the woods|Inside the house|India is a|Italy has long|Ireland was then|Iron was first|Ice covered the|Ideas are cheap|
+    Images of the|Important as it|Increasingly the public|Initially the plan|Interestingly the same|Immediately after the|
+    Ironically it was|Israel and its|Island life is|Innovation is the|Industry leaders say|Investors were nervous|
+    Information is power|Illness kept him|Inflation has been|Interest rates rose|Insects are the|International trade has|
+    Individuals who have|Improvements in the|Issues of this|Items on the|Isolated from the|Ignoring the advice|
+    Illustrated by the|Impressed by the|Infants learn to|Injuries are common|Ink was made|Inspired by the|Intelligence is not|
+    Introduced in the|Invented in the|Irrigation made the|Identity is a|Idle hands are""".replace("\n    ", "").strip().split("|")
+_I_AND_A_WORD = """
+    I was born in|I am writing to|I have always|I had a dream|I will never|I remember the day|I think that|I never thought|
+    I know a|I would like|I could not|I should have|I can still|I do not|I did not|I love the|I want to|I met him|I first saw|
+    I still recall|I always wanted|I often wonder|I once knew|I used to|I grew up|I got up|I came to|I went to|I saw the|
+    I heard a|I felt the|I found myself|I believe that|I suppose it|I wonder if|I wish to|I hope you|I mean to|I must admit|
+    I may be|I might have|I shall never|I said nothing|I told him|I took the|I made a|I like to|I need to|I see no|I feel that|
+    I live in|I lived there|I work in|I write this|I wrote the|I read the|I learned to|I spent the|I decided to|I started to|
+    I began to|I woke up|I walked home|I stood there|I sat down|I looked up|I turned to|I tried to|I thought of|I knew then|
+    I asked him|I enjoy the|I owe a|I understand that|I expected to|I ate the|I opened the|I arrived late|I entered the|
+    I also remember|I only wish|I too have|I just wanted|I recently read|I confess that|I doubt that|I guess it""".replace("\n    ", "").strip().split("|")
+_WORDS_BEGINNING_WITH_O = """
+    On the first|Of all the|One day a|Once upon a|Our story begins|Only a few|Over the years|Often the best|Other people say|
+    Out of the|Old houses have|Open the door|Originally built as|October was cold|Obviously this is|Ordinary people do""".replace("\n    ", "").strip().split("|")
+_O_AND_A_WORD = """
+    O come all ye|O my soul|O for a muse""".replace("\n    ", "").strip().split("|")
+
+
 class TestDropCaps:
     """A paragraph that opens with a drop cap: a large initial hanging beside its first lines. pdfminer put the initial in the
     first line with a space after it ('T he quick'), and its height kept the first line apart from the rest of the
@@ -408,39 +463,106 @@ class TestDropCaps:
     _LINES = ["he quick brown fox jumps over the", "lazy dog and keeps running far", "away from the hunters in the woods"]
     _NEXT = ["Next paragraph starts here and continues", "on another line for a while."]
 
-    def _pdf(self, initial: str, lines: list[str], size: float = 36, baseline: float | None = None) -> bytes:
+    def _pdf(self, initial: str, lines: list[str], size: float | None = None, baseline: float | None = None, *, rows: int = 2,
+             gap: float = 2, space: str | None = None, spaces: bool = True) -> bytes:
+        """A large `initial` and the 11pt `lines` beside it, 13pt apart, the first on the baseline 700. By default the initial
+        is a drop cap over `rows` lines: it stands on the baseline of the last of them and its top is level with the
+        capitals of the first. `space` writes a space glyph after the initial ('big') or before the text ('small');
+        without `spaces` every word is placed by itself and the page has no space glyph at all."""
         def draw(pdf, index):
-            pdf.setFont("Helvetica", size)
-            pdf.drawString(72, 700 + 0.718 * 11 - 0.718 * size if baseline is None else baseline, initial)
-            left = 72 + pdf.stringWidth(initial, "Helvetica", size) + 2
+            height = (0.718 * 11 + 13 * (rows - 1)) / 0.718 if size is None else size
+            pdf.setFont("Helvetica", height)
+            pdf.drawString(72, 700 - 13 * (rows - 1) if baseline is None else baseline, initial + (" " if space == "big" else ""))
+            left = 72 + pdf.stringWidth(initial, "Helvetica", height) + gap
             pdf.setFont("Helvetica", 11)
-            for number, text in enumerate(lines):
-                pdf.drawString(left, 700 - 13 * number, text)
-            for number, text in enumerate(self._NEXT):
-                pdf.drawString(72, 640 - 13 * number, text)
+            for number, text in enumerate([*lines, *self._NEXT]):
+                x, y = (left, 700 - 13 * number) if number < len(lines) else (72, 640 - 13 * (number - len(lines)))
+                text = " " + text if space == "small" and number == 0 else text
+                for word in [text] if spaces else text.split():
+                    pdf.drawString(x, y, word)
+                    x += pdf.stringWidth(word + " ", "Helvetica", 11)
 
         return _korean_pdf(draw)
 
-    @pytest.mark.parametrize("baseline", [None, 676])
-    def test_a_drop_cap_is_joined_to_its_word_and_paragraph(self, baseline):
-        text = convert(self._pdf("T", self._LINES, baseline=baseline), "a.pdf", ConvertOptions(page_markers=False)).text
+    @pytest.mark.parametrize("rows", [2, 3])
+    def test_a_drop_cap_is_joined_to_its_word_and_paragraph(self, rows):
+        text = convert(self._pdf("T", self._LINES, rows=rows), "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert text == "\n".join(["The quick brown fox jumps over the", *self._LINES[1:]]) + "\n\n" + "\n".join(self._NEXT)
 
-    @pytest.mark.parametrize(("initial", "lines", "size", "baseline"), [
-        ("A", ["General terms of the agreement apply", "to every order placed by the buyer"], 36, None),  # a capital follows
-        ("B", ["grade awarded to the second team", "for the final round of the season"], 24, 700),  # sits on the line
-        ("2", ["overview of the results we found", "in the survey of the last two years"], 36, None),  # a number
-        ("T", ["he quick brown fox jumps over the", "lazy dog and keeps running far"], 15, None)])  # hardly larger
-    def test_a_large_label_that_is_no_drop_cap_keeps_its_space(self, initial, lines, size, baseline):
-        text = convert(self._pdf(initial, lines, size, baseline), "a.pdf", ConvertOptions(page_markers=False)).text
+    _OPTION = ["the second option, which costs less", "but takes two more weeks to deliver", "and has no warranty at all"]
+
+    @pytest.mark.parametrize(("initial", "lines", "options"), [
+        ("A", ["General terms of the agreement apply", "to every order placed by the buyer"], {}),  # a capital follows
+        ("2", ["overview of the results we found", "in the survey of the last two years"], {}),  # a number
+        ("Q", ["how do I reset my password?"], {"size": 28, "baseline": 700 + 0.718 * (11 - 28)}),  # beside one line only
+        ("B", _OPTION, {"size": 40, "baseline": 678.3}),  # centred beside three lines: it stands on none of them
+        ("B", _OPTION, {"size": 14, "baseline": 698}),  # a little larger, on the first line: not dropped
+        ("B", _OPTION, {"size": 60, "baseline": 687}),  # on the second line, but rising far above the first
+        ("B", _OPTION, {"gap": 24})])  # in the margin, away from the text
+    def test_a_large_label_that_is_no_drop_cap_keeps_its_space(self, initial, lines, options):
+        text = convert(self._pdf(initial, lines, **options), "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert f"{initial} {lines[0]}" in text
 
-    @pytest.mark.parametrize("bad", [float("inf"), float("nan"), -float("inf")])
-    def test_characters_without_a_finite_position_are_no_line_beside_an_initial(self, bad):
-        initial = {"text": "T", "size": 36.0, "x0": 72.0, "x1": 94.0, "top": 100.0, "bottom": 136.0}
-        beside = [{"text": text, "size": 11.0, "x0": 96.0 + 6 * index, "x1": 102.0 + 6 * index, "top": bad, "bottom": bad}
-                  for index, text in enumerate("he quick")]
+    def test_a_space_glyph_at_the_start_of_a_later_line_does_not_part_the_initial_from_its_word(self):
+        """Only a space between the initial and the first line is the space after a one-letter word."""
+        lines = [self._LINES[0], " " + self._LINES[1], self._LINES[2]]
+        text = convert(self._pdf("T", lines), "a.pdf", ConvertOptions(page_markers=False)).text
 
-        assert _drop_cap([initial, *beside], "T he quick") is None
+        assert text.startswith("The quick brown fox jumps over the\nlazy dog")
+
+    _TABLE = ["round table was set for the", "guests who came from far away", "to see the old king once more"]
+
+    @pytest.mark.parametrize("space", ["big", "small"])
+    def test_an_initial_followed_by_a_space_glyph_is_a_word(self, space):
+        """'A' + ' round table': the space of a one-letter word is in the content stream, after the large letter or before
+        the small text. The letters alone read 'Around'."""
+        text = convert(self._pdf("A", self._TABLE, space=space), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == "\n".join(["A round table was set for the", *self._TABLE[1:]]) + "\n\n" + "\n".join(self._NEXT)
+
+    @pytest.mark.parametrize(("initial", "first"), [("A", "long time ago in a small village"), ("I", "was born in the year 1632"),
+                                                    ("I", "am the youngest of three"), ("A", "unique feature of the town")])
+    def test_an_initial_that_is_a_word_keeps_its_space(self, initial, first):
+        """Joined like any drop cap they were 'Along time ago' and 'Iwas born'. The page has no space glyph to tell: the
+        letters decide. The first line still belongs to its paragraph."""
+        lines = [first, *self._LINES[1:]]
+        text = convert(self._pdf(initial, lines, spaces=False), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == "\n".join([f"{initial} {first}", *lines[1:]]) + "\n\n" + "\n".join(self._NEXT)
+
+    @pytest.mark.parametrize(("initial", "first"), [
+        ("A", "fter the rain had stopped"), ("A", "s the sun rose over"), ("I", "n the beginning there was"), ("I", "t was a dark"),
+        ("A", "unt Mary came to stay"),  # 'A' is not written before a vowel
+        ("A", "bout a year ago we"), ("I", "magine a world without"),  # the rest of a common word, although it could be a word
+        ("O", "nce upon a time"), ("O", "ur story begins in")])
+    def test_an_initial_of_a_word_beginning_with_a_or_i_is_joined(self, initial, first):
+        text = convert(self._pdf(initial, [first, *self._LINES[1:]], spaces=False), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text.startswith(f"{initial}{first}\n")
+
+    def test_how_often_the_letters_alone_misjudge_a_sentence_opener(self):
+        """The figures recorded for the rule that decides without a space glyph on the page (`_initial_is_a_word`)."""
+        openers = {"A": (_WORDS_BEGINNING_WITH_A, _A_AND_A_WORD), "I": (_WORDS_BEGINNING_WITH_I, _I_AND_A_WORD),
+                   "O": (_WORDS_BEGINNING_WITH_O, _O_AND_A_WORD)}
+        split = {letter: [opener for opener in joined if _initial_is_a_word(letter, opener[1:])] for letter, (joined, _) in openers.items()}
+        glued = {letter: [opener for opener in words if not _initial_is_a_word(letter, opener[2:])] for letter, (_, words) in openers.items()}
+
+        assert sum(len(joined) + len(words) for joined, words in openers.values()) == 346
+        assert [opener.split()[0] for opener in split["A"]] == ["Along", "Alone", "Alice", "Adam", "Ahead", "Apart", "Aside", "Asking",
+                                                                "Away", "Agriculture", "Awareness", "Awards", "Aspects"]
+        assert glued["A"] == ["A round table", "A cross word", "A gain of ten", "A bout of flu", "A mid sized firm"]
+        assert [opener.split()[0] for opener in split["I"]] == ["Italy", "Ireland", "Isolated"]
+        assert glued["I"] == [] and split["O"] == [] and glued["O"] == _O_AND_A_WORD
+
+    @pytest.mark.parametrize("bad", [float("nan"), -float("inf")])
+    def test_characters_without_a_finite_position_are_no_line_beside_an_initial(self, bad):
+        """A character at a position that is not a number stands nowhere: it is neither the initial nor the first line, and
+        the drop cap beside real lines is still read."""
+        initial = {"text": "T", "size": 29.1, "x0": 72.0, "x1": 90.0, "top": 131.0, "bottom": 160.1}
+        beside = [{"text": text, "size": 11.0, "x0": 92.0 + 6 * index, "x1": 98.0 + 6 * index, "top": 133.0 + 13 * row, "bottom": 144.0 + 13 * row}
+                  for row in range(2) for index, text in enumerate("he quick")]
+        nowhere = {"text": "x", "size": 11.0, "x0": bad, "x1": bad, "top": bad, "bottom": bad}
+
+        assert _drop_cap([nowhere, initial, *beside], "T he quick") == ("The quick", 133.0, 144.0)
