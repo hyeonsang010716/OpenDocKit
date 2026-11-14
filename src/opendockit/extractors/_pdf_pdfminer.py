@@ -19,6 +19,7 @@ from pdfminer import layout as pdfminer_layout
 from pdfminer import pdffont
 from pdfminer.ascii85 import ascii85decode, asciihexdecode
 from pdfminer.cmapdb import CMap, CMapParser, FileUnicodeMap
+from pdfminer.encodingdb import EncodingDB
 from pdfminer.layout import LTChar, LTFigure, LTLayoutContainer, LTTextBoxHorizontal, LTTextBoxVertical, LTTextLineHorizontal
 from pdfminer.pdfinterp import PDFGraphicState, PDFPageInterpreter
 from pdfminer.pdftypes import (
@@ -467,7 +468,9 @@ def _render_char_few_copies(self: PDFPageAggregatorWithMarkedContent, *args: obj
     char = objs[-1] if objs else None
     if isinstance(char, LTChar):
         _blended_fill(char.graphicstate)
-        _symbol_font_glyph(char, kwargs.get("font", args[1] if len(args) > 1 else None))
+        font = kwargs.get("font", args[1] if len(args) > 1 else None)
+        _symbol_font_glyph(char, font)
+        _win_ansi_bullet(char, font, kwargs.get("cid", args[5] if len(args) > 5 else None))
         copies = self.cur_item.__dict__.setdefault("_opendockit_copies", Counter())
         # NaN is keyed as None: it is unequal even to itself, so copies drawn at a NaN position each got a key of their own and
         # were never capped (Pinned by: test_audit_pdf_text.py::TestCharactersAtNonFinitePositions::
@@ -511,6 +514,32 @@ def _symbol_font_glyph(char: LTChar, font: object) -> None:
     glyph = symbol_glyph(name, ord(text)) if name else None
     if glyph:
         char._text = glyph
+
+
+# Codes above 32 that WinAnsiEncoding leaves unused: the specification draws a bullet for each (Appendix D, note 6).
+_WIN_ANSI_BULLET_CODES = frozenset((0x7F, 0x81, 0x8D, 0x8F, 0x90, 0x9D))
+_SYMBOLIC_FONT_FLAG = 4
+
+
+def _win_ansi_bullet(char: LTChar, font: object, cid: object) -> None:
+    """Reads a code that WinAnsiEncoding leaves unused (`_WIN_ANSI_BULLET_CODES`) as the bullet the specification draws for it.
+
+    reportlab writes the bullets of its lists as code 7F in WinAnsiEncoding Helvetica. pdfminer has no character for the code,
+    so the bullets came out as `(cid:127)`, were removed and the page was reported as having characters without a Unicode
+    mapping (Pinned by: test_pdf_fonts.py::TestWinAnsiUnusedCodesAreBullets). Only a code pdfminer could not map is read so —
+    one a ToUnicode entry or the font's /Differences name keeps that character — and only in a font whose encoding is
+    WinAnsiEncoding without /Differences (pdfminer then uses its shared WinAnsi table itself). A Type 3 font draws its own
+    glyphs and a symbolic font (descriptor flag 4) uses the encoding built into the font, so both are left alone.
+    """
+    if cid not in _WIN_ANSI_BULLET_CODES or char._text != f"(cid:{cid})":
+        return
+    if (not isinstance(font, pdffont.PDFSimpleFont) or isinstance(font, pdffont.PDFType3Font)
+            or getattr(font, "cid2unicode", None) is not EncodingDB.win2unicode):
+        return
+    flags = font.descriptor.get("Flags") if isinstance(font.descriptor, dict) else None
+    if isinstance(flags, int) and flags & _SYMBOLIC_FONT_FLAG:
+        return
+    char._text = "•"
 
 
 PDFPageAggregatorWithMarkedContent.render_char = _render_char_few_copies  # outside a conversion (no budget) it behaves as before

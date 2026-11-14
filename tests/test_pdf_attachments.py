@@ -39,3 +39,36 @@ class TestEmbeddedFiles:
         result = convert(_attachment_pdf(tree), "a.pdf")
 
         assert any(warning.startswith("2 PDF attachment(s) (") for warning in result.warnings)
+
+    def test_a_huge_kids_array_is_looked_at_only_up_to_the_node_bound(self, monkeypatch):
+        """The whole /Kids array of a node was resolved before the bound on the nodes looked at applied, so one node with
+        millions of kids resolved every one of them."""
+        from opendockit.extractors import _pdf_forms
+
+        kids = [{"Names": [b"f%d" % index, {"F": b"f%d.txt" % index}]} for index in range(200_000)]
+        kid_ids = {id(kid) for kid in kids}
+        resolved_kids = []
+
+        def resolve(value):
+            if id(value) in kid_ids:
+                resolved_kids.append(value)
+            return value
+
+        monkeypatch.setattr(_pdf_forms, "resolve1", resolve)
+        found = {}
+
+        _pdf_forms._named_attachments({"Names": {"EmbeddedFiles": {"Kids": kids}}}, found)
+
+        assert 0 < len(found) < _pdf_forms._ATTACHMENT_TREE_NODES
+        assert len(resolved_kids) < _pdf_forms._ATTACHMENT_TREE_NODES
+
+    def test_attachments_given_as_direct_objects_are_each_counted(self):
+        """Attachments were told apart by the id() of their file specification, and the id of a direct object freed after
+        it was counted could be taken by the next one, which was then dropped."""
+        from opendockit.extractors._pdf_forms import _add_attachment
+
+        found = {}
+        for name in (b"a.txt", b"b.txt", b"c.txt"):
+            _add_attachment({"F": name}, None, found)
+
+        assert sorted(found.values()) == ["a.txt", "b.txt", "c.txt"]

@@ -68,7 +68,15 @@ from opendockit.extractors._pdf_artifacts import (
     _without_drawing_artifacts,
     _xobject_owners,
 )
-from opendockit.extractors._pdf_chars import _drawn_text, _gap_parts, _letter_spaced_text, _letter_spacings, _scripted_text, _text_from_chars
+from opendockit.extractors._pdf_chars import (
+    _drawn_text,
+    _drop_cap,
+    _gap_parts,
+    _letter_spaced_text,
+    _letter_spacings,
+    _scripted_text,
+    _text_from_chars,
+)
 from opendockit.extractors._pdf_continued_tables import _carry_table_headers, _join_ruled_header_lines
 from opendockit.extractors._pdf_figures import _figure_boxes, _open_pdfium, _page_images, _PageRenderer, _untrusted_text_layer_pages
 from opendockit.extractors._pdf_forms import _annotated_attachments, _form_values, _has_xfa, _named_attachments
@@ -242,7 +250,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
             dense = set()
             crammed: set[int] = set()  # pages found with too much text-box grouping while being read (`_PAGE_GROUPING_COST`)
             grids: set[int] = set()  # ruled grid pages (read without text-box grouping, but not reported since cell text goes into the table)
-            attachments: dict[int, str] = {}  # attachment file specification (id) → name
+            attachments: dict[object, str] = {}  # attachment file specification (object number or held object) → name
             started = time.perf_counter()
             over_budget = 0
             failed = []
@@ -750,6 +758,16 @@ def _normalize_page_boxes(page: object) -> None:
                 and (box[0] > box[2] or box[1] > box[3])):
             x0, y0, x1, y1 = box
             setattr(source, name, (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)))
+    # A MediaBox without area (`[0 0 0 0]`, `[0 0 612 0]`) made a page of height 0, so every character lay outside the visible
+    # area and was dropped, and pdfium read no more than that, so nothing took its place. Such a page is read as US Letter, the
+    # size pdfium shows it at (Pinned by: test_pdf_page_boxes.py::TestEmptyMediaBox).
+    media = getattr(source, "mediabox", None)
+    if (isinstance(media, list | tuple) and len(media) == 4 and all(isinstance(value, int | float) for value in media)
+            and (media[2] - media[0] <= 0 or media[3] - media[1] <= 0)):
+        source.mediabox = source.cropbox = (0.0, 0.0, 612.0, 792.0)
+        width, height = (612.0, 792.0) if getattr(page, "rotation", 0) % 180 == 0 else (792.0, 612.0)
+        page.mediabox = page.cropbox = page.bbox = (0.0, 0.0, width, height)
+        page.flush_cache(["_layout", "_objects"])  # characters already read were placed on the page without area
 
 
 def _is_ruled_grid(pieces: int, paths: int) -> bool:
@@ -893,9 +911,10 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
             text = kept
         kept_lines.setdefault(text, []).append(line)
         text = _scripted_text(inside, text) or text
+        text, top, bottom = _drop_cap(inside, text) or (text, line["top"], line["bottom"])
         sizes = [char["size"] for char in inside if char["text"].strip()]
         size = statistics.median(sizes) if sizes else 0.0
-        lines.append(_Line(top=line["top"], bottom=line["bottom"], x0=line["x0"], x1=line["x1"], text=_drawn_text(text),
+        lines.append(_Line(top=top, bottom=bottom, x0=line["x0"], x1=line["x1"], text=_drawn_text(text),
                            size=size, parts=_gap_parts(inside, _drawn_text(text), size),
                            fine_parts=_gap_parts(inside, _drawn_text(text), size, _UNSPACED_GAP_RATIO)))
         line_owners.append(owner)
