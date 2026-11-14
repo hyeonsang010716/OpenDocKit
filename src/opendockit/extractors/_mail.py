@@ -192,14 +192,20 @@ def _mime_nesting_exceeds(data: bytes, limit: int, forward_limit: int = 0) -> st
     body text is not a Content-Type line and is not counted. Known accepted gap: a part that ends without a closing line stays
     open and is counted deeper than it really is (sibling parts are closed by the next delimiter line).
     A forwarded mail is a level of its own that only an enclosing boundary closes (like an RFC 2231 declaration below): sibling
-    forwarded mails are separated by the delimiter lines of the part around them, a forward of a forward has none."""
+    forwarded mails are separated by the delimiter lines of the part around them, a forward of a forward has none. Only a
+    message/rfc822 line in a header block counts, once per block (`_ForwardHeaders`) — the same line in a body or a text
+    attachment is text (Pinned by: test_audit_web_fixes.py::TestDeeplyNestedForwardedMails::
+    test_forward_lines_in_a_body_are_text)."""
     forward_limit = forward_limit or _MAX_FORWARD_NESTING
+    headers = _ForwardHeaders(data)
     stack: list[bytes | int | tuple[str, int]] = []
     depth: dict[bytes | int | tuple[str, int], int] = {}  # open boundary → its position in the stack
     forwards = 0  # forwarded-mail levels in the stack
 
     for match in _MIME_NESTING_LINE.finditer(data):
         if match.group("forward"):
+            if not headers.opens_forward(match.start()):
+                continue
             key = ("forward", match.start())
             depth[key] = len(stack)
             stack.append(key)
@@ -232,6 +238,55 @@ def _mime_nesting_exceeds(data: bytes, limit: int, forward_limit: int = 0) -> st
         del stack[len(depth):]
         forwards = sum(1 for opened in stack if isinstance(opened, tuple))
     return None
+
+
+class _ForwardHeaders:
+    """Tells whether a `Content-Type: message/rfc822` line opens a forwarded mail: it lies in a header block (only header lines
+    and folded lines above it up to the start of the block), the block starts the data, follows a line-start `--` delimiter
+    line, or is the header of the mail inside a forwarded part (it starts right after the header block of an accepted forward),
+    and no earlier line of the same block was accepted.
+
+    Walking up stops at the previous message/rfc822 line already examined and reuses what it found, and the end of each
+    accepted block is looked for once, so the whole scan stays linear however many such lines there are.
+    """
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._last: tuple[int, int | None] = (-1, None)  # (line start, block start or None when not in a header block)
+        self._accepted: set[int] = set()  # block starts already counted
+        self._forward_ends: set[int] = set()  # where the mail inside an accepted forwarded part starts
+
+    def opens_forward(self, line: int) -> bool:
+        start = self._block_start(line)
+        self._last = (line, start)
+        if start is None or start in self._accepted:
+            return False
+        self._accepted.add(start)
+        end = self._block_end(line)
+        if end is not None:
+            self._forward_ends.add(end)
+        return True
+
+    def _block_start(self, line: int) -> int | None:
+        data = self._data
+        position = line
+        while position > 0:
+            if position == self._last[0]:
+                return self._last[1]
+            previous = data.rfind(b"\n", 0, position - 1) + 1
+            text = data[previous:position - 1].removesuffix(b"\r")
+            if not text:
+                return position if position in self._forward_ends else None
+            if text.startswith(b"--"):
+                return position
+            if not (text[:1] in (b" ", b"\t") or _MIME_HEADER_NAME.match(text)):
+                return None
+            position = previous
+        return 0
+
+    def _block_end(self, line: int) -> int | None:
+        """Where the line after the blank line that ends the header block holding `line` starts."""
+        return _header_block_end(self._data, line, len(self._data))
 
 
 def _readable_parts(message: Message) -> None:

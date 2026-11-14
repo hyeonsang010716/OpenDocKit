@@ -78,10 +78,11 @@ def is_mhtml(data: bytes) -> bool:
 
 
 def mhtml_html_part(data: bytes) -> tuple[bytes, str | None] | None:
-    """The first text/html part of an MHTML, transfer encoding (base64/quoted-printable) decoded, as (bytes, charset the part
-    declares). None if there is none.
+    """The HTML part of an MHTML that is read (`_html_part`: the first text/html part with content; for a sent mail its first body
+    HTML part, attachments and forwarded mails excluded), transfer encoding (base64/quoted-printable) decoded, as (bytes,
+    charset the part declares). None if there is none.
 
-    Deliberate: only the first part is read. Later text/html parts are frames the page embeds (ads and the like).
+    Deliberate: only one part is read. Later text/html parts are frames the page embeds (ads and the like).
     """
     return _html_part(_mhtml_message(data))
 

@@ -589,14 +589,15 @@ class TestListItemWithManyUnpairedFenceLines:
         assert seconds < allowed(6)
 
     @pytest.mark.parametrize(("item", "expected"), [
-        ("first<pre>a  b\n\n\nc</pre>then<pre>d</pre>last", "- first\n\n  ```\n  a  b\n\n\n  c\n  ```\n\nthen\n\n  ```\n  d\n  ```\n\nlast"),
-        ("<pre></pre>after", "-\n\n  ```\n\n  ```\n\nafter"),
-        ("```<br>open<pre>code</pre>```<br>x", "-\n\n  ```\n  open\n\n  ```\n\ncode\n\n  ```\n\n  ```\n\nx"),
+        ("first<pre>a  b\n\n\nc</pre>then<pre>d</pre>last", "- first\n\n  ```\n  a  b\n\n\n  c\n  ```\n\nthen\n\n```\nd\n```\n\nlast"),
+        ("<pre></pre>after", "-\n\n```\n\n```\n\nafter"),
+        ("```<br>open<pre>code</pre>```<br>x", "-\n\n```\nopen\n\n```\n\ncode\n\n```\n\n```\n\nx"),
         ("one<br>```<br>two<br><br>```<br>three", "- one\n\n  ```\n  two\n\n  ```\n\nthree"),
-        ("<pre>a</pre><pre>b</pre>", "-\n\n  ```\n  a\n  ```\n\n  ```\n  b\n  ```"),
+        ("<pre>a</pre><pre>b</pre>", "-\n\n```\na\n```\n\n```\nb\n```"),
     ])
     def test_code_blocks_in_an_item_are_kept_as_before(self, item, expected):
-        # Code blocks are indented to the item's content column (test_audit_web_fixes.py::TestCodeBlockInsideAListItem)
+        # A code block is indented to the item's content column while the item is open — right after a non-empty item line or
+        # another indented code block, not after a paragraph or an empty item line (test_audit_web_fixes.py::TestCodeBlockInsideAListItem)
         assert convert(f"<ul><li>{item}</li></ul>".encode(), "a.html").text == expected
 
 
