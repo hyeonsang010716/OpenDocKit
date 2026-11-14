@@ -202,6 +202,14 @@ class TestChapterMarkup:
 
         assert convert(_epub({"ch1.xhtml": _page(body)}), "book.epub").text == "앞 문단\n\n뒤 문단"
 
+    @pytest.mark.parametrize("element", ["style", "script"])
+    def test_style_holding_a_closing_tag_in_cdata_shows_nothing(self, element) -> None:
+        """Written out as HTML, the text of a style or script is raw, so a CDATA section holding its closing tag ended it early
+        and the markup after it came out as text."""
+        body = f"<p>앞</p><{element}><![CDATA[</{element}><p>LEAK</p>]]></{element}>뒤<p>끝</p>"
+
+        assert convert(_epub({"ch1.xhtml": _page(body)}), "book.epub").text == "앞\n\n뒤\n\n끝"
+
     def test_cdata_sections_and_prefixed_xhtml_elements_are_read_as_xml(self) -> None:
         """Two things only XML knows: a CDATA section (an HTML parser takes it for a comment and drops the text) and XHTML
         elements written with a namespace prefix (`<h:h1>`), which an HTML parser does not recognize as headings or lists."""
@@ -265,6 +273,17 @@ class TestChapterMarkup:
 
         assert result.text == "깊은 곳"
         assert result.warnings == []
+
+
+class TestTitleInsideSvg:
+    """The `<title>` of an SVG ornament in a chapter became that chapter's heading."""
+
+    def test_svg_title_is_not_a_chapter_heading(self):
+        page = _page('<p>Chapter text.</p><svg xmlns="http://www.w3.org/2000/svg"><title>Decorative flourish</title></svg>')
+
+        result = convert(_epub({"a.xhtml": page}), "a.epub")
+
+        assert result.text == "Chapter text."
 
 
 class TestLinks:

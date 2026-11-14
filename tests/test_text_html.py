@@ -1,5 +1,6 @@
 """Encoding detection for TXT/MD, and HTML conversion."""
 
+import base64
 import codecs
 import time
 
@@ -1257,6 +1258,67 @@ class TestAlmostUtf8:
         assert not name.startswith("utf-8")
         if expected is not None:
             assert (decoded, name) == (text, expected)
+
+
+class TestDeclaredUtf8WithABrokenByte:
+    """A page or mail part declaring UTF-8 with one broken byte and only a few accented letters fell short of the 'almost UTF-8'
+    rule and was read as Windows-1252 or Windows-1250 without a warning (`café` → `cafÃ©`)."""
+
+    @pytest.mark.parametrize(("data", "expected"), [
+        (b"caf\xc3\xa9 \xe2\x82", "café �"),
+        (b"Price 5\xe2\x82\xac, caf\xc3\xa9 and \xff end", "Price 5€, café and � end"),
+    ])
+    def test_declared_utf8_is_read_with_replacement(self, data, expected):
+        assert decode_text(data, "UTF-8") == (expected, "utf-8(replaced)")
+
+    def test_page_declaring_utf8_warns(self):
+        data = b'<html><head><meta charset="utf-8"></head><body><p>caf\xc3\xa9 \xff</p></body></html>'
+
+        result = convert(data, "a.html")
+
+        assert result.text == "café �"
+        assert result.warnings
+
+    @pytest.mark.parametrize(("data", "expected"), [
+        ("naïve café".encode("cp1252"), ("naïve café", "cp1252")),
+        ("회의록 요약입니다".encode("cp949"), ("회의록 요약입니다", "cp949")),
+    ])
+    def test_another_encoding_labelled_utf8_is_still_recognised(self, data, expected):
+        assert decode_text(data, "utf-8") == expected
+
+    def test_undeclared_text_keeps_the_threshold(self):
+        assert decode_text(b"caf\xc3\xa9 \xe2\x82")[1] != "utf-8(replaced)"
+
+
+class TestAsciiUtf16WithoutBom:
+    """UTF-16 without a BOM whose text is all ASCII decoded strictly as UTF-8 with a NUL after every letter: detection said HTML,
+    and the page came out as `<\\x00h\\x00t\\x00m\\x00l\\x00…`."""
+
+    _PAGE = "<!DOCTYPE html><html><head><title>Report</title></head><body><h1>Quarterly report</h1><p>Revenue grew 5%.</p></body></html>"
+
+    @pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+    @pytest.mark.parametrize("filename", ["r.html", None])
+    def test_page_is_read(self, codec, filename):
+        result = convert(self._PAGE.encode(codec), filename)
+
+        assert result.format is DocumentFormat.HTML
+        assert result.text == "# Quarterly report\n\nRevenue grew 5%."
+        assert result.metadata["encoding"] == codec
+
+    @pytest.mark.parametrize("charset", ["utf-16le", "utf-16be"])
+    def test_mail_part_declaring_utf16_is_read(self, charset):
+        body = base64.encodebytes("<p>Hello there, meeting at 3pm.</p>".encode(charset.replace("16", "-16"))).decode()
+        data = (f"From: a@example.com\r\nTo: b@example.com\r\nSubject: S\r\nMIME-Version: 1.0\r\n"
+                f"Content-Type: text/html; charset={charset}\r\nContent-Transfer-Encoding: base64\r\n\r\n{body}").encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.endswith("\n\nHello there, meeting at 3pm.")
+
+    def test_utf8_with_nul_padded_fields_stays_utf8(self):
+        data = "이름\x00\x00\x00\x00나이\x00\x00\x00\x00주소".encode()
+
+        assert decode_text(data) == ("이름\x00\x00\x00\x00나이\x00\x00\x00\x00주소", "utf-8")
 
 
 class TestMalformedNesting:

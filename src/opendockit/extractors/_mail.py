@@ -705,11 +705,25 @@ def _decoded_header(value: object) -> str:
         value = "".join(_header_chunk_text(chunk, charset) for chunk, charset in decode_header(value))
     text = str(value)
     if not text.isascii():
-        # `decode_header` returns non-ASCII text mixed with encoded words as bytes of the `\\uc804` form. Only the words are decoded,
-        # one by one, and the rest of the text is left as is. Whitespace between two adjacent words is removed (RFC 2047).
+        # `decode_header` returns non-ASCII text mixed with encoded words as bytes of the `\\uc804` form. Only the words are decoded
+        # and the rest of the text is left as is. A run of adjacent words (only whitespace between them, which is removed — RFC
+        # 2047) is decoded together, so that a character split over two words is joined: decoded one by one, `제목
+        # =?utf-8?b?7JU=?= =?utf-8?b?iOuFlQ==?=` came out with the words as written
+        # (Pinned by: test_core_mailboxes_and_charsets.py::TestEightBitHeaderWithSplitEncodedWords).
         parts = _ENCODED_WORD.split(text)
-        return "".join(_decoded_words(part) if index % 2 else
-                       ("" if 0 < index < len(parts) - 1 and not part.strip() else part) for index, part in enumerate(parts))
+        pieces: list[str] = []
+        run: list[str] = []
+        for index, part in enumerate(parts):
+            if index % 2:
+                run.append(part)
+            elif run and not part.strip() and index < len(parts) - 1:
+                continue  # whitespace between two adjacent words
+            else:
+                if run:
+                    pieces.append(_decoded_words(" ".join(run)))
+                    run = []
+                pieces.append(part)
+        return "".join(pieces)
     return _decoded_words(text)
 
 

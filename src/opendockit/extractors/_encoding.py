@@ -67,8 +67,9 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     """Decode bytes to a string. Returns (string, encoding name). `declared` is the charset name the document itself states
     (HTML meta etc.).
 
-    Order: BOM → strict UTF-8 → almost UTF-8 (only when the end is cut or very few bytes are broken; replacement) → declared
-    charset, strict → BOM-less UTF-16 → strict CP949 → CP949 with replacement (only when very few bytes are broken)
+    Order: BOM → BOM-less UTF-16 declared, or with NULs at every other byte → strict UTF-8 → almost UTF-8 (only when the end
+    is cut or very few bytes are broken, or UTF-8 is declared and has a complete multi-byte character per broken one;
+    replacement) → declared charset, strict → BOM-less UTF-16 → strict CP949 → CP949 with replacement (only when very few bytes are broken)
     → statistical detection → UTF-8 with replacement characters. The name of an encoding decoded with replacement characters (�)
     gets `(replaced)` appended (`decoding_warning` turns it into a warning).
     Checking CP949 before statistical detection is deliberate: charset-normalizer sometimes misjudges short CP949 Hangul as
@@ -111,13 +112,22 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
         if text is not None and all(_printable(ch) for ch in text if not ch.isascii()) and "\x1b" not in text:
             return text, seven_bit
 
+    # UTF-16 without a BOM whose text is all ASCII decodes strictly as UTF-8 too, with a NUL after every letter: an HTML page
+    # or a mail part saved that way came out as `<\x00h\x00t\x00…` (Pinned by: test_text_html.py::TestAsciiUtf16WithoutBom).
+    # Only NUL bytes that sit at one parity of nearly every other byte go to this check first (`_alternating_nuls`); UTF-8 with
+    # stray NULs or NUL-padded fields keeps the order below. A mail part declared UTF-16LE or UTF-16BE is read so when it
+    # decodes strictly into printable text.
+    utf16 = _declared_utf16(data, declared) or (utf16_encoding(data) if _alternating_nuls(data) else None)
+    if utf16:
+        return data[:len(data) - len(data) % 2].decode(utf16), utf16
+
     text = _strict(data, "utf-8")
     if text is not None:
         return text, "utf-8"
     # UTF-8 with its last character cut or a single byte broken is garbled as a whole if passed to the steps below (text of 45
     # bytes or less became ptcp154/cp875 in statistical detection). Only when everything else decodes as UTF-8 multi-byte
     # characters is that spot left as a replacement character (Pinned by: test_text_html.py::TestAlmostUtf8).
-    if _almost_utf8(data):
+    if _almost_utf8(data) or (_declares_utf8(declared) and _mostly_utf8(data)):
         return data.decode("utf-8", errors="replace"), f"utf-8{_REPLACED}"
     codec = _declared_codec(declared)
     if codec not in (None, _WESTERN):
@@ -351,6 +361,53 @@ def _declared_codec(name: str | None) -> str | None:
         return None
     codec = _DECLARED_CODECS.get(codec, codec)
     return None if codec.startswith("utf") else codec
+
+
+def _lookup(name: str | None) -> str | None:
+    """The Python codec name of a charset name, None when it is unknown."""
+    try:
+        return codecs.lookup(name.strip()).name if name and name.strip() else None
+    except (LookupError, ValueError):
+        return None
+
+
+def _declares_utf8(name: str | None) -> bool:
+    return _lookup(name) == "utf-8"
+
+
+def _mostly_utf8(data: bytes) -> bool:
+    """Is text that declares UTF-8 and failed strict decoding still UTF-8 with a few broken bytes: it has a complete multi-byte
+    character for every replacement character, and CP949 reads it with no fewer replacement characters.
+
+    A declared UTF-8 page or mail part with one broken byte and only a few accented letters fell short of `_almost_utf8` and
+    was read as Windows-1252 or Windows-1250 without a warning (`café` → `cafÃ©`). Text with no multi-byte character at all
+    (Windows-1252 labelled UTF-8, as old servers send it) and CP949 Hangul labelled UTF-8, which CP949 reads cleanly, are left
+    to the steps below (Pinned by: test_text_html.py::TestDeclaredUtf8WithABrokenByte)."""
+    text = data.decode("utf-8", errors="replace")
+    replaced = text.count("\ufffd")
+    multibyte = sum(1 for ch in text if ord(ch) > 0x7F) - replaced
+    return 1 <= multibyte and replaced <= multibyte and replaced <= data.decode(_KOREAN_LEGACY, errors=_CP949_PAIR_REPLACE).count("\ufffd")
+
+
+def _declared_utf16(data: bytes, name: str | None) -> str | None:
+    """"utf-16-le"/"utf-16-be" when the text declares that byte order (a mail part `charset=utf-16le`) and decodes strictly into
+    printable text (`_printable`), otherwise None."""
+    codec = {"utf-16-le": "utf-16-le", "utf-16-be": "utf-16-be"}.get(_lookup(name) or "")
+    if codec is None or len(data) % 2:
+        return None
+    text = _strict(data, codec)
+    return codec if text and all(_printable(ch) for ch in text[:20_000]) else None
+
+
+def _alternating_nuls(data: bytes) -> bool:
+    """Does the head hold NUL bytes at nearly every other byte, nearly all at one parity — the shape of UTF-16 text that is mostly
+    ASCII. A third of the bytes at least, and nine in ten of them at the same parity."""
+    sample = data[:8192]
+    nuls = sample.count(0)
+    if not nuls or nuls * 3 < len(sample):
+        return False
+    odd = sample[1::2].count(0)
+    return max(odd, nuls - odd) * 10 >= nuls * 9
 
 
 def _seven_bit_codec(name: str | None) -> str | None:
