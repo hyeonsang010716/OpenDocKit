@@ -154,6 +154,73 @@ class TestTextDocument:
                     styles=_LIST_STYLES)
         assert text == "1. 하나\n\n사이\n\n2. 둘\n\n사이\n\n1. 다시"
 
+    def test_nested_list_with_its_own_style_restarts_under_each_item(self):
+        """Nested lists that name a style of their own (as pandoc writes them): the letters restart under every item of the
+        outer list and in the next list, as on screen. Counted per style, they ran on to 'c) b1' and 'c) x1'."""
+        styles = ('<office:styles>'
+                  '<text:list-style style:name="L1"><text:list-level-style-number text:level="1" style:num-format="1"/>'
+                  '</text:list-style>'
+                  '<text:list-style style:name="L2"><text:list-level-style-number text:level="1" style:num-format="1"/>'
+                  '<text:list-level-style-number text:level="2" style:num-format="a" style:num-suffix=")"/></text:list-style>'
+                  '</office:styles>')
+
+        def item(text: str, *subitems: str) -> str:
+            nested = ('<text:list text:style-name="L2">' + "".join(item(sub) for sub in subitems) + "</text:list>") if subitems else ""
+            return f"<text:list-item><text:p>{text}</text:p>{nested}</text:list-item>"
+
+        text = _odt(f'<text:list text:style-name="L1">{item("가", "a1", "a2")}{item("나", "b1")}</text:list>'
+                    f'<text:p>사이</text:p><text:list text:style-name="L1">{item("다", "x1")}</text:list>', styles=styles)
+        assert text == "1. 가\n  - a) a1\n  - b) a2\n2. 나\n  - a) b1\n\n사이\n\n1. 다\n  - a) x1"
+
+    def test_continue_list_continues_the_list_it_names(self):
+        """`text:continue-list` names the list it continues by `xml:id`: across a list of the same style that started again in
+        between, the numbers go on from the named list (and the style comes from it when the continuing list names none)."""
+        item = '<text:list-item><text:p>{}</text:p></text:list-item>'
+        text = _odt(f'<text:list xml:id="list1" text:style-name="Numbers">{item.format("하나")}{item.format("둘")}</text:list>'
+                    f'<text:list text:style-name="Numbers">{item.format("다른 목록")}</text:list>'
+                    f'<text:list text:continue-list="list1">{item.format("셋")}</text:list>', styles=_LIST_STYLES)
+        assert text == "1. 하나\n2. 둘\n1. 다른 목록\n3. 셋"
+
+    def test_heading_in_a_numbered_list_counts_as_an_item(self):
+        """A heading inside a numbered list item takes its number after the `#`, and the next item counts on from it."""
+        item = '<text:list-item>{}</text:list-item>'
+        text = _odt('<text:list text:style-name="Numbers">'
+                    + item.format('<text:h text:outline-level="1">개요</text:h>') + item.format("<text:p>본문</text:p>")
+                    + "</text:list>", styles=_LIST_STYLES)
+        assert text == "# 1. 개요\n\n2. 본문"
+
+    def test_heading_number_label_is_kept_apart_from_the_text(self):
+        """The label a numbered heading carries (`text:number`) is followed by a space: it read '# 1.Intro'. Inside a list item
+        it is the label already, so it is not written twice."""
+        assert _odt('<text:h text:outline-level="1"><text:number>1.</text:number>Intro</text:h>') == "# 1. Intro"
+        text = _odt('<text:list text:style-name="Numbers"><text:list-item><text:h text:outline-level="2"><text:number>1.</text:number>'
+                    '개요</text:h></text:list-item><text:list-item><text:p>본문</text:p></text:list-item></text:list>',
+                    styles=_LIST_STYLES)
+        assert text == "## 1. 개요\n\n2. 본문"
+
+
+class TestHiddenText:
+    """Hidden text is not text of the document (as DOCX w:vanish and RTF `\\v`): it read like a valid value."""
+
+    def test_characters_in_a_hidden_text_style_are_left_out(self):
+        automatic = ('<style:style style:name="T1" style:family="text"><style:text-properties text:display="none"/></style:style>'
+                     '<style:style style:name="T2" style:family="text" style:parent-style-name="T1">'
+                     '<style:text-properties fo:font-weight="bold"/></style:style>')
+        text = _odt('<text:p>금액 <text:span text:style-name="T1">1,000원</text:span>2,000원 '
+                    '<text:span text:style-name="T2">초안</text:span>끝</text:p>', automatic=automatic)
+        assert text == "금액 2,000원 끝"
+
+    def test_hidden_fields_and_conditional_sections_are_left_out_only_while_hidden(self):
+        text = _odt('<text:p>보임<text:hidden-text text:condition="ooow:1" text:string-value="숨김" text:is-hidden="true">숨김'
+                    '</text:hidden-text><text:hidden-text text:condition="ooow:0" text:string-value="표시">표시</text:hidden-text></text:p>'
+                    '<text:p>숨은 문단<text:hidden-paragraph text:condition="ooow:1" text:is-hidden="true"/></text:p>'
+                    '<text:p>보이는 문단<text:hidden-paragraph text:condition="ooow:0"/></text:p>'
+                    '<text:section text:name="S1" text:display="condition" text:condition="ooow:1" text:is-hidden="true">'
+                    '<text:p>숨은 구역</text:p></text:section>'
+                    '<text:section text:name="S2" text:display="condition" text:condition="ooow:0"><text:p>보이는 구역</text:p>'
+                    '</text:section>')
+        assert text == "보임표시\n\n보이는 문단\n\n보이는 구역"
+
     def test_merged_cells_repeat_their_value_on_every_row(self):
         """A 3-row table whose first column has a cell spanning rows 2 and 3 (`number-rows-spanned` + a covered cell): the merged
         category is repeated on each row, as for the same table in DOCX."""
