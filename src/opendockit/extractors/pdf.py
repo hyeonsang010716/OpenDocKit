@@ -239,6 +239,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
             fallback: pdfium.PdfDocument | None = None
             ungrouped: object | None = None  # pdfplumber document with text-box grouping off (for pages with very many text pieces)
             dense = set()
+            crammed: set[int] = set()  # pages found with too much text-box grouping while being read (`_PAGE_GROUPING_COST`)
             grids: set[int] = set()  # ruled grid pages (read without text-box grouping, but not reported since cell text goes into the table)
             attachments: dict[int, str] = {}  # attachment file specification (id) → name
             started = time.perf_counter()
@@ -285,10 +286,12 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 grids.add(page.page_number)
                             if page.page_number in dense | grids:
                                 ungrouped = ungrouped or pdfplumber.open(BytesIO(data), laparams=_UNGROUPED_LAPARAMS)
-                            ungrouped_before = budget.ungrouped_layouts
+                            ungrouped_before, budget.grouping_cost = budget.ungrouped_layouts, 0
                             read = _read_page_from(ungrouped if page.page_number in dense | grids else pdf, page, placement_fit)
                             if budget.ungrouped_layouts > ungrouped_before:
-                                dense.add(page.page_number)  # too many text boxes to group (`_MAX_GROUPED_TEXT_BOXES`)
+                                # Too much text-box grouping (`_PAGE_GROUPING_COST`). The page was read from `pdf` with the bound
+                                # in force, so it is read again from there (`crammed` is not in `dense`, which picks `ungrouped`)
+                                crammed.add(page.page_number)
                             placement_fit = placement_fit or read.placement_fit
                             undecoded = budget.undecoded_fonts and not read.unmeasured and bool(
                                 read.lines or read.tables or read.sideways)
@@ -348,7 +351,12 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                     if options.pdf_time_budget is not None and time.perf_counter() - started > options.pdf_time_budget:
                         extraction.time_limited = True
                         break
+                    # A page found crowded with text boxes only while being read (`crammed`) was read from `pdf` and is read
+                    # from it again, with the grouping cost of the page reset — the same layouts are left ungrouped. Taking it
+                    # for `dense` sent it to `ungrouped`, which had not been opened, and the whole document failed (Pinned by:
+                    # test_audit_pdf_text.py::TestTooManyTextBoxes::test_a_crowded_page_read_again_keeps_its_first_reading)
                     page = (ungrouped if read.number in dense | grids else pdf).pages[read.number - 1]
+                    budget.grouping_cost = 0
                     try:
                         pages[index] = _read_page(page, placement_fit)
                     except PdfminerException:
@@ -361,6 +369,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                         fallback.close()
                 if ungrouped is not None:
                     ungrouped.close()
+            dense |= crammed  # the same warning for both
             extraction.metadata.update(_metadata(pdf.metadata, pdf.doc.info))
             # In an XFA form the content is in XML and the page holds only a 'Please wait...' notice, so the notice alone came out
             # as a 'success'. Reported only when not a single entered value was read from the pages — an XFA form that has both

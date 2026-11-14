@@ -396,7 +396,8 @@ class TestTooManyTextBoxes:
     """pdfminer's text-box grouping keeps a heap of every pair of text boxes, so a 68KB page whose 6,000 characters lie far off
     the page (each its own box) took 122 seconds inside one page, where the time budget does not look. The pdfium estimate of
     line pieces did not see them (single-precision positions put characters 20pt apart at x = 2e9 on one spot). A layout with
-    more than `_MAX_GROUPED_TEXT_BOXES` boxes is ordered as without grouping, with the warning of such pages."""
+    more than its share of `_PAGE_GROUPING_COST` (the square of the box counts of a page's layouts, Form XObjects included) is
+    ordered as without grouping, with the warning of such pages."""
 
     @staticmethod
     def _scattered(count: int, far: int = 0) -> bytes:
@@ -418,7 +419,7 @@ class TestTooManyTextBoxes:
     def test_a_layout_with_too_many_boxes_is_ordered_as_without_grouping(self, monkeypatch):
         from opendockit.extractors import _pdf_pdfminer
 
-        monkeypatch.setattr(_pdf_pdfminer, "_MAX_GROUPED_TEXT_BOXES", 50)
+        monkeypatch.setattr(_pdf_pdfminer, "_PAGE_GROUPING_COST", 50 ** 2)
         data = self._scattered(200)
         expected = pdf_module._extract_pdf.__globals__["_UNGROUPED_LAPARAMS"]
         token = _pdf_pdfminer._INFLATE_BUDGET.set(_pdf_pdfminer._InflateBudget(10**9))
@@ -437,8 +438,75 @@ class TestTooManyTextBoxes:
     def test_a_layout_within_the_bound_is_still_grouped(self, monkeypatch):
         from opendockit.extractors import _pdf_pdfminer
 
-        monkeypatch.setattr(_pdf_pdfminer, "_MAX_GROUPED_TEXT_BOXES", 500)
+        monkeypatch.setattr(_pdf_pdfminer, "_PAGE_GROUPING_COST", 500 ** 2)
         result = convert(self._scattered(200), "a.pdf")
 
         assert not any("reading-order analysis" in warning for warning in result.warnings)
         assert result.sections[0].text.count("o") == 200 + 2  # and the two of "Hello world"
+
+    @staticmethod
+    def _drawn_form(boxes: int, times: int) -> bytes:
+        """A page drawing `times` times a form whose `boxes` characters lie apart far off the page (each its own box)."""
+        inner = zlib.compress(b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d 500 Tm (o) Tj " % (2_000_000_000 + index * 20)
+                                                       for index in range(boxes)) + b"ET", 9)
+        form = (b"<< /Type /XObject /Subtype /Form /BBox [-3000000000 -3000000000 3000000000 3000000000] "
+                b"/Resources << /Font << /F1 5 0 R >> >> /Length %d /Filter /FlateDecode >>\nstream\n" % len(inner)
+                + inner + b"\nendstream")
+        body = b"BT /F1 12 Tf 72 800 Td (Hello world) Tj ET " + b"q /X1 Do Q " * times
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1600 2000] /Contents 4 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> /XObject << /X1 6 0 R >> >> >>")
+        return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
+                         4: _flate(body), 5: _FONT, 6: form})
+
+    def test_the_cost_is_counted_over_every_form_drawn_on_the_page(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        monkeypatch.setattr(_pdf_pdfminer, "_PAGE_GROUPING_COST", 3 * 100 ** 2)  # three of the six drawings fit
+        calls = []
+        group = _pdf_pdfminer._group_all_textboxes
+        monkeypatch.setattr(_pdf_pdfminer, "_group_all_textboxes", lambda *args: (calls.append(len(args[2])), group(*args))[1])
+
+        result = convert(self._drawn_form(100, 6), "a.pdf")
+
+        assert calls.count(100) == 3
+        assert result.sections[0].text == "Hello world"
+        assert any("read without text-box reading-order analysis" in warning for warning in result.warnings)
+
+    @pytest.mark.timing
+    def test_a_form_drawn_many_times_is_not_grouped_every_time(self):
+        started = time.perf_counter()
+        result = convert(self._drawn_form(1_400, 15), "a.pdf")  # 4.3KB
+
+        assert time.perf_counter() - started < allowed(3)  # 54 seconds when the bound was per layout
+        assert result.sections[0].text == "Hello world"
+
+    def test_a_crowded_page_read_again_keeps_its_first_reading(self, monkeypatch):
+        """A page found crowded only while being read was taken for a page read from the ungrouped document; read again for
+        a width of separately placed text found on a later page, it asked that unopened document and the whole conversion
+        failed as corrupted."""
+        many = b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d %d Tm (o) Tj " % (10 + index % 50 * 30, 10 + index // 50 * 25)
+                                          for index in range(1_600)) + b"ET"
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1600 2000] /Contents %d 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> >> >>")
+        data = _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+                         3: page % 4, 4: _flate(many), 5: _FONT, 6: page % 7,
+                         7: _flate(b"BT /F1 12 Tf 72 700 Td (Hello world) Tj ET")})
+        first = convert(data, "a.pdf")
+        calls = []
+        read_page = pdf_module._read_page
+
+        def read(page, placement_fit=None):
+            calls.append(page.page_number)
+            result = read_page(page, placement_fit)
+            if page.page_number == 1 and placement_fit is None:
+                result.placement_pending = True
+            elif page.page_number == 2:
+                result.placement_fit = (0.9, 0.25)
+            return result
+
+        monkeypatch.setattr(pdf_module, "_read_page", read)
+        again = convert(data, "a.pdf")
+
+        assert calls == [1, 2, 1]
+        assert again.text == first.text and again.warnings == first.warnings
+        assert any("read without text-box reading-order analysis" in warning for warning in again.warnings)
