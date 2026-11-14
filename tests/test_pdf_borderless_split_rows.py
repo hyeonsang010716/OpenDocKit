@@ -488,6 +488,48 @@ class TestSparseRowsAboveABorderlessTable:
                         "| --- | --- | --- |\n| North | 1,250 | 44,288 |\n| South | 980 | 46,001 |\n| East | 2,680 | 37,138 |\n"
                         "| West | 770 | 66,585 |\n\nThis report was prepared by the finance team.")
 
+    @staticmethod
+    def _headed_table_pdf(above):
+        """A borderless table of four columns with a header of text only ('Item | Units | Revenue | Profit', numbers
+        right-aligned) and, one row height above it, the lines `above`: lists of (x, text, right-aligned)."""
+        def draw(pdf, index):
+            pdf.drawString(60, 790, "Figures are unaudited.")
+            for number, line in enumerate(above):
+                for x, text, right in line:
+                    (pdf.drawRightString if right else pdf.drawString)(x, 770 - number * 16, text)
+            top = 770 - len(above) * 16
+            for number, row in enumerate([("Item", "Units", "Revenue", "Profit"), ("North", "1,250", "44,288", "4,100"),
+                                          ("South", "980", "46,001", "3,300"), ("East", "2,680", "37,138", "5,200")]):
+                pdf.drawString(64, top - number * 16, row[0])
+                for column in (1, 2, 3):
+                    pdf.drawRightString(152 + column * 100, top - number * 16, row[column])
+            pdf.drawString(60, top - 100, "This report was prepared by the finance team.")
+
+        return _korean_pdf(draw)
+
+    _HEADED = ("| Item | Units | Revenue | Profit |\n| --- | --- | --- | --- |\n| North | 1,250 | 44,288 | 4,100 |\n"
+               "| South | 980 | 46,001 | 3,300 |\n| East | 2,680 | 37,138 | 5,200 |")
+
+    def test_label_and_value_lines_above_a_text_header_stay_out_of_the_table(self):
+        """Two lines of a label and a value above a table that has its header, the values right-aligned under its columns:
+        they start in the first column like the lines of a table of contents, and are no rows of the table. They became
+        its first rows ('| Margin | | | 84,835 |') and the header a data row."""
+        data = self._headed_table_pdf([[(60, "Margin", False), (452, "84,835", True)], [(60, "Net", False), (352, "64,966", True)]])
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "\n\n" + self._HEADED + "\n\n" in text and "| Margin" not in text and "| Net" not in text
+
+    def test_row_of_years_above_a_text_header_joins_the_table(self):
+        """A row with a year over the second and the fourth column and nothing in the first, right above the header: it
+        is a row of the table (a header of two rows), not a line of a list. Left out, the years were loose paragraphs
+        above the table."""
+        data = self._headed_table_pdf([[(252, "2026", True), (452, "2025", True)]])
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| | 2026 | | 2025 |\n| --- | --- | --- | --- |\n| Item | Units | Revenue | Profit |\n| North | 1,250 | 44,288 | 4,100 |" in text
+
     def test_header_of_the_table_below_stays_out_of_a_key_value_block(self):
         """Three lines of a key-value block (three pieces, one piece, two pieces) and, 32pt below, a table of four columns.
         The header of the table lines up with no value of the block, and one value in its column is enough to see that: the
