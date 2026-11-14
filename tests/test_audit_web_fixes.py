@@ -256,6 +256,17 @@ class TestNoMarksInsideCode:
 
         assert convert(html.encode(), "a.html").text == "h\n\n~~a~~\n\n```\nx\ny\n```\n\n~~b~~"
 
+    @pytest.mark.timing
+    def test_deeply_nested_tables_in_a_struck_cell_take_linear_time(self):
+        """Which tables hold a code block is found once, climbing up from each block (8,000 levels took 19 s, now about 0.4 s)."""
+        n = 8000
+        html = ("<table><tr><td><del>a" + "<table><tr><td>x" * n + "<pre>c</pre>" + "</td></tr></table>" * n
+                + "b</del></td></tr></table>")
+        start = time.perf_counter()
+        convert(html.encode(), "a.html")
+
+        assert time.perf_counter() - start < allowed(4)
+
     def test_strikethrough_set_on_a_code_block_itself_is_not_marked(self):
         assert convert(b'<pre style="text-decoration:line-through">x</pre>', "a.html").text == "```\nx\n```"
 
