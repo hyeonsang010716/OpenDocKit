@@ -1157,3 +1157,75 @@ class TestHeaderMergedWiderThanACell:
         text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert "| 구분 | 사업 | 비용 | 배출량 | 감축 |\n| --- | --- | --- | --- | --- |\n| 연도 | 효과 | 17,777 |" in text
+
+
+class TestVeryWideBorderlessRows:
+    """Faint rows of 1,000 one-point letters every 4pt form a borderless 'table' of 1,000 columns; looking up the column of
+    each piece scanned every header cell, so the table step took time with cells × columns."""
+
+    @staticmethod
+    def _rows_pdf(rows: int) -> bytes:
+        from tests.test_audit_pdf_head import _flate, _one_page
+
+        parts = [b"BT /F1 1 Tf 0 g "]
+        for piece in range(rows * 1000):
+            parts.append(b"1 0 0 1 %d %d Tm (x) Tj " % (10 + (piece % 1000) * 4, 20 + (piece // 1000) * 3))
+        parts.append(b"ET")
+        return _one_page(_flate(b"".join(parts)), mediabox=b"[0 0 4600 600]")
+
+    @pytest.mark.timing
+    def test_column_lookups_of_a_very_wide_table_are_not_quadratic(self, monkeypatch):
+        import time
+
+        import opendockit.extractors.pdf as pdf_module
+
+        extract, spent = pdf_module._extract_aligned_tables, [0.0]
+
+        def timed(page):
+            started = time.perf_counter()
+            try:
+                extract(page)
+            finally:
+                spent[0] += time.perf_counter() - started
+
+        monkeypatch.setattr(pdf_module, "_extract_aligned_tables", timed)
+        text = convert(self._rows_pdf(10), "a.pdf", ConvertOptions(max_chars=None)).text
+
+        assert text.count("x") == 10_000
+        assert spent[0] < 2.0  # 5 seconds before
+
+    @pytest.mark.parametrize("seed", range(4))
+    def test_the_header_index_gives_the_columns_of_the_scans(self, seed, monkeypatch):
+        """`_HeaderIndex` against the scans it replaces, on random wide headers with many equal edges and distances (the
+        first header at the smallest distance wins), overlapping cells and pieces in the gaps."""
+        import random
+
+        from opendockit.extractors._pdf_model import _Line
+        import opendockit.extractors._pdf_table_rows as table_rows
+
+        rng = random.Random(seed)
+
+        def line(x0, width, text):
+            return _Line(top=0.0, bottom=10.0, x0=x0, x1=x0 + width, text=text, size=10.0)
+
+        def columns(header, pieces, row):
+            return [(table_rows._header_column(piece, header), table_rows._gap_column(piece, header, row),
+                     table_rows._column_of(piece, header, row)) for piece in pieces]
+
+        for _ in range(150):
+            edges = [rng.choice([0.0, 0.3, 2.5, 5.0, 7.5]) + 6 * rng.randint(0, 40) for _ in range(12)]
+            header = [line(rng.choice(edges) if rng.random() < 0.5 else rng.uniform(0, 300),
+                           rng.choice([0, 1, 2.5, 5, 30, rng.uniform(0, 80)]), rng.choice(["ab", "12"]))
+                      for _ in range(rng.choice([17, 40, 120]))]
+            pieces = [line(rng.choice(header).x0 + rng.choice([0, 2.5, -2.5, 1, 3, 0.1 + 0.2]) if rng.random() < 0.7
+                           else rng.uniform(-10, 310), rng.choice([0, 1, 4, 20, rng.uniform(0, 100)]), rng.choice(["ab", "12", "가"]))
+                      for _ in range(12)]
+            row = sorted(rng.sample(pieces, rng.randint(0, len(pieces))), key=lambda piece: piece.x0)
+
+            indexed = columns(header, pieces, row)
+            monkeypatch.setattr(table_rows, "_INDEXED_HEADER_CELLS", 10_000)
+            scanned = columns(header, pieces, row)
+            monkeypatch.setattr(table_rows, "_INDEXED_HEADER_CELLS", 16)
+            table_rows._drop_header_indexes()
+
+            assert indexed == scanned

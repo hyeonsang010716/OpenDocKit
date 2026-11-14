@@ -4,11 +4,14 @@ wrapped cells and labels, rows split over lines, and headers carried over a page
 
 from collections import Counter
 from itertools import pairwise
+import math
 import statistics
 
+from opendockit.extractors._pdf_continued_tables import _YEAR_OR_DATE
 from opendockit.extractors._pdf_model import (
     _COLUMN_LINES_MIN,
     _FAR_VALUE,
+    _NUMBER_CELL,
     _ROW_OVERLAP_RATIO,
     _SPACED_CHAR,
     _TABLE_CELL_MAX_RATIO,
@@ -25,7 +28,7 @@ from opendockit.extractors._pdf_table_rows import (
     _blank_corner_header,
     _column_of,
     _continues_cell,
-    _has_number_cell,
+    _drop_header_indexes,
     _is_lone_value_row,
     _is_section_row,
     _is_separate,
@@ -55,6 +58,13 @@ _HEADER_WRAP_GAP_RATIO = 0.6
 def _extract_aligned_tables(page: _Page) -> None:
     """Find tables that have no rules and only aligned cells, turn them into Markdown tables, and take their lines out of the
     body flow."""
+    try:
+        _extract_tables(page)
+    finally:
+        _drop_header_indexes()
+
+
+def _extract_tables(page: _Page) -> None:
     used: set[int] = set()
     for run in _aligned_table_runs(page):
         header = run[0]
@@ -119,12 +129,24 @@ def _row_columns(row: list[_Line], header: list[_Line]) -> list[int]:
     TestCentredHeadersOverLeftAlignedCells::test_wrapped_line_of_a_cell_in_the_gap_before_a_centred_header_stays_in_the_cell).
     """
     columns: list[int] = []
+    # The pieces at the height of a top are listed once per distinct top, and the pieces before a piece are looked through
+    # only when one of them starts higher — listing both again for every piece of a row of 1,000 pieces took time with the
+    # square of the row (Pinned by: test_pdf_table_columns.py::TestVeryWideBorderlessRows)
+    levels: dict[float, list[_Line]] = {}
+    ordinary = all(math.isfinite(line.top) for line in row)
+    highest = math.inf  # the highest top among the pieces before this one
 
     for index, line in enumerate(row):
-        level = [other for other in row if abs(other.top - line.top) <= _TABLE_ROW_TOLERANCE]
+        level = levels.get(line.top) if ordinary else None
+        if level is None:
+            level = [other for other in row if abs(other.top - line.top) <= _TABLE_ROW_TOLERANCE]
+            if ordinary:
+                levels[line.top] = level
         column = _column_of(line, header, level)
-        above = [(other, columns[number]) for number, other in enumerate(row[:index])
-                 if other.top < line.top - _TABLE_ROW_TOLERANCE and other.x0 < line.x1 and line.x0 < other.x1]
+        above = ([(other, columns[number]) for number, other in enumerate(row[:index])
+                  if other.top < line.top - _TABLE_ROW_TOLERANCE and other.x0 < line.x1 and line.x0 < other.x1]
+                 if not ordinary or highest < line.top - _TABLE_ROW_TOLERANCE else [])
+        highest = min(highest, line.top)
         if above and column not in {other_column for _, other_column in above}:
             column = min(above, key=lambda pair: abs(pair[0].x0 - line.x0))[1]
         columns.append(column)
@@ -322,14 +344,18 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
         lower = rows[end + 1 + len(after):last + 1]
         members = {id(original) for row in following for line in row for original in (line, line.source, *line.joined)
                    if original is not None}
-        # Only the round-44 shape is joined: the other table starts with a data row (a numeric value cell — not a header of
-        # its own) and the rows between continue at the row pitch of the two tables. A totals row followed by a product
-        # table with its own header ('품목 | 단가 | …') was joined into the table above (Pinned by:
+        # Only the round-44 shape is joined: the other table starts with a data row (a numeric value cell that is not a
+        # year or date — not a header of its own such as '구분 | 2023 | 2024') and the rows between continue at the usual
+        # (median) row gap of the two tables. A totals row followed by a product table with its own header ('품목 | 단가 |
+        # …') was joined into the table above, and so was a table under a year header; with the widest row gap as the
+        # bound, one wide gap inside a table let an equally wide gap between two tables through (Pinned by:
         # test_pdf_borderless_split_rows.py::TestSeparateTableBelowARowInNoTable)
         pitch = [_row_gap(upper, lower_row) for table in (run, following) for upper, lower_row in pairwise(table)]
         chain = [_row_gap(upper, lower_row) for upper, lower_row in pairwise([run[-1], *after, following[0]])]
-        if (lower and all(id(line) in members for row in lower for line in row) and _has_number_cell(following[0])
-                and pitch and max(chain) <= max(pitch) + 1.0):
+        if (lower and all(id(line) in members for row in lower for line in row)
+                and any(_NUMBER_CELL.match(line.text.strip()) and not _YEAR_OR_DATE.match(line.text.strip())
+                        for line in following[0])
+                and pitch and max(chain) <= statistics.median(pitch) + 1.0):
             # The joined table grows downwards past the end of the other table as that table would have on its own
             wide_left = min(left, *(line.x0 - _TABLE_ROW_TOLERANCE for row in following for line in row))
             wide_right = max(right, *(line.x1 + _TABLE_ROW_TOLERANCE for row in following for line in row))

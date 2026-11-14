@@ -2,10 +2,13 @@
 a section row, a lone value, out of line with the columns, or separate from the rows above.
 """
 
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Callable
+import math
 import re
 import statistics
+import threading
 
 from opendockit.extractors._pdf_model import (
     _NUMBER_CELL,
@@ -356,10 +359,16 @@ def _gap_column(line: _Line, header: list[_Line], row: list[_Line] | tuple[()], 
     test_pdf_table_columns.py::TestCentredHeadersOverLeftAlignedCells::test_cells_in_the_gaps_before_every_centred_header)."""
     if column is None:
         column = _header_column(line, header)
-    if not row or any(abs(cell.x0 - line.x0) <= _TABLE_ROW_TOLERANCE or abs(cell.x1 - line.x1) <= _TABLE_ROW_TOLERANCE
-                      for cell in header):
-        return column
-    later = next((index for index, cell in enumerate(header) if cell.x0 >= line.x1), None)
+    index = _header_index(header, line)
+    if index is not None:
+        if not row or min(index.nearest(0, line.x0)[1], index.nearest(1, line.x1)[1]) <= _TABLE_ROW_TOLERANCE:
+            return column
+        later = index.first_starting_at(line.x1)
+    else:
+        if not row or any(abs(cell.x0 - line.x0) <= _TABLE_ROW_TOLERANCE or abs(cell.x1 - line.x1) <= _TABLE_ROW_TOLERANCE
+                          for cell in header):
+            return column
+        later = next((index for index, cell in enumerate(header) if cell.x0 >= line.x1), None)
     if not later or header[later - 1].x1 > line.x0 or later != column + 1:
         return column
     taken = any(other is not line and other.x1 <= line.x0 and _header_column(other, header) == column for other in row)
@@ -391,6 +400,10 @@ def _header_column(line: _Line, header: list[_Line]) -> int:
     fragment ('0.627 ± 0.080 +0.084'), the right edge matches the later column but the fragment also lies over the
     header of the earlier column, so the column is not decided by the right edge (public paper PDF).
     """
+    index = _header_index(header, line)
+    if index is not None:
+        return index.column(line)
+
     def closest(distance: Callable[[_Line], float]) -> int | None:
         index = min(range(len(header)), key=lambda index: abs(distance(header[index])))
         return index if abs(distance(header[index])) <= _TABLE_ROW_TOLERANCE else None
@@ -411,3 +424,125 @@ def _header_column(line: _Line, header: list[_Line]) -> int:
         if center >= cell.x0 - _TABLE_ROW_TOLERANCE:
             column = index
     return column
+
+
+# Headers with more cells than this get a sorted index for the column lookups (`_header_column`, `_gap_column`); narrower
+# headers keep the scans, which are as fast there.
+_INDEXED_HEADER_CELLS = 16
+_INDEX_CACHE = threading.local()  # per thread: id of a header list → (that list, its length and end cells, its `_HeaderIndex`)
+_INDEX_CACHE_SIZE = 32
+
+
+def _header_index(header: list[_Line], line: _Line) -> "_HeaderIndex | None":
+    """The sorted index of a wide header (more than `_INDEXED_HEADER_CELLS` cells) for looking up the column of `line`. None
+    for a narrow header, or when a coordinate of the header or of `line` is not finite (the scans decide those cases, so
+    the result is the same in every case).
+
+    Each lookup scanned every header cell, so on a page whose faint rows of 1,000 one-point letters every 4pt formed a
+    borderless 'table' of 1,000 columns the lookups took time with cells × columns (77 seconds for a 12,000-row page)
+    (Pinned by: test_pdf_table_columns.py::TestVeryWideBorderlessRows). The index is kept per header list while that list
+    keeps its length and end cells (rows are not changed once grouped), at most `_INDEX_CACHE_SIZE` of them, and dropped
+    when the page's tables are read (`_drop_header_indexes`)."""
+    if len(header) <= _INDEXED_HEADER_CELLS or not (math.isfinite(line.x0) and math.isfinite(line.x1)):
+        return None
+    cache = getattr(_INDEX_CACHE, "entries", None)
+    if cache is None:
+        cache = _INDEX_CACHE.entries = {}
+    cells = (len(header), id(header[0]), id(header[-1]))  # rows are not changed once grouped; this catches a list grown
+    known = cache.get(id(header))
+    if known is not None and known[0] is header and known[1] == cells:
+        return known[2]
+    index = _HeaderIndex.of(header)
+    if len(cache) >= _INDEX_CACHE_SIZE:
+        cache.clear()
+    cache[id(header)] = (header, cells, index)
+    return index
+
+
+def _drop_header_indexes() -> None:
+    """Forget the header indexes of this thread (`_header_index`), so they do not hold the lines of a page read."""
+    _INDEX_CACHE.entries = {}
+
+
+class _HeaderIndex:
+    """The cells of a header sorted by left and by right edge, for `_header_column` and `_gap_column` with the same results
+    as their scans: the first header (in header order) at the smallest distance, the last header whose start (less
+    `_TABLE_ROW_TOLERANCE`) is at or before a point, the first header starting at or after a point, and the headers
+    overlapping a range."""
+
+    @classmethod
+    def of(cls, header: list[_Line]) -> "_HeaderIndex | None":
+        if not all(math.isfinite(cell.x0) and math.isfinite(cell.x1) for cell in header):
+            return None
+        return cls(header)
+
+    def __init__(self, header: list[_Line]) -> None:
+        self.size = len(header)
+        self.edges = ([cell.x0 for cell in header], [cell.x1 for cell in header])
+        self.orders = tuple(sorted(range(self.size), key=lambda position: (edges[position], position)) for edges in self.edges)
+        self.sorted_edges = tuple([edges[position] for position in order] for edges, order in zip(self.edges, self.orders, strict=True))
+        by_start = self.orders[0]
+        # the first header (in header order) among those from each place of the start order on
+        self.first_from = [0] * (self.size + 1)
+        self.first_from[self.size] = self.size
+        for place in range(self.size - 1, -1, -1):
+            self.first_from[place] = min(by_start[place], self.first_from[place + 1])
+        # the widest right edge among the headers up to each place of the start order
+        self.widest_to = []
+        for place in range(self.size):
+            right = self.edges[1][by_start[place]]
+            self.widest_to.append(right if not place or right > self.widest_to[-1] else self.widest_to[-1])
+        # starts less the tolerance, sorted, with the last header (in header order) among those up to each place
+        shifted = sorted((cell.x0 - _TABLE_ROW_TOLERANCE, position) for position, cell in enumerate(header))
+        self.shifted = [value for value, _ in shifted]
+        self.last_to = []
+        for _, position in shifted:
+            self.last_to.append(position if not self.last_to or position > self.last_to[-1] else self.last_to[-1])
+
+    def nearest(self, side: int, x: float) -> tuple[int, float]:
+        """(the first header in header order whose left (`side` 0) or right (1) edge is nearest to `x`, its distance) —
+        `min(range(len(header)), key=…)` with distances `abs(edge - x)`. The distance does not grow towards `x` from
+        either side, so the nearest headers are the ones next to where `x` sorts in, and those at the same distance
+        beside them."""
+        values, order = self.sorted_edges[side], self.orders[side]
+        place = bisect_left(values, x)
+        best = min(abs(values[at] - x) for at in (place - 1, place) if 0 <= at < self.size)
+        found = self.size
+        at = place - 1
+        while at >= 0 and abs(values[at] - x) == best:
+            found, at = min(found, order[at]), at - 1
+        at = place
+        while at < self.size and abs(values[at] - x) == best:
+            found, at = min(found, order[at]), at + 1
+        return found, best
+
+    def first_starting_at(self, x: float) -> int | None:
+        """The first header in header order whose left edge is at or after `x` (None if there is none)."""
+        found = self.first_from[bisect_left(self.sorted_edges[0], x)]
+        return None if found == self.size else found
+
+    def overlapping(self, x0: float, x1: float) -> list[int]:
+        """Up to two of the headers that overlap the range (x0, x1) horizontally (two means two or more), in header order."""
+        starts, by_start = self.sorted_edges[0], self.orders[0]
+        found = []
+        at = bisect_left(starts, x1) - 1  # the headers starting before x1
+        while at >= 0 and self.widest_to[at] > x0 and len(found) < 2:
+            if self.edges[1][by_start[at]] > x0:
+                found.append(by_start[at])
+            at -= 1
+        return sorted(found)
+
+    def column(self, line: _Line) -> int:
+        """`_header_column` of `line`."""
+        left, distance = self.nearest(0, line.x0)
+        if distance <= _TABLE_ROW_TOLERANCE:
+            return left
+        right, distance = self.nearest(1, line.x1)
+        right = right if distance <= _TABLE_ROW_TOLERANCE else None
+        overlapped = self.overlapping(line.x0, line.x1)
+        if right is not None and overlapped in ([], [right]):
+            return right
+        if len(overlapped) == 1:
+            return overlapped[0]
+        count = bisect_right(self.shifted, (line.x0 + line.x1) / 2)
+        return self.last_to[count - 1] if count else 0
