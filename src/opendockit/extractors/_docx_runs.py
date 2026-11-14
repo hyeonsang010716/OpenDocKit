@@ -220,6 +220,15 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
     # TestDocxLongRunsAndDeepFields::test_run_with_many_text_pieces_takes_linear_time).
     run_looks: dict[etree._Element, _RunLook] = {}
 
+    def with_run_marks(run: etree._Element, text: str) -> str:
+        """A character that a run writes without w:t (a non-breaking hyphen, a symbol) with the strikethrough and emphasis marks
+        of that run. Left bare, it split the run's span: `**well**-**known**`, `~~x~~α~~y~~` (Pinned by:
+        test_inline_formatting.py::TestDocxEmphasis::test_hyphen_and_symbol_inside_a_marked_run_stay_inside_its_span)."""
+        if run.tag != _w("r") or not text:
+            return text
+        look = run_looks.get(run) or run_looks.setdefault(run, _RunLook.of(run, body_size, inline))
+        return mark_emphasis(mark_strike(text) if look.struck else text, look.bold, look.italic)
+
     def walk(element: etree._Element) -> None:
         nonlocal instruction_fields
         for child in element:
@@ -246,7 +255,7 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
             elif tag in (_w("br"), _w("cr")):
                 parts.append("\n")
             elif tag == _w("noBreakHyphen"):
-                parts.append("-")
+                parts.append(with_run_marks(element, "-"))
             elif tag in (f"{{{_A}}}blip", f"{{{_V}}}imagedata") or (tag == _w("object") and _is_ole_object(child)):
                 if image_marker is not None:
                     parts.append(image_marker(child))
@@ -266,11 +275,7 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                     if not has_text_since(start):
                         parts.append("[Chart]")
             elif tag == _w("sym"):
-                symbol = _symbol_char(child)
-                if inline is not None and inline.emphasis and element.tag == _w("r"):
-                    look = run_looks.get(element) or run_looks.setdefault(element, _RunLook.of(element, body_size, inline))
-                    symbol = mark_emphasis(symbol, look.bold, look.italic)
-                parts.append(symbol)
+                parts.append(with_run_marks(element, _symbol_char(child)))
             elif tag == _w("fldChar"):
                 kind = child.get(_w("fldCharType"))
                 if not instruction_fields:

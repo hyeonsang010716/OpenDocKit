@@ -321,6 +321,20 @@ class TestDocxEmphasis:
 
         assert _docx_text(body) == "변경 사항 중 **호환성 파괴**는 *이전 안내*가 필요하고 ***필수***입니다."
 
+    @pytest.mark.parametrize(("properties", "piece", "expected"), [
+        ("<w:b/>", "<w:noBreakHyphen/>", "**well-known**"),
+        ("<w:b/>", '<w:sym w:font="Symbol" w:char="F061"/>', "**wellαknown**"),
+        ("<w:strike/>", "<w:noBreakHyphen/>", "~~well-known~~"),
+        ("<w:strike/>", '<w:sym w:font="Symbol" w:char="F061"/>', "~~wellαknown~~"),
+    ])
+    def test_hyphen_and_symbol_inside_a_marked_run_stay_inside_its_span(self, properties, piece, expected):
+        """A non-breaking hyphen and a w:sym symbol are written without w:t, so they had no marks and split the run's span:
+        `**well**-**known**`, `~~well~~α~~known~~`."""
+        body = _paragraph(_run("plain "), f"<w:r><w:rPr>{properties}</w:rPr><w:t>well</w:t>{piece}<w:t>known</w:t></w:r>",
+                          _run(" end"))
+
+        assert _docx_text(body) == f"plain {expected} end"
+
     def test_value_zero_or_false_switches_the_emphasis_off(self):
         body = _paragraph(_run("보통 ", '<w:b w:val="0"/>'), _run("글자 ", '<w:i w:val="false"/>'), _run("굵게", '<w:b w:val="1"/>'),
                           _run(" 기울임", '<w:i w:val="true"/>'), _run(" 끝"))
