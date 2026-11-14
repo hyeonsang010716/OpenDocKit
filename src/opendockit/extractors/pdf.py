@@ -456,14 +456,16 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
 
     scanned = []
     unrendered: list[int] = []  # pages with an untrusted text layer whose whole-page picture was not rendered (picture budget)
+    undrawable: list[int] = []  # the same, where the page could not be rendered at all
     has_cid = False
     # Once the limit is exceeded no pictures are rendered (that leads on to image decoding and vision model calls, all of it wasted).
     renderer = _PageRenderer(data, options) if options.extract_images and not extraction.exceeded else None
     try:
         for page in pages:
+            skipped = renderer.skipped if renderer else 0
             images = _page_images(page, renderer, extraction) if renderer else []
             if page.text_untrusted and not images:
-                unrendered.append(page.number)
+                (unrendered if renderer.skipped > skipped else undrawable).append(page.number)
             text = _render_page(page, heading_levels, line_gap, images)
             if _CID.search(text):
                 has_cid = True
@@ -480,7 +482,9 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
     # Only the pages whose picture was rendered were handed over: with `max_images` low (or 0) the render budget runs out, and
     # those pages kept only their text layer, while the warning said every page was handed over as an image (Pinned by:
     # test_image.py::TestPdfImages::test_untrusted_pages_beyond_the_picture_budget_are_not_said_to_be_handed_over).
-    handed = [page.number for page in untrusted if page.number not in unrendered]
+    # A page that pdfium could not render is not past the budget: it was named with 'there were too many pictures' as well
+    # (Pinned by: test_image.py::TestPdfImages::test_untrusted_page_that_cannot_be_rendered_is_not_blamed_on_the_picture_budget).
+    handed = [page.number for page in untrusted if page.number not in unrendered and page.number not in undrawable]
     if handed:
         extraction.warnings.append(
             f"{len(handed)} PDF page(s) ({_page_list(handed)}) appear to have no body text in their "
@@ -489,6 +493,10 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
         extraction.warnings.append(
             f"{len(unrendered)} PDF page(s) ({_page_list(unrendered)}) appear to have no body text in their text layer, but "
             "there were too many pictures to hand them over as images, so only their text layer was read.")
+    if undrawable:
+        extraction.warnings.append(
+            f"{len(undrawable)} PDF page(s) ({_page_list(undrawable)}) appear to have no body text in their text layer, but "
+            "they could not be rendered as images, so only their text layer was read.")
     if scanned:
         extraction.warnings.append(
             f"{len(scanned)} page(s) ({_page_list(scanned)}) whose text exists only as images are empty because they need OCR.")

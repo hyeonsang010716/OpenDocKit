@@ -573,6 +573,30 @@ class TestPdfImages:
         assert len(handed) == 1 and "2 PDF page(s) (1, 2)" in handed[0]
         assert any("only their text layer was read" in warning and "(3)" in warning for warning in some.warnings)
 
+    def test_untrusted_page_that_cannot_be_rendered_is_not_blamed_on_the_picture_budget(self, monkeypatch):
+        """A page whose rendering fails in pdfium was reported like one past the render budget: 'there were too many
+        pictures'."""
+        import pypdfium2 as pdfium
+
+        from opendockit.extractors import _pdf_figures
+
+        rendered = _pdf_figures._PageRenderer._render
+
+        def render(self, page_index, box, scale):
+            if page_index == 1:
+                raise pdfium.PdfiumError("Failed to render page.")
+            return rendered(self, page_index, box, scale)
+
+        monkeypatch.setattr(_pdf_figures._PageRenderer, "_render", render)
+
+        result = convert(_scan_with_text_layer([_LATIN_FRAGMENTS] * 3), "scan.pdf")
+
+        assert not any("too many pictures" in warning for warning in result.warnings)
+        assert ("1 PDF page(s) (2) appear to have no body text in their text layer, but they could not be rendered as images, "
+                "so only their text layer was read.") in result.warnings
+        handed = [warning for warning in result.warnings if "handed over as an image" in warning]
+        assert len(handed) == 1 and "2 PDF page(s) (1, 3)" in handed[0]
+
     def test_text_layer_with_korean_is_trusted_even_on_pages_without_korean(self):
         """If the text layer has Hangul on even one page, it is a text layer that can hold Hangul (a scan with proper OCR, a
         document laid over a background picture). Pages with only Latin/digits (code, tables) are also read from the text layer
