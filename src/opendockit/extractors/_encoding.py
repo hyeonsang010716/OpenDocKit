@@ -3,6 +3,7 @@ Western single-byte text, declared charsets, BOM-less UTF-16, and the warning fo
 """
 
 import codecs
+import functools
 import re
 import unicodedata
 
@@ -165,39 +166,99 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     return data.decode("utf-8", errors="replace"), f"utf-8{_REPLACED}"
 
 
-# Text that UTF-16 without NUL bytes can plausibly hold: every character has a high byte other than 0, so no ASCII, and in
-# practice it is CJK or Hangul text without spaces or line breaks (`_plausible_wide_text`). CJK punctuation, kana, Bopomofo,
-# Hangul compatibility jamo; Hangul syllables; CJK compatibility ideographs; full-width forms; common punctuation and symbols.
-_WIDE_TEXT_RANGES = ((0x2000, 0x27BF), (0x3000, 0x31FF), (0x4E00, 0x9FFF), (0xAC00, 0xD7A3), (0xF900, 0xFAFF), (0xFF00, 0xFFEF))
-# At most this share of the characters may lie outside those ranges (one per 50).
+# CJK text that UTF-16 without NUL bytes plausibly holds (`_reads_as_cjk`): common punctuation and symbols; CJK punctuation, kana,
+# Bopomofo, Hangul compatibility jamo; ideographs; Hangul syllables; CJK compatibility ideographs; full-width forms; and, as
+# surrogate pairs, emoji and the ideographs outside the Basic Multilingual Plane (rare kanji such as `𠮷`) — arbitrary bytes
+# rarely pair up into one, and a text with a single such kanji failed the check as a whole.
+_WIDE_TEXT_RANGES = ((0x2000, 0x27BF), (0x3000, 0x31FF), (0x4E00, 0x9FFF), (0xAC00, 0xD7A3), (0xF900, 0xFAFF), (0xFF00, 0xFFEF),
+                     (0x1F000, 0x1FAFF), (0x20000, 0x2FA1F), (0x30000, 0x323AF))
+# At most this share of the characters may lie outside those ranges, or outside the one script of the text (one per 50).
 _WIDE_TEXT_STRAYS = 50
-# Han ideographs mixed with Hangul syllables are Korean with hanja only in a text of at least this many characters of which at
-# least this many tenths are Hangul; pairs of arbitrary bytes land in both ranges in a few characters.
+# Han ideographs mixed with Hangul syllables are Korean with hanja in a text of at least this many characters of which at least
+# this many tenths are Hangul; pairs of arbitrary bytes land in both ranges in a few characters.
 _WIDE_MIXED_MIN_CHARS = 8
 _WIDE_MIXED_HANGUL_TENTHS = 3
+# What a shorter mix or one with less Hangul may hold besides everyday ideographs and syllables (`_everyday_cjk`): CJK
+# punctuation and kana, full-width forms.
+_EVERYDAY_CJK_RANGES = ((0x3000, 0x30FF), (0xFF00, 0xFFEF))
+# Control bytes that byte-oriented text (UTF-8, CP949, Windows-1252 …) never holds — the same set as `detect._BINARY_CONTROL`.
+# In UTF-16 they are half of an ordinary character: every Khmer letter has 0x17, every Tibetan one 0x0F, `氏` is 0F 6C.
+_NOT_IN_BYTE_TEXT = re.compile(rb"[\x01-\x08\x0e-\x1a\x1c-\x1f\x7f]")
+# Tab, line breaks and the other control bytes that text does hold. When they are at least this many fifths of the sample
+# and it reads as one script other than CJK, it is not byte-oriented text either (every Bengali letter has 0x09).
+_TEXT_CONTROL_BYTES = b"\t\n\r\f\v\x1b"
+_WIDE_CONTROL_FIFTHS = 2
+# The Unicode names of the characters written together in Chinese, Japanese and Korean text start with one of these words; they
+# count as one script (`_one_script`).
+_CJK_SCRIPT = "CJK"
+_CJK_NAME_WORDS = frozenset((_CJK_SCRIPT, "HIRAGANA", "KATAKANA", "HANGUL", "BOPOMOFO", "IDEOGRAPHIC", "FULLWIDTH", "HALFWIDTH"))
+_NAME_WORD_END = re.compile("[ -]")
+# The script check looks at this many characters from the front, like the printable check of `utf16_encoding`.
+_WIDE_SCRIPT_HEAD = 20_000
+# A text of one script other than CJK is preferred to the CJK reading of the same bytes in the other byte order from this many
+# letters on (`_wide_text_rank`); one or two characters read as an ideograph either way.
+_WIDE_SCRIPT_MIN_LETTERS = 3
 
 
 def _plausible_best(matches: CharsetMatches, sample: bytes) -> CharsetMatch | None:
     """The best statistical guess, leaving out a UTF-16 or UTF-32 guess for a sample without NUL bytes unless it reads as
-    plausible CJK or Hangul text (`_plausible_wide_text`). Text in those encodings has NUL bytes as soon as it holds an ASCII
-    character; without any it can only be text such as Japanese or Chinese with no space or line break (`日本語の…` →
-    `E5 65 2C 67 …`), which charset-normalizer guesses rightly. A short broken UTF-8 subject `ab=ZZé` + a cut character was read
-    as UTF-16 and became `慢㵚嫃꧃` — rare ideographs and Javanese — or `扡娽썚쎩` without a warning
-    (Pinned by: test_audit_web_fixes.py::TestNoWideEncodingGuessWithoutNulBytes)."""
+    plausible text in such an encoding (`_wide_text_rank`). Text in those encodings has NUL bytes as soon as it holds an ASCII
+    character; without any it is text with no space and no line break — Japanese or Chinese (`日本語の…` → `E5 65 2C 67 …`),
+    Korean, or Khmer, Tibetan and the other scripts written without spaces — which charset-normalizer guesses rightly. A short
+    broken UTF-8 subject `ab=ZZé` + a cut character was read as UTF-16 and became `慢㵚嫃꧃` — rare ideographs and Javanese
+    — or `扡娽썚쎩` without a warning (Pinned by: test_audit_web_fixes.py::TestNoWideEncodingGuessWithoutNulBytes).
+
+    When the first guess that stands is such an encoding, the most plausible of them is taken (the earlier guess on a tie):
+    the same bytes often read as text in both byte orders — Khmer `សួស្តី…` with its bytes swapped is `鼗봗鼗툗…`, Han and Hangul
+    (Pinned by: test_audit_web_fixes.py::TestWideEncodingGuessOutsidePlainCjk)."""
     if b"\x00" in sample:
         return matches.best()
-    return next((match for match in matches if not match.encoding.startswith(("utf_16", "utf_32"))
-                 or _plausible_wide_text(sample, match.encoding)), None)
+    best, best_rank = None, 0
+    for match in matches:
+        if not match.encoding.startswith(("utf_16", "utf_32")):
+            if best is None:
+                return match
+            continue
+        rank = _wide_text_rank(sample, match.encoding)
+        if rank > best_rank:
+            best, best_rank = match, rank
+    return best
 
 
-def _plausible_wide_text(sample: bytes, encoding: str) -> bool:
-    """Does `sample` decode strictly as `encoding` into text that is almost all CJK, kana, Hangul, full-width forms or common
-    punctuation (`_WIDE_TEXT_RANGES`, at most one character in `_WIDE_TEXT_STRAYS` outside)? Han ideographs mixed with Hangul
-    syllables count only as Korean with hanja: at least `_WIDE_MIXED_MIN_CHARS` characters, at least three tenths Hangul —
-    pairs of arbitrary bytes land in both ranges (`ab=ZZé` + a cut character read as UTF-16-LE is `扡娽썚쎩`)."""
+def _wide_text_rank(sample: bytes, encoding: str) -> int:
+    """How plausible is `sample` as text in `encoding` (UTF-16 or UTF-32, no NUL bytes), 0 when it does not decode strictly or
+    reads as nothing a file holds. Otherwise, from the most plausible down:
+
+    4. text of one script other than CJK with at least `_WIDE_SCRIPT_MIN_LETTERS` letters, in bytes that cannot be
+       byte-oriented text to begin with (`_one_script`, `_control_bytes`) — one byte of every pair is the same, which CJK text
+       in the other byte order never is;
+    3. CJK text of everyday characters only (`_reads_as_cjk`, `_everyday_cjk`), or one or two letters of another script
+       (`12 90` is `递` or Ethiopic `ነ`: undecidable, the earlier guess stands);
+    2. other CJK text;
+    1. text in the CJK scripts that the ranges of `_reads_as_cjk` turn down, in bytes with a control byte text never holds.
+
+    The one-script readings keep the scripts below U+2000. Judged by the CJK ranges alone, Khmer was read with its bytes
+    swapped as Han and Hangul noise without a warning, and Tibetan, Ethiopic, Bengali and Greek became UTF-8 replacement
+    characters (Pinned by: test_audit_web_fixes.py::TestWideEncodingGuessOutsidePlainCjk)."""
     text = _strict(sample[:len(sample) - len(sample) % 2], encoding)
     if not text:
-        return False
+        return 0
+    binary, spacing = _control_bytes(sample)
+    script, letters = _one_script(text) if binary or spacing else (None, 0)
+    if script not in (None, _CJK_SCRIPT):
+        return 4 if letters >= _WIDE_SCRIPT_MIN_LETTERS else 3
+    if _reads_as_cjk(text):
+        return 3 if _everyday_cjk(text) else 2
+    return 1 if script == _CJK_SCRIPT and binary else 0
+
+
+def _reads_as_cjk(text: str) -> bool:
+    """Is `text` almost all CJK, kana, Hangul, full-width forms, common punctuation, emoji or ideographs outside the Basic
+    Multilingual Plane (`_WIDE_TEXT_RANGES`, at most one character in `_WIDE_TEXT_STRAYS` outside)? Han ideographs mixed with Hangul
+    syllables count only as Korean with hanja (at least `_WIDE_MIXED_MIN_CHARS` characters, at least three tenths Hangul) or
+    as everyday characters throughout (`_everyday_cjk`; in a text shorter than that none of them with a space byte in it,
+    the most common byte of byte-oriented text: `袅유法` is `88 85 C7 20 6C D5`) — pairs of arbitrary bytes land in both
+    ranges (`ab=ZZé` + a cut character read as UTF-16-LE is `扡娽썚쎩`)."""
     strays = sum(1 for ch in text if not any(low <= ord(ch) <= high for low, high in _WIDE_TEXT_RANGES))
     han = any(0x4E00 <= ord(ch) <= 0x9FFF or 0xF900 <= ord(ch) <= 0xFAFF for ch in text)
     hangul = any(0xAC00 <= ord(ch) <= 0xD7A3 for ch in text)
@@ -205,9 +266,69 @@ def _plausible_wide_text(sample: bytes, encoding: str) -> bool:
         # Korean with hanja (`大韓民國의首都는서울이다`): Hangul makes up a good share of a text that is not tiny
         # (Pinned by: test_audit_web_fixes.py::TestNoWideEncodingGuessWithoutNulBytes::test_cjk_text_without_ascii_stays_utf16)
         syllables = sum(1 for ch in text if 0xAC00 <= ord(ch) <= 0xD7A3)
-        if len(text) < _WIDE_MIXED_MIN_CHARS or syllables * 10 < len(text) * _WIDE_MIXED_HANGUL_TENTHS:
+        korean_with_hanja = len(text) >= _WIDE_MIXED_MIN_CHARS and syllables * 10 >= len(text) * _WIDE_MIXED_HANGUL_TENTHS
+        space_byte = len(text) < _WIDE_MIXED_MIN_CHARS and any(ord(ch) & 0xFF == 0x20 for ch in text)
+        if not korean_with_hanja and (space_byte or not _everyday_cjk(text)):
             return False
     return strays * _WIDE_TEXT_STRAYS <= len(text)
+
+
+@functools.cache
+def _everyday_han() -> frozenset[str]:
+    """The ideographs of the national standards that everyday Chinese, Japanese and Korean text is written in: GB 2312 (6,763),
+    JIS X 0208 (6,355) and KS X 1001 (4,888) — together about half of the 20,992 ideographs of the main Unicode block."""
+    decoded = (bytes((lead, trail)).decode(codec, errors="ignore")
+               for codec in ("gb2312", "euc_jp", "euc_kr") for lead in range(0xB0, 0xFF) for trail in range(0xA1, 0xFF))
+    return frozenset(ch for ch in decoded if ch and 0x4E00 <= ord(ch) <= 0x9FFF)
+
+
+def _everyday_cjk(text: str) -> bool:
+    """Is every character of `text` an everyday ideograph (`_everyday_han`), an everyday Hangul syllable (`_EVERYDAY_HANGUL`),
+    kana, CJK punctuation or a full-width form (`_EVERYDAY_CJK_RANGES`)?
+
+    A Korean name in Japanese or Chinese text or a few hanja in a short Korean one (`東京から서울まで`, `부산是第二大城市`) are
+    written with them. Pairs of arbitrary bytes are not: four syllables in five are outside KS X 1001, every other ideograph
+    is a rare one, and a space byte makes a symbol (`鋪₆삶`)
+    (Pinned by: test_audit_web_fixes.py::TestWideEncodingGuessOutsidePlainCjk::test_everyday_han_with_a_little_hangul)."""
+    everyday = _everyday_han()
+    return all(ch in everyday or ch in _EVERYDAY_HANGUL or any(low <= ord(ch) <= high for low, high in _EVERYDAY_CJK_RANGES)
+               for ch in text)
+
+
+def _control_bytes(sample: bytes) -> tuple[bool, bool]:
+    """Two signs that `sample` cannot be byte-oriented text (UTF-8 or a legacy encoding, whole or broken): does it hold a
+    control byte that such text never has (`_NOT_IN_BYTE_TEXT`), and are at least two fifths of it tabs, line breaks and the
+    like (`_TEXT_CONTROL_BYTES`)?
+
+    Broken UTF-8 and legacy text — what the UTF-16 guess must not swallow — is letters, digits, punctuation and bytes above
+    0x7F, with a tab or a line break here and there."""
+    spacing = sum(sample.count(byte) for byte in _TEXT_CONTROL_BYTES)
+    return _NOT_IN_BYTE_TEXT.search(sample) is not None, spacing * 5 >= len(sample) * _WIDE_CONTROL_FIFTHS
+
+
+def _one_script(text: str) -> tuple[str | None, int]:
+    """(script, number of its letters) when `text` (its first `_WIDE_SCRIPT_HEAD` characters) is printable text in one script,
+    otherwise (None, 0): at most one character in `_WIDE_TEXT_STRAYS` is unprintable, and at most that share of the letters,
+    marks and digits is outside the script most of them belong to. The script is the first word of the Unicode character name
+    (`KHMER`, `TIBETAN`, `GREEK`); the CJK scripts count as one (`_CJK_NAME_WORDS`).
+
+    Pairs of arbitrary bytes land on unassigned and private-use code points and in another script every few characters; Khmer,
+    Tibetan or Greek text stays in its own block."""
+    head = text[:_WIDE_SCRIPT_HEAD]
+    scripts: dict[str, int] = {}
+    unprintable = 0
+    for ch in head:
+        if not _printable(ch):
+            unprintable += 1
+        elif unicodedata.category(ch)[0] in "LMN":
+            word = _NAME_WORD_END.split(unicodedata.name(ch, ""), maxsplit=1)[0]
+            script = _CJK_SCRIPT if word in _CJK_NAME_WORDS else word
+            scripts[script] = scripts.get(script, 0) + 1
+    letters = sum(scripts.values())
+    if not letters or unprintable * _WIDE_TEXT_STRAYS > len(head):
+        return None, 0
+    script = max(scripts, key=scripts.__getitem__)
+    return (script, scripts[script]) if (letters - scripts[script]) * _WIDE_TEXT_STRAYS <= letters else (None, 0)
 
 
 def _strict(data: bytes, encoding: str) -> str | None:
