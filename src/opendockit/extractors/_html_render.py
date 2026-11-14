@@ -56,7 +56,7 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._lists import cell_level_mark, format_number
 from opendockit.extractors._package import decimal_int
-from opendockit.markdown import TableGrid, escape_unpaired_fences, render_table, table_title
+from opendockit.markdown import TableGrid, clean_characters, escape_unpaired_fences, render_table, table_title
 
 
 # ARIA tables (`_render_aria_grid`): table/cell roles, real table elements (handled as tables even when a role is attached), and
@@ -426,13 +426,20 @@ def _render_code_block(node: Tag, list_depth: int) -> str:
     after it was collapsed, and the neutralizing of the unpaired line broke the outer closing fence
     (Pinned by: test_text_html.py::TestCodeBlockWithFenceInside). The neutralized notation is the same as `clean_text`'s unpaired
     fence. The fence lines carry a key until the document is rendered (`_CODE_FENCE`, `_settle_fences`).
+
+    The lines of the code are looked at as `clean_text` will leave them (`markdown.clean_characters`, which cleaning the
+    text again does not change): a code line that is ``` behind a zero-width space or a private-use character, or after a
+    form feed, was no fence line here, and once the character was removed it closed the block
+    (Pinned by: test_text_html.py::TestCodeBlockWithFenceInside::test_fence_line_behind_a_character_that_cleaning_removes).
     """
     places: _Places = {}
     for line_break in node.find_all("br"):
         _replace(line_break, "\n", places)  # it has no text, so it vanished in get_text and the lines ran together
-    code = _CODE_FENCE_LINE.sub(r"\1\\", node.get_text().strip(chr(10)))
+    code = node.get_text().strip(chr(10))
     if _in_cell.get():
+        code = _CODE_FENCE_LINE.sub(r"\1\\", code)
         return f"\n{_CODE_INDENT.sub(_indent_entities, code)}\n"  # the fence was left in the cell text, mixed with `<br>` (`_cell_text`)
+    code = _CODE_FENCE_LINE.sub(r"\1\\", clean_characters(code))
     return f"\n\n{_CODE_FENCE}\n{code}\n{_CODE_FENCE}\n\n"
 
 
@@ -446,6 +453,7 @@ def _settle_fences(text: str) -> str:
     """The rendered text of a document with the key taken off the fences of its code blocks (`_CODE_FENCE`), and with the
     backtick lines of its text that open a fence which is never closed neutralized (`markdown.escape_unpaired_fences`) —
     looked for only in the text between the code blocks, so no line of text is ever paired with the fence of a real block.
+    The text comes back with its characters cleaned as `clean_text` will clean them, so both see the same fence lines.
 
     `clean_text` cannot tell a paragraph that is "```" from the fence of a `<pre>`: it paired the paragraph with the opening
     fence of the code block after it, so the code lost its whitespace and the closing fence was neutralized as the unpaired
@@ -454,14 +462,10 @@ def _settle_fences(text: str) -> str:
     a code block are the same line (the same quote marks before the key); a fence line whose next fence line is not —
     none is written so, but a block may be folded onto one line — is text like the rest
     (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_fence_line_left_without_its_pair_is_text).
+    A document without a code block is settled too: it may be one body part of a mail, and its unpaired line was paired
+    with the fence of the code block of the next part once the parts were joined
+    (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_fence_paragraph_of_one_mail_part_before_the_code_block_of_the_next).
     """
-    if _CODE_FENCE not in text:
-        if "```" not in text:
-            return text
-        lines = text.split("\n")
-        escape_unpaired_fences(lines)
-        return "\n".join(lines)
-
     lines = text.split("\n")
     fences = [index for index, line in enumerate(lines) if _is_code_fence(line)]
     settled: list[str] = []
@@ -473,17 +477,11 @@ def _settle_fences(text: str) -> str:
         if closing is None or lines[closing] != lines[opening]:
             position += 1
             continue
-        between = lines[start:opening]
-        if any("```" in other for other in between):
-            escape_unpaired_fences(between)
-        settled += between
+        settled += escape_unpaired_fences(lines[start:opening])
         settled += lines[opening:closing + 1]
         start = closing + 1
         position += 2
-    rest = lines[start:]
-    if any("```" in other for other in rest):
-        escape_unpaired_fences(rest)
-    settled += rest
+    settled += escape_unpaired_fences(lines[start:])
     return "\n".join(settled).replace(_CODE_FENCE, "```")
 
 
@@ -564,9 +562,11 @@ def _render_list_items(node: Tag, list_depth: int) -> str:
                 _replace(slot, child, places)
         # A code block, table or quote block of several lines opens the item on the line below. Text that only starts like one
         # (`| a | b |`, `` ```js ``) is a single line and stays on the bullet line, a fence escaped — it was moved under an empty bullet
-        # (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock).
+        # (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock). The text is looked at as it will be cleaned: behind a
+        # zero-width space the fence was not seen (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::
+        # test_item_text_that_starts_with_a_fence_behind_a_character_that_cleaning_removes).
         first = pieces.pop(0) if pieces and isinstance(pieces[0], str) and not _is_drawn_block(pieces[0]) else ""
-        if first.startswith("```"):
+        if "`" in first and clean_characters(first).lstrip().startswith("```"):
             first = "\\" + first
 
         # Markdown numbered lists use digits only. A letter number is written after a bullet — it has to stay a list line for the nested
@@ -712,6 +712,8 @@ def _split_at_fenced(text: str) -> list[str]:
             if end < 0:
                 break
             start, stop = block, end + 1 + len(_CODE_FENCE)
+        if start < position:
+            break  # both are looked for from `position` on; a piece that starts before it would never let the loop end
         pieces += [text[position:start], text[start:stop]]
         position = stop
         if block < position:

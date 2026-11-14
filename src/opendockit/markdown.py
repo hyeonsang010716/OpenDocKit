@@ -47,6 +47,8 @@ _SYMBOL_FONT_GLYPHS = str.maketrans({
     "\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi", "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st",
 })
 _SPACE_LIKE = re.compile("[  -   　]")
+# The characters cleaning can leave a backtick for: the backtick, and the Greek varia U+1FEF, which NFC turns into one.
+_BACKTICK_SOURCES = ("`", "\u1fef")
 _INNER_SPACES = re.compile(r"[ \t]+")
 _BLANK_RUN = re.compile(r"\n{3,}")
 # Only nested list lines made by the extractors keep their indentation. Any other leading whitespace reads as a code block in
@@ -84,14 +86,7 @@ def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
     the same characters become a different string for search and embedding.
     `collapse_spaces=False` is for TXT and MD, where the original whitespace carries meaning (code indentation is preserved).
     """
-    # Remove first, then normalize. In the other order, the characters on either side of a removed one become newly combinable
-    # and the result is no longer NFC.
-    text = text.replace("\r\n", "\n").replace("\r", "\n").translate(_LINE_BREAK_CONTROLS)
-    text = _INVISIBLE.sub("", text)
-    text = _CONTROL.sub("", text)
-    text = _PRIVATE_USE.sub("", text.translate(_SYMBOL_FONT_GLYPHS))
-    text = _SPACE_LIKE.sub(" ", text)
-    text = unicodedata.normalize("NFC", text)
+    text = clean_characters(text)
 
     # In documents that are not Markdown the only real code blocks are the ones the extractors write, with backtick fences. A
     # backtick line that opens a fence which is never closed is neutralized with a backslash: when a paragraph of a DOCX had a
@@ -145,6 +140,20 @@ def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
             lines.append(line)
 
     return "\n".join(lines).strip("\n")
+
+
+def clean_characters(text: str) -> str:
+    """The part of `clean_text` that works on characters, before any line is looked at: line breaks made `\\n` (form feed,
+    vertical tab and next line too), invisible, control and private-use characters removed, the glyphs of symbol fonts and
+    the ligatures replaced, space-like characters made spaces, NFC. Cleaning the result again changes nothing."""
+    # Remove first, then normalize. In the other order, the characters on either side of a removed one become newly combinable
+    # and the result is no longer NFC.
+    text = text.replace("\r\n", "\n").replace("\r", "\n").translate(_LINE_BREAK_CONTROLS)
+    text = _INVISIBLE.sub("", text)
+    text = _CONTROL.sub("", text)
+    text = _PRIVATE_USE.sub("", text.translate(_SYMBOL_FONT_GLYPHS))
+    text = _SPACE_LIKE.sub(" ", text)
+    return unicodedata.normalize("NFC", text)
 
 
 # What a line is to the code blocks of its text (`clean_text`): a fence line of a code block, a line inside one, or an opening
@@ -320,14 +329,27 @@ def _next_longer(lengths: list[int]) -> list[int]:
     return longer
 
 
-def escape_unpaired_fences(lines: list[str]) -> None:
-    """Neutralize, in place, the backtick lines of `lines` that open a fence which is never closed, the way `clean_text` does
-    (a backslash before the fence, after the quote marks). For an extractor that writes real code blocks: run on the text
+def escape_unpaired_fences(lines: list[str]) -> list[str]:
+    """`lines` with the backtick lines that open a fence which is never closed neutralized the way `clean_text` does (a
+    backslash before the fence, after the quote marks). For an extractor that writes real code blocks: run on the text
     between them, the lines of text that only look like a fence are settled before `clean_text` sees them next to the real
-    ones (`_html_render._settle_fences`)."""
-    for index in code_fences(lines, tildes=False).unpaired:
-        prefix, _, content = _split_quote(lines[index])
-        lines[index] = prefix + "\\" + content.lstrip()
+    ones (`_html_render._settle_fences`).
+
+    The lines are looked at as `clean_text` will see them (`clean_characters`; the lines come back so, and one may have
+    become several): a line that is "```" behind a zero-width space, a soft hyphen, a control or a private-use character,
+    or whose info string is only such a character, was no fence here and one to `clean_text`, which then paired it with the
+    fence of the code block next to it (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::
+    test_backtick_paragraph_behind_a_character_that_cleaning_removes). Text that can hold no backtick is returned as it is.
+    """
+    text = "\n".join(lines)
+    if not any(character in text for character in _BACKTICK_SOURCES):
+        return lines
+    lines = clean_characters(text).split("\n")
+    if any("```" in line for line in lines):
+        for index in code_fences(lines, tildes=False).unpaired:
+            prefix, _, content = _split_quote(lines[index])
+            lines[index] = prefix + "\\" + content.lstrip()
+    return lines
 
 
 def _empty_item_holding_a_list(source: list[str], index: int, previous: str) -> re.Match[str] | None:

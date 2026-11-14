@@ -1595,6 +1595,19 @@ class TestCodeBlockWithFenceInside:
         assert "b   c" in lines
         assert result.text.endswith("```\n\n뒤 문단")
 
+    @pytest.mark.parametrize("before", ["\n&#x200b;", "\n&#xe000;", "\n``&shy;", "\n&#x3000;", "\n&#xfeff; ", "&#x0c;"],
+                             ids=["zero-width-space", "private-use", "soft-hyphen-inside", "wide-space", "bom", "form-feed"])
+    def test_fence_line_behind_a_character_that_cleaning_removes(self, before):
+        """The line was no fence line when the code was written and one once `clean_text` had removed the character (or
+        made the form feed a line break): it closed the block and the code after it lost its whitespace."""
+        fence = "`" if "``" in before else "```"
+        html = f"<pre>a   1{before}{fence}\n\n\nb   2</pre><p>뒤   문단</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        indent = " " if before.endswith((" ", "&#x3000;")) else ""
+        assert result.text == f"```\na   1\n{indent}\\```\n\n\nb   2\n```\n\n뒤 문단"
+
 
 class TestTextThatLooksLikeAFence:
     """A paragraph that is "```" or "~~~" is text, and `clean_text` cannot tell it from the fence of a `<pre>`: it was paired
@@ -1693,6 +1706,54 @@ class TestTextThatLooksLikeAFence:
         result = convert(html.encode(), "a.html")
 
         assert result.text == "\\```\n\n```\na  b\n```"
+
+    _CODE = "<pre>a   1\n\n\nb   2</pre>"
+    _REMOVED = ["&#x200b;", "&shy;", "&#xfeff;", "&lrm;", "&#x2060;", "&#x1;", "&#xe000;", "&#xf0a0;"]
+    _REMOVED_IDS = ["zero-width-space", "soft-hyphen", "bom", "lrm", "word-joiner", "control", "private-use", "symbol-font-space"]
+
+    @pytest.mark.parametrize("removed", _REMOVED, ids=_REMOVED_IDS)
+    def test_backtick_paragraph_behind_a_character_that_cleaning_removes(self, removed):
+        """The paragraph was no fence line while the fences were settled and one once `clean_text` had removed the
+        character: it was paired with the opening fence of the code block."""
+        html = f"<p>{removed}```</p>{self._CODE}<p>after   text</p><p>``{removed}`</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        last = "`` `" if removed == "&#xf0a0;" else "\\```"  # the glyph of a symbol font that stands for a space
+        assert result.text == f"\\```\n\n```\na   1\n\n\nb   2\n```\n\nafter text\n\n{last}"
+
+    @pytest.mark.parametrize("removed", _REMOVED[:-1], ids=_REMOVED_IDS[:-1])
+    def test_fence_paragraph_whose_info_string_is_a_character_that_cleaning_removes_closes_as_it_will_be_read(self, removed):
+        """"```" + the character closes the "```js" paragraph for `clean_text`; taken for an opening fence, the pair was
+        "```js" and the last paragraph, and the last paragraph was then left to pair with the code block."""
+        html = f"<p>```js</p><p>```{removed}</p><p>&#x3000;```</p>{self._CODE}"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "```js\n\n\n\n```\n\n\\```\n\n```\na   1\n\n\nb   2\n```"
+
+    def test_backticks_that_only_normalizing_makes_are_a_fence_paragraph(self):
+        """NFC turns the Greek varia U+1FEF into a backtick."""
+        html = f"<p>&#x1fef;&#x1fef;&#x1fef;</p>{self._CODE}"
+
+        assert convert(html.encode(), "a.html").text == "\\```\n\n```\na   1\n\n\nb   2\n```"
+
+    def test_item_text_that_starts_with_a_fence_behind_a_character_that_cleaning_removes(self):
+        html = "<ul><li>&#x200b;```<br>open<pre>code   here</pre>&#x200b;```<br>x</li></ul>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "- \\``` open\n\n```\ncode   here\n```\n\n\\``` x"
+
+    @pytest.mark.parametrize("paragraph", ["```", "&#x200b;```"])
+    def test_fence_paragraph_of_one_mail_part_before_the_code_block_of_the_next(self, paragraph):
+        """Each body part is rendered on its own and the parts are cleaned together: the fence paragraph of a part without
+        a code block has to be settled in that part."""
+        parts = "".join(f"--B\r\nContent-Type: text/html; charset=utf-8\r\n\r\n{body}\r\n" for body in (f"<p>{paragraph}</p>", self._CODE))
+        data = ("Subject: s\r\nFrom: a@b.c\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+                f"{parts}--B--\r\n").encode()
+
+        assert convert(data, "m.eml").text == "Subject: s\nFrom: a@b.c\n\n\\```\n\n```\na   1\n\n\nb   2\n```"
 
 
 def _mail(*parts: tuple[str, str, str, str | None], subtype: str = "alternative", attachment: bool = False) -> bytes:
