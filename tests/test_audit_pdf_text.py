@@ -88,16 +88,23 @@ class TestManyFreeTextAnnotations:
 
         assert [beside.label(130, 100, 112) is lines[0] for _ in range(4)] == [True, True, True, False]
 
-    @pytest.mark.timing
-    def test_labels_of_many_annotations_are_found_in_about_linear_time(self):
-        data = self._page(60_000, 1_800)
+    def test_a_page_of_many_annotations_looks_at_a_bounded_number_of_lines(self, monkeypatch):
+        # Counted rather than timed: the work spent on labels, not the machine's speed, is what grew with annotations × lines
+        monkeypatch.setattr(_pdf_forms, "_LABEL_SEARCH_WORK", 200_000)
+        searches = []
 
-        started = time.perf_counter()
-        result = convert(data, "a.pdf", ConvertOptions(max_chars=None))
+        class Counted(_pdf_forms._LinesBeside):
+            def __init__(self, lines: list[_Line]) -> None:
+                super().__init__(lines)
+                searches.append(self)
 
-        assert time.perf_counter() - started < allowed(6)  # 16 seconds when every annotation scanned every line
+        monkeypatch.setattr(_pdf_forms, "_LinesBeside", Counted)
+
+        result = convert(self._page(5_000, 1_800), "a.pdf", ConvertOptions(max_chars=None))
+
+        assert len(searches) == 1 and 0 <= searches[0]._work < 1_800  # 200,000 - work left; the full scan looked at 9 million
         values = [line for line in result.sections[0].text.splitlines() if line.endswith("v")]
-        assert len(values) == 60_000  # every value comes out; the first ones with their label
+        assert len(values) == 5_000  # every value comes out; the first ones with their label
         assert values[0].endswith(": v") and values[-1] == "v"
 
 
@@ -220,21 +227,41 @@ class TestManyFaintCharacters:
     an overlap, so a 41KB page of 5,000 faint characters in slightly different greys took 13 seconds, and 6,000 separate groups
     over 18,000 characters 20 seconds."""
 
-    @pytest.mark.timing
-    def test_many_separate_faint_groups_are_checked_in_about_linear_time(self):
-        def char(text: str, x0: float, top: float, size: float, colour: tuple) -> dict:
-            return {"text": text, "x0": x0, "x1": x0 + size * 0.6, "top": top, "bottom": top + size, "size": size,
-                    "non_stroking_color": colour, "matrix": (1, 0, 0, 1, 0, 0)}
+    @staticmethod
+    def _char(text: str, x0: float, top: float, size: float, colour: tuple) -> dict:
+        return {"text": text, "x0": x0, "x1": x0 + size * 0.6, "top": top, "bottom": top + size, "size": size,
+                "non_stroking_color": colour, "matrix": (1, 0, 0, 1, 0, 0)}
 
+    @pytest.mark.timing
+    @pytest.mark.parametrize(("size", "step", "bound"), [
+        (6, (0, 7), 1.5),  # 20 seconds when every group scanned every character
+        (70, (50, 80), 1.5),  # 15 seconds at 6,000 (22 seconds at 18,000) when characters over 64pt were kept aside
+        (300, (200, 320), 1.5),
+    ])
+    def test_many_separate_faint_groups_are_checked_in_about_linear_time(self, size, step, bound):
         count = 6_000
-        chars = [*(char("x", index % 500, index // 500 * 2, 1, (0,)) for index in range(3 * count)),
-                 *(char("W", 10, 1_000 + index * 7, 6, (0.7 + index * 0.25 / count,)) for index in range(count))]
+        chars = [*(self._char("x", index % 500, index // 500 * 2, 1, (0,)) for index in range(3 * count)),
+                 *(self._char("W", 10 + index % 50 * step[0], 1_000 + (index // 50 if step[0] else index) * step[1], size,
+                              (0.7 + index * 0.25 / count,)) for index in range(count))]
 
         started = time.perf_counter()
         faint = _pdf_artifacts._faint_watermark(chars, 3)
 
-        assert time.perf_counter() - started < allowed(1.5)  # 20 seconds when every group scanned every character
+        assert time.perf_counter() - started < allowed(bound)
         assert faint == set()
+
+    @pytest.mark.timing
+    def test_large_faint_characters_over_body_text_are_found_in_about_linear_time(self):
+        count = 6_000
+        chars = [*(self._char("x", index % 500, index // 500 * 2, 1, (0,)) for index in range(3 * count)),
+                 *(self._char("W", index % 50 * 10, index // 50 % 20 * 2, 70, (0.7 + index * 0.25 / count,))
+                   for index in range(count))]
+
+        started = time.perf_counter()
+        faint = _pdf_artifacts._faint_watermark(chars, 3)
+
+        assert time.perf_counter() - started < allowed(1)  # a variant: every group overlaps body text at once
+        assert len(faint) == count
 
     def test_faint_large_text_over_body_text_is_still_found(self):
         def char(text: str, x0: float, top: float, size: float, colour: tuple) -> dict:
