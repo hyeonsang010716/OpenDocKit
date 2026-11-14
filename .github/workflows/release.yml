@@ -13,7 +13,9 @@ permissions:
   contents: read
 
 jobs:
-  # Nothing is published from a commit whose tests fail: a tag can be pushed on any commit, whatever CI said about it.
+  # A tag can be pushed on any commit, whatever CI said about it, so the release runs a test pass of its own before publishing:
+  # lint and the parallel suite on Linux with Python 3.12. It does not repeat the rest of CI (macOS, Python 3.13 / 3.14,
+  # Windows, the timing tests, the minimum-dependency run, the registry-entry check): tag a commit whose CI run is green.
   test:
     timeout-minutes: 20
     runs-on: ubuntu-latest
@@ -60,7 +62,7 @@ jobs:
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1 (v1.14.3)
         with:
           # A re-run after a later job failed must not stop at the upload that already succeeded.
           skip-existing: true
@@ -78,7 +80,7 @@ jobs:
         with:
           name: dist-mcp
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1 (v1.14.3)
         with:
           # A re-run after a later job failed must not stop at the upload that already succeeded.
           skip-existing: true
