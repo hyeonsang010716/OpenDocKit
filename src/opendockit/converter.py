@@ -584,7 +584,10 @@ _FENCED_LINE = "\ue030"
 
 def _fenced_lines(template: str) -> set[int]:
     """Line numbers inside paired code fences (``` or ~~~). Pairing is `markdown.code_fences`, the one `clean_text` uses (what
-    follows an unpaired opening fence is outside)."""
+    follows an unpaired opening fence is outside). Both characters are paired in every format: in a document that is not
+    Markdown `clean_text` has neutralized every line that would open a tilde fence, so the code blocks found here are the
+    ones it saw — a picture between two lines of tildes is not inside code
+    (Pinned by: test_markdown.py::TestFencesThatAreText::test_picture_between_two_tilde_lines_is_not_inside_code)."""
     return code_fences(template.split("\n")).inside
 
 

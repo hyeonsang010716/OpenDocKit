@@ -1662,6 +1662,13 @@ class TestTextThatLooksLikeAFence:
 
         assert result.text == "## 공지\n\n\\~~~~~~~~\n\n- a\n  - b\n\n## 제목\n\n\\~~~~~~~~\n\n끝 글"
 
+    def test_fence_line_left_without_its_pair_is_text(self):
+        from opendockit.extractors._html_render import _CODE_FENCE, _settle_fences
+
+        rendered = f"앞\n\n{_CODE_FENCE}\ncode\n{_CODE_FENCE}\n\n가운데 {_CODE_FENCE}\n\n> {_CODE_FENCE}\n> 뒤"
+
+        assert _settle_fences(rendered) == "앞\n\n```\ncode\n```\n\n가운데 ```\n\n> \\```\n> 뒤"
+
     def test_text_that_holds_the_private_use_characters_of_a_fence_key_is_text(self):
         html = "<p>```&#xe026;</p><pre>a  b</pre>"
 

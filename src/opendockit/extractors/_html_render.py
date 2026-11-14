@@ -262,7 +262,7 @@ def _single_blank_lines(text: str) -> str:
         # Only the fence of a real code block opens or closes one: a paragraph that is "```" switched the collapsing off for
         # the rest of the quote, and on again inside the code block that followed it
         # (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_fence_paragraph_in_a_quote_does_not_reach_into_the_code_block).
-        if line.endswith(_CODE_FENCE):
+        if _is_code_fence(line):
             fenced = not fenced
         elif not fenced and not line.strip() and lines and not lines[-1].strip():
             continue
@@ -436,6 +436,11 @@ def _render_code_block(node: Tag, list_depth: int) -> str:
     return f"\n\n{_CODE_FENCE}\n{code}\n{_CODE_FENCE}\n\n"
 
 
+def _is_code_fence(line: str) -> bool:
+    """Is this rendered line the fence of a code block written here: the key, after nothing but quote marks."""
+    return line.endswith(_CODE_FENCE) and not line[:-len(_CODE_FENCE)].strip("> \t")
+
+
 def _settle_fences(text: str) -> str:
     """The rendered text of a document with the key taken off the fences of its code blocks (`_CODE_FENCE`), and with the
     backtick lines of its text that open a fence which is never closed neutralized (`markdown.escape_unpaired_fences`) —
@@ -444,7 +449,9 @@ def _settle_fences(text: str) -> str:
     `clean_text` cannot tell a paragraph that is "```" from the fence of a `<pre>`: it paired the paragraph with the opening
     fence of the code block after it, so the code lost its whitespace and the closing fence was neutralized as the unpaired
     one — the same inside a quote (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence). Text fences that pair with each
-    other between two code blocks stay a code block, as in every other format (docs/decisions/core.md).
+    other between two code blocks stay a code block, as in every other format (docs/decisions/core.md). A fence line left
+    without its other fence line — none is written so, but a block may be folded onto one line — is text like the rest
+    (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_fence_line_left_without_its_pair_is_text).
     """
     if _CODE_FENCE not in text:
         if "```" not in text:
@@ -458,7 +465,7 @@ def _settle_fences(text: str) -> str:
     start = 0  # where the text after the last code block starts
     opening: int | None = None
     for index, line in enumerate(lines):
-        if not line.endswith(_CODE_FENCE):
+        if not _is_code_fence(line):
             continue
         if opening is None:
             between = lines[start:index]
@@ -469,7 +476,7 @@ def _settle_fences(text: str) -> str:
         else:
             settled += lines[opening:index + 1]
             opening, start = None, index + 1
-    rest = lines[start:]
+    rest = lines[start if opening is None else opening:]
     if any("```" in other for other in rest):
         escape_unpaired_fences(rest)
     settled += rest
