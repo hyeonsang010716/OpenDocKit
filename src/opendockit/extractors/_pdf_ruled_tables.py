@@ -352,6 +352,10 @@ def _split_column_sections(table: object, bbox: tuple[float, float, float, float
     the column boundaries of both, so empty columns were inserted and the lower table's header became a data row (Pinned by:
     test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns).
     Header rows and total rows that span columns are part of rows with different boundaries and are not split off.
+    Nor are two groups split when some row of the grid has the boundaries of both: they are then rows of one table with
+    different cells merged. A form with a block of two columns merged over rows 1-2 and, right below, a block of two other
+    columns merged over rows 3-5 was split between the blocks, and its second half took a data row as its header (Pinned by:
+    test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_merged_blocks_below_each_other_keep_one_table).
     """
     table_rows = table.rows  # a property that regroups all the cells on every access
     if any(len(row.cells) != len(rows[0]) for row in table_rows):
@@ -366,11 +370,13 @@ def _split_column_sections(table: object, bbox: tuple[float, float, float, float
             runs.append([index])
 
     sections = [list(runs[0])]
+    near = [frozenset(edge + step for edge in edges[run[0]] for step in (-1, 0, 1)) for run in runs]  # within 1pt of a boundary
 
     for previous, run in zip(runs, runs[1:], strict=False):
         apart = (len(previous) >= _SECTION_MIN_ROWS and len(run) >= _SECTION_MIN_ROWS
                  and not _edges_within(edges[previous[0]], edges[run[0]])
-                 and not _edges_within(edges[run[0]], edges[previous[0]]))
+                 and not _edges_within(edges[run[0]], edges[previous[0]])
+                 and not any(all(edge in other for edge in (*edges[previous[0]], *edges[run[0]])) for other in near))
         if apart:
             sections.append(list(run))
         else:
