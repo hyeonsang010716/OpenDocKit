@@ -12,6 +12,7 @@ import threading
 
 from opendockit.extractors._pdf_model import (
     _NUMBER_CELL,
+    _SPACED_CHAR,
     _TABLE_MIN_COLUMNS,
     _TABLE_ROW_TOLERANCE,
     _WRAP_GAP_MIN_RATIO,
@@ -210,7 +211,7 @@ def _is_section_row(line: _Line, previous: list[_Line], following: list[_Line], 
     if (line.x1 - line.x0 > max_cell or _column_of(line, header) != 0 or not later or line.x1 >= min(later)
             or not _sizes_match([line], following)):
         return False
-    if _has_number_cell(previous) and not _has_number_cell(following):
+    if _opens_a_new_table(previous, following, max_cell):
         return False
     return _at_row_spacing(line, previous, following, row_gap)
 
@@ -234,7 +235,7 @@ def _is_lone_value_row(line: _Line, previous: list[_Line], following: list[_Line
     column = _column_of(line, header)
     if line.x1 - line.x0 > max_cell or column == 0 or not _sizes_match([line], following):
         return False
-    if _has_number_cell(previous) and not _has_number_cell(following):
+    if _opens_a_new_table(previous, following, max_cell):
         return False
     if not any(_column_of(cell, header, row) == column and _edge_aligned(cell, line)
                for row in (header, previous, following) for cell in row):
@@ -264,22 +265,84 @@ def _out_of_line(row: list[_Line], run: list[list[_Line]], header: list[_Line]) 
     cells of the second landed in the wrong columns ('| 부서 | 인원 | | 비고 |', Pinned by:
     test_pdf_round45.py::TestBorderlessTablesWithDifferentColumnsNextToEachOther). A centred header does not match
     left-aligned cells, so the header is left out of the reference, and the check runs only when there are two or more
-    reference data rows (the first column is not checked because it often holds indented sub-items).
+    reference data rows with a fragment outside the first column (the first column is not checked because it often holds
+    indented sub-items; section rows right under the header are no reference, `_section_rows`).
     The reference is the `_OUT_OF_LINE_ROWS` data rows right above — looking at the whole table for every row takes
     quadratic time on a long table."""
     later = [line for line in row if _column_of(line, header, row) > 0]
     if len(later) < 2:
         return False
     placed: dict[int, list[_Line]] = {}
+    references = 0  # data rows with a fragment outside the first column (section rows hold none)
     for other in run[max(1, len(run) - _OUT_OF_LINE_ROWS):]:
-        for line in other:
-            placed.setdefault(_column_of(line, header, other), []).append(line)
+        columns = [_column_of(line, header, other) for line in other]
+        references += any(columns)
+        for line, column in zip(other, columns, strict=True):
+            placed.setdefault(column, []).append(line)
+    if references < 2:
+        return False
     return not any(_edge_aligned(line, other) for line in later for other in placed.get(_column_of(line, header, row), ()))
 
 
-def _has_number_cell(row: list[_Line]) -> bool:
-    """Whether the row has a cell holding only a numeric value."""
-    return any(_NUMBER_CELL.match(line.text.strip()) for line in row)
+def _has_number_cell(row: list[_Line], max_cell: float | None = None) -> bool:
+    """Whether the row has a cell holding only a numeric value. Given the maximum table cell width (`max_cell`), the row is
+    looked at as the table searched again with merged cells split sees it (`_cell_texts`)."""
+    return any(_NUMBER_CELL.match(text.strip()) for text in _cell_texts(row, max_cell))
+
+
+def _cell_texts(row: list[_Line], max_cell: float | None) -> list[str]:
+    """The cell texts of a row: with `max_cell`, a line that merged neighbouring cells (`_splittable`) gives one text per
+    piece, as in the table searched again with those lines split (`_found_again`); without it, one text per line."""
+    return [text for line in row
+            for text in ([piece for _, _, piece in line.fine_parts or line.parts]
+                         if max_cell is not None and _splittable(line, max_cell) else [line.text])]
+
+
+def _opens_a_new_table(previous: list[_Line], following: list[_Line], max_cell: float) -> bool:
+    """Whether the row below a single-fragment line (`following`) is the header of a new table, so the line between is not a
+    row of this table (`_is_section_row`, `_is_lone_value_row`): after a row with a numeric value cell (`previous`) it has
+    none, and it has enough cells to head a table at all (`_TABLE_MIN_COLUMNS`, the same as a header in `_table_runs`).
+
+    Both rows are judged as the table searched again with merged cells split sees them (`_cell_texts`). Judged on the
+    merged lines, '29,985 배' held no number, the label-only row '합계' was kept, and the table searched again with the
+    cells split ended at that row, so the search failed and every merged cell stayed unsplit ('| 사과 | | 79,619 사과 |').
+    And a row of two cells cannot head a table, yet it ended the table above, and the rows below, too few for a table of
+    their own, scattered column by column (Pinned by: test_pdf_borderless_split_rows.py::TestLabelOnlyRowAmongMergedCells)."""
+    cells = _cell_texts(following, max_cell)
+    return (len(cells) >= _TABLE_MIN_COLUMNS and _has_number_cell(previous, max_cell)
+            and not any(_NUMBER_CELL.match(text.strip()) for text in cells))
+
+
+def _splittable(line: _Line, max_cell: float) -> bool:
+    """A line that can be treated as neighbouring cells merged by pdfminer and split at its wide gaps (`_Line.parts`, or
+    `fine_parts`, which also looks at narrow gaps without a space character, when present): it has gaps, every piece is at
+    most the maximum table cell width, and there are no consecutive single Hangul or Hanja character pieces
+    (`_letter_spaced_parts`).
+
+    The piece width is examined rather than the whole line width (the same criterion as `_split_line_table_runs`) because
+    the header '1분기 2분기 3분기 4분기', merged across narrow cell gaps, exceeded 25% of the page width, could not be split
+    and became a paragraph outside the table (pinned by: test_pdf_table_columns.py::
+    TestHeaderMergedWiderThanACell).
+
+    `fine_parts` is examined too because the gap between a right-aligned number cell and a left-aligned text cell in a
+    Chrome table (cell padding 6px + 6px = 9pt, 0.75 times a 12pt character, no space character) fell short of
+    `_CELL_GAP_RATIO` (0.8 times) and '18 2023 신규' became one cell (pinned by:
+    test_pdf_table_columns.py::TestNarrowColumnGaps::test_right_aligned_numbers_next_to_a_left_aligned_note_column).
+    Splitting only inside an already-found table is unchanged."""
+    parts = line.fine_parts or line.parts
+    return (bool(parts) and all(x1 - x0 <= max_cell for x0, x1, _ in parts)
+            and not _letter_spaced_parts(parts))
+
+
+def _letter_spaced_parts(parts: list[tuple[float, float, str]]) -> bool:
+    """Whether the line pieces contain two or more consecutive single Hangul or Hanja character pieces — that is letter-spaced
+    text ('구    분') and is not split into cells.
+
+    Blocking on a single one-character piece made it impossible to split '값 단위' in a Chrome three-line table (pdfminer
+    merged the 1.3em between cells into one piece), and the header and first row became paragraphs outside the table
+    (pinned by: test_pdf_table_columns.py::TestOneLetterHeaderCell)."""
+    return any(len(left) == 1 and len(right) == 1 and _SPACED_CHAR.match(left) and _SPACED_CHAR.match(right)
+               for (_, _, left), (_, _, right) in zip(parts, parts[1:], strict=False))
 
 
 def _is_separate(row: list[_Line]) -> bool:
@@ -305,19 +368,71 @@ def _table_rows_above(above: list[list[_Line]], run: list[list[_Line]], max_cell
     more short fragments), and the fragments of every row below it must fall into different columns of that header
     (Pinned by:
     test_pdf.py::TestBorderlessTableWithWideCells::test_table_found_among_short_rows_starts_at_the_header_above_the_wide_rows).
+    Rows with empty cells are taken as well while every row from the table up is a data row in its columns
+    (`_data_row_in_columns`): in a sparse three-column table, or on a page continuing a table without its header, the rows
+    of two cells above the first row of three could never be headed by a row of three, so they were left out of the table
+    and came out as lines scattered column by column (Pinned by:
+    test_pdf_borderless_split_rows.py::TestSparseRowsAboveABorderlessTable). The topmost of them becomes the header row,
+    with an empty fragment put in each of its empty columns (as `_blank_corner_header` does), since the header row sets
+    the table's columns.
     """
     found = 0  # Number of rows to accept (from the end of `above`)
+    padded = False  # whether the topmost accepted row is a data row whose empty columns get empty fragments
     below = run[0]
+    columns = _cells_by_column(run)
+    data_rows = True  # every row looked at so far is a data row in the table's columns
     for number, row in enumerate(reversed(above), start=1):
         gap = below[0].top - max(line.bottom for line in row)
         if len(row) < 2 or not _has_one_wide_cell_at_most(row, max_cell) or gap > row[0].height * 2.5:
             break
+        data_rows = data_rows and _data_row_in_columns(row, run[0], columns, max_cell)
         is_header = len(row) >= _TABLE_MIN_COLUMNS and all(line.x1 - line.x0 <= max_cell for line in row)
         if is_header and all(len({_column_of(line, row) for line in lower}) == len(lower)
                              for lower in [*above[len(above) - number + 1:], *run]):
-            found = number
+            found, padded = number, False
+        elif data_rows:
+            found, padded = number, True
         below = row
-    return above[len(above) - found:] if found else []
+    if not found:
+        return []
+    rows = above[len(above) - found:]
+    return [_with_empty_cells(rows[0], run[0]), *rows[1:]] if padded else rows
+
+
+def _with_empty_cells(row: list[_Line], header: list[_Line]) -> list[_Line]:
+    """The row with an empty fragment of no width, at the middle of the header cell, in each column of `header` that none of
+    its fragments falls into."""
+    taken = {_column_of(line, header, row) for line in row}
+    empty = [_Line(top=row[0].top, bottom=row[0].bottom, x0=(cell.x0 + cell.x1) / 2, x1=(cell.x0 + cell.x1) / 2, text="",
+                   size=row[0].size) for column, cell in enumerate(header) if column not in taken]
+    return sorted([*row, *empty], key=lambda line: line.x0)
+
+
+def _cells_by_column(run: list[list[_Line]]) -> dict[int, list[_Line]]:
+    """The fragments of a borderless table's rows by the column they fall into under its first row (`_column_of`)."""
+    placed: dict[int, list[_Line]] = {}
+    for row in run:
+        for line in row:
+            placed.setdefault(_column_of(line, run[0], row), []).append(line)
+    return placed
+
+
+def _data_row_in_columns(row: list[_Line], header: list[_Line], columns: dict[int, list[_Line]], max_cell: float) -> bool:
+    """Whether a row above a borderless table is a data row of it with some cells empty: its fragments are short, fall into
+    different columns, each lines up with a fragment of the same column in the table (left edge, right edge or centre,
+    `_edge_aligned`) and stays clear of the cells of the neighbouring columns, none is a line that merged neighbouring cells
+    (`_splittable` — such a row is left to the search that splits it, `_split_merged_cells`), and one of them holds only a
+    numeric value — so a caption or a unit line ('(단위: 원)') at the right edge of the last column is not one."""
+    placed = [_column_of(line, header, row) for line in row]
+    if (len(set(placed)) != len(placed) or not _has_number_cell(row)
+            or any(line.x1 - line.x0 > max_cell or _splittable(line, max_cell) for line in row)):
+        return False
+    for line, column in zip(row, placed, strict=True):
+        before, after = columns.get(column - 1, ()), columns.get(column + 1, ())
+        if (not any(_edge_aligned(line, other) for other in columns.get(column, ()))
+                or any(line.x0 < other.x1 for other in before) or any(line.x1 > other.x0 for other in after)):
+            return False
+    return True
 
 
 def _column_of(line: _Line, header: list[_Line], row: list[_Line] | tuple[()] = ()) -> int:

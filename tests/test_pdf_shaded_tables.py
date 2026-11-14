@@ -248,6 +248,23 @@ class TestShadedTablesWithMergedCells:
         assert text.count("1,200") == 1 and text.index("5,370") < text.index("본부별 인원은")
 
 
+class TestOneShadedRowInABorderlessTable:
+    """A shaded fragment could be grown by only one open band above and one below, so a borderless table with one or two
+    shaded data rows was cut at the shaded row: the rows beyond it became a second table, or lines scattered column by
+    column, and the header fell apart into paragraphs. A fragment that stops short of aligned rows is dropped and the
+    region is read by the borderless search, as if it had no shading."""
+
+    @pytest.mark.parametrize("fills", [{1: "#E8EEF7"}, {2: "#E8EEF7"}, {3: "#E8EEF7"}, {2: "#E8EEF7", 4: "#E8EEF7"}])
+    def test_table_reads_as_if_it_had_no_shading(self, fills):
+        options = ConvertOptions(page_markers=False)
+        plain = convert(_shaded_pdf(), "a.pdf", options).text
+
+        text = convert(_shaded_pdf(fills=fills), "a.pdf", options).text
+
+        assert _TABLE in plain
+        assert text == plain
+
+
 @pytest.mark.timing
 def test_many_bands_on_a_page_with_many_letters_take_linear_time():
     """Every band scanned all the characters of the page, so a large page with many shaded bands and tables (a 1500pt

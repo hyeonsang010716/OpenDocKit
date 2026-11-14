@@ -4,6 +4,7 @@ wrapped cells and labels, rows split over lines, and headers carried over a page
 
 from bisect import bisect_left, bisect_right
 from collections import Counter
+from collections.abc import Callable
 from itertools import pairwise
 import math
 import re
@@ -15,7 +16,6 @@ from opendockit.extractors._pdf_model import (
     _FAR_VALUE,
     _NUMBER_CELL,
     _ROW_OVERLAP_RATIO,
-    _SPACED_CHAR,
     _TABLE_CELL_MAX_RATIO,
     _TABLE_MIN_COLUMNS,
     _TABLE_MIN_ROWS,
@@ -34,8 +34,11 @@ from opendockit.extractors._pdf_table_rows import (
     _is_lone_value_row,
     _is_section_row,
     _is_separate,
+    _letter_spaced_parts,
+    _opens_a_new_table,
     _out_of_line,
     _sizes_match,
+    _splittable,
     _spread_over_one_cell,
     _table_rows_above,
     _wide_cell_in_its_column,
@@ -525,38 +528,6 @@ def _found_again(region_rows: list[list[_Line]], in_run: set[int], columns: int,
     return found[0]
 
 
-def _splittable(line: _Line, max_cell: float) -> bool:
-    """A line that can be treated as neighbouring cells merged by pdfminer and split at its wide gaps (`_Line.parts`, or
-    `fine_parts`, which also looks at narrow gaps without a space character, when present): it has gaps, every piece is at
-    most the maximum table cell width, and there are no consecutive single Hangul or Hanja character pieces
-    (`_letter_spaced_parts`).
-
-    The piece width is examined rather than the whole line width (the same criterion as `_split_line_table_runs`) because
-    the header '1분기 2분기 3분기 4분기', merged across narrow cell gaps, exceeded 25% of the page width, could not be split
-    and became a paragraph outside the table (pinned by: test_pdf_table_columns.py::
-    TestHeaderMergedWiderThanACell).
-
-    `fine_parts` is examined too because the gap between a right-aligned number cell and a left-aligned text cell in a
-    Chrome table (cell padding 6px + 6px = 9pt, 0.75 times a 12pt character, no space character) fell short of
-    `_CELL_GAP_RATIO` (0.8 times) and '18 2023 신규' became one cell (pinned by:
-    test_pdf_table_columns.py::TestNarrowColumnGaps::test_right_aligned_numbers_next_to_a_left_aligned_note_column).
-    Splitting only inside an already-found table is unchanged."""
-    parts = line.fine_parts or line.parts
-    return (bool(parts) and all(x1 - x0 <= max_cell for x0, x1, _ in parts)
-            and not _letter_spaced_parts(parts))
-
-
-def _letter_spaced_parts(parts: list[tuple[float, float, str]]) -> bool:
-    """Whether the line pieces contain two or more consecutive single Hangul or Hanja character pieces — that is letter-spaced
-    text ('구    분') and is not split into cells.
-
-    Blocking on a single one-character piece made it impossible to split '값 단위' in a Chrome three-line table (pdfminer
-    merged the 1.3em between cells into one piece), and the header and first row became paragraphs outside the table
-    (pinned by: test_pdf_table_columns.py::TestOneLetterHeaderCell)."""
-    return any(len(left) == 1 and len(right) == 1 and _SPACED_CHAR.match(left) and _SPACED_CHAR.match(right)
-               for (_, _, left), (_, _, right) in zip(parts, parts[1:], strict=False))
-
-
 def _split_line_table_runs(lines: list[_Line], max_cell: float) -> list[list[list[_Line]]]:
     """The borderless tables found once more after splitting, among the lines not in a table (`lines`), the lines that merged
     neighbouring cells (`_splittable`).
@@ -730,6 +701,31 @@ def _regrouped_half_rows(run: list[list[_Line]], max_cell: float) -> list[list[_
     return regrouped[0]
 
 
+def _section_rows(rows: list[list[_Line]], start: int, previous: list[_Line], header: list[_Line], row_gap: float | None,
+                  max_cell: float, accepts: Callable[[list[_Line], list[_Line], list[_Line]], bool]) -> int:
+    """The number of consecutive single-fragment rows from `start` that are section rows of the table being built
+    (`_table_runs`, the row above them `previous`): two or more of them, each a section row between its neighbours
+    (`_is_section_row`), followed by a row the table accepts, which does not open a new table after `previous`
+    (`_opens_a_new_table`). 0 otherwise.
+
+    One label-only row was a section row, but two in a row ended the table, since each looked for a data row right below
+    it, and the rows below, too few for a table of their own, scattered column by column (Pinned by:
+    test_pdf_borderless_split_rows.py::TestSparseRowsAboveABorderlessTable::test_two_label_rows_in_a_row_stay_in_the_table).
+    """
+    end = start
+    while end < len(rows) and len(rows[end]) == 1:
+        end += 1
+    if end - start < 2 or end >= len(rows):
+        return 0
+    if not accepts(rows[end], rows[end - 1], header) or _opens_a_new_table(previous, rows[end], max_cell):
+        return 0
+    lines = [previous, *rows[start:end], rows[end]]
+    if not all(_is_section_row(lines[index][0], lines[index - 1], lines[index + 1], header, row_gap, max_cell)
+               for index in range(1, len(lines) - 1)):
+        return 0
+    return end - start
+
+
 def _table_runs(rows: list[list[_Line]], max_cell: float,
                 bands: list[tuple[float, float, float, float]] = ()) -> list[list[list[_Line]]]:
     """The groups of rows in `rows` (top to bottom) that meet the borderless table criteria.
@@ -825,6 +821,12 @@ def _table_runs(rows: list[list[_Line]], max_cell: float,
                 run.append(row)
                 following += 1
                 sections += 1
+                continue
+            labels = _section_rows(rows, following, previous, header, row_gap, max_cell, accepts)
+            if labels:
+                run += rows[following:following + labels]
+                following += labels
+                sections += labels
                 continue
             if not accepts(row, previous, header):
                 break
