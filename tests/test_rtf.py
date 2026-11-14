@@ -141,11 +141,27 @@ class TestCharacters:
         assert _text(r"\uc1\u44032\'b0 x\par", head=head) == "가 x"
         assert _text(r"\uc1\u65393\'b1\'82\'a0\par", head=r"\ansi\ansicpg932") == "ｱあ"
 
+    def test_fallback_written_as_raw_8bit_text_is_dropped_whole(self):
+        """The same fallback as plain 8-bit text instead of `\\'hh` (the second byte in the same run of text, or in the next
+        token), and a three-byte UTF-8 fallback after `\\uc1`: the whole character is dropped (it left '가�')."""
+        def text(body: bytes, page: int = 949) -> str:
+            """`BS` stands for a backslash."""
+            return convert((b"{BSrtf1BSansiBSansicpg%d " % page + body + b"BSpar}").replace(b"BS", b"\\"), "a.rtf").text
+        ga = "가".encode("cp949")
+        assert text(b"BSuc1BSu44032" + ga + b" end") == "가 end"
+        assert text(b"BSuc1BSu44032" + ga[:1] + b"BS'a1 end") == "가 end"
+        assert text(b"BSuc2BSu44032" + ga + ga + b" end") == "가가 end"
+        assert text(b"BSuc1BSu44032BS'eaBS'b0BS'80 x", page=65001) == "가 x"
+        assert text(b"BSuc1BSu44032" + "가".encode() + b" x", page=65001) == "가 x"
+
     def test_code_page_that_is_not_ascii_compatible_is_ignored(self):
-        """`\\ansicpg875` (EBCDIC Greek) turned a whole run with one 8-bit byte into noise ('hello' → 'ΪΧ%%?'). RTF is ASCII
-        text, so such a code page is ignored and the default (CP1252) is used."""
+        """`\\ansicpg875` (EBCDIC Greek) turned a whole run with one 8-bit byte into noise ('hello' → 'ΪΧ%%?'), and a font
+        with `\\cpg500` (EBCDIC) did the same. RTF is ASCII text, so such a code page is ignored and the document's is used.
+        A real code page that only draws a symbol differently (CP864, Arabic: '%' is '٪') is still used."""
         assert _text(r"hello \'e9\par", head=r"\ansi\ansicpg875") == "hello é"
-        assert _text(r"{\fonttbl{\f1\cpg037 F;}}\f1 caf\'e9\par") == "café"
+        assert _text(r"{\fonttbl{\f1\cpg500 F;}}\f1 caf\'e9\par") == "café"
+        assert _text(r"{\fonttbl{\f1\cpg1026 F;}}\f1 caf\'e9\par") == "café"
+        assert _text(r"50% \'e9\par", head=r"\ansi\ansicpg864") == "50٪ ﻯ"
 
     def test_unicode_escapes_cover_negative_values_and_surrogate_pairs(self):
         """'한' (U+D55C) is `\\u-10916`, '😀' is the surrogate pair `\\u-10179\\u-8704`; each escape is followed by one fallback

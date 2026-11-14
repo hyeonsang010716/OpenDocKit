@@ -788,14 +788,21 @@ class _Renderer:
                 rendered = self.block(child, context, depth + 1)
                 if rendered and not headed and child.tag in (_P, _H):
                     as_heading = not (context.in_cell or context.in_note or context.plain)
+                    # A heading that carries its label (`text:number`, not empty) shows that label in its text already
+                    # (`_inline`): the item is counted and no second label is written, also where the heading is a plain
+                    # paragraph (a cell, a note) — that gave '1. 1. H'
+                    # (Pinned by: test_odf.py::TestTextDocument::test_heading_number_label_is_kept_apart_from_the_text).
+                    carries = child.tag == _H and any(_flat_text(number) for number in child.iterchildren(_NUMBER))
                     if child.tag == _H and as_heading and rendered[0].startswith("#"):
                         # A numbered heading in a list counts as an item and shows its number after the `#` ('# 2. 결론'); a
-                        # label written before the `#` would undo the heading. A `text:number` it carries is that label already
+                        # label written before the `#` would undo the heading
                         # (Pinned by: test_odf.py::TestTextDocument::test_heading_in_a_numbered_list_counts_as_an_item).
                         label = self._item_head(style, level, counters, start, context, heading=True)
-                        if label and child.find(_NUMBER) is None:
+                        if label and not carries:
                             hashes, _, text = rendered[0].partition(" ")
                             rendered[0] = f"{hashes} {label} {text}"
+                    elif carries:
+                        self._item_head(style, level, counters, start, context)
                     else:
                         rendered[0] = self._item_head(style, level, counters, start, context) + rendered[0]
                     headed = True
@@ -1155,6 +1162,8 @@ class _Renderer:
             tag = child.tag
             if tag == _P:
                 displayed = True
+                if _is_hidden(child):
+                    continue   # a hidden paragraph shows nothing in the cell either (Pinned by: test_odf.py::TestHiddenText)
                 if len(child):
                     lines.extend(self._paragraph(child, _SHEET_CELL, 1))
                 elif child.text:   # the usual cell: one paragraph of plain text
