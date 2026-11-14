@@ -198,6 +198,8 @@ _NOT_IN_BYTE_TEXT = re.compile(rb"[\x01-\x08\x0e-\x1a\x1c-\x1f\x7f]")
 # Tab, line breaks and the other control bytes that text does hold. When they are at least this many fifths of the sample
 # and it reads as one script other than CJK, it is not byte-oriented text either (every Bengali letter has 0x09).
 _TEXT_CONTROL_BYTES = b"\t\n\r\f\v\x1b"
+# Text made of nothing but printable ASCII, tab and line breaks: ASCII whatever its label says (`_declared_utf16`).
+_PLAIN_ASCII = re.compile(rb"[\t\n\r\x20-\x7e]*")
 _WIDE_CONTROL_FIFTHS = 2
 # The Unicode names of the characters written together in Chinese, Japanese and Korean text start with one of these words; they
 # count as one script (`_one_script`).
@@ -407,12 +409,22 @@ def _declared_utf16(data: bytes, name: str | None) -> str | None:
     `<meta charset="utf-16le">` and a mail part `charset="utf-16le"` holding `Total: 1,250 USD` came out as `格浴㹬…` and
     `潔慴㩬ㄠ㈬〵唠䑓` without a warning; 82% of English snippets of 8 bytes and 34% of those of 32 bytes did. So did UTF-8 Korean,
     Windows-1252 and broken UTF-8 with that label, and UTF-16 labelled with the other byte order
-    (Pinned by: test_text_html.py::TestDeclaredUtf16WithoutBom). Known accepted gap: two to five ideographs or kana whose
-    bytes all are ASCII (`你好` is `` `O}Y ``) are read as the UTF-8 they also are (at most 94 of 19,800 pieces of 2 to 100
-    characters cut from Japanese or Chinese text, 3 from Korean), and a table of one-digit numbers between tabs labelled
-    UTF-16 reads as Devanagari."""
+    (Pinned by: test_text_html.py::TestDeclaredUtf16WithoutBom).
+
+    Text made only of printable ASCII bytes, tab, CR and LF is ASCII whatever the label says (`_PLAIN_ASCII`). A tab or a
+    line break in the high-byte position is the control byte of way 1: the mail body `Yes\n` read `教ੳ`, `5\n` read `ਵ` and a
+    table of one-digit numbers between tabs read as Devanagari — 9% of the pieces of 1 to 200 characters cut from ASCII
+    text and labelled UTF-16 (7,356 of 80,480), up to 32 characters long. Real UTF-16 has such bytes only when it holds no
+    space, no line break and no ASCII character at all (each of them has a NUL), and every character is one like U+0928
+    or U+4E2A whose two bytes are both printable or tab / CR / LF: 0.4% of the pieces cut from Korean, Japanese, Chinese,
+    Russian, Arabic, Hindi, Punjabi, Thai, Greek, Hebrew and English text (1,593 of 399,712), all of them one to six letters
+    of Hindi or Punjabi (`नमस्ते` is `(\t.\t8\tM\t$\tG\t`) — the Japanese and Chinese ones (one to eight characters) were read as
+    UTF-8 already (Pinned by: test_text_html.py::TestDeclaredUtf16WithoutBom::test_plain_ascii_bytes_are_ascii_whatever_the_label).
+    Known accepted gap: such a word — one to six Devanagari or Gurmukhi letters without a space or a line break, two to
+    five ideographs or kana whose bytes all are ASCII (`你好` is `` `O}Y ``; at most 94 of 19,800 pieces of 2 to 100 characters
+    cut from Japanese or Chinese text, 3 from Korean) — is read as the ASCII it also is."""
     codec = {"utf-16-le": "utf-16-le", "utf-16-be": "utf-16-be"}.get(_lookup(name) or "")
-    if codec is None or len(data) % 2:
+    if codec is None or len(data) % 2 or _PLAIN_ASCII.fullmatch(data):
         return None
     text = _strict(data, codec)
     if not text or not all(_printable(ch) for ch in text[:20_000]):

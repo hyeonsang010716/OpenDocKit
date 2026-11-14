@@ -1402,11 +1402,35 @@ class TestDeclaredUtf16WithoutBom:
 
     @pytest.mark.parametrize("text", [
         "매출 보고서입니다", "확인했습니다", "これは日本語です", "这是简体中文文本",   # CJK: no NUL at all without a space
-        "Это русский текст", "Привет", "مرحبا", "नमस्ते", "Γειά σου", "OK thanks",    # below U+2000: a control byte in every pair
+        "Это русский текст", "Привет", "مرحبا", "नमस्ते दुनिया", "Γειά σου", "OK thanks",    # below U+2000: a control byte in every pair
     ])
     @pytest.mark.parametrize("order", ["le", "be"])
     def test_real_utf16_as_declared(self, text, order):
         assert decode_text(text.encode(f"utf-16-{order}"), f"utf-16{order}") == (text, f"utf-16-{order}")
+
+    @pytest.mark.parametrize("charset", ["utf-16le", "utf-16be"])
+    @pytest.mark.parametrize("body", [b"Yes\n", b"5\n", b"OK\r\n\r\n", b"30\r\n", b"K\r", b"1\t2\t3\n4\t5\t6\n", b"4\t5\t6\n7\t8\t9\n",
+                                      b"id\tqt\n1\t3\n2\t5\n", b"a\nb\nc\n", b"x\ty\t"])
+    def test_plain_ascii_bytes_are_ascii_whatever_the_label(self, body, charset):
+        """A tab or a line break in every other byte is the high byte of an Indic letter: `Yes\\n` read `教ੳ`, `5\\n` read `ਵ`
+        and a table of one-digit numbers between tabs read as Devanagari."""
+        assert len(body) % 2 == 0
+        assert decode_text(body, charset) == (body.decode(), "utf-8")
+
+        data = (b"From: a@example.com\r\nTo: b@example.com\r\nSubject: S\r\nMIME-Version: 1.0\r\n"
+                + f'Content-Type: text/plain; charset="{charset}"\r\nContent-Transfer-Encoding: base64\r\n\r\n'.encode()
+                + base64.encodebytes(body))
+        result = convert(data, "a.eml")
+
+        assert result.text.split("\n\n", 1)[1] == body.decode().strip()
+        assert result.warnings == []
+
+    @pytest.mark.parametrize(("text", "order"), [("नमस्ते", "le"), ("नमस्ते", "be"), ("ਸਤਿ", "le"), ("你好", "le")])
+    def test_known_gap_utf16_made_of_plain_ascii_bytes_reads_as_ascii(self, text, order):
+        """A word without a space or a line break whose every character has two printable (or tab / line break) bytes."""
+        data = text.encode(f"utf-16-{order}")
+
+        assert decode_text(data, f"utf-16{order}") == (data.decode("ascii"), "utf-8")
 
     def test_word_without_a_space_is_valid_utf8_too(self):
         """Why 'valid UTF-8 without a NUL' is not the test for a wrong label: every Cyrillic letter is `xx 04`."""
