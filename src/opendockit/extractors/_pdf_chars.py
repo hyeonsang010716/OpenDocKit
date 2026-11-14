@@ -281,7 +281,10 @@ def _drop_cap(chars: list[dict], line_text: str) -> tuple[str, float, float] | N
     capital or a digit after it, a letter standing on the line's baseline) keeps its space. Known limitation: a one-letter word
     set as a drop cap ('A' + 'long time ago') is joined to the next word as well.
     """
-    solid = sorted((char for char in chars if char["text"].strip() and char.get("size")), key=lambda char: char["x0"])
+    # A character without a finite position or size is on no line (Pinned by:
+    # test_pdf_reading_order.py::TestDropCaps::test_characters_without_a_finite_position_are_no_line_beside_an_initial).
+    solid = sorted((char for char in chars if char["text"].strip() and char.get("size")
+                    and all(math.isfinite(char[key]) for key in ("x0", "x1", "top", "bottom", "size"))), key=lambda char: char["x0"])
     if len(solid) < 3:
         return None
     initial, others = solid[0], solid[1:]
@@ -289,6 +292,8 @@ def _drop_cap(chars: list[dict], line_text: str) -> tuple[str, float, float] | N
     # line itself is the top row of them.
     first_top = min(char["top"] for char in others)
     rest = [char for char in others if char["top"] < first_top + char["size"] / 2]
+    if not rest:
+        return None
     letter, size = initial["text"], max(char["size"] for char in rest)
     if not (len(letter) == 1 and letter.isalpha() and letter.isupper() and rest[0]["text"][:1].islower()):
         return None

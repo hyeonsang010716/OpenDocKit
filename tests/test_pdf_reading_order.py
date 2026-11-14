@@ -5,6 +5,7 @@ from io import BytesIO
 import pytest
 
 from opendockit import ConvertOptions, convert
+from opendockit.extractors._pdf_chars import _drop_cap
 from tests import builder
 from tests.test_pdf import _FONT, _korean_pdf
 
@@ -412,3 +413,11 @@ class TestDropCaps:
         text = convert(self._pdf(initial, lines, size, baseline), "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert f"{initial} {lines[0]}" in text
+
+    @pytest.mark.parametrize("bad", [float("inf"), float("nan"), -float("inf")])
+    def test_characters_without_a_finite_position_are_no_line_beside_an_initial(self, bad):
+        initial = {"text": "T", "size": 36.0, "x0": 72.0, "x1": 94.0, "top": 100.0, "bottom": 136.0}
+        beside = [{"text": text, "size": 11.0, "x0": 96.0 + 6 * index, "x1": 102.0 + 6 * index, "top": bad, "bottom": bad}
+                  for index, text in enumerate("he quick")]
+
+        assert _drop_cap([initial, *beside], "T he quick") is None
