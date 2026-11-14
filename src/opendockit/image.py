@@ -6,6 +6,7 @@ Unify them into the PNG/JPEG a vision model accepts, shrink the long side, and d
 
 from dataclasses import dataclass
 from io import BytesIO
+import sys
 
 from PIL import Image, ImageChops, ImageOps, JpegImagePlugin
 
@@ -55,8 +56,12 @@ _MAX_TIFF_PIXELS = 10 * _MAX_DECODE_PIXELS
 # The warnings Pillow gives while reading and writing a picture: metadata it could not take as written (an EXIF or TIFF tag
 # of the wrong count), palette transparency, and the decompression-bomb warning below the limit. The outcome is what counts
 # (read, or `ImageUnreadable`); left on, a program that turns warnings into errors had a readable picture rejected as
-# 'corrupted' (Pinned by: test_image.py::TestPillowWarnings). Narrow to Pillow's modules (`models.quiet_warnings`).
+# 'corrupted' (Pinned by: test_image.py::TestPillowWarnings). Narrow to Pillow's modules (`models.quiet_warnings`), and to
+# where a picture is opened and loaded: nothing warns while it is downscaled and written.
 _PILLOW_WARNINGS = ((UserWarning, r"PIL\."), (Image.DecompressionBombWarning, r"PIL\."))
+# What a transparent grey level of a PNG with 1, 2 or 4 bits per pixel is multiplied by to be on the scale of the pixels
+# as Pillow hands them out (0–255), by the raw mode of the file (`_key_on_the_scale_of_the_pixels`).
+_KEY_SCALE = {"1": 255, "L;2": 85, "L;4": 17}
 _TIFF_MAGIC = (b"II*\x00", b"MM\x00*")
 _JPEG_MAGIC = b"\xff\xd8\xff"
 # Minimum share for salvaging a JPEG with a truncated end: the height actually drawn must be at least this much of the whole.
@@ -132,18 +137,24 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
         if image.mode.startswith("I;16"):
             # Pillow's downscaling does not support 16-bit grayscale and raised a ValueError. Reduce it to 8-bit grayscale
             # (Pinned by: test_image.py::TestPrepareImage::test_high_bit_depth_grayscale_is_converted_not_a_crash).
+            # A transparent level is looked for before that, among the 16-bit values (`_at_level`).
+            level = image.info.pop("transparency", None)
+            transparent = _at_level(image, level) if isinstance(level, int) and 0 <= level <= 0xFFFF else None
             image = image.convert("I").point(lambda value: value / 256).convert("L")
+            if transparent is not None:
+                image.putalpha(ImageChops.invert(transparent))
         elif image.mode in ("I", "F"):
+            image.info.pop("transparency", None)   # a level of the file, not of the stretched picture
             image = _stretch_to_8bit(image)
+        image = _with_its_key_as_alpha(image)
 
-        # Any alpha band (RGBA, LA, PA, premultiplied RGBa and La) or a transparent colour (`transparency`: a palette entry,
-        # or the tRNS grey level or colour of an L or RGB PNG) keeps the picture transparent. Only RGBA, LA and P were looked
-        # at, so a PA TIFF became a JPEG with its transparent background turned black
-        # (Pinned by: test_image.py::TestTransparencyOfEveryMode).
+        # Any alpha band (RGBA, LA, PA, premultiplied RGBa as a HEIF may hold it) or a transparent palette entry
+        # (`transparency`) keeps the picture transparent; the transparent grey level or colour of an L or RGB PNG is an alpha
+        # band by now. Only RGBA, LA and P were looked at, so a PA TIFF became a JPEG with its transparent background turned
+        # black (Pinned by: test_image.py::TestTransparencyOfEveryMode).
         has_alpha = "A" in image.getbands() or "a" in image.getbands() or "transparency" in image.info
-        with quiet_warnings(*_PILLOW_WARNINGS):
-            tiles = tuple(_encoded(tile, max_side, has_alpha)[0] for tile in _tiles(image, max_side))
-            data, mime_type, (shrunk_width, shrunk_height) = _encoded(image, max_side, has_alpha)
+        tiles = tuple(_encoded(tile, max_side, has_alpha)[0] for tile in _tiles(image, max_side))
+        data, mime_type, (shrunk_width, shrunk_height) = _encoded(image, max_side, has_alpha)
     except MemoryError:
         raise
     except Exception as exc:  # a failed downscale or re-encode is also an "unreadable image", like a failed decode (same reason)
@@ -162,10 +173,72 @@ def _decoded(data: bytes, max_side: int) -> Image.Image:
     (Pinned by: test_image.py::TestOnePictureInMemory)."""
     with quiet_warnings(*_PILLOW_WARNINGS):  # thread-safe (`models.quiet_warnings`)
         opened = _open_within_pixel_limit(data, max_side)
+        _key_on_the_scale_of_the_pixels(opened)
         opened.seek(0)  # first frame only for an animated GIF/AVIF. A multi-page TIFF is split per page by the extractor first (split_tiff_pages)
         ImageOps.exif_transpose(opened, in_place=True)
         opened.load()
     return opened
+
+
+def _key_on_the_scale_of_the_pixels(opened: Image.Image) -> None:
+    """Rewrite the transparent colour of a PNG (`info["transparency"]`, the tRNS chunk) from the scale of the file to the
+    scale of the pixels Pillow hands out. Called before the picture is loaded, while the raw mode of the file is known.
+
+    Pillow keeps the key as the file writes it and compares its low byte with the 8-bit pixels: the key (300, 0, 0) of a
+    16-bit RGB PNG made every pixel with red 44 transparent and none of those the file meant, and white (15) of a 4-bit grey
+    PNG made nothing transparent. A 16-bit colour is cut to its high bytes, as the pixels are (Known accepted gap: pixels
+    that differ from the key in the low bytes only are transparent too — Pillow does not hand those bytes out). A grey level
+    of 1, 2 or 4 bits is multiplied up, unless it is on the 0–255 scale already (Pillow 12 and later do that for 1 bit).
+    The level of a 16-bit grey PNG stays as it is: those pixels keep their 16 bits (`_at_level`)
+    (Pinned by: test_image.py::TestTransparentColourOfAPng)."""
+    key = opened.info.get("transparency")
+    if opened.format != "PNG" or key is None or isinstance(key, bytes):
+        return
+    arguments = opened.tile[0][3] if opened.tile and len(opened.tile[0]) > 3 else None
+    raw_mode = arguments if isinstance(arguments, str) else ""
+    if isinstance(key, tuple):
+        if raw_mode == "RGB;16B" or (not raw_mode and any(isinstance(value, int) and value > 255 for value in key)):
+            opened.info["transparency"] = tuple(value >> 8 if isinstance(value, int) else value for value in key)
+    elif isinstance(key, int) and raw_mode in _KEY_SCALE and 0 <= key * _KEY_SCALE[raw_mode] <= 255:
+        opened.info["transparency"] = key * _KEY_SCALE[raw_mode]
+
+
+def _at_level(image: Image.Image, level: int) -> Image.Image:
+    """An `L` picture that is 255 where the 16-bit grey `image` is exactly `level`, 0 elsewhere.
+
+    The transparent level of a 16-bit grey PNG is one of 65,536. Applied after the reduction to 8 bits (Pillow compares its
+    low byte), level 300 made the pixels of 8-bit level 44 transparent instead of the ones at 300, 65535 none at all, and 0
+    all of the levels 0 to 255 (Pinned by: test_image.py::TestTransparentColourOfAPng::test_level_of_a_16_bit_grey_picture).
+    The two bytes of every pixel are compared as two 8-bit pictures: Pillow has no lookup for 16-bit pixels."""
+    raw = image.tobytes()
+    big_endian = image.mode == "I;16B" or (image.mode == "I;16N" and sys.byteorder == "big")
+    low, high = (raw[1::2], raw[0::2]) if big_endian else (raw[0::2], raw[1::2])
+    low_is = Image.frombytes("L", image.size, low).point([255 if value == level & 0xFF else 0 for value in range(256)])
+    high_is = Image.frombytes("L", image.size, high).point([255 if value == level >> 8 else 0 for value in range(256)])
+    return ImageChops.darker(low_is, high_is)
+
+
+def _with_its_key_as_alpha(image: Image.Image) -> Image.Image:
+    """An `L`, `1` or `RGB` picture with a transparent grey level or colour (`info["transparency"]`) as `LA` or `RGBA`, with
+    exactly the pixels of that colour transparent; any other picture as it is. A key no pixel can have (out of range, or
+    not what the mode takes) is dropped and the picture is opaque.
+
+    Done before the downscale: shrunk first, the edge of a keyed background was a blend of the key colour and the picture —
+    no longer the key, so it stayed, opaque: a magenta-keyed 4000×4000 PNG kept 9,106 magenta pixels around its subject
+    (Pinned by: test_image.py::TestTransparentColourOfAPng::test_keyed_background_leaves_no_fringe_when_downscaled).
+    A palette picture keeps its `transparency` and is converted when it is written (`_encoded`): Pillow shrinks it without
+    blending."""
+    key = image.info.get("transparency")
+    if key is None or image.mode not in ("1", "L", "RGB"):
+        return image
+    if image.mode == "RGB":
+        valid = isinstance(key, tuple) and len(key) == 3 and all(isinstance(value, int) and 0 <= value <= 255 for value in key)
+    else:   # a 1-bit picture is 0 and 255, and its key is one of them by now (`_key_on_the_scale_of_the_pixels`)
+        valid = isinstance(key, int) and not isinstance(key, bool) and (0 <= key <= 255 if image.mode == "L" else key in (0, 255))
+    if not valid:
+        del image.info["transparency"]
+        return image
+    return (image.convert("L") if image.mode == "1" else image).convert("RGBA" if image.mode == "RGB" else "LA")
 
 
 def _truncated_jpeg(data: bytes, max_side: int) -> Image.Image | None:

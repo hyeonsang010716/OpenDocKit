@@ -2073,6 +2073,163 @@ class TestTransparencyOfEveryMode:
         assert Image.open(BytesIO(result.data)).convert("RGBA").getpixel((2, 2))[3] == 0
 
 
+    @pytest.mark.parametrize("image_format", ["PNG", "GIF"])
+    def test_transparent_palette_entry_stays_transparent(self, image_format):
+        picture = Image.new("P", (300, 120), 0)
+        picture.putpalette([255, 255, 255, 200, 30, 30])
+        picture.paste(1, (20, 20, 280, 100))
+        buffer = BytesIO()
+        picture.save(buffer, format=image_format, transparency=0)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        decoded = Image.open(BytesIO(result.data)).convert("RGBA")
+        assert result.mime_type == "image/png"
+        assert decoded.getpixel((2, 2))[3] == 0
+        assert decoded.getpixel((150, 60)) == (200, 30, 30, 255)
+
+    def test_premultiplied_picture_stays_transparent(self, monkeypatch):
+        """A HEIF picture may come premultiplied (`RGBa`): its alpha band is spelled with a small `a`."""
+        import opendockit.image as image_module
+
+        picture = Image.new("RGBA", (300, 120), (0, 0, 0, 0))
+        picture.paste((200, 30, 30, 255), (20, 20, 280, 100))
+        monkeypatch.setattr(image_module, "_decoded", lambda _data, _max_side: picture.convert("RGBa"))
+
+        result = prepare_image(b"heif", min_side=1, max_side=2048)
+
+        decoded = Image.open(BytesIO(result.data)).convert("RGBA")
+        assert result.mime_type == "image/png"
+        assert decoded.getpixel((2, 2))[3] == 0
+        assert decoded.getpixel((150, 60)) == (200, 30, 30, 255)
+
+
+def _png(width: int, height: int, bit_depth: int, colour_type: int, row: bytes, transparent: bytes) -> bytes:
+    """A PNG written chunk by chunk, every row the same, with a tRNS chunk (the colour that is transparent)."""
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, bit_depth, colour_type, 0, 0, 0))
+            + chunk(b"tRNS", transparent) + chunk(b"IDAT", zlib.compress((b"\x00" + row) * height)) + chunk(b"IEND", b""))
+
+
+def _transparent_columns(data: bytes, step: int = 1) -> list[int]:
+    """The columns (every `step` pixels) of the picture `prepare_image` makes of `data` that are transparent."""
+    result = prepare_image(data, min_side=1, max_side=2048)
+    shown = Image.open(BytesIO(result.data)).convert("RGBA")
+    return [x // step for x in range(0, shown.width, step) if shown.getpixel((x + step // 2, 5))[3] == 0]
+
+
+class TestTransparentColourOfAPng:
+    """The colour a PNG declares transparent (tRNS) is on the scale of the file; Pillow keeps it as written and compares its
+    low byte with the 8-bit pixels it hands out. Level 300 of a 16-bit grey picture made the pixels of 8-bit level 44
+    transparent and not the ones at 300."""
+
+    # Column x holds the 16-bit level x * 256 + 44, except column 2 (level 0) and the last one (65535).
+    _LEVELS = [0 if x == 2 else 65535 if x == 255 else x * 256 + 44 for x in range(256)]
+
+    @pytest.mark.parametrize(("level", "columns"), [(300, [1]), (44, [0]), (0, [2]), (65535, [255]), (301, []), (11308, [44])])
+    def test_level_of_a_16_bit_grey_picture(self, level, columns):
+        data = _png(256, 40, 16, 0, struct.pack(">256H", *self._LEVELS), struct.pack(">H", level))
+
+        assert _transparent_columns(data) == columns
+
+    def test_16_bit_grey_picture_keeps_its_shades_beside_the_transparent_level(self):
+        data = _png(256, 40, 16, 0, struct.pack(">256H", *self._LEVELS), struct.pack(">H", 300))
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        shown = Image.open(BytesIO(result.data)).convert("RGBA")
+        assert result.mime_type == "image/png"
+        assert [shown.getpixel((x, 5)) for x in (0, 100, 200)] == [(0, 0, 0, 255), (100, 100, 100, 255), (200, 200, 200, 255)]
+
+    def test_colour_of_a_16_bit_rgb_picture(self):
+        """Three bands of 20 pixels: the key (300, 0, 0), white, and (11264, 0, 0) — whose high byte is 44, the low byte of 300."""
+        row = b"".join(struct.pack(">HHH", *colour) * 20 for colour in ((300, 0, 0), (65535, 65535, 65535), (11264, 0, 0)))
+        data = _png(60, 40, 16, 2, row, struct.pack(">HHH", 300, 0, 0))
+
+        assert _transparent_columns(data, step=20) == [0]
+
+    @pytest.mark.parametrize(("bit_depth", "row", "level", "columns"), [
+        (4, bytes([0x0F, 0x5A]) * 10, 15, [1]),        # levels 0, 15, 5, 10 again and again; white is transparent
+        (4, bytes([0x0F, 0x5A]) * 10, 0, [0]),
+        (2, bytes([0b00011011]) * 10, 3, [3]),         # levels 0, 1, 2, 3
+        (2, bytes([0b00011011]) * 10, 1, [1]),
+        (1, bytes([0b01010101]) * 5, 1, [1, 3]),       # black, white, black, white
+        (1, bytes([0b01010101]) * 5, 0, [0, 2]),
+    ])
+    def test_level_of_a_grey_picture_with_few_bits(self, bit_depth, row, level, columns):
+        data = _png(40, 40, bit_depth, 0, row, struct.pack(">H", level))
+
+        assert _transparent_columns(data)[:len(columns)] == columns
+        assert len(_transparent_columns(data)) == 40 // (4 if bit_depth > 1 else 2)
+
+    @pytest.mark.parametrize(("colour_type", "row", "transparent"), [
+        (0, bytes(range(40)), struct.pack(">H", 999)),
+        (2, bytes(range(120)), struct.pack(">HHH", 999, 0, 0)),
+    ])
+    def test_colour_that_no_pixel_can_have_leaves_the_picture_opaque(self, colour_type, row, transparent):
+        """999 & 0xFF is 231: a level the 8-bit picture does have."""
+        result = prepare_image(_png(40, 40, 8, colour_type, row, transparent), min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/jpeg"
+
+    def test_level_that_a_black_and_white_picture_cannot_have_leaves_it_opaque(self, monkeypatch):
+        import opendockit.image as image_module
+
+        picture = Image.new("1", (300, 120), 0)
+        picture.paste(1, (20, 20, 280, 100))
+        picture.info["transparency"] = 5
+        monkeypatch.setattr(image_module, "_decoded", lambda _data, _max_side: picture)
+
+        result = prepare_image(b"bilevel", min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/jpeg"
+
+    def test_level_of_a_picture_that_is_stretched_to_8_bits_is_dropped(self, monkeypatch):
+        """A 32-bit grey picture has its range stretched to 0–255: a level of the file means nothing on that scale."""
+        import opendockit.image as image_module
+
+        picture = Image.new("I", (300, 120), 0)
+        picture.paste(40_000, (20, 20, 280, 100))
+        picture.info["transparency"] = 255
+        monkeypatch.setattr(image_module, "_decoded", lambda _data, _max_side: picture)
+
+        result = prepare_image(b"grey", min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/jpeg"
+
+    def test_keyed_background_leaves_no_fringe_when_downscaled(self):
+        """Shrunk before the key was applied, the edge of the disc was a blend of magenta and black: not the key any more,
+        so it stayed as an opaque purple rim."""
+        from PIL import ImageDraw
+
+        picture = Image.new("RGB", (2000, 2000), (255, 0, 255))
+        ImageDraw.Draw(picture).ellipse((250, 250, 1750, 1750), fill=(0, 0, 0))
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG", transparency=(255, 0, 255))
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=500)
+
+        shown = Image.open(BytesIO(result.data)).convert("RGBA")
+        rim = [(x, y) for y in (100, 250, 400) for x in range(500)
+               if shown.getpixel((x, y))[3] == 255 and shown.getpixel((x, y))[0] > 60]
+        assert shown.size == (500, 500)
+        assert shown.getpixel((3, 3))[3] == 0 and shown.getpixel((250, 250)) == (0, 0, 0, 255)
+        assert rim == []
+
+    def test_keyed_tall_picture_is_transparent_in_its_tiles_too(self):
+        picture = Image.new("RGB", (600, 9000), (255, 0, 255))
+        picture.paste((0, 0, 0), (100, 100, 500, 8900))
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG", transparency=(255, 0, 255))
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        tile = Image.open(BytesIO(result.tiles[0])).convert("RGBA")
+        assert tile.getpixel((5, 5))[3] == 0 and tile.getpixel((300, 600)) == (0, 0, 0, 255)
+
+
 class TestScannedPagesLeftOutByTheImageLimit:
     """A scanned page image that `max_images` left out leaves its page empty, yet the warning said it was 'left as a
     placeholder' and the page was named nowhere."""
