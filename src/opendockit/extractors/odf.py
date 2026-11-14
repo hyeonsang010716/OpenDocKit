@@ -71,6 +71,8 @@ _LIST, _LIST_ITEM, _LIST_HEADER = f"{{{_TEXT}}}list", f"{{{_TEXT}}}list-item", f
 _NOTE, _NOTE_BODY = f"{{{_TEXT}}}note", f"{{{_TEXT}}}note-body"
 _RUBY, _RUBY_BASE, _RUBY_TEXT = f"{{{_TEXT}}}ruby", f"{{{_TEXT}}}ruby-base", f"{{{_TEXT}}}ruby-text"
 _SECTION = f"{{{_TEXT}}}section"
+_NUMBER = f"{{{_TEXT}}}number"
+_HIDDEN_TEXT, _HIDDEN_PARAGRAPH, _IS_HIDDEN = f"{{{_TEXT}}}hidden-text", f"{{{_TEXT}}}hidden-paragraph", f"{{{_TEXT}}}is-hidden"
 _TEXT_STYLE_NAME, _OUTLINE_LEVEL = f"{{{_TEXT}}}style-name", f"{{{_TEXT}}}outline-level"
 _TABLE_ELEMENT, _ROW = f"{{{_TABLE}}}table", f"{{{_TABLE}}}table-row"
 _CELL, _COVERED = f"{{{_TABLE}}}table-cell", f"{{{_TABLE}}}covered-table-cell"
@@ -81,6 +83,7 @@ _PAGE, _GROUP, _DRAW_LINK = f"{{{_DRAW}}}page", f"{{{_DRAW}}}g", f"{{{_DRAW}}}a"
 _DRAW_PREFIX = f"{{{_DRAW}}}"
 _ANNOTATION = f"{{{_OFFICE}}}annotation"
 _HREF = f"{{{_XLINK}}}href"
+_XML_ID = "{http://www.w3.org/XML/1998/namespace}id"
 _CLASS, _PLACEHOLDER = f"{{{_PRESENTATION}}}class", f"{{{_PRESENTATION}}}placeholder"
 _NOTES = f"{{{_PRESENTATION}}}notes"
 _STYLE_NAME, _PARENT_STYLE, _FAMILY = f"{{{_STYLE}}}name", f"{{{_STYLE}}}parent-style-name", f"{{{_STYLE}}}family"
@@ -212,6 +215,7 @@ class _Styles:
     def __init__(self) -> None:
         self._text: dict[str, tuple[str | None, _Look]] = {}    # text style → (parent, own formatting)
         self._resolved: dict[str, _Look] = {}
+        self._hidden: dict[str, bool] = {}   # text style → hides its text (`text:display="none"`), when the style says so
         self._paragraph_parents: dict[str, str | None] = {}
         self._lists: dict[str, dict[int, _ListLevel]] = {}
         self.hidden_tables: set[str] = set()
@@ -231,7 +235,11 @@ class _Styles:
             elif tag == f"{{{_STYLE}}}style":
                 family = node.get(_FAMILY)
                 if family == "text":
-                    self._text[name] = (node.get(_PARENT_STYLE), _own_look(node.find(f"{{{_STYLE}}}text-properties")))
+                    properties = node.find(f"{{{_STYLE}}}text-properties")
+                    self._text[name] = (node.get(_PARENT_STYLE), _own_look(properties))
+                    display = properties.get(f"{{{_TEXT}}}display") if properties is not None else None
+                    if display is not None:
+                        self._hidden[name] = display == "none"
                     self._resolved.clear()
                 elif family == "paragraph":
                     self._paragraph_parents[name] = node.get(_PARENT_STYLE)
@@ -259,6 +267,18 @@ class _Styles:
                 look = tuple(have if have is not None else inherited for have, inherited in zip(look, own, strict=True))
             self._resolved[name] = look
         return self._resolved[name]
+
+    def hides(self, name: str | None) -> bool:
+        """Whether a text style hides its text (`text:display="none"`, the character attribute 'Hidden'), from the style or the
+        nearest parent that says so (16 styles at most)."""
+        current = name
+        for _ in range(16):
+            if current is None or current not in self._text:
+                return False
+            if current in self._hidden:
+                return self._hidden[current]
+            current = self._text[current][0]
+        return False
 
     def heading_level(self, name: str | None) -> int:
         """Heading level a paragraph style stands for when the paragraph is a `text:p`: 1 for the 'Title' style, n for the
@@ -460,7 +480,24 @@ def _top_level_blocks(body: etree._Element) -> Iterator[etree._Element]:
 
 
 def _is_hidden_section(node: etree._Element) -> bool:
-    return node.tag == _SECTION and node.get(f"{{{_TEXT}}}display") == "none"
+    """A section hidden for good (`text:display="none"`) or by a condition that held when the file was saved (LibreOffice
+    writes `text:is-hidden="true"` on a conditional section only while it is hidden). See `_is_hidden`."""
+    if node.tag != _SECTION:
+        return False
+    display = node.get(f"{{{_TEXT}}}display")
+    return display == "none" or (node.get(f"{{{_TEXT}}}condition") is not None and node.get(_IS_HIDDEN) == "true")
+
+
+def _is_hidden(paragraph: etree._Element) -> bool:
+    """Whether a paragraph is hidden by a hidden-paragraph field whose condition held when the file was saved.
+
+    Hidden text is not text of the document, as in DOCX (w:vanish) and RTF (`\\v`): characters in a text style with
+    `text:display="none"`, `text:hidden-text` and `text:hidden-paragraph` fields with `text:is-hidden="true"`, and conditional
+    sections that are hidden. They came out as body text, so a hidden draft value read like a valid one (Pinned by:
+    test_odf.py::TestHiddenText). Known accepted gap: a condition is not evaluated — the state saved in the file is used — and
+    hiding set on a paragraph style is not followed (as in DOCX).
+    """
+    return any(child.tag == _HIDDEN_PARAGRAPH and child.get(_IS_HIDDEN) == "true" for child in paragraph)
 
 
 def _repeat(node: etree._Element, attribute: str) -> int:
@@ -556,7 +593,10 @@ class _Renderer:
         self._objects: dict[str, etree._Element | None] = {}   # embedded sub-documents by folder name, parsed once
         self._formulas: dict[str, list[str]] = {}   # … and a formula converted once
         self._charts: dict[str, etree._Element | None] = {}   # … and its chart element found once (None when it has none)
-        self._counters: dict[str, dict[int, int]] = {}   # list style → level → last number given
+        # Number counters of a list (level → last number given), shared by the lists nested in it. By list style for
+        # `text:continue-numbering`, and by `xml:id` for `text:continue-list` (`_list_counters`).
+        self._counters: dict[str, dict[int, int]] = {}
+        self._list_ids: dict[str, tuple[dict[int, int], str | None]] = {}
         self.frames: list[etree._Element] = []          # frames found in sheet cells (charts, pictures), for after the rows
 
     # ---- Inline text ---------------------------------------------------------------------------------------------
@@ -582,8 +622,19 @@ class _Renderer:
                 self._comment(child)
             elif tag in _SKIPPED_INLINE or not isinstance(tag, str):
                 pass
+            elif tag == _HIDDEN_TEXT and child.get(_IS_HIDDEN) == "true":
+                pass   # a hidden-text field whose condition held when the file was saved shows nothing (`_is_hidden`)
+            elif tag == _NUMBER:
+                # The label of a numbered heading as it was shown ('1.'). It is a label, so a space follows it: glued on, a
+                # heading read '# 1.Intro'. In any other element it is a cached copy of a label the list style gives anyway
+                # (Pinned by: test_odf.py::TestTextDocument::test_heading_number_label_is_kept_apart_from_the_text).
+                label = _flat_text(child) if node.tag == _H else ""
+                if label:
+                    pieces.append(_run(f"{label} ", look, href))
             elif depth >= _MAX_DEPTH:
                 pieces.append(_run(_XML_SPACE.sub(" ", "".join(child.itertext())), look, href))
+            elif tag == _SPAN and self.styles.hides(child.get(_TEXT_STYLE_NAME)):
+                pass   # hidden characters (`_is_hidden`); the text after the span is still read below
             elif tag == _SPAN:
                 own = self.styles.look(child.get(_TEXT_STYLE_NAME))
                 inner = tuple(have if have is not None else outer for have, outer in zip(own, look, strict=True))
@@ -677,6 +728,8 @@ class _Renderer:
 
     def block(self, node: etree._Element, context: _Context, depth: int = 0) -> list[str]:
         tag = node.tag
+        if (tag == _P or tag == _H) and _is_hidden(node):
+            return []
         if tag == _P:
             # A paragraph in the 'Title' or a 'Heading n' style is a heading even when it is not a `text:h` (LibreOffice writes the
             # title, and headings whose outline level was removed, as `text:p`).
@@ -707,12 +760,17 @@ class _Renderer:
                 break
         return blocks
 
-    def _list(self, node: etree._Element, context: _Context, depth: int, style: str | None, level: int) -> list[str]:
+    def _list(self, node: etree._Element, context: _Context, depth: int, style: str | None, level: int,
+              counters: dict[int, int] | None = None) -> list[str]:
         """`text:list` → `- ` / `1. ` items, two spaces of indentation per level. A nested list takes the style of the outermost
-        list unless it names its own. Whether a level is bulleted, numbered or shows no label comes from the list style."""
-        if level == 0 and node.get(f"{{{_TEXT}}}continue-numbering") != "true" and node.get(f"{{{_TEXT}}}continue-list") is None:
-            self._counters.pop(style or "", None)
-        counters = self._counters.setdefault(style or "", {})
+        list unless it names its own. Whether a level is bulleted, numbered or shows no label comes from the list style.
+
+        The counters belong to the outermost list and are shared by the lists nested in it, whatever style those name: an item
+        restarts the numbers of the levels below it. Kept per style, a nested list with a style of its own counted on under
+        the next item and in the next list ('2. B' followed by 'c) b1'
+        Pinned by: test_odf.py::TestTextDocument::test_nested_list_with_its_own_style_restarts_under_each_item)."""
+        if counters is None:
+            counters, style = self._list_counters(node, style)
         blocks: list[str] = []
         for item in node:
             if item.tag != _LIST_ITEM and item.tag != _LIST_HEADER:
@@ -722,33 +780,73 @@ class _Renderer:
             for child in item:
                 if child.tag == _LIST:
                     if level + 1 < _MAX_DEPTH and depth + 1 < _MAX_DEPTH:
-                        blocks.extend(self._list(child, context, depth + 1, child.get(_TEXT_STYLE_NAME) or style, level + 1))
+                        blocks.extend(self._list(child, context, depth + 1, child.get(_TEXT_STYLE_NAME) or style, level + 1,
+                                                 counters))
                     else:
                         blocks.append(_flat_text(child))
                     continue
                 rendered = self.block(child, context, depth + 1)
-                if rendered and not headed and child.tag == _P:
-                    rendered[0] = self._item_head(style, level, counters, start, context) + rendered[0]
+                if rendered and not headed and child.tag in (_P, _H):
+                    as_heading = not (context.in_cell or context.in_note or context.plain)
+                    # A heading that carries its label (`text:number`, not empty) shows that label in its text already
+                    # (`_inline`): the item is counted and no second label is written, also where the heading is a plain
+                    # paragraph (a cell, a note) — that gave '1. 1. H'
+                    # (Pinned by: test_odf.py::TestTextDocument::test_heading_number_label_is_kept_apart_from_the_text).
+                    carries = child.tag == _H and any(_flat_text(number) for number in child.iterchildren(_NUMBER))
+                    if child.tag == _H and as_heading and rendered[0].startswith("#"):
+                        # A numbered heading in a list counts as an item and shows its number after the `#` ('# 2. 결론'); a
+                        # label written before the `#` would undo the heading
+                        # (Pinned by: test_odf.py::TestTextDocument::test_heading_in_a_numbered_list_counts_as_an_item).
+                        label = self._item_head(style, level, counters, start, context, heading=True)
+                        if label and not carries:
+                            hashes, _, text = rendered[0].partition(" ")
+                            rendered[0] = f"{hashes} {label} {text}"
+                    elif carries:
+                        self._item_head(style, level, counters, start, context)
+                    else:
+                        rendered[0] = self._item_head(style, level, counters, start, context) + rendered[0]
                     headed = True
                 blocks.extend(rendered)
         return [block for block in blocks if block]
 
-    def _item_head(self, style: str | None, level: int, counters: dict[int, int], start: int | None, context: _Context) -> str:
+    def _list_counters(self, node: etree._Element, style: str | None) -> tuple[dict[int, int], str | None]:
+        """The counters of an outermost list, and its style. A list starts again unless the file says it continues:
+        `text:continue-list` names the list it continues by its `xml:id` (and lends it its style when it names none), and
+        `text:continue-numbering` continues the last list of the same style. A `text:continue-list` naming no list read earlier
+        continues the last list of the same style, as before (Pinned by:
+        test_odf.py::TestTextDocument::test_continue_list_continues_the_list_it_names)."""
+        continued = self._list_ids.get(node.get(f"{{{_TEXT}}}continue-list") or "")
+        if continued is not None:
+            counters, style = continued[0], style or continued[1]
+        elif node.get(f"{{{_TEXT}}}continue-numbering") == "true" or node.get(f"{{{_TEXT}}}continue-list") is not None:
+            counters = self._counters.setdefault(style or "", {})
+        else:
+            counters = {}
+        self._counters[style or ""] = counters
+        list_id = node.get(_XML_ID)
+        if list_id:
+            self._list_ids[list_id] = (counters, style)
+        return counters, style
+
+    def _item_head(self, style: str | None, level: int, counters: dict[int, int], start: int | None, context: _Context, *,
+                   heading: bool = False) -> str:
+        """The label of a list item. Every item restarts the numbers of the levels below it. With `heading`, the bare number
+        of a numbered level (empty for bullets): the label of a heading."""
+        for deeper in [key for key in counters if key > level]:
+            del counters[deeper]
         spec = self.styles.list_level(style, level)
         shown = self.styles.shown_depth(style, level)
-        if context.quote:
+        if context.quote and not heading:
             return cell_level_mark(shown)
-        if spec.kind == "none":
+        if spec.kind == "none" or (heading and spec.kind == "bullet"):
             return ""
         if spec.kind == "bullet":
             return paragraph_head("-", shown, in_cell=context.in_cell, heading=False)
         value = min(start, _FAR) if start is not None else counters.get(level, spec.start - 1) + 1
         counters[level] = value
-        for deeper in [key for key in counters if key > level]:
-            del counters[deeper]
         # Arabic numbers are always written '1.' so that Markdown reads an ordered list; other shapes keep the file's prefix and suffix.
         number = f"{value}." if spec.shape == "DIGIT" else f"{spec.prefix}{format_number(value, spec.shape)}{spec.suffix}"
-        return paragraph_head(number, shown, in_cell=context.in_cell, heading=False)
+        return number if heading else paragraph_head(number, shown, in_cell=context.in_cell, heading=False)
 
     # ---- Tables --------------------------------------------------------------------------------------------------
 
@@ -1064,6 +1162,8 @@ class _Renderer:
             tag = child.tag
             if tag == _P:
                 displayed = True
+                if _is_hidden(child):
+                    continue   # a hidden paragraph shows nothing in the cell either (Pinned by: test_odf.py::TestHiddenText)
                 if len(child):
                     lines.extend(self._paragraph(child, _SHEET_CELL, 1))
                 elif child.text:   # the usual cell: one paragraph of plain text

@@ -19,6 +19,7 @@ from opendockit.extractors._mail import (
     MIME_HEAD_BYTES,
     MIME_VERSION,
     _unescaped_from_lines,
+    is_sent_mail,
     mail_body_parts,
     mail_body_sequence,
     mail_head_text,
@@ -77,10 +78,11 @@ def is_mhtml(data: bytes) -> bool:
 
 
 def mhtml_html_part(data: bytes) -> tuple[bytes, str | None] | None:
-    """The first text/html part of an MHTML, transfer encoding (base64/quoted-printable) decoded, as (bytes, charset the part
-    declares). None if there is none.
+    """The HTML part of an MHTML that is read (`_html_part`: the first text/html part with content; for a sent mail its first body
+    HTML part, attachments and forwarded mails excluded), transfer encoding (base64/quoted-printable) decoded, as (bytes,
+    charset the part declares). None if there is none.
 
-    Deliberate: only the first part is read. Later text/html parts are frames the page embeds (ads and the like).
+    Deliberate: only one part is read. Later text/html parts are frames the page embeds (ads and the like).
     """
     return _html_part(_mhtml_message(data))
 
@@ -273,6 +275,16 @@ def _mhtml_message(data: bytes) -> Message:
 
 
 def _html_part(message: Message) -> tuple[bytes, str | None] | None:
+    """The first text/html part with content (`mhtml_html_part`). In a sent mail (`_mail.is_sent_mail`) the first body HTML part is
+    taken — HTML attachments and the HTML of forwarded mails are not its body (`_mail.mail_html_body_parts`); only when it has none
+    is the first text/html part taken as before. An attached `x.html` placed before the body was read instead of the body, with a
+    warning saying it had not been read
+    (Pinned by: test_audit_web_fixes.py::TestHtmlAttachmentBeforeTheBodyOfAnMhtmlShapedMail)."""
+    if is_sent_mail(message):
+        for part in mail_html_body_parts(message):
+            payload = part.get_payload(decode=True)
+            if payload:
+                return payload, part.get_content_charset()
     for part in message.walk():
         if part.get_content_type() == "text/html":
             payload = part.get_payload(decode=True)

@@ -1,0 +1,916 @@
+"""Audited defects on the text side of the PDF extractor: scans that grew with the square of a page's annotations, spaces,
+shapes or faint characters, the character limit that did not see sideways text and form values, FreeText labels and clipped
+pictures on pages whose MediaBox does not start at 0,0, characters at positions that are not finite numbers, and re-reading
+past the time budget."""
+
+from io import BytesIO
+import time
+import zlib
+
+import pdfplumber
+import pytest
+
+from opendockit import ConvertOptions, convert
+from opendockit.extractors import _pdf_artifacts, _pdf_chars, _pdf_forms, _pdf_marks
+from opendockit.extractors import pdf as pdf_module
+from opendockit.extractors._pdf_artifacts import _view_box
+from opendockit.extractors._pdf_figures import _figure_boxes
+from opendockit.extractors._pdf_model import _Line
+from tests.test_audit_pdf_head import _flate, _one_page, _stream
+from tests.test_pdf import _raw_pdf
+from tests.timing import allowed
+
+
+_FONT = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+
+
+def _pages(count: int, content: bytes, page_extra: bytes = b"", objects: dict[int, bytes] | None = None) -> bytes:
+    """A PDF of `count` pages that all draw the content stream object `content` (objects 10 onwards are the pages)."""
+    kids = b" ".join(b"%d 0 R" % (10 + index) for index in range(count))
+    page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> %s >>"
+            % page_extra)
+    return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [%s] /Count %d >>" % (kids, count),
+                     4: content, 5: _FONT, **(objects or {}), **{10 + index: page for index in range(count)}})
+
+
+def _object_stream_pdf(content: bytes, annotations: bytes) -> bytes:
+    """One page whose `/Annots` array (object 6) sits compressed in an object stream, with a cross-reference stream."""
+    header = b"6 0 "
+    packed = zlib.compress(header + annotations, 9)
+    plain = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+             3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> "
+                b"/Annots 6 0 R >>",
+             4: content, 5: _FONT,
+             7: b"<< /Type /ObjStm /N 1 /First %d /Length %d /Filter /FlateDecode >>\nstream\n" % (len(header), len(packed))
+                + packed + b"\nendstream"}
+    data, offsets = b"%PDF-1.7\n", {}
+    for number in sorted(plain):
+        offsets[number] = len(data)
+        data += b"%d 0 obj\n%s\nendobj\n" % (number, plain[number])
+    xref = len(data)
+    rows = [b"\x00\x00\x00\x00\x00\xff\xff"]
+    for number in range(1, 9):
+        if number == 6:
+            rows.append(b"\x02" + (7).to_bytes(4, "big") + b"\x00\x00")
+        else:
+            rows.append(b"\x01" + (xref if number == 8 else offsets[number]).to_bytes(4, "big") + b"\x00\x00")
+    table = b"".join(rows)
+    return data + (b"8 0 obj\n<< /Type /XRef /Size 9 /W [1 4 2] /Root 1 0 R /Length %d >>\nstream\n" % len(table) + table
+                   + b"\nendstream\nendobj\nstartxref\n%d\n%%%%EOF\n" % xref)
+
+
+class TestManyFreeTextAnnotations:
+    """Every FreeText annotation scanned every body line of its page for a label, so a 38KB PDF with 200,000 identical
+    annotations over 1,800 lines took 52 seconds inside one page, where the time budget never looks. The lines are indexed by
+    height, and a page looks at a bounded number of candidate lines in all."""
+
+    @staticmethod
+    def _page(annotations: int, lines: int) -> bytes:
+        body = b"BT /F1 6 Tf " + b"".join(b"1 0 0 1 %d %d Tm (L%d:) Tj " % (20 + (index % 8) * 70, 830 - (index // 8) * 7, index)
+                                         for index in range(lines)) + b"ET"
+        array = b"[" + b"<</Subtype/FreeText/Rect[500 0 590 842]/Contents(v)>>" * annotations + b"]"
+        return _object_stream_pdf(_flate(body), array)
+
+    def test_labels_are_found_through_the_index(self):
+        lines = [_Line(top=100 + row * 20, bottom=112 + row * 20, x0=72, x1=110, text=f"Label {row}:", size=10) for row in range(50)]
+        lines.append(_Line(top=0, bottom=800, x0=0, x1=20, text="tall margin", size=10))
+        beside = _pdf_forms._LinesBeside(lines)
+
+        assert beside.label(130, 300, 312).text == "Label 10:"
+        assert beside.label(60, 300, 312).text == "tall margin"
+        assert beside.label(10, 300, 312) is None
+        assert beside.label(130, 2000, 2012) is None
+
+    def test_a_line_exactly_as_tall_as_the_index_allows_is_found_from_its_bottom_edge(self):
+        # 33.415303192109576 - 64 rounds to just above the line's top, so the index looked from past the line the scan finds
+        line = _Line(top=-30.584696807890428, bottom=33.415303192109576, x0=360.4, x1=440.4, text="Label:", size=10)
+        assert line.bottom - line.top == _pdf_forms._LinesBeside._TALL and line.bottom - 64.0 > line.top
+
+        assert _pdf_forms._LinesBeside([line]).label(443.4, line.bottom, line.bottom) is line
+
+    def test_labels_stop_once_the_search_work_is_spent(self, monkeypatch):
+        monkeypatch.setattr(_pdf_forms, "_LABEL_SEARCH_WORK", 3)
+        lines = [_Line(top=100, bottom=112, x0=72, x1=110, text="Name:", size=10)]
+        beside = _pdf_forms._LinesBeside(lines)
+
+        assert [beside.label(130, 100, 112) is lines[0] for _ in range(4)] == [True, True, True, False]
+
+    def test_a_page_of_many_annotations_looks_at_a_bounded_number_of_lines(self, monkeypatch):
+        # Counted rather than timed: the work spent on labels, not the machine's speed, is what grew with annotations × lines
+        monkeypatch.setattr(_pdf_forms, "_LABEL_SEARCH_WORK", 200_000)
+        searches = []
+
+        class Counted(_pdf_forms._LinesBeside):
+            def __init__(self, lines: list[_Line]) -> None:
+                super().__init__(lines)
+                searches.append(self)
+
+        monkeypatch.setattr(_pdf_forms, "_LinesBeside", Counted)
+
+        result = convert(self._page(5_000, 1_800), "a.pdf", ConvertOptions(max_chars=None))
+
+        assert len(searches) == 1 and 0 <= searches[0]._work < 1_800  # 200,000 - work left; the full scan looked at 9 million
+        values = [line for line in result.sections[0].text.splitlines() if line.endswith("v")]
+        assert len(values) == 5_000  # every value comes out; the first ones with their label
+        assert values[0].endswith(": v") and values[-1] == "v"
+
+
+class TestFreeTextLabelsOnShiftedAndRotatedPages:
+    """The FreeText box was measured from the paper's top edge in the inverted MediaBox pdfplumber keeps, so on a page whose
+    MediaBox does not start at 0,0 the box missed its label and the value came out alone."""
+
+    @staticmethod
+    def _page(mediabox: bytes, label_x: int, label_y: int, rect: bytes, rotate: int = 0, matrix: bytes = b"1 0 0 1") -> str:
+        body = b"BT /F1 12 Tf %s %d %d Tm (Name:) Tj ET BT /F1 12 Tf %s %d %d Tm (Body text here) Tj ET" % (
+            matrix, label_x, label_y, matrix, label_x, label_y - 400 if rotate != 180 else label_y + 400)
+        annots = b"/Rotate %d /Annots [<< /Type /Annot /Subtype /FreeText /Rect [%s] /Contents (Hong) >>]" % (rotate, rect)
+        return convert(_one_page(_stream(body), mediabox=mediabox, page_extra=annots), "a.pdf").text
+
+    @pytest.mark.parametrize("mediabox", [b"[0 0 595 842]", b"[100 0 695 842]", b"[0 100 595 942]", b"[0 -100 595 842]"])
+    def test_label_is_found_when_the_media_box_does_not_start_at_the_origin(self, mediabox):
+        assert self._page(mediabox, 172, 800, b"215 798 300 814").endswith("Name: Hong")
+
+    def test_label_is_found_on_a_rotated_page(self):
+        # Text drawn upside down on a page rotated by 180 degrees reads upright; the box is to the right of the label as shown
+        text = self._page(b"[0 0 595 842]", 523, 42, b"295 28 475 44", rotate=180, matrix=b"-1 0 0 -1")
+
+        assert text.endswith("Name: Hong")
+
+    @pytest.mark.parametrize(("dx", "dy"), [(0, 0), (100, 50), (-40, 200)])
+    def test_label_is_found_on_a_page_turned_a_quarter(self, dx, dy):
+        """Text that reads upright on a page rotated by 90 degrees runs up the paper (its top towards the left edge), on one
+        rotated by 270 degrees down the paper; the box follows the label in that direction."""
+        def page(rotate: int, matrix: bytes, body_x: int, rect: tuple[int, int, int, int]) -> str:
+            body = b"BT /F1 12 Tf %s %d %d Tm (Name:) Tj ET BT /F1 12 Tf %s %d %d Tm (Body text here) Tj ET" % (
+                matrix, 300 + dx, 400 + dy, matrix, body_x + dx, 400 + dy)
+            annots = b"/Rotate %d /Annots [<< /Type /Annot /Subtype /FreeText /Rect [%d %d %d %d] /Contents (Hong) >>]" % (
+                rotate, rect[0] + dx, rect[1] + dy, rect[2] + dx, rect[3] + dy)
+            mediabox = b"[%d %d %d %d]" % (dx, dy, 595 + dx, 842 + dy)
+            return convert(_one_page(_stream(body), mediabox=mediabox, page_extra=annots), "a.pdf").text
+
+        assert page(90, b"0 1 -1 0", 100, (288, 440, 304, 520)).endswith("Name: Hong")
+        assert page(270, b"0 -1 1 0", 500, (296, 280, 312, 360)).endswith("Name: Hong")
+
+
+class TestLongLetterSpacedLine:
+    """Splitting a line at its gaps scanned every space character of the line for every gap and every piece, so one 659-byte
+    line of 16,000 letter-spaced words took 36 seconds."""
+
+    @pytest.mark.timing
+    def test_a_long_line_of_spaced_letters_is_split_in_about_linear_time(self):
+        count = 16_000
+        body = b"BT /F1 2 Tf 0.6 Tc 10 400 Td (" + b"a " * count + b") Tj ET"
+        data = _one_page(_flate(body), mediabox=b"[0 0 %d 842]" % (count * 3 + 100))
+
+        started = time.perf_counter()
+        result = convert(data, "a.pdf")
+
+        assert time.perf_counter() - started < allowed(6)  # 36 seconds before
+        assert result.sections[0].text.count("a") == count
+
+    def test_parts_are_the_same_as_scanning_every_space(self):
+        def char(text: str, x0: float, width: float) -> dict:
+            return {"text": text, "x0": x0, "x1": x0 + width, "width": width, "height": 10, "size": 10}
+
+        chars = [char("1", 0, 5), char(" ", 5, 2), char("2", 7, 5), char("3", 20, 5), char(" ", 25, 2), char("a", 40, 5),
+                 char("b", 45, 5), char(" ", 33, 1)]
+
+        assert _pdf_chars._gap_parts(chars, "1 2 3 ab", 10, 0.6) == ((0, 12, "1 2"), (20, 25, "3"), (40, 50, "ab"))
+
+
+class TestLimitCountsSidewaysTextAndFormValues:
+    """The running character count left out text read sideways and the values of form fields, though both are written at the
+    end of the page, so a document whose text was all rotated by 90 degrees was analysed page after page far beyond the limit
+    (200 pages under a 5,000-character limit ran into the 60-second time budget)."""
+
+    def test_sideways_text_counts_towards_the_limit_while_reading(self):
+        lines = b"".join(b"0 1 -1 0 %d 60 Tm (Sideways line number %d with some words in it for the count) Tj " % (40 + index * 14, index)
+                         for index in range(20))
+        data = _pages(30, _flate(b"BT /F1 10 Tf " + lines + b"ET"))
+
+        result = convert(data, "a.pdf", ConvertOptions(max_chars=2_000))
+
+        assert result.exceeded
+        assert len(result.sections) <= 3  # the pages after the one that went over are not read (all 30 were)
+
+    def test_form_values_count_towards_the_limit_while_reading(self):
+        widgets = b" ".join(b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (field%d) /V (%s) /Rect [72 %d 300 %d] >>"
+                            % (index, b"value " * 20, 100 + index * 20, 112 + index * 20) for index in range(30))
+        data = _pages(30, _stream(b"BT /F1 10 Tf 72 800 Td (Form) Tj ET"), page_extra=b"/Annots [%s]" % widgets)
+
+        result = convert(data, "a.pdf", ConvertOptions(max_chars=5_000))
+
+        assert result.exceeded
+        assert len(result.sections) <= 3  # the pages after the one that went over are not read (all 30 were)
+
+
+class TestManyCurveBoxes:
+    """Grouping check boxes drawn as curves compared every shape with every group, and every group scanned every other group
+    and every possible check mark, so a page of 5,000 small circles (166KB) took 35 seconds."""
+
+    @staticmethod
+    def _circle(x: float, y: float, radius: float = 4.0) -> bytes:
+        k = 0.55 * radius
+        return (b"%g %g m %g %g %g %g %g %g c %g %g %g %g %g %g c %g %g %g %g %g %g c %g %g %g %g %g %g c h S\n"
+                % (x + radius, y, x + radius, y + k, x + k, y + radius, x, y + radius, x - k, y + radius, x - radius, y + k,
+                   x - radius, y, x - radius, y - k, x - k, y - radius, x, y - radius, x + k, y - radius, x + radius, y - k,
+                   x + radius, y))
+
+    @pytest.mark.timing
+    def test_many_small_circles_are_grouped_in_about_linear_time(self):
+        side = 71
+        body = b"".join(self._circle(20 + (index % side) * 10, 20 + (index // side) * 10) for index in range(5_000))
+        data = _one_page(_flate(body + b"BT /F1 10 Tf 30 830 Td (Hello world) Tj ET\n"), mediabox=b"[0 0 750 842]")
+
+        started = time.perf_counter()
+        result = convert(data, "a.pdf")
+
+        assert time.perf_counter() - started < allowed(8)  # 35 seconds before
+        assert "Hello world" in result.text
+
+    def test_curve_boxes_beside_labels_are_still_marked(self):
+        def curve(x0: float, top: float, filled: bool = False) -> dict:
+            return {"object_type": "curve", "x0": x0, "x1": x0 + 8, "top": top, "bottom": top + 8, "width": 8, "height": 8,
+                    "pts": [(x0, top), (x0 + 8, top), (x0 + 8, top + 8), (x0, top)], "stroke": True, "fill": filled}
+
+        class Page:
+            curves = [curve(60, 100), curve(160, 100), curve(162, 102, True) | {"x1": 166, "bottom": 106, "width": 4, "height": 4}]
+            rects, lines, chars = [], [], []
+
+        lines = [_Line(top=98, bottom=110, x0=72, x1=120, text="Agree", size=10),
+                 _Line(top=98, bottom=110, x0=172, x1=230, text="Disagree", size=10)]
+        _pdf_marks._mark_checkboxes(Page, lines, [])
+
+        assert [line.text for line in lines] == ["☐ Agree", "☑ Disagree"]
+
+
+class TestManyFaintCharacters:
+    """Every group of faint large characters (grouped by line, size and exact colour) scanned every character of the page for
+    an overlap, so a 41KB page of 5,000 faint characters in slightly different greys took 13 seconds, and 6,000 separate groups
+    over 18,000 characters 20 seconds."""
+
+    @staticmethod
+    def _char(text: str, x0: float, top: float, size: float, colour: tuple) -> dict:
+        return {"text": text, "x0": x0, "x1": x0 + size * 0.6, "top": top, "bottom": top + size, "size": size,
+                "non_stroking_color": colour, "matrix": (1, 0, 0, 1, 0, 0)}
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize(("size", "step", "bound"), [
+        (6, (0, 7), 1.5),  # 20 seconds when every group scanned every character
+        (70, (50, 80), 1.5),  # 15 seconds at 6,000 (22 seconds at 18,000) when characters over 64pt were kept aside
+        (300, (200, 320), 1.5),
+    ])
+    def test_many_separate_faint_groups_are_checked_in_about_linear_time(self, size, step, bound):
+        count = 6_000
+        chars = [*(self._char("x", index % 500, index // 500 * 2, 1, (0,)) for index in range(3 * count)),
+                 *(self._char("W", 10 + index % 50 * step[0], 1_000 + (index // 50 if step[0] else index) * step[1], size,
+                              (0.7 + index * 0.25 / count,)) for index in range(count))]
+
+        started = time.perf_counter()
+        faint = _pdf_artifacts._faint_watermark(chars, 3)
+
+        assert time.perf_counter() - started < allowed(bound)
+        assert faint == set()
+
+    @pytest.mark.timing
+    def test_characters_far_off_the_page_do_not_make_every_group_scan_them(self):
+        count = 12_000
+        chars = [*(self._char("x", index % 400 * 10, index // 400 * 12, 10, (0,)) for index in range(2 * count)),
+                 *(self._char("o", 2e9 + index * 20, 500, 10, (0,)) for index in range(count)),
+                 *(self._char("W", 10 + index % 90 * 45, 3_000 + index // 90 * 45, 40, (0.7 + index * 0.25 / count,))
+                   for index in range(count))]
+
+        started = time.perf_counter()
+        faint = _pdf_artifacts._faint_watermark(chars, 30)
+
+        assert time.perf_counter() - started < allowed(1)  # 7 seconds when characters beyond 1e9 were kept aside
+        assert faint == set()
+
+    def test_characters_at_huge_and_nan_positions_are_judged_as_by_a_full_scan(self):
+        nan = float("nan")
+        draft = [self._char("W", 3e9 + index * 40, 1e12, 60, (0.85,)) for index in range(3)]
+        under = self._char("a", 3e9 + 50, 1e12 + 20, 10, (0,))
+        lost = [self._char("V", nan, 100, 60, (0.85,)), self._char("b", 10, 100, 10, (0,))]
+        inverted = self._char("c", 1e12 + 30, 1e12 + 20, 10, (0,)) | {"x0": 3e9 + 130, "x1": 3e9 + 120}
+
+        assert _pdf_artifacts._faint_watermark([*draft, under, *lost, inverted], 30) == {id(item) for item in draft}
+        assert _pdf_artifacts._faint_watermark([*draft, *lost], 30) == set()
+
+    @pytest.mark.timing
+    def test_large_faint_characters_over_body_text_are_found_in_about_linear_time(self):
+        count = 6_000
+        chars = [*(self._char("x", index % 500, index // 500 * 2, 1, (0,)) for index in range(3 * count)),
+                 *(self._char("W", index % 50 * 10, index // 50 % 20 * 2, 70, (0.7 + index * 0.25 / count,))
+                   for index in range(count))]
+
+        started = time.perf_counter()
+        faint = _pdf_artifacts._faint_watermark(chars, 3)
+
+        assert time.perf_counter() - started < allowed(1)  # a variant: every group overlaps body text at once
+        assert len(faint) == count
+
+    def test_faint_large_text_over_body_text_is_still_found(self):
+        def char(text: str, x0: float, top: float, size: float, colour: tuple) -> dict:
+            return {"text": text, "x0": x0, "x1": x0 + size * 0.6, "top": top, "bottom": top + size, "size": size,
+                    "non_stroking_color": colour, "matrix": (1, 0, 0, 1, 0, 0)}
+
+        draft = [char(letter, 100 + index * 40, 300, 60, (0.85,)) for index, letter in enumerate("DRAFT")]
+        body = [char("a", 150, 330, 10, (0,)), char("b", 400, 700, 10, (0,))]
+        cover = [char("7", 100, 50, 60, (0.9,))]  # faint and large but over nothing
+
+        assert _pdf_artifacts._faint_watermark([*draft, *body, *cover], 30) == {id(item) for item in draft}
+
+
+class TestCharactersAtNonFinitePositions:
+    """A text matrix overflowing to infinity puts characters at NaN positions. Rounding such a piece's position raised
+    ValueError and the whole document was reported corrupted; with that fixed, every copy still came out as a body line 'x',
+    and copies at a NaN position were never capped (NaN is unequal even to itself), so 20,000 of them took 39 seconds."""
+
+    @staticmethod
+    def _page(copies: int, rotate: int = 0, matrix: bytes = b"%s 0 0 1 0 0") -> bytes:
+        huge = b"1" + b"0" * 400 + b".0"
+        return _one_page(_flate(b"BT /F1 10 Tf " + matrix.replace(b"%s", huge) + b" Tm " + b"(x) Tj " * copies
+                                + b"ET BT /F1 10 Tf 72 700 Td (Hello) Tj ET"), page_extra=b"/Rotate %d" % rotate)
+
+    def test_the_page_is_read_without_the_characters_drawn_nowhere(self):
+        result = convert(self._page(3), "a.pdf")
+
+        assert result.sections[0].text == "Hello"
+
+    @pytest.mark.parametrize("rotate", [90, 180, 270])
+    @pytest.mark.parametrize("matrix", [b"%s 0 0 1 0 0", b"1 0 0 1 %s 0", b"1 0 0 1 0 %s"])  # NaN; x infinite; top infinite
+    def test_a_rotated_page_is_read_too(self, rotate, matrix):
+        # A rotated page has no view to drop the characters by, so their position reached the rounding of the copy search
+        result = convert(self._page(3, rotate, matrix), "a.pdf")
+
+        assert result.sections[0].text == "Hello"
+
+    def test_a_faint_character_of_infinite_size_is_no_watermark(self):
+        # 1.5e308pt stretched by 1.2: the edges are finite numbers, the height between them is not
+        body = (b"BT 0.9 g /F1 15" + b"0" * 307 + b" Tf 1 0 0 1.2 100 500 Tm (x) Tj ET "
+                b"BT 0 g /F1 10 Tf 72 700 Td (Hello) Tj ET")
+        nan, inf = float("nan"), float("inf")
+        chars = [{"text": "W", "x0": 10, "x1": 50, "top": top, "bottom": 160, "size": size, "non_stroking_color": (0.85,),
+                  "matrix": (1, 0, 0, 1, 0, 0)} for top, size in ((nan, 60), (-inf, 60), (100, inf))]
+        under = {"text": "a", "x0": 20, "x1": 25, "top": 120, "bottom": 130, "size": 10, "non_stroking_color": (0,),
+                 "matrix": (1, 0, 0, 1, 0, 0)}
+
+        assert _pdf_artifacts._faint_watermark([*chars, under], 30) == set()
+        assert convert(_one_page(_flate(body)), "a.pdf").sections[0].text == "Hello"
+
+    def test_copies_at_a_nan_position_are_counted_as_copies(self, monkeypatch):
+        # Counted rather than timed: with a key of its own for every NaN, all 200 reached the page
+        seen = []
+        read_page = pdf_module._read_page
+        monkeypatch.setattr(pdf_module, "_read_page",
+                            lambda page, fit=None: (seen.append([char["text"] for char in page.chars]), read_page(page, fit))[1])
+
+        result = convert(self._page(200), "a.pdf")
+
+        assert [texts.count("x") for texts in seen] == [3]  # as many copies as are kept of a character drawn on one spot
+        assert result.sections[0].text == "Hello"
+
+    @pytest.mark.timing
+    def test_copies_at_a_nan_position_are_capped(self):
+        started = time.perf_counter()
+        result = convert(self._page(20_000), "a.pdf")
+
+        assert time.perf_counter() - started < allowed(4)  # 39 seconds before
+        assert result.sections[0].text == "Hello"
+
+
+class TestClipWithOffsetMediaBox:
+    """The clip regions are recorded in pdfminer's page coordinates while pdfplumber moves x by the MediaBox's left edge, so
+    on a page whose MediaBox does not start at x = 0 no clip matched its picture and the clipping was silently lost."""
+
+    @pytest.mark.parametrize(("mediabox", "dx", "dy", "expected"), [
+        (b"[0 0 595 842]", 0, 0, (150, 342, 350, 542)),
+        (b"[100 0 695 842]", 100, 0, (250, 342, 450, 542)),
+        (b"[0 100 595 942]", 0, 100, (150, 242, 350, 442)),
+        (b"[-50 0 545 842]", -50, 0, (100, 342, 300, 542)),
+    ])
+    def test_picture_is_cut_to_its_clip(self, mediabox, dx, dy, expected):
+        image = b"BI /W 2 /H 2 /CS /G /BPC 8 ID \x00\xff\xff\x00 EI"
+        body = (b"1 0 0 1 %d %d cm q 150 300 200 200 re W n q 500 0 0 500 50 200 cm " % (dx, dy) + image
+                + b" Q Q BT /F1 12 Tf 72 100 Td (caption) Tj ET")
+        page = pdfplumber.open(BytesIO(_one_page(_stream(body), mediabox=mediabox))).pages[0]
+
+        assert [tuple(round(value) for value in box[:4]) for box in _figure_boxes(page, _view_box(page))] == [expected]
+
+
+class TestPendingPagesAfterTheTimeBudget:
+    """A page that could not determine the width of separately placed text is read again once a later page has. That second
+    reading ignored the time budget, so after the budget had sent the remaining pages to plain extraction every pending page was
+    still analysed once more."""
+
+    def test_pending_pages_are_not_read_again_once_the_budget_is_spent(self, monkeypatch):
+        clock = [0.0]
+        calls = []
+        read_page = pdf_module._read_page
+
+        def read(page, placement_fit=None):
+            calls.append(page.page_number)
+            result = read_page(page, placement_fit)
+            if page.page_number == 1:
+                result.placement_pending = True
+            else:
+                result.placement_fit = (0.9, 0.25)
+                clock[0] = 1_000.0  # the budget is spent while page 2 is read
+            return result
+
+        monkeypatch.setattr(pdf_module, "_read_page", read)
+        monkeypatch.setattr(pdf_module.time, "perf_counter", lambda: clock[0])
+
+        result = convert(_pages(2, _stream(b"BT /F1 12 Tf 72 700 Td (Hello world) Tj ET")), "a.pdf",
+                         ConvertOptions(pdf_time_budget=10))
+
+        assert calls == [1, 2]
+        assert result.text.count("Hello world") == 2
+
+    def test_pending_pages_are_read_again_within_the_budget(self, monkeypatch):
+        calls = []
+        read_page = pdf_module._read_page
+
+        def read(page, placement_fit=None):
+            calls.append(page.page_number)
+            result = read_page(page, placement_fit)
+            if page.page_number == 1 and placement_fit is None:
+                result.placement_pending = True
+            elif page.page_number == 2:
+                result.placement_fit = (0.9, 0.25)
+            return result
+
+        monkeypatch.setattr(pdf_module, "_read_page", read)
+
+        convert(_pages(2, _stream(b"BT /F1 12 Tf 72 700 Td (Hello world) Tj ET")), "a.pdf")
+
+        assert calls == [1, 2, 1]
+
+
+class TestTooManyTextBoxes:
+    """pdfminer's text-box grouping keeps a heap of every pair of text boxes, so a 68KB page whose 6,000 characters lie far off
+    the page (each its own box) took 122 seconds inside one page, where the time budget does not look. The pdfium estimate of
+    line pieces did not see them (single-precision positions put characters 20pt apart at x = 2e9 on one spot). A layout with
+    more than its share of `_PAGE_GROUPING_COST` (the square of the box counts of a page's layouts, Form XObjects included) is
+    ordered as without grouping, with the warning of such pages."""
+
+    @staticmethod
+    def _scattered(count: int, far: int = 0) -> bytes:
+        side = int(count ** 0.5) + 1
+        body = b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d %d Tm (o) Tj " % (20 + index % side * 30, 20 + index // side * 30)
+                                          for index in range(count))
+        body += b"".join(b"1 0 0 1 %d 500 Tm (o) Tj " % (2_000_000_000 + index * 20) for index in range(far))
+        return _one_page(_flate(body + b"1 0 0 1 20 5 Tm (Hello world) Tj ET"),
+                         mediabox=b"[0 0 %d %d]" % (side * 30 + 40, side * 30 + 40))
+
+    @pytest.mark.timing
+    def test_characters_far_off_the_page_are_not_grouped_box_by_box(self):
+        started = time.perf_counter()
+        result = convert(self._scattered(100, far=4_000), "a.pdf")
+
+        assert time.perf_counter() - started < allowed(3)  # about 50 seconds before
+        assert "Hello world" in result.sections[0].text and result.sections[0].text.count("o") == 100 + 2  # no far-off character
+
+    def test_a_layout_with_too_many_boxes_is_ordered_as_without_grouping(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        monkeypatch.setattr(_pdf_pdfminer, "_PAGE_GROUPING_COST", 50 ** 2)
+        data = self._scattered(200)
+        expected = pdf_module._extract_pdf.__globals__["_UNGROUPED_LAPARAMS"]
+        token = _pdf_pdfminer._INFLATE_BUDGET.set(_pdf_pdfminer._InflateBudget(10**9))
+        try:
+            grouped = pdfplumber.open(BytesIO(data), laparams=_pdf_pdfminer._LAPARAMS).pages[0].objects["textlinehorizontal"]
+            ungrouped = pdfplumber.open(BytesIO(data), laparams=expected).pages[0].objects["textlinehorizontal"]
+            assert _pdf_pdfminer._INFLATE_BUDGET.get().ungrouped_layouts == 1
+        finally:
+            _pdf_pdfminer._INFLATE_BUDGET.reset(token)
+
+        assert [(line["text"], line["x0"], line["top"]) for line in grouped] == [
+            (line["text"], line["x0"], line["top"]) for line in ungrouped]
+        warnings = convert(data, "a.pdf").warnings
+        assert any("read without text-box reading-order analysis" in warning for warning in warnings)
+
+    def test_a_layout_within_the_bound_is_still_grouped(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        monkeypatch.setattr(_pdf_pdfminer, "_PAGE_GROUPING_COST", 500 ** 2)
+        result = convert(self._scattered(200), "a.pdf")
+
+        assert not any("reading-order analysis" in warning for warning in result.warnings)
+        assert result.sections[0].text.count("o") == 200 + 2  # and the two of "Hello world"
+
+    @staticmethod
+    def _drawn_form(boxes: int, times: int) -> bytes:
+        """A page drawing `times` times a form whose `boxes` characters lie apart far off the page (each its own box)."""
+        inner = zlib.compress(b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d 500 Tm (o) Tj " % (2_000_000_000 + index * 20)
+                                                       for index in range(boxes)) + b"ET", 9)
+        form = (b"<< /Type /XObject /Subtype /Form /BBox [-3000000000 -3000000000 3000000000 3000000000] "
+                b"/Resources << /Font << /F1 5 0 R >> >> /Length %d /Filter /FlateDecode >>\nstream\n" % len(inner)
+                + inner + b"\nendstream")
+        body = b"BT /F1 12 Tf 72 800 Td (Hello world) Tj ET " + b"q /X1 Do Q " * times
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1600 2000] /Contents 4 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> /XObject << /X1 6 0 R >> >> >>")
+        return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
+                         4: _flate(body), 5: _FONT, 6: form})
+
+    def test_the_cost_is_counted_over_every_form_drawn_on_the_page(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        monkeypatch.setattr(_pdf_pdfminer, "_PAGE_GROUPING_COST", 3 * 100 ** 2)  # three of the six drawings fit
+        calls = []
+        group = _pdf_pdfminer._group_all_textboxes
+        monkeypatch.setattr(_pdf_pdfminer, "_group_all_textboxes", lambda *args: (calls.append(len(args[2])), group(*args))[1])
+
+        result = convert(self._drawn_form(100, 6), "a.pdf")
+
+        assert calls.count(100) == 3
+        assert result.sections[0].text == "Hello world"
+        assert any("read without text-box reading-order analysis" in warning for warning in result.warnings)
+
+    @pytest.mark.timing
+    def test_a_form_drawn_many_times_is_not_grouped_every_time(self):
+        started = time.perf_counter()
+        result = convert(self._drawn_form(1_400, 15), "a.pdf")  # 4.3KB
+
+        assert time.perf_counter() - started < allowed(3)  # 54 seconds when the bound was per layout
+        assert result.sections[0].text == "Hello world"
+
+    def test_a_crowded_page_read_again_keeps_its_first_reading(self, monkeypatch):
+        """A page found crowded only while being read was taken for a page read from the ungrouped document; read again for
+        a width of separately placed text found on a later page, it asked that unopened document and the whole conversion
+        failed as corrupted."""
+        many = b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d %d Tm (o) Tj " % (10 + index % 50 * 30, 10 + index // 50 * 25)
+                                          for index in range(1_600)) + b"ET"
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1600 2000] /Contents %d 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> >> >>")
+        data = _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+                         3: page % 4, 4: _flate(many), 5: _FONT, 6: page % 7,
+                         7: _flate(b"BT /F1 12 Tf 72 700 Td (Hello world) Tj ET")})
+        first = convert(data, "a.pdf")
+        calls = []
+        read_page = pdf_module._read_page
+
+        def read(page, placement_fit=None):
+            calls.append(page.page_number)
+            result = read_page(page, placement_fit)
+            if page.page_number == 1 and placement_fit is None:
+                result.placement_pending = True
+            elif page.page_number == 2:
+                result.placement_fit = (0.9, 0.25)
+            return result
+
+        monkeypatch.setattr(pdf_module, "_read_page", read)
+        again = convert(data, "a.pdf")
+
+        assert calls == [1, 2, 1]
+        assert again.text == first.text and again.warnings == first.warnings
+        assert any("read without text-box reading-order analysis" in warning for warning in again.warnings)
+
+    def test_lines_beyond_the_view_are_not_matched_against_the_characters_of_the_page(self, monkeypatch):
+        """A line above, below or right of the visible area is dropped anyway (all its characters are), but only after the
+        characters kept at its height had been picked for it: 8,000 characters right of the page on the rows of 40,000
+        small ones took 27 seconds (21KB), 1.9 with such lines skipped. Counted rather than timed."""
+        calls = []
+        at_level = pdf_module._chars_at_line_level
+        monkeypatch.setattr(pdf_module, "_chars_at_line_level",
+                            lambda line, *rest: (calls.append(line["text"].strip()), at_level(line, *rest))[1])
+        outside = [*((700 + index * 30, 490) for index in range(30)), *((20 + index * 30, 900) for index in range(10)),
+                   *((20 + index * 30, -60) for index in range(10))]
+        body = b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d %d Tm (o) Tj " % place for place in outside)
+        data = _one_page(_flate(body + b"1 0 0 1 20 490 Tm (Hello world) Tj ET"))
+        lines = pdfplumber.open(BytesIO(data), laparams=pdf_module._LAPARAMS).pages[0].objects["textlinehorizontal"]
+
+        result = convert(data, "a.pdf")
+
+        assert len(lines) == 51  # every character outside is a layout line of its own
+        assert calls == ["Hello world"]
+        assert result.sections[0].text == "Hello world"
+
+    @staticmethod
+    def _form_on_two_pages(boxes: int, first: int, second: int) -> bytes:
+        """Two pages drawing, `first` and `second` times, a form whose `boxes` characters lie apart (each its own box)."""
+        inner = b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d 500 Tm (o) Tj " % (2_000_000_000 + index * 20)
+                                           for index in range(boxes)) + b"ET"
+        form = (b"<< /Type /XObject /Subtype /Form /BBox [-3000000000 -3000000000 3000000000 3000000000] "
+                b"/Resources << /Font << /F1 5 0 R >> >> /Length %d >>\nstream\n" % len(inner) + inner + b"\nendstream")
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1600 2000] /Contents %d 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> /XObject << /X1 6 0 R >> >> >>")
+        body = b"BT /F1 12 Tf 72 800 Td (Hello world) Tj ET "
+        return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>",
+                         3: page % 4, 4: _flate(body + b"q /X1 Do Q " * first), 5: _FONT, 6: form,
+                         7: page % 8, 8: _flate(body + b"q /X1 Do Q " * second)})
+
+    def test_the_forms_of_a_page_are_not_charged_for_those_of_the_page_before(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        monkeypatch.setattr(_pdf_pdfminer, "_PAGE_GROUPING_COST", 3 * 100 ** 2)  # page 1 draws one form too many, page 2 one
+
+        warnings = [warning for warning in convert(self._form_on_two_pages(100, 4, 1), "a.pdf").warnings
+                    if "reading-order analysis" in warning]
+
+        assert len(warnings) == 1 and warnings[0].startswith("1 PDF page(s) (1) have too many text pieces")
+
+    def test_a_page_read_again_is_not_charged_for_the_forms_of_the_page_read_before_it(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        monkeypatch.setattr(_pdf_pdfminer, "_PAGE_GROUPING_COST", 3 * 100 ** 2)  # page 2 draws one form too many, page 1 one
+        calls = []
+        read_page = pdf_module._read_page
+
+        def read(page, placement_fit=None):
+            calls.append(page.page_number)
+            result = read_page(page, placement_fit)
+            if page.page_number == 1 and placement_fit is None:
+                result.placement_pending = True
+            elif page.page_number == 2:
+                result.placement_fit = (0.9, 0.25)
+            return result
+
+        monkeypatch.setattr(pdf_module, "_read_page", read)
+
+        warnings = [warning for warning in convert(self._form_on_two_pages(100, 1, 4), "a.pdf").warnings
+                    if "reading-order analysis" in warning]
+
+        assert calls == [1, 2, 1]
+        assert len(warnings) == 1 and warnings[0].startswith("1 PDF page(s) (2) have too many text pieces")
+
+    @staticmethod
+    def _form_then_columns(labels: int, rows: int) -> bytes:
+        """A page that first draws a form of `labels` separate tick labels, then two columns of `rows` short paragraphs each
+        (left column first in the stream)."""
+        inner = b"BT /F1 4 Tf " + b"".join(b"1 0 0 1 %d %d Tm (%d) Tj " % (20 + index % 99 * 15.5, 20 + index // 99 * 9, index % 100)
+                                         for index in range(labels)) + b"ET"
+        packed = zlib.compress(inner, 9)
+        form = (b"<< /Type /XObject /Subtype /Form /BBox [0 0 1600 2000] /Resources << /Font << /F1 5 0 R >> >> /Length %d "
+                b"/Filter /FlateDecode >>\nstream\n" % len(packed) + packed + b"\nendstream")
+        body = b"q /X1 Do Q BT /F1 9 Tf " + b"".join(
+            b"1 0 0 1 %d %d Tm (%s column paragraph %d) Tj " % (100 + column * 700, 1900 - index * 18, side, index)
+            for column, side in enumerate((b"Left", b"Right")) for index in range(rows)) + b"ET"
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1600 2000] /Contents 4 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> /XObject << /X1 6 0 R >> >> >>")
+        return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
+                         4: _flate(body), 5: _FONT, 6: form})
+
+    def test_a_form_drawn_before_the_body_does_not_take_the_body_allowance(self):
+        """pdfminer lays out the forms of a page before the page's own text boxes. With one allowance per page, a form within
+        it left too little for the body, which came out with its two columns interleaved."""
+        result = convert(self._form_then_columns(990, 80), "a.pdf")
+
+        paragraphs = [paragraph for paragraph in result.text.split("\n\n") if "column paragraph" in paragraph]
+        assert paragraphs[0].startswith("Left column paragraph 0\nLeft column paragraph 1")
+        assert not any("reading-order analysis" in warning for warning in result.warnings)
+
+    def test_joining_pieces_regroups_the_body_with_a_fresh_allowance(self):
+        """Joining the pieces of lines drawn head pieces first, then tails (LibreOffice) groups the page's lines again. That
+        second grouping was charged on top of the first, discarded one, so a page well within the bound lost its column
+        order and got the warning."""
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+
+        from tests.test_pdf import _FONT as KOREAN
+        from tests.test_pdf import _korean_pdf
+
+        def draw(pdf, index):
+            pdf.setFont(KOREAN, 1.5)
+            places = [(30 + number % 2 * 300, 830 - number // 2 * 3.4) for number in range(470)]
+            for number, (x, y) in enumerate(places):
+                pdf.drawString(x, y, f"매출 {number}는 ")
+            for number, (x, y) in enumerate(places):
+                pdf.drawString(x + stringWidth(f"매출 {number}는 ", KOREAN, 1.5), y, "증가함")
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        lines = [line for line in result.text.splitlines() if line.strip()]
+        assert lines[:3] == ["매출 0는 증가함", "매출 2는 증가함", "매출 4는 증가함"]  # the left column first
+        assert not any("reading-order analysis" in warning for warning in result.warnings)
+
+    def test_a_page_crowded_only_when_read_again_gets_the_warning(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        read_page = pdf_module._read_page
+
+        def read(page, placement_fit=None):
+            result = read_page(page, placement_fit)
+            if page.page_number == 1 and placement_fit is None:
+                result.placement_pending = True
+            elif page.page_number == 2:
+                result.placement_fit = (0.9, 0.25)
+                monkeypatch.setattr(_pdf_pdfminer, "_PAGE_GROUPING_COST", 1)  # the second reading of page 1 meets the bound
+            return result
+
+        monkeypatch.setattr(pdf_module, "_read_page", read)
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents %d 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> >> >>")
+        two_paragraphs = b"BT /F1 12 Tf 72 700 Td (First paragraph) Tj ET BT /F1 12 Tf 72 400 Td (Second paragraph) Tj ET"
+        data = _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+                         3: page % 4, 4: _flate(two_paragraphs), 5: _FONT, 6: page % 7,
+                         7: _flate(b"BT /F1 12 Tf 72 700 Td (Hello world) Tj ET")})
+
+        warnings = convert(data, "a.pdf").warnings
+
+        assert any(warning.startswith("1 PDF page(s) (1) have too many text pieces") for warning in warnings)
+
+
+class TestTooMuchLineGrouping:
+    """pdfminer's grouping of text lines into boxes (`group_textlines`) is quadratic when many lines sit within the line
+    margin of each other — each finds every other one and re-adds the whole box it joins: 4,000 characters drawn alternately
+    at two places, rising 0.1pt every two (10KB), took 16 seconds inside one page, with no warning. pdfminer's planes file an
+    object under every 50pt cell it covers, so one huge character, or two far apart in a form with a large BBox, filled
+    millions of cells."""
+
+    @staticmethod
+    def _stack(count: int) -> bytes:
+        body = b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d %g Tm (%s) Tj " % (100 + index % 2 * 300, 100 + index // 2 * 0.1,
+                                                                         b"AB"[index % 2:index % 2 + 1])
+                                          for index in range(count)) + b" 1 0 0 1 72 800 Tm (Hello world) Tj ET"
+        return _one_page(_flate(body))
+
+    @staticmethod
+    def _in_a_large_form(content: bytes, side: int) -> bytes:
+        form = (b"<< /Type /XObject /Subtype /Form /BBox [0 0 %d %d] /Resources << /Font << /F1 5 0 R >> >> /Length %d >>"
+                b"\nstream\n" % (side, side, len(content)) + content + b"\nendstream")
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 850] /Contents 4 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> /XObject << /X1 6 0 R >> >> >>")
+        return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
+                         4: _flate(b"BT /F1 12 Tf 72 800 Td (Hello world) Tj ET q /X1 Do Q"), 5: _FONT, 6: form})
+
+    @pytest.mark.timing
+    def test_lines_crowded_within_the_line_margin_are_grouped_in_bounded_time(self):
+        started = time.perf_counter()
+        result = convert(self._stack(4_000), "a.pdf")
+
+        assert time.perf_counter() - started < allowed(3)  # 16 seconds before
+        assert "Hello world" in result.text
+        assert any("read without text-box reading-order analysis" in warning for warning in result.warnings)
+
+    def test_a_layout_past_its_allowance_gets_a_box_per_line_and_the_warning(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        monkeypatch.setattr(_pdf_pdfminer, "_LINE_GROUPING_WORK", 50)
+        lines = b"".join(b"BT /F1 10 Tf 72 %d Td (Line %d of the paragraph) Tj ET " % (700 - index * 12, index) for index in range(10))
+        result = convert(_one_page(_stream(lines)), "a.pdf")
+
+        assert all(f"Line {index} of the paragraph" in result.text for index in range(10))
+        assert any("read without text-box reading-order analysis" in warning for warning in result.warnings)
+
+    @pytest.mark.parametrize("in_a_form", [False, True])
+    def test_lines_left_ungrouped_are_not_grouped_as_boxes(self, monkeypatch, in_a_form):
+        """Lines that spend the allowance lie within the line margin of each other, and as a box each they lie on top of each
+        other — what pdfminer's text-box grouping is slowest at. 500 to 1,000 of them stayed under the bound of that grouping
+        and took 8 seconds (500 on a page, 1.8KB) to 52 (1,000 in a form, 29KB), against 0.6 and 2 before the allowance
+        existed. The layout that gave up is ordered without grouping; the other layout of the page is grouped as usual."""
+        from opendockit.extractors import _pdf_pdfminer
+
+        grouped = []
+        group_all = _pdf_pdfminer._group_all_textboxes
+
+        def recording(layout, laparams, boxes):
+            grouped.append(len(boxes))
+            return group_all(layout, laparams, boxes)
+
+        monkeypatch.setattr(_pdf_pdfminer, "_group_all_textboxes", recording)
+        stack = b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d %g Tm (%s) Tj " % (100 + index % 2 * 300, 100 + index // 2 * 0.1,
+                                                                          b"AB"[index % 2:index % 2 + 1])
+                                           for index in range(600)) + b"ET"
+        data = (self._in_a_large_form(stack, 600) if in_a_form
+                else _one_page(_flate(stack + b" BT /F1 10 Tf 1 0 0 1 72 800 Tm (Hello world) Tj ET")))
+
+        result = convert(data, "a.pdf")
+
+        assert "Hello world" in result.text
+        assert any("read without text-box reading-order analysis" in warning for warning in result.warnings)
+        assert grouped and max(grouped) < 10 if in_a_form else not grouped  # the body of the form page (one line) is grouped
+
+    @staticmethod
+    def _crowd(count: int) -> bytes:
+        """`count` small characters 1pt apart inside one 50pt cell of pdfminer's plane, none within the line margin of
+        another (every other one first, so that neighbours are not joined into a line)."""
+        order = [*range(0, count, 2), *range(1, count, 2)]
+        return _one_page(_flate(b"BT /F1 0.5 Tf " + b"".join(b"1 0 0 1 %d %d Tm (o) Tj " % (101 + index % 20, 101 + index // 20)
+                                                             for index in order) + b"ET"))
+
+    @staticmethod
+    def _column(count: int) -> bytes:
+        return _one_page(_stream(b"".join(b"BT /F1 10 Tf 72 %d Td (Line %d of the paragraph) Tj ET " % (800 - index * 12, index)
+                                          for index in range(count))))
+
+    @pytest.mark.parametrize(("page", "allowance"), [
+        # 400 lines that each look through the 400 of their cell: 160,000 objects looked at, 5,200 of other work
+        ("crowd", 50_000),
+        # one character 3,000pt tall: the search around it spans 2,600 cells holding 1,600 objects (itself, again and again)
+        ("huge", 3_000),
+        # a column of 40 lines, each joining the box of those above: 8,600 for the 859 lines added, 2,700 of other work
+        ("column", 6_000),
+    ])
+    def test_each_kind_of_work_counts_towards_the_allowance(self, monkeypatch, page, allowance):
+        """Three pages that each spend most of their work on one kind — the objects a search looks through, the cells it
+        spans, the lines added to a box — against an allowance the other kinds alone stay within."""
+        from opendockit.extractors import _pdf_pdfminer
+
+        data = {"crowd": lambda: self._crowd(400),
+                "huge": lambda: _one_page(_stream(b"BT /F1 3000 Tf 1 0 0 1 10 10 Tm (o) Tj ET"), mediabox=b"[0 0 7000 7000]"),
+                "column": lambda: self._column(40)}[page]()
+        assert not any("reading-order analysis" in warning for warning in convert(data, "a.pdf").warnings)
+
+        monkeypatch.setattr(_pdf_pdfminer, "_LINE_GROUPING_WORK", allowance)
+
+        assert any("read without text-box reading-order analysis" in warning for warning in convert(data, "a.pdf").warnings)
+
+    @staticmethod
+    def _forms(first: bytes, second: bytes | None = None, draws: int = 1) -> bytes:
+        """A page drawing the form `first` `draws` times and, with `second`, a second page drawing that form once."""
+        def form(content: bytes) -> bytes:
+            return (b"<< /Type /XObject /Subtype /Form /BBox [0 0 600 850] /Resources << /Font << /F1 5 0 R >> >> /Length %d >>"
+                    b"\nstream\n" % len(content) + content + b"\nendstream")
+
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 850] /Contents 4 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> /XObject << /X1 %d 0 R >> >> >>")
+        objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                   3: page % 6, 4: _flate(b"q /X1 Do Q " * draws), 5: _FONT, 6: form(first)}
+        if second is not None:
+            objects |= {2: b"<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>", 7: page % 8, 8: form(second)}
+        return _raw_pdf(objects)
+
+    _PARAGRAPH = b"".join(b"BT /F1 10 Tf 72 %d Td (Line %d of the form) Tj ET " % (700 - index * 12, index) for index in range(30))
+
+    def test_the_forms_drawn_on_a_page_share_one_allowance(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        monkeypatch.setattr(_pdf_pdfminer, "_LINE_GROUPING_WORK", 16_000)  # the 30 lines of the form take 6,600
+
+        twice = convert(self._forms(self._PARAGRAPH, draws=2), "a.pdf")
+        three_times = convert(self._forms(self._PARAGRAPH, draws=3), "a.pdf")
+
+        assert not any("reading-order analysis" in warning for warning in twice.warnings)
+        assert any("read without text-box reading-order analysis" in warning for warning in three_times.warnings)
+
+    def test_the_forms_of_a_page_start_with_a_whole_allowance(self):
+        """Page 1 draws a form of 1,200 crowded lines, which spends the allowance of its forms; the paragraph in the form of
+        page 2 is still grouped."""
+        stack = b"BT /F1 10 Tf " + b"".join(b"1 0 0 1 %d %g Tm (%s) Tj " % (100 + index % 2 * 300, 100 + index // 2 * 0.1,
+                                                                          b"AB"[index % 2:index % 2 + 1])
+                                           for index in range(1_200)) + b"ET"
+
+        result = convert(self._forms(stack, self._PARAGRAPH), "a.pdf", ConvertOptions(page_markers=False))
+        warnings = [warning for warning in result.warnings if "reading-order analysis" in warning]
+
+        assert result.sections[1].text == "\n".join(f"Line {index} of the form" for index in range(30))
+        assert len(warnings) == 1 and warnings[0].startswith("1 PDF page(s) (1) have too many text pieces")
+
+    def test_an_ordinary_page_is_grouped_as_before(self):
+        lines = b"".join(b"BT /F1 10 Tf 72 %d Td (Line %d of the paragraph) Tj ET " % (700 - index * 12, index) for index in range(10))
+        result = convert(_one_page(_stream(lines)), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.sections[0].text == "\n".join(f"Line {index} of the paragraph" for index in range(10))
+        assert result.warnings == []
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize(("content", "side"), [
+        (b"BT /F1 200000 Tf 1 0 0 1 0 0 Tm (o) Tj ET", 3_000_000),  # 8.6 seconds before (859 bytes)
+        (b"BT /F1 10 Tf 1 0 0 1 10 10 Tm (a) Tj 1 0 0 1 300000 300000 Tm (b) Tj ET", 300_100),  # 18 seconds before
+    ])
+    def test_far_apart_or_huge_characters_do_not_fill_the_plane_cell_by_cell(self, content, side):
+        started = time.perf_counter()
+        result = convert(self._in_a_large_form(content, side), "a.pdf")
+
+        assert time.perf_counter() - started < allowed(1)
+        assert "Hello world" in result.text
+
+
+class TestCopiesOfStackedText:
+    """For every kept line `_read_page` looked through the removed characters at its height for copies drawn on top, so stacked
+    text drawn repeatedly (3 copies of each character kept, the rest removed, every line its own box) made every line scan
+    every copy at its height: a 4.5KB page of 1,500 characters drawn 30 times took 54 seconds."""
+
+    @staticmethod
+    def _stacked_form(count: int, draws: int) -> bytes:
+        inner = zlib.compress(b"BT /F1 10 Tf " + b"".join(
+            b"1 0 0 1 %d %g Tm (%s) Tj " % (100 + index % 2 * 300, 100 + index // 2 * 0.1, b"AB"[index % 2:index % 2 + 1])
+            for index in range(count)) + b"ET", 9)
+        form = (b"<< /Type /XObject /Subtype /Form /BBox [-1000000 -1000000 1000000 1000000] /Resources << /Font << /F1 5 0 R >> >> "
+                b"/Length %d /Filter /FlateDecode >>\nstream\n" % len(inner) + inner + b"\nendstream")
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 850] /Contents 4 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> /XObject << /X1 6 0 R >> >> >>")
+        return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
+                         4: _flate(b"BT /F1 12 Tf 72 800 Td (Hello world) Tj ET " + b"q /X1 Do Q " * draws), 5: _FONT, 6: form})
+
+    @pytest.mark.timing
+    def test_copies_of_stacked_text_drawn_many_times_are_found_in_about_linear_time(self):
+        started = time.perf_counter()
+        result = convert(self._stacked_form(1_500, 30), "a.pdf")
+
+        assert time.perf_counter() - started < allowed(8)  # 54 seconds before
+        assert "Hello world" in result.text
+
+    def test_the_index_answers_as_the_scan_does(self):
+        from opendockit.extractors._pdf_artifacts import _chars_at_line_level, _CopyIndex
+
+        chars = sorted([{"top": 100, "bottom": 110, "x0": 50, "shadow": False}, {"top": 100, "bottom": 110, "x0": 300, "shadow": True},
+                        {"top": 0, "bottom": 400, "x0": 50, "shadow": True},  # tall: its middle is at the line, its top is not
+                        {"top": 130, "bottom": 140, "x0": 50, "shadow": False}], key=lambda char: char["top"])
+        tops = [char["top"] for char in chars]
+        index = _CopyIndex(chars, tops)
+
+        for line in ({"top": 100, "bottom": 110, "x0": 40, "x1": 60}, {"top": 100, "bottom": 110, "x0": 290, "x1": 320},
+                     {"top": 195, "bottom": 205, "x0": 40, "x1": 60}, {"top": 100, "bottom": 110, "x0": 0, "x1": 1e6}):
+            copies = [char for char in _chars_at_line_level(line, chars, tops) if line["x0"] - 1 <= char["x0"] <= line["x1"] + 1]
+            assert index.at(line) == (bool(copies), any(char["shadow"] for char in copies))

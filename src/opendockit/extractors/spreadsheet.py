@@ -69,10 +69,12 @@ _FULL_LOAD_MAX_SHEET_BYTES = 20 * 1024 * 1024
 # (Pinned by: test_office.py::TestReportedGaps::test_xlsx_with_a_large_pivot_cache_is_streamed).
 _MAX_PIVOT_CACHE_BYTES = 1024 * 1024
 _PIVOT_CACHE_DEFINITION = "/pivotCacheDefinition"
-# Merge and hyperlink ranges in sheet XML (`<mergeCell ref="A1:B2"/>`, `<hyperlink ref=…>`). An element name cannot be written another
-# way in XML, but an attribute value can vary in quotes, whitespace and character references, so attributes are skipped one at a
-# time to find ref, and the value is decoded with html.unescape.
-_MERGE_REF = re.compile(rb"<(?:[\w.-]+:)?(?:mergeCell|hyperlink)\b(?:\s+[\w:.-]+\s*=\s*(?:\"[^\"]*\"|'[^']*'))*?\s+ref\s*=\s*(?:\"([^\"]*)\"|'([^']*)')")  # noqa: E501
+# Merge ranges in sheet XML (`<mergeCell ref="A1:B2"/>`). An element name cannot be written another way in XML, but an attribute
+# value can vary in quotes, whitespace and character references, so attributes are skipped one at a time to find ref, and the value
+# is decoded with html.unescape. Hyperlink ranges are not counted: they are not parsed while reading (`_SHEET_PARTS_LEFT_UNREAD`),
+# so they cost nothing, and counting them streamed the sheet and lost its merges
+# (Pinned by: test_office.py::TestXlsx::test_huge_hyperlink_range_is_read_without_expanding_it).
+_MERGE_REF = re.compile(rb"<(?:[\w.-]+:)?mergeCell\b(?:\s+[\w:.-]+\s*=\s*(?:\"[^\"]*\"|'[^']*'))*?\s+ref\s*=\s*(?:\"([^\"]*)\"|'([^']*)')")
 
 
 # Formula cells (<f>) in sheet XML, and formula cells stored together with their computed result (<v>value</v>).
@@ -111,7 +113,11 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
         # only under `xl/worksheets/`, a sheet at `xl/ws/sheet1.xml` dodged every check below: one merge A1:CV20000 was fully
         # loaded (9 s, 1.5 GB) (Pinned by: test_audit_spreadsheet.py::TestSheetStoredAtAnotherPath).
         listed = _listed_sheet_parts(archive)
-        sheets = [info for info in archive.infolist() if info.filename.startswith("xl/worksheets/") or info.filename in listed]
+        # Only sheet XML counts: relationship parts and other files kept under `xl/worksheets/` are not sheets, yet they were
+        # counted toward the size threshold and scanned for formulas and merges
+        # (Pinned by: test_audit_spreadsheet_fixes.py::TestOnlySheetPartsAreMeasured).
+        sheets = [info for info in archive.infolist()
+                  if info.filename in listed or _is_sheet_xml_name(info.filename)]
         sheet_names = [info.filename for info in sheets]
         large = sum(info.file_size for info in sheets) > _FULL_LOAD_MAX_SHEET_BYTES
         # In a full load openpyxl decompresses a picture again for every reference (a 56KB file pointing to one picture 40 times used
@@ -426,6 +432,11 @@ def _sheet_paths(archive: zipfile.ZipFile, names: set[str]) -> tuple[dict[str, s
             {sheet.get("name", "") for sheet in sheets if sheet.get("state", "visible") != "visible"})
 
 
+def _is_sheet_xml_name(name: str) -> bool:
+    """Whether a ZIP entry is sheet XML at the usual place (`xl/worksheets/sheet1.xml`, not `xl/worksheets/_rels/…`)."""
+    return name.startswith("xl/worksheets/") and name.endswith(".xml") and "/" not in name.removeprefix("xl/worksheets/")
+
+
 def _listed_sheet_parts(archive: zipfile.ZipFile) -> set[str]:
     """Paths of the parts the workbook's sheet list points to through relationships. The relationship type is not looked at —
     openpyxl reads whatever part a `<sheet>` points to as a sheet. Empty when the workbook part or its relationships cannot be
@@ -509,16 +520,36 @@ def _only_zero_results(archive: zipfile.ZipFile, sheet_names: list[str]) -> bool
         if not _has_formula(archive, name):
             continue  # do not XML-parse large export sheets without formulas (a 111MB sheet without formulas: 3.4s → 0.3s)
         with archive.open(name) as stream:
-            for _, cell in etree.iterparse(stream, tag="{*}c", resolve_entities=False, no_network=True):
+            for cell in _sheet_cells(stream):
                 value = cell.findtext("{*}v") if cell.find("{*}f") is not None else None
                 kind = cell.get("t", "n")
-                cell.clear()
                 if value is None or not value.strip():
                     continue
                 if kind != "n" or _float_or_none(value) != 0:
                     return False
                 zeros += 1
     return zeros > 0
+
+
+def _sheet_cells(source: object) -> Iterator[etree._Element]:
+    """The `<c>` elements of sheet XML, one at a time. Once the caller has looked at a cell it is emptied and removed from the tree
+    together with the rows before it.
+
+    Emptying the cell alone left an empty element per cell and row in the tree: a 13 MB workbook (223 MB of sheet XML, 600,000 rows)
+    grew by 948 MB in the zero-result check, which was meant to read the sheet without keeping it
+    (Pinned by: test_audit_spreadsheet_fixes.py::TestSheetScansKeepNoTree).
+    """
+    for _, cell in etree.iterparse(source, tag="{*}c", resolve_entities=False, no_network=True):
+        yield cell
+        cell.clear(keep_tail=False)
+        row = cell.getparent()
+        if row is None:
+            continue
+        while cell.getprevious() is not None:
+            del row[0]
+        data = row.getparent()
+        while data is not None and row.getprevious() is not None:
+            del data[0]
 
 
 def _has_formula(archive: zipfile.ZipFile, name: str) -> bool:
@@ -553,7 +584,7 @@ def _unresolved_formulas(xml: bytes, max_cols: int) -> dict[int, dict[int, str]]
     shared: dict[str | None, tuple[str, str]] = {}  # shared formula index (si) → (formula, address of the first cell)
     formulas: dict[int, dict[int, str]] = {}
 
-    for _, cell in etree.iterparse(BytesIO(xml), tag="{*}c", resolve_entities=False, no_network=True):
+    for cell in _sheet_cells(BytesIO(xml)):
         formula, value, reference = cell.find("{*}f"), cell.find("{*}v"), cell.get("r", "")
         if formula is not None and reference:
             text = formula.text or ""
@@ -569,7 +600,6 @@ def _unresolved_formulas(xml: bytes, max_cols: int) -> dict[int, dict[int, str]]
             computed = cell.get("t") == "str" or (value is not None and value.text)
             if text and not computed and column <= max_cols:
                 formulas.setdefault(row, {})[column] = f"={text}"
-        cell.clear()
     return formulas
 
 
@@ -845,11 +875,11 @@ def _unescape_xstring(text: str) -> str:
 
 
 def _merged_cell_count(archive: zipfile.ZipFile, sheet_names: list[str]) -> int:
-    """Total number of cells covered by the merge and hyperlink ranges of the sheets (stops once the cap is exceeded)."""
+    """Total number of cells covered by the merge ranges of the sheets (stops once the cap is exceeded)."""
     total = 0
     for name in sheet_names:
         xml = archive.read(name)
-        if b"mergeCell" not in xml and b"hyperlink" not in xml:
+        if b"mergeCell" not in xml:
             continue
         for match in _MERGE_REF.finditer(xml):
             reference = html.unescape((match.group(1) or match.group(2) or b"").decode("utf-8", errors="replace"))

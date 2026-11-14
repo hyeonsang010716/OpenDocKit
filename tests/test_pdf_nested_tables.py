@@ -95,3 +95,83 @@ class TestNestedTables:
 
         assert ("| 학력 | 2015~2017 | 한국대학교 대학원 | 인공지능 | 석사 |\n| 학력 | (단위: 천원) | | | |\n"
                 "| 경력 | 기간 | 회사명 | 직위 | 담당업무 |") in result.text
+
+    def test_columns_right_of_the_inner_table_stay_aligned(self):
+        """When the cell holding the inner table is in the middle of the row, the rows of the outer table were only padded at
+        their ends, so the remarks column ('비고1', '비고3') went under the inner table's second column while '비고2' stood
+        at the far right. Every other row gets empty cells where the inner table is wider than its cell."""
+        def draw(pdf, index):
+            xs, ys = [50, 130, 400, 545], [780, 758, 736, 666, 644]
+            pdf.setLineWidth(0.6)
+            for y in ys:
+                pdf.line(xs[0], y, xs[-1], y)
+            for x in xs:
+                pdf.line(x, ys[0], x, ys[-1])
+            pdf.setFont(_FONT, 10)
+            for row, values in {0: ["구분", "내용", "비고"], 1: ["성명", "홍길동", "비고1"], 3: ["연락처", "010-1234", "비고3"]}.items():
+                for column, value in enumerate(values):
+                    pdf.drawString(xs[column] + 5, ys[row] - 15, value)
+            pdf.drawString(xs[0] + 5, 697, "학력")
+            pdf.drawString(xs[2] + 5, 697, "비고2")
+            x0, x1, y0, y1 = xs[1] + 6, xs[2] - 6, ys[2] - 6, ys[3] + 6
+            height, columns = (y0 - y1) / 3, [x0, x0 + 80, x0 + 170, x1]
+            pdf.setLineWidth(0.4)
+            for line in range(4):
+                pdf.line(x0, y0 - line * height, x1, y0 - line * height)
+            for x in columns:
+                pdf.line(x, y0, x, y1)
+            pdf.setFont(_FONT, 9)
+            for row, values in enumerate([["기간", "학교명", "전공"], ["2009", "한국대", "컴공"], ["2015", "대학원", "AI"]]):
+                for column, value in enumerate(values):
+                    pdf.drawString(columns[column] + 3, y0 - (row + 1) * height + 6, value)
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == ("| 구분 | 내용 | | | 비고 |\n| --- | --- | --- | --- | --- |\n| 성명 | 홍길동 | | | 비고1 |\n"
+                        "| 학력 | 기간 | 학교명 | 전공 | 비고2 |\n| 학력 | 2009 | 한국대 | 컴공 | 비고2 |\n"
+                        "| 학력 | 2015 | 대학원 | AI | 비고2 |\n| 연락처 | 010-1234 | | | 비고3 |")
+
+    def test_holders_of_different_widths_keep_the_columns_aligned(self):
+        """A cell over column 1 holding a 3-column table and, below it, a cell over columns 1–2 holding a 4-column table: the
+        columns right of both stay under their header, and the table has 6 columns (columns left empty in every row by the
+        widening are dropped by `render_table`)."""
+        def inner(pdf, x0, x1, y0, y1, rows):
+            height, step = (y0 - y1) / len(rows), (x1 - x0) / len(rows[0])
+            pdf.setLineWidth(0.4)
+            for line in range(len(rows) + 1):
+                pdf.line(x0, y0 - line * height, x1, y0 - line * height)
+            for column in range(len(rows[0]) + 1):
+                pdf.line(x0 + column * step, y0, x0 + column * step, y1)
+            pdf.setFont(_FONT, 8)
+            for row, values in enumerate(rows):
+                for column, value in enumerate(values):
+                    pdf.drawString(x0 + column * step + 2, y0 - (row + 1) * height + 4, value)
+
+        def draw(pdf, index):
+            xs, ys = [40, 100, 300, 420, 550], [780, 758, 690, 622, 600]
+            pdf.setLineWidth(0.6)
+            for y in ys:
+                pdf.line(xs[0], y, xs[-1], y)
+            for x in (xs[0], xs[1], xs[3], xs[4]):
+                pdf.line(x, ys[0], x, ys[-1])
+            pdf.line(xs[2], ys[0], xs[2], ys[2])  # the third row merges columns 1 and 2
+            pdf.line(xs[2], ys[3], xs[2], ys[4])
+            pdf.setFont(_FONT, 10)
+            for row, values in {0: ["구분", "내용", "기간", "비고"], 3: ["연락처", "010-1234", "상시", "비고4"]}.items():
+                for column, value in enumerate(values):
+                    pdf.drawString(xs[column] + 4, ys[row] - 15, value)
+            pdf.drawString(xs[0] + 4, 720, "학력")
+            pdf.drawString(xs[2] + 4, 720, "4년")
+            pdf.drawString(xs[3] + 4, 720, "비고2")
+            pdf.drawString(xs[0] + 4, 652, "경력")
+            pdf.drawString(xs[3] + 4, 652, "비고3")
+            inner(pdf, xs[1] + 5, xs[2] - 5, ys[1] - 6, ys[2] + 6, [["학교", "전공", "학위"], ["한국대", "컴공", "학사"]])
+            inner(pdf, xs[1] + 5, xs[3] - 5, ys[2] - 6, ys[3] + 6,
+                  [["회사", "직위", "업무", "연도"], ["가나다", "선임", "검색", "2020"]])
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == ("| 구분 | 내용 | | | 기간 | 비고 |\n| --- | --- | --- | --- | --- | --- |\n"
+                        "| 학력 | 학교 | 전공 | 학위 | 4년 | 비고2 |\n| 학력 | 한국대 | 컴공 | 학사 | 4년 | 비고2 |\n"
+                        "| 경력 | 회사 | 직위 | 업무 | 연도 | 비고3 |\n| 경력 | 가나다 | 선임 | 검색 | 2020 | 비고3 |\n"
+                        "| 연락처 | 010-1234 | | | 상시 | 비고4 |")

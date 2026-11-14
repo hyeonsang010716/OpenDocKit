@@ -45,6 +45,7 @@ import time
 from pdfminer.pdftypes import (
     resolve1,
 )
+from pdfminer.utils import INF as _LAYOUT_INF
 import pdfplumber
 from pdfplumber.utils.exceptions import PdfminerException
 import pypdfium2 as pdfium
@@ -54,6 +55,7 @@ from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError,
 from opendockit.extractors._pdf_aligned_tables import _extract_aligned_tables
 from opendockit.extractors._pdf_artifacts import (
     _chars_at_line_level,
+    _CopyIndex,
     _has_undecodable_contents,
     _is_sideways,
     _is_tilted,
@@ -238,6 +240,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
             fallback: pdfium.PdfDocument | None = None
             ungrouped: object | None = None  # pdfplumber document with text-box grouping off (for pages with very many text pieces)
             dense = set()
+            crammed: set[int] = set()  # pages found with too much text-box grouping while being read (`_PAGE_GROUPING_COST`)
             grids: set[int] = set()  # ruled grid pages (read without text-box grouping, but not reported since cell text goes into the table)
             attachments: dict[int, str] = {}  # attachment file specification (id) → name
             started = time.perf_counter()
@@ -264,6 +267,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                                                     else _survey_page(fallback, page.page_number - 1))
                         if late:
                             over_budget += 1
+                            extraction.time_limited = True
                             try:
                                 pages.append(_pdfium_page(fallback, page.page_number - 1))
                             except pdfium.PdfiumError:
@@ -283,7 +287,13 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 grids.add(page.page_number)
                             if page.page_number in dense | grids:
                                 ungrouped = ungrouped or pdfplumber.open(BytesIO(data), laparams=_UNGROUPED_LAPARAMS)
+                            ungrouped_before = budget.ungrouped_layouts
+                            budget.new_page()
                             read = _read_page_from(ungrouped if page.page_number in dense | grids else pdf, page, placement_fit)
+                            if budget.ungrouped_layouts > ungrouped_before:
+                                # Too much text-box grouping (`_PAGE_GROUPING_COST`). The page was read from `pdf` with the bound
+                                # in force, so it is read again from there (`crammed` is not in `dense`, which picks `ungrouped`)
+                                crammed.add(page.page_number)
                             placement_fit = placement_fit or read.placement_fit
                             undecoded = budget.undecoded_fonts and not read.unmeasured and bool(
                                 read.lines or read.tables or read.sideways)
@@ -333,23 +343,39 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                         break
 
                 # A page with few characters, such as a cover or table of contents, cannot determine the character width on its
-                # own. If a later page determined it, only those pages are read again.
+                # own. If a later page determined it, only those pages are read again — while the time budget lasts: past it a
+                # page keeps its first reading (its words placed without spaces stay joined). Re-reading ignored the budget, so
+                # every pending page was analysed a second time after the budget had sent the remaining pages to plain
+                # extraction (Pinned by: test_audit_pdf_text.py::TestPendingPagesAfterTheTimeBudget).
                 for index, read in enumerate(pages):
                     if placement_fit is None or not read.placement_pending or extraction.exceeded:
                         continue
+                    if options.pdf_time_budget is not None and time.perf_counter() - started > options.pdf_time_budget:
+                        extraction.time_limited = True
+                        break
+                    # A page found crowded with text boxes only while being read (`crammed`) was read from `pdf` and is read
+                    # from it again, with the grouping cost of the page reset — the same layouts are left ungrouped. Taking it
+                    # for `dense` sent it to `ungrouped`, which had not been opened, and the whole document failed (Pinned by:
+                    # test_audit_pdf_text.py::TestTooManyTextBoxes::test_a_crowded_page_read_again_keeps_its_first_reading;
+                    # the reset: ::test_a_page_read_again_is_not_charged_for_the_forms_of_the_page_read_before_it)
                     page = (ungrouped if read.number in dense | grids else pdf).pages[read.number - 1]
+                    ungrouped_before = budget.ungrouped_layouts
+                    budget.new_page()
                     try:
                         pages[index] = _read_page(page, placement_fit)
                     except PdfminerException:
                         pass
                     finally:
                         page.close()
+                    if budget.ungrouped_layouts > ungrouped_before:
+                        crammed.add(read.number)  # the warning also when only the second reading met the bound
             finally:
                 if fallback is not None:
                     with _PDFIUM_LOCK:
                         fallback.close()
                 if ungrouped is not None:
                     ungrouped.close()
+            dense |= crammed  # the same warning for both
             extraction.metadata.update(_metadata(pdf.metadata, pdf.doc.info))
             # In an XFA form the content is in XML and the page holds only a 'Please wait...' notice, so the notice alone came out
             # as a 'success'. Reported only when not a single entered value was read from the pages — an XFA form that has both
@@ -548,6 +574,10 @@ def _countable_chars(page: _Page, tally: _EdgeTally | None = None) -> int:
     document whose result is 2,741 characters was rejected as over a limit of 8,223 characters
     (Pinned by: test_pdf_toc_and_checkboxes.py::
     TestDotLeaderPageNumbers::test_long_dot_leaders_do_not_count_against_the_limit_before_they_are_shortened).
+
+    Text read sideways (`page.sideways`) and form values (`page.form_values`) are counted too — both are always written at the end
+    of the page. Left out, a document whose text is all rotated by 90 degrees was analysed page after page far beyond the limit
+    until the time budget stopped it (Pinned by: test_audit_pdf_text.py::TestLimitCountsSidewaysTextAndFormValues).
     """
     lines = page.lines
     if not page.simple:
@@ -558,7 +588,8 @@ def _countable_chars(page: _Page, tally: _EdgeTally | None = None) -> int:
         if tally is not None:
             lines.extend(tally.unrepeatable(page.number, rim))
     return sum(solid_length(_LEADER_DOTS.sub("", _CID.sub("", text)))
-               for text in [*(line.text for line in lines), *(table.text for table in page.tables)])
+               for text in [*(line.text for line in lines), *(table.text for table in page.tables), *page.sideways,
+                            *page.form_values])
 
 
 def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
@@ -791,6 +822,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     dropped = sorted([*(char for char in dropped if not in_cells(char)), *tilted, *sideways],
                      key=lambda char: char["top"])
     dropped_tops = [char["top"] for char in dropped]
+    copy_index = _CopyIndex(dropped, dropped_tops)
     layout_lines = page.objects.get("textlinehorizontal", [])
     owners = _xobject_owners(layout_page)
     if len(owners) != len(layout_lines):
@@ -801,11 +833,22 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     # For lines on the same spot (copies of a line drawn on top of the same text) the characters at that height are picked only
     # once — same reason as `overprinted` below
     in_place: dict[tuple[float, float, float, float], list[dict]] = {}
+    shown = _text_view(page)
     for line, owner in zip(layout_lines, owners, strict=True):
         text = " ".join(line.get("text", "").split())
         if not text:
             continue
         spot = (line["x0"], line["x1"], line["top"], line["bottom"])
+        if not all(abs(value) < _LAYOUT_INF for value in spot):
+            # A line whose characters sit at a position that is not a finite number (a text matrix overflowing to infinity) is
+            # drawn nowhere; pdfminer gives it its 'infinite' box (2**31 - 1). Its characters are already dropped (as outside
+            # the view or, on a rotated page, for their position: `_without_drawing_artifacts`), but the layout line kept
+            # their text and every copy came out as a body line (Pinned by: test_audit_pdf_text.py::
+            # TestCharactersAtNonFinitePositions::test_a_rotated_page_is_read_too — on an upright page `_beyond_view` drops
+            # such a line as well). No page reaches that far (14,400pt × UserUnit 75,000).
+            continue
+        if shown and _beyond_view(line, shown[0]):
+            continue
         in_table = in_cells(line)
         if spot in in_place and not in_table:
             prepared.append((line, owner, text, in_place[spot]))
@@ -840,9 +883,9 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
         if any(char.get("restored") for char in inside):
             text = _text_from_chars(inside) or text  # the line text pdfminer built lacks the restored spaces
         text = _letter_spaced_text(inside, spacings) or text
-        copies = [char for char in _chars_at_line_level(line, dropped, dropped_tops) if line["x0"] - 1 <= char["x0"] <= line["x1"] + 1]
-        if copies:
-            kept = _text_without_artifacts(line, text, inside, kept_lines, any(char.get("shadow") for char in copies))
+        has_copies, shadowed = copy_index.at(line)  # removed characters under the line (`_CopyIndex`)
+        if has_copies:
+            kept = _text_without_artifacts(line, text, inside, kept_lines, shadowed)
             if kept is None:
                 continue
             if kept == text:
@@ -887,6 +930,19 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                  hidden_chars=hidden_chars if not lines and not tables and not sideways_text else 0,
                  undecodable=blank and _has_undecodable_contents(layout_page), unmeasured=unmeasured,
                  rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [])
+
+
+def _beyond_view(line: dict, view: tuple[float, float, float, float]) -> bool:
+    """Whether a layout line lies where no character kept on the page can belong to it: above or below the visible area, or
+    more than 1pt right of it. Every character of such a line is outside the view and dropped (`_without_drawing_artifacts`),
+    so the line would be dropped as a copy of removed characters anyway (`_text_without_artifacts`) — but finding that out
+    picks the kept characters at its height and scans the removed ones, and 6,000 characters placed apart far right of the
+    page (x = 2e9) on one row took that scan for every one of them. The removed ones are indexed now (`_CopyIndex`); the
+    kept ones are still picked line by line, so 8,000 characters right of the page on the rows of 40,000 small ones (21KB)
+    take 27 seconds without this and 1.9 with (Pinned by: test_audit_pdf_text.py::TestTooManyTextBoxes::
+    test_lines_beyond_the_view_are_not_matched_against_the_characters_of_the_page). The left side is not judged: a wide
+    kept character starting left of the view could still be centred inside it."""
+    return line["bottom"] < view[1] or line["top"] > view[3] or line["x0"] - 1 > view[2]
 
 
 def _metadata(decoded: dict, infos: list[dict]) -> dict[str, str]:

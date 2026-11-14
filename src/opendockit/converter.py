@@ -5,16 +5,18 @@ from concurrent.futures import Executor
 from dataclasses import replace
 from functools import partial
 import hashlib
-from io import BytesIO
 import os
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING
+import stat
+from typing import TYPE_CHECKING, BinaryIO
 import zipfile
 
 from opendockit.detect import detect_format, extension_mismatch, pdf_lookalike_text_format
 from opendockit.exceptions import ConversionError, CorruptedDocumentError, DocumentTooLargeError, UnsupportedFormatError
 from opendockit.extractors import EXTRACTORS
+from opendockit.extractors._inline import _escape_link_text
+from opendockit.extractors._package import uncompressed_size
 from opendockit.image import ImageSkipped, ImageTooLarge, ImageUnreadable, PreparedImage, needs_heif_plugin, prepare_image
 from opendockit.markdown import clean_text, neutralize_table_tags, solid_length
 from opendockit.models import (
@@ -73,6 +75,8 @@ _CONTEXT_CHARS = 400
 # Length of the tail carried along while collecting the preceding body text. Generous, so that _CONTEXT_CHARS remain even after
 # trailing whitespace is stripped.
 _CONTEXT_WINDOW = _CONTEXT_CHARS * 4
+# Piece size of `read_limited` after its first read (a stream that hands out less than asked for).
+_READ_CHUNK = 1024 * 1024
 
 
 def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
@@ -88,10 +92,7 @@ def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
     data = _content_bytes(data)
     _check_arguments(filename, options)
     options = options or _DEFAULT_OPTIONS
-    if len(data) > options.max_file_bytes:
-        raise DocumentTooLargeError(f"The file is too large (maximum {_size_text(options.max_file_bytes)}).")
-    if not data:
-        raise CorruptedDocumentError("The file is empty.")
+    check_size(data, options)
 
     # Format detection is parsing too: it opens ZIP and OLE containers. It sits inside the same boundary as extraction: an encrypted
     # ZIP (RuntimeError) or an unknown compression method (NotImplementedError) leaked out as an exception outside ConversionError
@@ -133,8 +134,36 @@ def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
     result = ConversionResult(format=document_format, text="", sections=sections, metadata=dict(extraction.metadata),
                               images=images, base_warnings=warnings, options=options, fallbacks=fallbacks,
                               exceeded=exceeded, counted=max(extraction.chars, text_chars) if exceeded else 0,
-                              marker_key=key)
+                              marker_key=key, time_limited=extraction.time_limited)
     return render(result)
+
+
+def check_size(data: bytes, options: ConvertOptions) -> None:
+    """The size checks that come before anything is parsed: over `max_file_bytes` is `DocumentTooLargeError`, empty is
+    `CorruptedDocumentError`. `IsolatedConverter` runs them in the server process too, so an oversized upload is not copied
+    into a worker first (Pinned by: test_isolated.py::TestIsolatedConverter::test_oversized_or_empty_input_is_refused_before_a_worker_starts)."""
+    if len(data) > options.max_file_bytes:
+        raise DocumentTooLargeError(f"The file is too large (maximum {_size_text(options.max_file_bytes)}).")
+    if not data:
+        raise CorruptedDocumentError("The file is empty.")
+
+
+def read_limited(stream: BinaryIO, limit: int, *, size_hint: int | None = None) -> bytes:
+    """At most `limit + 1` bytes of `stream`: enough for `convert` to tell that the content is over `limit`, without reading
+    the rest. A file whose size the file system does not report (a pipe, `/dev/zero`, a stream of a remote file system) was
+    read to its end before the size limit applied: `opendockit /dev/zero` grew without bound
+    (Pinned by: test_converter.py::TestReadingWithinTheSizeLimit). `size_hint` is the size the file system reports for a
+    regular file: the first read asks for exactly that much (one piece, as `read_bytes` did), later reads go in 1 MiB pieces."""
+    chunks: list[bytes] = []
+    total = 0
+    while total <= limit:
+        wanted = size_hint + 1 if size_hint is not None and not chunks else _READ_CHUNK
+        chunk = stream.read(min(wanted, limit + 1 - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    return b"".join(chunks)
 
 
 def _size_text(size: int) -> str:
@@ -184,12 +213,18 @@ def _extract(document_format: DocumentFormat, data: bytes, filename: str | None,
 
 
 def convert_file(path: str | os.PathLike[str], options: ConvertOptions | None = None) -> ConversionResult:
+    """Convert the file at `path`. A regular file over `max_file_bytes` is refused from its size before it is read; anything
+    else (a pipe, a device) is read only up to the limit (`read_limited`). A path that cannot be opened is an `OSError`."""
     file_path = Path(path)
     _check_arguments(None, options)
     options = options or _DEFAULT_OPTIONS
-    if file_path.stat().st_size > options.max_file_bytes:
-        raise DocumentTooLargeError(f"The file is too large (maximum {_size_text(options.max_file_bytes)}).")
-    return convert(file_path.read_bytes(), file_path.name, options)
+    with file_path.open("rb") as stream:
+        status = os.fstat(stream.fileno())
+        if stat.S_ISREG(status.st_mode) and status.st_size > options.max_file_bytes:
+            raise DocumentTooLargeError(f"The file is too large (maximum {_size_text(options.max_file_bytes)}).")
+        data = read_limited(stream, options.max_file_bytes,
+                            size_hint=status.st_size if stat.S_ISREG(status.st_mode) else None)
+    return convert(data, file_path.name, options)
 
 
 async def aconvert(data: bytes | bytearray | memoryview, filename: str | None = None,
@@ -299,7 +334,7 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
         if isinstance(outcome, ImageSkipped):
             fallbacks[raw.id] = ""
         elif isinstance(outcome, ImageUnreadable):
-            fallbacks[raw.id] = f"[Image: {alt}]" if alt else "[Image]"
+            fallbacks[raw.id] = _image_fallback(alt)
         else:
             prepared.append((raw, alt, *outcome))
 
@@ -340,7 +375,7 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
         candidates.append((raw, alt, image))
 
     for raw, alt, _ in candidates:
-        fallbacks[raw.id] = "" if raw.kind is ImageKind.PAGE else (f"[Image: {alt}]" if alt else "[Image]")
+        fallbacks[raw.id] = "" if raw.kind is ImageKind.PAGE else _image_fallback(alt)
 
     if aliases:
         _point_aliases_at_first(sections, aliases, marker)
@@ -486,7 +521,13 @@ def image_length_bound(image: DocumentImage, fallbacks: dict[int, str]) -> int:
     the caller multiplies by the count. `describe` uses this value to skip rendering the document, so if it were smaller than
     the real value, an exceeded limit would be missed
     (Pinned by: test_image.py::TestResourceBounds::test_description_stops_at_exactly_the_image_that_crosses_the_limit).
+    A picture that is erased now (decorative, no alt text) has not grown at all: 0. Counted as the 3 characters of the blank
+    lines it no longer has, every SKIP answer used up headroom, so in a document just under the limit the whole text was
+    assembled again every few pictures — quadratic in the number of pictures, on the event loop (2,000 pictures: 2.6 s)
+    (Pinned by: test_core_image_and_assembly.py::TestDecorativeAnswersNearTheLimit).
     """
+    if _erased(image):
+        return 0
     images = {image.id: image}
     return max(len(_block_text(images, fallbacks, image.id)), len(_cell_text(images, fallbacks, image.id)),
                len(_cell_text(images, fallbacks, image.id, html=True))) + 3
@@ -497,6 +538,15 @@ def _erased(image: DocumentImage | None) -> bool:
     erased and the placeholder text ('[Image: …]') stays — it is information a person wrote
     (Pinned by: test_image.py::TestDecorativePictureWithAltText)."""
     return image is not None and image.decorative and not image.alt
+
+
+def _image_fallback(alt: str | None) -> str:
+    """`[Image: alt]` (or `[Image]`) for a picture that stays as placeholder text. The brackets of the alt text are escaped like link
+    text (`_inline._escape_link_text`), as the extractors do for pictures they do not extract: an alt such as
+    `a](https://evil.example) [b` made the placeholder a working link (Pinned by:
+    test_audit_web_fixes.py::TestAltTextCannotMakeALink::test_alt_text_of_an_extracted_picture). The describer still gets the alt
+    text as written."""
+    return f"[Image: {_escape_link_text(alt)}]" if alt else "[Image]"
 
 
 def _block_text(images: dict[int, DocumentImage], fallbacks: dict[int, str], image_id: int) -> str:
@@ -528,8 +578,7 @@ def _cell_text(images: dict[int, DocumentImage], fallbacks: dict[int, str], imag
 def _guard_zip(data: bytes, options: ConvertOptions) -> None:
     """Zip-bomb defense: check the total uncompressed size first, from the central directory."""
     try:
-        with zipfile.ZipFile(BytesIO(data)) as archive:
-            total = sum(info.file_size for info in archive.infolist())
+        total = uncompressed_size(data)
     except zipfile.BadZipFile as exc:
         raise CorruptedDocumentError("The document's archive structure is corrupted.") from exc
     if total > options.max_uncompressed_bytes:

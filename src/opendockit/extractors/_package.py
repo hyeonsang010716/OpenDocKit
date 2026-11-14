@@ -5,6 +5,7 @@ integer attribute.
 
 from collections.abc import Callable
 from io import BytesIO
+import lzma
 import posixpath
 import re
 import shutil
@@ -15,6 +16,15 @@ from lxml import etree
 
 
 _XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True)
+
+# What reading one damaged member of a ZIP archive can raise: a bad CRC or local header (BadZipFile), a broken compressed stream
+# (zlib.error, lzma.LZMAError, OSError from bz2), a stream cut short (EOFError), an encrypted member (RuntimeError), an unknown
+# compression method (NotImplementedError), and odd header values (ValueError). Catch these around a member read so that one member
+# skips only itself (Pinned by: test_office_robustness.py::TestDamagedZipMember).
+ZIP_MEMBER_ERRORS: tuple[type[Exception], ...] = (zipfile.BadZipFile, zlib.error, lzma.LZMAError, EOFError, OSError, RuntimeError,
+                                                  NotImplementedError, ValueError)
+# Chunk size for reading a member through to check it (`_member_reads`)
+_CHECK_CHUNK = 1 << 20
 
 
 # Namespaces of OOXML package relationships (.rels) and content types ([Content_Types].xml), and the main-part relationship type
@@ -45,6 +55,14 @@ def decimal_int[T](value: str | None, default: T, *, signed: bool = False) -> in
         return default
 
 
+def uncompressed_size(data: bytes) -> int:
+    """Total uncompressed size of a ZIP archive's members, from its central directory (the zip-bomb check of `converter._guard_zip`
+    and of the file LibreOffice writes, `legacy._guard_converted_zip` — one function so the two checks cannot drift apart).
+    Raises zipfile.BadZipFile when the archive cannot be opened."""
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        return sum(info.file_size for info in archive.infolist())
+
+
 def parse_part(data: bytes) -> etree._Element | None:
     """Read part XML without entities or network access. A broken part gives None (only that object is skipped)."""
     try:
@@ -58,8 +76,10 @@ def parse_part(data: bytes) -> etree._Element | None:
 
 def open_package[T](opener: Callable[[BytesIO], T], data: bytes, warnings: list[str]) -> T:
     """Open an OOXML package with `opener` (`Package.open` of python-docx / python-pptx). If opening fails because of one missing or
-    non-XML part (KeyError, XMLSyntaxError), open once more from a copy with that part and its relationship detached
-    (`repair_package`) and leave a warning.
+    non-XML part (KeyError, XMLSyntaxError) or one member that cannot be read out of the archive (`ZIP_MEMBER_ERRORS` — a picture
+    with a broken compressed stream), open once more from a copy with that part and its relationship detached (`repair_package`)
+    and leave a warning. The libraries read every part when opening, so one damaged picture rejected the whole document
+    (Pinned by: test_office_robustness.py::TestDamagedZipMember).
 
     The libraries read every part the relationships point to when opening, so a document with a sound body was rejected outright when
     one picture or one numbering definition was missing or docProps was not XML. No copy is made for a healthy document — inspection
@@ -68,8 +88,11 @@ def open_package[T](opener: Callable[[BytesIO], T], data: bytes, warnings: list[
     """
     try:
         return opener(BytesIO(data))
-    except (KeyError, etree.XMLSyntaxError):
-        repaired = repair_package(data)
+    except (KeyError, etree.XMLSyntaxError, *ZIP_MEMBER_ERRORS):
+        try:
+            repaired = repair_package(data)
+        except ZIP_MEMBER_ERRORS:  # the archive itself cannot be read: the original error stands
+            repaired = None
         if repaired is None:
             raise
         warnings.append(repaired[1])
@@ -88,7 +111,7 @@ def is_strict_package(data: bytes) -> bool:
     try:
         with zipfile.ZipFile(BytesIO(data)) as archive:
             root = _parse_member(archive, "_rels/.rels") if "_rels/.rels" in archive.namelist() else None
-    except (zipfile.BadZipFile, OSError, RuntimeError, NotImplementedError, EOFError, zlib.error):
+    except ZIP_MEMBER_ERRORS:
         return False
 
     relationships = root.iter(f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship") if root is not None else []
@@ -147,7 +170,10 @@ def repair_package(data: bytes) -> tuple[bytes, str] | None:
             root = _parse_member(archive, rels_name)
             if root is None:
                 continue
-            base = rels_name[: rels_name.index("_rels/")]
+            # The folder of the owning part: the text before the last `_rels/` — the first one is wrong for a folder whose name
+            # ends in `_rels` (Pinned by: test_office_robustness.py::TestDamagedZipMember::
+            # test_relationships_of_a_part_in_a_folder_ending_in_rels_resolve_against_that_folder)
+            base = rels_name[: rels_name.rindex("_rels/")]
             removed = False
             for relationship in list(root):
                 if relationship.tag != f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship" or relationship.get("TargetMode") == "External":
@@ -168,6 +194,9 @@ def repair_package(data: bytes) -> tuple[bytes, str] | None:
         excluded = {name for name in dropped if name in names}
         excluded |= {_relationships_of(name) for name in excluded} & names
         members = {info.filename: info for info in archive.infolist()}
+        # A member nothing points at is never opened by the libraries, but copying it would fail on it: it is left out too
+        excluded |= {name for name, info in members.items() if name not in excluded and name not in rewritten
+                     and not _member_reads(archive, info)}
         buffer = BytesIO()
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target_archive:
             for info in members.values():
@@ -207,10 +236,22 @@ def _resolve_target(base: str, target: str) -> str:
 
 
 def _parse_member(archive: zipfile.ZipFile, name: str) -> etree._Element | None:
+    """Root of an XML member. None when it does not parse or cannot be read out of the archive."""
     try:
         return etree.fromstring(archive.read(name), parser=_XML_PARSER)
-    except etree.XMLSyntaxError:
+    except (etree.XMLSyntaxError, *ZIP_MEMBER_ERRORS):
         return None
+
+
+def _member_reads(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bool:
+    """Can the member be read to its end (decompressed, CRC checked)? Streamed in chunks; nothing is kept."""
+    try:
+        with archive.open(info) as stream:
+            while stream.read(_CHECK_CHUNK):
+                pass
+    except ZIP_MEMBER_ERRORS:
+        return False
+    return True
 
 
 def _content_type_lookup(archive: zipfile.ZipFile, names: set[str]) -> Callable[[str], str | None] | None:
@@ -242,12 +283,13 @@ def _main_part(archive: zipfile.ZipFile, names: set[str]) -> str | None:
 
 def _is_readable(archive: zipfile.ZipFile, names: set[str], content_type_of: Callable[[str], str | None],
                  readable: dict[str, bool], name: str) -> bool:
-    """Does the part exist, have a content type and, if it is an XML type, parse?"""
+    """Does the part exist, have a content type, read out of the archive and, if it is an XML type, parse?"""
     content_type = content_type_of(name) if name in names else None
     if content_type is None:
         return False
-    if not (content_type.endswith("+xml") or content_type in _XML_CONTENT_TYPES):
-        return True
     if name not in readable:
-        readable[name] = _parse_member(archive, name) is not None
+        if content_type.endswith("+xml") or content_type in _XML_CONTENT_TYPES:
+            readable[name] = _parse_member(archive, name) is not None
+        else:
+            readable[name] = _member_reads(archive, archive.getinfo(name))
     return readable[name]

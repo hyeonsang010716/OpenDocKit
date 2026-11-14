@@ -173,7 +173,7 @@ def _carry_table_headers(pages: list[_Page]) -> None:
             # test_pdf_table_columns.py::TestRowSplitAcrossPages). A ruled table gives merged cells as None, so only those
             # are taken as a title.
             first.continued = True
-            _carry_open_cells(last, first)
+            _carry_open_cells(last, first, _starts_with_own_header(last, first))
             first.text = _table_text(first)
 
         # In a borderless table the first row acts as the header, so an empty cell leaves it short of columns; the line pieces
@@ -185,9 +185,7 @@ def _carry_table_headers(pages: list[_Page]) -> None:
         header = last.rows[0]
         if grid is None or len(last.rows) < _TABLE_MIN_ROWS or not _looks_like_header(header, [*last.rows[1:], grid[0]]):
             continue
-        # a row split at the end of the previous page: the first row is the rest of it, not a header
-        split = len(last.open_below) == len(last.spans)
-        if len(grid) > 1 and not split and not _has_value_text(grid[0]) and _has_number_text(grid[1]):
+        if _starts_with_own_header(last, first, grid):
             continue
         if len(header) == 2 and sum(1 for row in last.rows[1:] if _has_number_text(row[1:])) * 2 <= len(last.rows) - 1:
             # a two-column table with no numeric value column may be a 'label | value' form grid — there is no telling whether
@@ -201,7 +199,21 @@ def _carry_table_headers(pages: list[_Page]) -> None:
             first.spans = last.spans  # fitted to the previous table's columns, so the next page is fitted to them too
 
 
-def _carry_open_cells(last: _Table, first: _Table) -> None:
+def _starts_with_own_header(last: _Table, first: _Table, grid: list[list[str]] | None = None) -> bool:
+    """Whether the table at the top of the page (`first`, cell text `grid`, its own rows when not given) starts with a
+    header of its own rather than continuing `last`: its first row has no numeric value cell and the second row does, the
+    first row is not the header of `last` repeated, and `last` does not end in a row split at the end of the page (every
+    column open below — then the first row is the rest of that row).
+
+    Such a table does not get the previous header, nor, in a column whose top cell has a top border, the text of a merged
+    cell left open at the end of the previous page (`_carry_open_cells`)."""
+    rows = first.rows if grid is None else grid
+    split = len(last.open_below) == len(last.spans)
+    return (len(rows) > 1 and not split and not _has_value_text(rows[0]) and _has_number_text(rows[1])
+            and (grid is not None or rows[0] != last.rows[0]))
+
+
+def _carry_open_cells(last: _Table, first: _Table, own_header: bool = False) -> None:
     """For each column where the bottom cell of the previous page's table (`last`) is open below (`open_below`, a vertically
     merged cell split at the end of the page), fill that cell's text into the rows of the continued table (`first`) where
     the column is empty, starting from the top data row (a repeated header is skipped) (stops at the first cell with text,
@@ -216,13 +228,20 @@ def _carry_open_cells(last: _Table, first: _Table) -> None:
     the rest of the row on the next page would make the same row come out twice, and the amount could be counted twice
     (pinned by: test_pdf_table_columns.py::
     TestRowSplitAcrossPages::test_row_whose_cells_are_all_open_at_the_page_end_stays_in_the_table).
+
+    A column is skipped when the table starts with a header of its own (`own_header`, `_starts_with_own_header`) and its
+    top cell in that column has a top border: the merged cell does not go on there — '그룹2 담당: 팀2' went into the blank
+    corner cell of a different table's header (Pinned by: test_pdf_table_columns.py::TestMergedCellOpenAtThePageEnd::
+    test_new_table_with_its_own_header_does_not_get_the_open_cell). The header test alone also stopped real continuations,
+    whose rest of the cell has no top border, when the first row held a date or a text value ('2024.07.15', '미정') (Pinned
+    by: test_rows_continued_without_a_header_get_the_open_cell_whatever_their_values in the same class).
     """
     if len(last.open_below) == len(last.spans):
         return
     start = 1 if first.rows and last.rows and first.rows[0] == last.rows[0] else 0
     for column in last.open_below:
         value = last.rows[-1][column] if column < len(last.rows[-1]) else ""
-        if not value:
+        if not value or (own_header and _closed_at_the_top(first, column)):
             continue
         for row in first.rows[start:]:
             if column >= len(row) or row[column]:
@@ -230,9 +249,20 @@ def _carry_open_cells(last: _Table, first: _Table) -> None:
             row[column] = value
 
 
+def _closed_at_the_top(table: _Table, column: int) -> bool:
+    """Whether a ruled table has a cell starting at its top edge over the middle of `column` (the top cell of that column
+    has a top border)."""
+    if column >= len(table.spans):
+        return False
+    middle = sum(table.spans[column]) / 2
+    return any(abs(cell[1] - table.top) <= 1.5 and cell[0] < middle < cell[2] for cell in table.cells)
+
+
 def _looks_like_header(row: list[str], rows: list[list[str]]) -> bool:
     """Whether the row looks like a header row: two or more cells have text, all of them at most `_HEADER_CELL_MAX_CHARS`
-    characters (line breaks excluded), no cell holds only a numeric value, and no cell text appears again in the same column
+    characters (line breaks excluded — `<br>` and a ruled cell's `\n`; Pinned by: test_pdf_table_columns.py::
+    TestTableContinuedOnTheNextPage::test_header_cell_on_two_lines_is_measured_without_its_line_break), no cell holds only a
+    numeric value, and no cell text appears again in the same column
     of the other rows (`rows`, the previous table's data rows and the first row of the table to be continued).
 
     The last condition filters out the same frame on every page (a slide layout caught as a ruled table) — the frame's first
@@ -241,7 +271,7 @@ def _looks_like_header(row: list[str], rows: list[list[str]]) -> bool:
     filtered out here."""
     filled = [cell.strip() for cell in row if cell and cell.strip()]
     return (len(filled) >= 2 and not _has_value_text(row)
-            and all(len(cell.replace("<br>", "")) <= _HEADER_CELL_MAX_CHARS for cell in filled)
+            and all(len(cell.replace("<br>", "").replace("\n", "")) <= _HEADER_CELL_MAX_CHARS for cell in filled)
             and not any(cell and cell.strip() and index < len(other) and (other[index] or "").strip() == cell.strip()
                         for other in rows for index, cell in enumerate(row)))
 

@@ -356,7 +356,9 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                 if notes is None:
                     continue
                 kind = "footnote" if tag == _w("footnoteReference") else "endnote"
-                parts.append(f"[^{notes.label(kind, child.get(_w('id'), ''))}]")
+                label = notes.label(kind, child.get(_w("id"), ""))
+                if label is not None:
+                    parts.append(f"[^{label}]")
             else:
                 walk(child)
 
@@ -807,13 +809,20 @@ class _NoteLabels:
     as HWP/HWPX). Footnotes and endnotes are numbered separately and would collide, so endnotes get the prefix 'endnote' to tell
     them apart. With the XML id used as is, the first footnote of a document saved by LibreOffice (the separators take ids 0 and 1)
     was `[^2]` (Pinned by: test_office_scaling_and_note_order.py::TestDocxFootnoteNumbersFollowTheOrderOfReference).
+
+    `written` holds the notes that will have content below the body; a reference to any other note (no such id, no notes part, a
+    note with nothing in it) gets no label and no mark — `[^1]` pointed at a definition that was never written (Pinned by:
+    test_office_symbols_fields_notes.py::TestDocxNoteReferenceWithoutContent). None takes every reference.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, written: set[tuple[str, str]] | None = None) -> None:
         self.labels: dict[tuple[str, str], str] = {}  # in order of first reference
         self._counts = {"footnote": 0, "endnote": 0}
+        self._written = written
 
-    def label(self, kind: str, note_id: str) -> str:
+    def label(self, kind: str, note_id: str) -> str | None:
+        if self._written is not None and (kind, note_id) not in self._written:
+            return None
         if (kind, note_id) not in self.labels:
             self._counts[kind] += 1
             number = self._counts[kind]

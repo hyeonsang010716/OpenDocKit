@@ -130,6 +130,69 @@ class TestCharacters:
         fonts = r"{\fonttbl{\f0\fcharset0 Gulim;}}"
         assert _text(fonts + r"\f0 " + _cp949("안녕") + r"\par caf\'e9 au lait\par", head=r"\ansi\ansicpg949") == "안녕\n\ncafé au lait"
 
+    def test_fallback_counted_in_characters_drops_the_whole_double_byte_character(self):
+        """`\\uc1` followed by a two-byte CP949 fallback (writers that count `\\ucN` in characters): the byte that completes the
+        dropped lead byte is dropped too — it came out as '가�'. A fallback counted in bytes (`\\uc2`), a one-byte fallback
+        followed by real CP949 text, and a CP932 half-width katakana (one byte) are read as before."""
+        head = r"\ansi\ansicpg949"
+        assert _text(r"\uc1\u44032\'b0\'a1 end\par", head=head) == "가 end"
+        assert _text(r"\uc2\u44032\'b0\'a1 end\par", head=head) == "가 end"
+        assert _text(r"\uc1\u44032?" + _cp949("가") + r"\par", head=head) == "가가"
+        assert _text(r"\uc1\u44032\'b0 x\par", head=head) == "가 x"
+        assert _text(r"\uc1\u65393\'b1\'82\'a0\par", head=r"\ansi\ansicpg932") == "ｱあ"
+
+    def test_fallback_written_as_raw_8bit_text_is_dropped_whole(self):
+        """The same fallback as plain 8-bit text instead of `\\'hh` (the second byte in the same run of text, or in the next
+        token), and a three-byte UTF-8 fallback after `\\uc1`: the whole character is dropped (it left '가�')."""
+        def text(body: bytes, page: int = 949) -> str:
+            """`BS` stands for a backslash."""
+            return convert((b"{BSrtf1BSansiBSansicpg%d " % page + body + b"BSpar}").replace(b"BS", b"\\"), "a.rtf").text
+        ga = "가".encode("cp949")
+        assert text(b"BSuc1BSu44032" + ga + b" end") == "가 end"
+        assert text(b"BSuc1BSu44032" + ga[:1] + b"BS'a1 end") == "가 end"
+        assert text(b"BSuc2BSu44032" + ga + ga + b" end") == "가가 end"
+        assert text(b"BSuc1BSu44032BS'eaBS'b0BS'80 x", page=65001) == "가 x"
+        assert text(b"BSuc1BSu44032" + "가".encode() + b" x", page=65001) == "가 x"
+
+    def test_one_byte_fallback_never_takes_the_letter_after_it(self):
+        """What Word writes for a curly quote or an accented letter in a Western font (`\\fcharset0`) of a Chinese, Japanese
+        or Korean document: `\\uc1`, the escape, one CP1252 byte. That byte and the letter after it are a character of the
+        document's code page (0x92 0x73 in GBK), but not the escaped one, so the letter is text — "It’s a cafés" came out
+        as "It’ a café". The same without a font table when the fallback is only the first byte of the character. A fallback
+        that is the escaped character (also in its second encoding, CP932 0x879A for '∵') is still dropped whole."""
+        quote, e, ga = _unicode("’", r"\'92"), _unicode("é", r"\'e9"), _unicode("가", r"\'b0")
+        body = r"{\fonttbl{\f0\fcharset0 Times New Roman;}}\pard\f0\uc1 It" + quote + "s a caf" + e + r"s test\par"
+        for page in (932, 936, 949, 950):
+            assert _text(body, head=rf"\ansi\ansicpg{page}\deff0") == "It’s a cafés test", page
+        raw = body.replace(r"\'92", "\x92").replace(r"\'e9", "\xe9").encode("latin-1")
+        assert convert(rb"{\rtf1\ansi\ansicpg936\deff0" + raw + b"}", "a.rtf").text == "It’s a cafés test"
+        cent = r"{\fonttbl{\f0\fcharset0 Arial;}}\pard\f0\uc1 5" + _unicode("¢", r"\'a2") + r"F\par"  # 0xA2 0x46 is '¢' in Big5
+        assert _text(cent, head=r"\ansi\ansicpg950\deff0") == "5¢F"
+        head = r"\ansi\ansicpg949\uc1"
+        assert _text(ga + r"x end\par", head=head) == "가x end"
+        assert _text(ga + r"\'a2 end\par", head=head) == "가\N{REPLACEMENT CHARACTER} end"
+        assert _text(ga + r"\'a1x end\par", head=head) == "가x end"
+        assert _text(_unicode("∵", r"\'87\'9a") + r" end\par", head=r"\ansi\ansicpg932\uc1") == "∵ end"
+
+    def test_byte_that_the_text_after_it_needs_is_not_dropped(self):
+        """A fallback of one byte (0xD3, the first byte of '曇') followed by '얾' (0xBE 0xF5), which starts with the second
+        byte of '曇': dropping 0xBE with the fallback left a lone 0xF5 ('曇�'). The byte stays when the text after it reads
+        only with it. When the text reads without it too, the fallback is taken for the whole character, as before."""
+        head, cloudy = r"\ansi\ansicpg949\uc1", _unicode("曇", r"\'d3")
+        assert _text(cloudy + r"\'be\'f5\par", head=head) == "曇얾"
+        assert _text(cloudy + r"\'be\'f5 end\par", head=head) == "曇얾 end"
+        assert _text(cloudy + r"\'be" + _cp949("가나다라마바사아자차카타파하") + r"\par", head=head) == "曇가나다라마바사아자차카타파하"
+        assert _text(cloudy + r"\'be\'f5\'a1\par", head=head) == "曇椒"
+
+    def test_code_page_that_is_not_ascii_compatible_is_ignored(self):
+        """`\\ansicpg875` (EBCDIC Greek) turned a whole run with one 8-bit byte into noise ('hello' → 'ΪΧ%%?'), and a font
+        with `\\cpg500` (EBCDIC) did the same. RTF is ASCII text, so such a code page is ignored and the document's is used.
+        A real code page that only draws a symbol differently (CP864, Arabic: '%' is '٪') is still used."""
+        assert _text(r"hello \'e9\par", head=r"\ansi\ansicpg875") == "hello é"
+        assert _text(r"{\fonttbl{\f1\cpg500 F;}}\f1 caf\'e9\par") == "café"
+        assert _text(r"{\fonttbl{\f1\cpg1026 F;}}\f1 caf\'e9\par") == "café"
+        assert _text(r"50% \'e9\par", head=r"\ansi\ansicpg864") == "50٪ ﻯ"
+
     def test_unicode_escapes_cover_negative_values_and_surrogate_pairs(self):
         """'한' (U+D55C) is `\\u-10916`, '😀' is the surrogate pair `\\u-10179\\u-8704`; each escape is followed by one fallback
         character that is dropped. A lone surrogate half is dropped (it cannot be encoded)."""

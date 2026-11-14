@@ -5,7 +5,7 @@ from io import BytesIO
 
 import pytest
 
-from opendockit import convert
+from opendockit import ConvertOptions, convert
 from tests import builder
 from tests.test_office import _docx_with_body, _pptx_with_text_boxes, _slide_body
 
@@ -291,3 +291,158 @@ class TestDocxFootnoteBoxesAndPictures:
 
         assert [image.alt for image in result.images] == ["각주 그래프"]
         assert result.text == "본문[^1]\n\n[^1]: 출처 그림:\n\n[Image: 각주 그래프]"  # same shape as an HWPX footnote picture
+
+
+def _rebuilt(data: bytes, *, corrupt: tuple[str, ...] = (), rename: dict[str, str] | None = None,
+             edit: dict[str, object] | None = None, add: dict[str, str] | None = None) -> bytes:
+    """A copy of a ZIP-based document. The members in `corrupt` are stored uncompressed with one byte of their data flipped (so
+    reading them fails their CRC check); `rename` moves members, `edit` (name → function of the text) changes them, `add` adds members."""
+    import zipfile
+
+    rename, edit = rename or {}, edit or {}
+    buffer = BytesIO()
+    with zipfile.ZipFile(BytesIO(data)) as source, zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+        for name in source.namelist():
+            content = source.read(name)
+            if name in edit:
+                content = edit[name](content.decode("utf-8")).encode("utf-8")
+            method = zipfile.ZIP_STORED if name in corrupt else zipfile.ZIP_DEFLATED
+            target.writestr(rename.get(name, name), content, compress_type=method)
+        for name, content in (add or {}).items():
+            target.writestr(name, content, compress_type=zipfile.ZIP_STORED if name in corrupt else zipfile.ZIP_DEFLATED)
+    raw = bytearray(buffer.getvalue())
+    with zipfile.ZipFile(BytesIO(bytes(raw))) as archive:
+        infos = [archive.getinfo(rename.get(name, name)) for name in corrupt]
+    for info in infos:
+        start = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
+        raw[start + info.compress_size // 2] ^= 0xFF
+    return bytes(raw)
+
+
+class TestDamagedZipMember:
+    """python-docx / python-pptx read every part when opening, so one picture whose bytes could not be read out of the archive (a
+    broken compressed stream or a failed CRC check) rejected the whole document. Such a member is detached like a missing part."""
+
+    def test_docx_picture_that_cannot_be_read_is_detached_and_the_body_kept(self):
+        data = _rebuilt(builder.docx_with_images(), corrupt=("word/media/image1.png",))
+
+        result = convert(data, "a.docx")
+
+        assert result.text.startswith("차트 앞 문단입니다.\n\n아이콘")
+        assert any("detaching 1 missing or broken part(s) (image1.png)" in warning for warning in result.warnings)
+
+    def test_pptx_picture_that_cannot_be_read_is_detached_and_the_slides_kept(self):
+        data = _rebuilt(builder.pptx_with_image(), corrupt=("ppt/media/image1.png",))
+
+        result = convert(data, "a.pptx")
+
+        assert result.sections
+        assert any("detaching 1 missing or broken part(s) (image1.png)" in warning for warning in result.warnings)
+
+    def test_member_nothing_points_at_that_cannot_be_read_is_left_out_of_the_copy(self):
+        data = _rebuilt(builder.docx_with_images(), corrupt=("word/media/image1.png", "word/media/orphan.bin"),
+                        add={"word/media/orphan.bin": "x" * 5000})
+
+        result = convert(data, "a.docx")
+
+        assert any("detaching 1 missing or broken part(s)" in warning for warning in result.warnings)
+
+    def test_relationships_of_a_part_in_a_folder_ending_in_rels_resolve_against_that_folder(self):
+        """The folder of a part was taken as the text before the first `_rels/` of its relationships file, so for
+        `word/hdr_rels/_rels/header1.xml.rels` it was `word/hdr`, the header's picture counted as missing and was detached when
+        the package was repaired for another reason."""
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("본문")
+        document.sections[0].header.paragraphs[0].add_run().add_picture(BytesIO(builder.png_bytes(seed=3)))
+        buffer = BytesIO()
+        document.save(buffer)
+        relationship = f'<Relationship Id="rIdGone" Type="{_RELATIONSHIPS_NS}/image" Target="media/gone.png"/></Relationships>'
+        data = _rebuilt(buffer.getvalue(), rename={
+            "word/header1.xml": "word/hdr_rels/header1.xml",
+            "word/_rels/header1.xml.rels": "word/hdr_rels/_rels/header1.xml.rels",
+            "word/media/image1.png": "word/hdr_rels/logo.png",
+        }, edit={
+            "word/_rels/header1.xml.rels": lambda xml: xml.replace('Target="media/image1.png"', 'Target="logo.png"'),
+            "word/_rels/document.xml.rels": lambda xml: xml.replace('Target="header1.xml"', 'Target="hdr_rels/header1.xml"')
+                                                           .replace("</Relationships>", relationship),
+            "[Content_Types].xml": lambda xml: xml.replace("/word/header1.xml", "/word/hdr_rels/header1.xml"),
+        })
+
+        result = convert(data, "a.docx", ConvertOptions(include_headers_footers=True))
+
+        assert any("detaching 1 missing or broken part(s) (gone.png)" in warning for warning in result.warnings)
+        assert len(result.images) == 1
+
+    def test_errors_of_a_damaged_member_are_listed_for_other_extractors(self):
+        import lzma
+        import zipfile
+        import zlib
+
+        from opendockit.extractors._package import ZIP_MEMBER_ERRORS
+
+        for error in (zipfile.BadZipFile, zlib.error, lzma.LZMAError, EOFError, OSError, RuntimeError, NotImplementedError):
+            assert issubclass(error, ZIP_MEMBER_ERRORS)
+
+
+_NOTE_PICTURE_RELATIONSHIP = f'<Relationship Id="rIdImg" Type="{_RELATIONSHIPS_NS}/image" Target="media/note.png"/>'
+_OLE = ('<w:r><w:object xmlns:o="urn:schemas-microsoft-com:office:office">'
+        '<o:OLEObject Type="Embed" ProgID="Excel.Sheet.12" ShapeID="s1"/></w:object></w:r>')
+
+
+class TestDocxNoteWithOnlyUnwrittenContent:
+    """Whether a footnote has content was decided by searching it for pictures and objects, while the footnote itself is written
+    by the paragraph walk, which leaves out deleted, moved-away and hidden content, compatibility copies, linked pictures and
+    objects that are not OLE objects. Such a footnote got a body mark `[^1]` and no definition. The decision now uses the same
+    walk (`_DocxRenderer._written_notes`)."""
+
+    @pytest.mark.parametrize("note", [
+        pytest.param(f'<w:p><w:del w:id="5" w:author="a">{_PICTURE}</w:del></w:p>', id="deleted picture"),
+        pytest.param(f'<w:p><w:moveFrom w:id="6" w:author="a">{_PICTURE}</w:moveFrom></w:p>', id="moved-away picture"),
+        pytest.param("<w:p>" + _PICTURE.replace("<w:r>", "<w:r><w:rPr><w:vanish/></w:rPr>", 1) + "</w:p>", id="hidden picture"),
+        pytest.param("<w:p><w:r><mc:AlternateContent><mc:Choice Requires='x'/><mc:Fallback>" + _PICTURE[5:-6]
+                     + "</mc:Fallback></mc:AlternateContent></w:r></w:p>", id="picture only in the compatibility copy"),
+        pytest.param("<w:p>" + _PICTURE.replace("r:embed='rIdImg'", "r:link='rIdImg'") + "</w:p>", id="linked picture"),
+        pytest.param('<w:p><w:r><w:object><w:control r:id="rIdImg" w:name="x"/></w:object></w:r></w:p>', id="ActiveX control"),
+        pytest.param(f'<w:p><w:del w:id="5" w:author="a">{_OLE}</w:del></w:p>', id="deleted OLE object"),
+    ])
+    @pytest.mark.parametrize("extract_images", [True, False])
+    def test_footnote_with_nothing_that_is_written_writes_no_mark(self, note, extract_images):
+        data = _docx_with_footnote(note, note_relationships=_NOTE_PICTURE_RELATIONSHIP,
+                                   add={"word/media/note.png": builder.png_bytes(300, 200, seed=3)})
+
+        assert convert(data, "a.docx", ConvertOptions(extract_images=extract_images)).text == "본문"
+
+    def test_footnote_whose_picture_is_written_keeps_its_mark(self):
+        data = _docx_with_footnote(f"<w:p>{_PICTURE}</w:p>", note_relationships=_NOTE_PICTURE_RELATIONSHIP,
+                                   add={"word/media/note.png": builder.png_bytes(300, 200, seed=3)})
+
+        result = convert(data, "a.docx")
+
+        assert result.text.startswith("본문[^1]\n\n[^1]:") and len(result.images) == 1
+
+    @pytest.mark.parametrize("extract_images", [True, False])
+    def test_footnote_with_an_ole_object_keeps_its_mark_and_placeholder(self, extract_images):
+        data = _docx_with_footnote(f"<w:p>{_OLE}</w:p>")
+
+        result = convert(data, "a.docx", ConvertOptions(extract_images=extract_images))
+
+        assert result.text == "본문[^1]\n\n[^1]: [OLE object]"
+
+    def test_endnotes_follow_the_same_rule(self):
+        body = ("<w:p>" + _run("본문") + '<w:r><w:endnoteReference w:id="1"/></w:r><w:r><w:endnoteReference w:id="2"/></w:r>'
+                + '<w:r><w:endnoteReference w:id="3"/></w:r></w:p>')
+        notes = (f'<w:endnotes {_NOTE_NAMESPACES}><w:endnote w:id="1"><w:p>'
+                 f'<w:del w:id="5" w:author="a"><w:r><w:delText>지움</w:delText></w:r></w:del></w:p></w:endnote>'
+                 f"<w:endnote w:id=\"2\"><w:p>{_run('미주')}</w:p></w:endnote></w:endnotes>")
+        data = builder.zip_with(_docx_with_body(body), edit={
+            "word/_rels/document.xml.rels": lambda xml: xml.replace(
+                "</Relationships>", f'<Relationship Id="rIdEnd" Type="{_RELATIONSHIPS_NS}/endnotes" Target="endnotes.xml"/>'
+                                    "</Relationships>"),
+            "[Content_Types].xml": lambda xml: xml.replace(
+                "</Types>", '<Override PartName="/word/endnotes.xml" '
+                            'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml"/></Types>'),
+        }, add={"word/endnotes.xml": notes})
+
+        assert convert(data, "a.docx").text == "본문[^endnote1]\n\n[^endnote1]: 미주"

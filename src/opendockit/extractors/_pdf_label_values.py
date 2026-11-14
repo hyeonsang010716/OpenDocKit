@@ -2,6 +2,7 @@
 right-aligned numbers, and the visual rows of a line.
 """
 
+import math
 import re
 
 from opendockit.extractors._pdf_model import _BARE_NUMBER, _FAR_VALUE, _HEADER_CELL_MAX_CHARS, _TABLE_CELL_MAX_RATIO, _TABLE_ROW_TOLERANCE, _Line
@@ -44,9 +45,10 @@ def _label_value_rows(rows: list[list[_Line]], page_width: float) -> list[list[_
     max_label = page_width * _TABLE_CELL_MAX_RATIO
     found: list[list[_Line]] = []
     index = 0
+    reach: dict = {}  # what `_centered_label_rows` worked out about the rows below each place (`_may_hold_labels`)
 
     while index < len(rows):
-        centered, taken = _centered_label_rows(rows, index, max_label)
+        centered, taken = _centered_label_rows(rows, index, max_label, reach)
         if centered:
             found.extend(centered)
             index += taken
@@ -75,7 +77,8 @@ def _label_value_rows(rows: list[list[_Line]], page_width: float) -> list[list[_
     return found
 
 
-def _centered_label_rows(rows: list[list[_Line]], index: int, max_label: float) -> tuple[list[list[_Line]], int]:
+def _centered_label_rows(rows: list[list[_Line]], index: int, max_label: float,
+                         reach: dict | None = None) -> tuple[list[list[_Line]], int]:
     """If, starting at `rows[index]` (one line of the value column), there is a 'label value' group whose labels sit at
     the vertical centre of multi-line value blocks: (rows of a label + its value lines, number of rows consumed).
     Otherwise ([], 0).
@@ -101,6 +104,8 @@ def _centered_label_rows(rows: list[list[_Line]], index: int, max_label: float) 
     elif len(first) != 1:
         return [], 0
     column, size = first[0].x0, first[0].size
+    if reach is not None and not _may_hold_labels(rows, index, column, size, max_label, reach):
+        return [], 0  # the walk and the first label tests below would find no group
     values: list[_Line] = []
     labels: list[_Line] = []
     end = index
@@ -156,6 +161,70 @@ def _centered_label_rows(rows: list[list[_Line]], index: int, max_label: float) 
     return [[label, *block] for label, block in zip(labels, blocks, strict=True)], end - index
 
 
+def _row_split(row: list[_Line], column: float, size: float, max_label: float) -> tuple[list[_Line], list[_Line]]:
+    """The value lines (at the value column `column`, of size `size`) and the label lines of a row, as
+    `_centered_label_rows` takes them."""
+    value = [line for line in row if abs(line.x0 - column) <= _TABLE_ROW_TOLERANCE and abs(line.size - size) <= 0.5]
+    label = [line for line in row if line.x1 < column and len(line.text.replace(" ", "")) >= 2 and abs(line.size - size) <= 0.5
+             and _short_label([line], max_label) and not _LINE_NUMBER_LABEL.match(line.text)]
+    return value, label
+
+
+# What the walk of `_centered_label_rows` collects from a place on: (number of labels, first label, smallest and largest
+# label left edge, whether every label left edge is finite, whether two consecutive labels touch)
+_NO_LABELS = (0, None, math.inf, -math.inf, True, False)
+
+
+def _may_hold_labels(rows: list[list[_Line]], index: int, column: float, size: float, max_label: float, reach: dict) -> bool:
+    """False when the walk of `_centered_label_rows` down from `rows[index]` (value column `column`, size `size`) is sure
+    to end in no group: it collects fewer than two labels, labels whose left edges differ by more than
+    `_TABLE_ROW_TOLERANCE`, or two labels touching at line spacing — the first tests after the walk, which return no group.
+    True otherwise (the walk is then done in full).
+
+    The walk from each row of a long paragraph (one value column) or of a column of short lines went on to its end, so
+    the rows were walked again for every row: 15 seconds of own time for a paragraph of 6,000 lines (Pinned by:
+    test_pdf_label_value_rows.py::TestLongRunsOfLinesForCentredLabels). What is collected from each place on is kept in
+    `reach` per (column, size, place) — the walk reaches a place from the row above the same way whatever row it started
+    from — so the rows are walked once per value column."""
+    def split(position: int) -> tuple[bool, list[_Line]]:  # whether the walk stops at this row, and its label
+        value, label = _row_split(rows[position], column, size, max_label)
+        return len(value) > 1 or len(label) > 1 or len(value) + len(label) != len(rows[position]), label
+
+    def joined(label: list[_Line], after: tuple) -> tuple:  # a row's label in front of what follows it
+        if not label:
+            return after
+        line = label[0]
+        count, first, low, high, finite, touching = after
+        return (count + 1, line, min(low, line.x0), max(high, line.x0), finite and math.isfinite(line.x0),
+                touching or (first is not None and first.top - line.bottom < line.height))
+
+    stops, label = split(index)
+    if stops:
+        return False
+    known = reach.setdefault((column, size), {})
+    path: list[tuple[int, list[_Line]]] = []
+    position, after = index + 1, _NO_LABELS
+    while position < len(rows):
+        if position in known:
+            after = known[position]
+            break
+        row = rows[position]
+        if row[0].top - max(line.bottom for line in rows[position - 1]) > row[0].height * 2.5:
+            break
+        stops, row_label = split(position)
+        if stops:
+            break
+        path.append((position, row_label))
+        position += 1
+    for place, row_label in reversed(path):
+        after = joined(row_label, after)
+        known[place] = after
+    count, first, low, high, finite, touching = joined(label, after)
+    if count < 2 or touching:
+        return False
+    return not finite or (high - first.x0 <= _TABLE_ROW_TOLERANCE and first.x0 - low <= _TABLE_ROW_TOLERANCE)
+
+
 def _without_left_block(rows: list[list[_Line]], index: int, max_label: float, page_width: float) -> list[list[_Line]] | None:
     """The group of 'label value' rows found again from the rows with the lines of another column removed — lines that
     end to the left of the label column of the last two fragments (a label-value pair) of `rows[index]` (wrapped value
@@ -179,8 +248,10 @@ def _without_left_block(rows: list[list[_Line]], index: int, max_label: float, p
     if len(kept(rows[index])) == len(rows[index]) and len(kept(rows[index + 1])) == len(rows[index + 1]):
         return None
     view = [row for row in map(kept, rows) if row]
-    start = next(position for position, row in enumerate(view) if row[0] is label)
-    if not _pairs_with([], view[start], max_label):
+    # The label is not always the first line left in its row: an edge that is not a number (NaN) drops it from its own row, and
+    # `next` without a default raised StopIteration (Pinned by: test_pdf_label_value_rows.py::TestLabelWithAnEdgeThatIsNotANumber)
+    start = next((position for position, row in enumerate(view) if row[0] is label), None)
+    if start is None or not _pairs_with([], view[start], max_label):
         return None
     run = _label_value_run(view, start, max_label)
     widths = [row[1].x1 - row[1].x0 for row in run if len(row) == 2]
@@ -204,6 +275,18 @@ def _label_value_run(rows: list[list[_Line]], index: int, max_label: float) -> l
         return _has_wrapped_value([run[0], row])
 
     run = [rows[index]]
+    # What `_wraps_value` needs of the pairs of the group (whether all labels are short, the first value, the widest value
+    # end), carried along as rows are added like `wrapped` below — gathered from the whole group for every line, a group
+    # of thousands of wrapped value lines took time with the square of its rows (Pinned by:
+    # test_pdf_label_value_rows.py::TestLongRunsOfLinesForCentredLabels)
+    summary = (_short_label(run[0], max_label), run[0][1], run[0][1].x1)
+
+    def added(row: list[_Line]) -> None:
+        nonlocal summary
+        if len(row) == 2:
+            short, first, widest = summary
+            summary = (short and _short_label(row, max_label), first, row[1].x1 if row[1].x1 > widest else widest)
+
     # `_has_wrapped_value(run)`, carried along as rows are added. Asked of the whole group again for every pair with a long
     # label, a group of many such pairs took time with the square of its rows, and with the cube when it is then discarded
     # for its wide values and built again from each of its rows (Pinned by: test_audit_pdf_tail.py::
@@ -212,13 +295,17 @@ def _label_value_run(rows: list[list[_Line]], index: int, max_label: float) -> l
 
     while index + len(run) < len(rows):
         row = rows[index + len(run)]
-        if pairs(run, row, wrapped) or _wraps_value(run, row, max_label):
+        if pairs(run, row, wrapped) or _wraps_value(run, row, max_label, summary):
             run.append(row)
+            added(row)
             wrapped = wrapped or wraps(row)
         elif (index + len(run) + 1 < len(rows) and _is_empty_value_row(run, row, max_label)
-              and pairs([*run, row], rows[index + len(run) + 1], wrapped or wraps(row))):
+              and pairs([run[0], row], rows[index + len(run) + 1], wrapped or wraps(row))):  # (only the first and last rows count)
             wrapped = wrapped or wraps(row) or wraps(rows[index + len(run) + 1])
-            run += [row, rows[index + len(run) + 1]]
+            following = rows[index + len(run) + 1]
+            run += [row, following]
+            added(row)
+            added(following)
         else:
             break
     return run
@@ -250,7 +337,8 @@ def _stands_apart(rows: list[list[_Line]], index: int, run: list[list[_Line]], p
             or _right_aligned_numbers(run) or wrapped)
 
 
-def _wraps_value(run: list[list[_Line]], row: list[_Line], max_label: float) -> bool:
+def _wraps_value(run: list[list[_Line]], row: list[_Line], max_label: float,
+                 pairs: tuple[bool, _Line, float] | None = None) -> bool:
     """Whether `row` is a line wrapped from the last value of a group of 'label value' rows (`run`): a single fragment
     shares the left edge of the value column, is attached to the value line right above at the line spacing inside a
     cell (`_VALUE_WRAP_GAP_RATIO`), has the same size, and does not reach further right than the group's value column.
@@ -275,12 +363,16 @@ def _wraps_value(run: list[list[_Line]], row: list[_Line], max_label: float) -> 
     if len(row) != 1:
         return False
     line, above = row[0], run[-1][-1]
-    values = [pair[1] for pair in run if len(pair) == 2]
-    return (all(_short_label(pair, max_label) for pair in run if len(pair) == 2)
-            and abs(line.x0 - values[0].x0) <= _TABLE_ROW_TOLERANCE
+    if pairs is None:
+        values = [pair[1] for pair in run if len(pair) == 2]
+        pairs = (all(_short_label(pair, max_label) for pair in run if len(pair) == 2), values[0],
+                 max(value.x1 for value in values))
+    short, first, widest = pairs
+    return (short
+            and abs(line.x0 - first.x0) <= _TABLE_ROW_TOLERANCE
             and above.size * _VALUE_WRAP_MIN_SIZE_RATIO - 0.5 <= line.size <= above.size + 0.5
             and line.top - above.bottom <= above.height * _VALUE_WRAP_GAP_RATIO and line.top > above.top + above.height / 2
-            and (line.x1 <= max(value.x1 for value in values) + line.size * 2 or line.size < above.size - 0.5))
+            and (line.x1 <= widest + line.size * 2 or line.size < above.size - 0.5))
 
 
 def _short_label(row: list[_Line], max_label: float) -> bool:

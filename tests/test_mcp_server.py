@@ -222,13 +222,115 @@ class TestWhichFilesMayBeRead:
             return await convert(self, data, filename, options, **more)
 
         monkeypatch.setattr(mcp_server.IsolatedConverter, "convert", spy)
-        monkeypatch.setattr(mcp_server, "convert_file", lambda *_: pytest.fail("converted in the server process"))
+        monkeypatch.setattr(mcp_server, "convert", lambda *_: pytest.fail("converted in the server process"))
 
         assert call("document_outline", {"path": str(files["report.docx"])}).startswith("Format: docx")
         assert used == ["report.docx"]
 
     def test_without_roots_any_readable_file_is_read(self, files):
         assert call("document_outline", {"path": str(files["report.docx"])}).startswith("Format: docx")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="worker processes are used on POSIX only")
+class TestRepeatedCalls:
+    """An agent reads a long document as document_outline and then convert_document by sections; each call converted the
+    whole file again. The last few results are kept by the file's content, so a changed file is never answered from them."""
+
+    @staticmethod
+    def _calls(monkeypatch, steps, *, time_limited: bool = False) -> tuple[list[str], list[str]]:
+        """`time_limited` makes every conversion come back as one a wall-clock limit cut short (the worker runs in another
+        process, so its clock cannot be patched from here)."""
+        from dataclasses import replace
+
+        converted: list[str] = []
+        convert = mcp_server.IsolatedConverter.convert
+
+        async def spy(self, data, filename, options=None, **more):
+            converted.append(filename)
+            result = await convert(self, data, filename, options, **more)
+            return replace(result, time_limited=True) if time_limited else result
+
+        monkeypatch.setattr(mcp_server.IsolatedConverter, "convert", spy)
+
+        async def run() -> list[str]:
+            from mcp.client.client import Client
+
+            answers = []
+            async with Client(mcp_server.create_server()) as client:
+                for step in steps:
+                    if callable(step):
+                        step()
+                        continue
+                    tool, arguments = step
+                    answers.append((await client.call_tool(tool, arguments)).content[0].text)
+            return answers
+
+        return asyncio.run(run()), converted
+
+    def test_result_cut_short_by_the_time_budget_is_not_kept(self, files, monkeypatch):
+        """A PDF read on a busy machine can come out degraded by the PDF time budget (pages read with simple extraction).
+        Kept, every later call would get the degraded reading; it is converted again instead."""
+        path = str(files["paper.pdf"])
+        answers, converted = self._calls(monkeypatch, [
+            ("document_outline", {"path": path}),
+            ("convert_document", {"path": path, "sections": "1"}),
+        ], time_limited=True)
+
+        assert answers[0].startswith("Format: pdf") and answers[1].startswith("<!-- Page 1 -->")
+        assert converted == ["paper.pdf", "paper.pdf"]
+
+    def test_outline_and_sections_of_one_file_convert_it_once(self, files, monkeypatch):
+        path = str(files["paper.pdf"])
+        answers, converted = self._calls(monkeypatch, [
+            ("document_outline", {"path": path}),
+            ("convert_document", {"path": path, "sections": "1"}),
+            ("convert_document", {"path": path, "sections": "2-3"}),
+        ])
+
+        assert converted == ["paper.pdf"]
+        assert answers[0].startswith("Format: pdf") and answers[1].startswith("<!-- Page 1 -->")
+        assert answers[2].startswith("<!-- Page 2 -->")
+
+    def test_file_changed_in_place_is_converted_again_even_with_the_same_size_and_time(self, tmp_path, monkeypatch):
+        path = tmp_path / "note.txt"
+        path.write_text("first version", encoding="utf-8")
+        before = path.stat()
+
+        def rewrite():
+            path.write_text("other version", encoding="utf-8")   # same length
+            os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+        answers, converted = self._calls(monkeypatch, [
+            ("convert_document", {"path": str(path)}),
+            rewrite,
+            ("convert_document", {"path": str(path)}),
+        ])
+
+        assert path.stat().st_size == before.st_size and path.stat().st_mtime_ns == before.st_mtime_ns
+        assert answers == ["first version", "other version"]
+        assert converted == ["note.txt", "note.txt"]
+
+    def test_a_different_limit_is_a_different_conversion(self, files, monkeypatch):
+        path = str(files["report.docx"])
+        answers, converted = self._calls(monkeypatch, [
+            ("convert_document", {"path": path}),
+            ("convert_document", {"path": path, "max_chars": 10}),
+            ("convert_document", {"path": path}),
+        ])
+
+        assert converted == ["report.docx", "report.docx"]
+        assert answers[0] == answers[2] and "was cut" in answers[1]
+
+    def test_only_the_last_few_results_are_kept(self, tmp_path, monkeypatch):
+        paths = []
+        for index in range(mcp_server._CACHE_ENTRIES + 1):
+            paths.append(tmp_path / f"note{index}.txt")
+            paths[-1].write_text(f"note number {index}", encoding="utf-8")
+        steps = [("convert_document", {"path": str(path)}) for path in paths]
+
+        _, converted = self._calls(monkeypatch, [*steps, steps[0]])
+
+        assert converted == [path.name for path in paths] + ["note0.txt"], "the oldest entry was dropped"
 
 
 class TestCommandLine:

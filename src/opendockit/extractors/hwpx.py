@@ -11,7 +11,6 @@ from io import BytesIO
 import re
 import unicodedata
 import zipfile
-import zlib
 
 from lxml import etree
 
@@ -22,7 +21,7 @@ from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, d
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import COMMENT_TARGET_MAX, TableBudget, comment_line, format_dutmal, note_table, omitted_rows_warning
-from opendockit.extractors._package import decimal_int, parse_part
+from opendockit.extractors._package import ZIP_MEMBER_ERRORS, decimal_int, parse_part
 from opendockit.markdown import TableGrid, join_blocks, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -56,6 +55,11 @@ _STRIKEOUT_SHAPES = frozenset({"SOLID", "DOT", "DASH", "DASH_DOT", "DASH_DOT_DOT
 # SimpleEdit).
 _FORM_OBJECTS = {"checkBtn", "radioBtn", "comboBox", "listBox", "edit", "btn"}
 _CHECKED, _UNCHECKED = "☒", "☐"
+# What reading one archive member can raise when that member is broken: besides bad compression or CRC (BadZipFile, zlib.error,
+# EOFError), an unknown compression method (NotImplementedError), the ZIP encryption flag (RuntimeError) and the like. Only that
+# member is skipped; catching the first three alone let one such picture, header.xml or section reject the whole document
+# (Pinned by: test_hwp_robustness.py::TestHwpxUnreadableMembers). The set is shared with DOCX/PPTX (`_package.ZIP_MEMBER_ERRORS`).
+_MEMBER_ERRORS = ZIP_MEMBER_ERRORS
 # Placeholder left in the body by objects whose content is not read, and the warning text (the count is filled in).
 _UNREAD_OBJECTS = {
     "ole": ("[OLE object]", "The contents of {} OLE object(s) (pasted tables, charts, etc.) could not be converted."),
@@ -176,8 +180,9 @@ class HwpxRenderer:
         name = _local(node)
         if name == "t":
             # A run with a super/subscript character shape. Appended as plain text, 10⁶ became 106 (Pinned by: test_hwp.py::TestSuperscript).
-            text = mark_script(_t_text(node), self._script) if self._script else _t_text(node)
-            self._note_memo_target(_t_text(node))
+            plain = _t_text(node)
+            text = mark_script(plain, self._script) if self._script else plain
+            self._note_memo_target(plain)
             # A run with a strikethrough character shape. Appended as plain text, a deleted value read as a valid one
             # (Pinned by: test_hwp.py::TestStrikethrough).
             buffer.append(mark_strike(text) if self._struck else text)
@@ -541,7 +546,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
             if href not in loaded:
                 try:
                     loaded[href] = archive.read(href) if href in names else None
-                except (zipfile.BadZipFile, zlib.error, EOFError):
+                except _MEMBER_ERRORS:
                     loaded[href] = None
             return loaded[href]
 
@@ -549,7 +554,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
             """A part XML inside the archive, such as a chart. If broken, just that object is skipped."""
             try:
                 return archive.read(path) if path in names else None
-            except (zipfile.BadZipFile, zlib.error, EOFError):
+            except _MEMBER_ERRORS:
                 return None
 
         extraction = Extraction()
@@ -567,7 +572,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
             # If every section is broken it is a corrupted document as before (Pinned by: test_hwp_robustness.py::TestBrokenHwpxSection).
             try:
                 section = parse_xml(archive.read(name))
-            except (CorruptedDocumentError, zipfile.BadZipFile, zlib.error, EOFError) as exc:
+            except (CorruptedDocumentError, *_MEMBER_ERRORS) as exc:
                 broken.append(exc)
                 extraction.warnings.append(f"Section {number}: corrupted and could not be read.")
                 continue
@@ -695,7 +700,7 @@ def _read_member(archive: zipfile.ZipFile, names: list[str], name: str) -> bytes
     """Bytes of a part inside the archive. None if missing or it cannot be decompressed (CRC or compression error)."""
     try:
         return archive.read(name) if name in names else None
-    except (zipfile.BadZipFile, zlib.error, EOFError):
+    except _MEMBER_ERRORS:
         return None
 
 

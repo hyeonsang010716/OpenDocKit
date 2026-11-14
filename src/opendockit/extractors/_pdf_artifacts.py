@@ -3,6 +3,8 @@ text drawn outside the page view, and sideways text set apart to be read in its 
 """
 
 from bisect import bisect_left, bisect_right
+from collections.abc import Iterator
+import math
 import statistics
 
 from pdfminer.layout import LTContainer, LTFigure, LTTextLineHorizontal
@@ -89,6 +91,64 @@ def _chars_at_line_level(line: dict, chars: list[dict], tops: list[float]) -> li
     height = line["bottom"] - line["top"]
     start, end = bisect_left(tops, line["top"] - height), bisect_right(tops, line["bottom"])
     return [char for char in chars[start:end] if line["top"] <= (char["top"] + char["bottom"]) / 2 <= line["bottom"]]
+
+
+class _CopyIndex:
+    """The removed characters of a page (`dropped`, copies and other drawing artifacts), indexed to tell for a layout line
+    whether there is a removed character at its level under it and whether one of them is a shadow copy (`at`) — the same as
+    `_chars_at_line_level(line, dropped, tops)` filtered to left edges between the line's left edge - 1 and right edge + 1,
+    which is all `_read_page` asks of that list. Exactly the same when no removed character has a NaN top; with one, sorting the
+    list by top left it unsorted and the scan's slice could miss copies on other lines, which the index still finds.
+
+    The characters go into columns of `_COLUMN` pt by left edge, each sorted by vertical middle; a line looks only at the
+    columns under its x-range and the middles within its height, and stops at the first character found (a second index holds
+    the shadow copies only). Characters whose left edge or middle is not a finite number are at no line's level and are left
+    out. A line spanning more than `_MAX_COLUMNS` columns is answered by the scan. Scanning the removed characters at each
+    line's height took 54 seconds for a 4.5KB page of 1,500 stacked characters drawn 30 times (3 copies of each kept, the rest
+    removed, every line its own box) (Pinned by: test_audit_pdf_text.py::TestCopiesOfStackedText)."""
+
+    _COLUMN = 32.0
+    _MAX_COLUMNS = 4_096
+
+    def __init__(self, dropped: list[dict], tops: list[float]) -> None:
+        self._dropped, self._tops = dropped, tops
+        self._all = self._columns(dropped)
+        self._shadows = self._columns([char for char in dropped if char.get("shadow")])
+
+    def _columns(self, chars: list[dict]) -> dict[int, tuple[list[float], list[dict]]]:
+        columns: dict[int, list[tuple[float, int, dict]]] = {}
+        for order, char in enumerate(chars):
+            middle = (char["top"] + char["bottom"]) / 2
+            if math.isfinite(char["x0"]) and math.isfinite(middle):
+                columns.setdefault(math.floor(char["x0"] / self._COLUMN), []).append((middle, order, char))
+        for members in columns.values():
+            members.sort(key=lambda member: (member[0], member[1]))
+        return {column: ([middle for middle, _, _ in members], [char for _, _, char in members])
+                for column, members in columns.items()}
+
+    def at(self, line: dict) -> tuple[bool, bool]:
+        """(whether a removed character lies at the line's level under it, whether one of those is a shadow copy)."""
+        left, right = line["x0"] - 1, line["x1"] + 1
+        first, last = math.floor(left / self._COLUMN), math.floor(right / self._COLUMN)
+        if last - first + 1 > self._MAX_COLUMNS:
+            copies = [char for char in _chars_at_line_level(line, self._dropped, self._tops) if left <= char["x0"] <= right]
+            return bool(copies), any(char.get("shadow") for char in copies)
+        found = self._any(self._all, line, first, last)
+        return found, found and self._any(self._shadows, line, first, last)
+
+    def _any(self, columns: dict[int, tuple[list[float], list[dict]]], line: dict, first: int, last: int) -> bool:
+        top, bottom = line["top"], line["bottom"]
+        lowest = top - (bottom - top)  # `_chars_at_line_level` also takes only characters whose top is at most a height above
+        left, right = line["x0"] - 1, line["x1"] + 1
+        for column in range(first, last + 1):
+            entry = columns.get(column)
+            if entry is None:
+                continue
+            middles, members = entry
+            for char in members[bisect_left(middles, top):bisect_right(middles, bottom)]:
+                if left <= char["x0"] <= right and lowest <= char["top"] <= bottom:
+                    return True
+        return False
 
 
 def _part_outside_cells(line: dict, chars: list[dict], page_chars: list[dict]) -> dict | None:
@@ -240,7 +300,11 @@ def _without_drawing_artifacts(page: object) -> tuple[object, list[dict]]:
     coarse: dict[tuple, list[dict]] = {}  # the same key on the `_SHADOW_GRID` grid (for finding shadows)
     for char in page.chars:
         if (char["size"] < _MIN_VISIBLE_SIZE or (_is_tilted(char) and char["size"] > watermark_size) or id(char) in faint
-                or (view and not _inside_any(char, view))):
+                or (view and not _inside_any(char, view)) or not (math.isfinite(char["x0"]) and math.isfinite(char["top"]))):
+            # The last condition: a character at a position that is not a finite number is drawn nowhere. The view drops it
+            # on an upright page; a rotated page has no view (`_text_view`), and rounding its position for the cells below
+            # raised ValueError, so the whole document was reported corrupted (Pinned by:
+            # test_audit_pdf_text.py::TestCharactersAtNonFinitePositions::test_a_rotated_page_is_read_too).
             dropped.append(char)
             continue
         if char["text"].strip():
@@ -276,7 +340,11 @@ def _faint_watermark(chars: list[dict], min_size: float) -> set[int]:
     """
     groups: dict[tuple, list[dict]] = {}
     for char in chars:
-        if char["text"].strip() and char["size"] >= min_size and not _is_tilted(char):
+        # A top edge or size that is not a finite number cannot be rounded into a group key (`round` raises): a character
+        # 1.5e308pt tall, whose height overflows to infinity, failed the whole document as corrupted (Pinned by:
+        # test_audit_pdf_text.py::TestCharactersAtNonFinitePositions::test_a_faint_character_of_infinite_size_is_no_watermark)
+        if (char["text"].strip() and char["size"] >= min_size and not _is_tilted(char)
+                and math.isfinite(char["top"]) and math.isfinite(char["size"])):
             colour = char.get("non_stroking_color")
             colour = (colour,) if isinstance(colour, (int, float)) else colour
             if len(colour or ()) == 4:  # CMYK
@@ -286,14 +354,80 @@ def _faint_watermark(chars: list[dict], min_size: float) -> set[int]:
                 groups.setdefault((round(char["top"]), round(char["size"]), tuple(colour)), []).append(char)
 
     faint: set[int] = set()
+    nearby = _CharGrid([char for char in chars if char["text"].strip()]) if groups else None
     for group in groups.values():
         ids = {id(char) for char in group}
         x0, x1 = min(char["x0"] for char in group), max(char["x1"] for char in group)
         top, bottom = min(char["top"] for char in group), max(char["bottom"] for char in group)
-        if any(id(char) not in ids and char["text"].strip() and char["x0"] < x1 and x0 < char["x1"] and char["top"] < bottom
-               and top < char["bottom"] for char in chars):
+        if any(id(char) not in ids and char["x0"] < x1 and x0 < char["x1"] and char["top"] < bottom and top < char["bottom"]
+               for char in nearby.overlapping(x0, top, x1, bottom)):
             faint |= ids
     return faint
+
+
+class _CharGrid:
+    """Characters indexed for 'which can overlap this box' (`overlapping`, the caller checks the overlap exactly).
+
+    A character goes to the level whose cell side `_CELL` × 8^k is the first at least its larger side, and there into every
+    row of cells its height touches; each row keeps its characters sorted by left edge. A character overlapping a box then
+    lies in a row the box's height touches, with its left edge between the box's left edge minus the widest character of its
+    level and the box's right edge — found by binary search over the rows that exist and over the row's left edges. The
+    candidates come lazily, in order of level and row, so the first overlapping one ends the caller's `any`. Boxes are taken
+    with their corners in order (an inverted box overlaps only within its own span). Characters with a NaN coordinate are left
+    out — they fail every comparison of the overlap test — and only characters with an infinite coordinate are kept aside and
+    always given; a box that is not finite gets every character.
+
+    Every group of faint large characters scanned every character of the page, and the groups are keyed by exact colour, so a
+    41KB page of 5,000 faint characters in slightly different greys took 13 seconds; with one 64pt-only grid, characters as
+    large as watermarks (70pt, 300pt) were all kept aside and an 85KB page of 12,000 such characters still took 12.5 seconds,
+    and characters far off the page (x = 2e9 + 20i, distinct, so the overprint cap does not catch them) were kept aside too:
+    6,000 of them took 1.8 seconds, 12,000 7.2 seconds (Pinned by: test_audit_pdf_text.py::TestManyFaintCharacters)."""
+
+    _CELL = 64.0
+    _GROWTH = 8.0
+
+    def __init__(self, chars: list[dict]) -> None:
+        self._chars = chars
+        self._other: list[dict] = []
+        rows: dict[tuple[int, int], list[tuple[float, dict]]] = {}
+        cells: dict[int, float] = {}
+        widest: dict[int, float] = {}
+        for char in chars:
+            box = (char["x0"], char["top"], char["x1"], char["bottom"])
+            if any(value != value for value in box):
+                continue  # NaN: never overlaps anything
+            if not all(math.isfinite(value) for value in box):
+                self._other.append(char)
+                continue
+            left, right = min(box[0], box[2]), max(box[0], box[2])
+            low, high = min(box[1], box[3]), max(box[1], box[3])
+            level, cell = 0, self._CELL
+            while max(right - left, high - low) > cell:
+                level, cell = level + 1, cell * self._GROWTH
+            cells[level] = cell
+            widest[level] = max(widest.get(level, 0.0), right - left)
+            for row in range(math.floor(low / cell), math.floor(high / cell) + 1):
+                rows.setdefault((level, row), []).append((left, char))
+        # level → (cell side, widest character, sorted row numbers, row number → (left edges, characters by left edge))
+        self._levels: dict[int, tuple[float, float, list[int], dict[int, tuple[list[float], list[dict]]]]] = {}
+        for (level, row), members in sorted(rows.items(), key=lambda item: item[0]):
+            members.sort(key=lambda member: member[0])
+            _, _, numbers, by_row = self._levels.setdefault(level, (cells[level], widest[level], [], {}))
+            numbers.append(row)
+            by_row[row] = ([left for left, _ in members], [char for _, char in members])
+
+    def overlapping(self, x0: float, top: float, x1: float, bottom: float) -> Iterator[dict]:
+        if not (all(math.isfinite(value) for value in (x0, top, x1, bottom)) and x0 <= x1 and top <= bottom):
+            yield from self._chars
+            return
+        yield from self._other
+        for cell, widest, numbers, by_row in self._levels.values():
+            first, last = bisect_left(numbers, math.floor(top / cell)), bisect_right(numbers, math.floor(bottom / cell))
+            # Slack for rounding: at large magnitudes a difference of floats is off by a few units in the last place
+            low = x0 - widest - (1.0 + (abs(x0) + widest) * 1e-12)
+            for row in numbers[first:last]:
+                lefts, members = by_row[row]
+                yield from members[bisect_left(lefts, low):bisect_left(lefts, x1)]
 
 
 def _is_shadow_copy(char: dict, key: tuple, coarse: dict[tuple, list[dict]]) -> bool:

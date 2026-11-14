@@ -3,6 +3,7 @@
 import asyncio
 from io import BytesIO
 from pathlib import Path
+import sys
 import zipfile
 
 import pytest
@@ -462,3 +463,133 @@ class TestInputTypes:
     def test_other_types_are_a_type_error_pointing_at_convert_file(self, value):
         with pytest.raises(TypeError, match="convert_file"):
             convert(value, "a.txt")
+
+
+class WritingPipe:
+    """A named pipe whose writer keeps sending `total` bytes until the reader closes it; `written` is what got through."""
+
+    def __init__(self, path: Path, total: int, content: bytes = b"a") -> None:
+        import os
+        import threading
+
+        os.mkfifo(path)
+        self.path, self.written = path, 0
+        self._thread = threading.Thread(target=self._write, args=(total, content), daemon=True)
+        self._thread.start()
+
+    def _write(self, total: int, content: bytes) -> None:
+        chunk = (content * (1024 * 1024 // len(content) + 1))[:1024 * 1024] if total > len(content) else content
+        try:
+            with open(self.path, "wb") as stream:
+                while self.written < total:
+                    piece = chunk[:total - self.written]
+                    stream.write(piece)
+                    self.written += len(piece)
+        except BrokenPipeError:   # the reader stopped reading and closed its end
+            pass
+
+    def finish(self) -> int:
+        self._thread.join(timeout=10)
+        return self.written
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="named pipes are POSIX")
+class TestReadingWithinTheSizeLimit:
+    """`convert_file` refused a file over `max_file_bytes` from the size the file system reports, which is 0 for a pipe or a
+    device: such a file was read to its end first (`opendockit /dev/zero` grew without bound). It is now read only up to the
+    limit."""
+
+    def test_pipe_is_read_only_up_to_the_size_limit(self, tmp_path):
+        pipe = WritingPipe(tmp_path / "upload.txt", total=64 * 1024 * 1024)
+
+        with pytest.raises(DocumentTooLargeError):
+            convert_file(pipe.path, ConvertOptions(max_file_bytes=1024))
+
+        assert pipe.finish() < 8 * 1024 * 1024, "the writer was cut off soon after the limit, not read to its end"
+
+    def test_pipe_within_the_limit_is_converted(self, tmp_path):
+        """Reading a pipe still works (`opendockit /dev/stdin`): only how much is read is bounded."""
+        pipe = WritingPipe(tmp_path / "note.txt", total=len("hello pipe"), content=b"hello pipe")
+
+        result = convert_file(pipe.path)
+
+        assert result.text == "hello pipe"
+        assert pipe.finish() == len("hello pipe")
+
+    def test_regular_file_is_read_whole_and_over_the_limit_is_refused(self, tmp_path):
+        path = tmp_path / "note.txt"
+        path.write_bytes(b"x" * 2048)
+
+        assert convert_file(path, ConvertOptions(max_file_bytes=2048)).text == "x" * 2048
+        with pytest.raises(DocumentTooLargeError):
+            convert_file(path, ConvertOptions(max_file_bytes=2047))
+
+    def test_reading_stops_one_byte_past_the_limit(self):
+        from opendockit.converter import read_limited
+
+        class Endless:
+            def __init__(self):
+                self.handed = 0
+
+            def read(self, size):
+                self.handed += size
+                return b"z" * size
+
+        stream = Endless()
+        data = read_limited(stream, 5 * 1024 * 1024)
+
+        assert len(data) == 5 * 1024 * 1024 + 1 and stream.handed == len(data)
+        assert read_limited(BytesIO(b"abc"), 10) == b"abc"
+        assert read_limited(BytesIO(b"abc"), 10, size_hint=3) == b"abc"
+        assert read_limited(BytesIO(b"abcdef"), 3, size_hint=2) == b"abcd"
+
+
+class TestTimeLimitedResults:
+    """`ConversionResult.time_limited` (internal) says that a wall-clock limit changed what was read, so a caller that keeps
+    results (the MCP server) does not keep this one: the same file can read fully on a less busy machine."""
+
+    def test_ordinary_conversion_is_not_time_limited(self):
+        assert not convert(builder.pdf_bytes(pages=2), "a.pdf").time_limited
+        assert not convert(builder.docx_bytes(), "a.docx").time_limited
+
+    def test_pages_sent_to_simple_extraction_by_the_time_budget(self):
+        result = convert(builder.pdf_bytes(pages=2), "a.pdf", ConvertOptions(pdf_time_budget=0.0))
+
+        assert result.time_limited
+        assert any("time budget" in warning for warning in result.warnings)
+
+    def test_pages_left_unread_again_after_the_budget_without_a_warning(self, monkeypatch):
+        """The budget can run out after the last page was read and before pending pages are read again: no page went to
+        simple extraction, so there is no warning, but the reading still depends on the clock."""
+        from opendockit.extractors import pdf as pdf_module
+        from tests.test_audit_pdf_head import _stream
+        from tests.test_audit_pdf_text import _pages
+
+        clock = [0.0]
+        read_page = pdf_module._read_page
+
+        def read(page, placement_fit=None):
+            result = read_page(page, placement_fit)
+            if page.page_number == 1:
+                result.placement_pending = True
+            else:
+                result.placement_fit = (0.9, 0.25)
+                clock[0] = 1_000.0  # the budget is spent while the last page is read
+            return result
+
+        monkeypatch.setattr(pdf_module, "_read_page", read)
+        monkeypatch.setattr(pdf_module.time, "perf_counter", lambda: clock[0])
+
+        result = convert(_pages(2, _stream(b"BT /F1 12 Tf 72 700 Td (Hello world) Tj ET")), "a.pdf", ConvertOptions(pdf_time_budget=10))
+
+        assert result.time_limited
+        assert not any("time budget" in warning for warning in result.warnings)
+
+    def test_flag_survives_description(self):
+        from dataclasses import replace
+
+        from opendockit.converter import render
+
+        result = convert(builder.pdf_bytes(pages=2), "a.pdf", ConvertOptions(pdf_time_budget=0.0))
+
+        assert render(replace(result)).time_limited

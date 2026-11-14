@@ -195,7 +195,13 @@ def _table_text(table: _Table) -> str:
     """The table text rebuilt from the table's cell text (`rows`). For a ruled table continued from the previous page, the top
     row is pulled out as a title only when it is a horizontally merged cell — in the cell text a cell covered by a merge is
     also "", so the covered columns of the top row are found from the cell boxes and passed as None (`merged_titles_only` of
-    `render_table`)."""
+    `render_table`).
+
+    Only an empty cell is passed as None. A cell with text and no box starting at the top edge is the rest of a merged cell open
+    at the previous page's end, filled with that cell's text (`_carry_open_cells`); passed as None, the carried text was
+    dropped and the first row of a table continued without its header showed an empty first cell (Pinned by:
+    test_pdf_table_columns.py::TestMergedCellOpenAtThePageEnd::
+    test_rows_continued_without_a_header_get_the_open_cell_whatever_their_values)."""
     if not table.continued:
         return render_table(table.rows)
     rows = [list(row) for row in table.rows]
@@ -203,7 +209,7 @@ def _table_text(table: _Table) -> str:
     if table.bands and table.spans and math.isfinite(table.bands[0][0]):
         top = table.bands[0][0]
         starts = [cell[0] for cell in table.cells if abs(cell[1] - top) <= 1.0]
-        rows[0] = [cell if any(abs(start - span[0]) <= 1.0 for start in starts) else None
+        rows[0] = [cell if cell or any(abs(start - span[0]) <= 1.0 for start in starts) else None
                    for cell, span in zip(rows[0], table.spans, strict=False)]
     return render_table(rows, merged_titles_only=True)
 

@@ -371,19 +371,38 @@ def _with_inner_tables(table: object, rows: list[list[str]], inner: list[tuple])
         if not labels or any(len(text) > _NESTED_LABEL_MAX for text in labels):
             return None
 
-    spread: list[list[str]] = []
-
+    # The holder cell of each spread row: (first column, number of columns it covers, rows to put in its place). A column
+    # at the end of a holder cell is widened by the inner columns the cell lacks, and every other row gets empty cells
+    # there too, so the columns to the right of the holder stay under their own header — padding only the ends of the
+    # rows put '비고1' of the rows above under the inner table's second column
+    # (Pinned by: test_pdf_nested_tables.py::TestNestedTables::test_columns_right_of_the_inner_table_stay_aligned).
+    spreads: dict[int, tuple[int, int, list[list[str]]]] = {}
     for row, cells in enumerate(rows):
         column, held = holders.get(row, (0, []))
         around = _text_around(table.page.chars, table.rows[row].cells[column], held[0]) if len(held) == 1 else None
         if around is None:
-            spread.append(cells)
             continue
         width = 1 + next((count for count, cell in enumerate(table.rows[row].cells[column + 1:]) if cell is not None),
                          len(cells) - column - 1)
         above, below = around
-        inner_rows = [*([[above]] if above else []), *held[0][1], *([[below]] if below else [])]
-        spread.extend([*cells[:column], *inner_row, *cells[column + width:]] for inner_row in inner_rows)
+        spreads[row] = (column, width, [*([[above]] if above else []), *held[0][1], *([[below]] if below else [])])
+    extra = [0] * max(len(cells) for cells in rows)  # empty cells added after each column
+    for column, width, inner_rows in spreads.values():
+        end = min(column + width, len(extra)) - 1
+        extra[end] = max(extra[end], max(len(inner_row) for inner_row in inner_rows) - width)
+
+    def widened(cells: list[str], start: int = 0) -> list[str]:  # `cells` are the cells from column `start` on
+        return [part for index, cell in enumerate(cells, start) for part in (cell, *[""] * (extra[index] if index < len(extra) else 0))]
+
+    spread: list[list[str]] = []
+    for row, cells in enumerate(rows):
+        if row not in spreads:
+            spread.append(widened(cells))
+            continue
+        column, width, inner_rows = spreads[row]
+        room = width + sum(extra[column:column + width])
+        spread.extend([*widened(cells[:column]), *inner_row, *[""] * (room - len(inner_row)), *widened(cells[column + width:], column + width)]
+                      for inner_row in inner_rows)
 
     width = max(len(cells) for cells in spread)
     return [[*cells, *[""] * (width - len(cells))] for cells in spread]

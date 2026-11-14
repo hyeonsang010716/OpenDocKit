@@ -154,6 +154,33 @@ class TestTableContinuedOnTheNextPage:
     that starts at the very top of a page with nothing in between and has the same columns (count and horizontal positions) as the table at the
     bottom of the previous page reuses that table's header."""
 
+    def test_header_cell_on_two_lines_is_measured_without_its_line_break(self):
+        """The length bound of a header cell (`_HEADER_CELL_MAX_CHARS`, line breaks excluded) counted the line break of a
+        ruled cell's text, so a 30-character header cell set on two lines was too long and the header was not carried."""
+        columns, height = [60.0, 120.0, 330.0, 420.0], 30.0
+
+        def row(pdf, top, cells):
+            pdf.line(columns[0], top, columns[-1], top)
+            pdf.line(columns[0], top - height, columns[-1], top - height)
+            for x in columns:
+                pdf.line(x, top, x, top - height)
+            for x, text in zip(columns, cells, strict=False):
+                for line, part in enumerate(text.split("\n")):
+                    pdf.drawString(x + 5, top - 12 - line * 11, part)
+
+        def draw(pdf, index):
+            top = 780.0
+            rows = ([["번호", "구분\n(unit: KRW thousand, FY2024)", "비고"], *([str(n), f"항목 {n}", "확인"] for n in range(1, 5))]
+                    if index == 0 else [[str(n), f"항목 {n}", "확인"] for n in range(5, 8)])
+            for cells in rows:
+                row(pdf, top, cells)
+                top -= height
+
+        sections = convert(_korean_pdf(draw, pages=2), "a.pdf", ConvertOptions(page_markers=False)).sections
+
+        assert sections[1].text.startswith("| 번호 | 구분<br>(unit: KRW thousand, FY2024) | 비고 |\n| --- | --- | --- |\n"
+                                           "| 5 | 항목 5 | 확인 |")
+
     @pytest.mark.parametrize("ruled", [True, False], ids=["ruled", "borderless"])
     def test_table_continued_without_its_header_reuses_the_header_of_the_previous_page(self, ruled):
         result = convert(_long_table_pdf(ruled), "a.pdf")
@@ -810,6 +837,97 @@ class TestMergedCellOpenAtThePageEnd:
         assert sections[0].text.count("팀2") == 2
         assert f"| {cell} | 과제 7 | 7,777 |" in sections[1].text
 
+    @pytest.mark.parametrize(("values", "repeated"), [("dates", False), ("dates", True), ("pending", False), ("pending", True),
+                                                      ("amounts", False)])
+    def test_rows_continued_without_a_header_get_the_open_cell_whatever_their_values(self, values, repeated):
+        """With a date column ('2024.07.15') or a first row whose value is text ('미정') the first rows of page 2 looked like
+        a header of their own, and the rest of the merged cell lost its text. Without a repeated header the top row of page 2
+        also showed its first cell empty: the top row of a continued ruled table was passed with every cell lacking a top
+        border as a covered cell, which dropped the text carried into it."""
+        remaining = 2
+        columns, height = [60.0, 160.0, 260.0, 360.0], 22.0
+
+        def value(number):
+            return (f"2024.{number:02d}.15" if values == "dates" else "미정" if number == 7 and values == "pending"
+                    else f"{number * 1111:,}")
+
+        def row_lines(pdf, top, cells, first_open=False, last_open=False):
+            pdf.line(columns[1] if first_open else columns[0], top, columns[-1], top)
+            pdf.line(columns[1] if last_open else columns[0], top - height, columns[-1], top - height)
+            for x in columns:
+                pdf.line(x, top, x, top - height)
+            for x, text in zip(columns, cells, strict=False):
+                if text:
+                    pdf.drawString(x + 5, top - 15, text)
+
+        def draw(pdf, index):
+            top = 780.0
+            if index == 0 or repeated:
+                row_lines(pdf, top, ["그룹", "과제", "기한"])
+                top -= height
+            if index == 0:
+                for number in range(1, 5):
+                    row_lines(pdf, top, ["그룹1 담당: 팀1" if number == 1 else "", f"과제 {number}", value(number)],
+                              first_open=number > 1, last_open=number < 4)
+                    top -= height
+                for number in (5, 6):
+                    row_lines(pdf, top, ["그룹2 담당: 팀2" if number == 5 else "", f"과제 {number}", value(number)],
+                              first_open=number > 5, last_open=True)
+                    top -= height
+            else:
+                rest = list(range(7, 7 + remaining))
+                for number in rest:
+                    row_lines(pdf, top, ["", f"과제 {number}", value(number)], first_open=True, last_open=number < rest[-1])
+                    top -= height
+                for number in range(rest[-1] + 1, rest[-1] + 4):
+                    row_lines(pdf, top, ["그룹3 담당: 팀3" if number == rest[-1] + 1 else "", f"과제 {number}", value(number)],
+                              first_open=number > rest[-1] + 1, last_open=number < rest[-1] + 3)
+                    top -= height
+
+        page = convert(_korean_pdf(draw, pages=2), "a.pdf", ConvertOptions(page_markers=False)).sections[1].text
+
+        for number in range(7, 7 + remaining):
+            assert f"| 그룹2 담당: 팀2 | 과제 {number} | {value(number)} |" in page
+        assert f"| 그룹3 담당: 팀3 | 과제 {7 + remaining} | {value(7 + remaining)} |" in page
+
+    def test_new_table_with_its_own_header_does_not_get_the_open_cell(self):
+        """A different table with the same columns at the top of the next page, starting with its own header (no numbers,
+        numbers in the row below) and a blank corner cell, got the open cell's text '그룹2 담당: 팀2' in that corner."""
+        columns, height = [60.0, 160.0, 260.0, 360.0], 22.0
+
+        def row_lines(pdf, top, cells, first_open=False, last_open=False):
+            pdf.line(columns[1] if first_open else columns[0], top, columns[-1], top)
+            pdf.line(columns[1] if last_open else columns[0], top - height, columns[-1], top - height)
+            for x in columns:
+                pdf.line(x, top, x, top - height)
+            for x, text in zip(columns, cells, strict=False):
+                if text:
+                    pdf.drawString(x + 5, top - 15, text)
+
+        def draw(pdf, index):
+            top = 780.0
+            if index == 0:
+                row_lines(pdf, top, ["그룹", "과제", "예산"])
+                top -= height
+                for number in range(1, 5):
+                    row_lines(pdf, top, ["그룹1 담당: 팀1" if number == 1 else "", f"과제 {number}", f"{number * 1111:,}"],
+                              first_open=number > 1, last_open=number < 4)
+                    top -= height
+                for number in (5, 6):
+                    row_lines(pdf, top, ["그룹2 담당: 팀2" if number == 5 else "", f"과제 {number}", f"{number * 1111:,}"],
+                              first_open=number > 5, last_open=True)
+                    top -= height
+            else:
+                for cells in (["", "지출 항목", "금액"], ["교통", "택시", "12,000"], ["식비", "점심", "9,000"],
+                              ["숙박", "호텔", "80,000"]):
+                    row_lines(pdf, top, cells)
+                    top -= height
+
+        sections = convert(_korean_pdf(draw, pages=2), "a.pdf", ConvertOptions(page_markers=False)).sections
+
+        assert sections[1].text.startswith("| | 지출 항목 | 금액 |\n| --- | --- | --- |\n| 교통 | 택시 | 12,000 |")
+        assert "그룹2" not in sections[1].text
+
 
 def _wide_first_column_pdf(centred: bool = False) -> bytes:
     """The shape of a Chrome borderless table: the '과제명' cell, wider than 1/3 of the page width, wraps to two lines (line pitch 15.3pt — the gap is
@@ -1039,3 +1157,75 @@ class TestHeaderMergedWiderThanACell:
         text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert "| 구분 | 사업 | 비용 | 배출량 | 감축 |\n| --- | --- | --- | --- | --- |\n| 연도 | 효과 | 17,777 |" in text
+
+
+class TestVeryWideBorderlessRows:
+    """Faint rows of 1,000 one-point letters every 4pt form a borderless 'table' of 1,000 columns; looking up the column of
+    each piece scanned every header cell, so the table step took time with cells × columns."""
+
+    @staticmethod
+    def _rows_pdf(rows: int) -> bytes:
+        from tests.test_audit_pdf_head import _flate, _one_page
+
+        parts = [b"BT /F1 1 Tf 0 g "]
+        for piece in range(rows * 1000):
+            parts.append(b"1 0 0 1 %d %d Tm (x) Tj " % (10 + (piece % 1000) * 4, 20 + (piece // 1000) * 3))
+        parts.append(b"ET")
+        return _one_page(_flate(b"".join(parts)), mediabox=b"[0 0 4600 600]")
+
+    @pytest.mark.timing
+    def test_column_lookups_of_a_very_wide_table_are_not_quadratic(self, monkeypatch):
+        import time
+
+        import opendockit.extractors.pdf as pdf_module
+
+        extract, spent = pdf_module._extract_aligned_tables, [0.0]
+
+        def timed(page):
+            started = time.perf_counter()
+            try:
+                extract(page)
+            finally:
+                spent[0] += time.perf_counter() - started
+
+        monkeypatch.setattr(pdf_module, "_extract_aligned_tables", timed)
+        text = convert(self._rows_pdf(10), "a.pdf", ConvertOptions(max_chars=None)).text
+
+        assert text.count("x") == 10_000
+        assert spent[0] < 2.0  # 5 seconds before
+
+    @pytest.mark.parametrize("seed", range(4))
+    def test_the_header_index_gives_the_columns_of_the_scans(self, seed, monkeypatch):
+        """`_HeaderIndex` against the scans it replaces, on random wide headers with many equal edges and distances (the
+        first header at the smallest distance wins), overlapping cells and pieces in the gaps."""
+        import random
+
+        from opendockit.extractors._pdf_model import _Line
+        import opendockit.extractors._pdf_table_rows as table_rows
+
+        rng = random.Random(seed)
+
+        def line(x0, width, text):
+            return _Line(top=0.0, bottom=10.0, x0=x0, x1=x0 + width, text=text, size=10.0)
+
+        def columns(header, pieces, row):
+            return [(table_rows._header_column(piece, header), table_rows._gap_column(piece, header, row),
+                     table_rows._column_of(piece, header, row)) for piece in pieces]
+
+        for _ in range(150):
+            edges = [rng.choice([0.0, 0.3, 2.5, 5.0, 7.5]) + 6 * rng.randint(0, 40) for _ in range(12)]
+            header = [line(rng.choice(edges) if rng.random() < 0.5 else rng.uniform(0, 300),
+                           rng.choice([0, 1, 2.5, 5, 30, rng.uniform(0, 80)]), rng.choice(["ab", "12"]))
+                      for _ in range(rng.choice([17, 40, 120]))]
+            pieces = [line(rng.choice(header).x0 + rng.choice([0, 2.5, -2.5, 1, 3, 0.1 + 0.2]) if rng.random() < 0.7
+                           else rng.uniform(-10, 310), rng.choice([0, 1, 4, 20, rng.uniform(0, 100)]), rng.choice(["ab", "12", "가"]))
+                      for _ in range(12)]
+            row = sorted(rng.sample(pieces, rng.randint(0, len(pieces))), key=lambda piece: piece.x0)
+
+            indexed = columns(header, pieces, row)
+            monkeypatch.setattr(table_rows, "_INDEXED_HEADER_CELLS", 10_000)
+            scanned = columns(header, pieces, row)
+            monkeypatch.setattr(table_rows, "_INDEXED_HEADER_CELLS", 16)
+            table_rows._drop_header_indexes()
+
+            assert indexed == scanned

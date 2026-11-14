@@ -1,11 +1,13 @@
 """Content-based format detection."""
 
 from io import BytesIO
+from pathlib import Path
 import time
 
 import pytest
 
 from opendockit import (
+    CorruptedDocumentError,
     DocumentFormat,
     EncryptedDocumentError,
     UnsupportedFormatError,
@@ -672,3 +674,47 @@ class TestOleStreamNameCaseForOtherDocuments:
         data = builder.ole_container({name: b"\x00" * 4096})
 
         assert detect_format(data, "a.doc") is DocumentFormat.DOC
+
+
+def _zip_with_damaged_mimetype(*, flag: int = 0, method: int | None = None) -> bytes:
+    """A ZIP whose `mimetype` part is marked encrypted (`flag` 1) or compressed with an unknown method, in both headers."""
+    import zipfile
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("mimetype", "application/epub+zip")
+    data = bytearray(buffer.getvalue())
+    central = data.find(b"PK\x01\x02")
+    data[6] |= flag
+    data[central + 8] |= flag
+    if method is not None:
+        data[8] = data[central + 10] = method
+    return bytes(data)
+
+
+class TestDetectionOnItsOwn:
+    """`detect_format` is public. `convert` gathers library exceptions at its boundary, but called on its own detection let a
+    `RuntimeError` / `NotImplementedError` with zipfile's wording out."""
+
+    @pytest.mark.parametrize("data", [_zip_with_damaged_mimetype(flag=1), _zip_with_damaged_mimetype(method=99)],
+                             ids=["encrypted-part", "unknown-compression"])
+    def test_container_that_cannot_be_inspected_is_a_conversion_error(self, data):
+        with pytest.raises(CorruptedDocumentError) as raised:
+            detect_format(data, "book.epub")
+
+        assert str(raised.value) == "Could not parse the file format. The file may be corrupted."
+        with pytest.raises(CorruptedDocumentError, match="^Could not parse the file format"):
+            convert(data, "book.epub")
+
+    @pytest.mark.parametrize("wrap", [bytes, bytearray, memoryview])
+    def test_content_is_taken_as_convert_takes_it(self, wrap):
+        assert detect_format(wrap(b"%PDF-1.4\n%%EOF"), "a.pdf") is DocumentFormat.PDF
+        assert detect_format(wrap(builder.docx_bytes())) is DocumentFormat.DOCX
+
+    @pytest.mark.parametrize("data", ["%PDF-1.4", None, Path("a.pdf"), 42], ids=["str", "none", "path", "int"])
+    def test_arguments_are_checked_like_those_of_convert(self, data):
+        """Misuse is a `TypeError` before detection, as in `convert` — not a 'corrupted file'."""
+        with pytest.raises(TypeError, match="takes the file content as bytes"):
+            detect_format(data)
+        with pytest.raises(TypeError, match="file name must be a str"):
+            detect_format(b"plain text", Path("a.txt"))

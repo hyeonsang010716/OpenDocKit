@@ -42,8 +42,13 @@ _SPACE_LIKE = re.compile("[  -   　]")
 _INNER_SPACES = re.compile(r"[ \t]+")
 _BLANK_RUN = re.compile(r"\n{3,}")
 # Only nested list lines made by the extractors keep their indentation. Any other leading whitespace reads as a code block in
-# Markdown, so it is removed.
+# Markdown, so it is removed. An empty item (a bare `-` or `N.`) keeps its indentation only when it is nested in another empty
+# item and holds a deeper list (`_empty_item_holding_a_list`) — its nesting was lost without it
+# (Pinned by: test_audit_web_fixes.py::TestEmptyListItemHoldingANestedList). Any other paragraph that is only `-` or `2025.`
+# is stripped as before: with its spaces kept, five of them made it an indented code block.
 _LIST_LINE = re.compile(r"^( +)(?:[-*]|\d+\.) ")
+_BARE_LIST_MARKER = re.compile(r"^( +)(?:[-*]|\d+\.)[ \t]*$")
+_EMPTY_ITEM = re.compile(r"^( *)([-*]|\d+\.)$")
 _LIST_ITEM = re.compile(r"^ *(?:[-*]|\d+\.) ")
 # The span counts and cell addresses of a table are numbers written in the file, so they are not trusted as is. A few KB of input
 # used seconds and gigabytes (DOCX gridSpan of 3 million, HWPX cell address 3000×3000, 150 HTML cells each merged 200×200).
@@ -100,12 +105,31 @@ def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
         if in_fence or not collapse_spaces:
             line = line.rstrip()
         else:
-            list_match = _LIST_LINE.match(line)
+            list_match = _LIST_LINE.match(line) or _empty_item_holding_a_list(source, index, lines[-1] if lines else "")
             line = (list_match.group(1) if list_match else "") + _INNER_SPACES.sub(" ", line.strip())
         if line or in_fence or (lines and lines[-1]):
             lines.append(line)
 
     return "\n".join(lines).strip("\n")
+
+
+def _empty_item_holding_a_list(source: list[str], index: int, previous: str) -> re.Match[str] | None:
+    """The match of an indented bare list marker (`  -`) at `source[index]` that is an empty item nested in another empty item,
+    otherwise None: the line above as already cleaned (`previous`) is itself a bare marker whose content column (its
+    indentation + marker + one space) is exactly this indentation, and the next line is a list line (or another bare marker)
+    indented exactly to this marker's content column — so both links of the chain nest in CommonMark. Right under an item
+    line with text `  -` is a setext underline that turns the text into a heading; under `1.` (content column 3) a two-space
+    `  1.` does not nest; and a `    - x` under `  1.` (content column 5) would leave it — all of these keep the old stripped
+    form (Pinned by: test_audit_web_fixes.py::TestEmptyListItemHoldingANestedList)."""
+    bare = _BARE_LIST_MARKER.match(source[index])
+    parent = _EMPTY_ITEM.match(previous)
+    if bare is None or parent is None or index + 1 >= len(source):
+        return None
+    if len(bare.group(1)) != len(parent.group(1)) + len(parent.group(2)) + 1:
+        return None
+    following = _LIST_LINE.match(source[index + 1]) or _BARE_LIST_MARKER.match(source[index + 1])
+    column = len(bare.group(1)) + len(source[index].strip()) + 1
+    return bare if following is not None and len(following.group(1)) == column else None
 
 
 def solid_length(text: str) -> int:

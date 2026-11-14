@@ -21,8 +21,13 @@ _ACCENTS = {"\u0302": "hat", "\u0303": "tilde", "\u0304": "bar", "\u0305": "bar"
 
 
 def render_omml(equation: etree._Element) -> str:
-    """One m:oMath → ` $LaTeX$ ` to insert in the paragraph text. DOCX and PPTX use the same notation."""
-    return f" ${omml_to_latex(equation).strip()}$ "
+    """One m:oMath → ` $LaTeX$ ` to insert in the paragraph text. DOCX and PPTX use the same notation.
+
+    An equation with no text (an empty equation, or one whose runs are all tracked deletions) gives nothing: ` $$ ` opens display
+    math in Markdown renderers, which swallowed the rest of the document (Pinned by:
+    test_office_equations.py::TestOmmlLiteralText::test_empty_equation_writes_nothing)."""
+    latex = omml_to_latex(equation).strip()
+    return f" ${latex}$ " if latex else ""
 
 
 def _m(tag: str) -> str:
@@ -42,7 +47,16 @@ _ESCAPED_DELIMITERS = {"{": "\\{", "}": "\\}"}
 # Equation font style (m:rPr/m:scr) → LaTeX command. Only double-struck (ℝ), script (ℒ) and fraktur, whose meaning differs, are
 # written; sans-serif, monospace etc. are left as is.
 _MATH_ALPHABETS = {"double-struck": "mathbb", "script": "mathcal", "fraktur": "mathfrak"}
-_MATH_ALPHABET_LETTERS = re.compile(r"[A-Za-z0-9]+")
+_MATH_ALPHABET_LETTERS = re.compile(r"([A-Za-z0-9]+)")  # captured: `re.split` keeps the letters
+# Characters of the literal text of an equation (m:t) that LaTeX or the Markdown `$…$` delimiters would read as syntax: `$` ended
+# the math span early, `%` starts a LaTeX comment, `{` `}` group, `#` is a parameter. They are escaped in the text only, never in
+# the LaTeX this module writes (`_literal`).
+_LITERAL_ESCAPES = str.maketrans({"\\": "\\backslash ", "{": "\\{", "}": "\\}", "$": "\\$", "%": "\\%", "#": "\\#"})
+# The braces `_join_math` puts around a script inside the literal text of one run (two m:t in one m:r: `x^2` + `a` → `x^{2}a`)
+# are LaTeX the module writes. They stand as these two marks, which XML text cannot hold, until the text has been escaped —
+# they came out as `x^\{2\}a` (Pinned by: test_office_equations.py::TestOmmlLiteralText::test_braces_the_converter_adds_are_not_escaped).
+_RUN_BRACES = "\x01\x02"
+_RUN_BRACES_WRITTEN = str.maketrans(_RUN_BRACES, "{}")
 # The removed side of tracked changes (deleted text, the original place of moved text). It wraps m:r inside equations too. Left out
 # as in body paragraphs (`docx._paragraph_text`).
 _TRACKED_REMOVALS = (f"{{{_W}}}del", f"{{{_W}}}moveFrom")
@@ -53,21 +67,22 @@ def _math_content(element: etree._Element) -> list[etree._Element]:
     return [child for child in element if isinstance(child.tag, str) and not child.tag.endswith("Pr")]
 
 
-def _join_math(element: etree._Element) -> str:
+def _join_math(element: etree._Element, braces: str = "{}") -> str:
     """Join the child equations in order. When a letter or digit directly follows a one-character script, the script is wrapped in
     `{}` (`x^{k}a^{n-k}`), and a function (m:func) name is spaced from a preceding letter, digit or closing bracket (`a_n cos x`;
     after an operator it stays `α+cos β`). Joined as is, the script and the following letter read as one lump, like `x^ka^{n-k}` and
     `a_ncos x` (Pinned by: test_office_equations.py::TestOmmlScriptsFollowedByText).
     The script is looked for in the last three characters only (the pattern ends at the end of the text, or before a line break
     there): searched from the start for every child, an equation of 80,000 runs took 10 seconds
-    (Pinned by: test_audit_core.py::TestEquationWithManyRuns)."""
+    (Pinned by: test_audit_core.py::TestEquationWithManyRuns).
+    `braces`: what the script is wrapped in (the run text, which is escaped afterwards, uses `_RUN_BRACES`)."""
     text = ""
     for child in element:
         piece = omml_to_latex(child)
         if piece and text and child.tag == _m("func") and (text[-1].isalnum() or text[-1] in ")]}"):
             text += " "
         elif piece[:1].isalnum() and (bare := _BARE_SCRIPT_END.search(text, max(len(text) - 3, 0))):
-            text = f"{text[:bare.start(1)]}{{{bare.group(1)}}}"
+            text = f"{text[:bare.start(1)]}{braces[0]}{bare.group(1)}{braces[1]}"
         text += piece
     return text
 
@@ -105,7 +120,9 @@ def omml_to_latex(element: etree._Element) -> str:
 
     tag = element.tag
     if tag == _m("t"):
-        return element.text or ""
+        # Raw text inside m:r, which escapes it (`_literal`) after picking out the letters of a math alphabet
+        parent = element.getparent()
+        return (element.text or "") if parent is not None and parent.tag == _m("r") else _literal(element.text or "")
     if not isinstance(tag, str) or tag.endswith("Pr") or tag in _TRACKED_REMOVALS:
         # Reading the removed side of tracked changes made an equation edited from 0.3 to 0.5 into `E=A×0.30.5` (Pinned by:
         # test_office_equations.py::TestOmmlTrackedChanges). The inserted side (w:ins, w:moveTo) is read as is by `_join_math` below.
@@ -113,9 +130,15 @@ def omml_to_latex(element: etree._Element) -> str:
     if tag == _m("r"):
         # Dropping double-struck / script letters (m:scr) turned the set of reals ℝ into an ordinary variable R. Only letters and
         # digits are wrapped in the command (Pinned by: test_office_equations.py::TestOmmlMathAlphabets).
-        text = _join_math(element)
+        # Literal `$ % { } # \\` of the text are escaped (Pinned by: test_office_equations.py::TestOmmlLiteralText).
+        text = _join_math(element, _RUN_BRACES)
         command = _MATH_ALPHABETS.get(prop("rPr", "scr", "roman"))
-        return _MATH_ALPHABET_LETTERS.sub(lambda match: f"\\{command}{{{match.group()}}}", text) if command else text
+        if command:
+            pieces = _MATH_ALPHABET_LETTERS.split(text)
+            text = "".join(f"\\{command}{{{piece}}}" if index % 2 else _literal(piece) for index, piece in enumerate(pieces))
+        else:
+            text = _literal(text)
+        return text.translate(_RUN_BRACES_WRITTEN)
     if tag == _m("f"):
         # A fraction without a bar (noBar) is stacked text such as a binomial coefficient (inside parentheses m:d turns it into
         # `\binom`). Linear and skewed fractions (lin, skw) have the `a/b` shape. Emitting them all as `\frac` made a binomial
@@ -177,6 +200,11 @@ def omml_to_latex(element: etree._Element) -> str:
                 for row in element.iterchildren(_m("mr"))]
         return "\\begin{matrix}" + " \\\\ ".join(rows) + "\\end{matrix}"
     return _join_math(element)
+
+
+def _literal(text: str) -> str:
+    """Literal equation text with the characters LaTeX or Markdown would read as syntax escaped (`_LITERAL_ESCAPES`)."""
+    return text.translate(_LITERAL_ESCAPES)
 
 
 def _delimited(element: etree._Element, begin: str, end: str, separator: str) -> str:

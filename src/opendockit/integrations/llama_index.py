@@ -15,9 +15,12 @@ import os
 from pathlib import Path
 from typing import Any
 
-from opendockit.converter import convert, convert_file
+from opendockit.converter import convert, convert_file, read_limited
 from opendockit.integrations._documents import Mode, check_mode, pieces
 from opendockit.models import ConvertOptions
+
+
+_DEFAULT_OPTIONS = ConvertOptions()
 
 
 try:
@@ -48,13 +51,16 @@ class OpenDocKitReader(BaseReader):
     def lazy_load_data(self, file: str | os.PathLike[str], extra_info: dict[str, Any] | None = None, *, fs: Any = None,
                        **_: Any) -> Iterable[Document]:
         """`fs` is the fsspec file system `SimpleDirectoryReader` passes on when it was given one: the file is then read
-        through it (a bucket, an archive, memory) instead of from the local disk."""
+        through it (a bucket, an archive, memory) instead of from the local disk. It is read only up to `max_file_bytes`: read
+        whole, a file over the limit was held in memory before it was refused
+        (Pinned by: test_integrations.py::TestLlamaIndexReader::test_file_from_a_file_system_is_read_only_up_to_the_size_limit)."""
         path = Path(file)
         if fs is None:
             result = convert_file(path, self.options)
         else:
             with fs.open(str(file), "rb") as stream:
-                result = convert(stream.read(), path.name, self.options)
+                data = read_limited(stream, (self.options or _DEFAULT_OPTIONS).max_file_bytes)
+            result = convert(data, path.name, self.options)
         for text, metadata in pieces(result, str(file), self.mode):
             yield Document(text=text, metadata={**metadata, **(extra_info or {})})
 

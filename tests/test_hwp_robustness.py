@@ -149,6 +149,26 @@ class TestBrokenSectionStream:
         assert result.warnings == []
 
 
+class TestBrokenDocInfo:
+    """DocInfo holds styles, numbering and the picture list, not text. Its broken compression rejected the whole document even
+    though the sections were intact (HWPX keeps the body when header.xml is broken)."""
+
+    def test_broken_doc_info_keeps_the_body_with_a_warning(self, monkeypatch):
+        data = _fake_hwp(monkeypatch, flags=1, sections=[_paragraph("본문")], extra={"DocInfo": b"\xff\xff\xff garbage" * 10})
+
+        result = convert(data, "a.hwp")
+
+        assert result.text == "본문"
+        assert result.warnings == ["The document style information (DocInfo) could not be read, so the document was converted "
+                                   "without headings, numbering, character formatting and pictures."]
+
+    def test_broken_doc_info_and_broken_sections_are_still_a_corrupted_document(self, monkeypatch):
+        data = _fake_hwp(monkeypatch, flags=1, extra={"DocInfo": b"\xff garbage" * 10, "BodyText/Section0": b"\xff garbage" * 10})
+
+        with pytest.raises(CorruptedDocumentError):
+            convert(data, "a.hwp")
+
+
 class TestHwpxPartsOutsideTheBody:
     """With an intact body (section), an XML error in header.xml (styles) or a CRC error in content.hpf, the manifest or the
     preview got the whole document rejected."""
@@ -391,3 +411,53 @@ class TestHugeParagraphText:
         result = convert(data, "a.hwp")
 
         assert result.text == "x^{ab cd}y"  # clean_text turns the tab into a space
+
+
+def _unreadable(data: bytes, name: str, *, encrypted: bool) -> bytes:
+    """An HWPX whose member `name` cannot be read at all: its compression method is one zipfile does not know
+    (NotImplementedError), or its ZIP encryption flag is set (RuntimeError)."""
+    packed = bytearray(_rezipped(data))
+    with zipfile.ZipFile(BytesIO(bytes(packed))) as archive:
+        info = archive.getinfo(name)
+    for offset, flag_at, method_at in [(info.header_offset, 6, 8)] + [
+            (start, 8, 10) for start in _central_entries(packed) if packed[start + 46:start + 46 + len(name)] == name.encode()]:
+        if encrypted:
+            struct.pack_into("<H", packed, offset + flag_at, 1)
+        else:
+            struct.pack_into("<H", packed, offset + method_at, 99)
+    return bytes(packed)
+
+
+def _central_entries(packed: bytearray) -> list[int]:
+    starts, at = [], packed.find(b"PK\x01\x02")
+    while at != -1:
+        starts.append(at)
+        at = packed.find(b"PK\x01\x02", at + 4)
+    return starts
+
+
+class TestHwpxUnreadableMembers:
+    """A member with an unknown compression method (NotImplementedError) or the ZIP encryption flag (RuntimeError) rejected the
+    whole document: only bad compression and checksums were caught. Like those, only that member is skipped."""
+
+    @pytest.mark.parametrize("encrypted", [False, True])
+    def test_unreadable_second_section_keeps_the_first_with_a_warning(self, encrypted):
+        data = _unreadable(_two_section_hwpx(TestBrokenHwpxSection._SECOND), "Contents/section1.xml", encrypted=encrypted)
+
+        result = convert(data, "a.hwpx")
+
+        assert result.text == "첫 구역 본문"
+        assert result.warnings == ["Section 2: corrupted and could not be read."]
+
+    @pytest.mark.parametrize("encrypted", [False, True])
+    def test_unreadable_header_xml_keeps_the_body(self, encrypted):
+        data = _unreadable(builder.hwpx_bytes(), "Contents/header.xml", encrypted=encrypted)
+
+        assert "본문 탭과 각주[^1]입니다." in convert(data, "a.hwpx").text
+
+    def test_unreadable_picture_skips_only_that_picture(self):
+        data = _unreadable(builder.hwpx_with_images(), "BinData/image1.png", encrypted=False)
+
+        result = convert(data, "a.hwpx")
+
+        assert result.text.count("[Image") == 1

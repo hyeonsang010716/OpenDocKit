@@ -5,6 +5,7 @@ pictures turned into placeholders.
 
 import base64
 import binascii
+import bisect
 from collections.abc import Callable, Container
 import itertools
 import re
@@ -14,7 +15,9 @@ from bs4.element import PageElement, PreformattedString
 
 from opendockit.extractors._html_base import (
     _BLOCK_GAP,
+    _BLOCK_TAGS,
     _CHECKED,
+    _CODE_BLOCKS,
     _FOLDED_STYLE,
     _HEADER_PROBE_ROWS,
     _HEADINGS,
@@ -31,6 +34,7 @@ from opendockit.extractors._html_tables import _header_rows_on_top, _names_value
 from opendockit.extractors._inline import (
     SUBSCRIPT,
     SUPERSCRIPT,
+    _escape_link_text,
     format_script,
 )
 from opendockit.extractors._package import decimal_int
@@ -60,6 +64,19 @@ _MAX_REOPENED = 16
 
 _STRIKE_TAGS = ["del", "s", "strike"]
 _STRIKE = "~~"
+# Where a run of struck text is cut by a code block (`_struck_runs`): no cell is this object, so the next text opens a new run.
+_RUN_BREAK = object()
+# One run of struck text: its text nodes in document order, each with the table it is grouped with (`_struck_runs`).
+_Run = list[tuple[NavigableString, Tag | None]]
+# Elements that keep two struck runs apart (`_joined_runs`): what is written as a block, a line break or a cell of its own.
+# Other elements only wrap their text.
+_BETWEEN_RUNS = _BLOCK_TAGS | set(_HEADINGS) | {"br", "li", "ul", "ol", "pre", "img", "table", "tr", "td", "th", "thead", "tbody",
+                                                "tfoot"}
+# No emphasis is written inside a heading or inline code (`_html_render._render_nodes`, `_CODE_TAGS`).
+_PLAIN_INSIDE = frozenset({*_HEADINGS, "code", "kbd", "samp", "tt"})
+_LINE_PIECES = frozenset({"br", "img"})  # of `_BETWEEN_RUNS`, what does not end a block
+_SPAN_BREAKERS = frozenset({"table", "pre", "ul", "ol"})  # `_html_render._BLOCK_LEAVES`: no span is written around one
+_EMPHASIS_TAGS = {"b": "b", "strong": "b", "i": "i", "em": "i"}  # `_html_render._EMPHASIS_MARKS`
 # CSS strikethrough. Both `text-decoration: underline line-through` and `text-decoration-line: line-through`.
 # Each declaration (up to the next `;`) is read once, from its first `text-decoration…:` — a later one in the same declaration
 # has less after it, so it cannot match when the first does not. Starting again at every occurrence took 15 seconds on a
@@ -72,6 +89,13 @@ _STRIKE_STYLE = re.compile(r"(?:^|;)(?>[^;]*?text-decoration(?:-line)?\s*:)[^;]*
 # visible element styled `backface-visibility:hidden`, text and all
 # (Pinned by: test_audit_html_text.py::TestStylePropertiesThatOnlyEndLikeAHidingOne).
 _HIDDEN_STYLE = re.compile(r"(?<![\w-])(?:display\s*:\s*none|(?:content-)?visibility\s*:\s*hidden)", re.IGNORECASE)
+# Hiding that a descendant cannot undo (`display:none`, `content-visibility:hidden`), and the inherited `visibility`, which a
+# descendant can set back with `visibility:visible` (`_drop_hidden`).
+_UNDOABLE_HIDING = re.compile(r"(?<![\w-])(?:display\s*:\s*none|content-visibility\s*:\s*hidden)", re.IGNORECASE)
+_VISIBLE_STYLE = re.compile(r"(?<![\w-])visibility\s*:\s*visible", re.IGNORECASE)
+# Elements whose `visibility:hidden` is not taken as hiding: the page itself, hidden by an anti-flicker snippet until a script
+# shows it.
+_PAGE_ROOTS = {"html", "body"}
 
 
 # Hidden elements (blocks) that can be a folded answer, and the elements right before one that unfold it. Lists (ul/ol) are
@@ -373,9 +397,29 @@ def _with_title_heading(text: str, title: str | None) -> str:
     body = text.strip()
     first_line = body.split("\n", 1)[0]
     # The first line may carry emphasis marks now (`**공지** 사항`); the title is looked for without them
-    if not title or not body or _MARKDOWN_HEADING.search(body) or title in first_line or title in first_line.replace("*", ""):
+    if (not title or not body or _MARKDOWN_HEADING.search(_outside_code_blocks(body)) or title in first_line
+            or title in first_line.replace("*", "")):
         return text
     return f"# {title}\n\n{body}"
+
+
+def _outside_code_blocks(text: str) -> str:
+    """The lines of `text` outside its code blocks (``` fences). A `# comment` line of a shell or Python example is not a
+    heading, and the title was left out of a page whose only `#` lines were code
+    (Pinned by: test_audit_web_fixes.py::TestTitleOfAPageWhoseCodeHasCommentLines). Fences are paired as `clean_text` pairs
+    them: with an odd number of fence lines the last one is not a fence (it is neutralized as `\\````), so the headings after a
+    stray ``` paragraph still count (Pinned by: TestTitleOfAPageWhoseCodeHasCommentLines::test_stray_fence_line_does_not_hide_a_heading)."""
+    lines = text.split("\n")
+    fences = [index for index, line in enumerate(lines) if line.lstrip().startswith("```")]
+    unpaired = fences[-1] if len(fences) % 2 else None
+    kept: list[str] = []
+    fenced = False
+    for index, line in enumerate(lines):
+        if index != unpaired and line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced:
+            kept.append(line)
+    return "\n".join(kept)
 
 
 def _document_nodes(soup: BeautifulSoup) -> list:
@@ -435,15 +479,17 @@ def _flatten_nested_headings(soup: BeautifulSoup) -> None:
             _move_after(outer, [heading, *heading.next_siblings])
 
 
-def _lying_inside(nodes: list[Tag], names: Container[str]) -> set[int]:
+def _lying_inside(nodes: list[PageElement], names: Container[str], inside: dict[int, bool] | None = None) -> set[int]:
     """`id`s of those of `nodes` that lie inside an element named in `names` (the same answer as `find_parent(names)` for each,
-    as the tree is now). Each node walks upwards and stops at an element already visited, so it is linear time.
+    as the tree is now). Each node walks upwards and stops at an element already visited, so it is linear time. Calls that ask
+    about the same tree and `names` may share `inside` (what was learned on the way up).
 
     `find_parent` walks to the root for every node that has no such ancestor: 8,000 headings under 8,000 unclosed `<div>`
     (117KB) took 31 seconds (Pinned by: test_audit_html_text.py::TestManyHeadingsUnderDeepNesting).
     """
     found: set[int] = set()
-    inside: dict[int, bool] = {}  # element not named in `names` → whether it lies inside one that is
+    if inside is None:
+        inside = {}  # element not named in `names` → whether it lies inside one that is
 
     for node in nodes:
         path: list[Tag] = []
@@ -851,10 +897,14 @@ def _mark_scripts(soup: BeautifulSoup) -> None:
     one's text whole gives `e^{x2}`
     (Pinned by: test_text_html.py::TestNestedScriptsAndStrikethrough::test_nested_superscript_marks_the_inner_one_first)."""
     places: _Places = {}
+    scripts = soup.find_all(["sup", "sub"])
+    # Not inside a code block: `x<sup>2</sup>` there is code as written, and a mark would change it
+    # (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode)
+    in_code = _lying_inside(scripts, _CODE_BLOCKS)
 
-    for outer in soup.find_all(["sup", "sub"]):
-        if outer.parent is None:
-            continue  # already replaced together with the outer script
+    for outer in scripts:
+        if outer.parent is None or id(outer) in in_code:
+            continue  # already replaced together with the outer script, or code
         for script in [*reversed(outer.find_all(["sup", "sub"])), outer]:
             before = script.previous_sibling
             marked = format_script(script.get_text(), SUPERSCRIPT if script.name == "sup" else SUBSCRIPT,
@@ -862,7 +912,7 @@ def _mark_scripts(soup: BeautifulSoup) -> None:
             _replace(script, marked, places)
 
 
-def _mark_struck_text(soup: BeautifulSoup) -> None:
+def _mark_struck_text(soup: BeautifulSoup, *, links: bool = False, emphasis: bool = False) -> None:
     """Mark struck-through text (`<del>`, `<s>`, `<strike>`, CSS `text-decoration: line-through`) as `~~text~~`. As plain text,
     `정가 10,000원 8,000원` (list price 10,000 won 8,000 won) reads as two valid values.
 
@@ -870,34 +920,70 @@ def _mark_struck_text(soup: BeautifulSoup) -> None:
     one with no text are not marked (Pinned by: test_text_html.py::TestNestedScriptsAndStrikethrough).
     A pair never crosses a table cell boundary (`_struck_runs`) — a strikethrough over a whole row or table became `| ~~가 | 100~~ |`, and
     when a table inside a cell was kept as an HTML table the closing mark landed in the inner table's last cell.
+
+    The runs of the whole document are found first, runs with nothing between them are joined (`_joined_runs`), and the marks
+    are written at the end, all together (`_write_marks`). `links` / `emphasis`: whether links and emphasis are written as
+    Markdown — where they are, their marks can lie between two runs.
     """
     nested: set[int] = set()
-    for struck in soup.find_all(_is_struck):
-        if id(struck) in nested:
+    # Text inside a code block gets no marks — it is code as written, and the `<del>` lines of a diff view in `<pre>` came out as
+    # `~~…~~` inside the fence. A strikethrough holding a code block is marked in pieces around it (`_struck_runs`)
+    # (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode).
+    struck_elements = soup.find_all(_is_struck)
+    if not struck_elements:
+        return
+    in_code = _lying_inside(struck_elements, _CODE_BLOCKS)
+    holding_code = _holding(soup.find_all(_CODE_BLOCKS))
+    runs: list[_Run] = []
+    for struck in struck_elements:
+        if id(struck) in nested or id(struck) in in_code or struck.name in _CODE_BLOCKS:
             continue
         nested.update(id(inner) for inner in struck.find_all(_is_struck))
         strings = {id(string) for string in struck.find_all(string=True) if string.strip()}
-        for run in _struck_runs(struck, strings):
-            _mark_run(run)
+        runs.extend(_struck_runs(struck, strings, holding_code))
+    spaces: list[tuple[Tag, bool]] = []
+    if len(runs) > 1:
+        runs, spaces = _joined_runs(soup, runs, links=links, emphasis=emphasis)
+    _write_marks(runs, spaces)
 
 
-def _struck_runs(struck: Tag, strings: set[int]) -> list[list[tuple[NavigableString, Tag | None]]]:
+def _holding(nodes: list[Tag]) -> set[int]:
+    """`id`s of the ancestors of `nodes`. Each node climbs until it reaches an element already found, so it is linear time —
+    asking `find("pre")` of every table nested in a struck cell walked the whole subtree each time: 8,000 nested tables took
+    19 seconds (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode::test_deeply_nested_tables_in_a_struck_cell_take_linear_time)."""
+    found: set[int] = set()
+    for node in nodes:
+        parent = node.parent
+        while parent is not None and id(parent) not in found:
+            found.add(id(parent))
+            parent = parent.parent
+    return found
+
+
+def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozenset()) -> list[_Run]:
     """Split the text nodes inside a strikethrough into consecutive runs per table cell. Each run gets one pair of `~~`.
 
     A table held by a strikethrough inside a table cell is part of the cell text as a whole — its text nodes are grouped with the table
     (`(text, table)`) and the marks go outside the table, before and after. Flattened into cell text that is `~~… 20~~` as before; kept as
     an HTML table it is `~~… <table>…</table>~~`. A table held by a strikethrough outside any cell, or a strikethrough on a row or table
     itself, is paired per cell. The document tree is scanned once — no climbing up the ancestors for every text node in deep nesting.
+    A code block (`<pre>`) is not descended into and ends the run: the text before it and the text after it are paired
+    separately, and the fence gets no mark inside (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode). A table inside a
+    cell that holds a code block is not grouped as a whole, its cells are paired one by one — grouped, the marks around it
+    spanned the fence of a code block drawn from a layout table.
     """
     base = struck if struck.name in ("td", "th") else struck.find_parent(["td", "th"])
-    runs: list[list[tuple[NavigableString, Tag | None]]] = []
-    last_cell: Tag | None = None
+    runs: list[_Run] = []
+    last_cell: object = None
     stack: list[tuple[object, Tag | None, Tag | None]] = [(child, None, base) for child in reversed(struck.contents)]
 
     while stack:
         node, table, cell = stack.pop()
         if isinstance(node, Tag):
-            if table is None and node.name == "table" and cell is not None:
+            if table is None and node.name in _CODE_BLOCKS:
+                last_cell = _RUN_BREAK  # the next text starts a new run
+                continue
+            if table is None and node.name == "table" and cell is not None and id(node) not in holding_code:
                 table = node
             elif table is None and node.name in ("td", "th"):
                 cell = node
@@ -912,25 +998,246 @@ def _struck_runs(struck: Tag, strings: set[int]) -> list[list[tuple[NavigableStr
     return runs
 
 
-def _mark_run(run: list[tuple[NavigableString, Tag | None]]) -> None:
-    """Put `~~` before the run's first character and after its last (whitespace stays outside). When that text is in a table inside a
-    cell, put it before/after the table."""
-    (first, first_table), (last, last_table) = run[0], run[-1]
+class _Gap:
+    """What lies between the end of one struck run and the start of the next one (`_joined_runs`)."""
+
+    __slots__ = ("apart", "between", "closed", "entered", "left", "opened", "text")
+
+    def __init__(self) -> None:
+        self.apart = False  # whitespace, a line break, a block or a cell boundary: the two runs are not written side by side
+        self.text = False  # text that is not whitespace
+        self.left: Tag | None = None  # the outermost table that ended
+        self.entered: list[Tag] = []  # tables that began and have not ended, outermost first
+        self.between: Tag | None = None  # a table that began and ended
+        # Link and emphasis spans that ended / that began and have not ended. A span is [texts before it, texts before its
+        # end, elements before it, elements before its end, element name]
+        self.closed: list[list] = []
+        self.opened: list[list] = []
+
+
+def _joined_runs(soup: BeautifulSoup, runs: list[_Run], *, links: bool, emphasis: bool) -> tuple[list[_Run], list[tuple[Tag, bool]]]:
+    """Join struck runs (`_struck_runs`, in document order) that have nothing between them into one run, so that they get one
+    pair of marks — `<del>가</del><del>나</del>` is `~~가나~~`, the same as consecutive struck runs of a DOCX
+    (`_inline.resolve_strikes`). Marked one by one they gave `~~가~~~~나~~`, and four tildes in a row are not a strikethrough
+    mark (Pinned by: test_audit_web_fixes.py::TestAdjacentStruckRuns).
+
+    Two runs are joined only when no text (not even whitespace), line break, block or cell boundary lies between them: with
+    one of those the marks are apart already and stay as they are. Nor are they joined when a link or emphasis span that is
+    written begins or ends between the two and holds an end of the joined pair: its own mark lies between the two pairs
+    (`~~가~~**~~나~~**`), and one pair would cross the span, which then loses its emphasis (`_inline._without_edge_strike`).
+    A span that lies wholly inside the second run is no obstacle — its half of the pair is moved out in front of it, next
+    to the first run's (`~~가~~~~**나** 다~~`) — and neither is a span that is not written (no emphasis in a heading or in
+    inline code, a span holding a block, an `<a>` without an address).
+
+    The second value is the tables that need a space next to them (the table, True for after it). A table inside a cell is
+    flattened into the cell text with nothing around it (`_html_render._cell_text`), so a run ending in its last cell met the run
+    that follows the table (`~~20~~~~끝~~`). Those two cannot be one pair — when the table is drawn as a table the pair
+    would cross its boundary — so a space goes outside the table, where a browser breaks the line anyway.
+
+    The document is walked once, element ends included, and nothing is looked up per run.
+    """
+    first_of = {id(run[0][0]): index for index, run in enumerate(runs)}
+    last_of = {id(run[-1][0]): index for index, run in enumerate(runs)}
+    gaps: list[_Gap | None] = [None] * len(runs)  # gaps[i]: between runs[i - 1] and runs[i]
+    first_text = [0] * len(runs)  # how many texts come before the run's first one
+    last_text = [0] * len(runs)
+    gap = _Gap()
+    texts = 0  # texts (not whitespace) seen so far
+    plain = 0  # headings and inline code we are inside of: no emphasis is written there (`_html_render._render_nodes`)
+    elements = 0
+    # A span is written only when all its words are in one block (`_inline.resolve_inline`): where the blocks begin and end
+    # (in texts seen), and where the tables, lists and code blocks begin (in elements seen)
+    block_edges: list[int] = []
+    leaf_blocks: list[int] = []
+    stack: list[object] = [soup]
+
+    while stack:
+        node = stack.pop()
+        if isinstance(node, NavigableString):
+            if not node:
+                continue
+            if not node.strip():
+                gap.apart = True
+                continue
+            index = first_of.get(id(node))
+            if index is None:
+                gap.apart = gap.text = True
+            else:
+                gaps[index] = gap
+                gap = _Gap()  # what comes up to the end of the run is inside it
+                first_text[index] = texts
+            index = last_of.get(id(node))
+            if index is not None:
+                gap = _Gap()
+                last_text[index] = texts
+            texts += 1
+        elif isinstance(node, tuple):  # the end of an element
+            tag, span, apart = node
+            gap.apart = gap.apart or apart
+            if apart and tag.name not in _LINE_PIECES:
+                block_edges.append(texts)
+            if span is not None:
+                span[1], span[3] = texts, elements + 1
+                if gap.opened and gap.opened[-1] is span:
+                    gap.opened.pop()  # began and ended between the two runs: it holds no text, so nothing is written for it
+                else:
+                    gap.closed.append(span)
+            elif tag.name == "table":
+                if gap.entered:
+                    gap.between = gap.entered.pop()
+                else:
+                    gap.left = tag
+            elif tag.name in _PLAIN_INSIDE:
+                plain -= 1
+        elif isinstance(node, Tag):
+            name = node.name
+            span = None
+            apart = name in _BETWEEN_RUNS or "role" in node.attrs  # an ARIA role can make any element a table or a cell
+            gap.apart = gap.apart or apart
+            elements += 1
+            if apart and name not in _LINE_PIECES:
+                block_edges.append(texts)
+            if name in _SPAN_BREAKERS:
+                leaf_blocks.append(elements)
+            if name == "table":
+                gap.entered.append(node)
+            elif name in _PLAIN_INSIDE:
+                plain += 1
+            elif not apart and ((name == "a" and links and node.get("href"))
+                                or (name in _EMPHASIS_TAGS and emphasis and not plain)):
+                span = [texts, texts, elements, elements, _EMPHASIS_TAGS.get(name, name)]
+                gap.opened.append(span)
+            stack.append((node, span, apart))
+            stack.extend(reversed(node.contents))
+
+    def marked(span: list) -> bool:
+        """Whether the mark of a span that holds one end of the joined pair is written between the two runs. Not when the
+        span is not written (it holds a table, list or code block, or a block begins or ends between two of its words). A
+        picture in the span does not make it unwritten: a link around `[Image: …]` is written, and a pair joined over its
+        bracket opened inside the link text and closed outside it
+        (Pinned by: test_audit_web_fixes.py::TestAdjacentStruckRuns::test_runs_are_not_joined_over_the_edge_of_a_span_with_a_picture)."""
+        leaf = bisect.bisect_right(leaf_blocks, span[2])
+        edge = bisect.bisect_right(block_edges, span[0])
+        return not ((leaf < len(leaf_blocks) and leaf_blocks[leaf] < span[3])
+                    or (edge < len(block_edges) and block_edges[edge] < span[1]))
+
+    joined: list[_Run] = [runs[0]]
+    spaces: list[tuple[Tag, bool]] = []
+    start = first_text[0]  # of the run that the next one may be joined to
+    for index in range(1, len(runs)):
+        gap, run = gaps[index], runs[index]
+        if gap is None:
+            joined.append(run)
+            start = first_text[index]
+            continue
+        table, behind = (gap.left, True) if gap.left is not None else (gap.entered[0], False) if gap.entered else (gap.between, True)
+        if table is not None and not gap.text:
+            beside = table.next_sibling if behind else table.previous_sibling
+            if not (isinstance(beside, NavigableString) and (beside[:1] if behind else beside[-1:]).isspace()):
+                spaces.append((table, behind))
+        before, after = str(joined[-1][-1][0]), str(run[0][0])
+        # A bold span that ends and one that begins there are written as one span (`_inline.resolve_inline`): no mark between
+        ended = sorted(span[4] for span in gap.closed if span[0] <= start and marked(span))
+        begun = sorted(span[4] for span in gap.opened if span[1] > last_text[index] and marked(span))
+        if (not gap.apart and not before[-1].isspace() and not after[0].isspace() and ended == begun and "a" not in ended):
+            joined[-1].extend(run)
+        else:
+            joined.append(run)
+            start = first_text[index]
+    return joined, spaces
+
+
+def _write_marks(runs: list[_Run], spaces: list[tuple[Tag, bool]]) -> None:
+    """Put `~~` before the first character of each run and after its last (whitespace stays outside). When that text is in a
+    table inside a cell, put it before/after the table. `spaces`: the tables that get a space before / after (True) them,
+    outside the mark (`_joined_runs`).
+
+    Everything is written at the end, one parent at a time: its child list is built anew in one pass and the new text
+    nodes are linked into the tree here (`_link_between`). bs4's `replace_with` / `insert_before` look up their own
+    position in the parent's child list from the start, and taking a child out or putting one in shifts the rest of the
+    list, so one strikethrough holding many code blocks — one run per piece of text between them — took time quadratic in
+    their number: 40,000 blocks 23 seconds, now 1. With the positions measured once per parent (`_decompose_all`) but each
+    node still taken out and put in, 160,000 blocks took 19 seconds, now 7 (6 of them outside the marking)
+    (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode::test_many_code_blocks_in_one_strikethrough_take_linear_time).
+    """
     texts: dict[int, tuple[NavigableString, str]] = {}
+    # node id → (where, text) in document order. Where: -1 a space before the node and 0 a mark before it, 1 the text that takes
+    # its place, 2 a mark after it and 3 a space after it
+    edits: dict[int, list[tuple[int, str]]] = {}
+    parents: dict[int, Tag] = {}
 
-    if first_table is not None:
-        first_table.insert_before(NavigableString(_STRIKE))
-    else:
-        text = str(first)
-        texts[id(first)] = (first, f"{text[:len(text) - len(text.lstrip())]}{_STRIKE}{text.lstrip()}")
-    if last_table is not None:
-        last_table.insert_after(NavigableString(_STRIKE))
-    else:
-        text = texts.get(id(last), (last, str(last)))[1]
-        texts[id(last)] = (last, f"{text.rstrip()}{_STRIKE}{text[len(text.rstrip()):]}")
+    def note(node: PageElement, where: int, text: str) -> None:
+        if node.parent is not None:
+            edits.setdefault(id(node), []).append((where, text))
+            parents[id(node.parent)] = node.parent
 
+    for table, behind in spaces:
+        note(table, 3 if behind else -1, " ")
+    for run in runs:
+        (first, first_table), (last, last_table) = run[0], run[-1]
+        if first_table is not None:
+            note(first_table, 0, _STRIKE)
+        else:
+            text = str(first)
+            texts[id(first)] = (first, f"{text[:len(text) - len(text.lstrip())]}{_STRIKE}{text.lstrip()}")
+        if last_table is not None:
+            note(last_table, 2, _STRIKE)
+        else:
+            text = texts.get(id(last), (last, str(last)))[1]
+            texts[id(last)] = (last, f"{text.rstrip()}{_STRIKE}{text[len(text.rstrip()):]}")
     for node, text in texts.values():
-        node.replace_with(text)
+        note(node, 1, text)
+
+    for parent in parents.values():
+        children: list[PageElement] = []
+        for child in parent.contents:
+            placed = False
+            last = child  # what the nodes after the child are put behind
+            for where, text in sorted(edits.get(id(child), ())):
+                new = NavigableString(text)
+                if where <= 1:
+                    _link_between(new, parent, child.previous_sibling, child)
+                    if where == 1:  # … and the text node it takes the place of goes: it has nothing below it
+                        new.next_sibling, new.next_element = child.next_sibling, child.next_element
+                        if new.next_sibling is not None:
+                            new.next_sibling.previous_sibling = new
+                        if new.next_element is not None:
+                            new.next_element.previous_element = new
+                        child.parent = child.previous_sibling = child.next_sibling = None
+                        child.previous_element = child.next_element = None
+                        placed, last = True, new
+                else:
+                    if not placed:
+                        children.append(child)
+                        placed = True
+                    _link_between(new, parent, last, last.next_sibling)
+                    last = new
+                children.append(new)
+            if not placed:
+                children.append(child)
+        parent.contents[:] = children
+
+
+def _link_between(new: NavigableString, parent: Tag, previous: PageElement | None, following: PageElement | None) -> None:
+    """Make `new` the child of `parent` between two children that are next to each other (None at either end), as bs4's
+    `insert` does: siblings and the order of the elements in the document. The caller puts it into `parent.contents`."""
+    if following is not None:
+        before = following.previous_element
+    else:
+        before = parent if previous is None else previous
+        while previous is not None and isinstance(before, Tag) and before.contents:
+            before = before.contents[-1]
+    after = before.next_element
+    new.parent = parent
+    new.previous_sibling, new.next_sibling = previous, following
+    new.previous_element, new.next_element = before, after
+    before.next_element = new
+    if after is not None:
+        after.previous_element = new
+    if previous is not None:
+        previous.next_sibling = new
+    if following is not None:
+        following.previous_sibling = new
 
 
 def _is_struck(tag: Tag) -> bool:
@@ -968,27 +1275,30 @@ def _image_placeholder(image: Tag, extraction: Extraction, options: ConvertOptio
     (Pinned by: test_core_html_mail_hidden_and_frames.py::TestLazyLoadedPicturePlaceholders).
     """
     alt = " ".join(str(image.get("alt", "")).split())
+    # The alt text written inside `[Image: …]` has its brackets escaped like link text (`_inline._escape_link_text`): an alt such
+    # as `a](https://evil) [b` closed the bracket and made a link (Pinned by: test_audit_web_fixes.py::TestAltTextCannotMakeALink)
+    shown = f" [Image: {_escape_link_text(alt)}] " if alt else ""
     source = str(image.get("src", ""))
     # The scheme and the base64 mark are compared without case and leading whitespace, as the SVG check always was:
     # `src=" data:image/png…"` and `DATA:image/png…` gave no picture
     # (Pinned by: test_audit_html_text.py::TestDataUriWrittenWithCapitalsOrLeadingSpace)
     lowered = source.lstrip().lower()
     if lowered.startswith("data:image/svg") or (lowered.startswith("data:") and _is_lazy(image)):
-        return f" [Image: {alt}] " if alt else ""
+        return shown
     if options.extract_images and lowered.startswith("data:image/") and ";base64," in lowered:
         try:
             data = base64.b64decode(source.split(",", 1)[1], validate=False)
         except (binascii.Error, ValueError):
             data = b""
         if _is_spacer(data):
-            return f" [Image: {alt}] " if alt else ""
+            return shown
         if data:
             return f" {extraction.add_image(data, alt=alt)} "
     elif saved_picture is not None and source:
         data = saved_picture(source.strip())
         if data:
             return f" {extraction.add_image(data, alt=alt)} "
-    return f" [Image: {alt}] " if alt else ""
+    return shown
 
 
 def _is_lazy(image: Tag) -> bool:
@@ -1032,7 +1342,7 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     terms-of-service layer too got the app root removed. Elements holding the content are collected by climbing up just once from each
     content element, and the body text is measured only once — re-measuring for every aria-hidden element took 47 seconds on 468KB.
     """
-    _decompose_all([tag for tag in soup.find_all(_hidden_by_style) if id(tag) not in kept])
+    _decompose_all(_hidden_nodes(soup, [tag for tag in soup.find_all(_hidden_by_style) if id(tag) not in kept]))
 
     marked = soup.find_all(attrs={"aria-hidden": "true"})
     if not marked:
@@ -1042,6 +1352,47 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     page = max(_solid_length(body), 1) if body is not None else 1
     _decompose_all([tag for tag in marked if id(tag) not in holders
                     and not (whole and body is not None and tag.parent is body and 2 * _solid_length(tag) >= page)])
+
+
+def _hidden_nodes(soup: BeautifulSoup, hidden: list[Tag]) -> list[PageElement]:
+    """What to remove for the hidden elements `hidden` (in document order), in document order. An element hidden only by
+    `visibility:hidden` keeps the descendants that set `visibility:visible` again, as a browser shows them: only the other
+    content of that element is removed, and the elements on the way down stay as shells. `visibility:hidden` on html or body is
+    not hiding — an anti-flicker snippet hides the page until a script shows it, and the whole page came out as 'No text was
+    extracted' (Pinned by: test_audit_web_fixes.py::TestVisibilityHiddenWithAVisibleDescendant). `hidden`, `display:none` and
+    `content-visibility:hidden` remove the element whole: nothing inside can show again.
+    Documents without such a case take the old path unchanged (the elements themselves)."""
+    if not hidden:
+        return []
+    visibles = soup.find_all(style=_VISIBLE_STYLE)
+    above: set[int] = set()  # elements with a `visibility:visible` descendant (each climbs once, stopping at one already seen)
+    for visible in visibles:
+        node = visible.parent
+        while node is not None and id(node) not in above:
+            above.add(id(node))
+            node = node.parent
+    special = [tag for tag in hidden if not tag.has_attr("hidden") and not _UNDOABLE_HIDING.search(str(tag.get("style", "")))
+               and (tag.name in _PAGE_ROOTS or id(tag) in above)]
+    if not special:
+        return list(hidden)
+    visible_ids = {id(visible) for visible in visibles}
+    special_ids = {id(tag) for tag in special}
+    removed = {id(tag) for tag in hidden} - special_ids
+    for tag in special:
+        if tag.name in _PAGE_ROOTS:
+            continue
+        # Below `tag`: an element with a visible descendant is a shell (descended into), a visible element stays, and another
+        # element handled here on its own (`special`) does its own part; everything else goes
+        stack = list(tag.contents)
+        while stack:
+            child = stack.pop()
+            if id(child) in visible_ids or id(child) in special_ids:
+                continue
+            if id(child) in above:
+                stack.extend(child.contents)
+            else:
+                removed.add(id(child))
+    return [node for node in soup.descendants if id(node) in removed]
 
 
 def _decompose_all(nodes: list[PageElement], *, detach_only: bool = False) -> None:

@@ -43,7 +43,8 @@ def main() -> int:
     path = Path(args.path)
     describer = OpenAIImageDescriber(model_name=args.model) if args.describe else None
     try:
-        # convert_file checks the size from the file metadata before reading. A file over the limit is never read whole.
+        # convert_file refuses a regular file over the limit from its size before reading it, and reads anything else (a
+        # pipe, /dev/stdin) only up to the limit, so a file over the limit is never read whole.
         result = convert_file(path)
         if describer is not None and result.images:
             result = asyncio.run(_describe(result, describer))
@@ -94,7 +95,7 @@ def _print_result(result: ConversionResult, args: argparse.Namespace) -> None:
             print(f"[warning] {warning}", file=sys.stderr)
     elif args.json:
         payload = asdict(result)
-        for key in ("base_warnings", "options", "fallbacks", "counted", "marker_key"):
+        for key in ("base_warnings", "options", "fallbacks", "counted", "marker_key", "time_limited"):
             payload.pop(key)
         for section in payload["sections"]:
             section.pop("template")

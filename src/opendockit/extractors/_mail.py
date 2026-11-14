@@ -9,6 +9,7 @@ import email
 from email.errors import HeaderParseError
 from email.header import Header, decode_header, make_header
 from email.message import Message
+from email.parser import BytesHeaderParser
 import quopri
 import re
 
@@ -45,7 +46,10 @@ MAX_BOX_MAILS = 100
 _MAIL_BOX_TITLE = "Message"
 MIME_VERSION = re.compile(rb"^MIME-Version:", re.IGNORECASE | re.MULTILINE)
 # Mail that carries a body: multipart (related is MHTML — `html.is_mhtml`) or a single plain-text part.
-_MAIL_CONTENT_TYPE = re.compile(rb"^Content-Type:\s*(?:multipart/(?!related\b)[\w.+-]+|text/plain)\b", re.IGNORECASE | re.MULTILINE)
+# A mail whose top-level type is message/rfc822 (a forwarded mail saved on its own, or a mail program that wraps the mail it
+# forwards) is mail too: it was text, headers and all (Pinned by: test_audit_web_fixes.py::TestTopLevelForwardedMail).
+_MAIL_CONTENT_TYPE = re.compile(rb"^Content-Type:\s*(?:multipart/(?!related\b)[\w.+-]+|text/plain|message/rfc822)\b",
+                                re.IGNORECASE | re.MULTILINE)
 # Identifying mail without MIME-Version (`_mail_without_mime_version`): the sender, a recipient/subject/date, and a MIME body
 # header (a mail Content-Type — related and HTML included — or Content-Transfer-Encoding).
 _MAIL_SENDER = re.compile(rb"^From:", re.IGNORECASE | re.MULTILINE)
@@ -164,49 +168,210 @@ def parse_mail(data: bytes) -> Message:
     18 seconds (lines × depth; beyond 1000 levels it was 'corrupted' anyway through a recursion limit error.
     Pinned by: test_core_malformed_mail_and_html.py::TestDeeplyNestedMultipart). Even at the limit it costs lines × limit —
     32 levels + 2 million lines (4MB) take 5.8 seconds (1 level takes 1.2 seconds).
+    Forwarded mails (message/rfc822) nested inside each other have their own bound (`_MAX_FORWARD_NESTING`): the parser reads
+    them by recursion, and from about a thousand levels on the mail failed with a recursion error that depends on the stack in
+    use (Pinned by: test_audit_web_fixes.py::TestDeeplyNestedForwardedMails).
     """
-    if _mime_nesting_exceeds(data, _MAX_MIME_NESTING):
+    exceeded = _mime_nesting_exceeds(data, _MAX_MIME_NESTING)
+    if exceeded == "multipart":
         raise CorruptedDocumentError(f"Mail MIME parts nested deeper than {_MAX_MIME_NESTING} levels cannot be read. The file may be corrupted.")
+    if exceeded == "forward":
+        raise CorruptedDocumentError(f"Mail forwarded inside forwarded mails more than {_MAX_FORWARD_NESTING} levels deep cannot be read. "
+                                     "The file may be corrupted.")
     message = email.message_from_bytes(data)
     _readable_parts(message)
     return message
 
 
-def _mime_nesting_exceeds(data: bytes, limit: int) -> bool:
-    """Does the nesting of multipart boundaries exceed `limit` levels. It scans once over only the line-start `--boundary` lines
-    and the `boundary=` of Content-Type headers (continuation lines included): a declaration is pushed as an open boundary, a
-    delimiter line of an open boundary closes the boundaries inside it (as the parser does), and a closing line (`--boundary--`)
-    closes everything up to that boundary. A `boundary=` written in body text is not a Content-Type line and is not counted.
-    Known accepted gap: a part that ends without a closing line stays open and is counted deeper than it really is (sibling
-    parts are closed by the next delimiter line)."""
-    stack: list[bytes | int] = []
-    depth: dict[bytes | int, int] = {}  # open boundary → its position in the stack
+# What `_mime_nesting_exceeds` reads the way the parser (`email.feedparser`) does: a line ends at `\r\n`, `\r` or `\n`; a header
+# line is `name:`, a folded line or a `From ` line; a delimiter line starts with `--`.
+_LINE_END = re.compile(rb"\r\n|\r|\n")
+_PARSER_HEADER_LINE = re.compile(rb"From |[!-9;-~]*:|[\t ]")
+_DASH_LINE = re.compile(rb"(?<![^\r\n])--[^\r\n]*")
+_CONTENT_TYPE_NAME = b"content-type:"
+_MULTIPART_NAME = re.compile(rb"multipart/", re.IGNORECASE)
+# Content-Type headers already resolved by the parser, by their bytes (a mail repeats a few of them). Longer ones are not kept.
+_CACHED_HEADER_BYTES = 200
 
-    for match in _MIME_NESTING_LINE.finditer(data):
-        boundary: bytes | int | None = match.group("declared_quoted") or match.group("declared")
-        if boundary is not None:
-            # An RFC 2231 parameter (`boundary*=us-ascii''b1`, `boundary*0=b1`), which the parser honours too, is counted as a
-            # level of its own that no delimiter line of its own closes (its value is not decoded; the key is its position, which
-            # no line can equal). Not seen at all, it went around the limit: 600 levels + 200,000 lines took 9 seconds
-            # (Pinned by: test_audit_html_text.py::TestMultipartNestingDeclaredWithExtendedParameters). Known accepted gap: a
-            # mail with more than `limit` such declarations outside any part closed by an ordinary boundary is rejected.
-            if match.group("extended"):
-                boundary = match.start()
-            if boundary not in depth:
-                depth[boundary] = len(stack)
-                stack.append(boundary)
-                if len(stack) > limit:
-                    return True
-            continue
-        line = match.group("delimiter").rstrip()
-        closing = line.endswith(b"--") and line[:-2] in depth
-        boundary = line[:-2] if closing else line
-        if boundary not in depth:
-            continue
-        for opened in stack[depth[boundary] + (0 if closing else 1):]:
-            del depth[opened]
-        del stack[len(depth):]
-    return False
+
+def _mime_nesting_exceeds(data: bytes, limit: int, forward_limit: int = 0) -> str | None:
+    """'multipart' if the nesting of multipart parts exceeds `limit` levels, 'forward' if forwarded mails (message/* parts, each
+    holding the next) nest deeper than `forward_limit` (default `_MAX_FORWARD_NESTING`), otherwise None.
+
+    It follows the structure the parser follows, in one pass and without recursion: the header block of a part (walked line by
+    line), its type and boundary as the parser itself resolves them from the first Content-Type header (`_part_structure` — RFC
+    2231 forms included), and then, skipping the body, the next line that is a delimiter or closing line of an open multipart.
+    Such a line ends every part inside that multipart, forwarded mails included; of two open multiparts with the same boundary
+    the outer one takes the line, as in the parser. A level is counted only where the parser descends: a multipart with a
+    boundary, and a message/* part other than a delivery report. `boundary=` or `Content-Type: message/rfc822` in a body, in a
+    text attachment or under a `--` line that is not a delimiter of an open multipart is text.
+
+    The earlier scan of single lines counted what the parser does not descend into: a plain mail quoting 150 MIME part headers
+    was rejected as 'forwarded more than 100 levels deep', as were 150 forwarded mails side by side under an RFC 2231 boundary
+    (Pinned by: test_audit_web_fixes.py::TestForwardLevelsFollowTheMultipartStructure), and looking for the end of each header
+    block that way made a 1MB body of header-like lines take 12 seconds
+    (Pinned by: test_audit_web_fixes.py::TestForwardScanOfHeaderLikeBodies). It also failed on `boundary=""`, which the parser
+    takes as a boundary (Pinned by: test_audit_web_fixes.py::TestMultipartWithAnEmptyBoundary).
+    """
+    forward_limit = forward_limit or _MAX_FORWARD_NESTING
+    size = len(data)
+    # Open containers, outermost first: (separator, is a digest) for a multipart, None for a forwarded mail.
+    stack: list[tuple[bytes, bool] | None] = []
+    outermost: dict[bytes, int] = {}  # separator (`--boundary`) → the outermost open multipart that has it
+    multiparts = forwards = 0
+    resolved: dict[bytes, tuple[str, bytes | None]] = {}
+
+    def owner(line: bytes) -> tuple[int, bool] | None:
+        """(the open multipart that takes this `--` line, is it its closing line), or None when it is no delimiter."""
+        line = line.rstrip(b" \t")
+        opening = outermost.get(line, size)
+        closing = outermost.get(line[:-2], size) if line.endswith(b"--") else size
+        if opening == closing:
+            return None
+        return (opening, False) if opening < closing else (closing, True)
+
+    def line_at(start: int) -> bytes:
+        end = _LINE_END.search(data, start)
+        return data[start:end.start() if end else size]
+
+    def close_to(index: int) -> None:
+        """Close the containers from `index` on."""
+        nonlocal multiparts, forwards
+        while len(stack) > index:
+            closed = stack.pop()
+            if closed is None:
+                forwards -= 1
+                continue
+            multiparts -= 1
+            if outermost.get(closed[0]) == len(stack):
+                del outermost[closed[0]]
+
+    position = 0
+    unread_from_line = False  # the parser gave the last header line (`From …`) back to the body: it opens the next block
+    in_digest = False  # a part of a multipart/digest without a Content-Type is a mail
+    while True:
+        # The header block of a part: up to a blank line (consumed), a line that is not a header line, or a delimiter.
+        lines = 1 if unread_from_line else 0
+        content_type = content_type_end = -1
+        in_content_type = ends_with_from = False
+        while position < size:
+            if outermost and data.startswith(b"--", position) and owner(line_at(position)) is not None:
+                break
+            if not _PARSER_HEADER_LINE.match(data, position):
+                blank = _LINE_END.match(data, position)
+                if blank:
+                    position = blank.end()
+                break
+            end = _LINE_END.search(data, position)
+            following = end.end() if end else size
+            if data[position:position + 1] in (b" ", b"\t"):
+                if in_content_type:
+                    content_type_end = following
+            else:
+                ends_with_from = data.startswith(b"From ", position)
+                in_content_type = (content_type < 0 and not ends_with_from
+                                   and data[position:position + len(_CONTENT_TYPE_NAME)].lower() == _CONTENT_TYPE_NAME)
+                if in_content_type:
+                    content_type, content_type_end = position, following
+            lines += 1
+            position = following
+        unread_from_line = ends_with_from and lines > 1
+
+        if content_type < 0:
+            kind, separator = ("message" if in_digest else "", None)
+        else:
+            header = data[content_type:content_type_end]
+            found = resolved.get(header)
+            if found is None:
+                found = _part_structure(header)
+                if len(header) <= _CACHED_HEADER_BYTES:
+                    resolved[header] = found
+            kind, separator = found
+        in_digest = False
+        if kind == "message":
+            stack.append(None)
+            forwards += 1
+            if forwards > forward_limit:
+                return "forward"
+            continue  # the mail inside starts right here
+        if separator is not None:
+            outermost.setdefault(separator, len(stack))
+            stack.append((separator, kind == "digest"))
+            multiparts += 1
+            if multiparts > limit:
+                return "multipart"
+
+        # The body: nothing is looked at up to the next delimiter or closing line of an open multipart. After a closing line
+        # comes the epilogue, which runs up to the next such line in the same way.
+        report = kind == "report"
+        while True:
+            taken = None
+            if outermost:
+                for match in _DASH_LINE.finditer(data, position):
+                    taken = owner(match.group())
+                    if taken is not None:
+                        break
+            if report:
+                # The parser reads the body of a delivery report as header blocks, each a part of its own, and a block that
+                # declares a multipart is descended into: multiparts opened one inside the other in one block went around the
+                # limit (900 levels and 200,000 lines, 1MB: 43 seconds). The body is not walked the parser's way; every
+                # `multipart/` in it counts as a level that stays open to the end of the report
+                # (Pinned by: test_audit_web_fixes.py::TestMultipartsInsideADeliveryReport).
+                report = False
+                end = match.start() if taken is not None else size
+                declared = 0
+                for _ in _MULTIPART_NAME.finditer(data, position, end):
+                    declared += 1
+                    if multiparts + declared > limit:
+                        return "multipart"
+            if taken is None:
+                return None
+            index, closing = taken
+            end = _LINE_END.match(data, match.end())
+            position = end.end() if end else size
+            if closing:
+                close_to(index)
+                continue
+            close_to(index + 1)
+            # Delimiter lines one after another hold no part between them
+            while data.startswith(b"--", position):
+                line = line_at(position)
+                again = owner(line)
+                if again is None or again[0] != index:
+                    break
+                end = _LINE_END.match(data, position + len(line))
+                position = end.end() if end else size
+            opened = stack[index]
+            in_digest = opened is not None and opened[1]
+            unread_from_line = False
+            break
+
+
+def _part_structure(header: bytes) -> tuple[str, bytes | None]:
+    """What the parser descends into for a part with this Content-Type header (its line and folded lines): ('message', None) for
+    a message/* part other than a delivery report (the mail inside is read by recursion), ('report', None) for a delivery
+    report (`_mime_nesting_exceeds` counts the multiparts its body declares), ('multipart' or 'digest', the
+    separator `--boundary`) for a multipart whose boundary can occur in the data, otherwise ('', None) — a leaf, like a multipart
+    without a boundary.
+
+    The header is given to the standard library, so the type and the boundary (quoted, folded, RFC 2231 `boundary*=` and
+    `boundary*0=`) are exactly the ones the parser will use; only headers that mention one of the two types get that far.
+    """
+    lowered = header.lower()
+    if b"multipart/" not in lowered and b"message/" not in lowered:
+        return "", None
+    try:
+        part = BytesHeaderParser().parsebytes(header)
+        content_type = part.get_content_type()
+        boundary = part.get_boundary() if content_type.startswith("multipart/") else None
+        separator = None if boundary is None else b"--" + boundary.encode("ascii", errors="surrogateescape")
+    except Exception:  # noqa: BLE001 — a header the parser cannot resolve is not descended into here; parsing decides the rest
+        return "", None
+    if content_type.startswith("message/"):
+        return ("report", None) if content_type == "message/delivery-status" else ("message", None)
+    if separator is None:
+        return "", None
+    return ("digest" if content_type == "multipart/digest" else "multipart"), separator
 
 
 def _readable_parts(message: Message) -> None:
@@ -352,8 +517,10 @@ def mail_messages(message: Message) -> tuple[list[Message], list[str]]:
             skipped.append(_mail_name(current))
             continue
         messages.append(current)
-        forwarded = [inner for part in _mail_parts(current) if part is not current
-                     and (inner := _forwarded_message(part)) is not None]
+        # The mail itself is looked at too: a forwarded mail whose own type is message/rfc822 (a forward of a forward without a
+        # multipart around it) holds its mail directly, and the body inside it vanished without a warning
+        # (Pinned by: test_audit_web_fixes.py::TestForwardedMailThatIsItselfAForward).
+        forwarded = [inner for part in _mail_parts(current) if (inner := _forwarded_message(part)) is not None]
         stack.extend(reversed(forwarded))
     return messages, skipped
 
@@ -448,15 +615,9 @@ _MAX_MIME_DEPTH = 64
 # The nesting of multipart boundaries allowed before parsing (`parse_mail`). Even mail forwarded over and over has about ten
 # levels.
 _MAX_MIME_NESTING = 32
-# The lines `_mime_nesting_exceeds` looks at: a line-start `--boundary`, and the boundary parameter of a Content-Type header (or
-# of its continuation line).
-_MIME_NESTING_LINE = re.compile(
-    rb"^--(?P<delimiter>[^\r\n]*)"
-    rb"|^(?:content-type:|[ \t])[^\r\n]*?\bboundary(?P<extended>\*[\d*]*)?\s*=\s*"
-    rb"(?:\"(?P<declared_quoted>[^\"\r\n]*)\"|(?P<declared>[^\s;\"]+))",
-    re.IGNORECASE | re.MULTILINE)
-
-
+# The nesting of forwarded mails (message/rfc822 inside message/rfc822) allowed before parsing (`parse_mail`). The parser reads
+# each level by recursion (about one frame per level) and failed near a thousand levels.
+_MAX_FORWARD_NESTING = 100
 def mail_html_body_parts(message: Message) -> list[Message]:
     """All the body HTML parts of a mail (attachments and forwarded mails excluded) in document order. In multipart/alternative
     only the last branch that has HTML (they are different renderings of the same body); in any other multipart (mixed, related)
@@ -470,7 +631,7 @@ def mail_html_body_parts(message: Message) -> list[Message]:
 
 
 def _html_body_parts(part: Message, message: Message, depth: int) -> list[Message]:
-    if depth > _MAX_MIME_DEPTH or (part is not message and part.get_content_maintype() == "message"):
+    if depth > _MAX_MIME_DEPTH or _is_forward(part, message):
         return []
     if not part.is_multipart():
         return [part] if part.get_content_type() == "text/html" and not _is_attachment(part, message) else []
@@ -478,6 +639,12 @@ def _html_body_parts(part: Message, message: Message, depth: int) -> list[Messag
     if part.get_content_subtype() == "alternative":
         return next((found for child in reversed(children) if (found := _html_body_parts(child, message, depth + 1))), [])
     return [found for child in children for found in _html_body_parts(child, message, depth + 1)]
+
+
+def _is_forward(part: Message, message: Message) -> bool:
+    """Is `part` a forwarded mail (message/*) of `message`, or `message` itself when its type is message/rfc822? Neither has a
+    body of `message` in it — `mail_messages` reads the mail inside separately."""
+    return part.get_content_maintype() == "message" and (part is not message or part.get_content_type() == "message/rfc822")
 
 
 def mail_body_sequence(message: Message) -> list[Message]:
@@ -502,7 +669,7 @@ def mail_html_outside_alternative(message: Message) -> bool:
 
 
 def _body_sequence(part: Message, message: Message, depth: int) -> list[Message]:
-    if depth > _MAX_MIME_DEPTH or (part is not message and part.get_content_maintype() == "message"):
+    if depth > _MAX_MIME_DEPTH or _is_forward(part, message):
         return []
     if not part.is_multipart():
         return [part] if part.get_content_type() in ("text/plain", "text/html") and not _is_attachment(part, message) else []

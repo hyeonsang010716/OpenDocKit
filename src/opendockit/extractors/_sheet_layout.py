@@ -17,10 +17,10 @@ from opendockit.markdown import join_blocks, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
-# Upper bound on the number of cells covered by merge and hyperlink ranges in a full load (same as the merged-cell total limit of
-# markdown.TableGrid). openpyxl creates a cell object for every covered position of both kinds of range: a 4.8KB file with a single
-# merge range (A1:CV20000) took 8.8s and 800MB, and a single hyperlink range A1:XFD1048576 used 5GB in 20s. Above the limit the
-# workbook is streamed, which reads neither.
+# Upper bound on the number of cells covered by merge ranges in a full load (same as the merged-cell total limit of
+# markdown.TableGrid). openpyxl creates a cell object for every covered position: a 4.8KB file with a single merge range
+# (A1:CV20000) took 8.8s and 800MB. Above the limit the workbook is streamed, which does not read merges. Hyperlink ranges, which
+# openpyxl expanded the same way, are no longer parsed while reading, so they are not counted. XLS uses the same limit.
 _MAX_MERGED_CELLS = 500_000
 # Cells spanned by a horizontal merge: row (`id(row)`) → [(column after the first cell, end column (exclusive), value)].
 # Filled in only on data rows, after the table is split (`_fill_across`).

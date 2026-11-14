@@ -42,6 +42,7 @@ from opendockit.extractors._docx_runs import (
     _int_attr,
     _is_deleted_paragraph,
     _is_drop_cap,
+    _is_on,
     _is_read_box,
     _keep_filled_placeholders,
     _next_is_paragraph,
@@ -150,7 +151,10 @@ class _DocxRenderer:
         # There is one counter per number definition (abstractNum). Numbered lists (numId) already seen in the body are noted separately.
         self._numberings: dict[str, Numbering] = {}
         self._started_lists: set[str] = set()
-        self.notes = _NoteLabels()  # footnote/endnote references seen in the body, and their labels
+        # Footnote / endnote parts (kind → (part, root)) and the references seen in the body with their labels. Only notes with
+        # something to write take a label (`_written_notes`)
+        self.note_parts = _note_parts(document, self.placeholders) if options.include_footnotes else {}
+        self.notes = _NoteLabels(self._written_notes())
         # Tables being rendered. A table inside a cell is handed to the table at the top of the stack (markdown.TableGrid.embed)
         self._grids: list[TableGrid] = []
         self._chunks: dict[object, Extraction] = {}  # imported-content part → its conversion (`_chunk_blocks`)
@@ -491,14 +495,41 @@ class _DocxRenderer:
         are skipped. An OLE object (w:object) gets its preview picture, or a placeholder if that cannot be registered (`_ole_marker`)."""
         if element.tag == _w("object"):
             return self._ole_marker(element)
-        if not self._options.extract_images:
-            return ""
-        rel_id = element.get(f"{{{_R}}}embed") or element.get(f"{{{_R}}}id")
-        part = self._part.related_parts.get(rel_id) if rel_id else None
-        blob = getattr(part, "blob", None)
+        blob = self._image_blob(element)
         if not blob:
             return ""
         return f" {self._extraction.add_image(blob, alt=_drawing_alt(element))} "
+
+    def _image_blob(self, element: etree._Element) -> bytes | None:
+        """Bytes of the picture a:blip (r:embed) / v:imagedata (r:id) points at in the part being read. None when pictures are not
+        extracted, the picture is only linked or its relationship is broken."""
+        if not self._options.extract_images:
+            return None
+        rel_id = element.get(f"{{{_R}}}embed") or element.get(f"{{{_R}}}id")
+        part = self._part.related_parts.get(rel_id) if rel_id else None
+        return getattr(part, "blob", None) or None
+
+    def _written_notes(self) -> set[tuple[str, str]]:
+        """The notes (kind, id) that will have content below the body (`_NoteLabels`). Decided with the same walk that writes the
+        notes (`_paragraph_text` over the paragraphs `_note_block` reads), with a probe in place of the picture registration: an
+        OLE object (its preview or placeholder) and, when pictures are extracted, a picture that can be read count as content.
+        Deleted, moved-away and hidden content, compatibility copies and objects that are not OLE objects (an ActiveX control)
+        therefore count exactly when they are written — searched for separately, they left a mark with no definition (Pinned by:
+        test_office_symbols_fields_notes.py::TestDocxNoteReferenceWithoutContent,
+        test_office_robustness.py::TestDocxNoteWithOnlyUnwrittenContent)."""
+        def probe(element: etree._Element) -> str:
+            if element.tag == _w("object"):
+                return OLE_PLACEHOLDER
+            return "picture" if self._image_blob(element) else ""
+
+        written = set()
+        for kind, (part, root) in self.note_parts.items():
+            with self.in_part(part):
+                for note in root.iterchildren(_w(kind)):
+                    paragraphs = (paragraph for paragraph in note.iter(_w("p")) if not _inside_fallback(paragraph))
+                    if any(_paragraph_text(paragraph, None, probe).strip() for paragraph in paragraphs):
+                        written.add((kind, note.get(_w("id"), "")))
+        return written
 
     def _ole_marker(self, element: etree._Element) -> str:
         """Preview picture (v:imagedata / a:blip) of an OLE object (a pasted Excel sheet or document). When image extraction is off or
@@ -843,16 +874,7 @@ def _notes(document: object, renderer: _DocxRenderer) -> str:
     Pinned by: test_office_robustness.py::TestDocxFootnoteBoxesAndPictures::
     test_picture_in_a_footnote_is_registered_from_the_footnote_part)."""
     texts: dict[tuple[str, str], str] = {}
-    for kind in ("footnote", "endnote"):
-        # An external relationship or a broken part skips only that set of notes. Even the body was rejected as a 'corrupted
-        # document' (same rule as charts and SmartArt. Pinned by:
-        # test_office.py::TestOneOddValueDoesNotRejectTheDocument::test_docx_broken_or_external_footnotes_part_keeps_the_body).
-        part = next((rel.target_part for rel in document.part.rels.values()
-                     if not rel.is_external and rel.reltype.endswith(f"/{kind}s")), None)
-        root = parse_part(part.blob) if part is not None else None
-        if root is None:
-            continue
-        _keep_filled_placeholders(root, renderer.placeholders)
+    for kind, (part, root) in renderer.note_parts.items():
         with renderer.in_part(part):
             for note in root.iterchildren(_w(kind)):
                 # A note the body never references is not written, so it is not rendered either: its picture was registered as a
@@ -864,6 +886,21 @@ def _notes(document: object, renderer: _DocxRenderer) -> str:
                                 for block in _children(note, _w("p"), _w("tbl")))
                 texts[kind, note.get(_w("id"), "")] = body.strip()
     return "\n".join(f"[^{label}]: {texts[ref]}" for ref, label in renderer.notes.labels.items() if texts.get(ref))
+
+
+def _note_parts(document: object, placeholders: dict[str, str]) -> dict[str, tuple[object, etree._Element]]:
+    """Footnote and endnote parts: kind → (part, parsed root, with filled placeholders kept). An external relationship or a broken
+    part skips only that set of notes. Even the body was rejected as a 'corrupted document' (same rule as charts and SmartArt.
+    Pinned by: test_office.py::TestOneOddValueDoesNotRejectTheDocument::test_docx_broken_or_external_footnotes_part_keeps_the_body)."""
+    found = {}
+    for kind in ("footnote", "endnote"):
+        part = next((rel.target_part for rel in document.part.rels.values()
+                     if not rel.is_external and rel.reltype.endswith(f"/{kind}s")), None)
+        root = parse_part(part.blob) if part is not None else None
+        if root is not None:
+            _keep_filled_placeholders(root, placeholders)
+            found[kind] = (part, root)
+    return found
 
 
 _W14_PARA_ID = "{http://schemas.microsoft.com/office/word/2010/wordml}paraId"
@@ -897,21 +934,30 @@ def _comments(document: object) -> str:
     return "\n".join(lines)
 
 
+# Wrappers whose content the body does not show (`_comment_targets`)
+_UNSHOWN_WRAPPERS = frozenset((_w("del"), _w("moveFrom")))
+
+
 def _comment_targets(body: etree._Element) -> dict[str, str]:
     """Comment id → the body range the comment is attached to (the text from commentRangeStart to commentRangeEnd). Per range only
     as much as will be shown (`COMMENT_TARGET_MAX` + 1 characters) is collected, and a range that is full is not looked at again —
     even with many overlapping ranges, each text is not appended to every range. Empty text (`<w:t/>`) does not extend a range and
     is not scanned — with many ranges lacking an end mark, every empty text scanned them all, which took quadratic time (Pinned by:
-    test_office_comments.py::TestDocxComments::test_many_open_ranges_over_empty_runs_take_linear_time). Deleted text (w:delText)
-    and compatibility copies (mc:Fallback) are left out."""
+    test_office_comments.py::TestDocxComments::test_many_open_ranges_over_empty_runs_take_linear_time). What the body does not show
+    is left out, as in `_paragraph_text`: deleted text (w:del), the original position of moved text (w:moveFrom), hidden runs
+    (w:vanish) and compatibility copies (mc:Fallback) — the moved-away words were quoted as the commented range (Pinned by:
+    test_office_comments.py::TestDocxComments::test_moved_away_and_hidden_text_is_not_part_of_the_range)."""
     targets: dict[str, list[str]] = {}
     open_ranges: dict[str, int] = {}  # range being collected → number of characters collected
-    fallback = 0
+    fallback = 0  # depth inside compatibility copies: nothing in there counts, range marks included
+    hidden = 0  # depth inside deleted, moved-away and hidden content: its text does not count, its range marks do
 
     for event, element in etree.iterwalk(body, events=("start", "end")):
         tag = element.tag
         if tag == f"{{{_MC}}}Fallback":
             fallback += 1 if event == "start" else -1
+        elif tag in _UNSHOWN_WRAPPERS or (tag == _w("r") and _is_on(element.find(f"{_w('rPr')}/{_w('vanish')}"))):
+            hidden += 1 if event == "start" else -1
         elif event != "start" or fallback:
             continue
         elif tag == _w("commentRangeStart"):
@@ -920,7 +966,7 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
             open_ranges[comment_id] = 0
         elif tag == _w("commentRangeEnd"):
             open_ranges.pop(element.get(_w("id"), ""), None)
-        elif tag in (_w("t"), _w("tab"), _w("br"), _w("p")) and open_ranges:
+        elif tag in (_w("t"), _w("tab"), _w("br"), _w("p")) and open_ranges and not hidden:
             piece = element.text or "" if tag == _w("t") else " "
             if not piece:
                 continue

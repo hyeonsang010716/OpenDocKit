@@ -37,6 +37,7 @@ from opendockit.extractors._html_tables import (
     _nearest,
     _own_caption,
     _row_cells,
+    _row_span,
     _span,
     _table_rows,
 )
@@ -684,7 +685,7 @@ def _header_titles(grid_rows: list[list[str]], rows: list[Tag], header_count: in
     titles: list[str] = []
 
     for position, index in enumerate(placed[:min(header_count - 1, len(grid_rows) - 1)]):
-        if index >= header_count - 1 or any(_span(cell, "rowspan") > 1 for cell in _row_cells(rows[index])):
+        if index >= header_count - 1 or any(_row_span(cell, rows, index) > 1 for cell in _row_cells(rows[index])):
             break
         below = [[row[col] for col in keep] for row in grid_rows[position + 1:position + 2 + _HEADER_PROBE_ROWS]]
         title = table_title([grid_rows[position][col] for col in keep], below)
@@ -720,7 +721,7 @@ def _indent_marks(rows: list[Tag], header_count: int) -> dict[int, str]:
         if not cells or index < covered_until:
             continue
         first = cells[0]
-        covered_until = index + _span(first, "rowspan")
+        covered_until = index + _row_span(first, rows, index)
         if index < max(header_count, 1) or _span(first, "colspan") >= width or _holds_blocks(first):
             continue  # with no header row the first row is the header (`render_table`)
         text = " ".join(first.get_text(" ").split())
@@ -751,7 +752,7 @@ def _table_grid(rows: list[Tag], header_count: int, *, embedding: bool,
             text, col_span = _cell_text(cell, embed_into=grid if embedding else None), _span(cell, "colspan")
             if marks and id(cell) in marks and text:
                 text = marks[id(cell)] + text
-            row_span = min(_span(cell, "rowspan"), len(rows) - row_index)
+            row_span = min(_row_span(cell, rows, row_index), len(rows) - row_index)
             grid.place_next(row_index, text, row_span=row_span, col_span=col_span)
             placed_rows.update(range(row_index, row_index + row_span))
             if row_index < header_count:

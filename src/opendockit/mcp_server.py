@@ -15,15 +15,18 @@ Conversion is offline (no vision model, nothing fetched); pictures stay `[Image]
 
 import argparse
 import asyncio
+from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
+import hashlib
 import os
 from pathlib import Path
 import re
 
 from opendockit import __version__
-from opendockit.converter import _size_text, convert_file, section_heading
-from opendockit.exceptions import ConversionError
+from opendockit.converter import _size_text, convert, read_limited, section_heading
+from opendockit.exceptions import ConversionError, DocumentTooLargeError
 from opendockit.isolated import IsolatedConverter
 from opendockit.models import ConversionResult, ConvertOptions, Section, SectionKind
 
@@ -52,6 +55,11 @@ _INSTRUCTIONS = (
 )
 # What the SDK serves for every server, whether or not anything was registered for it.
 _UNUSED_METHODS = ("prompts/list", "prompts/get", "resources/list", "resources/read", "resources/templates/list")
+# The last conversions kept for the next call (`converted`): an agent reads a long document as document_outline and then
+# convert_document by sections, and each call converted the whole file again. Bounded in count and in the characters one
+# entry may hold, so the cache stays at tens of megabytes at most.
+_CACHE_ENTRIES = 4
+_CACHE_MAX_CHARS = 4_000_000
 _UNIT = {SectionKind.PAGE: "Page", SectionKind.SLIDE: "Slide", SectionKind.SHEET: "Sheet", SectionKind.DOCUMENT: "Document"}
 
 
@@ -91,26 +99,45 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
     server = MCPServer("opendockit", instructions=_INSTRUCTIONS, version=__version__, lifespan=lifespan)
     _serve_tools_only(server)
 
+    # Content hash, file name and limit → the result of converting it, most recently used last.
+    cache: OrderedDict[tuple[str, str, int | None], ConversionResult] = OrderedDict()
+
     async def converted(path: str, limit: int | None) -> ConversionResult:
         nonlocal converter
         file = _checked_path(path, allowed)
         options = ConvertOptions(max_chars=limit)
         try:
+            data, digest = await asyncio.to_thread(_read, file, options.max_file_bytes)
+            # The few last results are kept by what the file holds (its SHA-256), not by its path and times: a file changed
+            # in place is converted again even when its size and modification time stay the same, and reading and hashing is
+            # far cheaper than converting (Pinned by: test_mcp_server.py::TestRepeatedCalls).
+            key = (digest, file.name, limit)
+            if key in cache:
+                cache.move_to_end(key)
+                return cache[key]
             if os.name != "posix":
                 # IsolatedConverter is verified on Linux and macOS only (docs/limitations.md): elsewhere the file is converted
                 # in a thread of this process, without the worker's memory and time limits.
-                return await asyncio.to_thread(convert_file, file, options)
-            if file.stat().st_size > options.max_file_bytes:
-                raise ToolError(f"The file is too large (maximum {_size_text(options.max_file_bytes)}).")
-            if converter is None:
-                # One worker process per file, ended after 2 minutes or 2 GB: a document that hangs or balloons must not take
-                # the server, and the agent's session, with it.
-                converter = IsolatedConverter(workers=1)
-            return await converter.convert(await asyncio.to_thread(file.read_bytes), file.name, options)
+                result = await asyncio.to_thread(convert, data, file.name, options)
+            else:
+                if converter is None:
+                    # One worker process per file, ended after 2 minutes or 2 GB: a document that hangs or balloons must not
+                    # take the server, and the agent's session, with it.
+                    converter = IsolatedConverter(workers=1)
+                result = await converter.convert(data, file.name, options)
         except ConversionError as error:
             raise ToolError(str(error)) from error
         except OSError as error:   # no permission, a file removed meanwhile
             raise ToolError("The file could not be read.") from error
+        # A result a wall-clock limit cut short (the PDF time budget on a busy machine) is not kept: the next call may get the
+        # full reading. A worker that ran out of time raises and is never kept either
+        # (Pinned by: test_mcp_server.py::TestRepeatedCalls::test_result_cut_short_by_the_time_budget_is_not_kept).
+        if not result.time_limited and len(result.text) + sum(len(section.text) for section in result.sections) <= _CACHE_MAX_CHARS:
+            # The pictures are not needed for any answer (they stay placeholders), so they are not kept.
+            cache[key] = replace(result, images=[], fallbacks={})
+            while len(cache) > _CACHE_ENTRIES:
+                cache.popitem(last=False)
+        return result
 
     # Both tools only read: clients use the hint to decide whether a call needs the user's confirmation.
     reads_only = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
@@ -165,6 +192,18 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
         return "\n".join(lines)
 
     return server
+
+
+def _read(file: Path, limit: int) -> tuple[bytes, str]:
+    """The content of a regular file (`_checked_path`) and its SHA-256, refused from its size when over `limit` and otherwise
+    read only up to one byte past it, so a file that grows meanwhile is refused by `convert` instead of being read whole. Run
+    in a thread: hashing 50 MB takes tens of milliseconds, which would stall the event loop."""
+    with file.open("rb") as stream:
+        size = os.fstat(stream.fileno()).st_size
+        if size > limit:
+            raise DocumentTooLargeError(f"The file is too large (maximum {_size_text(limit)}).")
+        data = read_limited(stream, limit, size_hint=size)
+    return data, hashlib.sha256(data).hexdigest()
 
 
 def _identity(folder: Path) -> tuple[int, int] | None:
