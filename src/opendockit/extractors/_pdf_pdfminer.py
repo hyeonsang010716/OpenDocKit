@@ -518,7 +518,16 @@ PDFPageAggregatorWithMarkedContent.render_char = _render_char_few_copies  # outs
 # Cost bound of pdfminer's text-box grouping (`group_textboxes`), counted as the square of a layout's text-box count
 # (`_group_few_textboxes`). The page's own layout (the body, and its regrouping after joining pieces, `_rejoined_lines`) may cost
 # up to this on its own, and the layouts of every Form XObject drawn on the page (`all_texts`) share another such allowance
-# (`grouping_cost`, reset per page read by the caller), so a page spends at most about twice 1,000² ≈ 4 seconds. Grouping keeps a
+# (`grouping_cost`, reset per page read by the caller), so a page runs at most three groupings of up to 1,000 boxes each (the
+# body, the body again after joining pieces, its forms together). The bound limits the pairs of boxes pdfminer keeps in its heap,
+# not the time: for every pair pdfminer also looks through the plane for a box lying between the two, which costs more the
+# further apart the boxes lie and the more of them lie on top of each other. Measured on an Apple M4, one grouping of up to 1,000
+# boxes takes 2 seconds when they lie 30pt apart on an A4-sized page and about 4 when they are scattered over a 6,900pt page.
+# Known remaining cost (inside one page, where the time budget does not look): a 12KB page under every bound — 990 characters
+# scattered over the page, 990 more in a form and one line drawn in two pieces, so that the body is grouped twice — takes 10 to
+# 12 seconds (the same on main), and 450 to 1,000 lines crowded within the line margin, which spend `_LINE_GROUPING_WORK` and
+# become a box each, lying on top of each other, take 8 seconds at 500 on the page (1.8KB), 19 at 700 and 52 at 1,000 in a form
+# (main, which grouped them into two boxes: 0.6, 1.0 and 2.0). Grouping keeps a
 # heap of every pair of boxes: one layout of 1,000 separate boxes took 2 seconds, 1,500 6 seconds, 2,000 14 seconds, and a 68KB
 # page whose 6,000 characters lie far off the page (each its own box) 122 seconds inside one page, where the time budget does
 # not look. Per layout, a 4.3KB form of 1,400 boxes drawn 15 times spent 54 seconds. The pdfium estimate of line pieces
