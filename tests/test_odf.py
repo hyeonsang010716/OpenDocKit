@@ -198,6 +198,19 @@ class TestTextDocument:
                     styles=_LIST_STYLES)
         assert text == "## 1. 개요\n\n2. 본문"
 
+    def test_heading_label_is_written_once_where_the_heading_is_a_paragraph(self):
+        """In a table cell or a footnote a heading is a paragraph. A list item heading that carries its label gave '1. 1. H';
+        an empty `text:number` is no label, and the list gives the number."""
+        item = '<text:list-item><text:h text:outline-level="1">{}</text:h></text:list-item>'
+        in_list = '<text:list text:style-name="Numbers">' + item.format("<text:number>1.</text:number>제목") + "</text:list>"
+        assert _odt("<table:table><table:table-row><table:table-cell>" + in_list
+                    + "</table:table-cell></table:table-row></table:table>", styles=_LIST_STYLES) == "1. 제목"
+        assert _odt('<text:p>본문<text:note text:note-class="footnote"><text:note-citation>1</text:note-citation><text:note-body>'
+                    + in_list + "</text:note-body></text:note></text:p>", styles=_LIST_STYLES) == "본문[^1]\n\n[^1]: 1. 제목"
+        text = _odt('<text:list text:style-name="Numbers">' + item.format("<text:number/>제목")
+                    + "<text:list-item><text:p>본문</text:p></text:list-item></text:list>", styles=_LIST_STYLES)
+        assert text == "# 1. 제목\n\n2. 본문"
+
 
 class TestHiddenText:
     """Hidden text is not text of the document (as DOCX w:vanish and RTF `\\v`): it read like a valid value."""
@@ -220,6 +233,12 @@ class TestHiddenText:
                     '<text:section text:name="S2" text:display="condition" text:condition="ooow:0"><text:p>보이는 구역</text:p>'
                     '</text:section>')
         assert text == "보임표시\n\n보이는 문단\n\n보이는 구역"
+
+    def test_hidden_paragraph_in_a_sheet_cell_is_left_out(self):
+        """Sheet cells are read without the block renderer, so a hidden paragraph there was still read."""
+        cell = ('<table:table-cell office:value-type="string"><text:p>보임</text:p>'
+                '<text:p>숨김<text:hidden-paragraph text:condition="ooow:1" text:is-hidden="true"/></text:p></table:table-cell>')
+        assert _convert("spreadsheet", _sheet("S", _row(cell))).text == "## Sheet: S\n\n보임"
 
     def test_merged_cells_repeat_their_value_on_every_row(self):
         """A 3-row table whose first column has a cell spanning rows 2 and 3 (`number-rows-spanned` + a covered cell): the merged
