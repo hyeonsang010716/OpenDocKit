@@ -275,6 +275,45 @@ class TestRunningOutOfMemory:
         with self._too_complex():
             convert(b"hello", "a.txt")
 
+    def test_while_copying_the_content(self):
+        """`bytes(data)` of a bytearray or memoryview is the first allocation of a conversion, and it was made before
+        anything watched for a MemoryError."""
+        class NoMemoryForACopy(bytearray):
+            def __bytes__(self):
+                raise MemoryError
+
+        with self._too_complex() as error:
+            convert(NoMemoryForACopy(b"hello"), "a.txt")
+        assert isinstance(error.value.__cause__, MemoryError)
+        with self._too_complex():
+            asyncio.run(aconvert(NoMemoryForACopy(b"hello"), "a.txt"))
+
+    @pytest.mark.parametrize("stage", ["_content_bytes", "_check_arguments", "check_size"])
+    def test_in_the_checks_before_the_conversion(self, monkeypatch, stage):
+        import opendockit.converter as converter_module
+
+        def out_of_memory(*_arguments):
+            raise MemoryError
+
+        monkeypatch.setattr(converter_module, stage, out_of_memory)
+
+        with self._too_complex():
+            convert(b"hello", "a.txt")
+
+    def test_wrong_arguments_and_sizes_are_still_what_they_were(self):
+        with pytest.raises(TypeError, match="convert takes the file content as bytes"):
+            convert("a.txt")
+        with pytest.raises(TypeError, match="The second argument is the file name"):
+            convert(b"hello", ConvertOptions())
+        with pytest.raises(TypeError, match="options must be a ConvertOptions"):
+            convert(b"hello", "a.txt", options={"max_chars": 1})
+        with pytest.raises(ValueError, match="max_chars"):
+            convert(b"hello", "a.txt", ConvertOptions(max_chars=-1))
+        with pytest.raises(CorruptedDocumentError, match=r"^The file is empty\.$"):
+            convert(b"", "a.txt")
+        with pytest.raises(DocumentTooLargeError, match=r"^The file is too large \(maximum 3 bytes\)\.$"):
+            convert(b"hello", "a.txt", ConvertOptions(max_file_bytes=3))
+
     def test_another_failure_is_still_what_it_was(self, monkeypatch):
         def too_large(data, options):
             raise DocumentTooLargeError("The file is too large when decompressed (maximum 500MB).")

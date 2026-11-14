@@ -99,16 +99,17 @@ def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
     Every failure is a `ConversionError` subclass (the message is fixed English wording that can be shown to the user). `data` is
     bytes, bytearray or memoryview; any other type (a path string, Path, file object) is a `TypeError` — for a path use `convert_file`.
     """
-    data = _content_bytes(data)
-    _check_arguments(filename, options)
-    options = options or _DEFAULT_OPTIONS
-    check_size(data, options)
     # Running out of memory anywhere in a conversion is 'too large or too complex', here as under `IsolatedConverter`, and
     # never 'corrupted': a MemoryError inside an extractor (a page of a multi-page TIFF, a picture of a PDF) was gathered
     # with the parser failures into `CorruptedDocumentError`, and one after extraction left `convert` as it was. A
-    # `ConversionError` raised from one counts too (`_ran_out_of_memory`)
-    # (Pinned by: test_converter.py::TestRunningOutOfMemory).
+    # `ConversionError` raised from one counts too (`_ran_out_of_memory`). The copy of a bytearray or memoryview and the
+    # checks before the conversion are inside as well — the copy of a 50 MB upload is the first thing that can fail; a wrong
+    # argument is the `TypeError` it was (Pinned by: test_converter.py::TestRunningOutOfMemory).
     try:
+        data = _content_bytes(data)
+        _check_arguments(filename, options)
+        options = options or _DEFAULT_OPTIONS
+        check_size(data, options)
         return _converted(data, filename, options)
     except MemoryError as exc:
         raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
@@ -301,7 +302,10 @@ async def aconvert(data: bytes | bytearray | memoryview, filename: str | None = 
     Image description is network calls, so they are sent from the event loop `max_concurrency` at a time.
     """
     loop = asyncio.get_running_loop()
-    data = _content_bytes(data)  # a memoryview cannot be sent to a process pool (not picklable)
+    try:
+        data = _content_bytes(data)  # a memoryview cannot be sent to a process pool (not picklable)
+    except MemoryError as exc:  # the copy, as in `convert`
+        raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
     _check_arguments(filename, options)
     result = await loop.run_in_executor(executor, partial(convert, data, filename, options))
     if describer is None or not result.images:
