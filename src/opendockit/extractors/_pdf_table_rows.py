@@ -12,6 +12,7 @@ import threading
 
 from opendockit.extractors._pdf_model import (
     _NUMBER_CELL,
+    _SPACED_CHAR,
     _TABLE_MIN_COLUMNS,
     _TABLE_ROW_TOLERANCE,
     _WRAP_GAP_MIN_RATIO,
@@ -210,7 +211,7 @@ def _is_section_row(line: _Line, previous: list[_Line], following: list[_Line], 
     if (line.x1 - line.x0 > max_cell or _column_of(line, header) != 0 or not later or line.x1 >= min(later)
             or not _sizes_match([line], following)):
         return False
-    if _has_number_cell(previous) and not _has_number_cell(following):
+    if _opens_a_new_table(previous, following, max_cell):
         return False
     return _at_row_spacing(line, previous, following, row_gap)
 
@@ -234,7 +235,7 @@ def _is_lone_value_row(line: _Line, previous: list[_Line], following: list[_Line
     column = _column_of(line, header)
     if line.x1 - line.x0 > max_cell or column == 0 or not _sizes_match([line], following):
         return False
-    if _has_number_cell(previous) and not _has_number_cell(following):
+    if _opens_a_new_table(previous, following, max_cell):
         return False
     if not any(_column_of(cell, header, row) == column and _edge_aligned(cell, line)
                for row in (header, previous, following) for cell in row):
@@ -277,9 +278,65 @@ def _out_of_line(row: list[_Line], run: list[list[_Line]], header: list[_Line]) 
     return not any(_edge_aligned(line, other) for line in later for other in placed.get(_column_of(line, header, row), ()))
 
 
-def _has_number_cell(row: list[_Line]) -> bool:
-    """Whether the row has a cell holding only a numeric value."""
-    return any(_NUMBER_CELL.match(line.text.strip()) for line in row)
+def _has_number_cell(row: list[_Line], max_cell: float | None = None) -> bool:
+    """Whether the row has a cell holding only a numeric value. Given the maximum table cell width (`max_cell`), the row is
+    looked at as the table searched again with merged cells split sees it (`_cell_texts`)."""
+    return any(_NUMBER_CELL.match(text.strip()) for text in _cell_texts(row, max_cell))
+
+
+def _cell_texts(row: list[_Line], max_cell: float | None) -> list[str]:
+    """The cell texts of a row: with `max_cell`, a line that merged neighbouring cells (`_splittable`) gives one text per
+    piece, as in the table searched again with those lines split (`_found_again`); without it, one text per line."""
+    return [text for line in row
+            for text in ([piece for _, _, piece in line.fine_parts or line.parts]
+                         if max_cell is not None and _splittable(line, max_cell) else [line.text])]
+
+
+def _opens_a_new_table(previous: list[_Line], following: list[_Line], max_cell: float) -> bool:
+    """Whether the row below a single-fragment line (`following`) is the header of a new table, so the line between is not a
+    row of this table (`_is_section_row`, `_is_lone_value_row`): after a row with a numeric value cell (`previous`) it has
+    none, and it has enough cells to head a table at all (`_TABLE_MIN_COLUMNS`, the same as a header in `_table_runs`).
+
+    Both rows are judged as the table searched again with merged cells split sees them (`_cell_texts`). Judged on the
+    merged lines, '29,985 배' held no number, the label-only row '합계' was kept, and the table searched again with the
+    cells split ended at that row, so the search failed and every merged cell stayed unsplit ('| 사과 | | 79,619 사과 |').
+    And a row of two cells cannot head a table, yet it ended the table above, and the rows below, too few for a table of
+    their own, scattered column by column (Pinned by: test_pdf_borderless_split_rows.py::TestLabelOnlyRowAmongMergedCells)."""
+    cells = _cell_texts(following, max_cell)
+    return (len(cells) >= _TABLE_MIN_COLUMNS and _has_number_cell(previous, max_cell)
+            and not any(_NUMBER_CELL.match(text.strip()) for text in cells))
+
+
+def _splittable(line: _Line, max_cell: float) -> bool:
+    """A line that can be treated as neighbouring cells merged by pdfminer and split at its wide gaps (`_Line.parts`, or
+    `fine_parts`, which also looks at narrow gaps without a space character, when present): it has gaps, every piece is at
+    most the maximum table cell width, and there are no consecutive single Hangul or Hanja character pieces
+    (`_letter_spaced_parts`).
+
+    The piece width is examined rather than the whole line width (the same criterion as `_split_line_table_runs`) because
+    the header '1분기 2분기 3분기 4분기', merged across narrow cell gaps, exceeded 25% of the page width, could not be split
+    and became a paragraph outside the table (pinned by: test_pdf_table_columns.py::
+    TestHeaderMergedWiderThanACell).
+
+    `fine_parts` is examined too because the gap between a right-aligned number cell and a left-aligned text cell in a
+    Chrome table (cell padding 6px + 6px = 9pt, 0.75 times a 12pt character, no space character) fell short of
+    `_CELL_GAP_RATIO` (0.8 times) and '18 2023 신규' became one cell (pinned by:
+    test_pdf_table_columns.py::TestNarrowColumnGaps::test_right_aligned_numbers_next_to_a_left_aligned_note_column).
+    Splitting only inside an already-found table is unchanged."""
+    parts = line.fine_parts or line.parts
+    return (bool(parts) and all(x1 - x0 <= max_cell for x0, x1, _ in parts)
+            and not _letter_spaced_parts(parts))
+
+
+def _letter_spaced_parts(parts: list[tuple[float, float, str]]) -> bool:
+    """Whether the line pieces contain two or more consecutive single Hangul or Hanja character pieces — that is letter-spaced
+    text ('구    분') and is not split into cells.
+
+    Blocking on a single one-character piece made it impossible to split '값 단위' in a Chrome three-line table (pdfminer
+    merged the 1.3em between cells into one piece), and the header and first row became paragraphs outside the table
+    (pinned by: test_pdf_table_columns.py::TestOneLetterHeaderCell)."""
+    return any(len(left) == 1 and len(right) == 1 and _SPACED_CHAR.match(left) and _SPACED_CHAR.match(right)
+               for (_, _, left), (_, _, right) in zip(parts, parts[1:], strict=False))
 
 
 def _is_separate(row: list[_Line]) -> bool:

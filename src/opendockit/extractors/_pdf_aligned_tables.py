@@ -15,7 +15,6 @@ from opendockit.extractors._pdf_model import (
     _FAR_VALUE,
     _NUMBER_CELL,
     _ROW_OVERLAP_RATIO,
-    _SPACED_CHAR,
     _TABLE_CELL_MAX_RATIO,
     _TABLE_MIN_COLUMNS,
     _TABLE_MIN_ROWS,
@@ -34,8 +33,10 @@ from opendockit.extractors._pdf_table_rows import (
     _is_lone_value_row,
     _is_section_row,
     _is_separate,
+    _letter_spaced_parts,
     _out_of_line,
     _sizes_match,
+    _splittable,
     _spread_over_one_cell,
     _table_rows_above,
     _wide_cell_in_its_column,
@@ -523,38 +524,6 @@ def _found_again(region_rows: list[list[_Line]], in_run: set[int], columns: int,
     if any(used[_column_of(line, header, row)] < 2 for row in found[0] for line in row if line.source is not None):
         return None
     return found[0]
-
-
-def _splittable(line: _Line, max_cell: float) -> bool:
-    """A line that can be treated as neighbouring cells merged by pdfminer and split at its wide gaps (`_Line.parts`, or
-    `fine_parts`, which also looks at narrow gaps without a space character, when present): it has gaps, every piece is at
-    most the maximum table cell width, and there are no consecutive single Hangul or Hanja character pieces
-    (`_letter_spaced_parts`).
-
-    The piece width is examined rather than the whole line width (the same criterion as `_split_line_table_runs`) because
-    the header '1분기 2분기 3분기 4분기', merged across narrow cell gaps, exceeded 25% of the page width, could not be split
-    and became a paragraph outside the table (pinned by: test_pdf_table_columns.py::
-    TestHeaderMergedWiderThanACell).
-
-    `fine_parts` is examined too because the gap between a right-aligned number cell and a left-aligned text cell in a
-    Chrome table (cell padding 6px + 6px = 9pt, 0.75 times a 12pt character, no space character) fell short of
-    `_CELL_GAP_RATIO` (0.8 times) and '18 2023 신규' became one cell (pinned by:
-    test_pdf_table_columns.py::TestNarrowColumnGaps::test_right_aligned_numbers_next_to_a_left_aligned_note_column).
-    Splitting only inside an already-found table is unchanged."""
-    parts = line.fine_parts or line.parts
-    return (bool(parts) and all(x1 - x0 <= max_cell for x0, x1, _ in parts)
-            and not _letter_spaced_parts(parts))
-
-
-def _letter_spaced_parts(parts: list[tuple[float, float, str]]) -> bool:
-    """Whether the line pieces contain two or more consecutive single Hangul or Hanja character pieces — that is letter-spaced
-    text ('구    분') and is not split into cells.
-
-    Blocking on a single one-character piece made it impossible to split '값 단위' in a Chrome three-line table (pdfminer
-    merged the 1.3em between cells into one piece), and the header and first row became paragraphs outside the table
-    (pinned by: test_pdf_table_columns.py::TestOneLetterHeaderCell)."""
-    return any(len(left) == 1 and len(right) == 1 and _SPACED_CHAR.match(left) and _SPACED_CHAR.match(right)
-               for (_, _, left), (_, _, right) in zip(parts, parts[1:], strict=False))
 
 
 def _split_line_table_runs(lines: list[_Line], max_cell: float) -> list[list[list[_Line]]]:

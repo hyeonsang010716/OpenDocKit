@@ -389,3 +389,55 @@ class TestNoCellTextInTwoTables:
         text = convert(_regions_pdf(before, after, merged), "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert not {cell for cell in _cells_in_two_tables(text) if cell in _REGIONS or cell[0].isdigit()}
+
+
+def _three_column_pdf(rows: list[str], top: float = 742.0, header: bool = True) -> bytes:
+    """A borderless three-column table under a paragraph: text at x 60, a number right-aligned at x 220 and text at x 230
+    (or a number right-aligned at x 320 with `header` False). Each row is 'a/b/c' with empty parts for empty cells; the
+    number and the text beside it are 10pt apart, so pdfminer merges them into one piece ('79,619 사과')."""
+    def draw(pdf, index):
+        pdf.drawString(72, 782, "보고서 본문 첫 문단입니다. 표는 다음과 같습니다.")
+        cells = [row.split("/") for row in rows]
+        if header:
+            cells = [["항목0", "항목1", "항목2"], *cells]
+        y = top
+        for number, (first, second, third) in enumerate(cells):
+            if first:
+                pdf.drawString(60, y, first)
+            if second:
+                if header and number == 0:
+                    pdf.drawString(140, y, second)
+                else:
+                    pdf.drawRightString(220, y, second)
+            if third:
+                if header:
+                    pdf.drawString(230, y, third)
+                else:
+                    pdf.drawRightString(320, y, third)
+            y -= 16
+        pdf.drawString(72, y - 30, "표 아래 본문 문단입니다.")
+
+    return _korean_pdf(draw)
+
+
+class TestLabelOnlyRowAmongMergedCells:
+    """A label-only row ('합계') was judged on the merged lines (no number in '29,985 배') when the table was first found,
+    and on the split cells when it was searched again, where the row ended the table: the search failed and every merged
+    cell stayed unsplit. A row of two cells also ended the table above as if it were the header of a new one."""
+
+    def test_merged_cells_are_split_around_a_label_only_row(self):
+        data = _three_column_pdf(["사과/79,619/사과", "Alpha/29,985/배", "합계//", "수량//해당 없음", "서울/69,158/금액",
+                                  "금액/88,716/금액"])
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| 항목0 | 항목1 | 항목2 |\n| --- | --- | --- |\n| 사과 | 79,619 | 사과 |\n| Alpha | 29,985 | 배 |\n"
+                "| 합계 | | |\n| 수량 | | 해당 없음 |\n| 서울 | 69,158 | 금액 |\n| 금액 | 88,716 | 금액 |") in text
+
+    def test_row_of_two_cells_after_a_label_only_row_stays_in_the_table(self):
+        data = _three_column_pdf(["서울/1,250/증가", "비고/16,293/감소", "비고//", "미정//보류", "포도/69.0%/증가",
+                                  "배/68,717/유지"])
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| 비고 | 16,293 | 감소 |\n| 비고 | | |\n| 미정 | | 보류 |\n| 포도 | 69.0% | 증가 |\n| 배 | 68,717 | 유지 |" in text
