@@ -21,8 +21,13 @@ _ACCENTS = {"\u0302": "hat", "\u0303": "tilde", "\u0304": "bar", "\u0305": "bar"
 
 
 def render_omml(equation: etree._Element) -> str:
-    """One m:oMath → ` $LaTeX$ ` to insert in the paragraph text. DOCX and PPTX use the same notation."""
-    return f" ${omml_to_latex(equation).strip()}$ "
+    """One m:oMath → ` $LaTeX$ ` to insert in the paragraph text. DOCX and PPTX use the same notation.
+
+    An equation with no text (an empty equation, or one whose runs are all tracked deletions) gives nothing: ` $$ ` opens display
+    math in Markdown renderers, which swallowed the rest of the document (Pinned by:
+    test_office_equations.py::TestOmmlLiteralText::test_empty_equation_writes_nothing)."""
+    latex = omml_to_latex(equation).strip()
+    return f" ${latex}$ " if latex else ""
 
 
 def _m(tag: str) -> str:
@@ -42,7 +47,11 @@ _ESCAPED_DELIMITERS = {"{": "\\{", "}": "\\}"}
 # Equation font style (m:rPr/m:scr) → LaTeX command. Only double-struck (ℝ), script (ℒ) and fraktur, whose meaning differs, are
 # written; sans-serif, monospace etc. are left as is.
 _MATH_ALPHABETS = {"double-struck": "mathbb", "script": "mathcal", "fraktur": "mathfrak"}
-_MATH_ALPHABET_LETTERS = re.compile(r"[A-Za-z0-9]+")
+_MATH_ALPHABET_LETTERS = re.compile(r"([A-Za-z0-9]+)")  # captured: `re.split` keeps the letters
+# Characters of the literal text of an equation (m:t) that LaTeX or the Markdown `$…$` delimiters would read as syntax: `$` ended
+# the math span early, `%` starts a LaTeX comment, `{` `}` group, `#` is a parameter. They are escaped in the text only, never in
+# the LaTeX this module writes (`_literal`).
+_LITERAL_ESCAPES = str.maketrans({"\\": "\\backslash ", "{": "\\{", "}": "\\}", "$": "\\$", "%": "\\%", "#": "\\#"})
 # The removed side of tracked changes (deleted text, the original place of moved text). It wraps m:r inside equations too. Left out
 # as in body paragraphs (`docx._paragraph_text`).
 _TRACKED_REMOVALS = (f"{{{_W}}}del", f"{{{_W}}}moveFrom")
@@ -105,7 +114,9 @@ def omml_to_latex(element: etree._Element) -> str:
 
     tag = element.tag
     if tag == _m("t"):
-        return element.text or ""
+        # Raw text inside m:r, which escapes it (`_literal`) after picking out the letters of a math alphabet
+        parent = element.getparent()
+        return (element.text or "") if parent is not None and parent.tag == _m("r") else _literal(element.text or "")
     if not isinstance(tag, str) or tag.endswith("Pr") or tag in _TRACKED_REMOVALS:
         # Reading the removed side of tracked changes made an equation edited from 0.3 to 0.5 into `E=A×0.30.5` (Pinned by:
         # test_office_equations.py::TestOmmlTrackedChanges). The inserted side (w:ins, w:moveTo) is read as is by `_join_math` below.
@@ -113,9 +124,13 @@ def omml_to_latex(element: etree._Element) -> str:
     if tag == _m("r"):
         # Dropping double-struck / script letters (m:scr) turned the set of reals ℝ into an ordinary variable R. Only letters and
         # digits are wrapped in the command (Pinned by: test_office_equations.py::TestOmmlMathAlphabets).
+        # Literal `$ % { } # \\` of the text are escaped (Pinned by: test_office_equations.py::TestOmmlLiteralText).
         text = _join_math(element)
         command = _MATH_ALPHABETS.get(prop("rPr", "scr", "roman"))
-        return _MATH_ALPHABET_LETTERS.sub(lambda match: f"\\{command}{{{match.group()}}}", text) if command else text
+        if not command:
+            return _literal(text)
+        pieces = _MATH_ALPHABET_LETTERS.split(text)
+        return "".join(f"\\{command}{{{piece}}}" if index % 2 else _literal(piece) for index, piece in enumerate(pieces))
     if tag == _m("f"):
         # A fraction without a bar (noBar) is stacked text such as a binomial coefficient (inside parentheses m:d turns it into
         # `\binom`). Linear and skewed fractions (lin, skw) have the `a/b` shape. Emitting them all as `\frac` made a binomial
@@ -177,6 +192,11 @@ def omml_to_latex(element: etree._Element) -> str:
                 for row in element.iterchildren(_m("mr"))]
         return "\\begin{matrix}" + " \\\\ ".join(rows) + "\\end{matrix}"
     return _join_math(element)
+
+
+def _literal(text: str) -> str:
+    """Literal equation text with the characters LaTeX or Markdown would read as syntax escaped (`_LITERAL_ESCAPES`)."""
+    return text.translate(_LITERAL_ESCAPES)
 
 
 def _delimited(element: etree._Element, begin: str, end: str, separator: str) -> str:

@@ -385,7 +385,16 @@ class TestDocxEmphasis:
                           _run("2", '<w:b/><w:vertAlign w:val="subscript"/>'), _bold("O 농도"),
                           '<w:r><w:rPr><w:b/></w:rPr><w:footnoteReference w:id="2"/></w:r>', _bold(" 기준"), _run(" 입니다."))
 
-        text = convert(_docx(body), "a.docx", ConvertOptions(include_footnotes=True)).text
+        notes = f'<w:footnotes xmlns:w="{_W}"><w:footnote w:id="2"><w:p><w:r><w:t>출처</w:t></w:r></w:p></w:footnote></w:footnotes>'
+        data = builder.zip_with(_docx(body), edit={
+            "word/_rels/document.xml.rels": lambda xml: xml.replace(
+                "</Relationships>", f'<Relationship Id="rIdNotes" Type="{_R}/footnotes" Target="footnotes.xml"/></Relationships>'),
+            "[Content_Types].xml": lambda xml: xml.replace(
+                "</Types>", '<Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.'
+                            'wordprocessingml.footnotes+xml"/></Types>'),
+        }, add={"word/footnotes.xml": notes})
+
+        text = convert(data, "a.docx", ConvertOptions(include_footnotes=True)).text
 
         assert text.split("\n")[0] == "값 **~~1,000~~ H_2O 농도**[^1] **기준** 입니다."
 
@@ -826,3 +835,31 @@ class TestLinearTime:
         small, large = text(10_000), text(40_000)
 
         assert _seconds(lambda: resolve_inline(large)) < 8 * _seconds(lambda: resolve_inline(small))
+
+
+class TestStruckScriptRuns:
+    """A struck-through superscript or subscript run kept the whitespace of its run inside the strikethrough marks: `~~^2 ~~`
+    is not strikethrough for a Markdown renderer (the closing `~~` follows a space), and a struck script run of spaces alone gave
+    `~~ ~~`. The whitespace goes outside the marks, the script stays inside."""
+
+    _STRUCK_SUPERSCRIPT = '<w:strike/><w:vertAlign w:val="superscript"/>'
+
+    @pytest.mark.parametrize(("runs", "expected"), [
+        ((("면적 10", ""), ("2 ", _STRUCK_SUPERSCRIPT), ("m", "")), "면적 10~~^2~~ m"),
+        ((("가격 ", ""), (" 주1) ", _STRUCK_SUPERSCRIPT), ("신규", "")), "가격 ~~주1)~~ 신규"),
+        ((("x", ""), ("  ", _STRUCK_SUPERSCRIPT), ("y", "")), "x y"),
+        ((("H", ""), ("2", '<w:strike/><w:vertAlign w:val="subscript"/>'), ("O", "")), "H~~_2~~O"),
+    ])
+    def test_docx(self, runs, expected):
+        assert _docx_text(_paragraph(*(_run(text, properties) for text, properties in runs))) == expected
+
+    def test_pptx(self):
+        def build(slide):
+            paragraph = _text_box(slide, ("면적 10", {}))
+            run = paragraph.add_run()
+            run.text = "2 "
+            run.font._rPr.set("baseline", "30000")
+            run.font._rPr.set("strike", "sngStrike")
+            paragraph.add_run().text = "m"
+
+        assert convert(_deck(build), "a.pptx").sections[0].text == "면적 10~~^2~~ m"

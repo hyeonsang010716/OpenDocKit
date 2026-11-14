@@ -171,7 +171,8 @@ class TestOmmlMathAlphabets:
 
         result = convert(_docx_with_body(body), "a.docx")
 
-        assert result.text == "$x∈\\mathbb{R}, \\mathcal{L}{f}, \\mathfrak{g}, x, ∈$"
+        # The braces typed around f are literal text of the equation and stay visible (`TestOmmlLiteralText`)
+        assert result.text == "$x∈\\mathbb{R}, \\mathcal{L}\\{f\\}, \\mathfrak{g}, x, ∈$"
 
 
 class TestOmmlPhantom:
@@ -194,3 +195,36 @@ class TestOmmlPhantom:
         result = convert(_docx_with_body(body), "a.docx")
 
         assert result.text == "$a+b$"
+
+
+class TestOmmlLiteralText:
+    """The text of an equation (m:t) is literal. An empty equation gave ` $$ `, which opens display math in Markdown renderers and
+    swallowed what followed; a `$` in the text ended the math span early, and `%`, `#`, `{`, `}` and `\\` are LaTeX syntax."""
+
+    def test_empty_equation_writes_nothing(self):
+        body = "<w:p><w:r><w:t xml:space=\"preserve\">앞 </w:t></w:r><m:oMath/><w:r><w:t xml:space=\"preserve\"> 뒤</w:t></w:r></w:p>"
+
+        assert convert(_docx_with_body(body), "a.docx").text == "앞 뒤"
+
+    def test_equation_whose_runs_are_all_deleted_writes_nothing(self):
+        deleted = f'<w:del w:id="1" w:author="a">{_run("x")}</w:del>'
+        body = f"<w:p><w:r><w:t>값</w:t></w:r><m:oMath>{deleted}</m:oMath></w:p><w:p><w:r><w:t>다음</w:t></w:r></w:p>"
+
+        assert convert(_docx_with_body(body), "a.docx").text == "값\n\n다음"
+
+    def test_dollar_percent_hash_braces_and_backslash_are_escaped(self):
+        body = _equations(_run("$5+10%") + _fraction("#1", "{a}") + _run("A\\B"))
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == "$\\$5+10\\%\\frac{\\#1}{\\{a\\}}A\\backslash B$"
+
+    def test_escaped_text_in_a_math_alphabet_wraps_only_the_letters(self):
+        styled = '<m:r><m:rPr><m:scr m:val="double-struck"/></m:rPr><m:t>R%</m:t></m:r>'
+
+        assert convert(_docx_with_body(_equations(styled)), "a.docx").text == "$\\mathbb{R}\\%$"
+
+    def test_ordinary_equation_is_unchanged(self):
+        body = _equations(_script("sSup", "x", "2") + _run("+") + _fraction("a", "b") + _delimiters(_run("a,b"), "{", "}"))
+
+        assert convert(_docx_with_body(body), "a.docx").text == "$x^2+\\frac{a}{b}\\{a,b\\}$"
