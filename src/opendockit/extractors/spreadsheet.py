@@ -13,7 +13,8 @@ from lxml import etree
 import openpyxl
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.chartsheet import Chartsheet
-from openpyxl.formula.translate import Translator
+from openpyxl.formula.tokenizer import TokenizerError
+from openpyxl.formula.translate import Translator, TranslatorError
 from openpyxl.styles.numbers import BUILTIN_FORMATS
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from openpyxl.utils.datetime import from_excel
@@ -595,8 +596,11 @@ def _unresolved_formulas(xml: bytes, max_cols: int) -> dict[int, dict[int, str]]
                     first, origin = shared[formula.get("si")]
                     text = Translator(f"={first}", origin=origin).translate_formula(reference)[1:]
                 row, column = coordinate_to_tuple(reference)
-            except (ValueError, TypeError, IndexError):
-                text = ""  # the cell address or the formula cannot be read. Left blank
+            except (ValueError, TypeError, IndexError, TranslatorError, TokenizerError):
+                # The cell address or the formula cannot be read, or a shared formula cannot be moved to this cell (a reference
+                # moved off the sheet). Left blank — TranslatorError used to reject the whole workbook
+                # (Pinned by: test_audit_spreadsheet.py::TestSharedFormulasThatCannotBeMoved).
+                text = ""
             computed = cell.get("t") == "str" or (value is not None and value.text)
             if text and not computed and column <= max_cols:
                 formulas.setdefault(row, {})[column] = f"={text}"

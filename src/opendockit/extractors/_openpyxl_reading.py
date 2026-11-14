@@ -18,6 +18,8 @@ import openpyxl
 from openpyxl.cell.rich_text import CellRichText
 from openpyxl.cell.text import Text
 from openpyxl.chartsheet import Chartsheet
+from openpyxl.formula.tokenizer import TokenizerError
+from openpyxl.formula.translate import TranslatorError
 from openpyxl.packaging.relationship import RelationshipList
 from openpyxl.reader import excel as _openpyxl_excel_reader
 from openpyxl.styles.cell_style import CellStyleList
@@ -114,6 +116,13 @@ def _tolerant_parse_cell(parser: object, element: object) -> dict:
             # (General too) rejected the whole document when turning it into a float
             # (Pinned by: test_audit_spreadsheet_fixes.py::TestIntegerTooLargeForAFloat).
             raise ValueError
+    except (TranslatorError, TokenizerError):
+        # A formula openpyxl cannot read or cannot move to this cell (a shared formula whose reference moves off the sheet).
+        # It rejected the whole workbook; the cell is left blank, as when values are read (`_unresolved_formulas`)
+        # (Pinned by: test_audit_spreadsheet.py::TestSharedFormulasThatCannotBeMoved).
+        parser.col_counter = counter
+        cell = {**_raw_cell(parser, element), "value": None, "data_type": "n"}
+        cell.pop("malformed")
     except (ValueError, IndexError, TypeError, OverflowError):
         parser.col_counter = counter  # restore the column counted before the failure and count again
         cell = _raw_cell(parser, element)

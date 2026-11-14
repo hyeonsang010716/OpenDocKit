@@ -772,3 +772,39 @@ class TestManyEmptyRowBlocks:
 
         assert text.endswith("| 1 | 2 |\n\n| name | count | unit |\n| --- | --- | --- |\n| x | 3 | kg |\n\n"
                              "| h | v |\n| --- | --- |\n| 4 | 5 |")  # the header of the new table is compared, not the first one
+
+
+class TestSharedFormulasThatCannotBeMoved:
+    """A shared formula whose reference moves off the sheet when it is rewritten for another cell (a dependent cell left of the
+    first one, `=A1` moved one column left) made openpyxl raise TranslatorError, and the whole workbook was rejected as
+    corrupted. Such a cell is left blank, as one whose formula cannot be read."""
+
+    _HEADER = _text_row(1, "a", "b", "c")
+    _SHARED = ('<row r="2"><c r="C2"><f t="shared" ref="B2:C3" si="0">A1</f></c></row>'
+               '<row r="3"><c r="B3"><f t="shared" si="0"/></c></row>')
+
+    def test_when_formulas_are_read(self):
+        """No formula has a result, so openpyxl reads formulas (`data_only=False`) and moves the shared formula itself."""
+        result = convert(_with_sheet_xml(_sheet_xml(self._HEADER + self._SHARED)), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| a | b | c |\n| --- | --- | --- |\n| | | =A1 |"
+        assert result.warnings == ["Formula results are not stored in the file, so the formulas were copied as written "
+                                   "(opening and re-saving the file in Excel converts them to values)."]
+
+    def test_when_values_are_read(self):
+        """One formula has a result, so values are read and the formulas without results are looked up in the sheet XML."""
+        stored = '<row r="4"><c r="A4"><f>1+1</f><v>2</v></c></row>'
+
+        result = convert(_with_sheet_xml(_sheet_xml(self._HEADER + self._SHARED + stored)), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| a | b | c |\n| --- | --- | --- |\n| | | =A1 |\n| 2 | | |"
+        assert result.warnings == ["Sheet 'Sheet': 1 formula(s) with no stored result were copied as written "
+                                   "(opening and re-saving the file in Excel converts them to values)."]
+
+    def test_formula_that_cannot_be_tokenized(self):
+        """An unterminated string in a shared formula made openpyxl raise TokenizerError."""
+        rows = self._HEADER + '<row r="2"><c r="A2"><f t="shared" ref="A2:A3" si="0">"abc</f></c><c r="B2"><v>5</v></c></row>'
+
+        result = convert(_with_sheet_xml(_sheet_xml(rows)), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| a | b | c |\n| --- | --- | --- |\n| | 5 | |"
