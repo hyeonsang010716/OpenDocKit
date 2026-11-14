@@ -7,7 +7,7 @@ The per-format rules for extracting pictures are in the decision file of each fo
 
 | Decision | Why | Pinned by |
 | --- | --- | --- |
-| When the image limit is exceeded, scanned pages come first | A page image is the only content of that page | — |
+| When the image limit is exceeded, scanned pages come first. A page image left out by the limit is warned about apart from the pictures, with its page numbers ('… were left out and are empty'); only the pictures are counted as 'left as placeholders only' | A page image is the only content of that page. Counted with the pictures, the warning said every image left out kept a placeholder, and the pages left empty were named nowhere | `test_image.py::TestScannedPagesLeftOutByTheImageLimit` |
 | `max_images` defaults to unlimited (None) | Real Hangul (HWP) documents had 51 and 32 pictures, more than the former default of 30, and content was lost. Only a caller that wants to bound cost sets a limit | `test_image.py::test_describes_every_image_by_default` |
 | The ChatOpenAI the describer builds itself is separate per event loop (its own httpx client), and `aclose()` closes that loop's client before the loop ends (the CLI calls it) | langchain_openai's global client is bound to the first loop, so from the second asyncio.run on: "Event loop is closed" | `test_image.py::test_openai_describer_uses_separate_http_client_per_event_loop`, `test_openai_describer_closes_the_http_client_of_the_current_event_loop` |
 | SKIP is forbidden when there is even one character of text (prompt) | gpt-4o-mini erased text pictures such as "FIG 4411" as decorative 3 times out of 3 | live test against the real model (not in this repository) `test_text_figure_is_kept_but_pure_decoration_is_dropped` |

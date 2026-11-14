@@ -1792,3 +1792,36 @@ class TestTransparencyOfEveryMode:
 
         assert result.mime_type == "image/png"
         assert Image.open(BytesIO(result.data)).convert("RGBA").getpixel((2, 2))[3] == 0
+
+
+class TestScannedPagesLeftOutByTheImageLimit:
+    """A scanned page image that `max_images` left out leaves its page empty, yet the warning said it was 'left as a
+    placeholder' and the page was named nowhere."""
+
+    def test_page_left_out_is_named_as_empty(self):
+        data = builder.pdf_scanned_in_strips([[], [], []], strips=1)
+
+        result = convert(data, "s.pdf", ConvertOptions(max_images=1))
+
+        assert [image.section_index for image in result.images] == [1]
+        assert "There are many images, so only 1 were selected for description (scanned pages first). 1 page(s) whose text " \
+               "exists only as an image (2) were left out and are empty." in result.warnings
+        assert not any("left as placeholders only" in warning for warning in result.warnings)
+
+    def test_pictures_left_out_beside_pages_are_counted_apart(self):
+        from opendockit.converter import _prepare_images
+        from opendockit.models import Extraction, Section, SectionKind, marker_key
+
+        extraction = Extraction()
+        with marker_key("k"):
+            page = extraction.add_image(builder.png_bytes(400, 300, seed=1), kind=ImageKind.PAGE)
+            figure = extraction.add_image(builder.png_bytes(400, 300, seed=2))
+        sections = [Section(SectionKind.PAGE, 1, "", None, page), Section(SectionKind.PAGE, 2, "", None, figure)]
+        warnings: list[str] = []
+
+        images, _ = _prepare_images(extraction.images, sections, ConvertOptions(max_images=0), warnings, "k")
+
+        assert images == []
+        assert warnings == ["There are many images, so only 0 were selected for description (scanned pages first). 1 page(s) "
+                            "whose text exists only as an image (1) were left out and are empty, and 1 other image(s) were "
+                            "left as placeholders only."]

@@ -282,9 +282,8 @@ def render(result: ConversionResult) -> ConversionResult:
         warnings.append(f"{failed} image(s) could not be described (the vision model call failed) and were left as placeholder text.")
     unread_pages = [image for image in result.images if image.kind is ImageKind.PAGE and not image.description]
     if unread_pages:
-        pages = ", ".join(str(image.section_index) for image in unread_pages[:10])
         warnings.append(f"{len(unread_pages)} page(s) whose text exists only as an image "
-                        f"({pages}{' and more' if len(unread_pages) > 10 else ''}) "
+                        f"({page_list([image.section_index for image in unread_pages])}) "
                         "are empty because they did not go through image description (OCR).")
 
     # Whether the limit is exceeded is counted exactly on the text rendered here. If the extraction stage stopped first, the value
@@ -401,23 +400,43 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     # Over the limit, whole-page images (scanned pages — the only content of that page) are picked before pictures.
     chosen = {raw.id for raw, _, _ in sorted(candidates, key=lambda item: item[0].kind is not ImageKind.PAGE)
               [: options.max_images]}
-    over_limit = len(candidates) - len(chosen)
     locations = _locate_markers(sections, image_marker_pattern(marker))
     images: list[DocumentImage] = []
+    left_pages: list[int] = []
+    left_figures = 0
     for raw, alt, image in candidates:
-        if raw.id not in chosen:
-            continue
         section, context = locations.get(raw.id, (None, ""))
+        if raw.id not in chosen:
+            if raw.kind is ImageKind.PAGE:
+                left_pages.append(section.index if section else 1)
+            else:
+                left_figures += 1
+            continue
         images.append(DocumentImage(
             id=raw.id, data=image.data, mime_type=image.mime_type, width=image.width, height=image.height, tiles=image.tiles,
             kind=raw.kind, section_kind=section.kind if section else SectionKind.DOCUMENT,
             section_index=section.index if section else 1, alt=alt, context=context,
         ))
 
-    if over_limit:
+    # A page image left out by the limit leaves its page empty (its placeholder text is empty), so it is not counted among the
+    # pictures 'left as placeholders' and its pages are named, as `render` names the pages that were not described. Counted
+    # with the pictures, the warning said every one had kept a placeholder and never named the empty pages
+    # (Pinned by: test_image.py::TestScannedPagesLeftOutByTheImageLimit).
+    if left_pages:
+        figures = f", and {left_figures} other image(s) were left as placeholders only" if left_figures else ""
+        warnings.append(f"There are many images, so only {options.max_images} were selected for description (scanned pages first). "
+                        f"{len(left_pages)} page(s) whose text exists only as an image ({page_list(left_pages)}) were left out "
+                        f"and are empty{figures}.")
+    elif left_figures:
         warnings.append(f"There are many images, so only {options.max_images} were selected for description (scanned pages first) "
-                        f"and {over_limit} were left as placeholders only.")
+                        f"and {left_figures} were left as placeholders only.")
     return images, fallbacks
+
+
+def page_list(numbers: list[int]) -> str:
+    """Page numbers for a warning: the first 10, then 'and more'."""
+    shown = ", ".join(str(number) for number in numbers[:10])
+    return f"{shown} and more" if len(numbers) > 10 else shown
 
 
 def _point_aliases_at_first(sections: list[Section], aliases: dict[int, int], marker: str) -> None:
