@@ -305,7 +305,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _put_symbol_fonts(soup)
     _put_form_values(soup)
     _mark_scripts(soup)
-    _mark_struck_text(soup)
+    _mark_struck_text(soup, links=options.keep_links, emphasis=options.keep_emphasis)
 
     _flatten_nested_headings(soup)
     _foster_parent_table_content(soup)

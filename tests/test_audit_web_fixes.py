@@ -267,6 +267,29 @@ class TestNoMarksInsideCode:
 
         assert time.perf_counter() - start < allowed(4)
 
+    @pytest.mark.timing
+    def test_many_code_blocks_in_one_strikethrough_take_linear_time(self):
+        """Every piece of text between two code blocks is a run of its own. The marks are written together, with the child
+        positions measured once per parent (20,000 blocks took 6 s and 40,000 23 s, now about 1 s and 2 s)."""
+        html = "<del>" + "a<pre>c</pre>" * 20000 + "</del>"
+        start = time.perf_counter()
+        result = convert(html.encode(), "a.html")
+
+        assert time.perf_counter() - start < allowed(3)
+        assert result.text.startswith("~~a~~\n\n```\nc\n```\n\n~~a~~\n\n```\nc\n```")
+
+    @pytest.mark.timing
+    def test_many_tables_and_code_blocks_in_one_struck_cell_take_linear_time(self):
+        """The marks before and after a table grouped with its strikethrough are written the same way (10,000 tables, each
+        after a code block, took 7 s, now under 1 s)."""
+        pieces = "a<pre>c</pre><table><tr><td>x</td></tr></table>" * 10000
+        html = f"<table><tr><td><del>{pieces}</del></td><td>z</td></tr></table>"
+        start = time.perf_counter()
+        result = convert(html.encode(), "a.html")
+
+        assert time.perf_counter() - start < allowed(3)
+        assert result.text.count("~~") == 2 * 10001  # the first `a`, then every table with the `a` after it
+
     def test_strikethrough_set_on_a_code_block_itself_is_not_marked(self):
         assert convert(b'<pre style="text-decoration:line-through">x</pre>', "a.html").text == "```\nx\n```"
 
@@ -275,6 +298,52 @@ class TestNoMarksInsideCode:
         html = "<p>use <del><code>foo()</code></del> instead, <code>x<sup>2</sup></code></p>"
 
         assert convert(html.encode(), "a.html").text == "use ~~foo()~~ instead, x^2"
+
+
+class TestAdjacentStruckRuns:
+    """Row of html.md: struck runs with nothing between them get one pair of marks (`_html_dom._joined_runs`). Marked one by
+    one they came out as `~~가~~~~나~~`, and four tildes in a row are not a strikethrough mark."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><del>가</del><del>나</del></p>", "~~가나~~"),
+        ("<p><del>가</del><s><span>나</span></s><strike>다</strike> 라</p>", "~~가나다~~ 라"),
+        ("<p><del>가</del><code><del>나</del></code></p>", "~~가나~~"),
+        ("<p><del>가</del><del>나</del></p><p><del>다</del></p>", "~~가나~~\n\n~~다~~"),
+        # a span that lies wholly inside the second run: its half of the pair was moved out next to the first run's
+        ('<p><del>가</del><s><a href="https://example.com/">나</a> 다</s></p>', "~~가[나](https://example.com/) 다~~"),
+        # two bold spans side by side are written as one, so no mark lay between the two pairs
+        ("<p><b>가 <del>나</del></b><strong><del>다</del> 라</strong> 마</p>", "**가 ~~나다~~ 라** 마"),
+        # no emphasis is written in a heading
+        ("<h2><del>가</del><b><del>나</del> 다</b></h2>", "## ~~가나~~ 다"),
+    ])
+    def test_runs_with_nothing_between_them_get_one_pair_of_marks(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><del>가</del> <del>나</del></p>", "~~가~~ ~~나~~"),
+        ("<p><del>가</del><br><del>나</del></p>", "~~가~~\n~~나~~"),
+        ("<ul><li><del>가</del></li><li><del>나</del></li></ul>", "- ~~가~~\n- ~~나~~"),
+        ("<table><tr><th>a</th><th>b</th></tr><tr><td><del>가</del></td><td><del>나</del></td></tr></table>",
+         "| a | b |\n| --- | --- |\n| ~~가~~ | ~~나~~ |"),
+        # the mark of a span that holds an end of the pair lies between the two: joined, the pair would cross the span
+        ("<p><del>가</del><b><del>나</del> 다</b></p>", "~~가~~**~~나~~ 다**"),
+        ("<p><del>가</del><b><del>나</del></b></p>", "~~가~~**~~나~~**"),
+    ])
+    def test_runs_that_are_apart_already_keep_their_own_marks(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("inner", "expected"), [
+        # a table holding a code block is marked cell by cell (`TestNoMarksInsideCode`): its last cell met the text after it
+        ("<del>x<table><tr><td><pre>in1</pre></td><td>in2</td></tr></table>y</del>", "~~x~~in1 ~~in2~~ ~~y~~"),
+        ("<del>x<table><tr><td>in2</td><td><pre>in1</pre></td></tr></table>y</del>", "~~x~~ ~~in2~~ in1~~y~~"),
+        ("앞<table><tr><td>10</td><td><del>20</del></td></tr></table><del>끝</del>", "앞10 ~~20~~ ~~끝~~"),
+        # grouped with its strikethrough as a whole: unchanged
+        ("<del>x<table><tr><td>in1</td><td>in2</td></tr></table>y</del>", "~~xin1 in2y~~"),
+    ])
+    def test_run_inside_a_table_flattened_into_a_cell_is_kept_apart_from_the_run_next_to_the_table(self, inner, expected):
+        html = f"<table><tr><td>{inner}</td><td>z</td></tr></table>"
+
+        assert convert(html.encode(), "a.html").text == f"| {expected} | z |\n| --- | --- |"
 
 
 class TestAltTextCannotMakeALink:
