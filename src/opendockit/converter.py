@@ -15,6 +15,7 @@ import zipfile
 from opendockit.detect import detect_format, extension_mismatch, pdf_lookalike_text_format
 from opendockit.exceptions import ConversionError, CorruptedDocumentError, DocumentTooLargeError, UnsupportedFormatError
 from opendockit.extractors import EXTRACTORS
+from opendockit.extractors._inline import _escape_link_text
 from opendockit.extractors._package import uncompressed_size
 from opendockit.image import ImageSkipped, ImageTooLarge, ImageUnreadable, PreparedImage, needs_heif_plugin, prepare_image
 from opendockit.markdown import clean_text, neutralize_table_tags, solid_length
@@ -333,7 +334,7 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
         if isinstance(outcome, ImageSkipped):
             fallbacks[raw.id] = ""
         elif isinstance(outcome, ImageUnreadable):
-            fallbacks[raw.id] = f"[Image: {alt}]" if alt else "[Image]"
+            fallbacks[raw.id] = _image_fallback(alt)
         else:
             prepared.append((raw, alt, *outcome))
 
@@ -374,7 +375,7 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
         candidates.append((raw, alt, image))
 
     for raw, alt, _ in candidates:
-        fallbacks[raw.id] = "" if raw.kind is ImageKind.PAGE else (f"[Image: {alt}]" if alt else "[Image]")
+        fallbacks[raw.id] = "" if raw.kind is ImageKind.PAGE else _image_fallback(alt)
 
     if aliases:
         _point_aliases_at_first(sections, aliases, marker)
@@ -537,6 +538,15 @@ def _erased(image: DocumentImage | None) -> bool:
     erased and the placeholder text ('[Image: …]') stays — it is information a person wrote
     (Pinned by: test_image.py::TestDecorativePictureWithAltText)."""
     return image is not None and image.decorative and not image.alt
+
+
+def _image_fallback(alt: str | None) -> str:
+    """`[Image: alt]` (or `[Image]`) for a picture that stays as placeholder text. The brackets of the alt text are escaped like link
+    text (`_inline._escape_link_text`), as the extractors do for pictures they do not extract: an alt such as
+    `a](https://evil.example) [b` made the placeholder a working link (Pinned by:
+    test_audit_web_fixes.py::TestAltTextCannotMakeALink::test_alt_text_of_an_extracted_picture). The describer still gets the alt
+    text as written."""
+    return f"[Image: {_escape_link_text(alt)}]" if alt else "[Image]"
 
 
 def _block_text(images: dict[int, DocumentImage], fallbacks: dict[int, str], image_id: int) -> str:

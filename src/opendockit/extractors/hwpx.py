@@ -11,7 +11,6 @@ from io import BytesIO
 import re
 import unicodedata
 import zipfile
-import zlib
 
 from lxml import etree
 
@@ -22,7 +21,7 @@ from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, d
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import COMMENT_TARGET_MAX, TableBudget, comment_line, format_dutmal, note_table, omitted_rows_warning
-from opendockit.extractors._package import decimal_int, parse_part
+from opendockit.extractors._package import ZIP_MEMBER_ERRORS, decimal_int, parse_part
 from opendockit.markdown import TableGrid, join_blocks, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -59,9 +58,8 @@ _CHECKED, _UNCHECKED = "☒", "☐"
 # What reading one archive member can raise when that member is broken: besides bad compression or CRC (BadZipFile, zlib.error,
 # EOFError), an unknown compression method (NotImplementedError), the ZIP encryption flag (RuntimeError) and the like. Only that
 # member is skipped; catching the first three alone let one such picture, header.xml or section reject the whole document
-# (Pinned by: test_hwp_robustness.py::TestHwpxUnreadableMembers).
-# TODO: share with _package.ZIP_MEMBER_ERRORS
-_MEMBER_ERRORS = (zipfile.BadZipFile, zlib.error, EOFError, OSError, RuntimeError, NotImplementedError, ValueError)
+# (Pinned by: test_hwp_robustness.py::TestHwpxUnreadableMembers). The set is shared with DOCX/PPTX (`_package.ZIP_MEMBER_ERRORS`).
+_MEMBER_ERRORS = ZIP_MEMBER_ERRORS
 # Placeholder left in the body by objects whose content is not read, and the warning text (the count is filled in).
 _UNREAD_OBJECTS = {
     "ole": ("[OLE object]", "The contents of {} OLE object(s) (pasted tables, charts, etc.) could not be converted."),

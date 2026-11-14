@@ -6,8 +6,10 @@ Every document is built in memory.
 """
 
 import base64
+import io
 import time
 
+from PIL import Image
 import pytest
 
 from opendockit import CorruptedDocumentError, DocumentFormat, convert
@@ -213,6 +215,29 @@ class TestAltTextCannotMakeALink:
         data = b"see ![a [b](data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=) end"
 
         assert convert(data, "a.md").text == "see [Image: a \\[b] end"
+
+    def test_alt_text_of_an_extracted_picture(self):
+        """A picture the converter extracts keeps `[Image: alt]` as placeholder text (no description): escaped the same way. The
+        alt text handed to the describer stays as written."""
+        picture = io.BytesIO()
+        Image.new("RGB", (200, 120), (10, 200, 30)).save(picture, "PNG")
+        source = "data:image/png;base64," + base64.b64encode(picture.getvalue()).decode()
+        html = f'<p>보기</p><p><img src="{source}" alt="a](https://evil.example) [b"></p>'
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "보기\n\n[Image: a\\](https://evil.example) \\[b]"
+        assert [image.alt for image in result.images] == ["a](https://evil.example) [b"]
+
+    def test_escaped_alt_inside_a_link(self):
+        """`[Image: logo\\]]` is still a placeholder, so a picture inside a link is handled as one with plain alt text is."""
+        html = '<p>x <a href="https://x.com"><img src="y.png" alt="{alt}"></a> 끝</p>'
+
+        plain = convert(html.format(alt="logo").encode(), "a.html").text
+        bracketed = convert(html.format(alt="logo]").encode(), "a.html").text
+
+        assert plain == "x [Image: logo] 끝"
+        assert bracketed == "x [Image: logo\\]] 끝"
 
     def test_plain_text_that_looks_like_a_link_stays(self):
         assert convert(b"<p>[click](https://example.com)</p>", "a.html").text == "[click](https://example.com)"
