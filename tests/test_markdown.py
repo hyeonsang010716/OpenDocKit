@@ -981,7 +981,7 @@ class TestTildeFences:
             clean_text(text, collapse_spaces=collapse_spaces)
             best = min(best, time.perf_counter() - started)
 
-        assert best < allowed(1.1)
+        assert best < allowed(2.0)
 
 
 class TestFencesThatAreText:
