@@ -415,7 +415,8 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                    "without text-box reading-order analysis (the order may be off).")
     if budget.unruled_pages:
         extraction.warnings.append(f"{len(budget.unruled_pages)} PDF page(s) ({_page_list(sorted(budget.unruled_pages))}) have too "
-                                   "many ruling lines, so ruled tables were not looked for on them (their text is read as paragraphs).")
+                                   "many ruling lines, so ruled tables were not looked for on them (their text is read as if the "
+                                   "lines were not drawn).")
     if refused:
         extraction.warnings.append(f"{len(refused)} PDF page(s) ({_page_list(refused)}){_REPEATED_FORMS_SKIPPED}")
     if crowded:

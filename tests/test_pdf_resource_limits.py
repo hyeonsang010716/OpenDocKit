@@ -159,18 +159,42 @@ class TestLargeRuledGrid:
         assert not result.warnings
 
 
-def _empty_grid(lines: int, step: float = 5.0) -> bytes:
-    """A one-page PDF with an empty ruled grid of `lines` horizontal and `lines` vertical rules `step` apart, and a paragraph."""
-    end = 50 + (lines - 1) * step
-    rules = b"".join(b"50 %g m %g %g l S %g 50 m %g %g l S " % (50 + index * step, end, 50 + index * step,
-                                                                 50 + index * step, 50 + index * step, end)
-                     for index in range(lines))
+def _empty_grid(lines: int, step: float = 5.0, verticals: int | None = None) -> bytes:
+    """A one-page PDF with an empty ruled grid of `lines` horizontal and `verticals` (default `lines`) vertical rules `step`
+    apart, and a paragraph."""
+    verticals = lines if verticals is None else verticals
+    right, top = 50 + (verticals - 1) * step, 50 + (lines - 1) * step
+    rules = b"".join(b"50 %g m %g %g l S " % (50 + index * step, right, 50 + index * step) for index in range(lines))
+    rules += b"".join(b"%g 50 m %g %g l S " % (50 + index * step, 50 + index * step, top) for index in range(verticals))
     return _pages_pdf(b"0.1 w " + rules + b"\nBT /F1 12 Tf 72 800 Td (Text above the grid) Tj ET\n")
+
+
+def _filled_grid_pdf(rows: int, columns: int = 9, width: float = 40.0, height: float = 6.0) -> bytes:
+    """A ruled table of `rows` × `columns` cells on one tall page, 'r<row>' in the first column and a number in every other
+    cell: (rows + 1) × (columns + 1) crossings."""
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(columns * width + 80, rows * height + 80))
+    pdf.setLineWidth(0.3)
+    pdf.setFont("Helvetica", 4)
+    top = rows * height + 40
+    for row in range(rows + 1):
+        pdf.line(40, top - row * height, 40 + columns * width, top - row * height)
+    for column in range(columns + 1):
+        pdf.line(40 + column * width, top, 40 + column * width, top - rows * height)
+    for row in range(rows):
+        pdf.drawString(42, top - row * height - 4.5, f"r{row}")
+        for column in range(1, columns):
+            pdf.drawRightString(38 + (column + 1) * width, top - row * height - 4.5, f"{row * 13 + column:,}")
+    pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
 
 
 class TestTooManyRules:
     """pdfplumber's table finder compares every crossing of ruling lines with every later one, so an empty 150 × 150 grid on an A4
-    page took 14 seconds and a 300 × 300 one 96 seconds. A page with more than 5,000 crossings (`_MAX_RULE_CROSSINGS`) is read
+    page took 14 seconds and a 300 × 300 one 96 seconds. A page with more than 8,500 crossings (`_MAX_RULE_CROSSINGS`) is read
     without ruled tables and a warning is issued."""
 
     @pytest.mark.timing
@@ -196,9 +220,38 @@ class TestTooManyRules:
         assert _pdf_ruled_tables._rule_crossings(horizontals, verticals, 3, 3, 2) == 3  # stops at the first line past the limit
 
     def test_grid_below_the_bound_is_searched_without_a_warning(self):
-        result = convert(_empty_grid(70), "a.pdf")
+        result = convert(_empty_grid(92), "a.pdf")  # 8,464 crossings
 
         assert not result.warnings
+
+    @pytest.mark.parametrize(("verticals", "too_many"), [(92, False), (93, True)])
+    def test_bound_lies_between_two_grids_one_rule_apart(self, verticals, too_many):
+        """92 horizontal rules crossed by 92 vertical ones (8,464 crossings) are searched; with one more vertical rule (8,556)
+        they are too many."""
+        import pdfplumber
+
+        with pdfplumber.open(BytesIO(_empty_grid(92, verticals=verticals))) as document:
+            assert _pdf_ruled_tables._too_many_rules(document.pages[0]) is too_many
+
+    @pytest.mark.parametrize(("rows", "too_many"), [(849, False), (850, True)])
+    def test_bound_counts_the_crossings_of_a_filled_table(self, rows, too_many):
+        """A table of R rows × C columns has (R + 1) × (C + 1) crossings: 849 × 9 has 8,500 and is searched, 850 × 9 has
+        8,510 and is not."""
+        import pdfplumber
+
+        with pdfplumber.open(BytesIO(_filled_grid_pdf(rows))) as document:
+            assert _pdf_ruled_tables._too_many_rules(document.pages[0]) is too_many
+
+    def test_filled_table_just_above_the_bound_keeps_its_text_with_a_warning(self):
+        """The page is read as if its lines were not drawn: here the rows still come out as a table, found from their
+        alignment, and the warning says only that ruled tables were not looked for."""
+        result = convert(_filled_grid_pdf(850), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert ("1 PDF page(s) (1) have too many ruling lines, so ruled tables were not looked for on them (their text is read "
+                "as if the lines were not drawn).") in result.warnings
+        rows = [line for line in result.text.splitlines() if line.startswith("| r")]
+        assert len(rows) == 850
+        assert rows[0] == "| r0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |" and rows[-1] == "| r849 | 11,038 | 11,039 | 11,040 | 11,041 | 11,042 | 11,043 | 11,044 | 11,045 |"
 
     @pytest.mark.parametrize(("horizontals", "too_many"), [(2_000, False), (2_001, True)])
     def test_rules_that_never_cross_are_bounded_by_their_pairs(self, horizontals, too_many):

@@ -42,11 +42,15 @@ _FRAME_MAX_ROWS = 2
 
 
 # Most crossings of horizontal and vertical ruling lines (after pdfplumber's snapping) and most pairs of them a page may have for
-# its ruled tables to be looked for (`_too_many_rules`). The table finder's time grows with the square of the crossings: an empty
-# 70 × 70 grid (4,900 crossings) takes about half a second, a 100 × 100 one 1-2 seconds and a 150 × 150 one 14 seconds. The large
-# ruled table of 1,210 cells has 1,288 crossings, and a page of 800 small separate tables 7,200 crossings and 5.8 million pairs
-# (Pinned by: test_pdf_resource_limits.py::TestTooManyRules).
-_MAX_RULE_CROSSINGS = 5_000
+# its ruled tables to be looked for (`_too_many_rules`). A table of R rows × C columns has (R + 1) × (C + 1) crossings, summed
+# over the tables of the page. The table finder's time grows with the square of the crossings and with how the cells are
+# merged: just under the bound an empty 91 × 91 grid takes about 1 second, a filled sheet 2-3 seconds, and the costliest pages
+# found (every cell merged over two rows, 1,400 rows of five cells on one page, 280 separate tables) 5-7 seconds; at 12,000
+# crossings those take 8-13 seconds and an empty 150 × 150 grid (22,801) 14 seconds. The bound is the lowest round number
+# that keeps the sheets seen in practice: a Gantt chart of 100 tasks × 52 weeks has 5,406 crossings and a year planner of
+# 20 people × 366 days 8,096 — at 5,000 they lost their tables. A page of 800 small separate tables has 7,200 crossings and
+# 5.8 million pairs (Pinned by: test_pdf_resource_limits.py::TestTooManyRules).
+_MAX_RULE_CROSSINGS = 8_500
 _MAX_RULE_PAIRS = 4_000_000
 
 
@@ -183,8 +187,9 @@ def _too_many_rules(page: object) -> bool:
     The finder compares every horizontal line with every vertical one and then, for each crossing, every later crossing
     (`intersections_to_cells`), so its time grows with the square of the crossings: an empty 150 × 150 grid on an A4 page took
     14 seconds and a 300 × 300 one 96 seconds, with every later table search on the page (`_closed_at_the_bottom`,
-    `_closed_at_open_ends`, `_open_sided_tables`, the shaded regrids) on top of it. Such a page is read without ruled tables
-    and its text stays in the body flow (Pinned by: test_pdf_resource_limits.py::TestTooManyRules).
+    `_closed_at_open_ends`, `_open_sided_tables`, the shaded regrids) on top of it. Such a page is read as if its lines were
+    not drawn: no ruled table is looked for, and its text goes to the borderless table search and the body flow like that of
+    any other page (Pinned by: test_pdf_resource_limits.py::TestTooManyRules).
     """
     finder = TableFinder.__new__(TableFinder)  # only the edge step of the finder, without looking for cells
     finder.page, finder.settings = page, TableSettings.resolve(_TABLE_SETTINGS)
