@@ -253,3 +253,11 @@ class TestEightBitHeaderWithSplitEncodedWords:
         result = convert(data, filename)
 
         assert result.text.startswith("Subject: 제목 안녕 끝\n")
+
+    def test_one_broken_word_does_not_leave_the_run_encoded(self):
+        data = ("From: kim@example.com\r\nMIME-Version: 1.0\r\n"
+                "Subject: 제목 =?utf-8?b?6rCA64KY?= =?utf-8?b?A?=\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문").encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.startswith("Subject: 제목 가나 =?utf-8?b?A?=\n")

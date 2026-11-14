@@ -713,18 +713,38 @@ def _decoded_header(value: object) -> str:
         parts = _ENCODED_WORD.split(text)
         pieces: list[str] = []
         run: list[str] = []
+        gaps: list[str] = []
         for index, part in enumerate(parts):
             if index % 2:
                 run.append(part)
             elif run and not part.strip() and index < len(parts) - 1:
-                continue  # whitespace between two adjacent words
+                gaps.append(part)  # whitespace between two adjacent words
             else:
                 if run:
-                    pieces.append(_decoded_words(" ".join(run)))
-                    run = []
+                    pieces.append(_decoded_run(run, gaps))
+                    run, gaps = [], []
                 pieces.append(part)
         return "".join(pieces)
     return _decoded_words(text)
+
+
+def _decoded_run(words: list[str], gaps: list[str]) -> str:
+    """A run of adjacent RFC 2047 words (`gaps` holds the whitespace written between them) decoded together. If the run does
+    not decode as a whole because one word is broken (`=?utf-8?b?A?=`), every word is decoded on its own instead, so that one
+    broken word does not leave the good ones encoded; the whitespace next to a word that stays as written is kept
+    (Pinned by: test_core_mailboxes_and_charsets.py::TestEightBitHeaderWithSplitEncodedWords).
+    """
+    joined = " ".join(words)
+    decoded = _decoded_words(joined)
+    if decoded != joined or len(words) == 1:
+        return decoded
+    singles = [_decoded_words(word) for word in words]
+    pieces = [singles[0]]
+    for index, gap in enumerate(gaps, start=1):
+        if singles[index - 1] == words[index - 1] or singles[index] == words[index]:
+            pieces.append(gap)
+        pieces.append(singles[index])
+    return "".join(pieces)
 
 
 def _decoded_words(text: str) -> str:
