@@ -39,8 +39,7 @@ A third review of the whole source. The sample outputs in `examples/` are unchan
   placeholder no longer rejects the document; lists in quotes inside list items stay in the quote, and item text
   starting with `|` or a fence stays on its bullet; a paragraph that is only a fence line no longer breaks a `<pre>`
   block next to it; `display:noneX` no longer hides; line breaks in an `href` are removed; `<object>` and `<canvas>`
-  fallback content is read (a notice that the browser cannot draw the canvas is not); CDATA in an EPUB style no longer
-  leaks markup.
+  fallback content is read; CDATA in an EPUB style no longer leaks markup.
 - **Text**: in TXT and Markdown files `~~~` fences are recognised and fences are paired as CommonMark pairs them; in
   every other format a line of tildes is text and is written `\~~~`; a nested list or code block inside a blockquote
   keeps its indentation; bidi isolates, C1 controls and other invisible marks are removed (U+0085 becomes a line
@@ -57,10 +56,10 @@ A third review of the whole source. The sample outputs in `examples/` are unchan
   of a borderless table unsplit.
 - **DOCX/PPTX/XLSX**: a relationships part that is not XML no longer rejects the document (the part that owns it opens
   without relationships); percent-encoded relationship targets are read (pictures, slides, notes, charts, sheets,
-  comments and drawings; a part named as written wins over the decoded name), and an XLSX relationship marked external
-  is never read as a part of the package; a list start number or chart point index of 4,300 digits no longer rejects
-  the document; a field whose `separate` is in a hidden run keeps its result; a header table is no longer cut short by
-  the body's characters under `max_chars` (its own characters still count); whole chart values from 10^15 on keep all
+  comments and drawings; a part named as written wins over the decoded name), and the address of an external
+  relationship is not decoded into one; a list start number or chart point index of 4,300 digits no longer rejects the
+  document; a field whose `separate` is in a hidden run keeps its result; a header table is no longer cut short by the
+  body's characters under `max_chars` (its own characters still count); whole chart values from 10^15 on keep all
   their digits.
 - **Inline formatting**: script and strikethrough marks close at a line break (`10~~^2~~` instead of `10~~^{2~~}`); a
   non-breaking hyphen or symbol stays inside its run's bold or struck span.
