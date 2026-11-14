@@ -80,7 +80,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 ### Forms, annotations and attachments
 
 - **AcroForm field values** are appended at the end of the page as `name: value`, not next to their label. For a group of check boxes with the same name, and for radio buttons, only the chosen value is included (the `/Opt` item when present). When the field name is an internal name (`Text1`), the reader has to infer which label it belongs to. **XFA forms** cannot be read and give a warning.
-- **Text written with a viewer's "add text" tool** (Acrobat Fill & Sign, macOS Preview; FreeText annotations) is appended at the same place as `label: value`, taking the line immediately to its left on the same row as the label.
+- **Text written with a viewer's "add text" tool** (Acrobat Fill & Sign, macOS Preview; FreeText annotations) is appended at the same place as `label: value`, taking the line immediately to its left on the same row as the label. On a page with a very large number of such annotations the label search has a per-page work bound; past it the remaining values are written without a label.
 - **Annotations** (sticky notes, shape descriptions) are not included. Only AcroForm values and free text written with "add text" (FreeText) are appended at the end of the page.
 - **Attached files** (EmbeddedFiles, file-attachment annotations) are not read; a warning reports only their names and count. Convert attachments separately.
 
