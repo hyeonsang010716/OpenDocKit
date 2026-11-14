@@ -121,6 +121,15 @@ class TestHwpxObjects:
 
         assert result.text == "hwpx 라이브러리 테스트\nneolord"
 
+    def test_text_art_caption_is_kept(self):
+        """hp:textart has an hp:caption like a picture or equation; it was dropped. It is a block before (TOP) or after the art."""
+        def art(side: str) -> str:
+            return (f'<hp:p><hp:run><hp:textart text="Slogan"><hp:caption side="{side}"><hp:subList><hp:p><hp:run>'
+                    "<hp:t>그림 2. 표어</hp:t></hp:run></hp:p></hp:subList></hp:caption></hp:textart></hp:run></hp:p>")
+
+        assert convert(builder.hwpx_bytes(art("BOTTOM")), "a.hwpx").text == "Slogan\n\n그림 2. 표어"
+        assert convert(builder.hwpx_bytes(art("TOP")), "a.hwpx").text == "그림 2. 표어\n\nSlogan"
+
     def test_paragraph_numbers_and_bullets_are_kept(self):
         """Paragraph numbers and bullets are a paragraph shape (hh:heading), not characters, so "1." "가." "•" were dropped. The
         lower-level '가.' takes the `list_item_prefix` form ('  - 가. ') — formerly the indentation was removed and blank lines

@@ -212,9 +212,12 @@ class HwpxRenderer:
             blocks.extend(block for block in ((caption, chart) if before else (chart, caption)) if block)
         elif name == "textart":
             # Text art: the characters are in the text attribute, not the element text
-            # (Pinned by: test_hwp.py::TestHwpxObjects::test_text_art_is_kept).
+            # (Pinned by: test_hwp.py::TestHwpxObjects::test_text_art_is_kept). Its caption is a block beside it, as for a chart
+            # (Pinned by: test_hwp.py::TestHwpxObjects::test_text_art_caption_is_kept).
             flush()
-            blocks.append(_TEXTART_BREAKS.sub("\n", node.get("text", "")).strip())
+            caption, before = self._caption(node)
+            art = _TEXTART_BREAKS.sub("\n", node.get("text", "")).strip()
+            blocks.extend(block for block in ((caption, art) if before else (art, caption)) if block)
         elif name == "dutmal":
             # Ruby text (dutmal): the main text (hp:mainText) is also inside this element, not in hp:t, so even the main text was dropped
             # (Pinned by: test_hwp.py::TestDutmal).
