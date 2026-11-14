@@ -413,6 +413,11 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     if optional:
         rest = rest[:decimals - optional] + rest[decimals - optional:].rstrip("0")
         dot = dot if rest else ""  # 12 under `0.###` → 12 (same as LibreOffice)
+    if any(char not in "0#?,%" for char in fraction):
+        # Literals between decimal places (`0.0\E+0`, `0.00" "00`) stay where they are, the decimal digits filling the places from
+        # the left as in Excel. They were dropped, so 5 under `0.0\E+0` came out as `5.00` instead of `5.0E+0`
+        # (Pinned by: test_audit_spreadsheet_fixes.py::TestLiteralsBetweenDecimalPlaces).
+        rest = _fill_decimals(fraction, literals[literals_before + whole.count("\x00"):], rest)
     if any(char not in "0#?," for char in whole) and "," not in whole:
         # A format with literals between digit places (phone number `0##\-####\-####`, date shape `0000\-00\-00`) fills the places
         # from the right and inserts the literals. Dropping the literals turned 010-1234-5678 into 1012345678
@@ -439,6 +444,21 @@ def _rounded(value: float, percent: bool, scale: int, decimals: int) -> Decimal:
         if percent:
             number *= 100
         return number.scaleb(-3 * scale).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)
+
+
+def _fill_decimals(template: str, literals: list[str], digits: str) -> str:
+    """Put the decimal digits into the decimal-part format (`0`/`#`/`?` places and literals) from the left. A `?` without a digit is
+    a space and a `#` without one is nothing; scaling commas and `%` are not shown here."""
+    pieces, remaining = iter(literals), iter(digits)
+    filled = []
+    for char in template:
+        if char in "0#?":
+            filled.append(next(remaining, " " if char == "?" else ""))
+        elif char == "\x00":
+            filled.append(next(pieces, ""))
+        elif char not in ",%":
+            filled.append(char)
+    return "".join(filled)
 
 
 def _fill_digits(template: str, literals: list[str], integer: str) -> str:

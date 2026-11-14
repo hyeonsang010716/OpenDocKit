@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import date
 import math
 import re
+import sys
 
 from lxml import etree
 import openpyxl
@@ -23,6 +24,7 @@ from openpyxl.styles.cell_style import CellStyleList
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from openpyxl.utils.datetime import from_excel, from_ISO8601
 from openpyxl.worksheet import _reader as _openpyxl_sheet_reader
+from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 from openpyxl.worksheet.merge import MergeCell, MergeCells
 from openpyxl.xml.constants import SHEET_MAIN_NS
 from openpyxl.xml.functions import iterparse as _openpyxl_iterparse
@@ -104,8 +106,14 @@ def _tolerant_parse_cell(parser: object, element: object) -> dict:
     counter = parser.col_counter
     try:
         cell = _parse_cell(parser, element)
-        if isinstance(cell["value"], float) and not math.isfinite(cell["value"]):
+        value = cell["value"]
+        if isinstance(value, float) and not math.isfinite(value):
             raise ValueError  # `1E+400` becomes infinity: it came out as 'inf', or a date format rejected the whole document with OverflowError
+        if isinstance(value, int) and not isinstance(value, bool) and abs(value) > sys.float_info.max:
+            # Digits without `.` or `E` are read as an int, so 400 nines passed the check above and every number format
+            # (General too) rejected the whole document when turning it into a float
+            # (Pinned by: test_audit_spreadsheet_fixes.py::TestIntegerTooLargeForAFloat).
+            raise ValueError
     except (ValueError, IndexError, TypeError, OverflowError):
         parser.col_counter = counter  # restore the column counted before the failure and count again
         cell = _raw_cell(parser, element)
@@ -205,13 +213,18 @@ def _tolerant_string_table(original: Callable[..., list], rich: bool) -> Callabl
     a character-format attribute of one string was outside the spec (`color rgb="#FF0000"`, `sz val="10,5"`), openpyxl rejected the
     whole table, and so the whole document. Excel and LibreOffice open it. Only that string drops its formatting and is read as
     text — the text is unchanged, so there is no warning
-    (Pinned by: test_spreadsheet_damaged_parts.py::TestMalformedTextRunProperties)."""
+    (Pinned by: test_spreadsheet_damaged_parts.py::TestMalformedTextRunProperties). Strings already read are taken out of the
+    tree, which openpyxl kept whole until the table ended (Pinned by: test_audit_spreadsheet_fixes.py::TestSheetScansKeepNoTree)."""
     def read(source: object) -> list:
         if _READING.get() is None:
             return original(source)
 
         strings: list = []
-        for _, node in _openpyxl_iterparse(source):
+        table = None  # the root `<sst>`: strings already read are removed from it, so the parsed tree does not grow with the table
+        for event, node in _openpyxl_iterparse(source, events=("start", "end")):
+            if event == "start":
+                table = node if table is None else table
+                continue
             if node.tag != _STRING_ITEM:
                 continue
             try:
@@ -222,6 +235,8 @@ def _tolerant_string_table(original: Callable[..., list], rich: bool) -> Callabl
                 text = text.replace("x005F_", "")  # same as openpyxl
             node.clear()
             strings.append(text)
+            if table is not None and len(table) and table[-1] is node:
+                del table[:]
         return strings
 
     return read
@@ -311,15 +326,24 @@ _parse_sheet = _openpyxl_sheet_reader.WorkSheetParser.parse
 
 
 def _parse_cells_and_merges(parser: object) -> Iterator[tuple[int, list]]:
-    """While this module is reading, make `WorkSheetParser.parse` read only cells and merges (`_SHEET_PARTS_LEFT_UNREAD`)."""
+    """While this module is reading, make `WorkSheetParser.parse` read only cells and merges (`_SHEET_PARTS_LEFT_UNREAD`). A row
+    that has been read is also taken out of the tree — openpyxl only empties it, so one empty element per row stayed in memory
+    until the sheet ended (Pinned by: test_audit_spreadsheet_fixes.py::TestSheetScansKeepNoTree)."""
     if _READING.get() is None:
         yield from _parse_sheet(parser)
         return
 
-    for _, element in _openpyxl_sheet_reader.iterparse(parser.source):
+    data = None  # `<sheetData>`: rows already read are removed from it, so the parsed tree does not grow with the sheet
+    for event, element in _openpyxl_sheet_reader.iterparse(parser.source, events=("start", "end")):
+        if event == "start":
+            if element.tag == _openpyxl_sheet_reader.DATA_TAG and data is None:
+                data = element
+            continue
         if element.tag == _openpyxl_sheet_reader.ROW_TAG:
             row = parser.parse_row(element)
             element.clear()
+            if data is not None and len(data) and data[-1] is element:
+                del data[:]
             yield row
         elif element.tag == _openpyxl_sheet_reader.MERGE_TAG:
             parser.merged_cells = _readable_merges(element)
@@ -416,6 +440,21 @@ def _chartsheet_without_parts(reader: _openpyxl_excel_reader.ExcelReader, sheet:
 
 
 _read_chartsheet = _openpyxl_excel_reader.ExcelReader.read_chartsheet
+
+
+# A streamed sheet looks for `<dimension>` when it is opened (`ReadOnlyWorksheet._get_size`). Without one, openpyxl's search runs to
+# the end of `<sheetData>`, so the whole sheet was parsed once for nothing: a 13 MB workbook (600,000 rows) took 16.7 s instead of
+# 3.7 s. The range is discarded before the rows are read anyway (`reset_dimensions`, `_streamed_rows`), so while this module is
+# reading it is not looked for (Pinned by: test_audit_spreadsheet_fixes.py::TestStreamedSheetWithoutADimension).
+_get_streamed_size = ReadOnlyWorksheet._get_size
+
+
+def _size_unless_reading(sheet: ReadOnlyWorksheet) -> None:
+    if _READING.get() is None:
+        _get_streamed_size(sheet)
+
+
+ReadOnlyWorksheet._get_size = _size_unless_reading
 _openpyxl_excel_reader.ExcelReader.read_properties = _properties_or_title
 _openpyxl_excel_reader.ExcelReader.read_custom = _skipped_while_reading(_openpyxl_excel_reader.ExcelReader.read_custom)
 _openpyxl_excel_reader.ExcelReader.read_chartsheet = _chartsheet_without_parts

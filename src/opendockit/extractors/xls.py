@@ -273,7 +273,10 @@ def _fill_xls_merges(sheet: xlrd.sheet.Sheet, rows: list[list[str]], warnings: l
     is repeated (the value stays in the first cell only), with a warning. The same range 20,000 times was rescanned for every row
     and took 17s (Pinned by: test_spreadsheet.py::TestXlsResourceBounds)."""
     across: _Across = {}
-    merges = sorted(set(sheet.merged_cells))
+    # xlrd keeps a range as written, so a reversed one (last row above the first) has a negative area. Counted, it cancelled out
+    # the cells of large merges and the cap never fired: a 461 KB file took 17 s. Such a range covers no cell and is dropped
+    # (same rule as XLSX `_readable_merges`; Pinned by: test_audit_spreadsheet_fixes.py::TestReversedXlsMergeRanges).
+    merges = sorted({merge for merge in sheet.merged_cells if merge[0] < merge[1] and merge[2] < merge[3]})
     if sum((bottom - top) * (right - left) for top, bottom, left, right in merges) > _MAX_MERGED_CELLS:
         warnings.append(f"Sheet '{sheet.name}': there are too many merged cells, so vertical merge values were left in the first cell only.")
         return across

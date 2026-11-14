@@ -114,6 +114,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **Cell formats** are imitated only for: percent, thousands separators, scaling by thousands (`#,##0,`), digit padding (`000000`), decimals, currency, prefix and suffix text, text-only formats (`"매우 좋음"`), optional decimal places (`0.###`), and dates. Fractions (`# ?/?`), scientific notation (`E+`, `E-`) and conditional formats use the raw value. Superscripts and subscripts in Excel 2003 XML rich text are written as `m^2`, `H_2O`.
 - **Times** follow the format: `h:mm` → `18:03`, `h:mm AM/PM` → `6:03 PM`, `[$-412]AM/PM h:mm` → `오후 2:30`, `h"시" mm"분"` → `14시 30분`. Seconds appear only when the format has seconds; `mm:ss` is written `00:01:44` so it is not mistaken for hours.
 - **A negative value in a date format** (Excel shows `####`) is written as the raw number; a negative value in a time-only format is written as a signed time such as `-01:30:00`.
+- **Serial 60 of the 1900 date system**, which Excel shows as the non-existent 1900-02-29, is written as `1900-02-28`, the same as serial 59.
 
 ### Sheet content
 
