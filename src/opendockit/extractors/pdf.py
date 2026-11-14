@@ -767,6 +767,7 @@ def _normalize_page_boxes(page: object) -> None:
         source.mediabox = source.cropbox = (0.0, 0.0, 612.0, 792.0)
         width, height = (612.0, 792.0) if getattr(page, "rotation", 0) % 180 == 0 else (792.0, 612.0)
         page.mediabox = page.cropbox = page.bbox = (0.0, 0.0, width, height)
+        page.flush_cache(["_layout", "_objects"])  # characters already read were placed on the page without area
 
 
 def _is_ruled_grid(pieces: int, paths: int) -> bool:

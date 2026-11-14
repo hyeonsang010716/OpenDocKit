@@ -36,7 +36,8 @@ class TestEmptyMediaBox:
     area and was dropped, and pdfium (which falls back to US Letter) read the same number of characters, so nothing replaced
     them and the page came out empty ('No text was extracted.')."""
 
-    @pytest.mark.parametrize("boxes", [b"/MediaBox [0 0 0 0]", b"/MediaBox [0 0 612 0]", b"/MediaBox [0 0 0 0] /CropBox [0 0 0 0]"])
+    @pytest.mark.parametrize("boxes", [b"/MediaBox [0 0 0 0]", b"/MediaBox [0 0 612 0]", b"/MediaBox [0 0 0 0] /CropBox [0 0 0 0]",
+                                       b"/MediaBox [0 0 0 0] /Rotate 90"])
     def test_text_on_a_page_whose_media_box_has_no_area_is_read_in_order(self, boxes):
         result = convert(_one_page(boxes), "a.pdf")
 
