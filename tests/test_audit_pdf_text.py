@@ -510,3 +510,78 @@ class TestTooManyTextBoxes:
         assert calls == [1, 2, 1]
         assert again.text == first.text and again.warnings == first.warnings
         assert any("read without text-box reading-order analysis" in warning for warning in again.warnings)
+
+    @staticmethod
+    def _form_then_columns(labels: int, rows: int) -> bytes:
+        """A page that first draws a form of `labels` separate tick labels, then two columns of `rows` short paragraphs each
+        (left column first in the stream)."""
+        inner = b"BT /F1 4 Tf " + b"".join(b"1 0 0 1 %d %d Tm (%d) Tj " % (20 + index % 99 * 15.5, 20 + index // 99 * 9, index % 100)
+                                         for index in range(labels)) + b"ET"
+        packed = zlib.compress(inner, 9)
+        form = (b"<< /Type /XObject /Subtype /Form /BBox [0 0 1600 2000] /Resources << /Font << /F1 5 0 R >> >> /Length %d "
+                b"/Filter /FlateDecode >>\nstream\n" % len(packed) + packed + b"\nendstream")
+        body = b"q /X1 Do Q BT /F1 9 Tf " + b"".join(
+            b"1 0 0 1 %d %d Tm (%s column paragraph %d) Tj " % (100 + column * 700, 1900 - index * 18, side, index)
+            for column, side in enumerate((b"Left", b"Right")) for index in range(rows)) + b"ET"
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1600 2000] /Contents 4 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> /XObject << /X1 6 0 R >> >> >>")
+        return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
+                         4: _flate(body), 5: _FONT, 6: form})
+
+    def test_a_form_drawn_before_the_body_does_not_take_the_body_allowance(self):
+        """pdfminer lays out the forms of a page before the page's own text boxes. With one allowance per page, a form within
+        it left too little for the body, which came out with its two columns interleaved."""
+        result = convert(self._form_then_columns(990, 80), "a.pdf")
+
+        paragraphs = [paragraph for paragraph in result.text.split("\n\n") if "column paragraph" in paragraph]
+        assert paragraphs[0].startswith("Left column paragraph 0\nLeft column paragraph 1")
+        assert not any("reading-order analysis" in warning for warning in result.warnings)
+
+    def test_joining_pieces_regroups_the_body_with_a_fresh_allowance(self):
+        """Joining the pieces of lines drawn head pieces first, then tails (LibreOffice) groups the page's lines again. That
+        second grouping was charged on top of the first, discarded one, so a page well within the bound lost its column
+        order and got the warning."""
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+
+        from tests.test_pdf import _FONT as KOREAN
+        from tests.test_pdf import _korean_pdf
+
+        def draw(pdf, index):
+            pdf.setFont(KOREAN, 1.5)
+            places = [(30 + number % 2 * 300, 830 - number // 2 * 3.4) for number in range(470)]
+            for number, (x, y) in enumerate(places):
+                pdf.drawString(x, y, f"매출 {number}는 ")
+            for number, (x, y) in enumerate(places):
+                pdf.drawString(x + stringWidth(f"매출 {number}는 ", KOREAN, 1.5), y, "증가함")
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        lines = [line for line in result.text.splitlines() if line.strip()]
+        assert lines[:3] == ["매출 0는 증가함", "매출 2는 증가함", "매출 4는 증가함"]  # the left column first
+        assert not any("reading-order analysis" in warning for warning in result.warnings)
+
+    def test_a_page_crowded_only_when_read_again_gets_the_warning(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        read_page = pdf_module._read_page
+
+        def read(page, placement_fit=None):
+            result = read_page(page, placement_fit)
+            if page.page_number == 1 and placement_fit is None:
+                result.placement_pending = True
+            elif page.page_number == 2:
+                result.placement_fit = (0.9, 0.25)
+                monkeypatch.setattr(_pdf_pdfminer, "_PAGE_GROUPING_COST", 1)  # the second reading of page 1 meets the bound
+            return result
+
+        monkeypatch.setattr(pdf_module, "_read_page", read)
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents %d 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> >> >>")
+        two_paragraphs = b"BT /F1 12 Tf 72 700 Td (First paragraph) Tj ET BT /F1 12 Tf 72 400 Td (Second paragraph) Tj ET"
+        data = _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+                         3: page % 4, 4: _flate(two_paragraphs), 5: _FONT, 6: page % 7,
+                         7: _flate(b"BT /F1 12 Tf 72 700 Td (Hello world) Tj ET")})
+
+        warnings = convert(data, "a.pdf").warnings
+
+        assert any(warning.startswith("1 PDF page(s) (1) have too many text pieces") for warning in warnings)

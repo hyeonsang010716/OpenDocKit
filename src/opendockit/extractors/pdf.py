@@ -356,13 +356,15 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                     # for `dense` sent it to `ungrouped`, which had not been opened, and the whole document failed (Pinned by:
                     # test_audit_pdf_text.py::TestTooManyTextBoxes::test_a_crowded_page_read_again_keeps_its_first_reading)
                     page = (ungrouped if read.number in dense | grids else pdf).pages[read.number - 1]
-                    budget.grouping_cost = 0
+                    ungrouped_before, budget.grouping_cost = budget.ungrouped_layouts, 0
                     try:
                         pages[index] = _read_page(page, placement_fit)
                     except PdfminerException:
                         pass
                     finally:
                         page.close()
+                    if budget.ungrouped_layouts > ungrouped_before:
+                        crammed.add(read.number)  # the warning also when only the second reading met the bound
             finally:
                 if fallback is not None:
                     with _PDFIUM_LOCK:
