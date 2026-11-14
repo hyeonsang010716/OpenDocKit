@@ -13,7 +13,8 @@ from lxml import etree
 import openpyxl
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.chartsheet import Chartsheet
-from openpyxl.formula.translate import Translator
+from openpyxl.formula.tokenizer import TokenizerError
+from openpyxl.formula.translate import Translator, TranslatorError
 from openpyxl.styles.numbers import BUILTIN_FORMATS
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from openpyxl.utils.datetime import from_excel
@@ -193,18 +194,17 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
     try:
         with zipfile.ZipFile(BytesIO(data)) as archive:
             names = set(archive.namelist())
-            paths, hidden = _sheet_paths(archive, names)
             people = _xlsx_people(archive, names)
             reading.picture_text = lambda picture: _cell_picture_text(picture, archive, names, pictures, extraction, options)
             # Chart sheets (Excel F11) are not in `workbook.worksheets`, so a workbook whose source sheet is hidden gave an empty
             # result. They are kept in sheet order (Pinned by: test_spreadsheet.py::TestChartSheets). `workbook[name]` scans the
             # sheets on every lookup, which is quadratic in the sheet count, so the list is used
             for sheet in workbook._sheets:
-                if (sheet.sheet_state != "visible" or sheet.title in hidden) and not options.include_hidden_sheets:
+                if sheet.sheet_state != "visible" and not options.include_hidden_sheets:
                     extraction.warnings.append(f"Hidden sheet '{sheet.title}' was excluded.")
                     continue
 
-                path = str(getattr(sheet, "_worksheet_path", None) or paths.get(sheet.title, "")).lstrip("/")
+                path = str(getattr(sheet, "_worksheet_path", None) or reading.sheet_parts.get(id(sheet), "")).lstrip("/")
                 if isinstance(sheet, Chartsheet):
                     _append_sheet(extraction, sheet.title, [], _drawing_blocks(archive, names, path, pictures, extraction, options))
                     if extraction.exceeded:
@@ -263,6 +263,7 @@ def _load_workbook(source: BytesIO, **options: bool) -> openpyxl.Workbook:
     reading = _READING.get()
     if reading is not None:
         reading.malformed = reading.unread_rich = 0
+        reading.sheet_parts = {}
     return openpyxl.load_workbook(source, **options)
 
 
@@ -415,21 +416,6 @@ def _without_view_settings(data: bytes) -> bytes | None:
             for info in archive.infolist():
                 copy.writestr(info.filename, rewritten.get(info.filename) or archive.read(info))
     return buffer.getvalue()
-
-
-def _sheet_paths(archive: zipfile.ZipFile, names: set[str]) -> tuple[dict[str, str], set[str]]:
-    """(sheet name → sheet part path, names of hidden sheets). A fully loaded sheet object does not know its own part path (a
-    streamed sheet knows it as `_worksheet_path`). openpyxl does not carry the hidden state (`state`) over to chart sheets, so
-    hidden is read from workbook.xml."""
-    workbook_path = _workbook_path(archive, names)
-    try:
-        root = etree.fromstring(archive.read(workbook_path), parser=_XML_PARSER)
-    except (KeyError, etree.XMLSyntaxError):
-        return {}, set()
-    targets = _related(archive, names, workbook_path)
-    sheets = list(root.iter(f"{{{_SPREADSHEET_MAIN}}}sheet"))
-    return ({sheet.get("name", ""): targets.get(sheet.get(_RELATIONSHIP_ID, ""), "") for sheet in sheets},
-            {sheet.get("name", "") for sheet in sheets if sheet.get("state", "visible") != "visible"})
 
 
 def _is_sheet_xml_name(name: str) -> bool:
@@ -595,8 +581,11 @@ def _unresolved_formulas(xml: bytes, max_cols: int) -> dict[int, dict[int, str]]
                     first, origin = shared[formula.get("si")]
                     text = Translator(f"={first}", origin=origin).translate_formula(reference)[1:]
                 row, column = coordinate_to_tuple(reference)
-            except (ValueError, TypeError, IndexError):
-                text = ""  # the cell address or the formula cannot be read. Left blank
+            except (ValueError, TypeError, IndexError, TranslatorError, TokenizerError):
+                # The cell address or the formula cannot be read, or a shared formula cannot be moved to this cell (a reference
+                # moved off the sheet). Left blank — TranslatorError used to reject the whole workbook
+                # (Pinned by: test_audit_spreadsheet.py::TestSharedFormulasThatCannotBeMoved).
+                text = ""
             computed = cell.get("t") == "str" or (value is not None and value.text)
             if text and not computed and column <= max_cols:
                 formulas.setdefault(row, {})[column] = f"={text}"
