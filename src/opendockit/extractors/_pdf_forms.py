@@ -2,7 +2,6 @@
 
 
 from bisect import bisect_left, bisect_right
-from itertools import islice
 import math
 
 from pdfminer.pdftypes import (
@@ -15,6 +14,7 @@ from opendockit.extractors._pdf_model import _info_text, _Line
 
 
 _ATTACHMENT_TREE_NODES = 10_000  # number of nodes to look at in the attachment name tree
+_ATTACHMENT_TREE_KIDS = 100_000  # number of `/Kids` entries to look at in it, nodes or not
 # Candidate body lines a page may look at in all while finding the labels of its FreeText annotations (`_LinesBeside`).
 _LABEL_SEARCH_WORK = 2_000_000
 
@@ -270,21 +270,33 @@ def _annotated_attachments(page: object, found: dict[object, str]) -> None:
 
 def _named_attachments(catalog: dict, found: dict[object, str]) -> None:
     """Add the attachments in the document catalog's `/Names /EmbeddedFiles` name tree to `found` (following `/Kids`, up to
-    `_ATTACHMENT_TREE_NODES` nodes, visiting a reference that comes back only once).
+    `_ATTACHMENT_TREE_NODES` nodes and `_ATTACHMENT_TREE_KIDS` entries of `/Kids` arrays, visiting a reference that comes back
+    only once).
 
     Attachments are not page content and were dropped without a warning. Their names and count are reported like the attachments of
     an .eml (Pinned by: test_pdf_attachments.py::TestEmbeddedFiles). The attachments themselves are not read (deliberate) — their
-    formats vary, and they are converted when uploaded separately. Only as many kids are taken from a `/Kids` array as nodes are
-    left to look at: the whole array was resolved first, so one node with millions of kids resolved every one of them (Pinned by:
-    test_pdf_attachments.py::TestEmbeddedFiles::test_a_huge_kids_array_is_looked_at_only_up_to_the_node_bound). The nodes looked
-    at are held in `seen`, so the id of one cannot pass to another node built later.
+    formats vary, and they are converted when uploaded separately. A `/Kids` array is read one entry at a time, from its end
+    (the order in which the names have always been reported), and only while nodes are left to look at: the whole array was
+    resolved first, so one node with millions of kids resolved every one of them (Pinned by:
+    test_pdf_attachments.py::TestEmbeddedFiles::test_a_huge_kids_array_is_looked_at_only_up_to_the_node_bound). An entry that
+    is no node (`null`, a reference that came before) does not count as a node: cutting the array to the nodes left, such
+    entries hid a real node after them and its attachment was not reported (Pinned by:
+    test_entries_that_are_no_nodes_do_not_hide_a_node_after_them). They count towards `_ATTACHMENT_TREE_KIDS`, which keeps the
+    work bounded; known limitation: an attachment behind more entries than that is not reported. The nodes looked at are held
+    in `seen`, so the id of one cannot pass to another node built later.
     """
     try:
         names = resolve1(catalog.get("Names"))
-        pending = [resolve1(names.get("EmbeddedFiles"))] if isinstance(names, dict) else []
+        levels = [iter([names.get("EmbeddedFiles")])] if isinstance(names, dict) else []  # the entries left of each node on the way down
         seen: dict[int, object] = {}
-        while pending and len(seen) < _ATTACHMENT_TREE_NODES:
-            node = pending.pop()
+        looked = 0
+        while levels and len(seen) < _ATTACHMENT_TREE_NODES and looked < _ATTACHMENT_TREE_KIDS:
+            entry = next(levels[-1], levels)
+            if entry is levels:  # no entry is the list itself: this level is finished
+                levels.pop()
+                continue
+            looked += 1
+            node = resolve1(entry)
             if not isinstance(node, dict) or id(node) in seen:
                 continue
             seen[id(node)] = node
@@ -294,8 +306,7 @@ def _named_attachments(catalog: dict, found: dict[object, str]) -> None:
                     _add_attachment(value, resolve1(key), found)
             kids = resolve1(node.get("Kids"))
             if isinstance(kids, list):
-                room = max(_ATTACHMENT_TREE_NODES - len(seen) - len(pending), 0)
-                pending.extend(resolve1(kid) for kid in islice(kids, room))
+                levels.append(reversed(kids))
     except Exception:  # noqa: BLE001 — the body is still read even if the name tree cannot be parsed
         return
 

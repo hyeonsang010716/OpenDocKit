@@ -62,6 +62,35 @@ class TestEmbeddedFiles:
         assert 0 < len(found) < _pdf_forms._ATTACHMENT_TREE_NODES
         assert len(resolved_kids) < _pdf_forms._ATTACHMENT_TREE_NODES
 
+    def test_entries_that_are_no_nodes_do_not_hide_a_node_after_them(self):
+        """Only as many kids were taken from a /Kids array as nodes were left to look at, entries that are no nodes
+        included: after 10,500 `null` entries, or 10,500 references to one node, the real node behind them was not looked
+        at and its attachment was not reported."""
+        content = b"BT /F1 12 Tf 50 780 Td (Main body text) Tj ET"
+        data = _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Kids [" + b"null " * 10_500
+                            + b"5 0 R " * 10_500 + b"6 0 R] >> >> >>",
+                         2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                         3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R "
+                            b"/Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>",
+                         4: b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+                         5: b"<< /Names [(a) << /Type /Filespec /F (a.txt) >>] >>",
+                         6: b"<< /Names [(b) << /Type /Filespec /F (b.txt) >>] >>"})
+
+        result = convert(data, "a.pdf")
+
+        assert "2 PDF attachment(s) (b.txt, a.txt) were not read. Convert attachments separately." in result.warnings
+
+    def test_entries_that_are_no_nodes_are_looked_at_only_up_to_their_own_bound(self, monkeypatch):
+        from opendockit.extractors import _pdf_forms
+
+        looked = []
+        monkeypatch.setattr(_pdf_forms, "resolve1", lambda value: looked.append(value) or value)
+        found = {}
+
+        _pdf_forms._named_attachments({"Names": {"EmbeddedFiles": {"Kids": [{"Names": [b"a", {"F": b"a.txt"}]}, *[None] * 2_000_000]}}}, found)
+
+        assert found == {} and len(looked) < _pdf_forms._ATTACHMENT_TREE_KIDS + 10
+
     def test_attachments_given_as_direct_objects_are_each_counted(self):
         """Attachments were told apart by the id() of their file specification, and the id of a direct object freed after
         it was counted could be taken by the next one, which was then dropped."""
