@@ -23,6 +23,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import stat
 
 from opendockit import __version__
 from opendockit.converter import _size_text, convert, read_limited, section_heading
@@ -80,12 +81,17 @@ def _serve_tools_only(server: MCPServer) -> None:
 
 
 def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFAULT_MAX_CHARS) -> MCPServer:
-    """The server with its two tools. `roots`, when given, are the only folders files may be read from."""
+    """The server with its two tools. `roots`, when given, are the only folders files may be read from; each must be an
+    existing folder (`ValueError` otherwise)."""
     if MCPServer is None:
         raise ImportError(_NEEDS_SDK)
-    allowed = [_identity(root.expanduser().resolve()) for root in roots or []]
+    # A root that is a file is refused here as well as on the command line: taken as a root, it allowed nothing at all and
+    # every call failed with 'outside the folders', which hid the mistake
+    # (Pinned by: test_mcp_server.py::TestWhichFilesMayBeRead::test_root_that_is_a_file_is_refused_by_create_server).
+    resolved = [root.expanduser().resolve() for root in roots or []]
+    allowed = [_identity(root) if root.is_dir() else None for root in resolved]
     if None in allowed:
-        raise ValueError("every root must be an existing folder")
+        raise ValueError("Every root must be an existing folder.")
     converter: IsolatedConverter | None = None
 
     @asynccontextmanager
@@ -194,16 +200,46 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
     return server
 
 
+# How a checked file is opened (`_read`): never through a symbolic link (the final name was resolved already, so a link there
+# now was put in after the check), and without waiting on a FIFO put in place of the file — the regular-file check comes after
+# the open, on what was opened. Where a flag does not exist (Windows) it is 0, and binary mode is asked for there.
+_OPEN_FLAGS = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+               | getattr(os, "O_BINARY", 0))
+
+
 def _read(file: Path, limit: int) -> tuple[bytes, str]:
-    """The content of a regular file (`_checked_path`) and its SHA-256, refused from its size when over `limit` and otherwise
-    read only up to one byte past it, so a file that grows meanwhile is refused by `convert` instead of being read whole. Run
-    in a thread: hashing 50 MB takes tens of milliseconds, which would stall the event loop."""
-    with file.open("rb") as stream:
-        size = os.fstat(stream.fileno()).st_size
-        if size > limit:
+    """The content of the regular file `_checked_path` returned and its SHA-256, refused from its size when over `limit` and
+    otherwise read only up to one byte past it, so a file that grows meanwhile is refused by `convert` instead of being read
+    whole. Run in a thread: hashing 50 MB takes tens of milliseconds, which would stall the event loop.
+
+    The file is opened once and everything is decided on that descriptor: it must be a regular file, and the checked name
+    must still lead to it (same device and inode). Checked by name and then opened by name again, the file could be swapped
+    in between — for a link out of the allowed folders or a FIFO that blocks the read for ever
+    (Pinned by: test_mcp_server.py::TestWhichFilesMayBeRead::test_file_swapped_after_the_check_is_refused).
+    """
+    try:
+        descriptor = os.open(file, _OPEN_FLAGS)
+    except OSError as error:
+        if not file.is_symlink():
+            raise
+        raise ToolError("No file at that path.") from error
+    with os.fdopen(descriptor, "rb") as stream:
+        status = os.fstat(descriptor)
+        if not stat.S_ISREG(status.st_mode) or not _names(file, status):
+            raise ToolError("No file at that path.")
+        if status.st_size > limit:
             raise DocumentTooLargeError(f"The file is too large (maximum {_size_text(limit)}).")
-        data = read_limited(stream, limit, size_hint=size)
+        data = read_limited(stream, limit, size_hint=status.st_size)
     return data, hashlib.sha256(data).hexdigest()
+
+
+def _names(file: Path, opened: os.stat_result) -> bool:
+    """Whether the name `file` leads, without following a link, to the file that was opened."""
+    try:
+        status = os.stat(file, follow_symlinks=False)
+    except OSError:
+        return False
+    return (status.st_dev, status.st_ino) == (opened.st_dev, opened.st_ino)
 
 
 def _identity(folder: Path) -> tuple[int, int] | None:

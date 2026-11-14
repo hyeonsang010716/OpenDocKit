@@ -18,7 +18,7 @@ from opendockit.extractors import EXTRACTORS
 from opendockit.extractors._inline import _escape_link_text
 from opendockit.extractors._package import uncompressed_size
 from opendockit.image import ImageSkipped, ImageTooLarge, ImageUnreadable, PreparedImage, needs_heif_plugin, prepare_image
-from opendockit.markdown import clean_text, neutralize_table_tags, solid_length
+from opendockit.markdown import clean_line, clean_text, code_fences, neutralize_table_tags, solid_length
 from opendockit.models import (
     ConversionResult,
     ConvertOptions,
@@ -39,6 +39,8 @@ if TYPE_CHECKING:
     from opendockit.describe import ImageDescriber
 
 
+# The message of a conversion that ran out of memory or time (`IsolatedConverter`, and running out of memory on a picture here).
+TOO_COMPLEX_MESSAGE = "The document is too large or too complex to convert."
 _DEFAULT_OPTIONS = ConvertOptions()
 _ZIP_FORMATS = {DocumentFormat.DOCX, DocumentFormat.PPTX, DocumentFormat.XLSX, DocumentFormat.HWPX, DocumentFormat.ODT, DocumentFormat.ODS,
                 DocumentFormat.ODP, DocumentFormat.EPUB}
@@ -131,11 +133,23 @@ def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
     text_chars = sum(solid_length(section.template) for section in sections)
     exceeded = extraction.exceeded or (options.max_chars is not None and text_chars > options.max_chars)
     images, fallbacks = _prepare_images([] if exceeded else extraction.images, sections, options, warnings, key)
-    result = ConversionResult(format=document_format, text="", sections=sections, metadata=dict(extraction.metadata),
+    result = ConversionResult(format=document_format, text="", sections=sections, metadata=_clean_metadata(extraction.metadata),
                               images=images, base_warnings=warnings, options=options, fallbacks=fallbacks,
                               exceeded=exceeded, counted=max(extraction.chars, text_chars) if exceeded else 0,
                               marker_key=key, time_limited=extraction.time_limited)
     return render(result)
+
+
+def _clean_metadata(metadata: dict[str, str]) -> dict[str, str]:
+    """The document metadata as clean one-line values (`markdown.clean_line`: NFC, invisible and control characters removed,
+    whitespace and line breaks collapsed to one space); a value left empty is dropped.
+
+    Metadata was handed over as the file wrote it: a title in decomposed jamo was not NFC, a zero-width space or control
+    characters stayed in it, and an author with line breaks (`a\nb\n# Heading`) put Markdown lines into whatever template
+    printed it (Pinned by: test_converter.py::TestMetadataIsCleaned).
+    """
+    cleaned = {key: clean_line(value) if isinstance(value, str) else value for key, value in metadata.items()}
+    return {key: value for key, value in cleaned.items() if value != ""}
 
 
 def check_size(data: bytes, options: ConvertOptions) -> None:
@@ -268,9 +282,8 @@ def render(result: ConversionResult) -> ConversionResult:
         warnings.append(f"{failed} image(s) could not be described (the vision model call failed) and were left as placeholder text.")
     unread_pages = [image for image in result.images if image.kind is ImageKind.PAGE and not image.description]
     if unread_pages:
-        pages = ", ".join(str(image.section_index) for image in unread_pages[:10])
         warnings.append(f"{len(unread_pages)} page(s) whose text exists only as an image "
-                        f"({pages}{' and more' if len(unread_pages) > 10 else ''}) "
+                        f"({page_list([image.section_index for image in unread_pages])}) "
                         "are empty because they did not go through image description (OCR).")
 
     # Whether the limit is exceeded is counted exactly on the text rendered here. If the extraction stage stopped first, the value
@@ -315,6 +328,10 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
                 decoded[key] = (image, hashlib.sha256(image.data).hexdigest())
             except (ImageSkipped, ImageUnreadable) as outcome:
                 decoded[key] = outcome
+            except MemoryError as exc:
+                # Not a broken picture but a document too large for the memory there is (`image.prepare_image`)
+                # (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture).
+                raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
 
         outcome = decoded[key]
         if isinstance(outcome, ImageTooLarge) and raw.kind is ImageKind.STANDALONE:
@@ -383,23 +400,43 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     # Over the limit, whole-page images (scanned pages — the only content of that page) are picked before pictures.
     chosen = {raw.id for raw, _, _ in sorted(candidates, key=lambda item: item[0].kind is not ImageKind.PAGE)
               [: options.max_images]}
-    over_limit = len(candidates) - len(chosen)
     locations = _locate_markers(sections, image_marker_pattern(marker))
     images: list[DocumentImage] = []
+    left_pages: list[int] = []
+    left_figures = 0
     for raw, alt, image in candidates:
-        if raw.id not in chosen:
-            continue
         section, context = locations.get(raw.id, (None, ""))
+        if raw.id not in chosen:
+            if raw.kind is ImageKind.PAGE:
+                left_pages.append(section.index if section else 1)
+            else:
+                left_figures += 1
+            continue
         images.append(DocumentImage(
             id=raw.id, data=image.data, mime_type=image.mime_type, width=image.width, height=image.height, tiles=image.tiles,
             kind=raw.kind, section_kind=section.kind if section else SectionKind.DOCUMENT,
             section_index=section.index if section else 1, alt=alt, context=context,
         ))
 
-    if over_limit:
+    # A page image left out by the limit leaves its page empty (its placeholder text is empty), so it is not counted among the
+    # pictures 'left as placeholders' and its pages are named, as `render` names the pages that were not described. Counted
+    # with the pictures, the warning said every one had kept a placeholder and never named the empty pages
+    # (Pinned by: test_image.py::TestScannedPagesLeftOutByTheImageLimit).
+    if left_pages:
+        figures = f", and {left_figures} other image(s) were left as placeholders only" if left_figures else ""
+        warnings.append(f"There are many images, so only {options.max_images} were selected for description (scanned pages first). "
+                        f"{len(left_pages)} page(s) whose text exists only as an image ({page_list(left_pages)}) were left out "
+                        f"and are empty{figures}.")
+    elif left_figures:
         warnings.append(f"There are many images, so only {options.max_images} were selected for description (scanned pages first) "
-                        f"and {over_limit} were left as placeholders only.")
+                        f"and {left_figures} were left as placeholders only.")
     return images, fallbacks
+
+
+def page_list(numbers: list[int]) -> str:
+    """Page numbers for a warning: the first 10, then 'and more'."""
+    shown = ", ".join(str(number) for number in numbers[:10])
+    return f"{shown} and more" if len(numbers) > 10 else shown
 
 
 def _point_aliases_at_first(sections: list[Section], aliases: dict[int, int], marker: str) -> None:
@@ -485,13 +522,9 @@ _FENCED_LINE = "\ue030"
 
 
 def _fenced_lines(template: str) -> set[int]:
-    """Line numbers inside paired code fences (```). Pairing is the same as in `markdown.clean_text` (what follows an unpaired last
-    opening fence is outside)."""
-    lines = template.split("\n")
-    fences = [index for index, line in enumerate(lines) if line.lstrip().startswith("```")]
-    if len(fences) % 2:
-        fences.pop()
-    return {index for opening, closing in zip(fences[::2], fences[1::2], strict=True) for index in range(opening + 1, closing)}
+    """Line numbers inside paired code fences (``` or ~~~). Pairing is `markdown.code_fences`, the one `clean_text` uses (what
+    follows an unpaired opening fence is outside)."""
+    return code_fences(template.split("\n")).inside
 
 
 def _collapse_blank_lines(text: str) -> str:

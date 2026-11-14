@@ -3,6 +3,7 @@
 Table rendering and text normalization are done only here, in one place, so that every format produces output of the same shape.
 """
 
+from bisect import bisect_left, bisect_right
 from collections.abc import Iterable
 import re
 import unicodedata
@@ -10,14 +11,21 @@ import unicodedata
 from opendockit.models import IMAGE_MARKER
 
 
-# Zero-width characters, direction controls, BOM, soft hyphen. Invisible on screen, but they ruin tokens and search matching.
-_INVISIBLE = re.compile("[​-‏‪-‮⁠-⁤﻿­]")
-# Remove the C0 control characters and DEL, keeping only tab (\t) and newline (\n). Form feed (\f) and vertical tab (\v) are
-# text boundaries, so they are turned into line breaks instead of being removed (`_LINE_BREAK_CONTROLS`) — removed, the numbers on
-# either side in `합계 100\f200` (합계 = total) ran together and the CSV cell `2\f3` became `23` (Pinned by: test_markdown.py::
-# TestCleanText::test_page_break_and_vertical_tab_become_line_breaks, TestRenderTable::test_page_break_and_vertical_tab_inside_a_cell_become_br).
-_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
-_LINE_BREAK_CONTROLS = str.maketrans({"\x0b": "\n", "\x0c": "\n"})
+# Zero-width characters, direction controls (embeddings, overrides, isolates, the Arabic letter mark U+061C), the Mongolian
+# vowel separator U+180E, BOM, soft hyphen. Invisible on screen, but they ruin tokens and search matching. The isolates
+# (U+2066–2069) are what current editors write around a right-to-left name; only the older embeddings were removed and the
+# isolates stayed between the letters (Pinned by: test_markdown.py::TestCleanText::test_removes_bidi_isolates_and_other_invisible_marks).
+_INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u061c\u180e\ufeff\u00ad]")
+# Remove the C0 and C1 control characters and DEL, keeping only tab (\t) and newline (\n). Form feed (\f), vertical tab (\v) and
+# next line (U+0085, the C1 line break) are text boundaries, so they are turned into line breaks instead of being removed
+# (`_LINE_BREAK_CONTROLS`) — removed, the numbers on either side in `합계 100\f200` (합계 = total) ran together and the CSV cell
+# `2\f3` became `23` (Pinned by: test_markdown.py::TestCleanText::test_page_break_and_vertical_tab_become_line_breaks,
+# TestRenderTable::test_page_break_and_vertical_tab_inside_a_cell_become_br). C1 means the code points U+0080–009F after
+# decoding: Windows-1252 bytes 0x80–0x9F (€, curly quotes) decode to other characters and are not touched; a C1 code point is
+# left only by a latin-1 decode or a numeric reference, and is never text (Pinned by:
+# test_markdown.py::TestCleanText::test_removes_c1_controls_and_breaks_lines_at_next_line).
+_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f]")
+_LINE_BREAK_CONTROLS = str.maketrans({"\x0b": "\n", "\x0c": "\n", "\x85": "\n"})
 # The private use areas (BMP and supplementary planes 15 and 16). Symbols of fonts specific to Hangul (HWP) and Office are mapped
 # here and become meaningless characters in any other environment. Hancom fonts use the supplementary areas too (U+F02B1 etc.)
 # (Pinned by: test_markdown.py::TestCleanText::test_removes_supplementary_private_use_characters).
@@ -83,34 +91,170 @@ def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
     text = _SPACE_LIKE.sub(" ", text)
     text = unicodedata.normalize("NFC", text)
 
-    # An unpaired last fence line (```) is neutralized as `\````. When a paragraph of a non-Markdown document (DOCX etc.) had a
-    # single piece of text starting with ```, the whole section after it became a code block and whitespace cleanup stopped too
-    # (Pinned by: test_markdown.py::TestUnclosedCodeFence). TXT and MD (collapse_spaces=False) are left as the author wrote them.
+    # An unpaired fence line (``` or ~~~) is neutralized with a backslash. When a paragraph of a non-Markdown document (DOCX etc.)
+    # had a single piece of text starting with ```, the whole section after it became a code block and whitespace cleanup stopped
+    # too (Pinned by: test_markdown.py::TestUnclosedCodeFence). TXT and MD (collapse_spaces=False) are left as the author wrote them.
     source = text.split("\n")
-    fences = [index for index, line in enumerate(source) if line.lstrip().startswith("```")]
-    unpaired = fences[-1] if collapse_spaces and len(fences) % 2 else None
-    # Blank lines inside paired fences are not reduced — consecutive blank lines in a code block (two lines between functions)
-    # were reduced to one and the shape of the code changed (Pinned by: test_markdown.py::TestBlankLinesInsideCodeFences).
-    # What follows an unpaired last fence is not a code block, so it is reduced.
-    last_opening = fences[-1] if len(fences) % 2 else None
-    lines = []
-    in_fence = False
+    fences = code_fences(source)
+    lines: list[str] = []
     for index, line in enumerate(source):
-        if index == unpaired:
-            line = "\\" + line.lstrip()
-        elif line.lstrip().startswith("```"):
-            in_fence = not in_fence and index != last_opening
+        if index in fences.lines:
             lines.append(line.rstrip())
             continue
+        # Blank lines inside paired fences are not reduced — consecutive blank lines in a code block (two lines between functions)
+        # were reduced to one and the shape of the code changed (Pinned by: test_markdown.py::TestBlankLinesInsideCodeFences).
+        # What follows an unpaired fence is not a code block, so it is reduced.
+        in_fence = index in fences.inside
         if in_fence or not collapse_spaces:
             line = line.rstrip()
         else:
-            list_match = _LIST_LINE.match(line) or _empty_item_holding_a_list(source, index, lines[-1] if lines else "")
-            line = (list_match.group(1) if list_match else "") + _INNER_SPACES.sub(" ", line.strip())
+            # A quoted line (`> `, `> > `) is its quote marks and a line of its own: the indentation of a nested list inside a
+            # quote is kept as at the top level. Taken whole, `>   - b` lost its two spaces and the nested item came out flat
+            # (Pinned by: test_markdown.py::TestQuotedBlocks).
+            prefix, _, content = _split_quote(line)
+            if index in fences.unpaired:
+                content = "\\" + content.lstrip()
+            list_match = _LIST_LINE.match(content) or (
+                not prefix and _empty_item_holding_a_list(source, index, lines[-1] if lines else ""))
+            content = (list_match.group(1) if list_match else "") + _INNER_SPACES.sub(" ", content.strip())
+            line = prefix + content if content else prefix.rstrip()
         if line or in_fence or (lines and lines[-1]):
             lines.append(line)
 
     return "\n".join(lines).strip("\n")
+
+
+# The quote marks at the start of a line: `>` each followed by at most one space or tab (CommonMark counts that one as part of
+# the mark), after any leading whitespace.
+_QUOTE_PREFIX = re.compile(r"[ \t]*((?:>[ \t]?)+)")
+# The opening of a code fence: three or more backticks or tildes, after any indentation, and the rest of the line (the info
+# string). A backtick fence whose info string holds a backtick is not a fence (CommonMark): it is inline code.
+_FENCE_OPENING = re.compile(r"\s*(`{3,}|~{3,})(.*)", re.DOTALL)
+
+
+class CodeFences:
+    """Where the code fences of a text are (`code_fences`): line numbers of the paired fence lines, of the lines between them,
+    and of the opening fences that are never closed."""
+
+    __slots__ = ("inside", "lines", "unpaired")
+
+    def __init__(self) -> None:
+        self.lines: set[int] = set()
+        self.inside: set[int] = set()
+        self.unpaired: set[int] = set()
+
+
+def _split_quote(line: str) -> tuple[str, int, str]:
+    """(the quote marks as written — `> `, `> > `, `>>` — with a tab after a mark made a space, how many marks there are, the
+    rest of the line). No quote marks: ('', 0, line). The marks are kept as written: the `>>> f()` prompt line of a Python
+    session stays as it was."""
+    match = _QUOTE_PREFIX.match(line)
+    if match is None:
+        return "", 0, line
+    marks = match.group(1)
+    return marks.replace("\t", " "), marks.count(">"), line[match.end():]
+
+
+def code_fences(lines: list[str]) -> CodeFences:
+    """The code fences of `lines`, paired as CommonMark pairs them: a fence of three or more backticks or tildes is closed by the
+    next fence line of the same character, at least as long, with nothing after it, at the same quote depth. A fence inside a
+    quote (`> ```) is closed only inside that quote. An opening fence that is never closed is unpaired — not a code block, so
+    what follows it is ordinary text — and the search goes on from the line after it.
+
+    Shared by `clean_text` and the picture rendering of the converter, so both see the same code blocks. Only ``` used to be a
+    fence and fences were paired by counting: an unpaired `~~~` made the rest of the section code, and an inner ```` ```js ````
+    line closed a ```` ```` ```` block (Pinned by: test_markdown.py::TestTildeFences). The closing fence is looked up in a
+    sparse table of the closing-fence lengths per character and quote depth, so a text of many unclosed fences stays linear
+    (Pinned by: test_markdown.py::TestTildeFences::test_many_unclosed_fences_take_linear_time).
+    """
+    fences = CodeFences()
+    depths: list[int] = []
+    openings: list[tuple[str, int] | None] = []
+    closings: dict[tuple[str, int], tuple[list[int], list[int]]] = {}
+    for index, line in enumerate(lines):
+        _, depth, content = _split_quote(line)
+        depths.append(depth)
+        match = _FENCE_OPENING.match(content)
+        if match is None or (match.group(1)[0] == "`" and "`" in match.group(2)):
+            openings.append(None)
+            continue
+        mark = match.group(1)
+        openings.append((mark, depth))
+        if not match.group(2).strip():
+            positions, lengths = closings.setdefault((mark[0], depth), ([], []))
+            positions.append(index)
+            lengths.append(len(mark))
+    if not closings:
+        for index, opening in enumerate(openings):
+            if opening is not None:
+                fences.unpaired.add(index)
+        return fences
+
+    ends = _quote_ends(depths)
+    tables = {key: _SparseMax(lengths) for key, (_, lengths) in closings.items()}
+    index = 0
+    while index < len(lines):
+        opening = openings[index]
+        if opening is None:
+            index += 1
+            continue
+        mark, depth = opening
+        key = (mark[0], depth)
+        closing = None
+        if key in closings:
+            positions = closings[key][0]
+            first = bisect_right(positions, index)
+            last = bisect_left(positions, ends[index]) if depth else len(positions)
+            found = tables[key].first_at_least(first, last, len(mark))
+            closing = positions[found] if found is not None else None
+        if closing is None:
+            fences.unpaired.add(index)
+            index += 1
+            continue
+        fences.lines.update((index, closing))
+        fences.inside.update(range(index + 1, closing))
+        index = closing + 1
+    return fences
+
+
+def _quote_ends(depths: list[int]) -> list[int]:
+    """For each line, the number of the first line after it with fewer quote marks (where its quote ends), or the line count."""
+    ends = [len(depths)] * len(depths)
+    waiting: list[int] = []
+    for index, depth in enumerate(depths):
+        while waiting and depths[waiting[-1]] > depth:
+            ends[waiting.pop()] = index
+        waiting.append(index)
+    return ends
+
+
+class _SparseMax:
+    """Range maximum over a fixed list of numbers in constant time per query (a sparse table)."""
+
+    def __init__(self, values: list[int]) -> None:
+        self._levels = [values]
+        width = 1
+        while 2 * width <= len(values):
+            below = self._levels[-1]
+            self._levels.append([max(below[i], below[i + width]) for i in range(len(below) - width)])
+            width *= 2
+
+    def _maximum(self, start: int, stop: int) -> int:
+        level = (stop - start).bit_length() - 1
+        row = self._levels[level]
+        return max(row[start], row[stop - (1 << level)])
+
+    def first_at_least(self, start: int, stop: int, value: int) -> int | None:
+        """The first position in `start..stop-1` whose number is at least `value`, or None."""
+        if start >= stop or self._maximum(start, stop) < value:
+            return None
+        while stop - start > 1:
+            middle = (start + stop) // 2
+            if self._maximum(start, middle) >= value:
+                stop = middle
+            else:
+                start = middle
+        return start
 
 
 def _empty_item_holding_a_list(source: list[str], index: int, previous: str) -> re.Match[str] | None:
@@ -130,6 +274,15 @@ def _empty_item_holding_a_list(source: list[str], index: int, previous: str) -> 
     following = _LIST_LINE.match(source[index + 1]) or _BARE_LIST_MARKER.match(source[index + 1])
     column = len(bare.group(1)) + len(source[index].strip()) + 1
     return bare if following is not None and len(following.group(1)) == column else None
+
+
+def clean_line(text: str) -> str:
+    """`text` as one clean line: the characters `clean_text` removes are removed, NFC, and every run of whitespace (line breaks
+    included) is one space, stripped. Without the Markdown handling of `clean_text` (fences, list indentation): for values such
+    as document metadata that are not body text."""
+    text = _INVISIBLE.sub("", text.translate(_LINE_BREAK_CONTROLS))
+    text = _PRIVATE_USE.sub("", _CONTROL.sub("", text).translate(_SYMBOL_FONT_GLYPHS))
+    return " ".join(unicodedata.normalize("NFC", text).split())
 
 
 def solid_length(text: str) -> int:

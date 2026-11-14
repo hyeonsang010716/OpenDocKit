@@ -26,7 +26,7 @@ result = convert(data, "deck.pptx", options)
 | `keep_links` | `True` | Hyperlinks as `[text](url)` (http, https and mailto only). `False`: only the link text |
 | `keep_emphasis` | `True` | Bold and italic as `**bold**` / `*italic*`. `False`: plain text |
 | `remove_repeated_page_lines` | `True` | Remove repeated PDF page headers, footers and page numbers |
-| `page_markers` | `True` | PDF page-boundary comments (`<!-- Page N -->`) |
+| `page_markers` | `True` | Page-boundary comments (`<!-- Page N -->`) between the pages of a PDF and of a multi-page TIFF |
 | `extract_images` | `True` | Image extraction. `False` ignores images completely: pictures inside a document leave no placeholder (HTML, mail and EPUB pictures that have alt text keep `[Image: alt text]`), and an image file uploaded on its own is not read (empty result plus a warning). However, OLE objects whose content is not read (a pasted Excel sheet and the like) still leave an `[OLE object]` placeholder and a warning (DOCX, PPTX, HWP, HWPX) |
 | `max_images` | none | Number of images to describe per document (cost cap). Without it, all are described |
 | `min_image_side` | 64 | Images smaller than this (px) are discarded |

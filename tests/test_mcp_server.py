@@ -206,6 +206,47 @@ class TestWhichFilesMayBeRead:
                 assert call("document_outline", {"path": str(folder / "a.docx")}, roots=[other]).startswith("Format: docx")
             assert call("document_outline", {"path": str(folder / "a.docx")}, roots=[folder]).startswith("Format: docx")
 
+    def test_root_that_is_a_file_is_refused_by_create_server(self, files):
+        """Only the command line checked the roots: given a file, `create_server` accepted it and every call was refused as
+        'outside the folders'."""
+        with pytest.raises(ValueError, match="Every root must be an existing folder."):
+            mcp_server.create_server([files["report.docx"]])
+
+    @pytest.mark.skipif(os.name != "posix", reason="symbolic links and FIFOs are made without privilege only on POSIX")
+    @pytest.mark.parametrize("replacement", ["link", "fifo", "other file"])
+    def test_file_swapped_after_the_check_is_refused(self, files, tmp_path_factory, replacement):
+        """The path was checked by name and then opened by name again: a file replaced in between by a link out of the allowed
+        folder was read, and a FIFO blocked the read for ever. The file is now opened once (never through a link, without
+        waiting on a FIFO), and the opened file must be a regular file that the checked name still leads to."""
+        inbox = files["report.docx"].parent
+        outside = tmp_path_factory.mktemp("outside") / "secret.docx"
+        outside.write_bytes(builder.docx_bytes())
+        target = inbox / "swapped.docx"
+        target.write_bytes(builder.docx_bytes())
+        allowed = [(inbox.stat().st_dev, inbox.stat().st_ino)]
+        checked = mcp_server._checked_path(str(target), allowed)
+        target.unlink()
+        if replacement == "link":
+            target.symlink_to(outside)
+        elif replacement == "fifo":
+            os.mkfifo(target)
+        else:
+            target.write_bytes(b"replaced")
+
+        if replacement == "other file":
+            data, _ = mcp_server._read(checked, 1024)
+            assert data == b"replaced"
+        else:
+            with pytest.raises(ToolError, match="No file at that path"):
+                mcp_server._read(checked, 1024)
+
+    @pytest.mark.skipif(os.name != "posix", reason="FIFOs are made without privilege only on POSIX")
+    def test_fifo_is_no_file(self, tmp_path):
+        os.mkfifo(tmp_path / "pipe.txt")
+
+        with pytest.raises(ToolError, match="No file at that path"):
+            call("document_outline", {"path": str(tmp_path / "pipe.txt")})
+
     def test_path_too_long_for_the_system_is_no_file(self):
         with pytest.raises(ToolError, match="No file at that path"):
             call("document_outline", {"path": "/" + "a" * 5000})

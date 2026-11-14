@@ -1657,3 +1657,171 @@ class TestHeicWithoutTheOptionalExtra:
 
         assert len(convert(buffer.getvalue(), "photo.avif").images) == 1
 
+
+
+class TestOutOfMemoryWhileReadingAPicture:
+    """A MemoryError while decoding or re-encoding a picture was taken for an unreadable picture: an uploaded photo was
+    'corrupted' and a picture inside a document a format warning, so `IsolatedConverter` never reported 'too large or too
+    complex'. Running out of address space under the worker's memory limit is simulated by making the re-encode fail."""
+
+    @pytest.fixture
+    def no_memory(self, monkeypatch):
+        import opendockit.image as image_module
+
+        def out_of_memory(*_args, **_kwargs):
+            raise MemoryError
+
+        monkeypatch.setattr(image_module, "_encoded", out_of_memory)
+
+    def test_uploaded_picture_is_too_complex_not_corrupted(self, no_memory):
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            convert(builder.png_bytes(400, 300), "photo.png")
+
+    def test_picture_inside_a_document_is_too_complex_not_a_format_warning(self, no_memory):
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+        from opendockit.isolated import _run
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            _run(builder.docx_with_images(), "a.docx", None)
+
+    def test_memory_error_is_not_an_unreadable_picture(self, no_memory):
+        with pytest.raises(MemoryError):
+            prepare_image(builder.png_bytes(400, 300), min_side=1, max_side=2048)
+
+    def test_memory_error_deeper_in_the_chain_is_too_complex(self, monkeypatch):
+        """A parser that wraps the MemoryError in its own exception, wrapped again by the converter, was a corrupted document:
+        only the direct cause was looked at."""
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+        import opendockit.isolated as isolated
+
+        def convert_that_runs_out(*_args):
+            try:
+                try:
+                    raise MemoryError
+                except MemoryError as inner:
+                    raise ValueError("parser") from inner
+            except ValueError as outer:
+                raise CorruptedDocumentError("Could not parse the file format. The file may be corrupted.") from outer
+
+        monkeypatch.setattr(isolated, "convert", convert_that_runs_out)
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            isolated._run(b"x", "a.txt", None)
+
+
+def _tiff_with_a_tag_of_the_wrong_count() -> bytes:
+    """A readable TIFF whose PlanarConfiguration tag holds two values where one is expected: Pillow reads it with a UserWarning."""
+    from PIL import ImageDraw
+
+    image = Image.new("RGB", (300, 160), "white")
+    ImageDraw.Draw(image).text((20, 60), "INVOICE 4411", fill="black")
+    buffer = BytesIO()
+    image.save(buffer, format="TIFF")
+    data = bytearray(buffer.getvalue())
+    directory = struct.unpack_from("<I", data, 4)[0]
+    for index in range(struct.unpack_from("<H", data, directory)[0]):
+        entry = directory + 2 + 12 * index
+        if struct.unpack_from("<H", data, entry)[0] == 284:
+            struct.pack_into("<IHH", data, entry + 4, 2, 1, 1)
+    return bytes(data)
+
+
+class TestPillowWarnings:
+    """Pillow's UserWarning about a tag it could not take as written leaked out of the single-picture path, so a program that
+    turns warnings into errors had a readable picture rejected as 'corrupted' (and left as placeholder text inside a document)."""
+
+    def test_uploaded_picture_with_a_metadata_warning_is_read_with_warnings_as_errors(self):
+        import warnings
+
+        data = _tiff_with_a_tag_of_the_wrong_count()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = convert(data, "scan.tiff")
+
+        assert len(result.images) == 1
+
+    def test_picture_with_a_metadata_warning_inside_a_document_gives_no_warning(self):
+        import warnings
+
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("Body")
+        document.add_picture(BytesIO(_tiff_with_a_tag_of_the_wrong_count()))
+        buffer = BytesIO()
+        document.save(buffer)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = convert(buffer.getvalue(), "a.docx")
+
+        assert len(result.images) == 1
+        assert not result.warnings
+        assert not [warning for warning in caught if "PIL" in (warning.filename or "")]
+
+
+class TestTransparencyOfEveryMode:
+    """Only RGBA, LA and P counted as transparent, so a PA picture (palette with alpha, as TIFF stores it) became a JPEG and
+    its transparent background black."""
+
+    @pytest.mark.parametrize(("mode", "image_format"), [("PA", "TIFF"), ("LA", "PNG"), ("RGBA", "WEBP")])
+    def test_transparent_background_stays_transparent(self, mode, image_format):
+        picture = Image.new("RGBA", (300, 120), (0, 0, 0, 0))
+        picture.paste((0, 0, 0, 255), (20, 20, 280, 100))
+        picture = picture.convert(mode) if mode != "PA" else picture.convert("RGBA").convert("PA")
+        buffer = BytesIO()
+        picture.save(buffer, format=image_format)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        decoded = Image.open(BytesIO(result.data)).convert("RGBA")
+        assert result.mime_type == "image/png"
+        assert decoded.getpixel((2, 2))[3] == 0
+        assert decoded.getpixel((150, 60))[3] == 255
+
+    def test_grey_png_with_a_transparent_level_stays_transparent(self):
+        picture = Image.new("L", (300, 120), 0)
+        picture.paste(255, (20, 20, 280, 100))
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG", transparency=0)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/png"
+        assert Image.open(BytesIO(result.data)).convert("RGBA").getpixel((2, 2))[3] == 0
+
+
+class TestScannedPagesLeftOutByTheImageLimit:
+    """A scanned page image that `max_images` left out leaves its page empty, yet the warning said it was 'left as a
+    placeholder' and the page was named nowhere."""
+
+    def test_page_left_out_is_named_as_empty(self):
+        data = builder.pdf_scanned_in_strips([[], [], []], strips=1)
+
+        result = convert(data, "s.pdf", ConvertOptions(max_images=1))
+
+        assert [image.section_index for image in result.images] == [1]
+        assert "There are many images, so only 1 were selected for description (scanned pages first). 1 page(s) whose text " \
+               "exists only as an image (2) were left out and are empty." in result.warnings
+        assert not any("left as placeholders only" in warning for warning in result.warnings)
+
+    def test_pictures_left_out_beside_pages_are_counted_apart(self):
+        from opendockit.converter import _prepare_images
+        from opendockit.models import Extraction, Section, SectionKind, marker_key
+
+        extraction = Extraction()
+        with marker_key("k"):
+            page = extraction.add_image(builder.png_bytes(400, 300, seed=1), kind=ImageKind.PAGE)
+            figure = extraction.add_image(builder.png_bytes(400, 300, seed=2))
+        sections = [Section(SectionKind.PAGE, 1, "", None, page), Section(SectionKind.PAGE, 2, "", None, figure)]
+        warnings: list[str] = []
+
+        images, _ = _prepare_images(extraction.images, sections, ConvertOptions(max_images=0), warnings, "k")
+
+        assert images == []
+        assert warnings == ["There are many images, so only 0 were selected for description (scanned pages first). 1 page(s) "
+                            "whose text exists only as an image (1) were left out and are empty, and 1 other image(s) were "
+                            "left as placeholders only."]
