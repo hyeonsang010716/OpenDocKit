@@ -285,7 +285,8 @@ def _unread_title(documents: list[str], read: int = 0) -> str:
     that holds no `<title` at all has no title and costs nothing of the bound — it is only searched, not parsed. One
     whose `<title` could not be looked at to the end of the document ends the look: a title after it may not be the
     first one
-    (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::test_title_behind_the_front_part_of_the_part_over_the_limit_is_the_title,
+    (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::
+    test_title_behind_the_front_part_of_the_part_over_the_limit_is_the_title,
     test_title_of_a_later_part_is_not_taken_when_the_part_over_the_limit_was_not_looked_at_to_its_end,
     test_title_after_a_long_part_without_one_is_still_found).
     """
