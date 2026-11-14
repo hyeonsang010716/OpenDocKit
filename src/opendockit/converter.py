@@ -18,7 +18,7 @@ from opendockit.extractors import EXTRACTORS
 from opendockit.extractors._inline import _escape_link_text
 from opendockit.extractors._package import uncompressed_size
 from opendockit.image import ImageSkipped, ImageTooLarge, ImageUnreadable, PreparedImage, needs_heif_plugin, prepare_image
-from opendockit.markdown import clean_text, neutralize_table_tags, solid_length
+from opendockit.markdown import clean_text, code_fences, neutralize_table_tags, solid_length
 from opendockit.models import (
     ConversionResult,
     ConvertOptions,
@@ -485,13 +485,9 @@ _FENCED_LINE = "\ue030"
 
 
 def _fenced_lines(template: str) -> set[int]:
-    """Line numbers inside paired code fences (```). Pairing is the same as in `markdown.clean_text` (what follows an unpaired last
-    opening fence is outside)."""
-    lines = template.split("\n")
-    fences = [index for index, line in enumerate(lines) if line.lstrip().startswith("```")]
-    if len(fences) % 2:
-        fences.pop()
-    return {index for opening, closing in zip(fences[::2], fences[1::2], strict=True) for index in range(opening + 1, closing)}
+    """Line numbers inside paired code fences (``` or ~~~). Pairing is `markdown.code_fences`, the one `clean_text` uses (what
+    follows an unpaired opening fence is outside)."""
+    return code_fences(template.split("\n")).inside
 
 
 def _collapse_blank_lines(text: str) -> str:

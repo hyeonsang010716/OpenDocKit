@@ -4,6 +4,7 @@ import unicodedata
 
 import pytest
 
+from opendockit import convert
 from opendockit.markdown import TableGrid, clean_text, join_blocks, render_table, solid_length
 
 
@@ -824,6 +825,113 @@ class TestBlankLinesInsideCodeFences:
         result = clean_text(text, collapse_spaces=False)
 
         assert result == "```\n가\n\n나"
+
+
+class TestQuotedBlocks:
+    """A `> ` line was cleaned as one line: the spaces after the quote mark went with the others, so a nested list inside a
+    quote came out flat and the indentation of code inside a quote was lost."""
+
+    def test_nested_list_inside_a_quote_keeps_its_indentation(self):
+        html = "<blockquote><ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li></ul></blockquote>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "> - a\n>   - b\n>     - c"
+
+    def test_code_inside_a_quote_keeps_its_spacing(self):
+        html = "<blockquote><pre>def f():\n    return  1</pre></blockquote><p>after</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "> ```\n> def f():\n>     return  1\n> ```\n\nafter"
+
+    def test_code_inside_a_nested_quote_keeps_its_spacing(self):
+        text = "> > ```\n> >     x  = 1\n> > ```\n> >   other    words"
+
+        result = clean_text(text)
+
+        assert result == "> > ```\n> >     x  = 1\n> > ```\n> > other words"
+
+    def test_quote_marks_are_kept_as_written(self):
+        text = ">>> print(x)    # prompt\n>    plain   text"
+
+        result = clean_text(text)
+
+        assert result == ">>> print(x) # prompt\n> plain text"
+
+    def test_fence_opened_in_a_quote_is_not_closed_outside_it(self):
+        """The quote ends before the closing fence, so the fence inside it is unpaired and the text after the quote is not code."""
+        text = "> ```\n>   quoted    code\nplain    text\n```"
+
+        result = clean_text(text)
+
+        assert result == "> \\```\n> quoted code\nplain text\n\\```"
+
+
+class TestTildeFences:
+    """Only ``` was a fence. An unpaired `~~~` made the rest of the section a code block in Markdown and its whitespace was not
+    cleaned; fences were paired by counting, so an inner ```` ```js ```` line closed a ```` ```` ```` block."""
+
+    def test_unpaired_tilde_fence_is_escaped(self):
+        text = "~~~\n# 진짜 제목\n항목    사이   공백"
+
+        result = clean_text(text)
+
+        assert result == "\\~~~\n# 진짜 제목\n항목 사이 공백"
+
+    def test_paired_tilde_fence_keeps_its_content(self):
+        text = "~~~python\ndef f():\n    return  1\n~~~\n뒤    글"
+
+        result = clean_text(text)
+
+        assert result == "~~~python\ndef f():\n    return  1\n~~~\n뒤 글"
+
+    def test_backtick_line_does_not_close_a_tilde_fence(self):
+        text = "~~~\n```\n    kept   as is\n~~~"
+
+        result = clean_text(text)
+
+        assert result == text
+
+    def test_closing_fence_must_be_at_least_as_long_and_bare(self):
+        text = "````\n```js\n  x  =  1\n```\n````\n뒤    글"
+
+        result = clean_text(text)
+
+        assert result == "````\n```js\n  x  =  1\n```\n````\n뒤 글"
+
+    def test_backtick_fence_with_a_backtick_in_its_info_string_is_not_a_fence(self):
+        text = "```a`b\n  x    y"
+
+        result = clean_text(text)
+
+        assert result == "```a`b\nx y"
+
+    def test_picture_inside_a_tilde_fence_keeps_the_blank_lines_of_the_code(self):
+        """The picture rendering pairs fences with the same helper as `clean_text` (`markdown.code_fences`)."""
+        from opendockit.converter import _fenced_lines
+
+        template = "~~~\na\n\n\nb\n~~~\nafter"
+
+        result = _fenced_lines(template)
+
+        assert result == {1, 2, 3, 4}
+
+    @pytest.mark.timing
+    def test_many_unclosed_fences_take_linear_time(self):
+        """Each opening fence looks for its closing fence; with thousands of unclosed ones inside a quote and a long closing
+        fence in a later quote, a plain forward search would read on to the end of the quote for each of them."""
+        import time
+
+        def run(count: int) -> float:
+            text = "> ````x\n" * count + "> ```\n" * count + "\nbreak\n> ````\n"
+            started = time.perf_counter()
+            clean_text(text)
+            return time.perf_counter() - started
+
+        small, large = run(2_000), run(20_000)
+
+        assert large < max(small * 30, 2.0)
 
 
 class TestInvisibleAndControlCharacters:
