@@ -127,6 +127,7 @@ class _InflateBudget:
     figure_line_work: int = _LINE_GROUPING_WORK  # line-grouping work left to the Form XObjects of the page being read (`_LINE_GROUPING_WORK`)
     line_work: int | None = None  # line-grouping work left to the layout being grouped (None outside `group_textlines`)
     line_spent_layout: object = None  # the layout whose line grouping gave up last: its boxes are not grouped (`_group_few_textboxes`)
+    unruled_pages: set[int] = field(default_factory=set)  # pages whose ruled tables were not looked for (`_MAX_RULE_CROSSINGS`)
 
     def new_page(self) -> None:
         """Resets the per-page allowances of layout analysis (`_PAGE_GROUPING_COST`, `_LINE_GROUPING_WORK`). Pinned by:

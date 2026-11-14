@@ -2,8 +2,10 @@
 rules, tables open at the sides, text wrapped inside a cell, and the highlights and glyph outlines that look like rules.
 """
 
-from bisect import bisect_left, bisect_right
+from bisect import bisect_left, bisect_right, insort
 import math
+
+from pdfplumber.table import TableFinder, TableSettings
 
 from opendockit.extractors._pdf_cell_text import _cell_rows, _text_outside
 from opendockit.extractors._pdf_chars import _drawn_text
@@ -19,6 +21,7 @@ from opendockit.extractors._pdf_model import (
     _text_by_middle,
 )
 from opendockit.extractors._pdf_open_tables import _merge_split_header, _open_sided_tables
+from opendockit.extractors._pdf_pdfminer import _INFLATE_BUDGET
 from opendockit.extractors._pdf_shaded_tables import _column_edges, _is_inner_part, _mark_filled_cells, _rule_line, _with_shaded_rows
 from opendockit.extractors._pdf_table_filters import _dropping_page_indexes
 from opendockit.markdown import render_table
@@ -36,6 +39,15 @@ _NESTED_LABEL_MAX = 20
 
 
 _FRAME_MAX_ROWS = 2
+
+
+# Most crossings of horizontal and vertical ruling lines (after pdfplumber's snapping) and most pairs of them a page may have for
+# its ruled tables to be looked for (`_too_many_rules`). The table finder's time grows with the square of the crossings: an empty
+# 70 × 70 grid (4,900 crossings) takes about half a second, a 100 × 100 one 1-2 seconds and a 150 × 150 one 14 seconds. The large
+# ruled table of 1,210 cells has 1,288 crossings, and a page of 800 small separate tables 7,200 crossings and 5.8 million pairs
+# (Pinned by: test_pdf_resource_limits.py::TestTooManyRules).
+_MAX_RULE_CROSSINGS = 5_000
+_MAX_RULE_PAIRS = 4_000_000
 
 
 # Number of rows that must continue with the same boundaries in each group when splitting touching ruled tables at column
@@ -122,6 +134,11 @@ def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], 
 
     The characters of a filtered-out box are read as body flow. Returns (bbox, cell matrix, list of cell boxes).
     """
+    if _too_many_rules(page):
+        budget = _INFLATE_BUDGET.get()
+        if budget is not None:
+            budget.unruled_pages.add(page.page_number)
+        return []
     page_area = max(float(page.width) * float(page.height), 1.0)
     regular = [_closed_at_open_ends(page, _closed_at_the_bottom(page, table)) for table in page.find_tables(_TABLE_SETTINGS)]
     open_sided = [table for table in _open_sided_tables(page)
@@ -157,6 +174,51 @@ def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], 
         else:
             kept.append((bbox, [(bbox, rows, boxes)]))
     return [piece for bbox, pieces in kept if id(bbox) not in absorbed for piece in pieces]
+
+
+def _too_many_rules(page: object) -> bool:
+    """Whether the page's ruling lines are too many for pdfplumber's table finder (`_MAX_RULE_CROSSINGS`,
+    `_MAX_RULE_PAIRS`). The lines are counted after the same snapping and joining the finder does (`TableFinder.get_edges`).
+
+    The finder compares every horizontal line with every vertical one and then, for each crossing, every later crossing
+    (`intersections_to_cells`), so its time grows with the square of the crossings: an empty 150 × 150 grid on an A4 page took
+    14 seconds and a 300 × 300 one 96 seconds, with every later table search on the page (`_closed_at_the_bottom`,
+    `_closed_at_open_ends`, `_open_sided_tables`, the shaded regrids) on top of it. Such a page is read without ruled tables
+    and its text stays in the body flow (Pinned by: test_pdf_resource_limits.py::TestTooManyRules).
+    """
+    finder = TableFinder.__new__(TableFinder)  # only the edge step of the finder, without looking for cells
+    finder.page, finder.settings = page, TableSettings.resolve(_TABLE_SETTINGS)
+    edges = finder.get_edges()
+    horizontals = [edge for edge in edges if edge["orientation"] == "h"]
+    verticals = [edge for edge in edges if edge["orientation"] == "v"]
+    if len(horizontals) * len(verticals) > _MAX_RULE_PAIRS:
+        return True
+    if len(horizontals) * len(verticals) <= _MAX_RULE_CROSSINGS:
+        return False
+    return _rule_crossings(horizontals, verticals, finder.settings.intersection_x_tolerance,
+                           finder.settings.intersection_y_tolerance, _MAX_RULE_CROSSINGS) > _MAX_RULE_CROSSINGS
+
+
+def _rule_crossings(horizontals: list[dict], verticals: list[dict], x_tolerance: float, y_tolerance: float, limit: int) -> int:
+    """The number of (horizontal, vertical) line pairs that cross within the tolerances, the same test as pdfplumber's
+    `edges_to_intersections`, counted up to just past `limit`. A sweep from top to bottom keeps the x positions of the vertical
+    lines that reach the current height in order, so each horizontal line counts its crossings with two bisections."""
+    events = sorted([*((edge["top"] - y_tolerance, 0, edge["x0"]) for edge in verticals),
+                     *((edge["top"], 1, edge["x0"], edge["x1"]) for edge in horizontals),
+                     *((edge["bottom"] + y_tolerance, 2, edge["x0"]) for edge in verticals)], key=lambda event: event[:2])
+    active: list[float] = []
+    crossings = 0
+
+    for event in events:
+        if event[1] == 0:
+            insort(active, event[2])
+        elif event[1] == 2:
+            del active[bisect_left(active, event[2])]
+        else:
+            crossings += bisect_right(active, event[3] + x_tolerance) - bisect_left(active, event[2] - x_tolerance)
+            if crossings > limit:
+                break
+    return crossings
 
 
 def _closed_at_the_bottom(page: object, table: object) -> object:

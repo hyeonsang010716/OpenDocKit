@@ -6,7 +6,7 @@ import zlib
 import pytest
 
 from opendockit import ConvertOptions, DocumentTooLargeError, convert
-from opendockit.extractors import _pdf_model, _pdf_open_tables, _pdf_pdfminer, _pdf_pieces, _pdf_shaded_tables
+from opendockit.extractors import _pdf_model, _pdf_open_tables, _pdf_pdfminer, _pdf_pieces, _pdf_ruled_tables, _pdf_shaded_tables
 from tests.pdf_modules import replace_everywhere
 from tests.test_pdf import _raw_pdf
 
@@ -156,6 +156,48 @@ class TestLargeRuledGrid:
 
         assert calls == []
         assert "| C0 | C1 | C2 |" in result.text and "| P0R54 |" in result.text
+        assert not result.warnings
+
+
+def _empty_grid(lines: int, step: float = 5.0) -> bytes:
+    """A one-page PDF with an empty ruled grid of `lines` horizontal and `lines` vertical rules `step` apart, and a paragraph."""
+    end = 50 + (lines - 1) * step
+    rules = b"".join(b"50 %g m %g %g l S %g 50 m %g %g l S " % (50 + index * step, end, 50 + index * step,
+                                                                 50 + index * step, 50 + index * step, end)
+                     for index in range(lines))
+    return _pages_pdf(b"0.1 w " + rules + b"\nBT /F1 12 Tf 72 800 Td (Text above the grid) Tj ET\n")
+
+
+class TestTooManyRules:
+    """pdfplumber's table finder compares every crossing of ruling lines with every later one, so an empty 150 × 150 grid on an A4
+    page took 14 seconds and a 300 × 300 one 96 seconds. A page with more than 5,000 crossings (`_MAX_RULE_CROSSINGS`) is read
+    without ruled tables and a warning is issued."""
+
+    @pytest.mark.timing
+    def test_page_of_a_dense_empty_grid_is_read_quickly_without_ruled_tables(self):
+        import time
+
+        started = time.perf_counter()
+        result = convert(_empty_grid(150), "a.pdf")
+
+        assert time.perf_counter() - started < 3, "before the fix the page took 14 seconds"
+        assert "Text above the grid" in result.text
+        assert any("too many ruling lines" in warning and "(1)" in warning for warning in result.warnings)
+
+    def test_crossings_are_counted_as_pdfplumber_finds_them(self):
+        from pdfplumber.table import edges_to_intersections
+
+        horizontals = [{"x0": 0.0, "x1": 100.0, "top": float(top), "bottom": float(top), "orientation": "h"} for top in (0, 10, 50)]
+        verticals = [{"x0": float(x), "x1": float(x), "top": 8.0, "bottom": 52.0, "orientation": "v"} for x in (0, 30, 102, 110)]
+
+        counted = _pdf_ruled_tables._rule_crossings(horizontals, verticals, 3, 3, 1_000)
+
+        assert counted == len(edges_to_intersections(horizontals + verticals, 3, 3)) == 6
+        assert _pdf_ruled_tables._rule_crossings(horizontals, verticals, 3, 3, 2) == 3  # stops at the first line past the limit
+
+    def test_grid_below_the_bound_is_searched_without_a_warning(self):
+        result = convert(_empty_grid(70), "a.pdf")
+
         assert not result.warnings
 
 
