@@ -113,6 +113,47 @@ class TestHwpxObjects:
         only_memo = convert(builder.hwpx_bytes(body.replace("<hp:tbl></hp:tbl>", "")), "a.hwpx")
         assert only_memo.text == 'Before fallback\n\n> Comment(on "fallback"): check'
 
+    def test_comment_opened_only_in_a_passed_over_switch_branch_is_kept(self):
+        """A comment the case opens and the fallback does not hold is not a copy: taken back with the case, the remark was lost.
+        Its range runs on through the fallback text to the hp:fieldEnd after the switch."""
+        memo = ('<hp:ctrl><hp:fieldBegin id="7" type="MEMO"><hp:subList><hp:p><hp:run><hp:t>rem</hp:t></hp:run></hp:p>'
+                "</hp:subList></hp:fieldBegin></hp:ctrl>")
+        body = ("<hp:p><hp:run><hp:t>B </hp:t><hp:switch><hp:case>" + memo + "</hp:case><hp:default><hp:t>fb</hp:t></hp:default>"
+                '</hp:switch><hp:t>covered</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="7"/></hp:ctrl></hp:run></hp:p>')
+
+        result = convert(builder.hwpx_bytes(body), "a.hwpx")
+
+        assert result.text == 'B fbcovered\n\n> Comment(on "fbcovered"): rem'
+        note = ("<hp:ctrl><hp:footNote><hp:subList><hp:p><hp:run><hp:t>src</hp:t></hp:run></hp:p></hp:subList></hp:footNote>"
+                "</hp:ctrl>")
+        noted = convert(builder.hwpx_bytes(body.replace("<hp:t>rem</hp:t>", "<hp:t>rem</hp:t>" + note)), "a.hwpx")
+        assert noted.text == 'B fbcovered\n\n[^1]: src\n\n> Comment(on "fbcovered"): rem[^1]'
+
+    def test_note_in_a_comment_of_a_passed_over_switch_branch_is_numbered_once(self):
+        """The comment the fallback holds too is taken back with the note inside it and the note's number: the note of the
+        fallback's copy is the first one."""
+        memo = ('<hp:ctrl><hp:fieldBegin id="5" type="MEMO"><hp:subList><hp:p><hp:run><hp:t>check</hp:t><hp:ctrl><hp:footNote>'
+                "<hp:subList><hp:p><hp:run><hp:t>src</hp:t></hp:run></hp:p></hp:subList></hp:footNote></hp:ctrl></hp:run></hp:p>"
+                "</hp:subList></hp:fieldBegin></hp:ctrl>")
+        body = ("<hp:p><hp:run><hp:t>Before </hp:t><hp:switch><hp:case>" + memo + "</hp:case>"
+                "<hp:default>" + memo + '<hp:t>fallback</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="5"/></hp:ctrl></hp:default>'
+                "</hp:switch></hp:run></hp:p>")
+
+        result = convert(builder.hwpx_bytes(body), "a.hwpx")
+
+        assert result.text == 'Before fallback\n\n[^1]: src\n\n> Comment(on "fallback"): check[^1]'
+
+    def test_switch_branch_whose_text_is_followed_by_an_empty_box_is_the_one_read(self):
+        """A text box flushes the text before it into a block of its own. The text of the case went with it, so the case looked
+        empty and the fallback was written after it as well."""
+        box = "<hp:rect><hp:drawText><hp:subList><hp:p><hp:run><hp:t></hp:t></hp:run></hp:p></hp:subList></hp:drawText></hp:rect>"
+        body = ("<hp:p><hp:run><hp:t>B </hp:t><hp:switch><hp:case><hp:t>new</hp:t>" + box + "</hp:case>"
+                "<hp:default><hp:t>old</hp:t></hp:default></hp:switch></hp:run></hp:p>")
+
+        result = convert(builder.hwpx_bytes(body), "a.hwpx")
+
+        assert result.text == "B new"
+
     def test_text_art_is_kept(self):
         """The text of text art (hp:textart) is in the text attribute, not the element text, so it was dropped. ␍␊ is a line break."""
         body = '<hp:p><hp:run><hp:textart text="hwpx 라이브러리 테스트␍␊neolord"/></hp:run></hp:p>'
@@ -1489,6 +1530,15 @@ class TestNumberingOutsideTheBody:
 
         assert "1. one\n2. two[^1]\n3. three" in result.text
         assert "1. head item" in result.text and "[^1]: 1. note item" in result.text
+
+    def test_hwpx_comment_numbers_do_not_advance_the_body(self):
+        memo = ('<hp:ctrl><hp:fieldBegin id="5" type="MEMO"><hp:subList>' + _hwpx_p("<hp:t>memo item</hp:t>", "1")
+                + '</hp:subList></hp:fieldBegin></hp:ctrl><hp:ctrl><hp:fieldEnd beginIDRef="5"/></hp:ctrl>')
+        body = _hwpx_p("<hp:t>one</hp:t>", "1") + _hwpx_p("<hp:t>two</hp:t>" + memo, "1") + _hwpx_p("<hp:t>three</hp:t>", "1")
+
+        result = convert(self._hwpx(body), "a.hwpx")
+
+        assert result.text == "1. one\n2. two\n3. three\n\n> Comment: 1. memo item"
 
     def test_hwp_header_and_note_numbers_do_not_advance_the_body(self, monkeypatch):
         record = builder.hwp_record

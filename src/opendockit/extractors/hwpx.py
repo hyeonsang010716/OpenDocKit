@@ -251,9 +251,16 @@ class HwpxRenderer:
 
     def _render_switch(self, switch: etree._Element, buffer: list[str], blocks: list[str], flush: Callable[[], None]) -> None:
         """Compatibility switch: read the newer object (hp:case, e.g. an OOXML chart) first, and if no text comes out read the
-        fallback object (hp:default). A branch that is passed over for the next one leaves nothing behind: the notes and comments it registered are
-        taken back (they were registered twice when the fallback held them too), and an empty block, such as an empty table, is not
-        text (Pinned by: test_hwp.py::TestHwpxObjects::test_switch_branch_without_text_leaves_nothing_behind).
+        fallback object (hp:default). A branch that is passed over for the next one leaves no text behind — an empty block, such as
+        an empty table, is not text — and a comment it opened is taken back only when a later branch holds that comment too (the
+        same id; it was registered twice). A comment only the passed-over branch opens stays, and stays open: its range goes on
+        through the fallback text to its hp:fieldEnd after the switch — taken back with the rest, the remark was lost
+        (Pinned by: test_hwp.py::TestHwpxObjects::test_switch_branch_without_text_leaves_nothing_behind,
+        test_comment_opened_only_in_a_passed_over_switch_branch_is_kept).
+
+        The notes of a passed-over branch (a note needs a reference in the text, so these are notes inside its comments) are
+        taken back with their numbers when every comment of the branch is. Known accepted gap: when only some of its comments are
+        repeated later, the notes of the ones taken back stay as definitions without a reference.
 
         A text-box or table in the branch flushes the paragraph text before the switch into a block of its own; that block is not the
         branch's, so `flush` is wrapped to tell the two apart."""
@@ -273,12 +280,15 @@ class HwpxRenderer:
                 self._render_object(child, buffer, blocks, branch_flush)
             if index == len(branches) - 1 or produced or "".join(buffer[start:]).strip() or any(block.strip() for block in blocks[own:]):
                 return
-            del buffer[start:], blocks[own:], self.notes[notes:]
-            self._note_count = note_count
-            for memo_id, (_, _, target) in zip(self._memo_ids[memos:], self.memos[memos:], strict=True):
-                if self._open_memos.get(memo_id) is target:
-                    self._close_memo(memo_id)
-            del self.memos[memos:], self._memo_ids[memos:]
+            del buffer[start:], blocks[own:]
+            later = {field.get("id", "") for other in branches[index + 1:] for field in other.iter()
+                     if _local(field) == "fieldBegin" and field.get("type") == "MEMO"}
+            repeated = [at for at in range(memos, len(self.memos)) if self._memo_ids[at] in later]
+            if len(repeated) == len(self.memos) - memos:
+                del self.notes[notes:]
+                self._note_count = note_count
+            for at in reversed(repeated):
+                del self.memos[at], self._memo_ids[at]
 
     def unread_warnings(self) -> list[str]:
         """Warnings per kind for objects left as placeholders only (OLE, video)."""
