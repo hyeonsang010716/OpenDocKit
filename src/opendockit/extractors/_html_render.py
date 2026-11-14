@@ -37,6 +37,7 @@ from opendockit.extractors._html_tables import (
     _nearest,
     _own_caption,
     _row_cells,
+    _row_span,
     _span,
     _table_rows,
 )
@@ -489,7 +490,8 @@ def _render_list(node: Tag, list_depth: int) -> str:
             marker += f" {_CHECKED if 'checked' in item.get_attribute_list('class') else _UNCHECKED}"
         elif to_do_list and (box := item.find(class_=["checkbox-on", "checkbox-off"], recursive=False)) is not None:
             marker += f" {_CHECKED if 'checkbox-on' in box.get_attribute_list('class') else _UNCHECKED}"
-        lines.append(_item_text(f"{'  ' * list_depth}{marker} {first}".rstrip(), pieces, nested, list_depth))
+        lead = f"{'  ' * list_depth}{marker} "
+        lines.append(_item_text(f"{lead}{first}".rstrip(), pieces, nested, list_depth, len(lead)))
         number += step
     return "\n".join(line for line in lines if line.strip()).rstrip("\n")  # leading whitespace is the indentation of nested lists
 
@@ -516,7 +518,7 @@ def _item_pieces(blocks: list[str], nested_count: int) -> list[str | int]:
     return pieces
 
 
-def _item_text(line: str, pieces: list[str | int], nested: list[Tag], list_depth: int) -> str:
+def _item_text(line: str, pieces: list[str | int], nested: list[Tag], list_depth: int, width: int = 0) -> str:
     """Append the text blocks and nested lists after the item line, in source order.
 
     Previously, after the nested lists were detached, all the remaining text was drawn as the item line and blocks and the nested lists
@@ -525,6 +527,10 @@ def _item_text(line: str, pieces: list[str | int], nested: list[Tag], list_depth
     under the item as a block set off by a blank line — merged into one line, a multi-line command gets joined with spaces. A nested list
     goes on the line right below an item line or a list, and after a blank line when it follows a block. An item that ends with a block is
     set off from the next item by a blank line.
+    A code block is indented to the item's content column (`width`, the width of the item's bullet or number and its
+    indentation) so that it stays inside the item: at the left margin it ended the list, in CommonMark, and the item lost the
+    code it holds. The lines inside the fence are indented by the same amount, which a fence that is indented takes off again
+    (Pinned by: test_audit_web_fixes.py::TestCodeBlockInsideAListItem).
     """
     text, previous = line, "line"
 
@@ -536,6 +542,8 @@ def _item_text(line: str, pieces: list[str | int], nested: list[Tag], list_depth
             text += ("\n" if previous in ("line", "list") else "\n\n") + rendered
             previous = "list"
         else:
+            if piece.startswith("```") and width:
+                piece = "\n".join(f"{' ' * width}{code}" if code else code for code in piece.split("\n"))
             text += "\n\n" + piece
             previous = "block"
     return text + "\n" if previous == "block" else text
@@ -684,7 +692,7 @@ def _header_titles(grid_rows: list[list[str]], rows: list[Tag], header_count: in
     titles: list[str] = []
 
     for position, index in enumerate(placed[:min(header_count - 1, len(grid_rows) - 1)]):
-        if index >= header_count - 1 or any(_span(cell, "rowspan") > 1 for cell in _row_cells(rows[index])):
+        if index >= header_count - 1 or any(_row_span(cell, rows, index) > 1 for cell in _row_cells(rows[index])):
             break
         below = [[row[col] for col in keep] for row in grid_rows[position + 1:position + 2 + _HEADER_PROBE_ROWS]]
         title = table_title([grid_rows[position][col] for col in keep], below)
@@ -720,7 +728,7 @@ def _indent_marks(rows: list[Tag], header_count: int) -> dict[int, str]:
         if not cells or index < covered_until:
             continue
         first = cells[0]
-        covered_until = index + _span(first, "rowspan")
+        covered_until = index + _row_span(first, rows, index)
         if index < max(header_count, 1) or _span(first, "colspan") >= width or _holds_blocks(first):
             continue  # with no header row the first row is the header (`render_table`)
         text = " ".join(first.get_text(" ").split())
@@ -751,7 +759,7 @@ def _table_grid(rows: list[Tag], header_count: int, *, embedding: bool,
             text, col_span = _cell_text(cell, embed_into=grid if embedding else None), _span(cell, "colspan")
             if marks and id(cell) in marks and text:
                 text = marks[id(cell)] + text
-            row_span = min(_span(cell, "rowspan"), len(rows) - row_index)
+            row_span = min(_row_span(cell, rows, row_index), len(rows) - row_index)
             grid.place_next(row_index, text, row_span=row_span, col_span=col_span)
             placed_rows.update(range(row_index, row_index + row_span))
             if row_index < header_count:

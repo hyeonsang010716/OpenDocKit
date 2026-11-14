@@ -77,24 +77,32 @@ def mail_calendar_text(message: Message) -> str:
 
 def _calendar_events(text: str) -> list[list[tuple[str, str]]]:
     """[(label, value)] for each VEVENT of iCalendar text. Unfolds folded lines (line break + space or tab) and leaves out events
-    without a single value."""
+    without a single value. Only the event's own properties are read: those of a component inside it (a VALARM reminder, which
+    has its own SUMMARY and ATTENDEE) are not — an e-mail reminder written before the event's SUMMARY became the title, and its
+    recipient an attendee (Pinned by: test_audit_web_fixes.py::TestReminderInsideAnEvent)."""
     lines = re.sub(r"\r?\n[ \t]", "", text).splitlines()
     events: list[list[tuple[str, str]]] = []
     current: dict[str, list[str]] | None = None
+    inner = 0  # components opened inside the current event
 
     for line in lines:
         split = _CALENDAR_LINE.match(line)  # do not split at a `:` inside quotes (`TZID="(UTC+09:00) 서울"`)
         name, rest = split.groups() if split else (line, "")
         key = name.split(";", 1)[0].strip().upper()
-        if key == "BEGIN" and rest.strip().upper() == "VEVENT":
-            current = {}
-        elif key == "END" and rest.strip().upper() == "VEVENT" and current is not None:
+        component = rest.strip().upper()
+        if key == "BEGIN" and component == "VEVENT":
+            current, inner = {}, 0
+        elif current is not None and key == "BEGIN":
+            inner += 1
+        elif current is not None and key == "END" and component != "VEVENT" and inner:
+            inner -= 1
+        elif key == "END" and component == "VEVENT" and current is not None:
             _end_of_all_day_event(current)
             fields = [(label, ", ".join(current[field])) for field, label in _CALENDAR_FIELDS.items() if current.get(field)]
             if fields:
                 events.append(fields)
             current = None
-        elif current is not None and key in _CALENDAR_FIELDS and rest.strip():
+        elif current is not None and not inner and key in _CALENDAR_FIELDS and rest.strip():
             values = current.setdefault(key, [])
             if len(values) < (_MAX_CALENDAR_ATTENDEES if key == "ATTENDEE" else 1):
                 values.append(_calendar_value(key, name, rest.strip()))
@@ -132,7 +140,9 @@ def _recurrence(rule: str) -> str:
     """
     parts: dict[str, str] = {}
 
-    for item in rule.upper().split(";"):
+    # An empty item (a trailing or doubled `;`) says nothing; it kept the whole rule as its raw text
+    # (Pinned by: test_audit_web_fixes.py::TestRecurrenceRuleWithATrailingSemicolon)
+    for item in filter(str.strip, rule.upper().split(";")):
         name, _, value = item.partition("=")
         parts[name.strip()] = value.strip()
 

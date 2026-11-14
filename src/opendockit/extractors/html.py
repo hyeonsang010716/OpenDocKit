@@ -272,8 +272,11 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
         soup = BeautifulSoup(text, "lxml")
 
     metadata = {"encoding": encoding}
-    if soup.title and soup.title.string and soup.title.string.strip():
-        metadata["title"] = soup.title.string.strip()
+    # Whitespace in a title collapses to single spaces, as browsers show it: a `<title>` written over several lines became a
+    # heading line followed by loose lines, one of them a list item (Pinned by: test_audit_web_fixes.py::TestTitleOverSeveralLines)
+    title = " ".join(soup.title.string.split()) if soup.title and soup.title.string else ""
+    if title:
+        metadata["title"] = title
 
     _reopen_raw_text_elements(soup, _closed_at_the_end(text) if closed is None else closed)
     cut = frozenset() if whole else _open_at_the_end(soup)

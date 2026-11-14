@@ -42,8 +42,9 @@ _SPACE_LIKE = re.compile("[  -   　]")
 _INNER_SPACES = re.compile(r"[ \t]+")
 _BLANK_RUN = re.compile(r"\n{3,}")
 # Only nested list lines made by the extractors keep their indentation. Any other leading whitespace reads as a code block in
-# Markdown, so it is removed.
-_LIST_LINE = re.compile(r"^( +)(?:[-*]|\d+\.) ")
+# Markdown, so it is removed. An empty item (a bare `-` that only holds a nested list) keeps its indentation too — without it the
+# nesting under it was lost (Pinned by: test_audit_web_fixes.py::TestEmptyListItemHoldingANestedList).
+_LIST_LINE = re.compile(r"^( +)(?:[-*]|\d+\.)(?: |$)")
 _LIST_ITEM = re.compile(r"^ *(?:[-*]|\d+\.) ")
 # The span counts and cell addresses of a table are numbers written in the file, so they are not trusted as is. A few KB of input
 # used seconds and gigabytes (DOCX gridSpan of 3 million, HWPX cell address 3000×3000, 150 HTML cells each merged 200×200).

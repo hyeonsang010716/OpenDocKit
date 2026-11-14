@@ -9,6 +9,7 @@ import itertools
 import re
 
 from opendockit.extractors._encoding import decode_text, decoding_warnings
+from opendockit.extractors._inline import _escape_link_text
 from opendockit.extractors._mail import (
     _mail_body,
     forwarded_mail_head,
@@ -37,9 +38,10 @@ _TERMINAL_SEQUENCE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b\n]*(?:\x07|\x1b\\)|[P^_][^\x1b\n]*\x1b\\|[()*+][0-9A-Za-z]|[78=>cDEHM\\])")
 
 
-def _mail_text(mail: Message) -> tuple[str, list[str]] | None:
+def _mail_text(mail: Message, *, html_source: bool = False) -> tuple[str, list[str]] | None:
     """For a mail read as plain text: (headers + body + forwarded mails, the encodings decoded). None if the outer body is HTML
-    only (it is read as text in its original form).
+    only (it is read as text in its original form) — unless `html_source`, when that HTML body is given decoded, in its source
+    form, like the HTML body of a forwarded mail.
 
     A forwarded mail gives its plain-text body or, without one, its HTML body in original form (HTML under a text extension is
     text — only mail named .txt or .md takes this path. `detect` sends .eml to the HTML extractor).
@@ -47,7 +49,9 @@ def _mail_text(mail: Message) -> tuple[str, list[str]] | None:
     messages, _ = mail_messages(mail)
     outer = mail_plain_body(mail)
     if outer is None and mail_body_parts(mail):
-        return None
+        if not html_source:
+            return None
+        outer = _mail_body(mail, "text/html")
     # A mail with attachments only and no body keeps just its headers. The events of a meeting invitation go after the body
     # (`mail_calendar_text`)
     texts = [mail_head_text(mail), outer[0] if outer else "", mail_calendar_text(mail)]
@@ -62,12 +66,16 @@ def _mail_text(mail: Message) -> tuple[str, list[str]] | None:
 
 def _mail_box_text(mails: list[Message]) -> tuple[str, list[str]] | None:
     """For the mails read as plain text (`mail_box`): (text, the encodings decoded). With several mails, `## Message N` is placed
-    before each one. None if any mail's outer body is HTML only (it is read as text in its original form — `_mail_text`)."""
-    bodies = [_mail_text(mail) for mail in mails]
-    if not bodies or any(body is None for body in bodies):
+    before each one. None if a single mail's outer body is HTML only (it is read as text in its original form — `_mail_text`).
+
+    In a mailbox such a mail gives its HTML body decoded, in source form (`html_source`), and the other mails are read as
+    usual. One HTML-only mail used to leave the whole archive as raw text — separator lines, MIME headers and the base64 bodies
+    of the plain mails too (Pinned by: test_audit_web_fixes.py::TestMailboxWithAnHtmlOnlyMailUnderATextName)."""
+    if len(mails) == 1:
+        return _mail_text(mails[0])
+    bodies = [_mail_text(mail, html_source=True) for mail in mails]
+    if not bodies:
         return None
-    if len(bodies) == 1:
-        return bodies[0]
     text = "\n\n".join(f"## {mail_box_title(number)}\n\n{body[0]}" for number, body in enumerate(bodies, start=1))
     return text, [encoding for body in bodies for encoding in body[1]]
 
@@ -340,11 +348,11 @@ def _fence_closing(line: str, index: int, closings: dict[tuple[str, int], list[i
 def _markdown_picture(match: re.Match, extraction: Extraction, options: ConvertOptions) -> str:
     if match.group("other_before") is not None or match.group("other_alt") is not None:
         alt = _picture_alt(match, "other_before", "other_after", "other_alt")
-        return f"[Image: {alt}]" if alt else ""
+        return _alt_text(alt)
     alt = _picture_alt(match, "before", "after", "alt")
     source_start = match.end("before") if match.group("before") is not None else match.end("alt")
     if _SVG_SOURCE.match(match.string, source_start, match.end()):
-        return f"[Image: {alt}]" if alt else ""  # like HTML, SVG is not extracted (it could not be drawn and only a warning was left)
+        return _alt_text(alt)  # like HTML, SVG is not extracted (it could not be drawn and only a warning was left)
 
     if match.group("before") is not None:
         encoded = match.group("tag_data") if match.group("quote") is not None else match.group("bare_data")
@@ -357,7 +365,13 @@ def _markdown_picture(match: re.Match, extraction: Extraction, options: ConvertO
             picture = b""
         if picture:
             return extraction.add_image(picture, alt=alt)
-    return f"[Image: {alt}]" if alt else ""
+    return _alt_text(alt)
+
+
+def _alt_text(alt: str) -> str:
+    """`[Image: alt]` for a picture that is not extracted, with the brackets of the alt text escaped like link text
+    (`_inline._escape_link_text`), as in HTML (Pinned by: test_audit_web_fixes.py::TestAltTextCannotMakeALink)."""
+    return f"[Image: {_escape_link_text(alt)}]" if alt else ""
 
 
 def _picture_alt(match: re.Match, before: str, after: str, alt: str) -> str:

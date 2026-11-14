@@ -152,7 +152,7 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
         text_only = _MARKUP.sub(b" ", sample)
         sample = text_only if _HIGH_BYTE.search(text_only) else sample
     matches = from_bytes(sample)
-    best = matches.best()
+    best = _plausible_best(matches, sample)
     if _reads_as_western(data, matches, best):
         return data.decode(_WESTERN), _WESTERN
     if best is not None and best.encoding:
@@ -163,6 +163,16 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
         except LookupError:
             pass
     return data.decode("utf-8", errors="replace"), f"utf-8{_REPLACED}"
+
+
+def _plausible_best(matches: CharsetMatches, sample: bytes) -> CharsetMatch | None:
+    """The best statistical guess, leaving out UTF-16 and UTF-32 when the sample has no NUL byte. Text in those encodings has
+    NUL bytes as soon as it holds an ASCII character (BOM-less UTF-16 is decided by their positions, `utf16_encoding`); a short
+    broken UTF-8 subject `ab=ZZé` + a cut character was read as UTF-16 and became `慢㵚嫃꧃` without a warning
+    (Pinned by: test_audit_web_fixes.py::TestNoWideEncodingGuessWithoutNulBytes)."""
+    if b"\x00" in sample:
+        return matches.best()
+    return next((match for match in matches if not match.encoding.startswith(("utf_16", "utf_32"))), None)
 
 
 def _strict(data: bytes, encoding: str) -> str | None:

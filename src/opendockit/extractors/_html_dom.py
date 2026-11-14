@@ -15,6 +15,7 @@ from bs4.element import PageElement, PreformattedString
 from opendockit.extractors._html_base import (
     _BLOCK_GAP,
     _CHECKED,
+    _CODE_ELEMENTS,
     _FOLDED_STYLE,
     _HEADER_PROBE_ROWS,
     _HEADINGS,
@@ -31,6 +32,7 @@ from opendockit.extractors._html_tables import _header_rows_on_top, _names_value
 from opendockit.extractors._inline import (
     SUBSCRIPT,
     SUPERSCRIPT,
+    _escape_link_text,
     format_script,
 )
 from opendockit.extractors._package import decimal_int
@@ -72,6 +74,13 @@ _STRIKE_STYLE = re.compile(r"(?:^|;)(?>[^;]*?text-decoration(?:-line)?\s*:)[^;]*
 # visible element styled `backface-visibility:hidden`, text and all
 # (Pinned by: test_audit_html_text.py::TestStylePropertiesThatOnlyEndLikeAHidingOne).
 _HIDDEN_STYLE = re.compile(r"(?<![\w-])(?:display\s*:\s*none|(?:content-)?visibility\s*:\s*hidden)", re.IGNORECASE)
+# Hiding that a descendant cannot undo (`display:none`, `content-visibility:hidden`), and the inherited `visibility`, which a
+# descendant can set back with `visibility:visible` (`_drop_hidden`).
+_UNDOABLE_HIDING = re.compile(r"(?<![\w-])(?:display\s*:\s*none|content-visibility\s*:\s*hidden)", re.IGNORECASE)
+_VISIBLE_STYLE = re.compile(r"(?<![\w-])visibility\s*:\s*visible", re.IGNORECASE)
+# Elements whose `visibility:hidden` is not taken as hiding: the page itself, hidden by an anti-flicker snippet until a script
+# shows it.
+_PAGE_ROOTS = {"html", "body"}
 
 
 # Hidden elements (blocks) that can be a folded answer, and the elements right before one that unfold it. Lists (ul/ol) are
@@ -373,9 +382,24 @@ def _with_title_heading(text: str, title: str | None) -> str:
     body = text.strip()
     first_line = body.split("\n", 1)[0]
     # The first line may carry emphasis marks now (`**공지** 사항`); the title is looked for without them
-    if not title or not body or _MARKDOWN_HEADING.search(body) or title in first_line or title in first_line.replace("*", ""):
+    if (not title or not body or _MARKDOWN_HEADING.search(_outside_code_blocks(body)) or title in first_line
+            or title in first_line.replace("*", "")):
         return text
     return f"# {title}\n\n{body}"
+
+
+def _outside_code_blocks(text: str) -> str:
+    """The lines of `text` outside its code blocks (``` fences). A `# comment` line of a shell or Python example is not a
+    heading, and the title was left out of a page whose only `#` lines were code
+    (Pinned by: test_audit_web_fixes.py::TestTitleOfAPageWhoseCodeHasCommentLines)."""
+    lines: list[str] = []
+    fenced = False
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced:
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def _document_nodes(soup: BeautifulSoup) -> list:
@@ -435,15 +459,17 @@ def _flatten_nested_headings(soup: BeautifulSoup) -> None:
             _move_after(outer, [heading, *heading.next_siblings])
 
 
-def _lying_inside(nodes: list[Tag], names: Container[str]) -> set[int]:
+def _lying_inside(nodes: list[PageElement], names: Container[str], inside: dict[int, bool] | None = None) -> set[int]:
     """`id`s of those of `nodes` that lie inside an element named in `names` (the same answer as `find_parent(names)` for each,
-    as the tree is now). Each node walks upwards and stops at an element already visited, so it is linear time.
+    as the tree is now). Each node walks upwards and stops at an element already visited, so it is linear time. Calls that ask
+    about the same tree and `names` may share `inside` (what was learned on the way up).
 
     `find_parent` walks to the root for every node that has no such ancestor: 8,000 headings under 8,000 unclosed `<div>`
     (117KB) took 31 seconds (Pinned by: test_audit_html_text.py::TestManyHeadingsUnderDeepNesting).
     """
     found: set[int] = set()
-    inside: dict[int, bool] = {}  # element not named in `names` → whether it lies inside one that is
+    if inside is None:
+        inside = {}  # element not named in `names` → whether it lies inside one that is
 
     for node in nodes:
         path: list[Tag] = []
@@ -851,10 +877,14 @@ def _mark_scripts(soup: BeautifulSoup) -> None:
     one's text whole gives `e^{x2}`
     (Pinned by: test_text_html.py::TestNestedScriptsAndStrikethrough::test_nested_superscript_marks_the_inner_one_first)."""
     places: _Places = {}
+    scripts = soup.find_all(["sup", "sub"])
+    # Not inside code: `x<sup>2</sup>` in a code block or inline code is code as written, and a mark would change it
+    # (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode)
+    in_code = _lying_inside(scripts, _CODE_ELEMENTS)
 
-    for outer in soup.find_all(["sup", "sub"]):
-        if outer.parent is None:
-            continue  # already replaced together with the outer script
+    for outer in scripts:
+        if outer.parent is None or id(outer) in in_code:
+            continue  # already replaced together with the outer script, or code
         for script in [*reversed(outer.find_all(["sup", "sub"])), outer]:
             before = script.previous_sibling
             marked = format_script(script.get_text(), SUPERSCRIPT if script.name == "sup" else SUBSCRIPT,
@@ -872,11 +902,19 @@ def _mark_struck_text(soup: BeautifulSoup) -> None:
     when a table inside a cell was kept as an HTML table the closing mark landed in the inner table's last cell.
     """
     nested: set[int] = set()
+    # Text inside code (a code block, inline code) gets no marks — it is code as written, and `<del>` lines of a diff view in
+    # `<pre>` came out as `~~…~~` inside the fence (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode). What was
+    # learned climbing up is shared by all the strikethroughs (linear even under deep nesting).
+    in_code: dict[int, bool] = {}
     for struck in soup.find_all(_is_struck):
         if id(struck) in nested:
             continue
         nested.update(id(inner) for inner in struck.find_all(_is_struck))
-        strings = {id(string) for string in struck.find_all(string=True) if string.strip()}
+        texts = [string for string in struck.find_all(string=True) if string.strip()]
+        code = _lying_inside(texts, _CODE_ELEMENTS, in_code)
+        strings = {id(string) for string in texts if id(string) not in code}
+        if not strings:
+            continue
         for run in _struck_runs(struck, strings):
             _mark_run(run)
 
@@ -968,27 +1006,30 @@ def _image_placeholder(image: Tag, extraction: Extraction, options: ConvertOptio
     (Pinned by: test_core_html_mail_hidden_and_frames.py::TestLazyLoadedPicturePlaceholders).
     """
     alt = " ".join(str(image.get("alt", "")).split())
+    # The alt text written inside `[Image: …]` has its brackets escaped like link text (`_inline._escape_link_text`): an alt such
+    # as `a](https://evil) [b` closed the bracket and made a link (Pinned by: test_audit_web_fixes.py::TestAltTextCannotMakeALink)
+    shown = f" [Image: {_escape_link_text(alt)}] " if alt else ""
     source = str(image.get("src", ""))
     # The scheme and the base64 mark are compared without case and leading whitespace, as the SVG check always was:
     # `src=" data:image/png…"` and `DATA:image/png…` gave no picture
     # (Pinned by: test_audit_html_text.py::TestDataUriWrittenWithCapitalsOrLeadingSpace)
     lowered = source.lstrip().lower()
     if lowered.startswith("data:image/svg") or (lowered.startswith("data:") and _is_lazy(image)):
-        return f" [Image: {alt}] " if alt else ""
+        return shown
     if options.extract_images and lowered.startswith("data:image/") and ";base64," in lowered:
         try:
             data = base64.b64decode(source.split(",", 1)[1], validate=False)
         except (binascii.Error, ValueError):
             data = b""
         if _is_spacer(data):
-            return f" [Image: {alt}] " if alt else ""
+            return shown
         if data:
             return f" {extraction.add_image(data, alt=alt)} "
     elif saved_picture is not None and source:
         data = saved_picture(source.strip())
         if data:
             return f" {extraction.add_image(data, alt=alt)} "
-    return f" [Image: {alt}] " if alt else ""
+    return shown
 
 
 def _is_lazy(image: Tag) -> bool:
@@ -1032,7 +1073,7 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     terms-of-service layer too got the app root removed. Elements holding the content are collected by climbing up just once from each
     content element, and the body text is measured only once — re-measuring for every aria-hidden element took 47 seconds on 468KB.
     """
-    _decompose_all([tag for tag in soup.find_all(_hidden_by_style) if id(tag) not in kept])
+    _decompose_all(_hidden_nodes(soup, [tag for tag in soup.find_all(_hidden_by_style) if id(tag) not in kept]))
 
     marked = soup.find_all(attrs={"aria-hidden": "true"})
     if not marked:
@@ -1042,6 +1083,47 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     page = max(_solid_length(body), 1) if body is not None else 1
     _decompose_all([tag for tag in marked if id(tag) not in holders
                     and not (whole and body is not None and tag.parent is body and 2 * _solid_length(tag) >= page)])
+
+
+def _hidden_nodes(soup: BeautifulSoup, hidden: list[Tag]) -> list[PageElement]:
+    """What to remove for the hidden elements `hidden` (in document order), in document order. An element hidden only by
+    `visibility:hidden` keeps the descendants that set `visibility:visible` again, as a browser shows them: only the other
+    content of that element is removed, and the elements on the way down stay as shells. `visibility:hidden` on html or body is
+    not hiding — an anti-flicker snippet hides the page until a script shows it, and the whole page came out as 'No text was
+    extracted' (Pinned by: test_audit_web_fixes.py::TestVisibilityHiddenWithAVisibleDescendant). `hidden`, `display:none` and
+    `content-visibility:hidden` remove the element whole: nothing inside can show again.
+    Documents without such a case take the old path unchanged (the elements themselves)."""
+    if not hidden:
+        return []
+    visibles = soup.find_all(style=_VISIBLE_STYLE)
+    above: set[int] = set()  # elements with a `visibility:visible` descendant (each climbs once, stopping at one already seen)
+    for visible in visibles:
+        node = visible.parent
+        while node is not None and id(node) not in above:
+            above.add(id(node))
+            node = node.parent
+    special = [tag for tag in hidden if not tag.has_attr("hidden") and not _UNDOABLE_HIDING.search(str(tag.get("style", "")))
+               and (tag.name in _PAGE_ROOTS or id(tag) in above)]
+    if not special:
+        return list(hidden)
+    visible_ids = {id(visible) for visible in visibles}
+    special_ids = {id(tag) for tag in special}
+    removed = {id(tag) for tag in hidden} - special_ids
+    for tag in special:
+        if tag.name in _PAGE_ROOTS:
+            continue
+        # Below `tag`: an element with a visible descendant is a shell (descended into), a visible element stays, and another
+        # element handled here on its own (`special`) does its own part; everything else goes
+        stack = list(tag.contents)
+        while stack:
+            child = stack.pop()
+            if id(child) in visible_ids or id(child) in special_ids:
+                continue
+            if id(child) in above:
+                stack.extend(child.contents)
+            else:
+                removed.add(id(child))
+    return [node for node in soup.descendants if id(node) in removed]
 
 
 def _decompose_all(nodes: list[PageElement], *, detach_only: bool = False) -> None:

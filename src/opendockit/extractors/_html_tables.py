@@ -10,6 +10,10 @@ from opendockit.extractors._html_base import _HEADINGS, _solid_length
 from opendockit.extractors._package import decimal_int
 
 
+# Upper bound on the span count of one cell (`_span`, `_row_span`).
+_MAX_SPAN = 200
+
+
 # Maximum characters (excluding whitespace) of the name cell in a name | value table. Field names such as '교육명' (course
 # name), '대상자' (attendees), '문서번호' (document number) (`_pairs_names_with_values`).
 _NAME_CHARS = 20
@@ -259,7 +263,7 @@ def _header_rows_on_top(table: Tag, rows: list[Tag]) -> int:
             break
         if index and index >= spanned_until and not above_spans_columns:
             break
-        spanned_until = max(spanned_until, *(index + _span(cell, "rowspan") for cell in cells))
+        spanned_until = max(spanned_until, *(index + _row_span(cell, rows, index) for cell in cells))
         above_spans_columns = any(_span(cell, "colspan") > 1 for cell in cells)
         count += 1
     return count
@@ -311,6 +315,19 @@ def _span(cell: Tag, attribute: str) -> int:
     Pinned by: test_text_html.py::test_span_attribute_that_is_not_a_plain_number_does_not_reject_the_document).
     The same goes for numbers longer than 4,300 digits (`decimal_int`;
     Pinned by: test_core_malformed_mail_and_html.py::TestHugeNumbersInHtmlAndMail).
-    Large values are capped at 200."""
+    Large values are capped at 200 (`_MAX_SPAN`)."""
     value = decimal_int(str(cell.get(attribute, "1")).strip(), 1)
-    return min(value, 200) if value > 0 else 1
+    return min(value, _MAX_SPAN) if value > 0 else 1
+
+
+def _row_span(cell: Tag, rows: list[Tag], index: int) -> int:
+    """Row span of `cell` in the row `rows[index]`. `rowspan="0"` spans to the end of the row group (thead, tbody, tfoot — the rows
+    with the same parent element), as in HTML, within the same cap as any span (`_MAX_SPAN`); it was read as 1
+    (Pinned by: test_audit_web_fixes.py::TestRowspanZero). Any other value is `_span`."""
+    if decimal_int(str(cell.get("rowspan", "1")).strip(), 1) != 0:
+        return _span(cell, "rowspan")
+    group = rows[index].parent
+    end = index + 1
+    while end < len(rows) and end - index < _MAX_SPAN and rows[end].parent is group:
+        end += 1
+    return end - index
