@@ -169,6 +169,116 @@ class TestSeparateTableBelowARowInNoTable:
         assert f"| {_REGIONS[last]} | {1000 + last * 111:,} | {last + 1}.{last}% | 증가 |\n\n이상." in text
 
 
+def _stacked_pdf(size: float, *tables: tuple[list[tuple[str, ...]], tuple[float, ...], float, float]) -> bytes:
+    """Borderless tables one under the other in `size` pt type. Each is (rows, the left edges of its cells, the distance
+    between the baselines of its rows, the distance between the baseline of the row above it and that of its first
+    row)."""
+    def draw(pdf, index):
+        pdf.setFont(_FONT, size)
+        pdf.drawString(34, 790, "부서별 현황과 품목별 현황은 다음과 같다.")
+        y = 760.0
+        for rows, lefts, pitch, gap in tables:
+            y -= gap
+            for number, cells in enumerate(rows):
+                for x, text in zip(lefts, cells, strict=True):
+                    pdf.drawString(x, y - number * pitch, text)
+            y -= (len(rows) - 1) * pitch
+        pdf.drawString(34, y - 40, "이상.")
+
+    return _korean_pdf(draw)
+
+
+_ITEMS = [("구분", "금액", "수량", "비율"), ("여수", "59,378", "52", "14,852"), ("West", "17,116", "21", "38,899"),
+          ("배추", "19,884", "88", "89,386"), ("춘천", "27,856", "34", "32,169"), ("목포", "6,035", "25", "42,529"),
+          ("호두", "60,684", "82", "92,460")]
+_ITEM_TABLE = ("| 구분 | 금액 | 수량 | 비율 |\n| --- | --- | --- | --- |\n| 여수 | 59,378 | 52 | 14,852 |\n"
+               "| West | 17,116 | 21 | 38,899 |\n| 배추 | 19,884 | 88 | 89,386 |\n| 춘천 | 27,856 | 34 | 32,169 |\n"
+               "| 목포 | 6,035 | 25 | 42,529 |\n| 호두 | 60,684 | 82 | 92,460 |\n\n이상.")
+_DEPARTMENTS = [("부서", "인원", "예산", "비고"), ("영업부", "35", "95,616", "증가"), ("개발부", "58", "72,059", "유지"),
+                ("총무부", "84", "65,996", "감소"), ("기획부", "57", "95,607", "증가")]
+
+
+class TestRowsBetweenTwoTablesThatBelongToTheTableBelow:
+    """Rows in no table between two borderless tables found apart — the header of the lower table, which pdfminer groups
+    differently from its rows ('구분 금액 | 수량 | 비율'), and the rows under it grouped like the header — went to the
+    upper table, which is searched for first, as misaligned rows of its own: the lower table came out without its column
+    names, its first data row as the Markdown header. They line up with the columns of the lower table, not with those of
+    the upper one, and belong to the lower table."""
+
+    @pytest.mark.parametrize("gap", [22.0, 30.0])
+    def test_header_of_the_lower_table_under_a_wide_table(self, gap):
+        """Three wide columns above, four narrow ones below; `gap` is less and more than a row of the upper table."""
+        data = _stacked_pdf(11, ([row[:3] for row in _DEPARTMENTS], (40, 353.6, 496.4), 26.4, 0),
+                            (_ITEMS, (40, 82.9, 146.9, 195.3), 17.6, gap))
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| 총무부 | 84 | 65,996 |\n| 기획부 | 57 | 95,607 |\n\n" + _ITEM_TABLE in text
+        assert text.count("구분") == 1 and text.count("여수") == 1
+
+    @pytest.mark.parametrize("gap", [18.0, 27.0])
+    def test_header_of_the_lower_table_at_the_row_pitch_of_the_upper_table(self, gap):
+        """Both tables have four columns and the same row pitch; the lower one follows at that pitch or half a row more."""
+        data = _stacked_pdf(10, (_DEPARTMENTS, (40, 160, 280, 400), 18, 0), (_ITEMS, (40, 79, 137, 181), 18, gap))
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| 총무부 | 84 | 65,996 | 감소 |\n| 기획부 | 57 | 95,607 | 증가 |\n\n" + _ITEM_TABLE in text
+        assert text.count("구분") == 1 and text.count("여수") == 1
+
+    @pytest.mark.parametrize("gap", [22.0, 30.0])
+    def test_first_data_rows_of_a_lower_table_without_a_header(self, gap):
+        """The first two rows of the lower table are grouped differently ('28.7% pending') from the row the table is
+        found from ('2.0% | ok'). They were left only as rows of the six-column table above."""
+        upper = [("구분", "금액", "수량", "비율", "증감", "비고"), ("양파", "23,360", "11,857", "6", "48", "27.5%"),
+                 ("통영", "73,612", "14,132", "48", "8", "2.3%"), ("울산", "71,394", "1,607", "92", "56", "76.8%"),
+                 ("호두", "37,966", "83,440", "4", "73", "98.0%"), ("배추", "68,711", "81,652", "76", "18", "46.3%")]
+        lower = [("구미", "28.7%", "pending", "9.40"), ("원주", "52.5%", "완료", "7.88"), ("North", "2.0%", "ok", "3.60"),
+                 ("대추", "48.7%", "pending", "3.19"), ("Sigma", "12.6%", "유지", "3.86"), ("서울", "62.2%", "유지", "2.85"),
+                 ("목포", "75.2%", "완료", "6.88")]
+        data = _stacked_pdf(11, (upper, (40, 103.1, 156, 209, 251.9, 289.3), 17.6, 0),
+                            (lower, (40, 105.8, 155.1, 217.7), 26.4, gap))
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| 배추 | 68,711 | 81,652 | 76 | 18 | 46.3% |\n\n| 구미 | 28.7% | pending | 9.40 |\n| --- | --- | --- | --- |\n"
+                "| 원주 | 52.5% | 완료 | 7.88 |\n| North | 2.0% | ok | 3.60 |\n| 대추 | 48.7% | pending | 3.19 |") in text
+        assert "| 목포 | 75.2% | 완료 | 6.88 |\n\n이상." in text
+        assert text.count("구미") == 1 and text.count("원주") == 1
+
+    def test_rows_the_lower_table_does_not_take_stay_in_the_upper_table(self):
+        """The lower table is not found again with its header ('Name | Value | Rate Count') because of the row under it
+        ('품목 단가 | 수량'), so the header stays a row of the upper table as before instead of falling out of both."""
+        upper = [("지역", "매출", "비용", "이익"), ("상추", "15.6%", "86,613", "7.8%"), ("순천", "14.8%", "76,729", "56.1%"),
+                 ("양산", "36.9%", "63,559", "32.3%"), ("Theta", "42.5%", "8,550", "38.0%")]
+        lower = [("Name", "Value", "Rate", "Count"), ("포도", "26,954", "17", "99"), ("울산", "15,200", "49", "40"),
+                 ("Omega", "43,597", "17", "54")]
+        third = [("품목", "단가", "수량"), ("대추", "47,266", "증가"), ("세종", "75,046", "pending"), ("포항", "46,729", "done")]
+        data = _stacked_pdf(11, (upper, (70, 122.5, 182.8, 246.8), 17.6, 0), (lower, (80, 137.6, 196.0, 235.7), 26.4, 22),
+                            (third, (80, 117.4, 170.4), 22, 16.5))
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| Theta | 42.5% | 8,550 | 38.0% |\n| Name | Value | Rate | Count |\n\n| 포도 | 26,954 | 17 | 99 |\n"
+                "| --- | --- | --- | --- |\n| 울산 | 15,200 | 49 | 40 |") in text
+        assert text.count("Name") == 1
+
+    def test_data_row_lined_up_with_the_rows_below_is_still_joined(self):
+        """One table whose lower rows are set differently: the row in no table ('김해 | 유지 23 | 22,717') holds a measured
+        value and lines up with the rows below it. The two parts are joined as before, not left as two tables."""
+        upper = [("구분", "2023", "2024", "증감"), ("대추", "54.8%", "9.21", "1.22"), ("자두", "72.8%", "3.20", "9.92"),
+                 ("수원", "74.7%", "3.82", "8.49")]
+        lower = [("Lower", "감소", "84", "81,615"), ("김해", "유지", "23", "22,717"), ("가지", "done", "15", "89,100"),
+                 ("South", "유지", "93", "52,588"), ("양산", "유지", "43", "83,133")]
+        data = _stacked_pdf(10, (upper, (40, 74, 118.8, 167.8), 24, 0), (lower, (40, 90.2, 127.5, 164.1), 16, 20))
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert len(_tables(text)) == 1
+        assert ("| 수원 | 74.7% | 3.82 | 8.49 |\n| Lower | 감소 | 84 | 81,615 |\n| 김해 | 유지 | 23 | 22,717 |\n"
+                "| 가지 | done | 15 | 89,100 |\n| South | 유지 | 93 | 52,588 |\n| 양산 | 유지 | 43 | 83,133 |\n\n이상.") in text
+
+
 def _random_ruled_tables(seed: int) -> tuple[bytes, list[str]]:
     """One or two pages of ruled, open-sided, partly ruled and shaded tables (1–14 rows, 1–7 columns, some columns and rows
     of almost no size) with a distinct word in every filled cell, drawn from `seed`. Returns the PDF and the words."""

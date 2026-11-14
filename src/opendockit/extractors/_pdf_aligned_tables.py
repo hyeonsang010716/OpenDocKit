@@ -2,6 +2,7 @@
 wrapped cells and labels, rows split over lines, and headers carried over a page break.
 """
 
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from itertools import pairwise
 import math
@@ -201,7 +202,8 @@ def _split_runs(runs: list[list[list[_Line]]], rows: list[list[_Line]], taken: s
                 rules: list[tuple[float, float, float]]) -> list[list[list[_Line]]]:
     """`_split_merged_cells` for every borderless table of the page (`runs`, in the same order), top to bottom. The rows a
     table took above or below it count as used for the tables after it, and a table that the rows below a table lead into
-    is searched for together with that table (`_split_merged_cells`); it is then left out.
+    is searched for together with that table (`_split_merged_cells`); it is then left out. Rows between two tables that
+    line up with the columns of the lower one are left to it.
 
     Each table used to grow on its own from the same used lines, so a row that pdfminer merged differently between two
     tables was taken by the table above (downwards) and by the table below (upwards): it came out in both tables, and the
@@ -266,7 +268,8 @@ def _cut_at_closing_rule(run: list[list[_Line]], rules: list[tuple[float, float,
 
 def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: set[int],
                         max_cell: float, rules: list[tuple[float, float, float]],
-                        starts: dict[int, list[list[_Line]]] | None = None) -> tuple[list[list[_Line]], list[list[_Line]] | None]:
+                        starts: dict[int, list[list[_Line]]] | None = None, *,
+                        settle: bool = True) -> tuple[list[list[_Line]], list[list[_Line]] | None]:
     """In a found borderless table (`run`) and the rows right above and below it, split the pieces in which pdfminer merged
     neighbouring cells at the wide gaps inside the line (`_Line.parts`) and search for the table again. Only rows above and
     below that continue at the row pitch and lie within the table's horizontal range are considered. The table is replaced
@@ -288,7 +291,8 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
     value cell) and every gap on the way is within the row pitch of the two tables, the region down to the end of that
     table, and on below it as far as that table would have grown by itself, is searched for first, and it becomes one
     table only when exactly one table is found that holds every line of both (the same conditions as above). Otherwise
-    this table is searched for alone.
+    this table is searched for alone. Rows below that line up with the columns of that other table rather than with this
+    table's are left to it (see below); with `settle` off they are left without first checking that it takes them.
     """
     # Only rows above and below that continue at the row pitch and lie within the table's horizontal range are considered.
     # A body line reaching into the neighbouring column is not a table header.
@@ -340,6 +344,38 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
             after.append(row)
             upper = row
 
+    # The rows below from the first one that lines up with the columns of the table below rather than with this table's
+    # (`_aligned_pieces`) are left to that table when it takes them growing upwards — it is searched for here as it will
+    # be when its turn comes (`settle` off: without asking the table below it in turn) — and the two are not joined.
+    # This table, searched for first, took the header of the table below that pdfminer grouped as one piece ('구분 금액
+    # 수량 비율') and the rows under it as rows of its own, and the table below came out without its column names. When
+    # the table below does not take them they stay rows of this table, and when the first of them holds a measured
+    # value (a data row, the round-44 shape) joining the two tables is tried first, as before
+    # (Pinned by: test_pdf_borderless_split_rows.py::TestRowsBetweenTwoTablesThatBelongToTheTableBelow)
+    kept = len(after)
+    if following is not None:
+        own, other = _column_edges(run), _column_edges(following)
+        kept = next((number for number, row in enumerate(after) if _aligned_pieces(row, other) > _aligned_pieces(row, own)),
+                    kept)
+    data_row = kept < len(after) and any(_measured_value(text) for line in after[kept] for _, _, text in _cell_pieces(line))
+
+    def without_the_rows_of_the_table_below() -> list[list[_Line]] | None:
+        found = _found_again([*above, *run, *after[:kept]], {id(line) for row in run for line in row}, len(run[0]),
+                             max_cell) or run
+        if settle and following is not None:
+            grown, _ = _split_merged_cells(following, rows, taken | _original_lines(found), max_cell, rules,
+                                           {position: table for position, table in (starts or {}).items()
+                                            if table is not following}, settle=False)
+            held = _original_lines(grown)
+            if not all(id(line) in held for row in after[kept:] for line in row):
+                return None
+        return found
+
+    if kept < len(after) and not data_row:
+        found = without_the_rows_of_the_table_below()
+        if found is not None:
+            return found, None
+
     if following is not None:
         last = max(_row_positions(following[-1], rows), default=-1)
         lower = rows[end + 1 + len(after):last + 1]
@@ -375,9 +411,17 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
             if found is not None:
                 return found, following
 
+    if data_row:
+        found = without_the_rows_of_the_table_below()
+        if found is not None:
+            return found, None
+
     found = _found_again([*above, *run, *after], {id(line) for row in run for line in row}, len(run[0]), max_cell)
     return (run if found is None else found), None
 
+
+# How far apart (pt) the ends of two cell pieces may be to count as the same column edge (`_aligned_pieces`)
+_COLUMN_EDGE_TOLERANCE = 1.0
 
 # A number with a thousands separator or a decimal point ('5,483', '4.3%', '1.2') — a measured value, not a label (`_measured_value`)
 _MEASURED = re.compile(r"\d,\d{3}|\d\.\d")
@@ -389,6 +433,36 @@ def _measured_value(text: str) -> bool:
     percentage ('10%') is not, since a header of its own holds those as often as a data row."""
     text = text.strip()
     return bool(_NUMBER_CELL.match(text)) and not _YEAR_OR_DATE.match(text) and bool(_MEASURED.search(text))
+
+
+def _original_lines(table: list[list[_Line]]) -> set[int]:
+    """The ids of the lines a borderless table holds: its pieces, the lines they were split from (`source`) and the lines
+    of its joined cells (`joined`)."""
+    return {id(original) for row in table for line in row for original in (line, line.source, *line.joined)
+            if original is not None}
+
+
+def _cell_pieces(line: _Line) -> list[tuple[float, float, str]]:
+    """The pieces of a line as (left, right, text): the cells pdfminer merged into it (`fine_parts`, `parts`), or the line."""
+    return list(line.fine_parts or line.parts) or [(line.x0, line.x1, line.text)]
+
+
+def _column_edges(table: list[list[_Line]]) -> tuple[list[float], list[float]]:
+    """The left ends and the right ends of the cell pieces of a borderless table, each in ascending order
+    (`_aligned_pieces`)."""
+    pieces = [piece for row in table for line in row for piece in _cell_pieces(line)]
+    return sorted(x0 for x0, _, _ in pieces), sorted(x1 for _, x1, _ in pieces)
+
+
+def _aligned_pieces(row: list[_Line], edges: tuple[list[float], list[float]]) -> int:
+    """How many cell pieces of a row start where two or more pieces of a table start, or end where two or more end (within
+    `_COLUMN_EDGE_TOLERANCE`; `edges` from `_column_edges`) — the pieces that sit in a column of that table."""
+    lefts, rights = edges
+
+    def shared(values: list[float], x: float) -> bool:
+        return bisect_right(values, x + _COLUMN_EDGE_TOLERANCE) - bisect_left(values, x - _COLUMN_EDGE_TOLERANCE) >= 2
+
+    return sum(shared(lefts, x0) or shared(rights, x1) for line in row for x0, x1, _ in _cell_pieces(line))
 
 
 def _row_gap(upper: list[_Line], lower: list[_Line]) -> float:
