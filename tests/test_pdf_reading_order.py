@@ -244,6 +244,31 @@ class TestSymbolsDrawnAfterTheirLine:
 
         assert f"{symbol}{rest}" in result.text
 
+    _LINES = ["The quick brown fox jumps over the lazy dog", "and then it runs away into the deep dark forest",
+              "where nobody will ever be able to find it again", "until the morning comes with a bright sun"]
+
+    @pytest.mark.parametrize("letters_backwards", [False, True])
+    def test_words_drawn_from_right_to_left_without_spaces_are_read_in_place(self, letters_backwards):
+        """Words of a line drawn last to first with no space glyph: pdfminer took a short word and the word drawn after it,
+        to its left, for one piece and joined them in drawing order ('comes awith bright'). The same for the letters of a
+        word drawn last to first."""
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 11)
+            for number, line in enumerate(self._LINES):
+                x, placed = 72.0, []
+                for word in line.split():
+                    if letters_backwards:
+                        placed.extend((x + pdf.stringWidth(word[:at], "Helvetica", 11), word[at]) for at in range(len(word)))
+                    else:
+                        placed.append((x, word))
+                    x += pdf.stringWidth(word + " ", "Helvetica", 11)
+                for left, text in reversed(placed):
+                    pdf.drawString(left, 700 - 14 * number, text)
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == "\n".join(self._LINES)
+
     def test_right_to_left_text_drawn_in_logical_order_is_not_reversed(self):
         """For right-to-left text drawn in logical order it is correct that the characters' x decreases. Re-placing them in x order would reverse
         the text."""

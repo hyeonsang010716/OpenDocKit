@@ -136,12 +136,16 @@ def _late_symbols_in_place(piece: LTTextLineHorizontal, word_margin: float) -> L
 
     LibreOffice draws bullet symbols and Roman numerals ('○', '※', 'Ⅰ') in a fallback font after the beginning of the line, so
     pdfminer joined them in drawing order as '5○ 개 기관 선정' and '. Ⅰ 사업 개요' (Pinned by:
-    test_pdf_reading_order.py::TestSymbolsDrawnAfterTheirLine). The whole line is re-laid in x order only when every character placed
-    to the left of characters drawn before it (the characters to be moved back) is a symbol that is neither a word character
-    (`_WORD_CHAR`) nor whitespace, and the characters do not overlap when laid in x order (`_glyphs_collide` — copies drawn on top
-    of each other). Deliberate: a line containing right-to-left characters (Hebrew, Arabic) is not touched — for text drawn in
-    logical order a decreasing x is correct, and laying it in x order would reverse it (Pinned by:
-    test_right_to_left_text_drawn_in_logical_order_is_not_reversed).
+    test_pdf_reading_order.py::TestSymbolsDrawnAfterTheirLine). Words drawn last to first with no space glyph between them came
+    out in drawing order the same way: a short word and the word drawn after it, to its left, were one piece ('comes awith
+    bright', Pinned by: test_words_drawn_from_right_to_left_without_spaces_are_read_in_place). The whole line is re-laid in x
+    order when no character placed to the left of characters drawn before it (the characters to be moved back) is whitespace,
+    and the characters do not overlap when laid in x order (`_glyphs_collide` — copies drawn on top of each other, fake bold, a
+    mark drawn over its letter). Word characters are moved back only on a line whose characters are all drawn facing right: text
+    turned upside down (a page rotated by 180°) runs right to left on the page, and laying it in x order reversed it (Pinned by:
+    test_pdf.py::TestDrawingArtifacts::test_rotated_page_with_an_off_centre_crop_box_keeps_its_visible_text). Deliberate: a line
+    containing right-to-left characters (Hebrew, Arabic) is not touched — for text drawn in logical order a decreasing x is
+    correct, and laying it in x order would reverse it (Pinned by: test_right_to_left_text_drawn_in_logical_order_is_not_reversed).
     """
     chars = [obj for obj in piece if isinstance(obj, LTChar)]
     if len(chars) < 2 or _RIGHT_TO_LEFT.search("".join(char.get_text() for char in chars)):
@@ -154,8 +158,10 @@ def _late_symbols_in_place(piece: LTTextLineHorizontal, word_margin: float) -> L
             moved.append(char)
         reach = max(reach, char.x0)
 
-    if not moved or any(not char.get_text().strip() or _WORD_CHAR.search(char.get_text()) for char in moved):
+    if not moved or any(not char.get_text().strip() for char in moved):
         return None
+    if any(_WORD_CHAR.search(char.get_text()) for char in moved) and any(char.matrix[0] <= 0 for char in chars):
+        return None  # text turned upside down (a page rotated by 180°) runs right to left on the page and is read in drawing order
     ordered = sorted(chars, key=lambda char: char.x0)
     if _glyphs_collide(ordered):
         return None
