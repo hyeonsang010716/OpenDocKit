@@ -837,17 +837,19 @@ class TestMergedCellOpenAtThePageEnd:
         assert sections[0].text.count("팀2") == 2
         assert f"| {cell} | 과제 7 | 7,777 |" in sections[1].text
 
-    @pytest.mark.parametrize(("values", "repeated"), [("dates", False), ("dates", True), ("pending", False), ("pending", True)])
+    @pytest.mark.parametrize(("values", "repeated"), [("dates", False), ("dates", True), ("pending", False), ("pending", True),
+                                                      ("amounts", False)])
     def test_rows_continued_without_a_header_get_the_open_cell_whatever_their_values(self, values, repeated):
         """With a date column ('2024.07.15') or a first row whose value is text ('미정') the first rows of page 2 looked like
-        a header of their own, and the rest of the merged cell lost its text. (Without a repeated header the top row of
-        page 2 shows its first cell empty, as before: the top row of a continued ruled table is passed with the cells that
-        have no top border as covered cells.)"""
+        a header of their own, and the rest of the merged cell lost its text. Without a repeated header the top row of page 2
+        also showed its first cell empty: the top row of a continued ruled table was passed with every cell lacking a top
+        border as a covered cell, which dropped the text carried into it."""
         remaining = 2
         columns, height = [60.0, 160.0, 260.0, 360.0], 22.0
 
         def value(number):
-            return f"2024.{number:02d}.15" if values == "dates" else "미정" if number == 7 else f"{number * 1111:,}"
+            return (f"2024.{number:02d}.15" if values == "dates" else "미정" if number == 7 and values == "pending"
+                    else f"{number * 1111:,}")
 
         def row_lines(pdf, top, cells, first_open=False, last_open=False):
             pdf.line(columns[1] if first_open else columns[0], top, columns[-1], top)
@@ -884,7 +886,7 @@ class TestMergedCellOpenAtThePageEnd:
 
         page = convert(_korean_pdf(draw, pages=2), "a.pdf", ConvertOptions(page_markers=False)).sections[1].text
 
-        for number in range(7 if repeated else 8, 7 + remaining):
+        for number in range(7, 7 + remaining):
             assert f"| 그룹2 담당: 팀2 | 과제 {number} | {value(number)} |" in page
         assert f"| 그룹3 담당: 팀3 | 과제 {7 + remaining} | {value(7 + remaining)} |" in page
 
