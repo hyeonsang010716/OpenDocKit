@@ -265,6 +265,88 @@ class TestOneShadedRowInABorderlessTable:
         assert text == plain
 
 
+def _ruled_shaded_pdf(rows: list[tuple], edges: list[float], totals: list[tuple], grid: bool = True) -> bytes:
+    """A table whose every row is shaded with one rectangle (two band colours) and, with `grid`, ruled with a full grid.
+    A cell is a list of lines; the columns after the second are right-aligned. `totals` are lines without rules or shading
+    one row height apart below the table, in the same columns."""
+    def draw(pdf, index):
+        from reportlab.lib import colors
+
+        pdf.setFont("Helvetica", 10)
+        pdf.drawString(60, 800, "Quotation for office equipment.")
+        tops = [760.0]
+        for row in rows:
+            tops.append(tops[-1] - (6 + 12 * max(len(cell) for cell in row)))
+        for number, row in enumerate(rows):
+            pdf.setFillColor(colors.HexColor("#B8CCE4" if number == 0 else ("#DCE6F2", "#F2F2F2")[number % 2]))
+            pdf.rect(edges[0], tops[number + 1], edges[-1] - edges[0], tops[number] - tops[number + 1], stroke=0, fill=1)
+            pdf.setFillColor(colors.black)
+            for column, cell in enumerate(row):
+                for line, text in enumerate(cell):
+                    if column >= 2:
+                        pdf.drawRightString(edges[column + 1] - 6, tops[number] - 13 - 12 * line, text)
+                    else:
+                        pdf.drawString(edges[column] + 4, tops[number] - 13 - 12 * line, text)
+        if grid:
+            pdf.setLineWidth(0.5)
+            for y in tops:
+                pdf.line(edges[0], y, edges[-1], y)
+            for x in edges:
+                pdf.line(x, tops[0], x, tops[-1])
+        for number, line in enumerate(totals):
+            for column, text in enumerate(line):
+                if column >= 2:
+                    pdf.drawRightString(edges[column + 1] - 6, tops[-1] - 13 - 18 * number, text)
+                else:
+                    pdf.drawString(edges[column] + 4, tops[-1] - 13 - 18 * number, text)
+        pdf.drawString(60, tops[-1] - 100, "Prices exclude tax.")
+
+    return _korean_pdf(draw)
+
+
+class TestRuledGridWithShadedRows:
+    """A table with a full grid of ruling lines whose rows are all shaded, followed by total lines without rules. The table
+    was dropped as a shaded fragment that stops short of aligned rows and read again by the borderless search, which knows
+    nothing of the rules: wrapped cells lost their line breaks and a number beside an empty cell moved into the next
+    column. A grid that is drawn is read as the ruled table, and the lines below stay outside it."""
+
+    _EDGES = [60, 170, 330, 400, 500]
+    _ROWS = [(["Product"], ["Description"], ["Qty"], ["Amount"]),
+             (["Laser printer"], ["Duplex, network,", "two paper trays"], ["2"], ["1,250"]),
+             (["Toner"], ["Black, high yield"], [], ["980"]),
+             (["Service plan"], ["On-site repair,", "three years,", "next business day"], ["1"], ["2,680"]),
+             (["Cable"], [], ["4"], ["77"])]
+    _TOTALS = [("", "", "Subtotal", "4,987"), ("", "", "Tax", "498"), ("", "", "Total", "5,485")]
+    _TABLE = ("| Product | Description | Qty | Amount |\n| --- | --- | --- | --- |\n"
+              "| Laser printer | Duplex, network,<br>two paper trays | 2 | 1,250 |\n| Toner | Black, high yield | | 980 |\n"
+              "| Service plan | On-site repair,<br>three years,<br>next business day | 1 | 2,680 |\n| Cable | | 4 | 77 |")
+
+    @pytest.mark.parametrize("totals", [2, 3])
+    def test_grid_is_read_as_the_ruled_table_with_total_lines_below_it(self, totals):
+        text = convert(_ruled_shaded_pdf(self._ROWS, self._EDGES, self._TOTALS[:totals]), "a.pdf",
+                       ConvertOptions(page_markers=False)).text
+
+        assert self._TABLE + "\n\n" in text
+        assert "Subtotal" in text and "4,987" in text and "498" in text
+
+    def test_table_is_the_same_as_without_the_total_lines(self):
+        options = ConvertOptions(page_markers=False)
+        alone = convert(_ruled_shaded_pdf(self._ROWS, self._EDGES, []), "a.pdf", options).text
+
+        text = convert(_ruled_shaded_pdf(self._ROWS, self._EDGES, self._TOTALS), "a.pdf", options).text
+
+        assert self._TABLE in alone
+        assert [line for line in text.splitlines() if line.startswith("|")] == [line for line in alone.splitlines() if line.startswith("|")]
+
+    def test_shaded_rows_without_a_grid_are_still_left_to_the_borderless_search(self):
+        """The same page without the ruling lines: the total lines join the table (the rule this class narrows,
+        `TestOneShadedRowInABorderlessTable`)."""
+        text = convert(_ruled_shaded_pdf(self._ROWS, self._EDGES, self._TOTALS, grid=False), "a.pdf",
+                       ConvertOptions(page_markers=False)).text
+
+        assert "| | | Subtotal | 4,987 |\n| | | Tax | 498 |\n| | | Total | 5,485 |" in text
+
+
 @pytest.mark.timing
 def test_many_bands_on_a_page_with_many_letters_take_linear_time():
     """Every band scanned all the characters of the page, so a large page with many shaded bands and tables (a 1500pt

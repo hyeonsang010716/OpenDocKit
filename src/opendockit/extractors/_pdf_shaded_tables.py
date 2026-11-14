@@ -169,7 +169,8 @@ def _with_shaded_rows(page: object, tables: list[object]) -> list[object]:
         new, replaced = grown if grown is not None else (table, [table])
         position = min(index for index, other in enumerate(result) if any(other is old for old in replaced))
         result = [other for other in result if not any(other is old for old in replaced)]
-        if not _leaves_aligned_rows(page, new, [other for other in result if other is not new], shaded):
+        if (not _leaves_aligned_rows(page, new, [other for other in result if other is not new], shaded)
+                or _has_drawn_columns(page, new)):
             result.insert(position, new)
     return _with_merged_column_fragments(page, result, shades, shaded)
 
@@ -202,6 +203,38 @@ def _leaves_aligned_rows(page: object, table: object, others: list[object], shad
         if _aligned_cells(_band_cells(page, band, edges), references):
             return True
     return False
+
+
+def _has_drawn_columns(page: object, table: object) -> bool:
+    """Whether every inner column boundary of the table is drawn as a vertical rule over at least half of the table's height:
+    a line, a filled rectangle no wider than `_SHADE_MIN_SIDE` (a Chrome border) or a side of a rectangle with a stroke — not
+    the side of a shading rectangle.
+
+    Such a table is a ruled grid that happens to be shaded, and its cells are what the rules say. It is not left to the
+    borderless search (`_leaves_aligned_rows`), which knows nothing of the rules: a quotation with a full grid, every row
+    shaded, and two or more total lines without rules below it was read again as a borderless table, where the lines of a
+    wrapped cell lost their breaks ('Duplex, network,<br>two paper trays'), a number next to an empty cell moved into the
+    neighbouring column ('| | 56,306 Delta North |') and a last row of one cell fell out of the table. The table stays as
+    the rules give it and the total lines stay outside it, as they do under a grid without shading (Pinned by:
+    test_pdf_shaded_tables.py::TestRuledGridWithShadedRows).
+    """
+    edges = _column_edges(table)
+    _, top, _, bottom = table.bbox
+    drawn = [(line["x0"], line["top"], line["bottom"]) for line in page.lines if line["x1"] - line["x0"] <= 1]
+    for rect in page.rects:
+        if rect["x1"] - rect["x0"] <= _SHADE_MIN_SIDE:
+            drawn.append(((rect["x0"] + rect["x1"]) / 2, rect["top"], rect["bottom"]))
+        elif rect.get("stroke"):
+            drawn += [(rect["x0"], rect["top"], rect["bottom"]), (rect["x1"], rect["top"], rect["bottom"])]
+    drawn = [(x, max(start, top), min(end, bottom)) for x, start, end in drawn if start < bottom and end > top]
+    for edge in edges[1:-1]:
+        covered, reached = 0.0, top
+        for _, start, end in sorted((rule for rule in drawn if abs(rule[0] - edge) <= 1.5), key=lambda rule: rule[1]):
+            covered += max(0.0, end - max(start, reached))
+            reached = max(reached, end)
+        if covered < (bottom - top) / 2:
+            return False
+    return len(edges) >= 3
 
 
 def _with_merged_column_fragments(page: object, tables: list[object], shades: list[dict],
