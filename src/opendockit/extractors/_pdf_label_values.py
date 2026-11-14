@@ -248,8 +248,10 @@ def _without_left_block(rows: list[list[_Line]], index: int, max_label: float, p
     if len(kept(rows[index])) == len(rows[index]) and len(kept(rows[index + 1])) == len(rows[index + 1]):
         return None
     view = [row for row in map(kept, rows) if row]
-    start = next(position for position, row in enumerate(view) if row[0] is label)
-    if not _pairs_with([], view[start], max_label):
+    # The label is not always the first line left in its row: an edge that is not a number (NaN) drops it from its own row, and
+    # `next` without a default raised StopIteration (Pinned by: test_pdf_label_value_rows.py::TestLabelWithAnEdgeThatIsNotANumber)
+    start = next((position for position, row in enumerate(view) if row[0] is label), None)
+    if start is None or not _pairs_with([], view[start], max_label):
         return None
     run = _label_value_run(view, start, max_label)
     widths = [row[1].x1 - row[1].x0 for row in run if len(row) == 2]

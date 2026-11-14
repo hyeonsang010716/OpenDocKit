@@ -489,3 +489,20 @@ class TestLongRunsOfLinesForCentredLabels:
             reach: dict = {}
             for index in range(len(rows)):
                 assert _centered_label_rows(rows, index, 150.0, reach) == _centered_label_rows(rows, index, 150.0)
+
+
+class TestLabelWithAnEdgeThatIsNotANumber:
+    """A label whose right edge is NaN is dropped from its own row when the lines of another column are taken out, so the search
+    for where its row starts found nothing and `next` raised StopIteration."""
+
+    def test_no_group_instead_of_an_error(self):
+        from opendockit.extractors._pdf_label_values import _without_left_block
+        from opendockit.extractors._pdf_model import _Line
+
+        row = [_Line(top=0, bottom=10, x0=10, x1=200, text="wide", size=10),
+               _Line(top=0, bottom=10, x0=100, x1=float("nan"), text="label", size=10),
+               _Line(top=0, bottom=10, x0=300, x1=360, text="value", size=10)]
+        below = [_Line(top=12, bottom=22, x0=100, x1=140, text="label 2", size=10),
+                 _Line(top=12, bottom=22, x0=300, x1=360, text="value 2", size=10)]
+
+        assert _without_left_block([row, below], 0, 80, 600) is None
