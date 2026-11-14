@@ -1041,9 +1041,14 @@ class TestMemo:
                            f"<hp:t>메모{index}</hp:t></hp:run></hp:p></hp:subList></hp:fieldBegin></hp:ctrl></hp:run></hp:p>"
                            for index in range(count))
             data = builder.hwpx_bytes(body)
-            started = time.perf_counter()
-            text = convert(data, "a.hwpx").text
-            return time.perf_counter() - started, text
+            # The faster of two runs. A single pause of the machine (about 0.2 s on the Windows runner, where the conversion itself
+            # measured linear) in the one run of the larger document read as a conversion slower than linear.
+            spent = []
+            for _ in range(2):
+                started = time.perf_counter()
+                text = convert(data, "a.hwpx").text
+                spent.append(time.perf_counter() - started)
+            return min(spent), text
 
         small, _ = elapsed(4_000)
         large, text = elapsed(8_000)
