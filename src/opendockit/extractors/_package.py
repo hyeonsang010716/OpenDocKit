@@ -9,6 +9,7 @@ import lzma
 import posixpath
 import re
 import shutil
+from urllib.parse import unquote
 import zipfile
 import zlib
 
@@ -95,7 +96,8 @@ def open_package[T](opener: Callable[[BytesIO], T], data: bytes, warnings: list[
             repaired = None
         if repaired is None:
             raise
-        warnings.append(repaired[1])
+        if repaired[1] is not None:
+            warnings.append(repaired[1])
         return opener(BytesIO(repaired[0]))
 
 
@@ -146,9 +148,9 @@ def core_properties(package: object) -> dict[str, str]:
 _PART_LABEL = re.compile(r"[A-Za-z]{1,24}[0-9]{0,6}\.[A-Za-z0-9]{1,5}")
 
 
-def repair_package(data: bytes) -> tuple[bytes, str] | None:
+def repair_package(data: bytes) -> tuple[bytes, str | None] | None:
     """A copy of the package with the relationships that point to missing parts or non-XML XML parts removed and those parts left
-    out, plus the warning text. None if there is nothing to detach.
+    out, plus the warning text (None when only percent-encoded targets were decoded). None if there is nothing to repair.
 
     Relationship targets are resolved against the folder of the part that owns the `.rels` (an empty target or a `../..` target
     outside the package is a missing part). A part with no content type also makes the library raise KeyError, so it counts as
@@ -166,33 +168,54 @@ def repair_package(data: bytes) -> tuple[bytes, str] | None:
         readable: dict[str, bool] = {}
         rewritten: dict[str, bytes] = {}
         dropped: set[str] = set()
+        broken_relationships: set[str] = set()
+        decoded_targets = 0
         for rels_name in sorted(name for name in names if _is_relationships(name)):
             root = _parse_member(archive, rels_name)
             if root is None:
+                # Deliberate: relationships that are not XML (or do not read out of the archive) are left out of the copy, so the
+                # part that owns them opens without relationships (its pictures, links and the like are lost) instead of the whole
+                # document being rejected. For the package relationships the main part is found through the content types
+                # instead (Pinned by: test_office_robustness.py::TestBrokenRelationshipsPart).
+                broken_relationships.add(rels_name)
                 continue
             # The folder of the owning part: the text before the last `_rels/` — the first one is wrong for a folder whose name
             # ends in `_rels` (Pinned by: test_office_robustness.py::TestDamagedZipMember::
             # test_relationships_of_a_part_in_a_folder_ending_in_rels_resolve_against_that_folder)
             base = rels_name[: rels_name.rindex("_rels/")]
-            removed = False
+            changed = False
             for relationship in list(root):
                 if relationship.tag != f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship" or relationship.get("TargetMode") == "External":
                     continue
-                target = _resolve_target(base, relationship.get("Target", ""))
+                written = relationship.get("Target", "")
+                target = _resolve_target(base, written)
+                # A target is a URI, so `%6C` stands for 'l' (OPC). The libraries look the target up as written, so a decoded
+                # target that names a readable part is written back decoded; the literal name is kept when only it exists
+                # (Pinned by: test_office_robustness.py::TestBrokenRelationshipsPart::test_percent_encoded_target_is_decoded).
+                decoded = unquote(written)
+                if decoded != written and _is_readable(archive, names, content_type_of, readable, _resolve_target(base, decoded)):
+                    relationship.set("Target", decoded)
+                    decoded_targets += 1
+                    changed = True
+                    continue
                 if target == main_part or _is_readable(archive, names, content_type_of, readable, target):
                     continue
                 root.remove(relationship)
                 dropped.add(target)
-                removed = True
-            if removed:
+                changed = True
+            if changed:
                 rewritten[rels_name] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
-        if not dropped:
+        if "_rels/.rels" in broken_relationships:
+            rewritten["_rels/.rels"] = _package_relationships(main_part)
+        dropped |= broken_relationships
+        if not dropped and not decoded_targets:
             return None
 
         # Broken parts are left out of the copy together with their .rels; the rest is carried over as is (with duplicate names, the
         # last one, as when reading)
         excluded = {name for name in dropped if name in names}
         excluded |= {_relationships_of(name) for name in excluded} & names
+        excluded -= set(rewritten)
         members = {info.filename: info for info in archive.infolist()}
         # A member nothing points at is never opened by the libraries, but copying it would fail on it: it is left out too
         excluded |= {name for name, info in members.items() if name not in excluded and name not in rewritten
@@ -210,6 +233,8 @@ def repair_package(data: bytes) -> tuple[bytes, str] | None:
                 with archive.open(info) as source, target_archive.open(entry, "w") as sink:
                     shutil.copyfileobj(source, sink)
 
+    if not dropped:  # only targets were decoded: nothing is missing
+        return buffer.getvalue(), None
     # Deliberate: a part is named only when its name has the plain shape of a part name (`_PART_LABEL`); the others are only
     # counted. The names come from relationship targets, which the document's author writes: a sentence of any length put there
     # appeared word for word in the warning (Pinned by: test_audit_core.py::TestDetachedPartNamesInTheWarning).
@@ -273,12 +298,34 @@ def _content_type_lookup(archive: zipfile.ZipFile, names: set[str]) -> Callable[
 
 
 def _main_part(archive: zipfile.ZipFile, names: set[str]) -> str | None:
-    """The officeDocument target of the package relationships (_rels/.rels). None if missing or broken."""
+    """The officeDocument target of the package relationships (_rels/.rels). When those are present but not XML, the one part the
+    content types give a main-document type (`….main+xml`). None if neither names it."""
     root = _parse_member(archive, "_rels/.rels") if "_rels/.rels" in names else None
-    for relationship in root.iter(f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship") if root is not None else []:
+    if root is None:
+        return _main_part_by_content_type(archive, names) if "_rels/.rels" in names else None
+    for relationship in root.iter(f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship"):
         if relationship.get("Type") == _OFFICE_DOCUMENT and relationship.get("TargetMode") != "External":
             return _resolve_target("", relationship.get("Target", ""))
     return None
+
+
+def _main_part_by_content_type(archive: zipfile.ZipFile, names: set[str]) -> str | None:
+    """The only part whose content-type override is a main-document type (`document.main+xml`, `presentation.main+xml`, their
+    macro-enabled and template forms). None when there is not exactly one or it is not in the package."""
+    root = _parse_member(archive, "[Content_Types].xml") if "[Content_Types].xml" in names else None
+    if root is None:
+        return None
+    found = {element.get("PartName", "").lstrip("/") for element in root.iter(f"{{{_CONTENT_TYPES}}}Override")
+             if element.get("ContentType", "").endswith(".main+xml")}
+    return next(iter(found)) if len(found) == 1 and found <= names else None
+
+
+def _package_relationships(main_part: str) -> bytes:
+    """Package relationships (_rels/.rels) that point only at the main part: they stand in for package relationships that are not
+    XML, so document properties and thumbnails are left out."""
+    root = etree.Element(f"{{{_PACKAGE_RELATIONSHIPS}}}Relationships", nsmap={None: _PACKAGE_RELATIONSHIPS})
+    etree.SubElement(root, f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship", Id="rId1", Type=_OFFICE_DOCUMENT, Target="/" + main_part)
+    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
 def _is_readable(archive: zipfile.ZipFile, names: set[str], content_type_of: Callable[[str], str | None],

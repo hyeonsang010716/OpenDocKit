@@ -386,6 +386,71 @@ class TestDamagedZipMember:
             assert issubclass(error, ZIP_MEMBER_ERRORS)
 
 
+class TestBrokenRelationshipsPart:
+    """One relationships part (`.rels`) that is not XML was skipped when the package was repaired, so nothing was detached and the
+    whole document was rejected as corrupted. It is now left out of the copy: the part that owns it opens without relationships."""
+
+    def test_docx_header_relationships_that_are_not_xml_keep_the_body(self):
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("본문")
+        document.sections[0].header.paragraphs[0].text = "머리글"
+        buffer = BytesIO()
+        document.save(buffer)
+        data = builder.zip_with(buffer.getvalue(), add={"word/_rels/header1.xml.rels": "<Relationships"})
+
+        result = convert(data, "a.docx", ConvertOptions(include_headers_footers=True))
+
+        assert result.text == "머리글\n\n본문"
+        assert any("detaching 1 missing or broken part(s)" in warning for warning in result.warnings)
+
+    def test_pptx_slide_relationships_that_are_not_xml_keep_every_slide(self):
+        data = builder.zip_with(builder.pptx_bytes(), edit={"ppt/slides/_rels/slide2.xml.rels": lambda xml: xml[:-5]})
+
+        result = convert(data, "a.pptx")
+
+        assert "사업 계획" in result.text and "매출 성장" in result.text and "서울" in result.text
+        assert any("detaching 1 missing or broken part(s)" in warning for warning in result.warnings)
+
+    def test_main_part_relationships_that_are_not_xml_keep_the_body(self):
+        data = builder.zip_with(builder.docx_bytes(), edit={"word/_rels/document.xml.rels": lambda xml: xml[:-5]})
+
+        result = convert(data, "a.docx")
+
+        assert "본문 첫 문단입니다." in result.text and "끝 | 파이프" in result.text
+        assert any("detaching 1 missing or broken part(s)" in warning for warning in result.warnings)
+
+    @pytest.mark.parametrize(("name", "data"), [("a.docx", builder.docx_bytes()), ("a.pptx", builder.pptx_bytes())])
+    def test_package_relationships_that_are_not_xml_find_the_main_part_by_its_content_type(self, name, data):
+        expected = convert(data, name).text
+
+        result = convert(builder.zip_with(data, edit={"_rels/.rels": lambda xml: xml[:-5]}), name)
+
+        assert result.text == expected
+        assert any("detaching 1 missing or broken part(s)" in warning for warning in result.warnings)
+
+    def test_percent_encoded_target_is_decoded(self):
+        """`sty%6Ces.xml` is the URI form of `styles.xml`. It was looked up as written, counted as missing and the styles were
+        detached with a warning."""
+        data = builder.docx_bytes()
+        encoded = builder.zip_with(data, edit={
+            "word/_rels/document.xml.rels": lambda xml: xml.replace('Target="styles.xml"', 'Target="sty%6Ces.xml"')})
+
+        result = convert(encoded, "a.docx")
+
+        assert result.text == convert(data, "a.docx").text and result.warnings == []
+
+    def test_literal_name_with_a_percent_sign_is_kept_when_only_it_exists(self):
+        data = _rebuilt(builder.docx_bytes(), rename={"word/styles.xml": "word/sty%6Ces.xml"}, edit={
+            "word/_rels/document.xml.rels": lambda xml: xml.replace('Target="styles.xml"', 'Target="sty%6Ces.xml"'),
+            "[Content_Types].xml": lambda xml: xml.replace("/word/styles.xml", "/word/sty%6Ces.xml")})
+
+        result = convert(data, "a.docx")
+
+        assert result.text == convert(builder.docx_bytes(), "a.docx").text and result.warnings == []
+
+
 _NOTE_PICTURE_RELATIONSHIP = f'<Relationship Id="rIdImg" Type="{_RELATIONSHIPS_NS}/image" Target="media/note.png"/>'
 _OLE = ('<w:r><w:object xmlns:o="urn:schemas-microsoft-com:office:office">'
         '<o:OLEObject Type="Embed" ProgID="Excel.Sheet.12" ShapeID="s1"/></w:object></w:r>')
