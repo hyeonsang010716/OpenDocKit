@@ -780,14 +780,17 @@ def _normalize_page_boxes(page: object) -> None:
             setattr(source, name, (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)))
     # A MediaBox without area (`[0 0 0 0]`, `[0 0 612 0]`) made a page of height 0, so every character lay outside the visible
     # area and was dropped, and pdfium read no more than that, so nothing took its place. Such a page is read as US Letter, the
-    # size pdfium shows it at (Pinned by: test_pdf_page_boxes.py::TestEmptyMediaBox).
+    # size pdfium shows it at (Pinned by: test_pdf_page_boxes.py::TestEmptyMediaBox). pdfminer places the characters by the
+    # MediaBox of its page (a box that is a point away from the origin shifted them off the page); pdfplumber measured the
+    # CropBox from the page of height 0, so it is replaced too; a page turned by 90° is Letter on its side, or its picture was
+    # cut out of the wrong place (Pinned by: ::test_picture_on_a_turned_page_whose_media_box_has_no_area_is_cut_out_where_it_is).
+    # Nothing of the page is read before this, so no cached layout holds characters placed on the page without area.
     media = getattr(source, "mediabox", None)
     if (isinstance(media, list | tuple) and len(media) == 4 and all(isinstance(value, int | float) for value in media)
             and (media[2] - media[0] <= 0 or media[3] - media[1] <= 0)):
-        source.mediabox = source.cropbox = (0.0, 0.0, 612.0, 792.0)
+        source.mediabox = (0.0, 0.0, 612.0, 792.0)
         width, height = (612.0, 792.0) if getattr(page, "rotation", 0) % 180 == 0 else (792.0, 612.0)
         page.mediabox = page.cropbox = page.bbox = (0.0, 0.0, width, height)
-        page.flush_cache(["_layout", "_objects"])  # characters already read were placed on the page without area
 
 
 def _is_ruled_grid(pieces: int, paths: int) -> bool:

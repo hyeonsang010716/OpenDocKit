@@ -36,10 +36,40 @@ class TestEmptyMediaBox:
     area and was dropped, and pdfium (which falls back to US Letter) read the same number of characters, so nothing replaced
     them and the page came out empty ('No text was extracted.')."""
 
-    @pytest.mark.parametrize("boxes", [b"/MediaBox [0 0 0 0]", b"/MediaBox [0 0 612 0]", b"/MediaBox [0 0 0 0] /CropBox [0 0 0 0]",
-                                       b"/MediaBox [0 0 0 0] /Rotate 90"])
+    @pytest.mark.parametrize("boxes", [
+        b"/MediaBox [0 0 0 792]", b"/MediaBox [0 0 612 0]",  # no width, no height
+        b"/MediaBox [100 100 100 100]",  # a point away from the origin: the characters are not shifted by it
+        b"/MediaBox [0 0 0 0] /CropBox [0 -100 612 692]"])  # the CropBox, measured from a page of height 0, is not kept
     def test_text_on_a_page_whose_media_box_has_no_area_is_read_in_order(self, boxes):
         result = convert(_one_page(boxes), "a.pdf")
 
         assert result.sections[0].text == ("Line one at top of page\n\nMiddle line of the page\n\nBottom line near footer")
         assert not result.warnings
+
+    def test_picture_on_a_turned_page_whose_media_box_has_no_area_is_cut_out_where_it_is(self):
+        """A page turned by 90° is US Letter on its side. Taken for an upright one, the picture was cut out of the wrong
+        part of the page."""
+        from io import BytesIO
+
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas
+
+        from tests import builder
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(612, 792), pageCompression=0)
+        pdf.setPageRotation(90)
+        pdf.setFont("Helvetica", 11)
+        pdf.drawString(72, 720, "The chart below shows the growth over five years.")
+        pdf.drawImage(ImageReader(BytesIO(builder.png_bytes(600, 300, seed=3))), 72, 400, width=300, height=150)
+        pdf.drawString(72, 380, "Figure 1. Growth over five years")
+        pdf.showPage()
+        pdf.save()
+        whole = buffer.getvalue()
+        boxes = whole[whole.index(b"/MediaBox"):whole.index(b"]", whole.index(b"/MediaBox")) + 1]
+        empty = whole.replace(boxes, b"/MediaBox [0 0 0 0]".ljust(len(boxes)))  # the same length: the cross-reference table stays right
+
+        expected, result = convert(whole, "a.pdf"), convert(empty, "a.pdf")
+
+        assert len(expected.images) == 1 and [image.data for image in result.images] == [image.data for image in expected.images]
+        assert result.text == expected.text
