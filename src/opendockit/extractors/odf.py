@@ -94,7 +94,9 @@ _ROW_GROUPS = frozenset(f"{{{_TABLE}}}{name}" for name in ("table-header-rows", 
 # `text:index-body`). Their `…-source` children are the index settings, not content, and are not descended into.
 _BLOCK_WRAPPERS = frozenset(f"{{{_TEXT}}}{name}" for name in (
     "section", "index-body", "index-title", "table-of-content", "illustration-index", "table-index", "object-index", "user-index",
-    "alphabetical-index", "bibliography", "numbered-paragraph"))
+    "alphabetical-index", "bibliography"))
+_NUMBERED_PARAGRAPH = f"{{{_TEXT}}}numbered-paragraph"
+_DIGITS = re.compile(r"[0-9]+")
 # Inline elements whose text is not document content: the page number fields hold the number cached at the last save, and the
 # citation of a note is replaced by `[^n]`.
 _SKIPPED_INLINE = frozenset(f"{{{_TEXT}}}{name}" for name in ("page-number", "page-count", "note-citation", "script"))
@@ -741,6 +743,8 @@ class _Renderer:
             return self._list(node, context, depth, node.get(_TEXT_STYLE_NAME), 0)
         if tag == _TABLE_ELEMENT:
             return [self._table(node, context, depth)]
+        if tag == _NUMBERED_PARAGRAPH:
+            return self._numbered_paragraph(node, context, depth)
         if tag in _BLOCK_WRAPPERS:
             return [] if _is_hidden_section(node) else self._blocks(node, context, depth + 1)
         if isinstance(tag, str) and tag.startswith(_DRAW_PREFIX):
@@ -807,6 +811,54 @@ class _Renderer:
                         rendered[0] = self._item_head(style, level, counters, start, context) + rendered[0]
                     headed = True
                 blocks.extend(rendered)
+        return [block for block in blocks if block]
+
+    def _numbered_paragraph(self, node: etree._Element, context: _Context, depth: int) -> list[str]:
+        """`text:numbered-paragraph`: a paragraph with a list label but no `text:list` around it, at `text:level` of its list
+        style. It counts like an item of the list its `text:list-id` names (else it continues the last list of its style), and its
+        label is the `text:number` it carries when that is not empty (an Arabic one gives the value, written '2.' as in a list) —
+        read as a plain wrapper, the label was lost
+        (Pinned by: test_odf.py::TestTextDocument::test_numbered_paragraph_keeps_its_label). A bullet level keeps `- `."""
+        if depth + 1 >= _MAX_DEPTH:
+            return self._blocks(node, context, depth + 1)
+        style = node.get(_TEXT_STYLE_NAME)
+        level = min(max(decimal_int(node.get(f"{{{_TEXT}}}level"), 1), 1), 10) - 1
+        continued = self._list_ids.get(node.get(f"{{{_TEXT}}}list-id") or "")
+        if continued is not None:
+            counters, style = continued[0], style or continued[1]
+        else:
+            counters = self._counters.setdefault(style or "", {})
+            if node.get(f"{{{_TEXT}}}list-id"):
+                self._list_ids[node.get(f"{{{_TEXT}}}list-id")] = (counters, style)
+        number = node.find(_NUMBER)
+        cached = " ".join(_flat_text(number).split()) if number is not None else ""
+        start = decimal_int(node.get(f"{{{_TEXT}}}start-value"), None)
+        spec = self.styles.list_level(style, level)
+        digits = _DIGITS.findall(cached) if spec.shape == "DIGIT" else []
+        if digits:
+            # Arabic numbers are written '1.' like list items; the label gives the value (its last number: '1.2.' is item 2).
+            start, cached = start if start is not None else decimal_int(digits[-1], None), ""
+        blocks: list[str] = []
+        labelled = False
+        for child in node:
+            if child.tag == _NUMBER:
+                continue
+            rendered = self.block(child, context, depth + 1)
+            if rendered and not labelled and child.tag in (_P, _H):
+                labelled = True
+                heading = child.tag == _H and rendered[0].startswith("#")
+                head = self._item_head(style, level, counters, start, context, heading=heading)
+                if child.tag == _H and any(_flat_text(inner) for inner in child.iterchildren(_NUMBER)):
+                    head = ""   # the heading shows the label it carries (`_inline`)
+                elif cached and head and spec.kind == "number" and not context.quote:
+                    head = f"{cached} " if heading else paragraph_head(cached, self.styles.shown_depth(style, level),
+                                                                      in_cell=context.in_cell, heading=False)
+                if heading and head:
+                    hashes, _, text = rendered[0].partition(" ")
+                    rendered[0] = f"{hashes} {head.strip()} {text}"
+                else:
+                    rendered[0] = head + rendered[0]
+            blocks.extend(rendered)
         return [block for block in blocks if block]
 
     def _list_counters(self, node: etree._Element, style: str | None) -> tuple[dict[int, int], str | None]:
