@@ -220,8 +220,48 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
     # TestDocxLongRunsAndDeepFields::test_run_with_many_text_pieces_takes_linear_time).
     run_looks: dict[etree._Element, _RunLook] = {}
 
-    def walk(element: etree._Element) -> None:
+    def with_run_marks(run: etree._Element, text: str) -> str:
+        """A character that a run writes without w:t (a non-breaking hyphen, a symbol) with the strikethrough and emphasis marks
+        of that run. Left bare, it split the run's span: `**well**-**known**`, `~~x~~α~~y~~` (Pinned by:
+        test_inline_formatting.py::TestDocxEmphasis::test_hyphen_and_symbol_inside_a_marked_run_stay_inside_its_span)."""
+        if run.tag != _w("r") or not text:
+            return text
+        look = run_looks.get(run) or run_looks.setdefault(run, _RunLook.of(run, body_size, inline))
+        return mark_emphasis(mark_strike(text) if look.struck else text, look.bold, look.italic)
+
+    def field_char(child: etree._Element, *, hidden: bool) -> None:
+        """One w:fldChar (begin, separate, end). In a hidden run (`hidden`) it writes nothing of its own: no form field value, and
+        no EQ instruction text for a field that ends there without a result."""
         nonlocal instruction_fields
+        kind = child.get(_w("fldCharType"))
+        if not instruction_fields and not hidden:
+            parts.append(_form_field_value(child))
+        if kind == "begin":
+            fields.append(_Field(start=len(parts)))
+            instruction_fields += 1
+        elif kind == "separate" and fields:
+            if fields[-1].instruction_side:
+                instruction_fields -= 1
+            fields[-1].instruction_side = False
+            # The result of a HYPERLINK field is the link text. The link is closed where the field ends; a field that never ends
+            # leaves an unclosed mark, which is not written
+            # (Pinned by: test_inline_formatting.py::TestDocxLinks::test_hyperlink_field_code_is_a_link).
+            if inline is not None and inline.link is not None and not instruction_fields and fields[-1].link is None:
+                fields[-1].link = field_link("".join(fields[-1].instruction))
+                if fields[-1].link:
+                    parts.append(LINK_OPEN)
+            fields[-1].start = len(parts)
+            fields[-1].shown = False
+        elif kind == "end" and fields:
+            ended = fields.pop()
+            if ended.instruction_side:
+                instruction_fields -= 1
+            if not hidden and not instruction_fields and not ended.shown and not has_text_since(ended.start):
+                parts.append(_equation_field_text("".join(ended.instruction)))
+            if ended.link:
+                parts.append(link_close(ended.link))
+
+    def walk(element: etree._Element) -> None:
         for child in element:
             tag = child.tag
             if tag in (_w("txbxContent"), f"{{{_MC}}}Fallback", _w("pPr"), _w("rPr"), _w("moveFrom"), _w("del")):
@@ -231,6 +271,15 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                     fields[-1].hidden.append((len(parts), child.text or ""))
                 continue
             if tag == _w("r") and _is_on(child.find(f"{_w('rPr')}/{_w('vanish')}")):
+                # Deliberate: only the text of a hidden run is left out. Its field characters and instruction still shape the
+                # field: a separate in a hidden run left the field on the instruction side, so its visible result ('Total: 1,200
+                # won') was taken for instruction text and dropped (Pinned by: test_office_symbols_fields_notes.py::
+                # TestDocxFieldCharactersInHiddenRuns).
+                for code in child.iterchildren(_w("fldChar"), _w("instrText")):
+                    if code.tag == _w("fldChar"):
+                        field_char(code, hidden=True)
+                    elif fields and fields[-1].instruction_side:
+                        fields[-1].instruction.append(code.text or "")
                 continue
             if tag == _w("sdt") and _shows_placeholder(child):
                 continue
@@ -246,7 +295,7 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
             elif tag in (_w("br"), _w("cr")):
                 parts.append("\n")
             elif tag == _w("noBreakHyphen"):
-                parts.append("-")
+                parts.append(with_run_marks(element, "-"))
             elif tag in (f"{{{_A}}}blip", f"{{{_V}}}imagedata") or (tag == _w("object") and _is_ole_object(child)):
                 if image_marker is not None:
                     parts.append(image_marker(child))
@@ -266,39 +315,9 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                     if not has_text_since(start):
                         parts.append("[Chart]")
             elif tag == _w("sym"):
-                symbol = _symbol_char(child)
-                if inline is not None and inline.emphasis and element.tag == _w("r"):
-                    look = run_looks.get(element) or run_looks.setdefault(element, _RunLook.of(element, body_size, inline))
-                    symbol = mark_emphasis(symbol, look.bold, look.italic)
-                parts.append(symbol)
+                parts.append(with_run_marks(element, _symbol_char(child)))
             elif tag == _w("fldChar"):
-                kind = child.get(_w("fldCharType"))
-                if not instruction_fields:
-                    parts.append(_form_field_value(child))
-                if kind == "begin":
-                    fields.append(_Field(start=len(parts)))
-                    instruction_fields += 1
-                elif kind == "separate" and fields:
-                    if fields[-1].instruction_side:
-                        instruction_fields -= 1
-                    fields[-1].instruction_side = False
-                    # The result of a HYPERLINK field is the link text. The link is closed where the field ends; a field that
-                    # never ends leaves an unclosed mark, which is not written
-                    # (Pinned by: test_inline_formatting.py::TestDocxLinks::test_hyperlink_field_code_is_a_link).
-                    if inline is not None and inline.link is not None and not instruction_fields and fields[-1].link is None:
-                        fields[-1].link = field_link("".join(fields[-1].instruction))
-                        if fields[-1].link:
-                            parts.append(LINK_OPEN)
-                    fields[-1].start = len(parts)
-                    fields[-1].shown = False
-                elif kind == "end" and fields:
-                    ended = fields.pop()
-                    if ended.instruction_side:
-                        instruction_fields -= 1
-                    if not instruction_fields and not ended.shown and not has_text_since(ended.start):
-                        parts.append(_equation_field_text("".join(ended.instruction)))
-                    if ended.link:
-                        parts.append(link_close(ended.link))
+                field_char(child, hidden=False)
             elif tag == _w("instrText"):
                 if fields and fields[-1].instruction_side:
                     fields[-1].instruction.append(child.text or "")

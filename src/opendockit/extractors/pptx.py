@@ -33,7 +33,7 @@ from opendockit.extractors._inline import (
     resolve_scripts,
     resolve_strikes,
 )
-from opendockit.extractors._lists import HAND_TYPED_BULLET, MAX_LEVEL, cell_level_mark, format_number, list_item_prefix
+from opendockit.extractors._lists import HAND_TYPED_BULLET, MAX_LEVEL, cell_level_mark, format_number, list_item_prefix, start_number
 from opendockit.extractors._notation import OLE_PLACEHOLDER, comment_line, omitted_rows_warning, unread_ole_warning
 from opendockit.extractors._omml import render_omml
 from opendockit.extractors._package import core_properties, decimal_int, is_strict_package, open_package, parse_part
@@ -744,7 +744,7 @@ def _render_text_frame(text_frame: object, as_bullets: bool, list_styles: list[o
             scheme = bullet.get("type", "arabicPeriod")
             previous = counters.get(level)
             start = bullet.get("startAt", "1")
-            number = previous[1] + 1 if previous and previous[0] == scheme else decimal_int(start, 1)
+            number = previous[1] + 1 if previous and previous[0] == scheme else start_number(decimal_int(start, 1))
             counters[level] = (scheme, number)
             rendered.append(_item_lines(list_item_prefix(_auto_number(number, scheme), level), lines))
             continue
@@ -828,7 +828,7 @@ def _auto_number(number: int, scheme: str) -> str:
     """One auto number: 'arabicPeriod' → '3.', 'alphaLcParenR' → 'c)', 'circleNumDbPlain' → '③'."""
     shape = next((shape for prefix, shape in _AUTO_NUMBER_KINDS if scheme.startswith(prefix)), "DIGIT")
     if shape == "BLACK_CIRCLED_DIGIT":
-        digits = _BLACK_CIRCLED[number - 1] if 1 <= number <= len(_BLACK_CIRCLED) else str(number)
+        digits = _BLACK_CIRCLED[number - 1] if 1 <= number <= len(_BLACK_CIRCLED) else format_number(number, "DIGIT")
     else:
         digits = format_number(number, shape)
     template = next((template for suffix, template in _AUTO_NUMBER_DECORATIONS if scheme.endswith(suffix)), "{}")

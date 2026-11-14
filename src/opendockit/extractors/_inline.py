@@ -62,8 +62,19 @@ def format_script(text: str, mark: str, before: str = "") -> str:
 
 
 def mark_script(text: str, mark: str) -> str:
-    """Put temporary marks around the text of a script run. `resolve_scripts` converts them once the paragraph text is collected."""
-    return f"{_SCRIPT_OPEN[mark]}{text}{_SCRIPT_CLOSE}" if text else text
+    """Put temporary marks around the text of a script run. `resolve_scripts` converts them once the paragraph text is collected.
+
+    The marks close before a line break and open again after it (`_per_line`): a superscript run holding a line break gave
+    `x^{a b}` (the two lines joined), and a struck superscript followed by a struck line break `10~~^{2~~}` (Pinned by:
+    test_inline_formatting.py::TestScriptAndStrikeAcrossALineBreak)."""
+    return _per_line(text, _SCRIPT_OPEN[mark], _SCRIPT_CLOSE)
+
+
+def _per_line(text: str, opening: str, closing: str) -> str:
+    """`opening` + text + `closing` for each line of `text` that is not empty; the line breaks stay between them."""
+    if "\n" not in text:
+        return f"{opening}{text}{closing}" if text else text
+    return "\n".join(f"{opening}{line}{closing}" if line else line for line in text.split("\n"))
 
 
 def resolve_scripts(text: str) -> str:
@@ -100,8 +111,8 @@ _STRIKE_LEAD = re.compile(r"[-*+·•●○◦▪◆◇▶►➢]\s+")
 
 def mark_strike(text: str) -> str:
     """Put temporary marks around the text of a struck-through run. `resolve_strikes` converts them once the paragraph text is
-    collected."""
-    return f"{_STRIKE_OPEN}{text}{_STRIKE_CLOSE}" if text else text
+    collected. Like the script marks, they close before a line break and open again after it (`_per_line`)."""
+    return _per_line(text, _STRIKE_OPEN, _STRIKE_CLOSE)
 
 
 def resolve_strikes(text: str) -> str:
