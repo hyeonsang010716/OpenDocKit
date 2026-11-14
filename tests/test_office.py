@@ -383,7 +383,8 @@ class TestXlsx:
 
     def test_huge_hyperlink_range_is_read_without_expanding_it(self, monkeypatch):
         """openpyxl also creates a cell for every position a hyperlink range covers (one `A1:XFD1048576` took 20 seconds and 5GB).
-        It is counted together with merges."""
+        Hyperlinks are no longer parsed while reading (`_SHEET_PARTS_LEFT_UNREAD`), so the range costs nothing and the sheet stays
+        fully loaded — counting it with merges sent the sheet to streaming, which dropped its merges."""
         import openpyxl
 
         from opendockit.extractors import spreadsheet
@@ -398,12 +399,12 @@ class TestXlsx:
         monkeypatch.setattr(spreadsheet.openpyxl, "load_workbook", recording_load)
         data = builder.zip_with(_long_sheet(1), edit={
             "xl/worksheets/sheet1.xml": lambda xml: xml.replace(
-                "</sheetData>", '</sheetData><hyperlinks><hyperlink ref="A1:Z30000" location="Sheet!A1"/></hyperlinks>')})
+                "</sheetData>", '</sheetData><hyperlinks><hyperlink ref="A1:XFD1048576" location="Sheet!A1"/></hyperlinks>')})
 
         result = convert(data, "a.xlsx")
 
         assert "| 1 | 항목 1 |" in result.text
-        assert modes == [True]
+        assert modes == [False]
 
     def test_sheet_listed_many_times_is_read_once(self):
         """When workbook.xml points to the same sheet several times, openpyxl read it again every time (a 44KB file took 23 seconds

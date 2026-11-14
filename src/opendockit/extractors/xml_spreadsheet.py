@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta
+import math
 import re
 
 from lxml import etree
@@ -35,6 +36,7 @@ def extract_xml_spreadsheet(data: bytes, options: ConvertOptions) -> Extraction:
     if warning:
         extraction.warnings.append(warning)
     invalid: set[str] = set()  # names of position/merge attributes that are not integers (one warning for the whole document)
+    not_finite: list[str] = []  # number cells whose value is not a finite number (`1E+400`, `NaN`), kept as written
     for index, worksheet in enumerate(root.iter(f"{{{_SS}}}Worksheet"), start=1):
         name = _ss(worksheet, "Name") or f"Sheet{index}"
         visible = worksheet.find(f"{{{_X}}}WorksheetOptions/{{{_X}}}Visible")
@@ -46,7 +48,7 @@ def extract_xml_spreadsheet(data: bytes, options: ConvertOptions) -> Extraction:
         formulas: list[str] = []
         spans: dict[int, list[tuple[int, int, str]]] = {}  # index of the yielded row → horizontal merges (`_fill_across`)
         cells = _xml_sheet_rows(table, formats, options.max_sheet_cols, formulas if unresolved else None, invalid,
-                                indents, spans) if table is not None else iter(())
+                                indents, spans, not_finite) if table is not None else iter(())
         rows = _collect_rows(cells, options, name, extraction)
         across = {id(rows[index]): found for index, found in spans.items() if index < len(rows)}
         if formulas:
@@ -55,6 +57,9 @@ def extract_xml_spreadsheet(data: bytes, options: ConvertOptions) -> Extraction:
         _append_sheet(extraction, name, rows, across=across)
         if extraction.exceeded:
             break
+    if not_finite:
+        extraction.warnings.append(f"{len(not_finite):,} number cell value(s) that are not finite numbers were copied as the text "
+                                   "written in the file.")
     if invalid:
         extraction.warnings.append(f"Non-integer cell position and merge attributes ({', '.join(sorted(invalid))}) were ignored. "
                                    "Cells may have been placed in a different column.")
@@ -250,7 +255,8 @@ def _a1_formula(formula: str, row: int, column: int) -> str:
 def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None], max_cols: int,
                     formulas: list[str] | None = None, invalid: set[str] | None = None,
                     indents: dict[str | None, int] | None = None,
-                    across: dict[int, list[tuple[int, int, str]]] | None = None) -> Iterator[tuple[str, ...]]:
+                    across: dict[int, list[tuple[int, int, str]]] | None = None,
+                    not_finite: list[str] | None = None) -> Iterator[tuple[str, ...]]:
     """Turn `<Row>`/`<Cell>` into rows. `ss:Index` is a skipped position (1-based); `MergeAcross` is repeated over the spanned cells
     only in rows that have text to the left (a title row keeps it in the first cell only — `_repeat_merge`), and `MergeDown` is
     repeated in the rows below.
@@ -296,7 +302,7 @@ def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None]
             column = _ss_int(cell, "Index", column + 1, invalid, minimum=1)
             data = cell.find(f"{{{_SS}}}Data")
             style = _ss(cell, "StyleID") or _ss(row, "StyleID") or column_styles.get(column)
-            text = _xml_cell_value(data, formats.get(style, formats.get(None))) if data is not None else ""
+            text = _xml_cell_value(data, formats.get(style, formats.get(None)), not_finite) if data is not None else ""
             if not text and formulas is not None and _ss(cell, "Formula"):
                 text = _a1_formula(_ss(cell, "Formula"), row_number, column)
                 formulas.append(text)
@@ -331,11 +337,17 @@ def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None]
         yielded += 1
 
 
-def _xml_cell_value(data: etree._Element, number_format: str | None) -> str:
+def _xml_cell_value(data: etree._Element, number_format: str | None, not_finite: list[str] | None = None) -> str:
     text = "".join(data.itertext()).strip()  # rich text (html tags inside ss:Data) too: characters only
     kind = _ss(data, "Type")
     if kind == "String" and len(data):
         return _xml_rich_text(data).strip()
+    if kind == "Number" and _is_not_finite(text):
+        # `1E+400` and `NaN` came out as `inf` and `nan`. Kept as written with a count warning, as in XLSX
+        # (Pinned by: test_audit_spreadsheet_fixes.py::TestXmlNumberThatIsNotFinite).
+        if not_finite is not None:
+            not_finite.append(text)
+        return text
     try:
         if kind == "Number" and number_format and is_date_format(number_format):
             return _xml_serial_text(float(text), number_format)
@@ -360,6 +372,13 @@ def _xml_cell_value(data: etree._Element, number_format: str | None) -> str:
     if kind == "Boolean":
         return "TRUE" if text == "1" else "FALSE"
     return text
+
+
+def _is_not_finite(text: str) -> bool:
+    try:
+        return not math.isfinite(float(text))
+    except ValueError:
+        return False
 
 
 def _xml_rich_text(data: etree._Element) -> str:

@@ -237,8 +237,12 @@ def _csv_rows(text: str, style: dict[str, object], warnings: list[str], max_cols
     start = 0
 
     while True:
+        # strict: the csv module otherwise ends the file inside an unclosed quote without an error, so a small file had every row
+        # after the quote swallowed into one cell without a warning. Strict mode also stops at text after a closing quote
+        # (`"a"b`); `_quoted_record` reads that row the way the lenient reader does
+        # (Pinned by: test_audit_spreadsheet_fixes.py::TestUnclosedQuoteInASmallCsv).
         reader = csv.reader(_lines_within_columns((lines[index] for index in range(start, len(lines))), delimiter, quote,
-                                                  max_cols), **style)
+                                                  max_cols), **style, strict=True)
         read_lines = 0
         try:
             for row in reader:
