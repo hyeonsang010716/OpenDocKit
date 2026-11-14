@@ -825,11 +825,13 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
             break
 
     blocks = []
+    written = 0  # characters of the text written so far (`solid_length`, never more than the real count): headers, body, footers
     if options.include_headers_footers:
-        blocks.append(_header_footer_text(document, renderer, "header"))
+        text, written = _header_footer_text(document, renderer, "header", options, written)
+        blocks.append(text)
     blocks.append(join_blocks(body))
     if options.include_headers_footers:
-        blocks.append(_header_footer_text(document, renderer, "footer"))
+        blocks.append(_header_footer_text(document, renderer, "footer", options, written + extraction.chars)[0])
     if options.include_footnotes and renderer.notes.labels:
         blocks.append(_notes(document, renderer))
     blocks.append(_comments(document))
@@ -846,7 +848,17 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
     return extraction
 
 
-def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str) -> str:
+def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str, options: ConvertOptions,
+                        written: int) -> tuple[str, int]:
+    """(the text of the headers or footers of the document, `written` plus its characters). `written` is the number of
+    characters of the text that comes before it in the output.
+
+    Once the text written so far is over the character limit, the remaining parts are not rendered: the output is cut inside
+    what is already there, whatever they hold. Each header table is checked against its own characters only
+    (`_DocxRenderer.render_table`), so 40 header parts and 40 footer parts with a table just under the limit each were all
+    rendered to the end (74 s; 2.5 s now). Only text that is kept is counted — a part whose text repeats an earlier one is
+    dropped, and that is known only once it is rendered
+    (Pinned by: test_office_table_char_limit.py::TestHeaderPartsPastTheLimit)."""
     seen: list[str] = []
     # A part referenced by several sections is rendered once. Rendering it per section and dropping the copies by their text kept
     # every copy whose text differed: a numbered paragraph counted on ('1. Company', '2. Company' …) and a picture was registered
@@ -867,12 +879,15 @@ def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str) ->
             element = getattr(part, "element", None)
             if element is None or part in rendered:
                 continue
+            if options.max_chars is not None and written > options.max_chars:
+                return join_blocks(seen), written
             rendered.add(part)
             _keep_filled_placeholders(element, renderer.placeholders)
             text = join_blocks(renderer.render_story(part, element))
             if text and text not in seen:
                 seen.append(text)
-    return join_blocks(seen)
+                written += solid_length(text)
+    return join_blocks(seen), written
 
 
 def _notes(document: object, renderer: _DocxRenderer) -> str:
