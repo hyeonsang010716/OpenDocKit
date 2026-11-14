@@ -108,7 +108,7 @@ def test_html_list_item_with_paragraphs_and_code_block_keeps_them_as_blocks():
 
     result = convert(html.encode(), "a.html")
 
-    assert result.text == ("1. 설정 마법사 실행\n\n프로젝트 루트에서 실행한다:\n\n```\nmake setup\nmake dev\n```\n\n"
+    assert result.text == ("1. 설정 마법사 실행\n\n프로젝트 루트에서 실행한다:\n\n   ```\n   make setup\n   make dev\n   ```\n\n"
                            "끝나면 확인한다.\n\n2. 다음 단계")
 
 
