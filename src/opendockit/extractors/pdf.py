@@ -335,9 +335,21 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                     read = simple
                                     failed.append(page.page_number)
                             pages.append(read)
-                    except PdfminerException:
+                    except PdfminerException as exc:
                         # A page pdfminer cannot read (some AES encryption, broken font streams) is read with pdfium's simple
-                        # extraction instead.
+                        # extraction instead. Running out of memory is not such a page: pdfplumber wraps every exception
+                        # (`raise PdfminerException(e)`, the error in `args` and as the context), and a MemoryError wrapped
+                        # that way was taken for a failed structure analysis — the conversion went on in a process with no
+                        # memory left and reported a page 'read with simple extraction'. It goes up as it is and `convert`
+                        # reports too large or too complex
+                        # (Pinned by: test_converter.py::TestRunningOutOfMemory::test_memory_error_wrapped_by_the_pdf_page_reader).
+                        link: object = exc
+                        for _ in range(8):   # pdfplumber wraps once; a few more for a wrapper inside pdfminer
+                            if isinstance(link, MemoryError):
+                                raise MemoryError from exc
+                            if not isinstance(link, BaseException):
+                                break
+                            link = link.__context__ or link.__cause__ or (link.args[0] if link.args else None)
                         _check_budget(budget)
                         fallback = fallback or _open_pdfium(data)
                         try:

@@ -314,6 +314,46 @@ class TestRunningOutOfMemory:
         with pytest.raises(DocumentTooLargeError, match=r"^The file is too large \(maximum 3 bytes\)\.$"):
             convert(b"hello", "a.txt", ConvertOptions(max_file_bytes=3))
 
+    def test_memory_error_wrapped_by_the_pdf_page_reader(self, monkeypatch):
+        """pdfplumber wraps whatever pdfminer raises while it reads a page, a MemoryError included: the page was read again
+        with the simple extraction and the result only said that its structure analysis had failed."""
+        from pdfminer import layout
+
+        analyze = layout.LTLayoutContainer.analyze
+        calls = []
+
+        def out_of_memory_on_the_second_page(self, laparams):
+            calls.append(1)
+            if len(calls) == 2:
+                raise MemoryError
+            return analyze(self, laparams)
+
+        data = builder.pdf_bytes(pages=3)
+        assert "Structure analysis failed" not in " ".join(convert(data, "a.pdf").warnings)
+        calls.clear()
+        monkeypatch.setattr(layout.LTLayoutContainer, "analyze", out_of_memory_on_the_second_page)
+
+        with self._too_complex():
+            convert(data, "a.pdf")
+
+    def test_page_the_pdf_reader_cannot_read_is_still_read_simply(self, monkeypatch):
+        from pdfminer import layout
+
+        analyze = layout.LTLayoutContainer.analyze
+        calls = []
+
+        def broken_second_page(self, laparams):
+            calls.append(1)
+            if len(calls) == 2:
+                raise ValueError("broken font stream")
+            return analyze(self, laparams)
+
+        monkeypatch.setattr(layout.LTLayoutContainer, "analyze", broken_second_page)
+
+        result = convert(builder.pdf_bytes(pages=3), "a.pdf")
+
+        assert [warning for warning in result.warnings if warning.startswith("Structure analysis failed for 1 PDF page(s)")]
+
     def test_another_failure_is_still_what_it_was(self, monkeypatch):
         def too_large(data, options):
             raise DocumentTooLargeError("The file is too large when decompressed (maximum 500MB).")
