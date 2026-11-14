@@ -286,7 +286,8 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 grids.add(page.page_number)
                             if page.page_number in dense | grids:
                                 ungrouped = ungrouped or pdfplumber.open(BytesIO(data), laparams=_UNGROUPED_LAPARAMS)
-                            ungrouped_before, budget.grouping_cost = budget.ungrouped_layouts, 0
+                            ungrouped_before = budget.ungrouped_layouts
+                            budget.new_page()
                             read = _read_page_from(ungrouped if page.page_number in dense | grids else pdf, page, placement_fit)
                             if budget.ungrouped_layouts > ungrouped_before:
                                 # Too much text-box grouping (`_PAGE_GROUPING_COST`). The page was read from `pdf` with the bound
@@ -356,7 +357,8 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                     # for `dense` sent it to `ungrouped`, which had not been opened, and the whole document failed (Pinned by:
                     # test_audit_pdf_text.py::TestTooManyTextBoxes::test_a_crowded_page_read_again_keeps_its_first_reading)
                     page = (ungrouped if read.number in dense | grids else pdf).pages[read.number - 1]
-                    ungrouped_before, budget.grouping_cost = budget.ungrouped_layouts, 0
+                    ungrouped_before = budget.ungrouped_layouts
+                    budget.new_page()
                     try:
                         pages[index] = _read_page(page, placement_fit)
                     except PdfminerException:
