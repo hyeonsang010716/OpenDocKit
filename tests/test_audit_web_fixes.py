@@ -14,6 +14,8 @@ import pytest
 
 from opendockit import CorruptedDocumentError, DocumentFormat, convert
 from opendockit.extractors._encoding import decode_text
+from opendockit.extractors._mail import _mime_nesting_exceeds
+from opendockit.markdown import clean_text
 from tests.timing import allowed
 
 
@@ -81,6 +83,40 @@ class TestDeeplyNestedForwardedMails:
 
         assert "본문 0" in result.text
         assert any("attachment" in warning for warning in result.warnings)  # beyond 20 forwarded mails, as before
+
+    @pytest.mark.parametrize("name", ["a.eml", "a.txt"])
+    def test_forward_lines_in_a_body_are_text(self, name):
+        body = "Content-Type: message/rfc822\n" * 120 + "\n" + "Content-Type: message/rfc822\n\n" * 120
+        data = (_HEAD + f"Content-Type: text/plain; charset=utf-8\n\n{body}").encode()
+
+        assert convert(data, name).text.count("message/rfc822") == 240
+
+    def test_forward_lines_in_a_text_attachment_are_text(self):
+        data = (_HEAD + "Content-Type: multipart/mixed; boundary=o\n\n--o\nContent-Type: text/plain\n\n본문\n--o\n"
+                "Content-Type: text/plain; name=log.txt\nContent-Disposition: attachment; filename=log.txt\n\n"
+                + "Content-Type: message/rfc822\n\n" * 200 + "--o--\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.endswith("본문")
+        assert any("log.txt" in warning for warning in result.warnings)
+
+    def test_one_forward_header_block_counts_once(self):
+        data = (_HEAD + "Content-Type: multipart/mixed; boundary=o\n\n--o\n" + "Content-Type: message/rfc822\n" * 300
+                + "\nSubject: 전달\nContent-Type: text/plain\n\n본문\n--o--\n").encode()
+
+        assert convert(data, "a.eml").text.endswith("본문")
+
+    @pytest.mark.timing
+    def test_many_forward_lines_in_a_body_are_scanned_in_linear_time(self):
+        """Each line walks up only to the line examined before it (500,000 lines, about 0.3 s)."""
+        data = (_HEAD + "Content-Type: text/plain\n\n" + "Content-Type: message/rfc822\n" * 500_000).encode()
+        start = time.perf_counter()
+        exceeded = _mime_nesting_exceeds(data, 32)
+        seconds = time.perf_counter() - start
+
+        assert exceeded is None
+        assert seconds < allowed(3)
 
     def test_moderate_chain_is_read(self):
         data = (_HEAD + "Content-Type: multipart/mixed; boundary=o\n\n--o\n" + "Content-Type: message/rfc822\n\n" * 50
@@ -170,6 +206,12 @@ class TestTitleOfAPageWhoseCodeHasCommentLines:
 
         assert convert(html.encode(), "a.html").text.startswith("# 설치 안내\n\n본문")
 
+    @pytest.mark.parametrize("stray", ["<p>```</p>", "<pre>a</pre><p>```</p>"])
+    def test_stray_fence_line_does_not_hide_a_heading(self, stray):
+        html = f"<html><head><title>Site | Notice</title></head><body>{stray}<h2>Notice</h2><p>body</p></body></html>"
+
+        assert "# Site | Notice" not in convert(html.encode(), "a.html").text
+
     def test_a_real_heading_still_keeps_the_title_out(self):
         html = "<html><head><title>사이트 | 공지</title></head><body><h2>공지</h2><pre># x</pre></body></html>"
 
@@ -195,8 +237,19 @@ class TestNoMarksInsideCode:
 
         assert convert(html.encode(), "a.html").text == "~~앞~~\n\n```\n코드\n```"
 
-    def test_inline_code_gets_no_marks(self):
-        assert convert(b"<p><code>a<sup>b</sup></code></p>", "a.html").text == "ab"
+    def test_code_block_in_the_middle_of_a_strikethrough_splits_the_marks(self):
+        html = "<del><p>앞</p><pre>코드</pre><p>뒤</p></del>"
+
+        assert convert(html.encode(), "a.html").text == "~~앞~~\n\n```\n코드\n```\n\n~~뒤~~"
+
+    def test_strikethrough_set_on_a_code_block_itself_is_not_marked(self):
+        assert convert(b'<pre style="text-decoration:line-through">x</pre>', "a.html").text == "```\nx\n```"
+
+    def test_inline_code_keeps_its_marks(self):
+        """Inline code is written without backticks, so a mark is the only sign that it is struck or raised (as before)."""
+        html = "<p>use <del><code>foo()</code></del> instead, <code>x<sup>2</sup></code></p>"
+
+        assert convert(html.encode(), "a.html").text == "use ~~foo()~~ instead, x^2"
 
 
 class TestAltTextCannotMakeALink:
@@ -249,6 +302,23 @@ class TestEmptyListItemHoldingANestedList:
 
         assert convert(html.encode(), "a.html").text == "-\n  -\n    - x"
 
+    def test_ordered_empty_item(self):
+        assert clean_text("1.\n   1.\n      - x") == "1.\n   1.\n      - x"
+
+    @pytest.mark.parametrize(("text", "expected"), [
+        ("Intro\n\n     2.\n\nnext", "Intro\n\n2.\n\nnext"),  # five spaces would make an indented code block
+        ("Amount\n\n   -\n\n   2025.", "Amount\n\n-\n\n2025."),
+        ("  -\nplain", "-\nplain"),
+        ("  -\n  - same depth", "-\n  - same depth"),
+    ])
+    def test_a_bare_marker_not_holding_a_deeper_list_is_stripped(self, text, expected):
+        assert clean_text(text) == expected
+
+    def test_bare_marker_paragraphs_of_html(self):
+        html = "<p>Amount</p><p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-</p><p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2025.</p>"
+
+        assert convert(html.encode(), "a.html").text == "Amount\n\n-\n\n2025."
+
 
 _CALENDAR_MAIL = (_HEAD + "Content-Type: multipart/alternative; boundary=b\n\n--b\nContent-Type: text/plain\n\n본문\n--b\n"
                   "Content-Type: text/calendar; method=REQUEST; charset=utf-8\n\n{ics}\n--b--\n")
@@ -274,11 +344,24 @@ class TestRecurrenceRuleWithATrailingSemicolon:
 
 
 class TestNoWideEncodingGuessWithoutNulBytes:
+    """A UTF-16/32 guess for bytes without NUL is taken only when it reads as plausible CJK or Hangul text."""
+
     def test_short_broken_utf8_is_not_read_as_utf16(self):
         text, encoding = decode_text(b"ab=ZZ\xc3\xa9\xc3", "utf-8")
 
         assert not encoding.startswith(("utf_16", "utf_32"))
         assert text.startswith("ab=ZZ")
+
+    @pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+    @pytest.mark.parametrize("text", ["日本語のテキストファイルです。これは改行も空白もありません。東京は首都です。",
+                                      "中文文本文件没有空格也没有换行这是一个测试文件北京是首都。",
+                                      "안녕하세요반갑습니다"])
+    @pytest.mark.parametrize("name", ["a.txt", "a.html"])
+    def test_cjk_text_without_ascii_stays_utf16(self, codec, text, name):
+        result = convert(text.encode(codec), name)
+
+        assert result.text == text
+        assert result.warnings == []
 
 
 class TestRowspanZero:
@@ -298,4 +381,26 @@ class TestCodeBlockInsideAListItem:
         ("<ul><li>a<ul><li>b<pre>x</pre></li></ul></li></ul>", "- a\n  - b\n\n    ```\n    x\n    ```"),
     ])
     def test_fence_is_indented(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        # A paragraph of the item stays at the left margin and ends the list, so the fence after it stays there too (as before)
+        ("<ul><li>a<ul><li>b<p>para</p><pre>code\n  indented</pre></li></ul></li></ul>",
+         "- a\n  - b\n\npara\n\n```\ncode\n  indented\n```"),
+        ("<ol start=10><li>x<p>para</p><pre>code</pre></li></ol>", "10. x\n\npara\n\n```\ncode\n```"),
+        # An enclosing item ended by its paragraph: the nested item cannot hold an indented fence either
+        ("<ul><li>a<p>p</p><ul><li>b<pre>x</pre></li></ul></li></ul>", "- a\n\np\n\n  - b\n\n```\nx\n```"),
+        # An empty item line followed by a blank line ends the item
+        ("<ul><li><ul><li><pre>x</pre></li></ul></li></ul>", "-\n-\n\n```\nx\n```"),
+        ("<ul><li>a<pre>x</pre><p>p</p><pre>y</pre></li></ul>", "- a\n\n  ```\n  x\n  ```\n\np\n\n```\ny\n```"),
+    ])
+    def test_fence_after_a_paragraph_of_the_item_is_not_indented(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<ul><li><ul><li>b<pre>x</pre></li></ul></li></ul>", "-\n  - b\n\n    ```\n    x\n    ```"),
+        ("<ul><li>a<pre>x</pre><pre>y</pre><ul><li>b</li></ul><pre>z</pre></li></ul>",
+         "- a\n\n  ```\n  x\n  ```\n\n  ```\n  y\n  ```\n\n  - b\n\n  ```\n  z\n  ```"),
+    ])
+    def test_fence_stays_indented_while_the_item_is_open(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected

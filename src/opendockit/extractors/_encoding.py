@@ -165,14 +165,39 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     return data.decode("utf-8", errors="replace"), f"utf-8{_REPLACED}"
 
 
+# Text that UTF-16 without NUL bytes can plausibly hold: every character has a high byte other than 0, so no ASCII, and in
+# practice it is CJK or Hangul text without spaces or line breaks (`_plausible_wide_text`). CJK punctuation, kana, Bopomofo,
+# Hangul compatibility jamo; Hangul syllables; CJK compatibility ideographs; full-width forms; common punctuation and symbols.
+_WIDE_TEXT_RANGES = ((0x2000, 0x27BF), (0x3000, 0x31FF), (0x4E00, 0x9FFF), (0xAC00, 0xD7A3), (0xF900, 0xFAFF), (0xFF00, 0xFFEF))
+# At most this share of the characters may lie outside those ranges (one per 50).
+_WIDE_TEXT_STRAYS = 50
+
+
 def _plausible_best(matches: CharsetMatches, sample: bytes) -> CharsetMatch | None:
-    """The best statistical guess, leaving out UTF-16 and UTF-32 when the sample has no NUL byte. Text in those encodings has
-    NUL bytes as soon as it holds an ASCII character (BOM-less UTF-16 is decided by their positions, `utf16_encoding`); a short
-    broken UTF-8 subject `ab=ZZé` + a cut character was read as UTF-16 and became `慢㵚嫃꧃` without a warning
+    """The best statistical guess, leaving out a UTF-16 or UTF-32 guess for a sample without NUL bytes unless it reads as
+    plausible CJK or Hangul text (`_plausible_wide_text`). Text in those encodings has NUL bytes as soon as it holds an ASCII
+    character; without any it can only be text such as Japanese or Chinese with no space or line break (`日本語の…` →
+    `E5 65 2C 67 …`), which charset-normalizer guesses rightly. A short broken UTF-8 subject `ab=ZZé` + a cut character was read
+    as UTF-16 and became `慢㵚嫃꧃` — rare ideographs and Javanese — or `扡娽썚쎩` without a warning
     (Pinned by: test_audit_web_fixes.py::TestNoWideEncodingGuessWithoutNulBytes)."""
     if b"\x00" in sample:
         return matches.best()
-    return next((match for match in matches if not match.encoding.startswith(("utf_16", "utf_32"))), None)
+    return next((match for match in matches if not match.encoding.startswith(("utf_16", "utf_32"))
+                 or _plausible_wide_text(sample, match.encoding)), None)
+
+
+def _plausible_wide_text(sample: bytes, encoding: str) -> bool:
+    """Does `sample` decode strictly as `encoding` into text that is almost all CJK, kana, Hangul, full-width forms or common
+    punctuation (`_WIDE_TEXT_RANGES`, at most one character in `_WIDE_TEXT_STRAYS` outside), and not Han ideographs and Hangul
+    syllables mixed? Korean text with hanja always has spaces (NUL bytes); pairs of arbitrary bytes land in both ranges
+    (`ab=ZZé` + a cut character read as UTF-16-LE is `扡娽썚쎩`)."""
+    text = _strict(sample[:len(sample) - len(sample) % 2], encoding)
+    if not text:
+        return False
+    strays = sum(1 for ch in text if not any(low <= ord(ch) <= high for low, high in _WIDE_TEXT_RANGES))
+    han = any(0x4E00 <= ord(ch) <= 0x9FFF or 0xF900 <= ord(ch) <= 0xFAFF for ch in text)
+    hangul = any(0xAC00 <= ord(ch) <= 0xD7A3 for ch in text)
+    return strays * _WIDE_TEXT_STRAYS <= len(text) and not (han and hangul)
 
 
 def _strict(data: bytes, encoding: str) -> str | None:
