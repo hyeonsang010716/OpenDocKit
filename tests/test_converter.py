@@ -57,6 +57,20 @@ class TestLimits:
             ConvertOptions(**{field: value})
 
     @pytest.mark.parametrize(("field", "value"), [
+        ("page_markers", "false"), ("keep_links", 0), ("extract_images", 1), ("include_footnotes", None),
+        ("include_hidden_sheets", "yes"),
+    ])
+    def test_switch_of_the_wrong_type_is_rejected_when_options_are_made(self, field, value):
+        """The switches were not checked: `page_markers="false"` is a true string and kept the markers."""
+        with pytest.raises(TypeError, match=f"ConvertOptions.{field} must be True or False"):
+            ConvertOptions(**{field: value})
+
+    def test_switches_take_true_and_false(self):
+        options = ConvertOptions(page_markers=False, keep_links=True)
+
+        assert options.page_markers is False
+
+    @pytest.mark.parametrize(("field", "value"), [
         ("pdf_render_scale", float("nan")), ("pdf_render_scale", float("inf")), ("pdf_time_budget", float("nan")),
         ("pdf_time_budget", float("inf")), ("pdf_time_budget", float("-inf")), ("max_chars", float("nan")), ("max_chars", float("inf")),
     ])
@@ -194,6 +208,162 @@ class TestErrorBoundary:
             convert(buffer.getvalue(), "a.zip")
 
 
+class TestRunningOutOfMemory:
+    """Running out of memory anywhere in a conversion is 'too large or too complex' under plain `convert` too. A MemoryError
+    inside an extractor was gathered with the parser failures ('Could not parse the … document. The file may be corrupted.'),
+    while `IsolatedConverter` reported the same file as too large; one after extraction left `convert` as a MemoryError."""
+
+    @staticmethod
+    def _too_complex():
+        from opendockit import TOO_COMPLEX_MESSAGE
+
+        return pytest.raises(DocumentTooLargeError, match=f"^{TOO_COMPLEX_MESSAGE}$")
+
+    def test_inside_an_extractor(self, monkeypatch):
+        def out_of_memory(data, options):
+            raise MemoryError
+
+        monkeypatch.setitem(EXTRACTORS, DocumentFormat.TEXT, out_of_memory)
+
+        with self._too_complex() as error:
+            convert(b"hello", "a.txt")
+        assert isinstance(error.value.__cause__, MemoryError)
+
+    def test_wrapped_by_a_parser_inside_an_extractor(self, monkeypatch):
+        def out_of_memory(data, options):
+            try:
+                raise MemoryError
+            except MemoryError as inner:
+                raise ValueError("parser") from inner
+
+        monkeypatch.setitem(EXTRACTORS, DocumentFormat.TEXT, out_of_memory)
+
+        with self._too_complex():
+            convert(b"hello", "a.txt")
+
+    def test_reported_by_an_extractor_as_another_failure(self, monkeypatch):
+        def out_of_memory(data, options):
+            try:
+                raise MemoryError
+            except MemoryError as inner:
+                raise CorruptedDocumentError("Could not parse the TXT document. The file may be corrupted.") from inner
+
+        monkeypatch.setitem(EXTRACTORS, DocumentFormat.TEXT, out_of_memory)
+
+        with self._too_complex():
+            convert(b"hello", "a.txt")
+
+    def test_while_detecting_the_format(self, monkeypatch):
+        import opendockit.converter as converter_module
+
+        def out_of_memory(data, filename):
+            raise MemoryError
+
+        monkeypatch.setattr(converter_module, "detect_format", out_of_memory)
+
+        with self._too_complex():
+            convert(b"hello", "a.txt")
+
+    def test_after_extraction(self, monkeypatch):
+        import opendockit.converter as converter_module
+
+        def out_of_memory(result):
+            raise MemoryError
+
+        monkeypatch.setattr(converter_module, "render", out_of_memory)
+
+        with self._too_complex():
+            convert(b"hello", "a.txt")
+
+    def test_while_copying_the_content(self):
+        """`bytes(data)` of a bytearray or memoryview is the first allocation of a conversion, and it was made before
+        anything watched for a MemoryError."""
+        class NoMemoryForACopy(bytearray):
+            def __bytes__(self):
+                raise MemoryError
+
+        with self._too_complex() as error:
+            convert(NoMemoryForACopy(b"hello"), "a.txt")
+        assert isinstance(error.value.__cause__, MemoryError)
+        with self._too_complex():
+            asyncio.run(aconvert(NoMemoryForACopy(b"hello"), "a.txt"))
+
+    @pytest.mark.parametrize("stage", ["_content_bytes", "_check_arguments", "check_size"])
+    def test_in_the_checks_before_the_conversion(self, monkeypatch, stage):
+        import opendockit.converter as converter_module
+
+        def out_of_memory(*_arguments):
+            raise MemoryError
+
+        monkeypatch.setattr(converter_module, stage, out_of_memory)
+
+        with self._too_complex():
+            convert(b"hello", "a.txt")
+
+    def test_wrong_arguments_and_sizes_are_still_what_they_were(self):
+        with pytest.raises(TypeError, match="convert takes the file content as bytes"):
+            convert("a.txt")
+        with pytest.raises(TypeError, match="The second argument is the file name"):
+            convert(b"hello", ConvertOptions())
+        with pytest.raises(TypeError, match="options must be a ConvertOptions"):
+            convert(b"hello", "a.txt", options={"max_chars": 1})
+        with pytest.raises(ValueError, match="max_chars"):
+            convert(b"hello", "a.txt", ConvertOptions(max_chars=-1))
+        with pytest.raises(CorruptedDocumentError, match=r"^The file is empty\.$"):
+            convert(b"", "a.txt")
+        with pytest.raises(DocumentTooLargeError, match=r"^The file is too large \(maximum 3 bytes\)\.$"):
+            convert(b"hello", "a.txt", ConvertOptions(max_file_bytes=3))
+
+    def test_memory_error_wrapped_by_the_pdf_page_reader(self, monkeypatch):
+        """pdfplumber wraps whatever pdfminer raises while it reads a page, a MemoryError included: the page was read again
+        with the simple extraction and the result only said that its structure analysis had failed."""
+        from pdfminer import layout
+
+        analyze = layout.LTLayoutContainer.analyze
+        calls = []
+
+        def out_of_memory_on_the_second_page(self, laparams):
+            calls.append(1)
+            if len(calls) == 2:
+                raise MemoryError
+            return analyze(self, laparams)
+
+        data = builder.pdf_bytes(pages=3)
+        assert "Structure analysis failed" not in " ".join(convert(data, "a.pdf").warnings)
+        calls.clear()
+        monkeypatch.setattr(layout.LTLayoutContainer, "analyze", out_of_memory_on_the_second_page)
+
+        with self._too_complex():
+            convert(data, "a.pdf")
+
+    def test_page_the_pdf_reader_cannot_read_is_still_read_simply(self, monkeypatch):
+        from pdfminer import layout
+
+        analyze = layout.LTLayoutContainer.analyze
+        calls = []
+
+        def broken_second_page(self, laparams):
+            calls.append(1)
+            if len(calls) == 2:
+                raise ValueError("broken font stream")
+            return analyze(self, laparams)
+
+        monkeypatch.setattr(layout.LTLayoutContainer, "analyze", broken_second_page)
+
+        result = convert(builder.pdf_bytes(pages=3), "a.pdf")
+
+        assert [warning for warning in result.warnings if warning.startswith("Structure analysis failed for 1 PDF page(s)")]
+
+    def test_another_failure_is_still_what_it_was(self, monkeypatch):
+        def too_large(data, options):
+            raise DocumentTooLargeError("The file is too large when decompressed (maximum 500MB).")
+
+        monkeypatch.setitem(EXTRACTORS, DocumentFormat.TEXT, too_large)
+
+        with pytest.raises(DocumentTooLargeError, match="when decompressed"):
+            convert(b"hello", "a.txt")
+
+
 class TestAssembly:
     def test_warns_when_extension_disagrees_with_content(self):
         result = convert(b"<html><body><table><tr><td>a</td><td>b</td></tr></table></body></html>", "list.xls")
@@ -231,6 +401,31 @@ class TestAssembly:
 
         assert result.text.startswith("## Sheet: 매출\n")
         assert unicodedata.is_normalized("NFC", result.text)
+
+    @pytest.mark.parametrize("title", ["~~~ 감사합니다 ~~~", "```", "- > ~~~ 끝"])
+    def test_title_or_alt_text_that_starts_like_a_fence_gets_no_backslash(self, title):
+        """A sheet name, a slide title and the alt text of a picture are written inside a line (`## Sheet: …`, `[Image: …]`),
+        where no fence can open. Cleaned as a text of their own they got the backslash of a line that opens one."""
+        import base64
+
+        import openpyxl
+        from pptx import Presentation
+
+        workbook = openpyxl.Workbook()
+        workbook.active.title = title
+        workbook.active.append(["a", 1])
+        sheet = BytesIO()
+        workbook.save(sheet)
+        presentation = Presentation()
+        presentation.slides.add_slide(presentation.slide_layouts[5]).shapes.title.text = title
+        slides = BytesIO()
+        presentation.save(slides)
+        picture = base64.b64encode(builder.png_bytes()).decode()
+        html = f'<p>a</p><img src="data:image/png;base64,{picture}" alt="{title}">'
+
+        assert convert(sheet.getvalue(), "a.xlsx").text.startswith(f"## Sheet: {title}\n")
+        assert convert(slides.getvalue(), "a.pptx").text == f"## Slide 1: {title}"
+        assert convert(html.encode(), "a.html").text == f"a\n\n[Image: {title}]"
 
     def test_text_that_looks_like_an_image_placeholder_is_kept_as_text(self):
         """A literal `⟦IMG:1⟧` typed in the body was taken for a placeholder and removed. If a real picture #1 existed, that picture
@@ -593,3 +788,39 @@ class TestTimeLimitedResults:
         result = convert(builder.pdf_bytes(pages=2), "a.pdf", ConvertOptions(pdf_time_budget=0.0))
 
         assert render(replace(result)).time_limited
+
+
+class TestMetadataIsCleaned:
+    """Metadata was handed over as the file wrote it: not NFC, with zero-width and control characters, and with line breaks."""
+
+    def test_docx_title_is_nfc_without_invisible_characters(self):
+        import unicodedata
+
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("본문")
+        document.core_properties.title = unicodedata.normalize("NFD", "분기 보고서") + "​x"
+        document.core_properties.subject = " ​ "
+        buffer = BytesIO()
+        document.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.docx")
+
+        assert result.metadata["title"] == "분기 보고서x"
+        assert "subject" not in result.metadata
+
+    def test_pdf_metadata_is_one_line_without_control_characters(self):
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer)
+        pdf.setTitle("Quarterly\x01\x02  report")
+        pdf.setAuthor("a\nb\n# Heading")
+        pdf.drawString(100, 700, "hello")
+        pdf.save()
+
+        result = convert(buffer.getvalue(), "a.pdf")
+
+        assert result.metadata["title"] == "Quarterly report"
+        assert result.metadata["author"] == "a b # Heading"

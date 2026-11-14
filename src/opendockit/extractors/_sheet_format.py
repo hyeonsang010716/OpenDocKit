@@ -166,23 +166,26 @@ def _is_weekday_only(number_format: str | None) -> bool:
 def _elapsed_text(value: timedelta, number_format: str | None) -> str:
     """Turn a duration into Excel's elapsed-time shape (`26:00`). Python's default shape (`1 day, 2:00:00`) is easy for an LLM to
     misread (Pinned by: test_spreadsheet.py::TestElapsedTime). The literals of the format (`[h]"시간" mm"분"` → `36시간 00분`) are
-    kept by `_clock_text`."""
+    kept by `_clock_text`.
+
+    Below the smallest unit shown the value is truncated, as for `h:mm` (`_clock_text`): 1:29:45 under `[h]:mm` is `1:29`. It was
+    rounded to `1:30` while the same value under `h:mm` gave `1:29` (Pinned by: test_audit_spreadsheet.py::TestElapsedMinutes).
+    A value that truncates to zero carries no sign."""
     pattern = (number_format or "[h]:mm:ss").lower()
     seconds = round(value.total_seconds())
     sign, seconds = ("-" if seconds < 0 else ""), abs(seconds)
     if number_format and _FORMAT_QUOTED.search(_first_section(number_format)):
-        rounded = seconds if _shows_seconds(number_format) else (seconds + 30) // 60 * 60
-        clock = _clock_text(rounded, number_format, elapsed=True)
+        clock = _clock_text(seconds, number_format, elapsed=True)
         if clock is not None:
-            return sign + clock
+            return (sign if seconds >= _smallest_unit(number_format) else "") + clock
     units = {match.group(0)[1] for match in _ELAPSED_FORMAT.finditer(pattern)}  # a colour name (`[Magenta]`) is not an elapsed section
     if units == {"s"}:
         return f"{sign}{seconds}"
     if "h" not in units and "m" in units:
         return f"{sign}{seconds // 60}:{seconds % 60:02d}"
     if "s" not in _FORMAT_QUOTED.sub("", pattern):
-        minutes = (seconds + 30) // 60
-        return f"{sign}{minutes // 60}:{minutes % 60:02d}"
+        minutes = seconds // 60
+        return f"{sign if minutes else ''}{minutes // 60}:{minutes % 60:02d}"
     return f"{sign}{seconds // 3600}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
 
 
@@ -192,6 +195,15 @@ def _shows_seconds(number_format: str) -> bool:
     codes = _FORMAT_ESCAPED.sub("", _FORMAT_BRACKET.sub(
         lambda match: match.group(0) if _ELAPSED_FORMAT.fullmatch(match.group(0)) else "", _FORMAT_QUOTED.sub("", number_format)))
     return "s" in codes.lower()
+
+
+def _smallest_unit(number_format: str) -> int:
+    """Seconds in the smallest time unit the first section shows: 1 for seconds, 60 for minutes, otherwise 3,600. Quoted text,
+    backslash-escaped characters and bracket sections other than elapsed ones (`[Magenta]`) are not format codes."""
+    codes = _FORMAT_ESCAPED.sub("", _FORMAT_BRACKET.sub(
+        lambda match: match.group(0) if _ELAPSED_FORMAT.fullmatch(match.group(0)) else "",
+        _FORMAT_QUOTED.sub("", _first_section(number_format)))).lower()
+    return 1 if "s" in codes else 60 if "m" in codes else 3600
 
 
 def _first_section(number_format: str) -> str:
@@ -400,7 +412,7 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     scale = len(whole) - len(whole.rstrip(",")) + len(fraction) - len(fraction.rstrip(","))
     whole = whole.rstrip(",")
     places = "".join(char for char in fraction if char in "0#?")
-    decimals, optional = len(places), len(places) - len(places.rstrip("#"))  # trailing `#` decimal places are not shown when they are 0
+    decimals = len(places)
     try:
         number = _rounded(value, percent, scale, decimals)
     except InvalidOperation:
@@ -410,18 +422,19 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     # section the sign is shown by the format's literals.
     sign = "-" if text.startswith("-") and not signed_by_format else ""
     integer, dot, rest = text.removeprefix("-").partition(".")
-    if optional:
-        rest = rest[:decimals - optional] + rest[decimals - optional:].rstrip("0")
+    if places.endswith(("#", "?")):
+        rest = _without_trailing_zeros(places, rest)
         dot = dot if rest else ""  # 12 under `0.###` → 12 (same as LibreOffice)
     if any(char not in "0#?,%" for char in fraction):
         # Literals between decimal places (`0.0\E+0`, `0.00" "00`) stay where they are, the decimal digits filling the places from
         # the left as in Excel. They were dropped, so 5 under `0.0\E+0` came out as `5.00` instead of `5.0E+0`
         # (Pinned by: test_audit_spreadsheet_fixes.py::TestLiteralsBetweenDecimalPlaces).
         rest = _fill_decimals(fraction, literals[literals_before + whole.count("\x00"):], rest)
-    if any(char not in "0#?," for char in whole) and "," not in whole:
+    if (any(char not in "0#?," for char in whole) or "?" in whole) and "," not in whole:
         # A format with literals between digit places (phone number `0##\-####\-####`, date shape `0000\-00\-00`) fills the places
         # from the right and inserts the literals. Dropping the literals turned 010-1234-5678 into 1012345678
-        # (Pinned by: test_quality.py::TestSpreadsheetNumberFormats).
+        # (Pinned by: test_quality.py::TestSpreadsheetNumberFormats). An integer place `?` without a digit is a space, as in
+        # Excel (0.5 under `?.??` → ` .5 `, Pinned by: test_audit_spreadsheet.py::TestQuestionMarkPlaces).
         integer = _fill_digits(whole, literals[literals_before:], integer)
     elif whole.count("0") > 1 and "," not in whole:
         # The 0s of the integer part are the minimum number of digits (employee number / postal code 001234 written as `000000`)
@@ -429,6 +442,20 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     elif not whole and integer == "0":
         integer = ""  # for a format without integer places Excel does not show the 0 either (0.5 under `.00` → .50)
     return f"{sign}{prefix}{integer}{dot}{rest}{'%' if percent else ''}{suffix}"
+
+
+def _without_trailing_zeros(places: str, digits: str) -> str:
+    """The decimal digits with the zeros at the end that fall on optional places taken away: a `#` place shows nothing and a `?`
+    place a space, as in Excel. A `0` place or a digit other than 0 ends it.
+
+    A `?` place showed its 0, so 1.5 under `0.??` came out as `1.50` instead of Excel's `1.5 ` (the space keeps the column
+    aligned on the decimal point; Pinned by: test_audit_spreadsheet.py::TestQuestionMarkPlaces)."""
+    kept = list(digits)
+    for index in range(len(places) - 1, -1, -1):
+        if places[index] == "0" or kept[index] != "0":
+            break
+        kept[index] = " " if places[index] == "?" else ""
+    return "".join(kept)
 
 
 def _rounded(value: float, percent: bool, scale: int, decimals: int) -> Decimal:

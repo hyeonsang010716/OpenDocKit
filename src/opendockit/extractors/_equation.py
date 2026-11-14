@@ -147,9 +147,12 @@ _UNSUPPORTED: Final = frozenset({"ladder", "sladder", "longdiv"})
 _TERM_ENDS: Final = frozenset({"}", "&", "#", "right", "of", *_INFIX, *_SCRIPTS, *_PRESCRIPTS})
 _CLOSERS: Final = frozenset({"}", "&", "#"})
 _HANGUL: Final = re.compile("[가-힣ㄱ-ㅎㅏ-ㅣ]")
-# Quoted text and Hangul are wrapped in \text{} and LaTeX special characters are escaped.
+# Quoted text and Hangul are wrapped in \text{} and LaTeX special characters are escaped with text-mode commands: `\backslash` is
+# math mode only and was rejected inside \text{} (Pinned by: test_equation.py::TestRules::
+# test_backslash_caret_and_tilde_in_text_use_text_mode_commands).
 _TEXT_ESCAPES: Final = str.maketrans({
-    **{char: "\\" + char for char in "{}$%#&_"}, "\\": r"\backslash ", "^": r"\^{}", "~": r"\~{}",
+    **{char: "\\" + char for char in "{}$%#&_"}, "\\": r"\textbackslash{}", "^": r"\textasciicircum{}",
+    "~": r"\textasciitilde{}",
 })
 _TEXT_RUN: Final = re.compile(r"\\text\{[^{}\\]*\}(?:\s+\\text\{[^{}\\]*\})+")
 _TEXT_PIECE: Final = re.compile(r"\\text\{([^{}\\]*)\}")

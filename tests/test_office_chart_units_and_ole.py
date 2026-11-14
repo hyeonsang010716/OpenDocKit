@@ -100,6 +100,20 @@ class TestChartUserShapes:
 
         assert result.text.startswith("[Chart] 판매\n(단위: 대)\n\n| Category | 판매량 |")
 
+    @pytest.mark.parametrize(("named_as_written", "expected"), [(None, "(단위: 대)"), (["(as written)"], "(as written)")])
+    def test_hwpx_chart_text_box_behind_a_percent_encoded_target_is_kept(self, named_as_written, expected):
+        """A relationship target is a URI (`dr%61wing1.xml` names `drawing1.xml`); a part named as written wins when it exists."""
+        body = '<hp:p><hp:run><hp:chart chartIDRef="Chart/chart1.xml"/></hp:run></hp:p>'
+        parts = {"Chart/chart1.xml": _with_user_shapes_reference(_CHART_XML),
+                 "Chart/_rels/chart1.xml.rels": _chart_relationships("../Chart/dr%61wing1.xml"),
+                 "Chart/drawing1.xml": _user_shapes(["(단위: 대)"])}
+        if named_as_written:
+            parts["Chart/dr%61wing1.xml"] = _user_shapes(named_as_written)
+
+        result = convert(builder.zip_with(builder.hwpx_bytes(body), add=parts), "a.hwpx")
+
+        assert result.text.startswith(f"[Chart] 판매\n{expected}\n\n| Category | 판매량 |")
+
     def test_broken_user_shapes_relationship_keeps_the_chart(self):
         """With no relationship or a broken drawing part, only the text box is dropped and the chart stays as it is."""
         text = _convert_chart(_with_user_shapes_reference(_SALES_CHART))

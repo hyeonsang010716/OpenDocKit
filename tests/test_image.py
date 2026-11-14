@@ -4,6 +4,7 @@ The vision model is replaced by fake describers. The checks against the real Ope
 """
 
 import asyncio
+import base64
 from io import BytesIO
 import re
 import struct
@@ -554,6 +555,48 @@ class TestPdfImages:
 
         assert [image.kind for image in result.images] == [ImageKind.PAGE] * 3
         assert any("3 page(s) whose text exists only as an image (1, 2, 3)" in warning for warning in result.warnings)
+
+    def test_untrusted_pages_beyond_the_picture_budget_are_not_said_to_be_handed_over(self):
+        """With `max_images` low, the render budget ran out before the last pages, yet the warning said every page with an
+        untrusted text layer was handed over as an image. Only the rendered pages are named so; the others are named as read
+        from their text layer only."""
+        data = _scan_with_text_layer([_LATIN_FRAGMENTS] * 3)
+
+        nothing = convert(data, "scan.pdf", ConvertOptions(max_images=0))
+        some = convert(data, "scan.pdf", ConvertOptions(max_images=1))
+
+        assert not nothing.images
+        assert not any("handed over as an image" in warning for warning in nothing.warnings)
+        assert any("3 PDF page(s) (1, 2, 3)" in warning and "only their text layer was read" in warning
+                   for warning in nothing.warnings)
+        # The render budget is twice `max_images`: pages 1 and 2 are rendered (the converter then keeps one), page 3 is not.
+        handed = [warning for warning in some.warnings if "handed over as an image" in warning]
+        assert len(handed) == 1 and "2 PDF page(s) (1, 2)" in handed[0]
+        assert any("only their text layer was read" in warning and "(3)" in warning for warning in some.warnings)
+
+    def test_untrusted_page_that_cannot_be_rendered_is_not_blamed_on_the_picture_budget(self, monkeypatch):
+        """A page whose rendering fails in pdfium was reported like one past the render budget: 'there were too many
+        pictures'."""
+        import pypdfium2 as pdfium
+
+        from opendockit.extractors import _pdf_figures
+
+        rendered = _pdf_figures._PageRenderer._render
+
+        def render(self, page_index, box, scale):
+            if page_index == 1:
+                raise pdfium.PdfiumError("Failed to render page.")
+            return rendered(self, page_index, box, scale)
+
+        monkeypatch.setattr(_pdf_figures._PageRenderer, "_render", render)
+
+        result = convert(_scan_with_text_layer([_LATIN_FRAGMENTS] * 3), "scan.pdf")
+
+        assert not any("too many pictures" in warning for warning in result.warnings)
+        assert ("1 PDF page(s) (2) appear to have no body text in their text layer, but they could not be rendered as images, "
+                "so only their text layer was read.") in result.warnings
+        handed = [warning for warning in result.warnings if "handed over as an image" in warning]
+        assert len(handed) == 1 and "2 PDF page(s) (1, 3)" in handed[0]
 
     def test_text_layer_with_korean_is_trusted_even_on_pages_without_korean(self):
         """If the text layer has Hangul on even one page, it is a text layer that can hold Hangul (a scan with proper OCR, a
@@ -1657,3 +1700,579 @@ class TestHeicWithoutTheOptionalExtra:
 
         assert len(convert(buffer.getvalue(), "photo.avif").images) == 1
 
+
+
+_OUT_OF_MEMORY_WARNING = r"^(\d+) image\(s\) were too large to process in the memory available and were left as placeholder text\.$"
+
+
+def _scanned_pages_pdf(pages: int) -> bytes:
+    """A PDF whose pages are one full-page picture each, with no text layer."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    for page in range(pages):
+        pdf.drawImage(ImageReader(BytesIO(builder.png_bytes(600, 800, seed=page))), 0, 0, width=A4[0], height=A4[1])
+        pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestOutOfMemoryWhileReadingAPicture:
+    """A MemoryError while decoding or re-encoding a picture was taken for an unreadable picture: an uploaded photo was
+    'corrupted' and a picture inside a document got the warning about its format. Running out of address space under a
+    worker's memory limit is simulated by making one stage of `prepare_image` fail.
+
+    An uploaded picture is the document: too large or too complex. A picture inside a document is left as its placeholder
+    with a warning of its own and the text is kept — refusing the document took the text of a DOCX away for one
+    13000×13000 RGBA PNG, which needs about 2 GiB to prepare."""
+
+    @staticmethod
+    def _out_of_memory(*_args, **_kwargs):
+        raise MemoryError
+
+    @pytest.fixture(params=["decoding", "retrying a cut JPEG", "re-encoding"])
+    def no_memory(self, request, monkeypatch):
+        """The three places of `prepare_image` a MemoryError goes up from."""
+        import opendockit.image as image_module
+
+        if request.param == "decoding":
+            monkeypatch.setattr(image_module, "_decoded", self._out_of_memory)
+        elif request.param == "retrying a cut JPEG":
+            calls = []
+
+            def unreadable_then_out_of_memory(*_args):
+                calls.append(1)
+                if len(calls) % 2:
+                    raise OSError("image file is truncated")
+                raise MemoryError
+
+            monkeypatch.setattr(image_module, "_decoded", unreadable_then_out_of_memory)
+        else:
+            monkeypatch.setattr(image_module, "_encoded", self._out_of_memory)
+        return request.param
+
+    @staticmethod
+    def _picture(stage: str, seed: int = 0) -> bytes:
+        """A JPEG without its end marker, which is read a second time — or a PNG, which is not, for the first reading."""
+        if stage == "decoding":
+            return builder.png_bytes(400, 300, seed=seed)
+        return builder.png_bytes(400, 300, seed=seed, image_format="JPEG")[:-2]
+
+    def test_memory_error_is_not_an_unreadable_picture(self, no_memory):
+        with pytest.raises(MemoryError):
+            prepare_image(self._picture(no_memory), min_side=1, max_side=2048)
+
+    def test_uploaded_picture_is_too_complex_not_corrupted(self, no_memory):
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            convert(self._picture(no_memory), "photo")
+
+    @pytest.mark.parametrize("isolated", [False, True])
+    def test_picture_inside_a_document_stays_a_placeholder_and_the_text_is_kept(self, no_memory, isolated):
+        from opendockit.isolated import _run
+
+        mime = "image/png" if no_memory == "decoding" else "image/jpeg"
+        html = ("<p>Quarterly report</p>"
+                + "".join(f'<p><img alt="{alt}" src="data:{mime};base64,{base64.b64encode(self._picture(no_memory, seed)).decode()}"></p>'
+                          for seed, alt in enumerate(("Sales by region", "Costs by region")))
+                + "<p>Revenue grew 5%.</p>").encode()
+
+        result = _run(html, "a.html", None) if isolated else convert(html, "a.html")
+
+        assert result.text == "Quarterly report\n\n[Image: Sales by region]\n\n[Image: Costs by region]\n\nRevenue grew 5%."
+        assert result.images == []
+        assert [re.match(_OUT_OF_MEMORY_WARNING, warning).group(1) for warning in result.warnings] == ["2"]
+
+    def test_only_the_picture_that_ran_out_is_left_out(self, monkeypatch):
+        import opendockit.converter as converter_module
+
+        def prepare(data, **options):
+            if Image.open(BytesIO(data)).size == (300, 200):
+                raise MemoryError
+            return prepare_image(data, **options)
+
+        monkeypatch.setattr(converter_module, "prepare_image", prepare)
+        pictures = [builder.png_bytes(300, 200, seed=1), builder.png_bytes(400, 300, seed=2), builder.png_bytes(300, 200, seed=3)]
+        html = ("<p>Before</p>" + "".join(f'<p><img src="data:image/png;base64,{base64.b64encode(picture).decode()}"></p>'
+                                         for picture in pictures) + "<p>After</p>").encode()
+
+        result = convert(html, "a.html")
+
+        assert result.text == "Before\n\n[Image]\n\n[Image]\n\n[Image]\n\nAfter"
+        assert [(image.width, image.height) for image in result.images] == [(400, 300)]
+        assert [re.match(_OUT_OF_MEMORY_WARNING, warning).group(1) for warning in result.warnings] == ["2"]
+
+    def test_what_is_left_of_a_picture_is_released_before_the_next_one(self, monkeypatch):
+        """The MemoryError holds the frames it went through, and they hold the half-read picture: kept as the outcome of that
+        picture, it stayed in memory while the next ones were read. Dropping the error is enough — a Pillow picture is in no
+        reference cycle — so no collection is run: a full one after each picture took 6.5 s for 500 small pictures."""
+        import gc
+        import weakref
+
+        import opendockit.converter as converter_module
+
+        pictures: list[weakref.ref] = []
+        still_there: list[int] = []
+        opened = Image.Image.__init__
+
+        def tracked(self, *args, **kwargs):
+            opened(self, *args, **kwargs)
+            pictures.append(weakref.ref(self))
+
+        def prepare(data, **options):
+            still_there.append(sum(1 for picture in pictures if picture() is not None))
+            return prepare_image(data, **options)
+
+        def collected(*_args):
+            raise AssertionError("a garbage collection was run")
+
+        monkeypatch.setattr(converter_module, "prepare_image", prepare)
+        monkeypatch.setattr(Image.Image, "__init__", tracked)
+        monkeypatch.setattr(Image.Image, "thumbnail", self._out_of_memory)
+        monkeypatch.setattr(gc, "collect", collected)
+        html = ("<p>Text</p>" + "".join(f'<img src="data:image/png;base64,{base64.b64encode(builder.png_bytes(seed=seed)).decode()}">'
+                                       for seed in range(3))).encode()
+
+        enabled = gc.isenabled()
+        gc.disable()   # reference counting alone
+        try:
+            result = convert(html, "a.html")
+            left = sum(1 for picture in pictures if picture() is not None)
+        finally:
+            if enabled:
+                gc.enable()
+
+        assert len(pictures) >= 3 and left == 0
+        assert still_there == [0, 0, 0]
+        assert [re.match(_OUT_OF_MEMORY_WARNING, warning).group(1) for warning in result.warnings] == ["3"]
+
+    def test_scanned_pages_that_all_ran_out_are_too_complex(self, monkeypatch):
+        """Pages that exist only as a picture, none of which could be read: there is nothing else to give."""
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+        import opendockit.image as image_module
+
+        data = _scanned_pages_pdf(2)
+        assert [image.kind for image in convert(data, "scan.pdf").images] == [ImageKind.PAGE] * 2
+        monkeypatch.setattr(image_module, "_encoded", self._out_of_memory)
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            convert(data, "scan.pdf")
+
+    def test_one_scanned_page_that_ran_out_leaves_the_others(self, monkeypatch):
+        import opendockit.converter as converter_module
+
+        calls = []
+
+        def prepare(data, **options):
+            calls.append(1)
+            if len(calls) == 1:
+                raise MemoryError
+            return prepare_image(data, **options)
+
+        monkeypatch.setattr(converter_module, "prepare_image", prepare)
+
+        result = convert(_scanned_pages_pdf(2), "scan.pdf")
+
+        assert [image.section_index for image in result.images] == [2]
+        assert any(re.match(_OUT_OF_MEMORY_WARNING, warning) for warning in result.warnings)
+
+    @pytest.mark.parametrize("failing_page", [1, 2])
+    def test_page_of_a_tiff_is_too_complex_not_corrupted(self, monkeypatch, failing_page):
+        """A MemoryError while splitting the pages was gathered with the parser failures: 'Could not parse the IMAGE
+        document. The file may be corrupted.'"""
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+        import opendockit.image as image_module
+
+        transpose = image_module.ImageOps.exif_transpose
+
+        def out_of_memory_on_one_page(image, **options):   # Pillow's TIFF reader calls it too, with `in_place`
+            if not options and image.tell() == failing_page - 1:
+                raise MemoryError
+            return transpose(image, **options)
+
+        monkeypatch.setattr(image_module.ImageOps, "exif_transpose", out_of_memory_on_one_page)
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            convert(_tiff_pages("white", "gray", "black"), "fax.tiff")
+
+    def test_later_page_of_a_tiff_that_is_only_broken_keeps_the_pages_before_it(self, monkeypatch):
+        import opendockit.image as image_module
+
+        transpose = image_module.ImageOps.exif_transpose
+
+        def broken_third_page(image, **options):
+            if not options and image.tell() == 2:
+                raise OSError("broken data stream")
+            return transpose(image, **options)
+
+        monkeypatch.setattr(image_module.ImageOps, "exif_transpose", broken_third_page)
+
+        result = convert(_tiff_pages("white", "gray", "black"), "fax.tiff")
+
+        assert len(result.images) == 2
+        assert "Page 3 of the TIFF is corrupted or too large to read, so only the first 2 page(s) were read as images." in result.warnings
+
+    def test_memory_error_deeper_in_the_chain_is_too_complex(self, monkeypatch):
+        """A parser that wraps the MemoryError in its own exception, wrapped again by the converter, was a corrupted document:
+        only the direct cause was looked at."""
+        from opendockit import TOO_COMPLEX_MESSAGE, DocumentTooLargeError
+        import opendockit.isolated as isolated
+
+        def convert_that_runs_out(*_args):
+            try:
+                try:
+                    raise MemoryError
+                except MemoryError as inner:
+                    raise ValueError("parser") from inner
+            except ValueError as outer:
+                raise CorruptedDocumentError("Could not parse the file format. The file may be corrupted.") from outer
+
+        monkeypatch.setattr(isolated, "convert", convert_that_runs_out)
+
+        with pytest.raises(DocumentTooLargeError, match=re.escape(TOO_COMPLEX_MESSAGE)):
+            isolated._run(b"x", "a.txt", None)
+
+
+class TestOnePictureInMemory:
+    """`exif_transpose` returned a copy of the decoded picture and the downscale worked on another copy: three full-size
+    pictures at the peak, 2.1 GiB for a 13000×13000 RGBA PNG. The opened picture is turned and shrunk itself."""
+
+    @pytest.fixture
+    def full_size_copies(self, monkeypatch) -> list[tuple[str, tuple[int, int]]]:
+        made: list[tuple[str, tuple[int, int]]] = []
+        for name in ("copy", "transpose"):
+            original = getattr(Image.Image, name)
+
+            def spy(self, *args, _name=name, _original=original, **options):
+                made.append((_name, self.size))
+                return _original(self, *args, **options)
+
+            monkeypatch.setattr(Image.Image, name, spy)
+        return made
+
+    @pytest.mark.parametrize("orientation", [1, 6])
+    def test_no_full_size_copy_is_made(self, full_size_copies, orientation):
+        exif = Image.Exif()
+        exif[0x0112] = orientation
+        picture = Image.new("RGB", (3000, 2000), "white")
+        picture.paste((200, 30, 30), (0, 0, 1500, 500))
+        buffer = BytesIO()
+        picture.save(buffer, format="JPEG", exif=exif)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        assert (result.width, result.height) == ((2048, 1365) if orientation == 1 else (1365, 2048))
+        assert [made for made in full_size_copies if 3000 in made[1]] == []
+
+    def test_turned_picture_is_what_it_was(self):
+        """The red corner of a picture stored on its side ends up where the orientation says."""
+        exif = Image.Exif()
+        exif[0x0112] = 6   # the stored picture is to be turned a quarter clockwise
+        picture = Image.new("RGB", (400, 200), "white")
+        picture.paste((255, 0, 0), (0, 0, 100, 100))
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG", exif=exif)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        shown = Image.open(BytesIO(result.data)).convert("RGB")
+        assert shown.size == (200, 400)
+        assert shown.getpixel((150, 50))[0] > 200 and shown.getpixel((150, 50))[1] < 60
+        assert shown.getpixel((50, 350)) == (255, 255, 255)
+
+    def test_tiles_and_the_whole_picture_come_from_the_same_pixels(self):
+        """The whole picture is shrunk after its tiles were cut, not before."""
+        picture = Image.new("RGB", (600, 9000), "white")
+        picture.paste((0, 0, 0), (0, 8000, 600, 9000))
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG")
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        assert (result.width, result.height) == (137, 2048)
+        assert len(result.tiles) == 8
+        assert Image.open(BytesIO(result.tiles[0])).width == 600
+        assert Image.open(BytesIO(result.tiles[-1])).convert("RGB").getpixel((300, 1100)) == (0, 0, 0)
+
+
+def _tiff_with_a_tag_of_the_wrong_count() -> bytes:
+    """A readable TIFF whose PlanarConfiguration tag holds two values where one is expected: Pillow reads it with a UserWarning."""
+    from PIL import ImageDraw
+
+    image = Image.new("RGB", (300, 160), "white")
+    ImageDraw.Draw(image).text((20, 60), "INVOICE 4411", fill="black")
+    buffer = BytesIO()
+    image.save(buffer, format="TIFF")
+    data = bytearray(buffer.getvalue())
+    directory = struct.unpack_from("<I", data, 4)[0]
+    for index in range(struct.unpack_from("<H", data, directory)[0]):
+        entry = directory + 2 + 12 * index
+        if struct.unpack_from("<H", data, entry)[0] == 284:
+            struct.pack_into("<IHH", data, entry + 4, 2, 1, 1)
+    return bytes(data)
+
+
+class TestPillowWarnings:
+    """Pillow's UserWarning about a tag it could not take as written leaked out of the single-picture path, so a program that
+    turns warnings into errors had a readable picture rejected as 'corrupted' (and left as placeholder text inside a document)."""
+
+    def test_uploaded_picture_with_a_metadata_warning_is_read_with_warnings_as_errors(self):
+        import warnings
+
+        data = _tiff_with_a_tag_of_the_wrong_count()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = convert(data, "scan.tiff")
+
+        assert len(result.images) == 1
+
+    def test_picture_with_a_metadata_warning_inside_a_document_gives_no_warning(self):
+        import warnings
+
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("Body")
+        document.add_picture(BytesIO(_tiff_with_a_tag_of_the_wrong_count()))
+        buffer = BytesIO()
+        document.save(buffer)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = convert(buffer.getvalue(), "a.docx")
+
+        assert len(result.images) == 1
+        assert not result.warnings
+        assert not [warning for warning in caught if "PIL" in (warning.filename or "")]
+
+
+class TestTransparencyOfEveryMode:
+    """Only RGBA, LA and P counted as transparent, so a PA picture (palette with alpha, as TIFF stores it) became a JPEG and
+    its transparent background black."""
+
+    @pytest.mark.parametrize(("mode", "image_format"), [("PA", "TIFF"), ("LA", "PNG"), ("RGBA", "WEBP")])
+    def test_transparent_background_stays_transparent(self, mode, image_format):
+        picture = Image.new("RGBA", (300, 120), (0, 0, 0, 0))
+        picture.paste((0, 0, 0, 255), (20, 20, 280, 100))
+        if mode == "PA":
+            # Converted straight from RGBA, Pillow before 12 drops the alpha of a PA picture; the alpha is put in on its own.
+            alpha = picture.getchannel("A")
+            picture = picture.convert("RGB").convert("P").convert("PA")
+            picture.putalpha(alpha)
+        else:
+            picture = picture.convert(mode)
+        buffer = BytesIO()
+        picture.save(buffer, format=image_format)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        decoded = Image.open(BytesIO(result.data)).convert("RGBA")
+        assert result.mime_type == "image/png"
+        assert decoded.getpixel((2, 2))[3] == 0
+        assert decoded.getpixel((150, 60))[3] == 255
+
+    def test_grey_png_with_a_transparent_level_stays_transparent(self):
+        picture = Image.new("L", (300, 120), 0)
+        picture.paste(255, (20, 20, 280, 100))
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG", transparency=0)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/png"
+        assert Image.open(BytesIO(result.data)).convert("RGBA").getpixel((2, 2))[3] == 0
+
+
+    @pytest.mark.parametrize("image_format", ["PNG", "GIF"])
+    def test_transparent_palette_entry_stays_transparent(self, image_format):
+        picture = Image.new("P", (300, 120), 0)
+        picture.putpalette([255, 255, 255, 200, 30, 30])
+        picture.paste(1, (20, 20, 280, 100))
+        buffer = BytesIO()
+        picture.save(buffer, format=image_format, transparency=0)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        decoded = Image.open(BytesIO(result.data)).convert("RGBA")
+        assert result.mime_type == "image/png"
+        assert decoded.getpixel((2, 2))[3] == 0
+        assert decoded.getpixel((150, 60)) == (200, 30, 30, 255)
+
+    def test_premultiplied_picture_stays_transparent(self, monkeypatch):
+        """A HEIF picture may come premultiplied (`RGBa`): its alpha band is spelled with a small `a`."""
+        import opendockit.image as image_module
+
+        picture = Image.new("RGBA", (300, 120), (0, 0, 0, 0))
+        picture.paste((200, 30, 30, 255), (20, 20, 280, 100))
+        monkeypatch.setattr(image_module, "_decoded", lambda _data, _max_side: picture.convert("RGBa"))
+
+        result = prepare_image(b"heif", min_side=1, max_side=2048)
+
+        decoded = Image.open(BytesIO(result.data)).convert("RGBA")
+        assert result.mime_type == "image/png"
+        assert decoded.getpixel((2, 2))[3] == 0
+        assert decoded.getpixel((150, 60)) == (200, 30, 30, 255)
+
+
+def _png(width: int, height: int, bit_depth: int, colour_type: int, row: bytes, transparent: bytes) -> bytes:
+    """A PNG written chunk by chunk, every row the same, with a tRNS chunk (the colour that is transparent)."""
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, bit_depth, colour_type, 0, 0, 0))
+            + chunk(b"tRNS", transparent) + chunk(b"IDAT", zlib.compress((b"\x00" + row) * height)) + chunk(b"IEND", b""))
+
+
+def _transparent_columns(data: bytes, step: int = 1) -> list[int]:
+    """The columns (every `step` pixels) of the picture `prepare_image` makes of `data` that are transparent."""
+    result = prepare_image(data, min_side=1, max_side=2048)
+    shown = Image.open(BytesIO(result.data)).convert("RGBA")
+    return [x // step for x in range(0, shown.width, step) if shown.getpixel((x + step // 2, 5))[3] == 0]
+
+
+class TestTransparentColourOfAPng:
+    """The colour a PNG declares transparent (tRNS) is on the scale of the file; Pillow keeps it as written and compares its
+    low byte with the 8-bit pixels it hands out. Level 300 of a 16-bit grey picture made the pixels of 8-bit level 44
+    transparent and not the ones at 300."""
+
+    # Column x holds the 16-bit level x * 256 + 44, except column 2 (level 0) and the last one (65535).
+    _LEVELS = [0 if x == 2 else 65535 if x == 255 else x * 256 + 44 for x in range(256)]
+
+    @pytest.mark.parametrize(("level", "columns"), [(300, [1]), (44, [0]), (0, [2]), (65535, [255]), (301, []), (11308, [44])])
+    def test_level_of_a_16_bit_grey_picture(self, level, columns):
+        data = _png(256, 40, 16, 0, struct.pack(">256H", *self._LEVELS), struct.pack(">H", level))
+
+        assert _transparent_columns(data) == columns
+
+    def test_16_bit_grey_picture_keeps_its_shades_beside_the_transparent_level(self):
+        data = _png(256, 40, 16, 0, struct.pack(">256H", *self._LEVELS), struct.pack(">H", 300))
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        shown = Image.open(BytesIO(result.data)).convert("RGBA")
+        assert result.mime_type == "image/png"
+        assert [shown.getpixel((x, 5)) for x in (0, 100, 200)] == [(0, 0, 0, 255), (100, 100, 100, 255), (200, 200, 200, 255)]
+
+    def test_colour_of_a_16_bit_rgb_picture(self):
+        """Three bands of 20 pixels: the key (300, 0, 0), white, and (11264, 0, 0) — whose high byte is 44, the low byte of 300."""
+        row = b"".join(struct.pack(">HHH", *colour) * 20 for colour in ((300, 0, 0), (65535, 65535, 65535), (11264, 0, 0)))
+        data = _png(60, 40, 16, 2, row, struct.pack(">HHH", 300, 0, 0))
+
+        assert _transparent_columns(data, step=20) == [0]
+
+    @pytest.mark.parametrize(("bit_depth", "row", "level", "columns"), [
+        (4, bytes([0x0F, 0x5A]) * 10, 15, [1]),        # levels 0, 15, 5, 10 again and again; white is transparent
+        (4, bytes([0x0F, 0x5A]) * 10, 0, [0]),
+        (2, bytes([0b00011011]) * 10, 3, [3]),         # levels 0, 1, 2, 3
+        (2, bytes([0b00011011]) * 10, 1, [1]),
+        (1, bytes([0b01010101]) * 5, 1, [1, 3]),       # black, white, black, white
+        (1, bytes([0b01010101]) * 5, 0, [0, 2]),
+    ])
+    def test_level_of_a_grey_picture_with_few_bits(self, bit_depth, row, level, columns):
+        data = _png(40, 40, bit_depth, 0, row, struct.pack(">H", level))
+
+        assert _transparent_columns(data)[:len(columns)] == columns
+        assert len(_transparent_columns(data)) == 40 // (4 if bit_depth > 1 else 2)
+
+    @pytest.mark.parametrize(("colour_type", "row", "transparent"), [
+        (0, bytes(range(40)), struct.pack(">H", 999)),
+        (2, bytes(range(120)), struct.pack(">HHH", 999, 0, 0)),
+    ])
+    def test_colour_that_no_pixel_can_have_leaves_the_picture_opaque(self, colour_type, row, transparent):
+        """999 & 0xFF is 231: a level the 8-bit picture does have."""
+        result = prepare_image(_png(40, 40, 8, colour_type, row, transparent), min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/jpeg"
+
+    def test_level_that_a_black_and_white_picture_cannot_have_leaves_it_opaque(self, monkeypatch):
+        import opendockit.image as image_module
+
+        picture = Image.new("1", (300, 120), 0)
+        picture.paste(1, (20, 20, 280, 100))
+        picture.info["transparency"] = 5
+        monkeypatch.setattr(image_module, "_decoded", lambda _data, _max_side: picture)
+
+        result = prepare_image(b"bilevel", min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/jpeg"
+
+    def test_level_of_a_picture_that_is_stretched_to_8_bits_is_dropped(self, monkeypatch):
+        """A 32-bit grey picture has its range stretched to 0–255: a level of the file means nothing on that scale."""
+        import opendockit.image as image_module
+
+        picture = Image.new("I", (300, 120), 0)
+        picture.paste(40_000, (20, 20, 280, 100))
+        picture.info["transparency"] = 255
+        monkeypatch.setattr(image_module, "_decoded", lambda _data, _max_side: picture)
+
+        result = prepare_image(b"grey", min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/jpeg"
+
+    def test_keyed_background_leaves_no_fringe_when_downscaled(self):
+        """Shrunk before the key was applied, the edge of the disc was a blend of magenta and black: not the key any more,
+        so it stayed as an opaque purple rim."""
+        from PIL import ImageDraw
+
+        picture = Image.new("RGB", (2000, 2000), (255, 0, 255))
+        ImageDraw.Draw(picture).ellipse((250, 250, 1750, 1750), fill=(0, 0, 0))
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG", transparency=(255, 0, 255))
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=500)
+
+        shown = Image.open(BytesIO(result.data)).convert("RGBA")
+        rim = [(x, y) for y in (100, 250, 400) for x in range(500)
+               if shown.getpixel((x, y))[3] == 255 and shown.getpixel((x, y))[0] > 60]
+        assert shown.size == (500, 500)
+        assert shown.getpixel((3, 3))[3] == 0 and shown.getpixel((250, 250)) == (0, 0, 0, 255)
+        assert rim == []
+
+    def test_keyed_tall_picture_is_transparent_in_its_tiles_too(self):
+        picture = Image.new("RGB", (600, 9000), (255, 0, 255))
+        picture.paste((0, 0, 0), (100, 100, 500, 8900))
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG", transparency=(255, 0, 255))
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        tile = Image.open(BytesIO(result.tiles[0])).convert("RGBA")
+        assert tile.getpixel((5, 5))[3] == 0 and tile.getpixel((300, 600)) == (0, 0, 0, 255)
+
+
+class TestScannedPagesLeftOutByTheImageLimit:
+    """A scanned page image that `max_images` left out leaves its page empty, yet the warning said it was 'left as a
+    placeholder' and the page was named nowhere."""
+
+    def test_page_left_out_is_named_as_empty(self):
+        data = builder.pdf_scanned_in_strips([[], [], []], strips=1)
+
+        result = convert(data, "s.pdf", ConvertOptions(max_images=1))
+
+        assert [image.section_index for image in result.images] == [1]
+        assert "There are many images, so only 1 were selected for description (scanned pages first). 1 page(s) whose text " \
+               "exists only as an image (2) were left out and are empty." in result.warnings
+        assert not any("left as placeholders only" in warning for warning in result.warnings)
+
+    def test_pictures_left_out_beside_pages_are_counted_apart(self):
+        from opendockit.converter import _prepare_images
+        from opendockit.models import Extraction, Section, SectionKind, marker_key
+
+        extraction = Extraction()
+        with marker_key("k"):
+            page = extraction.add_image(builder.png_bytes(400, 300, seed=1), kind=ImageKind.PAGE)
+            figure = extraction.add_image(builder.png_bytes(400, 300, seed=2))
+        sections = [Section(SectionKind.PAGE, 1, "", None, page), Section(SectionKind.PAGE, 2, "", None, figure)]
+        warnings: list[str] = []
+
+        images, _ = _prepare_images(extraction.images, sections, ConvertOptions(max_images=0), warnings, "k")
+
+        assert images == []
+        assert warnings == ["There are many images, so only 0 were selected for description (scanned pages first). 1 page(s) "
+                            "whose text exists only as an image (1) were left out and are empty, and 1 other image(s) were "
+                            "left as placeholders only."]

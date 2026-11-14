@@ -335,6 +335,16 @@ class _BoxIndex:
         band = math.floor(center_y / self._BAND) if math.isfinite(center_y) else None
         return _inside_any(obj, self._bands.get(band, [])) or _inside_any(obj, self._tall)
 
+    def near(self, box: tuple[float, float, float, float]) -> list[tuple[float, float, float, float]]:
+        """The boxes that may overlap `box` vertically: those in the bands it covers and the tall ones, each once. Every box
+        is returned when `box` itself is too tall for bands or not finite."""
+        if not (math.isfinite(box[1]) and math.isfinite(box[3])) or box[3] - box[1] > self._BAND * self._MAX_BANDS:
+            found = [other for boxes in self._bands.values() for other in boxes]
+        else:
+            found = [other for band in range(math.floor(box[1] / self._BAND), math.floor(box[3] / self._BAND) + 1)
+                     for other in self._bands.get(band, ())]
+        return list({id(other): other for other in [*found, *self._tall]}.values())
+
 
 def _inside_any(obj: dict, boxes: list[tuple[float, float, float, float]]) -> bool:
     center_x = (obj["x0"] + obj["x1"]) / 2

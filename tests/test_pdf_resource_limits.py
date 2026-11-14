@@ -6,7 +6,7 @@ import zlib
 import pytest
 
 from opendockit import ConvertOptions, DocumentTooLargeError, convert
-from opendockit.extractors import _pdf_model, _pdf_open_tables, _pdf_pdfminer, _pdf_pieces, _pdf_shaded_tables
+from opendockit.extractors import _pdf_model, _pdf_open_tables, _pdf_pdfminer, _pdf_pieces, _pdf_ruled_tables, _pdf_shaded_tables
 from tests.pdf_modules import replace_everywhere
 from tests.test_pdf import _raw_pdf
 
@@ -157,6 +157,172 @@ class TestLargeRuledGrid:
         assert calls == []
         assert "| C0 | C1 | C2 |" in result.text and "| P0R54 |" in result.text
         assert not result.warnings
+
+
+def _empty_grid(lines: int, step: float = 5.0, verticals: int | None = None) -> bytes:
+    """A one-page PDF with an empty ruled grid of `lines` horizontal and `verticals` (default `lines`) vertical rules `step`
+    apart, and a paragraph."""
+    verticals = lines if verticals is None else verticals
+    right, top = 50 + (verticals - 1) * step, 50 + (lines - 1) * step
+    rules = b"".join(b"50 %g m %g %g l S " % (50 + index * step, right, 50 + index * step) for index in range(lines))
+    rules += b"".join(b"%g 50 m %g %g l S " % (50 + index * step, 50 + index * step, top) for index in range(verticals))
+    return _pages_pdf(b"0.1 w " + rules + b"\nBT /F1 12 Tf 72 800 Td (Text above the grid) Tj ET\n")
+
+
+def _filled_grid_pdf(rows: int, columns: int = 9, width: float = 40.0, height: float = 6.0) -> bytes:
+    """A ruled table of `rows` × `columns` cells on one tall page, 'r<row>' in the first column and a number in every other
+    cell: (rows + 1) × (columns + 1) crossings."""
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(columns * width + 80, rows * height + 80))
+    pdf.setLineWidth(0.3)
+    pdf.setFont("Helvetica", 4)
+    top = rows * height + 40
+    for row in range(rows + 1):
+        pdf.line(40, top - row * height, 40 + columns * width, top - row * height)
+    for column in range(columns + 1):
+        pdf.line(40 + column * width, top, 40 + column * width, top - rows * height)
+    for row in range(rows):
+        pdf.drawString(42, top - row * height - 4.5, f"r{row}")
+        for column in range(1, columns):
+            pdf.drawRightString(38 + (column + 1) * width, top - row * height - 4.5, f"{row * 13 + column:,}")
+    pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestTooManyRules:
+    """pdfplumber's table finder compares every crossing of ruling lines with every later one, so an empty 150 × 150 grid on an A4
+    page took 14 seconds and a 300 × 300 one 96 seconds. A page with more than 8,500 crossings (`_MAX_RULE_CROSSINGS`) is read
+    without ruled tables and a warning is issued."""
+
+    @pytest.mark.timing
+    def test_page_of_a_dense_empty_grid_is_read_quickly_without_ruled_tables(self):
+        import time
+
+        started = time.perf_counter()
+        result = convert(_empty_grid(150), "a.pdf")
+
+        assert time.perf_counter() - started < 3, "before the fix the page took 14 seconds"
+        assert "Text above the grid" in result.text
+        assert any("too many ruling lines" in warning and "(1)" in warning for warning in result.warnings)
+
+    def test_crossings_are_counted_as_pdfplumber_finds_them(self):
+        from pdfplumber.table import edges_to_intersections
+
+        horizontals = [{"x0": 0.0, "x1": 100.0, "top": float(top), "bottom": float(top), "orientation": "h"} for top in (0, 10, 50)]
+        verticals = [{"x0": float(x), "x1": float(x), "top": 8.0, "bottom": 52.0, "orientation": "v"} for x in (0, 30, 102, 110)]
+
+        counted = _pdf_ruled_tables._rule_crossings(horizontals, verticals, 3, 3, 1_000)
+
+        assert counted == len(edges_to_intersections(horizontals + verticals, 3, 3)) == 6
+        assert _pdf_ruled_tables._rule_crossings(horizontals, verticals, 3, 3, 2) == 3  # stops at the first line past the limit
+
+    def test_grid_below_the_bound_is_searched_without_a_warning(self):
+        result = convert(_empty_grid(92), "a.pdf")  # 8,464 crossings
+
+        assert not result.warnings
+
+    @pytest.mark.parametrize(("verticals", "too_many"), [(92, False), (93, True)])
+    def test_bound_lies_between_two_grids_one_rule_apart(self, verticals, too_many):
+        """92 horizontal rules crossed by 92 vertical ones (8,464 crossings) are searched; with one more vertical rule (8,556)
+        they are too many."""
+        import pdfplumber
+
+        with pdfplumber.open(BytesIO(_empty_grid(92, verticals=verticals))) as document:
+            assert _pdf_ruled_tables._too_many_rules(document.pages[0]) is too_many
+
+    @pytest.mark.parametrize(("rows", "too_many"), [(849, False), (850, True)])
+    def test_bound_counts_the_crossings_of_a_filled_table(self, rows, too_many):
+        """A table of R rows × C columns has (R + 1) × (C + 1) crossings: 849 × 9 has 8,500 and is searched, 850 × 9 has
+        8,510 and is not."""
+        import pdfplumber
+
+        with pdfplumber.open(BytesIO(_filled_grid_pdf(rows))) as document:
+            assert _pdf_ruled_tables._too_many_rules(document.pages[0]) is too_many
+
+    def test_filled_table_just_above_the_bound_keeps_its_text_with_a_warning(self):
+        """The page is read as if its lines were not drawn: here the rows still come out as a table, found from their
+        alignment, and the warning says only that ruled tables were not looked for."""
+        result = convert(_filled_grid_pdf(850), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert ("1 PDF page(s) (1) have too many ruling lines, so ruled tables were not looked for on them (their text is read "
+                "as if the lines were not drawn).") in result.warnings
+        rows = [line for line in result.text.splitlines() if line.startswith("| r")]
+        assert len(rows) == 850
+        assert rows[0] == "| r0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |" and rows[-1] == "| r849 | 11,038 | 11,039 | 11,040 | 11,041 | 11,042 | 11,043 | 11,044 | 11,045 |"
+
+    @pytest.mark.parametrize(("horizontals", "too_many"), [(2_000, False), (2_001, True)])
+    def test_rules_that_never_cross_are_bounded_by_their_pairs(self, horizontals, too_many):
+        """Horizontal rules stacked on the left and 2,000 vertical rules side by side on the right, none crossing another:
+        the finder still compares every horizontal rule with every vertical one, so more than 4,000,000 pairs
+        (`_MAX_RULE_PAIRS`) are too many although no crossing is counted."""
+        import pdfplumber
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(8_400, 8_300))
+        pdf.setLineWidth(0.3)
+        for index in range(horizontals):
+            pdf.line(40, 100 + 4 * index, 240, 100 + 4 * index)
+        for index in range(2_000):
+            pdf.line(300 + 4 * index, 20, 300 + 4 * index, 80)
+        pdf.save()
+
+        with pdfplumber.open(BytesIO(buffer.getvalue())) as document:
+            assert _pdf_ruled_tables._too_many_rules(document.pages[0]) is too_many
+
+
+def _staggered_grid_pdf(columns: int, rows: int, width: float = 12.0, height: float = 7.0) -> bytes:
+    """A ruled table whose every cell spans two rows, the cells of neighbouring columns offset by one row, with a letter in
+    every cell."""
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(columns * width + 40, rows * height + 40))
+    pdf.setLineWidth(0.2)
+    pdf.setFont("Helvetica", 3)
+    top = rows * height + 20
+    for column in range(columns + 1):
+        pdf.line(20 + column * width, top, 20 + column * width, top - rows * height)
+    for column in range(columns):
+        x = 20 + column * width
+        for boundary in range(rows + 1):
+            if boundary in (0, rows) or (boundary + column) % 2 == 0:
+                pdf.line(x, top - boundary * height, x + width, top - boundary * height)
+        for start in range(column % 2, rows, 2):
+            pdf.drawString(x + 1, top - start * height - 5, "v")
+    pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestManyMergedCells:
+    """`_cell_rows` compared every merged cell with every cell of the table to find the cells it encloses, so a ruled table of
+    4,500 cells, each merged over two rows, took 1.3 seconds (20 million comparisons) in that step alone. Only the cells in
+    the height bands of a merged cell are compared now (`_BoxIndex.near`)."""
+
+    def test_merged_cells_are_compared_only_with_the_cells_near_them(self, monkeypatch):
+        import pdfplumber
+
+        from opendockit.extractors import _pdf_cell_text
+
+        compared = [0]
+        encloses = _pdf_cell_text._encloses
+
+        def counting(outer, inner):
+            compared[0] += 1
+            return encloses(outer, inner)
+
+        monkeypatch.setattr(_pdf_cell_text, "_encloses", counting)
+        with pdfplumber.open(BytesIO(_staggered_grid_pdf(40, 100))) as document:
+            table = max(document.pages[0].find_tables(_pdf_model._TABLE_SETTINGS), key=lambda found: len(found.cells))
+            rows = _pdf_cell_text._cell_rows(table)
+
+        assert len(table.cells) > 2_000
+        assert all(cell == "v" for row in rows[1:] for cell in row)  # every merged cell repeated on its second row
+        assert compared[0] < 400_000, "before the fix every merged cell was compared with every cell (4 million)"
 
 
 class TestGlyphByGlyphText:
@@ -784,3 +950,50 @@ class TestHugeGlyphNextToOrdinaryText:
         assert time.perf_counter() - started < 10, "before the fix it never finished (10 seconds at font size 1e8)"
         assert "Ordinary line of text before." in result.text
         assert "Another ordinary line." in result.text
+
+
+class TestShapesWithoutAFinitePosition:
+    """A rule drawn to `1e400` reached the table finders with an infinite end, and rounding it raised an OverflowError that
+    rejected the whole PDF."""
+
+    _HUGE = b"1" + b"0" * 400 + b".0"
+
+    @pytest.mark.parametrize("shape", [
+        b"200 100 m 200 %s l S" % _HUGE,
+        b"200 100 m 200 -%s l S" % _HUGE,
+        b"60 100 m %s 107 l S" % _HUGE,
+        b"60 100 %s 10 re S" % _HUGE,
+        # A control point at (infinity, -infinity) is not a number once it is placed, and the box of the curve, taken from
+        # its other points, is finite.
+    ])
+    def test_page_is_read_and_its_table_kept(self, shape):
+        rules = [b"50 %d m 250 %d l S" % (y, y) for y in (100, 107, 114)]
+        grid = [b"300 %d m 500 %d l S" % (y, y) for y in (600, 620, 640)] + [b"%d 600 m %d 640 l S" % (x, x) for x in (300, 400, 500)]
+        cells = [b"BT /F1 10 Tf %d %d Td (%s) Tj ET" % (x, y, text)
+                 for x, y, text in ((310, 626, b"Name"), (410, 626, b"Value"), (310, 606, b"Alpha"), (410, 606, b"One"))]
+        content = b"\n".join([b"0.5 w", *rules, *grid, shape, *cells, b"BT /F1 10 Tf 72 750 Td (Hello) Tj ET"])
+
+        result = convert(_pages_pdf(content))
+
+        assert "Hello" in result.text
+        assert "| Name | Value |" in result.text
+        assert "| Alpha | One |" in result.text
+
+    def test_shape_with_a_point_that_is_not_a_number_inside_a_finite_box_is_left_out_too(self):
+        """A corner at (infinity, -infinity) is not a number once it is placed, and pdfminer takes the box of the shape from
+        its other corners: the box alone looks like that of an ordinary shape."""
+        import io
+        import math
+
+        import pdfplumber
+
+        from opendockit.extractors._pdf_table_filters import _without_unbounded_shapes
+
+        content = b"0.5 w\n60 100 m %s -%s l 240 100 l S\n300 600 m 400 620 l 500 600 l S" % (self._HUGE, self._HUGE)
+        with pdfplumber.open(io.BytesIO(_pages_pdf(content))) as pdf:
+            page = pdf.pages[0]
+            boxes = [[curve[side] for side in ("x0", "x1", "top", "bottom")] for curve in page.curves]
+            kept = _without_unbounded_shapes(page).curves
+
+        assert len(boxes) == 2 and all(math.isfinite(value) for box in boxes for value in box)
+        assert [(curve["x0"], curve["x1"]) for curve in kept] == [(300.0, 500.0)]

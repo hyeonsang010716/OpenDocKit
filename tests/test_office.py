@@ -157,6 +157,22 @@ class TestPptx:
         assert "| 2025년 | 1234567890 |" in result.text
         assert "| 2026년 | 15000000.5 |" in result.text
 
+    def test_large_whole_chart_values_keep_all_their_digits(self):
+        """From 10^15 on a whole value went through a float with 15 significant digits: 2401189000000000 became 2.401189e+15
+        and 1234567890123456 became 1.23456789012346e+15."""
+        values = ["2401189000000000", "1234567890123456", "2.401189E+15", "1E+300", "0.25"]
+        points = "".join(f'<c:pt idx="{index}"><c:v>{value}</c:v></c:pt>' for index, value in enumerate(values))
+        series = ('<c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:v>S</c:v></c:tx><c:val><c:numRef><c:numCache>'
+                  f"{points}</c:numCache></c:numRef></c:val></c:ser>")
+        data = builder.zip_with(_pptx_with_chart(), edit={
+            "ppt/charts/chart1.xml": lambda xml: _chart_xml(f"<c:barChart>{series}</c:barChart>", "T")})
+
+        text = convert(data, "a.pptx").text
+
+        for row in ("| 1 | 2401189000000000 |", "| 2 | 1234567890123456 |", "| 3 | 2401189000000000 |", "| 4 | 1e+300 |",
+                    "| 5 | 0.25 |"):
+            assert row in text
+
     def test_scatter_chart_values_are_kept(self):
         """A scatter chart uses X/Y values (c:xVal, c:yVal) instead of categories (c:cat), so not a single value row came out."""
         from io import BytesIO

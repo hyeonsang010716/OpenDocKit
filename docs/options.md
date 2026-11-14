@@ -26,7 +26,7 @@ result = convert(data, "deck.pptx", options)
 | `keep_links` | `True` | Hyperlinks as `[text](url)` (http, https and mailto only). `False`: only the link text |
 | `keep_emphasis` | `True` | Bold and italic as `**bold**` / `*italic*`. `False`: plain text |
 | `remove_repeated_page_lines` | `True` | Remove repeated PDF page headers, footers and page numbers |
-| `page_markers` | `True` | PDF page-boundary comments (`<!-- Page N -->`) |
+| `page_markers` | `True` | Page-boundary comments (`<!-- Page N -->`) between the pages of a PDF and of a multi-page TIFF |
 | `extract_images` | `True` | Image extraction. `False` ignores images completely: pictures inside a document leave no placeholder (HTML, mail and EPUB pictures that have alt text keep `[Image: alt text]`), and an image file uploaded on its own is not read (empty result plus a warning). However, OLE objects whose content is not read (a pasted Excel sheet and the like) still leave an `[OLE object]` placeholder and a warning (DOCX, PPTX, HWP, HWPX) |
 | `max_images` | none | Number of images to describe per document (cost cap). Without it, all are described |
 | `min_image_side` | 64 | Images smaller than this (px) are discarded |
@@ -66,6 +66,9 @@ Values are checked when `ConvertOptions` is created.
 - For `max_chars`, `max_images`, `min_image_side` and `pdf_time_budget`, 0 means "allow none" and is accepted.
 - `None` means "no limit" and is accepted for `max_chars`, `max_pages`, `max_images` and `pdf_time_budget`.
 - A value of the wrong type — `None` for any other limit, `2.5`, `"100"`, `True` — raises `TypeError`.
+- The switches (`page_markers`, `extract_images`, `keep_links`, `keep_emphasis`, `include_speaker_notes`, `include_hidden_sheets`,
+  `include_headers_footers`, `include_footnotes`, `remove_repeated_page_lines`) accept only `True` and `False`. Anything else —
+  `0`, `1`, `None`, `"false"` — raises `TypeError`: a string would always count as true, and a number hides a mix-up with a limit.
 - A whole number written as a float (`max_chars=5e5`) is accepted as an integer.
 - NaN and infinity (`float("nan")`, `float("inf")`) raise `ValueError`. To remove the time limit use `pdf_time_budget=None`.
 
@@ -77,7 +80,7 @@ All exceptions are subclasses of `ConversionError`; branch on `code`. The messag
 | --- | --- | --- |
 | `UnsupportedFormatError` | `unsupported_format` | Legacy .doc and .ppt when LibreOffice is not installed, switched off or cannot be started; HWP 3.x, Hangul XML (.hml), single-file ODF XML, other OpenDocument kinds (drawing, formula, database), .xlsb, SVG, Word XML, DOCX / PPTX / XLSX saved as Strict Open XML (the message advises saving again in the normal format), unknown binary |
 | `EncryptedDocumentError` | `encrypted_document` | Password-protected PDF, Office (`.doc` / `.ppt` included), OpenDocument and HWP documents, an EPUB with DRM or a ZIP password (a protected XLS that Excel saved with its default password VelvetSweatshop is read normally), encrypted mail (S/MIME, PGP), an HWP distribution document whose body is encrypted when it has no preview either |
-| `DocumentTooLargeError` | `document_too_large` | File size or decompressed size over the limit; time or memory limit of `IsolatedConverter` exceeded, or its worker died ("too large or too complex"); a `.doc` / `.ppt` LibreOffice did not finish within 60 seconds |
+| `DocumentTooLargeError` | `document_too_large` | File size or decompressed size over the limit; the conversion ran out of memory, or the time or memory limit of `IsolatedConverter` was exceeded or its worker died ("too large or too complex"); a `.doc` / `.ppt` LibreOffice did not finish within 60 seconds |
 | `CorruptedDocumentError` | `corrupted_document` | Empty file, broken structure, internal parser error, an image file that cannot be decoded (uploaded on its own), a `.doc` / `.ppt` LibreOffice could not convert |
 
 ```python

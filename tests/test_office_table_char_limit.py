@@ -5,6 +5,7 @@ check as `test_converter.py::TestLimitIsExact`)."""
 
 import re
 import struct
+import time
 
 import pytest
 
@@ -19,6 +20,7 @@ from tests.test_hwp import (
     _fake_hwp,
 )
 from tests.test_office import _docx_with_body
+from tests.timing import allowed
 
 
 _ROWS = 20_000
@@ -45,6 +47,27 @@ def _docx_big_table() -> bytes:
     base = _docx_with_body("<w:p><w:r><w:t>BIGTABLE</w:t></w:r></w:p>")
     return builder.zip_with(base, edit={"word/document.xml": lambda xml: re.sub(r"<w:p>(?:(?!<w:p>).)*?BIGTABLE.*?</w:p>",
                                                                                 lambda _: table, xml, count=1)})
+
+
+def _docx_big_header_table(kind: str, rows: int, cell: str = "") -> bytes:
+    """A table of `rows` rows in the header (or footer) part, and a short body."""
+    from io import BytesIO
+
+    from docx import Document
+
+    document = Document()
+    getattr(document.sections[0], kind).paragraphs[0].text = "STORY"
+    document.add_paragraph("body")
+    buffer = BytesIO()
+    document.save(buffer)
+    table = _docx_table(["".join(_docx_cell(f"r{row}c{col}{cell}") for col in range(_COLS)) for row in range(rows)])
+    return builder.zip_with(buffer.getvalue(), edit={f"word/{kind}1.xml": lambda xml: xml.replace("<w:p>", table + "<w:p>", 1)})
+
+
+def _seconds(action) -> float:
+    started = time.perf_counter()
+    action()
+    return time.perf_counter() - started
 
 
 def _hwpx_table(cells: str, rows: int) -> str:
@@ -86,6 +109,52 @@ class TestCharacterLimitInsideOneTable:
         assert result.char_count < _LIMIT * 3  # drawn to the end it would be over 500,000 characters
         assert result.text.startswith("| r0c0 |")
 
+    @pytest.mark.parametrize("kind", ["header", "footer"])
+    def test_header_table_is_not_cut_by_the_characters_of_the_body(self, kind):
+        """Headers are read after the body but written before it. The body's characters stopped the header table after its first
+        row, so the text returned under the limit was not the front of the full conversion."""
+        from io import BytesIO
+
+        from docx import Document
+        from docx.shared import Inches
+
+        document = Document()
+        story = getattr(document.sections[0], kind)
+        table = story.add_table(rows=4, cols=2, width=Inches(4))
+        for row in range(4):
+            for col in range(2):
+                table.cell(row, col).text = f"H{row}{col}xxxxxxxx"
+        document.add_paragraph("B" * 95)
+        buffer = BytesIO()
+        document.save(buffer)
+        full = convert(buffer.getvalue(), "a.docx", ConvertOptions(include_headers_footers=True)).text
+
+        result = convert(buffer.getvalue(), "a.docx", ConvertOptions(max_chars=110, include_headers_footers=True))
+
+        assert result.exceeded and result.text == full[:110].rstrip()
+
+    @pytest.mark.parametrize("kind", ["header", "footer"])
+    def test_header_table_longer_than_the_limit_stops_reading_rows(self, kind):
+        """A header table is not charged the characters of the body, but its own text is part of the output: a table that passes
+        the limit alone is not read to the end."""
+        data = _docx_big_header_table(kind, _ROWS)
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=_LIMIT, include_headers_footers=True))
+
+        assert result.exceeded
+        assert result.char_count < _LIMIT * 3  # drawn to the end it would be over 500,000 characters
+        assert "| r0c0 |" in result.text
+
+    @pytest.mark.timing
+    def test_header_table_of_many_rows_is_not_rendered_to_the_end(self):
+        """With no check at all on a header table, 60,000 rows in word/header1.xml took 13 s under the default limit (200,000 rows
+        39 s and 2.0 GB); stopped at the limit it is the time of parsing the XML."""
+        data = _docx_big_header_table("header", 60_000, cell="cell text abcdefghij")
+
+        elapsed = min(_seconds(lambda: convert(data, "a.docx", ConvertOptions(include_headers_footers=True))) for _ in range(2))
+
+        assert elapsed < allowed(4.0)
+
     def test_hwpx_stops_reading_rows_of_a_huge_table(self):
         data = _hwpx_big_table()
 
@@ -104,6 +173,98 @@ class TestCharacterLimitInsideOneTable:
         assert result.exceeded
         assert result.char_count < _LIMIT * 3
         assert result.text.startswith("| r0c0 |")
+
+
+def _docx_with_stories(headers: list[str], footers: list[str], body: str) -> bytes:
+    """One section per header, each with a header and a footer part of its own."""
+    from io import BytesIO
+
+    from docx import Document
+    from docx.enum.section import WD_SECTION
+
+    document = Document()
+    for index, (header, footer) in enumerate(zip(headers, footers, strict=True)):
+        section = document.sections[-1] if index == 0 else document.add_section(WD_SECTION.NEW_PAGE)
+        section.header.is_linked_to_previous = False
+        section.header.paragraphs[0].text = header
+        section.footer.is_linked_to_previous = False
+        section.footer.paragraphs[0].text = footer
+    document.add_paragraph(body)
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+class TestHeaderPartsPastTheLimit:
+    """Header and footer parts are rendered one after another, each table against its own characters only: 40 header parts
+    and 40 footer parts with a 5,000-row table each, every one under the limit, were all rendered to the end (74 s). Once the
+    text written before a part is over the limit, the output is cut inside that text and the part is not rendered."""
+
+    @pytest.fixture
+    def rendered(self, monkeypatch):
+        """The parts rendered as a header or footer, in order (the first word of their text)."""
+        from opendockit.extractors import docx as docx_module
+
+        parts: list[str] = []
+        render_story = docx_module._DocxRenderer.render_story
+
+        def spy(self, part, container):
+            parts.append("".join(container.itertext()).split()[0])
+            return render_story(self, part, container)
+
+        monkeypatch.setattr(docx_module._DocxRenderer, "render_story", spy)
+        return parts
+
+    @staticmethod
+    def _document(body: str = "body text") -> bytes:
+        return _docx_with_stories([f"H{index} " + "h" * 60 for index in range(3)], [f"F{index} " + "f" * 60 for index in range(3)], body)
+
+    def test_under_the_limit_every_part_is_rendered(self, rendered):
+        result = convert(self._document(), "a.docx", ConvertOptions(include_headers_footers=True))
+
+        assert not result.exceeded and all(f"{kind}{index} " in result.text for kind in "HF" for index in range(3))
+        assert rendered == ["H0", "H1", "H2", "F0", "F1", "F2"]
+
+    def test_headers_after_the_one_that_passes_the_limit_are_not_rendered(self, rendered):
+        data = self._document()
+        full = convert(data, "a.docx", ConvertOptions(include_headers_footers=True)).text
+        rendered.clear()
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=100, include_headers_footers=True))
+
+        assert result.exceeded and result.text == full[:100].rstrip()
+        assert rendered == ["H0", "H1"]   # 63 characters, then 126
+
+    def test_footers_are_not_rendered_once_headers_and_body_pass_the_limit(self, rendered):
+        data = self._document("B" * 300)
+        full = convert(data, "a.docx", ConvertOptions(include_headers_footers=True)).text
+        rendered.clear()
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=400, include_headers_footers=True))
+
+        assert result.exceeded and result.text == full[:400].rstrip()
+        assert rendered == ["H0", "H1", "H2"]
+
+    def test_footers_stop_at_the_one_that_passes_the_limit(self, rendered):
+        data = self._document("B" * 100)
+        full = convert(data, "a.docx", ConvertOptions(include_headers_footers=True)).text
+        rendered.clear()
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=360, include_headers_footers=True))
+
+        assert result.exceeded and result.text == full[:360].rstrip()
+        assert rendered == ["H0", "H1", "H2", "F0", "F1"]   # 189 + 100 = 289 before the footers, 352, then 415
+
+    def test_part_that_repeats_an_earlier_one_is_not_counted(self, rendered):
+        """Three header parts with the same text are written once: counted three times, a document under the limit was cut."""
+        data = _docx_with_stories(["Same " + "h" * 60] * 3, [f"F{index} " + "f" * 20 for index in range(3)], "body text")
+        full = convert(data, "a.docx", ConvertOptions(include_headers_footers=True)).text
+        rendered.clear()
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=170, include_headers_footers=True))
+
+        assert not result.exceeded and result.text == full and full.count("Same") == 1
+        assert rendered == ["Same", "Same", "Same", "F0", "F1", "F2"]
 
 
 def _docx_boundary_document() -> bytes:

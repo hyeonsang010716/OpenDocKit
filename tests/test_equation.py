@@ -160,6 +160,12 @@ class TestRules:
 
         assert result == r"\frac{\text{해결 건수}}{\text{전체 문의}} \times 100 \text{가격 \$5 \& 10\%}"
 
+    def test_backslash_caret_and_tilde_in_text_use_text_mode_commands(self):
+        """`\\backslash` is a math-mode command, so inside `\\text{…}` LaTeX rejected it; the text-mode forms are used."""
+        result = equation_to_latex('"a\\b^c~d{e}_#"')
+
+        assert result == r"\text{a\textbackslash{}b\textasciicircum{}c\textasciitilde{}d\{e\}\_\#}"
+
     def test_font_commands_are_dropped(self):
         result = equation_to_latex("rm 2H_2 O = 2H_2 + O_2")
 

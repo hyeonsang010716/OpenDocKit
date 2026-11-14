@@ -25,8 +25,10 @@ _PARSER_CALLERS = r"opendockit\.extractors\._?html"
 # button: only expander buttons (`_keep_expander_buttons`) keep their text; the rest are removed.
 # The parser leaves the content of noframes/noembed as raw text, so it came out tags and all
 # (Pinned by: test_core_html_mail_hidden_and_frames.py::TestNoFrames).
-_DROP_TAGS = ["script", "style", "noscript", "noframes", "noembed", "template", "svg", "canvas", "iframe", "object", "embed",
-              "button", "head", "nav"]
+# `<object>` and `<canvas>` are not removed: what they hold is the fallback content a page shows where the object or the drawing
+# cannot be shown, which is the case here (`<object data="x.pdf"><p>…</p></object>` gave 'No text was extracted')
+# (Pinned by: test_core_html.py::TestFallbackContentOfObjectAndCanvas).
+_DROP_TAGS = ["script", "style", "noscript", "noframes", "noembed", "template", "svg", "iframe", "embed", "button", "head", "nav"]
 # An aside inside these elements is a warning/note box of the main content (`_drop_sidebars`).
 _MAIN_CONTENT_TAGS = ["main", "article"]
 

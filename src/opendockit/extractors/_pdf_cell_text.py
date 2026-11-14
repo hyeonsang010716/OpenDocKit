@@ -11,6 +11,7 @@ from opendockit.extractors._pdf_model import (
     _BULLET_START,
     _SPACED_CHAR,
     _TABLE_ROW_TOLERANCE,
+    _BoxIndex,
     _encloses,
     _inside_any,
     _page_index,
@@ -60,14 +61,20 @@ def _cell_rows(table: object) -> list[list[str | None]]:
     row_middles = [_shared_middle(row.cells, 1, 3) for row in table.rows]
     column_middles = [_shared_middle(column.cells, 0, 2) for column in table.columns]
     containers: list[int] = []  # rows where a cell holding an inner table starts
+    # The rows and columns a cell covers are looked up by bisection over the sorted middles, and the cells a merged cell may
+    # enclose only among those of its own height bands (`_BoxIndex.near`): scanning every cell of the table for every
+    # merged cell took time with the square of the cells, 1.3 seconds for a ruled table of 4,500 cells merged over two rows
+    # each (Pinned by: test_pdf_resource_limits.py::TestManyMergedCells)
+    by_row, by_column = _sorted_middles(row_middles), _sorted_middles(column_middles)
+    nearby = _BoxIndex([cell for cell in table.cells if cell])
 
     for cell in table.cells:
         x0, top, x1, bottom = cell
-        spanned = [index for index, middle in enumerate(row_middles) if top <= middle <= bottom]
-        column = next((index for index, middle in enumerate(column_middles) if x0 <= middle <= x1), None)
+        spanned = sorted(_middles_within(by_row, top, bottom))
+        column = min(_middles_within(by_column, x0, x1), default=None)
         if len(spanned) < 2 or column is None or column >= len(rows[spanned[0]]) or not rows[spanned[0]][column]:
             continue
-        inner = [other for other in table.cells if other != cell and _encloses(cell, other)]
+        inner = [other for other in nearby.near(cell) if other != cell and _encloses(cell, other)]
         if len(inner) >= 2:
             rows[spanned[0]][column] = _text_outside(table.page.chars, cell, inner)
             containers.append(spanned[0])
@@ -77,6 +84,19 @@ def _cell_rows(table: object) -> list[list[str | None]]:
                 rows[index][column] = rows[spanned[0]][column]
 
     return [row for index, row in enumerate(rows) if index not in containers or not _repeated_below(rows, index)]
+
+
+def _sorted_middles(middles: list[float]) -> tuple[list[float], list[int]]:
+    """The middles in ascending order with the index each had, as (middles, indexes). A middle that is not a number lies
+    within no range and is left out."""
+    order = sorted((index for index, middle in enumerate(middles) if middle == middle), key=middles.__getitem__)
+    return [middles[index] for index in order], order
+
+
+def _middles_within(middles: tuple[list[float], list[int]], low: float, high: float) -> list[int]:
+    """The indexes of the middles (`_sorted_middles`) from `low` to `high`, both included."""
+    values, order = middles
+    return order[bisect_left(values, low):bisect_right(values, high)]
 
 
 def _text_outside(chars: list[dict], cell: tuple, inner: list[tuple]) -> str:

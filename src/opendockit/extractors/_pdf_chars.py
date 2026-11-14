@@ -259,3 +259,118 @@ def _scripted_text(chars: list[dict], line_text: str) -> str | None:
 
 def _is_hangul(text: str) -> bool:
     return len(text) == 1 and "가" <= text <= "힣"
+
+
+# A drop cap (`_drop_cap`), relative to the size of the text beside it: how large the initial is at least and at most, how far
+# the first letter of the text may be from the initial, how far the top of the initial may be from the top of the capitals of
+# the first line, how far below the first line the initial stands at least, and how far its baseline may be from the baseline
+# of the line it rests on.
+_DROP_CAP_MIN_RATIO = 2.0
+_DROP_CAP_MAX_RATIO = 6.0
+_DROP_CAP_GAP_RATIO = 1.0
+_DROP_CAP_TOP_RATIO = 0.5
+_DROP_CAP_DROP_RATIO = 0.75
+_DROP_CAP_FOOT_RATIO = 0.25
+_CAP_HEIGHT = 0.7  # height of a capital letter relative to the font size (0.66 Times, 0.72 Helvetica)
+_DESCENT = 0.2  # the baseline of a character is this far above the bottom of its box, relative to the font size
+
+# The start of an English word: at most one of the consonant groups a word can begin with, then a vowel. 'fter', 'lthough',
+# 'nd', 'ndeed', 'nstead' and 's' (After, Although, And, Indeed, Instead, As) cannot be words (`_initial_is_a_word`).
+_WORD_START = re.compile(r"(?:bl|br|chr?|cl|cr|dr|dw|fl|fr|gh|gl|gr|kn|ph|pl|pr|ps|qu|rh|scr?|sch|shr?|sk|sl|sm|sn|spl?|spr|squ|str?|sw|thr?|tr|tw"
+                         r"|wh|wr|[bcdfghjklmnpqrstvwz])?[aeiouy]")
+# Words written with 'a', not 'an', although they begin with a vowel letter ('A unique', 'A useful', 'A European', 'A one-off').
+_A_BEFORE_VOWEL = ("uni", "una", "use", "usu", "uti", "eu", "one", "once")
+# Common words beginning with 'A' and 'I' whose rest could start a word of its own ('A bout', 'I ron'), without the initial: a
+# closed list, not a dictionary. A rarer word of this kind (Alice, Adam, Italy) is read as 'A lice', as before the drop cap rule.
+_REST_OF_A_WORD = {
+    "A": frozenset("ble bout bove cross dult dults frica frican ge gain gainst merica merican mericans mid mong nimal nimals "
+                   "nother ny nybody nyone nything pril re rea reas round sked verage".split()),
+    "I": frozenset("ce dea deas dentity mage mages magine nitially ron ronically sland slands tem tems".split()),
+}
+
+
+def _initial_is_a_word(letter: str, rest: str) -> bool:
+    """Whether a drop cap is a word of its own ('A' + 'long time ago', 'I' + 'was born') and not the first letter of the word
+    after it ('A' + 'fter', 'I' + 'n'), judged from the letters alone: nothing on the page told them apart (`_drop_cap`).
+
+    Only 'A' and 'I' are words. They are when what follows can be a word by itself: it begins as an English word does
+    (`_WORD_START`), is not the rest of a common word (`_REST_OF_A_WORD`), and after 'A' does not begin with a vowel letter
+    (it would be 'An'; `_A_BEFORE_VOWEL` holds the exceptions). Known limitation, measured on 346 sentence openers set as
+    drop caps (188 'A', 139 'I', 19 'O'): 24 are read wrong (6.9%). 13 of 80 words beginning with 'A' are split as they were
+    before there was a drop cap rule ('A long the coast' for Along, 'A lone', 'A head', 'A part', 'A side', 'A way', 'A lice',
+    'A dam', 'A sking' …), 5 of 108 'A' + word are joined ('Around table', 'Across word', 'Again of ten', 'About of flu',
+    'Amid sized'), 3 of 52 words beginning with 'I' are split ('I taly', 'I reland', 'I solated'), none of 87 'I' + word is
+    joined, and the vocative 'O' ('O come all ye') is always joined. With the space written as a glyph the 8 joined words are
+    right and the 16 split ones remain (4.6%). The rule is English: in a language where another single capital is a word
+    ('Y', 'E', 'O') that word is joined to the next, and 'A' and 'I' are judged as if English.
+    (Pinned by: test_pdf_reading_order.py::TestDropCaps::test_an_initial_that_is_a_word_keeps_its_space,
+    test_an_initial_of_a_word_beginning_with_a_or_i_is_joined, test_how_often_the_letters_alone_misjudge_a_sentence_opener)"""
+    word = re.match("[a-z]*", rest).group()
+    if letter not in _REST_OF_A_WORD:
+        return False
+    if letter == "A" and word[:1] in "aeiou":
+        return word.startswith(_A_BEFORE_VOWEL)
+    return bool(_WORD_START.match(word)) and word not in _REST_OF_A_WORD[letter]
+
+
+def _drop_cap(chars: list[dict], line_text: str) -> tuple[str, float, float] | None:
+    """(text, top, bottom) of a line that opens with a drop cap, the initial joined to the rest of its word and the line as high as
+    the text beside the initial. None for any other line.
+
+    A paragraph that opens with a large initial hanging beside its first lines ('T' + 'he quick brown') was read 'T he quick
+    brown', and the height of the initial kept the first line apart from the rest of its paragraph (Pinned by:
+    test_pdf_reading_order.py::TestDropCaps::test_a_drop_cap_is_joined_to_its_word_and_paragraph). A drop cap is a capital
+    letter followed no further than `_DROP_CAP_GAP_RATIO` away by a lower-case letter, the top of its capital within `_DROP_CAP_TOP_RATIO` of
+    the capitals of the first line, standing at least `_DROP_CAP_DROP_RATIO` below the baseline of that line on the baseline
+    (within `_DROP_CAP_FOOT_RATIO`) of a character of a later line beside it, and `_DROP_CAP_MIN_RATIO` to
+    `_DROP_CAP_MAX_RATIO` times the size of the text. The baselines alone do not tell a drop cap from an option or step letter:
+    a letter 1.8 times the text on the second line of text set solid, or 6.5 to 8 times beside four lines, stands the same way,
+    and 'D' + 'press and hold the button' was read 'Dpress and hold the button' — 21 of 2,000 such labels that had kept their
+    space under the size bounds alone (Pinned by: test_a_letter_under_twice_or_over_six_times_the_text_is_no_drop_cap). A cap
+    over two lines of text set solid is about 2.4 times the text, one over three lines of text set 1.4 apart about 5 times. A large letter that
+    is a label keeps its space as before: 'Q' beside one line, 'B' centred beside three lines or standing in the margin, a
+    letter on the baseline of the first line, a capital or a digit after it (Pinned by:
+    test_a_large_label_that_is_no_drop_cap_keeps_its_space). Deliberate: a letter set like a drop cap by chance of the sizes (a
+    label as high as the block beside it, resting on one of its baselines) is joined, a drop cap set loosely (resting
+    between two lines, as a floated first letter of a web page does) is not, and neither is a cap over four or more lines
+    that is more than six times the text (four lines about 1.2 or more apart).
+
+    The initial may be a word of its own ('A long time ago', 'I was born'): joining gave 'Along time ago' and 'Iwas born'. The
+    page decides first: a space glyph drawn between the initial and the text (Word, InDesign and LaTeX write the space of 'A
+    long' into the content stream, after the large letter or before the small text) keeps the space, for any letter. Without
+    one the letters decide (`_initial_is_a_word`). The line gets the height of the text beside the initial either way.
+    """
+    # A character without a finite position or size is on no line (Pinned by:
+    # test_pdf_reading_order.py::TestDropCaps::test_characters_without_a_finite_position_are_no_line_beside_an_initial).
+    solid = sorted((char for char in chars if char["text"].strip() and char.get("size")
+                    and all(math.isfinite(char[key]) for key in ("x0", "x1", "top", "bottom", "size"))), key=lambda char: char["x0"])
+    if len(solid) < 3:
+        return None
+    initial, others = solid[0], solid[1:]
+    # The characters at the level of a line reach as low as the initial, so they hold the lines beside it below as well: the
+    # line itself is the top row of them.
+    first_top = min(char["top"] for char in others)
+    rest = [char for char in others if char["top"] < first_top + char["size"] / 2]
+    if not rest:
+        return None
+    letter, size = initial["text"], max(char["size"] for char in rest)
+    if not (len(letter) == 1 and letter.isalpha() and letter.isupper() and rest[0]["text"][:1].islower()):
+        return None
+    if rest[0]["x0"] - initial["x1"] > _DROP_CAP_GAP_RATIO * size:
+        return None
+    if not _DROP_CAP_MIN_RATIO * size <= initial["size"] <= _DROP_CAP_MAX_RATIO * size:
+        return None
+    top, bottom = first_top, max(char["bottom"] for char in rest)
+    foot, first_foot = initial["bottom"] - _DESCENT * initial["size"], bottom - _DESCENT * size  # baselines
+    if abs((foot - _CAP_HEIGHT * initial["size"]) - (first_foot - _CAP_HEIGHT * size)) > _DROP_CAP_TOP_RATIO * size:
+        return None
+    if foot < first_foot + _DROP_CAP_DROP_RATIO * size or not any(
+            abs(char["bottom"] - _DESCENT * char["size"] - foot) <= _DROP_CAP_FOOT_RATIO * size for char in others):
+        return None
+    if not line_text.startswith(letter + " ") or not line_text[2:3] == rest[0]["text"][:1]:
+        return None
+    spaced = any(not char["text"].strip() and initial["x0"] <= char["x0"] <= rest[0]["x0"]
+                 and char["top"] < first_top + char.get("size", 0.0) / 2 for char in chars)
+    if spaced or _initial_is_a_word(letter, line_text[2:]):
+        return line_text, top, bottom
+    return letter + line_text[2:], top, bottom

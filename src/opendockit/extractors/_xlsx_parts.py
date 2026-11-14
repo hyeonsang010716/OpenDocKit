@@ -15,7 +15,7 @@ from openpyxl.utils.cell import coordinate_to_tuple
 
 from opendockit.extractors._charts import package_loader, render_chart, render_chartex, render_smartart
 from opendockit.extractors._openpyxl_reading import _READING, _CellPicture
-from opendockit.extractors._package import _XML_PARSER, decimal_int, parse_part
+from opendockit.extractors._package import _XML_PARSER, decimal_int, named_part, parse_part
 from opendockit.extractors._sheet_layout import (
     _CHECKED,
     _UNCHECKED,
@@ -53,7 +53,7 @@ def _workbook_path(archive: zipfile.ZipFile, names: set[str]) -> str:
             return "xl/workbook.xml"
         for relationship in root.iter(_RELATIONSHIPS):
             if relationship.get("Type") == _OFFICE_DOCUMENT:
-                return relationship.get("Target", "").lstrip("/")
+                return named_part(relationship.get("Target", "").lstrip("/"), names.__contains__)
     return "xl/workbook.xml"
 
 
@@ -533,7 +533,13 @@ def _picture_reference_bytes(archive: zipfile.ZipFile) -> int:
 
 
 def _related(archive: zipfile.ZipFile, names: set[str], source: str, kind: str | None = None) -> dict[str, str]:
-    """Relationship id of the source part → target part path. With `kind`, only relationships whose Type ends with it."""
+    """Relationship id of the source part → target part path. With `kind`, only relationships whose Type ends with it.
+
+    The target of a relationship marked `TargetMode="External"` is an address, not a part name: it is taken as written and
+    never percent-decoded. Decoded like the others, the linked picture of a drawing whose address `im%61ge1.png` only
+    decodes to the name of a part was read as that part. A target that names a part as written is still read: a chart or a
+    comments part whose relationship a producer marked External by mistake would otherwise be lost
+    (Pinned by: test_office_robustness.py::TestExternalTargetsAreNotParts)."""
     folder, name = posixpath.split(source)
     rels_path = f"{folder}/_rels/{name}.rels"
     if rels_path not in names:
@@ -546,7 +552,8 @@ def _related(archive: zipfile.ZipFile, names: set[str], source: str, kind: str |
             continue
         target = relationship.get("Target", "")
         path = target.lstrip("/") if target.startswith("/") else posixpath.normpath(posixpath.join(folder, target))
-        targets[relationship.get("Id", "")] = path
+        external = relationship.get("TargetMode") == "External"
+        targets[relationship.get("Id", "")] = path if external else named_part(path, names.__contains__)
     return targets
 
 

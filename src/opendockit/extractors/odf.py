@@ -94,7 +94,9 @@ _ROW_GROUPS = frozenset(f"{{{_TABLE}}}{name}" for name in ("table-header-rows", 
 # `text:index-body`). Their `…-source` children are the index settings, not content, and are not descended into.
 _BLOCK_WRAPPERS = frozenset(f"{{{_TEXT}}}{name}" for name in (
     "section", "index-body", "index-title", "table-of-content", "illustration-index", "table-index", "object-index", "user-index",
-    "alphabetical-index", "bibliography", "numbered-paragraph"))
+    "alphabetical-index", "bibliography"))
+_NUMBERED_PARAGRAPH = f"{{{_TEXT}}}numbered-paragraph"
+_DIGITS = re.compile(r"[0-9]+")
 # Inline elements whose text is not document content: the page number fields hold the number cached at the last save, and the
 # citation of a note is replaced by `[^n]`.
 _SKIPPED_INLINE = frozenset(f"{{{_TEXT}}}{name}" for name in ("page-number", "page-count", "note-citation", "script"))
@@ -298,11 +300,27 @@ class _Styles:
     def list_level(self, name: str | None, level: int) -> _ListLevel:
         return self._lists.get(name or "", {}).get(level, _DEFAULT_LEVEL)
 
+    def has_list(self, name: str | None) -> bool:
+        """Is `name` a list style the document defines?"""
+        return bool(name) and name in self._lists
+
     def shown_depth(self, name: str | None, level: int) -> int:
         """Indentation of a list level: the number of levels above it that show a label. Impress writes the unbulleted first level
         of a text box as a list level without a label, and its bullets one level down are the top level of what is shown."""
         levels = self._lists.get(name or "", {})
         return sum(1 for above in range(level) if levels.get(above, _DEFAULT_LEVEL).kind != "none")
+
+
+# A list label that Markdown would read as the mark of a block: `#` … `######` (a heading) or one starting with `>` (a quote)
+_BLOCK_MARK_LABEL = re.compile(r"#{1,6}(?=\s|$)|>")
+
+
+def _label_text(label: str) -> str:
+    """A list label as text at the head of a line. A label is text of the document, never structure: `#` or `>` written as the
+    label (a `text:number`, or the prefix of a number style) turned the paragraph into a heading or a block quote, so the mark
+    is escaped (`\\#`, `\\>`). A dash stays: a bullet is what it shows
+    (Pinned by: test_odf.py::TestTextDocument::test_list_label_that_is_a_heading_or_quote_mark_stays_text)."""
+    return f"\\{label}" if _BLOCK_MARK_LABEL.match(label) else label
 
 
 def _own_look(properties: etree._Element | None) -> _Look:
@@ -741,6 +759,8 @@ class _Renderer:
             return self._list(node, context, depth, node.get(_TEXT_STYLE_NAME), 0)
         if tag == _TABLE_ELEMENT:
             return [self._table(node, context, depth)]
+        if tag == _NUMBERED_PARAGRAPH:
+            return self._numbered_paragraph(node, context, depth)
         if tag in _BLOCK_WRAPPERS:
             return [] if _is_hidden_section(node) else self._blocks(node, context, depth + 1)
         if isinstance(tag, str) and tag.startswith(_DRAW_PREFIX):
@@ -809,6 +829,64 @@ class _Renderer:
                 blocks.extend(rendered)
         return [block for block in blocks if block]
 
+    def _numbered_paragraph(self, node: etree._Element, context: _Context, depth: int) -> list[str]:
+        """`text:numbered-paragraph`: a paragraph with a list label but no `text:list` around it, at `text:level` of its list
+        style. It counts like an item of the list its `text:list-id` names (else it continues the last list of its style), and its
+        label is the `text:number` it carries when that is not empty — read as a plain wrapper, the label was lost
+        (Pinned by: test_odf.py::TestTextDocument::test_numbered_paragraph_keeps_its_label). On an Arabic level of the style the
+        label gives the value (its last number: '1.2.' is item 2, 'Step 3:' item 3) and is written '2.', as every Arabic list
+        level is whatever prefix and suffix its style has; on a bullet level the paragraph keeps `- `.
+
+        Without a list style the document defines (no `text:style-name`, or a name that is not a list style) there is no list:
+        the label the paragraph carries is the head of its text ('Art. 1 first') and a paragraph without one is a paragraph.
+        Treated like a list of an unknown style, the label was dropped and a bullet nobody wrote took its place
+        (Pinned by: test_odf.py::TestTextDocument::test_numbered_paragraph_without_a_list_style_keeps_the_label_it_carries)."""
+        if depth + 1 >= _MAX_DEPTH:  # Pinned by: test_odf.py::TestTextDocument::test_numbered_paragraphs_nested_past_the_depth_limit
+            return self._blocks(node, context, depth + 1)
+        style = node.get(_TEXT_STYLE_NAME)
+        # `text:level` is 1 to 10 (Pinned by: test_odf.py::TestTextDocument::test_numbered_paragraph_level_is_kept_within_the_ten_levels)
+        level = min(max(decimal_int(node.get(f"{{{_TEXT}}}level"), 1), 1), 10) - 1
+        continued = self._list_ids.get(node.get(f"{{{_TEXT}}}list-id") or "")
+        if continued is not None:
+            counters, style = continued[0], style or continued[1]
+        else:
+            counters = self._counters.setdefault(style or "", {})
+            if node.get(f"{{{_TEXT}}}list-id"):
+                self._list_ids[node.get(f"{{{_TEXT}}}list-id")] = (counters, style)
+        number = node.find(_NUMBER)
+        cached = " ".join(_flat_text(number).split()) if number is not None else ""
+        listed = self.styles.has_list(style)
+        start = decimal_int(node.get(f"{{{_TEXT}}}start-value"), None)
+        spec = self.styles.list_level(style, level)
+        digits = _DIGITS.findall(cached) if listed and spec.shape == "DIGIT" else []
+        if digits:
+            # Arabic numbers are written '1.' like list items; the label gives the value.
+            start, cached = start if start is not None else decimal_int(digits[-1], None), ""
+        blocks: list[str] = []
+        labelled = False
+        for child in node:
+            if child.tag == _NUMBER:
+                continue
+            rendered = self.block(child, context, depth + 1)
+            if rendered and not labelled and child.tag in (_P, _H):
+                labelled = True
+                heading = child.tag == _H and rendered[0].startswith("#")
+                head = self._item_head(style, level, counters, start, context, heading=heading) if listed else ""
+                if child.tag == _H and any(_flat_text(inner) for inner in child.iterchildren(_NUMBER)):
+                    head = ""   # the heading shows the label it carries (`_inline`)
+                elif not listed:
+                    head = f"{_label_text(cached)} " if cached else ""
+                elif cached and head and spec.kind == "number" and not context.quote:
+                    head = f"{_label_text(cached)} " if heading else paragraph_head(
+                        _label_text(cached), self.styles.shown_depth(style, level), in_cell=context.in_cell, heading=False)
+                if heading and head:
+                    hashes, _, text = rendered[0].partition(" ")
+                    rendered[0] = f"{hashes} {head.strip()} {text}"
+                else:
+                    rendered[0] = head + rendered[0]
+            blocks.extend(rendered)
+        return [block for block in blocks if block]
+
     def _list_counters(self, node: etree._Element, style: str | None) -> tuple[dict[int, int], str | None]:
         """The counters of an outermost list, and its style. A list starts again unless the file says it continues:
         `text:continue-list` names the list it continues by its `xml:id` (and lends it its style when it names none), and
@@ -845,7 +923,7 @@ class _Renderer:
         value = min(start, _FAR) if start is not None else counters.get(level, spec.start - 1) + 1
         counters[level] = value
         # Arabic numbers are always written '1.' so that Markdown reads an ordered list; other shapes keep the file's prefix and suffix.
-        number = f"{value}." if spec.shape == "DIGIT" else f"{spec.prefix}{format_number(value, spec.shape)}{spec.suffix}"
+        number = f"{value}." if spec.shape == "DIGIT" else _label_text(f"{spec.prefix}{format_number(value, spec.shape)}{spec.suffix}")
         return number if heading else paragraph_head(number, shown, in_cell=context.in_cell, heading=False)
 
     # ---- Tables --------------------------------------------------------------------------------------------------
@@ -1087,6 +1165,7 @@ class _Renderer:
             repeat = _repeat(row, _ROWS_REPEATED)
             values: dict[int, str] = {}
             spans: list[tuple[int, int, str]] = []
+            merged_left: int | None = None   # leftmost column merged down into this row, found once at its first text cell
             column = -offset
             for cell in row:
                 tag = cell.tag
@@ -1104,8 +1183,12 @@ class _Renderer:
                     for copy in range(copies):
                         values[column + copy] = text
                     if copies == 1:
-                        labelled = bool(values.keys() - {column}) or any(
-                            left < column and last_row >= row_number for left, (_, last_row, _) in merged_down.items())
+                        # Both tests are constant time per cell: a set difference or a pass over the merges for every cell made
+                        # a wide row quadratic (Pinned by: test_odf.py::TestHostileInput::test_wide_sheet_row_converts_in_linear_time).
+                        if merged_left is None:
+                            merged_left = min((left for left, (_, last_row, _) in merged_down.items() if last_row >= row_number),
+                                              default=_FAR)
+                        labelled = len(values) > 1 or merged_left < column
                         last = min(column + max(decimal_int(cell.get(_COLS_SPANNED), 1), 1), limit) - 1 if labelled else column
                         if last > column:
                             spans.append((column + 1, last + 1, text))

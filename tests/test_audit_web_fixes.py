@@ -358,6 +358,14 @@ class TestTitleOfAPageWhoseCodeHasCommentLines:
 
         assert "# Site | Notice" not in convert(html.encode(), "a.html").text
 
+    def test_code_blocks_are_the_ones_the_cleaning_sees(self):
+        """Counted in pairs, the first two fence lines were a block and the `#` line after them a heading. A fence line with
+        an info string closes nothing: the block ends at the last line and the `#` line is code."""
+        html = ("<html><head><title>Notice</title></head><body><p>```</p><p>```js</p><p># not a heading</p><p>```</p>"
+                "</body></html>")
+
+        assert convert(html.encode(), "a.html").text == "# Notice\n\n```\n\n\n\n```js\n\n\n\n# not a heading\n\n\n\n```"
+
     def test_a_real_heading_still_keeps_the_title_out(self):
         html = "<html><head><title>사이트 | 공지</title></head><body><h2>공지</h2><pre># x</pre></body></html>"
 

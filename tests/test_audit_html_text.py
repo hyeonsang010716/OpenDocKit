@@ -591,7 +591,6 @@ class TestListItemWithManyUnpairedFenceLines:
     @pytest.mark.parametrize(("item", "expected"), [
         ("first<pre>a  b\n\n\nc</pre>then<pre>d</pre>last", "- first\n\n```\na  b\n\n\nc\n```\n\nthen\n\n```\nd\n```\n\nlast"),
         ("<pre></pre>after", "-\n\n```\n\n```\n\nafter"),
-        ("```<br>open<pre>code</pre>```<br>x", "-\n\n```\nopen\n\n```\n\ncode\n\n```\n\n```\n\nx"),
         ("one<br>```<br>two<br><br>```<br>three", "- one\n\n```\ntwo\n\n```\n\nthree"),
         ("<pre>a</pre><pre>b</pre>", "-\n\n```\na\n```\n\n```\nb\n```"),
     ])

@@ -239,3 +239,77 @@ class TestSevenBitEscapeCharsets:
         text, _ = decode_text(data, "utf-7")
 
         assert text == "price 1+2 = 3, a+b"
+
+
+class TestAsciiHeaderIsDecodedWhole:
+    """A pure-ASCII header is decoded whole before its words are looked for one by one: the pattern for single words needs a
+    charset, so a word written without one stayed as written."""
+
+    @pytest.mark.parametrize(("subject", "expected"), [
+        ("=??q?Re:_plain?=", "Re: plain"),
+        ("=??b?SW5mb3JtYcOnw7Vlcw==?= [tag]", "Informações [tag]"),
+        ("=?utf-8?b?7ZWc6riA?==?utf-8?q?a?=\t=??q?b?=", "한글ab"),
+    ])
+    def test_word_without_a_charset_is_decoded(self, subject, expected):
+        data = (f"Subject: {subject}\r\nFrom: kim@example.com\r\nMIME-Version: 1.0\r\n"
+                "Content-Type: text/plain; charset=utf-8\r\n\r\n본문\r\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.startswith(f"Subject: {expected}\nFrom: kim@example.com\n")
+
+
+class TestEightBitHeaderWithSplitEncodedWords:
+    """In a header that mixes raw 8-bit text with RFC 2047 words, each word was decoded on its own, so a character whose bytes
+    a mail program split over two words stayed as the words as written."""
+
+    @pytest.mark.parametrize("filename", ["a.eml", "a.txt"])
+    def test_character_split_over_two_words_is_joined(self, filename):
+        data = ("From: kim@example.com\r\nTo: lee@example.com\r\nMIME-Version: 1.0\r\n"
+                "Subject: 제목 =?utf-8?b?7JU=?= =?utf-8?b?iOuFlQ==?= 끝\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문").encode()
+
+        result = convert(data, filename)
+
+        assert result.text.startswith("Subject: 제목 안녕 끝\n")
+
+    def test_one_broken_word_does_not_leave_the_run_encoded(self):
+        data = ("From: kim@example.com\r\nMIME-Version: 1.0\r\n"
+                "Subject: 제목 =?utf-8?b?6rCA64KY?= =?utf-8?b?A?=\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문").encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.startswith("Subject: 제목 가나 =?utf-8?b?A?=\n")
+
+
+class TestBrokenEncodedWordInAHeader:
+    """One RFC 2047 word whose base64 is broken (`=?utf-8?b?A?=`) left the whole header as written when the header was plain
+    ASCII — the common case; the good words were decoded only when the header also held raw 8-bit text."""
+
+    @staticmethod
+    def _subject(value: str) -> str:
+        data = (f"From: kim@example.com\r\nMIME-Version: 1.0\r\nSubject: {value}\r\n"
+                "Content-Type: text/plain; charset=utf-8\r\n\r\n본문").encode()
+        return convert(data, "a.eml").text.split("\n")[0]
+
+    @pytest.mark.parametrize(("value", "expected"), [
+        ("=?utf-8?b?7JWI?= =?utf-8?b?A?= =?utf-8?b?7JWI?=", "안 =?utf-8?b?A?= 안"),
+        ("=?utf-8?b?7JWI?= =?utf-8?b?A?=", "안 =?utf-8?b?A?="),
+        ("Re: =?utf-8?b?A?= =?euc-kr?b?vsiz5w==?= (1)", "Re: =?utf-8?b?A?= 안녕 (1)"),
+        ("=?utf-8?b?A?=", "=?utf-8?b?A?="),
+    ])
+    def test_good_words_of_an_ascii_header_are_decoded(self, value, expected):
+        assert self._subject(value) == f"Subject: {expected}"
+
+    @pytest.mark.parametrize("lead", ["", "제목 "])
+    def test_character_split_over_two_good_words_next_to_a_broken_one_is_joined(self, lead):
+        value = f"{lead}=?utf-8?b?7JU=?= =?utf-8?b?iOuFlQ==?= =?utf-8?b?A?= =?utf-8?b?7JU=?= =?utf-8?b?iOuFlQ==?="
+
+        assert self._subject(value) == f"Subject: {lead}안녕 =?utf-8?b?A?= 안녕"
+
+    @pytest.mark.parametrize(("value", "expected"), [
+        ("=?utf-8?b?7JU=?= =?utf-8?b?iOuFlQ==?=", "안녕"),
+        ("=?utf-8?q?a_b?=  =?utf-8?q?c?= d", "a bc d"),
+        ("plain subject", "plain subject"),
+    ])
+    def test_header_that_decodes_as_a_whole_is_unchanged(self, value, expected):
+        assert self._subject(value) == f"Subject: {expected}"

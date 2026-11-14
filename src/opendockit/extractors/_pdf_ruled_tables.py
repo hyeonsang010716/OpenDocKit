@@ -2,8 +2,11 @@
 rules, tables open at the sides, text wrapped inside a cell, and the highlights and glyph outlines that look like rules.
 """
 
-from bisect import bisect_left, bisect_right
+from bisect import bisect_left, bisect_right, insort
+from collections import Counter
 import math
+
+from pdfplumber.table import TableFinder, TableSettings
 
 from opendockit.extractors._pdf_cell_text import _cell_rows, _text_outside
 from opendockit.extractors._pdf_chars import _drawn_text
@@ -19,6 +22,7 @@ from opendockit.extractors._pdf_model import (
     _text_by_middle,
 )
 from opendockit.extractors._pdf_open_tables import _merge_split_header, _open_sided_tables
+from opendockit.extractors._pdf_pdfminer import _INFLATE_BUDGET
 from opendockit.extractors._pdf_shaded_tables import _column_edges, _is_inner_part, _mark_filled_cells, _rule_line, _with_shaded_rows
 from opendockit.extractors._pdf_table_filters import _dropping_page_indexes
 from opendockit.markdown import render_table
@@ -36,6 +40,19 @@ _NESTED_LABEL_MAX = 20
 
 
 _FRAME_MAX_ROWS = 2
+
+
+# Most crossings of horizontal and vertical ruling lines (after pdfplumber's snapping) and most pairs of them a page may have for
+# its ruled tables to be looked for (`_too_many_rules`). A table of R rows × C columns has (R + 1) × (C + 1) crossings, summed
+# over the tables of the page. The table finder's time grows with the square of the crossings and with how the cells are
+# merged: just under the bound an empty 91 × 91 grid takes about 1 second, a filled sheet 2-3 seconds, and the costliest pages
+# found (every cell merged over two rows, 1,400 rows of five cells on one page, 280 separate tables) 5-7 seconds; at 12,000
+# crossings those take 8-13 seconds and an empty 150 × 150 grid (22,801) 14 seconds. The bound is the lowest round number
+# that keeps the sheets seen in practice: a Gantt chart of 100 tasks × 52 weeks has 5,406 crossings and a year planner of
+# 20 people × 366 days 8,096 — at 5,000 they lost their tables. A page of 800 small separate tables has 7,200 crossings and
+# 5.8 million pairs (Pinned by: test_pdf_resource_limits.py::TestTooManyRules).
+_MAX_RULE_CROSSINGS = 8_500
+_MAX_RULE_PAIRS = 4_000_000
 
 
 # Number of rows that must continue with the same boundaries in each group when splitting touching ruled tables at column
@@ -122,6 +139,11 @@ def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], 
 
     The characters of a filtered-out box are read as body flow. Returns (bbox, cell matrix, list of cell boxes).
     """
+    if _too_many_rules(page):
+        budget = _INFLATE_BUDGET.get()
+        if budget is not None:
+            budget.unruled_pages.add(page.page_number)
+        return []
     page_area = max(float(page.width) * float(page.height), 1.0)
     regular = [_closed_at_open_ends(page, _closed_at_the_bottom(page, table)) for table in page.find_tables(_TABLE_SETTINGS)]
     open_sided = [table for table in _open_sided_tables(page)
@@ -157,6 +179,52 @@ def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], 
         else:
             kept.append((bbox, [(bbox, rows, boxes)]))
     return [piece for bbox, pieces in kept if id(bbox) not in absorbed for piece in pieces]
+
+
+def _too_many_rules(page: object) -> bool:
+    """Whether the page's ruling lines are too many for pdfplumber's table finder (`_MAX_RULE_CROSSINGS`,
+    `_MAX_RULE_PAIRS`). The lines are counted after the same snapping and joining the finder does (`TableFinder.get_edges`).
+
+    The finder compares every horizontal line with every vertical one and then, for each crossing, every later crossing
+    (`intersections_to_cells`), so its time grows with the square of the crossings: an empty 150 × 150 grid on an A4 page took
+    14 seconds and a 300 × 300 one 96 seconds, with every later table search on the page (`_closed_at_the_bottom`,
+    `_closed_at_open_ends`, `_open_sided_tables`, the shaded regrids) on top of it. Such a page is read as if its lines were
+    not drawn: no ruled table is looked for, and its text goes to the borderless table search and the body flow like that of
+    any other page (Pinned by: test_pdf_resource_limits.py::TestTooManyRules).
+    """
+    finder = TableFinder.__new__(TableFinder)  # only the edge step of the finder, without looking for cells
+    finder.page, finder.settings = page, TableSettings.resolve(_TABLE_SETTINGS)
+    edges = finder.get_edges()
+    horizontals = [edge for edge in edges if edge["orientation"] == "h"]
+    verticals = [edge for edge in edges if edge["orientation"] == "v"]
+    if len(horizontals) * len(verticals) > _MAX_RULE_PAIRS:
+        return True
+    if len(horizontals) * len(verticals) <= _MAX_RULE_CROSSINGS:
+        return False
+    return _rule_crossings(horizontals, verticals, finder.settings.intersection_x_tolerance,
+                           finder.settings.intersection_y_tolerance, _MAX_RULE_CROSSINGS) > _MAX_RULE_CROSSINGS
+
+
+def _rule_crossings(horizontals: list[dict], verticals: list[dict], x_tolerance: float, y_tolerance: float, limit: int) -> int:
+    """The number of (horizontal, vertical) line pairs that cross within the tolerances, the same test as pdfplumber's
+    `edges_to_intersections`, counted up to just past `limit`. A sweep from top to bottom keeps the x positions of the vertical
+    lines that reach the current height in order, so each horizontal line counts its crossings with two bisections."""
+    events = sorted([*((edge["top"] - y_tolerance, 0, edge["x0"]) for edge in verticals),
+                     *((edge["top"], 1, edge["x0"], edge["x1"]) for edge in horizontals),
+                     *((edge["bottom"] + y_tolerance, 2, edge["x0"]) for edge in verticals)], key=lambda event: event[:2])
+    active: list[float] = []
+    crossings = 0
+
+    for event in events:
+        if event[1] == 0:
+            insort(active, event[2])
+        elif event[1] == 2:
+            del active[bisect_left(active, event[2])]
+        else:
+            crossings += bisect_right(active, event[3] + x_tolerance) - bisect_left(active, event[2] - x_tolerance)
+            if crossings > limit:
+                break
+    return crossings
 
 
 def _closed_at_the_bottom(page: object, table: object) -> object:
@@ -290,12 +358,29 @@ def _split_column_sections(table: object, bbox: tuple[float, float, float, float
     the column boundaries of both, so empty columns were inserted and the lower table's header became a data row (Pinned by:
     test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns).
     Header rows and total rows that span columns are part of rows with different boundaries and are not split off.
+
+    Nor are two groups split when the difference between them is merged cells of one grid (`_merged_from`, both ways): the
+    groups have the same outer edges, and every cell of one that lies across a boundary of the other is either a block
+    merged over all rows of its group or made of whole columns — it starts and ends at a boundary of the other group (for the
+    lower group: of any row of the table above it, as far as that has been kept together). The cells of two tables drawn
+    with different columns lie across each other's boundaries row by row and end in between them. A form with a block of
+    two columns merged over rows 1-2 and, right below, a block of two other columns merged over rows 3-5 was split between
+    the blocks, and its second half took a data row as its header (Pinned by:
+    test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_merged_blocks_below_each_other_keep_one_table,
+    test_merged_blocks_with_no_row_of_all_columns_keep_one_table, test_merged_blocks_overlapping_in_a_column_keep_one_table,
+    test_rows_merged_from_a_column_that_a_block_above_covers_keep_one_table).
+    A row elsewhere in the grid that has the boundaries of both groups says nothing: under a grid of four columns and a
+    table of six, a month grid of twelve columns had the boundaries of both, and the three were read as one table of twelve
+    columns (Pinned by: test_three_abutting_tables_stay_apart_when_the_third_has_the_columns_of_both,
+    test_tables_stay_apart_when_the_rows_above_them_have_the_columns_of_both,
+    test_table_below_a_block_with_a_boundary_of_its_own_is_another_table, test_narrower_table_below_a_grid_is_another_table).
+    Each pair of neighbouring groups is looked at once, so the time grows with the number of rows.
     """
     table_rows = table.rows  # a property that regroups all the cells on every access
     if any(len(row.cells) != len(rows[0]) for row in table_rows):
         return [(bbox, rows, list(table.cells))]
-    edges = [tuple(round(edge) for edge in sorted({edge for cell in row.cells if cell is not None for edge in (cell[0], cell[2])}))
-             for row in table_rows]
+    held = _row_cells(table_rows, table.cells)
+    edges = [tuple(sorted({round(edge) for cell in row for edge in (cell[0], cell[2])})) for row in held]
     runs: list[list[int]] = []  # consecutive row numbers with the same boundaries
 
     for index, edge in enumerate(edges):
@@ -305,15 +390,20 @@ def _split_column_sections(table: object, bbox: tuple[float, float, float, float
             runs.append([index])
 
     sections = [list(runs[0])]
+    grid = set(edges[0])  # the column boundaries of the rows of the section so far
 
     for previous, run in zip(runs, runs[1:], strict=False):
+        above, below = edges[previous[0]], edges[run[0]]
         apart = (len(previous) >= _SECTION_MIN_ROWS and len(run) >= _SECTION_MIN_ROWS
-                 and not _edges_within(edges[previous[0]], edges[run[0]])
-                 and not _edges_within(edges[run[0]], edges[previous[0]]))
+                 and not _edges_within(above, below) and not _edges_within(below, above)
+                 and not (_merged_from([held[index] for index in previous], below, set(below))
+                          and _merged_from([held[index] for index in run], above, grid)))
         if apart:
             sections.append(list(run))
+            grid = set(below)
         else:
             sections[-1].extend(run)
+            grid.update(below)
     if len(sections) == 1:
         return [(bbox, rows, list(table.cells))]
 
@@ -328,6 +418,41 @@ def _split_column_sections(table: object, bbox: tuple[float, float, float, float
     return split
 
 
+def _row_cells(table_rows: list[object], cells: list[tuple]) -> list[list[tuple]]:
+    """The cells of each row of a ruled table: every cell whose vertical extent covers the middle of that row, so a vertically
+    merged cell counts in every row it spans, not only in the row it starts in. Their left and right edges are the column
+    boundaries of the row.
+
+    With only the cells starting in a row, a merged cell at the outer edge (the right column merged over rows 1-3, the left
+    column over rows 3-5) left the outer boundary out of the rows it covered, the rows looked like two groups with different
+    boundaries, and the table was split in two, losing the left merged cell ('채소') (Pinned by:
+    test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_merged_cells_at_the_outer_edges_keep_one_table).
+
+    A row reaches from its top to the top of the next row (the last row to its bottom). The box of the row is not used: it is
+    the union of the cells that start in the row, so a cell merged downwards makes it as tall as the merged cell (the pitfall
+    recorded in `_cell_rows`), and its middle then lay in a row further down. In a form of two rows of four boxes, a row of two
+    boxes beside a remarks box two rows high and a row of three boxes beside it, the row the remarks box starts in was measured
+    inside the row of three boxes, the two looked like a group with columns of its own, and the form was split in two after
+    its second row (Pinned by:
+    test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_row_beside_a_taller_box_is_measured_at_its_own_height).
+    """
+    tops = sorted({row.bbox[1] for row in table_rows})
+    middles = []
+    for row in table_rows:
+        below = bisect_right(tops, row.bbox[1])
+        middles.append((row.bbox[1] + (tops[below] if below < len(tops) else row.bbox[3])) / 2)
+    order = sorted(range(len(middles)), key=middles.__getitem__)
+    ordered = [middles[index] for index in order]
+    found: list[list[tuple]] = [[] for _ in table_rows]
+
+    for cell in cells:
+        if cell is None:
+            continue
+        for position in range(bisect_left(ordered, cell[1]), bisect_right(ordered, cell[3])):
+            found[order[position]].append(cell)
+    return found
+
+
 def _same_edges(edges: tuple[int, ...], others: tuple[int, ...]) -> bool:
     return len(edges) == len(others) and all(abs(edge - other) <= 1 for edge, other in zip(edges, others, strict=True))
 
@@ -335,6 +460,33 @@ def _same_edges(edges: tuple[int, ...], others: tuple[int, ...]) -> bool:
 def _edges_within(edges: tuple[int, ...], others: tuple[int, ...]) -> bool:
     """Whether all column boundaries in `edges` are boundaries of `others` (within 1pt)."""
     return all(any(abs(edge - other) <= 1 for other in others) for edge in edges)
+
+
+def _merged_from(group: list[list[tuple]], others: tuple[int, ...], grid: set[int]) -> bool:
+    """Whether a group of rows (the cells of each of its rows, `_row_cells`) can be rows of the same table as the rows with
+    the column boundaries `others`, with some cells merged: the two have the same outer edges, and every cell of the group
+    that lies across a boundary of `others` either is a merged block — one cell reaching over all rows of the group, or over
+    two or more of them — or starts and ends at a boundary of `grid`: it is made of whole columns.
+    `_split_column_sections` says what this decides. The positions are compared as rounded numbers: the table finder has
+    already snapped the rules of one boundary to one position.
+
+    A block has to reach over more than one row, not over the whole group: two blocks merged in the same columns right
+    below each other are rows with the same boundaries, so one group, and neither block reaches over all of it. A table of
+    three columns with the first two merged over rows 1-2 and the last two merged over rows 3-4 and again over rows 5-6 was
+    split after its second row and lost a column
+    (Pinned by: test_pdf_table_columns.py::TestAbuttingTablesWithDifferentColumns::test_blocks_stacked_in_the_same_columns_keep_one_table).
+    """
+    first = group[0]
+    if not first or min(round(cell[0]) for cell in first) != others[0] or max(round(cell[2]) for cell in first) != others[-1]:
+        return False
+    reach = Counter(cell for row in group for cell in row)  # how many rows of the group each cell reaches over
+    enough = min(len(group), 2)
+    for cell, rows in reach.items():
+        left, right = round(cell[0]), round(cell[2])
+        crossed = bisect_left(others, right) > bisect_right(others, left)  # a boundary of `others` inside the cell
+        if crossed and rows < enough and not (left in grid and right in grid):
+            return False
+    return True
 
 
 def _with_inner_tables(table: object, rows: list[list[str]], inner: list[tuple]) -> list[list[str]] | None:

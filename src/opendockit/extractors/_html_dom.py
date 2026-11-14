@@ -39,6 +39,7 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._package import decimal_int
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_glyph
+from opendockit.markdown import code_fences
 from opendockit.models import ConvertOptions, Extraction, quiet_warnings
 
 
@@ -87,12 +88,14 @@ _STRIKE_STYLE = re.compile(r"(?:^|;)(?>[^;]*?text-decoration(?:-line)?\s*:)[^;]*
 
 # Only the `display` / `visibility` (and `content-visibility`) properties themselves: matched anywhere, the pattern removed a
 # visible element styled `backface-visibility:hidden`, text and all
-# (Pinned by: test_audit_html_text.py::TestStylePropertiesThatOnlyEndLikeAHidingOne).
-_HIDDEN_STYLE = re.compile(r"(?<![\w-])(?:display\s*:\s*none|(?:content-)?visibility\s*:\s*hidden)", re.IGNORECASE)
+# (Pinned by: test_audit_html_text.py::TestStylePropertiesThatOnlyEndLikeAHidingOne). Only the values themselves too, followed
+# by the end, `;`, whitespace or `!important`: `display:none-ish` or `visibility:hiddenx` is not a value CSS knows, and the
+# element was removed (Pinned by: test_core_html_mail_hidden_and_frames.py::TestStyleValuesThatOnlyStartLikeAHidingOne).
+_HIDDEN_STYLE = re.compile(r"(?<![\w-])(?:display\s*:\s*none|(?:content-)?visibility\s*:\s*hidden)(?![\w-])", re.IGNORECASE)
 # Hiding that a descendant cannot undo (`display:none`, `content-visibility:hidden`), and the inherited `visibility`, which a
 # descendant can set back with `visibility:visible` (`_drop_hidden`).
-_UNDOABLE_HIDING = re.compile(r"(?<![\w-])(?:display\s*:\s*none|content-visibility\s*:\s*hidden)", re.IGNORECASE)
-_VISIBLE_STYLE = re.compile(r"(?<![\w-])visibility\s*:\s*visible", re.IGNORECASE)
+_UNDOABLE_HIDING = re.compile(r"(?<![\w-])(?:display\s*:\s*none|content-visibility\s*:\s*hidden)(?![\w-])", re.IGNORECASE)
+_VISIBLE_STYLE = re.compile(r"(?<![\w-])visibility\s*:\s*visible(?![\w-])", re.IGNORECASE)
 # Elements whose `visibility:hidden` is not taken as hiding: the page itself, hidden by an anti-flicker snippet until a script
 # shows it.
 _PAGE_ROOTS = {"html", "body"}
@@ -406,20 +409,24 @@ def _with_title_heading(text: str, title: str | None) -> str:
 def _outside_code_blocks(text: str) -> str:
     """The lines of `text` outside its code blocks (``` fences). A `# comment` line of a shell or Python example is not a
     heading, and the title was left out of a page whose only `#` lines were code
-    (Pinned by: test_audit_web_fixes.py::TestTitleOfAPageWhoseCodeHasCommentLines). Fences are paired as `clean_text` pairs
-    them: with an odd number of fence lines the last one is not a fence (it is neutralized as `\\````), so the headings after a
-    stray ``` paragraph still count (Pinned by: TestTitleOfAPageWhoseCodeHasCommentLines::test_stray_fence_line_does_not_hide_a_heading)."""
+    (Pinned by: test_audit_web_fixes.py::TestTitleOfAPageWhoseCodeHasCommentLines). The code blocks are the ones `clean_text`
+    will see (`markdown.code_fences`, backtick fences only): a fence line that is never closed is not a fence (it is
+    neutralized as `\\````), so the headings after a stray ``` paragraph still count
+    (Pinned by: TestTitleOfAPageWhoseCodeHasCommentLines::test_stray_fence_line_does_not_hide_a_heading), and a fence line
+    with an info string closes nothing
+    (Pinned by: TestTitleOfAPageWhoseCodeHasCommentLines::test_code_blocks_are_the_ones_the_cleaning_sees)."""
+    if "```" not in text:
+        return text
     lines = text.split("\n")
-    fences = [index for index, line in enumerate(lines) if line.lstrip().startswith("```")]
-    unpaired = fences[-1] if len(fences) % 2 else None
+    blocks = code_fences(lines, tildes=False).blocks
+    if not blocks:
+        return text
     kept: list[str] = []
-    fenced = False
-    for index, line in enumerate(lines):
-        if index != unpaired and line.lstrip().startswith("```"):
-            fenced = not fenced
-        elif not fenced:
-            kept.append(line)
-    return "\n".join(kept)
+    start = 0
+    for opening, closing in blocks:
+        kept += lines[start:opening]
+        start = closing + 1
+    return "\n".join(kept + lines[start:])
 
 
 def _document_nodes(soup: BeautifulSoup) -> list:
@@ -1341,6 +1348,11 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     glyphs and cloned slides are removed. 'Half' is measured on the text after hidden elements are removed — counting the text of a hidden
     terms-of-service layer too got the app root removed. Elements holding the content are collected by climbing up just once from each
     content element, and the body text is measured only once — re-measuring for every aria-hidden element took 47 seconds on 468KB.
+
+    The body parts of a mail are measured like a page, each on its own: a newsletter whose whole content sits in one aria-hidden
+    block next to a spacer, a dot or an unsubscribe line converted to nothing while the block had to hold all the text of its part.
+    The cost is known: a hidden preview block longer than the visible text of its part is shown
+    (Pinned by: test_core_html_mail_hidden_and_frames.py::TestAriaHiddenBlockHoldingAMailPart).
     """
     _decompose_all(_hidden_nodes(soup, [tag for tag in soup.find_all(_hidden_by_style) if id(tag) not in kept]))
 

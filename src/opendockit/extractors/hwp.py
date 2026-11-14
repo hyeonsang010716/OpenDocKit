@@ -10,6 +10,7 @@ footnotes and outline headings are read directly.
 
 from array import array
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from io import BytesIO
 import re
@@ -493,25 +494,43 @@ class HwpRenderer:
         return self._numberings[key].advance(level), level
 
     def _render_note(self, control: Record, buffer: list[str]) -> None:
-        if not self._options.include_footnotes:
+        """A footnote or endnote: `[^n]` in place and `[^n]: text` at the end. The number is taken once the text is known, so a
+        note without text leaves neither reference nor definition and the notes after it stay consecutive; a note inside a note is
+        left out, as in RTF and ODF — Markdown cannot reference it from a definition, and numbering it first gave the outer note's
+        number to both (Pinned by: test_hwp.py::TestNotesInsideNotes)."""
+        if not self._options.include_footnotes or self._note_depth:
             return
-        self._note_count += 1
         self._grids.append(None)  # footnote text is not cell text — handing its table to the outer cell leaks the placeholder into the footnote
         self._note_depth += 1
         try:
-            note = " ".join(" ".join(block.split()) for block in self.render(control.children))
+            with self._own_numbering():
+                note = " ".join(" ".join(block.split()) for block in self.render(control.children))
         finally:
             self._note_depth -= 1
             self._grids.pop()
+        if not note.strip():
+            return
+        self._note_count += 1
         buffer.append(f"[^{self._note_count}]")
         self.notes.append(f"[^{self._note_count}]: {note}")
+
+    @contextmanager
+    def _own_numbering(self) -> Iterator[None]:
+        """Paragraph numbers of a header, footer or note counted on their own: a numbered paragraph there advanced the body's
+        counters, so the body's next item skipped a number (Pinned by: test_hwp.py::TestNumberingOutsideTheBody)."""
+        saved, self._numberings = self._numberings, {}
+        try:
+            yield
+        finally:
+            self._numberings = saved
 
     def _collect_header_footer(self, control: Record) -> None:
         if not self._options.include_headers_footers:
             return
         self._grids.append(None)
         try:
-            text = join_blocks(self.render(control.children))
+            with self._own_numbering():
+                text = join_blocks(self.render(control.children))
         finally:
             self._grids.pop()
         if text:
@@ -654,10 +673,16 @@ def _control_strings(control: Record, count: int) -> list[str]:
 
 def parse_styles(doc_info: list[Record]) -> list[str]:
     """Extract the list of style names (index = style ID) from the STYLE records of DocInfo. The DocInfo functions take the flattened
-    record list — parsing the stream again in each function would spend the record limit five times."""
+    record list — parsing the stream again in each function would spend the record limit five times.
+
+    A broken record keeps its place with an empty name, as in `parse_paragraph_heads`: skipping it gave every later style the
+    name of the next one (Pinned by: test_hwp_robustness.py::TestBrokenDocInfoRecordsKeepTheirPlace)."""
     names = []
     for record in doc_info:
-        if record.tag != TAG_STYLE or len(record.payload) < 2:
+        if record.tag != TAG_STYLE:
+            continue
+        if len(record.payload) < 2:
+            names.append("")
             continue
         (length,) = struct.unpack_from("<H", record.payload, 0)
         names.append(record.payload[2:2 + length * 2].decode("utf-16-le", errors="replace"))
@@ -752,10 +777,15 @@ def parse_bin_items(doc_info: list[Record]) -> list[tuple[str | None, bool | Non
 
     There is a stream only when the low 4 bits of the attribute are 1 (EMBEDDING) (0 LINK is an external file, 2 STORAGE an OLE object).
     Compression is in attribute bits 4-5: 0 means the document default (None), 1 compressed, 2 uncompressed.
+    A broken record keeps its place without a stream: skipping it gave every later picture the stream of the next one
+    (Pinned by: test_hwp_robustness.py::TestBrokenDocInfoRecordsKeepTheirPlace).
     """
     items: list[tuple[str | None, bool | None]] = []
     for record in doc_info:
-        if record.tag != TAG_BIN_DATA or len(record.payload) < 2:
+        if record.tag != TAG_BIN_DATA:
+            continue
+        if len(record.payload) < 2:
+            items.append((None, None))
             continue
         (properties,) = struct.unpack_from("<H", record.payload, 0)
         compress = {1: True, 2: False}.get((properties >> 4) & 0x3)

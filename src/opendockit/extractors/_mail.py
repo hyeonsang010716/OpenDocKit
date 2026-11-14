@@ -704,13 +704,63 @@ def _decoded_header(value: object) -> str:
     if isinstance(value, Header):
         value = "".join(_header_chunk_text(chunk, charset) for chunk, charset in decode_header(value))
     text = str(value)
-    if not text.isascii():
-        # `decode_header` returns non-ASCII text mixed with encoded words as bytes of the `\\uc804` form. Only the words are decoded,
-        # one by one, and the rest of the text is left as is. Whitespace between two adjacent words is removed (RFC 2047).
-        parts = _ENCODED_WORD.split(text)
-        return "".join(_decoded_words(part) if index % 2 else
-                       ("" if 0 < index < len(parts) - 1 and not part.strip() else part) for index, part in enumerate(parts))
-    return _decoded_words(text)
+    # A pure-ASCII header is tried whole first, as the mail parser reads it: that takes a word the pattern below does not (one
+    # without a charset, `=??q?Re:_plain?=`) and drops the whitespace between adjacent words
+    # (Pinned by: test_core_mailboxes_and_charsets.py::TestAsciiHeaderIsDecodedWhole).
+    if text.isascii():
+        decoded = _decoded_words(text)
+        if decoded != text:
+            return decoded
+    # Either the header mixes non-ASCII text with encoded words — `decode_header` returns that text as bytes of the `\\uc804`
+    # form — or it did not decode as a whole because one of its words is broken. Only the words are decoded and the rest of
+    # the text is left as is. A run of adjacent words (only whitespace between them, which is removed — RFC 2047) is decoded
+    # together, so that a character split over two words is joined: decoded one by one, `제목
+    # =?utf-8?b?7JU=?= =?utf-8?b?iOuFlQ==?=` came out with the words as written
+    # (Pinned by: test_core_mailboxes_and_charsets.py::TestEightBitHeaderWithSplitEncodedWords).
+    parts = _ENCODED_WORD.split(text)
+    pieces: list[str] = []
+    run: list[str] = []
+    gaps: list[str] = []
+    for index, part in enumerate(parts):
+        if index % 2:
+            run.append(part)
+        elif run and not part.strip() and index < len(parts) - 1:
+            gaps.append(part)  # whitespace between two adjacent words
+        else:
+            if run:
+                pieces.append(_decoded_run(run, gaps))
+                run, gaps = [], []
+            pieces.append(part)
+    return "".join(pieces)
+
+
+def _decoded_run(words: list[str], gaps: list[str]) -> str:
+    """A run of adjacent RFC 2047 words (`gaps` holds the whitespace written between them) decoded together. If the run does
+    not decode as a whole because one word is broken (`=?utf-8?b?A?=`), the broken words stay as written and the good words
+    between them are decoded, each stretch of adjacent good words together — so that one broken word does not leave the good
+    ones encoded, in a header of raw 8-bit text and in a plain ASCII one alike, and a character split over two good words is
+    still joined; the whitespace next to a word that stays as written is kept
+    (Pinned by: test_core_mailboxes_and_charsets.py::TestEightBitHeaderWithSplitEncodedWords, TestBrokenEncodedWordInAHeader).
+    """
+    joined = " ".join(words)
+    decoded = _decoded_words(joined)
+    if decoded != joined or len(words) == 1:
+        return decoded
+    good = [_decoded_words(word) != word for word in words]
+    pieces: list[str] = []
+    start = 0
+    while start < len(words):
+        end = start + 1
+        if good[start]:
+            while end < len(words) and good[end]:
+                end += 1
+            pieces.append(_decoded_words(" ".join(words[start:end])))
+        else:
+            pieces.append(words[start])
+        if end < len(words):
+            pieces.append(gaps[end - 1])
+        start = end
+    return "".join(pieces)
 
 
 def _decoded_words(text: str) -> str:

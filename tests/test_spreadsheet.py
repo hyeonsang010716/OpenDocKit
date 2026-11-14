@@ -16,7 +16,7 @@ import pytest
 import xlrd
 
 from opendockit import ConvertOptions, convert
-from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
+from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError, UnsupportedFormatError
 from opendockit.extractors import xls
 from opendockit.extractors._sheet_format import format_cell
 from opendockit.extractors.spreadsheet import _merged_cell_count
@@ -802,8 +802,8 @@ class TestDamagedStylesheet:
         assert any("may appear as numbers" in warning for warning in result.warnings)
 
     def test_memory_error_during_the_retry_is_not_hidden(self, monkeypatch):
-        """Running out of memory must keep its cause (MemoryError) so the server can report 'document too large'
-        (docs/server.md, resource limits)."""
+        """Running out of memory must keep its cause (MemoryError) and is reported as 'too large or too complex', not as a
+        corrupted document (docs/server.md, resource limits)."""
         from opendockit.extractors import spreadsheet
 
         data = _xlsx_with_damaged_styles(lambda xml: xml.replace('<fills count="2">', '<fills count="3"><fill></fill>', 1))
@@ -818,7 +818,7 @@ class TestDamagedStylesheet:
 
         monkeypatch.setattr(spreadsheet.openpyxl, "load_workbook", load)
 
-        with pytest.raises(CorruptedDocumentError) as caught:
+        with pytest.raises(DocumentTooLargeError, match="too large or too complex") as caught:
             convert(data, "a.xlsx")
 
         assert isinstance(caught.value.__cause__, MemoryError)

@@ -25,6 +25,25 @@ _CELL_ROW_REACH, _CELL_ALIGN = 6.0, 1.0
 _GLYPH_OUTLINE_MAX, _STRAIGHT_MAX = 20.0, 0.1
 
 
+def _without_unbounded_shapes(page: object) -> object:
+    """Page without the lines, rectangles and curves that have a coordinate that is not a finite number (for finding tables).
+    `page` itself when there are none.
+
+    A rule drawn to `1e400` (an infinite end) reached the table finders, which round and compare rule ends: `round(inf)` raised
+    an OverflowError and the whole PDF was rejected (Pinned by:
+    test_pdf_resource_limits.py::TestShapesWithoutAFinitePosition). Such a shape has no place on the page and is no rule of a
+    table. Dropping it here, where the shapes enter table finding, keeps every finder below from seeing it.
+    """
+    def unbounded(shape: dict) -> bool:
+        return not (all(math.isfinite(shape[side]) for side in ("x0", "x1", "top", "bottom"))
+                    and all(math.isfinite(value) for point in shape.get("pts") or () for value in point))
+
+    dropped = {id(shape) for shapes in (page.lines, page.rects, page.curves) for shape in shapes if unbounded(shape)}
+    if not dropped:
+        return page
+    return page.filter(lambda obj: id(obj) not in dropped)
+
+
 def _without_glyph_outlines(page: object) -> object:
     """Page without the small curves that draw characters as outlines (for finding ruled tables). `page` itself when there are none.
 

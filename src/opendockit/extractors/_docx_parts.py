@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from lxml import etree
 
 from opendockit.extractors._docx_runs import _int_attr, _int_value, _is_on, _w
-from opendockit.extractors._lists import DOCX_NUMBER_SHAPES, NumberLevel
+from opendockit.extractors._lists import DOCX_NUMBER_SHAPES, NumberLevel, start_number
 from opendockit.extractors._package import decimal_int, parse_part
 
 
@@ -151,7 +151,7 @@ def _load_numbering(document: object) -> dict[str, _NumberList]:
                 levels = {**levels, index: _level_definition(level, index)}
                 indents = {**indents, index: _indent_values(level.find(f"{_w('pPr')}/{_w('ind')}"))}
             if start is not None:
-                restarts[index] = _int_attr(start, 1)
+                restarts[index] = start_number(_int_attr(start, 1))
         lists[num.get(_w("numId"), "")] = _NumberList(abstract_id, levels, style_levels.get(abstract_id, {}), restarts, indents)
     return lists
 
@@ -168,7 +168,7 @@ def _level_definition(level: etree._Element, index: int) -> _LevelDefinition:
     restart_after = _int_attr(restart, -1) if restart is not None else -1
     return (number_format.get(_w("val"), "decimal") if number_format is not None else "decimal",
             text.get(_w("val"), "") if text is not None else f"%{index + 1}.",
-            _int_attr(level.find(_w("start")), 1),
+            start_number(_int_attr(level.find(_w("start")), 1)),
             _is_on(level.find(_w("isLgl"))),
             restart_after if 0 <= restart_after <= index else None)
 

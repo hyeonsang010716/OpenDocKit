@@ -18,8 +18,11 @@ import openpyxl
 from openpyxl.cell.rich_text import CellRichText
 from openpyxl.cell.text import Text
 from openpyxl.chartsheet import Chartsheet
+from openpyxl.formula.tokenizer import TokenizerError
+from openpyxl.formula.translate import TranslatorError
 from openpyxl.packaging.relationship import RelationshipList
 from openpyxl.reader import excel as _openpyxl_excel_reader
+from openpyxl.reader import workbook as _openpyxl_workbook_reader
 from openpyxl.styles.cell_style import CellStyleList
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from openpyxl.utils.datetime import from_excel, from_ISO8601
@@ -29,7 +32,7 @@ from openpyxl.worksheet.merge import MergeCell, MergeCells
 from openpyxl.xml.constants import SHEET_MAIN_NS
 from openpyxl.xml.functions import iterparse as _openpyxl_iterparse
 
-from opendockit.extractors._package import _XML_PARSER, decimal_int
+from opendockit.extractors._package import _XML_PARSER, decimal_int, named_part
 
 
 # When the value of a date-formatted cell is outside the date range (9999-12-31), openpyxl turns it into a '#VALUE!' error cell and
@@ -83,6 +86,7 @@ class _CellReading:
     picture_text: Callable[[_CellPicture], str] | None = None
     row_numbers: list[int] | None = None  # row numbers of the streamed sheet being read, in the order read (`_streamed_rows`)
     part_results: dict[tuple[str, ...], object] = field(default_factory=dict)  # what a part gave, kept for this workbook (`_once_per_part`)
+    sheet_parts: dict[int, str] = field(default_factory=dict)  # `id` of a sheet object → path of its part (`_sheets_noting_parts`)
 
 
 # Deliberate: the cell interpretation of openpyxl's sheet parser (`WorkSheetParser.parse_cell`) and the place that knows the number
@@ -114,6 +118,13 @@ def _tolerant_parse_cell(parser: object, element: object) -> dict:
             # (General too) rejected the whole document when turning it into a float
             # (Pinned by: test_audit_spreadsheet_fixes.py::TestIntegerTooLargeForAFloat).
             raise ValueError
+    except (TranslatorError, TokenizerError):
+        # A formula openpyxl cannot read or cannot move to this cell (a shared formula whose reference moves off the sheet).
+        # It rejected the whole workbook; the cell is left blank, as when values are read (`_unresolved_formulas`)
+        # (Pinned by: test_audit_spreadsheet.py::TestSharedFormulasThatCannotBeMoved).
+        parser.col_counter = counter
+        cell = {**_raw_cell(parser, element), "value": None, "data_type": "n"}
+        cell.pop("malformed")
     except (ValueError, IndexError, TypeError, OverflowError):
         parser.col_counter = counter  # restore the column counted before the failure and count again
         cell = _raw_cell(parser, element)
@@ -385,8 +396,30 @@ _RELATIONS_LEFT_UNREAD = frozenset((
 _get_dependents = _openpyxl_excel_reader.get_dependents
 
 
-def _dependents_left_to_openpyxl(archive: object, filename: str) -> object:
+def _dependents_with_named_parts(archive: object, filename: str) -> object:
+    """openpyxl's relationships of a part; while reading, a percent-encoded target that names no part as written is replaced by
+    the part its decoded form names (`_package.named_part`). openpyxl looks a target up as written: the sheet behind
+    `worksheets/sh%65et1.xml` was left out of the workbook without a warning
+    (Pinned by: test_office_robustness.py::TestPercentEncodedTargets::test_xlsx_part_is_read)."""
     relations = _get_dependents(archive, filename)
+    if _READING.get() is None:
+        return relations
+
+    def exists(name: str) -> bool:
+        try:
+            archive.getinfo(name)
+        except KeyError:
+            return False
+        return True
+
+    for relation in relations:
+        if relation.TargetMode != "External" and relation.target and "%" in relation.target:
+            relation.target = named_part(relation.target, exists)
+    return relations
+
+
+def _dependents_left_to_openpyxl(archive: object, filename: str) -> object:
+    relations = _dependents_with_named_parts(archive, filename)
     if _READING.get() is None:
         return relations
 
@@ -399,6 +432,7 @@ def _dependents_left_to_openpyxl(archive: object, filename: str) -> object:
 
 _openpyxl_sheet_reader.WorkSheetParser.parse = _parse_cells_and_merges
 _openpyxl_excel_reader.get_dependents = _dependents_left_to_openpyxl
+_openpyxl_workbook_reader.get_dependents = _dependents_with_named_parts
 
 
 # The conversion uses only the title (`metadata["title"]`) from the document properties. When openpyxl could not read a single
@@ -436,10 +470,30 @@ def _chartsheet_without_parts(reader: _openpyxl_excel_reader.ExcelReader, sheet:
 
     chartsheet = Chartsheet(parent=reader.wb)
     chartsheet.title = sheet.name
+    chartsheet.sheet_state = sheet.state  # as openpyxl does for a worksheet; its own read leaves a chart sheet visible
     reader.wb._add_sheet(chartsheet)
 
 
 _read_chartsheet = _openpyxl_excel_reader.ExcelReader.read_chartsheet
+
+
+def _sheets_noting_parts(parser: _openpyxl_workbook_reader.WorkbookParser) -> Iterator[tuple[object, object]]:
+    """openpyxl's walk over the workbook's sheet list (`WorkbookParser.find_sheets`); while reading, every sheet object the reader
+    adds for an entry is noted with the path of that entry's part (`_CellReading.sheet_parts`).
+
+    A fully loaded sheet does not know its part, so it was looked up by its name in workbook.xml. openpyxl renames a sheet whose
+    name repeats another one (case ignored: `Data`, `data` → `Data`, `data1`), so the renamed sheet found no part (no pictures,
+    charts or comments) or the part of another sheet, and the hidden state of one went to both
+    (Pinned by: test_audit_spreadsheet.py::TestSheetsWithTheSameName)."""
+    reading = _READING.get()
+    for sheet, rel in _find_sheets(parser):
+        count = len(parser.wb._sheets)
+        yield sheet, rel
+        if reading is not None and len(parser.wb._sheets) > count:
+            reading.sheet_parts[id(parser.wb._sheets[-1])] = str(rel.target)
+
+
+_find_sheets = _openpyxl_workbook_reader.WorkbookParser.find_sheets
 
 
 # A streamed sheet looks for `<dimension>` when it is opened (`ReadOnlyWorksheet._get_size`). Without one, openpyxl's search runs to
@@ -458,6 +512,7 @@ ReadOnlyWorksheet._get_size = _size_unless_reading
 _openpyxl_excel_reader.ExcelReader.read_properties = _properties_or_title
 _openpyxl_excel_reader.ExcelReader.read_custom = _skipped_while_reading(_openpyxl_excel_reader.ExcelReader.read_custom)
 _openpyxl_excel_reader.ExcelReader.read_chartsheet = _chartsheet_without_parts
+_openpyxl_workbook_reader.WorkbookParser.find_sheets = _sheets_noting_parts
 
 
 def _is_number(value: str | None) -> bool:

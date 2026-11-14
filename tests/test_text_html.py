@@ -1,5 +1,6 @@
 """Encoding detection for TXT/MD, and HTML conversion."""
 
+import base64
 import codecs
 import time
 
@@ -1259,6 +1260,202 @@ class TestAlmostUtf8:
             assert (decoded, name) == (text, expected)
 
 
+class TestDeclaredUtf8WithABrokenByte:
+    """A page or mail part declaring UTF-8 with one broken byte and only a few accented letters fell short of the 'almost UTF-8'
+    rule and was read as Windows-1252 or Windows-1250 without a warning (`café` → `cafÃ©`)."""
+
+    @pytest.mark.parametrize(("data", "expected"), [
+        (b"caf\xc3\xa9 \xe2\x82", "café �"),
+        (b"Price 5\xe2\x82\xac, caf\xc3\xa9 and \xff end", "Price 5€, café and � end"),
+    ])
+    def test_declared_utf8_is_read_with_replacement(self, data, expected):
+        assert decode_text(data, "UTF-8") == (expected, "utf-8(replaced)")
+
+    def test_page_declaring_utf8_warns(self):
+        data = b'<html><head><meta charset="utf-8"></head><body><p>caf\xc3\xa9 \xff</p></body></html>'
+
+        result = convert(data, "a.html")
+
+        assert result.text == "café �"
+        assert result.warnings
+
+    @pytest.mark.parametrize(("data", "expected"), [
+        ("naïve café".encode("cp1252"), ("naïve café", "cp1252")),
+        ("회의록 요약입니다".encode("cp949"), ("회의록 요약입니다", "cp949")),
+        # `B1 E2 B0 A3`: the last three bytes are a complete UTF-8 character (`Ⱓ`) for one broken byte. CP949 reads it whole.
+        ("기간".encode("cp949"), ("기간", "cp949")),
+        ("계약 기간".encode("cp949"), ("계약 기간", "cp949")),
+    ])
+    def test_another_encoding_labelled_utf8_is_still_recognised(self, data, expected):
+        assert decode_text(data, "utf-8") == expected
+
+    def test_undeclared_text_keeps_the_threshold(self):
+        assert decode_text(b"caf\xc3\xa9 \xe2\x82")[1] != "utf-8(replaced)"
+
+
+class TestAsciiUtf16WithoutBom:
+    """UTF-16 without a BOM whose text is all ASCII decoded strictly as UTF-8 with a NUL after every letter: detection said HTML,
+    and the page came out as `<\\x00h\\x00t\\x00m\\x00l\\x00…`."""
+
+    _PAGE = "<!DOCTYPE html><html><head><title>Report</title></head><body><h1>Quarterly report</h1><p>Revenue grew 5%.</p></body></html>"
+
+    @pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+    @pytest.mark.parametrize("filename", ["r.html", None])
+    def test_page_is_read(self, codec, filename):
+        result = convert(self._PAGE.encode(codec), filename)
+
+        assert result.format is DocumentFormat.HTML
+        assert result.text == "# Quarterly report\n\nRevenue grew 5%."
+        assert result.metadata["encoding"] == codec
+
+    @pytest.mark.parametrize("charset", ["utf-16le", "utf-16be"])
+    def test_mail_part_declaring_utf16_is_read(self, charset):
+        body = base64.encodebytes("<p>Hello there, meeting at 3pm.</p>".encode(charset.replace("16", "-16"))).decode()
+        data = (f"From: a@example.com\r\nTo: b@example.com\r\nSubject: S\r\nMIME-Version: 1.0\r\n"
+                f"Content-Type: text/html; charset={charset}\r\nContent-Transfer-Encoding: base64\r\n\r\n{body}").encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.endswith("\n\nHello there, meeting at 3pm.")
+
+    def test_utf8_with_nul_padded_fields_stays_utf8(self):
+        data = "이름\x00\x00\x00\x00나이\x00\x00\x00\x00주소".encode()
+
+        assert decode_text(data) == ("이름\x00\x00\x00\x00나이\x00\x00\x00\x00주소", "utf-8")
+
+    def test_nul_terminated_names_stay_utf8(self):
+        """A quarter of the bytes are NULs, all at one parity: fewer than every third byte. As UTF-16 it is `楋m敌e慈n`."""
+        data = b"Kim\x00Lee\x00Han\x00"
+
+        assert decode_text(data) == ("Kim\x00Lee\x00Han\x00", "utf-8")
+
+    def test_nuls_at_both_parities_stay_utf8(self):
+        """Fields separated by two NULs: nearly half of the bytes are NULs, half of them at each parity. Read as UTF-16 the
+        letters next to them became ideographs (`A䈀C䐀…`)."""
+        data = b"A\x00\x00BC\x00\x00DE\x00\x00FG\x00\x00H"
+
+        assert decode_text(data) == (data.decode(), "utf-8")
+
+    def test_last_letter_cut_after_its_first_byte_is_kept(self):
+        assert decode_text("OK thanks".encode("utf-16-le")[:-1]) == ("OK thanks", "utf-16-le")
+        assert convert("OK thanks".encode("utf-16-le")[:-1], "a.txt").text == "OK thanks"
+
+    def test_cut_byte_after_a_character_outside_ascii_is_dropped(self):
+        """The first byte of `한` (U+D55C) is `\\`; after another syllable it is not taken for a letter."""
+        assert decode_text("Thanks a lot 감한".encode("utf-16-le")[:-1]) == ("Thanks a lot 감", "utf-16-le")
+
+    def test_only_the_byte_order_of_the_nuls_is_tried_first(self):
+        """Big-endian text with two broken bytes does not decode as such; in the other byte order it is `伀䯾 琀栀…`. With a
+        declared charset it is read as before."""
+        data = bytearray("OK thanks".encode("utf-16-be"))
+        data[2] = data[12] = 0xFE
+
+        text, encoding = decode_text(bytes(data), "windows-1251")
+
+        assert encoding == "cp1251"
+        assert text.replace("\x00", "") == "OюK thaюnks"
+
+
+class TestDeclaredUtf16WithoutBom:
+    """A declared `utf-16le` / `utf-16be` is taken only when the bytes bear it out. Taken whenever the bytes decoded into
+    printable characters, ASCII and UTF-8 text carrying that label came out as ideographs without a warning."""
+
+    @pytest.mark.parametrize("charset", ["utf-16le", "UTF-16BE"])
+    def test_ascii_page_with_the_wrong_label(self, charset):
+        data = f'<html><head><meta charset="{charset}"><title>Invoice</title></head><body><p>Total: 1,250 USD.</p></body></html>'.encode()
+        assert len(data) % 2 == 0
+
+        result = convert(data, "a.html")
+
+        assert result.text == "# Invoice\n\nTotal: 1,250 USD."
+        assert result.warnings == []
+
+    @pytest.mark.parametrize("body", [b"Total: 1,250 USD", b"See you at 10:30", b"OK thanks "])
+    def test_ascii_mail_part_with_the_wrong_label(self, body):
+        data = (b"From: a@example.com\r\nTo: b@example.com\r\nSubject: S\r\nMIME-Version: 1.0\r\n"
+                b'Content-Type: text/plain; charset="utf-16le"\r\nContent-Transfer-Encoding: base64\r\n\r\n'
+                + base64.encodebytes(body))
+
+        result = convert(data, "a.eml")
+
+        assert result.text.endswith("\n\n" + body.decode().strip())
+        assert result.warnings == []
+
+    @pytest.mark.parametrize("charset", ["utf-16le", "utf-16be"])
+    @pytest.mark.parametrize("text", ["매출 보고서 2024년", "회의록 요약입니다.", "café déjà vu!", "Привет"])
+    def test_utf8_with_the_wrong_label(self, charset, text):
+        data = text.encode()
+        assert len(data) % 2 == 0
+
+        assert decode_text(data, charset) == (text, "utf-8")
+
+    @pytest.mark.parametrize(("data", "charset"), [(b"Thanks", "utf-16be"), (b"Report", "utf-16be"), (b"Mail", "utf-16le")])
+    def test_ascii_word_whose_byte_pairs_are_everyday_ideographs(self, data, charset):
+        """`Thanks` is `周慮歳` and `Mail` is `慍汩`: everyday characters, but valid UTF-8 first."""
+        assert decode_text(data, charset) == (data.decode(), "utf-8")
+
+    def test_korean_utf8_page_with_the_wrong_label(self):
+        data = '<html><head><meta charset="utf-16le"></head><body><p>매출 보고서 2024</p></body></html>'.encode()
+        assert len(data) % 2 == 0
+
+        assert convert(data, "a.html").text == "매출 보고서 2024"
+
+    @pytest.mark.parametrize("text", [
+        "매출 보고서입니다", "확인했습니다", "これは日本語です", "这是简体中文文本",   # CJK: no NUL at all without a space
+        "Это русский текст", "Привет", "مرحبا", "नमस्ते दुनिया", "Γειά σου", "OK thanks",    # below U+2000: a control byte in every pair
+    ])
+    @pytest.mark.parametrize("order", ["le", "be"])
+    def test_real_utf16_as_declared(self, text, order):
+        assert decode_text(text.encode(f"utf-16-{order}"), f"utf-16{order}") == (text, f"utf-16-{order}")
+
+    @pytest.mark.parametrize("charset", ["utf-16le", "utf-16be"])
+    @pytest.mark.parametrize("body", [b"Yes\n", b"5\n", b"OK\r\n\r\n", b"30\r\n", b"K\r", b"1\t2\t3\n4\t5\t6\n", b"4\t5\t6\n7\t8\t9\n",
+                                      b"id\tqt\n1\t3\n2\t5\n", b"a\nb\nc\n", b"x\ty\t"])
+    def test_plain_ascii_bytes_are_ascii_whatever_the_label(self, body, charset):
+        """A tab or a line break in every other byte is the high byte of an Indic letter: `Yes\\n` read `教ੳ`, `5\\n` read `ਵ`
+        and a table of one-digit numbers between tabs read as Devanagari."""
+        assert len(body) % 2 == 0
+        assert decode_text(body, charset) == (body.decode(), "utf-8")
+
+        data = (b"From: a@example.com\r\nTo: b@example.com\r\nSubject: S\r\nMIME-Version: 1.0\r\n"
+                + f'Content-Type: text/plain; charset="{charset}"\r\nContent-Transfer-Encoding: base64\r\n\r\n'.encode()
+                + base64.encodebytes(body))
+        result = convert(data, "a.eml")
+
+        assert result.text.split("\n\n", 1)[1] == body.decode().strip()
+        assert result.warnings == []
+
+    @pytest.mark.parametrize(("text", "order"), [("नमस्ते", "le"), ("नमस्ते", "be"), ("ਸਤਿ", "le"), ("你好", "le")])
+    def test_known_gap_utf16_made_of_plain_ascii_bytes_reads_as_ascii(self, text, order):
+        """A word without a space or a line break whose every character has two printable (or tab / line break) bytes."""
+        data = text.encode(f"utf-16-{order}")
+
+        assert decode_text(data, f"utf-16{order}") == (data.decode("ascii"), "utf-8")
+
+    def test_word_without_a_space_is_valid_utf8_too(self):
+        """Why 'valid UTF-8 without a NUL' is not the test for a wrong label: every Cyrillic letter is `xx 04`."""
+        data = "Привет".encode("utf-16-le")
+
+        assert b"\x00" not in data
+        assert data.decode() == "\x1f\x04@\x048\x042\x045\x04B\x04"
+        assert decode_text(data, "utf-16le")[0] == "Привет"
+
+    @pytest.mark.parametrize(("declared", "actual"), [("utf-16be", "utf-16-le"), ("utf-16le", "utf-16-be")])
+    def test_ascii_utf16_declared_in_the_other_byte_order(self, declared, actual):
+        """`OK thank` little-endian read as big-endian is `伀䬀 琀栀…`, all printable."""
+        assert decode_text("OK thank".encode(actual), declared) == ("OK thank", actual)
+
+    @pytest.mark.parametrize("data", [
+        b"OK t\x80hanks", b"name,age,city\nKim,30,Seoul\xffLee,25,Busan\n",   # a broken byte
+        "naïve café!".encode("cp1252") + b" ",
+    ])
+    def test_other_byte_text_with_the_wrong_label(self, data):
+        assert len(data) % 2 == 0
+
+        assert not decode_text(data, "utf-16be")[1].startswith("utf-16")
+        assert not decode_text(data, "utf-16le")[1].startswith("utf-16")
+
+
 class TestMalformedNesting:
     """The parser nests unclosed tags and tag typos one level deeper each time, so input the size of a normal document took tens
     of seconds or was rejected as a 'corrupted document'."""
@@ -1421,6 +1618,180 @@ class TestCodeBlockWithFenceInside:
         assert fences == ["```", "```"]
         assert "b   c" in lines
         assert result.text.endswith("```\n\n뒤 문단")
+
+    @pytest.mark.parametrize("before", ["\n&#x200b;", "\n&#xe000;", "\n``&shy;", "\n&#x3000;", "\n&#xfeff; ", "&#x0c;"],
+                             ids=["zero-width-space", "private-use", "soft-hyphen-inside", "wide-space", "bom", "form-feed"])
+    def test_fence_line_behind_a_character_that_cleaning_removes(self, before):
+        """The line was no fence line when the code was written and one once `clean_text` had removed the character (or
+        made the form feed a line break): it closed the block and the code after it lost its whitespace."""
+        fence = "`" if "``" in before else "```"
+        html = f"<pre>a   1{before}{fence}\n\n\nb   2</pre><p>뒤   문단</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        indent = " " if before.endswith((" ", "&#x3000;")) else ""
+        expected = [f"```\na   1\n{indent}\\```\n\n\nb   2\n```\n\n뒤 문단"]
+        if before == "&#x0c;":
+            # libxml2 before 2.14 drops the reference to a form feed: the backticks then stand in the line of the code
+            expected.append("```\na   1```\n\n\nb   2\n```\n\n뒤 문단")
+        assert result.text in expected
+
+
+class TestTextThatLooksLikeAFence:
+    """A paragraph that is "```" or "~~~" is text, and `clean_text` cannot tell it from the fence of a `<pre>`: it was paired
+    with the opening fence of the code block after it, so the code lost its whitespace and the block's closing fence was
+    neutralized as the unpaired one. The renderer settles the fence lines of its text before the text is cleaned
+    (`_html_render._settle_fences`); only the fences of real code blocks are left to pair with each other."""
+
+    def test_tilde_paragraph_before_a_code_block_that_holds_a_tilde_line(self):
+        html = "<p>~~~</p><pre>x = 1\n~~~\ny   =   2</pre><p>after   text</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "\\~~~\n\n```\nx = 1\n~~~\ny   =   2\n```\n\nafter text"
+
+    @pytest.mark.parametrize("paragraph", ["```", "```js", "````"])
+    def test_backtick_paragraph_before_a_code_block(self, paragraph):
+        html = f"<p>{paragraph}</p><pre>x = 1\n\n\ny   =   2</pre><p>after   text</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == f"\\{paragraph}\n\n```\nx = 1\n\n\ny   =   2\n```\n\nafter text"
+
+    def test_backtick_paragraphs_around_a_code_block_are_not_paired_across_it(self):
+        html = "<p>```</p><p>a   b</p><pre>x   =   1</pre><p>c   d</p><p>```</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "\\```\n\na b\n\n```\nx   =   1\n```\n\nc d\n\n\\```"
+
+    def test_fence_paragraph_in_a_quote_before_a_code_block(self):
+        html = "<blockquote><p>```js</p><pre>x = 1\ny   =   2</pre><p>after   text</p></blockquote>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "> \\```js\n>\n> ```\n> x = 1\n> y   =   2\n> ```\n>\n> after text"
+
+    def test_fence_paragraph_in_a_quote_does_not_reach_into_the_code_block(self):
+        """The blank lines of a quote are collapsed outside its code blocks; the paragraph switched that off for the text
+        after it and on inside the code block."""
+        html = "<blockquote><p>```</p><div>a<br><br><br><br>b</div><pre>x\n\n\n\ny</pre></blockquote>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "> \\```\n>\n> a\n>\n> b\n>\n> ```\n> x\n>\n>\n>\n> y\n> ```"
+
+    def test_fence_text_in_a_list_item_next_to_a_code_block(self):
+        html = "<ul><li>```<br>open<pre>code   here</pre>```<br>x</li></ul>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "- \\``` open\n\n```\ncode   here\n```\n\n\\``` x"
+
+    @pytest.mark.parametrize(("between", "expected"), [("<br>가운데   글<br>", "가운데 글"), ("<pre>x   y</pre>", "```\nx   y\n```")],
+                             ids=["text", "code-block"])
+    def test_every_fenced_text_of_a_list_item_is_cut_out(self, between, expected):
+        """After a block is cut out of an item, the next line of text that may open one is looked for again from there."""
+        html = f"<ul><li>a<br>```<br>code one<br>```{between}```<br>code two<br>```<br>끝</li></ul>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == f"- a\n\n```\ncode one\n```\n\n{expected}\n\n```\ncode two\n```\n\n끝"
+
+    def test_fence_paragraphs_that_pair_with_each_other_stay_a_code_block(self):
+        """As in every other format (`test_markdown.py::TestUnclosedCodeFence`): only the unpaired one is neutralized."""
+        html = "<pre>x</pre><p>```</p><p>code</p><p>```</p><p>```</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "```\nx\n```\n\n```\n\n\n\ncode\n\n\n\n```\n\n\\```"
+
+    def test_tilde_paragraphs_used_as_separators_leave_the_content_between_them_as_it_is(self):
+        html = "<h2>공지</h2><p>~~~~~~~~</p><ul><li>a<ul><li>b</li></ul></li></ul><h2>제목</h2><p>~~~~~~~~</p><p>끝   글</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "## 공지\n\n\\~~~~~~~~\n\n- a\n  - b\n\n## 제목\n\n\\~~~~~~~~\n\n끝 글"
+
+    def test_fence_line_left_without_its_pair_is_text(self):
+        from opendockit.extractors._html_render import _CODE_FENCE, _settle_fences
+
+        rendered = (f"앞\n\n{_CODE_FENCE}\ncode\n{_CODE_FENCE}\n\n가운데 {_CODE_FENCE}\n\n> {_CODE_FENCE}\n> 뒤\n\n"
+                    f"{_CODE_FENCE}\nx  y\n{_CODE_FENCE}\n\n{_CODE_FENCE}\n끝")
+
+        assert _settle_fences(rendered) == ("앞\n\n```\ncode\n```\n\n가운데 ```\n\n> \\```\n> 뒤\n\n"
+                                            "```\nx  y\n```\n\n\\```\n끝")
+
+    def test_line_that_only_ends_with_the_key_of_a_fence_is_text(self):
+        from opendockit.extractors._html_render import _CODE_FENCE, _settle_fences
+
+        rendered = f"가 {_CODE_FENCE}\n```\n가 {_CODE_FENCE}"
+
+        assert _settle_fences(rendered) == "가 ```\n\\```\n가 ```"
+
+    def test_code_block_in_a_quote_in_a_list_item_before_another_code_block(self):
+        html = ("<ol><li>항목<blockquote><pre>quoted  code</pre><p>인용 글</p></blockquote><pre>x = 1\n\n\ny  =  2</pre></li></ol>"
+                "<ol><li>다음<pre>a\n\n\nb</pre></li></ol>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == ("1. 항목\n\n> ```\n> quoted  code\n> ```\n>\n> 인용 글\n\n```\nx = 1\n\n\ny  =  2\n```\n\n"
+                               "1. 다음\n\n```\na\n\n\nb\n```")
+
+    def test_text_that_holds_the_private_use_characters_of_a_fence_key_is_text(self):
+        html = "<p>```&#xe026;</p><pre>a  b</pre>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "\\```\n\n```\na  b\n```"
+
+    _CODE = "<pre>a   1\n\n\nb   2</pre>"
+    _REMOVED = ["&#x200b;", "&shy;", "&#xfeff;", "&lrm;", "&#x2060;", "&#x1;", "&#xe000;", "&#xf0a0;"]
+    _REMOVED_IDS = ["zero-width-space", "soft-hyphen", "bom", "lrm", "word-joiner", "control", "private-use", "symbol-font-space"]
+
+    @pytest.mark.parametrize("removed", _REMOVED, ids=_REMOVED_IDS)
+    def test_backtick_paragraph_behind_a_character_that_cleaning_removes(self, removed):
+        """The paragraph was no fence line while the fences were settled and one once `clean_text` had removed the
+        character: it was paired with the opening fence of the code block."""
+        html = f"<p>{removed}```</p>{self._CODE}<p>after   text</p><p>``{removed}`</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        last = "`` `" if removed == "&#xf0a0;" else "\\```"  # the glyph of a symbol font that stands for a space
+        assert result.text == f"\\```\n\n```\na   1\n\n\nb   2\n```\n\nafter text\n\n{last}"
+
+    @pytest.mark.parametrize("removed", _REMOVED[:-1], ids=_REMOVED_IDS[:-1])
+    def test_fence_paragraph_whose_info_string_is_a_character_that_cleaning_removes_closes_as_it_will_be_read(self, removed):
+        """"```" + the character closes the "```js" paragraph for `clean_text`; taken for an opening fence, the pair was
+        "```js" and the last paragraph, and the last paragraph was then left to pair with the code block."""
+        html = f"<p>```js</p><p>```{removed}</p><p>&#x3000;```</p>{self._CODE}"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "```js\n\n\n\n```\n\n\\```\n\n```\na   1\n\n\nb   2\n```"
+
+    def test_backticks_that_only_normalizing_makes_are_a_fence_paragraph(self):
+        """NFC turns the Greek varia U+1FEF into a backtick."""
+        html = f"<p>&#x1fef;&#x1fef;&#x1fef;</p>{self._CODE}"
+
+        assert convert(html.encode(), "a.html").text == "\\```\n\n```\na   1\n\n\nb   2\n```"
+
+    def test_item_text_that_starts_with_a_fence_behind_a_character_that_cleaning_removes(self):
+        html = "<ul><li>&#x200b;```<br>open<pre>code   here</pre>&#x200b;```<br>x</li></ul>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "- \\``` open\n\n```\ncode   here\n```\n\n\\``` x"
+
+    @pytest.mark.parametrize("paragraph", ["```", "&#x200b;```"])
+    def test_fence_paragraph_of_one_mail_part_before_the_code_block_of_the_next(self, paragraph):
+        """Each body part is rendered on its own and the parts are cleaned together: the fence paragraph of a part without
+        a code block has to be settled in that part."""
+        parts = "".join(f"--B\r\nContent-Type: text/html; charset=utf-8\r\n\r\n{body}\r\n" for body in (f"<p>{paragraph}</p>", self._CODE))
+        data = ("Subject: s\r\nFrom: a@b.c\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+                f"{parts}--B--\r\n").encode()
+
+        assert convert(data, "m.eml").text == "Subject: s\nFrom: a@b.c\n\n\\```\n\n```\na   1\n\n\nb   2\n```"
 
 
 def _mail(*parts: tuple[str, str, str, str | None], subtype: str = "alternative", attachment: bool = False) -> bytes:

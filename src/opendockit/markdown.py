@@ -10,14 +10,22 @@ import unicodedata
 from opendockit.models import IMAGE_MARKER
 
 
-# Zero-width characters, direction controls, BOM, soft hyphen. Invisible on screen, but they ruin tokens and search matching.
-_INVISIBLE = re.compile("[​-‏‪-‮⁠-⁤﻿­]")
-# Remove the C0 control characters and DEL, keeping only tab (\t) and newline (\n). Form feed (\f) and vertical tab (\v) are
-# text boundaries, so they are turned into line breaks instead of being removed (`_LINE_BREAK_CONTROLS`) — removed, the numbers on
-# either side in `합계 100\f200` (합계 = total) ran together and the CSV cell `2\f3` became `23` (Pinned by: test_markdown.py::
-# TestCleanText::test_page_break_and_vertical_tab_become_line_breaks, TestRenderTable::test_page_break_and_vertical_tab_inside_a_cell_become_br).
-_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
-_LINE_BREAK_CONTROLS = str.maketrans({"\x0b": "\n", "\x0c": "\n"})
+# Zero-width characters, direction controls (embeddings, overrides, isolates, the Arabic letter mark U+061C), the Mongolian
+# vowel separator U+180E, BOM, soft hyphen. Invisible on screen, but they ruin tokens and search matching. The isolates
+# (U+2066–2069) are what current editors write around a right-to-left name; only the older embeddings were removed and the
+# isolates stayed between the letters
+# (Pinned by: test_markdown.py::TestInvisibleAndControlCharacters::test_removes_bidi_isolates_and_other_invisible_marks).
+_INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u061c\u180e\ufeff\u00ad]")
+# Remove the C0 and C1 control characters and DEL, keeping only tab (\t) and newline (\n). Form feed (\f), vertical tab (\v) and
+# next line (U+0085, the C1 line break) are text boundaries, so they are turned into line breaks instead of being removed
+# (`_LINE_BREAK_CONTROLS`) — removed, the numbers on either side in `합계 100\f200` (합계 = total) ran together and the CSV cell
+# `2\f3` became `23` (Pinned by: test_markdown.py::TestCleanText::test_page_break_and_vertical_tab_become_line_breaks,
+# TestRenderTable::test_page_break_and_vertical_tab_inside_a_cell_become_br). C1 means the code points U+0080–009F after
+# decoding: Windows-1252 bytes 0x80–0x9F (€, curly quotes) decode to other characters and are not touched; a C1 code point is
+# left only by a latin-1 decode or a numeric reference, and is never text (Pinned by:
+# test_markdown.py::TestInvisibleAndControlCharacters::test_removes_c1_controls_and_breaks_lines_at_next_line).
+_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f]")
+_LINE_BREAK_CONTROLS = str.maketrans({"\x0b": "\n", "\x0c": "\n", "\x85": "\n"})
 # The private use areas (BMP and supplementary planes 15 and 16). Symbols of fonts specific to Hangul (HWP) and Office are mapped
 # here and become meaningless characters in any other environment. Hancom fonts use the supplementary areas too (U+F02B1 etc.)
 # (Pinned by: test_markdown.py::TestCleanText::test_removes_supplementary_private_use_characters).
@@ -39,14 +47,18 @@ _SYMBOL_FONT_GLYPHS = str.maketrans({
     "\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi", "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st",
 })
 _SPACE_LIKE = re.compile("[  -   　]")
+# The characters cleaning can leave a backtick for: the backtick, and the Greek varia U+1FEF, which NFC turns into one.
+_BACKTICK_SOURCES = ("`", "\u1fef")
 _INNER_SPACES = re.compile(r"[ \t]+")
 _BLANK_RUN = re.compile(r"\n{3,}")
 # Only nested list lines made by the extractors keep their indentation. Any other leading whitespace reads as a code block in
 # Markdown, so it is removed. An empty item (a bare `-` or `N.`) keeps its indentation only when it is nested in another empty
 # item and holds a deeper list (`_empty_item_holding_a_list`) — its nesting was lost without it
 # (Pinned by: test_audit_web_fixes.py::TestEmptyListItemHoldingANestedList). Any other paragraph that is only `-` or `2025.`
-# is stripped as before: with its spaces kept, five of them made it an indented code block.
-_LIST_LINE = re.compile(r"^( +)(?:[-*]|\d+\.) ")
+# is stripped as before: with its spaces kept, five of them made it an indented code block. A marker followed only by
+# whitespace (`  - `) is a bare marker too: it was taken for a list line, kept its indentation, lost the trailing space, and
+# the next cleaning then stripped it as a bare marker (Pinned by: test_markdown.py::TestCleaningTwice).
+_LIST_LINE = re.compile(r"^( +)(?:[-*]|\d+\.) (?=[ \t]*\S)")
 _BARE_LIST_MARKER = re.compile(r"^( +)(?:[-*]|\d+\.)[ \t]*$")
 _EMPTY_ITEM = re.compile(r"^( *)([-*]|\d+\.)$")
 _LIST_ITEM = re.compile(r"^ *(?:[-*]|\d+\.) ")
@@ -74,6 +86,66 @@ def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
     the same characters become a different string for search and embedding.
     `collapse_spaces=False` is for TXT and MD, where the original whitespace carries meaning (code indentation is preserved).
     """
+    text = clean_characters(text)
+
+    # In documents that are not Markdown the only real code blocks are the ones the extractors write, with backtick fences. A
+    # backtick line that opens a fence which is never closed is neutralized with a backslash: when a paragraph of a DOCX had a
+    # single piece of text starting with ```, the whole section after it became a code block and whitespace cleanup stopped too
+    # (Pinned by: test_markdown.py::TestUnclosedCodeFence). A line of tildes is text there and never opens or closes a code
+    # block; so that a Markdown reader agrees, every line that would open a tilde fence is neutralized too, paired or not
+    # (Pinned by: test_markdown.py::TestFencesThatAreText). TXT and MD (collapse_spaces=False) are the author's Markdown: both
+    # kinds of fence are paired as CommonMark pairs them and nothing is neutralized.
+    source = text.split("\n")
+    # What each line is to the code blocks of the text (`code_fences`). Most texts hold no fence at all, and then nothing is
+    # looked up per line: ordinary prose costs what it cost before fences were paired
+    # (Pinned by: test_markdown.py::TestFencesThatAreText::test_text_without_a_fence_is_not_searched_for_fences).
+    kinds: bytearray | None = None
+    if "```" in text or (not collapse_spaces and "~~~" in text):
+        fences = code_fences(source, tildes=not collapse_spaces)
+        if fences.blocks or (collapse_spaces and fences.unpaired):
+            kinds = bytearray(len(source))
+            for opening, closing in fences.blocks:
+                kinds[opening + 1:closing] = bytes([_INSIDE]) * (closing - opening - 1)
+                kinds[opening] = kinds[closing] = _FENCE
+            if collapse_spaces:
+                for index in fences.unpaired:
+                    kinds[index] = _UNPAIRED
+    tildes = collapse_spaces and "~~~" in text
+    quoted = collapse_spaces and ">" in text
+
+    lines: list[str] = []
+    for index, line in enumerate(source):
+        kind = kinds[index] if kinds is not None else 0
+        if kind == _FENCE:
+            lines.append(line.rstrip())
+            continue
+        # Blank lines inside paired fences are not reduced — consecutive blank lines in a code block (two lines between functions)
+        # were reduced to one and the shape of the code changed (Pinned by: test_markdown.py::TestBlankLinesInsideCodeFences).
+        # What follows an unpaired fence is not a code block, so it is reduced.
+        in_fence = kind == _INSIDE
+        if in_fence or not collapse_spaces:
+            line = line.rstrip()
+        else:
+            content = line.strip()
+            if quoted and content.startswith(">"):
+                line = _clean_quoted_line(line, kind == _UNPAIRED, tildes)
+            else:
+                if kind == _UNPAIRED:
+                    content = "\\" + content
+                elif tildes and "~~~" in content:
+                    content = "\\" + content if content.startswith("~~~") else _TILDE_OPENING.sub(r"\1\\", content, count=1)
+                list_match = _LIST_LINE.match(line) or _empty_item_holding_a_list(source, index, lines[-1] if lines else "")
+                line = (list_match.group(1) if list_match else "") + _INNER_SPACES.sub(" ", content)
+        if line or in_fence or (lines and lines[-1]):
+            lines.append(line)
+
+    return "\n".join(lines).strip("\n")
+
+
+def clean_characters(text: str) -> str:
+    """The part of `clean_text` that works on characters, before any line is looked at: line breaks made `\\n` (form feed,
+    vertical tab and next line too), invisible, control and private-use characters removed, the glyphs of symbol fonts and
+    the ligatures replaced, space-like characters made spaces, NFC. Cleaning the result again changes nothing."""
     # Remove first, then normalize. In the other order, the characters on either side of a removed one become newly combinable
     # and the result is no longer NFC.
     text = text.replace("\r\n", "\n").replace("\r", "\n").translate(_LINE_BREAK_CONTROLS)
@@ -81,36 +153,206 @@ def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
     text = _CONTROL.sub("", text)
     text = _PRIVATE_USE.sub("", text.translate(_SYMBOL_FONT_GLYPHS))
     text = _SPACE_LIKE.sub(" ", text)
-    text = unicodedata.normalize("NFC", text)
+    return unicodedata.normalize("NFC", text)
 
-    # An unpaired last fence line (```) is neutralized as `\````. When a paragraph of a non-Markdown document (DOCX etc.) had a
-    # single piece of text starting with ```, the whole section after it became a code block and whitespace cleanup stopped too
-    # (Pinned by: test_markdown.py::TestUnclosedCodeFence). TXT and MD (collapse_spaces=False) are left as the author wrote them.
-    source = text.split("\n")
-    fences = [index for index, line in enumerate(source) if line.lstrip().startswith("```")]
-    unpaired = fences[-1] if collapse_spaces and len(fences) % 2 else None
-    # Blank lines inside paired fences are not reduced — consecutive blank lines in a code block (two lines between functions)
-    # were reduced to one and the shape of the code changed (Pinned by: test_markdown.py::TestBlankLinesInsideCodeFences).
-    # What follows an unpaired last fence is not a code block, so it is reduced.
-    last_opening = fences[-1] if len(fences) % 2 else None
-    lines = []
-    in_fence = False
-    for index, line in enumerate(source):
-        if index == unpaired:
-            line = "\\" + line.lstrip()
-        elif line.lstrip().startswith("```"):
-            in_fence = not in_fence and index != last_opening
-            lines.append(line.rstrip())
+
+# What a line is to the code blocks of its text (`clean_text`): a fence line of a code block, a line inside one, or an opening
+# fence that is never closed.
+_FENCE, _INSIDE, _UNPAIRED = 1, 2, 3
+# The quote marks at the start of a line, after any leading whitespace: `>` marks with any whitespace between them, and at most
+# one space or tab after the last (CommonMark counts that one as part of the mark; what follows is the indentation of the
+# quoted line). Whitespace between marks is part of the marks: `>  > x` is a quote in a quote, and read as a quote holding the
+# text ` > x` it was written out as `> > x`, which the next cleaning read differently
+# (Pinned by: test_markdown.py::TestCleaningTwice).
+_QUOTE_PREFIX = re.compile(r"[ \t]*(>(?:[ \t]*>)*[ \t]?)")
+# The opening of a code fence: three or more backticks or tildes, after any indentation, and the rest of the line (the info
+# string). A backtick fence whose info string holds a backtick is not a fence (CommonMark): it is inline code.
+_FENCE_OPENING = re.compile(r"\s*(`{3,}|~{3,})(.*)", re.DOTALL)
+# Where a line of a document that is not Markdown would open a tilde fence: at its start, or after the list markers and
+# quote marks it starts with, in any order (`- ~~~` opens a fence inside the item, `- > ~~~` inside the quote in the item).
+# With list markers only, `- > ~~~`, `1. > ~~~` and `> - > ~~~` were left as fences
+# (Pinned by: test_markdown.py::TestFencesThatAreText::test_tilde_line_behind_quote_marks_and_list_markers_is_neutralized).
+# The line is already stripped.
+_TILDE_OPENING = re.compile(r"^((?:>[ \t]*|(?:[-*+]|\d{1,9}[.)])[ \t]+)*)(?=~~~)")
+
+
+def _clean_quoted_line(line: str, unpaired: bool, tildes: bool) -> str:
+    """A quoted line (`> `, `> > `) of a document that is not Markdown, cleaned as its quote marks and a line of its own: the
+    indentation of a nested list inside a quote is kept as at the top level. Taken whole, `>   - b` lost its two spaces and
+    the nested item came out flat (Pinned by: test_markdown.py::TestQuotedBlocks)."""
+    prefix, _, content = _split_quote(line)
+    list_match = _LIST_LINE.match(content)
+    content = content.strip()
+    if unpaired:
+        content = "\\" + content
+    elif tildes and "~~~" in content:
+        content = _TILDE_OPENING.sub(r"\1\\", content, count=1)
+    content = (list_match.group(1) if list_match else "") + _INNER_SPACES.sub(" ", content)
+    return prefix + content if content else prefix.rstrip()
+
+
+class CodeFences:
+    """Where the code fences of a text are (`code_fences`): the (opening line, closing line) of each code block in order, and
+    the lines of the opening fences that are never closed."""
+
+    __slots__ = ("blocks", "unpaired")
+
+    def __init__(self) -> None:
+        self.blocks: list[tuple[int, int]] = []
+        self.unpaired: list[int] = []
+
+    @property
+    def inside(self) -> set[int]:
+        """The line numbers between the fences of the code blocks."""
+        return {index for opening, closing in self.blocks for index in range(opening + 1, closing)}
+
+
+def _split_quote(line: str) -> tuple[str, int, str]:
+    """(the quote marks — `> `, `> > `, `>>` — with each run of whitespace in them made one space, how many marks there are,
+    the rest of the line). No quote marks: ('', 0, line). Marks written without whitespace stay so: the `>>> f()` prompt line
+    of a Python session stays as it was. A tab after a mark is a space, as it was when the whole line was collapsed
+    (Pinned by: test_markdown.py::TestQuotedBlocks::test_tab_after_a_quote_mark_becomes_a_space)."""
+    match = _QUOTE_PREFIX.match(line)
+    if match is None:
+        return "", 0, line
+    marks = match.group(1)
+    return _INNER_SPACES.sub(" ", marks), marks.count(">"), line[match.end():]
+
+
+def code_fences(lines: list[str], *, tildes: bool = True) -> CodeFences:
+    """The code fences of `lines`, paired as CommonMark pairs them: a fence of three or more backticks or tildes is closed by the
+    next fence line of the same character, at least as long, with nothing after it, at the same quote depth. A fence inside a
+    quote (`> ```) is closed only inside that quote. An opening fence that is never closed is unpaired — not a code block, so
+    what follows it is ordinary text — and the search goes on from the line after it.
+
+    Without `tildes` only backtick fences are fences. That is how every format but TXT and Markdown is read: there the only
+    real code blocks are the ones the extractors write, with backticks, and a line of tildes is text — a separator, an
+    underline, `~~~10시~~~12시` (`clean_text` neutralizes it). Read as fences, two such lines made everything between them a
+    code block (Pinned by: test_markdown.py::TestFencesThatAreText).
+
+    Shared by `clean_text` and the picture rendering of the converter, so both see the same code blocks. Only ``` used to be a
+    fence and fences were paired by counting: an unpaired `~~~` made the rest of the section code, and an inner ```` ```js ````
+    line closed a ```` ```` ```` block (Pinned by: test_markdown.py::TestTildeFences). Linear in the text: the closing fences
+    of a character and quote depth are walked once, and an opening fence longer than the closing fence it meets skips to the
+    next longer one, which takes fewer steps than it has characters
+    (Pinned by: test_markdown.py::TestTildeFences::test_many_unclosed_fences_take_linear_time,
+    test_fence_lines_alone_are_cleaned_quickly).
+    """
+    fences = CodeFences()
+    openings: list[tuple[int, str, int, int]] = []  # (line, fence character, fence length, quote depth)
+    closings: dict[tuple[str, int], _Closings] = {}
+    for index, line in enumerate(lines):
+        if "```" not in line and not (tildes and "~~~" in line):
             continue
-        if in_fence or not collapse_spaces:
-            line = line.rstrip()
-        else:
-            list_match = _LIST_LINE.match(line) or _empty_item_holding_a_list(source, index, lines[-1] if lines else "")
-            line = (list_match.group(1) if list_match else "") + _INNER_SPACES.sub(" ", line.strip())
-        if line or in_fence or (lines and lines[-1]):
-            lines.append(line)
+        depth, content = 0, line
+        if ">" in line:
+            _, depth, content = _split_quote(line)
+        match = _FENCE_OPENING.match(content)
+        if match is None:
+            continue
+        mark, info = match.groups()
+        if (mark[0] == "`" and "`" in info) or (mark[0] == "~" and not tildes):
+            continue
+        openings.append((index, mark[0], len(mark), depth))
+        if not info.strip():
+            closing = closings.get((mark[0], depth))
+            if closing is None:
+                closing = closings[mark[0], depth] = _Closings()
+            closing.lines.append(index)
+            closing.lengths.append(len(mark))
+    if not closings:
+        fences.unpaired = [index for index, _, _, _ in openings]
+        return fences
 
-    return "\n".join(lines).strip("\n")
+    ends: list[int] | None = None  # where the quote of each line ends; worked out for the first fence inside a quote
+    closed = -1  # the closing line of the last code block
+    for index, character, length, depth in openings:
+        if index <= closed:
+            continue
+        closing = closings.get((character, depth))
+        found = closing.first_after(index, length) if closing is not None else None
+        if found is not None and depth:
+            if ends is None:
+                ends = _quote_ends([_split_quote(line)[1] if ">" in line else 0 for line in lines])
+            if found >= ends[index]:
+                found = None
+        if found is None:
+            fences.unpaired.append(index)
+        else:
+            fences.blocks.append((index, found))
+            closed = found
+    return fences
+
+
+def _quote_ends(depths: list[int]) -> list[int]:
+    """For each line, the number of the first line after it with fewer quote marks (where its quote ends), or the line count."""
+    ends = [len(depths)] * len(depths)
+    waiting: list[int] = []
+    for index, depth in enumerate(depths):
+        while waiting and depths[waiting[-1]] > depth:
+            ends[waiting.pop()] = index
+        waiting.append(index)
+    return ends
+
+
+class _Closings:
+    """The lines that can close a fence of one character at one quote depth, in order, with the lengths of their fences."""
+
+    __slots__ = ("_longer", "_next", "lengths", "lines")
+
+    def __init__(self) -> None:
+        self.lines: list[int] = []
+        self.lengths: list[int] = []
+        self._next = 0  # the first closing line after the line last asked about (the lines asked about only go forward)
+        self._longer: list[int] | None = None  # for each closing line, the next one with a longer fence
+
+    def first_after(self, line: int, length: int) -> int | None:
+        """The first closing line after `line` whose fence is at least `length` long, or None. `line` must not go back between
+        calls."""
+        lines, lengths = self.lines, self.lengths
+        position = self._next
+        while position < len(lines) and lines[position] <= line:
+            position += 1
+        self._next = position
+        while position < len(lines) and lengths[position] < length:
+            if self._longer is None:
+                self._longer = _next_longer(lengths)
+            position = self._longer[position]
+        return lines[position] if position < len(lines) else None
+
+
+def _next_longer(lengths: list[int]) -> list[int]:
+    """For each position, the next position holding a larger number, or the count."""
+    longer = [len(lengths)] * len(lengths)
+    waiting: list[int] = []
+    for position, length in enumerate(lengths):
+        while waiting and lengths[waiting[-1]] < length:
+            longer[waiting.pop()] = position
+        waiting.append(position)
+    return longer
+
+
+def escape_unpaired_fences(lines: list[str]) -> list[str]:
+    """`lines` with the backtick lines that open a fence which is never closed neutralized the way `clean_text` does (a
+    backslash before the fence, after the quote marks). For an extractor that writes real code blocks: run on the text
+    between them, the lines of text that only look like a fence are settled before `clean_text` sees them next to the real
+    ones (`_html_render._settle_fences`).
+
+    The lines are looked at as `clean_text` will see them (`clean_characters`; the lines come back so, and one may have
+    become several): a line that is "```" behind a zero-width space, a soft hyphen, a control or a private-use character,
+    or whose info string is only such a character, was no fence here and one to `clean_text`, which then paired it with the
+    fence of the code block next to it (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::
+    test_backtick_paragraph_behind_a_character_that_cleaning_removes). Text that can hold no backtick is returned as it is.
+    """
+    text = "\n".join(lines)
+    if not any(character in text for character in _BACKTICK_SOURCES):
+        return lines
+    lines = clean_characters(text).split("\n")
+    if any("```" in line for line in lines):
+        for index in code_fences(lines, tildes=False).unpaired:
+            prefix, _, content = _split_quote(lines[index])
+            lines[index] = prefix + "\\" + content.lstrip()
+    return lines
 
 
 def _empty_item_holding_a_list(source: list[str], index: int, previous: str) -> re.Match[str] | None:
@@ -130,6 +372,15 @@ def _empty_item_holding_a_list(source: list[str], index: int, previous: str) -> 
     following = _LIST_LINE.match(source[index + 1]) or _BARE_LIST_MARKER.match(source[index + 1])
     column = len(bare.group(1)) + len(source[index].strip()) + 1
     return bare if following is not None and len(following.group(1)) == column else None
+
+
+def clean_line(text: str) -> str:
+    """`text` as one clean line: the characters `clean_text` removes are removed, NFC, and every run of whitespace (line breaks
+    included) is one space, stripped. Without the Markdown handling of `clean_text` (fences, list indentation): for values such
+    as document metadata that are not body text."""
+    text = _INVISIBLE.sub("", text.translate(_LINE_BREAK_CONTROLS))
+    text = _PRIVATE_USE.sub("", _CONTROL.sub("", text).translate(_SYMBOL_FONT_GLYPHS))
+    return " ".join(unicodedata.normalize("NFC", text).split())
 
 
 def solid_length(text: str) -> int:
@@ -254,8 +505,11 @@ def _has_open_cell(row: list[str | None], columns: list[int]) -> bool:
 
 
 # A unit or as-of note in the second cell of a title row (`(단위: 천원)` (unit: thousand won), `[기준: 2024.12.31]` (as of),
-# `기준일: …` (as-of date)).
-_UNIT_NOTE = re.compile(r"[(\[<]\s*(?:단위|기준)|(?:단위|기준(?:일자?|일시|시점)?)\s*[:：]")
+# `기준일: …` (as-of date)), and the English ones (`(Unit: USD)`, `Units: thousands`, `(in millions)`, `As of 2024-12-31`).
+# Deliberately narrow: a bare `Unit` or `in thousands` without the colon or bracket can be a column name
+# (Pinned by: test_audit_spreadsheet.py::TestEnglishUnitNotesInTitleRows).
+_UNIT_NOTE = re.compile(r"[(\[<]\s*(?:단위|기준)|(?:단위|기준(?:일자?|일시|시점)?)\s*[:：]"
+                        r"|(?i:[(\[<]?\s*units?\s*[:：]|[(\[<]\s*in\s+(?:thousands|millions|billions)\b|[(\[<]?\s*as\s+of\s+\S)")
 
 
 # Cell text counted as a number when deciding the title row of a two-column table (sign, currency, thousands separators, decimals,
