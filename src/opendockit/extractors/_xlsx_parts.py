@@ -533,7 +533,12 @@ def _picture_reference_bytes(archive: zipfile.ZipFile) -> int:
 
 
 def _related(archive: zipfile.ZipFile, names: set[str], source: str, kind: str | None = None) -> dict[str, str]:
-    """Relationship id of the source part → target part path. With `kind`, only relationships whose Type ends with it."""
+    """Relationship id of the source part → target part path. With `kind`, only relationships whose Type ends with it.
+
+    A relationship marked `TargetMode="External"` is left out: its target is an address or a file outside the package, never
+    a part, as openpyxl, python-docx and python-pptx read it. Resolved like the others, the linked picture of a drawing whose
+    address happened to be the name of a part of the package (`../media/image1.png`, or `im%61ge1.png` once targets were
+    percent-decoded) was read as that part (Pinned by: test_office_robustness.py::TestExternalTargetsAreNotParts)."""
     folder, name = posixpath.split(source)
     rels_path = f"{folder}/_rels/{name}.rels"
     if rels_path not in names:
@@ -542,7 +547,7 @@ def _related(archive: zipfile.ZipFile, names: set[str], source: str, kind: str |
     root = etree.fromstring(archive.read(rels_path), parser=_XML_PARSER)
     targets = {}
     for relationship in root.iter(_RELATIONSHIPS):
-        if kind is not None and not relationship.get("Type", "").endswith(kind):
+        if (kind is not None and not relationship.get("Type", "").endswith(kind)) or relationship.get("TargetMode") == "External":
             continue
         target = relationship.get("Target", "")
         path = target.lstrip("/") if target.startswith("/") else posixpath.normpath(posixpath.join(folder, target))

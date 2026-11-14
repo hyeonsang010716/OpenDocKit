@@ -663,6 +663,72 @@ class TestPercentEncodedTargets:
 
         assert "named as written" in result.sections[1].text and "second sheet" not in result.text
 
+    def test_xlsx_workbook_behind_an_encoded_target_keeps_what_its_relationships_name(self):
+        """The parts only the converter reads are found from the workbook the package relationships name: with
+        `xl/workb%6Fok.xml` taken as written no workbook was found, and the person list with it (the author of a threaded
+        comment)."""
+        from tests.test_spreadsheet_notes_pictures_and_times import _report_with_comments, _with_threaded_comments
+
+        data = _with_threaded_comments(
+            _report_with_comments({"B2": ("legacy", "tc={C1}")}),
+            '<threadedComment ref="B2" personId="{P1}" id="{C1}"><text>check the price</text></threadedComment>',
+            '<person displayName="Reviewer Kim" id="{P1}"/>')
+        expected = convert(data, "a.xlsx")
+        assert expected.text.endswith('> Comment(Reviewer Kim, cell B2, on "1월: 100"): check the price')
+
+        result = convert(builder.zip_with(data, edit={"_rels/.rels": lambda xml: xml.replace("xl/workbook.xml", "xl/workb%6Fok.xml")}),
+                         "a.xlsx")
+
+        assert (result.text, result.warnings) == (expected.text, [])
+
+
+class TestExternalTargetsAreNotParts:
+    """A relationship marked `TargetMode="External"` holds an address or a file outside the package. Its target is never a
+    part, even when it reads like the name of one — as written, or once percent-decoded."""
+
+    @pytest.mark.parametrize("target", ["/xl/media/image1.png", "../media/im%61ge1.png", "/xl/media/im%61ge1.png"])
+    def test_xlsx_linked_picture_is_not_the_part_its_address_names(self, target):
+        """The converter resolved the relationships of a drawing without looking at the mode: the linked picture was read
+        from the package."""
+        data = _xlsx_with_parts()
+        expected = convert(data, "a.xlsx")
+        assert len(expected.images) == 1 and "[Image]" in expected.text
+
+        result = convert(builder.zip_with(data, edit={"xl/drawings/_rels/drawing1.xml.rels": lambda xml: xml.replace(
+            'Target="/xl/media/image1.png"', f'Target="{target}" TargetMode="External"')}), "a.xlsx")
+
+        assert result.images == [] and "[Image]" not in result.text
+        assert result.text == expected.text.replace("[Image]\n\n", "")
+        assert result.warnings == ["Pictures and charts of a sheet that have no relationship information were left out."]
+
+    def test_xlsx_external_relationship_is_not_decoded_into_a_sheet(self):
+        data = builder.zip_with(_xlsx_with_parts(), edit={"xl/_rels/workbook.xml.rels": lambda xml: xml.replace(
+            'Target="/xl/worksheets/sheet2.xml"', 'Target="xl/worksheets/sh%65et2.xml" TargetMode="External"')})
+
+        result = convert(data, "a.xlsx")
+
+        assert len(result.sections) == 1 and "second sheet" not in result.text
+
+    def test_pptx_link_address_is_kept_as_written(self):
+        """The address of a link out of the deck, joined to the folder of the slide and decoded, is the name of a member of
+        the archive: decoded like the target of a part, the link went to `…/page`."""
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        presentation = Presentation(BytesIO(builder.pptx_with_image()))
+        box = presentation.slides[0].shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+        run = box.text_frame.paragraphs[0].add_run()
+        run.text = "linked words"
+        run.hyperlink.address = "https://example.com/p%61ge"
+        buffer = BytesIO()
+        presentation.save(buffer)
+        data = builder.zip_with(buffer.getvalue(), add={"ppt/slides/https:/example.com/page": "not a part"})
+
+        result = convert(data, "a.pptx", ConvertOptions(keep_links=True))
+
+        assert "[linked words](https://example.com/p%61ge)" in result.text
+        assert len(result.images) == 1 and result.warnings == []
+
 
 _NOTE_PICTURE_RELATIONSHIP =f'<Relationship Id="rIdImg" Type="{_RELATIONSHIPS_NS}/image" Target="media/note.png"/>'
 _OLE = ('<w:r><w:object xmlns:o="urn:schemas-microsoft-com:office:office">'
