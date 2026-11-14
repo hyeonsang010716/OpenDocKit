@@ -34,6 +34,7 @@ _BAND_SLACK_RATIO = 0.3  # share of the character height that may stick out of a
 # This tells it from a character box grazing the neighbouring row (0.06pt).
 _MERGED_TEXT_CROSSING = 0.15
 _CELL_GAP_MIN_RATIO = 0.5  # characters either side of a cell boundary closer than this (vs. character size) are text crossing it (a word gap)
+_TEXT_COLUMN_GAP_RATIO = 1.0  # a gap this wide (vs. character height) in a ruled cell, on two lines, parts two columns of text
 
 
 def _mark_filled_cells(table: object, rows: list[list[str | None]], header_rows: int) -> None:
@@ -170,7 +171,7 @@ def _with_shaded_rows(page: object, tables: list[object]) -> list[object]:
         position = min(index for index, other in enumerate(result) if any(other is old for old in replaced))
         result = [other for other in result if not any(other is old for old in replaced)]
         if (not _leaves_aligned_rows(page, new, [other for other in result if other is not new], shaded)
-                or _has_drawn_columns(page, new)):
+                or _has_drawn_grid(page, new)):
             result.insert(position, new)
     return _with_merged_column_fragments(page, result, shades, shaded)
 
@@ -205,10 +206,11 @@ def _leaves_aligned_rows(page: object, table: object, others: list[object], shad
     return False
 
 
-def _has_drawn_columns(page: object, table: object) -> bool:
-    """Whether every inner column boundary of the table is drawn as a vertical rule over at least half of the table's height:
-    a line, a filled rectangle no wider than `_SHADE_MIN_SIDE` (a Chrome border) or a side of a rectangle with a stroke — not
-    the side of a shading rectangle.
+def _has_drawn_grid(page: object, table: object) -> bool:
+    """Whether the columns of the table are what is drawn: every inner column boundary is a vertical rule (`_vertical_rules` —
+    not the side of a shading rectangle) over at least half of the table's height, none of these rules goes on past the
+    table's top or bottom by half a row height or more, and no column holds the text of two columns side by side
+    (`_holds_text_columns`).
 
     Such a table is a ruled grid that happens to be shaded, and its cells are what the rules say. It is not left to the
     borderless search (`_leaves_aligned_rows`), which knows nothing of the rules: a quotation with a full grid, every row
@@ -217,24 +219,67 @@ def _has_drawn_columns(page: object, table: object) -> bool:
     neighbouring column ('| | 56,306 Delta North |') and a last row of one cell fell out of the table. The table stays as
     the rules give it and the total lines stay outside it, as they do under a grid without shading (Pinned by:
     test_pdf_shaded_tables.py::TestRuledGridWithShadedRows).
+
+    A table the rules do not bear out is not one. Where the column rules run on past the table, the table is a part of
+    what is drawn (the shaded header of a table with column rules only, the rows down to the last shaded one of a striped
+    table without a bottom rule), and kept, it left the other rows scattered as paragraphs. Where a frame, row rules and
+    only some of the column rules are drawn, one cell held three columns of text
+    ('| Plan | Status Profit | Status Profit Region |'). Both are left to the borderless search, which reads the columns
+    from the text (Pinned by: test_pdf_shaded_tables.py::TestPartlyRuledShadedTable).
     """
-    edges = _column_edges(table)
     _, top, _, bottom = table.bbox
-    drawn = [(line["x0"], line["top"], line["bottom"]) for line in page.lines if line["x1"] - line["x0"] <= 1]
-    for rect in page.rects:
-        if rect["x1"] - rect["x0"] <= _SHADE_MIN_SIDE:
-            drawn.append(((rect["x0"] + rect["x1"]) / 2, rect["top"], rect["bottom"]))
-        elif rect.get("stroke"):
-            drawn += [(rect["x0"], rect["top"], rect["bottom"]), (rect["x1"], rect["top"], rect["bottom"])]
-    drawn = [(x, max(start, top), min(end, bottom)) for x, start, end in drawn if start < bottom and end > top]
-    for edge in edges[1:-1]:
+    rules = _vertical_rules(page)
+    reach = _row_pitch([table]) / 2
+    for edge in _column_edges(table)[1:-1]:
         covered, reached = 0.0, top
-        for _, start, end in sorted((rule for rule in drawn if abs(rule[0] - edge) <= 1.5), key=lambda rule: rule[1]):
-            covered += max(0.0, end - max(start, reached))
-            reached = max(reached, end)
+        at = rules[bisect_left(rules, (edge - 1.5,)):bisect_right(rules, (edge + 1.5, math.inf))]
+        for _, start, end in sorted(at, key=lambda rule: rule[1]):
+            if end > top and start < bottom and (start <= top - reach or end >= bottom + reach):
+                return False
+            covered += max(0.0, min(end, bottom) - max(start, reached))
+            reached = max(reached, min(end, bottom))
         if covered < (bottom - top) / 2:
             return False
-    return len(edges) >= 3
+    return not _holds_text_columns(page, table)
+
+
+def _vertical_rules(page: object) -> list[tuple[float, float, float]]:
+    """The page's drawn vertical rules as (x, top, bottom) in order of x: lines, filled rectangles no wider than
+    `_SHADE_MIN_SIDE` (Chrome draws borders so) and the sides of rectangles with a stroke. Built once per page
+    (`_page_index`)."""
+    def build() -> list[tuple[float, float, float]]:
+        rules = [(line["x0"], line["top"], line["bottom"]) for line in page.lines if line["x1"] - line["x0"] <= 1]
+        for rect in page.rects:
+            if rect["x1"] - rect["x0"] <= _SHADE_MIN_SIDE:
+                rules.append(((rect["x0"] + rect["x1"]) / 2, rect["top"], rect["bottom"]))
+            elif rect.get("stroke"):
+                rules += [(rect["x0"], rect["top"], rect["bottom"]), (rect["x1"], rect["top"], rect["bottom"])]
+        return sorted(rule for rule in rules if rule[0] == rule[0])
+
+    return _page_index(page, "vertical_rules", build)
+
+
+def _holds_text_columns(page: object, table: object) -> bool:
+    """Whether some column of the table holds the text of two columns side by side: on two or more lines, a gap of at least
+    `_TEXT_COLUMN_GAP_RATIO` times the character height between two neighbouring characters of the column, at the same
+    place (the gaps overlap)."""
+    edges = _column_edges(table)
+    left, top, right, bottom = table.bbox
+    tops, ordered, tallest = _chars_by_top(page)
+    lines: dict[tuple[int, int], list[dict]] = {}  # (line, column) → its characters
+    for char in ordered[bisect_left(tops, top - tallest):bisect_left(tops, bottom)]:
+        middle = (char["x0"] + char["x1"]) / 2
+        if left < middle < right and top < (char["top"] + char["bottom"]) / 2 < bottom:
+            lines.setdefault((round(char["top"] / _TABLE_ROW_TOLERANCE), bisect_right(edges, middle)), []).append(char)
+    gaps: dict[int, list[tuple[float, float]]] = {}  # column → the gaps found in its lines so far
+    for (_, column), chars in lines.items():
+        chars.sort(key=lambda char: char["x0"])
+        for before, after in pairwise(chars):
+            if after["x0"] - before["x1"] >= (after["bottom"] - after["top"]) * _TEXT_COLUMN_GAP_RATIO:
+                if any(start < after["x0"] and end > before["x1"] for start, end in gaps.get(column, ())):
+                    return True
+                gaps.setdefault(column, []).append((before["x1"], after["x0"]))
+    return False
 
 
 def _with_merged_column_fragments(page: object, tables: list[object], shades: list[dict],
