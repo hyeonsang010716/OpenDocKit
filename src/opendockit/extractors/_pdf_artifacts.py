@@ -93,6 +93,63 @@ def _chars_at_line_level(line: dict, chars: list[dict], tops: list[float]) -> li
     return [char for char in chars[start:end] if line["top"] <= (char["top"] + char["bottom"]) / 2 <= line["bottom"]]
 
 
+class _CopyIndex:
+    """The removed characters of a page (`dropped`, copies and other drawing artifacts), indexed to tell for a layout line
+    whether there is a removed character at its level under it and whether one of them is a shadow copy (`at`) — the same as
+    `_chars_at_line_level(line, dropped, tops)` filtered to left edges between the line's left edge - 1 and right edge + 1,
+    which is all `_read_page` asks of that list.
+
+    The characters go into columns of `_COLUMN` pt by left edge, each sorted by vertical middle; a line looks only at the
+    columns under its x-range and the middles within its height, and stops at the first character found (a second index holds
+    the shadow copies only). Characters whose left edge or middle is not a finite number are at no line's level and are left
+    out. A line spanning more than `_MAX_COLUMNS` columns is answered by the scan. Scanning the removed characters at each
+    line's height took 54 seconds for a 4.5KB page of 1,500 stacked characters drawn 30 times (3 copies of each kept, the rest
+    removed, every line its own box) (Pinned by: test_audit_pdf_text.py::TestCopiesOfStackedText)."""
+
+    _COLUMN = 32.0
+    _MAX_COLUMNS = 4_096
+
+    def __init__(self, dropped: list[dict], tops: list[float]) -> None:
+        self._dropped, self._tops = dropped, tops
+        self._all = self._columns(dropped)
+        self._shadows = self._columns([char for char in dropped if char.get("shadow")])
+
+    def _columns(self, chars: list[dict]) -> dict[int, tuple[list[float], list[dict]]]:
+        columns: dict[int, list[tuple[float, int, dict]]] = {}
+        for order, char in enumerate(chars):
+            middle = (char["top"] + char["bottom"]) / 2
+            if math.isfinite(char["x0"]) and math.isfinite(middle):
+                columns.setdefault(math.floor(char["x0"] / self._COLUMN), []).append((middle, order, char))
+        for members in columns.values():
+            members.sort(key=lambda member: (member[0], member[1]))
+        return {column: ([middle for middle, _, _ in members], [char for _, _, char in members])
+                for column, members in columns.items()}
+
+    def at(self, line: dict) -> tuple[bool, bool]:
+        """(whether a removed character lies at the line's level under it, whether one of those is a shadow copy)."""
+        left, right = line["x0"] - 1, line["x1"] + 1
+        first, last = math.floor(left / self._COLUMN), math.floor(right / self._COLUMN)
+        if last - first + 1 > self._MAX_COLUMNS:
+            copies = [char for char in _chars_at_line_level(line, self._dropped, self._tops) if left <= char["x0"] <= right]
+            return bool(copies), any(char.get("shadow") for char in copies)
+        found = self._any(self._all, line, first, last)
+        return found, found and self._any(self._shadows, line, first, last)
+
+    def _any(self, columns: dict[int, tuple[list[float], list[dict]]], line: dict, first: int, last: int) -> bool:
+        top, bottom = line["top"], line["bottom"]
+        lowest = top - (bottom - top)  # `_chars_at_line_level` also takes only characters whose top is at most a height above
+        left, right = line["x0"] - 1, line["x1"] + 1
+        for column in range(first, last + 1):
+            entry = columns.get(column)
+            if entry is None:
+                continue
+            middles, members = entry
+            for char in members[bisect_left(middles, top):bisect_right(middles, bottom)]:
+                if left <= char["x0"] <= right and lowest <= char["top"] <= bottom:
+                    return True
+        return False
+
+
 def _part_outside_cells(line: dict, chars: list[dict], page_chars: list[dict]) -> dict | None:
     """Line holding only the characters outside the cells, for a layout line whose centre lies inside a table cell. None if there are
     no characters outside the cells (most cases).
