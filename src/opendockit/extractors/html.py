@@ -76,6 +76,13 @@ from opendockit.models import ConvertOptions, Extraction, RawImage, Section, Sec
 _FOREIGN_CONTENT = ("svg", "math")
 
 
+# How far the documents that are not read once the character limit is exceeded are still looked at for the title of the
+# mail (`_unread_title`): this many characters in all, and only up to a closed `<title>` element.
+_UNREAD_TITLE_CHARS = 100_000
+_TITLE_OPENING = re.compile(r"<title\b", re.IGNORECASE)
+_TITLE_CLOSING = re.compile(r"</title\s*>", re.IGNORECASE)
+
+
 # An unclosed select, which the front-part check (`_extract_front`) cannot trust.
 _SELECT_OPENING = re.compile(r"<select\b", re.IGNORECASE)
 _SELECT_CLOSING = re.compile(r"</select\s*>", re.IGNORECASE)
@@ -87,6 +94,9 @@ _SELECT_CLOSING = re.compile(r"</select\s*>", re.IGNORECASE)
 # (× `_LAST_FRONT_CHARS_PER_LIMIT`), which holds the usual markup ratio of HTML (3–10 times the text).
 _FIRST_FRONT_CHARS_PER_LIMIT = 2
 _LAST_FRONT_CHARS_PER_LIMIT = 8
+# The end of the `<head>` of a document, looked for in this much of its start: the front part is measured from there.
+_HEAD_END = re.compile(r"</head\s*>", re.IGNORECASE)
+_HEAD_SEARCH_CHARS = 1_000_000
 
 
 # Markdown decoration characters left out when counting the characters of the front part (`_extract_front`). An element cut at
@@ -217,14 +227,17 @@ def _extract_documents(documents: list[str], encoding: str, options: ConvertOpti
     comment, a raw-text element, a quote, a hidden element) ends with it. Pictures are numbered on across the documents, a
     warning is given once and the rows left out of tables are added up. Once the documents read so far exceed the character
     limit, the rest is not read; each document has what is left of the limit for its own front-part check
-    (`_extract_front`)."""
+    (`_extract_front`). The title is the first one of the documents; when the limit stops the reading before a title is met,
+    the documents that are not read are still looked at for it (`_unread_title`)
+    (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart)."""
     combined = Extraction(metadata={"encoding": encoding})
     texts: list[str] = []
     omitted: list[int] = []
+    read = 0
 
     for document in documents:
-        limit = None if options.max_chars is None else options.max_chars - combined.chars
-        piece = (_extract_front(document, encoding, options, saved_picture, combined.images, omitted, limit)
+        read += 1
+        piece = (_extract_front(document, encoding, options, saved_picture, combined.images, omitted, combined.chars)
                  or _extract(document, encoding, options, saved_picture, images=combined.images, omitted=omitted))
         combined.images = piece.images
         if "title" in piece.metadata and "title" not in combined.metadata:
@@ -233,17 +246,45 @@ def _extract_documents(documents: list[str], encoding: str, options: ConvertOpti
         text = piece.sections[0].text
         if text.strip():
             texts.append(text)
-        if piece.exceeded:
-            combined.chars += piece.chars
-            combined.exceeded = True
-            break
+        # A front part that exceeds what is left of the limit holds more than that, so it is counted like any other text
+        # (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::test_documents_after_the_limit_are_not_read).
         if options.max_chars is not None and combined.count(_counted(text, options), options):
             break
 
+    if "title" not in combined.metadata:
+        title = _unread_title(documents[read:])
+        if title:
+            combined.metadata["title"] = title
     if sum(omitted):
         combined.warnings.append(omitted_rows_warning(sum(omitted)))
     combined.sections.append(Section(SectionKind.DOCUMENT, 1, "\n\n".join(texts)))
     return combined
+
+
+def _unread_title(documents: list[str]) -> str:
+    """The first title in the documents that were not read because the character limit was exceeded before them, or "".
+
+    When the parts of a mail were one document the title of a later part was still found (`metadata["title"]`), and a mail
+    over the limit lost it once each part was read on its own. Only the start of the documents is parsed for it
+    (`_UNREAD_TITLE_CHARS` in all), and of a document only what ends with a closed `<title>` element — a title is in the
+    head, and the documents are not read so that a large mail over the limit stays cheap
+    (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::test_title_of_a_part_after_the_limit_is_still_found).
+    """
+    left = _UNREAD_TITLE_CHARS
+    for document in documents:
+        if left <= 0:
+            break
+        start = document[:left]
+        left -= len(start)
+        opening = _TITLE_OPENING.search(start)
+        closings = list(_TITLE_CLOSING.finditer(start, opening.end())) if opening is not None else []
+        if not closings:
+            continue
+        with quiet_warnings((XMLParsedAsHTMLWarning, _PARSER_CALLERS)):
+            title = _document_title(BeautifulSoup(start[:closings[-1].end()], "lxml"))
+        if title:
+            return title
+    return ""
 
 
 def _counted(text: str, options: ConvertOptions) -> int:
@@ -256,7 +297,7 @@ def _counted(text: str, options: ConvertOptions) -> int:
 
 def _extract_front(text: str, encoding: str, options: ConvertOptions,
                    saved_picture: Callable[[str], bytes | None] | None, images: list[RawImage] | None = None,
-                   omitted: list[int] | None = None, limit: int | None = None) -> Extraction | None:
+                   omitted: list[int] | None = None, used: int = 0) -> Extraction | None:
     """For a large document, read only the front part first. If that alone exceeds the character limit, return that
     extraction and do not parse the rest. None when it cannot be told whether the limit will be exceeded (the whole document
     is read).
@@ -284,12 +325,25 @@ def _extract_front(text: str, encoding: str, options: ConvertOptions,
     (Pinned by: TestUnclosedSelectInALargePage). The characters of the front part are counted without Markdown decoration
     characters (`_MARKDOWN_DECORATION`) — in broken markup a `<pre>`/`<math>` caught at the end of the front part exceeded the
     limit with a fence or `$` absent from the whole conversion (Pinned by: test_core_round45.py::TestLimitOnBrokenHtml).
+
+    `used` is what the documents before this one have used of the limit (the parts of a mail, `_extract_documents`): the front
+    part exceeds once it holds more than what is left. Its size still comes from the whole limit — sized from what is left, the
+    front part of a later mail part was a few hundred characters once the limit was nearly used up, an ordinary
+    `<head><style>` filled it, no text was found in it and the whole part was parsed only to be cut off (a 21.6MB mail:
+    12.9 s and 1.3GB, 1.5 s when the parts were one document). The sizes are measured from the end of `<head>`, which holds
+    no text: with a small limit the head of a mail part alone is longer than the last front part, and while the parts were
+    one document the text of the part before it had kept the front part growing; the text density is that of what follows
+    the head
+    (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::test_large_part_over_what_is_left_of_the_limit_is_not_parsed_whole).
     """
-    limit = options.max_chars if limit is None else limit
-    if limit is None:
+    limit = options.max_chars
+    if limit is None or len(text) <= limit * _FIRST_FRONT_CHARS_PER_LIMIT * 2:
         return None
-    size = limit * _FIRST_FRONT_CHARS_PER_LIMIT
-    last = limit * _LAST_FRONT_CHARS_PER_LIMIT
+    left = limit - used
+    head = _HEAD_END.search(text, 0, _HEAD_SEARCH_CHARS)
+    start = head.end() if head is not None else 0
+    size = start + limit * _FIRST_FRONT_CHARS_PER_LIMIT
+    last = start + limit * _LAST_FRONT_CHARS_PER_LIMIT
 
     while len(text) > size * 2:
         end = text.rfind(">", 0, size)
@@ -303,18 +357,31 @@ def _extract_front(text: str, encoding: str, options: ConvertOptions,
         extraction = _extract(front, encoding, options, saved_picture, whole=False, closed=closed, images=images, omitted=rows)
         counted = _counted(extraction.sections[0].text, options)
         extraction.chars += counted
-        if counted > limit:
+        if counted > left:
             extraction.exceeded = True
             if omitted is not None and rows:
                 omitted.extend(rows)
             return extraction
-        if counted * len(text) <= limit * len(front):
+        if counted * (len(text) - start) <= left * (len(front) - start):
             if size >= last:
                 return None  # at this density the whole may also be within the limit
             size = last
             continue
-        size = max(size * 3 // 2, len(front) * limit * 5 // (counted * 4))  # enough to exceed the limit + 1.25 times margin
+        # enough to exceed the limit + 1.25 times margin
+        size = max(size * 3 // 2, start + (len(front) - start) * left * 5 // (counted * 4))
     return None
+
+
+def _document_title(soup: BeautifulSoup) -> str:
+    """The title of a parsed document, or "". Whitespace in a title collapses to single spaces, as browsers show it: a
+    `<title>` written over several lines became a heading line followed by loose lines, one of them a list item
+    (Pinned by: test_audit_web_fixes.py::TestTitleOverSeveralLines). The title is the first `<title>` outside SVG and MathML:
+    an icon's `<svg><title>Close icon</title>` (its tooltip) became the heading of a page, or of an EPUB chapter, that has no
+    title of its own (Pinned by: test_core_html.py::TestTitleInsideSvg, test_epub.py::TestTitleInsideSvg)."""
+    element = soup.title
+    if element is not None and element.find_parent(_FOREIGN_CONTENT) is not None:
+        element = next((element for element in soup.find_all("title") if element.find_parent(_FOREIGN_CONTENT) is None), None)
+    return " ".join(element.string.split()) if element is not None and element.string else ""
 
 
 def _extract(text: str, encoding: str, options: ConvertOptions,
@@ -330,15 +397,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
         soup = BeautifulSoup(text, "lxml")
 
     metadata = {"encoding": encoding}
-    # Whitespace in a title collapses to single spaces, as browsers show it: a `<title>` written over several lines became a
-    # heading line followed by loose lines, one of them a list item (Pinned by: test_audit_web_fixes.py::TestTitleOverSeveralLines)
-    # The title is the first `<title>` outside SVG and MathML: an icon's `<svg><title>Close icon</title>` (its tooltip) became
-    # the heading of a page, or of an EPUB chapter, that has no title of its own
-    # (Pinned by: test_core_html.py::TestTitleInsideSvg, test_epub.py::TestTitleInsideSvg).
-    element = soup.title
-    if element is not None and element.find_parent(_FOREIGN_CONTENT) is not None:
-        element = next((element for element in soup.find_all("title") if element.find_parent(_FOREIGN_CONTENT) is None), None)
-    title = " ".join(element.string.split()) if element is not None and element.string else ""
+    title = _document_title(soup)
     if title:
         metadata["title"] = title
 

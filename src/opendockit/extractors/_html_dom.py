@@ -412,8 +412,9 @@ def _outside_code_blocks(text: str) -> str:
     (Pinned by: test_audit_web_fixes.py::TestTitleOfAPageWhoseCodeHasCommentLines). The code blocks are the ones `clean_text`
     will see (`markdown.code_fences`, backtick fences only): a fence line that is never closed is not a fence (it is
     neutralized as `\\````), so the headings after a stray ``` paragraph still count
-    (Pinned by: TestTitleOfAPageWhoseCodeHasCommentLines::test_stray_fence_line_does_not_hide_a_heading,
-    test_longer_fence_line_is_not_closed_by_a_shorter_one)."""
+    (Pinned by: TestTitleOfAPageWhoseCodeHasCommentLines::test_stray_fence_line_does_not_hide_a_heading), and a fence line
+    with an info string closes nothing
+    (Pinned by: TestTitleOfAPageWhoseCodeHasCommentLines::test_code_blocks_are_the_ones_the_cleaning_sees)."""
     if "```" not in text:
         return text
     lines = text.split("\n")

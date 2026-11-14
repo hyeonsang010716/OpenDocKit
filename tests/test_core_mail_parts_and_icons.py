@@ -242,6 +242,13 @@ def _html_mbox(*bodies: str) -> bytes:
                    for number, body in enumerate(bodies, start=1)).encode()
 
 
+def _html_parts(*bodies: str) -> bytes:
+    """One mail whose body is several HTML parts (multipart/mixed)."""
+    parts = "".join(f"--B\r\nContent-Type: text/html; charset=utf-8\r\n\r\n{body}\r\n" for body in bodies)
+    return (f"From: kim@example.com\r\nTo: lee@example.com\r\nSubject: 조각\r\nMIME-Version: 1.0\r\n"
+            f"Content-Type: multipart/mixed; boundary=B\r\n\r\n{parts}--B--\r\n").encode()
+
+
 class TestMailsAreRenderedApart:
     """The mails of an mbox, their forwarded mails and body parts were joined into one HTML and parsed once: an unclosed
     comment, style, title, attribute quote or hidden element in one mail swallowed every later mail without a warning, and
@@ -293,6 +300,172 @@ class TestMailsAreRenderedApart:
 
         assert [image.id for image in result.images] == [1, 2]
         assert result.text.endswith("본문 1\n\n[Image]\n\n" f"{_mbox_head(2)}\n\n본문 2\n\n[Image]")
+
+    def test_what_the_body_leaves_open_does_not_reach_the_invitation(self):
+        """The invitation is a document of its own, not the end of the last body part."""
+        data = ("From: kim@example.com\nTo: lee@example.com\nSubject: 회의\nMIME-Version: 1.0\n"
+                "Content-Type: multipart/mixed; boundary=b\n\n--b\nContent-Type: text/html; charset=utf-8\n\n"
+                "<p>초대합니다</p><!-- 서명\n"
+                "--b\nContent-Type: text/calendar; charset=utf-8; method=REQUEST\n\n"
+                "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:주간 회의\nDTSTART:20250901T100000\nEND:VEVENT\nEND:VCALENDAR\n"
+                "--b--\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.endswith("초대합니다\n\nEvent:\n\n- Title: 주간 회의\n- Start: 2025-09-01 10:00")
+
+    @pytest.mark.parametrize("body", ["<tr><td>가</td><td>나</td></tr><tr><td>다</td><td>라</td></tr>",
+                                      "<html><head><title>뉴스레터</title></head><body><p>본문</p></body></html>"])
+    def test_header_block_of_a_mail_is_a_document_of_its_own(self, body):
+        """Put in front of the first body part, the header block made the bare rows of a body something other than a table,
+        and the `<head>` of a body content of a page."""
+        data = _html_mbox("<p>첫 메일</p>", body)
+        alone = convert(_html_mbox(body), "a.eml")
+
+        result = convert(data, "box.mbox")
+
+        assert result.text.endswith(f"{_mbox_head(2)}\n\n" + alone.text.split("\n\n", 1)[1])
+        assert result.metadata.get("title") == alone.metadata.get("title")
+
+    def test_title_is_the_first_one_of_the_mails(self):
+        data = _html_mbox("<p>제목 없는 메일</p>", "<title>둘째 제목</title><p>가</p>", "<title>셋째 제목</title><p>나</p>")
+
+        result = convert(data, "box.mbox")
+
+        assert result.metadata["title"] == "둘째 제목"
+
+    def test_title_of_a_part_after_the_limit_is_still_found(self):
+        """The mails after the limit are not read, but the title used to be found when all mails were one document."""
+        data = _html_mbox(f"<p>{'가' * 300}</p>", "<svg><title>아이콘</title></svg><p>나</p>",
+                          "<html><head><title>셋째 제목</title></head><body><p>다</p><title>넷째",
+                          "<title>다섯째 제목</title>")
+
+        result = convert(data, "box.mbox", ConvertOptions(max_chars=100))
+
+        assert result.exceeded
+        assert "나" not in result.text
+        assert result.metadata["title"] == "셋째 제목"
+
+    def test_title_cut_off_where_the_look_for_a_title_ends_is_not_a_title(self, monkeypatch):
+        from opendockit.extractors import html as html_extractor
+
+        monkeypatch.setattr(html_extractor, "_UNREAD_TITLE_CHARS", 60)
+        data = _html_mbox(f"<p>{'가' * 300}</p>", "<svg><title>아이콘</title></svg><title>" + "긴 제목 " * 20 + "</title>")
+
+        result = convert(data, "box.mbox", ConvertOptions(max_chars=100))
+
+        assert result.exceeded
+        assert "title" not in result.metadata
+
+    def test_warning_of_several_documents_is_given_once(self):
+        broken = ("<p>" + "안녕하십니까 회의록입니다 " * 20 + "</p>").encode("cp949").replace(
+            "회의록".encode("cp949"), "회의록".encode("cp949") + b"\xc9\xa1", 1)
+        part = b"--b\nContent-Type: text/html\n\n"
+        data = (b"From: kim@example.com\nTo: lee@example.com\nSubject: parts\nMIME-Version: 1.0\n"
+                b"Content-Type: multipart/mixed; boundary=b\n\n" + part + broken + b"\n" + part + b"<p>second part</p>\n"
+                + part + b"<p>third part</p>\n--b--\n")
+
+        result = convert(data, "a.eml")
+
+        assert "third part" in result.text
+        assert result.warnings == ["The text was read as CP949, but some bytes could not be decoded and were replaced with \ufffd."]
+
+    def test_rows_left_out_of_tables_are_added_up_across_the_documents(self, monkeypatch):
+        monkeypatch.setattr("opendockit.markdown._MAX_GRID_CELLS", 20)
+        table = "<table><tr><th>이름</th><th>값</th></tr>{}</table>"
+        rows = ["".join(f"<tr><td>행{index}</td><td>{index}</td></tr>" for index in range(count)) for count in (30, 12)]
+        data = _html_mbox(table.format(rows[0]), "<p>표 없음</p>", table.format(rows[1]))
+
+        result = convert(data, "box.mbox")
+
+        assert result.warnings == ["The table is too large; the bottom 24 row(s) could not be converted."]
+
+    def test_rows_left_out_of_a_front_part_that_exceeds_the_limit_are_reported(self, monkeypatch):
+        monkeypatch.setattr("opendockit.markdown._MAX_GRID_CELLS", 20)
+        rows = "".join(f"<tr><td>행{index}</td><td>{index}</td></tr>" for index in range(30))
+        body = f"<table><tr><th>이름</th><th>값</th></tr>{rows}</table>" + f"<p>{'가' * 50}</p>" * 200
+        texts = self._documents_read(monkeypatch)
+
+        result = convert(_html_parts(body), "a.eml", ConvertOptions(max_chars=1_000))
+
+        assert result.exceeded
+        assert max(map(len, texts)) < len(body)
+        assert result.warnings[0] == "The table is too large; the bottom 21 row(s) could not be converted."
+        assert len(result.warnings) == 2  # and the warning that the conversion stopped at the limit
+
+    @staticmethod
+    def _documents_read(monkeypatch) -> list[str]:
+        """Every document, or front part of one, handed to the HTML renderer."""
+        from opendockit.extractors import html as html_extractor
+
+        texts: list[str] = []
+        original = html_extractor._extract
+
+        def recording(text, *args, **kwargs):
+            texts.append(text)
+            return original(text, *args, **kwargs)
+
+        monkeypatch.setattr(html_extractor, "_extract", recording)
+        return texts
+
+    @pytest.mark.parametrize("first", [f"<p>{'가' * 300}</p>", "<p>" + "<span>가나다라마</span>" * 2_000 + "</p>"],
+                             ids=["counted-after-reading", "front-part"])
+    def test_documents_after_the_limit_are_not_read(self, monkeypatch, first):
+        texts = self._documents_read(monkeypatch)
+        data = _html_mbox(first, "<p>둘째 메일</p>", "<p>셋째 메일</p>")
+
+        result = convert(data, "box.mbox", ConvertOptions(max_chars=100))
+
+        assert result.exceeded
+        assert texts and all(first.startswith(text.strip()) for text in texts)
+        assert "Message 2" not in result.text
+
+    _SPARSE_ROW = '<p style="margin:0;padding:0;font-family:sans-serif;font-size:12px;line-height:1.5;color:#333333">본문</p>\n'
+    _LARGE_PART = ("<html><head><style>" + "p{color:red;} " * 250 + "</style></head><body>"
+                   + '<div style="margin:0;padding:0">' * 60 + _SPARSE_ROW * 8_000 + "</body></html>")
+
+    @classmethod
+    def _mail_whose_large_part_comes_late(cls, shape: str) -> tuple[bytes, str, int]:
+        """(a mail whose last body part is large and starts with an ordinary `<head><style>` and, as mail bodies do, a
+        stretch of markup without text, its file name, a character limit that the parts before it leave little of)."""
+        if shape == "small-limit":
+            return _html_parts("<p>짧은 글</p>", cls._LARGE_PART), "a.eml", 300
+        filler = f"<p>{'가나다라마바사아자 ' * 2_200}</p>"  # 19,800 characters without the spaces
+        if shape == "mailbox":
+            return _html_mbox(filler, cls._LARGE_PART), "box.mbox", 20_000
+        return _html_parts(filler, cls._LARGE_PART), "a.eml", 20_000
+
+    @pytest.mark.parametrize("shape", ["limit-nearly-used", "mailbox", "small-limit"])
+    def test_large_part_over_what_is_left_of_the_limit_is_not_parsed_whole(self, monkeypatch, shape):
+        """The front part of each document was sized from what was left of the limit: a few hundred characters, which an
+        ordinary `<head><style>` fills, so no text was found in it and the whole part was parsed only to be cut off."""
+        data, name, limit = self._mail_whose_large_part_comes_late(shape)
+        whole = convert(data, name, ConvertOptions(max_chars=None)).text
+        texts = self._documents_read(monkeypatch)
+
+        result = convert(data, name, ConvertOptions(max_chars=limit))
+
+        assert result.exceeded
+        assert result.text == whole[:limit].rstrip()
+        assert max(len(text) for text in texts if text.startswith("<html><head><style>")) < len(self._LARGE_PART) // 4
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("shape", ["limit-nearly-used", "small-limit"])
+    def test_large_part_over_what_is_left_of_the_limit_takes_little_time(self, monkeypatch, shape):
+        """A 21.6MB mail whose first part nearly used up the limit took 12.9 s and 1.3GB (1.5 s before the parts were read
+        apart). Here 16MB: 4.8 s parsed whole, under 1 s when only the front of the large part is read."""
+        from tests.timing import allowed
+
+        monkeypatch.setattr(TestMailsAreRenderedApart, "_LARGE_PART", self._LARGE_PART.replace(
+            self._SPARSE_ROW * 8_000, self._SPARSE_ROW * 150_000))
+        data, name, limit = self._mail_whose_large_part_comes_late(shape)
+
+        started = time.perf_counter()
+        result = convert(data, name, ConvertOptions(max_chars=limit))
+        seconds = time.perf_counter() - started
+
+        assert result.exceeded
+        assert seconds < allowed(2.0)
 
     @pytest.mark.timing
     def test_mail_with_many_body_parts_takes_linear_time(self):
