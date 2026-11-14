@@ -241,6 +241,24 @@ class TestSevenBitEscapeCharsets:
         assert text == "price 1+2 = 3, a+b"
 
 
+class TestAsciiHeaderIsDecodedWhole:
+    """A pure-ASCII header is decoded whole before its words are looked for one by one: the pattern for single words needs a
+    charset, so a word written without one stayed as written."""
+
+    @pytest.mark.parametrize(("subject", "expected"), [
+        ("=??q?Re:_plain?=", "Re: plain"),
+        ("=??b?SW5mb3JtYcOnw7Vlcw==?= [tag]", "Informações [tag]"),
+        ("=?utf-8?b?7ZWc6riA?==?utf-8?q?a?=\t=??q?b?=", "한글ab"),
+    ])
+    def test_word_without_a_charset_is_decoded(self, subject, expected):
+        data = (f"Subject: {subject}\r\nFrom: kim@example.com\r\nMIME-Version: 1.0\r\n"
+                "Content-Type: text/plain; charset=utf-8\r\n\r\n본문\r\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.startswith(f"Subject: {expected}\nFrom: kim@example.com\n")
+
+
 class TestEightBitHeaderWithSplitEncodedWords:
     """In a header that mixes raw 8-bit text with RFC 2047 words, each word was decoded on its own, so a character whose bytes
     a mail program split over two words stayed as the words as written."""

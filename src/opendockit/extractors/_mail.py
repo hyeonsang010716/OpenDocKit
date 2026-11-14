@@ -704,6 +704,9 @@ def _decoded_header(value: object) -> str:
     if isinstance(value, Header):
         value = "".join(_header_chunk_text(chunk, charset) for chunk, charset in decode_header(value))
     text = str(value)
+    # A pure-ASCII header is tried whole first, as the mail parser reads it: that takes a word the pattern below does not (one
+    # without a charset, `=??q?Re:_plain?=`) and drops the whitespace between adjacent words
+    # (Pinned by: test_core_mailboxes_and_charsets.py::TestAsciiHeaderIsDecodedWhole).
     if text.isascii():
         decoded = _decoded_words(text)
         if decoded != text:
