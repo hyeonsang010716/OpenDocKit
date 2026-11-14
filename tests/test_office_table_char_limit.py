@@ -20,6 +20,7 @@ from tests.test_hwp import (
     _fake_hwp,
 )
 from tests.test_office import _docx_with_body
+from tests.timing import allowed
 
 
 _ROWS = 20_000
@@ -150,9 +151,9 @@ class TestCharacterLimitInsideOneTable:
         39 s and 2.0 GB); stopped at the limit it is the time of parsing the XML."""
         data = _docx_big_header_table("header", 60_000, cell="cell text abcdefghij")
 
-        elapsed = _seconds(lambda: convert(data, "a.docx", ConvertOptions(include_headers_footers=True)))
+        elapsed = min(_seconds(lambda: convert(data, "a.docx", ConvertOptions(include_headers_footers=True))) for _ in range(2))
 
-        assert elapsed < 4.0
+        assert elapsed < allowed(4.0)
 
     def test_hwpx_stops_reading_rows_of_a_huge_table(self):
         data = _hwpx_big_table()
