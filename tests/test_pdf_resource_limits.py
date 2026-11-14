@@ -201,6 +201,57 @@ class TestTooManyRules:
         assert not result.warnings
 
 
+def _staggered_grid_pdf(columns: int, rows: int, width: float = 12.0, height: float = 7.0) -> bytes:
+    """A ruled table whose every cell spans two rows, the cells of neighbouring columns offset by one row, with a letter in
+    every cell."""
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(columns * width + 40, rows * height + 40))
+    pdf.setLineWidth(0.2)
+    pdf.setFont("Helvetica", 3)
+    top = rows * height + 20
+    for column in range(columns + 1):
+        pdf.line(20 + column * width, top, 20 + column * width, top - rows * height)
+    for column in range(columns):
+        x = 20 + column * width
+        for boundary in range(rows + 1):
+            if boundary in (0, rows) or (boundary + column) % 2 == 0:
+                pdf.line(x, top - boundary * height, x + width, top - boundary * height)
+        for start in range(column % 2, rows, 2):
+            pdf.drawString(x + 1, top - start * height - 5, "v")
+    pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestManyMergedCells:
+    """`_cell_rows` compared every merged cell with every cell of the table to find the cells it encloses, so a ruled table of
+    4,500 cells, each merged over two rows, took 1.3 seconds (20 million comparisons) in that step alone. Only the cells in
+    the height bands of a merged cell are compared now (`_BoxIndex.near`)."""
+
+    def test_merged_cells_are_compared_only_with_the_cells_near_them(self, monkeypatch):
+        import pdfplumber
+
+        from opendockit.extractors import _pdf_cell_text
+
+        compared = [0]
+        encloses = _pdf_cell_text._encloses
+
+        def counting(outer, inner):
+            compared[0] += 1
+            return encloses(outer, inner)
+
+        monkeypatch.setattr(_pdf_cell_text, "_encloses", counting)
+        with pdfplumber.open(BytesIO(_staggered_grid_pdf(40, 100))) as document:
+            table = max(document.pages[0].find_tables(_pdf_model._TABLE_SETTINGS), key=lambda found: len(found.cells))
+            rows = _pdf_cell_text._cell_rows(table)
+
+        assert len(table.cells) > 2_000
+        assert all(cell == "v" for row in rows[1:] for cell in row)  # every merged cell repeated on its second row
+        assert compared[0] < 400_000, "before the fix every merged cell was compared with every cell (4 million)"
+
+
 class TestGlyphByGlyphText:
     """Chrome places Hangul glyph by glyph, so the number of pdfium character chunks (`count_rects`) is almost the same as the number of
     characters. One page of a two-column paper (about 2,900 chars) exceeded the text box grouping limit (2,000) and was read without grouping, so
