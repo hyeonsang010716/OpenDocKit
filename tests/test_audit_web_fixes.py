@@ -358,6 +358,12 @@ class TestTitleOfAPageWhoseCodeHasCommentLines:
 
         assert "# Site | Notice" not in convert(html.encode(), "a.html").text
 
+    def test_longer_fence_line_is_not_closed_by_a_shorter_one(self):
+        """The code blocks are the ones the cleaning sees: neither paragraph is a fence, so the heading counts."""
+        html = "<html><head><title>Site | Notice</title></head><body><p>````</p><h2>Notice</h2><p>```</p></body></html>"
+
+        assert convert(html.encode(), "a.html").text == "\\````\n\n## Notice\n\n\\```"
+
     def test_a_real_heading_still_keeps_the_title_out(self):
         html = "<html><head><title>사이트 | 공지</title></head><body><h2>공지</h2><pre># x</pre></body></html>"
 

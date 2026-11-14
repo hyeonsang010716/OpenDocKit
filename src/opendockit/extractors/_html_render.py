@@ -56,7 +56,7 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._lists import cell_level_mark, format_number
 from opendockit.extractors._package import decimal_int
-from opendockit.markdown import TableGrid, render_table, table_title
+from opendockit.markdown import TableGrid, escape_unpaired_fences, render_table, table_title
 
 
 # ARIA tables (`_render_aria_grid`): table/cell roles, real table elements (handled as tables even when a role is attached), and
@@ -96,6 +96,11 @@ _list_nesting: ContextVar[int] = ContextVar("list_nesting", default=0)
 # `<blockquote>` one level per occurrence, and prefixing `> ` to the whole inner text again at every level is quadratic in the
 # depth (4,500 levels, 58KB took 48 s and 2.9GB) (Pinned by: test_text_html.py::TestMalformedNesting).
 _MAX_QUOTE_DEPTH = 20
+# The fence line of a code block written here (`_render_code_block`): ``` and a key of private-use characters drawn once per
+# process, which no text of a document can hold (as for `_LIST_SLOT_OPEN`). While a document is rendered the key tells the
+# fences of real code blocks from text that only looks like one — a paragraph that is "```", a line of a list item that starts
+# with "```js"; `_settle_fences` takes it off at the end.
+_CODE_FENCE = "```\ue026" + "".join(chr(0xE100 + byte) for byte in secrets.token_bytes(8))
 
 
 # Maximum nesting depth at which a layout table is unfolded into blocks. Deeper layout tables are folded onto one line inside
@@ -244,7 +249,7 @@ def _link_address(anchor: Tag, inline: _Inline) -> str | None:
 
 
 def _single_blank_lines(text: str) -> str:
-    """Collapse consecutive blank lines into one. The inside of code blocks (``` fences) is left alone.
+    """Collapse consecutive blank lines into one. The inside of code blocks (`_CODE_FENCE` lines) is left alone.
 
     A quote block prefixes every line of its inner text with `>`, so several blank lines at block boundaries (between `<div><br></div>`
     paragraphs) became 3–8 empty `>` lines that `clean_text` cannot collapse (1.6x the character count of a quoted Gmail reply;
@@ -254,7 +259,10 @@ def _single_blank_lines(text: str) -> str:
     fenced = False
 
     for line in text.split("\n"):
-        if line.lstrip().startswith("```"):
+        # Only the fence of a real code block opens or closes one: a paragraph that is "```" switched the collapsing off for
+        # the rest of the quote, and on again inside the code block that followed it
+        # (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_fence_paragraph_in_a_quote_does_not_reach_into_the_code_block).
+        if line.endswith(_CODE_FENCE):
             fenced = not fenced
         elif not fenced and not line.strip() and lines and not lines[-1].strip():
             continue
@@ -413,10 +421,11 @@ def _indent_entities(match: re.Match) -> str:
 def _render_code_block(node: Tag, list_depth: int) -> str:
     """Render `<pre>` as a ``` code block. A ``` line inside the code is neutralized by inserting a backslash before the backticks.
 
-    Deliberate: it is not wrapped in a longer fence (````). `clean_text` pairs fences by counting the lines that start with ``` regardless
-    of fence length, so an inner ``` line looked like it closed the block, the whitespace of the code after it was collapsed, and the
-    neutralizing of the unpaired line broke the outer closing fence
-    (Pinned by: test_text_html.py::TestCodeBlockWithFenceInside). The neutralized notation is the same as `clean_text`'s unpaired fence.
+    Deliberate: it is not wrapped in a longer fence (````). When this was decided `clean_text` paired fences by counting the lines
+    that start with ``` regardless of fence length, so an inner ``` line looked like it closed the block, the whitespace of the code
+    after it was collapsed, and the neutralizing of the unpaired line broke the outer closing fence
+    (Pinned by: test_text_html.py::TestCodeBlockWithFenceInside). The neutralized notation is the same as `clean_text`'s unpaired
+    fence. The fence lines carry a key until the document is rendered (`_CODE_FENCE`, `_settle_fences`).
     """
     places: _Places = {}
     for line_break in node.find_all("br"):
@@ -424,7 +433,47 @@ def _render_code_block(node: Tag, list_depth: int) -> str:
     code = _CODE_FENCE_LINE.sub(r"\1\\", node.get_text().strip(chr(10)))
     if _in_cell.get():
         return f"\n{_CODE_INDENT.sub(_indent_entities, code)}\n"  # the fence was left in the cell text, mixed with `<br>` (`_cell_text`)
-    return f"\n\n```\n{code}\n```\n\n"
+    return f"\n\n{_CODE_FENCE}\n{code}\n{_CODE_FENCE}\n\n"
+
+
+def _settle_fences(text: str) -> str:
+    """The rendered text of a document with the key taken off the fences of its code blocks (`_CODE_FENCE`), and with the
+    backtick lines of its text that open a fence which is never closed neutralized (`markdown.escape_unpaired_fences`) —
+    looked for only in the text between the code blocks, so no line of text is ever paired with the fence of a real block.
+
+    `clean_text` cannot tell a paragraph that is "```" from the fence of a `<pre>`: it paired the paragraph with the opening
+    fence of the code block after it, so the code lost its whitespace and the closing fence was neutralized as the unpaired
+    one — the same inside a quote (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence). Text fences that pair with each
+    other between two code blocks stay a code block, as in every other format (docs/decisions/core.md).
+    """
+    if _CODE_FENCE not in text:
+        if "```" not in text:
+            return text
+        lines = text.split("\n")
+        escape_unpaired_fences(lines)
+        return "\n".join(lines)
+
+    lines = text.split("\n")
+    settled: list[str] = []
+    start = 0  # where the text after the last code block starts
+    opening: int | None = None
+    for index, line in enumerate(lines):
+        if not line.endswith(_CODE_FENCE):
+            continue
+        if opening is None:
+            between = lines[start:index]
+            if any("```" in other for other in between):
+                escape_unpaired_fences(between)
+            settled += between
+            opening = index
+        else:
+            settled += lines[opening:index + 1]
+            opening, start = None, index + 1
+    rest = lines[start:]
+    if any("```" in other for other in rest):
+        escape_unpaired_fences(rest)
+    settled += rest
+    return "\n".join(settled).replace(_CODE_FENCE, "```")
 
 
 # Elements that render themselves without being descended into. For elements not listed here `_render_nodes` descends into the children.
@@ -618,21 +667,40 @@ def _list_entries(node: Tag) -> list[Tag | str]:
 
 
 def _split_at_fenced(text: str) -> list[str]:
-    """The text split at its code blocks (from a "```" + newline to the next newline + "```"): text, block, text, block …, text
-    — what splitting with the lazy pattern `(```\\n.*?\\n```)` gave. The pattern read on to the end of the text for every
-    opening that has no closing: 20,000 of them in one list item (156KB) took 6 seconds. Once an opening finds no closing
-    after it, no later one can (Pinned by: test_audit_html_text.py::TestListItemWithManyUnpairedFenceLines).
+    """The text split at its code blocks: text, block, text, block …, text. A block is a code block written here (from a
+    `_CODE_FENCE` + newline to the next newline + `_CODE_FENCE`) or lines of text that read as one (from a "```" + newline to
+    the next newline + "```") — what splitting with the lazy pattern `(```\\n.*?\\n```)` gave, except that lines of text are
+    never paired with the fence of a code block or across one: "```" before a `<pre>` took the opening fence of the block for
+    its closing line (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_fence_text_in_a_list_item_next_to_a_code_block).
+
+    The pattern read on to the end of the text for every opening that has no closing: 20,000 of them in one list item
+    (156KB) took 6 seconds. Once an opening finds no closing before the next code block, no later one before that block can
+    (Pinned by: test_audit_html_text.py::TestListItemWithManyUnpairedFenceLines).
     """
     pieces: list[str] = []
     position = 0
+    block = text.find(f"{_CODE_FENCE}\n")  # the next code block written here
+    plain = text.find("```\n")  # the next line of text that may open a block
 
-    while True:
-        start = text.find("```\n", position)
-        end = text.find("\n```", start + 4) if start >= 0 else -1
-        if end < 0:
-            break
-        pieces += [text[position:start], text[start:end + 4]]
-        position = end + 4
+    while block >= 0 or plain >= 0:
+        if 0 <= plain and (block < 0 or plain < block):
+            limit = block if block >= 0 else len(text)
+            end = text.find("\n```", plain + 4, limit)
+            if end < 0:
+                plain = text.find("```\n", limit)
+                continue
+            start, stop = plain, end + 4
+        else:
+            end = text.find(f"\n{_CODE_FENCE}", block + len(_CODE_FENCE))
+            if end < 0:
+                break
+            start, stop = block, end + 1 + len(_CODE_FENCE)
+        pieces += [text[position:start], text[start:stop]]
+        position = stop
+        if block < position:
+            block = text.find(f"{_CODE_FENCE}\n", position)
+        if plain < position:
+            plain = text.find("```\n", position)
     pieces.append(text[position:])
     return pieces
 
@@ -642,8 +710,8 @@ def _item_blocks(text: str) -> list[str]:
     line structure; in other paragraphs whitespace is collapsed to single spaces. A quote block in an item was folded onto one
     line, its nested list and all (`> - b > - c`) (Pinned by: test_core_html.py::TestListInsideAQuoteInsideAnItem)."""
     blocks = []
-    for part in _split_at_fenced(text):
-        if part.startswith("```"):
+    for position, part in enumerate(_split_at_fenced(text)):
+        if position % 2:
             blocks.append(part)
             continue
         for paragraph in _BLANK_LINES.split(part):

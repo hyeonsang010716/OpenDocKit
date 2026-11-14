@@ -859,6 +859,21 @@ class TestQuotedBlocks:
 
         assert result == ">>> print(x) # prompt\n> plain text"
 
+    def test_tab_after_a_quote_mark_becomes_a_space(self):
+        text = ">\tquoted   text\n>\t>\tinner"
+
+        result = clean_text(text)
+
+        assert result == "> quoted text\n> > inner"
+
+    def test_bare_list_marker_inside_a_quote_is_stripped(self):
+        """An empty item that holds a nested list keeps its indentation only outside a quote (`_empty_item_holding_a_list`)."""
+        text = "> -\n>   -\n>     - x"
+
+        result = clean_text(text)
+
+        assert result == "> -\n> -\n>     - x"
+
     def test_fence_opened_in_a_quote_is_not_closed_outside_it(self):
         """The quote ends before the closing fence, so the fence inside it is unpaired and the text after the quote is not code."""
         text = "> ```\n>   quoted    code\nplain    text\n```"
@@ -866,6 +881,14 @@ class TestQuotedBlocks:
         result = clean_text(text)
 
         assert result == "> \\```\n> quoted code\nplain text\n\\```"
+
+    def test_fence_opened_in_a_quote_is_not_closed_in_a_later_quote(self):
+        """A fence line at the same depth, but in another quote: the text between the two quotes is not code."""
+        text = "> ```\n> a   b\n\nplain    text\n\n> ```\n> c   d"
+
+        result = clean_text(text)
+
+        assert result == "> \\```\n> a b\n\nplain text\n\n> \\```\n> c d"
 
 
 class TestTildeFences:
@@ -879,19 +902,27 @@ class TestTildeFences:
 
         assert result == "\\~~~\n# 진짜 제목\n항목 사이 공백"
 
-    def test_paired_tilde_fence_keeps_its_content(self):
-        text = "~~~python\ndef f():\n    return  1\n~~~\n뒤    글"
+    def test_paired_tilde_fence_keeps_its_content_in_markdown_sources(self):
+        text = "~~~python\ndef f():\n    return  1\n\n\n~~~\n뒤    글\n\n\n끝"
 
-        result = clean_text(text)
+        result = clean_text(text, collapse_spaces=False)
 
-        assert result == "~~~python\ndef f():\n    return  1\n~~~\n뒤 글"
+        assert result == "~~~python\ndef f():\n    return  1\n\n\n~~~\n뒤    글\n\n끝"
 
     def test_backtick_line_does_not_close_a_tilde_fence(self):
-        text = "~~~\n```\n    kept   as is\n~~~"
+        text = "~~~\n```\n    kept   as is\n\n\n~~~"
+
+        result = clean_text(text, collapse_spaces=False)
+
+        assert result == text
+
+    def test_fence_lines_at_one_quote_depth_do_not_close_a_fence_at_another(self):
+        """The opening fence is closed by the first bare fence at its own depth; the one in the inner quote is code."""
+        text = "> ```\n> > ```\n>   a  b\n> ```\n> c    d"
 
         result = clean_text(text)
 
-        assert result == text
+        assert result == "> ```\n> > ```\n>   a  b\n> ```\n> c d"
 
     def test_closing_fence_must_be_at_least_as_long_and_bare(self):
         text = "````\n```js\n  x  =  1\n```\n````\n뒤    글"
@@ -932,6 +963,115 @@ class TestTildeFences:
         small, large = run(2_000), run(20_000)
 
         assert large < max(small * 30, 2.0)
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize(("line", "collapse_spaces"), [("~~~", False), ("```", True), ("````\n```", True)],
+                             ids=["tildes-in-markdown", "backticks", "longer-then-shorter"])
+    def test_fence_lines_alone_are_cleaned_quickly(self, line, collapse_spaces):
+        """A range-maximum table over every closing fence was built to find the closing line: 1.6 million bare `~~~` lines took
+        8 s where they had taken 0.8 s."""
+        import time
+
+        from tests.timing import allowed
+
+        text = (line + "\n") * (800_000 // (line.count("\n") + 1))
+        best = float("inf")
+        for _ in range(3):
+            started = time.perf_counter()
+            clean_text(text, collapse_spaces=collapse_spaces)
+            best = min(best, time.perf_counter() - started)
+
+        assert best < allowed(1.1)
+
+
+class TestFencesThatAreText:
+    """In a document that is not Markdown a line of tildes is text — a separator, an RST-style underline, `~~~10시~~~12시`.
+    `~~~` was made a fence everywhere: everything between two such lines became a code block (whitespace kept, headings and
+    lists inside it code to a Markdown reader). Every line that would open a tilde fence is neutralized instead, paired or not,
+    and what stands between is cleaned as text."""
+
+    def test_text_between_two_tilde_lines_is_cleaned_as_text(self):
+        text = "개요\n~~~~~~\n본문   하나\n\n\n\n1. 항목\n   - 하위   항목\n\n결론\n~~~~~~\n본문   둘"
+
+        result = clean_text(text)
+
+        assert result == "개요\n\\~~~~~~\n본문 하나\n\n1. 항목\n   - 하위 항목\n\n결론\n\\~~~~~~\n본문 둘"
+
+    def test_tilde_line_with_text_after_it_is_neutralized_too(self):
+        text = "~~~10시~~~12시\n회의    안내\n~~~"
+
+        result = clean_text(text)
+
+        assert result == "\\~~~10시~~~12시\n회의 안내\n\\~~~"
+
+    def test_tilde_line_inside_a_quote_or_a_list_item_is_neutralized(self):
+        text = ">  > ~~~\n- ~~~ 끝\n  - ~~~~\n1. ~~~\n> - ~~~"
+
+        result = clean_text(text)
+
+        assert result == "> > \\~~~\n- \\~~~ 끝\n  - \\~~~~\n1. \\~~~\n> - \\~~~"
+
+    def test_tildes_that_do_not_start_a_line_are_left_alone(self):
+        text = "가격 ~~~ 미정\n~~취소~~ 됨\n- ~~취소~~"
+
+        result = clean_text(text)
+
+        assert result == text
+
+    def test_tilde_line_inside_a_code_block_is_left_as_written(self):
+        text = "```\nx = 1\n~~~\ny   =   2\n```\n뒤    글"
+
+        result = clean_text(text)
+
+        assert result == "```\nx = 1\n~~~\ny   =   2\n```\n뒤 글"
+
+    def test_tilde_line_does_not_close_or_open_anything_around_a_code_block(self):
+        text = "~~~\n\n```\nx = 1\n~~~\ny   =   2\n```\n\nafter   text\n~~~"
+
+        result = clean_text(text)
+
+        assert result == "\\~~~\n\n```\nx = 1\n~~~\ny   =   2\n```\n\nafter text\n\\~~~"
+
+    def test_picture_between_two_tilde_lines_is_not_inside_code(self):
+        """The picture rendering sees the code blocks `clean_text` saw: between two tilde lines of a DOCX there is none."""
+        from opendockit.converter import _fenced_lines
+
+        template = clean_text("~~~\n가\n\n\n⟦IMG:1⟧\n~~~\n```\n코드\n\n\n```")
+
+        result = _fenced_lines(template)
+
+        assert template.split("\n")[:4] == ["\\~~~", "가", "", "⟦IMG:1⟧"]
+        assert {template.split("\n")[index] for index in result} == {"코드", ""}
+
+    def test_text_without_a_fence_is_not_searched_for_fences(self, monkeypatch):
+        """Ordinary prose is cleaned as before fences were paired: nothing is looked up per line."""
+        from opendockit import markdown
+
+        monkeypatch.setattr(markdown, "code_fences", lambda *args, **kwargs: pytest.fail("searched for fences"))
+
+        result = clean_text("가나다   라\n> 인용   문\n  - 항목 ~~ `코드`")
+
+        assert result == "가나다 라\n> 인용 문\n  - 항목 ~~ `코드`"
+
+
+class TestCleaningTwice:
+    """Cleaning a cleaned text changes nothing. Two shapes changed on the second pass: a quote mark after two spaces was read
+    as text on the first pass and as a quote mark on the second, and an indented list marker followed only by a space kept
+    its indentation on the first pass and lost it on the second."""
+
+    @pytest.mark.parametrize(("text", "expected"), [
+        (">    - ", "> -"),
+        (">  > ~~~", "> > \\~~~"),
+        (">  > ```\n>  >   a  b\n>  > ```\n>  > c   d", ">  > ```\n>  >   a  b\n>  > ```\n> > c d"),
+        (">\t>   text   two", "> > text two"),
+        ("- a\n    - \n```py", "- a\n-\n\\```py"),
+        (">   - b\n>     -  ", ">   - b\n> -"),
+    ])
+    def test_second_cleaning_changes_nothing(self, text, expected):
+        result = clean_text(text)
+
+        assert result == expected
+        assert clean_text(result) == result
 
 
 class TestInvisibleAndControlCharacters:

@@ -56,7 +56,7 @@ from opendockit.extractors._html_mail import (
     mail_reads_as_html,
 )
 from opendockit.extractors._html_math import _put_math
-from opendockit.extractors._html_render import _render_nodes
+from opendockit.extractors._html_render import _render_nodes, _settle_fences
 from opendockit.extractors._mail import (
     FORWARDED_MAIL_TITLE,
     is_sent_mail,
@@ -381,7 +381,8 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     inline = _Inline(options.keep_links, options.keep_emphasis, cut) if options.keep_links or options.keep_emphasis else None
     inline_token = _inline.set(inline)
     try:
-        extraction.sections.append(Section(SectionKind.DOCUMENT, 1, _render_nodes(_document_nodes(soup), list_depth=0)))
+        rendered = _settle_fences(_render_nodes(_document_nodes(soup), list_depth=0))
+        extraction.sections.append(Section(SectionKind.DOCUMENT, 1, rendered))
     finally:
         _inline.reset(inline_token)
         _omitted_rows.reset(token)

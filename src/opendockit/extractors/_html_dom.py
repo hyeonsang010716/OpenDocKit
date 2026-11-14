@@ -39,6 +39,7 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._package import decimal_int
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_glyph
+from opendockit.markdown import code_fences
 from opendockit.models import ConvertOptions, Extraction, quiet_warnings
 
 
@@ -408,20 +409,23 @@ def _with_title_heading(text: str, title: str | None) -> str:
 def _outside_code_blocks(text: str) -> str:
     """The lines of `text` outside its code blocks (``` fences). A `# comment` line of a shell or Python example is not a
     heading, and the title was left out of a page whose only `#` lines were code
-    (Pinned by: test_audit_web_fixes.py::TestTitleOfAPageWhoseCodeHasCommentLines). Fences are paired as `clean_text` pairs
-    them: with an odd number of fence lines the last one is not a fence (it is neutralized as `\\````), so the headings after a
-    stray ``` paragraph still count (Pinned by: TestTitleOfAPageWhoseCodeHasCommentLines::test_stray_fence_line_does_not_hide_a_heading)."""
+    (Pinned by: test_audit_web_fixes.py::TestTitleOfAPageWhoseCodeHasCommentLines). The code blocks are the ones `clean_text`
+    will see (`markdown.code_fences`, backtick fences only): a fence line that is never closed is not a fence (it is
+    neutralized as `\\````), so the headings after a stray ``` paragraph still count
+    (Pinned by: TestTitleOfAPageWhoseCodeHasCommentLines::test_stray_fence_line_does_not_hide_a_heading,
+    test_longer_fence_line_is_not_closed_by_a_shorter_one)."""
+    if "```" not in text:
+        return text
     lines = text.split("\n")
-    fences = [index for index, line in enumerate(lines) if line.lstrip().startswith("```")]
-    unpaired = fences[-1] if len(fences) % 2 else None
+    blocks = code_fences(lines, tildes=False).blocks
+    if not blocks:
+        return text
     kept: list[str] = []
-    fenced = False
-    for index, line in enumerate(lines):
-        if index != unpaired and line.lstrip().startswith("```"):
-            fenced = not fenced
-        elif not fenced:
-            kept.append(line)
-    return "\n".join(kept)
+    start = 0
+    for opening, closing in blocks:
+        kept += lines[start:opening]
+        start = closing + 1
+    return "\n".join(kept + lines[start:])
 
 
 def _document_nodes(soup: BeautifulSoup) -> list:

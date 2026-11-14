@@ -1596,6 +1596,80 @@ class TestCodeBlockWithFenceInside:
         assert result.text.endswith("```\n\n뒤 문단")
 
 
+class TestTextThatLooksLikeAFence:
+    """A paragraph that is "```" or "~~~" is text, and `clean_text` cannot tell it from the fence of a `<pre>`: it was paired
+    with the opening fence of the code block after it, so the code lost its whitespace and the block's closing fence was
+    neutralized as the unpaired one. The renderer settles the fence lines of its text before the text is cleaned
+    (`_html_render._settle_fences`); only the fences of real code blocks are left to pair with each other."""
+
+    def test_tilde_paragraph_before_a_code_block_that_holds_a_tilde_line(self):
+        html = "<p>~~~</p><pre>x = 1\n~~~\ny   =   2</pre><p>after   text</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "\\~~~\n\n```\nx = 1\n~~~\ny   =   2\n```\n\nafter text"
+
+    @pytest.mark.parametrize("paragraph", ["```", "```js", "````"])
+    def test_backtick_paragraph_before_a_code_block(self, paragraph):
+        html = f"<p>{paragraph}</p><pre>x = 1\n\n\ny   =   2</pre><p>after   text</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == f"\\{paragraph}\n\n```\nx = 1\n\n\ny   =   2\n```\n\nafter text"
+
+    def test_backtick_paragraphs_around_a_code_block_are_not_paired_across_it(self):
+        html = "<p>```</p><p>a   b</p><pre>x   =   1</pre><p>c   d</p><p>```</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "\\```\n\na b\n\n```\nx   =   1\n```\n\nc d\n\n\\```"
+
+    def test_fence_paragraph_in_a_quote_before_a_code_block(self):
+        html = "<blockquote><p>```js</p><pre>x = 1\ny   =   2</pre><p>after   text</p></blockquote>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "> \\```js\n>\n> ```\n> x = 1\n> y   =   2\n> ```\n>\n> after text"
+
+    def test_fence_paragraph_in_a_quote_does_not_reach_into_the_code_block(self):
+        """The blank lines of a quote are collapsed outside its code blocks; the paragraph switched that off for the text
+        after it and on inside the code block."""
+        html = "<blockquote><p>```</p><div>a<br><br><br><br>b</div><pre>x\n\n\n\ny</pre></blockquote>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "> \\```\n>\n> a\n>\n> b\n>\n> ```\n> x\n>\n>\n>\n> y\n> ```"
+
+    def test_fence_text_in_a_list_item_next_to_a_code_block(self):
+        html = "<ul><li>```<br>open<pre>code   here</pre>```<br>x</li></ul>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "- \\``` open\n\n```\ncode   here\n```\n\n\\``` x"
+
+    def test_fence_paragraphs_that_pair_with_each_other_stay_a_code_block(self):
+        """As in every other format (`test_markdown.py::TestUnclosedCodeFence`): only the unpaired one is neutralized."""
+        html = "<pre>x</pre><p>```</p><p>code</p><p>```</p><p>```</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "```\nx\n```\n\n```\n\n\n\ncode\n\n\n\n```\n\n\\```"
+
+    def test_tilde_paragraphs_used_as_separators_leave_the_content_between_them_as_it_is(self):
+        html = "<h2>공지</h2><p>~~~~~~~~</p><ul><li>a<ul><li>b</li></ul></li></ul><h2>제목</h2><p>~~~~~~~~</p><p>끝   글</p>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "## 공지\n\n\\~~~~~~~~\n\n- a\n  - b\n\n## 제목\n\n\\~~~~~~~~\n\n끝 글"
+
+    def test_text_that_holds_the_private_use_characters_of_a_fence_key_is_text(self):
+        html = "<p>```&#xe026;</p><pre>a  b</pre>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "\\```\n\n```\na  b\n```"
+
+
 def _mail(*parts: tuple[str, str, str, str | None], subtype: str = "alternative", attachment: bool = False) -> bytes:
     """A MIME mail holding transfer-encoded body parts (`(subtype, text, charset, encoding)`; 7bit when the encoding is None). With
     `attachment` it is wrapped in multipart/mixed and an Excel attachment is added. The subject is encoded per RFC 2047 (the
