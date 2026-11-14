@@ -79,11 +79,14 @@ def _calendar_events(text: str) -> list[list[tuple[str, str]]]:
     """[(label, value)] for each VEVENT of iCalendar text. Unfolds folded lines (line break + space or tab) and leaves out events
     without a single value. Only the event's own properties are read: those of a component inside it (a VALARM reminder, which
     has its own SUMMARY and ATTENDEE) are not — an e-mail reminder written before the event's SUMMARY became the title, and its
-    recipient an attendee (Pinned by: test_audit_web_fixes.py::TestReminderInsideAnEvent)."""
+    recipient an attendee (Pinned by: test_audit_web_fixes.py::TestReminderInsideAnEvent). A component that is opened and never
+    closed before the event ends holds nothing: the lines after its BEGIN are the event's, as they were before components were
+    told apart — the rest of the event went missing after one stray BEGIN
+    (Pinned by: test_audit_web_fixes.py::TestUnclosedComponentInsideAnEvent)."""
     lines = re.sub(r"\r?\n[ \t]", "", text).splitlines()
     events: list[list[tuple[str, str]]] = []
-    current: dict[str, list[str]] | None = None
-    inner = 0  # components opened inside the current event
+    current: list[tuple[str, str, str]] | None = None  # (key, name with parameters, value) of the event's own lines so far
+    opened: list[int] = []  # for each component open inside the event, how many lines the event had when it began
 
     for line in lines:
         split = _CALENDAR_LINE.match(line)  # do not split at a `:` inside quotes (`TZID="(UTC+09:00) 서울"`)
@@ -91,22 +94,33 @@ def _calendar_events(text: str) -> list[list[tuple[str, str]]]:
         key = name.split(";", 1)[0].strip().upper()
         component = rest.strip().upper()
         if key == "BEGIN" and component == "VEVENT":
-            current, inner = {}, 0
-        elif current is not None and key == "BEGIN":
-            inner += 1
-        elif current is not None and key == "END" and component != "VEVENT" and inner:
-            inner -= 1
-        elif key == "END" and component == "VEVENT" and current is not None:
-            _end_of_all_day_event(current)
-            fields = [(label, ", ".join(current[field])) for field, label in _CALENDAR_FIELDS.items() if current.get(field)]
-            if fields:
-                events.append(fields)
+            current, opened = [], []
+        elif current is None:
+            continue
+        elif key == "BEGIN":
+            opened.append(len(current))
+        elif key == "END" and component != "VEVENT":
+            if opened:
+                del current[opened.pop():]
+        elif key == "END":
+            events.extend(_event_fields(current))
             current = None
-        elif current is not None and not inner and key in _CALENDAR_FIELDS and rest.strip():
-            values = current.setdefault(key, [])
-            if len(values) < (_MAX_CALENDAR_ATTENDEES if key == "ATTENDEE" else 1):
-                values.append(_calendar_value(key, name, rest.strip()))
+        elif key in _CALENDAR_FIELDS and rest.strip():
+            current.append((key, name, rest.strip()))
     return events
+
+
+def _event_fields(lines: list[tuple[str, str, str]]) -> list[list[tuple[str, str]]]:
+    """[[(label, value)]] of one event from its own property lines (key, name with parameters, value), or [] when it has no
+    value: the first value of each property, and up to `_MAX_CALENDAR_ATTENDEES` attendees."""
+    event: dict[str, list[str]] = {}
+    for key, name, value in lines:
+        values = event.setdefault(key, [])
+        if len(values) < (_MAX_CALENDAR_ATTENDEES if key == "ATTENDEE" else 1):
+            values.append(_calendar_value(key, name, value))
+    _end_of_all_day_event(event)
+    fields = [(label, ", ".join(event[field])) for field, label in _CALENDAR_FIELDS.items() if event.get(field)]
+    return [fields] if fields else []
 
 
 def _end_of_all_day_event(event: dict[str, list[str]]) -> None:

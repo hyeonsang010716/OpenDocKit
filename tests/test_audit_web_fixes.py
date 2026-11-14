@@ -134,6 +134,110 @@ class TestDeeplyNestedForwardedMails:
         assert convert(data, "a.eml").text.startswith("Subject: 안내")
 
 
+_QUOTED_PART_HEADERS = "".join(f"--=_Part_{n}\nContent-Type: message/rfc822\nContent-Disposition: inline\n\n(전달 {n} 생략)\n\n"
+                               for n in range(150))
+
+
+class TestForwardLevelsFollowTheMultipartStructure:
+    """A forwarded mail is a level only where the parser descends into one: a part of the declared multipart structure. The same
+    lines in a body, in a text attachment or after a `--` line that is no delimiter of that structure are text, and forwarded
+    mails side by side stay side by side whichever way the boundary is declared."""
+
+    @pytest.mark.parametrize("name", ["a.eml", "notes.txt"])
+    def test_part_headers_quoted_in_a_plain_body_are_text(self, name):
+        data = (_HEAD + "Content-Type: text/plain; charset=utf-8\n\n서버 로그:\n\n" + _QUOTED_PART_HEADERS).encode()
+
+        text = convert(data, name).text
+
+        assert text.count("Content-Type: message/rfc822") == 150
+        assert "(전달 149 생략)" in text
+
+    def test_part_headers_quoted_in_a_text_attachment_are_text(self):
+        data = (_HEAD + "Content-Type: multipart/mixed; boundary=o\n\n--o\nContent-Type: text/plain\n\n본문\n--o\n"
+                "Content-Type: text/plain; name=mime.log\nContent-Disposition: attachment; filename=mime.log\n\n"
+                + _QUOTED_PART_HEADERS + "--o--\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.endswith("본문")
+        assert any("mime.log" in warning for warning in result.warnings)
+
+    @pytest.mark.parametrize("line", ["-- ", "--- 항목 {n}"])
+    def test_header_like_lines_under_a_dash_line_of_a_body_are_text(self, line):
+        body = "".join(line.format(n=n) + f"\nContent-Type: message/rfc822\n\n메모 {n}\n\n" for n in range(150))
+        data = (_HEAD + "Content-Type: text/plain; charset=utf-8\n\n" + body).encode()
+
+        assert "메모 149" in convert(data, "a.eml").text
+
+    @pytest.mark.parametrize("declaration", ["boundary*=us-ascii''o", 'boundary*0="o"', "boundary*0=o"])
+    def test_forwarded_mails_side_by_side_under_an_extended_boundary_are_read(self, declaration):
+        parts = "".join(f"--o\nContent-Type: message/rfc822\n\nSubject: 전달 {n}\nContent-Type: text/plain\n\n본문 {n}\n"
+                        for n in range(150))
+        data = (_HEAD + f"Content-Type: multipart/mixed; {declaration}\n\n" + parts + "--o--\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert "본문 0" in result.text
+        assert any("attachment" in warning for warning in result.warnings)  # beyond 20 forwarded mails, as before
+
+    def test_deep_chain_of_another_message_type_is_rejected_with_the_same_sentence(self):
+        # the parser reads the mail inside any message/* part by recursion, not only message/rfc822
+        data = (_HEAD + "Content-Type: multipart/mixed; boundary=o\n\n--o\n" + "Content-Type: message/global\n\n" * 3000
+                + "Content-Type: text/plain\n\n본문\n--o--\n").encode()
+
+        with pytest.raises(CorruptedDocumentError, match="forwarded mails more than 100 levels deep"):
+            convert(data, "a.eml")
+
+
+class TestMultipartWithAnEmptyBoundary:
+    """`boundary=""` is a boundary for the parser (its delimiter line is `--`); the nesting check stopped on it with an error
+    of its own and the mail was rejected as corrupted."""
+
+    def test_mail_is_read(self):
+        data = (_HEAD + 'Content-Type: multipart/mixed; boundary=""\n\n--\nContent-Type: text/plain\n\n본문\n----\n').encode()
+
+        assert convert(data, "a.eml").text.endswith("본문")
+
+
+class TestForwardScanOfHeaderLikeBodies:
+    """The scan before parsing reads a header block once and skips bodies; it looked for the end of the header block again for
+    every `--` line followed by a forwarded-mail line, to the end of the data when no blank line followed."""
+
+    @pytest.mark.timing
+    def test_header_like_lines_after_many_dash_blocks_are_scanned_once(self):
+        """99 blocks followed by 200,000 `k: v` lines (1MB) took 12 s; about 0.01 s."""
+        data = (_HEAD + "Content-Type: text/plain\n\n" + "--x:\nContent-Type: message/rfc822\n" * 99 + "k: v\n" * 200_000).encode()
+        start = time.perf_counter()
+        exceeded = _mime_nesting_exceeds(data, 32)
+        seconds = time.perf_counter() - start
+
+        assert exceeded is None
+        assert seconds < allowed(1)
+
+    @pytest.mark.timing
+    def test_dash_blocks_without_a_blank_line_are_text_and_scanned_once(self):
+        """140,000 blocks with no blank line (5MB) were rejected as forwarded mails after 9 s; about 0.01 s."""
+        data = (_HEAD + "Content-Type: text/plain\n\n" + "--x:\nContent-Type: message/rfc822\n" * 140_000).encode()
+        start = time.perf_counter()
+        exceeded = _mime_nesting_exceeds(data, 32)
+        seconds = time.perf_counter() - start
+
+        assert exceeded is None
+        assert seconds < allowed(1)
+
+    @pytest.mark.timing
+    def test_many_parts_of_one_multipart_are_scanned_in_linear_time(self):
+        """Every part is closed by the next delimiter line: 100,000 forwarded mails side by side (5MB), about 0.3 s."""
+        parts = "--o\nContent-Type: message/rfc822\n\nSubject: s\n\n본문\n" * 100_000
+        data = (_HEAD + "Content-Type: multipart/mixed; boundary=o\n\n" + parts + "--o--\n").encode()
+        start = time.perf_counter()
+        exceeded = _mime_nesting_exceeds(data, 32)
+        seconds = time.perf_counter() - start
+
+        assert exceeded is None
+        assert seconds < allowed(3)
+
+
 class TestMailboxWithAnHtmlOnlyMailUnderATextName:
     """A mailbox named .txt holding one HTML-only mail was left raw as a whole, base64 bodies and all."""
 
@@ -378,6 +482,26 @@ class TestReminderInsideAnEvent:
         text = convert(_CALENDAR_MAIL.format(ics=ics).encode(), "a.eml").text
 
         assert text.endswith("Event:\n\n- Title: 주간 회의\n- Start: 2024-03-07 15:00 UTC\n- Attendees: 김 <kim@example.com>")
+
+
+class TestUnclosedComponentInsideAnEvent:
+    """A component opened inside an event and never closed holds nothing: what follows its BEGIN is still the event's."""
+
+    def test_properties_after_a_stray_begin_are_read(self):
+        ics = ("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:주간 회의\r\nBEGIN:X-THING\r\nLOCATION:3층 회의실\r\nEND:VEVENT\r\n"
+               "END:VCALENDAR\r\n")
+
+        text = convert(_CALENDAR_MAIL.format(ics=ics).encode(), "a.eml").text
+
+        assert text.endswith("Event:\n\n- Title: 주간 회의\n- Location: 3층 회의실")
+
+    def test_a_closed_component_before_the_stray_begin_is_still_left_out(self):
+        ics = ("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nBEGIN:VALARM\r\nSUMMARY:알림\r\nEND:VALARM\r\nBEGIN:X-THING\r\n"
+               "SUMMARY:주간 회의\r\nLOCATION:3층 회의실\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+
+        text = convert(_CALENDAR_MAIL.format(ics=ics).encode(), "a.eml").text
+
+        assert text.endswith("Event:\n\n- Title: 주간 회의\n- Location: 3층 회의실")
 
 
 class TestRecurrenceRuleWithATrailingSemicolon:
