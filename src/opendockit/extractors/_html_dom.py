@@ -931,7 +931,9 @@ def _struck_runs(struck: Tag, strings: set[int]) -> list[list[tuple[NavigableStr
     an HTML table it is `~~… <table>…</table>~~`. A table held by a strikethrough outside any cell, or a strikethrough on a row or table
     itself, is paired per cell. The document tree is scanned once — no climbing up the ancestors for every text node in deep nesting.
     A code block (`<pre>`) is not descended into and ends the run: the text before it and the text after it are paired
-    separately, and the fence gets no mark inside (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode).
+    separately, and the fence gets no mark inside (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode). A table inside a
+    cell that holds a code block is not grouped as a whole, its cells are paired one by one — grouped, the marks around it
+    spanned the fence of a code block drawn from a layout table.
     """
     base = struck if struck.name in ("td", "th") else struck.find_parent(["td", "th"])
     runs: list[list[tuple[NavigableString, Tag | None]]] = []
@@ -944,7 +946,7 @@ def _struck_runs(struck: Tag, strings: set[int]) -> list[list[tuple[NavigableStr
             if table is None and node.name in _CODE_BLOCKS:
                 last_cell = _RUN_BREAK  # the next text starts a new run
                 continue
-            if table is None and node.name == "table" and cell is not None:
+            if table is None and node.name == "table" and cell is not None and node.find(_CODE_BLOCKS) is None:
                 table = node
             elif table is None and node.name in ("td", "th"):
                 cell = node

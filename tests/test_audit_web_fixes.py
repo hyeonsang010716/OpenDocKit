@@ -101,6 +101,15 @@ class TestDeeplyNestedForwardedMails:
         assert result.text.endswith("본문")
         assert any("log.txt" in warning for warning in result.warnings)
 
+    @pytest.mark.parametrize("separator", ["\n", "\r\n"])
+    def test_chain_of_blocks_opened_by_mbox_lines(self, separator):
+        data = (_HEAD + "Content-Type: multipart/mixed; boundary=o\n\n--o\n"
+                + "Content-Type: message/rfc822\n\nFrom c@example.com Mon Sep  1 10:00:00 2025\nFrom: c@example.com\n" * 3000
+                + "Content-Type: text/plain\n\n본문\n--o--\n").replace("\n", separator).encode()
+
+        with pytest.raises(CorruptedDocumentError, match="forwarded mails more than 100 levels deep"):
+            convert(data, "a.eml")
+
     def test_one_forward_header_block_counts_once(self):
         data = (_HEAD + "Content-Type: multipart/mixed; boundary=o\n\n--o\n" + "Content-Type: message/rfc822\n" * 300
                 + "\nSubject: 전달\nContent-Type: text/plain\n\n본문\n--o--\n").encode()
@@ -242,6 +251,11 @@ class TestNoMarksInsideCode:
 
         assert convert(html.encode(), "a.html").text == "~~앞~~\n\n```\n코드\n```\n\n~~뒤~~"
 
+    def test_table_with_a_code_block_inside_a_struck_cell_is_marked_per_cell(self):
+        html = "<table><tr><th>h</th></tr><tr><td><del>a<table><tr><td><pre>x\ny</pre></td></tr></table>b</del></td></tr></table>"
+
+        assert convert(html.encode(), "a.html").text == "h\n\n~~a~~\n\n```\nx\ny\n```\n\n~~b~~"
+
     def test_strikethrough_set_on_a_code_block_itself_is_not_marked(self):
         assert convert(b'<pre style="text-decoration:line-through">x</pre>', "a.html").text == "```\nx\n```"
 
@@ -302,6 +316,24 @@ class TestEmptyListItemHoldingANestedList:
 
         assert convert(html.encode(), "a.html").text == "-\n  -\n    - x"
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<ul><li><ul><li><ul><li><ul><li>x</li></ul></li></ul></li></ul></li></ul>", "-\n  -\n    -\n      - x"),
+        ("<ul><li><ul><li><ul><li>t<ul><li>x</li></ul></li></ul></li></ul></li></ul>", "-\n  -\n    - t\n      - x"),
+        ("<ul><li>a</li><li><ul><li><ul><li>b</li></ul></li></ul></li></ul>", "- a\n-\n  -\n    - b"),
+    ])
+    def test_chain_of_empty_items(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        # Right under an item line with text `  -` would be a setext underline that makes the text a heading
+        ("<ul><li>a<ul><li><ul><li>b</li></ul></li></ul></li></ul>", "- a\n-\n    - b"),
+        # Under `1.` (content column 3) a two-space `  1.` does not nest, and `    1. x` would become an indented code block
+        ("<ol><li><ol><li><ol><li>x</li></ol></li></ol></li></ol>", "1.\n1.\n    1. x"),
+        ("<ul><li><ol><li><ul><li>x</li></ul></li></ol></li></ul>", "-\n1.\n    - x"),
+    ])
+    def test_shapes_that_cannot_nest_keep_the_old_form(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
     def test_ordered_empty_item(self):
         assert clean_text("1.\n   1.\n      - x") == "1.\n   1.\n      - x"
 
@@ -310,6 +342,8 @@ class TestEmptyListItemHoldingANestedList:
         ("Amount\n\n   -\n\n   2025.", "Amount\n\n-\n\n2025."),
         ("  -\nplain", "-\nplain"),
         ("  -\n  - same depth", "-\n  - same depth"),
+        ("- a\n  -\n    - b", "- a\n-\n    - b"),
+        ("-\n   -\n    - b", "-\n-\n    - b"),
     ])
     def test_a_bare_marker_not_holding_a_deeper_list_is_stripped(self, text, expected):
         assert clean_text(text) == expected
@@ -355,7 +389,7 @@ class TestNoWideEncodingGuessWithoutNulBytes:
     @pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
     @pytest.mark.parametrize("text", ["日本語のテキストファイルです。これは改行も空白もありません。東京は首都です。",
                                       "中文文本文件没有空格也没有换行这是一个测试文件北京是首都。",
-                                      "안녕하세요반갑습니다"])
+                                      "안녕하세요반갑습니다", "大韓民國의首都는서울이다"])
     @pytest.mark.parametrize("name", ["a.txt", "a.html"])
     def test_cjk_text_without_ascii_stays_utf16(self, codec, text, name):
         result = convert(text.encode(codec), name)
@@ -373,34 +407,18 @@ class TestRowspanZero:
 
 
 class TestCodeBlockInsideAListItem:
-    """A code block in a list item is indented to the item's content column, so it stays inside the item."""
+    """A code block inside a list item stays at the left margin, as it always did (the indentation tried in this audit was
+    reverted: the item's paragraphs stay at the margin, so an indented fence after them became an indented code block)."""
 
     @pytest.mark.parametrize(("html", "expected"), [
-        ("<ul><li>실행:<pre>make\n\n  dev</pre></li><li>다음</li></ul>", "- 실행:\n\n  ```\n  make\n\n    dev\n  ```\n\n- 다음"),
-        ("<ol><li>실행:<pre>make</pre></li></ol>", "1. 실행:\n\n   ```\n   make\n   ```"),
-        ("<ul><li>a<ul><li>b<pre>x</pre></li></ul></li></ul>", "- a\n  - b\n\n    ```\n    x\n    ```"),
-    ])
-    def test_fence_is_indented(self, html, expected):
-        assert convert(html.encode(), "a.html").text == expected
-
-    @pytest.mark.parametrize(("html", "expected"), [
-        # A paragraph of the item stays at the left margin and ends the list, so the fence after it stays there too (as before)
+        ("<ul><li>실행:<pre>make\n\n  dev</pre></li><li>다음</li></ul>", "- 실행:\n\n```\nmake\n\n  dev\n```\n\n- 다음"),
+        ("<ol><li>실행:<pre>make</pre></li></ol>", "1. 실행:\n\n```\nmake\n```"),
+        ("<ul><li>a<ul><li>b<pre>x</pre></li></ul></li></ul>", "- a\n  - b\n\n```\nx\n```"),
         ("<ul><li>a<ul><li>b<p>para</p><pre>code\n  indented</pre></li></ul></li></ul>",
          "- a\n  - b\n\npara\n\n```\ncode\n  indented\n```"),
         ("<ol start=10><li>x<p>para</p><pre>code</pre></li></ol>", "10. x\n\npara\n\n```\ncode\n```"),
-        # An enclosing item ended by its paragraph: the nested item cannot hold an indented fence either
-        ("<ul><li>a<p>p</p><ul><li>b<pre>x</pre></li></ul></li></ul>", "- a\n\np\n\n  - b\n\n```\nx\n```"),
-        # An empty item line followed by a blank line ends the item
-        ("<ul><li><ul><li><pre>x</pre></li></ul></li></ul>", "-\n-\n\n```\nx\n```"),
-        ("<ul><li>a<pre>x</pre><p>p</p><pre>y</pre></li></ul>", "- a\n\n  ```\n  x\n  ```\n\np\n\n```\ny\n```"),
+        ("<ul><li>x<ul><li>a<ul><li>b<p>para</p></li></ul><pre>code</pre></li></ul></li></ul>",
+         "- x\n  - a\n    - b\n\npara\n\n```\ncode\n```"),
     ])
-    def test_fence_after_a_paragraph_of_the_item_is_not_indented(self, html, expected):
-        assert convert(html.encode(), "a.html").text == expected
-
-    @pytest.mark.parametrize(("html", "expected"), [
-        ("<ul><li><ul><li>b<pre>x</pre></li></ul></li></ul>", "-\n  - b\n\n    ```\n    x\n    ```"),
-        ("<ul><li>a<pre>x</pre><pre>y</pre><ul><li>b</li></ul><pre>z</pre></li></ul>",
-         "- a\n\n  ```\n  x\n  ```\n\n  ```\n  y\n  ```\n\n  - b\n\n  ```\n  z\n  ```"),
-    ])
-    def test_fence_stays_indented_while_the_item_is_open(self, html, expected):
+    def test_fence_stays_at_the_margin(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected

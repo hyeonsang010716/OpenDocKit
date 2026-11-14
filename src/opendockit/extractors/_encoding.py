@@ -171,6 +171,10 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
 _WIDE_TEXT_RANGES = ((0x2000, 0x27BF), (0x3000, 0x31FF), (0x4E00, 0x9FFF), (0xAC00, 0xD7A3), (0xF900, 0xFAFF), (0xFF00, 0xFFEF))
 # At most this share of the characters may lie outside those ranges (one per 50).
 _WIDE_TEXT_STRAYS = 50
+# Han ideographs mixed with Hangul syllables are Korean with hanja only in a text of at least this many characters of which at
+# least this many tenths are Hangul; pairs of arbitrary bytes land in both ranges in a few characters.
+_WIDE_MIXED_MIN_CHARS = 8
+_WIDE_MIXED_HANGUL_TENTHS = 3
 
 
 def _plausible_best(matches: CharsetMatches, sample: bytes) -> CharsetMatch | None:
@@ -188,16 +192,22 @@ def _plausible_best(matches: CharsetMatches, sample: bytes) -> CharsetMatch | No
 
 def _plausible_wide_text(sample: bytes, encoding: str) -> bool:
     """Does `sample` decode strictly as `encoding` into text that is almost all CJK, kana, Hangul, full-width forms or common
-    punctuation (`_WIDE_TEXT_RANGES`, at most one character in `_WIDE_TEXT_STRAYS` outside), and not Han ideographs and Hangul
-    syllables mixed? Korean text with hanja always has spaces (NUL bytes); pairs of arbitrary bytes land in both ranges
-    (`ab=ZZé` + a cut character read as UTF-16-LE is `扡娽썚쎩`)."""
+    punctuation (`_WIDE_TEXT_RANGES`, at most one character in `_WIDE_TEXT_STRAYS` outside)? Han ideographs mixed with Hangul
+    syllables count only as Korean with hanja: at least `_WIDE_MIXED_MIN_CHARS` characters, at least three tenths Hangul —
+    pairs of arbitrary bytes land in both ranges (`ab=ZZé` + a cut character read as UTF-16-LE is `扡娽썚쎩`)."""
     text = _strict(sample[:len(sample) - len(sample) % 2], encoding)
     if not text:
         return False
     strays = sum(1 for ch in text if not any(low <= ord(ch) <= high for low, high in _WIDE_TEXT_RANGES))
     han = any(0x4E00 <= ord(ch) <= 0x9FFF or 0xF900 <= ord(ch) <= 0xFAFF for ch in text)
     hangul = any(0xAC00 <= ord(ch) <= 0xD7A3 for ch in text)
-    return strays * _WIDE_TEXT_STRAYS <= len(text) and not (han and hangul)
+    if han and hangul:
+        # Korean with hanja (`大韓民國의首都는서울이다`): Hangul makes up a good share of a text that is not tiny
+        # (Pinned by: test_audit_web_fixes.py::TestNoWideEncodingGuessWithoutNulBytes::test_cjk_text_without_ascii_stays_utf16)
+        syllables = sum(1 for ch in text if 0xAC00 <= ord(ch) <= 0xD7A3)
+        if len(text) < _WIDE_MIXED_MIN_CHARS or syllables * 10 < len(text) * _WIDE_MIXED_HANGUL_TENTHS:
+            return False
+    return strays * _WIDE_TEXT_STRAYS <= len(text)
 
 
 def _strict(data: bytes, encoding: str) -> str | None:

@@ -279,10 +279,25 @@ class _ForwardHeaders:
                 return position if position in self._forward_ends else None
             if text.startswith(b"--"):
                 return position
+            if _MBOX_FROM_LINE.match(text):
+                # An mbox separator line may open the header block of a forwarded mail
+                # (Pinned by: test_audit_web_fixes.py::TestDeeplyNestedForwardedMails::test_chain_of_blocks_opened_by_mbox_lines)
+                return self._opened_at(previous)
             if not (text[:1] in (b" ", b"\t") or _MIME_HEADER_NAME.match(text)):
                 return None
             position = previous
         return 0
+
+    def _opened_at(self, position: int) -> int | None:
+        """`position` as the start of a header block whose first line is an mbox separator line: at the start of the data,
+        after a delimiter line, or where the mail inside an accepted forwarded part starts; otherwise None."""
+        if position == 0:
+            return 0
+        previous = self._data.rfind(b"\n", 0, position - 1) + 1
+        text = self._data[previous:position - 1].removesuffix(b"\r")
+        if text.startswith(b"--"):
+            return position
+        return position if not text and position in self._forward_ends else None
 
     def _block_end(self, line: int) -> int | None:
         """Where the line after the blank line that ends the header block holding `line` starts."""
