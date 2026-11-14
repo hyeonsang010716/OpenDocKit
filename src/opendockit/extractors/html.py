@@ -96,6 +96,8 @@ _SELECT_CLOSING = re.compile(r"</select\s*>", re.IGNORECASE)
 _FIRST_FRONT_CHARS_PER_LIMIT = 2
 _LAST_FRONT_CHARS_PER_LIMIT = 8
 # The end of the `<head>` of a document, looked for in this much of its start: the front part is measured from there.
+# A `</head>` further in is a stray one in the body and all the text before it would be read to find a limit exceeded
+# (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::test_end_of_head_far_into_a_part_does_not_size_its_front_part).
 _HEAD_END = re.compile(r"</head\s*>", re.IGNORECASE)
 _HEAD_SEARCH_CHARS = 1_000_000
 
@@ -229,16 +231,18 @@ def _extract_documents(documents: list[str], encoding: str, options: ConvertOpti
     warning is given once and the rows left out of tables are added up. Once the documents read so far exceed the character
     limit, the rest is not read; each document has what is left of the limit for its own front-part check
     (`_extract_front`). The title is the first one of the documents; when the limit stops the reading before a title is met,
-    the documents that are not read are still looked at for it (`_unread_title`)
+    what is not read is still looked at for it (`_unread_title`): the rest of the document that crossed the limit as a
+    front part, then the documents after it
     (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart)."""
     combined = Extraction(metadata={"encoding": encoding})
     texts: list[str] = []
     omitted: list[int] = []
     read = 0
+    front: list[int] = []
 
     for document in documents:
         read += 1
-        piece = (_extract_front(document, encoding, options, saved_picture, combined.images, omitted, combined.chars)
+        piece = (_extract_front(document, encoding, options, saved_picture, combined.images, omitted, combined.chars, front)
                  or _extract(document, encoding, options, saved_picture, images=combined.images, omitted=omitted, mail=True))
         combined.images = piece.images
         if "title" in piece.metadata and "title" not in combined.metadata:
@@ -253,7 +257,7 @@ def _extract_documents(documents: list[str], encoding: str, options: ConvertOpti
             break
 
     if "title" not in combined.metadata:
-        title = _unread_title(documents[read:])
+        title = _unread_title(documents[read - 1:], front[0]) if front else _unread_title(documents[read:])
         if title:
             combined.metadata["title"] = title
     if sum(omitted):
@@ -262,35 +266,51 @@ def _extract_documents(documents: list[str], encoding: str, options: ConvertOpti
     return combined
 
 
-def _unread_title(documents: list[str]) -> str:
-    """The first title in the documents that were not read because the character limit was exceeded before them, or "".
+def _unread_title(documents: list[str], read: int = 0) -> str:
+    """The first title in what was not read because the character limit was exceeded, or "": `documents` without the first
+    `read` characters of the first one (the front part of the document that crossed the limit, which held no title).
 
     When the parts of a mail were one document the title of a later part was still found (`metadata["title"]`), and a mail
-    over the limit lost it once each part was read on its own. Only the start of the documents is parsed for it
+    over the limit lost it once each part was read on its own. Only the start of what was not read is looked at
     (`_UNREAD_TITLE_CHARS` in all) — a title is in the head, and the documents are not read so that a large mail over the
     limit stays cheap. A document that fits is parsed as it would have been read; of one that is cut off only what ends
     with a closed `<title>` element, so that a title is never half of one
     (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::test_title_of_a_part_after_the_limit_is_still_found,
     test_title_cut_off_where_the_look_for_a_title_ends_is_not_a_title).
+
+    The title found is the one the conversion without a limit gives, or none. The rest of the document that crossed the
+    limit comes first: with only the documents after it looked at, a part whose own `<title>` lay behind its front part
+    gave the mail the title of the next part, where the whole conversion has its own. That document is parsed again from
+    its start (a title is only told from an SVG tooltip, a comment or a script by what is open before it). A document
+    that holds no `<title` at all has no title and costs nothing of the bound — it is only searched, not parsed. One
+    whose `<title` could not be looked at to the end of the document ends the look: a title after it may not be the
+    first one
+    (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::test_title_behind_the_front_part_of_the_part_over_the_limit_is_the_title,
+    test_title_of_a_later_part_is_not_taken_when_the_part_over_the_limit_was_not_looked_at_to_its_end,
+    test_title_after_a_long_part_without_one_is_still_found).
     """
     left = _UNREAD_TITLE_CHARS
     for document in documents:
-        if left <= 0:
-            break
-        start = document[:left]
-        left -= len(start)
-        opening = _TITLE_OPENING.search(start)
+        start, read = read, 0
+        opening = _TITLE_OPENING.search(document, start)
         if opening is None:
             continue
-        if len(start) < len(document):
-            closings = list(_TITLE_CLOSING.finditer(start, opening.end()))
+        end = min(len(document), start + left)
+        if opening.end() > end:
+            break
+        left -= end - start
+        looked = document[:end]
+        if end < len(document):
+            closings = list(_TITLE_CLOSING.finditer(looked, opening.end()))
             if not closings:
-                continue
-            start = start[:closings[-1].end()]
+                break
+            looked = looked[:closings[-1].end()]
         with quiet_warnings((XMLParsedAsHTMLWarning, _PARSER_CALLERS)):
-            title = _document_title(BeautifulSoup(start, "lxml"))
+            title = _document_title(BeautifulSoup(looked, "lxml"))
         if title:
             return title
+        if end < len(document):
+            break
     return ""
 
 
@@ -304,7 +324,7 @@ def _counted(text: str, options: ConvertOptions) -> int:
 
 def _extract_front(text: str, encoding: str, options: ConvertOptions,
                    saved_picture: Callable[[str], bytes | None] | None, images: list[RawImage] | None = None,
-                   omitted: list[int] | None = None, used: int = 0) -> Extraction | None:
+                   omitted: list[int] | None = None, used: int = 0, read: list[int] | None = None) -> Extraction | None:
     """For a large document, read only the front part first. If that alone exceeds the character limit, return that
     extraction and do not parse the rest. None when it cannot be told whether the limit will be exceeded (the whole document
     is read).
@@ -342,6 +362,7 @@ def _extract_front(text: str, encoding: str, options: ConvertOptions,
     one document the text of the part before it had kept the front part growing; the front part grows by the text density
     of what follows the head
     (Pinned by: test_core_mail_parts_and_icons.py::TestMailsAreRenderedApart::test_large_part_over_what_is_left_of_the_limit_is_not_parsed_whole).
+    When `read` is given, the length of a front part that is returned is added to it.
     """
     limit = options.max_chars
     if limit is None or len(text) <= limit * _FIRST_FRONT_CHARS_PER_LIMIT * 2:
@@ -368,6 +389,8 @@ def _extract_front(text: str, encoding: str, options: ConvertOptions,
             extraction.exceeded = True
             if omitted is not None and rows:
                 omitted.extend(rows)
+            if read is not None:
+                read.append(len(front))
             return extraction
         if counted * len(text) <= left * len(front):
             if size >= last:

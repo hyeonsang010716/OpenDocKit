@@ -368,6 +368,66 @@ class TestMailsAreRenderedApart:
         assert result.exceeded
         assert "title" not in result.metadata
 
+    _LONG_PART = "<p>가나다라마 바사아자차</p>\n" * 600
+
+    @pytest.mark.parametrize("behind", ["<title>둘째 제목</title>", "<title> </title>", "<!-- <title>주석</title> -->",
+                                        "<svg><title>아이콘</title></svg>"])
+    def test_title_behind_the_front_part_of_the_part_over_the_limit_is_the_title(self, monkeypatch, behind):
+        """Only the parts after the one that crossed the limit were looked at: a part read as a front part whose own title
+        lay behind that front part gave the mail the title of the next part."""
+        data = _html_parts("<p>첫 조각</p>", f"<body>{self._LONG_PART}{behind}{self._LONG_PART}</body>",
+                           "<html><head><title>셋째 제목</title></head><body><p>다</p></body></html>")
+        whole = convert(data, "a.eml", ConvertOptions(max_chars=None)).metadata.get("title")
+        texts = self._documents_read(monkeypatch)
+
+        result = convert(data, "a.eml", ConvertOptions(max_chars=500))
+
+        assert result.exceeded
+        assert max(map(len, texts)) < len(self._LONG_PART)  # the part was read as a front part that ends before `behind`
+        assert result.metadata.get("title") == whole == ("둘째 제목" if "둘째" in behind else "셋째 제목")
+
+    def test_title_of_a_later_part_is_not_taken_when_the_part_over_the_limit_was_not_looked_at_to_its_end(self, monkeypatch):
+        from opendockit.extractors import html as html_extractor
+
+        monkeypatch.setattr(html_extractor, "_UNREAD_TITLE_CHARS", 1_000)
+        data = _html_parts("<p>첫 조각</p>", f"<body>{self._LONG_PART}<title>둘째 제목</title></body>",
+                           "<html><head><title>셋째 제목</title></head><body><p>다</p></body></html>")
+
+        result = convert(data, "a.eml", ConvertOptions(max_chars=500))
+
+        assert result.exceeded
+        assert convert(data, "a.eml", ConvertOptions(max_chars=None)).metadata["title"] == "둘째 제목"
+        assert "title" not in result.metadata
+
+    def test_title_after_a_long_part_without_one_is_still_found(self, monkeypatch):
+        """A part that holds no `<title` has no title however long it is, so the look goes on behind it."""
+        from opendockit.extractors import html as html_extractor
+
+        monkeypatch.setattr(html_extractor, "_UNREAD_TITLE_CHARS", 1_000)
+        data = _html_parts("<p>첫 조각</p>", f"<body>{self._LONG_PART * 2}</body>", self._LONG_PART,
+                           "<html><head><title>넷째 제목</title></head><body><p>다</p></body></html>")
+
+        result = convert(data, "a.eml", ConvertOptions(max_chars=500))
+
+        assert result.exceeded
+        assert result.metadata["title"] == "넷째 제목"
+
+    def test_end_of_head_far_into_a_part_does_not_size_its_front_part(self, monkeypatch):
+        """The end of `<head>` is looked for in the start of a document only: a stray `</head>` deep in the body made the
+        front part reach it, and all the text before it was parsed to exceed a limit its first lines exceed."""
+        from opendockit.extractors import html as html_extractor
+
+        monkeypatch.setattr(html_extractor, "_HEAD_SEARCH_CHARS", 1_000)
+        data = _html_parts(f"<body>{self._LONG_PART}</head>{self._LONG_PART * 2}</body>")
+        whole = convert(data, "a.eml", ConvertOptions(max_chars=None)).text
+        texts = self._documents_read(monkeypatch)
+
+        result = convert(data, "a.eml", ConvertOptions(max_chars=500))
+
+        assert result.exceeded
+        assert result.text == whole[:500].rstrip()
+        assert max(map(len, texts)) < len(self._LONG_PART) // 2
+
     def test_warning_of_several_documents_is_given_once(self):
         broken = ("<p>" + "안녕하십니까 회의록입니다 " * 20 + "</p>").encode("cp949").replace(
             "회의록".encode("cp949"), "회의록".encode("cp949") + b"\xc9\xa1", 1)
