@@ -230,16 +230,20 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
         return mark_emphasis(mark_strike(text) if look.struck else text, look.bold, look.italic)
 
     def field_char(child: etree._Element, *, hidden: bool) -> None:
-        """One w:fldChar (begin, separate, end). In a hidden run (`hidden`) it writes nothing of its own: no form field value, and
-        no EQ instruction text for a field that ends there without a result."""
+        """One w:fldChar (begin, separate, end). In a hidden run (`hidden`) it writes nothing of its own — no form field value
+        (Pinned by: test_office_symbols_fields_notes.py::TestDocxFieldCharactersInHiddenRuns::
+        test_form_field_in_a_hidden_run_writes_no_value) — and it conceals the field it belongs to (`_Field.concealed`)."""
         nonlocal instruction_fields
         kind = child.get(_w("fldCharType"))
         if not instruction_fields and not hidden:
             parts.append(_form_field_value(child))
         if kind == "begin":
-            fields.append(_Field(start=len(parts)))
+            fields.append(_Field(start=len(parts), concealed=hidden))
             instruction_fields += 1
-        elif kind == "separate" and fields:
+            return
+        if hidden and fields:
+            fields[-1].concealed = True
+        if kind == "separate" and fields:
             if fields[-1].instruction_side:
                 instruction_fields -= 1
             fields[-1].instruction_side = False
@@ -256,7 +260,12 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
             ended = fields.pop()
             if ended.instruction_side:
                 instruction_fields -= 1
-            if not hidden and not instruction_fields and not ended.shown and not has_text_since(ended.start):
+            # An EQ field without result text is drawn from its instruction. Hidden text is not printed: when any part of the
+            # field is in a hidden run (a field character, instruction text, result text) nothing is written — the instruction
+            # of a hidden field, gathered for the link of a HYPERLINK field, came out as '1/2' (Pinned by:
+            # test_office_symbols_fields_notes.py::TestDocxFieldCharactersInHiddenRuns::
+            # test_equation_field_with_a_hidden_part_writes_nothing).
+            if not ended.concealed and not instruction_fields and not ended.shown and not has_text_since(ended.start):
                 parts.append(_equation_field_text("".join(ended.instruction)))
             if ended.link:
                 parts.append(link_close(ended.link))
@@ -273,13 +282,16 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
             if tag == _w("r") and _is_on(child.find(f"{_w('rPr')}/{_w('vanish')}")):
                 # Deliberate: only the text of a hidden run is left out. Its field characters and instruction still shape the
                 # field: a separate in a hidden run left the field on the instruction side, so its visible result ('Total: 1,200
-                # won') was taken for instruction text and dropped (Pinned by: test_office_symbols_fields_notes.py::
-                # TestDocxFieldCharactersInHiddenRuns).
-                for code in child.iterchildren(_w("fldChar"), _w("instrText")):
+                # won') was taken for instruction text and dropped, and a hidden instruction is still where the visible result
+                # of a HYPERLINK field links to (Pinned by: test_office_symbols_fields_notes.py::
+                # TestDocxFieldCharactersInHiddenRuns). Hidden instruction or result text conceals the field (`_Field.concealed`).
+                for code in child.iterchildren(_w("fldChar"), _w("instrText"), _w("t")):
                     if code.tag == _w("fldChar"):
                         field_char(code, hidden=True)
-                    elif fields and fields[-1].instruction_side:
-                        fields[-1].instruction.append(code.text or "")
+                    elif fields and code.text:
+                        fields[-1].concealed = True
+                        if code.tag == _w("instrText"):  # one after the separate is read by nothing: the field is concealed
+                            fields[-1].instruction.append(code.text)
                 continue
             if tag == _w("sdt") and _shows_placeholder(child):
                 continue
@@ -564,6 +576,7 @@ class _Field:
     hidden: list[tuple[int, str]] = field(default_factory=list)  # text pieces left out on the instruction side (insert position, text)
     link: str | None = None  # address of a HYPERLINK field whose result is being read ('' when it was looked at and is not a link)
     shown: bool = False  # result text seen in pieces that were swapped for one piece afterwards (`collapse_from` of `_paragraph_text`)
+    concealed: bool = False  # a field character, instruction text or result text of the field is in a hidden run (w:vanish)
 
 
 def _equation_field_text(instruction: str) -> str:
