@@ -80,6 +80,19 @@ class TestUnclosedImagePlaceholderText:
         assert result.text.startswith("**b** [Image: [Image: ") and result.char_count > 150_000
 
     @pytest.mark.timing
+    @pytest.mark.parametrize("piece", ["[Image: \\", "[Image: \\]", "[Image: a\\b"])
+    def test_many_unclosed_placeholder_starts_with_backslashes_take_linear_time(self, piece):
+        """A backslash in the placeholder pattern is read with the character after it, but never with a `[`: `[Image: \\` repeated
+        10,000 times took 15 seconds when the pair could take the `[` of the next start."""
+        data = ("<p><b>b</b> " + piece * 25_000 + "</p>").encode()
+        started = time.perf_counter()
+
+        result = convert(data, "a.html", ConvertOptions(max_chars=None))
+
+        assert time.perf_counter() - started < allowed(5.0)
+        assert result.text.startswith("**b** [Image: ")
+
+    @pytest.mark.timing
     def test_many_unclosed_footnote_mark_starts_take_linear_time(self):
         data = ("<p><b>b</b> " + "[^a" * 60_000 + "</p>").encode()
         started = time.perf_counter()
@@ -93,6 +106,9 @@ class TestUnclosedImagePlaceholderText:
         assert _inline._is_placeholder_text("[Image: 조직도] [^1] [Image]")
         assert not _inline._is_placeholder_text("[Image: 조직도] 본문")
         assert _inline._INLINE_PLACEHOLDER.split("앞 [Image: 로고]뒤[^12]") == ["앞 ", "[Image: 로고]", "뒤", "[^12]", ""]
+        # Escaped brackets and backslashes of alt text escaped like link text, and a plain backslash, are inside the placeholder
+        assert _inline._is_placeholder_text("[Image: logo\\]] [Image: C:\\dir] [Image: x\\\\]")
+        assert not _inline._is_placeholder_text("[Image: a \\[b]")
 
 
 class TestUnclosedTableTagsInCellText:
