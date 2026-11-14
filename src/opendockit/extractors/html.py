@@ -22,7 +22,6 @@ from opendockit.extractors._html_dom import (
     _closed_at_the_end,
     _decompose_all,
     _document_nodes,
-    _drop_canvas_notices,
     _drop_hidden,
     _drop_sidebars,
     _drop_unsettled_cut_table,
@@ -438,7 +437,6 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _keep_expander_buttons(soup)
     _keep_svg_labels(soup, cut)
     _decompose_all(soup.find_all(_DROP_TAGS))
-    _drop_canvas_notices(soup)
     _drop_sidebars(soup)
     # Not only comments: a DOCTYPE in the middle of the body is a node of its own too, and its name came out as the paragraph
     # `html` (Pinned by: test_audit_html_text.py::TestDoctypeInsideTheBody)

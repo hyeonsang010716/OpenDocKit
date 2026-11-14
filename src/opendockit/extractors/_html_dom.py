@@ -1336,34 +1336,6 @@ def _hidden_by_style(tag: Tag) -> bool:
     return tag.attrs is not None and (tag.has_attr("hidden") or bool(_HIDDEN_STYLE.search(str(tag.get("style", "")))))
 
 
-# The fallback of a `<canvas>` that only tells the reader their browser cannot draw it (`_drop_canvas_notices`): it names the
-# browser together with supporting or upgrading it, and is short.
-_BROWSER = re.compile(r"\bbrowsers?\b|브라우저", re.IGNORECASE)
-_SUPPORT = re.compile(r"support|upgrad|updat|지원|업그레이드|업데이트", re.IGNORECASE)
-_CANVAS_NOTICE_CHARS = 200
-# What a real text alternative of a drawing may hold and a notice does not.
-_ALTERNATIVE_CONTENT = ["table", "ul", "ol", "dl", "img", "pre"]
-
-
-def _drop_canvas_notices(soup: BeautifulSoup) -> None:
-    """Remove the `<canvas>` elements whose fallback content is only the notice that the browser cannot draw them.
-
-    The fallback of a canvas is read because it can be the text alternative of the drawing (`_html_base._DROP_TAGS`), but
-    the sentence nearly every page writes there — `Your browser does not support the HTML5 canvas tag.` — came out as a
-    paragraph of the page. It is addressed to a reader with another browser and says nothing about the drawing. Deliberately
-    narrow: text only (no table, list, picture or code), at most `_CANVAS_NOTICE_CHARS` characters, and naming the browser
-    together with supporting or upgrading it — `Browser share: Chrome 65%` is an alternative and stays
-    (Pinned by: test_core_html.py::TestFallbackContentOfObjectAndCanvas).
-    """
-    notices = []
-    for canvas in soup.find_all("canvas"):
-        text = " ".join(canvas.get_text(" ").split())
-        if (text and len(text) <= _CANVAS_NOTICE_CHARS and _BROWSER.search(text) and _SUPPORT.search(text)
-                and canvas.find(_ALTERNATIVE_CONTENT) is None):
-            notices.append(canvas)
-    _decompose_all(notices)
-
-
 def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool = True) -> None:
     """Remove hidden elements: first `hidden`, `display:none` and `visibility:hidden` (folded answers in `kept` stay), then those
     `aria-hidden="true"` elements that do not hold the main content.
