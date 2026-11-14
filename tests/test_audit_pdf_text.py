@@ -251,6 +251,30 @@ class TestManyFaintCharacters:
         assert faint == set()
 
     @pytest.mark.timing
+    def test_characters_far_off_the_page_do_not_make_every_group_scan_them(self):
+        count = 12_000
+        chars = [*(self._char("x", index % 400 * 10, index // 400 * 12, 10, (0,)) for index in range(2 * count)),
+                 *(self._char("o", 2e9 + index * 20, 500, 10, (0,)) for index in range(count)),
+                 *(self._char("W", 10 + index % 90 * 45, 3_000 + index // 90 * 45, 40, (0.7 + index * 0.25 / count,))
+                   for index in range(count))]
+
+        started = time.perf_counter()
+        faint = _pdf_artifacts._faint_watermark(chars, 30)
+
+        assert time.perf_counter() - started < allowed(1)  # 7 seconds when characters beyond 1e9 were kept aside
+        assert faint == set()
+
+    def test_characters_at_huge_and_nan_positions_are_judged_as_by_a_full_scan(self):
+        nan = float("nan")
+        draft = [self._char("W", 3e9 + index * 40, 1e12, 60, (0.85,)) for index in range(3)]
+        under = self._char("a", 3e9 + 50, 1e12 + 20, 10, (0,))
+        lost = [self._char("V", nan, 100, 60, (0.85,)), self._char("b", 10, 100, 10, (0,))]
+        inverted = self._char("c", 1e12 + 30, 1e12 + 20, 10, (0,)) | {"x0": 3e9 + 130, "x1": 3e9 + 120}
+
+        assert _pdf_artifacts._faint_watermark([*draft, under, *lost, inverted], 30) == {id(item) for item in draft}
+        assert _pdf_artifacts._faint_watermark([*draft, *lost], 30) == set()
+
+    @pytest.mark.timing
     def test_large_faint_characters_over_body_text_are_found_in_about_linear_time(self):
         count = 6_000
         chars = [*(self._char("x", index % 500, index // 500 * 2, 1, (0,)) for index in range(3 * count)),
