@@ -199,6 +199,39 @@ class TestMultipartWithAnEmptyBoundary:
         assert convert(data, "a.eml").text.endswith("본문")
 
 
+class TestMultipartsInsideADeliveryReport:
+    """The parser reads the body of a message/delivery-status part as header blocks and descends into a block that declares a
+    multipart. The scan before parsing took a delivery report for a leaf, so multiparts opened one inside the other in one
+    block were not counted: 900 levels followed by 200,000 lines (1MB) took 43 seconds."""
+
+    @staticmethod
+    def _report(blocks: str) -> bytes:
+        return (_HEAD + "Content-Type: multipart/report; report-type=delivery-status; boundary=o\n\n"
+                "--o\nContent-Type: text/plain\n\n전달하지 못했습니다\n"
+                "--o\nContent-Type: message/delivery-status\n\n" + blocks + "--o--\n").encode()
+
+    @pytest.mark.parametrize("levels", [33, 900])
+    def test_multiparts_nested_in_one_block_count_towards_the_limit(self, levels):
+        nested = "".join(f"Content-Type: multipart/mixed; boundary=b{level}\n--b{level}\n" for level in range(levels))
+        data = self._report(nested + "Content-Type: text/plain\n" + "line\n" * 1_000)
+
+        assert _mime_nesting_exceeds(data, 32) == "multipart"
+        with pytest.raises(CorruptedDocumentError, match="nested deeper than 32 levels"):
+            convert(data, "a.eml")
+
+    def test_ordinary_delivery_report_is_read(self):
+        """The fields of a report, and a few that happen to name a multipart type, are no nesting."""
+        blocks = ("Reporting-MTA: dns; mail.example.com\n\n"
+                  "Final-Recipient: rfc822; kim@example.com\nAction: failed\nStatus: 5.1.1\n"
+                  "Diagnostic-Code: smtp; 550 multipart/mixed is not accepted here\n\n")
+        data = self._report(blocks)
+
+        assert _mime_nesting_exceeds(data, 32) is None
+        text = convert(data, "a.eml").text
+        assert "전달하지 못했습니다" in text
+        assert "Status: 5.1.1" in text
+
+
 class TestForwardScanOfHeaderLikeBodies:
     """The scan before parsing reads a header block once and skips bodies; it looked for the end of the header block again for
     every `--` line followed by a forwarded-mail line, to the end of the data when no blank line followed."""

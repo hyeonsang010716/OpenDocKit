@@ -189,6 +189,7 @@ _LINE_END = re.compile(rb"\r\n|\r|\n")
 _PARSER_HEADER_LINE = re.compile(rb"From |[!-9;-~]*:|[\t ]")
 _DASH_LINE = re.compile(rb"(?<![^\r\n])--[^\r\n]*")
 _CONTENT_TYPE_NAME = b"content-type:"
+_MULTIPART_NAME = re.compile(rb"multipart/", re.IGNORECASE)
 # Content-Type headers already resolved by the parser, by their bytes (a mail repeats a few of them). Longer ones are not kept.
 _CACHED_HEADER_BYTES = 200
 
@@ -302,14 +303,27 @@ def _mime_nesting_exceeds(data: bytes, limit: int, forward_limit: int = 0) -> st
 
         # The body: nothing is looked at up to the next delimiter or closing line of an open multipart. After a closing line
         # comes the epilogue, which runs up to the next such line in the same way.
+        report = kind == "report"
         while True:
-            if not outermost:
-                return None
             taken = None
-            for match in _DASH_LINE.finditer(data, position):
-                taken = owner(match.group())
-                if taken is not None:
-                    break
+            if outermost:
+                for match in _DASH_LINE.finditer(data, position):
+                    taken = owner(match.group())
+                    if taken is not None:
+                        break
+            if report:
+                # The parser reads the body of a delivery report as header blocks, each a part of its own, and a block that
+                # declares a multipart is descended into: multiparts opened one inside the other in one block went around the
+                # limit (900 levels and 200,000 lines, 1MB: 43 seconds). The body is not walked the parser's way; every
+                # `multipart/` in it counts as a level that stays open to the end of the report
+                # (Pinned by: test_audit_web_fixes.py::TestMultipartsInsideADeliveryReport).
+                report = False
+                end = match.start() if taken is not None else size
+                declared = 0
+                for _ in _MULTIPART_NAME.finditer(data, position, end):
+                    declared += 1
+                    if multiparts + declared > limit:
+                        return "multipart"
             if taken is None:
                 return None
             index, closing = taken
@@ -335,7 +349,8 @@ def _mime_nesting_exceeds(data: bytes, limit: int, forward_limit: int = 0) -> st
 
 def _part_structure(header: bytes) -> tuple[str, bytes | None]:
     """What the parser descends into for a part with this Content-Type header (its line and folded lines): ('message', None) for
-    a message/* part other than a delivery report (the mail inside is read by recursion), ('multipart' or 'digest', the
+    a message/* part other than a delivery report (the mail inside is read by recursion), ('report', None) for a delivery
+    report (`_mime_nesting_exceeds` counts the multiparts its body declares), ('multipart' or 'digest', the
     separator `--boundary`) for a multipart whose boundary can occur in the data, otherwise ('', None) — a leaf, like a multipart
     without a boundary.
 
@@ -353,7 +368,7 @@ def _part_structure(header: bytes) -> tuple[str, bytes | None]:
     except Exception:  # noqa: BLE001 — a header the parser cannot resolve is not descended into here; parsing decides the rest
         return "", None
     if content_type.startswith("message/"):
-        return ("", None) if content_type == "message/delivery-status" else ("message", None)
+        return ("report", None) if content_type == "message/delivery-status" else ("message", None)
     if separator is None:
         return "", None
     return ("digest" if content_type == "multipart/digest" else "multipart"), separator
