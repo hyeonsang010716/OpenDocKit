@@ -409,6 +409,51 @@ class TestNoWideEncodingGuessWithoutNulBytes:
         assert result.warnings == []
 
 
+class TestWideEncodingGuessOutsidePlainCjk:
+    """UTF-16 without NUL bytes that is not plain CJK text — another script written without spaces, a kanji outside the Basic
+    Multilingual Plane, a Korean name in Japanese or Chinese text — is read as it was before the guess was checked, and broken
+    byte-oriented text is still not taken for UTF-16."""
+
+    @pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+    @pytest.mark.parametrize("text", ["សួស្តីពិភពលោក", "བོད་སྐད་ཡིག་གཟུགས", "ሰላምዓለምይህአማርኛነው", "নমস্কারবিশ্বএটিবাংলাপাঠ",
+                                      "Καλημέρακόσμεαυτόείναιελληνικόκείμενο"])
+    @pytest.mark.parametrize("name", ["a.txt", "a.html"])
+    def test_text_of_another_script_keeps_its_byte_order(self, codec, text, name):
+        # Khmer was read in the other byte order as Han and Hangul (`鼗봗鼗툗…`) without a warning; the others as UTF-8 with �
+        result = convert(text.encode(codec), name)
+
+        assert result.text == text
+        assert result.metadata["encoding"] == codec.replace("-", "_")
+        assert result.warnings == []
+
+    @pytest.mark.parametrize(("text", "codec"), [("𠮷野家で牛丼を食べました", "utf-16-le"), ("髙﨑さんは𠮷野家で𩸽を食べた", "utf-16-le"),
+                                                 ("髙﨑さんは𠮷野家で𩸽を食べた", "utf-16-be")])
+    def test_kanji_outside_the_basic_multilingual_plane(self, text, codec):
+        result = convert(text.encode(codec), "a.txt")
+
+        assert result.text == text
+        assert result.warnings == []
+
+    @pytest.mark.parametrize(("text", "codec"), [("東京とソウル서울", "utf-16-le"), ("부산是", "utf-16-le"), ("부산是", "utf-16-be"),
+                                                 ("首尔서울是韩国的首都", "utf-16-le"), ("首尔서울是韩国的首都", "utf-16-be")])
+    def test_everyday_han_with_a_little_hangul(self, text, codec):
+        result = convert(text.encode(codec), "a.txt")
+
+        assert result.text == text
+        assert result.warnings == []
+
+    @pytest.mark.parametrize("data", [
+        bytes.fromhex("d180d183a9b1"),              # UTF-8 `ру` + two stray bytes: `톀톃ꦱ`
+        bytes.fromhex("96d79420d798"),              # cut UTF-8 Hebrew: `雗鐠힘`, an ideograph and a syllable nobody writes
+        bytes.fromhex("8885c7206cd5"),              # Mac Roman with a space: `袅유法`, everyday characters all three
+        bytes.fromhex("4f4b20d2c1c0"),              # `OK ` + TIS-620 Thai: `佋⃒쇀`
+        bytes.fromhex("20d8b9ded8b1"),              # a surrogate pair by accident: Tangut `𘊹` and `뇘`
+        bytes.fromhex("6b0a3d0ad4ffcf0ad20ad50a"),  # one character per line: `權㴊퓿켊툊픊`, the line breaks are no sign of UTF-16
+    ])
+    def test_broken_byte_text_is_still_not_utf16(self, data):
+        assert not decode_text(data)[1].startswith(("utf_16", "utf_32"))
+
+
 class TestRowspanZero:
     def test_spans_to_the_end_of_the_row_group(self):
         html = ("<table><thead><tr><th>구분</th><th>값</th></tr></thead><tbody><tr><td rowspan=\"0\">A</td><td>1</td></tr>"
