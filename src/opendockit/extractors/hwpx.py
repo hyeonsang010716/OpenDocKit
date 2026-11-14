@@ -6,6 +6,7 @@ Elements are compared **by local name only**: the namespace URI (2011/2016) diff
 """
 
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from io import BytesIO
 import re
@@ -354,28 +355,49 @@ class HwpxRenderer:
                 self._open_memo(node)
             elif name == "fieldEnd":
                 self._close_memo(node.get("beginIDRef", ""))
-            elif name in ("footNote", "endNote") and self._options.include_footnotes:
-                self._note_count += 1
-                self._grids.append(None)  # footnote text is not cell text — handing its table to the outer cell leaks the placeholder to the note
-                self._note_depth += 1
-                try:
-                    note = " ".join(" ".join(block.split()) for sub in _top_sublists(node)
-                                    for block in self.render_paragraphs(sub))
-                finally:
-                    self._note_depth -= 1
-                    self._grids.pop()
-                buffer.append(f"[^{self._note_count}]")
-                self.notes.append(f"[^{self._note_count}]: {note}")
+            elif name in ("footNote", "endNote") and self._options.include_footnotes and not self._note_depth:
+                self._render_note(node, buffer)
             elif name in ("header", "footer") and self._options.include_headers_footers:
                 self._grids.append(None)
                 try:
-                    text = join_blocks(block for sub in _top_sublists(node) for block in self.render_paragraphs(sub))
+                    with self._own_numbering():
+                        text = join_blocks(block for sub in _top_sublists(node) for block in self.render_paragraphs(sub))
                 finally:
                     self._grids.pop()
                 if text:
                     self.headers_footers.setdefault(text)
             elif name == "autoNum":
                 buffer.append(_auto_number(node))
+
+    def _render_note(self, note: etree._Element, buffer: list[str]) -> None:
+        """A footnote or endnote: `[^n]` in place and `[^n]: text` at the end. The number is taken once the text is known, so a
+        note without text leaves neither reference nor definition and the notes after it stay consecutive; a note inside a note is
+        left out (the caller checks `_note_depth`), as in RTF and ODF — Markdown cannot reference it from a definition, and numbering
+        it first gave the outer note's number to both. A note inside a comment is numbered the same way
+        (Pinned by: test_hwp.py::TestNotesInsideNotes)."""
+        self._grids.append(None)  # footnote text is not cell text — handing its table to the outer cell leaks the placeholder to the note
+        self._note_depth += 1
+        try:
+            with self._own_numbering():
+                text = " ".join(" ".join(block.split()) for sub in _top_sublists(note) for block in self.render_paragraphs(sub))
+        finally:
+            self._note_depth -= 1
+            self._grids.pop()
+        if not text.strip():
+            return
+        self._note_count += 1
+        buffer.append(f"[^{self._note_count}]")
+        self.notes.append(f"[^{self._note_count}]: {text}")
+
+    @contextmanager
+    def _own_numbering(self) -> Iterator[None]:
+        """Paragraph numbers of a header, footer, note or comment counted on their own: a numbered paragraph there advanced the
+        body's counters, so the body's next item skipped a number (Pinned by: test_hwp.py::TestNumberingOutsideTheBody)."""
+        saved, self._numberings = self._numberings, {}
+        try:
+            yield
+        finally:
+            self._numberings = saved
 
     def _open_memo(self, field: etree._Element) -> None:
         """Record one comment and start gathering its range. The author is the Author parameter; the text is the subList paragraphs on one line.
@@ -390,7 +412,8 @@ class HwpxRenderer:
         self._grids.append(None)
         self._memo_depth += 1
         try:
-            text = " ".join(" ".join(block.split()) for sub in _top_sublists(field) for block in self.render_paragraphs(sub))
+            with self._own_numbering():
+                text = " ".join(" ".join(block.split()) for sub in _top_sublists(field) for block in self.render_paragraphs(sub))
         finally:
             self._memo_depth -= 1
             self._grids.pop()

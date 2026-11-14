@@ -10,6 +10,7 @@ footnotes and outline headings are read directly.
 
 from array import array
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from io import BytesIO
 import re
@@ -493,25 +494,43 @@ class HwpRenderer:
         return self._numberings[key].advance(level), level
 
     def _render_note(self, control: Record, buffer: list[str]) -> None:
-        if not self._options.include_footnotes:
+        """A footnote or endnote: `[^n]` in place and `[^n]: text` at the end. The number is taken once the text is known, so a
+        note without text leaves neither reference nor definition and the notes after it stay consecutive; a note inside a note is
+        left out, as in RTF and ODF — Markdown cannot reference it from a definition, and numbering it first gave the outer note's
+        number to both (Pinned by: test_hwp.py::TestNotesInsideNotes)."""
+        if not self._options.include_footnotes or self._note_depth:
             return
-        self._note_count += 1
         self._grids.append(None)  # footnote text is not cell text — handing its table to the outer cell leaks the placeholder into the footnote
         self._note_depth += 1
         try:
-            note = " ".join(" ".join(block.split()) for block in self.render(control.children))
+            with self._own_numbering():
+                note = " ".join(" ".join(block.split()) for block in self.render(control.children))
         finally:
             self._note_depth -= 1
             self._grids.pop()
+        if not note.strip():
+            return
+        self._note_count += 1
         buffer.append(f"[^{self._note_count}]")
         self.notes.append(f"[^{self._note_count}]: {note}")
+
+    @contextmanager
+    def _own_numbering(self) -> Iterator[None]:
+        """Paragraph numbers of a header, footer or note counted on their own: a numbered paragraph there advanced the body's
+        counters, so the body's next item skipped a number (Pinned by: test_hwp.py::TestNumberingOutsideTheBody)."""
+        saved, self._numberings = self._numberings, {}
+        try:
+            yield
+        finally:
+            self._numberings = saved
 
     def _collect_header_footer(self, control: Record) -> None:
         if not self._options.include_headers_footers:
             return
         self._grids.append(None)
         try:
-            text = join_blocks(self.render(control.children))
+            with self._own_numbering():
+                text = join_blocks(self.render(control.children))
         finally:
             self._grids.pop()
         if text:
