@@ -95,6 +95,13 @@ class TestListInsideAQuoteInsideAnItem:
 
         assert extraction.sections[0].text.strip() == "- a\n\n> q\n>\n> - b\n>   - c\n\n- z"
 
+    def test_deeply_nested_quotes_and_lists_stay_bounded(self):
+        html = "<ul><li>a<blockquote>" * 800 + "끝"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text.endswith("끝")
+
     def test_quote_with_paragraphs_keeps_its_lines(self):
         html = "<ul><li>a<blockquote><p>q1</p><p>q2</p></blockquote></li></ul>"
 

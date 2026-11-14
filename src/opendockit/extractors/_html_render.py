@@ -90,6 +90,8 @@ _LIST_SLOT = re.compile(f"{re.escape(_LIST_SLOT_OPEN)}(\\d+){_LIST_SLOT_CLOSE}")
 # Maximum list indentation depth. Deeper lists are folded onto one line (a list 14,000 levels deep was rejected with a
 # recursion-limit error) (Pinned by: test_text_html.py::TestDeepNesting).
 _MAX_LIST_DEPTH = 20
+# How many lists are being drawn inside one another (`_render_list`).
+_list_nesting: ContextVar[int] = ContextVar("list_nesting", default=0)
 # Maximum depth of stacked quote marks (`> `). Deeper quote blocks are only separated as blocks. The parser nests an unclosed
 # `<blockquote>` one level per occurrence, and prefixing `> ` to the whole inner text again at every level is quadratic in the
 # depth (4,500 levels, 58KB took 48 s and 2.9GB) (Pinned by: test_text_html.py::TestMalformedNesting).
@@ -438,9 +440,19 @@ _LEAF_RENDERERS = {
 
 
 def _render_list(node: Tag, list_depth: int) -> str:
-    if list_depth >= _MAX_LIST_DEPTH:
+    # The lists being drawn inside one another count too, not only the indentation: a list inside a quote block of an item is
+    # drawn by the quote at the item's own depth, and `<ul><li>a<blockquote>` repeated 800 times (unclosed) hit the recursion
+    # limit (Pinned by: test_core_html.py::TestListInsideAQuoteInsideAnItem::test_deeply_nested_quotes_and_lists_stay_bounded).
+    if list_depth >= _MAX_LIST_DEPTH or _list_nesting.get() >= _MAX_LIST_DEPTH:
         return f"{'  ' * list_depth}- {' '.join(node.get_text(' ').split())}"
+    token = _list_nesting.set(_list_nesting.get() + 1)
+    try:
+        return _render_list_items(node, list_depth)
+    finally:
+        _list_nesting.reset(token)
 
+
+def _render_list_items(node: Tag, list_depth: int) -> str:
     lines = []
     ordered = node.name == "ol"
     entries = _list_entries(node)
