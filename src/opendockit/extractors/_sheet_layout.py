@@ -298,7 +298,7 @@ def _sheet_segments(rows: list[list[str]], left: int) -> list[tuple[bool, list[l
             continue
         if table is not None and not _starts_new_table(header, width, block, left, titled=bool(notes)):
             table.extend([*notes, *block])
-            width = max(width, _width(notes), _width(block))
+            width = max(width, _width(block))  # a one-cell row in between is never wider than the table
             notes = []
             continue
         if table is not None:

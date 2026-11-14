@@ -263,7 +263,6 @@ def _load_workbook(source: BytesIO, **options: bool) -> openpyxl.Workbook:
     reading = _READING.get()
     if reading is not None:
         reading.malformed = reading.unread_rich = 0
-        reading.sheet_parts = {}
     return openpyxl.load_workbook(source, **options)
 
 

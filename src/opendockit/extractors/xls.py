@@ -243,7 +243,8 @@ def _xls_row(book: xlrd.book.Book, sheet: xlrd.sheet.Sheet, row_index: int, blan
     at position limit+1 just so that the 'columns excluded' warning fires. `blank` is the formula cells emptied because the 0 in
     their result slot cannot be trusted; `offset` is the number of leading empty columns dropped from the row
     (`_xls_first_used_column`). A number cell that is not a finite number (NaN, infinity) is blank and is added to `not_finite`.
-    It came out as `nan` / `inf`; an XLS has no text written for the cell to keep as XLSX and Excel 2003 XML do
+    It came out as `nan` / `inf`; an XLS has no text written for the cell to keep as XLSX and Excel 2003 XML do. A date cell
+    is a number cell with a date format, and a cell past the column limit is not written, so it is not counted
     (Pinned by: test_audit_spreadsheet.py::TestXlsNumberThatIsNotFinite)."""
     rich = sheet.rich_text_runlist_map
 
@@ -395,19 +396,12 @@ def _xls_chart_sheets(stream: bytes, include_hidden: bool, biff_version: int = 8
             continue
         length = body[6]
         if biff_version < 80:
-            names.append(_decoded(body[7:7 + length], encoding))
-        elif len(body) >= 8:
+            # xlrd opens a workbook only when Python knows the encoding it derived from the code page
+            names.append(body[7:7 + length].decode(encoding or "latin-1", errors="replace"))
+        elif len(body) >= 8:  # Pinned by: test_audit_spreadsheet.py::TestBiff5ChartSheetNames::test_biff8_record_without_a_flags_byte
             names.append(body[8:8 + length * 2].decode("utf-16-le", errors="replace") if body[7] & 1
                          else body[8:8 + length].decode("latin-1"))
     return names
-
-
-def _decoded(raw: bytes, encoding: str | None) -> str:
-    """Bytes in a code page xlrd names; Latin-1 when the name is missing or unknown to Python."""
-    try:
-        return raw.decode(encoding or "latin-1", errors="replace")
-    except LookupError:
-        return raw.decode("latin-1")
 
 
 _BIFF_CHART_SUBSTREAM = 0x0020

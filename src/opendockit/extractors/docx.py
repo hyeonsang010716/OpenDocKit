@@ -157,8 +157,6 @@ class _DocxRenderer:
         self.notes = _NoteLabels(self._written_notes())
         # Tables being rendered. A table inside a cell is handed to the table at the top of the stack (markdown.TableGrid.embed)
         self._grids: list[TableGrid] = []
-        # Whether a top-level table being read is a body table, which checks the character limit cell by cell (`_render_table`)
-        self._in_body = True
         self._chunks: dict[object, Extraction] = {}  # imported-content part → its conversion (`_chunk_blocks`)
         self._chart_titles: dict[object, str] = {}  # chart part already written → its `[Chart] title` line (`_object_block`)
         self._drop_cap: tuple[etree._Element, str] | None = None  # (drop-cap paragraph, its text). Prepended to the very next paragraph
@@ -191,12 +189,8 @@ class _DocxRenderer:
         """Content of a part other than the body, such as a header or footer. Relationship ids of pictures and charts are looked up in
         that part. Looked up in the body part, a different part with the same id was registered as the picture
         (Pinned by: test_office.py::TestDocxObjects::test_header_picture_comes_from_the_header_part)."""
-        in_body, self._in_body = self._in_body, False
-        try:
-            with self.in_part(part), self._own_lists():
-                return self.render_container(container)
-        finally:
-            self._in_body = in_body
+        with self.in_part(part), self._own_lists():
+            return self.render_container(container)
 
     @contextmanager
     def in_part(self, part: object) -> Iterator[None]:
@@ -452,7 +446,7 @@ class _DocxRenderer:
         # the end (39 s) — its text is part of the output, so a table that passes the limit alone is over wherever it is written
         # (Pinned by: test_office_table_char_limit.py::TestCharacterLimitInsideOneTable::
         # test_header_table_longer_than_the_limit_stops_reading_rows).
-        budget = None if self._grids else TableBudget(self._extraction if self._in_body else Extraction(), self._options)
+        budget = None if self._grids else TableBudget(self._extraction if self._part is self._main_part else Extraction(), self._options)
         outer = self._grids[-1] if self._grids else None
         self._grids.append(grid)
         try:

@@ -779,6 +779,24 @@ class TestManyEmptyRowBlocks:
                              "| h | v |\n| --- | --- |\n| 4 | 5 |")  # the header of the new table is compared, not the first one
 
 
+class TestTableThatGrowsWiderBlockByBlock:
+    """The column count a new block is compared with is that of the whole table so far, kept up to date as blocks join it. A
+    block that looks like a header splits the table without a title only when its column count differs: compared with the
+    first block alone, a table widened by a later block was split at a row of the same width."""
+
+    def test_block_as_wide_as_the_widened_table_stays_in_it(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        for row in (["Name", "Qty"], ["a", 1], [], ["b", 2, "late"], [], ["Item", "Count", "Note"], ["c", 3, "x"]):
+            sheet.append(row)
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        text = convert(buffer.getvalue(), "a.xlsx").sections[0].text
+
+        assert text == "| Name | Qty | |\n| --- | --- | --- |\n| a | 1 | |\n| b | 2 | late |\n| Item | Count | Note |\n| c | 3 | x |"
+
+
 class TestSharedFormulasThatCannotBeMoved:
     """A shared formula whose reference moves off the sheet when it is rewritten for another cell (a dependent cell left of the
     first one, `=A1` moved one column left) made openpyxl raise TranslatorError, and the whole workbook was rejected as
@@ -850,6 +868,29 @@ class TestXlsNumberThatIsNotFinite:
 
         assert result.text == "## Sheet: Sheet 1\n\n| name | value |\n| --- | --- |\n| a | |\n| b | |\n| c | |\n| d | 12.5 |"
         assert result.warnings == ["3 number cell value(s) that are not finite numbers were left blank."]
+
+    def test_cell_past_the_column_limit_is_not_counted(self):
+        data = builder.raw_biff_xls([["name", "value", "x", "y"], ["a", 1.0, float("nan"), 2.0]])
+
+        result = convert(data, "a.xls", ConvertOptions(max_sheet_cols=2))
+
+        assert result.text == "## Sheet: Sheet 1\n\n| name | value |\n| --- | --- |\n| a | 1 |"
+        assert result.warnings == ["Sheet 'Sheet 1': columns beyond column 2 were excluded."]
+
+    def test_date_cell_is_blank_too(self):
+        """A date is a number cell in a date format (here the built-in format 14)."""
+        def number(row: int, column: int, value: float) -> bytes:
+            return builder.xls_record(0x0203, struct.pack("<HHHd", row, column, 1, value))
+
+        formats = b"".join(builder.xls_record(0x00E0, struct.pack("<HHH", 0, number_format, 0) + b"\0" * 14)
+                           for number_format in (0, 14))
+        cells = number(1, 0, 45000.0) + number(1, 1, float("nan")) + number(2, 0, float("inf"))
+        data = builder.xls_bytes([("S", [["day", "when"]], cells)], globals_extra=formats)
+
+        extraction = xls.extract_xls(data, ConvertOptions())
+
+        assert extraction.sections[0].text == "| day | when |\n| --- | --- |\n| 2023-03-15 |  |"
+        assert extraction.warnings == ["2 number cell value(s) that are not finite numbers were left blank."]
 
 
 class TestQuestionMarkPlaces:
@@ -950,6 +991,16 @@ class TestBiff5ChartSheetNames:
         data = _biff5_workbook(b"Chart", b"Data", 1252, hidden=1)
 
         assert xls.extract_xls(data, ConvertOptions()).warnings == []
+
+    def test_biff8_record_without_a_flags_byte(self):
+        """A BIFF8 chart-sheet record that ends at its name length (0) has no flags byte to read: the name is left out and the
+        workbook, which xlrd opens, is converted."""
+        nameless = builder.xls_record(0x0085, struct.pack("<IBBB", 0, 0, 2, 0))
+        data = builder.xls_bytes([("S", [["a", "b"]], b"")], globals_extra=nameless)
+
+        extraction = xls.extract_xls(data, ConvertOptions())
+
+        assert extraction.sections[0].text == "| a | b |\n| --- | --- |" and extraction.warnings == []
 
 
 def _two_sheets(second_name: str, second_state: str = "") -> bytes:
