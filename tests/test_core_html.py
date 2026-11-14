@@ -173,8 +173,11 @@ class TestFallbackContentOfObjectAndCanvas:
 
     @pytest.mark.parametrize("notice", [
         "Your browser does not support the HTML5 canvas tag.",
-        "Sorry, your browser doesn't support canvas. Please <a href='https://example.com'>upgrade your browser</a>.",
+        "Your browser does not support the canvas element. Please upgrade your browser.",
+        "Sorry, your browser doesn't support canvas! Please update your browser",
         "<p>이 브라우저는 캔버스를 지원하지 않습니다.</p>",
+        "<div><p> 캔버스를 표시할 수 없습니다. 브라우저를 업데이트해 주세요. </p></div>",
+        "Canvas is not supported.",
     ])
     def test_notice_that_the_browser_cannot_draw_a_canvas_is_not_content(self, notice):
         html = f'<p>앞</p><canvas id="chart" width="300" height="150">{notice}</canvas><p>뒤</p>'
@@ -188,11 +191,30 @@ class TestFallbackContentOfObjectAndCanvas:
         ("지원 부서별 문의 건수: 영업 12건, 개발 30건", "지원 부서별 문의 건수: 영업 12건, 개발 30건"),
         ("Share of browsers that support the feature, by year. " + "2021: 61%, 2022: 74%, 2023: 88%. " * 5,
          "Share of browsers that support the feature, by year. " + ("2021: 61%, 2022: 74%, 2023: 88%. " * 5).strip()),
-    ], ids=["names-the-browser-only", "holds-a-table", "names-support-only", "long"])
+        ("Your browser does not support canvas. The chart shows revenue of 3.2M in 2023 and 4.1M in 2024.", None),
+        ("<p>Your browser does not support canvas.</p><p>Revenue 2023: 3.2M</p><p>Revenue 2024: 4.1M</p>",
+         "Your browser does not support canvas.\n\nRevenue 2023: 3.2M\n\nRevenue 2024: 4.1M"),
+        ("Your browser does not support canvas. <a href='data.csv'>Download the data</a>",
+         "Your browser does not support canvas. Download the data"),
+        ("Browser support for WebGL rose from 60% to 95% between 2012 and 2020.", None),
+        ("Your browser shows sales rising 20% in Q3; updated figures for Q4 follow.", None),
+        ("브라우저별 점유율 차트: 크롬 65%, 사파리 19%. 2024년 업데이트 기준.", None),
+        ("모바일 브라우저 지원 현황을 나타낸 막대 그래프입니다. 크롬 98%, 삼성 인터넷 95%.", None),
+        ("Support tickets per browser: Chrome 120, Firefox 30.", None),
+        ("Your browser does not support canvas. The chart shows that sales rose in every quarter.", None),
+        ("Your browser does not support canvas. Please upgrade your browser. Sales rose in every quarter.", None),
+        ("<p>Your browser does not support canvas.</p><p>Please upgrade your browser.</p>",
+         "Your browser does not support canvas.\n\nPlease upgrade your browser."),
+        ("Browser support for the canvas element, by vendor and year", None),
+        ("Your browser does not support canvas. " + "The chart cannot be shown without a canvas, sorry about that. " * 3, None),
+    ], ids=["names-the-browser-only", "holds-a-table", "names-support-only", "long", "notice-and-the-figures",
+            "notice-and-paragraphs-of-figures", "notice-and-a-link", "support-of-browsers-in-figures", "browser-and-updated",
+            "korean-updated", "korean-support", "support-tickets", "notice-and-a-description", "third-sentence",
+            "two-paragraphs", "no-negation", "long-notice"])
     def test_text_alternative_of_a_canvas_stays(self, fallback, expected):
         html = f'<p>앞</p><canvas width="300" height="150">{fallback}</canvas>'
 
-        assert convert(html.encode(), "a.html").text == f"앞\n\n{expected}"
+        assert convert(html.encode(), "a.html").text == f"앞\n\n{expected or fallback.strip()}"
 
 
 class TestMathMl:
