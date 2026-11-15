@@ -778,11 +778,12 @@ class _Reader:
 
     def _ud_follows(self, pos: int) -> bool:
         """Is the rest of the group being read, from `pos` to its end, an ANSI copy group and a `\\ud` group (`\\*` and white
-        space may stand in front of `\\ud`), or a `\\ud` group alone, with only white space between and around them? Each byte is
-        looked at here once at most: a `\\upr` inside the group is not looked ahead of again
+        space may stand in front of `\\ud`), or a `\\ud` group alone, with only white space between and around them, no `\\ud`
+        inside the ANSI copy and text in the `\\ud` copy? Each byte is looked at here once at most: a `\\upr` inside the group is not
+        looked ahead of again
         (Pinned by: test_rtf.py::TestHostileInput::test_upr_groups_are_looked_ahead_of_once)."""
         data, size, match = self._data, len(self._data), _TOKEN.match
-        depth, groups, ud = 1, 0, False
+        depth, groups, ud, text = 1, 0, False, False
         opening = False  # only `\*` and white space read since a group directly inside opened
         while pos < size:
             token = match(data, pos)
@@ -794,7 +795,7 @@ class _Reader:
                 if token.group(5) == b"}":
                     depth -= 1
                     if not depth:
-                        return ud
+                        return ud and text
                     opening = False
                     continue
                 if depth == 1:
@@ -810,9 +811,15 @@ class _Reader:
                 return False  # text or a control word beside the copies
             if kind == 2 and token.group(1) == b"bin":
                 pos = min(pos + max(int(token.group(2)), 0), size)
+            if kind <= 2 and token.group(1) == b"ud":
+                if not ud and not opening:
+                    return False  # a `\ud` inside the ANSI copy: read as it is, through the ANSI copy
+                ud = True  # (one inside the `\ud` copy belongs to a `\upr` there)
+            elif ud and not text:
+                # The `\ud` copy holds text (a letter, an escaped byte or `\uN`). An empty one is not read: its ANSI copy has
+                # the text (`{\upr{A}{\*\ud{}}}` came out empty)
+                text = (kind == 6 and bool(token.group(6).strip())) or kind == 3 or (kind <= 2 and token.group(1) == b"u")
             if opening:
-                if kind <= 2 and token.group(1) == b"ud":
-                    ud = True
                 opening = (kind == 4 and token.group(4) == b"*") or (kind == 6 and not token.group(6).strip())
         return False
 

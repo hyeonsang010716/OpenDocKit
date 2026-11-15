@@ -232,6 +232,13 @@ class TestCharacters:
         assert _text(r"{\upr{\*\ud{" + korean + r"}}{ANSI ?}}\par") == "ANSI ?"
         nested = r"{\upr{X ?}{\*\ud{X {\upr{in ?}{\*\ud{in " + korean + r"}}} end}}}\par"
         assert _text(nested) == "X in ? end"
+        # A `\\ud` inside the ANSI copy does not switch reading on, and a `\\ud` copy without text leaves the ANSI copy read:
+        # the first came out 'BC' (the tail of one copy and the other), the others empty
+        assert _text(r"{\upr{A\ud B}{\*\ud{C}}}\par") == "A"
+        assert _text(r"{\upr{A}{\*\ud}}\par") == "A"
+        assert _text(r"{\upr{A}{\*\ud{}}}\par") == "A"
+        assert _text(r"{\upr{A}{\*\ud{ {\b0} }}}\par") == "A"
+        assert _text(r"{\upr{A ?}{\*\ud{\'41}}}\par") == "A"
 
     def test_special_characters(self):
         body = (r"a\tab b\line c\emdash d\endash e \lquote f\rquote  \ldblquote g\rdblquote  \bullet  h\~i\_j\-k \{x\} \\ \par")
