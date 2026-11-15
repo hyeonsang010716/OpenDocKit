@@ -60,8 +60,9 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **Right-aligned lines between left-aligned lines** (dialogue transcripts, ※ notes) are read top to bottom; but when the right-hand lines all have the same width they are taken as side-by-side text boxes and read column by column.
 - **Footnotes are linked only where the page proves it** (see [formats](formats.md#pdf)). A page with a mark in a table cell,
   a symbol mark (`*`, `†`), notes numbered with plain (not raised) numbers, notes without a footnote rule, a raised number that
-  could be either a mark or an exponent, a raised digit shown as plain text, small digits in a table, a word with a note
-  number glued to it ('conv3', 'Books2') or a typed `^` keeps `135^1%` and the note as plain lines at the bottom of the page
+  could be either a mark or an exponent, a raised or small digit shown as plain text, small digits in a table, a word with a note
+  number glued to it ('conv3', 'Books2'), a line right under the notes that is not a note (a footer), two notes set on one
+  line or a typed `^` keeps `135^1%` and the note as plain lines at the bottom of the page
   — an unlinked note was judged safer than a wrong one. So does a page after one that left a mark with the same number
   unlinked (its note may have moved to the next page). The end of a note carried over from the previous page stays as plain
   text above the notes of the page. `include_footnotes=False` does not remove PDF notes.

@@ -10,19 +10,23 @@ when every piece of evidence agrees, and otherwise it is left exactly as it was 
    table) with the notes right under it, starting at its left end. Word, LibreOffice and LaTeX draw one.
 2. The notes: every line under the rule down to the first gap, in a smaller size than the body (`_NOTE_SIZE_RATIO`), with no
    other line between them and no further note after the gap. A note starts with its number raised (`^1`, `^{1)}`); after the
-   first note no line starts with another kind of mark (`*`, `†`, a raised letter).
+   first note no line starts with another kind of mark (`*`, `†`, a raised letter), no line that does not start a note follows
+   a line that stops short of the right end of the text (`_NOTE_END_SIZES`), and no note line holds a raised number after a
+   space (`_INNER_NOTE`).
 3. The numbers of the notes on the page run on without a gap (3, 4, 5), and start at 1 or higher than the last number of the
    previous page that had notes.
-4. The marks: raised numbers in the body (`^1`, `^{12}`, `^{1)}`). Each note number is given to one mark, in reading order, and
-   there is exactly one way to do that. A raised number that no note has ('m^2' after the last mark) stays as it is; a second
-   way of choosing ('m^2' between the marks 1 and 3 when note 2 exists) leaves the whole page unlinked.
-5. Nothing else on the page could be a mark the body does not show: every digit raised by its size and position is shown raised
-   in the line text, and no digit in the table cells or the sideways text is clearly smaller than the text around it (scripts
-   are not marked there) (`_Page.unshown_marks`); no note number is in another raised group ('^{2,3}', '^{1-3}'), in a
-   raised group of a table, in a raised number at the start of a line, in a small line holding only a number, or right after
-   two letters ('Sales2'), and the previous page left no mark with a note number unlinked, raised or hidden, and is known
-   (not read the simple way, no raised digits it does not show) — its note may be on this page; and no '^' character is
-   drawn on the page (a typed '^1' cannot be told apart from a raised 1). A
+4. The marks: raised numbers in the body (`^1`, `^{12}`, `^{1)}`). Each note number is in exactly one of them, and they come
+   in the order of the notes. A raised number that no note has ('m^2' on a page with note 1 only) stays as it is; a second
+   raised number with a note number ('m^2' with note 2), wherever it stands, leaves the whole page unlinked — reading order
+   does not place a mark in a floated caption.
+5. Nothing else on the page could be a mark the body does not show: every digit raised by its size and position, or clearly
+   smaller than the largest character of its line, is shown raised in the line text, and no digit in the table cells or the
+   sideways text is clearly smaller than the text around it (scripts are not marked there) (`_Page.unshown_marks`); no note
+   number is in another raised group ('^{2,3}', '^{1-3}'), in a raised group of a table, in a raised number at the start of a
+   line, in a small line holding only a number, or right after two letters ('Sales2'), and the previous page left no mark with
+   a note number unlinked, raised or hidden, and is known (not read the simple way, no raised digits it does not show) — its
+   note may be on this page; no '^' character is drawn on the page (a typed '^1' cannot be told apart from a raised 1); and no
+   character has no Unicode mapping ('(cid:21)', `_UNMAPPED`). A
    mark raised without being made smaller is not seen as raised (Word, LibreOffice and LaTeX make it smaller).
 
 A linked page writes the mark as `[^n]` and the note as `[^n]: text` in its place at the bottom of the page — the page stays one
@@ -60,6 +64,14 @@ _NOTE_GAP_LINES = 1.5
 # TestLeftAsIs::test_other_line_between_the_notes).
 _RULE_LEFT_SLACK = 2.0
 _NOTE_INDENT_SIZES = 4.0
+# A line of the notes that stops more than this many character sizes short of the right end of the text (the notes and the
+# `_TEXT_END_LINES` body lines right above the rule) ends its note, so a line right under it that does not start a note is not a
+# wrapped line of that note but a line of its own (a footer, a 'Note:' line) and the block is not taken: linked, it would be part
+# of the note. Wrapped lines of a note run to the right end, short of it by at most one word of ragged-right text (Pinned by:
+# test_pdf_footnotes.py::TestLeftAsIs::test_line_of_its_own_right_under_the_notes,
+# TestLinked::test_wrapped_line_that_starts_with_a_number_stays_with_its_note).
+_NOTE_END_SIZES = 10.0
+_TEXT_END_LINES = 5
 # The median size of the notes is at most this share of the median size of the body lines (Word 10pt under 11pt is 0.91). A
 # numbered list under a short rule is set in the body size (Pinned by: test_pdf_footnotes.py::TestLeftAsIs::test_notes_as_large_as_the_body).
 _NOTE_SIZE_RATIO = 0.95
@@ -76,6 +88,10 @@ _RAISED_NUMBER = re.compile(r"\^(?:(\d)|\{(\d{1,3})[.)]?\})\s*")
 # note it would be read as the wrapped line of the note above it (Pinned by:
 # test_pdf_footnotes.py::TestLeftAsIs::test_symbol_note_after_a_numbered_note).
 _OTHER_NOTE = re.compile(r"[*∗†‡§¶‖※#]|\^")
+# A raised number after a space inside a line of the notes: the number of a second note on the same line ('^1 One. ^2 Two.'). Its
+# text would be read as part of the note before it, and its mark left unlinked; such notes leave the page unlinked. An exponent is
+# set right after its base ('m^2') (Pinned by: test_pdf_footnotes.py::TestLeftAsIs::test_two_notes_on_one_line).
+_INNER_NOTE = re.compile(r"(?<=\s)\^(?:\d|\{\d)")
 # A number written right after two letters ('Sales2', '매출액1)'): a mark that was not recognized as raised, or text that looks
 # like one. A note number found this way outside the notes leaves the page unlinked (Pinned by:
 # test_pdf_footnotes.py::TestLeftAsIs::test_mark_that_was_not_recognized_as_raised; the other hidden marks:
@@ -93,6 +109,10 @@ _RANGE_MAX = 50
 # belongs to (Pinned by: test_pdf_footnotes.py::TestLeftAsIs::test_mark_drawn_apart_as_a_small_number).
 _LONE_NUMBER = re.compile(r"\(?(\d{1,3})[).]?")
 _LONE_NUMBER_RATIO = 0.85
+# A character with no Unicode mapping in its font, as pdfminer writes it ('(cid:21)'). It could be the mark of a note that the
+# text does not show (a subset font without a ToUnicode map), so a page with one is not linked (Pinned by:
+# test_pdf_footnotes.py::TestLeftAsIs::test_mark_in_a_font_without_a_unicode_mapping).
+_UNMAPPED = re.compile(r"\(cid:\d+\)")
 
 
 @dataclass(slots=True)
@@ -119,9 +139,8 @@ def _link_footnotes(pages: list[_Page]) -> None:
     Pinned by: test_pdf_footnotes.py — the numbers running on: TestLeftAsIs::test_note_numbers_with_a_gap,
     test_numbers_that_do_not_follow_the_previous_page, TestLinked::test_numbering_that_jumps_ahead; a '^' drawn on the page:
     TestLeftAsIs::test_caret_typed_in_the_text; a mark left on the previous page: test_mark_left_unlinked_on_the_previous_page;
-    a note without its mark: test_note_without_a_mark_in_the_body; only one
-    way of choosing the marks: test_more_than_one_way_to_choose_the_marks, TestLinked::test_exponent_that_cannot_be_the_mark_in_
-    reading_order_stays; the labels: TestLinked::test_numbering_that_starts_again_is_written_with_the_page.
+    a note without its mark: test_note_without_a_mark_in_the_body; one raised number per note number (`_only_reading`); the
+    labels: TestLinked::test_numbering_that_starts_again_is_written_with_the_page.
     """
     linked: list[tuple[_Page, list[_Notes], list[_Mark]]] = []
     previous = 0  # the last note number of the previous page that had notes
@@ -137,7 +156,9 @@ def _link_footnotes(pages: list[_Page]) -> None:
         in_areas = {id(line) for area in areas for line in area.lines}
         candidates = _body_marks(page, in_areas)
         hidden = _hidden_marks(page, in_areas)
-        unknown = page.text_untrusted or page.literal_carets or page.unshown_marks
+        unknown = (page.text_untrusted or page.literal_carets or page.unshown_marks
+                   or any(_UNMAPPED.search(text) for text in [line.text for line in page.lines] + [table.text for table in page.tables]
+                          + page.sideways))
         left_over = None if unknown else {mark.number for mark in candidates} | hidden
         if not areas or before is None or unknown:
             continue
@@ -209,18 +230,32 @@ def _notes_under(rule: tuple[float, float, float], lines: list[_Line]) -> _Notes
                      if line.top >= height - 0.5 and line.size > 0
                      and left - _RULE_LEFT_SLACK <= line.x0 <= left + _NOTE_INDENT_SIZES * line.size),
                     key=lambda line: line.top)
+    # The right end of the text in this column: the lines of the notes and the body lines right above the rule that start at its
+    # left end
+    above = sorted((line for line in lines if line.bottom <= height + 0.5 and line.size > 0
+                    and left - _RULE_LEFT_SLACK <= line.x0 <= left + _NOTE_INDENT_SIZES * line.size),
+                   key=lambda line: line.bottom, reverse=True)[:_TEXT_END_LINES]
     block: list[_Line] = []
     for line in column:
-        above = block[-1].bottom if block else height
-        if line.top - above > (_NOTE_GAP_LINES if block else _RULE_GAP_LINES) * line.height:
+        previous = block[-1].bottom if block else height
+        if line.top - previous > (_NOTE_GAP_LINES if block else _RULE_GAP_LINES) * line.height:
             break
         block.append(line)
+    right = max(line.x1 for line in [*block, *above]) if block else 0.0
+    # A line after one that stops short of the right end is not a wrapped line of that note (a footer, a 'Note:' line); it would
+    # be read as part of the note
+    if any(not _note_start(line.text) and earlier.x1 < right - _NOTE_END_SIZES * earlier.size
+           for earlier, line in zip(block, block[1:], strict=False)):
+        return None
     starts = {index: start for index, line in enumerate(block) if (start := _note_start(line.text))}
     # A note further down, after a gap, means the block is not all of the notes
     if not starts or any(_note_start(line.text) for line in column[len(block):]):
         return None
     first = min(starts)
     if any(index > first and index not in starts and _OTHER_NOTE.match(line.text) for index, line in enumerate(block)):
+        return None
+    # A raised number after a space inside a line of the notes is the number of another note set on the same line
+    if any(_INNER_NOTE.search(line.text, 1) for line in block):
         return None
     # A line of another kind between the rule and the last note (a centred line, text indented further) means this is not a
     # block of notes
@@ -276,22 +311,16 @@ def _body_marks(page: _Page, in_areas: set[int]) -> list[_Mark]:
 
 
 def _only_reading(numbers: list[int], marks: list[_Mark]) -> list[_Mark] | None:
-    """The marks that take the note `numbers` in order (one mark per number, each later in reading order than the one before),
-    when there is exactly one way to choose them. None when there is no way or more than one.
+    """The marks that take the note `numbers`: the raised numbers of the body with a note number, when there is exactly one of
+    each and they come in the order of the notes. None otherwise.
 
-    Ways are counted per prefix of `numbers` (capped at 2): a mark with the number at position i extends every way of choosing
-    the numbers before it. When there is exactly one way, the earliest choice is that way.
+    Deliberate: a second raised number with a note number leaves the page unlinked wherever it stands, even where reading order
+    rules it out as the mark ('m^2' after the mark of note 3). Reading order does not place every mark: LaTeX numbers a mark in
+    a figure caption in the order of the source and floats the figure to the top or bottom of the page, so the real mark of note
+    2 was read before mark 1 or after mark 3 and 'm^2' between them took the note (Pinned by:
+    test_pdf_footnotes.py::TestLeftAsIs::test_mark_in_a_floated_caption, test_more_than_one_way_to_choose_the_marks,
+    test_exponent_with_a_note_number_after_the_marks).
     """
-    position = {number: index for index, number in enumerate(numbers)}
-    ways = [1] + [0] * len(numbers)
-    for mark in marks:
-        index = position.get(mark.number)
-        if index is not None:
-            ways[index + 1] = min(ways[index + 1] + ways[index], 2)
-    if ways[-1] != 1:
-        return None
-    chosen: list[_Mark] = []
-    for mark in marks:
-        if len(chosen) < len(numbers) and mark.number == numbers[len(chosen)]:
-            chosen.append(mark)
-    return chosen
+    wanted = set(numbers)
+    chosen = [mark for mark in marks if mark.number in wanted]
+    return chosen if [mark.number for mark in chosen] == numbers else None

@@ -276,19 +276,23 @@ def _raised_digits_unshown(chars: list[dict], text: str) -> bool:
     """Whether the line has more raised digits by position (`_positional_scripts`) than its text `text` shows inside raised
     groups — a raised number that `_scripted_text` left as plain text (a span with Hangul, a line whose characters are in another
     order, a script `format_script` does not mark). Footnotes are not linked on a page with one: that number could be the
-    mark of a note while an exponent with the same number takes the note (`_pdf_footnotes`). A line of two characters gives
-    no basis for the position, so a digit in it clearly smaller than the other character counts as unshown ('A' and a raised
-    '2') (Pinned by: test_pdf_footnotes.py::TestLeftAsIs::test_raised_number_left_as_plain_text,
-    test_two_character_line_with_a_small_digit; an empty raised group typed in the text, '^{}':
-    test_empty_raised_group_typed_in_a_line_of_mixed_sizes_converts)."""
+    mark of a note while an exponent with the same number takes the note (`_pdf_footnotes`). A digit clearly smaller than the
+    largest character of the line (`_SCRIPT_SIZE_RATIO`) that is not shown raised counts too, whether or not it is raised far
+    enough to be a superscript: a mark set small and raised less than `_SUPERSCRIPT_RISE` came out as plain text ('5%2') while
+    'm^2' after it took note 2, and a line that gives no basis for the position (two characters, or mostly small ones: 'A' and
+    a raised '12') marks no scripts at all (Pinned by: test_pdf_footnotes.py::TestLeftAsIs::test_raised_number_left_as_plain_text,
+    test_small_mark_raised_too_little, test_two_character_line_with_a_small_digit,
+    test_short_line_of_mostly_small_digits; an empty raised group typed in the text,
+    '^{}': test_empty_raised_group_typed_in_a_line_of_mixed_sizes_converts)."""
+    visible = [char for char in chars if char["text"].strip() and char.get("size")]
+    if len(visible) < 2:
+        return False
+    small = max(char["size"] for char in visible) * _SCRIPT_SIZE_RATIO
     positional = _positional_scripts(chars)
     if positional is None:
-        visible = [char for char in chars if char["text"].strip() and char.get("size")]
-        if len(visible) != 2:
-            return False
-        largest = max(char["size"] for char in visible)
-        return any(char["text"].isdigit() and char["size"] <= largest * _SCRIPT_SIZE_RATIO for char in visible)
-    raised = sum(1 for char, mark in positional if mark == SUPERSCRIPT for letter in char["text"] if letter.isdigit())
+        return any(char["text"].isdigit() and char["size"] <= small for char in visible)
+    raised = sum(1 for char, mark in positional if mark == SUPERSCRIPT or (mark is None and char["size"] <= small)
+                 for letter in char["text"] if letter.isdigit())
     shown = sum(1 for match in _RAISED_GROUP.finditer(text) for letter in _group_text(match) if letter.isdigit())
     return raised > shown
 

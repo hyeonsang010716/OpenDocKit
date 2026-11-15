@@ -10,7 +10,7 @@ from io import BytesIO
 import pytest
 
 from opendockit import ConvertOptions, convert
-from tests.test_pdf import _FONT
+from tests.test_pdf import _FONT, _raw_pdf
 
 
 _LEFT = 72.0
@@ -118,11 +118,11 @@ class TestLinked:
         paragraph), and the wrapped line of the first note stays with it."""
         text = _text({"body": [["Revenue grew", ("^", "1"), " and costs fell", ("^", "2"), "."], [_FILLER]],
                       "body_top": 200.0, "rule_y": 176.0, "note_size": 10.0,
-                      "notes": [[("^", "1"), " Revenue is stated before the deduction of"], ["sales discounts."],
+                      "notes": [[("^", "1"), " Revenue is stated before the deduction of returns, rebates, volume bonuses and"], ["sales discounts."],
                                 [("^", "2"), " Costs exclude depreciation."]]})
 
         assert "Revenue grew[^1] and costs fell[^2]." in text
-        assert f"{_FILLER}\n\n[^1]: Revenue is stated before the deduction of\nsales discounts.\n\n[^2]: Costs exclude depreciation." in text
+        assert f"{_FILLER}\n\n[^1]: Revenue is stated before the deduction of returns, rebates, volume bonuses and\nsales discounts.\n\n[^2]: Costs exclude depreciation." in text
 
     def test_raised_number_that_no_note_has_stays_as_it_is(self):
         """An exponent after the last mark cannot take a note: the marks are chosen in reading order, one per note number."""
@@ -133,15 +133,6 @@ class TestLinked:
         assert "Rents rose[^1] on sites of 2,400 m^2 and more." in text
         assert "The output reached 10^6 units." in text
         assert "[^1]: Rents of the head office are excluded." in text
-
-    def test_exponent_that_cannot_be_the_mark_in_reading_order_stays(self):
-        """'m^2' after the mark of note 3 cannot be the mark of note 2, so there is still only one way to give the notes their
-        marks (the case of a LibreOffice report with both)."""
-        text = _text({"body": [["One", ("^", "1"), ", two", ("^", "2"), ", three", ("^", "3"), "."], ["An area of 40 m", ("^", "2"), "."], [_FILLER]],
-                      "notes": [[("^", "1"), " First note."], [("^", "2"), " Second note."], [("^", "3"), " Third note."]]})
-
-        assert "One[^1], two[^2], three[^3]." in text
-        assert "An area of 40 m^2." in text
 
     def test_numbering_that_goes_on_keeps_the_printed_numbers(self):
         text = _text({"body": [["First claim", ("^", "1"), "."], [_FILLER]], "notes": [[("^", "1"), " Source of the first claim."]]},
@@ -192,21 +183,21 @@ class TestLinked:
     def test_wrapped_line_that_starts_with_a_decimal_stays_with_its_note(self):
         """'1.5 times …' at the start of a wrapped line is not note 1 again: a plain number starts a note only when a space,
         ')' or '. ' follows it."""
-        text = _text({"body": _UNLINKED_BODY, "notes": [[("^", "1"), " Debt ratio is total liabilities divided by total equity, about"],
+        text = _text({"body": _UNLINKED_BODY, "notes": [[("^", "1"), " Debt ratio is total liabilities divided by total equity at the end of the reporting period, about"],
                                                        ["1.5 times the ratio of last year."]]})
 
         assert "135[^1]%" in text
-        assert "[^1]: Debt ratio is total liabilities divided by total equity, about\n1.5 times the ratio of last year." in text
+        assert "[^1]: Debt ratio is total liabilities divided by total equity at the end of the reporting period, about\n1.5 times the ratio of last year." in text
 
     def test_wrapped_line_that_starts_with_a_number_stays_with_its_note(self):
         """'2 percent …' at the start of a wrapped line is not note 2, even with a raised 2 in the body after the mark of note 1
         ('m^2'): only a raised number starts a note."""
         text = _text({"body": [["Rents rose", ("^", "1"), " on sites of 2,400 m", ("^", "2"), " and more."], [_FILLER]],
-                      "notes": [[("^", "1"), " The figure excludes the head office, which accounts for"],
+                      "notes": [[("^", "1"), " The figure excludes the head office and the two regional warehouses, which account for"],
                                 ["2 percent of the total floor area."]]})
 
         assert "Rents rose[^1] on sites of 2,400 m^2 and more." in text
-        assert "[^1]: The figure excludes the head office, which accounts for\n2 percent of the total floor area." in text
+        assert "[^1]: The figure excludes the head office and the two regional warehouses, which account for\n2 percent of the total floor area." in text
 
     def test_symbol_note_before_the_numbered_notes_stays_as_text(self):
         """'∗Equal contribution' above the numbered notes of a paper is not attached to a note; the numbered notes are linked."""
@@ -290,6 +281,39 @@ class TestLeftAsIs:
 
         self._assert_unlinked(text)
         assert "On 40 m^2 of land^2." in text
+
+    def test_exponent_with_a_note_number_after_the_marks(self):
+        """'m^2' after the mark of note 3 could still be the mark of note 2 for all the page shows (a floated caption is read out
+        of place), so the page is left unlinked."""
+        text = _text({"body": [["One", ("^", "1"), ", two", ("^", "2"), ", three", ("^", "3"), "."], ["An area of 40 m", ("^", "2"), "."], [_FILLER]],
+                      "notes": [[("^", "1"), " First note."], [("^", "2"), " Second note."], [("^", "3"), " Third note."]]})
+
+        assert "[^" not in text
+        assert "One^1, two^2, three^3." in text and "An area of 40 m^2." in text
+
+    @pytest.mark.parametrize("caption_y", [700.0, 300.0])
+    def test_mark_in_a_floated_caption(self, caption_y):
+        """LaTeX numbers a mark in a figure caption in the order of the source and floats the figure to the top or bottom of the
+        page: the real mark of note 2 is read before mark 1 or after mark 3, and 'm^2' between them must not take note 2."""
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=A4)
+        body = [[_FILLER], ["The debt ratio rose to 135", ("^", "1"), "% in the first half."], [_FILLER],
+                ["The largest site covers 2,400 m", ("^", "2"), " of floor area (Figure 1)."], [_FILLER],
+                ["Costs were stated before tax", ("^", "3"), " as in earlier reports."], [_FILLER]]
+        top = 640.0 if caption_y > 500 else 760.0
+        _draw_page(pdf, body, [[("^", "1"), " Source of the ratio."], [("^", "2"), " Measured by the surveyors."],
+                               [("^", "3"), " Corporate tax only."]], body_top=top)
+        _draw_line(pdf, _LEFT + 40, caption_y, ["Figure 1: Floor area of the sites in the survey", ("^", "2"), "."], _LATIN, 10.0)
+        pdf.showPage()
+        pdf.save()
+
+        text = convert(buffer.getvalue(), "a.pdf").text
+
+        assert "[^" not in text
+        assert "2,400 m^2 of floor area" in text
 
     def test_mark_left_unlinked_on_the_previous_page(self):
         """LaTeX can set a note on the page after its mark: note 2 at the top of page 2 belongs to the raised 2 left on page 1,
@@ -416,8 +440,11 @@ class TestLeftAsIs:
         """The mark of note 2 is in a table cell, where raised numbers are not marked ('Sales2', '1,2002)'); the body's 'm^2'
         must not take note 2. A digit clearly smaller than the other cell text leaves the page unlinked."""
         from reportlab.lib.pagesizes import A4
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
         from reportlab.pdfgen import canvas
 
+        pdfmetrics.registerFont(UnicodeCIDFont(_FONT))  # not left to another test that ran first
         font, text, mark = cell
         buffer = BytesIO()
         pdf = canvas.Canvas(buffer, pagesize=A4)
@@ -473,6 +500,45 @@ class TestLeftAsIs:
         assert "| Costs | 400 | 450^" in text
         self._assert_unlinked(text)
 
+    @pytest.mark.parametrize("rise", [0.0, 0.15])
+    def test_small_mark_raised_too_little(self, rise):
+        """A mark set small but raised less than a superscript is plain text in the line ('5%2'); it could be the mark of note 2
+        while 'm^2' after it takes the note."""
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=A4)
+        _draw_page(pdf, [*_UNLINKED_BODY, [], ["The site covers 2,400 m", ("^", "2"), " of floor area."]],
+                   [[("^", "1"), " Source of the ratio."], [("^", "2"), " Source of the cost figure."]])
+        y = _BODY_TOP - 2 * 11.0 * 1.3
+        pdf.setFont(_LATIN, 11.0)
+        pdf.drawString(_LEFT, y, "Costs rose by 5%")
+        pdf.setFont(_LATIN, 6.6)
+        pdf.drawString(_LEFT + pdf.stringWidth("Costs rose by 5%", _LATIN, 11.0), y + 11.0 * rise, "2")
+        pdf.showPage()
+        pdf.save()
+
+        text = convert(buffer.getvalue(), "a.pdf").text
+
+        self._assert_unlinked(text)
+        assert "Costs rose by 5%2" in text and "The site covers 2,400 m^2 of floor area." in text
+
+    def test_two_notes_on_one_line(self):
+        """Two notes set on one line: the second would be read as part of the first, and its mark left unlinked."""
+        text = _text({"body": _TWO_MARKS, "notes": [[("^", "1"), " One.      ", ("^", "2"), " Two."]]})
+
+        self._assert_unlinked(text)
+
+    @pytest.mark.parametrize("line", ["Internal use only - page 1 of 1", "Note: all figures are unaudited."])
+    def test_line_of_its_own_right_under_the_notes(self, line):
+        """A footer or a 'Note:' line right under the last note, after a line that stops short of the text's right end, is not a
+        wrapped line of that note; linked, it would be part of the note."""
+        text = _text({"body": _UNLINKED_BODY, "notes": [[("^", "1"), " Source of the ratio."], [line]]})
+
+        self._assert_unlinked(text)
+        assert line in text
+
     def test_two_character_line_with_a_small_digit(self):
         """A line of two characters ('A' and a raised '2') gives no basis for the position of the digit; it could be the mark of
         note 2."""
@@ -483,6 +549,20 @@ class TestLeftAsIs:
         pdf = canvas.Canvas(buffer, pagesize=A4)
         _draw_page(pdf, [*_UNLINKED_BODY, ["The site covers 2,400 m", ("^", "2"), "."]], [[("^", "1"), " One."], [("^", "2"), " Two."]])
         _draw_line(pdf, 400.0, 560.0, ["A", ("^", "2")], _LATIN, 11.0)
+        pdf.showPage()
+        pdf.save()
+
+        self._assert_unlinked(convert(buffer.getvalue(), "a.pdf").text)
+
+    def test_short_line_of_mostly_small_digits(self):
+        """A line mostly of small characters ('A' and a raised '12') gives no basis for the position either."""
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=A4)
+        _draw_page(pdf, [*_UNLINKED_BODY, ["The site covers 2,400 m", ("^", "2"), "."]], [[("^", "1"), " One."], [("^", "2"), " Two."]])
+        _draw_line(pdf, 400.0, 560.0, ["A", ("^", "12")], _LATIN, 11.0)
         pdf.showPage()
         pdf.save()
 
@@ -530,6 +610,42 @@ class TestLeftAsIs:
         """A mark the body shows as plain text ('claim2') could be the mark of note 2 as well as the raised 2 after it."""
         body = [*_UNLINKED_BODY, ["The second claim2 is plain here."], ["The site covers 2,400 m", ("^", "2"), "."]]
         self._assert_unlinked(_text({"body": body, "notes": [[("^", "1"), " One."], [("^", "2"), " Two."]]}))
+
+    def test_mark_in_a_font_without_a_unicode_mapping(self):
+        """The mark of note 2 drawn in a font with no Unicode mapping comes out as '(cid:21)' and is dropped from the text; 'm^2'
+        must not take note 2."""
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+
+        def show(font: str, size: float, x: float, y: float, text: bytes) -> bytes:
+            return b"BT /%s %g Tf %g %g Td %s Tj ET\n" % (font.encode(), size, x, y, text)
+
+        def mark_line(y: float, before: str, mark: bytes, after: str) -> bytes:
+            x = _LEFT + stringWidth(before, _LATIN, 11.0)
+            return (show("F1", 11.0, _LEFT, y, b"(%s)" % before.encode()) + show("F2" if mark.startswith(b"<") else "F1", 6.6, x, y + 3.85, mark)
+                    + show("F1", 11.0, x + stringWidth("2", _LATIN, 6.6), y, b"(%s)" % after.encode()))
+
+        content = (show("F1", 11.0, _LEFT, 760.0, b"(%s)" % _FILLER.encode())
+                   + mark_line(745.0, "The debt ratio rose to 135", b"(1)", "% in the first half.")
+                   + mark_line(730.0, "The largest site covers 2,400 m", b"(2)", " of floor area.")
+                   + mark_line(715.0, "Costs were stated before tax", b"<0015>", " as in earlier reports.")
+                   + show("F1", 11.0, _LEFT, 700.0, b"(%s)" % _FILLER.encode()) + b"72 160 144 0.5 re f\n"
+                   + show("F1", 5.4, _LEFT, 151.15, b"(1)") + show("F1", 9.0, _LEFT + 3.0, 148.0, b"( Source of the ratio.)")
+                   + show("F1", 5.4, _LEFT, 140.35, b"(2)") + show("F1", 9.0, _LEFT + 3.0, 137.2, b"( Corporate tax only.)"))
+        pdf = _raw_pdf({
+            1: b"<< /Type /Catalog /Pages 2 0 R >>",
+            2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>",
+            4: b"<< /Length %d >>\nstream\n%sendstream" % (len(content), content),
+            5: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            6: b"<< /Type /Font /Subtype /Type0 /BaseFont /ABCDEF+Arial /Encoding /Identity-H /DescendantFonts [7 0 R] >>",
+            7: b"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /ABCDEF+Arial /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) "
+               b"/Supplement 0 >> /DW 556 >>",
+        })
+
+        text = convert(pdf, "a.pdf").text
+
+        assert "[^" not in text
+        assert "2,400 m^2 of floor area." in text
 
     def test_caret_typed_in_the_text(self):
         """A typed '^1' (a spreadsheet formula) looks the same as a raised 1 in the line text."""

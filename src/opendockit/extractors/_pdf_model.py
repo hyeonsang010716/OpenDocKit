@@ -232,7 +232,7 @@ class _Page:
     # A '^' character is drawn on the page. The raised numbers of the line text are written with '^' (`_scripted_text`), so on
     # such a page a typed '^1' cannot be told from a raised 1 and footnotes are not linked (`_pdf_footnotes._link_footnotes`).
     literal_carets: bool = False
-    # A raised number that the line texts do not show as raised: a raised digit `_scripted_text` left as plain text
+    # A raised number that the line texts do not show as raised: a raised or small digit `_scripted_text` left as plain text
     # (`_raised_digits_unshown`), or a digit clearly smaller than the other characters of the table cells or of the sideways text
     # (`_small_digits`). It could be the mark of a note that the body does not show, so footnotes are not linked
     # (`_pdf_footnotes._link_footnotes`).
