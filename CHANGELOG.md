@@ -12,20 +12,23 @@ A fifth review of the whole source. The sample outputs in `examples/` are unchan
 
 - **HWP / HWPX**: hyperlinks are kept as `[text](url)` under `keep_links`, as in the other document formats (http,
   https and mailto only; a link to a bookmark or a file keeps its text).
-- **HTML**: ruby is written as `base(reading)` (`東京(とうきょう)`), as in DOCX, ODF and HWP, also without `<rp>`;
-  content folded with `hidden="until-found"` (the standard way to fold FAQ answers and accordion sections) is read.
+- **HTML**: ruby is written as `base(reading)` (`東京(とうきょう)`), as in DOCX, ODF and HWP, also without `<rp>`
+  (rubies nested more than eight deep are plain text); content folded with `hidden="until-found"` (the standard way
+  to fold FAQ answers and accordion sections) is read.
 
 ### Changed
 
 - A DOCX, PPTX, XLSX, HWPX, OpenDocument or EPUB file protected with a ZIP password (`zip -e`) is an
   `EncryptedDocumentError` instead of a `CorruptedDocumentError`, as `docs/options.md` describes. A protected part
-  that is only skipped (one slide, one picture) still leaves the document readable.
+  that is only skipped (one slide, one picture) still leaves the document readable; a file that gives nothing at all
+  because its protected parts were all of its content (a deck whose slides alone are protected) is encrypted too.
 
 ### Security
 
 - **DOCX / PPTX**: an imported part (`w:altChunk`) or a SmartArt referenced many times stops at `max_chars` inside one
-  paragraph, cell, header or slide; a SmartArt or chartex part is read once. 200 references to one 400,000-character
-  chunk from a 39 KB file took 6.8 to 19.5 seconds and up to 1.9 GB (now 0.1 to 0.2 seconds).
+  paragraph, cell, header or slide, and inside a table nested in a cell at most 100,000 characters past it; a SmartArt
+  or chartex part is read once. 200 references to one 400,000-character chunk from a 39 KB file took 6.8 to 19.5
+  seconds and up to 1.9 GB (now 0.1 to 0.2 seconds).
 - **DOCX / HWP / HWPX**: a list number text is split once per list and bounded at 255 characters (longer ones are the
   level's own number). A 100 KB `w:lvlText` on 300 empty numbered paragraphs took 2.3 seconds.
 - **Charts**: multi-level categories join at most their innermost eight levels (16,000 levels in a 125 KB file took
