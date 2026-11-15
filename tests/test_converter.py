@@ -136,6 +136,37 @@ class TestLimits:
         assert [section.text for section in cut.sections] == [full.text[:1000].rstrip()]
         assert len(full.images) == 2
 
+    @pytest.mark.parametrize("alts", [[None, None, None], [None, "Org chart", None], ["A one", "B two", None]])
+    def test_pictures_that_cannot_be_decoded_keep_their_own_placeholder_past_the_limit(self, alts):
+        """A picture that cannot be decoded (here a WMF) keeps its own alt text and is never taken for a logo, as in a full
+        conversion: counted by their bytes, three copies vanished as a logo and one copy took the alt text of another."""
+        from docx import Document
+        from docx.shared import Inches
+
+        document = Document()
+        document.add_paragraph("Intro paragraph.")
+        for number in range(3):
+            document.add_paragraph(f"P{number}").add_run().add_picture(BytesIO(builder.png_bytes(300, 200, seed=1)), width=Inches(1))
+        for shape, alt in zip(document.inline_shapes, alts, strict=True):
+            if alt:
+                shape._inline.docPr.set("descr", alt)
+        document.add_paragraph("x " * 400)
+        buffer = BytesIO()
+        document.save(buffer)
+        wmf = bytes.fromhex("d7cdc69a") + b"\0" * 60  # a placeable metafile header: not decoded here
+        out = BytesIO()
+        with zipfile.ZipFile(BytesIO(buffer.getvalue())) as source, zipfile.ZipFile(out, "w") as target:
+            for name in source.namelist():
+                target.writestr(name, wmf if name.startswith("word/media/") else source.read(name))
+        data = out.getvalue()
+        options = ConvertOptions(max_chars=100, repeated_image_threshold=3)
+
+        full = convert(data, "a.docx", replace(options, max_chars=None))
+        cut = convert(data, "a.docx", options)
+
+        assert full.text.count("[Image") == 3
+        assert cut.exceeded and cut.text == full.text[:100].rstrip()
+
     def test_document_within_the_limit_is_not_exceeded(self):
         result = convert("본문 첫 줄\n둘째 줄".encode(), "a.txt")
 

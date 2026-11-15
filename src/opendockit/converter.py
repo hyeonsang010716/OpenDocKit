@@ -23,6 +23,7 @@ from opendockit.image import (
     ImageTooLarge,
     ImageUnreadable,
     PreparedImage,
+    is_image_file,
     needs_heif_plugin,
     prepare_image,
 )
@@ -518,15 +519,26 @@ def _placeholders_only(raw_images: list[RawImage], options: ConvertOptions) -> d
     counted kept them: a long DOCX lost '[Image: Quarterly revenue chart]' at `max_chars=1000`, and the MCP server (100,000 by
     default) never showed a picture of a long document
     (Pinned by: test_converter.py::TestLimits::test_pictures_before_the_cut_keep_their_placeholder_when_the_text_alone_is_over).
-    Known accepted gap: a small or thin picture that decoding would drop as decoration keeps an `[Image]` here.
+    A picture whose bytes are not those of a picture format that is read (WMF/EMF vectors, a HEIC without its extra, garbage) is
+    one `_prepare_images` cannot decode: it keeps its own alt text and is never taken for a logo, as there. Counted with the
+    others, three copies of a WMF vanished as a logo and a copy took the alt text of another
+    (Pinned by: test_converter.py::TestLimits::test_pictures_that_cannot_be_decoded_keep_their_own_placeholder_past_the_limit).
+    The format is told by its magic bytes (`image.is_image_file`: JPEG, PNG, GIF, TIFF, WebP, HEIC/AVIF, BMP).
+    Known accepted gaps: a small or thin picture that decoding would drop as decoration keeps an `[Image]` here, and so does a
+    broken file of one of those formats; a picture of a rarer format Pillow reads is taken as one that cannot be decoded; copies
+    are told by their bytes, not by the decoded picture.
     """
+    readable = [raw for raw in raw_images if is_image_file(raw.data) and not needs_heif_plugin(raw.data)]
     counts: dict[bytes, int] = {}
     alts: dict[bytes, str | None] = {}
-    for raw in raw_images:
+    for raw in readable:
         counts[raw.data] = counts.get(raw.data, 0) + 1
         alts[raw.data] = alts.get(raw.data) or _alt_text(raw)
     fallbacks: dict[int, str] = {}
     for raw in raw_images:
+        if raw.data not in counts:
+            fallbacks[raw.id] = _image_fallback(_alt_text(raw))
+            continue
         logo = raw.kind is ImageKind.FIGURE and counts[raw.data] >= options.repeated_image_threshold
         fallbacks[raw.id] = "" if raw.kind is ImageKind.PAGE or logo else _image_fallback(alts[raw.data])
     return fallbacks
