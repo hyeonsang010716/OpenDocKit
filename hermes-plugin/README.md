@@ -5,6 +5,11 @@ PDF, Word, PowerPoint, Excel, CSV, **HWP / HWPX**, OpenDocument, RTF, EPUB, HTML
 columns, merged cells are repeated in every row they cover, and a long document can be read one page, slide or sheet at
 a time, so it does not fill the context.
 
+![Hermes reads a Korean HWPX notice through the plugin and adds up the 2026 budget of the youth programs, keeping each row of a merged cell under its own field](../docs/assets/hermes/demo-hwpx.gif)
+
+*Hermes with Claude Sonnet 5.5, recorded unedited. The notice is fictional; the label of the merged "field" cell is
+repeated in every row, so the three lines named 구직 활동 수당 (job-seeking allowance) stay apart.*
+
 It is a portable [Agent Plugins v1](https://agent-plugins.org) package around the MCP server of
 [OpenDocKit](https://github.com/hyeonsang010716/OpenDocKit) (MIT). One install ships:
 
