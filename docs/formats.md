@@ -330,8 +330,8 @@ Section unit: document (`.doc`), slide (`.ppt`). These binary formats are read *
 
 ## Links and emphasis
 
-In DOCX, PPTX, HTML, email, ODT, ODP, RTF and EPUB, and in `.doc` / `.ppt` (read as DOCX / PPTX). PDF, HWP / HWPX and
-spreadsheet cells do not carry them:
+In DOCX, PPTX, HTML, email, ODT, ODP, RTF and EPUB, and in `.doc` / `.ppt` (read as DOCX / PPTX). HWP / HWPX carry links
+but not emphasis. PDF and spreadsheet cells carry neither:
 
 - Hyperlinks are kept as `[text](url)`. Only `http`, `https` and `mailto` targets become links; a link whose text is its
   own address stays the bare address. Nothing is resolved or fetched.
