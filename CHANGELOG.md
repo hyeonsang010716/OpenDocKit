@@ -6,6 +6,50 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+A fourth review of the whole source. The sample outputs in `examples/` are unchanged.
+
+### Security
+
+- **RTF**: the tables inside a table share its 500,000-cell limit, and a table holds at most 10,000 tables inside it;
+  the tables after that are left out with a warning. The depth of a table is set per paragraph, so cells that opened
+  and closed 15 nested tables each took 10.7 seconds and 1.84 GB for 2.5 MB, without a warning (now 1.1 seconds).
+- **PPTX**: a slide table stops at `max_chars` cell by cell, as DOCX, HWP and HWPX tables do (1,000,000 rows: 20 seconds
+  and 3.2 GB → 1.8 seconds). The value table of a chart in a PPTX, DOCX, XLSX or HWPX document stops once it passes the
+  limit, and display formats are worked out only for the rows written (1,000,000 cached points: 9 seconds and 2.5 GB →
+  2.5 seconds).
+- **CSV**: a row with a quoted cell, or any row after a stray quote (`27" monitor`), is cut at the column limit like any
+  other; one quoted cell in front of 20 million cells took 3.5 seconds and 900 MB (now 0.4 seconds).
+- **PDF**: a page with many ruled cells holding pictures, many separate shaded tables or thousands of drawn check boxes
+  beside text no longer scans the whole page once per cell, table or box, with the same output (a 3,600-cell picture
+  grid spent 30 seconds reading its table, 400 shaded tables took 13 seconds, 8,000 check boxes 33 seconds). A long
+  run of left-aligned lines between two table rules is no longer walked from every line to its end (12,000 lines took
+  9.5 seconds); a first cell wrapped onto more than 64 lines between rules is no longer grouped from its first line. A
+  page larger than the rendering pixel cap is opened once for all its pictures instead of once per picture (a page with
+  3,600 pictures took 12 seconds, now 2), with the same images.
+
+### Fixed
+
+- **Pictures**: when the text alone is over `max_chars`, the pictures before the cut keep their placeholder
+  (`[Image: alt text]` or `[Image]`) instead of vanishing with their alt text, so the MCP server shows them in long
+  documents too; they are still not decoded. A 32-bit float picture with a NaN or infinite pixel keeps its gradient
+  instead of coming out black.
+- **DOCX**: a header or footer reference without a relationship id no longer rejects the whole document when headers
+  and footers are included; only that header is skipped.
+- **XLSX**: a damaged relationship part of one sheet no longer rejects the workbook: the cells are converted and that
+  sheet's comments, pictures, charts and form controls are left out with a warning.
+- **Excel 2003 XML**: time-only values follow the cell's time format (`h:mm AM/PM` → `1:30 PM`, as in XLSX), and
+  `<Row ss:Span>` counts the rows it stands for, so R1C1 formulas and vertical merges below it point at the right rows.
+- **RTF**: a `{\upr{…}{\*\ud{…}}}` group is read from its Unicode copy instead of the ANSI copy, so a Korean title or
+  paragraph in a CP1252 document no longer comes out as `??`. Any other shape of `\upr` is read as before.
+- **HTML**: strikethrough around several paragraphs, list items or a quote is marked per block (`~~a~~` / `~~b~~`)
+  instead of one pair across the blank line that GFM shows as literal tildes; a struck table cell holding a table no
+  longer leaves a lone `~~` paragraph, and strikethrough no longer changes whether a table is drawn as a table or
+  unfolded. A `rowspan` stops at the end of its `thead`, `tbody` or `tfoot`, so a body cell no longer pushes the cells of
+  a total row one column right. An empty `<tr></tr>` no longer turns the first pair of a name/value table back into a
+  header.
+- **Legacy .doc / .ppt**: a temporary folder that cannot be written or read is reported as such (`conversion_failed`)
+  instead of "LibreOffice could not be started", and the program lookup is kept.
+
 ## [0.3.6] - 2026-11-15
 
 ### Added
