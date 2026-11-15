@@ -1047,6 +1047,33 @@ class TestRuby:
         assert convert(html.encode(), "a.html").text == ("## 東京(とうきょう)\n\n~~東京(とうきょう)~~へ\n\n"
                                                          "| 都市 | 人口 |\n| --- | --- |\n| 大阪(おおさか) | 270 |")
 
+    def test_rubies_nested_in_each_other_are_read_from_the_inside_out(self):
+        html = "<p><ruby><ruby>漢<rt>かん</rt></ruby>字<rt>outer</rt></ruby>と<ruby>a<pre> b  c </pre><rt>x</rt></ruby></p>"
+
+        assert convert(html.encode(), "a.html").text == "漢(かん)字(outer)とa b c(x)"
+
+    def test_rubies_past_the_nesting_bound_are_plain_text(self):
+        """Rubies are read as ruby down to eight levels; a deeper one gives its bases and annotations one after another."""
+        html = "<p>" + "<ruby>a<rt>r</rt>" * 10 + "b" + "</ruby>" * 10 + "</p>"
+
+        assert convert(html.encode(), "a.html").text == "a(r)" * 8 + "ararb"
+
+    @pytest.mark.timing
+    def test_nested_rubies_take_linear_time(self):
+        """Each ruby walked up to the root, and every inner ruby was replaced in the tree in turn: 20,000 rubies nested in each
+        other (280 KB) took 32 seconds. Measured against the same nesting of spans."""
+        import time
+
+        def elapsed(tag: str) -> float:
+            html = "<p>" + f"<{tag}>a" * 20_000 + "<rt>x</rt>" + f"</{tag}>" * 20_000 + "</p>"
+            started = time.perf_counter()
+            convert(html.encode(), "a.html")
+            return time.perf_counter() - started
+
+        spans = elapsed("span")
+
+        assert elapsed("ruby") < 3 * spans + 0.5
+
 
 class TestHeaderRowsOfThOnlyTables:
     def test_table_made_only_of_th_cells_keeps_its_rows(self):

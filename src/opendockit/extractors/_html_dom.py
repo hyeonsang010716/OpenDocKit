@@ -857,58 +857,106 @@ def _put_ruby(soup: BeautifulSoup) -> None:
     child and stripped, the words of a base ran together (`NewYork(NY)`) and a code line lost its spacing (Pinned by:
     test_text_html.py::TestRuby::test_whitespace_and_line_breaks_of_a_base_are_kept). Inline formatting inside the ruby is
     not kept: it is turned into text before the strikethrough marks, which a ruby inside a strikethrough then holds whole.
-    Inner rubies are replaced first.
+
+    The text of every ruby is worked out first, inner ones before the ones around them, which read it (`_ruby_text`), and only
+    the outermost rubies are then replaced in the tree; which rubies lie in a code block or in another ruby is worked out
+    once for all of them (`_lying_inside`). Asked of each ruby with `find_parent`, and with every inner ruby replaced in the
+    tree in turn (bs4 walks up the ancestors to link each node it inserts), 20,000 rubies nested in each other (280 KB) took
+    32 seconds (Pinned by: test_text_html.py::TestRuby::test_nested_rubies_take_linear_time). Rubies are read as ruby down to
+    `_MAX_RUBY_DEPTH` levels; a ruby deeper than that is plain text.
     """
+    rubies = soup.find_all("ruby")
+    in_code = _lying_inside(rubies, _CODE_BLOCKS)
+    depths = _ruby_depths(rubies)
+    read = [ruby for ruby in rubies if depths[id(ruby)] < _MAX_RUBY_DEPTH]
+    texts: dict[int, str] = {}
+    for ruby in reversed(read):  # inner rubies first: an outer one reads their text
+        texts[id(ruby)] = _ruby_text(ruby, id(ruby) in in_code, texts, in_code)
     places: _Places = {}
-    for ruby in reversed(soup.find_all("ruby")):
-        if ruby.parent is None:
+    for ruby in read:
+        if not depths[id(ruby)]:
+            _replace(ruby, _ruby_node(soup, texts[id(ruby)], id(ruby) in in_code), places)
+
+
+# Levels of rubies nested in each other that are read as ruby (`_put_ruby`). A ruby inside a ruby is rare (a double-sided
+# ruby), and each level reads the text of all the levels inside it, so the work grows with the levels times the text:
+# 100,000 nested rubies (1.4 MB) took 8 seconds. A ruby deeper than this is read as the plain text of its elements, bases
+# and annotations one after another, the `<rp>` text left out (Pinned by:
+# test_text_html.py::TestRuby::test_nested_rubies_take_linear_time, test_rubies_past_the_nesting_bound_are_plain_text).
+_MAX_RUBY_DEPTH = 8
+
+
+def _ruby_depths(rubies: list[Tag]) -> dict[int, int]:
+    """The number of rubies around each of `rubies` (all the rubies of a document, in document order). Each ruby walks up to
+    the nearest element already known, so it is linear time, as `_lying_inside`."""
+    depths: dict[int, int] = {}
+    around: dict[int, int] = {}  # element that is not a ruby → the number of rubies around it
+    for ruby in rubies:
+        path: list[Tag] = []
+        node = ruby.parent
+        count = 0
+        while node is not None:
+            if id(node) in depths:
+                count = depths[id(node)] + 1
+                break
+            if id(node) in around:
+                count = around[id(node)]
+                break
+            path.append(node)
+            node = node.parent
+        for element in path:
+            around[id(element)] = count
+        depths[id(ruby)] = count
+    return depths
+
+
+def _ruby_text(ruby: Tag, written: bool, texts: dict[int, str], in_code: set[int]) -> str:
+    """The text of one ruby (`_put_ruby`), `written` when it lies in a code block. The rubies inside it are read through their
+    text in `texts`, as if each had been replaced by what `_ruby_node` gives (`_ruby_part`)."""
+    pieces: list[str] = []
+    bases: list[str] = []  # the base texts of the segment so far, as written (`_RUBY_LINE` for a line break)
+    notes: list[str] = []  # its annotations (`<rt>`)
+    wide: list[str] = []  # its annotations of the whole segment (`<rtc>`)
+
+    def base_text(raw: str) -> str:
+        if written:
+            return raw.replace(_RUBY_LINE, "\n")
+        return "\n".join(" ".join(line.split()) for line in raw.split(_RUBY_LINE)).strip(" ")
+
+    def segment_ends() -> None:
+        texts_of_bases = [base_text(base) for base in bases]
+        if len(texts_of_bases) > 1 and len(notes) == len(texts_of_bases):
+            text = "".join(format_dutmal(base, note) for base, note in zip(texts_of_bases, notes, strict=True))
+        else:
+            text = format_dutmal("".join(texts_of_bases), " ".join(note for note in notes if note))
+        pieces.append(format_dutmal(text, " ".join(note for note in wide if note)))
+        bases.clear()
+        notes.clear()
+        wide.clear()
+
+    loose = False  # the last base is text outside an `<rb>`, which the next such text continues
+    for child in ruby.children:
+        name = child.name if isinstance(child, Tag) else None
+        if name == "rp":
             continue
-        hidden = {id(string) for rp in ruby.find_all("rp") for string in rp.find_all(string=True)}
-        written = ruby.find_parent(_CODE_BLOCKS) is not None  # inside a code block whitespace is kept as written
-        pieces: list[str] = []
-        bases: list[str] = []  # the base texts of the segment so far, as written (`_RUBY_LINE` for a line break)
-        notes: list[str] = []  # its annotations (`<rt>`)
-        wide: list[str] = []  # its annotations of the whole segment (`<rtc>`)
-
-        def base_text(raw: str) -> str:
-            if written:
-                return raw.replace(_RUBY_LINE, "\n")
-            return "\n".join(" ".join(line.split()) for line in raw.split(_RUBY_LINE)).strip(" ")
-
-        def segment_ends() -> None:
-            texts = [base_text(base) for base in bases]
-            if len(texts) > 1 and len(notes) == len(texts):
-                text = "".join(format_dutmal(base, note) for base, note in zip(texts, notes, strict=True))
+        raw = _ruby_part(child, texts, in_code)
+        if name in ("rt", "rtc"):
+            text = " ".join(raw.replace(_RUBY_LINE, " ").split())
+            (notes if name == "rt" else wide).append(_without_enclosing_parentheses(text))
+            loose = False
+        elif raw.replace(_RUBY_LINE, "").strip():
+            if notes or wide:
+                segment_ends()
+            if loose and name != "rb":
+                bases[-1] += raw
             else:
-                text = format_dutmal("".join(texts), " ".join(note for note in notes if note))
-            pieces.append(format_dutmal(text, " ".join(note for note in wide if note)))
-            bases.clear()
-            notes.clear()
-            wide.clear()
-
-        loose = False  # the last base is text outside an `<rb>`, which the next such text continues
-        for child in ruby.children:
-            name = child.name if isinstance(child, Tag) else None
-            if name == "rp":
-                continue
-            raw = _ruby_part(child, hidden)
-            if name in ("rt", "rtc"):
-                text = " ".join(raw.replace(_RUBY_LINE, " ").split())
-                (notes if name == "rt" else wide).append(_without_enclosing_parentheses(text))
-                loose = False
-            elif raw.replace(_RUBY_LINE, "").strip():
-                if notes or wide:
-                    segment_ends()
-                if loose and name != "rb":
-                    bases[-1] += raw
-                else:
-                    bases.append(raw)
-                loose = name != "rb"
-            elif loose:
-                bases[-1] += raw  # whitespace or a line break between the pieces of one base
-        if bases or notes or wide:
-            segment_ends()
-        _replace(ruby, _ruby_node(soup, "".join(pieces), written), places)
+                bases.append(raw)
+            loose = name != "rb"
+        elif loose:
+            bases[-1] += raw  # whitespace or a line break between the pieces of one base
+    if bases or notes or wide:
+        segment_ends()
+    return "".join(pieces)
 
 
 # A line break (`<br>`) inside a ruby while its parts are gathered (`_put_ruby`): a character no document text holds once the
@@ -916,18 +964,29 @@ def _put_ruby(soup: BeautifulSoup) -> None:
 _RUBY_LINE = "\x00"
 
 
-def _ruby_part(child: PageElement, hidden: set[int]) -> str:
-    """The text of one child of a ruby as written, with `_RUBY_LINE` for a line break and the `<rp>` text (`hidden`) left out."""
-    if not isinstance(child, Tag):
-        return "" if isinstance(child, PreformattedString) else str(child).replace(_RUBY_LINE, "")
-    if child.name == "br":
-        return _RUBY_LINE
-    parts = []
-    for node in child.descendants:
+def _ruby_part(child: PageElement, texts: dict[int, str], in_code: set[int]) -> str:
+    """The text of one child of a ruby as written, with `_RUBY_LINE` for a line break and the text of an `<rp>` left out. A ruby
+    inside it gives its text (`texts`) as the node `_ruby_node` makes of it would: its line breaks as `<br>`, which an `<rp>`
+    does not hide; one past `_MAX_RUBY_DEPTH` is not in `texts` and is read as its elements. Walked once, with no ruby that
+    is read descended into, so every node is read by the nearest such ruby around it only."""
+    parts: list[str] = []
+    stack: list[tuple[PageElement, bool]] = [(child, False)]  # (node, inside an `<rp>`)
+    while stack:
+        node, hidden = stack.pop()
         if isinstance(node, Tag):
-            if node.name == "br":
+            if node.name == "ruby" and id(node) in texts:
+                text = texts[id(node)]
+                if id(node) in in_code or "\n" not in text:
+                    parts.append("" if hidden else text.replace(_RUBY_LINE, ""))
+                else:
+                    lines = text.split("\n")
+                    parts.append(_RUBY_LINE.join("" if hidden else line for line in lines))
+            elif node.name == "br":
                 parts.append(_RUBY_LINE)
-        elif not isinstance(node, PreformattedString) and id(node) not in hidden:
+            else:
+                inner = hidden or node.name == "rp"
+                stack.extend((grandchild, inner) for grandchild in reversed(node.contents))
+        elif not isinstance(node, PreformattedString) and not hidden:
             parts.append(str(node).replace(_RUBY_LINE, ""))
     return "".join(parts)
 
