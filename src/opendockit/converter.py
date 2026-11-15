@@ -202,6 +202,15 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
         if template or section.kind is SectionKind.SLIDE:
             sections.append(Section(section.kind, section.index, "", title, template))
 
+    # A ZIP format that was read without an error but gave nothing at all — no text, no slide title, no picture — while parts of
+    # it are password-protected: those parts were its content, which zipfile refused to read. The extractors skip a part they
+    # cannot read with a warning (a slide, a sheet), so a deck whose slides alone were protected came back as an empty success
+    # (Pinned by: test_converter.py::TestPasswordProtectedZip::test_protected_slides_are_an_encrypted_document). A document that
+    # gives anything stays a document whose protected parts were skipped.
+    if (document_format in _ZIP_PASSWORD_MESSAGES and not extraction.images
+            and not any(section.template.strip() or section.title for section in sections) and has_password_protected_part(data)):
+        raise EncryptedDocumentError(_ZIP_PASSWORD_MESSAGES[document_format])
+
     # If the text alone is already over the limit, the pictures are not decoded. Decoding, downscaling and the vision-model calls
     # after them would all be wasted. They keep their placeholder text all the same (`_placeholders_only`).
     text_chars = sum(solid_length(section.template) for section in sections)

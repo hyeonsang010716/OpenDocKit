@@ -372,6 +372,31 @@ class TestPasswordProtectedZip:
         with pytest.raises(EncryptedDocumentError, match="password-protected"):
             convert(builder.zip_password(make(), {part}), name)
 
+    def test_protected_slides_are_an_encrypted_document(self):
+        """The extractor skips a slide it cannot read with a warning, so a deck whose slides alone were protected came back as an
+        empty success."""
+        data = builder.pptx_bytes()
+        slides = {name for name in zipfile.ZipFile(BytesIO(data)).namelist() if name.startswith("ppt/slides/slide")}
+
+        with pytest.raises(EncryptedDocumentError, match="The Office document is password-protected"):
+            convert(builder.zip_password(data, slides), "a.pptx")
+
+    def test_document_with_content_left_keeps_converting_with_its_protected_parts_skipped(self):
+        data = builder.pptx_bytes()
+        names = sorted(name for name in zipfile.ZipFile(BytesIO(data)).namelist() if name.startswith("ppt/slides/slide"))
+
+        result = convert(builder.zip_password(data, set(names[1:])), "a.pptx")
+
+        assert result.text.strip() and any("could not be read" in warning for warning in result.warnings)
+
+    def test_empty_document_without_a_password_is_not_encrypted(self):
+        from docx import Document
+
+        buffer = BytesIO()
+        Document().save(buffer)
+
+        assert convert(buffer.getvalue(), "a.docx").warnings == ["No text was extracted."]
+
     def test_damaged_archive_without_a_password_is_still_corrupted(self):
         data = builder.zip_with(builder.docx_bytes(), {"word/document.xml": lambda xml: xml.replace("<w:body>", "<w:body><w:p", 1)})
 
