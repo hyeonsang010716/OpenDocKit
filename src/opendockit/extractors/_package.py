@@ -64,6 +64,16 @@ def uncompressed_size(data: bytes) -> int:
         return sum(info.file_size for info in archive.infolist())
 
 
+def has_password_protected_part(data: bytes) -> bool:
+    """Whether a member of the ZIP archive carries the encryption bit (bit 0 of its general purpose flags; `zip -e`, or a tool that
+    encrypts the archive). zipfile refuses to read such a member without the password. False when the archive cannot be opened."""
+    try:
+        with zipfile.ZipFile(BytesIO(data)) as archive:
+            return any(info.flag_bits & 0x1 for info in archive.infolist())
+    except zipfile.BadZipFile:
+        return False
+
+
 def parse_part(data: bytes) -> etree._Element | None:
     """Read part XML without entities or network access. A broken part gives None (only that object is skipped)."""
     try:

@@ -80,6 +80,8 @@ _BINARY_CONTROL = re.compile(rb"[\x01-\x08\x0e-\x1a\x1c-\x1f\x7f]")
 # Marker starting at byte 257 of a tar header (512 bytes). The header is nothing but NUL-padded ASCII fields, so it looks the same as
 # "text whose fields are padded with NULs".
 _TAR_MAGIC = b"ustar"
+# A ZIP whose parts are password-protected (`zip -e`) and whose part names do not tell the format (`_detect_zip`).
+ZIP_PASSWORD_MESSAGE = "The document is password-protected. Please remove the password and upload it again."
 
 _TEXT_EXTENSIONS = {
     ".txt": DocumentFormat.TEXT,
@@ -152,10 +154,11 @@ def detect_format(data: bytes | bytearray | memoryview, filename: str | None = N
     None was reported as a corrupted file, and a memoryview `convert` accepts was rejected (Pinned by:
     test_detect.py::TestDetectionOnItsOwn::test_arguments_are_checked_like_those_of_convert).
 
-    Detection opens ZIP and OLE containers, so a library exception can come out of it (an encrypted ZIP part is a
-    `RuntimeError`, an unknown compression method a `NotImplementedError`). `convert` gathers those at its own boundary, but
-    called on its own this function let them out with the library's wording (Pinned by:
-    test_detect.py::TestDetectionOnItsOwn::test_container_that_cannot_be_inspected_is_a_conversion_error).
+    Detection opens ZIP and OLE containers, so a library exception can come out of it (an unknown compression method is a
+    `NotImplementedError`). `convert` gathers those at its own boundary, but called on its own this function let them out with
+    the library's wording (Pinned by:
+    test_detect.py::TestDetectionOnItsOwn::test_container_that_cannot_be_inspected_is_a_conversion_error). A ZIP part protected
+    with a password is not read at all (`_detect_zip`).
     """
     if isinstance(data, (bytearray, memoryview)):
         data = bytes(data)
@@ -238,6 +241,10 @@ def _detect_zip(data: bytes) -> DocumentFormat:
             names = set(archive.namelist())
             mimetype = _read_prefix(archive, "mimetype", 64) if "mimetype" in names else b""
             main_part = _office_main_part(archive, names)
+            # A part detection would read is password-protected (`zip -e`): it is left unread and the format is told from the part
+            # names alone where they suffice. Where they do not, the archive is a password-protected document, not a corrupted one
+            # (Pinned by: test_detect.py::TestPasswordProtectedZip).
+            locked = any(name in names and _is_encrypted(archive, name) for name in ("mimetype", "_rels/.rels"))
     except zipfile.BadZipFile as exc:
         raise CorruptedDocumentError("The archive structure of the document is corrupted.") from exc
 
@@ -258,13 +265,23 @@ def _detect_zip(data: bytes) -> DocumentFormat:
         return DocumentFormat.EPUB
     if b"opendocument" in mimetype:
         raise UnsupportedFormatError("This OpenDocument file type (drawing, formula, database) is not supported.")
+    if locked:
+        raise EncryptedDocumentError(ZIP_PASSWORD_MESSAGE)
     raise UnsupportedFormatError("This archive file format is not supported.")
+
+
+def _is_encrypted(archive: zipfile.ZipFile, name: str) -> bool:
+    """Whether a part carries the ZIP encryption bit (bit 0 of the general purpose flags), which zipfile refuses to read without the
+    password."""
+    return bool(archive.getinfo(name).flag_bits & 0x1)
 
 
 def _read_prefix(archive: zipfile.ZipFile, name: str, size: int) -> bytes:
     """Decompress only the first `size` bytes of a part. `archive.read(name)[:size]` decompresses the whole part and then slices it, so a
     1MB file used 2.1GB before the zip-bomb check (`converter._guard_zip`) ran
-    (Pinned by: test_detect.py::TestZipDetectionMemory)."""
+    (Pinned by: test_detect.py::TestZipDetectionMemory). A password-protected part reads as nothing (`_detect_zip`)."""
+    if _is_encrypted(archive, name):
+        return b""
     with archive.open(name) as member:
         return member.read(size)
 

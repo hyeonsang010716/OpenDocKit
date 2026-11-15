@@ -13,10 +13,16 @@ from typing import TYPE_CHECKING, BinaryIO
 import zipfile
 
 from opendockit.detect import detect_format, extension_mismatch, pdf_lookalike_text_format
-from opendockit.exceptions import ConversionError, CorruptedDocumentError, DocumentTooLargeError, UnsupportedFormatError
+from opendockit.exceptions import (
+    ConversionError,
+    CorruptedDocumentError,
+    DocumentTooLargeError,
+    EncryptedDocumentError,
+    UnsupportedFormatError,
+)
 from opendockit.extractors import EXTRACTORS
 from opendockit.extractors._inline import _escape_link_text
-from opendockit.extractors._package import uncompressed_size
+from opendockit.extractors._package import has_password_protected_part, uncompressed_size
 from opendockit.image import (
     ImageOutOfMemory,
     ImageSkipped,
@@ -54,6 +60,16 @@ TOO_COMPLEX_MESSAGE = "The document is too large or too complex to convert."
 _DEFAULT_OPTIONS = ConvertOptions()
 _ZIP_FORMATS = {DocumentFormat.DOCX, DocumentFormat.PPTX, DocumentFormat.XLSX, DocumentFormat.HWPX, DocumentFormat.ODT, DocumentFormat.ODS,
                 DocumentFormat.ODP, DocumentFormat.EPUB}
+# What a ZIP format that could not be read says when parts of it are password-protected (`_converted`). The same sentences as the
+# other password notices of each family (an Office package encrypted by Office itself is the OLE `EncryptedPackage` of `detect`).
+_OFFICE_PASSWORD = "The Office document is password-protected. Please remove the password and upload it again."
+_ODF_PASSWORD = "The OpenDocument file is password-protected. Please remove the password and upload it again."
+_ZIP_PASSWORD_MESSAGES = {
+    DocumentFormat.DOCX: _OFFICE_PASSWORD, DocumentFormat.PPTX: _OFFICE_PASSWORD, DocumentFormat.XLSX: _OFFICE_PASSWORD,
+    DocumentFormat.HWPX: "The HWP document is password-protected. Please remove the password and upload it again.",
+    DocumentFormat.ODT: _ODF_PASSWORD, DocumentFormat.ODS: _ODF_PASSWORD, DocumentFormat.ODP: _ODF_PASSWORD,
+    DocumentFormat.EPUB: "The EPUB is password-protected. Please remove the password and upload it again.",
+}
 # Formats where the original whitespace (code indentation, table alignment) carries meaning. Spaces inside a line are not collapsed.
 _KEEP_SPACES = {DocumentFormat.TEXT, DocumentFormat.MARKDOWN}
 # Alt text that Office and Hangul (HWP) attach automatically ("그림 3" (picture 3), "image1.png", "그림입니다. 원본 그림의 이름…"
@@ -151,9 +167,19 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
         key = hashlib.sha256(data).hexdigest()[:16]
         with marker_key(key):
             document_format, extraction = _extract(document_format, data, filename, options)
-    except (ConversionError, MemoryError):
+    except MemoryError:
         raise
     except Exception as exc:  # the boundary that gathers arbitrary parser-library exceptions into one conversion failure.
+        # A ZIP format that could not be read while parts of it carry the ZIP password bit (`zip -e`) is password-protected, not
+        # corrupted: zipfile refuses every encrypted part, so the extractors found the parts they need missing or unreadable
+        # (Pinned by: test_converter.py::TestPasswordProtectedZip). A part that is only skipped (one picture, one slide) leaves the
+        # document readable and changes nothing.
+        if isinstance(exc, ConversionError) and not isinstance(exc, CorruptedDocumentError):
+            raise
+        if document_format in _ZIP_PASSWORD_MESSAGES and has_password_protected_part(data):
+            raise EncryptedDocumentError(_ZIP_PASSWORD_MESSAGES[document_format]) from exc
+        if isinstance(exc, ConversionError):
+            raise
         subject = f"the {document_format.value.upper()} document" if document_format else "the file format"
         raise CorruptedDocumentError(f"Could not parse {subject}. The file may be corrupted.") from exc
 
