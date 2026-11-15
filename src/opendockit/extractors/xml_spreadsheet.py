@@ -14,7 +14,7 @@ from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors._encoding import decode_text, decoding_warning
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._package import _XML_PARSER, decimal_int
-from opendockit.extractors._sheet_format import _ELAPSED_FORMAT, _MAX_FORMAT_LENGTH, _XML_GENERAL_DATE, _format_value, format_cell
+from opendockit.extractors._sheet_format import _ELAPSED_FORMAT, _MAX_FORMAT_LENGTH, _XML_GENERAL_DATE, format_cell
 from opendockit.extractors._sheet_layout import _append_sheet, _collect_rows, _level_marked
 from opendockit.models import ConvertOptions, Extraction
 
@@ -288,9 +288,14 @@ def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None]
         column += span
 
     merged_down: dict[int, tuple[str, int, int]] = {}  # column within the column limit → (value, last row, last column spanned horizontally)
-    row_number = yielded = 0
+    # `covered` is the last row the previous `<Row>` stands for: `ss:Span="n"` writes n more rows like it once. `previous` is the
+    # last row the rows yielded so far stand for, so the spanned rows after a row with values become the one empty row of a gap,
+    # like skipped rows (`ss:Index`). The span was ignored, so the rows after it were numbered too low: R1C1 formulas pointed
+    # at the wrong cells and a MergeDown reached rows it does not cover (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetRowSpan). Only numbers
+    # change, so a huge span costs nothing.
+    previous = covered = yielded = 0
     for row in table.iterfind(f"{{{_SS}}}Row"):
-        previous, row_number = row_number, _ss_int(row, "Index", row_number + 1, invalid)
+        row_number = _ss_int(row, "Index", covered + 1, invalid)
         if row_number > previous + 1:
             yield ()
             yielded += 1
@@ -335,6 +340,8 @@ def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None]
             across[yielded] = [(first - 1, last, text) for first, last, text in spans]  # 0-based columns, end column exclusive
         yield tuple(values.get(index, "") for index in range(1, max(values) + 1)) if values else ()
         yielded += 1
+        covered = row_number + _ss_int(row, "Span", 0, invalid)
+        previous = row_number if values else covered
 
 
 def _xml_cell_value(data: etree._Element, number_format: str | None, not_finite: list[str] | None = None) -> str:
@@ -366,7 +373,10 @@ def _xml_cell_value(data: etree._Element, number_format: str | None, not_finite:
                 return format_cell(value - datetime(1899, 12, 31 if value < datetime(1900, 3, 1) else 30), number_format)
 
             # A time-only value is stored attached to Excel's day 0 (1899-12-31) (Pinned by: test_time_only_value_is_shown_as_a_time).
-            return _format_value(value.time()) if value.date() == date(1899, 12, 31) else format_cell(value, number_format)
+            # Its time follows the cell's time format as in XLSX (`h:mm AM/PM` → `1:30 PM`); it came out as `13:30:00` whatever the
+            # format (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetDatesAndTimes::test_time_only_value_follows_the_time_format).
+            # Without a format, or with one that shows a date, it stays `HH:MM:SS` (`format_cell`).
+            return format_cell(value.time(), number_format) if value.date() == date(1899, 12, 31) else format_cell(value, number_format)
     except ValueError:
         return text
     if kind == "Boolean":

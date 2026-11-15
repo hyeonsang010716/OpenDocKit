@@ -457,6 +457,21 @@ def docx_with_images(*, logo_count: int = 0) -> bytes:
     return buffer.getvalue()
 
 
+def docx_with_pictures_before_long_text(words: int, *, logo_count: int = 0) -> bytes:
+    """A paragraph, a picture with alt text, a picture without, `logo_count` copies of one logo, then `words` words."""
+    document = Document()
+    document.add_paragraph("Intro paragraph.")
+    document.add_picture(BytesIO(png_bytes(300, 200, seed=1)), width=DocxInches(2))
+    document.inline_shapes[0]._inline.docPr.set("descr", "Quarterly revenue chart")
+    document.add_picture(BytesIO(png_bytes(300, 200, seed=2)), width=DocxInches(2))
+    for _ in range(logo_count):
+        document.add_paragraph("Page").add_run().add_picture(BytesIO(png_bytes(seed=9)), width=DocxInches(1))
+    document.add_paragraph("x " * words)
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
 def pptx_with_image() -> bytes:
     presentation = Presentation()
     slide = presentation.slides.add_slide(presentation.slide_layouts[5])

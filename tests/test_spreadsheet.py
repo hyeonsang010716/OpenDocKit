@@ -1246,6 +1246,45 @@ def _xml_spreadsheet_rows(rows: str) -> bytes:
             "</Worksheet></Workbook>").encode()
 
 
+class TestXmlSpreadsheetRowSpan:
+    """`<Row ss:Span="n">` stands for n more rows like it, but the span was ignored when numbering the rows after it: an R1C1
+    formula below pointed at the wrong cell (`=R[-4]C` stayed as written instead of `=B2`) and a MergeDown reached rows it does not
+    cover."""
+
+    def test_formula_below_a_spanned_row_points_at_the_right_cell(self):
+        data = _xml_spreadsheet_rows(
+            '<Row><Cell><Data ss:Type="String">항목</Data></Cell><Cell><Data ss:Type="String">금액</Data></Cell></Row>'
+            '<Row><Cell><Data ss:Type="String">교통비</Data></Cell><Cell><Data ss:Type="Number">35000</Data></Cell></Row>'
+            '<Row ss:Span="2"/>'
+            '<Row><Cell><Data ss:Type="String">합계</Data></Cell><Cell ss:Formula="=R[-4]C"><Data ss:Type="Number"></Data></Cell>'
+            "</Row>")
+
+        result = convert(data, "a.xml")
+
+        assert "| 합계 | =B2 |" in result.text
+
+    def test_rows_spanned_after_a_row_with_values_end_a_vertical_merge(self):
+        data = _xml_spreadsheet_rows(
+            '<Row><Cell><Data ss:Type="String">구분</Data></Cell><Cell><Data ss:Type="String">값</Data></Cell></Row>'
+            '<Row><Cell ss:MergeDown="2"><Data ss:Type="String">가</Data></Cell><Cell><Data ss:Type="Number">1</Data></Cell></Row>'
+            '<Row ss:Span="1"><Cell ss:Index="2"><Data ss:Type="Number">2</Data></Cell></Row>'
+            '<Row><Cell ss:Index="2"><Data ss:Type="Number">5</Data></Cell></Row>')
+
+        result = convert(data, "a.xml")
+
+        assert result.text.endswith("| 가 | 1 |\n| 가 | 2 |\n| | 5 |")
+
+    def test_huge_span_only_moves_the_row_numbers(self):
+        data = _xml_spreadsheet_rows(
+            '<Row><Cell><Data ss:Type="String">항목</Data></Cell><Cell><Data ss:Type="String">금액</Data></Cell></Row>'
+            '<Row ss:Span="99999999999999"/>'
+            '<Row><Cell><Data ss:Type="String">합계</Data></Cell><Cell ss:Formula="=R[-1]C"/></Row>')
+
+        result = convert(data, "a.xml")
+
+        assert result.text.endswith("| 항목 | 금액 |\n| --- | --- |\n| 합계 | =R[-1]C |")
+
+
 class TestXmlSpreadsheetFormulasWithoutResults:
     """A formula cell of Excel 2003 XML with no computed value (SheetJS etc. write only `ss:Formula`) became blank without a
     warning."""
@@ -1578,6 +1617,22 @@ class TestXmlSpreadsheetDatesAndTimes:
 
         assert f"| 가 | {expected} |" in result.text
 
+    @pytest.mark.parametrize(("number_format", "expected"), [
+        ("Short Time", "13:30"),
+        ("Medium Time", "13:30"),
+        ("Long Time", "13:30:00"),
+        ("h:mm AM/PM", "1:30 PM"),
+        ("Short Date", "13:30:00"),
+    ])
+    def test_time_only_value_follows_the_time_format(self, number_format, expected):
+        """A time stored on Excel's day 0 (1899-12-31) came out as `13:30:00` whatever the cell's format; XLSX shows `13:30` and
+        `1:30 PM`. A format that shows a date keeps the time alone, as without a format."""
+        data = _xml_spreadsheet(number_format, "DateTime", "1899-12-31T13:30:00.000")
+
+        result = convert(data, "a.xls")
+
+        assert f"| 가 | {expected} |" in result.text
+
 
 class TestTimeDisplay:
     """A time-format value came out with fractional seconds (`00:01:43.680000`; Excel shows `01:44`), and an `h:mm` value past
@@ -1701,6 +1756,67 @@ class TestCsvLimitsAndHints:
 
         assert "끝 |" in result.text
         assert not result.warnings
+
+    @pytest.mark.parametrize("front", ['"메모",', '27" 모니터,1\n'], ids=["quoted-cell-in-front", "stray-quote-on-an-earlier-line"])
+    def test_quoted_cell_in_front_of_a_very_wide_row_does_not_stop_the_cut(self, front):
+        """A line with the quote character, and every line after a line with an odd number of quotes, was never cut: one quoted
+        cell in front of 20 million cells (40 MB) took 3.8 s and 930 MB, and one stray `27" 모니터` cell switched the cut off for
+        the rest of the file."""
+        import tracemalloc
+
+        data = (front + "머리," * 2_000_000 + "끝\n가,나\n").encode()
+
+        tracemalloc.start()
+        result = convert(data, "a.csv", ConvertOptions(max_chars=None))
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+
+        assert peak < 80 * 1024 * 1024
+        assert "| 머리 | 머리 |" in result.text
+        assert "| 가 | 나 |" in result.text
+        assert "Sheet 'CSV': columns beyond column 100 were excluded." in result.warnings
+
+    @pytest.mark.timing
+    def test_quoted_very_wide_row_is_cut_quickly(self):
+        import time
+
+        data = ('"메모",' + "1," * 10_000_000 + '"끝"\n가,나\n').encode()
+
+        started = time.perf_counter()
+        result = convert(data, "a.csv", ConvertOptions(max_chars=None))
+
+        assert time.perf_counter() - started < 1
+        assert "| 가 | 나 |" in result.text
+
+    def test_quoted_cells_within_the_limit_keep_their_delimiters_and_line_breaks(self):
+        """Cutting counts only the delimiters outside quotes: a quoted cell spanning lines with commas inside stays whole, and a
+        record cut beyond the limit inside such a cell does not leave its later lines as rows."""
+        data = ('번호,메모,값,비고\n'
+                '1,"첫 줄, 쉼표\n둘째 줄, 쉼표",10,"넘침, 내용\n다음 줄"\n'
+                '2,"메모",20,\n').encode()
+
+        result = convert(data, "a.csv", ConvertOptions(max_sheet_cols=3))
+
+        assert result.text == ("| 번호 | 메모 | 값 |\n| --- | --- | --- |\n| 1 | 첫 줄, 쉼표<br>둘째 줄, 쉼표 | 10 |\n"
+                               "| 2 | 메모 | 20 |")
+        assert result.warnings == ["Sheet 'CSV': columns beyond column 3 were excluded."]
+
+    @pytest.mark.parametrize(("beyond", "warned"), [('"",  ,""', False), ('"""",x', True)], ids=["empty", "quote-character"])
+    def test_quoted_cells_beyond_the_limit_warn_only_when_not_empty(self, beyond, warned):
+        data = f"가,나\n1,2,{beyond}\n".encode()
+
+        result = convert(data, "a.csv", ConvertOptions(max_sheet_cols=2))
+
+        assert result.text == "| 가 | 나 |\n| --- | --- |\n| 1 | 2 |"
+        assert (result.warnings == ["Sheet 'CSV': columns beyond column 2 were excluded."]) is warned
+
+    def test_quote_left_open_beyond_the_limit_still_splits_the_rest_by_the_delimiter(self):
+        data = '가,나\n1,2,"열림\n3,4\n'.encode()
+
+        result = convert(data, "a.csv", ConvertOptions(max_sheet_cols=2))
+
+        assert "| 3 | 4 |" in result.text
+        assert "The quoting in the CSV is inconsistent from line 2 on, so the rest was split by the delimiter only." in result.warnings
 
     @pytest.mark.parametrize(("data", "expected"), [
         ("sep=;\n이름;값\n가;1,5\n나;2,5\n", "| 이름 | 값 |\n| --- | --- |\n| 가 | 1,5 |\n| 나 | 2,5 |"),

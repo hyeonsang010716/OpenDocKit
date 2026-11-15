@@ -25,6 +25,7 @@ from opendockit.extractors._html_base import (
     _replace,
 )
 from opendockit.extractors._html_tables import (
+    STRIKE_KEY,
     _has_one_row_header,
     _header_row_count,
     _holds_blocks,
@@ -469,6 +470,19 @@ def _is_code_fence(line: str) -> bool:
     return line.endswith(_CODE_FENCE) and not line[:-len(_CODE_FENCE)].strip("> \t")
 
 
+def _settle_strikes(text: str) -> str:
+    """The rendered text with the key taken off its strikethrough marks (`STRIKE_KEY`), and a closing mark that the rendering
+    put right against an opening one (`~~a~~~~b~~`) joined into one pair (`~~ab~~`). Four tildes in a row are not a
+    strikethrough in GFM, and whether anything is written between two runs is only known once they are rendered: a heading,
+    list item or paragraph with nothing in it, or one drawn inline (in a heading, a table cell, an `<ol>` that holds it
+    directly), puts no break between the runs around it (Pinned by:
+    test_audit_web_fixes.py::TestStrikethroughAroundBlocks::test_runs_with_nothing_rendered_between_them_are_one_pair,
+    test_struck_blocks_never_leave_marks_against_each_other). The key tells these marks from tildes of the document."""
+    if STRIKE_KEY not in text:
+        return text
+    return text.replace(f"{STRIKE_KEY}~~~~{STRIKE_KEY}", "").replace(STRIKE_KEY, "")
+
+
 def _settle_fences(text: str) -> str:
     """The rendered text of a document with the key taken off the fences of its code blocks (`_CODE_FENCE`), and with the
     backtick lines of its text that open a fence which is never closed neutralized (`markdown.escape_unpaired_fences`) —
@@ -485,8 +499,9 @@ def _settle_fences(text: str) -> str:
     A document without a code block is settled too: it may be one body part of a mail, and its unpaired line was paired
     with the fence of the code block of the next part once the parts were joined
     (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::test_fence_paragraph_of_one_mail_part_before_the_code_block_of_the_next).
+    The strikethrough marks are settled first (`_settle_strikes`).
     """
-    lines = text.split("\n")
+    lines = _settle_strikes(text).split("\n")
     fences = [index for index, line in enumerate(lines) if _is_code_fence(line)]
     settled: list[str] = []
     start = 0  # where the text after the last code block starts
@@ -902,11 +917,13 @@ def _table_grid(rows: list[Tag], header_count: int, *, embedding: bool,
     for row_index, row in enumerate(rows):
         for cell in _row_cells(row):
             # A rowspan longer than the table's remaining rows is cut at the end of the table, as browsers do. `rowspan=99` produced 97
-            # empty rows (Pinned by: test_text_html.py::test_html_rowspan_longer_than_the_table_does_not_add_empty_rows).
+            # empty rows (Pinned by: test_text_html.py::test_html_rowspan_longer_than_the_table_does_not_add_empty_rows). It is cut
+            # at the end of its row group too (`_row_span`): a body cell reached into the tfoot total row
+            # (Pinned by: test_audit_web_fixes.py::TestRowspanStopsAtItsRowGroup).
             text, col_span = _cell_text(cell, embed_into=grid if embedding else None), _span(cell, "colspan")
             if marks and id(cell) in marks and text:
                 text = marks[id(cell)] + text
-            row_span = min(_row_span(cell, rows, row_index), len(rows) - row_index)
+            row_span = _row_span(cell, rows, row_index)
             grid.place_next(row_index, text, row_span=row_span, col_span=col_span)
             placed_rows.update(range(row_index, row_index + row_span))
             if row_index < header_count:

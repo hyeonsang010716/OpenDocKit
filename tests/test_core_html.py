@@ -2,9 +2,11 @@
 
 import warnings
 
+from bs4 import BeautifulSoup
 import pytest
 
 from opendockit import ConvertOptions, DocumentFormat, convert
+from opendockit.extractors._html_tables import _names_values_in_pairs, _table_rows
 from opendockit.extractors.html import extract_html
 from tests import needs_html5_tokenizer
 
@@ -426,6 +428,22 @@ class TestNameValueTablesWithRowHeaders:
         result = convert(html.encode(), "a.html")
 
         assert "| --- |" in result.text and not result.text.startswith("|  |")
+
+    @pytest.mark.parametrize("spacer", ["<tr></tr>", "<tr> </tr>"])
+    @pytest.mark.parametrize("position", [0, 1, 3])
+    def test_empty_row_does_not_cancel_the_pairs(self, spacer, position):
+        rows = ["<tr><th>계약명</th><td>2024 서버 유지보수</td></tr>", "<tr><th>계약금액</th><td>1,000,000원</td></tr>",
+                "<tr><th>기간</th><td>12개월</td></tr>"]
+        rows.insert(position, spacer)
+
+        result = convert(f"<table>{''.join(rows)}</table>".encode(), "a.html")
+
+        assert result.text == "| | |\n| --- | --- |\n| 계약명 | 2024 서버 유지보수 |\n| 계약금액 | 1,000,000원 |\n| 기간 | 12개월 |"
+
+    def test_table_of_empty_rows_only_is_not_a_pair_table(self):
+        table = BeautifulSoup("<table><tr></tr><tr></tr><tr><td>x</td></tr></table>", "lxml").table
+
+        assert not _names_values_in_pairs(_table_rows(table))
 
 
 class TestConfluenceTaskList:

@@ -37,7 +37,14 @@ from opendockit.extractors._inline import (
     resolve_strikes,
 )
 from opendockit.extractors._lists import HAND_TYPED_BULLET, MAX_LEVEL, cell_level_mark, format_number, list_item_prefix, start_number
-from opendockit.extractors._notation import OLE_PLACEHOLDER, comment_line, omitted_rows_warning, unread_ole_warning
+from opendockit.extractors._notation import (
+    OLE_PLACEHOLDER,
+    TableBudget,
+    chars_left,
+    comment_line,
+    omitted_rows_warning,
+    unread_ole_warning,
+)
 from opendockit.extractors._omml import render_omml
 from opendockit.extractors._package import core_properties, decimal_int, is_strict_package, open_package, parse_part
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_font_text
@@ -245,7 +252,8 @@ def _unwrap_alternate_content(tree: object, part: object) -> None:
             continue
         choice, fallback = _branch_shapes(alternate, "Choice"), _branch_shapes(alternate, "Fallback")
         charts = [shape for shape in choice if _has_chartex(shape)]
-        is_unreadable_chart = bool(charts) and not any(_chartex_text(shape, part) for shape in charts)
+        # Whether any value can be read is known from the first row (`room` 0), so the whole table is not built for the check
+        is_unreadable_chart = bool(charts) and not any(_chartex_text(shape, part, 0) for shape in charts)
         shapes = fallback if fallback and (not choice or is_unreadable_chart) else choice
         position = parent.index(alternate)
         parent.remove(alternate)
@@ -632,7 +640,7 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
     if image:
         return [extraction.add_image(image, alt=_shape_alt(shape))]
     if getattr(shape, "has_table", False) and shape.has_table:
-        return [_render_pptx_table(shape.table, extraction, _inline_of(shape, options))]
+        return [_render_pptx_table(shape.table, extraction, _inline_of(shape, options), TableBudget(extraction, options))]
     if getattr(shape, "has_chart", False) and shape.has_chart:
         try:
             chart_part = shape.chart_part
@@ -645,7 +653,10 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
             chart = parse_part(chart_part.blob)
         except (KeyError, ValueError):  # broken or external relationship. One chart must not reject the whole document
             return []
-        rendered = render_chart(chart, load_related=related_loader(chart_part)) if chart is not None else ""
+        # The value rows stop once their text passes the characters the output can still take (`room`; Pinned by:
+        # test_office_table_char_limit.py::TestChartValuesPastTheLimit::test_pptx_chart_stops_at_the_limit).
+        rendered = (render_chart(chart, load_related=related_loader(chart_part), room=chars_left(extraction, options))
+                    if chart is not None else "")
         chart_part._converter_chart_title = rendered.split("\n", 1)[0]
         return [rendered] if chart is not None else []
     if shape.has_text_frame:
@@ -656,7 +667,7 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
         as_bullets = _placeholder_type(shape) in _BULLET_PLACEHOLDERS
         return [*markers, _render_text_frame(shape.text_frame, as_bullets, _list_styles(shape), _inline_of(shape, options))]
     if _has_chartex(shape._element):
-        return [_chartex_text(shape._element, shape.part) or "[Chart]"]
+        return [_chartex_text(shape._element, shape.part, chars_left(extraction, options)) or "[Chart]"]
     if next(shape._element.iter(f"{{{_PRESENTATION}}}oleObj"), None) is not None:
         # When no preview picture can be registered (image extraction is off or there is no preview), a placeholder and a count
         # warning are left, as for HWP and HWPX. Pasted sheets and documents vanished without a trace
@@ -680,15 +691,15 @@ def _has_chartex(element: object) -> bool:
     return element.tag == f"{{{_PRESENTATION}}}graphicFrame" and next(element.iter(f"{{{_CHARTEX}}}chart"), None) is not None
 
 
-def _chartex_text(element: object, part: object) -> str:
-    """Chart part referenced by the frame of a new chart kind (the cx:chart inside p:graphicFrame) → "[Chart] title" + value table.
-    An empty string if it cannot be read."""
+def _chartex_text(element: object, part: object, room: int | None) -> str:
+    """Chart part referenced by the frame of a new chart kind (the cx:chart inside p:graphicFrame) → "[Chart] title" + value table
+    (rows up to `room`, as in `render_chart`). An empty string if it cannot be read."""
     chart = next(element.iter(f"{{{_CHARTEX}}}chart"))
     try:
         chart_space = parse_part(part.related_part(chart.get(f"{{{_RELATIONSHIPS}}}id")).blob)
     except (KeyError, ValueError):  # broken or external relationship. Falls through to the fallback picture or the placeholder
         return ""
-    return render_chartex(chart_space) if chart_space is not None else ""
+    return render_chartex(chart_space, room=room) if chart_space is not None else ""
 
 
 def _ole_preview(shape: object) -> bytes | None:
@@ -971,7 +982,7 @@ def _plain_font(properties: object | None) -> str | None:
     return font.get("typeface") if font is not None else None
 
 
-def _render_pptx_table(table: object, extraction: Extraction, inline: _Inline | None = None) -> str:
+def _render_pptx_table(table: object, extraction: Extraction, inline: _Inline | None = None, budget: TableBudget | None = None) -> str:
     """The merge rules are the same as in the other formats (TableGrid: vertical repeats, horizontal first cell). Cells covered by a
     merge (hMerge, vMerge) are filled by the starting cell.
 
@@ -983,9 +994,23 @@ def _render_pptx_table(table: object, extraction: Extraction, inline: _Inline | 
     Rows are iterated over the `a:tr` list, fetched once, instead of `table.rows`. `_RowCollection` has no iterator, so the list was
     rebuilt from the start for every row and took the square of the row count
     (8,000 rows took 21 seconds, Pinned by: test_office_round43.py::TestPptxTableRows::test_many_rows_take_linear_time).
+
+    The character limit is checked per cell (`budget`, `_notation.TableBudget` as in DOCX/HWP/HWPX): once the characters counted
+    before this slide plus the cell text read from this table pass the limit, the remaining rows are not read. Counted only per
+    slide, a table of 1,000,000 rows was rendered to the end before the slide was found to be over (20 s, 3.2 GB) (Pinned by:
+    test_office_table_char_limit.py::TestPptxCharacterLimitInsideOneTable).
     """
     grid = TableGrid()
+    _place_pptx_cells(table, grid, inline, budget)
+    rendered = grid.render()
+    if grid.omitted_rows():
+        extraction.warnings.append(omitted_rows_warning(grid.omitted_rows()))
+    return rendered
 
+
+def _place_pptx_cells(table: object, grid: TableGrid, inline: _Inline | None, budget: TableBudget | None) -> None:
+    """Place the cells of `table` in `grid`. Once `budget` says the limit is exceeded, the remaining cells are not read — the slide
+    is over the limit anyway, so the character-count verdict is the same."""
     for row_index, tr in enumerate(table._tbl.tr_lst):
         row = _Row(tr, table.rows)
         for col_index, cell in enumerate(row.cells):
@@ -995,11 +1020,10 @@ def _render_pptx_table(table: object, extraction: Extraction, inline: _Inline | 
                 grid.reach(row_index, col_index)
                 continue
             text = "\n".join(_cell_paragraph_text(paragraph, inline) for paragraph in cell.text_frame.paragraphs)
-            grid.place(row_index, col_index, text, row_span=_span(element, "rowSpan"), col_span=_span(element, "gridSpan"))
-    rendered = grid.render()
-    if grid.omitted_rows():
-        extraction.warnings.append(omitted_rows_warning(grid.omitted_rows()))
-    return rendered
+            row_span, col_span = _span(element, "rowSpan"), _span(element, "gridSpan")
+            grid.place(row_index, col_index, text, row_span=row_span, col_span=col_span)
+            if budget is not None and budget.add(row_index, col_index, text, row_span=row_span, col_span=col_span):
+                return
 
 
 def _cell_paragraph_text(paragraph: object, inline: _Inline | None = None) -> str:

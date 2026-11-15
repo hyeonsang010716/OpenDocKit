@@ -18,6 +18,7 @@ from opendockit.extractors._pdf_model import (
     _encloses,
     _inside_any,
     _page_index,
+    _PointGrid,
     _Table,
     _text_by_middle,
 )
@@ -76,19 +77,63 @@ def _column_spans(cells: list[tuple], columns: int) -> tuple[tuple[float, float]
     return spans if len(spans) == columns else ()
 
 
-def _ruled_table(bbox: tuple[float, float, float, float], rows: list[list[str | None]], boxes: list[tuple], chars: list[dict],
-                 figures: list[tuple[float, float, float, float, float]]) -> _Table:
+class _TableLookups:
+    """What `_ruled_table` and `_with_open_below` look up on the page for each table: the non-blank characters by the grid cell
+    of their centre and the pictures by the grid cell of their top-left corner (`_PointGrid`), and the horizontal edges by
+    their top, each built once per page the first time a table asks. Every cell holding a picture scanned all the characters
+    of the page, and every cell all the pictures: a ruled grid with a picture and a label in each of 3,600 cells took 30
+    seconds (Pinned by: test_pdf_images.py::TestManyPicturesInRuledCells). Every column of every table listed the page's
+    horizontal edges again (pdfplumber filters them at every access of `page.horizontal_edges`) (Pinned by:
+    test_pdf_shaded_tables.py::TestManySeparateShadedTables::test_open_columns_are_those_of_scanning_the_edges)."""
+
+    def __init__(self, page: object, figures: list[tuple[float, float, float, float, float]]) -> None:
+        self._page, self._figures = page, figures
+        self._char_grid: _PointGrid | None = None
+        self._figure_grid: _PointGrid | None = None
+        self._edges: tuple[list[float], list[tuple[int, dict]]] | None = None
+
+    def holds_figure(self, box: tuple[float, float, float, float]) -> bool:
+        """Whether a picture lies in the cell box (`_in_cell`). A picture whose sides are turned inside out is always tested:
+        only for the others does lying in the cell put the corner in the cell widened by `_CELL_IMAGE_SLACK`."""
+        if self._figure_grid is None:
+            self._figure_grid = _PointGrid(list(self._figures), lambda figure: (
+                (figure[0], figure[1]) if figure[0] <= figure[2] and figure[1] <= figure[3] else (math.nan, math.nan)))
+        near = self._figure_grid.within(box[0] - _CELL_IMAGE_SLACK, box[1] - _CELL_IMAGE_SLACK, box[2] + _CELL_IMAGE_SLACK,
+                                        box[3] + _CELL_IMAGE_SLACK)
+        return any(_in_cell(figure[:4], box) for figure in near)
+
+    def tops(self, box: tuple[float, float, float, float]) -> list[float]:
+        """The top edges of the non-blank characters whose centre lies in the cell box (`_inside_any`), sorted."""
+        if self._char_grid is None:
+            self._char_grid = _PointGrid([char for char in self._page.chars if char["text"].strip()], lambda char: (
+                (char["x0"] + char["x1"]) / 2, (char["top"] + char["bottom"]) / 2))
+        return sorted(char["top"] for char in self._char_grid.within(*box[:4]) if _inside_any(char, [box]))
+
+    def edges_at(self, y: float) -> list[dict]:
+        """The page's horizontal edges whose top lies within 1.5pt of `y`, in page order. Those are found among the edges
+        with a finite top within 4pt of it: an edge that is no number away passes no such test."""
+        if self._edges is None:
+            ordered = sorted(((edge["top"], position, edge) for position, edge in enumerate(self._page.horizontal_edges)
+                              if math.isfinite(edge["top"])), key=lambda item: item[0])
+            self._edges = [top for top, _, _ in ordered], [(position, edge) for _, position, edge in ordered]
+        tops, edges = self._edges
+        near = edges[bisect_left(tops, y - 4.0):bisect_right(tops, y + 4.0)] if math.isfinite(y) else []
+        return [edge for _, edge in sorted(near, key=lambda item: item[0]) if abs(edge["top"] - y) <= 1.5]
+
+
+def _ruled_table(bbox: tuple[float, float, float, float], rows: list[list[str | None]], boxes: list[tuple],
+                 text: _TableLookups) -> _Table:
     """Turns one ruled table (a result of `_real_tables`) into a `_Table`. For a cell holding a picture the line heights of the cell
-    text are stored as well (`_place_images_in_cells`)."""
+    text are stored as well (`_place_images_in_cells`), from the page's characters and pictures in `text`."""
     cells = [[cell and _drawn_text(cell) for cell in row] for row in rows]
     boxes = tuple(box for box in boxes if box)
     cell_lines = {}
 
     for index, box in enumerate(boxes):
-        if any(_in_cell(figure[:4], box) for figure in figures):
+        if text.holds_figure(box):
             tops: list[float] = []
 
-            for top in sorted(char["top"] for char in chars if char["text"].strip() and _inside_any(char, [box])):
+            for top in text.tops(box):
                 if not tops or top - tops[-1] > _TABLE_ROW_TOLERANCE:
                     tops.append(top)
 
@@ -98,16 +143,17 @@ def _ruled_table(bbox: tuple[float, float, float, float], rows: list[list[str | 
                   cell_lines=cell_lines)
 
 
-def _with_open_below(page: object, table: _Table) -> _Table:
+def _with_open_below(table: _Table, lookups: _TableLookups) -> _Table:
     """The table with those of its columns put in `open_below` whose bottom cell has, at its bottom edge, a horizontal ruling line
     over less than 80% of the cell width (modified in place). Measuring at each column's own bottom cell keeps the other columns
     from being seen as open in a table that `_closed_at_the_bottom` closed by extending only the merged-cell column down to the end
-    of its text (if every column is open it is a split row, `_carry_open_cells`)."""
+    of its text (if every column is open it is a split row, `_carry_open_cells`). The page's horizontal edges come from
+    `lookups`."""
     open_columns = []
 
     for column, (x0, x1) in enumerate(table.spans):
         bottom = max((box[3] for box in table.cells if box[0] < (x0 + x1) / 2 < box[2]), default=table.bottom)
-        edges = [edge for edge in page.horizontal_edges if abs(edge["top"] - bottom) <= 1.5]
+        edges = lookups.edges_at(bottom)
         covered = sum(max(0.0, min(edge["x1"], x1) - max(edge["x0"], x0)) for edge in edges)
         if x1 > x0 and covered < (x1 - x0) * 0.8:
             open_columns.append(column)

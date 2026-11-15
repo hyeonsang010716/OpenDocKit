@@ -204,3 +204,50 @@ class TestDamagedDrawingRelationships:
         result = convert(builder.xlsx_with_image(), "a.xlsx")
 
         assert len(result.images) == 1 and result.warnings == []
+
+
+class TestDamagedSheetRelationships:
+    """A sheet's relationship part (`sheet1.xml.rels`) leads only to comments, drawings and form controls, yet openpyxl's parsing
+    of it raised XMLSyntaxError and one broken part rejected the whole workbook. The cells are read and what the part leads to is
+    left out, with a warning naming the sheet."""
+
+    _RELATIONSHIPS = "xl/worksheets/_rels/sheet1.xml.rels"
+    _WARNING = ("The relationship part of sheet 'Sheet' is corrupted, so its comments, pictures, charts and form controls "
+                "were left out.")
+
+    @staticmethod
+    def _workbook_with_a_picture_and_a_comment() -> bytes:
+        from openpyxl.comments import Comment
+
+        workbook = openpyxl.load_workbook(BytesIO(builder.xlsx_with_image()))
+        workbook.active["B2"].comment = Comment("확인 필요", "검토자")
+        workbook.create_sheet("둘째").append(["이름", "점수"])
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    @pytest.mark.parametrize("broken", ["<not xml", ""], ids=["garbage", "empty"])
+    def test_the_cells_are_kept_and_the_parts_it_leads_to_are_left_out(self, load_mode, broken):
+        data = builder.zip_with(self._workbook_with_a_picture_and_a_comment(), edit={self._RELATIONSHIPS: lambda xml: broken})
+
+        result = convert(data, "a.xlsx")
+
+        assert "| 항목 | 값 |\n| --- | --- |\n| a | 1 |" in result.text
+        assert "| 이름 | 점수 |" in result.text
+        assert "확인 필요" not in result.text and result.images == []
+        assert result.warnings == [self._WARNING]
+
+    def test_intact_relationships_keep_the_picture_and_the_comment(self, load_mode):
+        result = convert(self._workbook_with_a_picture_and_a_comment(), "a.xlsx")
+
+        assert "확인 필요" in result.text and len(result.images) == 1
+        assert result.warnings == []
+
+    def test_broken_workbook_relationships_still_reject_the_workbook(self):
+        """Without the workbook's own relationships no sheet can be found, so that part is not tolerated."""
+        from opendockit.exceptions import CorruptedDocumentError
+
+        data = builder.zip_with(builder.xlsx_with_image(), edit={"xl/_rels/workbook.xml.rels": lambda xml: "<not xml"})
+
+        with pytest.raises(CorruptedDocumentError):
+            convert(data, "a.xlsx")

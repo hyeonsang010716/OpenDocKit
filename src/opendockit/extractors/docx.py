@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 import re
 
 from docx.opc.exceptions import PackageNotFoundError
+from docx.oxml.exceptions import InvalidXmlError
 from docx.package import Package
 from docx.parts.document import DocumentPart
 from lxml import etree
@@ -64,6 +65,7 @@ from opendockit.extractors._notation import (
     COMMENT_TARGET_MAX,
     OLE_PLACEHOLDER,
     TableBudget,
+    chars_left,
     comment_line,
     note_table,
     omitted_rows_warning,
@@ -567,6 +569,12 @@ class _DocxRenderer:
         # Text boxes inside a chart (c:userShapes) are found through the chart part's relationships
         # (Pinned by: test_office_chart_units_and_ole.py::TestChartUserShapes).
         extra = {"load_related": related_loader(part)} if render is render_chart else {}
+        # The value rows of a chart stop once their text passes the characters the output can still take. A chart in a header,
+        # footer or note is checked against its own characters only, as a table there is (`_render_table`) (Pinned by:
+        # test_office_table_char_limit.py::TestChartValuesPastTheLimit::test_docx_chart_stops_at_the_limit,
+        # test_header_chart_is_not_cut_by_the_characters_of_the_body).
+        if render is not render_smartart:
+            extra["room"] = chars_left(self._extraction if self._part is self._main_part else Extraction(), self._options)
         if not self._grids:
             return self._first_frame(part, render, render(root, **extra))
 
@@ -869,9 +877,13 @@ def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str, op
             story = getattr(section, attribute)
             if story.is_linked_to_previous:
                 continue
+            # A header detached because its part is missing (`_package.repair_package`, KeyError) and a reference without r:id
+            # (python-docx InvalidXmlError, any of the default, first-page and even-page kinds) skip only that header. The reference
+            # without r:id rejected the whole document as corrupted (Pinned by:
+            # test_audit_office.py::TestDocxHeaderReferenceWithoutARelationship::test_only_that_header_is_skipped).
             try:
                 part = story.part
-            except KeyError:  # a header detached because its part is missing (`_package.repair_package`). Only that header is skipped
+            except (KeyError, InvalidXmlError):
                 continue
             # A reference whose relationship points at a part that is not a header (a picture) has no content to read. Asking for
             # it raised AttributeError and rejected the whole document (Pinned by:

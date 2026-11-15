@@ -1,7 +1,7 @@
-"""The character limit (`max_chars`) is also kept inside a single table (DOCX, HWPX, HWP). Counting only per top-level block, one
-table of hundreds of thousands of rows was drawn to the end before the excess was noticed (200,000-row DOCX 33 s / 2.3GB,
-100,000-row HWPX 7.4 s / 2.3GB). It stops per cell, but the counted value must not be larger than the real one (the same boundary
-check as `test_converter.py::TestLimitIsExact`)."""
+"""The character limit (`max_chars`) is also kept inside a single table (DOCX, PPTX, HWPX, HWP) and a single chart (DOCX, PPTX).
+Counting only per top-level block, one table of hundreds of thousands of rows was drawn to the end before the excess was noticed
+(200,000-row DOCX 33 s / 2.3GB, 100,000-row HWPX 7.4 s / 2.3GB). It stops per cell, but the counted value must not be larger than
+the real one (the same boundary check as `test_converter.py::TestLimitIsExact`)."""
 
 import re
 import struct
@@ -19,7 +19,15 @@ from tests.test_hwp import (
     TAG_TABLE,
     _fake_hwp,
 )
-from tests.test_office import _docx_with_body
+from tests.test_office import (
+    _CHART_NS,
+    _RELATIONSHIPS_NS,
+    _chart_series,
+    _chart_xml,
+    _docx_inline,
+    _docx_with_body,
+    _pptx_with_chart,
+)
 
 
 _ROWS = 20_000
@@ -322,3 +330,304 @@ class TestLimitIsExactAroundTables:
         assert ("겹친칸옮겨짐" in full.text) == (kind != "docx")
         assert [limit for limit, result in results.items() if result.exceeded != (full.char_count > limit)] == []
         assert all(results[limit].text == full.text for limit in (full.char_count, full.char_count + 1))
+
+    @pytest.mark.parametrize("kind", ["pptx", "docx_chart"])
+    def test_slide_tables_and_charts_match_the_real_length_at_every_limit(self, kind):
+        """A PPTX table stops reading its rows and a chart its value rows once the limit is passed. Wherever that happens,
+        exceeded still equals 'characters converted to the end > limit', and the text is the full one at and past the limit."""
+        data = {"pptx": _pptx_boundary_deck, "docx_chart": _docx_chart_boundary_document}[kind]()
+        name = "a.pptx" if kind == "pptx" else "a.docx"
+        full = convert(data, name, ConvertOptions(max_chars=None))
+
+        results = {limit: convert(data, name, ConvertOptions(max_chars=limit)) for limit in range(full.char_count + 2)}
+
+        assert "[Chart]" in full.text and "| --- |" in full.text
+        assert [limit for limit, result in results.items() if result.exceeded != (full.char_count > limit)] == []
+        assert all(results[limit].text == full.text for limit in (full.char_count, full.char_count + 1))
+
+
+def _pptx_boundary_deck() -> bytes:
+    """A text slide; a slide with a table with a horizontally merged title row and a vertical merge, then a text box; a slide
+    with a percentage bar chart and a scatter chart."""
+    from io import BytesIO
+
+    from pptx import Presentation
+    from pptx.chart.data import CategoryChartData, XyChartData
+    from pptx.enum.chart import XL_CHART_TYPE
+    from pptx.util import Inches
+
+    presentation = Presentation()
+    blank = presentation.slide_layouts[6]
+    presentation.slides.add_slide(blank).shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1)).text = "첫 슬라이드 문단"
+
+    slide = presentation.slides.add_slide(blank)
+    table = slide.shapes.add_table(4, _COLS, Inches(1), Inches(1), Inches(6), Inches(2)).table
+    for row in range(4):
+        for col in range(_COLS):
+            table.cell(row, col).text = f"행{row}칸{col}"
+    table.cell(0, 0).merge(table.cell(0, _COLS - 1))
+    table.cell(0, 0).text = "분기별 실적 현황"
+    table.cell(1, 0).merge(table.cell(2, 0))
+    slide.shapes.add_textbox(Inches(1), Inches(4), Inches(4), Inches(1)).text = "표 뒤 문단입니다."
+
+    slide = presentation.slides.add_slide(blank)
+    bars = CategoryChartData(number_format="0.0%")
+    bars.categories = ["1분기", "2분기", "3분기", "4분기"]
+    bars.add_series("점유율", (0.125, 0.25, 0.375, 0.5))
+    bars.add_series("목표", (0.2, 0.3, 0.4, 0.5))
+    slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(4), Inches(3), bars)
+    points = XyChartData()
+    series = points.add_series("온도-수율")
+    for x, y in [(10, 55.5), (20, 61.2), (30, 64.8)]:
+        series.add_data_point(x, y)
+    slide.shapes.add_chart(XL_CHART_TYPE.XY_SCATTER, Inches(1), Inches(4), Inches(4), Inches(3), points)
+    buffer = BytesIO()
+    presentation.save(buffer)
+    return buffer.getvalue()
+
+
+def _docx_frame_of_chart() -> str:
+    return _docx_inline(f'<c:chart xmlns:c="{_CHART_NS}" xmlns:r="{_RELATIONSHIPS_NS}" r:id="rIdChart"/>', _CHART_NS)
+
+
+def _docx_with_chart(body: str, chart: str) -> bytes:
+    """A document whose body holds frames of one chart part (relationship rIdChart)."""
+    relationship = f'<Relationship Id="rIdChart" Type="{_RELATIONSHIPS_NS}/chart" Target="charts/chart1.xml"/></Relationships>'
+    return builder.zip_with(_docx_with_body(body), edit={
+        "word/_rels/document.xml.rels": lambda xml: xml.replace("</Relationships>", relationship)},
+        add={"word/charts/chart1.xml": chart})
+
+
+def _docx_chart_boundary_document() -> bytes:
+    """A paragraph, a bar chart of two series, a paragraph, and a table with a chart in a cell (its value table handed to the
+    table)."""
+    chart = _chart_xml("<c:barChart>" + _chart_series(0, "매출", [str(10 * index) for index in range(1, 7)],
+                                                       [f"{month}월" for month in range(1, 7)])
+                       + _chart_series(1, "비용", [str(7 * index) for index in range(1, 7)]) + "</c:barChart>", title="상반기 실적")
+    cell_chart = _chart_xml("<c:barChart>" + _chart_series(0, "건수", ["3", "5", "8"], ["가", "나", "다"]) + "</c:barChart>")
+    cell_frame = _docx_inline(f'<c:chart xmlns:c="{_CHART_NS}" xmlns:r="{_RELATIONSHIPS_NS}" r:id="rIdCell"/>', _CHART_NS)
+    body = ("<w:p><w:r><w:t>차트 앞 문단입니다.</w:t></w:r></w:p>"
+            f"<w:p><w:r>{_docx_frame_of_chart()}</w:r></w:p>"
+            "<w:p><w:r><w:t>차트 뒤 문단입니다.</w:t></w:r></w:p>"
+            + _docx_table([_docx_cell("구분") + _docx_cell("값") + _docx_cell("비고") + f"<w:tc><w:p><w:r>{cell_frame}</w:r></w:p></w:tc>"])
+            + "<w:p><w:r><w:t>끝 문단입니다.</w:t></w:r></w:p>")
+    relationship = f'<Relationship Id="rIdCell" Type="{_RELATIONSHIPS_NS}/chart" Target="charts/chart2.xml"/></Relationships>'
+    return builder.zip_with(_docx_with_chart(body, chart), edit={
+        "word/_rels/document.xml.rels": lambda xml: xml.replace("</Relationships>", relationship)},
+        add={"word/charts/chart2.xml": cell_chart})
+
+
+def _pptx_big_table(rows: int, *, hidden: bool = False, lead: str = "") -> bytes:
+    """A slide with one table of `rows` rows of `_COLS` cells. python-pptx takes minutes to add that many rows, so one row is made
+    and the others are put into the slide XML. With `hidden` the table frame is hidden (p:cNvPr hidden): the slide XML is the same
+    size and is parsed the same way, but the table is not rendered. With `lead` a slide with that text comes first."""
+    from io import BytesIO
+
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    presentation = Presentation()
+    blank = presentation.slide_layouts[6]
+    if lead:
+        presentation.slides.add_slide(blank).shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1)).text = lead
+    presentation.slides.add_slide(blank).shapes.add_table(1, _COLS, Inches(1), Inches(1), Inches(6), Inches(2))
+    buffer = BytesIO()
+    presentation.save(buffer)
+
+    def cell(text: str) -> str:
+        return f"<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>{text}</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>"
+
+    table = "".join('<a:tr h="370840">' + "".join(cell(f"r{row}c{col}") for col in range(_COLS)) + "</a:tr>" for row in range(rows))
+
+    def fill(xml: str) -> str:
+        xml = re.sub(r"<a:tr .*?</a:tr>", lambda _: table, xml, count=1, flags=re.DOTALL)
+        return re.sub(r'(<p:cNvPr [^>]*name="Table \d+")', r'\1 hidden="1"', xml, count=1) if hidden else xml
+
+    return builder.zip_with(buffer.getvalue(), edit={f"ppt/slides/slide{2 if lead else 1}.xml": fill})
+
+
+class TestPptxCharacterLimitInsideOneTable:
+    """A PPTX table was the only one not checked per cell (`_notation.TableBudget`): counted per slide, a table of 1,000,000 rows
+    (587 KB) was rendered to the end before the slide was found to be over the limit (20 s, 3.2 GB)."""
+
+    def test_pptx_stops_reading_rows_of_a_huge_table(self):
+        result = convert(_pptx_big_table(_ROWS), "a.pptx", ConvertOptions(max_chars=_LIMIT))
+
+        assert result.exceeded
+        assert result.char_count < _LIMIT * 3  # drawn to the end it would be over 500,000 characters
+        assert "| r0c0 | r0c1 | r0c2 | r0c3 |" in result.text
+
+    def test_table_under_the_limit_is_read_to_the_end(self):
+        data = _pptx_big_table(300)
+        full = convert(data, "a.pptx", ConvertOptions(max_chars=None))
+
+        result = convert(data, "a.pptx", ConvertOptions(max_chars=full.char_count))
+
+        assert not result.exceeded and result.text == full.text and "| r299c0 |" in result.text
+
+    def test_characters_of_the_earlier_slides_are_charged_to_the_table(self):
+        """The table stops as soon as the earlier slides and the cells read pass the limit together, not after its own cells
+        alone have."""
+        data = _pptx_big_table(_ROWS, lead="x" * (_LIMIT - 10))
+
+        result = convert(data, "a.pptx", ConvertOptions(max_chars=_LIMIT))
+
+        assert result.exceeded and result.text.startswith("## Slide 1\n\nxxx")
+        assert result.char_count < _LIMIT + 200  # charged with its own cells only, the table would read 5,000 more
+
+    @pytest.mark.timing
+    def test_table_of_many_rows_is_not_rendered_to_the_end(self):
+        """Stopped at the limit, a table of 60,000 rows takes about the time of parsing the slide XML: measured against the same
+        table hidden (parsed, not rendered), so the speed of the machine does not matter."""
+        def best(hidden: bool) -> float:
+            data = _pptx_big_table(60_000, hidden=hidden)
+            return min(_seconds(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=_LIMIT))) for _ in range(2))
+
+        assert best(hidden=False) < best(hidden=True) * 2 + 0.3
+
+
+def _pptx_with_big_chart(points: int, *, scatter: bool = False) -> bytes:
+    """A slide with one chart of `points` cached points (a bar chart with a percentage format, or a scatter chart)."""
+    def cache(offset: int, format_code: str = "") -> str:
+        values = "".join(f'<c:pt idx="{index}"><c:v>{index + offset}</c:v></c:pt>' for index in range(points))
+        code = f"<c:formatCode>{format_code}</c:formatCode>" if format_code else ""
+        return f'<c:numRef><c:numCache>{code}<c:ptCount val="{points}"/>{values}</c:numCache></c:numRef>'
+
+    if scatter:
+        plot = (f'<c:scatterChart><c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:v>XY</c:v></c:tx>'
+                f"<c:xVal>{cache(0)}</c:xVal><c:yVal>{cache(7)}</c:yVal></c:ser></c:scatterChart>")
+    else:
+        plot = (f'<c:barChart><c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:v>Sales</c:v></c:tx>'
+                f'<c:val>{cache(0, "0.0%")}</c:val></c:ser></c:barChart>')
+    return builder.zip_with(_pptx_with_chart(), edit={"ppt/charts/chart1.xml": lambda _: _chart_xml(plot, title="Big")})
+
+
+class TestChartValuesPastTheLimit:
+    """Chart value tables had no limit: the slide or block holding the chart was counted only after the whole table was built, so
+    1,000,000 cached points (a 5 MB PPTX) took 9 s and 2.5 GB. The value rows stop once their text passes what the output can
+    still take; there is no fixed cap on points, `max_chars` stays the only volume limit."""
+
+    @pytest.mark.parametrize("scatter", [False, True])
+    def test_pptx_chart_stops_at_the_limit(self, scatter):
+        result = convert(_pptx_with_big_chart(_ROWS, scatter=scatter), "a.pptx", ConvertOptions(max_chars=_LIMIT))
+
+        assert result.exceeded
+        assert result.char_count < _LIMIT * 3  # drawn to the end it would be over 200,000 characters
+        assert "[Chart] Big" in result.text
+        assert ("| XY | 0 | 7 |" if scatter else "| 1 | 0.0% |") in result.text
+
+    def test_docx_chart_stops_at_the_limit(self):
+        chart = _chart_xml("<c:barChart>" + _chart_series(0, "Sales", [str(index) for index in range(_ROWS)]) + "</c:barChart>",
+                           title="Big")
+        data = _docx_with_chart(f"<w:p><w:r>{_docx_frame_of_chart()}</w:r></w:p>", chart)
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=_LIMIT))
+
+        assert result.exceeded
+        assert result.char_count < _LIMIT * 3
+        assert result.text.startswith("[Chart] Big\n\n| Category | Sales |\n| --- | --- |\n| 1 | 0 |")
+
+    def test_header_chart_is_not_cut_by_the_characters_of_the_body(self):
+        """A chart in a header is checked against its own characters only, as a header table is: headers are read after the body
+        but written before it, so charged with the body's characters the chart stopped after its first row and the text returned
+        was not the front of the full conversion."""
+        from io import BytesIO
+
+        from docx import Document
+
+        document = Document()
+        document.sections[0].header.paragraphs[0].text = "HEADER"
+        document.add_paragraph("B" * 95)
+        buffer = BytesIO()
+        document.save(buffer)
+        months = range(1, 13)
+        chart = _chart_xml("<c:barChart>" + _chart_series(0, "Sales", [str(10 * month) for month in months], [f"M{month}" for month in months])
+                           + "</c:barChart>", title="Months")
+        relationships = ('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/'
+                         f'relationships"><Relationship Id="rIdChart" Type="{_RELATIONSHIPS_NS}/chart" Target="charts/chart1.xml"/>'
+                         "</Relationships>")
+        data = builder.zip_with(buffer.getvalue(), edit={
+            "word/header1.xml": lambda xml: xml.replace("<w:t>HEADER</w:t></w:r>", f"<w:t>HEADER</w:t></w:r><w:r>{_docx_frame_of_chart()}</w:r>")},
+            add={"word/charts/chart1.xml": chart, "word/_rels/header1.xml.rels": relationships})
+        options = ConvertOptions(include_headers_footers=True)
+        full = convert(data, "a.docx", options).text
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=110, include_headers_footers=True))
+
+        assert "| M12 | 120 |" in full and full.endswith("B" * 95)
+        assert result.exceeded and result.text == full[:110].rstrip()
+
+    def test_chart_under_the_limit_is_read_to_the_end(self):
+        data = _pptx_with_big_chart(300)
+        full = convert(data, "a.pptx", ConvertOptions(max_chars=None))
+
+        result = convert(data, "a.pptx", ConvertOptions(max_chars=full.char_count))
+
+        assert not result.exceeded and result.text == full.text and "| 300 | 29900.0% |" in result.text
+
+    def test_xlsx_chart_stops_at_the_limit(self):
+        """A chart placed on a sheet goes through the same value rows (`_xlsx_parts._chart_text`)."""
+        from tests.test_spreadsheet import _xlsx_with_chart
+
+        def xlsx(points: int) -> bytes:
+            chart = _chart_xml("<c:barChart>" + _chart_series(0, "Sales", [str(index) for index in range(points)]) + "</c:barChart>",
+                               title="Big")
+            return builder.zip_with(_xlsx_with_chart(cached=True), edit={"xl/charts/chart1.xml": lambda _: chart})
+
+        result = convert(xlsx(_ROWS), "a.xlsx", ConvertOptions(max_chars=_LIMIT))
+        full = convert(xlsx(300), "a.xlsx", ConvertOptions(max_chars=None))
+
+        assert result.exceeded
+        assert result.char_count < _LIMIT * 3  # drawn to the end it would be over 200,000 characters
+        assert "[Chart] Big\n\n| Category | Sales |\n| --- | --- |\n| 1 | 0 |" in result.text
+        assert "| 300 | 299 |" in full.text
+        assert convert(xlsx(300), "a.xlsx", ConvertOptions(max_chars=full.char_count)).text == full.text
+
+    def test_hwpx_chart_stops_at_the_limit(self):
+        """A chart in a Hangul (HWPX) document goes through the same value rows (`hwpx._render_chart`)."""
+        def hwpx(points: int) -> bytes:
+            chart = _chart_xml("<c:barChart>" + _chart_series(0, "Sales", [str(index) for index in range(points)]) + "</c:barChart>",
+                               title="Big")
+            body = '<hp:p><hp:run><hp:t>Sales:</hp:t><hp:chart chartIDRef="Chart/chart1.xml"/></hp:run></hp:p>'
+            return builder.zip_with(builder.hwpx_bytes(body), add={"Chart/chart1.xml": chart})
+
+        result = convert(hwpx(_ROWS), "a.hwpx", ConvertOptions(max_chars=_LIMIT))
+        full = convert(hwpx(300), "a.hwpx", ConvertOptions(max_chars=None))
+
+        assert result.exceeded
+        assert result.char_count < _LIMIT * 3
+        assert result.text.startswith("Sales:\n\n[Chart] Big\n\n| Category | Sales |\n| --- | --- |\n| 1 | 0 |")
+        assert "| 300 | 299 |" in full.text
+        assert convert(hwpx(300), "a.hwpx", ConvertOptions(max_chars=full.char_count)).text == full.text
+
+    def test_hwpx_header_chart_is_not_cut_by_the_characters_of_the_body(self):
+        """A header is written before the body but read where it stands in it. Charged with the body's characters, a chart in
+        a header stopped after its fourth row and the cut text was not the front of the full conversion."""
+        months = range(1, 13)
+        chart = _chart_xml("<c:barChart>" + _chart_series(0, "Sales", [str(10 * month) for month in months],
+                                                          [f"M{month}" for month in months]) + "</c:barChart>", title="Months")
+        body = ("<hp:p><hp:run><hp:t>" + "B" * 95 + "</hp:t></hp:run></hp:p>"
+                "<hp:p><hp:run><hp:ctrl><hp:header><hp:subList><hp:p><hp:run><hp:t>HEADER</hp:t>"
+                '<hp:chart chartIDRef="Chart/chart1.xml"/></hp:run></hp:p></hp:subList></hp:header></hp:ctrl>'
+                "<hp:t>tail</hp:t></hp:run></hp:p>")
+        data = builder.zip_with(builder.hwpx_bytes(body), add={"Chart/chart1.xml": chart})
+        full = convert(data, "a.hwpx", ConvertOptions(max_chars=None, include_headers_footers=True))
+
+        cuts = {limit: convert(data, "a.hwpx", ConvertOptions(max_chars=limit, include_headers_footers=True))
+                for limit in (110, 150, full.char_count - 1)}
+
+        assert "| M12 | 120 |" in full.text and full.text.endswith("tail")
+        assert all(result.exceeded and result.text == full.text[:limit].rstrip() for limit, result in cuts.items())
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("scatter", [False, True])
+    def test_chart_of_many_points_is_not_rendered_to_the_end(self, scatter):
+        """Stopped at the limit, a chart of 200,000 points takes a fraction of the time of the same chart drawn to its end
+        (about a quarter for bars, two fifths for scatter); drawn to the end under the limit too, it took as long. Measured
+        against that full conversion of the same file, so the speed and load of the machine do not matter."""
+        data = _pptx_with_big_chart(200_000, scatter=scatter)
+
+        def best(limit: int | None) -> float:
+            return min(_seconds(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=limit))) for _ in range(2))
+
+        assert best(_LIMIT) < best(None) * 0.7

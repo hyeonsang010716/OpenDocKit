@@ -358,6 +358,7 @@ class _PageRenderer:
         self._scale = options.pdf_render_scale
         self._budget = None if options.max_images is None else options.max_images * _RENDER_BUDGET_FACTOR
         self._cached: tuple[tuple[int, float], object] | None = None
+        self._open: tuple[int, object] | None = None  # the page last drawn from, kept open for its next pictures (`_page`)
         self.skipped = 0
 
     def render(self, page_index: int, box: tuple[float, float, float, float] | None = None,
@@ -386,12 +387,13 @@ class _PageRenderer:
         large page beyond the cap (posters, drawings) only the picture area is drawn — previously the whole page was drawn at up to
         4x scale to crop a single picture, using 9.4GB on an 8000pt page, and for even larger pages the bitmap could not be created
         and the picture was dropped without a warning. In either case the scale is lowered when the drawn area exceeds the cap.
+        The page is opened once for all its pictures (`_page`).
         """
         if box is not None and self._cached is not None and self._cached[0] == (page_index, scale):
             return self._cached[1].crop(tuple(round(value * scale) for value in box))
 
         with _PDFIUM_LOCK:
-            page = self._document[page_index]
+            page = self._page(page_index)
             try:
                 width, height = page.get_size()  # visible area, rotation applied — same as the picture coordinates (relative to _view_box)
                 if box is None:
@@ -406,13 +408,38 @@ class _PageRenderer:
                     return None
                 crop = (left, height - bottom, width - right, top)  # amounts to cut off from the page edges (left, bottom, right, top)
                 return _render_bitmap(page, _capped_scale(scale, (right - left) * (bottom - top)), crop)
-            finally:
-                page.close()
+            except BaseException:
+                self._close_page()  # a page that failed to draw is not drawn from again
+                raise
+
+    def _page(self, page_index: int) -> object:
+        """The pdfium page `page_index`, opened once and kept open until a picture of another page is drawn or the renderer is
+        closed. Call inside `_PDFIUM_LOCK`.
+
+        A page larger than the pixel cap draws each picture's area on its own, and opening the page again for every picture
+        parsed the whole page every time: a ruled grid with a picture in each of 3,600 cells (a 3,400pt page) spent 26 of its 30
+        seconds opening the page (Pinned by: test_image.py::TestResourceBounds::test_pictures_of_a_huge_page_open_it_once,
+        test_pictures_of_a_huge_page_take_linear_time)."""
+        if self._open is not None and self._open[0] == page_index:
+            return self._open[1]
+        self._close_page()
+        page = self._document[page_index]
+        self._open = (page_index, page)
+        return page
+
+    def _close_page(self) -> None:
+        """Close the page kept open by `_page`, if any. Call inside `_PDFIUM_LOCK`."""
+        if self._open is not None:
+            page, self._open = self._open[1], None
+            page.close()
 
     def close(self) -> None:
         self._cached = None
         with _PDFIUM_LOCK:
-            self._document.close()
+            try:
+                self._close_page()
+            finally:
+                self._document.close()
 
 
 def _capped_scale(scale: float, area: float) -> float:

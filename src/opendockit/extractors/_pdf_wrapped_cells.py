@@ -22,6 +22,12 @@ _CENTRED_CELL_RATIO = 0.2
 # (`_centred_band_row`). Keeps each row of a long table with narrow line gaps from being scanned to the end of the table (beyond
 # this it is not such a row).
 _CENTRED_BAND_ROWS = 16
+# Upper bound on the number of first-cell text lines of one wrapped label row between rules (`_wrapped_label_row`). Every row
+# collected the lines below it up to the next break, so a long run of left-aligned lines between two rules was scanned from each of
+# its lines to its end: 12,000 short lines on one page took 9.5 seconds against 3 without the rules. A first cell wrapped onto more
+# lines than this is not grouped (Pinned by:
+# test_pdf_ruled_wrapped_cells.py::TestLongRunsOfLinesBetweenRules::test_first_cell_of_more_lines_than_the_bound_is_not_grouped).
+_WRAPPED_LABEL_LINES = 64
 
 
 def _with_ruled_wrapped_cells(rows: list[list[_Line]], rules: list[tuple[float, float, float]]) -> list[list[_Line]]:
@@ -92,7 +98,7 @@ def _wrapped_label_row(rows: list[list[_Line]], start: int, rules: list[tuple[fl
     in a LibreOffice table whose cells have zero top and bottom padding the gap between rows equals the line gap, so the gap
     could not separate them (pinned by: test_cells_without_vertical_padding in the same class). Known accepted gap: when
     such a table is aligned to the top or bottom there is no telling which row a wrapped line belongs to, and nothing is
-    grouped.
+    grouped. A first cell of more than `_WRAPPED_LABEL_LINES` lines is not grouped either.
     """
     first = rows[start][0]
     reach = max(first.height / 2 + 0.5, -1.0 if paragraph_gap is None else paragraph_gap + 1.0)
@@ -111,6 +117,8 @@ def _wrapped_label_row(rows: list[list[_Line]], start: int, rules: list[tuple[fl
                 if anchor is not None or any(other.x0 < line.x1 for other in row[1:]):
                     break
                 anchor, anchor_end, beside = row[1:], end + 1, True
+            if len(labels) == _WRAPPED_LABEL_LINES:
+                return None
             labels.append(line)
             label_ends.append(end + 1)
         elif (anchor is None and labels and all(other.x0 > max(label.x1 for label in labels) for other in row)

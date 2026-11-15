@@ -574,3 +574,133 @@ def test_band_whose_only_text_lies_on_its_edge_does_not_end_the_text():
     assert _band_cells(page, (10.0, 20.0), [0.0, 50.0, 100.0]) == [(10, 15), (60, 65)]
     assert _ends_the_text(page, (10.0, 20.0), 1, 0.0, 100.0, 10.0) is False
     assert _ends_the_text(page, (10.0, 20.0), -1, 0.0, 100.0, 10.0) is False
+
+
+def _separate_shaded_tables_pdf(count: int) -> bytes:
+    """One tall page of `count` separate tables of three columns, each a shaded header row over an unshaded value row."""
+    from io import BytesIO
+
+    from reportlab.lib import colors
+    from reportlab.pdfgen import canvas
+
+    height = count * 50 + 100
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(600, height))
+    pdf.setFont("Helvetica", 9)
+    edges = [50, 200, 350, 500]
+    for index in range(count):
+        y = height - 50 - index * 50
+        pdf.setFillColor(colors.HexColor("#DDE4F0"))
+        for x0, x1 in zip(edges, edges[1:], strict=False):
+            pdf.rect(x0, y - 14, x1 - x0, 14, stroke=0, fill=1)
+        pdf.setFillColor(colors.black)
+        for column, x0 in enumerate(edges[:-1]):
+            pdf.drawString(x0 + 3, y - 10, f"head{index} c{column}")
+            pdf.drawString(x0 + 3, y - 24, f"val{index} c{column}")
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestManySeparateShadedTables:
+    """Every shaded table grown by bands cropped the whole page to search its region again, `_ends_the_text` scanned every
+    character of the page, and every table measured the box and column boundaries of every other table again (pdfplumber
+    measures `table.bbox` from all the cells at every access): one page of 400 separate shaded tables took 14 seconds."""
+
+    def test_separate_shaded_tables_read_as_before(self):
+        text = convert(_separate_shaded_tables_pdf(3), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == "\n\n".join(f"| head{n} c0 | head{n} c1 | head{n} c2 |\n| --- | --- | --- |\n| val{n} c0 | val{n} c1 | val{n} c2 |"
+                                   for n in range(3))
+
+    @pytest.mark.timing
+    def test_many_shaded_tables_take_linear_time(self):
+        from io import BytesIO
+        import time
+
+        import pdfplumber
+
+        from opendockit.extractors._pdf_ruled_tables import _TABLE_SETTINGS
+        from opendockit.extractors._pdf_shaded_tables import _with_shaded_rows
+
+        spent = []
+        for count in (75, 300):
+            with pdfplumber.open(BytesIO(_separate_shaded_tables_pdf(count))) as document:
+                page = document.pages[0]
+                fragments = page.find_tables(_TABLE_SETTINGS)  # the page's own table search is not measured
+                started = time.perf_counter()
+                tables = _with_shaded_rows(page, fragments)
+                spent.append(time.perf_counter() - started)
+                assert len(tables) == count and all(len(table.rows) == 2 for table in tables)
+        small, large = spent
+
+        assert large < 8 * small + 0.5  # 16 times as long when every table cropped the whole page
+
+    def test_cropped_page_holds_the_objects_of_a_crop_of_the_whole_page(self):
+        from io import BytesIO
+        import random
+
+        import pdfplumber
+
+        from opendockit.extractors._pdf_model import _TABLE_SETTINGS, _cropped
+
+        rng = random.Random(7)
+        with pdfplumber.open(BytesIO(_separate_shaded_tables_pdf(40))) as document:
+            page = document.pages[0]
+            left, top, right, bottom = page.bbox
+            for _ in range(60):
+                y0 = rng.choice([top, rng.uniform(top, bottom), float(rng.randrange(0, 2000, 64))])
+                box = (rng.uniform(left, 300), y0, rng.uniform(300, right), min(bottom, y0 + rng.choice([1.0, 14.0, 64.0, 300.0, 1e6])))
+                lines = {"explicit_vertical_lines": [box[0] + 10, box[2] - 10]}
+                whole, near = page.crop(box), _cropped(page, box)
+
+                assert near.objects == whole.objects and near.bbox == whole.bbox
+                assert ([table.cells for table in near.find_tables({**_TABLE_SETTINGS, **lines})]
+                        == [table.cells for table in whole.find_tables({**_TABLE_SETTINGS, **lines})])
+
+    @pytest.mark.parametrize("seed", range(6))
+    def test_text_end_is_the_end_a_scan_finds(self, seed):
+        import random
+
+        from opendockit.extractors._pdf_shaded_tables import _ends_the_text, _ends_the_text_by_scanning
+
+        class Page:
+            objects: dict = {}
+
+            def __init__(self, chars):
+                self.chars = chars
+
+        rng = random.Random(seed)
+        odd = [float("nan"), float("inf"), -float("inf")]
+        chars = []
+        for _ in range(800):
+            x, top = rng.uniform(0, 400), rng.choice([rng.uniform(0, 600), float(rng.randrange(0, 600, 12))])
+            height = rng.choice([10.0, 10.0, 6.0, 0.0, -3.0])
+            chars.append({"text": rng.choice(["a", "a", " "]), "x0": x, "x1": x + 5,
+                          "top": rng.choice([top] * 8 + odd), "bottom": rng.choice([top + height] * 8 + odd)})
+        page = Page(chars)
+        verdicts = set()
+        for _ in range(400):
+            band_top = rng.choice([rng.uniform(0, 600), float(rng.randrange(0, 600, 12))])
+            band = (band_top, band_top + rng.choice([12.0, 24.0, 1.0]))
+            left = rng.uniform(0, 300)
+            arguments = (band, rng.choice([1, -1]), left, left + rng.uniform(5, 200), rng.choice([12.0, 24.0, 2.0]))
+            verdict = _ends_the_text(page, *arguments)
+            assert verdict == _ends_the_text_by_scanning(page, *arguments)
+            verdicts.add(verdict)
+        assert verdicts == {True, False}
+
+    @pytest.mark.parametrize("seed", range(4))
+    def test_open_columns_are_those_of_scanning_the_edges(self, seed):
+        import random
+        from types import SimpleNamespace
+
+        from opendockit.extractors._pdf_ruled_tables import _TableLookups
+
+        rng = random.Random(seed)
+        edges = [{"top": rng.choice([rng.uniform(0, 300), float(rng.randrange(0, 300, 10)), float("nan"), float("inf")]),
+                  "x0": rng.uniform(0, 100), "x1": rng.uniform(100, 200)} for _ in range(500)]
+        lookups = _TableLookups(SimpleNamespace(chars=[], horizontal_edges=edges), [])
+        for y in [rng.uniform(0, 300) for _ in range(200)] + [float(rng.randrange(0, 300, 10)) + 1.5 for _ in range(50)]:
+            found = lookups.edges_at(y)
+            assert found == [edge for edge in edges if abs(edge["top"] - y) <= 1.5]
+            assert [id(edge) for edge in found] == [id(edge) for edge in edges if abs(edge["top"] - y) <= 1.5]

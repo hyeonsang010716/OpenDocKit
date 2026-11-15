@@ -21,7 +21,15 @@ from opendockit.extractors._equation import render_equation
 from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, decorated_text
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number
-from opendockit.extractors._notation import COMMENT_TARGET_MAX, TableBudget, comment_line, format_dutmal, note_table, omitted_rows_warning
+from opendockit.extractors._notation import (
+    COMMENT_TARGET_MAX,
+    TableBudget,
+    chars_left,
+    comment_line,
+    format_dutmal,
+    note_table,
+    omitted_rows_warning,
+)
 from opendockit.extractors._package import ZIP_MEMBER_ERRORS, decimal_int, parse_part
 from opendockit.markdown import TableGrid, join_blocks, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
@@ -334,7 +342,15 @@ class HwpxRenderer:
         # test_office_chart_units_and_ole.py::TestChartUserShapes::test_hwpx_chart_text_box_is_kept).
         outer = self._grids[-1] if self._grids else None
         table = embedded_table(outer) if outer is not None else render_table
-        rendered = render_chart(root, table, package_loader(self._load_part, name))
+        # The value rows stop once their text passes the characters the output can still take (`_charts._value_rows`, as in DOCX
+        # and PPTX). A chart in a note, header or footer (a None in `_grids`) is checked against its own characters only, as a
+        # table there is not counted while it is read: headers and footers are written before the body but read where they stand
+        # in it, so charged with the body's characters the chart stopped short and the cut text was not the front of the full
+        # conversion (Pinned by: test_office_table_char_limit.py::TestChartValuesPastTheLimit::test_hwpx_chart_stops_at_the_limit,
+        # test_hwpx_header_chart_is_not_cut_by_the_characters_of_the_body).
+        own = self._note_depth or any(grid is None for grid in self._grids)
+        room = chars_left(Extraction() if own else self._extraction, self._options)
+        rendered = render_chart(root, table, package_loader(self._load_part, name), room)
         self._charts[name] = rendered.split("\n", 1)[0]
         return rendered
 

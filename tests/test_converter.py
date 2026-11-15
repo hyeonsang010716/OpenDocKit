@@ -1,6 +1,7 @@
 """Converter boundary: limits, exception wrapping, assembly, async."""
 
 import asyncio
+from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
 import sys
@@ -117,6 +118,112 @@ class TestLimits:
         assert result.text == "가" * 10
         assert result.char_count == 100
         assert any("exceeded 10 characters" in warning for warning in result.warnings)
+
+    def test_pictures_before_the_cut_keep_their_placeholder_when_the_text_alone_is_over(self):
+        """With the text alone over the limit the pictures are not decoded, yet the part that is kept is the start of the full
+        conversion: the alt text stays, a picture without one is `[Image]`, a repeated logo is erased. Every placeholder
+        before the cut used to vanish, the author's alt text with it, while a document over the limit only once whitespace
+        was counted kept them."""
+        data = builder.docx_with_pictures_before_long_text(3000, logo_count=3)
+        options = ConvertOptions(max_chars=1000, repeated_image_threshold=3)
+
+        full = convert(data, "a.docx", replace(options, max_chars=None))
+        cut = convert(data, "a.docx", options)
+
+        assert cut.text.startswith("Intro paragraph.\n\n[Image: Quarterly revenue chart]\n\n[Image]\n\nPage\n\nPage\n\nPage\n\nx x ")
+        assert cut.exceeded and cut.images == [] and len(cut.text) <= 1000
+        assert cut.text == full.text[:1000].rstrip()
+        assert [section.text for section in cut.sections] == [full.text[:1000].rstrip()]
+        assert len(full.images) == 2
+
+    @pytest.mark.parametrize("alts", [[None, None, None], [None, "Org chart", None], ["A one", "B two", None]])
+    def test_pictures_that_cannot_be_decoded_keep_their_own_placeholder_past_the_limit(self, alts):
+        """A picture that cannot be decoded (here a WMF) keeps its own alt text and is never taken for a logo, as in a full
+        conversion: counted by their bytes, three copies vanished as a logo and one copy took the alt text of another."""
+        from docx import Document
+        from docx.shared import Inches
+
+        document = Document()
+        document.add_paragraph("Intro paragraph.")
+        for number in range(3):
+            document.add_paragraph(f"P{number}").add_run().add_picture(BytesIO(builder.png_bytes(300, 200, seed=1)), width=Inches(1))
+        for shape, alt in zip(document.inline_shapes, alts, strict=True):
+            if alt:
+                shape._inline.docPr.set("descr", alt)
+        document.add_paragraph("x " * 400)
+        buffer = BytesIO()
+        document.save(buffer)
+        wmf = bytes.fromhex("d7cdc69a") + b"\0" * 60  # a placeable metafile header: not decoded here
+        out = BytesIO()
+        with zipfile.ZipFile(BytesIO(buffer.getvalue())) as source, zipfile.ZipFile(out, "w") as target:
+            for name in source.namelist():
+                target.writestr(name, wmf if name.startswith("word/media/") else source.read(name))
+        data = out.getvalue()
+        options = ConvertOptions(max_chars=100, repeated_image_threshold=3)
+
+        full = convert(data, "a.docx", replace(options, max_chars=None))
+        cut = convert(data, "a.docx", options)
+
+        assert full.text.count("[Image") == 3
+        assert cut.exceeded and cut.text == full.text[:100].rstrip()
+
+    def test_pictures_that_decoding_drops_leave_nothing_past_the_limit(self):
+        """A divider and an icon are dropped as decoration by decoding, and the size that drops them is read from their header
+        past the limit: they left `[Image]` in the cut text where the full conversion has nothing."""
+        from docx import Document
+        from docx.shared import Inches
+        from PIL import Image
+
+        def png(width: int, height: int) -> bytes:
+            buffer = BytesIO()
+            Image.new("RGB", (width, height), (200, 30, 30)).save(buffer, "PNG")
+            return buffer.getvalue()
+
+        document = Document()
+        document.add_paragraph("Intro paragraph.")
+        for picture, alt in ((png(800, 3), "Divider"), (png(10, 10), None), (builder.png_bytes(300, 200, seed=1), "Org chart")):
+            document.add_paragraph().add_run().add_picture(BytesIO(picture), width=Inches(2))
+            if alt:
+                document.inline_shapes[-1]._inline.docPr.set("descr", alt)
+        document.add_paragraph("x " * 400)
+        buffer = BytesIO()
+        document.save(buffer)
+        options = ConvertOptions(max_chars=100)
+
+        full = convert(buffer.getvalue(), "a.docx", replace(options, max_chars=None))
+        cut = convert(buffer.getvalue(), "a.docx", options)
+
+        assert full.text.startswith("Intro paragraph.\n\n[Image: Org chart]\n\nx x")
+        assert cut.exceeded and cut.images == [] and cut.text == full.text[:100].rstrip()
+
+    def test_copies_of_a_picture_of_a_rarer_format_vanish_as_a_logo_past_the_limit(self):
+        """A format Pillow reads beyond the common ones (here PCX) is decoded in a full conversion, so its copies are a logo
+        there. Told by the magic bytes of the common formats only, it was taken past the limit for a picture that cannot be
+        decoded and each copy kept `[Image]`."""
+        from docx import Document
+        from docx.shared import Inches
+        from PIL import Image
+
+        pcx = BytesIO()
+        Image.open(BytesIO(builder.png_bytes(300, 200, seed=1))).convert("RGB").save(pcx, "PCX")
+        document = Document()
+        document.add_paragraph("Intro paragraph.")
+        for number in range(3):
+            document.add_paragraph(f"P{number}").add_run().add_picture(BytesIO(builder.png_bytes(300, 200, seed=1)), width=Inches(1))
+        document.add_paragraph("x " * 400)
+        buffer = BytesIO()
+        document.save(buffer)
+        out = BytesIO()
+        with zipfile.ZipFile(BytesIO(buffer.getvalue())) as source, zipfile.ZipFile(out, "w") as target:
+            for name in source.namelist():
+                target.writestr(name, pcx.getvalue() if name.startswith("word/media/") else source.read(name))
+        options = ConvertOptions(max_chars=100, repeated_image_threshold=3)
+
+        full = convert(out.getvalue(), "a.docx", replace(options, max_chars=None))
+        cut = convert(out.getvalue(), "a.docx", options)
+
+        assert "[Image" not in full.text and full.text.startswith("Intro paragraph.\n\nP0\n\nP1\n\nP2")
+        assert cut.exceeded and cut.text == full.text[:100].rstrip()
 
     def test_document_within_the_limit_is_not_exceeded(self):
         result = convert("본문 첫 줄\n둘째 줄".encode(), "a.txt")

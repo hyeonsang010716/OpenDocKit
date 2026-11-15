@@ -13,6 +13,7 @@ from opendockit.extractors._pdf_model import (
     _inside_any,
     _is_white,
     _Line,
+    _PointGrid,
 )
 
 
@@ -49,6 +50,14 @@ def _mark_checkboxes(page: object, lines: list[_Line], tables: list[tuple[float,
         return
 
     marks = _MarkIndex([*page.curves, *page.lines, *(rect for rect in rects if rect.get("fill"))])
+    # The characters a box may hold are looked up by the grid cell of their top-left corner and the label lines by a binary
+    # search over line tops (`_LinesSpanning`): every box scanned all the characters and lines of the page, so 8,000 separate
+    # 8pt squares beside 400 lines of text took 32 seconds (Pinned by:
+    # test_audit_pdf_head.py::TestManySquaresOnOnePage::test_squares_beside_much_text_take_linear_time). A character whose
+    # sides are turned inside out is always tested: only for the others does lying inside a box put the corner inside it
+    chars = _PointGrid(page.chars, lambda char: ((char["x0"], char["top"]) if char["x0"] <= char["x1"] and char["top"] <= char["bottom"]
+                                                 else (math.nan, math.nan)))
+    spanning = _LinesSpanning(lines)
     before: set[int] = set()  # lines with the mark placed before the text
     after: set[int] = set()  # lines with the mark placed after the text
     # Rectangles at most `cell` pt on a side are looked up by the grid cell of their top-left corner: one that touches a box starts
@@ -76,7 +85,7 @@ def _mark_checkboxes(page: object, lines: list[_Line], tables: list[tuple[float,
                and not _encloses(_bbox(box), _bbox(other)) and not _encloses(_bbox(other), _bbox(box))
                for other in around):
             continue  # box touching another rectangle (a row of character cell boxes). A frame around the box or a filled mark inside is fine
-        _put_checkbox_mark(box, any(mark is not box and _ticks(box, mark) for mark in marks.around(box)), page.chars, lines, before,
+        _put_checkbox_mark(box, any(mark is not box and _ticks(box, mark) for mark in marks.around(box)), chars, spanning, before,
                            after)
 
     # For curve boxes (rounded-corner boxes, radio buttons) the curves drawn on top of each other on the same spot (white background
@@ -89,7 +98,7 @@ def _mark_checkboxes(page: object, lines: list[_Line], tables: list[tuple[float,
         if not ticked and not (any(member.get("stroke") for member in group)
                                and rows.has_other(group, (box["top"] + box["bottom"]) / 2)):
             continue
-        _put_checkbox_mark(box, ticked, page.chars, lines, before, after)
+        _put_checkbox_mark(box, ticked, chars, spanning, before, after)
 
 
 def _mark_circle_bullets(page: object, lines: list[_Line]) -> None:
@@ -258,10 +267,11 @@ class _MarkIndex:
                 for mark in self._cells.get((column, row), ())]
 
 
-def _put_checkbox_mark(box: dict, ticked: bool, chars: list[dict], lines: list[_Line], before: set[int], after: set[int]) -> None:
-    """Puts ☑ (`ticked`) or ☐ on the label line of the box `box`. A box with characters inside or without a label is left alone."""
+def _put_checkbox_mark(box: dict, ticked: bool, chars: _PointGrid, lines: "_LinesSpanning", before: set[int], after: set[int]) -> None:
+    """Puts ☑ (`ticked`) or ☐ on the label line of the box `box`. A box with characters inside or without a label is left alone.
+    A character inside the box has its top-left corner inside it, so only those `chars` gives for the box are tested."""
     if any(box["x0"] < char["x0"] and char["x1"] < box["x1"] and box["top"] < char["top"] and char["bottom"] < box["bottom"]
-           for char in chars):
+           for char in chars.within(box["x0"], box["top"], box["x1"], box["bottom"])):
         return
     label = _checkbox_label(box, lines, before, after)
     if label is None:
@@ -273,13 +283,14 @@ def _put_checkbox_mark(box: dict, ticked: bool, chars: list[dict], lines: list[_
     (before if on_right else after).add(id(line))
 
 
-def _checkbox_label(box: dict, lines: list[_Line], before: set[int], after: set[int]) -> tuple[_Line, bool] | None:
+def _checkbox_label(box: dict, lines: "_LinesSpanning", before: set[int], after: set[int]) -> tuple[_Line, bool] | None:
     """The label line of the check box `box` and whether that line is to the right of the box. The closer of the line starting to
-    the right and the line ending to the left."""
+    the right and the line ending to the left. Only the lines whose height can hold the box's middle are looked at, in page
+    order, so a tie goes to the line a scan of all lines would pick."""
     middle = (box["top"] + box["bottom"]) / 2
     found: list[tuple[float, bool, float, _Line]] = []
 
-    for line in lines:
+    for line in lines.at(middle):
         if not line.top <= middle <= line.bottom:
             continue
         reach = max(box["width"], line.size) * _CHECKBOX_GAP_RATIO

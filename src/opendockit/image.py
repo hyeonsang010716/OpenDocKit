@@ -4,11 +4,14 @@ Images inside documents come in every format (BMP and WMF from Hangul (HWP), iPh
 Unify them into the PNG/JPEG a vision model accepts, shrink the long side, and drop small images that carry no information.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
+import math
 import sys
+from typing import Any
 
-from PIL import Image, ImageChops, ImageOps, JpegImagePlugin
+from PIL import Image, ImageChops, ImageMath, ImageOps, JpegImagePlugin
 
 from opendockit.models import quiet_warnings
 
@@ -126,11 +129,7 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
         if image is None:
             raise ImageUnreadable(type(exc).__name__) from exc
 
-    width, height = image.size
-    too_small = min(width, height) < min_side
-    too_thin = (max(width, height) / max(min(width, height), 1) > _MAX_ASPECT_RATIO
-                and min(width, height) < _CONTENT_SHORT_SIDE)
-    if filter_decorations and (too_small or too_thin):
+    if filter_decorations and is_decoration(*image.size, min_side=min_side):
         raise ImageSkipped
 
     try:
@@ -161,6 +160,30 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
         raise ImageUnreadable(type(exc).__name__) from exc
     return PreparedImage(data, mime_type, shrunk_width, shrunk_height, tiles)
 
+
+def is_decoration(width: int, height: int, *, min_side: int) -> bool:
+    """Whether a picture of this size is one `prepare_image` drops as decoration (`ImageSkipped`): a short side under
+    `min_side` (an icon, a bullet), or an aspect ratio over `_MAX_ASPECT_RATIO` with a short side under `_CONTENT_SHORT_SIDE`
+    (a divider, a piece of border). The converter asks it of the size in the header too (`header_size`)."""
+    short, long = min(width, height), max(width, height)
+    return short < min_side or (long / max(short, 1) > _MAX_ASPECT_RATIO and short < _CONTENT_SHORT_SIDE)
+
+
+def header_size(data: bytes, max_side: int) -> tuple[int, int] | None:
+    """The width and height `prepare_image` decodes the picture at, from its header alone: no pixel is decoded. None for a
+    picture it cannot open (WMF/EMF, a HEIC without its extra, garbage, a format it does not read) or that is over the decode
+    limit (`ImageTooLarge`) — those `prepare_image` cannot decode either. A JPEG over the limit has the size it is read reduced
+    at (`_open_within_pixel_limit`); turning it by its EXIF orientation swaps the sides, which `is_decoration` does not mind.
+    A file whose header reads but whose pixels are broken is a size here and unreadable for `prepare_image`."""
+    try:
+        with quiet_warnings(*_PILLOW_WARNINGS):
+            opened = _open_within_pixel_limit(data, max_side)
+    except Exception:  # noqa: BLE001 — Pillow raises all sorts of exceptions on a file it cannot open, as in `prepare_image`
+        return None
+    try:
+        return opened.size
+    finally:
+        opened.close()
 
 def _decoded(data: bytes, max_side: int) -> Image.Image:
     """The picture, decoded and with its orientation (EXIF) corrected.
@@ -421,8 +444,28 @@ def _stretch_to_8bit(image: Image.Image) -> Image.Image:
     (Pinned by: test_image.py::TestAuditedImageGaps::test_wide_range_grayscale_keeps_its_gradient).
     Only the shapes a vision model reads need to survive, so contrast is kept rather than the original brightness. A picture
     with a single value has that value clipped to 0–255.
+
+    In a float picture the range is that of the finite values; NaN and minus infinity are black (0), plus infinity white
+    (255). A NaN (the 'no data' of a GeoTIFF) made the range NaN and one +inf made the scale 0: either way the whole picture
+    came out black (Pinned by: test_image.py::TestAuditedImageGaps::test_float_picture_with_nan_or_infinity_keeps_its_gradient).
+    The masks and the range are made with Pillow's own operations, not a loop over the pixels in Python.
     """
-    low, high = image.getextrema()
+    not_finite = _where(image, lambda value: (value != value) + (abs(value) == math.inf)) if image.mode == "F" else None
+    if not_finite is not None and not_finite.getbbox() is None:
+        not_finite = None
+    if not_finite is None:
+        low, high = image.getextrema()
+    else:
+        above = _where(image, lambda value: value == math.inf)
+        if ImageChops.invert(not_finite).getbbox() is None:   # not one finite value
+            return above
+        # The finite extremes: the other pixels set first to the largest float, then to the smallest, then to the lowest finite
+        # value, so that the stretch below sees finite numbers only. The picture is the decoder's own, changed in place.
+        image.paste(_FLOAT32_MAX, mask=not_finite)
+        low = image.getextrema()[0]
+        image.paste(-_FLOAT32_MAX, mask=not_finite)
+        high = image.getextrema()[1]
+        image.paste(low, mask=not_finite)
     if high > low:
         scale = 255 / (high - low)
         image = image.convert("F").point(lambda value: value * scale - low * scale)
@@ -430,7 +473,21 @@ def _stretch_to_8bit(image: Image.Image) -> Image.Image:
         level = min(max(low, 0), 255)
         image = image.convert("F").point(lambda value: value * 0 + level)
 
-    return image.convert("L")
+    image = image.convert("L")
+    if not_finite is not None:
+        image.paste(0, mask=not_finite)
+        image.paste(255, mask=above)
+    return image
+
+
+# The largest finite 32-bit float: what the pixels that are not finite are set to while the finite extremes are looked for.
+_FLOAT32_MAX = 3.4028234663852886e38
+
+
+def _where(image: Image.Image, test: Callable[[Any], Any]) -> Image.Image:
+    """An `L` mask of the float picture `image`, 255 where `test` holds for the pixel and 0 elsewhere (Pillow's `ImageMath`)."""
+    found = ImageMath.lambda_eval(lambda names: test(names["value"]), value=image)
+    return found.convert("L").point([0] + [255] * 255)
 
 
 # DIB header sizes of BMP (BITMAPCOREHEADER 12, OS/2 v2 64, BITMAPINFOHEADER 40 and V2–V5). The same ones Pillow reads.

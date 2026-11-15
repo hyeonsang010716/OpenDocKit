@@ -364,6 +364,45 @@ def _inside_any(obj: dict, boxes: list[tuple[float, float, float, float]]) -> bo
     return any(x0 <= center_x <= x1 and top <= center_y <= bottom for x0, top, x1, bottom in boxes)
 
 
+class _PointGrid:
+    """Items by the 64pt grid cell of one point of theirs (`point(item)` gives its x and y). `within(x0, top, x1, bottom)`
+    gives every item whose point lies in that closed rectangle, and some others besides: the caller applies its own exact
+    test, so only whether an item is given matters, not the order. Items whose point is not a finite number are always
+    given, and so is every item for a rectangle with a side that is not finite, that is turned inside out or that spans more
+    than `_MAX_CELLS` grid cells. Flooring a coordinate divided by the cell size keeps the order of coordinates, so the
+    cells searched hold every point in the rectangle.
+
+    A picture in each cell of a ruled grid had every cell scan all the characters of the page, and every check box all the
+    characters of its page (Pinned by: test_pdf_images.py::TestManyPicturesInRuledCells,
+    test_audit_pdf_head.py::TestManySquaresOnOnePage::test_marks_are_those_of_scanning_every_character_and_line)."""
+
+    _CELL = 64.0
+    _MAX_CELLS = 4096
+
+    def __init__(self, items: list, point: Callable[[object], tuple[float, float]]) -> None:
+        self._items = items
+        self._cells: dict[tuple[int, int], list] = {}
+        self._odd: list = []
+        for item in items:
+            x, y = point(item)
+            if math.isfinite(x) and math.isfinite(y):
+                self._cells.setdefault((math.floor(x / self._CELL), math.floor(y / self._CELL)), []).append(item)
+            else:
+                self._odd.append(item)
+
+    def within(self, x0: float, top: float, x1: float, bottom: float) -> list:
+        if not all(math.isfinite(value) for value in (x0, top, x1, bottom)) or x1 < x0 or bottom < top:
+            return self._items
+        first_column, last_column = math.floor(x0 / self._CELL), math.floor(x1 / self._CELL)
+        first_row, last_row = math.floor(top / self._CELL), math.floor(bottom / self._CELL)
+        # Counted as integers: `len()` of a range of more than `sys.maxsize` cells (a cell 1e21pt wide) raised OverflowError
+        # and rejected the document (Pinned by: test_pdf_images.py::TestManyPicturesInRuledCells::test_huge_cell_is_read)
+        if (last_column - first_column + 1) * (last_row - first_row + 1) > self._MAX_CELLS:
+            return self._items
+        columns, rows = range(first_column, last_column + 1), range(first_row, last_row + 1)
+        return [*self._odd, *(item for column in columns for row in rows for item in self._cells.get((column, row), ()))]
+
+
 def _info_text(value: bytes) -> str:
     """Decode the bytes of a document information string. The standard is UTF-16BE (BOM) or PDFDocEncoding, but some
     generators write a Korean title as raw UTF-8 or CP949 bytes, which read as PDFDocEncoding became 'íŁœê¸• ì€œëª©'
@@ -415,6 +454,61 @@ def _page_index(page: object, name: str, build: Callable[[], object]) -> object:
     if name not in held[1]:
         held[1][name] = build()
     return held[1][name]
+
+
+class _ObjectBands:
+    """The page's objects of every kind by 64pt height band (`_cropped`). `overlapping(box)` gives, per kind and in page
+    order, every object that can overlap the box vertically: those in the bands the box covers, and those taller than
+    `_MAX_BANDS` bands, turned inside out or with a top or bottom that is not finite, which are always given. None for a box
+    whose top or bottom is not finite, that is turned inside out or that covers more than `_MAX_BOX_BANDS` bands."""
+
+    _BAND = 64.0
+    _MAX_BANDS = 128
+    _MAX_BOX_BANDS = 4096
+
+    def __init__(self, objects: dict[str, list[dict]]) -> None:
+        self._objects = objects
+        self._bands: dict[str, dict[int, list[int]]] = {}
+        self._always: dict[str, list[int]] = {}
+        for kind, items in objects.items():
+            bands, always = self._bands.setdefault(kind, {}), self._always.setdefault(kind, [])
+            for position, obj in enumerate(items):
+                top, bottom = obj["top"], obj["bottom"]
+                if not (math.isfinite(top) and math.isfinite(bottom)) or top > bottom or bottom - top > self._BAND * self._MAX_BANDS:
+                    always.append(position)
+                    continue
+                for band in range(math.floor(top / self._BAND), math.floor(bottom / self._BAND) + 1):
+                    bands.setdefault(band, []).append(position)
+
+    def overlapping(self, box: tuple[float, float, float, float]) -> dict[str, list[dict]] | None:
+        top, bottom = box[1], box[3]
+        if not (math.isfinite(top) and math.isfinite(bottom)) or top > bottom:
+            return None
+        first, last = math.floor(top / self._BAND), math.floor(bottom / self._BAND)
+        if last - first + 1 > self._MAX_BOX_BANDS:  # counted as integers, as in `_PointGrid.within`
+            return None
+        covered = range(first, last + 1)
+        found = {}
+        for kind, items in self._objects.items():
+            bands = self._bands[kind]
+            positions = {*self._always[kind], *(position for band in covered for position in bands.get(band, ()))}
+            found[kind] = [items[position] for position in sorted(positions)]
+        return found
+
+
+def _cropped(page: object, box: tuple[float, float, float, float]) -> object:
+    """`page.crop(box)`, cropped from a page holding only the objects that can overlap the box (`_ObjectBands`, built once
+    per page as one of the page's lists for its tables, `_page_index`). pdfplumber's crop clips every object of the page
+    and keeps those overlapping the box, in page order; the objects left out overlap it nowhere, so the cropped page holds
+    the same objects in the same order. A table grown from shaded bands cropped the whole page once per table, so a page of
+    400 separate shaded tables took 14 seconds (Pinned by: test_pdf_shaded_tables.py::TestManySeparateShadedTables::
+    test_cropped_page_holds_the_objects_of_a_crop_of_the_whole_page, test_many_shaded_tables_take_linear_time)."""
+    near = _page_index(page, "object_bands", lambda: _ObjectBands(page.objects)).overlapping(box)
+    if near is None:
+        return page.crop(box)
+    subset = page.filter(lambda obj: True)
+    subset._objects = near  # as pdfplumber's own `dedupe_chars` hands a derived page its objects
+    return subset.crop(box)
 
 
 _TABLE_MIN_ROWS = 3

@@ -419,9 +419,17 @@ def _dependents_with_named_parts(archive: object, filename: str) -> object:
 
 
 def _dependents_left_to_openpyxl(archive: object, filename: str) -> object:
-    relations = _dependents_with_named_parts(archive, filename)
+    """The relationships of a sheet openpyxl follows. While reading, a relationship part that is not XML gives none: what a sheet
+    points to (comments, drawings, form controls, pivot tables) is read by the converter or not at all, so one broken
+    `sheet1.xml.rels` no longer rejects the whole workbook — `extract_xlsx` warns and leaves those parts out
+    (Pinned by: test_spreadsheet_damaged_parts.py::TestDamagedSheetRelationships). The workbook's own relationships go through
+    `_dependents_with_named_parts` and still reject it: without them no sheet can be found."""
     if _READING.get() is None:
-        return relations
+        return _dependents_with_named_parts(archive, filename)
+    try:
+        relations = _dependents_with_named_parts(archive, filename)
+    except etree.XMLSyntaxError:
+        return RelationshipList()
 
     kept = RelationshipList()
     for relation in relations:

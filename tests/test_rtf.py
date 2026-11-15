@@ -208,6 +208,38 @@ class TestCharacters:
         """`\\uc1` followed directly by another escape or the end of the group: nothing after it is eaten."""
         assert _text(r"{\u44032}AB\u44033\tab CD\par") == "가AB각 CD"
 
+    def test_upr_group_is_read_through_its_unicode_copy(self):
+        """`{\\upr{ANSI copy}{\\*\\ud{Unicode copy}}}` in the body and in `\\info`: the ANSI copy has '?' for every character
+        its code page lacks, so the `\\ud` copy is read and the first is not; a `\\upr` group holding only the `\\ud` copy is
+        read through it too, and `\\bin` data in the ANSI copy does not hide the `\\ud` group after it. Any other shape is read
+        as it is, through the ANSI copy, and nothing around the copies is lost: a `\\upr` without a `\\ud` group, a `\\upr`
+        written straight into the body or after other words of its group, text beside the copies, the copies in the other
+        order, a `\\upr` inside a `\\upr` group. A `\\ud` group outside `\\upr` is still skipped."""
+        korean = _unicode("한글")
+        body = (r"{\info{\upr{\title Report ??}{\*\ud{\title Report " + korean + r"}}}{\author Kim}}"
+                r"{\upr{Body ??}{\*\ud{Body " + korean + r"}}}\par")
+        result = convert(_rtf(body), "a.rtf")
+        assert result.metadata == {"title": "Report 한글", "author": "Kim"}
+        assert result.text == "Body 한글"
+        assert _text(r"{\upr{Plain ?}}\par") == "Plain ?"
+        assert convert(_rtf(r"{\info{\upr{\title Only ?}}}x\par"), "a.rtf").metadata == {"title": "Only ?"}
+        assert _text(r"{\upr{\*\ud{" + korean + r"}}}\par") == "한글"
+        assert _text(r"{\b{\upr{a\bin2 {{}{\*\ud{" + korean + r"}}}} after\par") == "**한글** after"
+        assert _text(r"a{\*\ud{b}}c\par") == "ac"
+        assert _text(r"Before\par \upr{A ??}{\*\ud{A " + korean + r"}}\par After text\par") == "Before\n\nA ??\n\nAfter text"
+        assert _text(r"{\b \upr{A ??}{\*\ud{A " + korean + r"}} tail}\par After\par") == "A ?? tail\n\nAfter"
+        assert _text(r"{\upr{A ?}{\*\ud{A " + korean + r"}} tail}\par") == "A ? tail"
+        assert _text(r"{\upr{\*\ud{" + korean + r"}}{ANSI ?}}\par") == "ANSI ?"
+        nested = r"{\upr{X ?}{\*\ud{X {\upr{in ?}{\*\ud{in " + korean + r"}}} end}}}\par"
+        assert _text(nested) == "X in ? end"
+        # A `\\ud` inside the ANSI copy does not switch reading on, and a `\\ud` copy without text leaves the ANSI copy read:
+        # the first came out 'BC' (the tail of one copy and the other), the others empty
+        assert _text(r"{\upr{A\ud B}{\*\ud{C}}}\par") == "A"
+        assert _text(r"{\upr{A}{\*\ud}}\par") == "A"
+        assert _text(r"{\upr{A}{\*\ud{}}}\par") == "A"
+        assert _text(r"{\upr{A}{\*\ud{ {\b0} }}}\par") == "A"
+        assert _text(r"{\upr{A ?}{\*\ud{\'41}}}\par") == "A"
+
     def test_special_characters(self):
         body = (r"a\tab b\line c\emdash d\endash e \lquote f\rquote  \ldblquote g\rdblquote  \bullet  h\~i\_j\-k \{x\} \\ \par")
         assert _text(body) == "a b\nc—d–e ‘f’ “g” • h i-jk {x} \\"
@@ -650,6 +682,69 @@ class TestHostileInput:
         wide = r"\trowd\cellx100\pard\intbl " + "".join(f"c{index}\\cell " for index in range(5000)) + r"\row"
         result = convert(_rtf(wide), "a.rtf")
         assert "c4999" in result.text and result.warnings == []
+
+    def test_cells_of_nested_tables_count_against_the_cell_limit_of_the_outer_table(self, monkeypatch: pytest.MonkeyPatch):
+        """Each nested table used to have a cell limit of its own, so the tables inside one table held any number of cells.
+        Its cells and those of every table inside it share one limit; the cells after that are left out. The cell that holds
+        the nested table is kept with it."""
+        monkeypatch.setattr(rtf_module, "_MAX_TABLE_CELLS", 10)
+        body = (r"\trowd\cellx3000\pard\intbl\itap2 " + "".join(rf"n{index}\nestcell " for index in range(20))
+                + r"{\*\nesttableprops\trowd\cellx100\nestrow}\pard\intbl\itap1 outer\cell\row\pard after\par")
+        result = convert(_rtf(body), "a.rtf")
+        assert "n9" in result.text and "n10" not in result.text
+        assert result.text.index("n9") < result.text.index("outer") < result.text.index("after")
+        assert result.warnings == ["A table has more than 500,000 cells; the cells after that were left out."]
+        # Text after the last `\nestcell` of a nested table is a cell of it, inside the same limit
+        unfinished = convert(_rtf(r"\trowd\cellx100" + r"\pard\intbl\itap2 x\pard\intbl\itap1 \cell" * 50 + r"\pard after\par"), "a.rtf")
+        assert unfinished.text.count("x") == 10 and unfinished.text.endswith("after") and len(unfinished.warnings) == 1
+
+    def test_tables_past_the_nested_table_limit_are_left_out_with_a_warning(self, monkeypatch: pytest.MonkeyPatch):
+        """The depth of a table is set per paragraph, so `\\itap16 x\\nestcell\\itap1 \\cell` (31 bytes) opens and closes 15
+        tables, each a grid of its own: 80,000 of them took 11 seconds and 1.8 GB. A top-level table holds at most
+        `_MAX_NESTED_TABLES` tables inside it, at any depth; the tables after that are left out with their text (the cells
+        of the outer table are kept), one warning says so, and the next top-level table starts over."""
+        monkeypatch.setattr(rtf_module, "_MAX_NESTED_TABLES", 3)
+        inner = r"{\*\nesttableprops\trowd\cellx500\nestrow}"
+        cells = "".join(rf"\pard\intbl\itap2 in{index}\nestcell{inner}\pard\intbl\itap1 out{index}\cell" for index in range(5))
+        table = r"\trowd\cellx1000" + cells + r"\row"
+        result = convert(_rtf(table + r"\pard between\par" + table + r"\pard after\par"), "a.rtf")
+        first, second = result.text.split("between")
+        for part in (first, second):
+            assert all(f"in{index}" in part for index in range(3)) and "in3" not in part and "in4" not in part
+            assert all(f"out{index}" in part for index in range(5))
+        assert result.text.endswith("after")
+        assert result.warnings == ["A table holds more than 10,000 tables inside it; the tables after that were left out."]
+        deep = convert(_rtf(r"\trowd\cellx1000" + r"\pard\intbl\itap4 deep\nestcell\pard\intbl\itap1 x\cell" * 2 + r"\row"), "a.rtf")
+        assert deep.text.count("deep") == 1 and deep.text.count("x") == 2 and len(deep.warnings) == 1
+        monkeypatch.undo()
+        many = convert(_rtf(table + r"\pard after\par"), "a.rtf")
+        assert all(f"in{index}" in many.text for index in range(5)) and many.warnings == []
+
+    @pytest.mark.timing
+    def test_upr_groups_are_looked_ahead_of_once(self):
+        """Whether a `\\upr` group has a `\\ud` copy is found by reading ahead; 2 MB of `\\upr` groups that never close, of
+        `\\upr` words in one group, of `\\ud` copies holding the next `\\upr` group and of short groups one after another."""
+        size = 2_000_000
+        cases = [
+            rb"{\rtf1 " + rb"{\upr x" * (size // 8),
+            rb"{\rtf1 {" + rb"\upr " * (size // 5) + b"}}",
+            rb"{\rtf1 " + rb"{\upr{a}{\*\ud{" * (size // 15) + b"}",
+            rb"{\rtf1 " + rb"{\upr{\b{\i{x}}}}" * (size // 16) + b"}",
+        ]
+        for data in cases:
+            started = time.perf_counter()
+            convert(data, "a.rtf", ConvertOptions(max_chars=None))
+            assert time.perf_counter() - started < 10
+
+    @pytest.mark.timing
+    def test_tables_opened_and_closed_for_every_cell_take_linear_time(self):
+        """80,000 cells of a top-level table, each opening 15 nested tables and closing them again (2.5 MB): 11 seconds and
+        1.8 GB before the nested tables of one table were counted."""
+        data = rb"{\rtf1\ansi " + rb"\itap16 x\nestcell\itap1 \cell " * 80_000 + rb"\row}"
+        started = time.perf_counter()
+        result = convert(data, "a.rtf")
+        assert time.perf_counter() - started < 5
+        assert result.warnings == ["A table holds more than 10,000 tables inside it; the tables after that were left out."]
 
     def test_paragraph_of_endless_runs_keeps_its_text_in_a_bounded_number_of_runs(self, monkeypatch: pytest.MonkeyPatch):
         """One paragraph of runs that cannot be merged (`{\\b a}b` again and again; 2.8 million of them took 16 seconds and

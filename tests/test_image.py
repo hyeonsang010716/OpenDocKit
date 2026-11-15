@@ -1196,6 +1196,116 @@ class TestResourceBounds:
         assert [image.kind for image in result.images] == [ImageKind.PAGE]
         assert max(pixels) <= _pdf_figures._MAX_RENDER_PIXELS
 
+    @staticmethod
+    def _pictures_on_huge_pages(size: int, pages: int = 1) -> tuple[bytes, list[tuple[float, float, float, float]]]:
+        """`pages` pages of 2,600pt (past the pixel cap at the default scale), each with `size` × `size` distinct small pictures,
+        and the pictures' boxes (from the top left of the page)."""
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas
+
+        side = 2600.0
+        cell = side / size
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(side, side))
+        boxes = []
+        for page in range(pages):
+            for number in range(size * size):
+                x, y = number % size * cell + 2, number // size * cell + 2
+                color = Image.new("RGB", (8, 8), (number % 251, page * 60, 90))
+                picture = BytesIO()
+                color.save(picture, "PNG")
+                pdf.drawImage(ImageReader(BytesIO(picture.getvalue())), x, y, cell - 4, cell - 4)
+                if page == 0:
+                    boxes.append((x, side - y - (cell - 4), x + cell - 4, side - y))
+            pdf.showPage()
+        pdf.save()
+        return buffer.getvalue(), boxes
+
+    def test_pictures_of_a_huge_page_open_it_once(self, monkeypatch):
+        """Each picture of a page past the pixel cap is drawn on its own, and the page was opened again for every one of them.
+        The page is now opened once for its pictures and closed when the next page is drawn, when drawing fails and when the
+        renderer is closed; the pictures are the same as from a page opened afresh."""
+        import pypdfium2 as pdfium
+
+        from opendockit import ConvertOptions
+
+        class Page:
+            def __init__(self, page, opened):
+                self._page, self.closed = page, False
+                opened.append(self)
+
+            def __getattr__(self, name):
+                return getattr(self._page, name)
+
+            def close(self):
+                self.closed = True
+                self._page.close()
+
+        class Document:
+            def __init__(self, document):
+                self._document, self.opened = document, []
+
+            def __getitem__(self, index):
+                return Page(self._document[index], self.opened)
+
+            def close(self):
+                self._document.close()
+
+        data, boxes = self._pictures_on_huge_pages(4, pages=2)
+        boxes = boxes[:6]
+
+        def fresh(index, box):
+            renderer = _pdf_figures._PageRenderer(data, ConvertOptions())
+            try:
+                return renderer.render(index, box)
+            finally:
+                renderer.close()
+
+        expected = [fresh(0, box) for box in boxes] + [fresh(1, box) for box in boxes[:3]]
+        renderer = _pdf_figures._PageRenderer(data, ConvertOptions())
+        document = renderer._document = Document(renderer._document)
+        drawn = [renderer.render(0, box) for box in boxes] + [renderer.render(1, box) for box in boxes[:3]]
+
+        assert drawn == expected and all(drawn)
+        assert len(document.opened) == 2 and document.opened[0].closed and not document.opened[1].closed
+
+        render_bitmap = _pdf_figures._render_bitmap
+
+        def failing(*args, **kwargs):
+            raise pdfium.PdfiumError("drawing failed")
+
+        monkeypatch.setattr(_pdf_figures, "_render_bitmap", failing)
+        assert renderer.render(1, boxes[0]) is None
+        assert document.opened[1].closed
+        monkeypatch.setattr(_pdf_figures, "_render_bitmap", render_bitmap)
+        assert renderer.render(1, boxes[1]) == fresh(1, boxes[1])
+        assert len(document.opened) == 3
+
+        renderer.close()
+        assert all(page.closed for page in document.opened)
+
+    @pytest.mark.timing
+    def test_pictures_of_a_huge_page_take_linear_time(self):
+        """A ruled grid with a picture in each of 3,600 cells (a 3,400pt page) spent 26 seconds opening the page once per
+        picture."""
+        import time
+
+        from opendockit import ConvertOptions
+
+        spent = []
+        for size in (20, 60):
+            data, boxes = self._pictures_on_huge_pages(size)
+            renderer = _pdf_figures._PageRenderer(data, ConvertOptions())
+            try:
+                started = time.perf_counter()
+                assert all(renderer.render(0, box) for box in boxes)
+                spent.append(time.perf_counter() - started)
+            finally:
+                renderer.close()
+        small, large = spent
+
+        assert large < 12 * small + 0.5  # 9 times the pictures: 27 times as long when every picture opened the page again
+
     def test_describing_many_images_does_not_reassemble_the_document_for_each(self, monkeypatch):
         """The whole document was reassembled to check the limit each time one picture finished, so it slowed down with the square
         of the number of pictures (25 seconds for 3,332 pictures). While there is certainly headroom to the limit, no assembly
@@ -1365,6 +1475,34 @@ class TestAuditedImageGaps:
         histogram = decoded.histogram()
         assert low < 20 and high > 235
         assert max(histogram) < decoded.width * decoded.height * 0.1, "the gradient remains instead of collapsing onto one value"
+
+    def test_float_picture_with_nan_or_infinity_keeps_its_gradient(self):
+        """A NaN pixel (the 'no data' of a GeoTIFF) made the value range NaN, and one +inf made the scale 0: the whole picture
+        came out black. The range is that of the finite values; NaN and -inf are black, +inf white."""
+        gradient = Image.linear_gradient("L").rotate(90).resize((512, 128)).convert("F").point(lambda value: value / 255)  # dark → light
+        gradient.putpixel((0, 0), float("nan"))   # first pixel: Pillow's extrema start from it
+        for box, value in (((448, 0, 480, 32), float("nan")), ((448, 96, 480, 128), float("-inf")), ((32, 0, 64, 32), float("inf"))):
+            gradient.paste(value, box)
+        source = BytesIO()
+        gradient.save(source, format="TIFF")
+
+        decoded = Image.open(BytesIO(prepare_image(source.getvalue(), min_side=64, max_side=2048).data)).convert("L")
+
+        assert abs(decoded.getpixel((256, 64)) - 128) < 10
+        assert decoded.getpixel((500, 64)) > 235 and decoded.getpixel((10, 64)) < 20
+        assert decoded.getpixel((464, 16)) < 20, "NaN is black"
+        assert decoded.getpixel((464, 112)) < 20, "-inf is black"
+        assert decoded.getpixel((48, 16)) > 235, "+inf is white"
+
+    def test_float_picture_without_a_finite_value_is_read(self):
+        picture = Image.new("F", (128, 128), float("nan"))
+        picture.paste(float("inf"), (0, 0, 64, 128))
+        source = BytesIO()
+        picture.save(source, format="TIFF")
+
+        decoded = Image.open(BytesIO(prepare_image(source.getvalue(), min_side=64, max_side=2048).data)).convert("L")
+
+        assert decoded.getpixel((32, 64)) > 235 and decoded.getpixel((96, 64)) < 20
 
     def test_extract_images_off_does_not_send_an_uploaded_image_to_the_describer(self):
         """`extract_images=False` ignores images completely (docs/options.md). An image uploaded on its own was still sent to the
