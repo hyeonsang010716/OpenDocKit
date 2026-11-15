@@ -8,9 +8,9 @@
         "--python",
         ">=3.12",
         "--exclude-newer",
-        "2026-11-14T00:00:00Z",
+        "2026-11-15T12:00:00Z",
         "--from",
-        "opendockit[mcp]==0.3.1",
+        "opendockit[mcp]==0.3.7",
         "opendockit-mcp"
       ],
       "env": {
