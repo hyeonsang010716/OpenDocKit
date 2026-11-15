@@ -22,7 +22,7 @@ import olefile
 
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
 from opendockit.extractors._equation import render_equation
-from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, decorated_text
+from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, command_link, decorated_text, link_end, link_start
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import TableBudget, format_dutmal, note_table, omitted_rows_warning
@@ -85,6 +85,13 @@ _TEXTART_BREAKS = re.compile("\r\n|\r|\n|␍␊|␍|␊")
 _EXTENDED_CONTROLS = {1, 2, 3, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23}
 _INLINE_CONTROLS = {4, 5, 6, 7, 8, 9, 19, 20}
 _CHAR_REPLACEMENTS = {9: "\t", 10: "\n", 24: "-", 30: " ", 31: " "}
+# The inline control that ends a field (spec table 6). The field starts at an extended control (3) whose CTRL_HEADER names the
+# field (`%hlk` a hyperlink, `%%me` a comment, `%clk` a click-here field …). The end does not say which field it closes; it is
+# taken to close the last field opened.
+FIELD_END = 4
+# The field control (CTRL_HEADER of a field; hwplib ForControlField): control ID UINT32, attribute UINT32, other attribute BYTE,
+# command (WORD length + WCHARs), instance id UINT32. The command of a hyperlink is `address;…` (`_hangul.command_link`).
+_FIELD_COMMAND_OFFSET = 9
 
 _FLAG_COMPRESSED = 0x01
 _FLAG_PASSWORD = 0x02
@@ -197,7 +204,8 @@ ShapeRuns = list[tuple[int, tuple[str | None, bool]]]
 
 
 def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> list[str | int]:
-    """Decode PARA_TEXT into a list of [string piece | extended control code]. Tables, text boxes etc. go where the extended controls are.
+    """Decode PARA_TEXT into a list of [string piece | extended control code | `FIELD_END`]. Tables, text boxes etc. go where the
+    extended controls are, and a field ends where `FIELD_END` is.
 
     With `shape_runs`, text in super/subscript and strikethrough runs gets temporary marks (`mark_script`, the strike mark). Before the
     first run there is no mark.
@@ -253,6 +261,9 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
         elif unit in _INLINE_CONTROLS:
             if unit == 9:
                 add(control, control + 1, "\t".encode("utf-16-le"))
+            elif unit == FIELD_END:
+                flush()
+                parts.append(unit)
             index = control + 8
         else:
             replacement = _CHAR_REPLACEMENTS.get(unit)
@@ -316,6 +327,8 @@ class HwpRenderer:
         # Texts in order of first appearance, each once. Looked up in a list, 60,000 different headers took 11 s
         # (Pinned by: test_audit_hangul.py::TestManyDistinctHeaders).
         self.headers_footers: dict[str, None] = {}
+        # The fields opened and not yet ended, innermost last: the address of a hyperlink that is kept, else None (`_start_field`)
+        self._fields: list[str | None] = []
 
     def render(self, records: list[Record]) -> list[str]:
         """Find paragraphs (PARA_HEADER) and render them. A record that is not a paragraph is descended to find inner paragraphs — with a
@@ -357,12 +370,17 @@ class HwpRenderer:
         parts = decode_para_text(text_record.payload, self._shape_runs(paragraph, len(text_record.payload) // 2)) if text_record else []
 
         # The head goes on the first text piece only, and a paragraph without text keeps its number (`_hangul.ParagraphPieces`).
-        pieces = ParagraphPieces(lambda text: self._decorate(paragraph, text))
+        pieces = ParagraphPieces(lambda text, plain: self._decorate(paragraph, text, plain))
         blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
 
         for part in parts:
             if isinstance(part, str):
                 buffer.append(part)
+                continue
+            if part == FIELD_END:
+                url = self._fields.pop() if self._fields else None
+                if url is not None:
+                    buffer.append(link_end(url))
                 continue
             control = next(controls, None)
             if control is None:
@@ -396,6 +414,8 @@ class HwpRenderer:
                 buffer.extend(_control_strings(control, 1))
             elif kind == "atno":
                 buffer.append(_auto_number(control))
+            elif kind.startswith("%"):
+                self._start_field(kind, control, buffer)
         return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
 
     def _equation_with_caption(self, control: Record) -> str:
@@ -463,14 +483,28 @@ class HwpRenderer:
                 markers.append(f" {self._extraction.add_image(data)} ")
         return markers
 
-    def _decorate(self, paragraph: Record, text: str) -> str:
+    def _start_field(self, kind: str, control: Record, buffer: list[str]) -> None:
+        """A field starts. A hyperlink (`%hlk`) becomes `[text](address)` up to its `FIELD_END` under `keep_links`, with the address
+        from the command of the field control (`_hangul.command_link`: http, https and mailto only), as in HWPX; every other field
+        is only remembered, so that its end closes it and not a link (Pinned by: test_hwp.py::TestHyperlinks)."""
+        url = None
+        payload = control.payload
+        if kind == "%hlk" and self._options.keep_links and len(payload) >= _FIELD_COMMAND_OFFSET + 2:
+            (length,) = struct.unpack_from("<H", payload, _FIELD_COMMAND_OFFSET)
+            start = _FIELD_COMMAND_OFFSET + 2
+            url = command_link(payload[start:start + 2 * length].decode("utf-16-le", errors="replace"))
+        self._fields.append(url)
+        if url is not None:
+            buffer.append(link_start())
+
+    def _decorate(self, paragraph: Record, text: str, plain: str) -> str:
         """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style, the heading mark to the paragraph's first text piece."""
         mark, level = self._paragraph_head(paragraph)
         style_id = paragraph.payload[10] if len(paragraph.payload) > 10 else -1
         style_name = self._styles[style_id] if 0 <= style_id < len(self._styles) else ""
         shape_id = struct.unpack_from("<H", paragraph.payload, 8)[0] if len(paragraph.payload) >= 10 else -1
         margin = self._heads.margins[shape_id] if 0 <= shape_id < len(self._heads.margins) else 0
-        return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth))
+        return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth), plain=plain)
 
     def _paragraph_head(self, paragraph: Record) -> tuple[str, int]:
         """Paragraph head of the paragraph shape → (number "1." / "가." or bullet "-", level). ("", 0) if the definition is missing or
