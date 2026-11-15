@@ -911,6 +911,18 @@ class TestFormValues:
 
         assert result.text == "☒ 동의 ☐ 거부\n\n☐ 오전 ☒ 오후"
 
+    def test_suggestions_of_a_datalist_are_left_out(self):
+        """A browser never draws a `<datalist>` (the suggestions of an input), nor a fallback `<select>` inside one: its
+        options came out glued into one word after the field."""
+        countries = ["Afghanistan", "Albania", "Algeria"]
+        html = ("<form><label>Country <input list='c' value='Korea'></label><datalist id='c'>"
+                + "".join(f"<option value='{name}'>" for name in countries) + "</datalist></form>"
+                + "<label>City <input list='d'></label><datalist id='d'>" + "".join(f"<option>{name}</option>" for name in countries)
+                + "</datalist><p>Region <input list='e' value='Asia'><datalist id='e'>or pick: <select><option>Europe</option>"
+                "</select></datalist></p><p>Submit by Friday.</p>")
+
+        assert convert(html.encode(), "a.html").text == "Country Korea\n\nCity\n\nRegion Asia\n\nSubmit by Friday."
+
     def test_select_without_a_choice_shows_the_first_option_and_multiple_shows_every_choice(self):
         html = ("<p>지역: <select><option>서울</option><option>부산</option></select></p>"
                 "<p>과목: <select multiple><option selected>국어</option><option>영어</option><option selected>수학</option></select></p>"
