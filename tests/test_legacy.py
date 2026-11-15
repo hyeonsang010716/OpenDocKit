@@ -22,6 +22,7 @@ import zipfile
 import pytest
 
 from opendockit import (
+    ConversionError,
     ConvertOptions,
     CorruptedDocumentError,
     DocumentFormat,
@@ -272,7 +273,8 @@ class TestConversion:
             convert(_ppt(), "a.ppt")
 
     def test_program_that_cannot_be_started_is_unsupported_without_the_system_error_text(self, runner):
-        runner.result = PermissionError(13, "Permission denied: '/secret/path/soffice'")
+        runner.result = legacy.ProgramNotStarted()
+        runner.result.__cause__ = PermissionError(13, "Permission denied: '/secret/path/soffice'")
 
         with pytest.raises(UnsupportedFormatError) as caught:
             convert(_doc(), "a.doc")
@@ -477,6 +479,51 @@ class TestRunner:
             convert(_doc(), "a.doc")
 
         assert cleared == [True]
+        assert list(scratch.iterdir()) == []
+
+    @pytest.mark.parametrize("failing", ["folder", "input", "output"])
+    def test_temporary_folder_that_cannot_be_written_is_not_a_program_that_cannot_be_started(self, monkeypatch, scratch, failing):
+        """A full disk or a read-only temporary folder (making the folder, writing the input, reading the output) was reported
+        as 'LibreOffice could not be started' and dropped the cached lookup of a program that was fine. It is a conversion
+        failure of its own, with a fixed message, and the lookup stays."""
+        cleared, started = [], []
+        monkeypatch.setattr(legacy, "find_soffice", lambda: _FAKE_PROGRAM)
+        monkeypatch.setattr(legacy, "reset_soffice_cache", lambda: cleared.append(True))
+
+        def run(command, working_folder):
+            started.append(command)
+            (Path(command[command.index("--outdir") + 1]) / "input.docx").mkdir()   # there, but cannot be read as a file
+
+        def no_space(*args, **kwargs):
+            raise OSError(28, "No space left on device: '/secret/tmp'")
+
+        monkeypatch.setattr(legacy, "_run", run)
+        if failing == "folder":
+            monkeypatch.setattr(legacy.tempfile, "mkdtemp", no_space)
+        elif failing == "input":
+            monkeypatch.setattr(Path, "write_bytes", no_space)
+
+        with pytest.raises(ConversionError) as caught:
+            convert(_doc(), "a.doc")
+
+        assert type(caught.value) is ConversionError
+        assert str(caught.value) == legacy._NO_SCRATCH
+        assert "secret" not in str(caught.value)
+        assert isinstance(caught.value.__cause__, OSError)
+        assert cleared == []
+        assert len(started) == (1 if failing == "output" else 0)
+        assert list(scratch.iterdir()) == []
+
+    def test_only_a_failed_start_of_the_program_counts_as_not_started(self, monkeypatch, scratch):
+        def refused(*args, **kwargs):
+            raise PermissionError(13, "Permission denied")
+
+        monkeypatch.setattr(legacy.subprocess, "Popen", refused)
+
+        with pytest.raises(legacy.ProgramNotStarted) as caught:
+            legacy._run_soffice(_FAKE_PROGRAM, b"x", "doc", "docx", _WORD_FILTER, _NO_LIMIT)
+
+        assert isinstance(caught.value.__cause__, PermissionError)
         assert list(scratch.iterdir()) == []
 
     @pytest.mark.skipif(os.name != "posix", reason="the stand-in launcher is a shell script")

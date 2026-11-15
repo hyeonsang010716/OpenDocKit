@@ -1,6 +1,7 @@
 """Converter boundary: limits, exception wrapping, assembly, async."""
 
 import asyncio
+from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
 import sys
@@ -117,6 +118,23 @@ class TestLimits:
         assert result.text == "가" * 10
         assert result.char_count == 100
         assert any("exceeded 10 characters" in warning for warning in result.warnings)
+
+    def test_pictures_before_the_cut_keep_their_placeholder_when_the_text_alone_is_over(self):
+        """With the text alone over the limit the pictures are not decoded, yet the part that is kept is the start of the full
+        conversion: the alt text stays, a picture without one is `[Image]`, a repeated logo is erased. Every placeholder
+        before the cut used to vanish, the author's alt text with it, while a document over the limit only once whitespace
+        was counted kept them."""
+        data = builder.docx_with_pictures_before_long_text(3000, logo_count=3)
+        options = ConvertOptions(max_chars=1000, repeated_image_threshold=3)
+
+        full = convert(data, "a.docx", replace(options, max_chars=None))
+        cut = convert(data, "a.docx", options)
+
+        assert cut.text.startswith("Intro paragraph.\n\n[Image: Quarterly revenue chart]\n\n[Image]\n\nPage\n\nPage\n\nPage\n\nx x ")
+        assert cut.exceeded and cut.images == [] and len(cut.text) <= 1000
+        assert cut.text == full.text[:1000].rstrip()
+        assert [section.text for section in cut.sections] == [full.text[:1000].rstrip()]
+        assert len(full.images) == 2
 
     def test_document_within_the_limit_is_not_exceeded(self):
         result = convert("본문 첫 줄\n둘째 줄".encode(), "a.txt")

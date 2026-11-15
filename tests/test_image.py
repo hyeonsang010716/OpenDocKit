@@ -1366,6 +1366,34 @@ class TestAuditedImageGaps:
         assert low < 20 and high > 235
         assert max(histogram) < decoded.width * decoded.height * 0.1, "the gradient remains instead of collapsing onto one value"
 
+    def test_float_picture_with_nan_or_infinity_keeps_its_gradient(self):
+        """A NaN pixel (the 'no data' of a GeoTIFF) made the value range NaN, and one +inf made the scale 0: the whole picture
+        came out black. The range is that of the finite values; NaN and -inf are black, +inf white."""
+        gradient = Image.linear_gradient("L").rotate(90).resize((512, 128)).convert("F").point(lambda value: value / 255)  # dark → light
+        gradient.putpixel((0, 0), float("nan"))   # first pixel: Pillow's extrema start from it
+        for box, value in (((448, 0, 480, 32), float("nan")), ((448, 96, 480, 128), float("-inf")), ((32, 0, 64, 32), float("inf"))):
+            gradient.paste(value, box)
+        source = BytesIO()
+        gradient.save(source, format="TIFF")
+
+        decoded = Image.open(BytesIO(prepare_image(source.getvalue(), min_side=64, max_side=2048).data)).convert("L")
+
+        assert abs(decoded.getpixel((256, 64)) - 128) < 10
+        assert decoded.getpixel((500, 64)) > 235 and decoded.getpixel((10, 64)) < 20
+        assert decoded.getpixel((464, 16)) < 20, "NaN is black"
+        assert decoded.getpixel((464, 112)) < 20, "-inf is black"
+        assert decoded.getpixel((48, 16)) > 235, "+inf is white"
+
+    def test_float_picture_without_a_finite_value_is_read(self):
+        picture = Image.new("F", (128, 128), float("nan"))
+        picture.paste(float("inf"), (0, 0, 64, 128))
+        source = BytesIO()
+        picture.save(source, format="TIFF")
+
+        decoded = Image.open(BytesIO(prepare_image(source.getvalue(), min_side=64, max_side=2048).data)).convert("L")
+
+        assert decoded.getpixel((32, 64)) > 235 and decoded.getpixel((96, 64)) < 20
+
     def test_extract_images_off_does_not_send_an_uploaded_image_to_the_describer(self):
         """`extract_images=False` ignores images completely (docs/options.md). An image uploaded on its own was still sent to the
         describer."""

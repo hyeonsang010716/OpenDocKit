@@ -22,6 +22,7 @@ import zipfile
 import olefile
 
 from opendockit.exceptions import (
+    ConversionError,
     CorruptedDocumentError,
     DocumentTooLargeError,
     EncryptedDocumentError,
@@ -48,6 +49,8 @@ _NOT_INSTALLED = ("Legacy {name} (.{extension}) documents need LibreOffice to be
 _TIMED_OUT = "The document took too long to convert with LibreOffice. It is too large or too complex."
 _NO_OUTPUT = "LibreOffice could not convert the document. The file may be corrupted."
 _NOT_STARTED = "LibreOffice could not be started to convert the document."
+_NO_SCRATCH = ("The temporary files for the LibreOffice conversion could not be written or read. "
+               "Check the free space and permissions of the temporary folder.")
 _ENCRYPTED = "The document is password-protected. Please remove the password and upload it again."
 _TOO_LARGE = "The document becomes too large when decompressed."
 CONVERTED_WARNING = "The document was converted with LibreOffice before reading, so layout details may differ from the original."
@@ -100,6 +103,11 @@ class ConversionTimeout(Exception):
     """LibreOffice did not finish within `CONVERSION_TIMEOUT`. Raised by the runner; never leaves this module."""
 
 
+class ProgramNotStarted(Exception):
+    """The LibreOffice program could not be started (the `OSError` of `subprocess.Popen` is its cause). Raised by the
+    runner; never leaves this module."""
+
+
 def extract_doc(data: bytes, options: ConvertOptions) -> Extraction:
     return _extract_through_libreoffice(data, options, name="Word", extension="doc", target="docx",
                                         output_filter="MS Word 2007 XML", encrypted=_is_encrypted_doc, extract=extract_docx)
@@ -128,10 +136,15 @@ def _extract_through_libreoffice(data: bytes, options: ConvertOptions, *, name: 
         converted = _run_soffice(program, data, extension, target, output_filter, options.max_uncompressed_bytes)
     except ConversionTimeout as exc:
         raise DocumentTooLargeError(_TIMED_OUT) from exc
-    except OSError as exc:
+    except ProgramNotStarted as exc:
         # The program disappeared or may not be executed. The cached lookup is dropped so a repaired install is found again.
         reset_soffice_cache()
-        raise UnsupportedFormatError(_NOT_STARTED) from exc
+        raise UnsupportedFormatError(_NOT_STARTED) from exc.__cause__
+    except OSError as exc:
+        # The temporary folder could not be made, written or read (a full disk, a read-only temporary folder). Taken with the
+        # start of the program, it was 'LibreOffice could not be started' and dropped the lookup of a program that was fine
+        # (Pinned by: test_legacy.py::TestRunner::test_temporary_folder_that_cannot_be_written_is_not_a_program_that_cannot_be_started).
+        raise ConversionError(_NO_SCRATCH) from exc
     if not converted:
         raise CorruptedDocumentError(_NO_OUTPUT)
 
@@ -189,8 +202,9 @@ def _soffice_command(program: str, source: Path, profile: Path, out_dir: Path, t
 def _run_soffice(program: str, data: bytes, extension: str, target: str, output_filter: str, max_output_bytes: int) -> bytes | None:
     """Convert `data` with LibreOffice and return the converted file, or None when LibreOffice wrote none.
 
-    Raises `ConversionTimeout` when the time limit passes and `OSError` when the program cannot be started. Everything happens
-    inside one temporary directory that is removed on every path.
+    Raises `ConversionTimeout` when the time limit passes, `ProgramNotStarted` when the program cannot be started and `OSError`
+    when the temporary directory cannot be made, written or read. Everything happens inside one temporary directory that is
+    removed on every path.
     """
     with tempfile.TemporaryDirectory(prefix="opendockit-", ignore_cleanup_errors=True) as folder:
         root = Path(folder).resolve()
@@ -228,8 +242,11 @@ def _run(command: list[str], working_folder: Path) -> None:
     guard = _start_guard(working_folder) if own_group else None
     process = None
     try:
-        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                   cwd=working_folder, start_new_session=own_group, shell=False)
+        try:
+            process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       cwd=working_folder, start_new_session=own_group, shell=False)
+        except OSError as exc:
+            raise ProgramNotStarted from exc
         if guard is not None:
             _tell_guard(guard, process.pid)
         process.wait(timeout=CONVERSION_TIMEOUT)

@@ -175,10 +175,13 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
             sections.append(Section(section.kind, section.index, "", title, template))
 
     # If the text alone is already over the limit, the pictures are not decoded. Decoding, downscaling and the vision-model calls
-    # after them would all be wasted.
+    # after them would all be wasted. They keep their placeholder text all the same (`_placeholders_only`).
     text_chars = sum(solid_length(section.template) for section in sections)
     exceeded = extraction.exceeded or (options.max_chars is not None and text_chars > options.max_chars)
-    images, fallbacks = _prepare_images([] if exceeded else extraction.images, sections, options, warnings, key)
+    if exceeded:
+        images, fallbacks = [], _placeholders_only(extraction.images, options)
+    else:
+        images, fallbacks = _prepare_images(extraction.images, sections, options, warnings, key)
     result = ConversionResult(format=document_format, text="", sections=sections, metadata=_clean_metadata(extraction.metadata),
                               images=images, base_warnings=warnings, options=options, fallbacks=fallbacks,
                               exceeded=exceeded, counted=max(extraction.chars, text_chars) if exceeded else 0,
@@ -366,10 +369,7 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     # undecodable), it is the same for the same picture (Pinned by: test_image.py::test_same_picture_is_decoded_once).
     decoded: dict[tuple[bytes, bool], tuple[PreparedImage, str] | ImageSkipped | ImageUnreadable] = {}
     for raw in raw_images:
-        # Placeholder text goes in after cleaning (clean_text), so it is cleaned into one line here. NFD and line breaks stayed as
-        # they were and broke table rows. It is written inside `[Image: …]`, so like a section title it is cleaned as one line
-        # and not as a text whose first line may open a fence.
-        alt = clean_line(raw.alt) if raw.alt and not _USELESS_ALT.match(raw.alt.strip()) else None
+        alt = _alt_text(raw)
         key = (raw.data, raw.kind is not ImageKind.STANDALONE)
         if key not in decoded:
             try:
@@ -497,6 +497,39 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
         warnings.append(f"There are many images, so only {options.max_images} were selected for description (scanned pages first) "
                         f"and {left_figures} were left as placeholders only.")
     return images, fallbacks
+
+
+def _alt_text(raw: RawImage) -> str | None:
+    """The author's alt text of a picture as one clean line, or None when there is none or it is one Office or Hangul (HWP)
+    wrote itself (`_USELESS_ALT`)."""
+    # Placeholder text goes in after cleaning (clean_text), so it is cleaned into one line here. NFD and line breaks stayed as
+    # they were and broke table rows. It is written inside `[Image: …]`, so like a section title it is cleaned as one line
+    # and not as a text whose first line may open a fence.
+    return clean_line(raw.alt) if raw.alt and not _USELESS_ALT.match(raw.alt.strip()) else None
+
+
+def _placeholders_only(raw_images: list[RawImage], options: ConvertOptions) -> dict[int, str]:
+    """The placeholder texts of the pictures of a document whose text alone is over the limit, without decoding any of them.
+
+    Each gets what `_prepare_images` gives a picture that is not described: `[Image: alt]` (or `[Image]`), nothing for a
+    scanned page, nothing for a picture repeated `repeated_image_threshold` times or more (a logo; told here by its bytes),
+    and the same picture the first alt text among its copies. With no placeholder texts at all every picture before the cut
+    vanished, the author's alt text with it and without a warning, while a document over the limit only once whitespace was
+    counted kept them: a long DOCX lost '[Image: Quarterly revenue chart]' at `max_chars=1000`, and the MCP server (100,000 by
+    default) never showed a picture of a long document
+    (Pinned by: test_converter.py::TestLimits::test_pictures_before_the_cut_keep_their_placeholder_when_the_text_alone_is_over).
+    Known accepted gap: a small or thin picture that decoding would drop as decoration keeps an `[Image]` here.
+    """
+    counts: dict[bytes, int] = {}
+    alts: dict[bytes, str | None] = {}
+    for raw in raw_images:
+        counts[raw.data] = counts.get(raw.data, 0) + 1
+        alts[raw.data] = alts.get(raw.data) or _alt_text(raw)
+    fallbacks: dict[int, str] = {}
+    for raw in raw_images:
+        logo = raw.kind is ImageKind.FIGURE and counts[raw.data] >= options.repeated_image_threshold
+        fallbacks[raw.id] = "" if raw.kind is ImageKind.PAGE or logo else _image_fallback(alts[raw.data])
+    return fallbacks
 
 
 def _has_text(sections: list[Section], marker: str) -> bool:

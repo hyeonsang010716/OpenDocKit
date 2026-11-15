@@ -4,11 +4,14 @@ Images inside documents come in every format (BMP and WMF from Hangul (HWP), iPh
 Unify them into the PNG/JPEG a vision model accepts, shrink the long side, and drop small images that carry no information.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
+import math
 import sys
+from typing import Any
 
-from PIL import Image, ImageChops, ImageOps, JpegImagePlugin
+from PIL import Image, ImageChops, ImageMath, ImageOps, JpegImagePlugin
 
 from opendockit.models import quiet_warnings
 
@@ -421,8 +424,28 @@ def _stretch_to_8bit(image: Image.Image) -> Image.Image:
     (Pinned by: test_image.py::TestAuditedImageGaps::test_wide_range_grayscale_keeps_its_gradient).
     Only the shapes a vision model reads need to survive, so contrast is kept rather than the original brightness. A picture
     with a single value has that value clipped to 0–255.
+
+    In a float picture the range is that of the finite values; NaN and minus infinity are black (0), plus infinity white
+    (255). A NaN (the 'no data' of a GeoTIFF) made the range NaN and one +inf made the scale 0: either way the whole picture
+    came out black (Pinned by: test_image.py::TestAuditedImageGaps::test_float_picture_with_nan_or_infinity_keeps_its_gradient).
+    The masks and the range are made with Pillow's own operations, not a loop over the pixels in Python.
     """
-    low, high = image.getextrema()
+    not_finite = _where(image, lambda value: (value != value) + (abs(value) == math.inf)) if image.mode == "F" else None
+    if not_finite is not None and not_finite.getbbox() is None:
+        not_finite = None
+    if not_finite is None:
+        low, high = image.getextrema()
+    else:
+        above = _where(image, lambda value: value == math.inf)
+        if ImageChops.invert(not_finite).getbbox() is None:   # not one finite value
+            return above
+        # The finite extremes: the other pixels set first to the largest float, then to the smallest, then to the lowest finite
+        # value, so that the stretch below sees finite numbers only. The picture is the decoder's own, changed in place.
+        image.paste(_FLOAT32_MAX, mask=not_finite)
+        low = image.getextrema()[0]
+        image.paste(-_FLOAT32_MAX, mask=not_finite)
+        high = image.getextrema()[1]
+        image.paste(low, mask=not_finite)
     if high > low:
         scale = 255 / (high - low)
         image = image.convert("F").point(lambda value: value * scale - low * scale)
@@ -430,7 +453,21 @@ def _stretch_to_8bit(image: Image.Image) -> Image.Image:
         level = min(max(low, 0), 255)
         image = image.convert("F").point(lambda value: value * 0 + level)
 
-    return image.convert("L")
+    image = image.convert("L")
+    if not_finite is not None:
+        image.paste(0, mask=not_finite)
+        image.paste(255, mask=above)
+    return image
+
+
+# The largest finite 32-bit float: what the pixels that are not finite are set to while the finite extremes are looked for.
+_FLOAT32_MAX = 3.4028234663852886e38
+
+
+def _where(image: Image.Image, test: Callable[[Any], Any]) -> Image.Image:
+    """An `L` mask of the float picture `image`, 255 where `test` holds for the pixel and 0 elsewhere (Pillow's `ImageMath`)."""
+    found = ImageMath.lambda_eval(lambda names: test(names["value"]), value=image)
+    return found.convert("L").point([0] + [255] * 255)
 
 
 # DIB header sizes of BMP (BITMAPCOREHEADER 12, OS/2 v2 64, BITMAPINFOHEADER 40 and V2–V5). The same ones Pillow reads.
