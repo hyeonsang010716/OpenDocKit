@@ -7,7 +7,7 @@
 """
 
 from bisect import bisect_right
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, Overflow
 import posixpath
@@ -17,7 +17,7 @@ from lxml import etree
 
 from opendockit.extractors._lists import MAX_LEVEL, cell_level_mark
 from opendockit.extractors._package import _PACKAGE_RELATIONSHIPS, _relationships_of, _resolve_target, decimal_int, named_part, parse_part
-from opendockit.markdown import TableGrid, render_table
+from opendockit.markdown import TableGrid, render_table, solid_length
 
 
 _C = "http://schemas.openxmlformats.org/drawingml/2006/chart"
@@ -66,10 +66,11 @@ _RELATIONSHIP_ID = "{http://schemas.openxmlformats.org/officeDocument/2006/relat
 # ---- Charts ------------------------------------------------------------------------------------------------------
 
 def render_chart(chart_space: etree._Element, table: Callable[[list[list[str]]], str] = render_table,
-                 load_related: Callable[[str], bytes | None] | None = None) -> str:
+                 load_related: Callable[[str], bytes | None] | None = None, room: int | None = None) -> str:
     """`c:chartSpace` → "[Chart] title" + axis title line + lines of the text boxes inside the chart + value table. `table` turns the
     value table's rows into text (`embedded_table` inside a table cell). `load_related` maps a relationship id of the chart part to
-    that part's bytes (None if missing or unreadable).
+    that part's bytes (None if missing or unreadable). `room` is the number of characters the output can still take before it is
+    over the character limit (None: no limit); the value rows stop once their cell text passes it (`_value_rows`).
 
     Category-axis charts (bar, line, pie …) merge every chart in the plot area (the bars + lines of a combo chart) into one row per
     category. Scatter and bubble charts have no categories, so each series puts its X/Y(/size) value pairs in rows
@@ -106,8 +107,8 @@ def render_chart(chart_space: etree._Element, table: Callable[[list[list[str]]],
                                        *_user_shape_lines(chart_space, load_related)) if line)
     tables = [_category_table([series for _, series, _ in category_series], table,
                               _is_flagged(chart_space.find(f"{{{_C}}}date1904")), _date_axis_format(plot_area),
-                              [shown for _, _, shown in category_series]),
-              _xy_table(xy_series, table)]
+                              [shown for _, _, shown in category_series], room),
+              _xy_table(xy_series, table, room)]
     return "\n\n".join(part for part in (head, *tables) if part)
 
 
@@ -168,9 +169,10 @@ def embedded_table(outer: TableGrid) -> Callable[[list[list[str]]], str]:
     return table
 
 
-def render_chartex(chart_space: etree._Element, table: Callable[[list[list[str]]], str] = render_table) -> str:
+def render_chartex(chart_space: etree._Element, table: Callable[[list[list[str]]], str] = render_table,
+                   room: int | None = None) -> str:
     """`cx:chartSpace` (the new chart kinds: waterfall, treemap, sunburst, histogram, funnel …) → "[Chart] title" + value table
-    (`table`, same as in `render_chart`).
+    (`table` and `room`, same as in `render_chart`).
 
     The category names (cx:strDim) and first numeric dimension (cx:numDim) of the data (cx:data) a series (cx:series) points to go
     one row per category. Multi-level categories use only the innermost level (the first cx:lvl; unlike `_points`, outer levels are
@@ -194,7 +196,7 @@ def render_chartex(chart_space: etree._Element, table: Callable[[list[list[str]]
     if not values:
         return ""
     title = _chartex_text(chart_space.find(f"{{{_CX}}}chart/{{{_CX}}}title/{{{_CX}}}tx"))
-    return f"[Chart] {title}".strip() + "\n\n" + _value_table(names, categories, values, table)
+    return f"[Chart] {title}".strip() + "\n\n" + _value_table(names, categories, values, table, room)
 
 
 def _chartex_points(dimension: etree._Element | None) -> dict[int, str]:
@@ -253,40 +255,82 @@ def _date_axis_format(plot_area: etree._Element | None) -> str:
 
 
 def _category_table(series_list: list[etree._Element], table: Callable[[list[list[str]]], str], date1904: bool,
-                    axis_format: str, shown_formats: list[str]) -> str:
+                    axis_format: str, shown_formats: list[str], room: int | None) -> str:
     if not series_list:
         return ""
-    categories: dict[int, str] = {}
+    # The label of a category is that of the first series that has one
+    owners: dict[int, _Points] = {}
     for series in series_list:
-        for index, label in _category_labels(series.find(f"{{{_C}}}cat"), date1904, axis_format).items():
-            categories.setdefault(index, label)
+        labels = _category_labels(series.find(f"{{{_C}}}cat"), date1904, axis_format)
+        for index in labels:
+            owners.setdefault(index, labels)
+    categories = _Points(owners, lambda index, labels: labels.get(index))
     values = [_value_points(series.find(f"{{{_C}}}val"), shown)
               for series, shown in zip(series_list, shown_formats, strict=True)]
     names = [_series_name(series, number) for number, series in enumerate(series_list, start=1)]
-    return _value_table(names, categories, values, table)
+    return _value_table(names, categories, values, table, room)
 
 
-def _value_table(names: list[str], categories: dict[int, str], values: list[dict[int, str]],
-                 table: Callable[[list[list[str]]], str]) -> str:
+class _Points:
+    """Points of a series {point index: text} whose display text (`show`: date, percentage, unit …) is worked out only when the
+    point is read (`get`). Worked out for every cached point up front, a chart of 1,000,000 points spent seconds on values that
+    the character limit then left unwritten (Pinned by: test_office_table_char_limit.py::TestChartValuesPastTheLimit)."""
+
+    __slots__ = ("_points", "_show")
+
+    def __init__(self, points: dict[int, object], show: Callable[[int, object], str] | None = None) -> None:
+        self._points = points
+        self._show = show
+
+    def __iter__(self) -> Iterator[int]:
+        return iter(self._points)
+
+    def get(self, index: int, missing: str = "") -> str:
+        if index not in self._points:
+            return missing
+        value = self._points[index]
+        return self._show(index, value) if self._show is not None else value
+
+
+def _value_table(names: list[str], categories: dict[int, str] | _Points, values: list[dict[int, str]] | list[_Points],
+                 table: Callable[[list[list[str]]], str], room: int | None) -> str:
     """One row per category, one column per series. Rows are built only from the indexes of points that really exist — trusting
     ptCount, a single number would make a huge table."""
     indexes = sorted(set(categories).union(*values))
-    rows = [[categories.get(index, str(index + 1)), *(_number(column.get(index, "")) for column in values)]
-            for index in indexes]
-    return table([["Category", *names], *rows])
+    rows = ([categories.get(index, str(index + 1)), *(_number(column.get(index, "")) for column in values)] for index in indexes)
+    return table([["Category", *names], *_value_rows(rows, room)])
 
 
-def _category_labels(element: etree._Element | None, date1904: bool, axis_format: str) -> dict[int, str]:
+def _value_rows(rows: Iterable[list[str]], room: int | None) -> list[list[str]]:
+    """The value rows of a chart, up to the first row at which their cell text (`solid_length`) passes `room` — the characters the
+    output can still take before it is over the character limit. Every cell read is written, so a chart stopped there is over the
+    limit as the full one is, and `exceeded` stays exact (the header row is not counted: it undercounts).
+
+    A chart had no limit of its own: the slide or block it sits in was counted only once the whole table had been built, so
+    1,000,000 cached points (a 5 MB PPTX) took 9 s and 2.5 GB. Deliberate: `max_chars` is the only volume limit, as for table rows,
+    so there is no fixed cap on points (Pinned by: test_office_table_char_limit.py::TestChartValuesPastTheLimit)."""
+    if room is None:
+        return list(rows)
+    kept, counted = [], 0
+    for row in rows:
+        kept.append(row)
+        counted += sum(solid_length(cell) for cell in row)
+        if counted > room:
+            break
+    return kept
+
+
+def _category_labels(element: etree._Element | None, date1904: bool, axis_format: str) -> _Points:
     """Category names {point index: text}. Text (c:strRef) is left as is; numbers (c:numRef, c:numLit) become a date when the display
     format is a date, and are otherwise tidied like values. Date categories came out as Excel serial numbers (46023.0)
     (Pinned by: test_office.py::TestChartAxes::test_date_categories_are_shown_as_dates)."""
     points = _points(element)
     cache = next(element.iter(f"{{{_C}}}numCache", f"{{{_C}}}numLit"), None) if element is not None else None
     if cache is None:
-        return points
+        return _Points(points)
     cache_format = cache.findtext(f"{{{_C}}}formatCode") or ""
-    return {index: _format_date(value, cache_format, date1904) or _format_date(value, axis_format, date1904)
-            or _number(value) for index, value in points.items()}
+    return _Points(points, lambda _, value: _format_date(value, cache_format, date1904) or _format_date(value, axis_format, date1904)
+                   or _number(value))
 
 
 def _format_date(value: str, format_code: str, date1904: bool) -> str | None:
@@ -326,22 +370,24 @@ def _format_date(value: str, format_code: str, date1904: bool) -> str | None:
     return f"{moment.year:04d}-{moment.month:02d}" if "m" in letters else f"{moment.year:04d}"
 
 
-def _xy_table(series_list: list[etree._Element], table: Callable[[list[list[str]]], str]) -> str:
+def _xy_table(series_list: list[etree._Element], table: Callable[[list[list[str]]], str], room: int | None) -> str:
     if not series_list:
         return ""
     has_size = any(series.find(f"{{{_C}}}bubbleSize") is not None for series in series_list)
     header = ["Series", "X", "Y", *(["Size"] if has_size else [])]
-    rows = []
-    for number, series in enumerate(series_list, start=1):
-        name = _series_name(series, number)
-        x_values, y_values = _value_points(series.find(f"{{{_C}}}xVal")), _value_points(series.find(f"{{{_C}}}yVal"))
-        sizes = _value_points(series.find(f"{{{_C}}}bubbleSize"))
-        for index in sorted(set(x_values) | set(y_values)):
-            row = [name, _number(x_values.get(index, str(index + 1))), _number(y_values.get(index, ""))]
-            if has_size:
-                row.append(_number(sizes.get(index, "")))
-            rows.append(row)
-    return table([header, *rows])
+
+    def rows() -> Iterator[list[str]]:
+        for number, series in enumerate(series_list, start=1):
+            name = _series_name(series, number)
+            x_values, y_values = _value_points(series.find(f"{{{_C}}}xVal")), _value_points(series.find(f"{{{_C}}}yVal"))
+            sizes = _value_points(series.find(f"{{{_C}}}bubbleSize"))
+            for index in sorted(set(x_values) | set(y_values)):
+                row = [name, _number(x_values.get(index, str(index + 1))), _number(y_values.get(index, ""))]
+                if has_size:
+                    row.append(_number(sizes.get(index, "")))
+                yield row
+
+    return table([header, *_value_rows(rows(), room)])
 
 
 def _points(element: etree._Element | None) -> dict[int, str]:
@@ -389,7 +435,7 @@ def _point_index(value: str | None) -> int | None:
     return index if index is not None and index <= _MAX_POINT_INDEX else None
 
 
-def _value_points(element: etree._Element | None, shown_format: str = "") -> dict[int, str]:
+def _value_points(element: etree._Element | None, shown_format: str = "") -> _Points:
     """Values of c:val / c:xVal / c:yVal / c:bubbleSize as {point index: text}. When the display format (c:formatCode of the cache,
     or the formatCode of the c:pt when it differs per point) is a percentage, `25.3%` is written (decimal places as in the format).
     It went out as 0.253 and was not read as 25.3% (Pinned by:
@@ -400,15 +446,15 @@ def _value_points(element: etree._Element | None, shown_format: str = "") -> dic
     points = _points(element)
     cache = next(element.iter(f"{{{_C}}}numCache", f"{{{_C}}}numLit"), None) if element is not None else None
     if cache is None:
-        return points
+        return _Points(points)
     cache_format = cache.findtext(f"{{{_C}}}formatCode") or ""
     if cache_format.strip().lower() in ("", "general"):
         cache_format = shown_format or cache_format
     formats = {index: point.get("formatCode") for point in cache.iterchildren(f"{{{_C}}}pt")
                if point.get("formatCode") and (index := _point_index(point.get("idx"))) is not None}
     if not cache_format and not formats:
-        return points
-    return {index: _format_value(value, formats.get(index, cache_format)) for index, value in points.items()}
+        return _Points(points)
+    return _Points(points, lambda index, value: _format_value(value, formats.get(index, cache_format)))
 
 
 def _shown_value_format(plot: etree._Element, series: etree._Element, plot_area: etree._Element) -> str:

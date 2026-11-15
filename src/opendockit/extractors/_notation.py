@@ -18,7 +18,7 @@ def omitted_rows_warning(count: int) -> str:
 
 
 class TableBudget:
-    """Watches the character limit (`max_chars`) while a top-level table is read cell by cell (shared by DOCX, HWP and HWPX). Counting
+    """Watches the character limit (`max_chars`) while a top-level table is read cell by cell (shared by DOCX, PPTX, HWP and HWPX). Counting
     only per top-level block, the overrun was noticed only after a table of hundreds of thousands of rows had been rendered to the end
     (a 200,000-row DOCX: 33 s, 2.3 GB. Pinned by: test_office_table_char_limit.py).
 
@@ -28,7 +28,7 @@ class TableBudget:
     count also exceeds the limit (it never counts more than the real amount — Pinned by: TestLimitIsExactAroundTables).
 
     Only cell text that actually lands in the table is counted. A cell placed where an earlier cell or an earlier cell's span already
-    sits is not counted — DOCX: `TableGrid` drops it; HWP/HWPX: it moves to the next free slot of that row
+    sits is not counted — DOCX/PPTX: `TableGrid` drops it; HWP/HWPX: it moves to the next free slot of that row
     (`TableGrid.place_or_next`), but that slot is unknown here, so this errs toward undercounting. A span is taken to cover exactly what
     the file says — `TableGrid` only ever shrinks spans, so this errs toward undercounting. Once the memory of covered slots exceeds
     `_MAX_MARKS`, or a cell with an unknown position (`forget`) arrives, the remaining cells of that table are not counted (reading
@@ -62,6 +62,12 @@ class TableBudget:
         """A cell with an unknown position (`TableGrid.place_next`) arrived. Where it will sit is unknown, so the remaining cells of
         this table are not counted."""
         self._marks = -1
+
+
+def chars_left(extraction: Extraction, options: ConvertOptions) -> int | None:
+    """Characters the output can still take before it is over the character limit, from the characters already counted (None: no
+    limit). A chart stops its value rows once their cell text passes it (`_charts.render_chart`, DOCX and PPTX)."""
+    return None if options.max_chars is None else options.max_chars - extraction.chars
 
 
 # ---- Dutmal ------------------------------------------------------------------------------------------------------
