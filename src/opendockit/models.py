@@ -207,7 +207,7 @@ class DocumentImage:
     failed: bool = False
     # Tiles of a very tall picture (a product detail page, a long screen capture) cut in order at a readable width (PNG/JPEG, same
     # format as `data`). An empty tuple for an ordinary picture. `data` is still the downscaled whole picture, so a describer that
-    # knows nothing about tiles can use it (`image._tiles`).
+    # knows nothing about tiles can use it (`image._tile_boxes`).
     tiles: tuple[bytes, ...] = field(default=(), repr=False)
 
 

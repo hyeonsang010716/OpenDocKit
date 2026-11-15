@@ -40,7 +40,7 @@ _OPEN_FORMATS = ("JPEG", "PNG", "GIF", "BMP", "TIFF", "WEBP", "AVIF", *(("HEIF",
 # (Pinned by: test_core_image_and_assembly.py::TestTallPictures).
 _MAX_ASPECT_RATIO = 20
 _CONTENT_SHORT_SIDE = 256
-# When a very tall picture is cut into tiles of readable width (`_tiles`): the long side is more than this multiple of the short
+# When a very tall picture is cut into tiles of readable width (`_tile_boxes`): the long side is more than this multiple of the short
 # side, and shrinking the long side to `max_side` would shrink it by more than half. A tile is twice the short side long (the
 # short side is kept), there are at most `_MAX_TILES` of them, and each overlaps its neighbors by 1/16.
 _TILE_ASPECT_RATIO = 4
@@ -91,7 +91,7 @@ class PreparedImage:
     mime_type: str
     width: int
     height: int
-    # Tiles of a very tall picture cut top → bottom (left → right if it is wide) (`_tiles`). An empty tuple for an ordinary picture.
+    # Tiles of a very tall picture cut top → bottom (left → right if it is wide) (`_tile_boxes`). An empty tuple for an ordinary picture.
     tiles: tuple[bytes, ...] = ()
 
 
@@ -152,7 +152,7 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
         # band by now. Only RGBA, LA and P were looked at, so a PA TIFF became a JPEG with its transparent background turned
         # black (Pinned by: test_image.py::TestTransparencyOfEveryMode).
         has_alpha = "A" in image.getbands() or "a" in image.getbands() or "transparency" in image.info
-        tiles = tuple(_encoded(tile, max_side, has_alpha)[0] for tile in _tiles(image, max_side))
+        tiles = tuple(_encoded(image.crop(box), max_side, has_alpha)[0] for box in _tile_boxes(*image.size, max_side))
         data, mime_type, (shrunk_width, shrunk_height) = _encoded(image, max_side, has_alpha)
     except MemoryError:
         raise
@@ -315,16 +315,21 @@ def _encoded(image: Image.Image, max_side: int, has_alpha: bool) -> tuple[bytes,
     return output.getvalue(), "image/jpeg", image.size
 
 
-def _tiles(image: Image.Image, max_side: int) -> list[Image.Image]:
-    """Tiles of a very tall picture (`_TILE_ASPECT_RATIO`) cut in order along the long side. An empty list if the picture is not one to split.
+def _tile_boxes(width: int, height: int, max_side: int) -> list[tuple[int, int, int, int]]:
+    """Where the tiles of a very tall picture (`_TILE_ASPECT_RATIO`) are cut, in order along the long side (crop boxes). An empty list
+    if the picture is not one to split.
 
     Shrinking the whole thing to a long side of `max_side` turned an 860×18000 product detail page into 98×2048 and the text
     was unreadable (Pinned by: test_core_image_and_assembly.py::TestTallPictures). A tile is twice the short side long (there
     are at most `_MAX_TILES`, so a longer picture gets longer tiles) and overlaps its neighbors by 1/16 so that a line of text
     on a boundary is whole in at least one tile. Deliberate: the downscaled whole picture (`data`) is kept — a describer that
     knows nothing about tiles sees it as before.
+
+    Only the boxes: `prepare_image` cuts, encodes and lets go of one tile before it cuts the next. Each crop is a full-resolution
+    copy, and cutting them all before the first was encoded held the whole picture over again (a 3000×40000 PNG peaked at
+    1,124 MB instead of 710 MB). The bytes that come out are the same
+    (Pinned by: test_image.py::TestOnePictureInMemory::test_tiles_are_cut_one_at_a_time).
     """
-    width, height = image.size
     short, long = min(width, height), max(width, height)
     if long <= _TILE_ASPECT_RATIO * short or long <= 2 * max_side:
         return []
@@ -332,12 +337,12 @@ def _tiles(image: Image.Image, max_side: int) -> list[Image.Image]:
     count = min(_MAX_TILES, -(-long // (2 * short)))
     length = -(-long // count)
     overlap = length // 16
-    tiles = []
+    boxes = []
 
     for index in range(count):
         start, end = max(index * length - overlap, 0), min((index + 1) * length + overlap, long)
-        tiles.append(image.crop((0, start, width, end) if height > width else (start, 0, end, height)))
-    return tiles
+        boxes.append((0, start, width, end) if height > width else (start, 0, end, height))
+    return boxes
 
 
 def _open_within_pixel_limit(data: bytes, max_side: int) -> Image.Image:
