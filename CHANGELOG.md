@@ -40,13 +40,15 @@ A fourth review of the whole source. The sample outputs in `examples/` are uncha
 - **Excel 2003 XML**: time-only values follow the cell's time format (`h:mm AM/PM` → `1:30 PM`, as in XLSX), and
   `<Row ss:Span>` counts the rows it stands for, so R1C1 formulas and vertical merges below it point at the right rows.
 - **RTF**: a `{\upr{…}{\*\ud{…}}}` group is read from its Unicode copy instead of the ANSI copy, so a Korean title or
-  paragraph in a CP1252 document no longer comes out as `??`. Any other shape of `\upr` is read as before.
+  paragraph in a CP1252 document no longer comes out as `??`. Any other shape of `\upr`, or one whose Unicode copy is empty, is
+  read as before.
 - **HTML**: strikethrough around several paragraphs, list items or a quote is marked per block (`~~a~~` / `~~b~~`)
-  instead of one pair across the blank line that GFM shows as literal tildes; a struck table cell holding a table no
-  longer leaves a lone `~~` paragraph, and strikethrough no longer changes whether a table is drawn as a table or
-  unfolded. A `rowspan` stops at the end of its `thead`, `tbody` or `tfoot`, so a body cell no longer pushes the cells of
-  a total row one column right. An empty `<tr></tr>` no longer turns the first pair of a name/value table back into a
-  header.
+  instead of one pair across the blank line that GFM shows as literal tildes, and two pairs never touch (`~~a~~~~b~~`),
+  even where an empty or inline-drawn heading, a picture or a refused link sits between struck runs; a struck table cell
+  holding a table no longer leaves a lone `~~` paragraph, and strikethrough no longer changes whether a table is drawn as
+  a table or unfolded. A `rowspan` stops at the end of its `thead`, `tbody` or `tfoot`, so a body cell no longer pushes
+  the cells of a total row one column right, and a `<form>` or `<font>` written between rows does not end it. An empty
+  `<tr></tr>` no longer turns the first pair of a name/value table back into a header.
 - **Legacy .doc / .ppt**: a temporary folder that cannot be written or read is reported as such (`conversion_failed`)
   instead of "LibreOffice could not be started", and the program lookup is kept.
 
