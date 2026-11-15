@@ -694,6 +694,34 @@ class TestWesternText:
     @pytest.mark.parametrize(
         "text",
         [
+            "Descrição;Situação\nPedido de compra;Aprovado\nNota fiscal;Pendente\n",
+            "Ações;Observações\nCompra;Nenhuma\n",
+            "Größe;Menge\nÄpfel;3\nBirnen;5\n",
+            "gemäß Vertrag\n",
+        ],
+        ids=["portuguese-csv", "portuguese-plural", "german-csv", "german-phrase"],
+    )
+    def test_accented_letter_pairs_are_not_read_as_hanja(self, text):
+        """Two accented letters in a row (`çã`, `öß`, `äß`) decode strictly as one CP949 hanja and an uppercase accent before a
+        letter (`Äp`) as extended Hangul, so short Portuguese and German text came out as `Descri豫o`, `Gr秤e`, `훡fel`,
+        `gem癌` without a warning."""
+        decoded, encoding = decode_text(text.encode("cp1252"))
+
+        assert decoded == text
+        assert encoding == "cp1252"
+        assert convert(text.encode("cp1252"), "a.csv").metadata["encoding"] == "cp1252"
+
+    @pytest.mark.parametrize("text", ["大韓民國", "李舜臣 將軍", "株式會社 ABC\n", "1,金,2\n", "No.李", "漢字 test"])
+    def test_korean_written_in_hanja_alone_stays_cp949(self, text):
+        """Hanja run on for whole words or stand apart from Latin letters, which accents in Western words do not."""
+        decoded, encoding = decode_text(text.encode("cp949"))
+
+        assert decoded == text
+        assert encoding == "cp949"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
             "naïve façade déjà Señor",
             "Café résumé naïve façade – déjà vu. Señor Müller größe.\n" * 5,
             "Total – 5 items; price €20",
