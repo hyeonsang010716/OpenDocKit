@@ -537,6 +537,40 @@ class TestStrikethroughAroundBlocks:
 
         assert convert(html.encode(), "a.html").text == "~~line1\nline2~~"
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p>Price: <del>10,000 won<br><br>until May</del> 8,000 won</p>", "Price: ~~10,000 won~~\n\n~~until May~~ 8,000 won"),
+        ("<div><s>Old plan A<br> &nbsp; <span> </span><br><br>Old plan B</s></div>", "~~Old plan A~~\n\n~~Old plan B~~"),
+        ('<p><del>a<br><img src="x.png"><br>b</del></p>', "~~a~~\n\n~~b~~"),
+        ("<ul><li><del>a<br><br>b</del></li></ul>", "- ~~a~~\n\n~~b~~"),
+        ("<blockquote><del>a<br><br>b</del></blockquote>", "> ~~a~~\n>\n> ~~b~~"),
+        ("<table><tr><td><del>a<br><br>b</del></td></tr><tr><td>z</td></tr></table>", "~~a~~\n\n~~b~~\n\nz"),
+    ])
+    def test_blank_line_of_line_breaks_cuts_the_pair(self, html, expected):
+        """Two line breaks with nothing visible between them are a blank line, which a GFM strikethrough cannot cross (nor
+        is emphasis written across it): each side gets its own pair, also inside a cell of a table unfolded into blocks."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><del>a<br>b</del></p>", "~~a\nb~~"),
+        ("<table><tr><th>k</th><th>v</th></tr><tr><td><del>a<br><br>b</del></td><td>2</td></tr></table>",
+         "| k | v |\n| --- | --- |\n| ~~a<br>b~~ | 2 |"),
+        ("<table><tr><td><del><table><tr><th>k</th><th>v</th></tr><tr><td>a<br><br>b</td><td>2</td></tr></table></del></td></tr>"
+         "</table>", "| ~~k~~ | ~~v~~ |\n| --- | --- |\n| ~~a<br>b~~ | ~~2~~ |"),
+    ])
+    def test_line_breaks_drawn_without_a_blank_line_keep_one_pair(self, html, expected):
+        """A single line break, and line breaks in a cell of a table drawn as a table (`<br>` on one line there), leave the
+        pair whole."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<h2><del>a<br><br>b</del></h2>", "## ~~a~~ ~~b~~"),
+        ("<h4>x<h4>y</h4><dl><dd><del>a<br><br>b</del></dd></dl></h4>", "#### x\n\n#### y\n\n~~a~~\n\n~~b~~"),
+    ])
+    def test_blank_line_in_a_heading_cuts_the_pair_too(self, html, expected):
+        """A heading is drawn on one line, but what follows a heading nested in it is taken out of it after the marks are
+        written: the pair is cut in a heading as well, which leaves two pairs on its line."""
+        assert convert(html.encode(), "a.html").text == expected
+
     def test_paragraphs_in_a_data_cell_are_paired_per_line(self):
         html = "<table><tr><th>a</th><th>b</th></tr><tr><td><del><p>x</p><p>y</p></del></td><td>z</td></tr></table>"
 
@@ -582,9 +616,9 @@ class TestStrikethroughAroundBlocks:
 
     def test_struck_blocks_never_leave_marks_against_each_other(self):
         """Random nestings of blocks, line breaks, pictures and empty elements inside strikethroughs: no closing mark is
-        written against an opening one, and the text is the text of the same page without the strikethroughs."""
+        written against an opening one, no pair crosses a blank line, and the text is the text of the same page without the strikethroughs."""
         blocks = ["p", "div", "h2", "h4", "li", "ul", "ol", "blockquote", "dl", "dt", "dd", "section", "span", "b", "a"]
-        leaves = ["Old", "price 10,000", " ", "<br>", '<img src="x.png">', '<img src="x.png" alt="pic">', "", "x y"]
+        leaves = ["Old", "price 10,000", " ", "<br>", "<br><br>", '<img src="x.png">', '<img src="x.png" alt="pic">', "", "x y"]
         plain = ConvertOptions(keep_links=False, keep_emphasis=False)
 
         def node(rng: random.Random, depth: int) -> str:
@@ -611,6 +645,7 @@ class TestStrikethroughAroundBlocks:
             text = convert(unstruck.encode(), "a.html", plain).text
 
             assert "~~~~" not in marked and "~~~~" not in struck, html
+            assert all(block.count("~~") % 2 == 0 for block in re.split(r"\n[ \t>]*\n", struck)), html  # no pair crosses a blank line
             assert re.sub(r"[\s~]", "", struck) == re.sub(r"[\s~]", "", text), html
 
 

@@ -1002,13 +1002,23 @@ def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozen
     does: a GFM strikethrough does not reach across a blank line or into the next list item, so one pair around two paragraphs
     printed its tildes (`~~Old price\n\nOld term~~`), as emphasis is not written across blocks either
     (Pinned by: test_audit_web_fixes.py::TestStrikethroughAroundBlocks). Inside a table grouped as a whole nothing is cut: it is
-    one line of cell text. A line break (`<br>`) does not cut the run — a strikethrough holds a line break inside a paragraph.
+    one line of cell text. A single line break (`<br>`) does not cut the run — a strikethrough holds a line break inside a
+    paragraph. A blank line does: two or more line breaks with no text between them (only whitespace, empty elements or
+    pictures that leave no placeholder) are a blank line once rendered, and one pair around it printed its tildes
+    (`~~10,000 won\n\nuntil May~~`), as emphasis across it is not written either (`_inline.resolve_inline`). Not in a cell
+    of a table drawn as a table, whose line breaks are `<br>` on one line (`_drawn_on_one_line`). In a heading or a table
+    caption, which is drawn on one line too, the pair is cut all the same (`## ~~a~~ ~~b~~`, still a strikethrough): whether
+    the text stays in the heading is settled only after the marks are written (`_flatten_nested_headings`), and a pair left
+    whole where the text does not is not read
+    (Pinned by: test_audit_web_fixes.py::TestStrikethroughAroundBlocks::test_blank_line_of_line_breaks_cuts_the_pair).
     """
     if unfolded is None:
         unfolded = {}
     base = struck if struck.name in ("td", "th") else struck.find_parent(["td", "th"])
     runs: list[_Run] = []
     last_cell: object = None
+    breaks = 0  # line breaks since the last text
+    one_line: dict[int, bool] = {}  # per cell (`id`): whether its text is drawn on one line (`_drawn_on_one_line`)
     stack: list[tuple[object, Tag | None, Tag | None]] = [(child, None, base) for child in reversed(struck.contents)]
 
     while stack:
@@ -1019,6 +1029,11 @@ def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozen
         if isinstance(node, Tag):
             if table is None and node.name in _CODE_BLOCKS:
                 last_cell = _RUN_BREAK  # the next text starts a new run
+                continue
+            if node.name == "br":
+                breaks += 1
+                if breaks > 1 and table is None and not _drawn_on_one_line(cell, one_line, unfolded):
+                    last_cell = _RUN_BREAK  # a blank line: the next text starts a new run
                 continue
             if (table is None and node.name == "table" and cell is not None and id(node) not in holding_code
                     and not _unfolded_around(cell, unfolded)):
@@ -1032,11 +1047,24 @@ def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozen
             continue
         if id(node) not in strings:
             continue
+        breaks = 0
         if not runs or cell is not last_cell:
             runs.append([])
             last_cell = cell
         runs[-1].append((node, table))
     return runs
+
+
+def _drawn_on_one_line(cell: Tag | None, one_line: dict[int, bool], unfolded: dict[int, bool]) -> bool:
+    """Whether the text of `cell` is drawn on one line (`_html_render._cell_text`: line breaks become `<br>`), so that line breaks
+    in it never make a blank line: a cell of a table drawn as a table. A cell of a table unfolded into blocks (a one-column
+    box or a layout table, `_unfolded_around`) is not, nor is a cell with no table around it. Looked up only at a blank line
+    of line breaks, once per cell."""
+    if cell is None:
+        return False
+    if id(cell) not in one_line:
+        one_line[id(cell)] = cell.find_parent("table") is not None and not _unfolded_around(cell, unfolded)
+    return one_line[id(cell)]
 
 
 def _unfolded_around(cell: Tag, unfolded: dict[int, bool]) -> bool:
