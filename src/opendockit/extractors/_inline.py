@@ -8,6 +8,7 @@ Markdown once per block, so the same rule does not drift between formats.
 from dataclasses import dataclass
 import re
 
+from opendockit.markdown import _INVISIBLE
 from opendockit.models import IMAGE_MARKER
 
 
@@ -81,6 +82,7 @@ def resolve_scripts(text: str) -> str:
     """Turn the temporary marks into script notation. Consecutive runs of the same kind ('-' and '3') are merged into one first."""
     if _SCRIPT_CLOSE not in text:
         return text
+    text = _visible(text)
     while _SCRIPT_SPLIT.search(text):
         text = _SCRIPT_SPLIT.sub(lambda match: match.group(1) + match.group(2), text)
     marks = {opened: mark for mark, opened in _SCRIPT_OPEN.items()}
@@ -95,6 +97,15 @@ def _character_before(text: str, position: int) -> str:
     while position > 0 and text[position - 1] in _INLINE_MARK_CHARS:
         position -= 1
     return text[position - 1:position] if position else ""
+
+
+def _visible(text: str) -> str:
+    """`text` without the invisible characters that cleaning removes (`markdown.clean_characters`: zero-width space, soft
+    hyphen, direction marks …), taken out before the marks are resolved. A run of nothing but them was a span of its own and
+    left its marks with nothing inside once the text was cleaned (`x ****`, `~~~~`), and one between two runs of the same
+    formatting kept them apart (`**a**\u200b**b**` became `**a****b**`). Taking them out sooner changes nothing else: every
+    section is cleaned anyway (Pinned by: test_inline_formatting.py::TestInvisibleCharacters)."""
+    return _INVISIBLE.sub("", text)
 
 
 # ---- Strikethrough -----------------------------------------------------------------------------------------------
@@ -131,7 +142,7 @@ def resolve_strikes(text: str) -> str:
     TestOfficeLineBreaksNestedFieldsAndMetadata::test_docx_strikethrough_across_a_line_break_is_marked_per_line)."""
     if _STRIKE_CLOSE not in text:
         return text
-    text = _STRIKE_JOINT.sub(r"\1", text)
+    text = _STRIKE_JOINT.sub(r"\1", _visible(text))
 
     # Whether a span is at the start of a line is carried on from the end of the previous span. Scanning back to the line start for
     # every mark was quadratic when one line had many marks (40,000 pairs on one line: 2 s. Pinned by:
@@ -364,11 +375,12 @@ def resolve_inline(source: str | list[str | InlineMark], *, emphasis: bool = Tru
             position = match.end()
         tokens.append(source[position:])
         # A stray half of a link mark (the extractors do not produce one) goes the way of the other control characters
-        tokens = [_HAS_INLINE_MARK.sub("", token) if isinstance(token, str) else token for token in tokens]
+        tokens = [_visible(_HAS_INLINE_MARK.sub("", token)) if isinstance(token, str) else token for token in tokens]
     else:
         tokens = source
         if not any(isinstance(token, InlineMark) and token.kind != "x" for token in tokens):
             return "".join(token for token in tokens if isinstance(token, str))
+        tokens = [_visible(token) if isinstance(token, str) else token for token in tokens]
 
     return _write_atoms(_settle_lines(_inline_atoms(tokens, emphasis)))
 
