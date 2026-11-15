@@ -393,10 +393,13 @@ class _PointGrid:
     def within(self, x0: float, top: float, x1: float, bottom: float) -> list:
         if not all(math.isfinite(value) for value in (x0, top, x1, bottom)) or x1 < x0 or bottom < top:
             return self._items
-        columns = range(math.floor(x0 / self._CELL), math.floor(x1 / self._CELL) + 1)
-        rows = range(math.floor(top / self._CELL), math.floor(bottom / self._CELL) + 1)
-        if len(columns) * len(rows) > self._MAX_CELLS:
+        first_column, last_column = math.floor(x0 / self._CELL), math.floor(x1 / self._CELL)
+        first_row, last_row = math.floor(top / self._CELL), math.floor(bottom / self._CELL)
+        # Counted as integers: `len()` of a range of more than `sys.maxsize` cells (a cell 1e21pt wide) raised OverflowError
+        # and rejected the document (Pinned by: test_pdf_images.py::TestManyPicturesInRuledCells::test_huge_cell_is_read)
+        if (last_column - first_column + 1) * (last_row - first_row + 1) > self._MAX_CELLS:
             return self._items
+        columns, rows = range(first_column, last_column + 1), range(first_row, last_row + 1)
         return [*self._odd, *(item for column in columns for row in rows for item in self._cells.get((column, row), ()))]
 
 
@@ -481,9 +484,10 @@ class _ObjectBands:
         top, bottom = box[1], box[3]
         if not (math.isfinite(top) and math.isfinite(bottom)) or top > bottom:
             return None
-        covered = range(math.floor(top / self._BAND), math.floor(bottom / self._BAND) + 1)
-        if len(covered) > self._MAX_BOX_BANDS:
+        first, last = math.floor(top / self._BAND), math.floor(bottom / self._BAND)
+        if last - first + 1 > self._MAX_BOX_BANDS:  # counted as integers, as in `_PointGrid.within`
             return None
+        covered = range(first, last + 1)
         found = {}
         for kind, items in self._objects.items():
             bands = self._bands[kind]

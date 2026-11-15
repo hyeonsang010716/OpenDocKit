@@ -211,6 +211,32 @@ class TestManyPicturesInRuledCells:
 
         assert large < 8 * small + 0.5  # 16 times as long when every cell scanned the whole page
 
+    def test_huge_cell_is_read(self):
+        """A ruled cell 1e21pt wide beside a table: the grid cells it covers are more than `sys.maxsize`, and `len()` of that
+        range raised OverflowError, which rejected the whole document."""
+        from tests.test_pdf import _raw_pdf
+
+        content = "\n".join(["0.5 w", *(f"{x} {y} 100 40 re S" for x in (100, 200, 300) for y in (300, 340, 380)),
+                             "100 420 1000000000000000000000 40 re S",
+                             *(f"BT /F1 8 Tf {x + 4} {y + 15} Td (c{x}{y}) Tj ET" for x in (100, 200, 300) for y in (300, 340, 380))])
+        data = _raw_pdf({
+            1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            4: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            5: b"<< /Length %d >>stream\n%s\nendstream" % (len(content), content.encode())})
+
+        assert "| c100380 | c200380 | c300380 |" in convert(data, "a.pdf").text
+
+    def test_regions_of_huge_extent_are_answered(self):
+        """The page indexes give every item for a region of more grid cells or bands than they look through, however many."""
+        from opendockit.extractors._pdf_model import _ObjectBands, _PointGrid
+
+        grid = _PointGrid([(1.0, 1.0)], lambda item: item)
+        bands = _ObjectBands({"char": [{"top": 1.0, "bottom": 2.0}]})
+
+        assert grid.within(0, 0, 1e21, 10) == [(1.0, 1.0)] and grid.within(0, 0, 10, 1e300) == [(1.0, 1.0)]
+        assert bands.overlapping((0, 0, 10, 1e21)) is None
+
     @pytest.mark.parametrize("seed", range(6))
     def test_cell_lines_are_those_of_scanning_the_page(self, monkeypatch, seed):
         import random
