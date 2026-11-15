@@ -383,8 +383,78 @@ class TestManySquaresOnOnePage:
 
         assert "☐ Agree" in result.text and "☐ Cells" not in result.text and "Cells" in result.text
 
+    @staticmethod
+    def _squares_beside_text(boxes: int, chars: int) -> tuple[object, list]:
+        """`boxes` separate 8pt squares, every second one with a label line to its right, and `chars` characters in rows."""
+        from types import SimpleNamespace
 
-_FIELD = b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (%s) /V (%s) /Rect %s >>"
+        rects = [_rect(20.0 + (index % 50) * 120, 20.0 + (index // 50) * 14, 8.0, 8.0) for index in range(boxes)]
+        lines = [TestManySquaresOnOnePage._line(19.0 + (index // 50) * 14, 31.0 + (index % 50) * 120)
+                 for index in range(0, boxes, 2)]
+        text = [{"text": "x", "x0": 6100.0 + (index % 400) * 5, "x1": 6104.0 + (index % 400) * 5,
+                 "top": 20.0 + (index // 400) * 7, "bottom": 26.0 + (index // 400) * 7} for index in range(chars)]
+        return SimpleNamespace(rects=rects, curves=[], lines=[], chars=text), lines
+
+    @pytest.mark.timing
+    def test_squares_beside_much_text_take_linear_time(self):
+        """Every box scanned all the characters and lines of the page for one inside it and for its label: 8,000 separate
+        8pt squares beside 400 lines of text took 32 seconds."""
+        import time
+
+        from opendockit.extractors import pdf as pdf_module
+
+        spent = []
+        for boxes, chars in ((1_000, 6_000), (4_000, 24_000)):
+            page, lines = self._squares_beside_text(boxes, chars)
+            started = time.perf_counter()
+            pdf_module._mark_checkboxes(page, lines, [])
+            spent.append(time.perf_counter() - started)
+            assert all(line.text == "☐ label" for line in lines)
+        small, large = spent
+
+        assert large < 8 * small + 0.5  # 16 times as long when every box scanned every character
+
+    @pytest.mark.parametrize("seed", range(6))
+    def test_marks_are_those_of_scanning_every_character_and_line(self, monkeypatch, seed):
+        import copy
+        import random
+        from types import SimpleNamespace
+
+        from opendockit.extractors import pdf as pdf_module
+
+        rng = random.Random(seed)
+        odd = [float("nan"), float("inf"), -float("inf"), 1e12]
+        rects = [_rect(rng.choice([rng.uniform(0, 600), 63.5, 64.0, 128.0]), rng.uniform(0, 600), side, side + rng.choice([0.0, 1.0]))
+                 for side in (rng.choice([6.0, 8.0, 12.0, 15.9]) for _ in range(150))]
+        chars = []
+        for _ in range(600):
+            box = rng.choice(rects)
+            x0, top = box["x0"] + rng.uniform(-2, 9), box["top"] + rng.uniform(-2, 9)
+            width, height = rng.choice([(1.0, 2.0), (3.0, 4.0), (-2.0, 3.0), (2.0, -3.0), (40.0, 40.0)])
+            chars.append({"text": rng.choice(["x", " "]), "x0": rng.choice([x0, x0, x0, *odd]), "x1": x0 + width,
+                          "top": rng.choice([top, top, top, *odd]), "bottom": top + height})
+        lines = []
+        for _ in range(300):
+            box = rng.choice(rects)
+            top = box["top"] + rng.uniform(-70, 8)
+            height = rng.choice([10.0, 12.0, 64.0, 80.0, 300.0])
+            x0 = box["x1"] + rng.uniform(0, 30) if rng.random() < 0.5 else box["x0"] - rng.uniform(5, 60)
+            lines.append(pdf_module._Line(top=rng.choice([top, top, top, *odd]), bottom=top + height, x0=x0, x1=x0 + rng.uniform(3, 40),
+                                          text=rng.choice(["label", "☐ done", "end ☑", "item"]), size=rng.choice([0.0, 8.0, 12.0])))
+        page = SimpleNamespace(rects=rects, curves=[], lines=[], chars=chars)
+        scanned = copy.deepcopy(lines)
+
+        pdf_module._mark_checkboxes(page, lines, [])
+        with monkeypatch.context() as patched:
+            patched.setattr(_pdf_model._PointGrid, "within", lambda self, *box: self._items)
+            patched.setattr(_pdf_marks._LinesSpanning, "at", lambda self, y: self._lines)
+            pdf_module._mark_checkboxes(page, scanned, [])
+
+        assert [line.text for line in lines] == [line.text for line in scanned]
+        assert sum(line.text.count("☐") for line in lines) > 30
+
+
+_FIELD =b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (%s) /V (%s) /Rect %s >>"
 
 
 class TestOneUnreadableAnnotation:

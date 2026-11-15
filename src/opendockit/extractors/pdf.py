@@ -122,7 +122,7 @@ from opendockit.extractors._pdf_reading_order import (
     _read_sidebar_first,
 )
 from opendockit.extractors._pdf_row_joins import _join_row_fragments
-from opendockit.extractors._pdf_ruled_tables import _real_tables, _ruled_table, _with_open_below
+from opendockit.extractors._pdf_ruled_tables import _real_tables, _ruled_table, _TableLookups, _with_open_below
 from opendockit.extractors._pdf_shaded_tables import _shade_bands, _thin_rules
 from opendockit.extractors._pdf_table_filters import (
     _without_glyph_outlines,
@@ -991,9 +991,9 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                       if not lines and not tables and not sideways_text else 0)
     blank = not (page.chars or page.images or page.curves or page.rects or page.lines or dropped)
     figures = _figure_boxes(page, view)
+    lookups = _TableLookups(page, figures)
     return _Page(number=page.page_number, width=float(page.width), height=float(page.height), lines=lines,
-                 tables=[_with_open_below(page, _ruled_table(bbox, rows, boxes, page.chars, figures))
-                         for bbox, rows, boxes in tables],
+                 tables=[_with_open_below(_ruled_table(bbox, rows, boxes, lookups), lookups) for bbox, rows, boxes in tables],
                  has_images=bool(page.images), view=view, figures=figures,
                  has_outlines=outline_points >= _OUTLINE_MIN_POINTS,
                  placement_fit=placement_fit, placement_pending=placement_pending, sideways=sideways_text,

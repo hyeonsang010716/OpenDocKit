@@ -167,3 +167,76 @@ class TestPictureGrid:
         tokens = [token for token in result.text.split() if token == "[Image]" or token.startswith("상품")]
         assert tokens == [token for row in range(rows) for token in
                           ["[Image]"] * columns + [f"상품{row * columns + column + 1:02d}" for column in range(columns)]]
+
+
+class TestManyPicturesInRuledCells:
+    """Every ruled cell holding a picture scanned all the characters of the page for its lines, and every cell all the
+    pictures of the page: a ruled grid with a picture and a label in each of 3,600 cells spent 30 seconds there."""
+
+    @staticmethod
+    def _grid(size: int) -> tuple[list[tuple], list[dict], list[tuple]]:
+        """A `size` × `size` grid of 50pt cells, each with a picture, a two-line label and a character on the cell edge."""
+        boxes, chars, figures = [], [], []
+        for row in range(size):
+            for column in range(size):
+                x, y = 20.0 + column * 50, 20.0 + row * 50
+                boxes.append((x, y, x + 50, y + 50))
+                figures.append((x + 4, y + 4, x + 46, y + 30, 1.0))
+                chars += [{"text": "a", "x0": x + 3, "x1": x + 7, "top": y + 32 + line * 8, "bottom": y + 38 + line * 8}
+                          for line in range(2)]
+                chars.append({"text": "b", "x0": x - 2, "x1": x + 2, "top": y + 40, "bottom": y + 46})
+        return boxes, chars, figures
+
+    @staticmethod
+    def _table(boxes: list[tuple], chars: list[dict], figures: list[tuple]) -> object:
+        from types import SimpleNamespace
+
+        from opendockit.extractors import _pdf_ruled_tables
+
+        lookups = _pdf_ruled_tables._TableLookups(SimpleNamespace(chars=chars, horizontal_edges=[]), figures)
+        return _pdf_ruled_tables._ruled_table((0.0, 0.0, 1.0, 1.0), [["x"] * len(boxes)], boxes, lookups)
+
+    @pytest.mark.timing
+    def test_cell_lines_take_linear_time(self):
+        import time
+
+        spent = []
+        for size in (20, 40):
+            boxes, chars, figures = self._grid(size)
+            started = time.perf_counter()
+            table = self._table(boxes, chars, figures)
+            spent.append(time.perf_counter() - started)
+            assert len(table.cell_lines) == size * size and table.cell_lines[0] == (52.0, 60.0)
+        small, large = spent
+
+        assert large < 8 * small + 0.5  # 16 times as long when every cell scanned the whole page
+
+    @pytest.mark.parametrize("seed", range(6))
+    def test_cell_lines_are_those_of_scanning_the_page(self, monkeypatch, seed):
+        import random
+
+        from opendockit.extractors import _pdf_model
+
+        rng = random.Random(seed)
+        odd = [float("nan"), float("inf"), -float("inf"), 1e12]
+        boxes = []
+        for _ in range(120):
+            x, y = rng.uniform(0, 900), rng.uniform(0, 900)
+            width, height = rng.choice([(50.0, 40.0), (8.0, 300.0), (700.0, 12.0), (-20.0, 30.0), (5000.0, 5000.0)])
+            boxes.append(tuple(rng.choice([value, value, value, value, *odd]) for value in (x, y, x + width, y + height)))
+        figures, chars = [], []
+        for _ in range(150):
+            x, y = rng.uniform(-20, 920), rng.uniform(-20, 920)
+            width, height = rng.choice([(30.0, 20.0), (2.0, 2.0), (-10.0, 20.0), (20.0, -10.0), (400.0, 60.0)])
+            figures.append((*(rng.choice([value, value, value, *odd]) for value in (x, y, x + width, y + height)), 1.0))
+        for _ in range(3000):
+            x, y = rng.uniform(-20, 920), rng.uniform(-20, 920)
+            chars.append({"text": rng.choice(["a", "b", " "]), "x0": rng.choice([x, x, x, *odd]), "x1": x + rng.choice([4.0, -4.0]),
+                          "top": rng.choice([y, y, y, *odd]), "bottom": y + rng.choice([6.0, -6.0])})
+
+        indexed = self._table(boxes, chars, figures).cell_lines
+        with monkeypatch.context() as patched:
+            patched.setattr(_pdf_model._PointGrid, "within", lambda self, *box: self._items)
+            scanned = self._table(boxes, chars, figures).cell_lines
+
+        assert indexed == scanned and len(indexed) > 20

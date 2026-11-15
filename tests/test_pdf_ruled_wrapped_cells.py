@@ -119,3 +119,61 @@ class TestWrappedFirstCellsWithWideLineSpacing:
         rows = [line for line in result.text.splitlines() if line.startswith("|")]
         assert not any(f"r{n}" in row and f"r{n + 1} " in row for row in rows for n in range(1, 4))
         assert all(f"r{n}c1" in result.text for n in range(1, 5))
+
+
+def _long_first_cell_table(lines: int) -> bytes:
+    """reportlab table: a three-rule table without vertical cell padding whose middle row has a first cell of `lines` lines
+    and two values centred beside it."""
+    from io import BytesIO
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    style = ParagraphStyle("p", fontName="Helvetica", fontSize=6, leading=7)
+    first = Paragraph("<br/>".join(f"step {number}" for number in range(1, lines + 1)), style)
+    table = Table([["Item", "Q1", "Q2"], ["Output", "1,200", "1,310"], [first, "900", "950"], ["Loss", "0.8%", "0.5%"]],
+                  colWidths=[90, 55, 55])
+    table.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), "Helvetica", 6), ("LINEABOVE", (0, 0), (-1, 0), 1, colors.black),
+                               ("LINEBELOW", (0, 0), (-1, 0), 1, colors.black), ("LINEBELOW", (0, -1), (-1, -1), 1, colors.black),
+                               ("ALIGN", (1, 1), (-1, -1), "RIGHT"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                               ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+    buffer = BytesIO()
+    SimpleDocTemplate(buffer, pagesize=A4).build([Paragraph("Table 1. Figures", style), Spacer(1, 4), table, Spacer(1, 8),
+                                                  Paragraph("Paragraph under the table.", style)])
+    return buffer.getvalue()
+
+
+class TestLongRunsOfLinesBetweenRules:
+    """Every row between two rules collected the left-aligned lines below it up to the next break, even when no value row
+    followed, so a long run of such lines was scanned from each of its lines to its end: 12,000 short lines on one page took
+    9.5 seconds with two rules against 3 without them."""
+
+    def test_first_cell_of_more_lines_than_the_bound_is_not_grouped(self):
+        """A first cell of up to `_WRAPPED_LABEL_LINES` (64) lines is grouped with the values centred beside it; one of more
+        lines is not grouped from its first line."""
+        grouped = convert(_long_first_cell_table(64), "a.pdf").text
+        longer = convert(_long_first_cell_table(66), "a.pdf").text
+
+        assert "| " + "<br>".join(f"step {number}" for number in range(1, 65)) + " | 900 | 950 |" in grouped
+        assert "| step 1<br>" not in longer and "| step 1 |" in longer
+
+    @pytest.mark.timing
+    def test_long_run_of_lines_between_rules_takes_linear_time(self):
+        import time
+
+        from opendockit.extractors._pdf_model import _Line
+        from opendockit.extractors._pdf_wrapped_cells import _with_ruled_wrapped_cells
+
+        spent = []
+        for count in (3_000, 12_000):
+            rows = [[_Line(top=10 + index * 12, bottom=20 + index * 12, x0=50, x1=300, text=f"line {index}", size=10)]
+                    for index in range(count)]
+            rules = [(5.0, 40.0, 500.0), (20 + count * 12.0, 40.0, 500.0)]
+            started = time.perf_counter()
+            assert _with_ruled_wrapped_cells(rows, rules) == rows
+            spent.append(time.perf_counter() - started)
+        small, large = spent
+
+        assert large < 8 * small + 0.5  # 16 times as long when every line scanned the run to its end
