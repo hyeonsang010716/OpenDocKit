@@ -202,6 +202,12 @@ class TestChapterMarkup:
 
         assert convert(_epub({"ch1.xhtml": _page(body)}), "book.epub").text == "앞 문단\n\n뒤 문단"
 
+    def test_ruby_annotation_follows_its_base_in_parentheses(self) -> None:
+        """Japanese books mark readings with ruby, mostly without `<rp>`: the reading was glued to the word."""
+        body = "<p><ruby>東京<rt>とうきょう</rt></ruby>に<ruby>行<rt>い</rt></ruby>く</p>"
+
+        assert convert(_epub({"ch1.xhtml": _page(body)}), "book.epub").text == "東京(とうきょう)に行(い)く"
+
     @pytest.mark.parametrize("element", ["style", "script"])
     def test_style_holding_a_closing_tag_in_cdata_shows_nothing(self, element) -> None:
         """Written out as HTML, the text of a style or script is raw, so a CDATA section holding its closing tag ended it early

@@ -74,7 +74,7 @@ def chars_left(extraction: Extraction, options: ConvertOptions) -> int | None:
 
 def format_dutmal(main: str, annotation: str = "") -> str:
     """Hangul (HWP) dutmal (a small annotation attached above or below the main text) → "main(annotation)". HWP and HWPX use the
-    same shape."""
+    same shape, and so do DOCX, ODF and HTML ruby."""
     return f"{main}({annotation})" if main and annotation else main or annotation
 
 

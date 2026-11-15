@@ -44,6 +44,7 @@ from opendockit.extractors._inline import (
     _escape_link_text,
     format_script,
 )
+from opendockit.extractors._notation import format_dutmal
 from opendockit.extractors._package import decimal_int
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_glyph
 from opendockit.markdown import clean_characters, code_fences
@@ -837,6 +838,83 @@ def _put_form_values(soup: BeautifulSoup) -> None:
                 control.append(soup.new_tag("br"))
             control.append(value)
         control.append(" ")
+
+
+def _put_ruby(soup: BeautifulSoup) -> None:
+    """Replace ruby (`<ruby>`) with its base text and annotation in the shape of the other extractors, `base(annotation)`
+    (`_notation.format_dutmal`; HWP/HWPX dutmal, DOCX w:ruby, ODF text:ruby). Without `<rp>` the annotation was glued to the
+    base, `東京とうきょう`; the `<rp>` fallback parentheses are left out, as the shape brings its own, and so is a pair of
+    parentheses written around the whole annotation (`<rt>(かんじ)</rt>`), so they are never doubled
+    (Pinned by: test_text_html.py::TestRuby).
+
+    Each annotation goes with the base text before it (`漢<rt>かん</rt>字<rt>じ</rt>` is `漢(かん)字(じ)`); bases given as
+    `<rb>` one after another and as many `<rt>` after them are paired in order (`漢(かん)字(じ)`); otherwise the bases are
+    one text and the annotations one annotation. An `<rtc>` annotates all of its segment (`旧(jiù)金(jīn)(San Francisco)`).
+    An empty annotation leaves the base as it is. Whitespace at the edges of the parts is left out, as a browser does
+    (`<ruby>\n東京\n<rt>とうきょう</rt>\n</ruby>に` is `東京(とうきょう)に`). Inline formatting inside the ruby is not kept: it is turned into text
+    before the strikethrough marks, which a ruby inside a strikethrough then holds whole. Inner rubies are replaced first.
+    """
+    places: _Places = {}
+    for ruby in reversed(soup.find_all("ruby")):
+        if ruby.parent is None:
+            continue
+        hidden = {id(string) for rp in ruby.find_all("rp") for string in rp.find_all(string=True)}
+        pieces: list[str] = []
+        bases: list[str] = []  # the base texts of the segment so far
+        notes: list[str] = []  # its annotations (`<rt>`)
+        wide: list[str] = []  # its annotations of the whole segment (`<rtc>`)
+
+        def segment_ends() -> None:
+            if len(bases) > 1 and len(notes) == len(bases):
+                text = "".join(format_dutmal(base, note) for base, note in zip(bases, notes, strict=True))
+            else:
+                text = format_dutmal("".join(bases), " ".join(note for note in notes if note))
+            pieces.append(format_dutmal(text, " ".join(note for note in wide if note)))
+            bases.clear()
+            notes.clear()
+            wide.clear()
+
+        loose = False  # the last base is text outside an `<rb>`, which the next such text continues
+        for child in ruby.children:
+            name = child.name if isinstance(child, Tag) else None
+            if name == "rp":
+                continue
+            text = " ".join("".join(string for string in (child.find_all(string=True) if isinstance(child, Tag) else [child])
+                                    if id(string) not in hidden).split())
+            if name in ("rt", "rtc"):
+                (notes if name == "rt" else wide).append(_without_enclosing_parentheses(text))
+                loose = False
+            elif text:
+                if notes or wide:
+                    segment_ends()
+                if loose and name != "rb":
+                    bases[-1] += text
+                else:
+                    bases.append(text)
+                loose = name != "rb"
+        if bases or notes or wide:
+            segment_ends()
+        _replace(ruby, "".join(pieces), places)
+
+
+def _without_enclosing_parentheses(text: str) -> str:
+    """An annotation without a pair of parentheses around the whole of it, which the ruby shape adds."""
+    if len(text) > 1 and text[0] in "(（" and text[-1] in ")）" and _parentheses_paired(text[1:-1]):
+        return text[1:-1].strip()
+    return text
+
+
+def _parentheses_paired(text: str) -> bool:
+    """Whether every parenthesis in `text` is closed in order (`a)(b` is not)."""
+    depth = 0
+    for character in text:
+        if character in "(（":
+            depth += 1
+        elif character in ")）":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
 
 
 def _put_symbol_fonts(soup: BeautifulSoup) -> None:

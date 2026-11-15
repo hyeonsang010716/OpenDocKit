@@ -962,6 +962,59 @@ class TestFormValues:
         assert elapsed < 4.0
 
 
+class TestRuby:
+    """Row of html.md: ruby is `base(annotation)`, the shape of HWP/HWPX dutmal, DOCX and ODF ruby (`_notation.format_dutmal`).
+    Without `<rp>` the annotation was glued to the base (`東京とうきょう`)."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>東京<rt>とうきょう</rt></ruby>に行く</p>", "東京(とうきょう)に行く"),
+        ("<p><ruby>大韓民國<rt>대한민국</rt></ruby> 만세</p>", "大韓民國(대한민국) 만세"),
+        ("<p><ruby>\n  東京\n  <rt> とうきょう </rt>\n</ruby>に</p>", "東京(とうきょう)に"),
+    ])
+    def test_annotation_follows_its_base_in_parentheses(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>漢字<rp>(</rp><rt>かんじ</rt><rp>)</rp></ruby></p>", "漢字(かんじ)"),
+        ("<p><ruby>漢字<rp>（</rp><rt>かんじ</rt><rp>）</rp></ruby></p>", "漢字(かんじ)"),
+        ("<p><ruby>漢字<rt>(かんじ)</rt></ruby></p>", "漢字(かんじ)"),
+        ("<p><ruby>漢字<rt>(かん)(じ)</rt></ruby></p>", "漢字((かん)(じ))"),
+    ])
+    def test_parentheses_are_never_doubled(self, html, expected):
+        """The `<rp>` fallback parentheses are left out, and so is a pair around the whole annotation; parentheses that do not
+        enclose all of it stay."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>漢<rt>かん</rt>字<rt>じ</rt></ruby></p>", "漢(かん)字(じ)"),
+        ("<p><ruby><rb>漢</rb><rb>字</rb><rt>かん</rt><rt>じ</rt></ruby></p>", "漢(かん)字(じ)"),
+        ("<p><ruby><rb>漢</rb><rb>字</rb><rt>かんじ</rt></ruby></p>", "漢字(かんじ)"),
+        ("<p><ruby><rb>旧</rb><rb>金</rb><rb>山</rb><rt>jiù</rt><rt>jīn</rt><rt>shān</rt><rtc>San Francisco</rtc></ruby></p>",
+         "旧(jiù)金(jīn)山(shān)(San Francisco)"),
+        ("<p><ruby>漢字<rtc><rp>(</rp><rt>かん</rt><rt>じ</rt><rp>)</rp></rtc></ruby></p>", "漢字(かんじ)"),
+        ("<p><ruby><ruby>東<rt>とう</rt></ruby>京<rt>Tokyo</rt></ruby></p>", "東(とう)京(Tokyo)"),
+    ])
+    def test_several_bases_and_annotations(self, html, expected):
+        """Each annotation goes with the base before it; `<rb>` bases and as many `<rt>` after them are paired in order;
+        an `<rtc>` annotates its whole segment; a ruby inside a ruby is read first."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>漢字<rt></rt></ruby>です</p>", "漢字です"),
+        ("<p><ruby>漢字<rt> </rt><rp>(</rp><rp>)</rp></ruby>です</p>", "漢字です"),
+        ("<p>a<ruby><rt>b</rt></ruby>c</p>", "abc"),
+    ])
+    def test_empty_annotation_or_base_adds_no_parentheses(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    def test_ruby_in_a_strikethrough_a_table_and_a_heading(self):
+        html = ("<h2><ruby>東京<rt>とうきょう</rt></ruby></h2><p><del><ruby>東京<rt>とうきょう</rt></ruby></del>へ</p>"
+                "<table><tr><th>都市</th><th>人口</th></tr><tr><td><ruby>大阪<rt>おおさか</rt></ruby></td><td>270</td></tr></table>")
+
+        assert convert(html.encode(), "a.html").text == ("## 東京(とうきょう)\n\n~~東京(とうきょう)~~へ\n\n"
+                                                         "| 都市 | 人口 |\n| --- | --- |\n| 大阪(おおさか) | 270 |")
+
+
 class TestHeaderRowsOfThOnlyTables:
     def test_table_made_only_of_th_cells_keeps_its_rows(self):
         """With no thead, every top row made only of th was counted as a header row, so a table whose cells are all th was merged

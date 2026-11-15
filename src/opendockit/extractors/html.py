@@ -37,6 +37,7 @@ from opendockit.extractors._html_dom import (
     _nest_word_lists,
     _open_at_the_end,
     _put_form_values,
+    _put_ruby,
     _put_symbol_fonts,
     _reopen_raw_text_elements,
     _with_table_around_bare_rows,
@@ -453,12 +454,13 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     for image in soup.find_all("img"):
         _replace(image, _image_placeholder(image, extraction, options, saved_picture), places)
 
-    # Equations, form values, super/subscripts and strikethrough are turned into text before rendering, so they come out the
+    # Equations, form values, super/subscripts, ruby and strikethrough are turned into text before rendering, so they come out the
     # same on paths that only collect text, such as headings, table cells and folded lists.
     _put_math(soup)
     _put_symbol_fonts(soup)
     _put_form_values(soup)
     _mark_scripts(soup)
+    _put_ruby(soup)
     _mark_struck_text(soup, links=options.keep_links, emphasis=options.keep_emphasis)
 
     _flatten_nested_headings(soup)
