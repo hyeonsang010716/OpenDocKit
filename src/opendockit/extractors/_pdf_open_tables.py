@@ -9,6 +9,7 @@ from opendockit.extractors._pdf_model import (
     _MIN_FIGURE_POINTS,
     _TABLE_SETTINGS,
     _box_area,
+    _cropped,
     _encloses,
     _is_white,
     _region_on_page,
@@ -92,7 +93,7 @@ def _open_sided_tables(page: object) -> list[object]:
         outers = [areas[other][0] for other, tables in found.items() if tables]
         if any(_encloses(outer, box) and (abs(outer[0] - box[0]) <= 2) != (abs(outer[2] - box[2]) <= 2) for outer in outers):
             continue
-        found[index] = page.crop(box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": [left, right]})
+        found[index] = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": [left, right]})
 
     # Horizontal lines whose ends are off by about 1pt fall into two width groups, so the same table is found in two regions.
     # Keeping both made `_real_tables` see each as 'a box enclosing another table' and discard both, and a two-column

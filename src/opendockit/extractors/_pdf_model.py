@@ -9,6 +9,8 @@ import re
 import threading
 
 from pdfminer.utils import decode_text
+from pdfplumber.page import CroppedPage
+from pdfplumber.utils import clip_obj, get_bbox_overlap, obj_to_bbox
 
 
 # A page with more text pieces than this is read without text-box grouping (boxes_flow). Grouping takes time and memory with the
@@ -512,18 +514,49 @@ def _region_on_page(page: object, left: float, top: float, right: float,
 
 
 def _cropped(page: object, box: tuple[float, float, float, float]) -> object:
-    """`page.crop(box)`, cropped from a page holding only the objects that can overlap the box (`_ObjectBands`, built once
-    per page as one of the page's lists for its tables, `_page_index`). pdfplumber's crop clips every object of the page
-    and keeps those overlapping the box, in page order; the objects left out overlap it nowhere, so the cropped page holds
-    the same objects in the same order. A table grown from shaded bands cropped the whole page once per table, so a page of
-    400 separate shaded tables took 14 seconds (Pinned by: test_pdf_shaded_tables.py::TestManySeparateShadedTables::
-    test_cropped_page_holds_the_objects_of_a_crop_of_the_whole_page, test_many_shaded_tables_take_linear_time)."""
+    """The page cropped to `box` for a table to be searched again in it (`_crop_for_table_search`), cropped from a
+    page holding only the objects that can overlap the box (`_ObjectBands`, built once per page as one of the page's lists
+    for its tables, `_page_index`). The crop keeps only objects overlapping the box, in page order; the objects left out
+    overlap it nowhere, so the cropped page holds the same objects in the same order. A table grown from shaded bands
+    cropped the whole page once per table, so a page of 400 separate shaded tables took 14 seconds (Pinned by:
+    test_pdf_shaded_tables.py::TestManySeparateShadedTables::test_cropped_page_holds_the_objects_of_a_crop_of_the_whole_page,
+    test_many_shaded_tables_take_linear_time)."""
     near = _page_index(page, "object_bands", lambda: _ObjectBands(page.objects)).overlapping(box)
     if near is None:
-        return page.crop(box)
+        return _crop_for_table_search(page, box)
     subset = page.filter(lambda obj: True)
     subset._objects = near  # as pdfplumber's own `dedupe_chars` hands a derived page its objects
-    return subset.crop(box)
+    return _crop_for_table_search(subset, box)
+
+
+def _crop_for_table_search(page: object, box: tuple[float, float, float, float]) -> object:
+    """`page.crop(box)`, except that a character whose vertical centre lies above or below the box is kept whole instead of
+    being clipped to it. Everything else is clipped as pdfplumber clips it: the rules, rectangles and curves the table finder
+    needs, and the characters on the rows of the box.
+
+    Clipping a character that crosses the top or bottom of the box moves its centre into the box. A caption set tight above a
+    table (its box, not its glyph, across the top rule or the shading) then had its centre inside the top cell of the table
+    found again, so the cell took its text, while the body, which tells cell text from body text by the centre of the
+    character as it is on the page (`_BoxIndex.holds`), kept it as well: the line came out twice (Pinned by:
+    test_pdf.py::TestTextTightAgainstATable). Kept whole, it stays on its own line above the table, as the body sees it.
+    A character crossing a side of the box is still clipped (deliberate): it is part of a word whose other characters are in
+    the edge cell, which the body leaves out as a fragment of cell text (`_part_outside_cells`), so the cell is where it is
+    read. Keeping every character whole, or only those whose centre lies in the box, lost that part of the word ('W' of
+    'Word10'; 21 more words lost over 200 random documents of the word fuzz test) (Pinned by:
+    test_pdf.py::TestTextTightAgainstATable::test_word_across_the_side_of_an_open_sided_table_stays_whole)."""
+    top, bottom = box[1], box[3]
+
+    def crop(objects: list[dict], _: tuple) -> list[dict]:
+        kept = []
+        for obj in objects:
+            if obj.get("object_type") == "char" and not top <= (obj["top"] + obj["bottom"]) / 2 <= bottom:
+                if get_bbox_overlap(obj_to_bbox(obj), box) is not None:
+                    kept.append(obj)
+            elif (clipped := clip_obj(obj, box)) is not None:
+                kept.append(clipped)
+        return kept
+
+    return CroppedPage(page, box, crop_fn=crop)
 
 
 _TABLE_MIN_ROWS = 3

@@ -15,6 +15,7 @@ from opendockit.extractors._pdf_model import (
     _TABLE_ROW_TOLERANCE,
     _TABLE_SETTINGS,
     _BoxIndex,
+    _cropped,
     _encloses,
     _inside_any,
     _page_index,
@@ -317,7 +318,7 @@ def _closed_at_the_bottom(page: object, table: object) -> object:
     box = _region_on_page(page, x0, top, x1, lowest)
     if box is None:
         return table
-    found = page.crop(box).find_tables({**_TABLE_SETTINGS, **lines})
+    found = _cropped(page, box).find_tables({**_TABLE_SETTINGS, **lines})
     if (len(found) != 1 or len(found[0].rows) != len(table.rows) or len(found[0].columns) != len(table.columns)
             or not all(map(_BoxIndex([cell for cell in found[0].cells if cell]).holds, stray))):
         return table
@@ -362,7 +363,7 @@ def _closed_at_open_ends(page: object, table: object) -> object:
     box = _region_on_page(page, x0, min(top, highest), x1, max(bottom, lowest))
     if box is None:
         return table
-    found = page.crop(box).find_tables({**_TABLE_SETTINGS, "explicit_horizontal_lines": lines})
+    found = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_horizontal_lines": lines})
     if (len(found) != 1 or len(found[0].rows) != len(table.rows) + len(lines) or len(found[0].columns) != len(table.columns)
             or not all(map(_BoxIndex([cell for cell in found[0].cells if cell]).holds, stray))):
         return table
