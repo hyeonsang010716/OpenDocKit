@@ -49,8 +49,14 @@ def _raw_part_root(part: object, kind: str) -> etree._Element | None:
     """Root of the styles or numbering part (`kind`) parsed from its bytes, None when it is not XML. A part declared with a generic
     content type (application/xml) comes back from python-docx as a plain `Part` with no parsed tree, and asking it for its styles
     or element raised AttributeError, which rejected the whole document. It is read the way the footnotes and comments parts are
-    (Pinned by: test_audit_office.py::TestDocxStylesAndNumberingWithAGenericContentType)."""
+    (Pinned by: test_audit_office.py::TestDocxStylesAndNumberingWithAGenericContentType).
+
+    Also used when two relationships have the type (python-docx raises ValueError): the first one is read, and a part python-docx
+    parsed itself is used as it is (`_package.related_part`. Pinned by: test_audit_office.py::TestRelationshipTypeGivenTwice)."""
     related = next((rel.target_part for rel in part.rels.values() if not rel.is_external and rel.reltype.endswith(f"/{kind}")), None)
+    element = getattr(related, "element", None)
+    if element is not None:
+        return element
     blob = getattr(related, "blob", None)
     return parse_part(blob) if blob else None
 
@@ -58,7 +64,7 @@ def _raw_part_root(part: object, kind: str) -> etree._Element | None:
 def _styles_root(document: object) -> etree._Element | None:
     try:
         return document.styles.element
-    except AttributeError:
+    except (AttributeError, ValueError):
         return _raw_part_root(document.part, "styles")
 
 
@@ -107,7 +113,7 @@ def _load_numbering(document: object) -> dict[str, _NumberList]:
         numbering = document.part.numbering_part.element
     except (KeyError, NotImplementedError):
         return {}
-    except AttributeError:
+    except (AttributeError, ValueError):
         numbering = _raw_part_root(document.part, "numbering")
         if numbering is None:
             return {}

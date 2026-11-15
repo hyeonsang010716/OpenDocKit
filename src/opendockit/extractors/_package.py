@@ -130,6 +130,29 @@ def is_strict_package(data: bytes) -> bool:
     return any(relationship.get("Type") == _STRICT_OFFICE_DOCUMENT for relationship in relationships)
 
 
+def related_part(owner: object, relationship_type: str) -> object:
+    """The part that the first internal relationship of `relationship_type` from `owner` (a part or the package) points at, in the
+    order of its relationships part. KeyError when there is none, as python-docx / python-pptx `part_related_by` raises.
+
+    The libraries raise ValueError when two relationships share the type, and so do the properties built on that lookup
+    (`main_document_part`, `numbering_part`, `styles`, `core_properties`, `has_notes_slide`, `slide_layout`, `slide_master`): a
+    second numbering, styles or document-properties relationship rejected the whole document, and a second notes relationship the
+    whole slide. The first one is used, as for the other parts looked up by type (`_docx_parts._raw_part_root`, footnotes,
+    comments), and an external relationship is passed over (Pinned by: test_audit_office.py::TestRelationshipTypeGivenTwice)."""
+    relationships = getattr(owner, "rels", None)
+    if relationships is None:  # a python-pptx package keeps its relationships private
+        relationships = owner._rels
+    for relationship in relationships.values():
+        if relationship.reltype == relationship_type and not relationship.is_external:
+            return relationship.target_part
+    raise KeyError(relationship_type)
+
+
+def main_document_part(package: object) -> object:
+    """The main part of an opened DOCX / PPTX package (the library's `main_document_part`, through `related_part`)."""
+    return related_part(package, _OFFICE_DOCUMENT)
+
+
 def core_properties(package: object) -> dict[str, str]:
     """Title (`title`) and author (`author`) from the package's document properties (docProps/core.xml). Only what is written is
     included.
@@ -142,11 +165,12 @@ def core_properties(package: object) -> dict[str, str]:
     (Pinned by: test_office_robustness.py::TestDocumentPropertiesAndSlideRoots).
     """
     try:
-        package.part_related_by(_CORE_PROPERTIES)
+        part = related_part(package, _CORE_PROPERTIES)
     except KeyError:
         return {}
     try:
-        properties = package.core_properties
+        # python-docx reads the values through the part's `core_properties`; a python-pptx part holds them itself
+        properties = getattr(part, "core_properties", part)
         values = {"title": properties.title, "author": properties.author}
     except (AttributeError, KeyError, ValueError, TypeError):
         return {}

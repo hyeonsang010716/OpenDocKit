@@ -71,7 +71,7 @@ from opendockit.extractors._notation import (
     omitted_rows_warning,
     unread_ole_warning,
 )
-from opendockit.extractors._package import core_properties, is_strict_package, open_package, parse_part
+from opendockit.extractors._package import core_properties, is_strict_package, main_document_part, open_package, parse_part
 from opendockit.extractors.html import extract_html
 from opendockit.extractors.text import extract_text
 from opendockit.markdown import TableGrid, join_blocks, merged_copy, solid_length
@@ -804,7 +804,7 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
     # (`_package.is_strict_package`).
     extraction = Extraction()
     try:
-        part = open_package(Package.open, data, extraction.warnings).main_document_part
+        part = main_document_part(open_package(Package.open, data, extraction.warnings))
     except (PackageNotFoundError, KeyError, ValueError) as exc:
         _reject_strict(data)
         raise CorruptedDocumentError("The DOCX document structure could not be read.") from exc
@@ -945,8 +945,11 @@ def _comments(document: object) -> str:
     """Comments (word/comments.xml) in part order as `> Comment(author, on "range"): text` lines (`_notation.comment_line`). A reply
     (a comment with a paraIdParent in commentsExtended) is `> Reply(author): text`. Comments were dropped wholesale without a warning
     (Pinned by: test_office_comments.py::TestDocxComments). A broken or external part skips only the comments (same rule as
-    footnotes)."""
-    related = {rel.reltype.rsplit("/", 1)[-1]: rel.target_part for rel in document.part.rels.values() if not rel.is_external}
+    footnotes). Of two relationships of one type the first is read (`_package.related_part`)."""
+    related: dict[str, object] = {}
+    for rel in document.part.rels.values():
+        if not rel.is_external:
+            related.setdefault(rel.reltype.rsplit("/", 1)[-1], rel.target_part)
     root = parse_part(related["comments"].blob) if "comments" in related else None
     if root is None:
         return ""

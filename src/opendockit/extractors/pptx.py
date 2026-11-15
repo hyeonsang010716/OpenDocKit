@@ -12,6 +12,7 @@ from urllib.parse import unquote
 
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.exc import InvalidXmlError, PackageNotFoundError
+from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.opc.package import PartFactory, _PackageLoader
 from pptx.opc.packuri import PACKAGE_URI, PackURI
 from pptx.package import Package
@@ -46,7 +47,15 @@ from opendockit.extractors._notation import (
     unread_ole_warning,
 )
 from opendockit.extractors._omml import render_omml
-from opendockit.extractors._package import core_properties, decimal_int, is_strict_package, open_package, parse_part
+from opendockit.extractors._package import (
+    core_properties,
+    decimal_int,
+    is_strict_package,
+    main_document_part,
+    open_package,
+    parse_part,
+    related_part,
+)
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_font_text
 from opendockit.markdown import TableGrid, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
@@ -56,6 +65,16 @@ from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 _SKIP_PLACEHOLDERS = {PP_PLACEHOLDER.DATE, PP_PLACEHOLDER.FOOTER, PP_PLACEHOLDER.SLIDE_NUMBER, PP_PLACEHOLDER.HEADER}
 _TITLE_PLACEHOLDERS = {PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.CENTER_TITLE}
 _BULLET_PLACEHOLDERS = {PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.OBJECT}
+# Type of a layout placeholder → the type of the master placeholder it inherits from (python-pptx's table in
+# `LayoutPlaceholder._base_placeholder`; another type is a KeyError there too. `_placeholder_base`)
+_MASTER_PLACEHOLDER_TYPES = {
+    PP_PLACEHOLDER.BODY: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.CHART: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.BITMAP: PP_PLACEHOLDER.BODY,
+    PP_PLACEHOLDER.CENTER_TITLE: PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.ORG_CHART: PP_PLACEHOLDER.BODY,
+    PP_PLACEHOLDER.DATE: PP_PLACEHOLDER.DATE, PP_PLACEHOLDER.FOOTER: PP_PLACEHOLDER.FOOTER,
+    PP_PLACEHOLDER.MEDIA_CLIP: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.OBJECT: PP_PLACEHOLDER.BODY,
+    PP_PLACEHOLDER.PICTURE: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.SLIDE_NUMBER: PP_PLACEHOLDER.SLIDE_NUMBER,
+    PP_PLACEHOLDER.SUBTITLE: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.TABLE: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.TITLE: PP_PLACEHOLDER.TITLE,
+}
 # Hand-typed bullets that make a line joined by a line break (a:br) inside a list-item paragraph an item one level down: '- ', '* ', '1. ',
 # '1) ' (numbers up to two digits — a date line such as '2024. 3.' is not one. '12. 31. 기준' (as of Dec 31), where another 'N.' follows,
 # is a date too). Other bullet characters are in `HAND_TYPED_BULLET`. Markdown does not read a '1) ' line as a list, so its indentation
@@ -183,7 +202,7 @@ def extract_pptx(data: bytes, options: ConvertOptions) -> Extraction:
     # (`_package.is_strict_package`).
     extraction = Extraction()
     try:
-        part = open_package(_open_presentation, data, extraction.warnings).main_document_part
+        part = main_document_part(open_package(_open_presentation, data, extraction.warnings))
     except (PackageNotFoundError, KeyError, ValueError) as exc:
         _reject_strict(data)
         raise CorruptedDocumentError("The PPTX document structure could not be read.") from exc
@@ -281,11 +300,17 @@ def _render_slide(slide: object, index: int, options: ConvertOptions, extraction
     if unreadable or skipped:
         extraction.warnings.append(f"Slide {index}: skipped {unreadable + len(skipped)} unreadable shape(s).")
 
-    if options.include_speaker_notes and slide.has_notes_slide:
+    # The notes part is the first notes relationship of the slide: with two, `slide.has_notes_slide` raised ValueError and the whole
+    # slide was skipped (`_package.related_part`. Pinned by: test_audit_office.py::TestRelationshipTypeGivenTwice).
+    try:
+        notes_part = related_part(slide.part, RT.NOTES_SLIDE) if options.include_speaker_notes else None
+    except KeyError:
+        notes_part = None
+    if notes_part is not None:
         # Notes are outside the per-shape skip protection (`_render_shapes`), so one placeholder type in the notes or one notes part
         # rejected the whole document. Only those notes are skipped (Pinned by: test_office_robustness.py::TestPptxSpeakerNotesAreIsolated).
         try:
-            notes = _speaker_notes(slide.notes_slide)
+            notes = _speaker_notes(notes_part.notes_slide)
         except (AttributeError, KeyError, ValueError, InvalidXmlError):
             notes = ""
             extraction.warnings.append(f"Slide {index}: skipped the speaker notes because they could not be read.")
@@ -604,22 +629,27 @@ def _placeholder_base(shape: object) -> object | None:
     square of their number (1,000 took 89 seconds. Pinned by:
     test_office_scaling_and_note_order.py::TestPptxManyInheritedPlaceholders). An index → layout placeholder table is built once per
     slide part, and a type → result table once per master part, and kept on that part (it goes away with the part).
+
+    The layout and the master are those of the first relationship of their type (`_package.related_part`): with two, python-pptx
+    raised ValueError and the placeholder lost its position and bullets (Pinned by:
+    test_audit_office.py::TestRelationshipTypeGivenTwice::test_pptx_placeholder_inherits_from_the_first_layout_and_master).
     """
     if isinstance(shape, (_BaseSlidePlaceholder, PlaceholderPicture)):
         part = shape.part
         layout_placeholders = part.__dict__.get("_converter_layout_placeholders")
         if layout_placeholders is None:
             layout_placeholders = {}
-            for placeholder in part.slide_layout.placeholders:  # when several share an index, the first one, like python-pptx
+            # When several share an index, the first one, like python-pptx
+            for placeholder in related_part(part, RT.SLIDE_LAYOUT).slide_layout.placeholders:
                 layout_placeholders.setdefault(placeholder.element.ph_idx, placeholder)
             part._converter_layout_placeholders = layout_placeholders
         return layout_placeholders.get(shape._element.ph_idx)
     if isinstance(shape, LayoutPlaceholder):
-        master = shape.part.slide_master.part
+        master = related_part(shape.part, RT.SLIDE_MASTER)
         master_placeholders = master.__dict__.setdefault("_converter_master_placeholders", {})
-        kind = shape._element.ph_type  # the type to look up in the master follows from this type (python-pptx's mapping table)
+        kind = shape._element.ph_type
         if kind not in master_placeholders:
-            master_placeholders[kind] = shape._base_placeholder
+            master_placeholders[kind] = master.slide_master.placeholders.get(_MASTER_PLACEHOLDER_TYPES[kind], None)
         return master_placeholders[kind]
     return shape._base_placeholder
 
