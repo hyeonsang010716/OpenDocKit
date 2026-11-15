@@ -376,11 +376,14 @@ def render(result: ConversionResult) -> ConversionResult:
     empty = not text.strip()
     if exceeded and options.max_chars is not None:
         text = text[: options.max_chars].rstrip()
-        sections = _cut_sections(sections, options, options.max_chars)
+        sections, reached = _cut_sections(sections, options, options.max_chars)
         warnings.append(f"The conversion was stopped because the text exceeded {options.max_chars:,} characters.")
+    else:
+        reached = None
     if empty:
         warnings.append("No text was extracted.")
-    return replace(result, text=text, sections=sections, warnings=warnings, exceeded=exceeded, char_count=char_count)
+    return replace(result, text=text, sections=sections, warnings=warnings, exceeded=exceeded, char_count=char_count,
+                   reached_sections=reached)
 
 
 def _prepare_images(raw_images: list[RawImage], sections: list[Section], options: ConvertOptions,
@@ -818,17 +821,29 @@ def section_heading(section: Section) -> str:
     return ""
 
 
-def _cut_sections(sections: list[Section], options: ConvertOptions, limit: int) -> list[Section]:
-    """Cut the section bodies at the same point where `text` was cut for going over the limit. The body of a section that starts
-    after the cut is empty text.
+def _cut_sections(sections: list[Section], options: ConvertOptions, limit: int) -> tuple[list[Section], int]:
+    """Cut the section bodies at the same point where `text` was cut for going over the limit, and count the sections the cut
+    text reaches. The body of a section that starts after the cut is empty text.
 
     Over the limit, only `text` was cut and everything stayed in `sections`, so code using the sections (chunking, source
     attribution) received content beyond the limit
     (Pinned by: test_converter.py::TestAuditedAssemblyGaps::test_sections_are_cut_where_the_text_is_cut and 2 more). The section
     list and `template` are left as they are — when descriptions are filled in again, `render` renders from the originals and
     counts the characters again.
+
+    A section is reached when its whole heading is in the text (a slide, a sheet, a page with its marker), or, without a
+    heading, the start of its body. A slide past the cut keeps its title and has no body, like a slide that is only a title:
+    only the count tells them apart (`ConversionResult.reached_sections`; Pinned by:
+    test_integrations.py::TestLangChainLoader::test_sections_past_the_character_limit_give_no_piece).
     """
     joined, starts = _layout(sections, options)
     cut = len(joined) - len(joined.lstrip()) + limit
+    reached = 0
+    for section, start in zip(sections, starts, strict=True):
+        heading = _header(section, options)
+        heading_end = start - 2 if heading and section.text else start   # the body follows its heading after a blank line
+        if (heading_end > cut) if heading else (start >= cut):
+            break
+        reached += 1
     return [replace(section, text=section.text[:max(cut - start, 0)].rstrip())
-            for section, start in zip(sections, starts, strict=True)]
+            for section, start in zip(sections, starts, strict=True)], reached

@@ -42,8 +42,11 @@ def pieces(result: ConversionResult, source: str | None, mode: Mode) -> Iterator
     # What there is to hand on: sections with text, and slides that are only a title (a divider or agenda slide — its title
     # is its content). A scanned PDF has neither: read whole it is nothing but page markers, so it gives no piece in either
     # mode rather than a Document of `<!-- Page 1 -->` lines.
-    kept = [section for section in result.sections
-            if section.text.strip() or (section.kind is SectionKind.SLIDE and section.title)]
+    # Over the character limit only the sections the cut text reaches are handed on: a slide past the cut keeps its title
+    # and looks like a slide that is only a title, so a 20-slide deck cut after slide 16 gave pieces for slides 17-20
+    # (Pinned by: test_integrations.py::TestLangChainLoader::test_sections_past_the_character_limit_give_no_piece).
+    reached = result.sections if result.reached_sections is None else result.sections[:result.reached_sections]
+    kept = [section for section in reached if section.text.strip() or (section.kind is SectionKind.SLIDE and section.title)]
     count = 0
     if mode == "single" or all(section.kind is SectionKind.DOCUMENT for section in result.sections):
         # A document without physical units is one piece either way.

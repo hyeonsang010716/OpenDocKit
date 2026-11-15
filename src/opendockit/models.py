@@ -238,6 +238,9 @@ class ConversionResult:
     marker_key: str = field(default="", repr=False)
     # `Extraction.time_limited` carried over: the result depends on how fast the machine was (the MCP server does not keep it).
     time_limited: bool = field(default=False, repr=False)
+    # Over the limit, how many of `sections` the cut `text` reaches (`converter._cut_sections`); None when nothing was cut. A
+    # section past the cut is kept, with its body emptied, so that rendering again after description has every original.
+    reached_sections: int | None = field(default=None, repr=False)
 
     @property
     def is_empty(self) -> bool:
