@@ -25,6 +25,8 @@ _FIELD_PASSWORD = 1 << 13
 _FIELD_RADIO = 1 << 15
 _FIELD_PUSH_BUTTON = 1 << 16
 _FIELD_PARENT_DEPTH = 8
+# Annotation flags (/F): Hidden (bit 2) and NoView (bit 6) — an annotation with either is not shown on screen.
+_ANNOTATION_UNSEEN = (1 << 1) | (1 << 5)
 
 
 def _form_values(page: object, lines: list[_Line]) -> list[str]:
@@ -46,8 +48,11 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
       The field name serves as the label.
     - Text written with a viewer's 'add text' tool (Acrobat Fill & Sign, macOS Preview) is the `/Contents` of a FreeText annotation
       and was dropped for the same reason. It has no name, so the body line (`lines`) immediately to its left on the same row is
-      attached as the label ('Name: Hong Gildong', `_free_text`). Hidden annotations (Hidden in `/F`) are not included (Pinned by:
-      test_pdf_form_fields.py::TestFreeTextAnnotations).
+      attached as the label ('Name: Hong Gildong', `_free_text`).
+    - Annotations not shown on screen (Hidden or NoView in `/F`, `_is_unseen`) are not included, widgets and FreeText alike: a
+      hidden field holding a calculated or internal value came out as if it had been typed on the page (Pinned by:
+      test_pdf_form_fields.py::TestFreeTextAnnotations::test_hidden_annotation_is_not_read,
+      TestHiddenFormFields).
     pdfplumber's `page.annots` is not used — while resolving annotations all the way down it raised on dictionaries that refer to each
     other (XFA form PDF).
     """
@@ -62,7 +67,7 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
                 widget = resolve1(reference)
                 subtype = _name_of(widget.get("Subtype")) if isinstance(widget, dict) else None
                 rect = resolve1(widget.get("Rect")) if subtype in ("Widget", "FreeText") else None
-                if not isinstance(rect, list) or len(rect) != 4:
+                if not isinstance(rect, list) or len(rect) != 4 or _is_unseen(widget):
                     continue
                 x0, x1 = sorted(float(resolve1(value)) for value in rect[0::2])
                 low, high = sorted(float(resolve1(value)) for value in rect[1::2])
@@ -81,20 +86,26 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
 def _free_text(page: object, annotation: dict, rect: tuple[float, float, float, float], lines: "_LinesBeside") -> str | None:
     """Text of a FreeText annotation. Among the body lines on the same row (vertical overlap of at least half the height of the
     shorter one) that end before the left edge of the annotation box, the nearest one is attached as the label ('Name:' →
-    'Name: value'). None for a hidden annotation (`/F` bit 2).
+    'Name: value').
 
     The annotation box is in PDF user space; it is moved into the coordinates of the page's lines the way pdfminer and pdfplumber
     move characters (`_page_box`). Measured from the paper's top edge, the box missed its label on every page whose MediaBox does
     not start at 0,0 or that is rotated (Pinned by: test_audit_pdf_text.py::TestFreeTextLabelsOnShiftedAndRotatedPages)."""
-    flags = resolve1(annotation.get("F"))
     value = " ".join(_field_string(resolve1(annotation.get("Contents"))).split())
-    if not value or (isinstance(flags, int) and flags & 2):
+    if not value:
         return None
     box = _page_box(page, rect)
     label = lines.label(*box) if box is not None else None
     if label is None:
         return value
     return f"{label.text.rstrip(': ')}: {value}"
+
+
+def _is_unseen(annotation: dict) -> bool:
+    """Whether the annotation is not shown on screen: Hidden or NoView in its `/F`. The flags are the annotation's own (the
+    widget in the page's `/Annots`), never inherited from a parent field: `/F` is not a field attribute."""
+    flags = resolve1(annotation.get("F"))
+    return isinstance(flags, int) and bool(flags & _ANNOTATION_UNSEEN)
 
 
 def _page_box(page: object, rect: tuple[float, float, float, float]) -> tuple[float, float, float] | None:
