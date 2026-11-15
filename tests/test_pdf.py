@@ -2545,6 +2545,22 @@ def test_dash_that_arrives_as_a_soft_hyphen_is_kept_as_a_hyphen():
     assert "| 1차 | 2025-2026년 |" in text
 
 
+class TestSoftHyphenOnALineWithAScript:
+    """The dash of a non-embedded Korean CID font (U+00AD from pdfminer) was lost on a line that also holds a superscript: the
+    script marks were resolved with the invisible characters taken out before the soft hyphen was read as a dash."""
+
+    def test_dash_is_kept_next_to_a_footnote_mark(self):
+        from reportlab.pdfbase import pdfmetrics
+
+        def draw(pdf, index):
+            text = "Period 2025–2026 total"
+            pdf.drawString(72, 740, text)
+            pdf.setFont("HYSMyeongJo-Medium", 6)
+            pdf.drawString(72 + pdfmetrics.stringWidth(text, "HYSMyeongJo-Medium", 10), 744, "1")
+
+        assert convert(_korean_pdf(draw), "a.pdf").sections[0].text == "Period 2025-2026 total^1"
+
+
 @pytest.mark.parametrize("strength", [40, 128], ids=["rc4", "aes"])
 def test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text(strength):
     """In a PDF with only an owner password (copy protection) reportlab writes the CIDSystemInfo strings of the font dictionary

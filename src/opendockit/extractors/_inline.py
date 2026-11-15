@@ -82,7 +82,6 @@ def resolve_scripts(text: str) -> str:
     """Turn the temporary marks into script notation. Consecutive runs of the same kind ('-' and '3') are merged into one first."""
     if _SCRIPT_CLOSE not in text:
         return text
-    text = _visible(text)
     while _SCRIPT_SPLIT.search(text):
         text = _SCRIPT_SPLIT.sub(lambda match: match.group(1) + match.group(2), text)
     marks = {opened: mark for mark, opened in _SCRIPT_OPEN.items()}
@@ -103,8 +102,13 @@ def _visible(text: str) -> str:
     """`text` without the invisible characters that cleaning removes (`markdown.clean_characters`: zero-width space, soft
     hyphen, direction marks …), taken out before the marks are resolved. A run of nothing but them was a span of its own and
     left its marks with nothing inside once the text was cleaned (`x ****`, `~~~~`), and one between two runs of the same
-    formatting kept them apart (`**a**\u200b**b**` became `**a****b**`). Taking them out sooner changes nothing else: every
-    section is cleaned anyway (Pinned by: test_inline_formatting.py::TestInvisibleCharacters)."""
+    formatting kept them apart (`**a**\u200b**b**` became `**a****b**`). Taking them out sooner changes nothing else for
+    these marks: every section is cleaned anyway, and the formats that resolve them do not read those characters as text.
+    Not done for the script marks (`resolve_scripts`): a script run of invisible characters is left unmarked there already
+    (`format_script`), and PDF resolves its scripts before it reads a soft hyphen as the dash it stands for
+    (`_pdf_chars._drawn_text`), so a `2025–2026` on a line with a footnote mark lost its dash
+    (Pinned by: test_inline_formatting.py::TestInvisibleCharacters,
+    test_pdf.py::TestSoftHyphenOnALineWithAScript)."""
     return _INVISIBLE.sub("", text)
 
 
