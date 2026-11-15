@@ -46,6 +46,7 @@ from opendockit.extractors._xlsx_parts import (
     _drawing_blocks,
     _picture_reference_bytes,
     _related,
+    _relations_damaged,
     _rich_values,
     _workbook_path,
     _xlsx_comments,
@@ -205,6 +206,11 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
                     continue
 
                 path = str(getattr(sheet, "_worksheet_path", None) or reading.sheet_parts.get(id(sheet), "")).lstrip("/")
+                # A broken relationship part of the sheet leaves out only what it leads to; the cells are read
+                # (Pinned by: test_spreadsheet_damaged_parts.py::TestDamagedSheetRelationships)
+                if _relations_damaged(archive, names, path):
+                    extraction.warnings.append(f"The relationship part of sheet '{sheet.title}' is corrupted, so its comments, "
+                                               "pictures, charts and form controls were left out.")
                 if isinstance(sheet, Chartsheet):
                     _append_sheet(extraction, sheet.title, [], _drawing_blocks(archive, names, path, pictures, extraction, options))
                     if extraction.exceeded:

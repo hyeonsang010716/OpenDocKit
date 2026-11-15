@@ -1,5 +1,6 @@
 """CSV and other delimited text → one Markdown table."""
 
+from bisect import bisect_right
 from collections.abc import Iterator
 import csv
 from io import StringIO
@@ -221,9 +222,160 @@ def _wraps_whole_fields(sample: str, quote: str, delimiter: str) -> bool:
     return all(line_pattern.fullmatch(line) for line in lines)
 
 
+class _Quoting:
+    """Where quoted cells open and close on the lines of a CSV, read as the csv module reads them: a quote opens a quoted cell only
+    at the start of a cell (after spaces with `skipinitialspace`), `""` inside one is a quote character, and text after the closing
+    quote belongs to the cell. Every test is one regular expression run over the line (no backtracking), so it is linear."""
+
+    def __init__(self, delimiter: str, quote: str, skip_space: bool) -> None:
+        self.delimiter, self.quote = delimiter, quote
+        separator, mark = re.escape(delimiter), re.escape(quote)
+        inside = rf"(?:[^{mark}]|{mark}{mark})*+"
+        space = " *+" if skip_space else ""
+        after = rf"[^{separator}\r\n]*+"
+        self._inside, self._after = re.compile(inside), re.compile(after)
+        self._field = re.compile(rf"(?>{space}{mark}{inside}(?:(?P<open>\Z)|{mark}{after})|{after})")
+        self._fields = re.compile(rf"(?:(?>{space}{mark}{inside}(?:\Z|{mark}{after})|{after}){separator})*+")
+        self._open_field = re.compile(rf"{space}{mark}{inside}\Z")
+        # Cells whose text is empty once stripped: only spaces, or quotes around only white space (`""` inside is a quote character)
+        empty = rf"(?>{space}{mark}\s*+(?:\Z|{mark}[^\S{separator}\r\n]*+)|[^\S{separator}\r\n]*+)"
+        empty_cells, line_end = rf"(?:{empty}{separator})*+{empty}", r"(?:\r\n|\r|\n)?\Z"
+        self._empty = re.compile(empty_cells + line_end)
+        self._empty_inside = re.compile(rf"\s*+(?:\Z|{mark}[^\S{separator}\r\n]*+(?:{separator}{empty_cells})?{line_end})")
+
+    def open_at_end(self, line: str, position: int, quoted: bool) -> bool:
+        """Whether the record is still inside a quoted cell at the end of `line`, read from `position` (a cell start, or inside a
+        quoted cell when `quoted`)."""
+        if quoted:
+            position = self._inside.match(line, position).end()
+            if position == len(line):
+                return True
+            position = self._after.match(line, position + 1).end()
+            if not line.startswith(self.delimiter, position):
+                return False
+            position += 1
+        position = self._fields.match(line, position).end()
+        return self._open_field.match(line, position) is not None
+
+    def walk(self, line: str, cells: int, quoted: bool, max_cols: int) -> tuple[int, bool, int]:
+        """Walk `line` cell by cell from its start → (delimiters outside quotes in the record so far, whether the record goes on
+        inside a quoted cell, position of the `max_cols`-th such delimiter or -1). Stops at that delimiter."""
+        position = 0
+        while True:
+            if quoted:
+                position = self._inside.match(line).end()
+                if position == len(line):
+                    return cells, True, -1
+                position, quoted = self._after.match(line, position + 1).end(), False
+            else:
+                match = self._field.match(line, position)
+                if match.group("open") is not None:
+                    return cells, True, -1
+                position = match.end()
+            if not line.startswith(self.delimiter, position):
+                return 0, False, -1
+            cells += 1
+            if cells >= max_cols:
+                return cells, False, position
+            position += 1
+
+    def rest_of_record(self, line: str, position: int, following: Iterator[str]) -> tuple[bool, int, str] | None:
+        """Read past the rest of a record from `position` (a cell start) on, taking further lines from `following` while it is
+        inside a quoted cell → (whether any of it is not empty, the number of lines taken, the record's last line). None when the
+        lines end inside a quoted cell. The rest is never split into cells."""
+        beyond = self._empty.match(line, position) is None
+        taken = 0
+        quoted = self.open_at_end(line, position, False)
+        while quoted:
+            line = next(following, None)
+            if line is None:
+                return None
+            taken += 1
+            beyond = beyond or self._empty_inside.match(line) is None
+            quoted = self.open_at_end(line, 0, True)
+        return beyond, taken, line
+
+
+class _ColumnCut:
+    """The lines of a CSV for the csv module, each record cut while reading at its `max_cols`-th delimiter outside quotes: the rest
+    is replaced by one cell marking whether anything beyond the limit was not empty (a record on one line without the quote
+    character goes through `_within_columns`, as before). Delimiters inside quoted cells, also those of a cell spanning several
+    lines, are characters and are not counted, and the cells within the limit keep their content. A cut record that spans several
+    lines becomes one line; `lines_read` gives the original lines behind the lines handed out (the csv module's `line_num`).
+
+    Lines with the quote character, and every line after a line with an odd number of quotes, were not cut at all, so one quoted
+    cell in front of 20 million cells (40 MB) took 3.8 s and 930 MB instead of 0.3 s, and one stray `27" 모니터` cell switched the
+    cut off for the rest of the file
+    (Pinned by: test_spreadsheet.py::TestCsvLimitsAndHints::test_quoted_cell_in_front_of_a_very_wide_row_does_not_stop_the_cut).
+    Whether a line starts a record comes from the csv module itself: the caller sets `row_end` to its `line_num` after each row,
+    and a record goes on to the next line only inside a quoted cell. A record is walked cell by cell (`_Quoting.walk`) only once
+    its lines hold at least `max_cols` delimiters, counting those inside quotes; what lies beyond the cut is never split into
+    cells (linear time). When the file ends inside a quoted cell beyond the cut, csv.Error is raised, so the record is handled as
+    one the csv module cannot read (`_quoted_record`).
+    """
+
+    def __init__(self, lines: Iterator[str], quoting: _Quoting, max_cols: int) -> None:
+        self._lines, self._quoting, self._max_cols = lines, quoting, max_cols
+        self.row_end = 0                  # lines handed out when the csv module last finished a row (set by the caller)
+        self._handed_out: list[int] = []  # lines handed out when a record spanning several lines was cut,
+        self._folded: list[int] = []      # and the original lines folded into cut records up to then
+
+    def lines_read(self, handed_out: int) -> int:
+        """The number of original lines behind the first `handed_out` lines handed to the csv module."""
+        index = bisect_right(self._handed_out, handed_out)
+        return handed_out + (self._folded[index - 1] if index else 0)
+
+    def __iter__(self) -> Iterator[str]:
+        quoting, max_cols = self._quoting, self._max_cols
+        delimiter, quote = quoting.delimiter, quoting.quote
+        record: list[str] = []  # earlier lines of the record the csv module is in the middle of (inside a quoted cell)
+        delimiters = 0          # delimiters on the record's lines so far, inside quotes included
+        walked: tuple[int, bool] | None = None  # (delimiters outside quotes, inside a quoted cell) once the record is walked
+        handed_out = folded = 0
+
+        for line in self._lines:
+            if self.row_end == handed_out:
+                record, delimiters, walked = [], 0, None
+            handed_out += 1
+            if walked is None:
+                if quote not in line:
+                    yield line if record else _within_columns(line, delimiter, max_cols)
+                    continue
+                delimiters += line.count(delimiter)
+                if delimiters < max_cols:
+                    record.append(line)
+                    yield line
+                    continue
+                cells, quoted = 0, False
+                for earlier in record:  # they hold fewer than `max_cols` delimiters, so the cut is not on them
+                    cells, quoted, _ = quoting.walk(earlier, cells, quoted, max_cols)
+            else:
+                cells, quoted = walked
+                if quote not in line:
+                    yield line  # inside the quoted cell
+                    continue
+            cells, quoted, cut = quoting.walk(line, cells, quoted, max_cols)
+            walked = cells, quoted
+            if cut < 0:
+                yield line
+                continue
+            rest = quoting.rest_of_record(line, cut + 1, self._lines)
+            if rest is None:
+                raise csv.Error("The file ends inside a quoted cell.")
+            beyond, taken, last = rest
+            if taken:
+                folded += taken
+                self._handed_out.append(handed_out)
+                self._folded.append(folded)
+            yield f"{line[:cut + 1]}{'…' if beyond else ''}{last[len(last.rstrip(_LINE_END)):]}"
+
+
+_LINE_END = "\r\n"  # the characters a line read with `newline=""` can end in
+
+
 def _csv_rows(text: str, style: dict[str, object], warnings: list[str], max_cols: int) -> Iterator[tuple[str, ...]]:
     """CSV rows. If the quoting is broken and the csv module cannot read it, lines from that point on are split by the delimiter
-    only. Cells are created only up to the column limit + 1 (`_within_columns`).
+    only. Cells are created only up to the column limit + 1 (`_ColumnCut`, `_within_columns`).
 
     A single unclosed quote swallowed everything after it into one cell, and when that cell exceeded the csv module's field size
     limit (131,072 characters) a csv.Error was raised and the whole file was rejected. The limit is a process-wide setting, so it
@@ -234,6 +386,7 @@ def _csv_rows(text: str, style: dict[str, object], warnings: list[str], max_cols
     """
     lines = StringIO(text, newline="").readlines()
     delimiter, quote = str(style["delimiter"]), str(style.get("quotechar", '"'))
+    quoting = _Quoting(delimiter, quote, bool(style.get("skipinitialspace")))
     start = 0
 
     while True:
@@ -241,18 +394,18 @@ def _csv_rows(text: str, style: dict[str, object], warnings: list[str], max_cols
         # after the quote swallowed into one cell without a warning. Strict mode also stops at text after a closing quote
         # (`"a"b`); `_quoted_record` reads that row the way the lenient reader does
         # (Pinned by: test_audit_spreadsheet_fixes.py::TestUnclosedQuoteInASmallCsv).
-        reader = csv.reader(_lines_within_columns((lines[index] for index in range(start, len(lines))), delimiter, quote,
-                                                  max_cols), **style, strict=True)
+        cut = _ColumnCut((lines[index] for index in range(start, len(lines))), quoting, max_cols)
+        reader = csv.reader(cut, **style, strict=True)
         read_lines = 0
         try:
             for row in reader:
+                read_lines = cut.row_end = reader.line_num
                 yield tuple(map(_unwrap_text_formula, row))
-                read_lines = reader.line_num
             return
         except csv.Error:
-            failed = start + read_lines
+            failed = start + cut.lines_read(read_lines)
 
-        record = _quoted_record(lines, failed, style) if _plain_quoting(style) else None
+        record = _quoted_record(lines, failed, style, quoting, max_cols) if _plain_quoting(style) else None
         if record is None:
             warnings.append(f"The quoting in the CSV is inconsistent from line {failed + 1} on, so the rest was split by the delimiter only.")
             for line in lines[failed:]:
@@ -270,9 +423,11 @@ def _plain_quoting(style: dict[str, object]) -> bool:
             and style.get("quoting", csv.QUOTE_MINIMAL) != csv.QUOTE_NONE)
 
 
-def _quoted_record(lines: list[str], first: int, style: dict[str, object]) -> tuple[list[str], int] | None:
+def _quoted_record(lines: list[str], first: int, style: dict[str, object], quoting: _Quoting,
+                   max_cols: int) -> tuple[list[str], int] | None:
     """Split the one row starting at line `first` with quote awareness → (cells, line number of the next row). None if the quote
-    never closes before the end of the file.
+    never closes before the end of the file. Past `max_cols` cells the rest of the row is not split: it becomes one cell marking
+    whether it was empty, as in `_ColumnCut`.
 
     A valid row (a long body cell) on which the csv module failed because of the field size limit was split by the delimiter only,
     so the body was broken into a cell at every comma and its tail was dropped at the column limit
@@ -314,6 +469,12 @@ def _quoted_record(lines: list[str], first: int, style: dict[str, object]) -> tu
         parts = []
         if cut < 0:
             return fields, index + 1
+        if len(fields) == max_cols:
+            rest = quoting.rest_of_record(line, cut + 1, (lines[later] for later in range(index + 1, len(lines))))
+            if rest is None:
+                return None
+            beyond, taken, _ = rest
+            return [*fields, "…" if beyond else ""], index + 1 + taken
         position, at_start = cut + 1, True
 
 
@@ -328,19 +489,6 @@ def _unwrap_text_formula(value: str) -> str:
     (Pinned by: test_spreadsheet.py::TestCsvExcelTextFormula)."""
     match = _TEXT_FORMULA.fullmatch(value) if value.startswith("=") else None
     return match.group(1).replace('""', '"') if match else value
-
-
-def _lines_within_columns(lines: list[str], delimiter: str, quote: str, max_cols: int) -> Iterator[str]:
-    """Cut each line with `_within_columns`. Lines containing the quote character, and lines inside a quoted cell opened on an
-    earlier line (between lines with an odd number of quotes), are not cut — the delimiters inside are characters."""
-    quoted = False
-
-    for line in lines:
-        if quote in line:
-            quoted ^= line.count(quote) % 2 == 1
-            yield line
-        else:
-            yield line if quoted else _within_columns(line, delimiter, max_cols)
 
 
 def _within_columns(line: str, delimiter: str, max_cols: int) -> str:
