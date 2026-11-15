@@ -19,6 +19,8 @@ from tests.test_hwp import (
     TAG_TABLE,
     _fake_hwp,
 )
+from tests.test_odf import _NAMESPACES as _ODF_NAMESPACES
+from tests.test_odf import _package as _odf_document
 from tests.test_office import (
     _CHART_NS,
     _RELATIONSHIPS_NS,
@@ -486,6 +488,18 @@ class TestPptxCharacterLimitInsideOneTable:
         assert best(hidden=False) < best(hidden=True) * 2 + 0.3
 
 
+def _odf_chart(rows: int) -> bytes:
+    """The sub-document of an ODF chart titled 'Big' with its own copy of `rows` values (`C<i>` → i) in a local table."""
+    values = "".join(f'<table:table-row><table:table-cell><text:p>C{index}</text:p></table:table-cell><table:table-cell '
+                     f'office:value-type="float" office:value="{index}"><text:p>{index}</text:p></table:table-cell></table:table-row>'
+                     for index in range(rows))
+    return (f'<?xml version="1.0" encoding="UTF-8"?><office:document-content {_ODF_NAMESPACES}><office:body><office:chart>'
+            '<chart:chart chart:class="chart:bar"><chart:title><text:p>Big</text:p></chart:title><table:table table:name="local-table">'
+            "<table:table-header-rows><table:table-row><table:table-cell/><table:table-cell><text:p>Sales</text:p></table:table-cell>"
+            f"</table:table-row></table:table-header-rows><table:table-rows>{values}</table:table-rows></table:table></chart:chart>"
+            "</office:chart></office:body></office:document-content>").encode()
+
+
 def _pptx_with_big_chart(points: int, *, scatter: bool = False) -> bytes:
     """A slide with one chart of `points` cached points (a bar chart with a percentage format, or a scatter chart)."""
     def cache(offset: int, format_code: str = "") -> str:
@@ -617,6 +631,54 @@ class TestChartValuesPastTheLimit:
                 for limit in (110, 150, full.char_count - 1)}
 
         assert "| M12 | 120 |" in full.text and full.text.endswith("tail")
+        assert all(result.exceeded and result.text == full.text[:limit].rstrip() for limit, result in cuts.items())
+
+    @pytest.mark.parametrize("place", ["text", "footnote", "slide"])
+    def test_odf_chart_stops_at_the_limit(self, place):
+        """A chart in an ODT or ODP document writes its own copy of its values (`odf._Renderer._chart`): 20,000 rows under a
+        5,000-character limit were all built, 517,000 characters counted."""
+        frame = '<draw:frame><draw:object xlink:href="./Object 1"/></draw:frame>'
+        kind, extension, body = {
+            "text": ("text", "odt", f"<text:p>Sales:</text:p><text:p>{frame}</text:p>"),
+            "footnote": ("text", "odt", '<text:p>Sales<text:note text:note-class="footnote"><text:note-citation>1</text:note-citation>'
+                                        f"<text:note-body><text:p>{frame}</text:p></text:note-body></text:note></text:p>"),
+            "slide": ("presentation", "odp", f"<draw:page>{frame}</draw:page>")}[place]
+
+        def odf(rows: int) -> bytes:
+            return _odf_document(kind, body, parts={"Object 1/content.xml": _odf_chart(rows)})
+
+        result = convert(odf(_ROWS), f"a.{extension}", ConvertOptions(max_chars=_LIMIT))
+        full = convert(odf(300), f"a.{extension}", ConvertOptions(max_chars=None))
+
+        assert result.exceeded
+        assert result.char_count < _LIMIT * 3  # drawn to the end it would be over 500,000 characters
+        assert "[Chart] Big" in result.text and ("C0 / 0; C1 / 1" if place == "footnote" else "| --- | --- |\n| C0 | 0 |") in result.text
+        assert ("C299 / 299" if place == "footnote" else "| C299 | 299 |") in full.text
+        assert convert(odf(300), f"a.{extension}", ConvertOptions(max_chars=full.char_count)).text == full.text
+
+    @pytest.mark.parametrize("place", ["header", "body", "footnote"])
+    def test_odf_cut_chart_is_the_front_of_the_full_conversion(self, place):
+        """Headers and footers of an ODT are read before the body, and notes are written after the text they are read in, so a
+        chart anywhere is checked against the characters counted so far: all of them are written before it. The cut text is the
+        front of the full conversion at every limit (a body chart with a footer after it as well)."""
+        frame = '<draw:frame><draw:object xlink:href="./Object 1"/></draw:frame>'
+        header = f"<text:p>{frame}</text:p>" if place == "header" else ""
+        styles = ('<office:master-styles><style:master-page style:name="Standard">'
+                  f"<style:header><text:p>HEADER</text:p>{header}</style:header><style:footer><text:p>{'F' * 60}</text:p></style:footer>"
+                  "</style:master-page></office:master-styles>")
+        body = "<text:p>" + "B" * 95 + "</text:p>" + {
+            "header": "",
+            "body": f"<text:p>{frame}</text:p>",
+            "footnote": ('<text:p>tail<text:note text:note-class="footnote"><text:note-citation>1</text:note-citation>'
+                         f"<text:note-body><text:p>{frame}</text:p></text:note-body></text:note></text:p>")}[place]
+        data = _odf_document("text", body, styles=styles, parts={"Object 1/content.xml": _odf_chart(12)})
+        options = {"include_headers_footers": True}
+        full = convert(data, "a.odt", ConvertOptions(max_chars=None, **options))
+
+        cuts = {limit: convert(data, "a.odt", ConvertOptions(max_chars=limit, **options))
+                for limit in (110, 150, 200, full.char_count - 1)}
+
+        assert "C11" in full.text and full.text.startswith("HEADER")
         assert all(result.exceeded and result.text == full.text[:limit].rstrip() for limit, result in cuts.items())
 
     @pytest.mark.timing
