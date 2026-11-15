@@ -132,6 +132,12 @@ class _ListItem:
     offset: int  # output level − level counted from ilvl. The next item of the same list inherits it
 
 
+# How far past the character limit everything written since the last count may go, nested tables included, before imported
+# content and SmartArt are no longer written (`_DocxRenderer._far_past_the_limit`). Only a ceiling on work that the cut throws
+# away: well beyond what one block of a real document writes.
+_FAR_PAST_THE_LIMIT = 100_000
+
+
 class _DocxRenderer:
     def __init__(self, document: object, options: ConvertOptions, extraction: Extraction) -> None:
         self._options = options
@@ -166,6 +172,11 @@ class _DocxRenderer:
         # last count (`_room`)
         self._budget: TableBudget | None = None
         self._pending = 0
+        # What was written since the last count, split by whether a table budget will count it (`_far_past_the_limit`): outside
+        # any table and in a cell of the top-level table (given back with the cell, whose text the budget counts), and inside a
+        # table nested in a cell (a placeholder in the cell text, which counts as nothing, so never given back)
+        self._direct_pending = 0
+        self._nested_written = 0
         self._drop_cap: tuple[etree._Element, str] | None = None  # (drop-cap paragraph, its text). Prepended to the very next paragraph
         # Preceding list items not yet closed. Cells, headers and text boxes count separately (`_list_depth`)
         self._list_items: list[_ListItem] = []
@@ -196,17 +207,18 @@ class _DocxRenderer:
         """Content of a part other than the body, such as a header or footer. Relationship ids of pictures and charts are looked up in
         that part. Looked up in the body part, a different part with the same id was registered as the picture
         (Pinned by: test_office.py::TestDocxObjects::test_header_picture_comes_from_the_header_part)."""
-        pending, self._pending = self._pending, 0
+        saved = self._pending, self._direct_pending, self._nested_written
+        self._pending = self._direct_pending = self._nested_written = 0
         try:
             with self.in_part(part), self._own_lists():
                 return self.render_container(container)
         finally:
-            self._pending = pending
+            self._pending, self._direct_pending, self._nested_written = saved
 
     def render_top_block(self, element: etree._Element) -> list[str]:
         """One block of the body. The caller counts its characters once it is rendered, so what was written before is in
         `Extraction.chars` and the characters written since the last count start again (`_room`)."""
-        self._pending = 0
+        self._pending = self._direct_pending = self._nested_written = 0
         return self.render_block(element)
 
     def _room(self) -> int | None:
@@ -222,15 +234,48 @@ class _DocxRenderer:
         TestRepeatedContentPastTheLimit)."""
         if self._options.max_chars is None:
             return None
+        return self._options.max_chars - self._counted() - self._pending
+
+    def _counted(self) -> int:
+        """The characters already counted that the text being rendered comes after: those of the cells read from the top-level
+        table (`TableBudget.counted`), else those counted before this block of the body (`Extraction.chars`) — none in a
+        header, footer or note part, which is checked against its own characters only (`_room`)."""
         if self._budget is not None:
-            counted = self._budget.counted
-        else:
-            counted = self._extraction.chars if self._part is self._main_part else 0
-        return self._options.max_chars - counted - self._pending
+            return self._budget.counted
+        return self._extraction.chars if self._part is self._main_part else 0
+
+    def _far_past_the_limit(self) -> bool:
+        """Whether the text is more than `_FAR_PAST_THE_LIMIT` characters past the limit, counting what was written since the
+        last count inside the tables nested in cells as well, which `_room` leaves out: then imported content and SmartArt are
+        not written any more (`_chunk_blocks`, `_smartart_block`). Every character is counted once and only if it is written,
+        as `Extraction.count` asks: a cell of the top-level table is in its budget once read, and a nested table is a
+        placeholder there that counts as nothing (Known accepted gap, that of `TableBudget`: content in bottom rows the grid
+        cell limit drops, past 5 million cells, is counted all the same).
+
+        `_room` gives back at the end of each cell what was written in it, as the cell's text is counted then, but a table nested
+        in a cell is a placeholder in that text and counts as nothing, so 200 references to a 400 K-character chunk from the
+        cells of a table inside a cell built 80 M characters (10 s, 1.7 GB) under a 5,000-character limit (Pinned by:
+        test_office_table_char_limit.py::TestRepeatedContentPastTheLimit::
+        test_docx_chunk_references_inside_nested_tables_stop_far_past_the_limit).
+        Deliberate: this is only a ceiling on the work past the limit, far beyond the text that can still be written; `_room`
+        alone decides everything else. Content left out inside a table changes how the whole table is drawn (an empty column
+        is dropped, a nested table that becomes a box is unfolded, a table with no nested table left is Markdown instead of
+        HTML), so the text before the cut changes too: left out as soon as the nested content passed the limit, the cut text
+        was not the front of the full conversion at about a third of all limits of documents with nested tables
+        (Pinned by: test_office_table_char_limit.py::TestRepeatedContentPastTheLimit::
+        test_cut_text_is_the_front_of_the_full_text_at_every_limit_with_nested_tables)."""
+        if self._options.max_chars is None:
+            return False
+        return self._counted() + self._direct_pending + self._nested_written > self._options.max_chars + _FAR_PAST_THE_LIMIT
 
     def _written(self, text: str) -> str:
         """`text` of imported content, SmartArt or a chart, charged to the characters written since the last count (`_room`)."""
-        self._pending += solid_length(text)
+        length = solid_length(text)
+        self._pending += length
+        if len(self._grids) > 1:  # inside a table nested in a cell (`_far_past_the_limit`)
+            self._nested_written += length
+        else:
+            self._direct_pending += length
         return text
 
     @contextmanager
@@ -275,7 +320,7 @@ class _DocxRenderer:
         if not blob:  # broken relationship or empty part
             return []
         room = self._room()
-        if room is not None and room < 0:  # past the character limit: the text is cut before it (`_room`)
+        if (room is not None and room < 0) or self._far_past_the_limit():  # past the limit: the text is cut before it (`_room`)
             return []
 
         content_type = part.content_type.split(";")[0].strip().lower()
@@ -541,13 +586,14 @@ class _DocxRenderer:
     def _cell_text(self, cell: etree._Element) -> str:
         # A table inside a table comes back as a placeholder handed to the outer table (`_render_table`). List levels inside a cell
         # are counted per cell. The cell text is counted by the table budget once it is read, so what its imported content,
-        # SmartArt and charts charged to the characters written since the last count is given back then (`_room`).
-        pending = self._pending
+        # SmartArt and charts charged to the characters written since the last count is given back then (`_room`). What they
+        # wrote inside a table nested in the cell is not in that text and stays in `_nested_written` (`_far_past_the_limit`).
+        pending, direct = self._pending, self._direct_pending
         try:
             with self._own_lists():
                 lines = [line for element in _children(cell, *_BLOCK_TAGS) for line in self.render_block(element)]
         finally:
-            self._pending = pending
+            self._pending, self._direct_pending = pending, direct
         return "\n".join(line for line in lines if line.strip())
 
     def image_marker(self, element: etree._Element) -> str:
@@ -642,7 +688,7 @@ class _DocxRenderer:
         (`_chunk_blocks`). The part was parsed and rendered again for every frame, and once the output is past the character
         limit nothing more is written (`_room`. Pinned by: test_office_table_char_limit.py::TestRepeatedContentPastTheLimit)."""
         room = self._room()
-        if room is not None and room < 0:
+        if (room is not None and room < 0) or self._far_past_the_limit():
             return ""
         key = (part, bool(self._grids))
         if key not in self._smartart:

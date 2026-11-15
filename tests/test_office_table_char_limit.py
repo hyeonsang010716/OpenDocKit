@@ -709,13 +709,18 @@ def _chunk_html(words: str) -> bytes:
 
 
 def _docx_with_repeated_chunk(where: str, words: str = "Begin " + "chunk " * 149) -> bytes:
-    """`_REFERENCES` references to one imported HTML part from the text boxes of one paragraph, from one table cell, or (`where`
-    "header") from the header part, and a last paragraph."""
+    """`_REFERENCES` references to one imported HTML part from the text boxes of one paragraph, from one table cell, from the
+    cells of a table nested in a cell, from a table nested in each cell of a row, or (`where` "header") from the header part,
+    and a last paragraph."""
     chunks = {"rIdChunk": ("chunk1.html", _CHUNK_TYPE, _chunk_html(words))}
     if where != "header":
         boxes = "".join(f"<w:txbxContent>{_CHUNK_REFERENCE}</w:txbxContent>" for _ in range(_REFERENCES))
         body = {"text_boxes": f"<w:p><w:r><w:t>Intro</w:t></w:r>{boxes}</w:p>",
-                "cell": f"<w:tbl><w:tr><w:tc>{_CHUNK_REFERENCE * _REFERENCES}<w:p/></w:tc></w:tr></w:tbl>"}[where]
+                "cell": f"<w:tbl><w:tr><w:tc>{_CHUNK_REFERENCE * _REFERENCES}<w:p/></w:tc></w:tr></w:tbl>",
+                "nested_cells": "<w:tbl><w:tr><w:tc><w:tbl><w:tr>" + f"<w:tc>{_CHUNK_REFERENCE}<w:p/></w:tc>" * _REFERENCES
+                                + "</w:tr></w:tbl><w:p/></w:tc></w:tr></w:tbl>",
+                "nested_tables": "<w:tbl><w:tr>" + f"<w:tc><w:tbl><w:tr><w:tc>{_CHUNK_REFERENCE}<w:p/></w:tc></w:tr></w:tbl><w:p/></w:tc>"
+                                 * _REFERENCES + "</w:tr></w:tbl>"}[where]
         return _docx_with_chunks(body + "<w:p><w:r><w:t>Tail</w:t></w:r></w:p>", chunks)
 
     from io import BytesIO
@@ -803,6 +808,66 @@ class TestRepeatedContentPastTheLimit:
         assert full.text.count("Begin") == _REFERENCES and full.char_count > _LIMIT * 4
         assert result.exceeded and result.text == full.text[:_LIMIT].rstrip()
         assert writes[0] <= _LIMIT // 750 + 2  # 750 characters a reference; all 40 were written
+
+    def test_cut_text_is_the_front_of_the_full_text_at_every_limit_with_nested_tables(self):
+        """Content left out inside a table changes how the whole table is drawn — an empty column is dropped, a nested table
+        that becomes a box is unfolded, a table with no nested table left is Markdown instead of HTML — so the text before
+        the cut changes too. What is written inside nested tables only stops far past the limit
+        (`docx._DocxRenderer._far_past_the_limit`): stopped as soon as it passed the limit, this document of tables nested
+        three deep came out drawn differently from the full conversion at most limits."""
+        frame, chunk = f"<w:r>{_SMARTART_FRAME}</w:r>", _CHUNK_REFERENCE
+        body = (
+            f"<w:tbl><w:tr><w:tc><w:tbl><w:tr><w:tc>{chunk}{chunk}<w:p/><w:p/></w:tc>"
+            f"<w:tc><w:tbl><w:tr><w:tc>{chunk}<w:p/><w:p><w:r><w:t>가나다 라마</w:t></w:r></w:p><w:p/></w:tc>"
+            f"</w:tr><w:tr><w:tc><w:p><w:txbxContent>{chunk}</w:txbxContent><w:txbxContent>{chunk}</w:txbxContent></w:p><w:p/></w:tc>"
+            f"<w:tc><w:p><w:r><w:t>가나다 라마</w:t></w:r></w:p>{chunk}{chunk}<w:p/><w:p/></w:tc>"
+            f"<w:tc><w:p>{frame}</w:p><w:p/></w:tc>"
+            f"</w:tr></w:tbl><w:tbl><w:tr><w:tc>{chunk}<w:p/>{chunk}{chunk}<w:p/><w:p/></w:tc>"
+            f"<w:tc>{chunk}{chunk}<w:p/><w:p/></w:tc></w:tr></w:tbl><w:p/></w:tc>"
+            f"<w:tc><w:tbl><w:tr><w:tc><w:p>{frame}</w:p>{chunk}{chunk}<w:p/><w:p/></w:tc>"
+            "<w:tc><w:p><w:r><w:t>가나다 라마</w:t></w:r></w:p><w:p><w:r><w:t>text here</w:t></w:r></w:p><w:p/></w:tc>"
+            "</w:tr></w:tbl><w:p><w:r><w:t>text here</w:t></w:r></w:p><w:p/></w:tc></w:tr></w:tbl><w:p/></w:tc>"
+            f"<w:tc><w:p><w:txbxContent>{chunk}</w:txbxContent><w:txbxContent>{chunk}</w:txbxContent></w:p><w:p/></w:tc>"
+            "</w:tr></w:tbl><w:p><w:r><w:t>끝</w:t></w:r></w:p>"
+        )
+        relationship = (f'<Relationship Id="rIdDgm" Type="{_RELATIONSHIPS_NS}/diagramData" Target="diagrams/data1.xml"/>'
+                        "</Relationships>")
+        data = builder.zip_with(_docx_with_chunks(body, {"rIdChunk": ("chunk1.html", _CHUNK_TYPE, _chunk_html("가져온 글 조각"))}),
+                                edit={"word/_rels/document.xml.rels": lambda xml: xml.replace("</Relationships>", relationship)},
+                                add={"word/diagrams/data1.xml": _smartart_model("도식 항목")})
+        full = convert(data, "a.docx", ConvertOptions(max_chars=None))
+
+        results = {limit: convert(data, "a.docx", ConvertOptions(max_chars=limit)) for limit in range(full.char_count + 2)}
+
+        assert full.text.startswith("<table>") and full.text.count("가져온 글 조각") > 10
+        assert [limit for limit, result in results.items() if result.exceeded != (full.char_count > limit)] == []
+        assert [limit for limit, result in results.items() if result.text != full.text[:limit].rstrip()] == []
+
+    @pytest.mark.parametrize("where", ["nested_cells", "nested_tables"])
+    def test_docx_chunk_references_inside_nested_tables_stop_far_past_the_limit(self, where, monkeypatch: pytest.MonkeyPatch):
+        """A table nested in a cell is a placeholder in the cell text, which the outer table's budget counts as nothing, so what
+        was written inside it was given back with every cell: 200 references to a 400 K-character chunk from the cells of a
+        table inside a cell built 80 M characters (10 s, 1.7 GB). What is written there is counted towards a ceiling far past
+        the limit (`docx._FAR_PAST_THE_LIMIT`), which stops it; below that ceiling the text is written as before, so the
+        tables are drawn as in the full conversion."""
+        from opendockit.extractors import docx as docx_module
+
+        data = _docx_with_repeated_chunk(where, "Begin " + "chunk " * 16_666)  # 100,000 characters a reference
+        full = convert(data, "a.docx", ConvertOptions(max_chars=None))
+        writes = [0]
+        renumber = docx_module.renumber_image_markers
+
+        def counted(text: str, markers: dict) -> str:
+            writes[0] += 1
+            return renumber(text, markers)
+
+        monkeypatch.setattr(docx_module, "renumber_image_markers", counted)
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=_LIMIT))
+
+        assert full.text.count("Begin") == _REFERENCES and full.char_count > 3_000_000
+        assert result.exceeded and result.text == full.text[:_LIMIT].rstrip()
+        assert writes[0] <= (_LIMIT + docx_module._FAR_PAST_THE_LIMIT) // 100_000 + 2
 
     @pytest.mark.parametrize("kind", ["docx", "docx_cell", "pptx"])
     def test_smartart_frames_are_read_once_and_stop_at_the_limit(self, kind, monkeypatch: pytest.MonkeyPatch):
