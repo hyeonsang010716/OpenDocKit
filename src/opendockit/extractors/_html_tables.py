@@ -6,7 +6,7 @@ import re
 
 from bs4 import Tag
 
-from opendockit.extractors._html_base import _HEADINGS, _solid_length
+from opendockit.extractors._html_base import _HEADINGS
 from opendockit.extractors._package import decimal_int
 
 
@@ -33,6 +33,17 @@ _MAX_CSS_LENGTH = 10000.0
 _MAX_HEADED_LAYOUT_ROWS = 3
 _MIN_LAYOUT_CELL_BLOCKS = 3
 _LAYOUT_BLOCKS = {"p", "ul", "ol", "blockquote", "pre", "dl", *_HEADINGS}
+
+
+def _measured_length(node: Tag) -> int:
+    """Characters of the node's text without whitespace and without strikethrough marks (`~~`, each pair of tildes counts as
+    nothing) — the length every verdict of this module measures. The marks are written into the tree before the tables are
+    drawn (`_html_dom._mark_struck_text`), and counted they turned a data table whose cell held a struck inner table into a
+    layout table, so the marks put around the inner table, meant for one line of cell text, stood alone as a paragraph
+    (Pinned by: test_audit_web_fixes.py::TestStrikethroughAroundBlocks::test_marks_do_not_change_how_the_table_is_drawn). A
+    run of tildes in the text itself counts the same before and after marks are put next to it."""
+    text = node.get_text(" ")
+    return sum(map(len, text.split())) - 2 * text.count("~~")
 
 
 def _own_caption(table: Tag) -> Tag | None:
@@ -131,14 +142,14 @@ def _is_layout_table(rows: list[Tag]) -> bool:
     filled = [len(row.find_all(["td", "th"], recursive=False)) for row in rows]
     if sum(1 for count in filled if count) <= 2 or max(filled) == 1:
         return True
-    total = sum(_solid_length(cell) for cell in cells)
-    inner = {id(cell): sum(_solid_length(table) for table in tables) for cell, tables in holders}
+    total = sum(_measured_length(cell) for cell in cells)
+    inner = {id(cell): sum(_measured_length(table) for table in tables) for cell, tables in holders}
     if 2 * sum(inner.values()) >= total and not (
             _pairs_names_with_values(rows)
             and all(_has_one_row_header(table, _table_rows(table)) for _, tables in holders for table in tables)):
         return True
     one_row_of_columns = sum(1 for count in filled if count > 1) <= 1
-    return any(2 * _solid_length(cell) >= total and (one_row_of_columns or _solid_length(cell) >= 2 * inner[id(cell)])
+    return any(2 * _measured_length(cell) >= total and (one_row_of_columns or _measured_length(cell) >= 2 * inner[id(cell)])
                for cell, _ in holders)
 
 
@@ -161,10 +172,10 @@ def _holds_page_blocks(rows: list[Tag], cells: list[Tag]) -> bool:
         return False  # do not measure the text of every cell in a large table
     if len(placed) > 1 and all(cell.name == "th" for cell in _row_cells(placed[0])):
         return False
-    total = sum(map(_solid_length, cells))
+    total = sum(map(_measured_length, cells))
     if any(
             (headings := _nearest(cell, wanted=set(_HEADINGS), stop={"table"}))
-            and 2 * _solid_length(cell) >= total and _solid_length(cell) > sum(map(_solid_length, headings))
+            and 2 * _measured_length(cell) >= total and _measured_length(cell) > sum(map(_measured_length, headings))
             for cell in cells):
         return True
     return len(placed) == 1 and len(cells) >= 2 and any(
@@ -188,7 +199,7 @@ def _pairs_names_with_values(rows: list[Tag]) -> bool:
         cells = _row_cells(row)
         if len(cells) < 2:
             continue
-        if cells[0].find("table") is not None or not 0 < _solid_length(cells[0]) <= _NAME_CHARS:
+        if cells[0].find("table") is not None or not 0 < _measured_length(cells[0]) <= _NAME_CHARS:
             return False
         named += 1
     return named >= 3
@@ -204,13 +215,15 @@ def _names_values_in_pairs(rows: list[Tag]) -> bool:
     broke the pair check, with the same result (Pinned by: test_core_html_blocks.py::TestNameValueTableWithAFullWidthRow). Deliberately
     narrow: a table where only the first cell is th ('역할(th) | 이름 | 연락처' — role | name | contact) may have a column header as its
     first row and is left alone. A table whose first row is all th is already counted as having a header by `_header_row_count`.
+    An empty row (`<tr></tr>`) is left out too: one spacer row cancelled the check and the first pair became the header again
+    (Pinned by: test_core_html.py::TestNameValueTablesWithRowHeaders::test_empty_row_does_not_cancel_the_pairs).
     """
     pairs = 0
     for row in rows:
         names = [cell.name for cell in _row_cells(row)]
-        if len(names) == 1:
-            continue
-        if not names or len(names) % 2 or names != ["th", "td"] * (len(names) // 2):
+        if len(names) <= 1:
+            continue  # an empty row (`<tr></tr>`, a spacer) is left out like a single-cell row
+        if len(names) % 2 or names != ["th", "td"] * (len(names) // 2):
             return False
         pairs += 1
     return pairs >= 2
@@ -218,8 +231,8 @@ def _names_values_in_pairs(rows: list[Tag]) -> bool:
 
 def _mostly_nested_tables(rows: list[Tag]) -> bool:
     cells = [cell for row in rows for cell in _row_cells(row)]
-    nested = sum(_solid_length(table) for cell in cells for table in _inner_tables(cell))
-    return 2 * nested >= sum(_solid_length(cell) for cell in cells)
+    nested = sum(_measured_length(table) for cell in cells for table in _inner_tables(cell))
+    return 2 * nested >= sum(_measured_length(cell) for cell in cells)
 
 
 def _is_one_column_box(rows: list[Tag]) -> bool:
@@ -321,13 +334,16 @@ def _span(cell: Tag, attribute: str) -> int:
 
 
 def _row_span(cell: Tag, rows: list[Tag], index: int) -> int:
-    """Row span of `cell` in the row `rows[index]`. `rowspan="0"` spans to the end of the row group (thead, tbody, tfoot — the rows
-    with the same parent element), as in HTML, within the same cap as any span (`_MAX_SPAN`); it was read as 1
-    (Pinned by: test_audit_web_fixes.py::TestRowspanZero). Any other value is `_span`."""
-    if decimal_int(str(cell.get("rowspan", "1")).strip(), 1) != 0:
-        return _span(cell, "rowspan")
+    """Row span of `cell` in the row `rows[index]`, never past the end of its row group (thead, tbody, tfoot — the next rows with
+    the same parent element; rows written straight under `<table>` share the table as their parent, which is the tbody a browser
+    puts around them), as in HTML. `rowspan="0"` spans to that end, within the same cap as any span (`_MAX_SPAN`); it was read
+    as 1 (Pinned by: test_audit_web_fixes.py::TestRowspanZero). Any other value is `_span`, cut at that end: a rowspan in the
+    body reached into the total row of the tfoot and pushed its cells one column right
+    (Pinned by: test_audit_web_fixes.py::TestRowspanStopsAtItsRowGroup)."""
+    value = decimal_int(str(cell.get("rowspan", "1")).strip(), 1)
+    span = _MAX_SPAN if value == 0 else _span(cell, "rowspan")
     group = rows[index].parent
     end = index + 1
-    while end < len(rows) and end - index < _MAX_SPAN and rows[end].parent is group:
+    while end < len(rows) and end - index < span and rows[end].parent is group:
         end += 1
     return end - index

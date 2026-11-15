@@ -902,11 +902,13 @@ def _table_grid(rows: list[Tag], header_count: int, *, embedding: bool,
     for row_index, row in enumerate(rows):
         for cell in _row_cells(row):
             # A rowspan longer than the table's remaining rows is cut at the end of the table, as browsers do. `rowspan=99` produced 97
-            # empty rows (Pinned by: test_text_html.py::test_html_rowspan_longer_than_the_table_does_not_add_empty_rows).
+            # empty rows (Pinned by: test_text_html.py::test_html_rowspan_longer_than_the_table_does_not_add_empty_rows). It is cut
+            # at the end of its row group too (`_row_span`): a body cell reached into the tfoot total row
+            # (Pinned by: test_audit_web_fixes.py::TestRowspanStopsAtItsRowGroup).
             text, col_span = _cell_text(cell, embed_into=grid if embedding else None), _span(cell, "colspan")
             if marks and id(cell) in marks and text:
                 text = marks[id(cell)] + text
-            row_span = min(_row_span(cell, rows, row_index), len(rows) - row_index)
+            row_span = _row_span(cell, rows, row_index)
             grid.place_next(row_index, text, row_span=row_span, col_span=col_span)
             placed_rows.update(range(row_index, row_index + row_span))
             if row_index < header_count:

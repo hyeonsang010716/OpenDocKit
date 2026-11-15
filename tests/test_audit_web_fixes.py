@@ -426,14 +426,17 @@ class TestNoMarksInsideCode:
     @pytest.mark.timing
     def test_many_tables_and_code_blocks_in_one_struck_cell_take_linear_time(self):
         """The marks before and after a table grouped with its strikethrough are written the same way (10,000 tables, each
-        after a code block, took 7 s, now under 1 s)."""
+        after a code block, took 7 s, now under 1 s). The code blocks make the outer table a layout table, so each inner table
+        is drawn as a paragraph of its own and gets its own pair (`TestStrikethroughAroundBlocks`); grouped, the marks around
+        it stood alone between the paragraphs (`~~\n\nx\n\na~~`)."""
         pieces = "a<pre>c</pre><table><tr><td>x</td></tr></table>" * 10000
         html = f"<table><tr><td><del>{pieces}</del></td><td>z</td></tr></table>"
         start = time.perf_counter()
         result = convert(html.encode(), "a.html")
 
         assert time.perf_counter() - start < allowed(3)
-        assert result.text.count("~~") == 2 * 10001  # the first `a`, then every table with the `a` after it
+        assert result.text.count("~~") == 2 * 20000  # every `a` and every `x`
+        assert "\n~~\n" not in result.text
 
     def test_strikethrough_set_on_a_code_block_itself_is_not_marked(self):
         assert convert(b'<pre style="text-decoration:line-through">x</pre>', "a.html").text == "```\nx\n```"
@@ -505,6 +508,58 @@ class TestAdjacentStruckRuns:
         strikethrough was dropped."""
         assert convert(html.encode(), "a.html").text == expected
 
+
+
+class TestStrikethroughAroundBlocks:
+    """Row of extractors.md: a strikethrough pair does not cross a block boundary (`_html_dom._struck_runs`). A GFM
+    strikethrough cannot reach across a blank line or into the next list item, so one pair around two paragraphs printed its
+    tildes. A table inside a struck cell of a table that is unfolded into blocks is marked per block, not grouped as a whole."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<del><p>Old price 10,000</p><p>Old term 12 months</p></del><p>New price 8,000</p>",
+         "~~Old price 10,000~~\n\n~~Old term 12 months~~\n\nNew price 8,000"),
+        ("<del><ul><li>Plan A</li><li>Plan B</li></ul></del>", "- ~~Plan A~~\n- ~~Plan B~~"),
+        ("<del>a<ul><li>b<ul><li>c</li></ul></li></ul></del>", "~~a~~\n\n- ~~b~~\n  - ~~c~~"),
+        ("<del><blockquote>quoted old</blockquote>after</del>", "> ~~quoted old~~\n\n~~after~~"),
+        ("<del><h3>Old notice</h3><div>details</div></del>", "### ~~Old notice~~\n\n~~details~~"),
+        ("<del><dl><dt>Term</dt><dd>Def</dd></dl></del>", "~~Term~~: ~~Def~~"),
+    ])
+    def test_each_block_gets_its_own_pair(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    def test_empty_blocks_give_no_marks(self):
+        assert convert(b"<del><p>a</p><p></p><p> </p><div><br></div><p>b</p></del>", "a.html").text == "~~a~~\n\n~~b~~"
+
+    def test_line_break_inside_a_paragraph_keeps_one_pair(self):
+        html = "<div style='text-decoration:line-through'>line1<br>line2</div>"
+
+        assert convert(html.encode(), "a.html").text == "~~line1\nline2~~"
+
+    def test_paragraphs_in_a_data_cell_are_paired_per_line(self):
+        html = "<table><tr><th>a</th><th>b</th></tr><tr><td><del><p>x</p><p>y</p></del></td><td>z</td></tr></table>"
+
+        assert convert(html.encode(), "a.html").text == "| a | b |\n| --- | --- |\n| ~~x~~<br>~~y~~ | z |"
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<table><tr><td><s>Old offer<table><tr><td>Price 10,000</td></tr><tr><td>Until May</td></tr></table></s></td></tr></table>",
+         "~~Old offer~~\n\n~~Price 10,000~~\n\n~~Until May~~"),
+        ("<table><tr><td>menu</td><td style='text-decoration:line-through'>Old<table><tr><th>a</th><th>b</th></tr>"
+         "<tr><td>1</td><td>2</td></tr></table></td></tr></table>",
+         "menu\n\n~~Old~~\n\n| ~~a~~ | ~~b~~ |\n| --- | --- |\n| ~~1~~ | ~~2~~ |"),
+    ])
+    def test_table_inside_a_struck_cell_of_an_unfolded_table_is_marked_per_block(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    def test_marks_do_not_change_how_the_table_is_drawn(self):
+        inner = "<table><tr><td>1</td><td>2</td></tr><tr><td>3</td><td>4</td></tr></table>"
+        html = ("<table><tr><th>k</th><th>v</th></tr><tr><td>x</td><td>{}</td></tr>"
+                "<tr><td>y</td><td>z</td></tr></table>")
+
+        plain = convert(html.format(f"old{inner}").encode(), "a.html").text
+        struck = convert(html.format(f"<s>old{inner}</s>").encode(), "a.html").text
+
+        assert plain == "| k | v |\n| --- | --- |\n| x | old1 2 3 4 |\n| y | z |"
+        assert struck == "| k | v |\n| --- | --- |\n| x | ~~old1 2 3 4~~ |\n| y | z |"
 
 
 class TestAltTextCannotMakeALink:
@@ -710,6 +765,37 @@ class TestRowspanZero:
                 "<tr><td>2</td></tr></tbody><tbody><tr><td>B</td><td>3</td></tr></tbody></table>")
 
         assert convert(html.encode(), "a.html").text == "| 구분 | 값 |\n| --- | --- |\n| A | 1 |\n| A | 2 |\n| B | 3 |"
+
+
+class TestRowspanStopsAtItsRowGroup:
+    """Row of extractors.md: a rowspan is cut at the end of its row group (thead, tbody, tfoot), as browsers do
+    (`_html_tables._row_span`). A body cell reached into the tfoot total row and pushed its cells one column right."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<table><tr><th>a</th><th>b</th></tr><tbody><tr><td rowspan=5>A</td><td>1</td></tr></tbody>"
+         "<tfoot><tr><td>Total</td><td>9</td></tr></tfoot></table>",
+         "| a | b |\n| --- | --- |\n| A | 1 |\n| Total | 9 |"),
+        ("<table><thead><tr><th rowspan=3>H</th><th>x</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr>"
+         "<tr><td>3</td><td>4</td></tr></tbody></table>",
+         "| H | x |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |"),
+        ("<table><tr><th>a</th><th>b</th></tr><tbody><tr><td rowspan=2>A</td><td>1</td></tr></tbody>"
+         "<tbody><tr><td>2</td><td>3</td></tr></tbody></table>",
+         "| a | b |\n| --- | --- |\n| A | 1 |\n| 2 | 3 |"),
+    ])
+    def test_span_ends_with_its_row_group(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    def test_span_inside_its_row_group_is_kept(self):
+        html = ("<table><thead><tr><th>구분</th><th>값</th></tr></thead><tbody><tr><td rowspan=2>A</td><td>1</td></tr>"
+                "<tr><td>2</td></tr><tr><td>B</td><td>3</td></tr></tbody></table>")
+
+        assert convert(html.encode(), "a.html").text == "| 구분 | 값 |\n| --- | --- |\n| A | 1 |\n| A | 2 |\n| B | 3 |"
+
+    def test_rows_written_straight_under_the_table_are_one_group(self):
+        html = ("<table><tr><th>a</th><th>b</th></tr><tr><td rowspan=2>A</td><td>1</td></tr><tr><td>2</td></tr>"
+                "<tfoot><tr><td>Total</td><td>3</td></tr></tfoot></table>")
+
+        assert convert(html.encode(), "a.html").text == "| a | b |\n| --- | --- |\n| A | 1 |\n| A | 2 |\n| Total | 3 |"
 
 
 class TestCodeBlockInsideAListItem:

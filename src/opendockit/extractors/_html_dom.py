@@ -30,7 +30,13 @@ from opendockit.extractors._html_base import (
     _replace,
     _solid_length,
 )
-from opendockit.extractors._html_tables import _header_rows_on_top, _names_values_in_pairs, _table_rows
+from opendockit.extractors._html_tables import (
+    _header_rows_on_top,
+    _is_layout_table,
+    _is_one_column_box,
+    _names_values_in_pairs,
+    _table_rows,
+)
 from opendockit.extractors._inline import (
     SUBSCRIPT,
     SUPERSCRIPT,
@@ -65,8 +71,12 @@ _MAX_REOPENED = 16
 
 _STRIKE_TAGS = ["del", "s", "strike"]
 _STRIKE = "~~"
-# Where a run of struck text is cut by a code block (`_struck_runs`): no cell is this object, so the next text opens a new run.
+# Where a run of struck text is cut by a code block or a block boundary (`_struck_runs`): no cell is this object, so the next
+# text opens a new run.
 _RUN_BREAK = object()
+# Elements whose start and end cut a run of struck text (`_struck_runs`): what is written as a block of its own, where a
+# GFM strikethrough cannot continue across.
+_RUN_BLOCKS = frozenset(_BLOCK_TAGS | set(_HEADINGS) | {"li", "ul", "ol"})
 # One run of struck text: its text nodes in document order, each with the table it is grouped with (`_struck_runs`).
 _Run = list[tuple[NavigableString, Tag | None]]
 # Elements that keep two struck runs apart (`_joined_runs`): what is written as a block, a line break or a cell of its own.
@@ -941,13 +951,14 @@ def _mark_struck_text(soup: BeautifulSoup, *, links: bool = False, emphasis: boo
         return
     in_code = _lying_inside(struck_elements, _CODE_BLOCKS)
     holding_code = _holding(soup.find_all(_CODE_BLOCKS))
+    unfolded: dict[int, bool] = {}
     runs: list[_Run] = []
     for struck in struck_elements:
         if id(struck) in nested or id(struck) in in_code or struck.name in _CODE_BLOCKS:
             continue
         nested.update(id(inner) for inner in struck.find_all(_is_struck))
         strings = {id(string) for string in struck.find_all(string=True) if string.strip()}
-        runs.extend(_struck_runs(struck, strings, holding_code))
+        runs.extend(_struck_runs(struck, strings, holding_code, unfolded))
     spaces: list[tuple[Tag, bool]] = []
     if len(runs) > 1:
         runs, spaces = _joined_runs(soup, runs, links=links, emphasis=emphasis)
@@ -967,8 +978,9 @@ def _holding(nodes: list[Tag]) -> set[int]:
     return found
 
 
-def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozenset()) -> list[_Run]:
-    """Split the text nodes inside a strikethrough into consecutive runs per table cell. Each run gets one pair of `~~`.
+def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozenset(),
+                 unfolded: dict[int, bool] | None = None) -> list[_Run]:
+    """Split the text nodes inside a strikethrough into consecutive runs per table cell and per block. Each run gets one pair of `~~`.
 
     A table held by a strikethrough inside a table cell is part of the cell text as a whole — its text nodes are grouped with the table
     (`(text, table)`) and the marks go outside the table, before and after. Flattened into cell text that is `~~… 20~~` as before; kept as
@@ -977,8 +989,19 @@ def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozen
     A code block (`<pre>`) is not descended into and ends the run: the text before it and the text after it are paired
     separately, and the fence gets no mark inside (Pinned by: test_audit_web_fixes.py::TestNoMarksInsideCode). A table inside a
     cell that holds a code block is not grouped as a whole, its cells are paired one by one — grouped, the marks around it
-    spanned the fence of a code block drawn from a layout table.
+    spanned the fence of a code block drawn from a layout table. Nor is a table inside a cell of a table that is unfolded into
+    blocks (a one-column box or a layout table, `_html_render._render_table`; `unfolded` keeps the verdict per outer table): the
+    inner table is drawn as blocks of its own there, and the closing mark after it stood alone as a paragraph
+    (`~~Old offer\n\nPrice 10,000\n\n~~`).
+
+    The start and the end of a block (a paragraph, heading, list item, quote …, `_RUN_BLOCKS`) end the run as a cell boundary
+    does: a GFM strikethrough does not reach across a blank line or into the next list item, so one pair around two paragraphs
+    printed its tildes (`~~Old price\n\nOld term~~`), as emphasis is not written across blocks either
+    (Pinned by: test_audit_web_fixes.py::TestStrikethroughAroundBlocks). Inside a table grouped as a whole nothing is cut: it is
+    one line of cell text. A line break (`<br>`) does not cut the run — a strikethrough holds a line break inside a paragraph.
     """
+    if unfolded is None:
+        unfolded = {}
     base = struck if struck.name in ("td", "th") else struck.find_parent(["td", "th"])
     runs: list[_Run] = []
     last_cell: object = None
@@ -986,14 +1009,21 @@ def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozen
 
     while stack:
         node, table, cell = stack.pop()
+        if node is _RUN_BREAK:
+            last_cell = _RUN_BREAK  # the end of a block
+            continue
         if isinstance(node, Tag):
             if table is None and node.name in _CODE_BLOCKS:
                 last_cell = _RUN_BREAK  # the next text starts a new run
                 continue
-            if table is None and node.name == "table" and cell is not None and id(node) not in holding_code:
+            if (table is None and node.name == "table" and cell is not None and id(node) not in holding_code
+                    and not _unfolded_around(cell, unfolded)):
                 table = node
             elif table is None and node.name in ("td", "th"):
                 cell = node
+            elif table is None and node.name in _RUN_BLOCKS:
+                last_cell = _RUN_BREAK
+                stack.append((_RUN_BREAK, None, None))
             stack.extend((child, table, cell) for child in reversed(node.contents))
             continue
         if id(node) not in strings:
@@ -1003,6 +1033,18 @@ def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozen
             last_cell = cell
         runs[-1].append((node, table))
     return runs
+
+
+def _unfolded_around(cell: Tag, unfolded: dict[int, bool]) -> bool:
+    """Whether the table that `cell` belongs to is unfolded into blocks when it is drawn (`_html_render._render_table`: a
+    one-column box or a layout table), so that a table inside the cell is drawn as a block of its own. Measured once per table."""
+    outer = cell.find_parent("table")
+    if outer is None:
+        return False
+    if id(outer) not in unfolded:
+        rows = _table_rows(outer)
+        unfolded[id(outer)] = _is_one_column_box(rows) or _is_layout_table(rows)
+    return unfolded[id(outer)]
 
 
 class _Gap:
