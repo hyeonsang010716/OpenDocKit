@@ -10,6 +10,7 @@ from bisect import bisect_right
 from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, Overflow
+from itertools import islice
 import posixpath
 import re
 
@@ -48,6 +49,10 @@ _WHOLE_DIGITS = 21
 # 20,000-character format on 8,000 points (a 40 KB file) took 30 seconds. With a longer format the value stays as written, as with
 # any format that is not handled (Pinned by: test_audit_core.py::TestChartFormatWithManyOpenBrackets).
 _MAX_FORMAT_CHARS = 255
+# Levels of multi-level categories (c:multiLvlStrRef) that are joined into a label: the innermost ones, in the order of the file.
+# Real charts have two or three; every point joins every level, so 16,000 levels of one point each (a 125 KB file) took 11.7 s and
+# 1 GB. The outer levels past them are left out (Pinned by: test_audit_core.py::TestChartCategoriesOfManyLevels).
+_MAX_CATEGORY_LEVELS = 8
 # Tokens of one section of a value display format (`_unit_format`): quoted text, the one character after a backslash, a currency
 # symbol ([$₩-412]), other brackets (color, condition), fill/spacing (`*x`, `_x`), digit placeholders (0 # ? , .), any other character.
 _FORMAT_TOKEN = re.compile(r'"([^"]*)"|\\(.)|\[\$([^\[\]-]*)(?:-[^\[\]]*)?\]|(\[[^\[\]]*\])|[_*].|([0#?,.])|(.)', re.DOTALL)
@@ -400,7 +405,7 @@ def _points(element: etree._Element | None) -> dict[int, str]:
     """
     if element is None:
         return {}
-    levels = [_level_points(level) for level in element.iter(f"{{{_C}}}lvl")]
+    levels = [_level_points(level) for level in islice(element.iter(f"{{{_C}}}lvl"), _MAX_CATEGORY_LEVELS)]
     if len(levels) < 2:
         return levels[0] if levels else _level_points(element)
 
