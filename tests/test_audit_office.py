@@ -169,6 +169,28 @@ class TestDocxHeaderReferenceToAPartThatIsNotAHeader:
         assert result.text == "body text\n\nfooter text"
 
 
+class TestDocxHeaderReferenceWithoutARelationship:
+    """A header or footer reference without r:id is an InvalidXmlError in python-docx the moment its part is asked for, and with
+    headers and footers included the whole document was rejected as corrupted. Only that header is skipped, as one whose
+    relationship is missing is."""
+
+    @pytest.mark.parametrize(("kind", "page"), [("header", "default"), ("header", "first"), ("header", "even"),
+                                                ("footer", "default"), ("footer", "first"), ("footer", "even")])
+    def test_only_that_header_is_skipped(self, kind, page):
+        document = Document()
+        document.add_paragraph("body text")
+        document.sections[0].header.paragraphs[0].text = "header text"
+        document.sections[0].footer.paragraphs[0].text = "footer text"
+        reference = f'<w:{kind}Reference w:type="{page}"/>' + ("<w:titlePg/>" if page == "first" else "")
+        data = builder.zip_with(_docx_saved(document), edit={
+            "word/document.xml": lambda xml: re.sub(rf'<w:{kind}Reference w:type="default" r:id="[^"]*"/>', reference, xml)})
+
+        result = convert(data, "sample.docx", ConvertOptions(include_headers_footers=True))
+
+        kept = "header text\n\nbody text" if kind == "footer" else "body text\n\nfooter text"
+        assert result.text == kept
+
+
 class TestDocxHeaderSharedBySections:
     """A header part was rendered once for every section that references it and the copies were dropped afterwards by comparing
     their text. Rendering has side effects: a numbered paragraph counted on ('1. Company', '2. Company' … — four different

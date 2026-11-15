@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 import re
 
 from docx.opc.exceptions import PackageNotFoundError
+from docx.oxml.exceptions import InvalidXmlError
 from docx.package import Package
 from docx.parts.document import DocumentPart
 from lxml import etree
@@ -869,9 +870,13 @@ def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str, op
             story = getattr(section, attribute)
             if story.is_linked_to_previous:
                 continue
+            # A header detached because its part is missing (`_package.repair_package`, KeyError) and a reference without r:id
+            # (python-docx InvalidXmlError, any of the default, first-page and even-page kinds) skip only that header. The reference
+            # without r:id rejected the whole document as corrupted (Pinned by:
+            # test_audit_office.py::TestDocxHeaderReferenceWithoutARelationship::test_only_that_header_is_skipped).
             try:
                 part = story.part
-            except KeyError:  # a header detached because its part is missing (`_package.repair_package`). Only that header is skipped
+            except (KeyError, InvalidXmlError):
                 continue
             # A reference whose relationship points at a part that is not a header (a picture) has no content to read. Asking for
             # it raised AttributeError and rejected the whole document (Pinned by:
