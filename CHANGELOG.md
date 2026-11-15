@@ -46,8 +46,8 @@ A fifth review of the whole source. The sample outputs in `examples/` are unchan
 - **DOCX / PPTX**: a second relationship of the same type (numbering, styles, document properties, notes, layout)
   no longer rejects the document or skips the slide; the first one is used.
 - **ODT**: footers are counted after the body, so a body table near the limit no longer stops short.
-- **Text / CSV**: short Portuguese and German text in Windows-1252 (`Descrição`, `Größe`, `gemäß`) is no longer read as
-  CP949 hanja without a warning.
+- **Text / CSV**: short Portuguese and German text in Windows-1252 (`Descrição`, `INFORMAÇÃO`, `Größe`, `gemäß`) is no
+  longer read as CP949 hanja or Hangul without a warning.
 - **HTML**: strikethrough across a blank line made of `<br><br>` is marked per paragraph; the suggestions of a
   `<datalist>` no longer come out glued into one word after the field.
 - **All formats with inline marks**: a bold, italic, struck or script run of nothing but invisible characters (zero-width

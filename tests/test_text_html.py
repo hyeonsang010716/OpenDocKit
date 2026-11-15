@@ -711,6 +711,16 @@ class TestWesternText:
         assert encoding == "cp1252"
         assert convert(text.encode("cp1252"), "a.csv").metadata["encoding"] == "cp1252"
 
+    @pytest.mark.parametrize("text", ["INFORMAÇÃO", "Situação: ATENÇÃO\n", "OBSERVAÇÕES gerais", "AÇÃO;STATUS\n1;OK\n"])
+    def test_uppercase_accent_pairs_are_not_read_as_hangul(self, text):
+        """`ÇÃ` and `ÇÕ` are an everyday syllable in CP949 (`플`), so a Portuguese heading came out as `INFORMA플O`."""
+        assert decode_text(text.encode("cp1252")) == (text, "cp1252")
+
+    @pytest.mark.parametrize("text", ["LG의 실적", "KIM이", "LG의 ", "SK하", "A인", "IT인력", "KT 하이", "이 문서", "플랜 A"])
+    def test_korean_syllable_next_to_capital_letters_stays_cp949(self, text):
+        """Only a syllable of two uppercase accents set alone between two capital letters is read as Windows-1252."""
+        assert decode_text(text.encode("cp949")) == (text, "cp949")
+
     @pytest.mark.parametrize("text", ["大韓民國", "李舜臣 將軍", "株式會社 ABC\n", "1,金,2\n", "No.李", "漢字 test"])
     def test_korean_written_in_hanja_alone_stays_cp949(self, text):
         """Hanja run on for whole words or stand apart from Latin letters, which accents in Western words do not."""
