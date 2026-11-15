@@ -139,6 +139,10 @@ class _Line:
     # If this line is a piece (`parts`) of another line, that original line. Used to remove the original line of a piece moved into
     # a table from the body flow.
     source: "_Line | None" = None
+    # A line of the notes under a footnote rule, and the line that starts one note (`[^n]: …`), on a page whose footnotes were
+    # linked (`_pdf_footnotes._link_footnotes`). The notes are paragraphs of their own, one per note (`_continues`).
+    footnote: bool = False
+    footnote_start: bool = False
 
     @property
     def height(self) -> float:
@@ -225,6 +229,14 @@ class _Page:
     # Filled rectangles (top, bottom, left end, right end, `_shade_bands`). Used to join the wrapped line of a striped table's last
     # row to that row (`_table_runs`).
     bands: list[tuple[float, float, float, float]] = field(default_factory=list)
+    # A '^' character is drawn on the page. The raised numbers of the line text are written with '^' (`_scripted_text`), so on
+    # such a page a typed '^1' cannot be told from a raised 1 and footnotes are not linked (`_pdf_footnotes._link_footnotes`).
+    literal_carets: bool = False
+    # A raised number that the line texts do not show as raised: a raised digit `_scripted_text` left as plain text
+    # (`_raised_digits_unshown`), or a digit clearly smaller than the other characters of the table cells or of the sideways text
+    # (`_small_digits`). It could be the mark of a note that the body does not show, so footnotes are not linked
+    # (`_pdf_footnotes._link_footnotes`).
+    unshown_marks: bool = False
 
 
 @dataclass(slots=True)

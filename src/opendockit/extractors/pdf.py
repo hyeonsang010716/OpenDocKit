@@ -74,11 +74,14 @@ from opendockit.extractors._pdf_chars import (
     _gap_parts,
     _letter_spaced_text,
     _letter_spacings,
+    _raised_digits_unshown,
     _scripted_text,
+    _small_digits,
     _text_from_chars,
 )
 from opendockit.extractors._pdf_continued_tables import _carry_table_headers, _join_ruled_header_lines
 from opendockit.extractors._pdf_figures import _figure_boxes, _open_pdfium, _page_images, _PageRenderer, _untrusted_text_layer_pages
+from opendockit.extractors._pdf_footnotes import _link_footnotes
 from opendockit.extractors._pdf_forms import _annotated_attachments, _form_values, _has_xfa, _named_attachments
 from opendockit.extractors._pdf_margins import _body_font_size, _edge_rows, _remove_repeated_margins, _typical_line_gap
 from opendockit.extractors._pdf_marks import _mark_checkboxes, _mark_circle_bullets
@@ -463,6 +466,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
         _read_lone_lines_in_place(page)
         _read_sidebar_first(page)
     _carry_table_headers(pages)
+    _link_footnotes(pages)
     line_gap = _typical_line_gap(pages)
     heading_levels = _heading_levels(pages, body_size, line_gap)
 
@@ -874,10 +878,12 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     # Slanted characters are not put into body lines (_without_drawing_artifacts). Small ones stay on the page for the table cells
     # and are separated out here. Characters drawn rotated by 90 degrees are also taken out of the body lines and read separately
     # after turning (_sideways_paragraphs). Those inside table cells stay as cell text.
-    chars, tilted, sideways = [], [], []
+    chars, tilted, sideways, cell_chars = [], [], [], []
     for char in page_chars:
         if not in_cells(char):
             (tilted if _is_tilted(char) else sideways if _is_sideways(char) else chars).append(char)
+        else:
+            cell_chars.append(char)
     chars.sort(key=lambda char: char["top"])
     char_tops = [char["top"] for char in chars]
     dropped = sorted([*(char for char in dropped if not in_cells(char)), *tilted, *sideways],
@@ -932,6 +938,9 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
 
     lines, line_owners = [], []
     kept_lines: dict[str, list[dict]] = {}  # text → lines already kept (to find copies of a line drawn on top of the same text)
+    # A raised number the line texts do not show as raised (see `_Page.unshown_marks`): in a body line, or a small digit in the
+    # table cells or the sideways text, where scripts are not marked
+    unshown_marks = _small_digits(cell_chars) or _small_digits(sideways)
     # (spot, text) of lines kept with their text unchanged although copies were nearby. A later line with the same spot and text has
     # the same copies, so `_text_without_artifacts` always drops it; it is dropped without scanning the copies again — a 3.2KB PDF
     # that drew the same text 16,000 times on top of itself through a form scanned all the copies for every line and took 52 seconds
@@ -954,6 +963,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
             text = kept
         kept_lines.setdefault(text, []).append(line)
         text = _scripted_text(inside, text) or text
+        unshown_marks = unshown_marks or _raised_digits_unshown(inside, text)
         text, top, bottom = _drop_cap(inside, text) or (text, line["top"], line["bottom"])
         sizes = [char["size"] for char in inside if char["text"].strip()]
         size = statistics.median(sizes) if sizes else 0.0
@@ -991,7 +1001,8 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                  form_values=_form_values(layout_page, lines),
                  hidden_chars=hidden_chars if not lines and not tables and not sideways_text else 0,
                  undecodable=blank and _has_undecodable_contents(layout_page), unmeasured=unmeasured,
-                 rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [])
+                 rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [],
+                 literal_carets=any("^" in char["text"] for char in page_chars), unshown_marks=unshown_marks)
 
 
 def _beyond_view(line: dict, view: tuple[float, float, float, float]) -> bool:

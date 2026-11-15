@@ -167,7 +167,7 @@ With `mode="sections"` each page, slide or sheet is its own Document, with its n
 
 | Format | Sections | Highlights |
 | --- | --- | --- |
-| PDF | page | reading order across columns, ruled and borderless tables, form field values, headings from font size, repeated header/footer removal, scanned pages via vision model |
+| PDF | page | reading order across columns, ruled and borderless tables, form field values, headings from font size, repeated header/footer removal, footnotes linked where the page proves them, scanned pages via vision model |
 | DOCX | document | heading styles, list numbering, merged cells, charts → tables, SmartArt, footnotes/endnotes, equations → LaTeX, comments |
 | PPTX | slide | on-screen order, bullet levels, tables, charts → tables, SmartArt, equations, speaker notes |
 | XLSX · XLS · Excel 2003 XML · CSV | sheet | several tables per sheet, merged cells, number and date formats, charts, cell comments |

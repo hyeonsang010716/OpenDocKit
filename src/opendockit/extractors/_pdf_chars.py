@@ -209,32 +209,10 @@ def _scripted_text(chars: list[dict], line_text: str) -> str | None:
     neighbouring line mixed in, or a line where overlapping accents come in a different order) the line is left alone — keeping
     character order and spacing unchanged takes precedence over marking scripts (Pinned by: test_pdf.py::TestSuperscriptByPosition).
     """
-    visible = [char for char in chars if char["text"].strip() and char.get("size")]
-    if len(visible) < 3:
+    positional = _positional_scripts(chars)
+    if positional is None:
         return None
-    largest = max(char["size"] for char in visible)
-    if min(char["size"] for char in visible) > largest * _SCRIPT_FAR_SIZE_RATIO:
-        return None  # a line of uniform size (most lines)
-
-    body_size = statistics.median(char["size"] for char in visible)
-    body = [char for char in visible if char["size"] > body_size * _SCRIPT_SIZE_RATIO]
-    if len(body) * 2 < len(visible):
-        return None
-
-    # pdfminer's character box extends below the baseline by the font's descent. It differs per font but is around 0.2 times the size.
-    def baseline(char: dict) -> float:
-        return char["bottom"] - 0.2 * char["size"]
-
-    body_baseline = statistics.median(baseline(char) for char in body)
-    marked: list[tuple[str, str | None]] = []  # (character, script mark), left to right
-    for char in sorted(visible, key=lambda char: char["x0"]):
-        mark = None
-        rise = body_baseline - baseline(char)  # how far it is raised (pt)
-        if char["size"] <= body_size * _SCRIPT_SIZE_RATIO:
-            mark = SUPERSCRIPT if rise >= body_size * _SUPERSCRIPT_RISE else SUBSCRIPT if rise <= -body_size * _SUBSCRIPT_DROP else None
-        elif char["size"] <= body_size * _SCRIPT_FAR_SIZE_RATIO and abs(rise) >= body_size * _SCRIPT_FAR_SHIFT:
-            mark = SUPERSCRIPT if rise > 0 else SUBSCRIPT
-        marked.extend((letter, mark) for letter in char["text"] if not letter.isspace())
+    marked = [(letter, mark) for char, mark in positional for letter in char["text"] if not letter.isspace()]
     # Spans containing Hangul or Hanja are not marked. When a designed document aligns small text or units next to a heading to the
     # top, it is positionally identical to a superscript and gave '12,345^{백만원}' (Pinned by:
     # test_pdf.py::TestSuperscriptByPosition::test_small_raised_korean_words_are_not_marked).
@@ -255,6 +233,80 @@ def _scripted_text(chars: list[dict], line_text: str) -> str | None:
         mark = None if letter.isspace() else next(marks)
         pieces.append(mark_script(letter, mark) if mark else letter)
     return resolve_scripts("".join(pieces))
+
+
+def _positional_scripts(chars: list[dict]) -> list[tuple[dict, str | None]] | None:
+    """The visible characters of a line left to right, each with the script mark its size and position give it (`SUPERSCRIPT`,
+    `SUBSCRIPT` or None), by the rule of `_scripted_text`. None when the line gives no basis for scripts: fewer than three
+    characters, a line of uniform size, or a line mostly of small characters."""
+    visible = [char for char in chars if char["text"].strip() and char.get("size")]
+    if len(visible) < 3:
+        return None
+    largest = max(char["size"] for char in visible)
+    if min(char["size"] for char in visible) > largest * _SCRIPT_FAR_SIZE_RATIO:
+        return None  # a line of uniform size (most lines)
+
+    body_size = statistics.median(char["size"] for char in visible)
+    body = [char for char in visible if char["size"] > body_size * _SCRIPT_SIZE_RATIO]
+    if len(body) * 2 < len(visible):
+        return None
+
+    # pdfminer's character box extends below the baseline by the font's descent. It differs per font but is around 0.2 times the size.
+    def baseline(char: dict) -> float:
+        return char["bottom"] - 0.2 * char["size"]
+
+    body_baseline = statistics.median(baseline(char) for char in body)
+    marked: list[tuple[dict, str | None]] = []  # (character, script mark), left to right
+    for char in sorted(visible, key=lambda char: char["x0"]):
+        mark = None
+        rise = body_baseline - baseline(char)  # how far it is raised (pt)
+        if char["size"] <= body_size * _SCRIPT_SIZE_RATIO:
+            mark = SUPERSCRIPT if rise >= body_size * _SUPERSCRIPT_RISE else SUBSCRIPT if rise <= -body_size * _SUBSCRIPT_DROP else None
+        elif char["size"] <= body_size * _SCRIPT_FAR_SIZE_RATIO and abs(rise) >= body_size * _SCRIPT_FAR_SHIFT:
+            mark = SUPERSCRIPT if rise > 0 else SUBSCRIPT
+        marked.append((char, mark))
+    return marked
+
+
+# A raised group in a line text as `format_script` writes it (`^1`, `^{12}`, `^{1)}`, `^{2,3}`).
+_RAISED_GROUP = re.compile(r"\^(?:\{([^{}]*)\}|(\S))")
+
+
+def _raised_digits_unshown(chars: list[dict], text: str) -> bool:
+    """Whether the line has more raised digits by position (`_positional_scripts`) than its text `text` shows inside raised
+    groups — a raised number that `_scripted_text` left as plain text (a span with Hangul, a line whose characters are in another
+    order, a script `format_script` does not mark). Footnotes are not linked on a page with one: that number could be the
+    mark of a note while an exponent with the same number takes the note (`_pdf_footnotes`). A line of two characters gives
+    no basis for the position, so a digit in it clearly smaller than the other character counts as unshown ('A' and a raised
+    '2') (Pinned by: test_pdf_footnotes.py::TestLeftAsIs::test_raised_number_left_as_plain_text,
+    test_two_character_line_with_a_small_digit; an empty raised group typed in the text, '^{}':
+    test_empty_raised_group_typed_in_a_line_of_mixed_sizes_converts)."""
+    positional = _positional_scripts(chars)
+    if positional is None:
+        visible = [char for char in chars if char["text"].strip() and char.get("size")]
+        if len(visible) != 2:
+            return False
+        largest = max(char["size"] for char in visible)
+        return any(char["text"].isdigit() and char["size"] <= largest * _SCRIPT_SIZE_RATIO for char in visible)
+    raised = sum(1 for char, mark in positional if mark == SUPERSCRIPT for letter in char["text"] if letter.isdigit())
+    shown = sum(1 for match in _RAISED_GROUP.finditer(text) for letter in _group_text(match) if letter.isdigit())
+    return raised > shown
+
+
+def _group_text(match: re.Match[str]) -> str:
+    """The text of a raised group matched by `_RAISED_GROUP` (empty for '^{}')."""
+    return match.group(1) if match.group(1) is not None else match.group(2)
+
+
+def _small_digits(chars: list[dict]) -> bool:
+    """Whether a digit among `chars` (the characters of the table cells, or of the sideways text, of a page) is clearly smaller
+    than the others (`_SCRIPT_SIZE_RATIO` of their median size). Scripts are not marked there, so a raised footnote mark is glued
+    on as a plain digit ('1,2002)'); footnotes are not linked on such a page (`_pdf_footnotes`)."""
+    sizes = [char["size"] for char in chars if char["text"].strip() and char.get("size")]
+    if not sizes:
+        return False
+    limit = statistics.median(sizes) * _SCRIPT_SIZE_RATIO
+    return any(char["text"].isdigit() and char.get("size") and char["size"] <= limit for char in chars)
 
 
 def _is_hangul(text: str) -> bool:

@@ -58,6 +58,13 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 
 - **A page with malformed page attributes**: if even one page is like this, the whole document is read by plain extraction (no table or heading detection) with a warning.
 - **Right-aligned lines between left-aligned lines** (dialogue transcripts, ※ notes) are read top to bottom; but when the right-hand lines all have the same width they are taken as side-by-side text boxes and read column by column.
+- **Footnotes are linked only where the page proves it** (see [formats](formats.md#pdf)). A page with a mark in a table cell,
+  a symbol mark (`*`, `†`), notes numbered with plain (not raised) numbers, notes without a footnote rule, a raised number that
+  could be either a mark or an exponent, a raised digit shown as plain text, small digits in a table, a word with a note
+  number glued to it ('conv3', 'Books2') or a typed `^` keeps `135^1%` and the note as plain lines at the bottom of the page
+  — an unlinked note was judged safer than a wrong one. So does a page after one that left a mark with the same number
+  unlinked (its note may have moved to the next page). The end of a note carried over from the previous page stays as plain
+  text above the notes of the page. `include_footnotes=False` does not remove PDF notes.
 - **Line breaks inside a PDF paragraph are not joined with a space.** Korean PDFs often break lines at any character, so joining with a space would split words.
 - **Word-spacing restoration is an estimate.** For text placed word by word, the actual gap where the font changes is estimated and a space is inserted. A thin space before a symbol (a parenthesis and the like) following Hangul is not restored (`Test(*) 진행` → `Test (*)진행`).
 - **Slanted text** (about 6 degrees or more) is treated as a watermark and removed from the body. Small slanted labels inside figures are removed with it.

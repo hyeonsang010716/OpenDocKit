@@ -360,6 +360,14 @@ def _group_paragraphs(lines: list[_Line], line_gap: float) -> list[_Paragraph]:
 
 def _continues(previous: _Line, line: _Line, line_gap: float) -> bool:
     """Whether `line` is in the same paragraph as `previous`. `line_gap` is the ratio of the usual line gap to the line height."""
+    if line.footnote_start or line.footnote != previous.footnote:
+        # Each linked note is a paragraph of its own: a footnote definition joined to the body line above it, or to the note
+        # before it, would not start a definition in Markdown. The wrapped lines of a note stay with it whatever their spacing —
+        # a paragraph of their own would fall out of the definition (Pinned by:
+        # test_pdf_footnotes.py::TestLinked::test_each_note_is_a_paragraph_of_its_own)
+        return False
+    if line.footnote:
+        return True
     if _LONE_BULLET.match(previous.text):
         # A line holding only a bullet character is one line with the next line at the same height.
         return abs((previous.top + previous.bottom) / 2 - (line.top + line.bottom) / 2) <= previous.height

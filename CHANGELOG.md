@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **PDF**: footnotes are linked where the page proves them. When a page has a short footnote rule with smaller notes
+  under it, raised note numbers that run on, and exactly one way to give each note a raised mark of the body, the mark becomes
+  `[^1]` and the note `[^1]: …` at the bottom of the same page (a number used again on another page is written with its
+  page, `[^p12-1]`). Every other page is left exactly as before (`135^1%`), so no note is attached by a guess. On
+  17,708 pages of 1,103 PDFs, 40 marks were linked and none to the wrong note.
+
 ## [0.3.5] - 2026-11-15
 
 A third review of the whole source. The sample outputs in `examples/` are unchanged.
