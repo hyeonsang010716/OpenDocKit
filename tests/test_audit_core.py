@@ -399,6 +399,37 @@ class TestHugeLevelNumberInNumberText:
         assert [numbering.advance(0), numbering.advance(0)] == ["-1.", "-2."]
 
 
+class TestLongNumberText:
+    """The number text of a list level was substituted again for every numbered paragraph, empty ones included (they still
+    count): a 100 KB w:lvlText of level numbers that are empty at that level, on 300 empty numbered paragraphs of a 36 KB file,
+    took 2.3 s. It is split once, and a text past 255 characters (its level numbers counted as one each, those that can never
+    be written left out) is the level's own number and a period, as when no lvlText is written."""
+
+    def test_number_text_up_to_the_bound_is_written_as_it_is(self):
+        text = convert(_docx_with_level_text("(" + "x" * 252 + "%1)"), "a.docx").text
+
+        assert f"\n({'x' * 252}1) 첫째\n" in text
+
+    @pytest.mark.parametrize("level_text", ["(" + "x" * 253 + "%1)", "%2" * 50_000])
+    def test_longer_number_text_is_the_level_number_and_a_period(self, level_text):
+        text = convert(_docx_with_level_text(level_text), "a.docx").text
+
+        assert "\n1. 첫째\n2. 둘째\n" in text and "본문 첫 문단입니다." in text
+
+    @pytest.mark.parametrize("mark", ["%", "^"])
+    def test_long_text_is_not_read_past_the_bound(self, mark):
+        """Splitting stops at the first piece past the bound, and the result is kept for the next paragraphs: the same 100 KB text
+        is not walked again per paragraph."""
+        template = f"{mark}2" * 50_000
+        numbering = _lists.Numbering([_lists.NumberLevel(template), _lists.NumberLevel(f"{mark}1.{mark}2.")], mark=mark)
+        _lists._number_pieces.cache_clear()
+
+        numbers = [numbering.advance(0) for _ in range(300)]
+
+        assert numbers[:3] == ["1.", "2.", "3."] and numbers[-1] == "300."
+        assert _lists._number_pieces.cache_info().misses == 2  # the long text and the fallback, each split once
+
+
 class TestDeeplyNestedJsonLookalike:
     """Text that starts with `[` or `{` is parsed to see whether it is JSON. 200,000 opening brackets ran the parser out of stack
     (RecursionError, not the ValueError of text that is not JSON), so a text file was rejected as 'corrupted'."""

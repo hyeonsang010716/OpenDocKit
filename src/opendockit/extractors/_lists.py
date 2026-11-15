@@ -4,6 +4,7 @@ a list item, level marks inside a table cell, and the head and bullet level of a
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+import functools
 import re
 
 from opendockit.extractors._notation import OLE_PLACEHOLDER
@@ -255,6 +256,49 @@ def _roman(value: int) -> str:
     return "".join(parts)
 
 
+# Longest number text (DOCX w:lvlText, HWP/HWPX paragraph head format) that is written as it is: its characters plus its level
+# numbers, once the level numbers that can never be written are taken out. The same bound as the chart number formats
+# (`_charts._MAX_FORMAT_CHARS`). A longer one is the level's own number and a period, as when DOCX writes no lvlText
+# (Pinned by: test_audit_core.py::TestLongNumberText).
+_MAX_NUMBER_TEXT = 255
+_NUMBER_TOKENS = {"^": re.compile(r"\^(\d+|[Nn])"), "%": re.compile(r"%(\d+)")}
+
+
+@functools.lru_cache(maxsize=256)
+def _number_pieces(template: str, mark: str) -> tuple[str | int | None, ...] | None:
+    """A number text split once into literal text and level numbers (the level index from 0, None for `^N` / `^n`, the level
+    itself), or None when it is longer than `_MAX_NUMBER_TEXT`. A level number below 1 — or of more than 4,300 digits, a level that
+    does not exist (`decimal_int`), not an error that rejects the document (Pinned by:
+    test_audit_core.py::TestHugeLevelNumberInNumberText) — is never written and is left out here.
+
+    `^N` / `^n` (the number of the level itself) is Hangul (HWP) notation only. Read for DOCX too, `%N` made '100%Note %1.' come
+    out as '1001ote 1.' (Pinned by: test_audit_core.py::TestLetterAfterAPercentSignInNumberText).
+
+    The text was substituted again for every numbered paragraph, empty ones included (they still count): a 100 KB lvlText of
+    level numbers that are empty at that level, on 300 empty numbered paragraphs (a 36 KB file), took 2.3 s."""
+    pieces: list[str | int | None] = []
+    size = 0
+    position = 0
+    for match in _NUMBER_TOKENS[mark].finditer(template):
+        token = match.group(1)
+        target = None if token in ("N", "n") else decimal_int(token, 0) - 1
+        literal = template[position:match.start()]
+        position = match.end()
+        size += len(literal) + (target is None or target >= 0)
+        if size > _MAX_NUMBER_TEXT:
+            return None
+        if literal:
+            pieces.append(literal)
+        if target is None or target >= 0:
+            pieces.append(target)
+    literal = template[position:]
+    if size + len(literal) > _MAX_NUMBER_TEXT:
+        return None
+    if literal:
+        pieces.append(literal)
+    return tuple(pieces)
+
+
 @dataclass(frozen=True, slots=True)
 class NumberLevel:
     """One level of a numbered list. `<mark><level>` in `template` (HWP/HWPX `^1`, DOCX `%1`) is replaced by that level's number."""
@@ -298,20 +342,17 @@ class Numbering:
         for deeper in [key for key in self.counters if key > level and self._restarts_after(key, level)]:
             del self.counters[deeper]
 
-        def number(match: re.Match[str]) -> str:
-            token = match.group(1)
-            # A level number of more than 4,300 digits is a level that does not exist (`decimal_int`), not an error that rejects
-            # the document (Pinned by: test_audit_core.py::TestHugeLevelNumberInNumberText).
-            target = level if token in ("N", "n") else decimal_int(token, 0) - 1
-            if not 0 <= target <= level:
+        def number(target: int | None) -> str:
+            target = level if target is None else target
+            if target > level:
                 return ""
             shape = "DIGIT" if self.levels[level].legal else self._level(target).shape
             return format_number(self.counters.get(target, self._level(target).start), shape)
 
-        # `^N` / `^n` (the number of the level itself) is Hangul (HWP) notation only. Read for DOCX too, `%N` made '100%Note %1.'
-        # come out as '1001ote 1.' (Pinned by: test_audit_core.py::TestLetterAfterAPercentSignInNumberText).
-        token = r"(\d+|[Nn])" if self.mark == "^" else r"(\d+)"
-        return re.sub(re.escape(self.mark) + token, number, self.levels[level].template).strip()
+        pieces = _number_pieces(self.levels[level].template, self.mark)
+        if pieces is None:
+            pieces = _number_pieces(f"{self.mark}{level + 1}.", self.mark)
+        return "".join(piece if isinstance(piece, str) else number(piece) for piece in pieces).strip()
 
     def _level(self, level: int) -> NumberLevel:
         return self.levels[min(level, len(self.levels) - 1)]
