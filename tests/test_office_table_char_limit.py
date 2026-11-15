@@ -601,6 +601,25 @@ class TestChartValuesPastTheLimit:
         assert "| 300 | 299 |" in full.text
         assert convert(hwpx(300), "a.hwpx", ConvertOptions(max_chars=full.char_count)).text == full.text
 
+    def test_hwpx_header_chart_is_not_cut_by_the_characters_of_the_body(self):
+        """A header is written before the body but read where it stands in it. Charged with the body's characters, a chart in
+        a header stopped after its fourth row and the cut text was not the front of the full conversion."""
+        months = range(1, 13)
+        chart = _chart_xml("<c:barChart>" + _chart_series(0, "Sales", [str(10 * month) for month in months],
+                                                          [f"M{month}" for month in months]) + "</c:barChart>", title="Months")
+        body = ("<hp:p><hp:run><hp:t>" + "B" * 95 + "</hp:t></hp:run></hp:p>"
+                "<hp:p><hp:run><hp:ctrl><hp:header><hp:subList><hp:p><hp:run><hp:t>HEADER</hp:t>"
+                '<hp:chart chartIDRef="Chart/chart1.xml"/></hp:run></hp:p></hp:subList></hp:header></hp:ctrl>'
+                "<hp:t>tail</hp:t></hp:run></hp:p>")
+        data = builder.zip_with(builder.hwpx_bytes(body), add={"Chart/chart1.xml": chart})
+        full = convert(data, "a.hwpx", ConvertOptions(max_chars=None, include_headers_footers=True))
+
+        cuts = {limit: convert(data, "a.hwpx", ConvertOptions(max_chars=limit, include_headers_footers=True))
+                for limit in (110, 150, full.char_count - 1)}
+
+        assert "| M12 | 120 |" in full.text and full.text.endswith("tail")
+        assert all(result.exceeded and result.text == full.text[:limit].rstrip() for limit, result in cuts.items())
+
     @pytest.mark.timing
     @pytest.mark.parametrize("scatter", [False, True])
     def test_chart_of_many_points_is_not_rendered_to_the_end(self, scatter):
