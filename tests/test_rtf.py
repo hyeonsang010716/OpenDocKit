@@ -601,6 +601,57 @@ class TestLimits:
         assert extraction.exceeded
         assert extraction.sections[0].text.count("\n") < 100
 
+    @pytest.mark.parametrize("place", ["shape", "drawing object", "shape in a cell"])
+    def test_table_in_a_text_box_stops_at_the_limit(self, place):
+        """The text of a text box ends up in the body, so its table is charged with the body's characters and stops the reading
+        as a body table does. It was not checked at all: 100,000 rows under a 5,000-character limit took 4.4 s, 3.7 million
+        characters counted."""
+        def document(rows: int) -> bytes:
+            table = "".join(_row([f"cell {index}", "y" * 20]) for index in range(rows))
+            box = {"shape": r"{\shp{\*\shpinst{\sp{\sn shapeType}{\sv 202}}{\shptxt " + table + r"\pard x\par}}}",
+                   "drawing object": r"{\*\do\dobxcolumn{\dptxbxtext " + table + r"\pard x\par}}",
+                   "shape in a cell": r"{\shp{\*\shpinst{\shptxt " + table + r"\pard x\par}}}"}[place]
+            if place == "shape in a cell":
+                return _rtf("B" * 95 + r"\par\trowd\cellx1000\cellx2000\pard\intbl z\cell " + box + r"\cell\row\pard after\par")
+            return _rtf("B" * 95 + r"\par " + box + r"\pard after\par")
+
+        extraction = extract_rtf(document(20_000), ConvertOptions(max_chars=1_000))
+        full = convert(document(12), "a.rtf", ConvertOptions(max_chars=None))
+        cuts = {limit: convert(document(12), "a.rtf", ConvertOptions(max_chars=limit)) for limit in (110, 200, 300)}
+
+        assert extraction.exceeded and extraction.chars < 3_000
+        assert "cell 11" in full.text and full.text.endswith("after")
+        assert all(result.exceeded and result.text == full.text[:limit].rstrip() for limit, result in cuts.items())
+
+    @pytest.mark.parametrize("place", ["header", "footer", "footnote", "shape in a header"])
+    def test_tables_of_headers_footers_and_notes_stop_at_their_own_limit(self, place):
+        """A header, footer or footnote is read where it stands in the file but written before or after the body, so its table is
+        checked against its own characters only: past them a header stops the reading, a footer or footnote table stops taking
+        cells and the body after it is still read. Not checked at all, 100,000 rows took 4.6 s, 3.7 million characters counted;
+        charged with the body's characters, the cut text would not be the front of the full conversion."""
+        def document(rows: int) -> bytes:
+            table = "".join(_row([f"cell {index}", "y" * 20]) for index in range(rows))
+            group = {"header": r"{\header " + table + r"\pard h\par}",
+                     "footer": r"{\footer " + table + r"\pard f\par}",
+                     "footnote": r"{\footnote " + table + r"\pard n\par}",
+                     "shape in a header": r"{\header {\shp{\*\shpinst{\shptxt " + table + r"\pard x\par}}}\pard h\par}"}[place]
+            # After the first paragraph of the body: charged with its characters, the table would stop short.
+            if place == "footnote":
+                return _rtf("B" * 95 + r"\par Intro" + group + r"\par after\par")
+            return _rtf("B" * 95 + r"\par " + group + r"Intro\par after\par")
+
+        options = {"include_headers_footers": True}
+        big = convert(document(20_000), "a.rtf", ConvertOptions(max_chars=1_000, **options))
+        full = convert(document(12), "a.rtf", ConvertOptions(max_chars=None, **options))
+        cuts = {limit: convert(document(12), "a.rtf", ConvertOptions(max_chars=limit, **options))
+                for limit in (110, 200, 300, full.char_count - 1)}
+
+        assert big.exceeded and big.char_count < 3_000
+        assert "cell 11" in full.text and "after" in full.text
+        assert all(result.exceeded and result.text == full.text[:limit].rstrip() for limit, result in cuts.items())
+        if place in ("footer", "footnote"):  # the body after the footer or footnote group is still read
+            assert big.text.startswith("B" * 95 + "\n\nIntro") and "after" in big.text
+
 
     def test_text_shaped_like_a_nested_table_placeholder_is_not_counted_against_the_limit(self):
         """A cell that holds a nested table and, as text, 80 digits between the private-use characters a nested-table
