@@ -7,12 +7,14 @@ Every document is built in memory.
 
 import base64
 import io
+import random
+import re
 import time
 
 from PIL import Image
 import pytest
 
-from opendockit import CorruptedDocumentError, DocumentFormat, convert
+from opendockit import ConvertOptions, CorruptedDocumentError, DocumentFormat, convert
 from opendockit.extractors._encoding import decode_text
 from opendockit.extractors._mail import _mime_nesting_exceeds
 from opendockit.markdown import clean_text
@@ -561,6 +563,56 @@ class TestStrikethroughAroundBlocks:
         assert plain == "| k | v |\n| --- | --- |\n| x | old1 2 3 4 |\n| y | z |"
         assert struck == "| k | v |\n| --- | --- |\n| x | ~~old1 2 3 4~~ |\n| y | z |"
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<s>a<h2></h2>b</s>", "~~ab~~"),
+        ("<p><del>Old price<h4> </h4>10,000</del></p>", "~~Old price10,000~~"),
+        ('<del>Old<h2><img src="x.png"></h2>price</del>', "~~Oldprice~~"),
+        ("<ul><li><del>a<h2></h2>b</del></li></ul>", "- ~~ab~~"),
+        ("<ol><del>x<h3>y</h3>z</del></ol>", "- ~~xyz~~"),
+        ("<table><tr><td><del>a<h2></h2>b</del></td><td>q</td></tr><tr><td>1</td><td>2</td></tr></table>",
+         "| ~~ab~~ | q |\n| --- | --- |\n| 1 | 2 |"),
+        ("<s>a</s><s><h2></h2>b</s>", "~~ab~~"),
+        ('<p>x <del>가</del><a href="javascript:x"><del>나</del></a></p>', "x ~~가나~~"),
+    ])
+    def test_runs_with_nothing_rendered_between_them_are_one_pair(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    def test_tildes_of_the_document_are_left_alone(self):
+        assert convert(b"<p>a~~~~b <del>c</del></p>", "a.html").text == "a~~~~b ~~c~~"
+
+    def test_struck_blocks_never_leave_marks_against_each_other(self):
+        """Random nestings of blocks, line breaks, pictures and empty elements inside strikethroughs: no closing mark is
+        written against an opening one, and the text is the text of the same page without the strikethroughs."""
+        blocks = ["p", "div", "h2", "h4", "li", "ul", "ol", "blockquote", "dl", "dt", "dd", "section", "span", "b", "a"]
+        leaves = ["Old", "price 10,000", " ", "<br>", '<img src="x.png">', '<img src="x.png" alt="pic">', "", "x y"]
+        plain = ConvertOptions(keep_links=False, keep_emphasis=False)
+
+        def node(rng: random.Random, depth: int) -> str:
+            if depth > 4 or rng.random() < 0.35:
+                return rng.choice(leaves)
+            tag = rng.choice(blocks)
+            inner = "".join(node(rng, depth + 1) for _ in range(rng.randint(0, 3)))
+            return f'<{tag}{" href=\"https://e.example/x\"" if tag == "a" else ""}>{inner}</{tag}>'
+
+        for seed in range(300):
+            rng = random.Random(seed)
+            parts = []
+            for _ in range(rng.randint(1, 3)):
+                body = "".join(node(rng, 0) for _ in range(rng.randint(1, 4)))
+                parts.append(f"<{rng.choice(['del', 's'])}>{body}</del></s>" if rng.random() < 0.8 else body)
+            html = "".join(parts)
+            if rng.random() < 0.2:
+                html = f"<table><tr><td>{html}</td><td>q</td></tr><tr><td>1</td><td>2</td></tr></table>"
+            html = f"<p>start</p>{html}"
+            unstruck = re.sub(r"<(/?)(?:del|s)>", r"<\1span>", html)
+
+            marked = convert(html.encode(), "a.html").text
+            struck = convert(html.encode(), "a.html", plain).text
+            text = convert(unstruck.encode(), "a.html", plain).text
+
+            assert "~~~~" not in marked and "~~~~" not in struck, html
+            assert re.sub(r"[\s~]", "", struck) == re.sub(r"[\s~]", "", text), html
+
 
 class TestAltTextCannotMakeALink:
     """Rows of inline-formatting.md: link text has its unbalanced brackets escaped (`_inline._escape_link_text`). Alt text inside
@@ -796,6 +848,20 @@ class TestRowspanStopsAtItsRowGroup:
                 "<tfoot><tr><td>Total</td><td>3</td></tr></tfoot></table>")
 
         assert convert(html.encode(), "a.html").text == "| a | b |\n| --- | --- |\n| A | 1 |\n| A | 2 |\n| Total | 3 |"
+
+    @pytest.mark.parametrize("rows", [
+        "<tr><td {span}>Label</td><td>a</td></tr><form name=f><tr><td>b</td></tr></form>",
+        "<tr><td {span}>Label</td><td>a</td></tr><form name=f><tr><td>b</td></tr>",
+        "<form name=f><tr><td {span}>Label</td><td>a</td></tr></form><tr><td>b</td></tr>",
+        "<tr><td {span}>Label</td><td>a</td></tr><font size=2><tr><td>b</td></tr></font>",
+    ])
+    @pytest.mark.parametrize("span", ["rowspan=2", "rowspan=0"])
+    def test_wrapper_between_rows_is_not_a_row_group(self, rows, span):
+        """lxml keeps a `<form>` or `<font>` written between rows as the parent of the rows after it; a browser moves it out
+        of the table, and the rows stay in one tbody."""
+        html = f"<table><tr><th>Item</th><th>Value</th></tr>{rows.format(span=span)}</table>"
+
+        assert convert(html.encode(), "a.html").text == "| Item | Value |\n| --- | --- |\n| Label | a |\n| Label | b |"
 
 
 class TestCodeBlockInsideAListItem:

@@ -3,6 +3,7 @@ inside a cell, and names paired with values.
 """
 
 import re
+import secrets
 
 from bs4 import Tag
 
@@ -10,8 +11,17 @@ from opendockit.extractors._html_base import _HEADINGS
 from opendockit.extractors._package import decimal_int
 
 
+# The key that every strikethrough mark of the HTML path carries on its inner side while the document is rendered (`~~` + key
+# opens, key + `~~` closes; `_html_dom._write_marks`): private-use characters drawn once per process, which no text of a
+# document can hold (as `_html_render._LIST_SLOT_OPEN`). `_html_render._settle_strikes` joins a closing mark that the
+# rendering put right against an opening one and takes the key off.
+STRIKE_KEY = "\ue027" + "".join(chr(0xE100 + byte) for byte in secrets.token_bytes(8))
+
+
 # Upper bound on the span count of one cell (`_span`, `_row_span`).
 _MAX_SPAN = 200
+# What a row's row group is (`_row_group`).
+_ROW_GROUPS = frozenset({"thead", "tbody", "tfoot", "table"})
 
 
 # Maximum characters (excluding whitespace) of the name cell in a name | value table. Field names such as '교육명' (course
@@ -37,13 +47,14 @@ _LAYOUT_BLOCKS = {"p", "ul", "ol", "blockquote", "pre", "dl", *_HEADINGS}
 
 def _measured_length(node: Tag) -> int:
     """Characters of the node's text without whitespace and without strikethrough marks (`~~`, each pair of tildes counts as
-    nothing) — the length every verdict of this module measures. The marks are written into the tree before the tables are
-    drawn (`_html_dom._mark_struck_text`), and counted they turned a data table whose cell held a struck inner table into a
-    layout table, so the marks put around the inner table, meant for one line of cell text, stood alone as a paragraph
+    nothing, and neither does the key they carry, `STRIKE_KEY`) — the length every verdict of this module measures. The marks
+    are written into the tree before the tables are drawn (`_html_dom._mark_struck_text`), and counted they turned a data
+    table whose cell held a struck inner table into a layout table, so the marks put around the inner table, meant for one
+    line of cell text, stood alone as a paragraph
     (Pinned by: test_audit_web_fixes.py::TestStrikethroughAroundBlocks::test_marks_do_not_change_how_the_table_is_drawn). A
     run of tildes in the text itself counts the same before and after marks are put next to it."""
     text = node.get_text(" ")
-    return sum(map(len, text.split())) - 2 * text.count("~~")
+    return sum(map(len, text.split())) - 2 * text.count("~~") - len(STRIKE_KEY) * text.count(STRIKE_KEY)
 
 
 def _own_caption(table: Tag) -> Tag | None:
@@ -334,16 +345,27 @@ def _span(cell: Tag, attribute: str) -> int:
 
 
 def _row_span(cell: Tag, rows: list[Tag], index: int) -> int:
-    """Row span of `cell` in the row `rows[index]`, never past the end of its row group (thead, tbody, tfoot — the next rows with
-    the same parent element; rows written straight under `<table>` share the table as their parent, which is the tbody a browser
-    puts around them), as in HTML. `rowspan="0"` spans to that end, within the same cap as any span (`_MAX_SPAN`); it was read
-    as 1 (Pinned by: test_audit_web_fixes.py::TestRowspanZero). Any other value is `_span`, cut at that end: a rowspan in the
-    body reached into the total row of the tfoot and pushed its cells one column right
+    """Row span of `cell` in the row `rows[index]`, never past the end of its row group (the next rows of the same thead, tbody
+    or tfoot, `_row_group`), as in HTML. `rowspan="0"` spans to that end, within the same cap as any span (`_MAX_SPAN`); it was
+    read as 1 (Pinned by: test_audit_web_fixes.py::TestRowspanZero). Any other value is `_span`, cut at that end: a rowspan in
+    the body reached into the total row of the tfoot and pushed its cells one column right
     (Pinned by: test_audit_web_fixes.py::TestRowspanStopsAtItsRowGroup)."""
     value = decimal_int(str(cell.get("rowspan", "1")).strip(), 1)
     span = _MAX_SPAN if value == 0 else _span(cell, "rowspan")
-    group = rows[index].parent
+    group = _row_group(rows[index])
     end = index + 1
-    while end < len(rows) and end - index < span and rows[end].parent is group:
+    while end < len(rows) and end - index < span and _row_group(rows[end]) is group:
         end += 1
     return end - index
+
+
+def _row_group(row: Tag) -> Tag | None:
+    """The row group of a row: its nearest thead, tbody, tfoot or table. Rows written straight under `<table>` have the table,
+    which stands for the tbody a browser puts around them. Any other element between (a `<form>` or `<font>` written between
+    rows, which lxml keeps as the parent of the rows after it while a browser moves it out of the table) is not a group: taken
+    for one, a rowspan stopped at the form and the row below lost its label cell
+    (Pinned by: test_audit_web_fixes.py::TestRowspanStopsAtItsRowGroup::test_wrapper_between_rows_is_not_a_row_group)."""
+    node = row.parent
+    while node is not None and node.name not in _ROW_GROUPS:
+        node = node.parent
+    return node

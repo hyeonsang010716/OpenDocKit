@@ -31,6 +31,7 @@ from opendockit.extractors._html_base import (
     _solid_length,
 )
 from opendockit.extractors._html_tables import (
+    STRIKE_KEY,
     _header_rows_on_top,
     _is_layout_table,
     _is_one_column_box,
@@ -70,7 +71,10 @@ _MAX_REOPENED = 16
 
 
 _STRIKE_TAGS = ["del", "s", "strike"]
-_STRIKE = "~~"
+# A strikethrough mark as it is written into the tree: the key on the inner side (`STRIKE_KEY`, taken off once the document
+# is rendered, `_html_render._settle_strikes`).
+_STRIKE_OPENING = "~~" + STRIKE_KEY
+_STRIKE_CLOSING = STRIKE_KEY + "~~"
 # Where a run of struck text is cut by a code block or a block boundary (`_struck_runs`): no cell is this object, so the next
 # text opens a new run.
 _RUN_BREAK = object()
@@ -1225,15 +1229,15 @@ def _write_marks(runs: list[_Run], spaces: list[tuple[Tag, bool]]) -> None:
     for run in runs:
         (first, first_table), (last, last_table) = run[0], run[-1]
         if first_table is not None:
-            note(first_table, 0, _STRIKE)
+            note(first_table, 0, _STRIKE_OPENING)
         else:
             text = str(first)
-            texts[id(first)] = (first, f"{text[:len(text) - len(text.lstrip())]}{_STRIKE}{text.lstrip()}")
+            texts[id(first)] = (first, f"{text[:len(text) - len(text.lstrip())]}{_STRIKE_OPENING}{text.lstrip()}")
         if last_table is not None:
-            note(last_table, 2, _STRIKE)
+            note(last_table, 2, _STRIKE_CLOSING)
         else:
             text = texts.get(id(last), (last, str(last)))[1]
-            texts[id(last)] = (last, f"{text.rstrip()}{_STRIKE}{text[len(text.rstrip()):]}")
+            texts[id(last)] = (last, f"{text.rstrip()}{_STRIKE_CLOSING}{text[len(text.rstrip()):]}")
     for node, text in texts.values():
         note(node, 1, text)
 
