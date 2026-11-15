@@ -33,6 +33,8 @@ A fifth review of the whole source. The sample outputs in `examples/` are unchan
   level's own number). A 100 KB `w:lvlText` on 300 empty numbered paragraphs took 2.3 seconds.
 - **Charts**: multi-level categories join at most their innermost eight levels (16,000 levels in a 125 KB file took
   11.7 seconds and 1 GB).
+- **PDF**: growing the shaded tables of a page no longer goes through every other table of the same columns for each
+  one, with the same output (1,200 separate shaded tables took 4.1 seconds; now 0.7 seconds).
 - **ODT / ODP**: the value table of a chart stops at `max_chars`, as in the other formats (20,000 rows under a 5,000-
   character limit counted 517,000 characters).
 - **RTF**: a table inside a text box, header, footer or footnote is checked against the character limit while it is
