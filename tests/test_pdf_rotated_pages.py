@@ -97,3 +97,57 @@ class TestRotatedPages:
 
         assert "사업계획서" not in result.text
         assert "별표 1. 연도별 투자 계획" in result.sections[4].text
+
+
+def _merged_cell_open_at_the_bottom(pdf, left: float) -> None:
+    """A two-column ruled table whose bottom rule closes only the first column (the second cell of the last row is open)."""
+    top, width, height = 400, 60, 20
+    for y in (top, top - height):
+        pdf.line(left, y, left + 2 * width, y)
+    pdf.line(left, top - 2 * height, left + width, top - 2 * height)
+    for x in (left, left + width, left + 2 * width):
+        pdf.line(x, top, x, top - 2 * height)
+    for column, row, text in ((0, 1, "가"), (1, 1, "나"), (0, 2, "다"), (1, 2, "라")):
+        pdf.drawString(left + column * width + 3, top - row * height + 6, text)
+
+
+def _rules_continuing_below_the_table(pdf, left: float) -> None:
+    """A two-column ruled table whose vertical rules, drawn row by row, run on one row past its bottom rule (a row split at
+    the page end)."""
+    top, width, height = 400, 60, 20
+    for row in range(3):
+        pdf.line(left, top - row * height, left + 2 * width, top - row * height)
+        for column in range(3):
+            pdf.line(left + column * width, top - row * height, left + column * width, top - (row + 1) * height)
+        for column in range(2):
+            pdf.drawString(left + column * width + 3, top - (row + 1) * height + 6, f"칸{row}{column}")
+
+
+_TABLES_AND_LAST_ROWS = [(_merged_cell_open_at_the_bottom, "| 다 | 라 |"), (_rules_continuing_below_the_table, "| 칸20 | 칸21 |")]
+
+
+class TestTablesOffThePage:
+    """Characters of a page turned with /Rotate are not filtered to the visible area, so rules and text drawn past the page
+    edge make a table that lies wholly off the page. Searching it again cropped a box turned inside out (its left side cut to
+    the page's right edge), pdfplumber raised, and the whole document failed as corrupted: every page was lost."""
+
+    @pytest.mark.parametrize(("table", "last_row"), _TABLES_AND_LAST_ROWS)
+    def test_table_past_the_edge_of_a_rotated_page_does_not_lose_the_document(self, table, last_row):
+        def draw(pdf, width, height):
+            pdf.drawString(60, height - 60, "가로 쪽 본문입니다.")
+            pdf.setFont("HYSMyeongJo-Medium", 8)
+            table(pdf, width + 60)
+
+        result = convert(_landscape_pdf(90, draw, pages_before=1), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert "1장 본문 내용입니다." in result.sections[0].text
+        assert "가로 쪽 본문입니다." in result.sections[1].text
+        assert all(text in result.sections[1].text for text in last_row.strip("| ").split(" | "))
+
+    @pytest.mark.parametrize(("table", "last_row"), _TABLES_AND_LAST_ROWS)
+    def test_the_same_table_on_the_page_is_still_closed(self, table, last_row):
+        def draw(pdf, width, height):
+            pdf.setFont("HYSMyeongJo-Medium", 8)
+            table(pdf, 300)
+
+        assert last_row in convert(_landscape_pdf(90, draw), "a.pdf", ConvertOptions(page_markers=False)).text

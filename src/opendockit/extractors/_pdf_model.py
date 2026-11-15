@@ -496,6 +496,21 @@ class _ObjectBands:
         return found
 
 
+def _region_on_page(page: object, left: float, top: float, right: float,
+                    bottom: float) -> tuple[float, float, float, float] | None:
+    """The region (left, top, right, bottom) grown by 1pt on every side and cut to the page's box, the box a table is searched
+    again in. None when no part of the region with an area lies on the page: its cut box would be turned inside out (or not a
+    number), and pdfplumber's crop raises on it. Characters of a page turned with /Rotate are not filtered to the visible area
+    (`_text_view`), so rules and text drawn past the page edge make tables that lie wholly off the page; one such table made the
+    crop raise and the whole document fail as corrupted, every page lost (Pinned by: test_pdf_rotated_pages.py::
+    TestTablesOffThePage)."""
+    page_left, page_top, page_right, page_bottom = page.bbox
+    box = (max(left - 1, page_left), max(top - 1, page_top), min(right + 1, page_right), min(bottom + 1, page_bottom))
+    if not (box[0] < box[2] and box[1] < box[3]):
+        return None
+    return box
+
+
 def _cropped(page: object, box: tuple[float, float, float, float]) -> object:
     """`page.crop(box)`, cropped from a page holding only the objects that can overlap the box (`_ObjectBands`, built once
     per page as one of the page's lists for its tables, `_page_index`). pdfplumber's crop clips every object of the page

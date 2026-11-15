@@ -18,6 +18,7 @@ from opendockit.extractors._pdf_model import (
     _encloses,
     _is_shade,
     _page_index,
+    _region_on_page,
     _text_by_middle,
 )
 
@@ -468,8 +469,9 @@ def _regridded_fragments(page: object, members: list[object], edges: list[float]
     horizontals = [_rule_line(x0, y, x1, y) for y in boundaries for x0, x1 in zip(edges, edges[1:], strict=False)
                    if y in (top, bottom) or not crossed(y, x0, x1)]
 
-    page_left, page_top, page_right, page_bottom = page.bbox
-    box = (max(left - 1, page_left), max(top - 1, page_top), min(right + 1, page_right), min(bottom + 1, page_bottom))
+    box = _region_on_page(page, left, top, right, bottom)
+    if box is None:
+        return None
     found = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": verticals,
                                         "explicit_horizontal_lines": horizontals})
     if len(found) != 1 or len(_column_edges(found[0])) != len(edges):
@@ -624,9 +626,8 @@ def _grown_shaded_table(page: object, table: object, tables: list[object], rules
     verticals = [_rule_line(x, band_top, x, band_bottom) for (band_top, band_bottom), _ in accepted for x in edges]
     horizontals = [_rule_line(left, y, right, y) for (band_top, band_bottom), is_open in accepted if is_open
                    for y in (band_top, band_bottom)]
-    page_left, page_top, page_right, page_bottom = page.bbox
-    box = (max(left - 1, page_left), max(top - 1, page_top), min(right + 1, page_right), min(bottom + 1, page_bottom))
-    if box[0] >= box[2] or box[1] >= box[3]:
+    box = _region_on_page(page, left, top, right, bottom)
+    if box is None:
         return None
     found = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": verticals,
                                         "explicit_horizontal_lines": horizontals})

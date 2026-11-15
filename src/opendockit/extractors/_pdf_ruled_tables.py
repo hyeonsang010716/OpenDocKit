@@ -19,6 +19,7 @@ from opendockit.extractors._pdf_model import (
     _inside_any,
     _page_index,
     _PointGrid,
+    _region_on_page,
     _Table,
     _text_by_middle,
 )
@@ -313,8 +314,9 @@ def _closed_at_the_bottom(page: object, table: object) -> object:
     lines = {"explicit_horizontal_lines": [*closing, _rule_line(left, lowest, right, lowest)],
              "explicit_vertical_lines": [_rule_line(x, bottom, x, lowest) for x in (left, right)] if lowest > bottom else []}
 
-    page_left, page_top, page_right, page_bottom = page.bbox
-    box = (max(x0 - 1, page_left), max(top - 1, page_top), min(x1 + 1, page_right), min(lowest + 1, page_bottom))
+    box = _region_on_page(page, x0, top, x1, lowest)
+    if box is None:
+        return table
     found = page.crop(box).find_tables({**_TABLE_SETTINGS, **lines})
     if (len(found) != 1 or len(found[0].rows) != len(table.rows) or len(found[0].columns) != len(table.columns)
             or not all(map(_BoxIndex([cell for cell in found[0].cells if cell]).holds, stray))):
@@ -357,9 +359,9 @@ def _closed_at_open_ends(page: object, table: object) -> object:
         return table
 
     lines = [_rule_line(x0, y, x1, y) for y in (lowest, highest) if any(y in band for band in bands)]
-    page_left, page_top, page_right, page_bottom = page.bbox
-    box = (max(x0 - 1, page_left), max(min(top, highest) - 1, page_top), min(x1 + 1, page_right),
-           min(max(bottom, lowest) + 1, page_bottom))
+    box = _region_on_page(page, x0, min(top, highest), x1, max(bottom, lowest))
+    if box is None:
+        return table
     found = page.crop(box).find_tables({**_TABLE_SETTINGS, "explicit_horizontal_lines": lines})
     if (len(found) != 1 or len(found[0].rows) != len(table.rows) + len(lines) or len(found[0].columns) != len(table.columns)
             or not all(map(_BoxIndex([cell for cell in found[0].cells if cell]).holds, stray))):
