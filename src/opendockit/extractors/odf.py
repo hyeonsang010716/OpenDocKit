@@ -1388,7 +1388,10 @@ def _extract_text(renderer: _Renderer, body: etree._Element, styles_root: etree.
         master_styles.add(named)
         master_styles.add(styles_root.find(f"{{{_OFFICE}}}automatic-styles"))
         headers, footers = renderer.headers_and_footers(styles_root, master_styles)
-        extraction.count(sum(solid_length(text) for text in (*headers, *footers)), options)
+        # Headers are written before the body and footers after it, and each is counted at its place: counted with the headers, a
+        # footer made the body stop short and the cut text was not the front of the full conversion (Pinned by:
+        # test_odf.py::TestCharacterLimit::test_footer_is_counted_after_the_body).
+        extraction.count(sum(solid_length(text) for text in headers), options)
 
     # Read per top-level block and count characters; once the limit is exceeded the rest of the document is not read. Tracked
     # deletions live in `text:tracked-changes` at the top of the body, which is not a block, so deleted text never comes out
@@ -1399,6 +1402,7 @@ def _extract_text(renderer: _Renderer, body: etree._Element, styles_root: etree.
         rendered = renderer.block(node, _BODY)
         blocks.extend(rendered)
         extraction.count(sum(solid_length(block) for block in rendered), options)
+    extraction.count(sum(solid_length(text) for text in footers), options)
     text = join_blocks([*headers, *blocks, *footers, "\n".join(renderer.notes), "\n".join(renderer.comments)])
     extraction.sections.append(Section(SectionKind.DOCUMENT, 1, text))
 
