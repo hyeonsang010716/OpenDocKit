@@ -210,9 +210,11 @@ class TestCharacters:
 
     def test_upr_group_is_read_through_its_unicode_copy(self):
         """`{\\upr{ANSI copy}{\\*\\ud{Unicode copy}}}` in the body and in `\\info`: the ANSI copy has '?' for every character
-        its code page lacks, so the `\\ud` copy is read and the first is not. A `\\upr` without a `\\ud` group (or with only
-        one) is read as it is; `\\bin` data in the ANSI copy does not hide the `\\ud` group after it; a `\\ud` group outside
-        `\\upr` is still skipped."""
+        its code page lacks, so the `\\ud` copy is read and the first is not; a `\\upr` group holding only the `\\ud` copy is
+        read through it too, and `\\bin` data in the ANSI copy does not hide the `\\ud` group after it. Any other shape is read
+        as it is, through the ANSI copy, and nothing around the copies is lost: a `\\upr` without a `\\ud` group, a `\\upr`
+        written straight into the body or after other words of its group, text beside the copies, the copies in the other
+        order, a `\\upr` inside a `\\upr` group. A `\\ud` group outside `\\upr` is still skipped."""
         korean = _unicode("한글")
         body = (r"{\info{\upr{\title Report ??}{\*\ud{\title Report " + korean + r"}}}{\author Kim}}"
                 r"{\upr{Body ??}{\*\ud{Body " + korean + r"}}}\par")
@@ -224,8 +226,12 @@ class TestCharacters:
         assert _text(r"{\upr{\*\ud{" + korean + r"}}}\par") == "한글"
         assert _text(r"{\b{\upr{a\bin2 {{}{\*\ud{" + korean + r"}}}} after\par") == "**한글** after"
         assert _text(r"a{\*\ud{b}}c\par") == "ac"
+        assert _text(r"Before\par \upr{A ??}{\*\ud{A " + korean + r"}}\par After text\par") == "Before\n\nA ??\n\nAfter text"
+        assert _text(r"{\b \upr{A ??}{\*\ud{A " + korean + r"}} tail}\par After\par") == "A ?? tail\n\nAfter"
+        assert _text(r"{\upr{A ?}{\*\ud{A " + korean + r"}} tail}\par") == "A ? tail"
+        assert _text(r"{\upr{\*\ud{" + korean + r"}}{ANSI ?}}\par") == "ANSI ?"
         nested = r"{\upr{X ?}{\*\ud{X {\upr{in ?}{\*\ud{in " + korean + r"}}} end}}}\par"
-        assert _text(nested) == "X in 한글 end"
+        assert _text(nested) == "X in ? end"
 
     def test_special_characters(self):
         body = (r"a\tab b\line c\emdash d\endash e \lquote f\rquote  \ldblquote g\rdblquote  \bullet  h\~i\_j\-k \{x\} \\ \par")

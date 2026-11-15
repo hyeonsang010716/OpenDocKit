@@ -182,7 +182,7 @@ class _State:
         self.closer: str | None = None  # what to finish when this group closes (the group that opened a picture, a footnote, …)
         self.nested_row = False  # inside `\*\nesttableprops`: row definitions belong to the nested table
         self.ud: int | None = None  # a `\upr` group read through its `\ud` copy: the destination that copy is read into
-        self.in_upr = False  # inside a `\upr` group read through its first copy: a `\upr` here is not looked ahead of again
+        self.in_upr = False  # inside a `\upr` group already looked ahead of: a `\upr` here is not looked ahead of again
 
     def child(self) -> "_State":
         state = _State.__new__(_State)
@@ -725,7 +725,7 @@ class _Reader:
                         state.dest = self._stack[-1].ud   # the Unicode copy of a `\upr` group (`_upr`)
                     continue
                 elif word == b"upr" and dest != _PICT:
-                    self._upr(pos)
+                    self._upr(pos, fresh)
                 elif not self._common(word, number):
                     if dest == _BODY:
                         self._body_word(word, number, star)
@@ -760,26 +760,30 @@ class _Reader:
         if self._stack:
             self._state = self._stack.pop()
 
-    def _upr(self, pos: int) -> None:
+    def _upr(self, pos: int, first: bool) -> None:
         """`{\\upr{ANSI copy}{\\*\\ud{Unicode copy}}}`: the same text twice, for readers that do not know `\\uN` and for those that
-        do. The Unicode copy is read and the rest of the group is skipped: the ANSI copy has '?' for every character its code
-        page lacks (Pinned by: test_rtf.py::TestCharacters::test_upr_group_is_read_through_its_unicode_copy). A group without
-        a `\\ud` copy among its own groups is read as it is, as is a `\\upr` inside one such group: looking ahead of each of
-        those again would read the same bytes once per level of nesting."""
+        do. The Unicode copy is read and the ANSI copy skipped: it has '?' for every character its code page lacks
+        (Pinned by: test_rtf.py::TestCharacters::test_upr_group_is_read_through_its_unicode_copy). Only that shape is read
+        this way — `\\upr` the first word of its group (`first`), which holds nothing but the two copies (or the `\\ud` copy
+        alone) and white space. Anything else is read as it is, through the ANSI copy: skipping the group from the `\\upr` on
+        lost the text after the copies (`{\\b \\upr{…}{\\*\\ud{…}} tail}`), and the rest of the document for a `\\upr` written
+        straight into the body. A `\\upr` inside a `\\upr` group is read as it is too: looking ahead of each of those again would
+        read the same bytes once per level of nesting."""
         state = self._state
-        if state.in_upr:
+        if state.in_upr or not first:
             return
+        state.in_upr = True
         if self._ud_follows(pos):
             state.ud, state.dest = state.dest, _SKIP
-        else:
-            state.in_upr = True
 
     def _ud_follows(self, pos: int) -> bool:
-        """Does a group directly inside the group being read, from `pos` to its end, start with `\\ud` (after `\\*`)? Each byte is
-        looked at here once at most: the bytes before the `\\ud` group are then skipped, and a `\\upr` inside a group read
-        through its first copy is not looked ahead of (Pinned by: test_rtf.py::TestHostileInput::test_upr_groups_are_looked_ahead_of_once)."""
+        """Is the rest of the group being read, from `pos` to its end, an ANSI copy group and a `\\ud` group (`\\*` and white
+        space may stand in front of `\\ud`), or a `\\ud` group alone, with only white space between and around them? Each byte is
+        looked at here once at most: a `\\upr` inside the group is not looked ahead of again
+        (Pinned by: test_rtf.py::TestHostileInput::test_upr_groups_are_looked_ahead_of_once)."""
         data, size, match = self._data, len(self._data), _TOKEN.match
-        depth, opening = 1, False  # `opening`: only `\*` and white space read since a group directly inside opened
+        depth, groups, ud = 1, 0, False
+        opening = False  # only `\*` and white space read since a group directly inside opened
         while pos < size:
             token = match(data, pos)
             if token is None:
@@ -787,16 +791,28 @@ class _Reader:
             pos = token.end()
             kind = token.lastindex
             if kind == 5:
-                depth += 1 if token.group(5) == b"{" else -1
-                if not depth:
-                    return False
-                opening = depth == 2 and token.group(5) == b"{"
+                if token.group(5) == b"}":
+                    depth -= 1
+                    if not depth:
+                        return ud
+                    opening = False
+                    continue
+                if depth == 1:
+                    if ud or groups == 2:  # a group after the `\\ud` copy, or a second group that is not one
+                        return False
+                    groups += 1
+                depth += 1
+                opening = depth == 2
                 continue
+            if depth == 1:
+                if kind == 6 and not token.group(6).strip():
+                    continue
+                return False  # text or a control word beside the copies
             if kind == 2 and token.group(1) == b"bin":
                 pos = min(pos + max(int(token.group(2)), 0), size)
             if opening:
                 if kind <= 2 and token.group(1) == b"ud":
-                    return True
+                    ud = True
                 opening = (kind == 4 and token.group(4) == b"*") or (kind == 6 and not token.group(6).strip())
         return False
 
