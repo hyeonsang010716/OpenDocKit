@@ -4,6 +4,7 @@ place.
 """
 
 from bisect import bisect_left, bisect_right, insort
+from collections.abc import Iterator
 import copy
 from dataclasses import dataclass, field
 from itertools import islice
@@ -12,7 +13,13 @@ import re
 
 from pdfminer.layout import LTChar, LTContainer, LTFigure, LTLayoutContainer, LTTextLineHorizontal
 
-from opendockit.extractors._pdf_chars import _SCRIPT_SIZE_RATIO, _SUPERSCRIPT_RISE
+from opendockit.extractors._pdf_chars import (
+    _SCRIPT_FAR_SHIFT,
+    _SCRIPT_FAR_SIZE_RATIO,
+    _SCRIPT_SIZE_RATIO,
+    _SUBSCRIPT_DROP,
+    _SUPERSCRIPT_RISE,
+)
 from opendockit.extractors._pdf_model import _MAX_GROUPED_TEXT_PIECES, _WORD_CHAR, _Line
 
 
@@ -31,6 +38,11 @@ _PIECE_BAND = 8.0  # height band (pt) for finding pieces to join. One band above
 # raised digit character, `_edge_chars`).
 _PIECE_SYMBOL = re.compile(r"^[₩$€£¥¢%‰¹²³⁰⁴-⁹₀-₉°※†‡]$")
 _PIECE_BASELINE_RATIO = 0.1
+# A subscript split off as a line of its own (`_lowered_script_piece`): at most this many characters, lowered by less than this
+# share of the line's character size. pdfminer splits it off from about 0.42 em; the next line is a full line height (1.2 em or
+# more) below.
+_LOWERED_SCRIPT_CHARS = 4
+_LOWERED_SCRIPT_MAX_DROP = 0.75
 # Pieces on the same baseline whose x ranges overlap (_merged_overlapping_pieces): the vertical overlap is at least this share of
 # the lower piece's height, and the height ratio (lower/higher) is at least `_PIECE_HEIGHT_RATIO`. Small scripts and large watermark
 # text fall short of the ratios.
@@ -343,23 +355,101 @@ def _piece_joints(pieces: list[LTTextLineHorizontal]) -> dict[int, int]:
     for xs in columns.values():
         xs.sort()
 
+    def after(index: int) -> Iterator[tuple[int, float]]:
+        """(piece starting where piece `index` ends, where it ended) for every candidate, nearest band first."""
+        piece, last = pieces[index], edges[index][1]
+        reach = max(last.size, 1.0) * _PIECE_SPACE_GAP_RATIO
+        band = math.floor(piece.y0 / _PIECE_BAND)
+        for end in _piece_ends(piece, last, spaces):
+            for x in _starts_between(columns, (band - 1, band, band + 1), round(end) - 1, round(end + reach) + 1):
+                for near in (band - 1, band, band + 1):
+                    for other in starts.get((x, near), ()):
+                        yield other, end
+
     following: dict[int, int] = {}
     taken: set[int] = set()
     for index, piece in enumerate(pieces):
-        if edges[index] is None:
+        if edges[index] is None or index in following:
             continue
         last = edges[index][1]
-        reach = max(last.size, 1.0) * _PIECE_SPACE_GAP_RATIO
-        band = math.floor(piece.y0 / _PIECE_BAND)
-        other = next((other for end in _piece_ends(piece, last, spaces)
-                      for x in _starts_between(columns, (band - 1, band, band + 1), round(end) - 1, round(end + reach) + 1)
-                      for near in (band - 1, band, band + 1) for other in starts.get((x, near), ())
+        # A subscript lowered so far that pdfminer made it a line of its own, set exactly into the gap of this line
+        # (`_lowered_script`): this piece, the subscript and the piece after it are joined in one go. It is looked for first:
+        # the piece after the gap may start close enough to join this piece over the subscript's head ('Index x' and ' runs',
+        # leaving the 'i' out). Only a gap that exactly one piece fits is taken, so the pieces after it are looked through once
+        scripts = {script for script, end in after(index)
+                   if edges[script] is not None and script not in taken and script not in following
+                   and not _leads_to(following, script, index) and _lowered_script(last, pieces[script], end)}
+        if len(scripts) == 1:
+            script = scripts.pop()
+            rest = next((rest for rest, script_end in after(script)
+                         if rest not in (index, script) and rest not in taken and not _leads_to(following, rest, index)
+                         and _closes_the_gap(last, script_end, pieces[rest], edges[rest][0])), None)
+            if rest is not None and not any(other not in (index, script, rest)
+                                            for other in _starting_within(starts, columns, pieces[script])):
+                following[index], following[script] = script, rest
+                taken.update((script, rest))
+                continue
+        other = next((other for other, end in after(index)
                       if other not in taken and not _leads_to(following, other, index)
                       and _continues_piece(piece, last, pieces[other], edges[other][0], end)), None)
         if other is not None:
             following[index] = other
             taken.add(other)
     return following
+
+
+def _starting_within(starts: dict[tuple[int, int], list[int]], columns: dict[int, list[int]],
+                     piece: LTTextLineHorizontal) -> list[int]:
+    """The pieces with a word character that start within the x range of `piece`, in its height band and the two on either
+    side of it."""
+    band = math.floor(piece.y0 / _PIECE_BAND)
+    bands = tuple(range(band - 2, band + 3))
+    return sorted({other for x in _starts_between(columns, bands, math.floor(piece.x0) - 1, math.ceil(piece.x1))
+                   for near in bands for other in starts.get((x, near), ())})
+
+
+def _lowered_script(last: LTChar, script: LTTextLineHorizontal, end: float) -> bool:
+    """Whether `script` is a subscript of the line whose piece ends at `end` with the character `last`, which pdfminer split
+    off as a line of its own. `_closes_the_gap` tells whether the piece after it continues the same line.
+
+    pdfminer puts two characters on one line only when their boxes overlap by half the smaller height (`line_overlap`), so a
+    subscript lowered by about 0.42 em or more (reportlab's `<sub>`: 9 pt under 11 pt, 0.46 em down) became a piece of its
+    own and the sentence was split in three around it, the subscript pushed out of order ('Water is H', '2', 'O in
+    chemistry.'). The rule is kept narrow (deliberate), so that only a piece set exactly into the gap of one line is taken:
+    - `script` is short (1–4 word characters, `_LOWERED_SCRIPT_CHARS`), every character a subscript of `last` as
+      `_positional_scripts` tells one (at most 0.8 the size and lowered by `_SUBSCRIPT_DROP`, or at most 0.85 the size and
+      lowered by `_SCRIPT_FAR_SHIFT`), and lowered by less than `_LOWERED_SCRIPT_MAX_DROP` of the size;
+    - it starts where the piece before ends, and the piece after starts where it ends (`_closes_the_gap`), both as
+      `_continues_piece` measures touching pieces;
+    - the characters on both sides of the gap have the same size and baseline and are plain characters: one line;
+    - it is the only piece that fits the gap, and no other piece starts within its x range two bands above or below it (a
+      superscript stacked over it): with the subscript joined and the superscript left out, a formula's pieces would be
+      split up differently.
+    A raised piece is not taken here: footnote marks are `_footnote_mark_piece`, and bare raised numbers are deliberately not
+    joined (Pinned by: test_pdf_reading_order.py::TestSubscriptsOnALineOfTheirOwn)."""
+    chars = [obj for obj in script if isinstance(obj, LTChar) and obj.get_text().strip()]
+    if not 1 <= len(chars) <= _LOWERED_SCRIPT_CHARS or not all(_WORD_CHAR.match(char.get_text()) for char in chars):
+        return False
+    size = max(last.size, 1.0)
+    return abs(script.x0 - end) <= size * _PIECE_JOIN_GAP_RATIO and all(
+        last.y0 - char.y0 < size * _LOWERED_SCRIPT_MAX_DROP
+        and (char.size <= last.size * _SCRIPT_SIZE_RATIO + 0.01 and last.y0 - char.y0 >= size * _SUBSCRIPT_DROP
+             or char.size <= last.size * _SCRIPT_FAR_SIZE_RATIO and last.y0 - char.y0 >= size * _SCRIPT_FAR_SHIFT)
+        for char in chars)
+
+
+def _closes_the_gap(last: LTChar, script_end: float, rest: LTTextLineHorizontal, first: LTChar) -> bool:
+    """Whether `rest` (leftmost character `first`) continues, right where a lowered subscript ends (`script_end`), the line
+    whose character before the subscript is `last` (`_lowered_script`): it touches the subscript, or starts with a space within
+    one space width of it, and `first` has the size and baseline of `last`."""
+    size = max(last.size, 1.0)
+    tolerance = size * _PIECE_JOIN_GAP_RATIO
+    gap = rest.x0 - script_end
+    if not (abs(gap) <= tolerance or (tolerance < gap <= size * _PIECE_SPACE_GAP_RATIO and first.x0 - rest.x0 > tolerance)):
+        return False  # a gap wider than touching is allowed only for a space at the start of `rest`
+    same_baseline = (abs(last.y0 - first.y0) <= size * _PIECE_BASELINE_RATIO
+                     or (_upright(last) and _upright(first) and abs(last.matrix[5] - first.matrix[5]) <= size * _PIECE_BASELINE_RATIO))
+    return abs(last.size - first.size) <= 0.1 and same_baseline and _is_plain_glyph(last.get_text()) and _is_plain_glyph(first.get_text())
 
 
 def _finite_piece(piece: LTTextLineHorizontal, edge: tuple[LTChar, LTChar]) -> bool:
