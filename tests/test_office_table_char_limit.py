@@ -566,6 +566,41 @@ class TestChartValuesPastTheLimit:
 
         assert not result.exceeded and result.text == full.text and "| 300 | 29900.0% |" in result.text
 
+    def test_xlsx_chart_stops_at_the_limit(self):
+        """A chart placed on a sheet goes through the same value rows (`_xlsx_parts._chart_text`)."""
+        from tests.test_spreadsheet import _xlsx_with_chart
+
+        def xlsx(points: int) -> bytes:
+            chart = _chart_xml("<c:barChart>" + _chart_series(0, "Sales", [str(index) for index in range(points)]) + "</c:barChart>",
+                               title="Big")
+            return builder.zip_with(_xlsx_with_chart(cached=True), edit={"xl/charts/chart1.xml": lambda _: chart})
+
+        result = convert(xlsx(_ROWS), "a.xlsx", ConvertOptions(max_chars=_LIMIT))
+        full = convert(xlsx(300), "a.xlsx", ConvertOptions(max_chars=None))
+
+        assert result.exceeded
+        assert result.char_count < _LIMIT * 3  # drawn to the end it would be over 200,000 characters
+        assert "[Chart] Big\n\n| Category | Sales |\n| --- | --- |\n| 1 | 0 |" in result.text
+        assert "| 300 | 299 |" in full.text
+        assert convert(xlsx(300), "a.xlsx", ConvertOptions(max_chars=full.char_count)).text == full.text
+
+    def test_hwpx_chart_stops_at_the_limit(self):
+        """A chart in a Hangul (HWPX) document goes through the same value rows (`hwpx._render_chart`)."""
+        def hwpx(points: int) -> bytes:
+            chart = _chart_xml("<c:barChart>" + _chart_series(0, "Sales", [str(index) for index in range(points)]) + "</c:barChart>",
+                               title="Big")
+            body = '<hp:p><hp:run><hp:t>Sales:</hp:t><hp:chart chartIDRef="Chart/chart1.xml"/></hp:run></hp:p>'
+            return builder.zip_with(builder.hwpx_bytes(body), add={"Chart/chart1.xml": chart})
+
+        result = convert(hwpx(_ROWS), "a.hwpx", ConvertOptions(max_chars=_LIMIT))
+        full = convert(hwpx(300), "a.hwpx", ConvertOptions(max_chars=None))
+
+        assert result.exceeded
+        assert result.char_count < _LIMIT * 3
+        assert result.text.startswith("Sales:\n\n[Chart] Big\n\n| Category | Sales |\n| --- | --- |\n| 1 | 0 |")
+        assert "| 300 | 299 |" in full.text
+        assert convert(hwpx(300), "a.hwpx", ConvertOptions(max_chars=full.char_count)).text == full.text
+
     @pytest.mark.timing
     @pytest.mark.parametrize("scatter", [False, True])
     def test_chart_of_many_points_is_not_rendered_to_the_end(self, scatter):

@@ -66,7 +66,7 @@ class TableBudget:
 
 def chars_left(extraction: Extraction, options: ConvertOptions) -> int | None:
     """Characters the output can still take before it is over the character limit, from the characters already counted (None: no
-    limit). A chart stops its value rows once their cell text passes it (`_charts.render_chart`, DOCX and PPTX)."""
+    limit). A chart stops its value rows once their cell text passes it (`_charts.render_chart`: DOCX, PPTX, XLSX and HWPX)."""
     return None if options.max_chars is None else options.max_chars - extraction.chars
 
 

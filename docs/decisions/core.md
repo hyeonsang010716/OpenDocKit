@@ -25,7 +25,7 @@ src/opendockit/
     ├── _omml.py     # Office equations (OMML → LaTeX, DOCX/PPTX)
     ├── _symbols.py  # symbol-font mapping (`symbol_font_text` — including ordinary letters in Symbol)
     ├── _lists.py    # automatic number strings, paragraph heads (`paragraph_head`), list levels inside a cell (DOCX/HWP/HWPX), Hangul (HWP) bullet indent levels (`BulletNesting`, HWP/HWPX)
-    ├── _notation.py # character limit inside tables (`TableBudget`, DOCX/HWP/HWPX), tables inside footnotes, comment lines (`comment_line`, DOCX/PPTX/HWPX/Excel), ruby text, the OLE placeholder
+    ├── _notation.py # character limit inside tables (`TableBudget`, DOCX/PPTX/HWP/HWPX; chart value rows, `chars_left`), tables inside footnotes, comment lines (`comment_line`, DOCX/PPTX/HWPX/Excel), ruby text, the OLE placeholder
     ├── _encoding.py # text encoding detection and decoding (TXT, CSV, HTML, mail, and `detect`)
     ├── _mail.py     # MIME mail and mailboxes: where a mail starts, parsing within the nesting limits, body parts in order, forwarded mails, headers, the attachment warning (text/HTML)
     ├── _mail_calendar.py # meeting invitations (text/calendar parts) as labelled lines
@@ -98,7 +98,7 @@ For use on a server see [server.md](../server.md) (conversion must go through `I
   `converter.render` assembles again from `Section.template`. A failed description is a warning, not an exception.
 - The describer builds `langchain_openai.ChatOpenAI` itself (key from `OPENAI_API_KEY`, default model `describe.DEFAULT_MODEL`) or takes a LangChain chat model from the caller.
 - Extractors produce **sections only**. NFC normalization, whitespace cleanup, section heads (`## Slide N`) and the limit verdict are done by `converter` — not in extractors.
-  An extractor reports the character count with `Extraction.count()` for each unit it reads (PDF page, Excel/CSV row, PPTX slide, DOCX/HWP/HWPX top-level paragraph or table — large tables per cell through `TableBudget`)
+  An extractor reports the character count with `Extraction.count()` for each unit it reads (PDF page, Excel/CSV row, PPTX slide, DOCX/HWP/HWPX top-level paragraph or table — large tables per cell through `TableBudget`, PPTX tables too)
   and stops reading when it gets the exceeded signal (True). TXT and MD are read in one go; for HTML only large documents get their front part read first.
 - Tables must be built with `render_table`/`TableGrid`, so that the merged-cell rules (Markdown repeats vertically and keeps the first cell horizontally; a table that still has horizontal spans becomes HTML)
   do not differ per format. A format that has span information passes the span counts to `TableGrid` (it does not repeat values itself). Exception: Excel spreads merges over the cells and is always Markdown ([spreadsheet-tables.md](spreadsheet-tables.md)).

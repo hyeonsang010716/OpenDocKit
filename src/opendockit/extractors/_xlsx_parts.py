@@ -14,6 +14,7 @@ from lxml import etree
 from openpyxl.utils.cell import coordinate_to_tuple
 
 from opendockit.extractors._charts import package_loader, render_chart, render_chartex, render_smartart
+from opendockit.extractors._notation import chars_left
 from opendockit.extractors._openpyxl_reading import _READING, _CellPicture
 from opendockit.extractors._package import _XML_PARSER, decimal_int, named_part, parse_part
 from opendockit.extractors._sheet_layout import (
@@ -119,7 +120,8 @@ def _drawing_blocks(archive: zipfile.ZipFile, names: set[str], sheet_path: str, 
         if embed.startswith(_CHART_REFERENCE):
             kind, _, target = embed.removeprefix(_CHART_REFERENCE).partition("\0")
             path = media.get(target, "")
-            text = _once_per_part(("chart", kind, path), lambda kind=kind, path=path: _chart_text(archive, names, kind, path))
+            text = _once_per_part(("chart", kind, path),
+                                  lambda kind=kind, path=path: _chart_text(archive, names, kind, path, chars_left(extraction, options)))
 
         # Pictures and charts whose target part is missing are left out and reported. openpyxl does not follow drawing
         # relationships while reading (`_RELATIONS_LEFT_UNREAD`, Pinned by: test_spreadsheet.py::TestMissingPartRelationships)
@@ -372,7 +374,7 @@ def _drawing_items(element: etree._Element,
             yield from _drawing_items(child, position)
 
 
-def _chart_text(archive: zipfile.ZipFile, names: set[str], kind: str, path: str) -> str:
+def _chart_text(archive: zipfile.ZipFile, names: set[str], kind: str, path: str, room: int | None = None) -> str:
     """A chart placed on a sheet → "[Chart] title" + a table of the stored values (the same `_charts.render_chart` as PPTX/DOCX).
     For a chart that stores no values (one made by openpyxl), the header-only table is dropped and only the title is kept.
 
@@ -380,6 +382,8 @@ def _chart_text(archive: zipfile.ZipFile, names: set[str], kind: str, path: str)
     source table of a chart is often on a hidden sheet, so the values stored in the chart are carried over
     (Pinned by: test_spreadsheet.py::TestSheetCharts). Text boxes inside a chart (c:userShapes — '(단위: 억원)') are found through
     the chart part's relationships (same as DOCX/PPTX/HWPX. Pinned by: test_core_spreadsheet.py::TestSheetChartUserShapes).
+    The value rows stop once their text passes `room`, the characters the output can still take (`_charts._value_rows`, as in
+    DOCX and PPTX; Pinned by: test_office_table_char_limit.py::TestChartValuesPastTheLimit::test_xlsx_chart_stops_at_the_limit).
     """
     root = parse_part(archive.read(path)) if path in names else None
     if root is None:
@@ -390,9 +394,9 @@ def _chart_text(archive: zipfile.ZipFile, names: set[str], kind: str, path: str)
         return render_smartart(root)
     if _CHART_RENDERERS[kind] is render_chart:
         rendered = render_chart(root, load_related=package_loader(lambda name: archive.read(name) if name in names else None,
-                                                                  path))
+                                                                  path), room=room)
     else:
-        rendered = _CHART_RENDERERS[kind](root)
+        rendered = _CHART_RENDERERS[kind](root, room=room)
     parts = rendered.split("\n\n")
     return "\n\n".join(part for part in parts if not (part.startswith("|") and part.count("\n") < 2))
 
