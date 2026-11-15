@@ -770,7 +770,7 @@ def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> s
     for tag in soup.find_all(_FOLDED_TAGS):
         if id(tag) in removed:
             continue
-        if id(tag) in cut or not _FOLDED_STYLE.search(str(tag.get("style", ""))) or tag.has_attr("hidden") or tag.get("aria-hidden") == "true":
+        if id(tag) in cut or not _FOLDED_STYLE.search(str(tag.get("style", ""))) or _has_hidden(tag) or tag.get("aria-hidden") == "true":
             continue
         opener = tag.find_previous_sibling(True)
         if opener is None or not _is_opener(opener) or _is_overlay(tag):
@@ -1497,7 +1497,15 @@ def _is_spacer(data: bytes) -> bool:
 
 
 def _hidden_by_style(tag: Tag) -> bool:
-    return tag.attrs is not None and (tag.has_attr("hidden") or bool(_HIDDEN_STYLE.search(str(tag.get("style", "")))))
+    return tag.attrs is not None and (_has_hidden(tag) or bool(_HIDDEN_STYLE.search(str(tag.get("style", "")))))
+
+
+def _has_hidden(tag: Tag) -> bool:
+    """Whether the `hidden` attribute hides `tag`. `hidden="until-found"` does not: it folds content that a browser still
+    searches and opens when it is found or linked to — the standard way to fold the answers of an FAQ or the sections of an
+    accordion, as `<details>` does, whose folded content is read too. Other hiding on the element (`display:none`) still
+    counts (Pinned by: test_text_html.py::TestCollapsedQuestionsAndAnswers::test_content_hidden_until_found_is_kept)."""
+    return tag.has_attr("hidden") and str(tag["hidden"]).lower() != "until-found"
 
 
 def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool = True) -> None:
@@ -1547,7 +1555,7 @@ def _hidden_nodes(soup: BeautifulSoup, hidden: list[Tag]) -> list[PageElement]:
         while node is not None and id(node) not in above:
             above.add(id(node))
             node = node.parent
-    special = [tag for tag in hidden if not tag.has_attr("hidden") and not _UNDOABLE_HIDING.search(str(tag.get("style", "")))
+    special = [tag for tag in hidden if not _has_hidden(tag) and not _UNDOABLE_HIDING.search(str(tag.get("style", "")))
                and (tag.name in _PAGE_ROOTS or id(tag) in above)]
     if not special:
         return list(hidden)

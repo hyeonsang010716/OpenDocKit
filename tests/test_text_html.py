@@ -1223,6 +1223,26 @@ class TestCollapsedQuestionsAndAnswers:
 
         assert result.text == "Q1\n\n답 하나\n\nQ2\n\n답 둘"
 
+    def test_content_hidden_until_found_is_kept(self):
+        """`hidden="until-found"` folds content that a browser still searches and opens when it is found or linked to — the
+        standard way to fold FAQ answers and accordion sections, like `<details>`. It is read whatever it holds (a list, mostly
+        links) and whatever comes before it; hiding inside it or around it still counts."""
+        html = ("<h3>Refund policy</h3><div hidden='until-found'>Refunds within 14 days.</div>"
+                "<h3>Links</h3><ul hidden='UNTIL-FOUND'><li><a href='/a'>Terms</a></li><li><a href='/b'>Privacy</a></li></ul>"
+                "<p>Shipping</p><section hidden=until-found><p>2 days.</p><p hidden>Internal note</p></section>"
+                "<div hidden><div hidden='until-found'>Hidden around</div></div>"
+                "<p>Other</p><div hidden='until-found' style='display:none'>Hidden by style</div>")
+
+        result = convert(html.encode(), "faq.html")
+
+        assert result.text == ("### Refund policy\n\nRefunds within 14 days.\n\n### Links\n\n- Terms\n- Privacy\n\n"
+                               "Shipping\n\n2 days.\n\nOther")
+
+    def test_content_hidden_until_found_and_by_style_under_its_question_is_a_folded_answer(self):
+        html = '<dl><dt>Q1</dt><dd hidden="until-found" style="display:none">A1</dd></dl>'
+
+        assert convert(html.encode(), "faq.html").text == "Q1\n\nA1"
+
     @pytest.mark.parametrize(
         "hidden",
         [
@@ -1234,11 +1254,12 @@ class TestCollapsedQuestionsAndAnswers:
             '<p>문단</p><div style="display:none">숨긴 글</div>',
             '<a href="#">열기</a><span style="display:none">숨긴 인라인 글</span>',
             '<a href="#">열기</a><div hidden>숨긴 글</div>',
+            '<a href="#">열기</a><div hidden="hidden">숨긴 글</div><div hidden="until">숨긴 글</div><div hidden="">숨긴 글</div>',
             '<a href="#">열기</a><div style="visibility:hidden">숨긴 글</div>',
             '<div style="display:none"><a href="#">열기</a><div style="display:none">숨긴 글 안의 숨긴 글</div></div>',
         ],
         ids=["dropdown-menu", "link-panel", "modal", "tooltip", "real-link", "no-opener", "inline", "hidden-attribute",
-             "visibility", "inside-hidden"],
+             "hidden-values", "visibility", "inside-hidden"],
     )
     def test_other_hidden_elements_are_still_removed(self, hidden):
         html = f"<p>본문</p><ul>{hidden}</ul>" if hidden.startswith("<li>") else f"<p>본문</p>{hidden}"
