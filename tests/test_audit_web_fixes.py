@@ -563,6 +563,18 @@ class TestStrikethroughAroundBlocks:
         assert convert(html.encode(), "a.html").text == expected
 
     @pytest.mark.parametrize(("html", "expected"), [
+        ("<p>x <del>&#8203;</del> y</p>", "x y"),
+        ("<p><del>a</del>&#8203;<del>b</del> <del>c</del>&shy;<del>d</del></p>", "~~ab~~ ~~cd~~"),
+        ("<p><del>a</del><del>&#8203;</del><del>b</del></p>", "~~ab~~"),
+        ("<p><del>a</del>&#8203; <del>b</del></p>", "~~a~~ ~~b~~"),
+        ("<p>x <del>a<br>&#8203;<br>b</del> y</p>", "x ~~a~~\n\n~~b~~ y"),
+    ])
+    def test_invisible_text_is_no_text(self, html, expected):
+        """Text that cleaning removes (a zero-width space, a soft hyphen) gets no marks of its own, does not keep two runs
+        apart and does not hide the blank line of two line breaks around it."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
         ("<h2><del>a<br><br>b</del></h2>", "## ~~a~~ ~~b~~"),
         ("<h4>x<h4>y</h4><dl><dd><del>a<br><br>b</del></dd></dl></h4>", "#### x\n\n#### y\n\n~~a~~\n\n~~b~~"),
     ])

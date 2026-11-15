@@ -46,7 +46,7 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._package import decimal_int
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_glyph
-from opendockit.markdown import code_fences
+from opendockit.markdown import clean_characters, code_fences
 from opendockit.models import ConvertOptions, Extraction, quiet_warnings
 
 
@@ -961,12 +961,21 @@ def _mark_struck_text(soup: BeautifulSoup, *, links: bool = False, emphasis: boo
         if id(struck) in nested or id(struck) in in_code or struck.name in _CODE_BLOCKS:
             continue
         nested.update(id(inner) for inner in struck.find_all(_is_struck))
-        strings = {id(string) for string in struck.find_all(string=True) if string.strip()}
+        strings = {id(string) for string in struck.find_all(string=True) if _shows_text(string)}
         runs.extend(_struck_runs(struck, strings, holding_code, unfolded))
     spaces: list[tuple[Tag, bool]] = []
     if len(runs) > 1:
         runs, spaces = _joined_runs(soup, runs, links=links, emphasis=emphasis)
     _write_marks(runs, spaces)
+
+
+def _shows_text(text: str) -> bool:
+    """Whether `text` holds anything once the document is cleaned (`markdown.clean_characters`): not only whitespace, nor only
+    invisible characters such as a zero-width space or a soft hyphen. Marked, such text left `~~~~`, between two struck runs it
+    kept them from being one pair (`~~a~~~~b~~` once it was cleaned away), and between two line breaks it hid the blank line
+    they make (Pinned by: test_audit_web_fixes.py::TestStrikethroughAroundBlocks::test_invisible_text_is_no_text). Only text
+    with a character that is not printable is cleaned to find out."""
+    return bool(text.strip()) and (text.isprintable() or bool(clean_characters(text).strip()))
 
 
 def _holding(nodes: list[Tag]) -> set[int]:
@@ -1003,8 +1012,8 @@ def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozen
     printed its tildes (`~~Old price\n\nOld term~~`), as emphasis is not written across blocks either
     (Pinned by: test_audit_web_fixes.py::TestStrikethroughAroundBlocks). Inside a table grouped as a whole nothing is cut: it is
     one line of cell text. A single line break (`<br>`) does not cut the run — a strikethrough holds a line break inside a
-    paragraph. A blank line does: two or more line breaks with no text between them (only whitespace, empty elements or
-    pictures that leave no placeholder) are a blank line once rendered, and one pair around it printed its tildes
+    paragraph. A blank line does: two or more line breaks with no text between them (only whitespace, invisible characters
+    (`_shows_text`), empty elements or pictures that leave no placeholder) are a blank line once rendered, and one pair around it printed its tildes
     (`~~10,000 won\n\nuntil May~~`), as emphasis across it is not written either (`_inline.resolve_inline`). Not in a cell
     of a table drawn as a table, whose line breaks are `<br>` on one line (`_drawn_on_one_line`). In a heading or a table
     caption, which is drawn on one line too, the pair is cut all the same (`## ~~a~~ ~~b~~`, still a strikethrough): whether
@@ -1141,6 +1150,9 @@ def _joined_runs(soup: BeautifulSoup, runs: list[_Run], *, links: bool, emphasis
                 gap.apart = True
                 continue
             index = first_of.get(id(node))
+            if index is None and not _shows_text(node):
+                gap.apart = gap.apart or bool(clean_characters(node))  # whitespace is left of it
+                continue  # invisible characters: cleaned away, they leave nothing between the runs
             if index is None:
                 gap.apart = gap.text = True
             else:
