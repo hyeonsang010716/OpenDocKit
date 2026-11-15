@@ -23,7 +23,8 @@ from opendockit.image import (
     ImageTooLarge,
     ImageUnreadable,
     PreparedImage,
-    is_image_file,
+    header_size,
+    is_decoration,
     needs_heif_plugin,
     prepare_image,
 )
@@ -519,25 +520,39 @@ def _placeholders_only(raw_images: list[RawImage], options: ConvertOptions) -> d
     counted kept them: a long DOCX lost '[Image: Quarterly revenue chart]' at `max_chars=1000`, and the MCP server (100,000 by
     default) never showed a picture of a long document
     (Pinned by: test_converter.py::TestLimits::test_pictures_before_the_cut_keep_their_placeholder_when_the_text_alone_is_over).
-    A picture whose bytes are not those of a picture format that is read (WMF/EMF vectors, a HEIC without its extra, garbage) is
-    one `_prepare_images` cannot decode: it keeps its own alt text and is never taken for a logo, as there. Counted with the
-    others, three copies of a WMF vanished as a logo and a copy took the alt text of another
+
+    What decoding would do is read from the picture's header (`image.header_size`, no pixel decoded). A picture too small or
+    too thin to carry information gets nothing, as decoding drops it (`image.is_decoration`, the test of `prepare_image`): a
+    divider or an icon left `[Image]` in the cut text where the full conversion has none
+    (Pinned by: test_converter.py::TestLimits::test_pictures_that_decoding_drops_leave_nothing_past_the_limit). A picture
+    whose header cannot be read in a format that is read (WMF/EMF vectors, a HEIC without its extra, garbage) or that is over
+    the decode limit is one `_prepare_images` cannot decode: it keeps its own alt text and is never taken for a logo, as
+    there. Counted with the others, three copies of a WMF vanished as a logo and a copy took the alt text of another
     (Pinned by: test_converter.py::TestLimits::test_pictures_that_cannot_be_decoded_keep_their_own_placeholder_past_the_limit).
-    The format is told by its magic bytes (`image.is_image_file`: JPEG, PNG, GIF, TIFF, WebP, HEIC/AVIF, BMP).
-    Known accepted gaps: a small or thin picture that decoding would drop as decoration keeps an `[Image]` here, and so does a
-    broken file of one of those formats; a picture of a rarer format Pillow reads is taken as one that cannot be decoded; copies
-    are told by their bytes, not by the decoded picture.
+
+    Known accepted gaps: a file whose header reads but whose pixels are broken keeps the placeholder of a readable picture;
+    copies are told by their bytes, not by the decoded picture; and what the full conversion takes from the pictures past
+    the stop is not known here, as they are never read: a logo with fewer copies before the stop than
+    `repeated_image_threshold` keeps `[Image]` at those copies, and a copy without alt text does not get the alt text of a
+    later copy (`_prepare_images` gives the first copy the first alt text among all of them).
     """
-    readable = [raw for raw in raw_images if is_image_file(raw.data) and not needs_heif_plugin(raw.data)]
+    sizes: dict[bytes, tuple[int, int] | None] = {}
     counts: dict[bytes, int] = {}
     alts: dict[bytes, str | None] = {}
-    for raw in readable:
-        counts[raw.data] = counts.get(raw.data, 0) + 1
-        alts[raw.data] = alts.get(raw.data) or _alt_text(raw)
     fallbacks: dict[int, str] = {}
     for raw in raw_images:
-        if raw.data not in counts:
+        if raw.data not in sizes:
+            sizes[raw.data] = header_size(raw.data, options.image_max_side)
+        size = sizes[raw.data]
+        if size is None:
             fallbacks[raw.id] = _image_fallback(_alt_text(raw))
+        elif raw.kind is not ImageKind.STANDALONE and is_decoration(*size, min_side=options.min_image_side):
+            fallbacks[raw.id] = ""
+        else:
+            counts[raw.data] = counts.get(raw.data, 0) + 1
+            alts[raw.data] = alts.get(raw.data) or _alt_text(raw)
+    for raw in raw_images:
+        if raw.id in fallbacks:
             continue
         logo = raw.kind is ImageKind.FIGURE and counts[raw.data] >= options.repeated_image_threshold
         fallbacks[raw.id] = "" if raw.kind is ImageKind.PAGE or logo else _image_fallback(alts[raw.data])

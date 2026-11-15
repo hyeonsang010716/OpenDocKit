@@ -129,11 +129,7 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
         if image is None:
             raise ImageUnreadable(type(exc).__name__) from exc
 
-    width, height = image.size
-    too_small = min(width, height) < min_side
-    too_thin = (max(width, height) / max(min(width, height), 1) > _MAX_ASPECT_RATIO
-                and min(width, height) < _CONTENT_SHORT_SIDE)
-    if filter_decorations and (too_small or too_thin):
+    if filter_decorations and is_decoration(*image.size, min_side=min_side):
         raise ImageSkipped
 
     try:
@@ -164,6 +160,30 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
         raise ImageUnreadable(type(exc).__name__) from exc
     return PreparedImage(data, mime_type, shrunk_width, shrunk_height, tiles)
 
+
+def is_decoration(width: int, height: int, *, min_side: int) -> bool:
+    """Whether a picture of this size is one `prepare_image` drops as decoration (`ImageSkipped`): a short side under
+    `min_side` (an icon, a bullet), or an aspect ratio over `_MAX_ASPECT_RATIO` with a short side under `_CONTENT_SHORT_SIDE`
+    (a divider, a piece of border). The converter asks it of the size in the header too (`header_size`)."""
+    short, long = min(width, height), max(width, height)
+    return short < min_side or (long / max(short, 1) > _MAX_ASPECT_RATIO and short < _CONTENT_SHORT_SIDE)
+
+
+def header_size(data: bytes, max_side: int) -> tuple[int, int] | None:
+    """The width and height `prepare_image` decodes the picture at, from its header alone: no pixel is decoded. None for a
+    picture it cannot open (WMF/EMF, a HEIC without its extra, garbage, a format it does not read) or that is over the decode
+    limit (`ImageTooLarge`) — those `prepare_image` cannot decode either. A JPEG over the limit has the size it is read reduced
+    at (`_open_within_pixel_limit`); turning it by its EXIF orientation swaps the sides, which `is_decoration` does not mind.
+    A file whose header reads but whose pixels are broken is a size here and unreadable for `prepare_image`."""
+    try:
+        with quiet_warnings(*_PILLOW_WARNINGS):
+            opened = _open_within_pixel_limit(data, max_side)
+    except Exception:  # noqa: BLE001 — Pillow raises all sorts of exceptions on a file it cannot open, as in `prepare_image`
+        return None
+    try:
+        return opened.size
+    finally:
+        opened.close()
 
 def _decoded(data: bytes, max_side: int) -> Image.Image:
     """The picture, decoded and with its orientation (EXIF) corrected.

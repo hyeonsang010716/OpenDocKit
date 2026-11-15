@@ -31,7 +31,8 @@ A fourth review of the whole source. The sample outputs in `examples/` are uncha
 
 - **Pictures**: when the text alone is over `max_chars`, the pictures before the cut keep their placeholder
   (`[Image: alt text]` or `[Image]`) instead of vanishing with their alt text, so the MCP server shows them in long
-  documents too; they are still not decoded. A 32-bit float picture with a NaN or infinite pixel keeps its gradient
+  documents too; they are still not decoded, and dividers and icons that decoding drops are left out by the size in
+  their header. A 32-bit float picture with a NaN or infinite pixel keeps its gradient
   instead of coming out black.
 - **DOCX**: a header or footer reference without a relationship id no longer rejects the whole document when headers
   and footers are included; only that header is skipped.
