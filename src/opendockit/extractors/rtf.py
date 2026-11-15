@@ -53,11 +53,16 @@ _MAGIC = b"{\\rtf"
 _MAX_GROUP_DEPTH = 500
 _MAX_TABLE_DEPTH = 16
 _MAX_ROW_CELLS = 4096
-# Cells one table may hold. `\cell` is five bytes and a cell of the grid costs several hundred, text or no text: 4,000 rows of
-# 1,000 empty cells (20 MB) took 13 s and 3.4 GB. The cells past the limit are left out — with or without a `\row` after
-# them — and one warning says so
+# Cells one table may hold, the cells of the tables inside it included. `\cell` is five bytes and a cell of the grid costs
+# several hundred, text or no text: 4,000 rows of 1,000 empty cells (20 MB) took 13 s and 3.4 GB. The cells past the limit are
+# left out — with or without a `\row` after them — and one warning says so
 # (Pinned by: test_rtf.py::TestHostileInput::test_cells_past_the_cell_limit_of_a_table_are_left_out_with_a_warning).
 _MAX_TABLE_CELLS = 500_000
+# Tables one top-level table may hold inside it, at any depth. The depth is set per paragraph, so `\itap16 x\nestcell\itap1
+# \cell` (31 bytes) opens and closes 15 tables, each a grid of its own drawn into the one around it: 80,000 of them (2.5 MB)
+# took 11 s and 1.8 GB. The tables past the limit are left out with their text, and one warning says so
+# (Pinned by: test_rtf.py::TestHostileInput::test_tables_past_the_nested_table_limit_are_left_out_with_a_warning).
+_MAX_NESTED_TABLES = 10_000
 # Runs one paragraph may have. Runs that cannot be merged (`{\b a}b` again and again) cost several hundred bytes each when
 # the marks are worked out: 2.8 million of them in one paragraph (20 MB) took 16 s and 2.3 GB. Past the limit the text is
 # still read, as one last run without bold, italic or link — nothing is lost and nothing is cut
@@ -95,7 +100,7 @@ _SKIPPED_WORDS = frozenset((
     b"fontfile", b"pntext", b"listtext", b"objdata", b"objclass", b"objname", b"objalias", b"objsect", b"objtime", b"themedata",
     b"colorschememapping", b"latentstyles", b"datastore", b"generator", b"userprops", b"xmlnstbl", b"listpicture", b"mmathPr",
     b"pgdsctbl", b"nonshppict", b"shprslt", b"nonesttables", b"background", b"template", b"private", b"passwordhash", b"blipuid",
-    b"picprop", b"htmltag", b"mhtmltag", b"ud",
+    b"picprop", b"htmltag", b"mhtmltag", b"ud",   # `\ud` is read only as the second copy of a `\upr` group (`_Reader._upr`)
 ))
 _HEADER_WORDS = frozenset((b"header", b"headerl", b"headerr", b"headerf"))
 _FOOTER_WORDS = frozenset((b"footer", b"footerl", b"footerr", b"footerf"))
@@ -128,6 +133,7 @@ _MERGE_FLAGS = {b"clmgf": _H_FIRST, b"clmrg": _H_CONTINUES, b"clvmgf": _V_FIRST,
 _TRUNCATED = "The RTF document ends before it is complete; only the part that could be read was converted."
 _TOO_DEEP = f"Groups nested deeper than {_MAX_GROUP_DEPTH} levels were not read."
 _TABLE_CUT = f"A table has more than {_MAX_TABLE_CELLS:,} cells; the cells after that were left out."
+_NESTED_CUT = f"A table holds more than {_MAX_NESTED_TABLES:,} tables inside it; the tables after that were left out."
 _TOO_MANY_PICTURES = f"The document has more than {_MAX_PICTURES:,} pictures; the rest were left out."
 
 
@@ -165,7 +171,7 @@ def _page_codec(page: int) -> str | None:
 class _State:
     """What a group scopes: the destination and the character formatting."""
 
-    __slots__ = ("dest", "bold", "italic", "hidden", "font", "uc", "link", "closer", "nested_row")
+    __slots__ = ("dest", "bold", "italic", "hidden", "font", "uc", "link", "closer", "nested_row", "ud", "in_upr")
 
     def __init__(self) -> None:
         self.dest = _BODY
@@ -175,12 +181,14 @@ class _State:
         self.link: str | None = None
         self.closer: str | None = None  # what to finish when this group closes (the group that opened a picture, a footnote, …)
         self.nested_row = False  # inside `\*\nesttableprops`: row definitions belong to the nested table
+        self.ud: int | None = None  # a `\upr` group read through its `\ud` copy: the destination that copy is read into
+        self.in_upr = False  # inside a `\upr` group read through its first copy: a `\upr` here is not looked ahead of again
 
     def child(self) -> "_State":
         state = _State.__new__(_State)
         state.dest, state.bold, state.italic, state.hidden = self.dest, self.bold, self.italic, self.hidden
         state.font, state.uc, state.link, state.nested_row = self.font, self.uc, self.link, self.nested_row
-        state.closer = None
+        state.closer, state.ud, state.in_upr = None, None, self.in_upr
         return state
 
 
@@ -232,15 +240,21 @@ class _RowDefinition:
 
 
 class _Table:
-    __slots__ = ("grid", "rows", "cells", "cell", "budget", "count")
+    __slots__ = ("grid", "rows", "cells", "cell", "budget", "root", "used", "nested", "dropped", "holds")
 
-    def __init__(self, budget: TableBudget | None) -> None:
+    def __init__(self, budget: TableBudget | None, root: "_Table | None" = None, *, dropped: bool = False) -> None:
         self.grid = TableGrid()
         self.rows: list[tuple[list[str], tuple[tuple[int | None, int], ...]]] = []
         self.cells: list[str] = []  # finished cells of the row being read
         self.cell: list[str] = []   # paragraphs of the cell being read
         self.budget = budget
-        self.count = 0     # cells in `rows`
+        # The top-level table: it counts the cells (`_MAX_TABLE_CELLS`) and the nested tables (`_MAX_NESTED_TABLES`) of every
+        # table inside it as well as its own
+        self.root = root or self
+        self.used = 0      # on the root: cells kept so far
+        self.nested = 0    # on the root: tables opened inside it
+        self.dropped = dropped  # a nested table past the limit (or inside one): nothing of it is kept
+        self.holds = False  # the cell being read holds a nested table
 
     def build(self) -> TableGrid:
         """Place the rows read so far into the grid.
@@ -380,19 +394,37 @@ class _Flow:
         while len(self.tables) > depth:
             self._close_table()
         while len(self.tables) < depth:
-            # Only a top-level table of the body watches the character limit while its cells are read (`_notation.TableBudget`).
-            counted = self.kind == "body" and not self.tables
-            self.tables.append(_Table(TableBudget(self.reader.extraction, self.reader.options) if counted else None))
+            if not self.tables:
+                # Only a top-level table of the body watches the character limit while its cells are read (`_notation.TableBudget`).
+                counted = self.kind == "body"
+                self.tables.append(_Table(TableBudget(self.reader.extraction, self.reader.options) if counted else None))
+                continue
+            # A table inside a table counts against the top-level table it is in (`_MAX_NESTED_TABLES`).
+            outer = self.tables[-1]
+            root = outer.root
+            dropped = outer.dropped or root.nested >= _MAX_NESTED_TABLES
+            if dropped and not outer.dropped:
+                self.reader.nested_cut = True
+            elif not dropped:
+                root.nested += 1
+            self.tables.append(_Table(None, root, dropped=dropped))
 
     def _close_table(self) -> None:
         table = self.tables.pop()
+        if table.dropped:
+            return
+        if table.cell:  # text after the last `\cell` is a cell (`_Table.build`), inside the limit like any other
+            self._keep(table, "\n".join(table.cell))
+            table.cell = []
         grid = table.build()
         if self.tables:
             # A table inside a cell is drawn in place by the outer table, as in DOCX
             # (Pinned by: test_rtf.py::TestTables::test_nested_table_keeps_its_rows_and_columns).
-            placeholder = self.tables[-1].grid.embed(grid)
+            outer = self.tables[-1]
+            placeholder = outer.grid.embed(grid)
             if placeholder:
-                self.tables[-1].cell.append(placeholder)
+                outer.cell.append(placeholder)
+                outer.holds = True
         elif self.kind == "note":
             # A table inside a footnote is one line, as in DOCX/HWP (`_notation.note_table` shape: cells ' / ', rows '; ').
             self.add_block(NOTE_ROW_SEPARATOR.join(line for line in grid.flatten().split("\n") if line.strip()))
@@ -413,7 +445,8 @@ class _Flow:
         self._enter(depth)
         for block in blocks:
             if depth:
-                self.tables[-1].cell.append(block)
+                if not self.tables[-1].dropped:
+                    self.tables[-1].cell.append(block)
             else:
                 self.add_block(block)
 
@@ -424,7 +457,8 @@ class _Flow:
         if not text:
             return
         if depth:
-            self.tables[-1].cell.append(text)
+            if not self.tables[-1].dropped:
+                self.tables[-1].cell.append(text)
         else:
             self.add_block(text)
 
@@ -436,12 +470,25 @@ class _Flow:
             table.cell.append(text)
         cell = "\n".join(table.cell)
         table.cell = []
-        if table.count + len(table.cells) >= _MAX_TABLE_CELLS:
-            self.reader.table_cut = True   # the table is full: this cell and the ones after it are left out
+        if table.dropped or not self._keep(table, cell):
             return
-        table.cells.append(cell)
         if table.budget is not None and table.budget.add(len(table.rows), len(table.cells) - 1, cell):
             self.reader.stopped = True
+
+    def _keep(self, table: _Table, cell: str) -> bool:
+        """Add a finished cell to the row being read, if the top-level table has room for it (`_MAX_TABLE_CELLS`, shared with
+        the tables inside it: each nested table used to have a limit of its own
+        (Pinned by: test_rtf.py::TestHostileInput::test_cells_of_nested_tables_count_against_the_cell_limit_of_the_outer_table))."""
+        holds, table.holds = table.holds, False
+        if table.root.used >= _MAX_TABLE_CELLS:
+            self.reader.table_cut = True   # the table is full: this cell and the ones after it are left out …
+            if not holds:
+                return False
+            # … except a cell that holds a nested table: the cells of that table were kept inside the limit. Only the tables
+            # open when the limit was reached can still hold kept cells, so this adds at most `_MAX_TABLE_DEPTH` cells.
+        table.root.used += 1
+        table.cells.append(cell)
+        return True
 
     def end_row(self, *, nested: bool) -> None:
         depth = min(max(self._depth(), 2), len(self.tables)) if nested else 1
@@ -449,11 +496,12 @@ class _Flow:
             return
         self._enter(depth)
         table = self.tables[-1]
+        if table.dropped:
+            return
         if table.cell:
-            table.cells.append("\n".join(table.cell))
+            self._keep(table, "\n".join(table.cell))
             table.cell = []
         if table.cells:
-            table.count += len(table.cells)
             # Only the edges of the cells the row really has are kept: the rest of a definition says nothing about this row.
             table.rows.append((table.cells, (self.nested_row if nested else self.row).shared()[:len(table.cells)]))
             table.cells = []
@@ -543,6 +591,7 @@ class _Reader:
         self.stopped = False  # the character limit was exceeded: nothing more is read
         self.omitted_rows = 0
         self.table_cut = False
+        self.nested_cut = False
         self._truncated = False
         self._too_deep = False
 
@@ -672,7 +721,11 @@ class _Reader:
                 if word == b"bin":
                     pos = self._binary(pos, number or 0)
                 elif dest == _SKIP:
+                    if word == b"ud" and self._stack and self._stack[-1].ud is not None:
+                        state.dest = self._stack[-1].ud   # the Unicode copy of a `\upr` group (`_upr`)
                     continue
+                elif word == b"upr" and dest != _PICT:
+                    self._upr(pos)
                 elif not self._common(word, number):
                     if dest == _BODY:
                         self._body_word(word, number, star)
@@ -706,6 +759,46 @@ class _Reader:
             self._finish(closer)
         if self._stack:
             self._state = self._stack.pop()
+
+    def _upr(self, pos: int) -> None:
+        """`{\\upr{ANSI copy}{\\*\\ud{Unicode copy}}}`: the same text twice, for readers that do not know `\\uN` and for those that
+        do. The Unicode copy is read and the rest of the group is skipped: the ANSI copy has '?' for every character its code
+        page lacks (Pinned by: test_rtf.py::TestCharacters::test_upr_group_is_read_through_its_unicode_copy). A group without
+        a `\\ud` copy among its own groups is read as it is, as is a `\\upr` inside one such group: looking ahead of each of
+        those again would read the same bytes once per level of nesting."""
+        state = self._state
+        if state.in_upr:
+            return
+        if self._ud_follows(pos):
+            state.ud, state.dest = state.dest, _SKIP
+        else:
+            state.in_upr = True
+
+    def _ud_follows(self, pos: int) -> bool:
+        """Does a group directly inside the group being read, from `pos` to its end, start with `\\ud` (after `\\*`)? Each byte is
+        looked at here once at most: the bytes before the `\\ud` group are then skipped, and a `\\upr` inside a group read
+        through its first copy is not looked ahead of (Pinned by: test_rtf.py::TestHostileInput::test_upr_groups_are_looked_ahead_of_once)."""
+        data, size, match = self._data, len(self._data), _TOKEN.match
+        depth, opening = 1, False  # `opening`: only `\*` and white space read since a group directly inside opened
+        while pos < size:
+            token = match(data, pos)
+            if token is None:
+                return False
+            pos = token.end()
+            kind = token.lastindex
+            if kind == 5:
+                depth += 1 if token.group(5) == b"{" else -1
+                if not depth:
+                    return False
+                opening = depth == 2 and token.group(5) == b"{"
+                continue
+            if kind == 2 and token.group(1) == b"bin":
+                pos = min(pos + max(int(token.group(2)), 0), size)
+            if opening:
+                if kind <= 2 and token.group(1) == b"ud":
+                    return True
+                opening = (kind == 4 and token.group(4) == b"*") or (kind == 6 and not token.group(6).strip())
+        return False
 
     def _drop(self, data: bytes) -> None:
         """Drop fallback bytes after `\\uN`. When they are only the start of the escaped character in the run's code page, the
@@ -1257,6 +1350,8 @@ class _Reader:
             warnings.append(omitted_rows_warning(self.omitted_rows))
         if self.table_cut:
             warnings.append(_TABLE_CUT)
+        if self.nested_cut:
+            warnings.append(_NESTED_CUT)
         notes = "\n".join(f"[^{number}]: {text}" for number, text in enumerate(self._notes, 1))
         return join_blocks([join_blocks(self._headers), body, join_blocks(self._footers), notes])
 
