@@ -492,7 +492,7 @@ class TestRunner:
 
         def run(command, working_folder):
             started.append(command)
-            (Path(command[command.index("--outdir") + 1]) / "input.docx").mkdir()   # there, but cannot be read as a file
+            (Path(command[command.index("--outdir") + 1]) / "input.docx").write_bytes(b"PK")   # written, but not readable below
 
         def no_space(*args, **kwargs):
             raise OSError(28, "No space left on device: '/secret/tmp'")
@@ -502,6 +502,9 @@ class TestRunner:
             monkeypatch.setattr(legacy.tempfile, "mkdtemp", no_space)
         elif failing == "input":
             monkeypatch.setattr(Path, "write_bytes", no_space)
+        else:
+            # A read that fails (a directory in place of the file has size 0 on Windows and reads as 'no output' there)
+            monkeypatch.setattr(Path, "read_bytes", no_space)
 
         with pytest.raises(ConversionError) as caught:
             convert(_doc(), "a.doc")
