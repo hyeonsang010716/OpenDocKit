@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-11-15
+
 ### Added
 
 - **PDF**: footnotes are linked where the page proves them. When a page has a short footnote rule with smaller notes
@@ -303,7 +305,8 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.5...HEAD
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.6...HEAD
+[0.3.6]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.6
 [0.3.5]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.5
 [0.3.4]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.4
 [0.3.3]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.3
