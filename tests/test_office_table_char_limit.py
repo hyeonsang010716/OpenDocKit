@@ -486,11 +486,10 @@ class TestPptxCharacterLimitInsideOneTable:
         assert best(hidden=False) < best(hidden=True) * 2 + 0.3
 
 
-def _pptx_with_big_chart(points: int, *, scatter: bool = False, valid: bool = True) -> bytes:
-    """A slide with one chart of `points` cached points (a bar chart with a percentage format, or a scatter chart). With `valid`
-    False every point index is past the range a chart can write, so the same XML is parsed and walked but there is no value row."""
+def _pptx_with_big_chart(points: int, *, scatter: bool = False) -> bytes:
+    """A slide with one chart of `points` cached points (a bar chart with a percentage format, or a scatter chart)."""
     def cache(offset: int, format_code: str = "") -> str:
-        values = "".join(f'<c:pt idx="{index if valid else index + 2**32}"><c:v>{index + offset}</c:v></c:pt>' for index in range(points))
+        values = "".join(f'<c:pt idx="{index}"><c:v>{index + offset}</c:v></c:pt>' for index in range(points))
         code = f"<c:formatCode>{format_code}</c:formatCode>" if format_code else ""
         return f'<c:numRef><c:numCache>{code}<c:ptCount val="{points}"/>{values}</c:numCache></c:numRef>'
 
@@ -623,10 +622,12 @@ class TestChartValuesPastTheLimit:
     @pytest.mark.timing
     @pytest.mark.parametrize("scatter", [False, True])
     def test_chart_of_many_points_is_not_rendered_to_the_end(self, scatter):
-        """Stopped at the limit, a chart of 200,000 points takes about the time of parsing and walking its XML: measured against
-        the same chart whose point indexes cannot exist (walked, no row), so the speed of the machine does not matter."""
-        def best(valid: bool) -> float:
-            data = _pptx_with_big_chart(200_000, scatter=scatter, valid=valid)
-            return min(_seconds(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=_LIMIT))) for _ in range(2))
+        """Stopped at the limit, a chart of 200,000 points takes a fraction of the time of the same chart drawn to its end
+        (about a quarter for bars, two fifths for scatter); drawn to the end under the limit too, it took as long. Measured
+        against that full conversion of the same file, so the speed and load of the machine do not matter."""
+        data = _pptx_with_big_chart(200_000, scatter=scatter)
 
-        assert best(valid=True) < best(valid=False) * 1.6 + 0.3
+        def best(limit: int | None) -> float:
+            return min(_seconds(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=limit))) for _ in range(2))
+
+        assert best(_LIMIT) < best(None) * 0.7
