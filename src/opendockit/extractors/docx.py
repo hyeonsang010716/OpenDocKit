@@ -65,7 +65,6 @@ from opendockit.extractors._notation import (
     COMMENT_TARGET_MAX,
     OLE_PLACEHOLDER,
     TableBudget,
-    chars_left,
     comment_line,
     note_table,
     omitted_rows_warning,
@@ -161,6 +160,12 @@ class _DocxRenderer:
         self._grids: list[TableGrid] = []
         self._chunks: dict[object, Extraction] = {}  # imported-content part → its conversion (`_chunk_blocks`)
         self._chart_titles: dict[object, str] = {}  # chart part already written → its `[Chart] title` line (`_object_block`)
+        self._smartart: dict[tuple[object, bool], str] = {}  # (SmartArt data part, inside a cell) → its text (`_object_block`)
+        # The character limit inside one block of the body, one header or footer part: the top-level table being read (its
+        # cells are counted as they are read) and the characters of the imported content, SmartArt and charts written since the
+        # last count (`_room`)
+        self._budget: TableBudget | None = None
+        self._pending = 0
         self._drop_cap: tuple[etree._Element, str] | None = None  # (drop-cap paragraph, its text). Prepended to the very next paragraph
         # Preceding list items not yet closed. Cells, headers and text boxes count separately (`_list_depth`)
         self._list_items: list[_ListItem] = []
@@ -191,8 +196,42 @@ class _DocxRenderer:
         """Content of a part other than the body, such as a header or footer. Relationship ids of pictures and charts are looked up in
         that part. Looked up in the body part, a different part with the same id was registered as the picture
         (Pinned by: test_office.py::TestDocxObjects::test_header_picture_comes_from_the_header_part)."""
-        with self.in_part(part), self._own_lists():
-            return self.render_container(container)
+        pending, self._pending = self._pending, 0
+        try:
+            with self.in_part(part), self._own_lists():
+                return self.render_container(container)
+        finally:
+            self._pending = pending
+
+    def render_top_block(self, element: etree._Element) -> list[str]:
+        """One block of the body. The caller counts its characters once it is rendered, so what was written before is in
+        `Extraction.chars` and the characters written since the last count start again (`_room`)."""
+        self._pending = 0
+        return self.render_block(element)
+
+    def _room(self) -> int | None:
+        """Characters the output can still take (None: no limit), below the characters already counted, those of the cells read
+        from the top-level table and those of the imported content, SmartArt and charts written since. A header, footer or note
+        is checked against its own characters only, as a table there is (`_render_table`).
+
+        The paragraphs, cells and text boxes of one block are all rendered before the block is counted, and one imported part or
+        SmartArt writes its whole content at every reference: 200 references to a 400 K-character chunk from the text boxes of
+        one paragraph or the blocks of one cell, or 200 frames of one SmartArt, built 80 M characters before anything was cut.
+        Once nothing is left, further imported content and SmartArt are not written (`_chunk_blocks`, `_object_block`): the
+        text is already past the limit before them, so the cut text is the same (Pinned by: test_office_table_char_limit.py::
+        TestRepeatedContentPastTheLimit)."""
+        if self._options.max_chars is None:
+            return None
+        if self._budget is not None:
+            counted = self._budget.counted
+        else:
+            counted = self._extraction.chars if self._part is self._main_part else 0
+        return self._options.max_chars - counted - self._pending
+
+    def _written(self, text: str) -> str:
+        """`text` of imported content, SmartArt or a chart, charged to the characters written since the last count (`_room`)."""
+        self._pending += solid_length(text)
+        return text
 
     @contextmanager
     def in_part(self, part: object) -> Iterator[None]:
@@ -235,6 +274,9 @@ class _DocxRenderer:
         blob = getattr(part, "blob", None)
         if not blob:  # broken relationship or empty part
             return []
+        room = self._room()
+        if room is not None and room < 0:  # past the character limit: the text is cut before it (`_room`)
+            return []
 
         content_type = part.content_type.split(";")[0].strip().lower()
         # A part is converted once however many w:altChunk point at it; each reference still writes its content. It was
@@ -262,7 +304,7 @@ class _DocxRenderer:
             # text went into the cell and became a mess of `\|` and `<br>` (Pinned by:
             # test_office.py::TestDocxImportedChunks::test_table_of_an_html_chunk_inside_a_table_cell_keeps_its_rows_and_columns).
             text = _embed_markdown_tables(text, embedded_table(self._grids[-1]))
-        return [text] if text.strip() else []
+        return [self._written(text)] if text.strip() else []
 
     def _render_paragraph(self, paragraph: etree._Element) -> list[str]:
         # A paragraph wrapped by an empty content control is placeholder text ("여기를 클릭하세요", "Click here"). Some wrap a cell, so
@@ -451,10 +493,14 @@ class _DocxRenderer:
         budget = None if self._grids else TableBudget(self._extraction if self._part is self._main_part else Extraction(), self._options)
         outer = self._grids[-1] if self._grids else None
         self._grids.append(grid)
+        if budget is not None:
+            saved, self._budget = self._budget, budget
         try:
             self._place_cells(grid, cells, budget)
         finally:
             self._grids.pop()
+            if budget is not None:
+                self._budget = saved
         # A table inside a table is rendered in place by the outer table
         # (Pinned by: test_quality.py::test_docx_nested_table_keeps_its_rows_and_columns).
         if outer is not None:
@@ -494,9 +540,14 @@ class _DocxRenderer:
 
     def _cell_text(self, cell: etree._Element) -> str:
         # A table inside a table comes back as a placeholder handed to the outer table (`_render_table`). List levels inside a cell
-        # are counted per cell.
-        with self._own_lists():
-            lines = [line for element in _children(cell, *_BLOCK_TAGS) for line in self.render_block(element)]
+        # are counted per cell. The cell text is counted by the table budget once it is read, so what its imported content,
+        # SmartArt and charts charged to the characters written since the last count is given back then (`_room`).
+        pending = self._pending
+        try:
+            with self._own_lists():
+                lines = [line for element in _children(cell, *_BLOCK_TAGS) for line in self.render_block(element)]
+        finally:
+            self._pending = pending
         return "\n".join(line for line in lines if line.strip())
 
     def image_marker(self, element: etree._Element) -> str:
@@ -561,7 +612,9 @@ class _DocxRenderer:
         # later frames give `[Chart] title` (the rule for ODF objects). The part was parsed and rendered again for every frame
         # (Pinned by: test_audit_office.py::TestChartPartReferencedByManyFrames).
         if part in self._chart_titles:
-            return self._chart_titles[part]
+            return self._written(self._chart_titles[part])
+        if render is render_smartart:
+            return self._smartart_block(part)
         blob = getattr(part, "blob", None)
         root = parse_part(blob) if blob else None
         if root is None:
@@ -569,28 +622,34 @@ class _DocxRenderer:
         # Text boxes inside a chart (c:userShapes) are found through the chart part's relationships
         # (Pinned by: test_office_chart_units_and_ole.py::TestChartUserShapes).
         extra = {"load_related": related_loader(part)} if render is render_chart else {}
-        # The value rows of a chart stop once their text passes the characters the output can still take. A chart in a header,
-        # footer or note is checked against its own characters only, as a table there is (`_render_table`) (Pinned by:
+        # The value rows of a chart stop once their text passes the characters the output can still take (`_room`). A chart in
+        # a header, footer or note is checked against its own characters only, as a table there is (`_render_table`) (Pinned by:
         # test_office_table_char_limit.py::TestChartValuesPastTheLimit::test_docx_chart_stops_at_the_limit,
         # test_header_chart_is_not_cut_by_the_characters_of_the_body).
-        if render is not render_smartart:
-            extra["room"] = chars_left(self._extraction if self._part is self._main_part else Extraction(), self._options)
-        if not self._grids:
-            return self._first_frame(part, render, render(root, **extra))
-
-        # Inside a table cell: a chart's value table is handed to the outer table (like a table inside a table) and SmartArt levels
-        # are shown with `cell_level_mark`. The Markdown table text went into the cell and became a mess of `\|` and `<br>`, and the
-        # level indentation was removed (Pinned by: test_office_cells_and_notes.py::
+        extra["room"] = self._room()
+        # Inside a table cell: a chart's value table is handed to the outer table (like a table inside a table). The Markdown table
+        # text went into the cell and became a mess of `\|` and `<br>` (Pinned by: test_office_cells_and_notes.py::
         # TestDocxObjectsInsideTableCells).
-        if render is render_smartart:
-            return render_smartart(root, in_cell=True)
-        return self._first_frame(part, render, render(root, embedded_table(self._grids[-1]), **extra))
+        text = render(root, embedded_table(self._grids[-1]), **extra) if self._grids else render(root, **extra)
+        # Remember the title line written at the first frame
+        self._chart_titles[part] = text.split("\n", 1)[0]
+        return self._written(text)
 
-    def _first_frame(self, part: object, render: Callable[..., str], text: str) -> str:
-        """Remember the title line of a chart written at its first frame (`_object_block`). SmartArt is not remembered."""
-        if render is not render_smartart:
-            self._chart_titles[part] = text.split("\n", 1)[0]
-        return text
+    def _smartart_block(self, part: object) -> str:
+        """Text of a SmartArt data part. It is read and rendered once per part (once inside a table cell, where lower levels are
+        shown with `cell_level_mark`, and once outside — Pinned by: test_office_cells_and_notes.py::
+        TestDocxObjectsInsideTableCells); every frame still writes it, as every reference to an imported part does
+        (`_chunk_blocks`). The part was parsed and rendered again for every frame, and once the output is past the character
+        limit nothing more is written (`_room`. Pinned by: test_office_table_char_limit.py::TestRepeatedContentPastTheLimit)."""
+        room = self._room()
+        if room is not None and room < 0:
+            return ""
+        key = (part, bool(self._grids))
+        if key not in self._smartart:
+            blob = getattr(part, "blob", None)
+            root = parse_part(blob) if blob else None
+            self._smartart[key] = render_smartart(root, in_cell=bool(self._grids)) if root is not None else ""
+        return self._written(self._smartart[key])
 
     def _paragraph_style(self, paragraph: etree._Element) -> _Style | None:
         style_ref = paragraph.find(f"{_w('pPr')}/{_w('pStyle')}")
@@ -827,7 +886,7 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
     # the body is not read.
     body: list[str] = []
     for element in _children(document.element.body, *_BLOCK_TAGS):
-        rendered = renderer.render_block(element)
+        rendered = renderer.render_top_block(element)
         body.extend(rendered)
         if extraction.count(sum(solid_length(block) for block in rendered), options):
             break

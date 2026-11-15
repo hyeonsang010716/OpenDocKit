@@ -58,6 +58,11 @@ class TableBudget:
                 self._counted += solid_length(text)
         return self._extraction.chars + self._counted > self._limit
 
+    @property
+    def counted(self) -> int:
+        """Characters already counted plus the cell text read from this table so far (what `add` compares with the limit)."""
+        return self._extraction.chars + self._counted
+
     def forget(self) -> None:
         """A cell with an unknown position (`TableGrid.place_next`) arrived. Where it will sit is unknown, so the remaining cells of
         this table are not counted."""

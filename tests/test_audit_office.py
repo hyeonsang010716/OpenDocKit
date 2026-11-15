@@ -25,9 +25,11 @@ from tests.test_office import (
     _OLE_FRAME,
     _chart_series,
     _chart_xml,
+    _chartex_xml,
     _docx_inline,
     _docx_with_body,
     _docx_with_chunks,
+    _pptx_with_chartex,
     _replace_picture,
 )
 from tests.timing import allowed
@@ -406,6 +408,24 @@ class TestChartPartReferencedByManyFrames:
 
         assert text == once + "\n\n[Chart] Sales" * 30
         assert parses == [1]
+
+    def test_pptx_chartex_is_read_once_and_its_values_written_once(self, monkeypatch: pytest.MonkeyPatch):
+        """The same for the new chart kinds (cx:chart), whose readability decides between the frame and its fallback picture:
+        decided once per part as well (one parse for it, one for the values)."""
+        deck = _pptx_with_chartex(fallback=True, chart_part=_chartex_xml("손익 분석", ["매출", "원가"], ["100", "-60.0"]))
+        once = convert(deck, "sample.pptx").text
+        assert once.endswith("[Chart] 손익 분석\n\n| Category | 금액 |\n| --- | --- |\n| 매출 | 100 |\n| 원가 | -60 |")
+
+        def repeat_frame(xml: str) -> str:
+            frame = re.search(r"<mc:AlternateContent .*?</mc:AlternateContent>", xml, flags=re.DOTALL).group(0)
+            return xml.replace(frame, frame * 31)
+
+        parses = _count_chart_parses(monkeypatch, pptx_module)
+
+        result = convert(builder.zip_with(deck, edit={"ppt/slides/slide1.xml": repeat_frame}), "sample.pptx")
+
+        assert result.text == once + "\n\n[Chart] 손익 분석" * 30
+        assert parses == [2] and not result.images
 
     @staticmethod
     def _docx_with_chart_frames(body: str) -> bytes:
