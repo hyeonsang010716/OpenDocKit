@@ -3,6 +3,7 @@
 from io import BytesIO
 from pathlib import Path
 import time
+import zipfile
 
 import pytest
 
@@ -696,14 +697,25 @@ class TestDetectionOnItsOwn:
     """`detect_format` is public. `convert` gathers library exceptions at its boundary, but called on its own detection let a
     `RuntimeError` / `NotImplementedError` with zipfile's wording out."""
 
-    @pytest.mark.parametrize("data", [_zip_with_damaged_mimetype(flag=1), _zip_with_damaged_mimetype(method=99)],
-                             ids=["encrypted-part", "unknown-compression"])
-    def test_container_that_cannot_be_inspected_is_a_conversion_error(self, data):
+    def test_container_that_cannot_be_inspected_is_a_conversion_error(self):
+        data = _zip_with_damaged_mimetype(method=99)
+
         with pytest.raises(CorruptedDocumentError) as raised:
             detect_format(data, "book.epub")
 
         assert str(raised.value) == "Could not parse the file format. The file may be corrupted."
         with pytest.raises(CorruptedDocumentError, match="^Could not parse the file format"):
+            convert(data, "book.epub")
+
+    def test_password_protected_part_is_an_encrypted_document_not_a_library_error(self):
+        """A `mimetype` with the ZIP password bit is not read (zipfile raised a RuntimeError); nothing else tells the format."""
+        data = _zip_with_damaged_mimetype(flag=1)
+
+        with pytest.raises(EncryptedDocumentError) as raised:
+            detect_format(data, "book.epub")
+
+        assert str(raised.value) == "The document is password-protected. Please remove the password and upload it again."
+        with pytest.raises(EncryptedDocumentError, match="password-protected"):
             convert(data, "book.epub")
 
     @pytest.mark.parametrize("wrap", [bytes, bytearray, memoryview])
@@ -718,3 +730,46 @@ class TestDetectionOnItsOwn:
             detect_format(data)
         with pytest.raises(TypeError, match="file name must be a str"):
             detect_format(b"plain text", Path("a.txt"))
+
+
+def _zip(parts: dict[str, str]) -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, content in parts.items():
+            archive.writestr(name, content)
+    return buffer.getvalue()
+
+
+class TestPasswordProtectedZip:
+    """A ZIP protected with a password (`zip -e`: every member carries the encryption bit) was a 'corrupted file': detection
+    read `mimetype` / `_rels/.rels` and zipfile refused them. The part names are not encrypted, so they tell the format where
+    they can; where they cannot, the file is password-protected."""
+
+    @pytest.mark.parametrize(("data", "expected"), [
+        (builder.docx_bytes(), DocumentFormat.DOCX),
+        (builder.xlsx_bytes(), DocumentFormat.XLSX),
+        (builder.hwpx_bytes(), DocumentFormat.HWPX),
+        (_zip({"mimetype": "application/epub+zip", "META-INF/container.xml": "<container/>"}), DocumentFormat.EPUB),
+    ], ids=["docx", "xlsx", "hwpx", "epub"])
+    def test_format_is_told_by_the_part_names(self, data, expected):
+        assert detect_format(builder.zip_password(data)) is expected
+
+    def test_opendocument_kind_is_read_from_an_unprotected_mimetype(self):
+        """ODF writes `mimetype` first and stored; when only the content is protected, the kind is still known."""
+        data = _zip({"mimetype": "application/vnd.oasis.opendocument.spreadsheet", "content.xml": "<x/>",
+                     "META-INF/manifest.xml": "<manifest/>"})
+
+        assert detect_format(builder.zip_password(data, {"content.xml", "META-INF/manifest.xml"})) is DocumentFormat.ODS
+
+    def test_package_whose_names_do_not_tell_the_format_is_encrypted(self):
+        data = builder.zip_password(_zip({"mimetype": "application/vnd.oasis.opendocument.text", "content.xml": "<x/>"}))
+
+        with pytest.raises(EncryptedDocumentError, match="^The document is password-protected"):
+            detect_format(data, "a.odt")
+
+    def test_protected_archive_of_other_files_is_still_unsupported(self):
+        """Only a part detection reads makes the archive a protected document; an ordinary protected ZIP is not one."""
+        data = builder.zip_password(_zip({"readme.txt": "x", "photo.jpg": "y"}))
+
+        with pytest.raises(UnsupportedFormatError, match="archive file format is not supported"):
+            detect_format(data, "a.zip")

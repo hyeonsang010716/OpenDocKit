@@ -31,6 +31,16 @@ _EVERYDAY_HANGUL = frozenset(bytes((lead, trail)).decode("euc_kr") for lead in r
 # A non-ASCII byte not immediately followed by an ASCII letter. If there is none, every character CP949 decodes is of the form
 # 'extended Hangul + a swallowed letter'.
 _HIGH_BYTE_NOT_BEFORE_LETTER = re.compile(rb"[\x80-\xff](?![A-Za-z])")
+# A run of non-ASCII bytes (`_accents_read_as_cp949`).
+_HIGH_BYTES = re.compile(rb"[\x80-\xff]+")
+# Punctuation and signs Western European text puts next to its words in Windows-1252 (`_accents_read_as_cp949`); everything
+# else outside ASCII must be a letter.
+_WESTERN_SIGNS = frozenset("‘’‚“”„–—…€«»‹›°·•")
+# Everyday Hangul syllables whose two CP949 bytes are both uppercase accented letters in Windows-1252 (À–Þ without ×): `ÇÃ` is `플`
+# (`_accents_read_as_cp949`).
+_UPPERCASE_ACCENT_SYLLABLES = frozenset(
+    syllable for syllable in _EVERYDAY_HANGUL
+    if all(0xC0 <= byte <= 0xDE and byte != 0xD7 for byte in syllable.encode("euc_kr")))
 # A run of three or more non-ASCII bytes. Accents and punctuation in Western European text sit one or two at a time between
 # ASCII letters, while Cyrillic, Greek or Thai text and text in multi-byte encodings runs on for whole words.
 _HIGH_BYTE_RUN = re.compile(rb"[\x80-\xff]{3}")
@@ -82,8 +92,10 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     statistical detection, and a CSV whose first Hangul appears after 20,000 characters got the `(replaced)` warning without any
     replacement character (Pinned by: test_text_html.py::TestLegacyKoreanWithoutHangulAtTheFront). However, if every non-ASCII
     byte sits only right before an ASCII letter (as CP949, all 'extended Hangul + a swallowed letter'), it is read as
-    Windows-1252 — `Company’s` and `25°C` became `Company뭩` and `25캜` (Pinned by: TestWesternText). Known accepted gap: CP949
-    text whose only non-ASCII characters are extended Hangul before a letter (`A햏B`) is read as Windows-1252.
+    Windows-1252 — `Company’s` and `25°C` became `Company뭩` and `25캜` (Pinned by: TestWesternText). So is text whose CP949
+    reading holds only hanja and extended Hangul while its Windows-1252 reading holds accents inside Western words
+    (`_accents_read_as_cp949` — `Situação` became `Situa豫o`). Known accepted gap: CP949 text whose only non-ASCII characters are
+    extended Hangul before a letter (`A햏B`), or one or two hanja against a Latin letter (`李OK`), is read as Windows-1252.
 
     A declared charset is trusted only when strict decoding succeeds (UTF-8 labeled EUC-KR is caught first by strict UTF-8). Only
     Windows-1252/ISO-8859-1 declarations, which servers and editors attach by default, are checked after strict CP949 decoding —
@@ -142,6 +154,8 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     text = _strict(data, _KOREAN_LEGACY)
     if text is not None:
         western = None if _HIGH_BYTE_NOT_BEFORE_LETTER.search(data) else _strict(data, _WESTERN)
+        if western is None and _accents_read_as_cp949(data, text):
+            western = _strict(data, _WESTERN)
         return (_with_filler_syllables(text), _KOREAN_LEGACY) if western is None else (western, _WESTERN)
     if codec == _WESTERN:
         text = _strict(data, _WESTERN)
@@ -175,6 +189,46 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
         except LookupError:
             pass
     return data.decode("utf-8", errors="replace"), f"utf-8{_REPLACED}"
+
+
+def _accents_read_as_cp949(data: bytes, korean: str) -> bool:
+    """Is text that decodes strictly as CP949 Windows-1252 accents instead? Two accented letters in a row pair up into a CP949
+    hanja (`ção` → `豫o`, `Größe` → `Gr秤e`, `gemäß` → `gem癌`), and an uppercase accent before a letter into extended Hangul
+    (`Äpfel` → `훡fel`), so short Portuguese and German text was garbled without a warning
+    (Pinned by: test_text_html.py::TestWesternText::test_accented_letter_pairs_are_not_read_as_hanja).
+
+    Yes only when the CP949 reading has no everyday Hangul syllable (KS X 1001) and no CP949 symbol (㎡, ℃, ※, →, `·`, `“`) —
+    nothing but hanja and extended Hangul — and the Windows-1252 reading looks like Western words: every non-ASCII run is at
+    most two bytes and touches an ASCII letter, and each such character is a letter or a sign of `_WESTERN_SIGNS`. Korean
+    written in hanja alone (`大韓民國`, `山田,李`) runs on for whole words or stands apart from Latin letters, so it stays CP949.
+    Known accepted gap: CP949 text whose only non-ASCII characters are one or two hanja written against a Latin letter (`李OK`)
+    is read as Windows-1252.
+
+    Two uppercase accents in a row (`ÇÃ`, `ÇÕ` of `INFORMAÇÃO`, `OBSERVAÇÕES`) are an everyday syllable in CP949 (`플`), so an
+    everyday syllable is let through too when both its bytes are uppercase accents in Windows-1252 and it stands between two
+    uppercase Latin letters, as those pairs stand inside an uppercase word (`ATEN플O`). One Korean syllable set alone between
+    two capital letters (`A이B`) is not Korean writing
+    (Pinned by: test_text_html.py::TestWesternText::test_uppercase_accent_pairs_are_not_read_as_hangul).
+    """
+    for ch in korean:
+        if ch.isascii():
+            continue
+        code = ord(ch)
+        hanja = 0x4E00 <= code <= 0x9FFF or 0xF900 <= code <= 0xFAFF
+        extended_hangul = 0xAC00 <= code <= 0xD7A3 and ch not in _EVERYDAY_HANGUL
+        if not (hanja or extended_hangul or ch in _UPPERCASE_ACCENT_SYLLABLES):
+            return False
+    if _HIGH_BYTE_RUN.search(data):
+        return False
+    for run in _HIGH_BYTES.finditer(data):
+        before, after = data[run.start() - 1:run.start()], data[run.end():run.end() + 1]
+        if not (before.isalpha() or after.isalpha()):
+            return False
+        if run.group().decode(_KOREAN_LEGACY, errors="ignore") in _UPPERCASE_ACCENT_SYLLABLES \
+                and not (before.isupper() and after.isupper()):
+            return False
+    western = _strict(data, _WESTERN)
+    return western is not None and all(ch.isalpha() or ch in _WESTERN_SIGNS for ch in western if not ch.isascii())
 
 
 # CJK text that UTF-16 without NUL bytes plausibly holds (`_reads_as_cjk`): common punctuation and symbols; CJK punctuation, kana,

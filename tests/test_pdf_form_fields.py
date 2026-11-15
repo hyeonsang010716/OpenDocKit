@@ -1,6 +1,8 @@
 """PDF form (AcroForm) values: groups of checkboxes sharing one name, radios whose values are given by `/Opt`."""
 
 
+import pytest
+
 from opendockit import convert
 from tests.test_pdf import _raw_pdf
 
@@ -57,6 +59,38 @@ class TestGroupedFormFields:
         text = convert(data, "a.pdf").sections[0].text
 
         assert text.endswith("consent: 동의")
+
+
+class TestHiddenFormFields:
+    """A field whose widget is not shown on screen (Hidden or NoView in the annotation's `/F`) holds a calculated or internal
+    value ('SECRET-CALC-123'); it came out at the end of the page as if it had been typed there."""
+
+    @staticmethod
+    def _text_field(name: bytes, value: bytes, y: int, flags: bytes = b"") -> bytes:
+        return b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (%s) /V (%s) /Rect [100 %d 250 %d] %s >>" % (
+            name, value, y, y + 16, flags)
+
+    @pytest.mark.parametrize("flags", [b"/F 2", b"/F 6", b"/F 32", b"/F 36"])  # Hidden, Hidden with Print, NoView, NoView with Print
+    def test_field_whose_widget_is_not_shown_is_left_out(self, flags):
+        fields = {6: self._text_field(b"name", b"Jane Doe", 700, b"/F 4"), 7: self._text_field(b"internal", b"CALC-123", 670, flags)}
+        data = _form_pdf(fields, fields)  # each field is its own widget
+
+        text = convert(data, "a.pdf").sections[0].text
+
+        assert text.endswith("name: Jane Doe")
+        assert "CALC-123" not in text
+
+    def test_flags_of_the_widget_under_a_field_decide(self):
+        """`/F` belongs to the annotation, the widget in the page's `/Annots`, and is not inherited from the field above it."""
+        data = _form_pdf({6: b"<< /FT /Tx /T (internal) /V (CALC-123) /Kids [8 0 R] >>",
+                          7: b"<< /FT /Tx /T (shown) /V (Visible) /F 2 /Kids [9 0 R] >>"},
+                         {8: b"<< /Type /Annot /Subtype /Widget /Parent 6 0 R /Rect [100 700 250 716] /F 2 >>",
+                          9: b"<< /Type /Annot /Subtype /Widget /Parent 7 0 R /Rect [100 670 250 686] /F 4 >>"})
+
+        text = convert(data, "a.pdf").sections[0].text
+
+        assert text.endswith("shown: Visible")
+        assert "CALC-123" not in text
 
 
 class TestChoiceFieldOptions:
@@ -118,7 +152,8 @@ class TestFreeTextAnnotations:
 
         assert text.endswith("Approved")
 
-    def test_hidden_annotation_is_not_read(self):
-        text = convert(_free_text_pdf([_free_text(b"125 699 325 715", b"Secret", flags=2)]), "a.pdf").sections[0].text
+    @pytest.mark.parametrize("flags", [2, 32, 36])  # Hidden, NoView, NoView with Print
+    def test_hidden_annotation_is_not_read(self, flags):
+        text = convert(_free_text_pdf([_free_text(b"125 699 325 715", b"Secret", flags=flags)]), "a.pdf").sections[0].text
 
         assert "Secret" not in text

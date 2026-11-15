@@ -58,6 +58,11 @@ class TableBudget:
                 self._counted += solid_length(text)
         return self._extraction.chars + self._counted > self._limit
 
+    @property
+    def counted(self) -> int:
+        """Characters already counted plus the cell text read from this table so far (what `add` compares with the limit)."""
+        return self._extraction.chars + self._counted
+
     def forget(self) -> None:
         """A cell with an unknown position (`TableGrid.place_next`) arrived. Where it will sit is unknown, so the remaining cells of
         this table are not counted."""
@@ -66,7 +71,8 @@ class TableBudget:
 
 def chars_left(extraction: Extraction, options: ConvertOptions) -> int | None:
     """Characters the output can still take before it is over the character limit, from the characters already counted (None: no
-    limit). A chart stops its value rows once their cell text passes it (`_charts.render_chart`: DOCX, PPTX, XLSX and HWPX)."""
+    limit). A chart stops its value rows once their cell text passes it (`_charts.render_chart`: DOCX, PPTX, XLSX and HWPX;
+    `_charts._value_rows`: ODT and ODP)."""
     return None if options.max_chars is None else options.max_chars - extraction.chars
 
 
@@ -74,7 +80,7 @@ def chars_left(extraction: Extraction, options: ConvertOptions) -> int | None:
 
 def format_dutmal(main: str, annotation: str = "") -> str:
     """Hangul (HWP) dutmal (a small annotation attached above or below the main text) → "main(annotation)". HWP and HWPX use the
-    same shape."""
+    same shape, and so do DOCX, ODF and HTML ruby."""
     return f"{main}({annotation})" if main and annotation else main or annotation
 
 

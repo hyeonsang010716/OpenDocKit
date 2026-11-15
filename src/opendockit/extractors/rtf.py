@@ -240,14 +240,17 @@ class _RowDefinition:
 
 
 class _Table:
-    __slots__ = ("grid", "rows", "cells", "cell", "budget", "root", "used", "nested", "dropped", "holds")
+    __slots__ = ("grid", "rows", "cells", "cell", "budget", "stops_reading", "full", "root", "used", "nested", "dropped", "holds")
 
-    def __init__(self, budget: TableBudget | None, root: "_Table | None" = None, *, dropped: bool = False) -> None:
+    def __init__(self, budget: TableBudget | None, root: "_Table | None" = None, *, dropped: bool = False,
+                 stops_reading: bool = False) -> None:
         self.grid = TableGrid()
         self.rows: list[tuple[list[str], tuple[tuple[int | None, int], ...]]] = []
         self.cells: list[str] = []  # finished cells of the row being read
         self.cell: list[str] = []   # paragraphs of the cell being read
         self.budget = budget
+        self.stops_reading = stops_reading  # past its character limit the reading stops (a table of the body or a header) …
+        self.full = False                   # … or only this top-level table takes no more cells (a footer or footnote table)
         # The top-level table: it counts the cells (`_MAX_TABLE_CELLS`) and the nested tables (`_MAX_NESTED_TABLES`) of every
         # table inside it as well as its own
         self.root = root or self
@@ -370,12 +373,21 @@ def _inline_tokens(runs: list[_Run], *, emphasis: bool, links: bool) -> list[str
     return tokens
 
 
+def _takes_cells(table: _Table) -> bool:
+    """Whether the text of a cell of `table` is kept: not inside a nested table past the limits, nor in a table past its character
+    limit. The text of a cell that is not kept is not rendered — a 100,000-row footer table past its limit took 4.1 s rendering
+    the paragraphs of cells it then threw away."""
+    return not table.dropped and not table.root.full
+
+
 class _Flow:
     """One stream of paragraphs and tables: the body, a header or footer, a footnote, the text of a shape."""
 
-    def __init__(self, reader: "_Reader", kind: str) -> None:
+    def __init__(self, reader: "_Reader", kind: str, home: "_Flow | None" = None) -> None:
         self.reader = reader
         self.kind = kind  # "body", "header", "footer", "note", "box"
+        # Where the text ends up: the text of a shape goes to the flow that anchors it, so a box has the home of that flow.
+        self.home = home.home if home is not None else kind
         self.blocks: list[str] = []
         self.runs: list[_Run] = []
         self._pieces: list[str] = []   # text of the run being collected (`add_run`) …
@@ -395,13 +407,26 @@ class _Flow:
             self._close_table()
         while len(self.tables) < depth:
             if not self.tables:
-                # Only a top-level table of the body watches the character limit while its cells are read (`_notation.TableBudget`).
-                counted = self.kind == "body"
-                self.tables.append(_Table(TableBudget(self.reader.extraction, self.reader.options) if counted else None))
+                # A top-level table watches the character limit while its cells are read (`_notation.TableBudget`). In the body —
+                # also inside a text box there, whose text ends up in the body — it is charged with the characters counted so far,
+                # and reading stops at the limit. A header, footer or footnote is written before or after the body but read where
+                # it stands in the file, so its table is checked against its own characters only: charged with the body's, it
+                # stopped short and the cut text was not the front of the full conversion. Past that, a header table stops the
+                # reading (the headers come first, so the output is cut inside them); a footer or footnote table only stops taking
+                # cells, since the body after it in the file is written before it (Pinned by: test_rtf.py::TestLimits::
+                # test_table_in_a_text_box_stops_at_the_limit, test_tables_of_headers_footers_and_notes_stop_at_their_own_limit).
+                # A 100,000-row table in a text box, header or footer was built whole: 4.4 s and 3.7 million characters counted
+                # under a 5,000-character limit.
+                reader = self.reader
+                budget = TableBudget(reader.extraction if self.home == "body" else Extraction(), reader.options)
+                self.tables.append(_Table(budget, stops_reading=self.home in ("body", "header")))
                 continue
             # A table inside a table counts against the top-level table it is in (`_MAX_NESTED_TABLES`).
             outer = self.tables[-1]
             root = outer.root
+            if root.full:   # a table past its character limit takes nothing more, the tables inside it neither
+                self.tables.append(_Table(None, root, dropped=True))
+                continue
             dropped = outer.dropped or root.nested >= _MAX_NESTED_TABLES
             if dropped and not outer.dropped:
                 self.reader.nested_cut = True
@@ -453,19 +478,20 @@ class _Flow:
     def end_paragraph(self) -> None:
         depth = self._depth()
         self._enter(depth)
-        text = self._paragraph_text(in_cell=depth > 0)
-        if not text:
-            return
         if depth:
-            if not self.tables[-1].dropped:
-                self.tables[-1].cell.append(text)
-        else:
+            table = self.tables[-1]
+            text = self._paragraph_text(in_cell=True, kept=_takes_cells(table))
+            if text:
+                table.cell.append(text)
+            return
+        text = self._paragraph_text(in_cell=False)
+        if text:
             self.add_block(text)
 
     def end_cell(self, *, nested: bool) -> None:
         self._enter(max(self._depth(), 2) if nested else 1)
         table = self.tables[-1]
-        text = self._paragraph_text(in_cell=True)
+        text = self._paragraph_text(in_cell=True, kept=_takes_cells(table))
         if text:
             table.cell.append(text)
         cell = "\n".join(table.cell)
@@ -473,13 +499,18 @@ class _Flow:
         if table.dropped or not self._keep(table, cell):
             return
         if table.budget is not None and table.budget.add(len(table.rows), len(table.cells) - 1, cell):
-            self.reader.stopped = True
+            if table.stops_reading:
+                self.reader.stopped = True
+            else:
+                table.full = True
 
     def _keep(self, table: _Table, cell: str) -> bool:
         """Add a finished cell to the row being read, if the top-level table has room for it (`_MAX_TABLE_CELLS`, shared with
         the tables inside it: each nested table used to have a limit of its own
         (Pinned by: test_rtf.py::TestHostileInput::test_cells_of_nested_tables_count_against_the_cell_limit_of_the_outer_table))."""
         holds, table.holds = table.holds, False
+        if table.root.full:
+            return False
         if table.root.used >= _MAX_TABLE_CELLS:
             self.reader.table_cut = True   # the table is full: this cell and the ones after it are left out …
             if not holds:
@@ -537,7 +568,9 @@ class _Flow:
             self._pieces = []
         self._look = None
 
-    def _paragraph_text(self, *, in_cell: bool) -> str:
+    def _paragraph_text(self, *, in_cell: bool, kept: bool = True) -> str:
+        """The Markdown of the paragraph that ends. With `kept` False its text is not wanted (a cell of a table that takes no more
+        cells): only what the paragraph changes for the ones after it — list numbers, a heading ending a numbering — is done."""
         self._settle()
         runs = self.runs
         if not runs:
@@ -567,6 +600,8 @@ class _Flow:
                     runs[first] = (runs[first][0].lstrip()[1:], *runs[first][1:])
                 else:
                     reader.typed_indents.clear()
+        if not kept:
+            return ""
         # A heading keeps its links but is not emphasized; bold or italic over the whole paragraph (also a list item, a paragraph
         # of a cell) is how it is styled and is left unmarked (`_inline.resolve_inline`.
         # Pinned by: test_rtf.py::TestEmphasis::test_paragraph_list_item_and_cell_that_are_bold_throughout_are_not_marked).
@@ -1240,7 +1275,7 @@ class _Reader:
         # The text of a header, footnote or shape starts with plain formatting, whatever the run that anchors it looks like.
         state.bold = state.italic = state.hidden = False
         state.link = None
-        self._flow = _Flow(self, kind)
+        self._flow = _Flow(self, kind, self._flow if kind == "box" else None)
         self._flows.append(self._flow)
 
     def _finish(self, closer: str) -> None:

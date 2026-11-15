@@ -28,7 +28,11 @@ _PARSER_CALLERS = r"opendockit\.extractors\._?html"
 # `<object>` and `<canvas>` are not removed: what they hold is the fallback content a page shows where the object or the drawing
 # cannot be shown, which is the case here (`<object data="x.pdf"><p>…</p></object>` gave 'No text was extracted')
 # (Pinned by: test_core_html.py::TestFallbackContentOfObjectAndCanvas).
-_DROP_TAGS = ["script", "style", "noscript", "noframes", "noembed", "template", "svg", "iframe", "embed", "button", "head", "nav"]
+# `<datalist>` is the list of suggestions an input offers while one types, which a browser never draws: its options came out
+# glued into one word after the field (`City AfghanistanAlbania…`), and so did the fallback `<select>` some pages put in it
+# (Pinned by: test_text_html.py::TestFormValues::test_suggestions_of_a_datalist_are_left_out).
+_DROP_TAGS = ["script", "style", "noscript", "noframes", "noembed", "template", "svg", "iframe", "embed", "button", "head", "nav",
+              "datalist"]
 # An aside inside these elements is a warning/note box of the main content (`_drop_sidebars`).
 _MAIN_CONTENT_TAGS = ["main", "article"]
 

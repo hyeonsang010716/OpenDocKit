@@ -2545,6 +2545,22 @@ def test_dash_that_arrives_as_a_soft_hyphen_is_kept_as_a_hyphen():
     assert "| 1차 | 2025-2026년 |" in text
 
 
+class TestSoftHyphenOnALineWithAScript:
+    """The dash of a non-embedded Korean CID font (U+00AD from pdfminer) was lost on a line that also holds a superscript: the
+    script marks were resolved with the invisible characters taken out before the soft hyphen was read as a dash."""
+
+    def test_dash_is_kept_next_to_a_footnote_mark(self):
+        from reportlab.pdfbase import pdfmetrics
+
+        def draw(pdf, index):
+            text = "Period 2025–2026 total"
+            pdf.drawString(72, 740, text)
+            pdf.setFont("HYSMyeongJo-Medium", 6)
+            pdf.drawString(72 + pdfmetrics.stringWidth(text, "HYSMyeongJo-Medium", 10), 744, "1")
+
+        assert convert(_korean_pdf(draw), "a.pdf").sections[0].text == "Period 2025-2026 total^1"
+
+
 @pytest.mark.parametrize("strength", [40, 128], ids=["rc4", "aes"])
 def test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text(strength):
     """In a PDF with only an owner password (copy protection) reportlab writes the CIDSystemInfo strings of the font dictionary
@@ -3050,6 +3066,87 @@ class TestRuledTables:
 
         assert ("| 기계 설비 | 유압 펌프 압력 | 150 bar |\n| 기계 설비 | 냉각수 온도 | 25 ℃ 이하 |\n| 기계 설비 | 벨트 장력 | 40 N |\n"
                 "| 전기 | 절연 저항 | 1 MΩ 이상 |\n| 전기 | 접지 저항 | 10 Ω 이하 |") in result.text
+
+
+_TIGHT_ROWS = [["구분", "2023", "2024", "증감"], ["매출", "1,200", "1,350", "150"], ["비용", "800", "820", "20"],
+               ["이익", "400", "530", "130"]]
+_TIGHT_TABLE = ("| 구분 | 2023 | 2024 | 증감 |\n| --- | --- | --- | --- |\n| 매출 | 1,200 | 1,350 | 150 |\n"
+                "| 비용 | 800 | 820 | 20 |\n| 이익 | 400 | 530 | 130 |")
+
+
+class TestTextTightAgainstATable:
+    """A caption set tight above a table (its baseline 1pt or less above the top rule or the shading, so that the box of its
+    characters, not the glyphs, crosses the table's edge). Tables found again in a region of the page (open-sided ruled
+    tables, shaded tables) were found in pdfplumber's crop of the region, which clips the boxes of the characters crossing
+    its side: their centres moved into the top cell, which took the caption, while the body kept it as well — the caption
+    came out twice, once inside the table's first cell."""
+
+    @pytest.mark.parametrize("gap", [1.0, 0.5])
+    def test_caption_on_the_top_rule_of_an_open_sided_table_comes_out_once(self, gap):
+        columns, top, height = [60, 200, 330, 460, 540], 700, 20
+
+        def draw(pdf, index):
+            for line in range(len(_TIGHT_ROWS) + 1):  # rules across the full width, verticals only between inner columns
+                pdf.line(columns[0], top - line * height, columns[-1], top - line * height)
+            for x in columns[1:-1]:
+                pdf.line(x, top, x, top - height * len(_TIGHT_ROWS))
+            _draw_cells(pdf, columns, top, height, _TIGHT_ROWS)
+            pdf.setFont(_FONT, 9)
+            pdf.drawString(210, top + gap, "표 1. 손익")
+            pdf.drawString(60, 400, "다음 문단입니다.")
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text.count("손익") == 1
+        assert text.startswith(f"표 1. 손익\n\n{_TIGHT_TABLE}\n\n다음 문단입니다.")
+
+    @pytest.mark.parametrize("gap", [1.5, 1.0])
+    def test_caption_on_the_top_of_a_striped_shaded_table_comes_out_once(self, gap):
+        from reportlab.lib import colors
+
+        columns, top, height = [60, 180, 330, 450, 550], 700, 22
+        rows = [*_TIGHT_ROWS, ["합계", "2,400", "2,700", "300"]]
+
+        def draw(pdf, index):
+            for row, cells in enumerate(rows):
+                y = top - row * height
+                if row % 2 == 0:  # the header and every other row shaded, no rules
+                    pdf.setFillColor(colors.HexColor("#D9E2F3"))
+                    for x0, x1 in zip(columns, columns[1:], strict=False):
+                        pdf.rect(x0, y - height, x1 - x0, height, stroke=0, fill=1)
+                pdf.setFillColor(colors.black)
+                for x0, cell in zip(columns, cells, strict=False):
+                    pdf.drawString(x0 + 6, y - 15, cell)
+            pdf.drawString(200, top + gap, "표 2. 연도별 손익")
+            pdf.drawString(60, 400, "다음 문단입니다.")
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text.count("연도별 손익") == 1
+        assert text.startswith(f"표 2. 연도별 손익\n\n{_TIGHT_TABLE}\n| 합계 | 2,400 | 2,700 | 300 |")
+
+
+    def test_word_across_the_side_of_an_open_sided_table_stays_whole(self):
+        """A word drawn across the side of the table ('Word10' starting 5pt left of the rules' ends, the centre of its 'W'
+        outside the table) is read whole in its cell: the body leaves out the part outside the table as a fragment of cell
+        text, so a crop that left that part out of the cell lost it ('ord10')."""
+        columns, top, height = [160, 260, 360, 460], 600, 20
+        rows = [[f"Word{row}{column}" for column in range(3)] for row in range(3)]
+
+        def draw(pdf, index):
+            for line in range(len(rows) + 1):
+                pdf.line(columns[0], top - line * height, columns[-1], top - line * height)
+            for x in columns[1:-1]:
+                pdf.line(x, top, x, top - height * len(rows))
+            pdf.setFont("Helvetica", 8)
+            for row, cells in enumerate(rows):
+                for column, cell in enumerate(cells):
+                    pdf.drawString(columns[column] + (-5 if (row, column) == (1, 0) else 4), top - (row + 1) * height + 6, cell)
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| Word10 | Word11 | Word12 |" in text
+        assert text.count("Word10") == 1
 
 
 class TestBlockPlacement:

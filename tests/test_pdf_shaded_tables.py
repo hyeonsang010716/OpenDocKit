@@ -641,7 +641,7 @@ class TestManySeparateShadedTables:
 
         import pdfplumber
 
-        from opendockit.extractors._pdf_model import _TABLE_SETTINGS, _cropped
+        from opendockit.extractors._pdf_model import _TABLE_SETTINGS, _crop_for_table_search, _cropped
 
         rng = random.Random(7)
         with pdfplumber.open(BytesIO(_separate_shaded_tables_pdf(40))) as document:
@@ -651,7 +651,7 @@ class TestManySeparateShadedTables:
                 y0 = rng.choice([top, rng.uniform(top, bottom), float(rng.randrange(0, 2000, 64))])
                 box = (rng.uniform(left, 300), y0, rng.uniform(300, right), min(bottom, y0 + rng.choice([1.0, 14.0, 64.0, 300.0, 1e6])))
                 lines = {"explicit_vertical_lines": [box[0] + 10, box[2] - 10]}
-                whole, near = page.crop(box), _cropped(page, box)
+                whole, near = _crop_for_table_search(page, box), _cropped(page, box)
 
                 assert near.objects == whole.objects and near.bbox == whole.bbox
                 assert ([table.cells for table in near.find_tables({**_TABLE_SETTINGS, **lines})]

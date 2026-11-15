@@ -214,6 +214,34 @@ class TestAltTextWithManyLineBreaks:
         assert result.text.startswith(f"차트 앞 문단입니다.\n\n[Image: {shown}]\n\n")
 
 
+def _multi_level_categories(levels: list[dict[int, str]]) -> str:
+    """A c:cat of multi-level categories, the innermost level first as in the file."""
+    body = "".join("<c:lvl>" + "".join(f'<c:pt idx="{index}"><c:v>{text}</c:v></c:pt>' for index, text in level.items())
+                   + "</c:lvl>" for level in levels)
+    return ('<c:cat xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:multiLvlStrRef><c:multiLvlStrCache>'
+            f"{body}</c:multiLvlStrCache></c:multiLvlStrRef></c:cat>")
+
+
+class TestChartCategoriesOfManyLevels:
+    """Every category label joined every level of multi-level categories, and every level's points made categories: 16,000
+    levels of one point each (a 125 KB file) took 11.7 s and 1 GB. Real charts have two or three levels; the innermost eight are
+    joined and the outer ones left out."""
+
+    def test_innermost_eight_levels_are_joined(self):
+        levels = [{0: f"L{number}"} for number in range(12)]
+
+        points = _charts._points(etree.fromstring(_multi_level_categories(levels)))
+
+        assert points == {0: "L7 L6 L5 L4 L3 L2 L1 L0"}
+
+    def test_points_of_levels_past_them_are_not_read(self):
+        levels = [{number: f"L{number}"} for number in range(16_000)]
+
+        points = _charts._points(etree.fromstring(_multi_level_categories(levels)))
+
+        assert sorted(points) == list(range(8)) and points[7] == "L7 L6 L5 L4 L3 L2 L1"
+
+
 class TestChartFormatWithManyOpenBrackets:
     """The display format of chart values is searched for bracketed sections for every point. A `[` with no `]` was scanned to the
     end of the format from every `[`, so a 20,000-character format on 40 points took 6 seconds. A format is read again for every
@@ -397,6 +425,39 @@ class TestHugeLevelNumberInNumberText:
         numbering = _lists.Numbering([_lists.NumberLevel("%7%0-%1.")], mark="%")
 
         assert [numbering.advance(0), numbering.advance(0)] == ["-1.", "-2."]
+
+
+class TestLongNumberText:
+    """The number text of a list level was substituted again for every numbered paragraph, empty ones included (they still
+    count): a 100 KB w:lvlText of level numbers that are empty at that level, on 300 empty numbered paragraphs of a 36 KB file,
+    took 2.3 s. It is split once, and a text past 255 characters (its level numbers counted as one each, those that can never
+    be written left out) is the level's own number and a period, as when no lvlText is written."""
+
+    def test_number_text_up_to_the_bound_is_written_as_it_is(self):
+        text = convert(_docx_with_level_text("(" + "x" * 252 + "%1)"), "a.docx").text
+
+        assert f"\n({'x' * 252}1) 첫째\n" in text
+
+    @pytest.mark.parametrize("level_text", ["(" + "x" * 253 + "%1)", "%2" * 50_000])
+    def test_longer_number_text_is_the_level_number_and_a_period(self, level_text):
+        text = convert(_docx_with_level_text(level_text), "a.docx").text
+
+        assert "\n1. 첫째\n2. 둘째\n" in text and "본문 첫 문단입니다." in text
+
+    @pytest.mark.parametrize("mark", ["%", "^"])
+    def test_long_text_is_not_read_past_the_bound(self, mark, monkeypatch):
+        """Splitting stops at the first piece past the bound, and the result is kept by the list for its next paragraphs: the
+        same 100 KB text is not walked again per paragraph."""
+        template = f"{mark}2" * 50_000
+        numbering = _lists.Numbering([_lists.NumberLevel(template), _lists.NumberLevel(f"{mark}1.{mark}2.")], mark=mark)
+        split = []
+        original = _lists._number_pieces
+        monkeypatch.setattr(_lists, "_number_pieces", lambda text, sign: split.append(len(text)) or original(text, sign))
+
+        numbers = [numbering.advance(0) for _ in range(300)]
+
+        assert numbers[:3] == ["1.", "2.", "3."] and numbers[-1] == "300."
+        assert split == [len(template), 3]  # the long text and the fallback, each split once
 
 
 class TestDeeplyNestedJsonLookalike:

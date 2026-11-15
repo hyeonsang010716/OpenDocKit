@@ -9,8 +9,10 @@ from opendockit.extractors._pdf_model import (
     _MIN_FIGURE_POINTS,
     _TABLE_SETTINGS,
     _box_area,
+    _cropped,
     _encloses,
     _is_white,
+    _region_on_page,
 )
 
 
@@ -61,7 +63,6 @@ def _open_sided_tables(page: object) -> list[object]:
     for left, right, top in _joined_rules([edge for edge in edges if edge["orientation"] == "h"], at_column_border):
         horizontals.setdefault((round(left), round(right)), []).append(top)
 
-    page_left, page_top, page_right, page_bottom = page.bbox
     areas = []  # (region to crop, left end, right end)
     for (left, right), rule_tops in horizontals.items():
         if len(rule_tops) < 3 or right - left < _MIN_FIGURE_POINTS:
@@ -80,8 +81,8 @@ def _open_sided_tables(page: object) -> list[object]:
                       if any(edge["top"] <= top + 2 and edge["bottom"] >= bottom - 2 for edge in side)]
             if len(closed) == 2:
                 continue
-            box = (max(left - 1, page_left), max(top - 1, page_top), min(right + 1, page_right), min(bottom + 1, page_bottom))
-            if box[0] >= box[2] or box[1] >= box[3]:
+            box = _region_on_page(page, left, top, right, bottom)
+            if box is None:
                 continue  # lines drawn off the page
             areas.append((box, left, right))
 
@@ -92,7 +93,7 @@ def _open_sided_tables(page: object) -> list[object]:
         outers = [areas[other][0] for other, tables in found.items() if tables]
         if any(_encloses(outer, box) and (abs(outer[0] - box[0]) <= 2) != (abs(outer[2] - box[2]) <= 2) for outer in outers):
             continue
-        found[index] = page.crop(box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": [left, right]})
+        found[index] = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": [left, right]})
 
     # Horizontal lines whose ends are off by about 1pt fall into two width groups, so the same table is found in two regions.
     # Keeping both made `_real_tables` see each as 'a box enclosing another table' and discard both, and a two-column

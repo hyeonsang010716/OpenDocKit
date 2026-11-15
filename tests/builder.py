@@ -230,6 +230,24 @@ def zip_with(data: bytes, edit: dict[str, Callable[[str], str]] | None = None,
     return buffer.getvalue()
 
 
+def zip_password(data: bytes, names: set[str] | None = None) -> bytes:
+    """Return a copy of a ZIP archive whose members (all of them, as `zip -e` does, or only `names`) carry the encryption bit in
+    both the local and the central header. The bytes stay plaintext: zipfile refuses such a member without looking at them."""
+    patched = bytearray(data)
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        members = archive.infolist()
+    for info in members:
+        if names is None or info.filename in names:
+            patched[info.header_offset + 6] |= 0x01
+    position = patched.find(b"PK\x01\x02")
+    while position != -1:
+        length = struct.unpack_from("<H", patched, position + 28)[0]
+        if names is None or bytes(patched[position + 46:position + 46 + length]).decode("utf-8") in names:
+            patched[position + 8] |= 0x01
+        position = patched.find(b"PK\x01\x02", position + 46)
+    return bytes(patched)
+
+
 # ---- HWP 5.x record streams ------------------------------------------------------------------------------------
 
 def hwp_record(tag: int, level: int, payload: bytes) -> bytes:

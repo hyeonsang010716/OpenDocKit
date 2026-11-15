@@ -8,6 +8,7 @@ import base64
 from io import BytesIO
 import re
 import struct
+import weakref
 import zlib
 
 import olefile
@@ -2135,6 +2136,29 @@ class TestOnePictureInMemory:
         assert len(result.tiles) == 8
         assert Image.open(BytesIO(result.tiles[0])).width == 600
         assert Image.open(BytesIO(result.tiles[-1])).convert("RGB").getpixel((300, 1100)) == (0, 0, 0)
+
+    def test_tiles_are_cut_one_at_a_time(self, monkeypatch):
+        """Every tile is a full-resolution crop. They were all cut before the first was encoded, so a 3000×40000 picture was
+        held twice over (1,124 MB at the peak instead of 710 MB); a tile is now cut when the one before it is encoded."""
+        crops: list[tuple[weakref.ref, tuple[int, int]]] = []
+        waiting: list[int] = []
+        original = Image.Image.crop
+
+        def spy(self, *args, **options):
+            waiting.append(sum(1 for made, size in crops if (tile := made()) is not None and tile.size == size))
+            tile = original(self, *args, **options)
+            crops.append((weakref.ref(tile), tile.size))
+            return tile
+
+        monkeypatch.setattr(Image.Image, "crop", spy)
+        picture = Image.new("RGB", (600, 9000), "white")
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG")
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        assert len(result.tiles) == len(crops) == 8
+        assert waiting == [0] * 8  # no tile still at full size when the next one is cut
 
 
 def _tiff_with_a_tag_of_the_wrong_count() -> bytes:

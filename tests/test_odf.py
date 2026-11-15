@@ -917,6 +917,23 @@ class TestCharacterLimit:
         assert result.exceeded
         assert "행2999" not in result.sections[0].template
 
+    def test_footer_is_counted_after_the_body(self):
+        """A footer is written after the body. Counted with the headers before it, it made the body and a table in it stop short,
+        so the cut text was not the front of the full conversion."""
+        styles = ('<office:master-styles><style:master-page style:name="Standard"><style:header><text:p>HEADER</text:p>'
+                  f'</style:header><style:footer><text:p>{"F" * 60}</text:p></style:footer></style:master-page></office:master-styles>')
+        rows = "".join(_row(_cell(f"C{index}"), _cell(str(index))) for index in range(12))
+        body = f'<text:p>{"B" * 95}</text:p><table:table>{rows}</table:table>'
+        options = {"include_headers_footers": True}
+        full = _convert("text", body, ConvertOptions(max_chars=None, **options), styles=styles)
+
+        cuts = {limit: _convert("text", body, ConvertOptions(max_chars=limit, **options), styles=styles)
+                for limit in (110, 140, 170, full.char_count - 1)}
+
+        assert full.text.startswith("HEADER\n\nB") and full.text.endswith("F" * 60) and "| C11 | 11 |" in full.text
+        assert all(result.exceeded and result.text == full.text[:limit].rstrip() for limit, result in cuts.items())
+        assert not _convert("text", body, ConvertOptions(max_chars=full.char_count, **options), styles=styles).exceeded
+
     def test_spreadsheet_stops_at_the_row_and_the_sheet_where_the_limit_is_exceeded(self):
         rows = "".join(_row(_cell(f"행{index:04d}"), _cell("다" * 40)) for index in range(3000))
         result = _convert("spreadsheet", _sheet("첫째", rows) + _sheet("둘째", _row(_cell("읽지 않음"))), ConvertOptions(max_chars=2000))

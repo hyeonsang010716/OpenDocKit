@@ -44,9 +44,10 @@ from opendockit.extractors._inline import (
     _escape_link_text,
     format_script,
 )
+from opendockit.extractors._notation import format_dutmal
 from opendockit.extractors._package import decimal_int
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_glyph
-from opendockit.markdown import code_fences
+from opendockit.markdown import clean_characters, code_fences
 from opendockit.models import ConvertOptions, Extraction, quiet_warnings
 
 
@@ -769,7 +770,7 @@ def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> s
     for tag in soup.find_all(_FOLDED_TAGS):
         if id(tag) in removed:
             continue
-        if id(tag) in cut or not _FOLDED_STYLE.search(str(tag.get("style", ""))) or tag.has_attr("hidden") or tag.get("aria-hidden") == "true":
+        if id(tag) in cut or not _FOLDED_STYLE.search(str(tag.get("style", ""))) or _has_hidden(tag) or tag.get("aria-hidden") == "true":
             continue
         opener = tag.find_previous_sibling(True)
         if opener is None or not _is_opener(opener) or _is_overlay(tag):
@@ -837,6 +838,191 @@ def _put_form_values(soup: BeautifulSoup) -> None:
                 control.append(soup.new_tag("br"))
             control.append(value)
         control.append(" ")
+
+
+def _put_ruby(soup: BeautifulSoup) -> None:
+    """Replace ruby (`<ruby>`) with its base text and annotation in the shape of the other extractors, `base(annotation)`
+    (`_notation.format_dutmal`; HWP/HWPX dutmal, DOCX w:ruby, ODF text:ruby). Without `<rp>` the annotation was glued to the
+    base, `東京とうきょう`; the `<rp>` fallback parentheses are left out, as the shape brings its own, and so is a pair of
+    parentheses written around the whole annotation (`<rt>(かんじ)</rt>`), so they are never doubled
+    (Pinned by: test_text_html.py::TestRuby).
+
+    Each annotation goes with the base text before it (`漢<rt>かん</rt>字<rt>じ</rt>` is `漢(かん)字(じ)`); bases given as
+    `<rb>` one after another and as many `<rt>` after them are paired in order (`漢(かん)字(じ)`); otherwise the bases are
+    one text and the annotations one annotation. An `<rtc>` annotates all of its segment (`旧(jiù)金(jīn)(San Francisco)`).
+    An empty annotation leaves the base as it is. Whitespace at the edges of the parts is left out, as a browser does
+    (`<ruby>\n東京\n<rt>とうきょう</rt>\n</ruby>に` is `東京(とうきょう)に`), and whitespace between the words of a base is one
+    space wherever it stands (`New <em>York</em>`, `<span>United</span> <span>States</span>`); a line break (`<br>`) in a
+    base stays a line break, and inside a code block (`<pre>`) the base keeps its whitespace as written — gathered child by
+    child and stripped, the words of a base ran together (`NewYork(NY)`) and a code line lost its spacing (Pinned by:
+    test_text_html.py::TestRuby::test_whitespace_and_line_breaks_of_a_base_are_kept). Inline formatting inside the ruby is
+    not kept: it is turned into text before the strikethrough marks, which a ruby inside a strikethrough then holds whole.
+
+    The text of every ruby is worked out first, inner ones before the ones around them, which read it (`_ruby_text`), and only
+    the outermost rubies are then replaced in the tree; which rubies lie in a code block or in another ruby is worked out
+    once for all of them (`_lying_inside`). Asked of each ruby with `find_parent`, and with every inner ruby replaced in the
+    tree in turn (bs4 walks up the ancestors to link each node it inserts), 20,000 rubies nested in each other (280 KB) took
+    32 seconds (Pinned by: test_text_html.py::TestRuby::test_nested_rubies_take_linear_time). Rubies are read as ruby down to
+    `_MAX_RUBY_DEPTH` levels; a ruby deeper than that is plain text.
+    """
+    rubies = soup.find_all("ruby")
+    in_code = _lying_inside(rubies, _CODE_BLOCKS)
+    depths = _ruby_depths(rubies)
+    read = [ruby for ruby in rubies if depths[id(ruby)] < _MAX_RUBY_DEPTH]
+    texts: dict[int, str] = {}
+    for ruby in reversed(read):  # inner rubies first: an outer one reads their text
+        texts[id(ruby)] = _ruby_text(ruby, id(ruby) in in_code, texts, in_code)
+    places: _Places = {}
+    for ruby in read:
+        if not depths[id(ruby)]:
+            _replace(ruby, _ruby_node(soup, texts[id(ruby)], id(ruby) in in_code), places)
+
+
+# Levels of rubies nested in each other that are read as ruby (`_put_ruby`). A ruby inside a ruby is rare (a double-sided
+# ruby), and each level reads the text of all the levels inside it, so the work grows with the levels times the text:
+# 100,000 nested rubies (1.4 MB) took 8 seconds. A ruby deeper than this is read as the plain text of its elements, bases
+# and annotations one after another, the `<rp>` text left out (Pinned by:
+# test_text_html.py::TestRuby::test_nested_rubies_take_linear_time, test_rubies_past_the_nesting_bound_are_plain_text).
+_MAX_RUBY_DEPTH = 8
+
+
+def _ruby_depths(rubies: list[Tag]) -> dict[int, int]:
+    """The number of rubies around each of `rubies` (all the rubies of a document, in document order). Each ruby walks up to
+    the nearest element already known, so it is linear time, as `_lying_inside`."""
+    depths: dict[int, int] = {}
+    around: dict[int, int] = {}  # element that is not a ruby → the number of rubies around it
+    for ruby in rubies:
+        path: list[Tag] = []
+        node = ruby.parent
+        count = 0
+        while node is not None:
+            if id(node) in depths:
+                count = depths[id(node)] + 1
+                break
+            if id(node) in around:
+                count = around[id(node)]
+                break
+            path.append(node)
+            node = node.parent
+        for element in path:
+            around[id(element)] = count
+        depths[id(ruby)] = count
+    return depths
+
+
+def _ruby_text(ruby: Tag, written: bool, texts: dict[int, str], in_code: set[int]) -> str:
+    """The text of one ruby (`_put_ruby`), `written` when it lies in a code block. The rubies inside it are read through their
+    text in `texts`, as if each had been replaced by what `_ruby_node` gives (`_ruby_part`)."""
+    pieces: list[str] = []
+    bases: list[str] = []  # the base texts of the segment so far, as written (`_RUBY_LINE` for a line break)
+    notes: list[str] = []  # its annotations (`<rt>`)
+    wide: list[str] = []  # its annotations of the whole segment (`<rtc>`)
+
+    def base_text(raw: str) -> str:
+        if written:
+            return raw.replace(_RUBY_LINE, "\n")
+        return "\n".join(" ".join(line.split()) for line in raw.split(_RUBY_LINE)).strip(" ")
+
+    def segment_ends() -> None:
+        texts_of_bases = [base_text(base) for base in bases]
+        if len(texts_of_bases) > 1 and len(notes) == len(texts_of_bases):
+            text = "".join(format_dutmal(base, note) for base, note in zip(texts_of_bases, notes, strict=True))
+        else:
+            text = format_dutmal("".join(texts_of_bases), " ".join(note for note in notes if note))
+        pieces.append(format_dutmal(text, " ".join(note for note in wide if note)))
+        bases.clear()
+        notes.clear()
+        wide.clear()
+
+    loose = False  # the last base is text outside an `<rb>`, which the next such text continues
+    for child in ruby.children:
+        name = child.name if isinstance(child, Tag) else None
+        if name == "rp":
+            continue
+        raw = _ruby_part(child, texts, in_code)
+        if name in ("rt", "rtc"):
+            text = " ".join(raw.replace(_RUBY_LINE, " ").split())
+            (notes if name == "rt" else wide).append(_without_enclosing_parentheses(text))
+            loose = False
+        elif raw.replace(_RUBY_LINE, "").strip():
+            if notes or wide:
+                segment_ends()
+            if loose and name != "rb":
+                bases[-1] += raw
+            else:
+                bases.append(raw)
+            loose = name != "rb"
+        elif loose:
+            bases[-1] += raw  # whitespace or a line break between the pieces of one base
+    if bases or notes or wide:
+        segment_ends()
+    return "".join(pieces)
+
+
+# A line break (`<br>`) inside a ruby while its parts are gathered (`_put_ruby`): a character no document text holds once the
+# control characters are read (`_ruby_part`).
+_RUBY_LINE = "\x00"
+
+
+def _ruby_part(child: PageElement, texts: dict[int, str], in_code: set[int]) -> str:
+    """The text of one child of a ruby as written, with `_RUBY_LINE` for a line break and the text of an `<rp>` left out. A ruby
+    inside it gives its text (`texts`) as the node `_ruby_node` makes of it would: its line breaks as `<br>`, which an `<rp>`
+    does not hide; one past `_MAX_RUBY_DEPTH` is not in `texts` and is read as its elements. Walked once, with no ruby that
+    is read descended into, so every node is read by the nearest such ruby around it only."""
+    parts: list[str] = []
+    stack: list[tuple[PageElement, bool]] = [(child, False)]  # (node, inside an `<rp>`)
+    while stack:
+        node, hidden = stack.pop()
+        if isinstance(node, Tag):
+            if node.name == "ruby" and id(node) in texts:
+                text = texts[id(node)]
+                if id(node) in in_code or "\n" not in text:
+                    parts.append("" if hidden else text.replace(_RUBY_LINE, ""))
+                else:
+                    lines = text.split("\n")
+                    parts.append(_RUBY_LINE.join("" if hidden else line for line in lines))
+            elif node.name == "br":
+                parts.append(_RUBY_LINE)
+            else:
+                inner = hidden or node.name == "rp"
+                stack.extend((grandchild, inner) for grandchild in reversed(node.contents))
+        elif not isinstance(node, PreformattedString) and not hidden:
+            parts.append(str(node).replace(_RUBY_LINE, ""))
+    return "".join(parts)
+
+
+def _ruby_node(soup: BeautifulSoup, text: str, written: bool) -> PageElement | str:
+    """What a ruby is replaced with: its text, and a line break of its base as a `<br>` again (in a code block the line break is
+    text, which the code block keeps)."""
+    if written or "\n" not in text:
+        return text
+    holder = soup.new_tag("span")
+    for index, line in enumerate(text.split("\n")):
+        if index:
+            holder.append(soup.new_tag("br"))
+        if line:
+            holder.append(line)
+    return holder
+
+
+def _without_enclosing_parentheses(text: str) -> str:
+    """An annotation without a pair of parentheses around the whole of it, which the ruby shape adds."""
+    if len(text) > 1 and text[0] in "(（" and text[-1] in ")）" and _parentheses_paired(text[1:-1]):
+        return text[1:-1].strip()
+    return text
+
+
+def _parentheses_paired(text: str) -> bool:
+    """Whether every parenthesis in `text` is closed in order (`a)(b` is not)."""
+    depth = 0
+    for character in text:
+        if character in "(（":
+            depth += 1
+        elif character in ")）":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
 
 
 def _put_symbol_fonts(soup: BeautifulSoup) -> None:
@@ -961,12 +1147,21 @@ def _mark_struck_text(soup: BeautifulSoup, *, links: bool = False, emphasis: boo
         if id(struck) in nested or id(struck) in in_code or struck.name in _CODE_BLOCKS:
             continue
         nested.update(id(inner) for inner in struck.find_all(_is_struck))
-        strings = {id(string) for string in struck.find_all(string=True) if string.strip()}
+        strings = {id(string) for string in struck.find_all(string=True) if _shows_text(string)}
         runs.extend(_struck_runs(struck, strings, holding_code, unfolded))
     spaces: list[tuple[Tag, bool]] = []
     if len(runs) > 1:
         runs, spaces = _joined_runs(soup, runs, links=links, emphasis=emphasis)
     _write_marks(runs, spaces)
+
+
+def _shows_text(text: str) -> bool:
+    """Whether `text` holds anything once the document is cleaned (`markdown.clean_characters`): not only whitespace, nor only
+    invisible characters such as a zero-width space or a soft hyphen. Marked, such text left `~~~~`, between two struck runs it
+    kept them from being one pair (`~~a~~~~b~~` once it was cleaned away), and between two line breaks it hid the blank line
+    they make (Pinned by: test_audit_web_fixes.py::TestStrikethroughAroundBlocks::test_invisible_text_is_no_text). Only text
+    with a character that is not printable is cleaned to find out."""
+    return bool(text.strip()) and (text.isprintable() or bool(clean_characters(text).strip()))
 
 
 def _holding(nodes: list[Tag]) -> set[int]:
@@ -1002,13 +1197,23 @@ def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozen
     does: a GFM strikethrough does not reach across a blank line or into the next list item, so one pair around two paragraphs
     printed its tildes (`~~Old price\n\nOld term~~`), as emphasis is not written across blocks either
     (Pinned by: test_audit_web_fixes.py::TestStrikethroughAroundBlocks). Inside a table grouped as a whole nothing is cut: it is
-    one line of cell text. A line break (`<br>`) does not cut the run — a strikethrough holds a line break inside a paragraph.
+    one line of cell text. A single line break (`<br>`) does not cut the run — a strikethrough holds a line break inside a
+    paragraph. A blank line does: two or more line breaks with no text between them (only whitespace, invisible characters
+    (`_shows_text`), empty elements or pictures that leave no placeholder) are a blank line once rendered, and one pair around it printed its tildes
+    (`~~10,000 won\n\nuntil May~~`), as emphasis across it is not written either (`_inline.resolve_inline`). Not in a cell
+    of a table drawn as a table, whose line breaks are `<br>` on one line (`_drawn_on_one_line`). In a heading or a table
+    caption, which is drawn on one line too, the pair is cut all the same (`## ~~a~~ ~~b~~`, still a strikethrough): whether
+    the text stays in the heading is settled only after the marks are written (`_flatten_nested_headings`), and a pair left
+    whole where the text does not is not read
+    (Pinned by: test_audit_web_fixes.py::TestStrikethroughAroundBlocks::test_blank_line_of_line_breaks_cuts_the_pair).
     """
     if unfolded is None:
         unfolded = {}
     base = struck if struck.name in ("td", "th") else struck.find_parent(["td", "th"])
     runs: list[_Run] = []
     last_cell: object = None
+    breaks = 0  # line breaks since the last text
+    one_line: dict[int, bool] = {}  # per cell (`id`): whether its text is drawn on one line (`_drawn_on_one_line`)
     stack: list[tuple[object, Tag | None, Tag | None]] = [(child, None, base) for child in reversed(struck.contents)]
 
     while stack:
@@ -1019,6 +1224,11 @@ def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozen
         if isinstance(node, Tag):
             if table is None and node.name in _CODE_BLOCKS:
                 last_cell = _RUN_BREAK  # the next text starts a new run
+                continue
+            if node.name == "br":
+                breaks += 1
+                if breaks > 1 and table is None and not _drawn_on_one_line(cell, one_line, unfolded):
+                    last_cell = _RUN_BREAK  # a blank line: the next text starts a new run
                 continue
             if (table is None and node.name == "table" and cell is not None and id(node) not in holding_code
                     and not _unfolded_around(cell, unfolded)):
@@ -1032,11 +1242,24 @@ def _struck_runs(struck: Tag, strings: set[int], holding_code: set[int] = frozen
             continue
         if id(node) not in strings:
             continue
+        breaks = 0
         if not runs or cell is not last_cell:
             runs.append([])
             last_cell = cell
         runs[-1].append((node, table))
     return runs
+
+
+def _drawn_on_one_line(cell: Tag | None, one_line: dict[int, bool], unfolded: dict[int, bool]) -> bool:
+    """Whether the text of `cell` is drawn on one line (`_html_render._cell_text`: line breaks become `<br>`), so that line breaks
+    in it never make a blank line: a cell of a table drawn as a table. A cell of a table unfolded into blocks (a one-column
+    box or a layout table, `_unfolded_around`) is not, nor is a cell with no table around it. Looked up only at a blank line
+    of line breaks, once per cell."""
+    if cell is None:
+        return False
+    if id(cell) not in one_line:
+        one_line[id(cell)] = cell.find_parent("table") is not None and not _unfolded_around(cell, unfolded)
+    return one_line[id(cell)]
 
 
 def _unfolded_around(cell: Tag, unfolded: dict[int, bool]) -> bool:
@@ -1113,6 +1336,9 @@ def _joined_runs(soup: BeautifulSoup, runs: list[_Run], *, links: bool, emphasis
                 gap.apart = True
                 continue
             index = first_of.get(id(node))
+            if index is None and not _shows_text(node):
+                gap.apart = gap.apart or bool(clean_characters(node))  # whitespace is left of it
+                continue  # invisible characters: cleaned away, they leave nothing between the runs
             if index is None:
                 gap.apart = gap.text = True
             else:
@@ -1379,7 +1605,15 @@ def _is_spacer(data: bytes) -> bool:
 
 
 def _hidden_by_style(tag: Tag) -> bool:
-    return tag.attrs is not None and (tag.has_attr("hidden") or bool(_HIDDEN_STYLE.search(str(tag.get("style", "")))))
+    return tag.attrs is not None and (_has_hidden(tag) or bool(_HIDDEN_STYLE.search(str(tag.get("style", "")))))
+
+
+def _has_hidden(tag: Tag) -> bool:
+    """Whether the `hidden` attribute hides `tag`. `hidden="until-found"` does not: it folds content that a browser still
+    searches and opens when it is found or linked to — the standard way to fold the answers of an FAQ or the sections of an
+    accordion, as `<details>` does, whose folded content is read too. Other hiding on the element (`display:none`) still
+    counts (Pinned by: test_text_html.py::TestCollapsedQuestionsAndAnswers::test_content_hidden_until_found_is_kept)."""
+    return tag.has_attr("hidden") and str(tag["hidden"]).lower() != "until-found"
 
 
 def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool = True) -> None:
@@ -1429,7 +1663,7 @@ def _hidden_nodes(soup: BeautifulSoup, hidden: list[Tag]) -> list[PageElement]:
         while node is not None and id(node) not in above:
             above.add(id(node))
             node = node.parent
-    special = [tag for tag in hidden if not tag.has_attr("hidden") and not _UNDOABLE_HIDING.search(str(tag.get("style", "")))
+    special = [tag for tag in hidden if not _has_hidden(tag) and not _UNDOABLE_HIDING.search(str(tag.get("style", "")))
                and (tag.name in _PAGE_ROOTS or id(tag) in above)]
     if not special:
         return list(hidden)

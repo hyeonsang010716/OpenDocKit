@@ -13,10 +13,16 @@ from typing import TYPE_CHECKING, BinaryIO
 import zipfile
 
 from opendockit.detect import detect_format, extension_mismatch, pdf_lookalike_text_format
-from opendockit.exceptions import ConversionError, CorruptedDocumentError, DocumentTooLargeError, UnsupportedFormatError
+from opendockit.exceptions import (
+    ConversionError,
+    CorruptedDocumentError,
+    DocumentTooLargeError,
+    EncryptedDocumentError,
+    UnsupportedFormatError,
+)
 from opendockit.extractors import EXTRACTORS
 from opendockit.extractors._inline import _escape_link_text
-from opendockit.extractors._package import uncompressed_size
+from opendockit.extractors._package import has_password_protected_part, uncompressed_size
 from opendockit.image import (
     ImageOutOfMemory,
     ImageSkipped,
@@ -54,6 +60,16 @@ TOO_COMPLEX_MESSAGE = "The document is too large or too complex to convert."
 _DEFAULT_OPTIONS = ConvertOptions()
 _ZIP_FORMATS = {DocumentFormat.DOCX, DocumentFormat.PPTX, DocumentFormat.XLSX, DocumentFormat.HWPX, DocumentFormat.ODT, DocumentFormat.ODS,
                 DocumentFormat.ODP, DocumentFormat.EPUB}
+# What a ZIP format that could not be read says when parts of it are password-protected (`_converted`). The same sentences as the
+# other password notices of each family (an Office package encrypted by Office itself is the OLE `EncryptedPackage` of `detect`).
+_OFFICE_PASSWORD = "The Office document is password-protected. Please remove the password and upload it again."
+_ODF_PASSWORD = "The OpenDocument file is password-protected. Please remove the password and upload it again."
+_ZIP_PASSWORD_MESSAGES = {
+    DocumentFormat.DOCX: _OFFICE_PASSWORD, DocumentFormat.PPTX: _OFFICE_PASSWORD, DocumentFormat.XLSX: _OFFICE_PASSWORD,
+    DocumentFormat.HWPX: "The HWP document is password-protected. Please remove the password and upload it again.",
+    DocumentFormat.ODT: _ODF_PASSWORD, DocumentFormat.ODS: _ODF_PASSWORD, DocumentFormat.ODP: _ODF_PASSWORD,
+    DocumentFormat.EPUB: "The EPUB is password-protected. Please remove the password and upload it again.",
+}
 # Formats where the original whitespace (code indentation, table alignment) carries meaning. Spaces inside a line are not collapsed.
 _KEEP_SPACES = {DocumentFormat.TEXT, DocumentFormat.MARKDOWN}
 # Alt text that Office and Hangul (HWP) attach automatically ("그림 3" (picture 3), "image1.png", "그림입니다. 원본 그림의 이름…"
@@ -151,9 +167,19 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
         key = hashlib.sha256(data).hexdigest()[:16]
         with marker_key(key):
             document_format, extraction = _extract(document_format, data, filename, options)
-    except (ConversionError, MemoryError):
+    except MemoryError:
         raise
     except Exception as exc:  # the boundary that gathers arbitrary parser-library exceptions into one conversion failure.
+        # A ZIP format that could not be read while parts of it carry the ZIP password bit (`zip -e`) is password-protected, not
+        # corrupted: zipfile refuses every encrypted part, so the extractors found the parts they need missing or unreadable
+        # (Pinned by: test_converter.py::TestPasswordProtectedZip). A part that is only skipped (one picture, one slide) leaves the
+        # document readable and changes nothing.
+        if isinstance(exc, ConversionError) and not isinstance(exc, CorruptedDocumentError):
+            raise
+        if document_format in _ZIP_PASSWORD_MESSAGES and has_password_protected_part(data):
+            raise EncryptedDocumentError(_ZIP_PASSWORD_MESSAGES[document_format]) from exc
+        if isinstance(exc, ConversionError):
+            raise
         subject = f"the {document_format.value.upper()} document" if document_format else "the file format"
         raise CorruptedDocumentError(f"Could not parse {subject}. The file may be corrupted.") from exc
 
@@ -175,6 +201,15 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
         title = clean_line(section.title) if section.title else section.title
         if template or section.kind is SectionKind.SLIDE:
             sections.append(Section(section.kind, section.index, "", title, template))
+
+    # A ZIP format that was read without an error but gave nothing at all — no text, no slide title, no picture — while parts of
+    # it are password-protected: those parts were its content, which zipfile refused to read. The extractors skip a part they
+    # cannot read with a warning (a slide, a sheet), so a deck whose slides alone were protected came back as an empty success
+    # (Pinned by: test_converter.py::TestPasswordProtectedZip::test_protected_slides_are_an_encrypted_document). A document that
+    # gives anything stays a document whose protected parts were skipped.
+    if (document_format in _ZIP_PASSWORD_MESSAGES and not extraction.images
+            and not any(section.template.strip() or section.title for section in sections) and has_password_protected_part(data)):
+        raise EncryptedDocumentError(_ZIP_PASSWORD_MESSAGES[document_format])
 
     # If the text alone is already over the limit, the pictures are not decoded. Decoding, downscaling and the vision-model calls
     # after them would all be wasted. They keep their placeholder text all the same (`_placeholders_only`).
@@ -350,11 +385,14 @@ def render(result: ConversionResult) -> ConversionResult:
     empty = not text.strip()
     if exceeded and options.max_chars is not None:
         text = text[: options.max_chars].rstrip()
-        sections = _cut_sections(sections, options, options.max_chars)
+        sections, reached = _cut_sections(sections, options, options.max_chars)
         warnings.append(f"The conversion was stopped because the text exceeded {options.max_chars:,} characters.")
+    else:
+        reached = None
     if empty:
         warnings.append("No text was extracted.")
-    return replace(result, text=text, sections=sections, warnings=warnings, exceeded=exceeded, char_count=char_count)
+    return replace(result, text=text, sections=sections, warnings=warnings, exceeded=exceeded, char_count=char_count,
+                   reached_sections=reached)
 
 
 def _prepare_images(raw_images: list[RawImage], sections: list[Section], options: ConvertOptions,
@@ -792,17 +830,29 @@ def section_heading(section: Section) -> str:
     return ""
 
 
-def _cut_sections(sections: list[Section], options: ConvertOptions, limit: int) -> list[Section]:
-    """Cut the section bodies at the same point where `text` was cut for going over the limit. The body of a section that starts
-    after the cut is empty text.
+def _cut_sections(sections: list[Section], options: ConvertOptions, limit: int) -> tuple[list[Section], int]:
+    """Cut the section bodies at the same point where `text` was cut for going over the limit, and count the sections the cut
+    text reaches. The body of a section that starts after the cut is empty text.
 
     Over the limit, only `text` was cut and everything stayed in `sections`, so code using the sections (chunking, source
     attribution) received content beyond the limit
     (Pinned by: test_converter.py::TestAuditedAssemblyGaps::test_sections_are_cut_where_the_text_is_cut and 2 more). The section
     list and `template` are left as they are — when descriptions are filled in again, `render` renders from the originals and
     counts the characters again.
+
+    A section is reached when its whole heading is in the text (a slide, a sheet, a page with its marker), or, without a
+    heading, the start of its body. A slide past the cut keeps its title and has no body, like a slide that is only a title:
+    only the count tells them apart (`ConversionResult.reached_sections`; Pinned by:
+    test_integrations.py::TestLangChainLoader::test_sections_past_the_character_limit_give_no_piece).
     """
     joined, starts = _layout(sections, options)
     cut = len(joined) - len(joined.lstrip()) + limit
+    reached = 0
+    for section, start in zip(sections, starts, strict=True):
+        heading = _header(section, options)
+        heading_end = start - 2 if heading and section.text else start   # the body follows its heading after a blank line
+        if (heading_end > cut) if heading else (start >= cut):
+            break
+        reached += 1
     return [replace(section, text=section.text[:max(cut - start, 0)].rstrip())
-            for section, start in zip(sections, starts, strict=True)]
+            for section, start in zip(sections, starts, strict=True)], reached
