@@ -45,6 +45,7 @@ Branch on `code`; the message can be displayed as is.
 - `encrypted_document`: a password-protected PDF, Office (legacy `.doc` / `.ppt` included), OpenDocument or HWP document, an encrypted mail, or an EPUB with DRM. Tell the user to remove the password and upload again.
 - `document_too_large`: over 50 MB; or a file that becomes too large when decompressed; an HWP with an excessive number of internal records; a file that exceeded the server's conversion time (2 minutes) or memory limit (the "too large or too complex to convert" message); a `.doc` / `.ppt` that LibreOffice did not finish within 60 seconds.
 - `corrupted_document`: an empty file, a broken file, a parse failure, an image file that cannot be opened (when a single image was uploaded), a `.doc` / `.ppt` that LibreOffice could not convert.
+- `conversion_failed`: a fault of the server, not of the document — the temporary files of a `.doc` / `.ppt` conversion could not be written or read (check the free space and permissions of the temporary folder).
 
 ### Format detection
 

@@ -82,6 +82,7 @@ All exceptions are subclasses of `ConversionError`; branch on `code`. The messag
 | `EncryptedDocumentError` | `encrypted_document` | Password-protected PDF, Office (`.doc` / `.ppt` included), OpenDocument and HWP documents, an EPUB with DRM or a ZIP password (a protected XLS that Excel saved with its default password VelvetSweatshop is read normally), encrypted mail (S/MIME, PGP), an HWP distribution document whose body is encrypted when it has no preview either |
 | `DocumentTooLargeError` | `document_too_large` | File size or decompressed size over the limit; the conversion ran out of memory, or the time or memory limit of `IsolatedConverter` was exceeded or its worker died ("too large or too complex"); a `.doc` / `.ppt` LibreOffice did not finish within 60 seconds |
 | `CorruptedDocumentError` | `corrupted_document` | Empty file, broken structure, internal parser error, an image file that cannot be decoded (uploaded on its own), a `.doc` / `.ppt` LibreOffice could not convert |
+| `ConversionError` | `conversion_failed` | Not a property of the document: the temporary files of a `.doc` / `.ppt` conversion could not be written or read (a full disk, a read-only temporary folder) |
 
 ```python
 from opendockit import ConversionError, convert
