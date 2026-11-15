@@ -987,6 +987,17 @@ class TestRuby:
         assert convert(html.encode(), "a.html").text == expected
 
     @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>New <em>York</em><rt>NY</rt></ruby> City</p>", "New York(NY) City"),
+        ("<p><ruby><span>United</span> <span>States</span><rt>US</rt></ruby></p>", "United States(US)"),
+        ("<p><ruby>ab<br>cd<rt>x</rt></ruby> z</p>", "ab\ncd(x) z"),
+        ("<pre><ruby>a  b\nc<rt>x</rt></ruby>\nline2</pre>", "```\na  b\nc(x)\nline2\n```"),
+    ])
+    def test_whitespace_and_line_breaks_of_a_base_are_kept(self, html, expected):
+        """Gathered child by child and stripped, the words of a base ran together (`NewYork(NY)`), a line break in it was lost
+        and a code line lost its spacing."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
         ("<p><ruby>漢字<rp>(</rp><rt>かんじ</rt><rp>)</rp></ruby></p>", "漢字(かんじ)"),
         ("<p><ruby>漢字<rp>（</rp><rt>かんじ</rt><rp>）</rp></ruby></p>", "漢字(かんじ)"),
         ("<p><ruby>漢字<rt>(かんじ)</rt></ruby></p>", "漢字(かんじ)"),

@@ -851,24 +851,36 @@ def _put_ruby(soup: BeautifulSoup) -> None:
     `<rb>` one after another and as many `<rt>` after them are paired in order (`漢(かん)字(じ)`); otherwise the bases are
     one text and the annotations one annotation. An `<rtc>` annotates all of its segment (`旧(jiù)金(jīn)(San Francisco)`).
     An empty annotation leaves the base as it is. Whitespace at the edges of the parts is left out, as a browser does
-    (`<ruby>\n東京\n<rt>とうきょう</rt>\n</ruby>に` is `東京(とうきょう)に`). Inline formatting inside the ruby is not kept: it is turned into text
-    before the strikethrough marks, which a ruby inside a strikethrough then holds whole. Inner rubies are replaced first.
+    (`<ruby>\n東京\n<rt>とうきょう</rt>\n</ruby>に` is `東京(とうきょう)に`), and whitespace between the words of a base is one
+    space wherever it stands (`New <em>York</em>`, `<span>United</span> <span>States</span>`); a line break (`<br>`) in a
+    base stays a line break, and inside a code block (`<pre>`) the base keeps its whitespace as written — gathered child by
+    child and stripped, the words of a base ran together (`NewYork(NY)`) and a code line lost its spacing (Pinned by:
+    test_text_html.py::TestRuby::test_whitespace_and_line_breaks_of_a_base_are_kept). Inline formatting inside the ruby is
+    not kept: it is turned into text before the strikethrough marks, which a ruby inside a strikethrough then holds whole.
+    Inner rubies are replaced first.
     """
     places: _Places = {}
     for ruby in reversed(soup.find_all("ruby")):
         if ruby.parent is None:
             continue
         hidden = {id(string) for rp in ruby.find_all("rp") for string in rp.find_all(string=True)}
+        written = ruby.find_parent(_CODE_BLOCKS) is not None  # inside a code block whitespace is kept as written
         pieces: list[str] = []
-        bases: list[str] = []  # the base texts of the segment so far
+        bases: list[str] = []  # the base texts of the segment so far, as written (`_RUBY_LINE` for a line break)
         notes: list[str] = []  # its annotations (`<rt>`)
         wide: list[str] = []  # its annotations of the whole segment (`<rtc>`)
 
+        def base_text(raw: str) -> str:
+            if written:
+                return raw.replace(_RUBY_LINE, "\n")
+            return "\n".join(" ".join(line.split()) for line in raw.split(_RUBY_LINE)).strip(" ")
+
         def segment_ends() -> None:
-            if len(bases) > 1 and len(notes) == len(bases):
-                text = "".join(format_dutmal(base, note) for base, note in zip(bases, notes, strict=True))
+            texts = [base_text(base) for base in bases]
+            if len(texts) > 1 and len(notes) == len(texts):
+                text = "".join(format_dutmal(base, note) for base, note in zip(texts, notes, strict=True))
             else:
-                text = format_dutmal("".join(bases), " ".join(note for note in notes if note))
+                text = format_dutmal("".join(texts), " ".join(note for note in notes if note))
             pieces.append(format_dutmal(text, " ".join(note for note in wide if note)))
             bases.clear()
             notes.clear()
@@ -879,22 +891,59 @@ def _put_ruby(soup: BeautifulSoup) -> None:
             name = child.name if isinstance(child, Tag) else None
             if name == "rp":
                 continue
-            text = " ".join("".join(string for string in (child.find_all(string=True) if isinstance(child, Tag) else [child])
-                                    if id(string) not in hidden).split())
+            raw = _ruby_part(child, hidden)
             if name in ("rt", "rtc"):
+                text = " ".join(raw.replace(_RUBY_LINE, " ").split())
                 (notes if name == "rt" else wide).append(_without_enclosing_parentheses(text))
                 loose = False
-            elif text:
+            elif raw.replace(_RUBY_LINE, "").strip():
                 if notes or wide:
                     segment_ends()
                 if loose and name != "rb":
-                    bases[-1] += text
+                    bases[-1] += raw
                 else:
-                    bases.append(text)
+                    bases.append(raw)
                 loose = name != "rb"
+            elif loose:
+                bases[-1] += raw  # whitespace or a line break between the pieces of one base
         if bases or notes or wide:
             segment_ends()
-        _replace(ruby, "".join(pieces), places)
+        _replace(ruby, _ruby_node(soup, "".join(pieces), written), places)
+
+
+# A line break (`<br>`) inside a ruby while its parts are gathered (`_put_ruby`): a character no document text holds once the
+# control characters are read (`_ruby_part`).
+_RUBY_LINE = "\x00"
+
+
+def _ruby_part(child: PageElement, hidden: set[int]) -> str:
+    """The text of one child of a ruby as written, with `_RUBY_LINE` for a line break and the `<rp>` text (`hidden`) left out."""
+    if not isinstance(child, Tag):
+        return "" if isinstance(child, PreformattedString) else str(child).replace(_RUBY_LINE, "")
+    if child.name == "br":
+        return _RUBY_LINE
+    parts = []
+    for node in child.descendants:
+        if isinstance(node, Tag):
+            if node.name == "br":
+                parts.append(_RUBY_LINE)
+        elif not isinstance(node, PreformattedString) and id(node) not in hidden:
+            parts.append(str(node).replace(_RUBY_LINE, ""))
+    return "".join(parts)
+
+
+def _ruby_node(soup: BeautifulSoup, text: str, written: bool) -> PageElement | str:
+    """What a ruby is replaced with: its text, and a line break of its base as a `<br>` again (in a code block the line break is
+    text, which the code block keeps)."""
+    if written or "\n" not in text:
+        return text
+    holder = soup.new_tag("span")
+    for index, line in enumerate(text.split("\n")):
+        if index:
+            holder.append(soup.new_tag("br"))
+        if line:
+            holder.append(line)
+    return holder
 
 
 def _without_enclosing_parentheses(text: str) -> str:
