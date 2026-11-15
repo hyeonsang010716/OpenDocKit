@@ -4,7 +4,6 @@ a list item, level marks inside a table cell, and the head and bullet level of a
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-import functools
 import re
 
 from opendockit.extractors._notation import OLE_PLACEHOLDER
@@ -264,7 +263,6 @@ _MAX_NUMBER_TEXT = 255
 _NUMBER_TOKENS = {"^": re.compile(r"\^(\d+|[Nn])"), "%": re.compile(r"%(\d+)")}
 
 
-@functools.lru_cache(maxsize=256)
 def _number_pieces(template: str, mark: str) -> tuple[str | int | None, ...] | None:
     """A number text split once into literal text and level numbers (the level index from 0, None for `^N` / `^n`, the level
     itself), or None when it is longer than `_MAX_NUMBER_TEXT`. A level number below 1 — or of more than 4,300 digits, a level that
@@ -275,7 +273,8 @@ def _number_pieces(template: str, mark: str) -> tuple[str | int | None, ...] | N
     out as '1001ote 1.' (Pinned by: test_audit_core.py::TestLetterAfterAPercentSignInNumberText).
 
     The text was substituted again for every numbered paragraph, empty ones included (they still count): a 100 KB lvlText of
-    level numbers that are empty at that level, on 300 empty numbered paragraphs (a 36 KB file), took 2.3 s."""
+    level numbers that are empty at that level, on 300 empty numbered paragraphs (a 36 KB file), took 2.3 s. Each list keeps the
+    split of its levels (`Numbering._pieces`), so nothing of a document outlives its conversion."""
     pieces: list[str | int | None] = []
     size = 0
     position = 0
@@ -330,6 +329,7 @@ class Numbering:
     levels: list[NumberLevel]
     mark: str = "^"
     counters: dict[int, int] = field(default_factory=dict)
+    _pieces: dict[tuple[int, str], tuple[str | int | None, ...]] = field(default_factory=dict, repr=False, compare=False)
 
     def advance(self, level: int) -> str:
         """Number string of one paragraph at `level` (from 0). A level not in the definition uses the shape of the last level."""
@@ -349,9 +349,13 @@ class Numbering:
             shape = "DIGIT" if self.levels[level].legal else self._level(target).shape
             return format_number(self.counters.get(target, self._level(target).start), shape)
 
-        pieces = _number_pieces(self.levels[level].template, self.mark)
+        template = self.levels[level].template
+        pieces = self._pieces.get((level, template))
         if pieces is None:
-            pieces = _number_pieces(f"{self.mark}{level + 1}.", self.mark)
+            pieces = _number_pieces(template, self.mark)
+            if pieces is None:   # too long: the level's own number, as when no number text is written
+                pieces = _number_pieces(f"{self.mark}{level + 1}.", self.mark)
+            self._pieces[level, template] = pieces
         return "".join(piece if isinstance(piece, str) else number(piece) for piece in pieces).strip()
 
     def _level(self, level: int) -> NumberLevel:

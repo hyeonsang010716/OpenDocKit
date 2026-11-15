@@ -445,17 +445,19 @@ class TestLongNumberText:
         assert "\n1. 첫째\n2. 둘째\n" in text and "본문 첫 문단입니다." in text
 
     @pytest.mark.parametrize("mark", ["%", "^"])
-    def test_long_text_is_not_read_past_the_bound(self, mark):
-        """Splitting stops at the first piece past the bound, and the result is kept for the next paragraphs: the same 100 KB text
-        is not walked again per paragraph."""
+    def test_long_text_is_not_read_past_the_bound(self, mark, monkeypatch):
+        """Splitting stops at the first piece past the bound, and the result is kept by the list for its next paragraphs: the
+        same 100 KB text is not walked again per paragraph."""
         template = f"{mark}2" * 50_000
         numbering = _lists.Numbering([_lists.NumberLevel(template), _lists.NumberLevel(f"{mark}1.{mark}2.")], mark=mark)
-        _lists._number_pieces.cache_clear()
+        split = []
+        original = _lists._number_pieces
+        monkeypatch.setattr(_lists, "_number_pieces", lambda text, sign: split.append(len(text)) or original(text, sign))
 
         numbers = [numbering.advance(0) for _ in range(300)]
 
         assert numbers[:3] == ["1.", "2.", "3."] and numbers[-1] == "300."
-        assert _lists._number_pieces.cache_info().misses == 2  # the long text and the fallback, each split once
+        assert split == [len(template), 3]  # the long text and the fallback, each split once
 
 
 class TestDeeplyNestedJsonLookalike:
