@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **PDF**: footnotes are linked where the page proves them. When a page has a short footnote rule with smaller notes
+  under it, raised note numbers that run on, and exactly one raised mark in the body for each note number, in the order of
+  the notes, the mark becomes `[^1]` and the note `[^1]: …` at the bottom of the same page (a number used again on another
+  page is written with its page, `[^p12-1]`). Every other page is left exactly as before (`135^1%`), so no note is attached
+  by a guess: a page that also has `m^2` and a note 2 is not linked. On 120 documents with real footnotes (1,580 marks),
+  864 marks were linked and none to the wrong note.
+
 ## [0.3.5] - 2026-11-15
 
 A third review of the whole source. The sample outputs in `examples/` are unchanged.

@@ -22,7 +22,7 @@ result = convert(data, "deck.pptx", options)
 | `include_speaker_notes` | `True` | Speaker notes (PPTX, ODP, PPT) |
 | `include_hidden_sheets` | `False` | Hidden sheets (XLSX, XLS, ODS) |
 | `include_headers_footers` | `False` | Headers and footers of DOCX, ODT, RTF, DOC, HWP and HWPX (usually noise) |
-| `include_footnotes` | `True` | Footnotes as `[^n]: …` at the end of the document |
+| `include_footnotes` | `True` | Footnotes as `[^n]: …` at the end of the document (PDF: not applied — its notes stay at the bottom of each page) |
 | `keep_links` | `True` | Hyperlinks as `[text](url)` (http, https and mailto only). `False`: only the link text |
 | `keep_emphasis` | `True` | Bold and italic as `**bold**` / `*italic*`. `False`: plain text |
 | `remove_repeated_page_lines` | `True` | Remove repeated PDF page headers, footers and page numbers |

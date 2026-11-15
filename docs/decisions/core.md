@@ -54,6 +54,7 @@ src/opendockit/
     ├── _pdf_continued_tables.py # header lines joined, headers and open cells carried over a page break
     ├── _pdf_label_values.py # label and value lines
     ├── _pdf_reading_order.py # columns, alternating sides, lone lines, sidebars, captions
+    ├── _pdf_footnotes.py # raised marks linked to the notes under a footnote rule, where the page proves it
     ├── _pdf_paragraphs.py # lines and tables of a page → Markdown: paragraphs, headings, pictures in cells
     ├── _pdf_margins.py # repeated headers, footers and page numbers; body font size and line gap
     ├── _html_base.py # tag sets, limits and rendering state shared by the HTML modules; placeholders for finished text
@@ -122,7 +123,7 @@ Only the common decisions (detection, limits, pictures, assembly, description) a
   - [office-limits.md](office-limits.md) — processing time
 - PDF
   - [pdf.md](pdf.md) — PDF
-  - [pdf-flow.md](pdf-flow.md) — reading order, two columns, labels beside a table, superscripts and subscripts
+  - [pdf-flow.md](pdf-flow.md) — reading order, two columns, labels beside a table, superscripts and subscripts, footnotes
   - [pdf-rows.md](pdf-rows.md) — joining fragments of the same row, pulling up pushed-down lines
   - [pdf-tables.md](pdf-tables.md) — splitting table cells, header rows of continued tables, tables inside tables, checkboxes
   - [pdf-borderless.md](pdf-borderless.md) — wide-cell rows of borderless tables, the empty top-left cell, narrow gaps between cells
