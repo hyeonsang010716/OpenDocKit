@@ -745,3 +745,160 @@ class TestSubscriptsOnALineOfTheirOwn:
 
         assert f"_{kept}" not in text and f"_{{{kept}}}" not in text
         assert kept in text
+
+
+def _plain_below_both_columns(lines, left_end, right_start, blocks):
+    """`_below_both_columns` as it was written before, going through all the lines above every candidate."""
+    import statistics
+
+    from opendockit.extractors._pdf_model import _TABLE_ROW_TOLERANCE
+    from opendockit.extractors._pdf_reading_order import _WRAP_LINE_GAP_RATIO
+
+    def fills_column_below(line, lower):
+        if len(lower) < 2 or lower[0].x1 <= left_end - lower[0].height:
+            return False
+        wrap_gap = lower[1].top - lower[0].bottom
+        if abs(lower[1].x0 - lower[0].x0) > _TABLE_ROW_TOLERANCE or not 0 <= wrap_gap <= lower[0].height * _WRAP_LINE_GAP_RATIO:
+            return False
+        return not any(line.top < other.top < lower[0].top and other.x1 > left_end for other in lines)
+
+    rights = [line for line in lines if line.x0 >= left_end]
+    if not rights:
+        return float("inf")
+    right_bottom = max(line.bottom for line in rights)
+    lefts = sorted((line for line in lines if line.x1 <= right_start), key=lambda line: line.top)
+    for index, line in enumerate(lefts):
+        above = lefts[:index]
+        if not above or line.top < right_bottom - 1 or line.x1 > left_end - line.height:
+            continue
+        gaps = [lower.top - upper.bottom for upper, lower in zip(above, above[1:], strict=False) if lower.top > upper.bottom]
+        gap = line.top - max(other.bottom for other in above)
+        left_bottom = max([other.bottom for other in above]
+                          + [bottom for x1, bottom in blocks if x1 <= right_start and bottom <= line.top])
+        if (line.x0 <= min(other.x0 for other in above) + _TABLE_ROW_TOLERANCE
+                and gap >= max(line.height * 0.5, statistics.median(gaps) * 2 if gaps else 0.0)
+                and right_bottom >= left_bottom - line.height and not fills_column_below(line, lefts[index + 1:])):
+            return line.top
+    return float("inf")
+
+
+class TestManyLinesBesideColumns:
+    """Two reading-order steps went through the page's lines again for every line: `_below_both_columns` the lines above
+    each candidate, and `_alternating_window` all the lines of a page alternating between two sides at every turn-back.
+    20,000 such lines on one page (56 KB) took 20 seconds there, of 21 for the page; 8,000 left lines of two widths under a
+    right-column line took 1.2 seconds below both columns."""
+
+    @staticmethod
+    def _alternating(count: int):
+        from opendockit.extractors._pdf_model import _Line
+
+        lines = []
+        for index in range(count):
+            bottom = 20 + index * 0.6
+            lines.append(_Line(top=bottom - 0.5, bottom=bottom, x0=50, x1=200, text="a", size=0.5) if index % 2 == 0
+                         else _Line(top=bottom - 10, bottom=bottom, x0=300, x1=500, text="b", size=10))
+        return lines
+
+    def test_below_both_columns_matches_the_plain_computation(self):
+        import math
+        import random
+
+        from opendockit.extractors._pdf_model import _Line
+        from opendockit.extractors._pdf_reading_order import _below_both_columns
+
+        rng = random.Random(5)
+        found = 0
+        for _ in range(20_000):
+            lines, top = [], rng.uniform(0, 20)
+            for _ in range(rng.randint(0, 14)):
+                top += rng.choice([12.0, 12.0, 14.0, 20.0, 30.0, 6.0, rng.uniform(-5, 40)])
+                height = rng.choice([10.0, 10.0, 8.0, rng.uniform(4, 14)])
+                kind = rng.random()
+                if kind < 0.55:
+                    x0 = rng.choice([50.0, 50.0, 51.0, 56.0, rng.uniform(40, 120)])
+                    x1 = rng.choice([250.0, 248.0, 200.0, 230.0, rng.uniform(x0, 300)])
+                elif kind < 0.85:
+                    x0, x1 = rng.choice([320.0, 330.0, rng.uniform(250, 400)]), rng.choice([500.0, 520.0, rng.uniform(400, 560)])
+                else:
+                    x0, x1 = rng.uniform(40, 200), rng.uniform(260, 560)
+                start = top if rng.random() > 0.15 else rng.uniform(0, top + 20)
+                line = _Line(top=start, bottom=start + height, x0=x0, x1=x1, text="t", size=height)
+                if rng.random() < 0.02:
+                    setattr(line, rng.choice(["top", "bottom", "x0", "x1"]), rng.choice([math.nan, math.inf, -math.inf]))
+                lines.append(line)
+            blocks = [(rng.choice([200.0, 260.0, 400.0]), rng.uniform(0, top + 30)) for _ in range(rng.choice([0, 0, 1, 2]))]
+            if blocks and rng.random() < 0.02:
+                blocks[0] = (blocks[0][0], math.nan)
+            left_end, right_start = rng.choice([(250.0, 320.0), (255.0, 300.0), (260.0, 330.0)])
+
+            expected = _plain_below_both_columns(lines, left_end, right_start, blocks)
+            got = _below_both_columns(lines, left_end, right_start, blocks)
+
+            assert got == expected or (math.isnan(got) and math.isnan(expected))
+            found += math.isfinite(got)
+        assert found > 1_000
+
+    @pytest.mark.timing
+    def test_below_both_columns_is_found_in_linear_time(self):
+        import time
+
+        from opendockit.extractors._pdf_model import _Line
+        from opendockit.extractors._pdf_reading_order import _below_both_columns
+        from tests.timing import allowed
+
+        lines = [_Line(top=0, bottom=10, x0=320, x1=500, text="r", size=10)]
+        lines += [_Line(top=20 + index * 12, bottom=30 + index * 12, x0=50, x1=250 if index % 2 else 200, text="l", size=10)
+                  for index in range(8_000)]
+
+        started = time.perf_counter()
+        below = _below_both_columns(lines, 250, 320, [])
+
+        assert time.perf_counter() - started < allowed(0.4)  # 1.2 seconds before
+        assert below == float("inf")
+
+    def test_alternating_lines_are_still_put_in_order(self):
+        from opendockit.extractors._pdf_model import _Line, _Page
+        from opendockit.extractors._pdf_reading_order import _read_alternating_sides_in_turn
+
+        lefts = [_Line(top=top, bottom=top + 10, x0=72, x1=250, text=f"L{top}", size=10) for top in (100, 140, 180)]
+        rights = [_Line(top=top, bottom=top + 10, x0=x0, x1=523, text=f"R{top}", size=10)
+                  for top, x0 in ((120, 300), (160, 350), (200, 400))]
+        page = _Page(number=1, width=595, height=842, lines=[*lefts, *rights], tables=[], has_images=False,
+                     view=(0, 0, 595, 842))
+
+        _read_alternating_sides_in_turn(page)
+
+        assert [line.top for line in page.lines] == [100, 120, 140, 160, 180, 200]
+
+    def test_turn_backs_after_the_work_of_the_page_stay_as_read(self, monkeypatch):
+        from opendockit.extractors import _pdf_reading_order
+        from opendockit.extractors._pdf_model import _Line, _Page
+
+        monkeypatch.setattr(_pdf_reading_order, "_ALTERNATING_WORK", 5)  # the window holds all six lines
+        lefts = [_Line(top=top, bottom=top + 10, x0=72, x1=250, text=f"L{top}", size=10) for top in (100, 140, 180)]
+        rights = [_Line(top=top, bottom=top + 10, x0=x0, x1=523, text=f"R{top}", size=10)
+                  for top, x0 in ((120, 300), (160, 350), (200, 400))]
+        page = _Page(number=1, width=595, height=842, lines=[*lefts, *rights], tables=[], has_images=False,
+                     view=(0, 0, 595, 842))
+
+        _pdf_reading_order._read_alternating_sides_in_turn(page)
+
+        assert [line.top for line in page.lines] == [100, 140, 180, 120, 160, 200]
+
+    @pytest.mark.timing
+    def test_a_page_of_lines_alternating_between_two_sides_is_read_in_bounded_time(self):
+        import time
+
+        from opendockit.extractors._pdf_model import _Page
+        from opendockit.extractors._pdf_reading_order import _read_alternating_sides_in_turn
+        from tests.timing import allowed
+
+        lines = self._alternating(20_000)
+        page = _Page(number=1, width=600, height=14_000, lines=list(lines), tables=[], has_images=False,
+                     view=(0, 0, 600, 14_000))
+
+        started = time.perf_counter()
+        _read_alternating_sides_in_turn(page)
+
+        assert time.perf_counter() - started < allowed(2)  # 20 seconds before
+        assert page.lines == lines
