@@ -3334,6 +3334,66 @@ class TestBlockPlacement:
 
         assert text.index("| 구분 | 값 |") < text.index("- 개선 항목 1번")
 
+    @staticmethod
+    def _picture(pdf, x, top, width, height, seed):
+        from io import BytesIO
+
+        from reportlab.lib.utils import ImageReader
+
+        pdf.drawImage(ImageReader(BytesIO(builder.png_bytes(300, 200, seed=seed))), x, top - height, width, height)
+
+    @pytest.mark.parametrize("picture", [False, True])
+    def test_table_right_under_a_touching_label_stays_under_it(self, picture):
+        """A short label drawn right above a centred narrow table (reportlab's Paragraph followed by a centred Table) reaches
+        about 0.1pt into the table's top edge with its descent. That counted as 'text beside the table', the page as two
+        columns, and with no paragraph above the table in its column every table went to the end of the page, away from its
+        label. A picture under its caption is placed the same way."""
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 10)
+            for number, top in enumerate((760, 640)):
+                # Helvetica's descent is 2.07pt below the baseline, so the label's box ends 0.07pt inside the block
+                pdf.drawString(72, top + 2, f"Table {number + 1}:")
+                if picture:
+                    self._picture(pdf, 250, top, 100, 60, number)
+                else:
+                    self._grid(pdf, [250, 300, 350], top, 20, [["Key", "Value"], [f"k{number}", f"v{number}"]])
+            pdf.drawString(72, 520, "End of the section.")
+
+        text = convert(_korean_pdf(draw), "a.pdf").sections[0].text
+        blocks = text.split("\n\n")
+
+        assert blocks[0] == "Table 1:" and blocks[2] == "Table 2:" and blocks[4] == "End of the section."
+        if picture:
+            assert blocks[1] == blocks[3] == "[Image]"
+        else:
+            assert (blocks[1], blocks[3]) == ("| Key | Value |\n| --- | --- |\n| k0 | v0 |",
+                                              "| Key | Value |\n| --- | --- |\n| k1 | v1 |")
+
+    @pytest.mark.parametrize("picture", [False, True])
+    def test_centred_title_above_a_centred_narrow_table_does_not_make_two_columns(self, picture):
+        """The page of `test_centred_narrow_table_on_a_one_column_page_stays_under_its_heading` with a centred title. The
+        title overlaps the table horizontally, is wider than half of it and does not reach the short left-aligned lines, so
+        it was taken for body text of the table's own column, and the table went after the last wide paragraph above it,
+        before the short list that is above it on the page. Nothing flows beside the title, so it is no column."""
+        def draw(pdf, index):
+            pdf.setFont("Helvetica-Bold", 18)
+            pdf.drawCentredString(297, 800, "Quarterly Sales Report")
+            pdf.setFont("Helvetica", 10)
+            pdf.drawString(57, 770, "This quarter the sales of every team grew. The figures below are in millions and exclude tax,")
+            pdf.drawString(57, 756, "and they were checked by the finance department before this report was issued.")
+            pdf.drawString(57, 730, "1. Team North grew most.")
+            pdf.drawString(57, 716, "2. Team South grew least.")
+            if picture:
+                self._picture(pdf, 220, 690, 160, 70, 1)
+            else:
+                self._grid(pdf, [220, 300, 380], 690, 20, [["Team", "Sales"], ["North", "1,200"], ["South", "900"]])
+            pdf.drawString(57, 600, "Source: finance.")
+
+        text = convert(_korean_pdf(draw), "a.pdf").sections[0].text
+        block = "[Image]" if picture else "| Team | Sales |"
+
+        assert text.index("2. Team South grew least.") < text.index(block) < text.index("Source: finance.")
+
 
 class TestFormFields:
     """The values entered in a fillable form (AcroForm) are not in the page content but in widget annotations."""

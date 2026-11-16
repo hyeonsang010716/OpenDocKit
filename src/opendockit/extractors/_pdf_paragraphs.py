@@ -269,10 +269,11 @@ def _columns_apart(span: tuple[float, float], block: tuple[float, float, float, 
                    boxes: list[tuple[float, float, float, float]]) -> bool:
     """Whether the columns really divide between a paragraph that `_in_other_column` took for another column (horizontal range
     `span`) and the table or picture (`block` = top, bottom, x0, x1). They divide when any paragraph (`boxes` = top, bottom,
-    x0, x1) either (1) overlaps the table or picture horizontally, does not overlap `span`, and is at least
-    `_COLUMN_MIN_WIDTH_RATIO` times as wide as the table or picture (body text of the table's or picture's column), or (2)
-    does not overlap the table or picture horizontally but overlaps it in height (text beside the table or picture,
-    including slides that put a picture beside text).
+    x0, x1) either (1) overlaps the table or picture horizontally, does not overlap `span`, is at least
+    `_COLUMN_MIN_WIDTH_RATIO` times as wide as the table or picture, and has a paragraph of `span`'s column beside it
+    (body text of the table's or picture's column, flowing side by side with the other column), or (2) does not overlap the
+    table or picture horizontally but overlaps it in height (text beside the table or picture, including slides that put a
+    picture beside text). Side by side means overlapping in height by more than `_TABLE_ROW_TOLERANCE`.
 
     With neither, the table or picture sits alone on its line in a single-column flow and is left in height order. On a
     single-column page the only paragraphs overlapping a centred narrow table or picture are page-width paragraphs that also
@@ -280,13 +281,27 @@ def _columns_apart(span: tuple[float, float], block: tuple[float, float, float, 
     or picture was moved after the paragraph at the top of the page (or to the end of the page), away from its subheading
     (pinned by: test_pdf.py::TestBlockPlacement::
     test_centred_narrow_table_on_a_one_column_page_stays_under_its_heading).
+
+    Deliberate: both cases ask for a real overlap in height and a column of its own. A short label right above a centred
+    table reaches about 0.1pt into its top edge with its descent, and a centred title wider than half the table touches
+    neither the table's height nor the short left-aligned lines; either one made a one-column page two columns, so the
+    tables went to the end of the page away from their labels, or before the short list above them (pinned by:
+    test_pdf.py::TestBlockPlacement::test_table_right_under_a_touching_label_stays_under_it,
+    test_centred_title_above_a_centred_narrow_table_does_not_make_two_columns).
     """
     top, bottom, x0, x1 = block
+
+    def beside(first: tuple[float, float], second: tuple[float, float]) -> bool:
+        return min(first[1], second[1]) - max(first[0], second[0]) > _TABLE_ROW_TOLERANCE
+
     for other_top, other_bottom, left, right in boxes:
         overlaps_block = left < x1 and x0 < right
-        if overlaps_block and not (left < span[1] and span[0] < right) and right - left >= (x1 - x0) * _COLUMN_MIN_WIDTH_RATIO:
+        if (overlaps_block and not (left < span[1] and span[0] < right) and right - left >= (x1 - x0) * _COLUMN_MIN_WIDTH_RATIO
+                and any(near_left < span[1] and span[0] < near_right and not (near_left < right and left < near_right)
+                        and beside((near_top, near_bottom), (other_top, other_bottom))
+                        for near_top, near_bottom, near_left, near_right in boxes)):
             return True
-        if not overlaps_block and other_top < bottom and top < other_bottom:
+        if not overlaps_block and beside((other_top, other_bottom), (top, bottom)):
             return True
     return False
 
