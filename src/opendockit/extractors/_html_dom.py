@@ -1651,10 +1651,12 @@ def _image_placeholder(image: Tag, extraction: Extraction, options: ConvertOptio
 def _is_lazy(image: Tag) -> bool:
     """Whether the picture is lazy-loaded: the real address sits in an attribute such as `data-src`, `data-original` or `data-lazy-src`
     (name contains src / original / lazy, value is an address that is not data: — text containing `.` or `/`). The data: URI in `src` is
-    then a placeholder picture."""
+    then a placeholder picture. The scheme is compared without case, as for `src`: a `data-src` written `DATA:image/png…` was
+    taken for the address of the real picture and the picture in `src` was not extracted
+    (Pinned by: test_audit_html_text.py::TestDataUriWrittenWithCapitalsOrLeadingSpace::test_data_uri_in_data_src_with_capitals_is_no_lazy_address)."""
     for name, value in image.attrs.items():
         text = str(value).strip()
-        if (name.startswith("data-") and any(word in name for word in _LAZY_SOURCE_WORDS) and not text.startswith("data:")
+        if (name.startswith("data-") and any(word in name for word in _LAZY_SOURCE_WORDS) and text[:5].lower() != "data:"
                 and ("." in text or "/" in text)):
             return True
     return False
