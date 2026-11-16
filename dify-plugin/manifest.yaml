@@ -27,6 +27,7 @@ meta:
 created_at: 2026-11-16T00:00:00+09:00
 privacy: PRIVACY.md
 verified: false
+# Only tags the Dify plugin CLI and daemon accept: `dify plugin package` 0.6.15 refused `document`
+# (Pinned by: test_dify_plugin.py::TestManifest::test_tags_are_ones_dify_packages_and_installs).
 tags:
-  - document
   - rag
