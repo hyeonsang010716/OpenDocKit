@@ -36,6 +36,7 @@ from opendockit.extractors._html_tables import (
     _is_layout_table,
     _is_one_column_box,
     _names_values_in_pairs,
+    _nearest,
     _table_rows,
 )
 from opendockit.extractors._inline import (
@@ -131,6 +132,8 @@ _OVERLAY_ROLES = {"dialog", "alertdialog", "menu", "menubar", "tooltip", "naviga
 # (`_foster_parent_table_content`).
 _TABLE_PARTS = {"thead", "tbody", "tfoot", "tr"}
 _TABLE_CELLS = {"td", "th", "caption", "colgroup", "col"}
+# What ends a run of cells outside a row (`_rows_for_loose_cells`), as in a browser.
+_ROW_ENDS = {"tr", "thead", "tbody", "tfoot", "table", "caption", "colgroup", "col"}
 _TABLE_TAG = re.compile(r"<table[\s>]", re.IGNORECASE)
 _ROW_START = re.compile(r"<tr[\s>]", re.IGNORECASE)
 
@@ -667,14 +670,23 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
     without a warning. Elements wrapping rows (`<form>`) are descended into. Whitespace-only text is not moved. Processing is
     in document order, so a table taken out is processed again at its own turn (no recursion)
     (Pinned by: test_text_html.py::TestContentOutsideTableCells).
+
+    Cells that lxml leaves outside a row are put in one, as a browser does: an element between a row and its cells
+    (`<tr><form><td>`, a div, a label) is unwrapped, so the cells sit right under the row and what else it held goes before the
+    table, and cells written straight under the table or a row group (`<table><td>`, a `<tr>` left out after the header row)
+    are wrapped in a new row, one per run up to the next row (`_rows_for_loose_cells`). The rows are read only from cells right
+    under a row, so these cells disappeared, and with them every row of a table built that way
+    (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_cells_wrapped_inside_a_row_are_read,
+    test_cells_outside_any_row_are_read).
     """
     for table in soup.find_all("table"):
         before: list[object] = []
         after: list[Tag] = []
-        stack = list(reversed(table.contents))
+        wrappers: list[Tag] = []
+        stack = [(child, False) for child in reversed(_rows_for_loose_cells(soup, table))]
 
         while stack:
-            child = stack.pop()
+            child, in_row = stack.pop()
             if isinstance(child, NavigableString):
                 if str(child).strip():
                     before.append(child)
@@ -683,12 +695,62 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
             elif child.name == "table":
                 after.append(child)
             elif child.name in _TABLE_PARTS or child.find(["tr", "td", "th"]) is not None:
-                stack.extend(reversed(child.contents))
+                if in_row and child.name not in _TABLE_PARTS:
+                    wrappers.append(child)
+                in_row = in_row or child.name == "tr"
+                contents = child.contents if in_row else _rows_for_loose_cells(soup, child)
+                stack.extend((node, in_row) for node in reversed(contents))
             else:
                 before.append(child)
 
+        _unwrap_all(wrappers)
         if before or after:
             _move_beside(table, before, after)
+
+
+def _rows_for_loose_cells(soup: BeautifulSoup, parent: Tag) -> list:
+    """The children of `parent` (a table, a row group or an element wrapping rows), with each run of cells right under it put
+    into a new row first. A run starts at a cell and ends at its last cell before a row, a row group, a table, a caption or
+    column element, or an element that holds rows of this table; text and inline elements between its cells go into the row
+    with them (and from there before the table), as does an element that wraps cells (unwrapped there).
+
+    The children from the first run on are detached from the back (each one the last child, its position known) and appended
+    again, the runs inside their new rows: detaching or inserting each in the middle of the list moves the children after it,
+    and 40,000 runs between the rows of one table took time quadratic in them
+    (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly).
+    """
+    contents = parent.contents
+    runs: list[tuple[int, int]] = []
+    start = last = None
+    for index, child in enumerate(contents):
+        if isinstance(child, Tag) and child.name in ("td", "th"):
+            start = index if start is None else start
+            last = index
+        elif start is not None and isinstance(child, Tag) and (
+                child.name in _ROW_ENDS or _nearest(child, wanted={"tr"}, stop={"table", "td", "th"})):
+            runs.append((start, last))
+            start = None
+    if start is not None:
+        runs.append((start, last))
+    if not runs:
+        return contents
+
+    first = runs[0][0]
+    tail = contents[first:]
+    for index in range(len(contents) - 1, first - 1, -1):
+        contents[index].extract(_self_index=index)
+    ends = {start - first: last - first for start, last in runs}
+    position = 0
+    while position < len(tail):
+        if position in ends:
+            row = soup.new_tag("tr")
+            parent.append(row)
+            row.extend(tail[position:ends[position] + 1])
+            position = ends[position] + 1
+        else:
+            parent.append(tail[position])
+            position += 1
+    return parent.contents
 
 
 def _move_beside(table: Tag, before: list, after: list) -> None:
@@ -746,7 +808,13 @@ def _unwrap_all(tags: list[Tag]) -> None:
             places[id(parent)] = {id(child): index for index, child in enumerate(parent.contents)}
         index = places[id(parent)][id(tag)]
         tag.extract(_self_index=index)
-        for child in reversed(tag.contents[:]):
+        # The children are detached from the back with their positions known too: `insert` would look each one up among the
+        # siblings it still has, and a row whose 10,000 cells one element wraps took time quadratic in them
+        # (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly).
+        children = tag.contents[:]
+        for position in range(len(children) - 1, -1, -1):
+            children[position].extract(_self_index=position)
+        for child in reversed(children):
             parent.insert(index, child)
 
 
