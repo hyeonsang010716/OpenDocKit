@@ -694,6 +694,44 @@ class TestWesternText:
     @pytest.mark.parametrize(
         "text",
         [
+            "Descrição;Situação\nPedido de compra;Aprovado\nNota fiscal;Pendente\n",
+            "Ações;Observações\nCompra;Nenhuma\n",
+            "Größe;Menge\nÄpfel;3\nBirnen;5\n",
+            "gemäß Vertrag\n",
+        ],
+        ids=["portuguese-csv", "portuguese-plural", "german-csv", "german-phrase"],
+    )
+    def test_accented_letter_pairs_are_not_read_as_hanja(self, text):
+        """Two accented letters in a row (`çã`, `öß`, `äß`) decode strictly as one CP949 hanja and an uppercase accent before a
+        letter (`Äp`) as extended Hangul, so short Portuguese and German text came out as `Descri豫o`, `Gr秤e`, `훡fel`,
+        `gem癌` without a warning."""
+        decoded, encoding = decode_text(text.encode("cp1252"))
+
+        assert decoded == text
+        assert encoding == "cp1252"
+        assert convert(text.encode("cp1252"), "a.csv").metadata["encoding"] == "cp1252"
+
+    @pytest.mark.parametrize("text", ["INFORMAÇÃO", "Situação: ATENÇÃO\n", "OBSERVAÇÕES gerais", "AÇÃO;STATUS\n1;OK\n"])
+    def test_uppercase_accent_pairs_are_not_read_as_hangul(self, text):
+        """`ÇÃ` and `ÇÕ` are an everyday syllable in CP949 (`플`), so a Portuguese heading came out as `INFORMA플O`."""
+        assert decode_text(text.encode("cp1252")) == (text, "cp1252")
+
+    @pytest.mark.parametrize("text", ["LG의 실적", "KIM이", "LG의 ", "SK하", "A인", "IT인력", "KT 하이", "이 문서", "플랜 A"])
+    def test_korean_syllable_next_to_capital_letters_stays_cp949(self, text):
+        """Only a syllable of two uppercase accents set alone between two capital letters is read as Windows-1252."""
+        assert decode_text(text.encode("cp949")) == (text, "cp949")
+
+    @pytest.mark.parametrize("text", ["大韓民國", "李舜臣 將軍", "株式會社 ABC\n", "1,金,2\n", "No.李", "漢字 test"])
+    def test_korean_written_in_hanja_alone_stays_cp949(self, text):
+        """Hanja run on for whole words or stand apart from Latin letters, which accents in Western words do not."""
+        decoded, encoding = decode_text(text.encode("cp949"))
+
+        assert decoded == text
+        assert encoding == "cp949"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
             "naïve façade déjà Señor",
             "Café résumé naïve façade – déjà vu. Señor Müller größe.\n" * 5,
             "Total – 5 items; price €20",
@@ -883,6 +921,18 @@ class TestFormValues:
 
         assert result.text == "☒ 동의 ☐ 거부\n\n☐ 오전 ☒ 오후"
 
+    def test_suggestions_of_a_datalist_are_left_out(self):
+        """A browser never draws a `<datalist>` (the suggestions of an input), nor a fallback `<select>` inside one: its
+        options came out glued into one word after the field."""
+        countries = ["Afghanistan", "Albania", "Algeria"]
+        html = ("<form><label>Country <input list='c' value='Korea'></label><datalist id='c'>"
+                + "".join(f"<option value='{name}'>" for name in countries) + "</datalist></form>"
+                + "<label>City <input list='d'></label><datalist id='d'>" + "".join(f"<option>{name}</option>" for name in countries)
+                + "</datalist><p>Region <input list='e' value='Asia'><datalist id='e'>or pick: <select><option>Europe</option>"
+                "</select></datalist></p><p>Submit by Friday.</p>")
+
+        assert convert(html.encode(), "a.html").text == "Country Korea\n\nCity\n\nRegion Asia\n\nSubmit by Friday."
+
     def test_select_without_a_choice_shows_the_first_option_and_multiple_shows_every_choice(self):
         html = ("<p>지역: <select><option>서울</option><option>부산</option></select></p>"
                 "<p>과목: <select multiple><option selected>국어</option><option>영어</option><option selected>수학</option></select></p>"
@@ -932,6 +982,97 @@ class TestFormValues:
 
         assert result.text.count("값") == 4000 and result.text.count("☒") == 4000 and result.text.count(" b ") == 4000
         assert elapsed < 4.0
+
+
+class TestRuby:
+    """Row of html.md: ruby is `base(annotation)`, the shape of HWP/HWPX dutmal, DOCX and ODF ruby (`_notation.format_dutmal`).
+    Without `<rp>` the annotation was glued to the base (`東京とうきょう`)."""
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>東京<rt>とうきょう</rt></ruby>に行く</p>", "東京(とうきょう)に行く"),
+        ("<p><ruby>大韓民國<rt>대한민국</rt></ruby> 만세</p>", "大韓民國(대한민국) 만세"),
+        ("<p><ruby>\n  東京\n  <rt> とうきょう </rt>\n</ruby>に</p>", "東京(とうきょう)に"),
+    ])
+    def test_annotation_follows_its_base_in_parentheses(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>New <em>York</em><rt>NY</rt></ruby> City</p>", "New York(NY) City"),
+        ("<p><ruby><span>United</span> <span>States</span><rt>US</rt></ruby></p>", "United States(US)"),
+        ("<p><ruby>ab<br>cd<rt>x</rt></ruby> z</p>", "ab\ncd(x) z"),
+        ("<pre><ruby>a  b\nc<rt>x</rt></ruby>\nline2</pre>", "```\na  b\nc(x)\nline2\n```"),
+    ])
+    def test_whitespace_and_line_breaks_of_a_base_are_kept(self, html, expected):
+        """Gathered child by child and stripped, the words of a base ran together (`NewYork(NY)`), a line break in it was lost
+        and a code line lost its spacing."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>漢字<rp>(</rp><rt>かんじ</rt><rp>)</rp></ruby></p>", "漢字(かんじ)"),
+        ("<p><ruby>漢字<rp>（</rp><rt>かんじ</rt><rp>）</rp></ruby></p>", "漢字(かんじ)"),
+        ("<p><ruby>漢字<rt>(かんじ)</rt></ruby></p>", "漢字(かんじ)"),
+        ("<p><ruby>漢字<rt>(かん)(じ)</rt></ruby></p>", "漢字((かん)(じ))"),
+    ])
+    def test_parentheses_are_never_doubled(self, html, expected):
+        """The `<rp>` fallback parentheses are left out, and so is a pair around the whole annotation; parentheses that do not
+        enclose all of it stay."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>漢<rt>かん</rt>字<rt>じ</rt></ruby></p>", "漢(かん)字(じ)"),
+        ("<p><ruby><rb>漢</rb><rb>字</rb><rt>かん</rt><rt>じ</rt></ruby></p>", "漢(かん)字(じ)"),
+        ("<p><ruby><rb>漢</rb><rb>字</rb><rt>かんじ</rt></ruby></p>", "漢字(かんじ)"),
+        ("<p><ruby><rb>旧</rb><rb>金</rb><rb>山</rb><rt>jiù</rt><rt>jīn</rt><rt>shān</rt><rtc>San Francisco</rtc></ruby></p>",
+         "旧(jiù)金(jīn)山(shān)(San Francisco)"),
+        ("<p><ruby>漢字<rtc><rp>(</rp><rt>かん</rt><rt>じ</rt><rp>)</rp></rtc></ruby></p>", "漢字(かんじ)"),
+        ("<p><ruby><ruby>東<rt>とう</rt></ruby>京<rt>Tokyo</rt></ruby></p>", "東(とう)京(Tokyo)"),
+    ])
+    def test_several_bases_and_annotations(self, html, expected):
+        """Each annotation goes with the base before it; `<rb>` bases and as many `<rt>` after them are paired in order;
+        an `<rtc>` annotates its whole segment; a ruby inside a ruby is read first."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>漢字<rt></rt></ruby>です</p>", "漢字です"),
+        ("<p><ruby>漢字<rt> </rt><rp>(</rp><rp>)</rp></ruby>です</p>", "漢字です"),
+        ("<p>a<ruby><rt>b</rt></ruby>c</p>", "abc"),
+    ])
+    def test_empty_annotation_or_base_adds_no_parentheses(self, html, expected):
+        assert convert(html.encode(), "a.html").text == expected
+
+    def test_ruby_in_a_strikethrough_a_table_and_a_heading(self):
+        html = ("<h2><ruby>東京<rt>とうきょう</rt></ruby></h2><p><del><ruby>東京<rt>とうきょう</rt></ruby></del>へ</p>"
+                "<table><tr><th>都市</th><th>人口</th></tr><tr><td><ruby>大阪<rt>おおさか</rt></ruby></td><td>270</td></tr></table>")
+
+        assert convert(html.encode(), "a.html").text == ("## 東京(とうきょう)\n\n~~東京(とうきょう)~~へ\n\n"
+                                                         "| 都市 | 人口 |\n| --- | --- |\n| 大阪(おおさか) | 270 |")
+
+    def test_rubies_nested_in_each_other_are_read_from_the_inside_out(self):
+        html = "<p><ruby><ruby>漢<rt>かん</rt></ruby>字<rt>outer</rt></ruby>と<ruby>a<pre> b  c </pre><rt>x</rt></ruby></p>"
+
+        assert convert(html.encode(), "a.html").text == "漢(かん)字(outer)とa b c(x)"
+
+    def test_rubies_past_the_nesting_bound_are_plain_text(self):
+        """Rubies are read as ruby down to eight levels; a deeper one gives its bases and annotations one after another."""
+        html = "<p>" + "<ruby>a<rt>r</rt>" * 10 + "b" + "</ruby>" * 10 + "</p>"
+
+        assert convert(html.encode(), "a.html").text == "a(r)" * 8 + "ararb"
+
+    @pytest.mark.timing
+    def test_nested_rubies_take_linear_time(self):
+        """Each ruby walked up to the root, and every inner ruby was replaced in the tree in turn: 20,000 rubies nested in each
+        other (280 KB) took 32 seconds. Measured against the same nesting of spans."""
+        import time
+
+        def elapsed(tag: str) -> float:
+            html = "<p>" + f"<{tag}>a" * 20_000 + "<rt>x</rt>" + f"</{tag}>" * 20_000 + "</p>"
+            started = time.perf_counter()
+            convert(html.encode(), "a.html")
+            return time.perf_counter() - started
+
+        spans = elapsed("span")
+
+        assert elapsed("ruby") < 3 * spans + 0.5
 
 
 class TestHeaderRowsOfThOnlyTables:
@@ -1130,6 +1271,26 @@ class TestCollapsedQuestionsAndAnswers:
 
         assert result.text == "Q1\n\n답 하나\n\nQ2\n\n답 둘"
 
+    def test_content_hidden_until_found_is_kept(self):
+        """`hidden="until-found"` folds content that a browser still searches and opens when it is found or linked to — the
+        standard way to fold FAQ answers and accordion sections, like `<details>`. It is read whatever it holds (a list, mostly
+        links) and whatever comes before it; hiding inside it or around it still counts."""
+        html = ("<h3>Refund policy</h3><div hidden='until-found'>Refunds within 14 days.</div>"
+                "<h3>Links</h3><ul hidden='UNTIL-FOUND'><li><a href='/a'>Terms</a></li><li><a href='/b'>Privacy</a></li></ul>"
+                "<p>Shipping</p><section hidden=until-found><p>2 days.</p><p hidden>Internal note</p></section>"
+                "<div hidden><div hidden='until-found'>Hidden around</div></div>"
+                "<p>Other</p><div hidden='until-found' style='display:none'>Hidden by style</div>")
+
+        result = convert(html.encode(), "faq.html")
+
+        assert result.text == ("### Refund policy\n\nRefunds within 14 days.\n\n### Links\n\n- Terms\n- Privacy\n\n"
+                               "Shipping\n\n2 days.\n\nOther")
+
+    def test_content_hidden_until_found_and_by_style_under_its_question_is_a_folded_answer(self):
+        html = '<dl><dt>Q1</dt><dd hidden="until-found" style="display:none">A1</dd></dl>'
+
+        assert convert(html.encode(), "faq.html").text == "Q1\n\nA1"
+
     @pytest.mark.parametrize(
         "hidden",
         [
@@ -1141,11 +1302,12 @@ class TestCollapsedQuestionsAndAnswers:
             '<p>문단</p><div style="display:none">숨긴 글</div>',
             '<a href="#">열기</a><span style="display:none">숨긴 인라인 글</span>',
             '<a href="#">열기</a><div hidden>숨긴 글</div>',
+            '<a href="#">열기</a><div hidden="hidden">숨긴 글</div><div hidden="until">숨긴 글</div><div hidden="">숨긴 글</div>',
             '<a href="#">열기</a><div style="visibility:hidden">숨긴 글</div>',
             '<div style="display:none"><a href="#">열기</a><div style="display:none">숨긴 글 안의 숨긴 글</div></div>',
         ],
         ids=["dropdown-menu", "link-panel", "modal", "tooltip", "real-link", "no-opener", "inline", "hidden-attribute",
-             "visibility", "inside-hidden"],
+             "hidden-values", "visibility", "inside-hidden"],
     )
     def test_other_hidden_elements_are_still_removed(self, hidden):
         html = f"<p>본문</p><ul>{hidden}</ul>" if hidden.startswith("<li>") else f"<p>본문</p>{hidden}"

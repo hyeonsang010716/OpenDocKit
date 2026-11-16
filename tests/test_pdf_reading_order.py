@@ -644,3 +644,104 @@ class TestDropCaps:
         nowhere = {"text": "x", "size": 11.0, "x0": bad, "x1": bad, "top": bad, "bottom": bad}
 
         assert _drop_cap([nowhere, initial, *beside], "T he quick") == ("The quick", 133.0, 144.0)
+
+
+def _helvetica_story(paragraphs: list[str]) -> bytes:
+    """A reportlab platypus document of `paragraphs` in 11pt Helvetica (inline markup such as `<sub>` allowed)."""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Paragraph, SimpleDocTemplate
+
+    style = ParagraphStyle("body", fontName="Helvetica", fontSize=11, leading=14)
+    buffer = BytesIO()
+    SimpleDocTemplate(buffer).build([Paragraph(text, style) for text in paragraphs])
+    return buffer.getvalue()
+
+
+def _drawn_line(runs: list[tuple[str, float, float]]) -> bytes:
+    """A page with one line drawn run by run in Helvetica: (text, size, how far its baseline is lowered in pt), each run
+    starting where the previous one ends (an empty text leaves `size` pt blank), between a line above and a line below."""
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer)
+    pdf.setFont("Helvetica", 11)
+    pdf.drawString(72, 714, "The line above the formula is ordinary text.")
+    x = 72.0
+    for text, size, drop in runs:
+        if not text:
+            x += size
+            continue
+        pdf.setFont("Helvetica", size)
+        pdf.drawString(x, 700 - drop, text)
+        x += stringWidth(text, "Helvetica", size)
+    pdf.setFont("Helvetica", 11)
+    pdf.drawString(72, 686, "The line below the formula is ordinary text.")
+    pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestSubscriptsOnALineOfTheirOwn:
+    """pdfminer keeps two characters on one line only when their boxes overlap by half the smaller height, so a subscript
+    lowered by about 0.42 em or more (reportlab's `<sub>`) became a line of its own: the sentence was split in three around
+    it and the subscript was put out of order ('Water is H', 'O in chemistry.', '2')."""
+
+    def test_subscript_set_into_its_line_is_read_in_place(self):
+        data = _helvetica_story(["First paragraph line is here.", "Water is H<sub>2</sub>O in chemistry.", "Third line."])
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == "First paragraph line is here.\nWater is H_2O in chemistry.\nThird line."
+
+    def test_subscripts_followed_by_a_space_are_read_in_place(self):
+        data = _helvetica_story(["Carbon dioxide CO<sub>2</sub> and methane CH<sub>4</sub> are gases.",
+                                 "Index x<sub>i</sub> runs from one to n."])
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "Carbon dioxide CO_2 and methane CH_4 are gases." in text
+        assert "Index x_i runs from one to n." in text
+
+    def test_subscript_under_a_superscript_is_left_alone(self):
+        """A subscript with a superscript stacked over it is a formula's: joining the subscript alone would split the
+        formula's pieces up differently."""
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer)
+        pdf.setFont("Helvetica", 11)
+        pdf.drawString(72, 700, "Sum of x")
+        x = 72 + stringWidth("Sum of x", "Helvetica", 11)
+        pdf.setFont("Helvetica", 8)
+        pdf.drawString(x, 695, "j")
+        pdf.drawString(x, 709, "j")  # the superscript as wide as the subscript, so the next piece touches both
+        pdf.setFont("Helvetica", 11)
+        pdf.drawString(x + stringWidth("j", "Helvetica", 8), 700, " over all rows.")
+        pdf.showPage()
+        pdf.save()
+
+        text = convert(buffer.getvalue(), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "x_j" not in text
+        assert "Sum of x over all rows." in text  # as before subscripts were joined
+
+    def test_short_lower_piece_fitting_the_gap_is_a_subscript(self):
+        text = convert(_drawn_line([("Total", 11, 0), ("note", 8, 5), ("100", 11, 0)]), "a.pdf",
+                       ConvertOptions(page_markers=False)).text
+
+        assert "\nTotal_{note}100\n" in text
+
+    @pytest.mark.parametrize(("runs", "kept"), [
+        ([("Total", 11, 0), ("note", 8, 5), ("", 6, 0), ("100", 11, 0)], "note"),  # a blank after the small text: not one gap
+        ([("Total", 11, 0), ("note", 8, 9), ("100", 11, 0)], "note"),         # lowered almost a line: the line below
+        ([("Total", 11, 0), ("note", 9.5, 5.5), ("100", 11, 0)], "note"),     # nearly as large as the line: not a script
+        ([("Total", 11, 0), ("ab-cd", 8, 5), ("100", 11, 0)], "ab-cd"),       # not a short word: not a script
+    ])
+    def test_lower_piece_that_does_not_fit_the_gap_is_not_joined(self, runs, kept):
+        """Each run differs from the subscript of `test_short_lower_piece_fitting_the_gap_is_a_subscript` in one way."""
+        text = convert(_drawn_line(runs), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert f"_{kept}" not in text and f"_{{{kept}}}" not in text
+        assert kept in text

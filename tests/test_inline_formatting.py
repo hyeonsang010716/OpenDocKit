@@ -916,3 +916,31 @@ class TestScriptAndStrikeAcrossALineBreak:
         from opendockit.extractors._inline import SUPERSCRIPT, mark_script, mark_strike, resolve_scripts, resolve_strikes
 
         assert resolve_scripts(resolve_strikes("x" + mark_strike(mark_script("2", SUPERSCRIPT)))) == "x~~^2~~"
+
+
+class TestInvisibleCharacters:
+    """A run of nothing but invisible characters (zero-width space, soft hyphen), which cleaning removes, was a span of its own:
+    its marks were left with nothing inside (`x **** y`, `~~~~`), and one between two runs of the same formatting kept them
+    apart (`**a****b**`). The characters are taken out before the marks are resolved."""
+
+    _BOLD, _ITALIC, _STRIKE = "<w:b/>", "<w:i/>", "<w:strike/>"
+
+    @pytest.mark.parametrize(("runs", "expected"), [
+        ((("x ", ""), ("​", _BOLD), (" y", "")), "x y"),
+        ((("­", _ITALIC), ("z", "")), "z"),
+        ((("a", _BOLD), ("​", ""), ("b", _BOLD), (" tail", "")), "**ab** tail"),
+        ((("x ", ""), ("​", _STRIKE), (" y", "")), "x y"),
+        ((("a", _STRIKE), ("​", ""), ("b", _STRIKE), (" tail", "")), "~~ab~~ tail"),
+        ((("x", ""), ("​", '<w:vertAlign w:val="superscript"/>'), (" y", "")), "x y"),
+    ])
+    def test_docx(self, runs, expected):
+        assert _docx_text(_paragraph(*(_run(text, properties) for text, properties in runs))) == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><b>&#8203;</b>x</p>", "x"),
+        ("<p><b>a</b>&#8203;<b>b</b> tail</p>", "**ab** tail"),
+        ("<p><b>a<br>&#8203;<br>b</b></p>", "a\n\nb"),
+        ('<p><a href="https://example.com">&#8203;</a>z</p>', "z"),
+    ])
+    def test_html(self, html, expected):
+        assert convert(f"<html><body>{html}</body></html>".encode(), "a.html").text == expected

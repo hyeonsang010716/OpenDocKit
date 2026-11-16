@@ -19,14 +19,20 @@ from tests.test_hwp import (
     TAG_TABLE,
     _fake_hwp,
 )
+from tests.test_odf import _NAMESPACES as _ODF_NAMESPACES
+from tests.test_odf import _package as _odf_document
 from tests.test_office import (
+    _ALT_CHUNK_TYPE,
     _CHART_NS,
+    _DIAGRAM_NS,
     _RELATIONSHIPS_NS,
     _chart_series,
     _chart_xml,
     _docx_inline,
     _docx_with_body,
+    _docx_with_chunks,
     _pptx_with_chart,
+    _pptx_with_smartart,
 )
 
 
@@ -486,6 +492,18 @@ class TestPptxCharacterLimitInsideOneTable:
         assert best(hidden=False) < best(hidden=True) * 2 + 0.3
 
 
+def _odf_chart(rows: int) -> bytes:
+    """The sub-document of an ODF chart titled 'Big' with its own copy of `rows` values (`C<i>` → i) in a local table."""
+    values = "".join(f'<table:table-row><table:table-cell><text:p>C{index}</text:p></table:table-cell><table:table-cell '
+                     f'office:value-type="float" office:value="{index}"><text:p>{index}</text:p></table:table-cell></table:table-row>'
+                     for index in range(rows))
+    return (f'<?xml version="1.0" encoding="UTF-8"?><office:document-content {_ODF_NAMESPACES}><office:body><office:chart>'
+            '<chart:chart chart:class="chart:bar"><chart:title><text:p>Big</text:p></chart:title><table:table table:name="local-table">'
+            "<table:table-header-rows><table:table-row><table:table-cell/><table:table-cell><text:p>Sales</text:p></table:table-cell>"
+            f"</table:table-row></table:table-header-rows><table:table-rows>{values}</table:table-rows></table:table></chart:chart>"
+            "</office:chart></office:body></office:document-content>").encode()
+
+
 def _pptx_with_big_chart(points: int, *, scatter: bool = False) -> bytes:
     """A slide with one chart of `points` cached points (a bar chart with a percentage format, or a scatter chart)."""
     def cache(offset: int, format_code: str = "") -> str:
@@ -619,6 +637,54 @@ class TestChartValuesPastTheLimit:
         assert "| M12 | 120 |" in full.text and full.text.endswith("tail")
         assert all(result.exceeded and result.text == full.text[:limit].rstrip() for limit, result in cuts.items())
 
+    @pytest.mark.parametrize("place", ["text", "footnote", "slide"])
+    def test_odf_chart_stops_at_the_limit(self, place):
+        """A chart in an ODT or ODP document writes its own copy of its values (`odf._Renderer._chart`): 20,000 rows under a
+        5,000-character limit were all built, 517,000 characters counted."""
+        frame = '<draw:frame><draw:object xlink:href="./Object 1"/></draw:frame>'
+        kind, extension, body = {
+            "text": ("text", "odt", f"<text:p>Sales:</text:p><text:p>{frame}</text:p>"),
+            "footnote": ("text", "odt", '<text:p>Sales<text:note text:note-class="footnote"><text:note-citation>1</text:note-citation>'
+                                        f"<text:note-body><text:p>{frame}</text:p></text:note-body></text:note></text:p>"),
+            "slide": ("presentation", "odp", f"<draw:page>{frame}</draw:page>")}[place]
+
+        def odf(rows: int) -> bytes:
+            return _odf_document(kind, body, parts={"Object 1/content.xml": _odf_chart(rows)})
+
+        result = convert(odf(_ROWS), f"a.{extension}", ConvertOptions(max_chars=_LIMIT))
+        full = convert(odf(300), f"a.{extension}", ConvertOptions(max_chars=None))
+
+        assert result.exceeded
+        assert result.char_count < _LIMIT * 3  # drawn to the end it would be over 500,000 characters
+        assert "[Chart] Big" in result.text and ("C0 / 0; C1 / 1" if place == "footnote" else "| --- | --- |\n| C0 | 0 |") in result.text
+        assert ("C299 / 299" if place == "footnote" else "| C299 | 299 |") in full.text
+        assert convert(odf(300), f"a.{extension}", ConvertOptions(max_chars=full.char_count)).text == full.text
+
+    @pytest.mark.parametrize("place", ["header", "body", "footnote"])
+    def test_odf_cut_chart_is_the_front_of_the_full_conversion(self, place):
+        """Headers and footers of an ODT are read before the body, and notes are written after the text they are read in, so a
+        chart anywhere is checked against the characters counted so far: all of them are written before it. The cut text is the
+        front of the full conversion at every limit (a body chart with a footer after it as well)."""
+        frame = '<draw:frame><draw:object xlink:href="./Object 1"/></draw:frame>'
+        header = f"<text:p>{frame}</text:p>" if place == "header" else ""
+        styles = ('<office:master-styles><style:master-page style:name="Standard">'
+                  f"<style:header><text:p>HEADER</text:p>{header}</style:header><style:footer><text:p>{'F' * 60}</text:p></style:footer>"
+                  "</style:master-page></office:master-styles>")
+        body = "<text:p>" + "B" * 95 + "</text:p>" + {
+            "header": "",
+            "body": f"<text:p>{frame}</text:p>",
+            "footnote": ('<text:p>tail<text:note text:note-class="footnote"><text:note-citation>1</text:note-citation>'
+                         f"<text:note-body><text:p>{frame}</text:p></text:note-body></text:note></text:p>")}[place]
+        data = _odf_document("text", body, styles=styles, parts={"Object 1/content.xml": _odf_chart(12)})
+        options = {"include_headers_footers": True}
+        full = convert(data, "a.odt", ConvertOptions(max_chars=None, **options))
+
+        cuts = {limit: convert(data, "a.odt", ConvertOptions(max_chars=limit, **options))
+                for limit in (110, 150, 200, full.char_count - 1)}
+
+        assert "C11" in full.text and full.text.startswith("HEADER")
+        assert all(result.exceeded and result.text == full.text[:limit].rstrip() for limit, result in cuts.items())
+
     @pytest.mark.timing
     @pytest.mark.parametrize("scatter", [False, True])
     def test_chart_of_many_points_is_not_rendered_to_the_end(self, scatter):
@@ -631,3 +697,219 @@ class TestChartValuesPastTheLimit:
             return min(_seconds(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=limit))) for _ in range(2))
 
         assert best(_LIMIT) < best(None) * 0.7
+
+
+_REFERENCES = 40
+_CHUNK_REFERENCE = '<w:altChunk r:id="rIdChunk"/>'
+_CHUNK_TYPE = "text/html"
+
+
+def _chunk_html(words: str) -> bytes:
+    return f"<html><body><p>{words}</p></body></html>".encode()
+
+
+def _docx_with_repeated_chunk(where: str, words: str = "Begin " + "chunk " * 149) -> bytes:
+    """`_REFERENCES` references to one imported HTML part from the text boxes of one paragraph, from one table cell, from the
+    cells of a table nested in a cell, from a table nested in each cell of a row, or (`where` "header") from the header part,
+    and a last paragraph."""
+    chunks = {"rIdChunk": ("chunk1.html", _CHUNK_TYPE, _chunk_html(words))}
+    if where != "header":
+        boxes = "".join(f"<w:txbxContent>{_CHUNK_REFERENCE}</w:txbxContent>" for _ in range(_REFERENCES))
+        body = {"text_boxes": f"<w:p><w:r><w:t>Intro</w:t></w:r>{boxes}</w:p>",
+                "cell": f"<w:tbl><w:tr><w:tc>{_CHUNK_REFERENCE * _REFERENCES}<w:p/></w:tc></w:tr></w:tbl>",
+                "nested_cells": "<w:tbl><w:tr><w:tc><w:tbl><w:tr>" + f"<w:tc>{_CHUNK_REFERENCE}<w:p/></w:tc>" * _REFERENCES
+                                + "</w:tr></w:tbl><w:p/></w:tc></w:tr></w:tbl>",
+                "nested_tables": "<w:tbl><w:tr>" + f"<w:tc><w:tbl><w:tr><w:tc>{_CHUNK_REFERENCE}<w:p/></w:tc></w:tr></w:tbl><w:p/></w:tc>"
+                                 * _REFERENCES + "</w:tr></w:tbl>"}[where]
+        return _docx_with_chunks(body + "<w:p><w:r><w:t>Tail</w:t></w:r></w:p>", chunks)
+
+    from io import BytesIO
+
+    from docx import Document
+
+    document = Document()
+    document.sections[0].header.paragraphs[0].text = "HEADER"
+    document.add_paragraph("Body")
+    buffer = BytesIO()
+    document.save(buffer)
+    relationships = ('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/'
+                     f'relationships"><Relationship Id="rIdChunk" Type="{_ALT_CHUNK_TYPE}" Target="chunk1.html"/></Relationships>')
+    return builder.zip_with(buffer.getvalue(), edit={
+        "word/header1.xml": lambda xml: re.sub(r"<w:p>(?:(?!<w:p>).)*?HEADER.*?</w:p>",
+                                               lambda _: _CHUNK_REFERENCE * _REFERENCES + "<w:p/>", xml, count=1, flags=re.DOTALL),
+        "[Content_Types].xml": lambda xml: xml.replace(
+            "</Types>", f'<Override PartName="/word/chunk1.html" ContentType="{_CHUNK_TYPE}"/></Types>')},
+        add={"word/_rels/header1.xml.rels": relationships, "word/chunk1.html": _chunk_html(words).decode()})
+
+
+def _smartart_model(words: str) -> str:
+    return (f'<dgm:dataModel xmlns:dgm="{_DIAGRAM_NS}" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dgm:ptLst>'
+            f'<dgm:pt modelId="0" type="doc"/><dgm:pt modelId="1"><dgm:t><a:p><a:r><a:t>{words}</a:t></a:r></a:p></dgm:t></dgm:pt>'
+            '</dgm:ptLst><dgm:cxnLst><dgm:cxn modelId="2" srcId="0" destId="1" srcOrd="0"/></dgm:cxnLst></dgm:dataModel>')
+
+
+_SMARTART_FRAME = _docx_inline(f'<dgm:relIds xmlns:dgm="{_DIAGRAM_NS}" xmlns:r="{_RELATIONSHIPS_NS}" r:dm="rIdDgm"/>', _DIAGRAM_NS)
+
+
+def _docx_with_smartart_frames(body: str, words: str) -> bytes:
+    relationship = f'<Relationship Id="rIdDgm" Type="{_RELATIONSHIPS_NS}/diagramData" Target="diagrams/data1.xml"/></Relationships>'
+    return builder.zip_with(_docx_with_body(body), edit={
+        "word/_rels/document.xml.rels": lambda xml: xml.replace("</Relationships>", relationship)},
+        add={"word/diagrams/data1.xml": _smartart_model(words)})
+
+
+def _pptx_with_smartart_frames(frames: int, words: str) -> bytes:
+    def repeat_frame(xml: str) -> str:
+        frame = re.search(r"<p:graphicFrame>(?:(?!</p:graphicFrame>).)*<dgm:relIds (?:(?!</p:graphicFrame>).)*</p:graphicFrame>",
+                          xml, flags=re.DOTALL).group(0)
+        return xml.replace(frame, frame * frames)
+
+    return builder.zip_with(_pptx_with_smartart(), edit={"ppt/slides/slide1.xml": repeat_frame,
+                                                          "ppt/diagrams/data1.xml": lambda _: _smartart_model(words)})
+
+
+def _count_parts_parsed(monkeypatch: pytest.MonkeyPatch, module: object, marker: bytes) -> list[int]:
+    """Count how many times `module` parses a part holding `marker`. The count is the single item of the returned list."""
+    parses = [0]
+    parse = module.parse_part
+
+    def counted(data: bytes) -> object:
+        parses[0] += marker in data
+        return parse(data)
+
+    monkeypatch.setattr(module, "parse_part", counted)
+    return parses
+
+
+class TestRepeatedContentPastTheLimit:
+    """One imported part (w:altChunk) or one SmartArt writes its whole content at every reference, and the text boxes of one
+    paragraph, the blocks of one cell, a header part and the shapes of one slide were all rendered before anything was counted:
+    200 references to a 400 K-character chunk from one paragraph (a 39 KB file) built 80 M characters (0.8 s and 300 MB for 30)
+    before the cut. Once the output is past the limit, further references write nothing; the text cut at the limit is the same."""
+
+    @pytest.mark.parametrize("where", ["text_boxes", "cell", "header"])
+    def test_docx_chunk_references_stop_at_the_limit(self, where, monkeypatch: pytest.MonkeyPatch):
+        from opendockit.extractors import docx as docx_module
+
+        data = _docx_with_repeated_chunk(where)
+        options = {"include_headers_footers": True}
+        full = convert(data, "a.docx", ConvertOptions(max_chars=None, **options))
+        writes = [0]
+        renumber = docx_module.renumber_image_markers
+
+        def counted(text: str, markers: dict) -> str:
+            writes[0] += 1
+            return renumber(text, markers)
+
+        monkeypatch.setattr(docx_module, "renumber_image_markers", counted)
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=_LIMIT, **options))
+
+        assert full.text.count("Begin") == _REFERENCES and full.char_count > _LIMIT * 4
+        assert result.exceeded and result.text == full.text[:_LIMIT].rstrip()
+        assert writes[0] <= _LIMIT // 750 + 2  # 750 characters a reference; all 40 were written
+
+    def test_cut_text_is_the_front_of_the_full_text_at_every_limit_with_nested_tables(self):
+        """Content left out inside a table changes how the whole table is drawn — an empty column is dropped, a nested table
+        that becomes a box is unfolded, a table with no nested table left is Markdown instead of HTML — so the text before
+        the cut changes too. What is written inside nested tables only stops far past the limit
+        (`docx._DocxRenderer._far_past_the_limit`): stopped as soon as it passed the limit, this document of tables nested
+        three deep came out drawn differently from the full conversion at most limits."""
+        frame, chunk = f"<w:r>{_SMARTART_FRAME}</w:r>", _CHUNK_REFERENCE
+        body = (
+            f"<w:tbl><w:tr><w:tc><w:tbl><w:tr><w:tc>{chunk}{chunk}<w:p/><w:p/></w:tc>"
+            f"<w:tc><w:tbl><w:tr><w:tc>{chunk}<w:p/><w:p><w:r><w:t>가나다 라마</w:t></w:r></w:p><w:p/></w:tc>"
+            f"</w:tr><w:tr><w:tc><w:p><w:txbxContent>{chunk}</w:txbxContent><w:txbxContent>{chunk}</w:txbxContent></w:p><w:p/></w:tc>"
+            f"<w:tc><w:p><w:r><w:t>가나다 라마</w:t></w:r></w:p>{chunk}{chunk}<w:p/><w:p/></w:tc>"
+            f"<w:tc><w:p>{frame}</w:p><w:p/></w:tc>"
+            f"</w:tr></w:tbl><w:tbl><w:tr><w:tc>{chunk}<w:p/>{chunk}{chunk}<w:p/><w:p/></w:tc>"
+            f"<w:tc>{chunk}{chunk}<w:p/><w:p/></w:tc></w:tr></w:tbl><w:p/></w:tc>"
+            f"<w:tc><w:tbl><w:tr><w:tc><w:p>{frame}</w:p>{chunk}{chunk}<w:p/><w:p/></w:tc>"
+            "<w:tc><w:p><w:r><w:t>가나다 라마</w:t></w:r></w:p><w:p><w:r><w:t>text here</w:t></w:r></w:p><w:p/></w:tc>"
+            "</w:tr></w:tbl><w:p><w:r><w:t>text here</w:t></w:r></w:p><w:p/></w:tc></w:tr></w:tbl><w:p/></w:tc>"
+            f"<w:tc><w:p><w:txbxContent>{chunk}</w:txbxContent><w:txbxContent>{chunk}</w:txbxContent></w:p><w:p/></w:tc>"
+            "</w:tr></w:tbl><w:p><w:r><w:t>끝</w:t></w:r></w:p>"
+        )
+        relationship = (f'<Relationship Id="rIdDgm" Type="{_RELATIONSHIPS_NS}/diagramData" Target="diagrams/data1.xml"/>'
+                        "</Relationships>")
+        data = builder.zip_with(_docx_with_chunks(body, {"rIdChunk": ("chunk1.html", _CHUNK_TYPE, _chunk_html("가져온 글 조각"))}),
+                                edit={"word/_rels/document.xml.rels": lambda xml: xml.replace("</Relationships>", relationship)},
+                                add={"word/diagrams/data1.xml": _smartart_model("도식 항목")})
+        full = convert(data, "a.docx", ConvertOptions(max_chars=None))
+
+        results = {limit: convert(data, "a.docx", ConvertOptions(max_chars=limit)) for limit in range(full.char_count + 2)}
+
+        assert full.text.startswith("<table>") and full.text.count("가져온 글 조각") > 10
+        assert [limit for limit, result in results.items() if result.exceeded != (full.char_count > limit)] == []
+        assert [limit for limit, result in results.items() if result.text != full.text[:limit].rstrip()] == []
+
+    @pytest.mark.parametrize("where", ["nested_cells", "nested_tables"])
+    def test_docx_chunk_references_inside_nested_tables_stop_far_past_the_limit(self, where, monkeypatch: pytest.MonkeyPatch):
+        """A table nested in a cell is a placeholder in the cell text, which the outer table's budget counts as nothing, so what
+        was written inside it was given back with every cell: 200 references to a 400 K-character chunk from the cells of a
+        table inside a cell built 80 M characters (10 s, 1.7 GB). What is written there is counted towards a ceiling far past
+        the limit (`docx._FAR_PAST_THE_LIMIT`), which stops it; below that ceiling the text is written as before, so the
+        tables are drawn as in the full conversion."""
+        from opendockit.extractors import docx as docx_module
+
+        data = _docx_with_repeated_chunk(where, "Begin " + "chunk " * 16_666)  # 100,000 characters a reference
+        full = convert(data, "a.docx", ConvertOptions(max_chars=None))
+        writes = [0]
+        renumber = docx_module.renumber_image_markers
+
+        def counted(text: str, markers: dict) -> str:
+            writes[0] += 1
+            return renumber(text, markers)
+
+        monkeypatch.setattr(docx_module, "renumber_image_markers", counted)
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=_LIMIT))
+
+        assert full.text.count("Begin") == _REFERENCES and full.char_count > 3_000_000
+        assert result.exceeded and result.text == full.text[:_LIMIT].rstrip()
+        assert writes[0] <= (_LIMIT + docx_module._FAR_PAST_THE_LIMIT) // 100_000 + 2
+
+    @pytest.mark.parametrize("kind", ["docx", "docx_cell", "pptx"])
+    def test_smartart_frames_are_read_once_and_stop_at_the_limit(self, kind, monkeypatch: pytest.MonkeyPatch):
+        from opendockit.extractors import docx as docx_module
+        from opendockit.extractors import pptx as pptx_module
+
+        words = "Begin " + "smart " * 149
+        frames = f"<w:r>{_SMARTART_FRAME}</w:r>" * _REFERENCES
+        data, name = {
+            "docx": lambda: (_docx_with_smartart_frames(f"<w:p><w:r><w:t>Intro</w:t></w:r>{frames}</w:p>", words), "a.docx"),
+            "docx_cell": lambda: (_docx_with_smartart_frames(f"<w:tbl><w:tr><w:tc><w:p>{frames}</w:p></w:tc></w:tr></w:tbl>", words),
+                                  "a.docx"),
+            "pptx": lambda: (_pptx_with_smartart_frames(_REFERENCES, words), "a.pptx")}[kind]()
+        full = convert(data, name, ConvertOptions(max_chars=None))
+        parses = _count_parts_parsed(monkeypatch, pptx_module if kind == "pptx" else docx_module, b"dataModel")
+
+        result = convert(data, name, ConvertOptions(max_chars=_LIMIT))
+
+        assert full.text.count("Begin") == _REFERENCES and full.char_count > _LIMIT * 4
+        assert result.exceeded and result.text == full.text[:_LIMIT].rstrip()
+        assert result.text.count("Begin") <= _LIMIT // 750 + 1
+        assert parses == [1]
+
+    def test_cut_text_is_the_front_of_the_full_text_at_every_limit(self):
+        """A paragraph whose text boxes repeat a chunk, a SmartArt frame in a paragraph, a cell repeating the chunk and the
+        SmartArt, and a last paragraph: wherever the limit falls, exceeded is 'the full text is longer' and the text is the
+        front of the full text."""
+        frame = f"<w:r>{_SMARTART_FRAME}</w:r>"
+        boxes = "".join(f"<w:txbxContent>{_CHUNK_REFERENCE}</w:txbxContent>" for _ in range(3))
+        body = (f"<w:p><w:r><w:t>첫 문단</w:t></w:r>{boxes}</w:p><w:p>{frame}</w:p>"
+                f"<w:tbl><w:tr><w:tc><w:p><w:r><w:t>칸</w:t></w:r></w:p></w:tc>"
+                f"<w:tc>{_CHUNK_REFERENCE * 2}<w:p>{frame * 2}</w:p></w:tc></w:tr></w:tbl>"
+                "<w:p><w:r><w:t>끝 문단입니다.</w:t></w:r></w:p>")
+        relationship = (f'<Relationship Id="rIdDgm" Type="{_RELATIONSHIPS_NS}/diagramData" Target="diagrams/data1.xml"/>'
+                        "</Relationships>")
+        data = builder.zip_with(_docx_with_chunks(body, {"rIdChunk": ("chunk1.html", _CHUNK_TYPE, _chunk_html("가져온 글 조각"))}),
+                                edit={"word/_rels/document.xml.rels": lambda xml: xml.replace("</Relationships>", relationship)},
+                                add={"word/diagrams/data1.xml": _smartart_model("도식 항목")})
+        full = convert(data, "a.docx", ConvertOptions(max_chars=None))
+
+        results = {limit: convert(data, "a.docx", ConvertOptions(max_chars=limit)) for limit in range(full.char_count + 2)}
+
+        assert full.text.count("가져온 글 조각") == 5 and full.text.count("도식 항목") == 3
+        assert [limit for limit, result in results.items() if result.exceeded != (full.char_count > limit)] == []
+        assert [limit for limit, result in results.items() if result.text != full.text[:limit].rstrip()] == []

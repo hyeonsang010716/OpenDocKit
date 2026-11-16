@@ -6,6 +6,63 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-11-16
+
+A fifth review of the whole source. The sample outputs in `examples/` are unchanged.
+
+### Added
+
+- **HWP / HWPX**: hyperlinks are kept as `[text](url)` under `keep_links`, as in the other document formats (http,
+  https and mailto only; a link to a bookmark or a file keeps its text).
+- **HTML**: ruby is written as `base(reading)` (`東京(とうきょう)`), as in DOCX, ODF and HWP, also without `<rp>`
+  (rubies nested more than eight deep are plain text); content folded with `hidden="until-found"` (the standard way
+  to fold FAQ answers and accordion sections) is read.
+
+### Changed
+
+- A DOCX, PPTX, XLSX, HWPX, OpenDocument or EPUB file protected with a ZIP password (`zip -e`) is an
+  `EncryptedDocumentError` instead of a `CorruptedDocumentError`, as `docs/options.md` describes. A protected part
+  that is only skipped (one slide, one picture) still leaves the document readable; a file that gives nothing at all
+  because its protected parts were all of its content (a deck whose slides alone are protected) is encrypted too.
+
+### Security
+
+- **DOCX / PPTX**: an imported part (`w:altChunk`) or a SmartArt referenced many times stops at `max_chars` inside one
+  paragraph, cell, header or slide, and inside a table nested in a cell at most 100,000 characters past it; a SmartArt
+  or chartex part is read once. 200 references to one 400,000-character chunk from a 39 KB file took 6.8 to 19.5
+  seconds and up to 1.9 GB (now 0.1 to 0.2 seconds).
+- **DOCX / HWP / HWPX**: a list number text is split once per list and bounded at 255 characters (longer ones are the
+  level's own number). A 100 KB `w:lvlText` on 300 empty numbered paragraphs took 2.3 seconds.
+- **Charts**: multi-level categories join at most their innermost eight levels (16,000 levels in a 125 KB file took
+  11.7 seconds and 1 GB).
+- **PDF**: growing the shaded tables of a page no longer goes through every other table of the same columns for each
+  one, with the same output (1,200 separate shaded tables took 4.1 seconds; now 0.7 seconds).
+- **ODT / ODP**: the value table of a chart stops at `max_chars`, as in the other formats (20,000 rows under a 5,000-
+  character limit counted 517,000 characters).
+- **RTF**: a table inside a text box, header, footer or footnote is checked against the character limit while it is
+  read (100,000 rows in a text box: 4.4 seconds → 0.02 seconds).
+- **Pictures**: the tiles of a very tall picture are cut and encoded one at a time (a 3000×40000 PNG peaked at
+  1,124 MB, now 710 MB), with the same bytes.
+
+### Fixed
+
+- **PDF**: a ruled table lying off a rotated page no longer rejects the whole document. A caption or note set tight
+  against an open-sided or shaded table no longer also comes out inside its edge cell. Form fields whose widget is
+  hidden (Hidden or NoView flag) are left out, as hidden FreeText annotations are. A subscript lowered far enough that
+  pdfminer splits it onto a line of its own (`<sub>` in reportlab) is joined back (`H_2O` instead of `H`, `O`, `2`).
+- **DOCX / PPTX**: a second relationship of the same type (numbering, styles, document properties, notes, layout)
+  no longer rejects the document or skips the slide; the first one is used.
+- **ODT**: footers are counted after the body, so a body table near the limit no longer stops short.
+- **Text / CSV**: short Portuguese and German text in Windows-1252 (`Descrição`, `INFORMAÇÃO`, `Größe`, `gemäß`) is no
+  longer read as CP949 hanja or Hangul without a warning.
+- **HTML**: strikethrough across a blank line made of `<br><br>` is marked per paragraph; the suggestions of a
+  `<datalist>` no longer come out glued into one word after the field.
+- **All formats with inline marks**: a bold, italic, struck or script run of nothing but invisible characters (zero-width
+  space, soft hyphen) no longer leaves empty marks (`****`, `~~~~`), and such a character no longer splits two runs of
+  the same formatting.
+- **LangChain / LlamaIndex**: in `mode="sections"`, the slides, sheets and pages past the `max_chars` cut give no piece;
+  a slide past the cut used to come back as a title-only Document.
+
 ## [0.3.7] - 2026-11-15
 
 A fourth review of the whole source. The sample outputs in `examples/` are unchanged.
@@ -354,7 +411,8 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.7...HEAD
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.8...HEAD
+[0.3.8]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.8
 [0.3.7]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.7
 [0.3.6]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.6
 [0.3.5]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.5

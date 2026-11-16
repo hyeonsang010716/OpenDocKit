@@ -2,6 +2,7 @@
 rejected the whole document, values that came out wrong, and work that was repeated for every reference to the same part."""
 
 import base64
+from collections.abc import Callable
 from copy import deepcopy
 from io import BytesIO
 import re
@@ -24,9 +25,11 @@ from tests.test_office import (
     _OLE_FRAME,
     _chart_series,
     _chart_xml,
+    _chartex_xml,
     _docx_inline,
     _docx_with_body,
     _docx_with_chunks,
+    _pptx_with_chartex,
     _replace_picture,
 )
 from tests.timing import allowed
@@ -406,6 +409,24 @@ class TestChartPartReferencedByManyFrames:
         assert text == once + "\n\n[Chart] Sales" * 30
         assert parses == [1]
 
+    def test_pptx_chartex_is_read_once_and_its_values_written_once(self, monkeypatch: pytest.MonkeyPatch):
+        """The same for the new chart kinds (cx:chart), whose readability decides between the frame and its fallback picture:
+        decided once per part as well (one parse for it, one for the values)."""
+        deck = _pptx_with_chartex(fallback=True, chart_part=_chartex_xml("손익 분석", ["매출", "원가"], ["100", "-60.0"]))
+        once = convert(deck, "sample.pptx").text
+        assert once.endswith("[Chart] 손익 분석\n\n| Category | 금액 |\n| --- | --- |\n| 매출 | 100 |\n| 원가 | -60 |")
+
+        def repeat_frame(xml: str) -> str:
+            frame = re.search(r"<mc:AlternateContent .*?</mc:AlternateContent>", xml, flags=re.DOTALL).group(0)
+            return xml.replace(frame, frame * 31)
+
+        parses = _count_chart_parses(monkeypatch, pptx_module)
+
+        result = convert(builder.zip_with(deck, edit={"ppt/slides/slide1.xml": repeat_frame}), "sample.pptx")
+
+        assert result.text == once + "\n\n[Chart] 손익 분석" * 30
+        assert parses == [2] and not result.images
+
     @staticmethod
     def _docx_with_chart_frames(body: str) -> bytes:
         chart = _chart_xml(f"<c:barChart>{_chart_series(0, 'Sales', ['10', '20'], ['Q1', 'Q2'])}</c:barChart>", title="Quarters")
@@ -567,3 +588,111 @@ class TestPptxSlideListEntryWithoutARelationship:
             convert(data, "sample.pptx")
 
         assert str(error.value) == "The PPTX document structure could not be read."
+
+
+def _relationship_given_twice(kind: str, target: str, *, first: bool = False, rel_id: str = "rIdTwice") -> Callable[[str], str]:
+    """An edit of a `.rels` part adding a relationship of `kind` to `target`, after the existing ones or (`first`) before them."""
+    prefix = "http://schemas.openxmlformats.org/package/2006/relationships/metadata" if kind == "core-properties" else _RELATIONSHIPS
+    added = f'<Relationship Id="{rel_id}" Type="{prefix}/{kind}" Target="{target}"/>'
+
+    def edit(xml: str) -> str:
+        if first:
+            return re.sub(r"(<Relationships[^>]*>)", lambda match: match.group(1) + added, xml, count=1)
+        return xml.replace("</Relationships>", added + "</Relationships>")
+    return edit
+
+
+class TestRelationshipTypeGivenTwice:
+    """python-docx / python-pptx look a styles, numbering, document-properties, notes, layout, master or main part up with
+    `part_related_by`, which raises ValueError when two relationships share the type: the DOCX or PPTX was rejected as corrupted,
+    a slide was skipped, a placeholder lost its position. The first relationship of the type is used (`_package.related_part`)."""
+
+    _BODY = TestDocxStylesAndNumberingWithAGenericContentType._BODY
+    _EXPECTED = "# Chapter\n\n1. first\n2. second"
+
+    @pytest.mark.parametrize("kind", ["styles", "numbering"])
+    def test_docx_reads_the_first_styles_or_numbering_part(self, kind):
+        proper = _docx_with_body(self._BODY)
+        declared = f"application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml"
+
+        def data(*, first: bool) -> bytes:
+            return builder.zip_with(proper, edit={
+                "word/_rels/document.xml.rels": _relationship_given_twice(kind, f"{kind}2.xml", first=first),
+                "[Content_Types].xml": lambda xml: xml.replace(
+                    "</Types>", f'<Override PartName="/word/{kind}2.xml" ContentType="{declared}"/></Types>')},
+                add={f"word/{kind}2.xml": f'<w:{kind} xmlns:w="{_WORD}"/>'})
+
+        assert convert(data(first=False), "sample.docx").text == convert(proper, "sample.docx").text == self._EXPECTED
+        assert [line for line in convert(data(first=True), "sample.docx").text.split("\n") if line] == {
+            "styles": ["Chapter", "first", "second"], "numbering": ["# Chapter", "first", "second"]}[kind]
+
+    def test_docx_reads_the_first_comments_part(self):
+        comments = (f'<w:comments xmlns:w="{_WORD}"><w:comment w:id="0" w:author="{{}}"><w:p><w:r><w:t>Note</w:t></w:r></w:p>'
+                    "</w:comment></w:comments>")
+        declared = "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"
+        overrides = "".join(f'<Override PartName="/word/{name}" ContentType="{declared}"/>' for name in ("comments1.xml", "comments2.xml"))
+        relationships = (_relationship_given_twice("comments", "comments1.xml", rel_id="rIdOnce"),
+                         _relationship_given_twice("comments", "comments2.xml"))
+        data = builder.zip_with(_docx_with_body("<w:p><w:r><w:t>Body</w:t></w:r></w:p>"), edit={
+            "word/_rels/document.xml.rels": lambda xml: relationships[1](relationships[0](xml)),
+            "[Content_Types].xml": lambda xml: xml.replace("</Types>", overrides + "</Types>")},
+            add={"word/comments1.xml": comments.format("First"), "word/comments2.xml": comments.format("Second")})
+
+        assert convert(data, "sample.docx").text == "Body\n\n> Comment(First): Note"
+
+    @pytest.mark.parametrize("name", ["sample.docx", "sample.pptx"])
+    def test_second_document_properties_relationship_keeps_the_document_and_its_title(self, name):
+        if name.endswith(".docx"):
+            document = Document()
+            document.add_paragraph("Body")
+        else:
+            from pptx import Presentation
+
+            document = Presentation()
+            document.slides.add_slide(document.slide_layouts[6]).shapes.add_textbox(0, 0, Inches(2), Inches(1)).text = "Body"
+        document.core_properties.title = "Plan"
+        proper = _docx_saved(document)
+        data = builder.zip_with(proper, edit={"_rels/.rels": _relationship_given_twice("core-properties", "docProps/core.xml")})
+
+        result = convert(data, name)
+
+        assert result.text == convert(proper, name).text and "Body" in result.text
+        assert result.metadata["title"] == "Plan"
+
+    @pytest.mark.parametrize("name", ["sample.docx", "sample.pptx"])
+    def test_second_main_part_relationship_keeps_the_document(self, name):
+        proper = _docx_with_body(self._BODY) if name.endswith(".docx") else builder.pptx_bytes()
+        target = "word/document.xml" if name.endswith(".docx") else "ppt/presentation.xml"
+        data = builder.zip_with(proper, edit={"_rels/.rels": _relationship_given_twice("officeDocument", target)})
+
+        assert convert(data, name).text == convert(proper, name).text
+
+    def test_pptx_slide_with_two_notes_relationships_keeps_its_text_and_notes(self):
+        deck = builder.pptx_bytes()
+        data = builder.zip_with(deck, edit={
+            "ppt/slides/_rels/slide2.xml.rels": _relationship_given_twice("notesSlide", "../notesSlides/notesSlide1.xml")})
+
+        result = convert(data, "sample.pptx")
+
+        assert result.text == convert(deck, "sample.pptx").text and "여기서 수치를 강조" in result.text
+        assert result.warnings == []
+
+    @pytest.mark.parametrize("relationships", ["ppt/slides/_rels/slide1.xml.rels", "ppt/slideLayouts/_rels/slideLayout2.xml.rels"])
+    def test_pptx_placeholder_inherits_from_the_first_layout_and_master(self, relationships):
+        """The body placeholder has no position of its own and its layout placeholder none either, so it sits where the master's
+        body placeholder is (1.6 in from the top), below a text box at 0.5 in. Left without a position it was read first."""
+        from pptx import Presentation
+
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+        slide.placeholders[1].text = "Body placeholder"
+        slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(4), Inches(0.5)).text = "Text box"
+        proper = _docx_saved(presentation)
+        kind, target = (("slideLayout", "../slideLayouts/slideLayout2.xml") if "/slides/" in relationships
+                        else ("slideMaster", "../slideMasters/slideMaster1.xml"))
+        data = builder.zip_with(proper, edit={relationships: _relationship_given_twice(kind, target)})
+
+        text = convert(data, "sample.pptx").text
+
+        assert text == convert(proper, "sample.pptx").text
+        assert text.index("Text box") < text.index("Body placeholder")

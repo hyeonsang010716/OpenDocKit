@@ -14,6 +14,7 @@ from opendockit import (
     ConvertOptions,
     CorruptedDocumentError,
     DocumentTooLargeError,
+    EncryptedDocumentError,
     UnsupportedFormatError,
     aconvert,
     convert,
@@ -313,6 +314,94 @@ class TestErrorBoundary:
 
         with pytest.raises(UnsupportedFormatError):
             convert(buffer.getvalue(), "a.zip")
+
+
+def _epub_bytes() -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("mimetype", "application/epub+zip")
+        archive.writestr("META-INF/container.xml", '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">'
+                         '<rootfiles><rootfile full-path="c.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')
+        archive.writestr("c.opf", '<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><manifest>'
+                         '<item id="a" href="a.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="a"/></spine></package>')
+        archive.writestr("a.xhtml", '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>본문</p></body></html>')
+    return buffer.getvalue()
+
+
+def _odt_bytes() -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+        archive.writestr("content.xml", '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+                         'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text><text:p>본문</text:p>'
+                         '</office:text></office:body></office:document-content>')
+        archive.writestr("META-INF/manifest.xml", "<manifest/>")
+    return buffer.getvalue()
+
+
+class TestPasswordProtectedZip:
+    """A ZIP protected with a password (`zip -e`) was rejected as a corrupted file: zipfile refuses every encrypted part, so
+    detection, the libraries and the extractors all failed on parts that read as nothing. docs/options.md promises the
+    password notice, as for an Office file Office itself encrypted (the OLE `EncryptedPackage`)."""
+
+    _OFFICE = "The Office document is password-protected. Please remove the password and upload it again."
+
+    @pytest.mark.parametrize(("make", "name", "message"), [
+        (builder.docx_bytes, "a.docx", _OFFICE),
+        (builder.pptx_bytes, "a.pptx", _OFFICE),
+        (builder.xlsx_bytes, "a.xlsx", _OFFICE),
+        (builder.hwpx_bytes, "a.hwpx", "The HWP document is password-protected. Please remove the password and upload it again."),
+        (_epub_bytes, "a.epub", "The EPUB is password-protected. Please remove the password and upload it again."),
+    ], ids=["docx", "pptx", "xlsx", "hwpx", "epub"])
+    def test_whole_archive_protected_with_a_password_is_an_encrypted_document(self, make, name, message):
+        assert convert(make(), name).text  # readable without the password bit
+
+        with pytest.raises(EncryptedDocumentError) as raised:
+            convert(builder.zip_password(make()), name)
+
+        assert str(raised.value) == message
+
+    @pytest.mark.parametrize(("make", "name", "part"), [
+        (builder.docx_bytes, "a.docx", "word/document.xml"),
+        (builder.xlsx_bytes, "a.xlsx", "xl/worksheets/sheet1.xml"),
+        (builder.hwpx_bytes, "a.hwpx", "Contents/section0.xml"),
+        (_odt_bytes, "a.odt", "content.xml"),
+    ], ids=["docx", "xlsx", "hwpx", "odt"])
+    def test_protected_body_is_an_encrypted_document(self, make, name, part):
+        """The part names and `mimetype` are readable, so detection names the format; the body the extractor needs is not."""
+        with pytest.raises(EncryptedDocumentError, match="password-protected"):
+            convert(builder.zip_password(make(), {part}), name)
+
+    def test_protected_slides_are_an_encrypted_document(self):
+        """The extractor skips a slide it cannot read with a warning, so a deck whose slides alone were protected came back as an
+        empty success."""
+        data = builder.pptx_bytes()
+        slides = {name for name in zipfile.ZipFile(BytesIO(data)).namelist() if name.startswith("ppt/slides/slide")}
+
+        with pytest.raises(EncryptedDocumentError, match="The Office document is password-protected"):
+            convert(builder.zip_password(data, slides), "a.pptx")
+
+    def test_document_with_content_left_keeps_converting_with_its_protected_parts_skipped(self):
+        data = builder.pptx_bytes()
+        names = sorted(name for name in zipfile.ZipFile(BytesIO(data)).namelist() if name.startswith("ppt/slides/slide"))
+
+        result = convert(builder.zip_password(data, set(names[1:])), "a.pptx")
+
+        assert result.text.strip() and any("could not be read" in warning for warning in result.warnings)
+
+    def test_empty_document_without_a_password_is_not_encrypted(self):
+        from docx import Document
+
+        buffer = BytesIO()
+        Document().save(buffer)
+
+        assert convert(buffer.getvalue(), "a.docx").warnings == ["No text was extracted."]
+
+    def test_damaged_archive_without_a_password_is_still_corrupted(self):
+        data = builder.zip_with(builder.docx_bytes(), {"word/document.xml": lambda xml: xml.replace("<w:body>", "<w:body><w:p", 1)})
+
+        with pytest.raises(CorruptedDocumentError):
+            convert(data, "a.docx")
 
 
 class TestRunningOutOfMemory:

@@ -18,6 +18,7 @@ from opendockit.extractors._pdf_model import (
     _encloses,
     _is_shade,
     _page_index,
+    _region_on_page,
     _text_by_middle,
 )
 
@@ -159,24 +160,26 @@ def _with_shaded_rows(page: object, tables: list[object]) -> list[object]:
     if not shades:
         return tables
     rules: list[tuple[float, float, float]] | None = None  # collected the first time they are needed
-    result = list(tables)
     shaded = _ShadingTest(shades)
     box_of, edges_of = _PerTable(lambda table: table.bbox), _PerTable(_column_edges)
+    # The cell sides of each table (`_row_pitch`): a table is a fragment of every other table with its columns, so the sides
+    # of each were collected again for every one of them
+    sides_of = _PerTable(_cell_sides)
+    # The tables of the result, with what growing a table looks up among them kept up to date (`_Fragments`)
+    result = _Fragments(tables, box_of, edges_of, sides_of)
 
     for table in sorted(tables, key=lambda table: table.bbox[1]):
-        if not any(other is table for other in result):
+        if table not in result:
             continue  # merged into an earlier table
         if not shaded(table):
             continue
         rules = _horizontal_rules(page) if rules is None else rules
-        grown = _grown_shaded_table(page, table, result, rules, box_of, edges_of)
+        grown = _grown_shaded_table(page, table, result, rules, box_of, edges_of, sides_of)
         new, replaced = grown if grown is not None else (table, [table])
-        position = min(index for index, other in enumerate(result) if any(other is old for old in replaced))
-        result = [other for other in result if not any(other is old for old in replaced)]
-        if (not _leaves_aligned_rows(page, new, [other for other in result if other is not new], shaded, box_of)
-                or _has_drawn_columns(page, new)):
-            result.insert(position, new)
-    return _with_merged_column_fragments(page, result, shades, shaded, box_of, edges_of)
+        position = result.remove(replaced)
+        if not _leaves_aligned_rows(page, new, result, shaded, box_of) or _has_drawn_columns(page, new):
+            result.add(new, position)
+    return _with_merged_column_fragments(page, result.ordered(), shades, shaded, box_of, edges_of)
 
 
 class _PerTable:
@@ -196,8 +199,267 @@ class _PerTable:
             known = self._known[id(table)] = (table, self._measure(table))
         return known[1]
 
+    def of(self, tables: list[object]) -> list[object]:
+        """The measures of `tables`, in their order: what calling this for each of them gives, in one call. Every table of a
+        page was measured for every other one (`_grown_shaded_table`, `_leaves_aligned_rows`), and the call of each took more
+        time than the measure kept (Pinned by: test_pdf_shaded_tables.py::TestManySeparateShadedTables::
+        test_many_shaded_tables_take_linear_time)."""
+        known, measure, found = self._known, self._measure, []
+        for table in tables:
+            entry = known.get(id(table))
+            if entry is None or entry[0] is not table:
+                entry = known[id(table)] = (table, measure(table))
+            found.append(entry[1])
+        return found
 
-def _leaves_aligned_rows(page: object, table: object, others: list[object], shaded: "_ShadingTest",
+
+class _RowPitch:
+    """`_row_pitch` of a set of tables that changes one table at a time (`_ColumnGroup`), kept up to date instead of worked
+    out again from the cell sides of all of them.
+
+    The sides within 1pt of the last one kept count as one, kept from the lowest up, so which sides are kept changes only
+    inside the run of sides at most 1pt apart that a change touches: a run starts with a side more than 1pt past the one
+    before, which is kept whatever lies below. Those runs are worked out again, and the gaps between the sides kept are held
+    sorted, so the median is read off them; the gaps are worked out as `_row_pitch` works them out, so the median is the same
+    number. With a side that is not a finite number the order of the sides is not defined, and it is worked out the plain way.
+    """
+
+    def __init__(self) -> None:
+        self._counts: dict[float, int] = {}  # side → number of the tables that have it
+        self._sides: list[float] = []  # the sides there are, sorted
+        self._kept: list[float] = []  # the sides kept (`_row_pitch`'s `heights`), sorted
+        self._gaps: list[float] = []  # the gaps between consecutive kept sides, sorted
+        self._odd = 0  # sides that are not finite numbers, counted with their tables
+
+    def change(self, sides: set[float], step: int) -> None:
+        """Add (`step` 1) or take away (`step` -1) the cell sides of one table."""
+        changed = []
+        for side in sides:
+            if not math.isfinite(side):
+                self._odd += step
+                continue
+            count = self._counts.get(side, 0) + step
+            if count:
+                self._counts[side] = count
+            else:
+                del self._counts[side]
+            if count == (1 if step > 0 else 0):
+                changed.append(side)
+        if changed:
+            self._redo(changed, adding=step > 0)
+
+    def value(self) -> float | None:
+        """The median gap, None when it has to be worked out the plain way (fewer than two kept sides, or a side that is not
+        a finite number)."""
+        if self._odd or len(self._kept) < 2:
+            return None
+        gaps, middle = self._gaps, len(self._gaps) // 2
+        return gaps[middle] if len(gaps) % 2 else (gaps[middle - 1] + gaps[middle]) / 2
+
+    def _redo(self, changed: list[float], *, adding: bool) -> None:
+        # The runs are found among the old sides and the new ones together: added sides go in first, taken ones come out
+        # after, and a run there holds the runs around the change both before and after it
+        sides = self._sides
+        if adding:
+            for side in changed:
+                sides.insert(bisect_left(sides, side), side)
+        low = high = None
+        for side in changed:  # the whole run around each changed side, among the sides before and after the change together
+            index = bisect_left(sides, side)
+            start = index
+            while start > 0 and sides[start] - sides[start - 1] <= 1:
+                start -= 1
+            end = index
+            while end + 1 < len(sides) and sides[end + 1] - sides[end] <= 1:
+                end += 1
+            low = sides[start] if low is None else min(low, sides[start])
+            high = sides[end] if high is None else max(high, sides[end])
+        if not adding:
+            for side in changed:
+                del sides[bisect_left(sides, side)]
+        kept, gaps = self._kept, self._gaps
+        first, last = bisect_left(kept, low), bisect_right(kept, high)
+        before = kept[first - 1:first] if first else []
+        after = kept[last:last + 1]
+        for upper, lower in pairwise([*before, *kept[first:last], *after]):
+            del gaps[bisect_left(gaps, lower - upper)]
+        again: list[float] = []
+        for side in sides[bisect_left(sides, low):bisect_right(sides, high)]:
+            if not again or side - again[-1] > 1:
+                again.append(side)
+        kept[first:last] = again
+        for upper, lower in pairwise([*before, *again, *after]):
+            gaps.insert(bisect_left(gaps, lower - upper), lower - upper)
+
+
+class _ColumnGroup:
+    """The tables of `_Fragments` with the column boundaries `edges` (`_same_column_edges`): the fragments
+    `_grown_shaded_table` grows a table with those boundaries by. Their row pitch (`_RowPitch`) and their tops and bottoms,
+    sorted, are kept up to date as tables come and go, so that growing one table does not look at all the others."""
+
+    def __init__(self, edges: list[float], box_of: "_PerTable", sides_of: "_PerTable") -> None:
+        self.edges = edges
+        self._box_of, self._sides_of = box_of, sides_of
+        self._members: dict[int, tuple[int, object]] = {}  # id → (order key, table)
+        self._tops: list[tuple[float, int, int]] = []  # (top, order key, id), sorted
+        self._bottoms: list[tuple[float, int, int]] = []  # (bottom, order key, id), sorted
+        self._pitch = _RowPitch()
+        self._odd = 0  # members with a top or bottom that is not a finite number
+
+    def add(self, table: object, key: int) -> None:
+        self._members[id(table)] = (key, table)
+        _, top, _, bottom = self._box_of(table)
+        if math.isfinite(top) and math.isfinite(bottom):
+            self._tops.insert(bisect_left(self._tops, (top, key, id(table))), (top, key, id(table)))
+            self._bottoms.insert(bisect_left(self._bottoms, (bottom, key, id(table))), (bottom, key, id(table)))
+        else:
+            self._odd += 1
+        self._pitch.change(self._sides_of(table), 1)
+
+    def remove(self, table: object) -> None:
+        key, _ = self._members.pop(id(table))
+        _, top, _, bottom = self._box_of(table)
+        if math.isfinite(top) and math.isfinite(bottom):
+            del self._tops[bisect_left(self._tops, (top, key, id(table)))]
+            del self._bottoms[bisect_left(self._bottoms, (bottom, key, id(table)))]
+        else:
+            self._odd -= 1
+        self._pitch.change(self._sides_of(table), -1)
+
+    def tables(self) -> list[object]:
+        """The members, in the order of the result."""
+        return [table for _, table in sorted(self._members.values(), key=lambda entry: entry[0])]
+
+    def row_height(self) -> float:
+        """`_row_pitch` of the members."""
+        value = self._pitch.value()
+        if value is not None:
+            return value
+        members = self.tables()
+        return _row_pitch(members, self._sides_of.of(members))
+
+    def nearest(self, edge: float, direction: int, reach: float, joined: set[int]) -> tuple[float, float, object] | None:
+        """(distance, side, member) of the member not in `joined` whose top (`direction` 1) or bottom (-1) is nearest beyond
+        `edge` with `-1 <= (side - edge) * direction <= reach`, the first of the result order among equally near ones — what
+        `min` over the members in that order gives. The sides are found by binary search in a window wider than the test,
+        which is then made as it is made over every member."""
+        best: tuple[float, int, float, object] | None = None
+        if self._odd or not (math.isfinite(edge) and math.isfinite(reach)):
+            candidates = [(self._box_of(table)[1 if direction > 0 else 3], key, table) for key, table in self._members.values()]
+        else:
+            ends = self._tops if direction > 0 else self._bottoms
+            low, high = (edge - 2, edge + reach + 2) if direction > 0 else (edge - reach - 2, edge + 2)
+            window = ends[bisect_left(ends, (low,)):bisect_right(ends, (high, math.inf))]
+            candidates = [(side, key, self._members[ident][1]) for side, key, ident in window]
+        for side, key, table in candidates:
+            if id(table) in joined:
+                continue
+            distance = (side - edge) * direction
+            if -1 <= distance <= reach and (best is None or (distance, key) < (best[0], best[1])):
+                best = (distance, key, side, table)
+        return None if best is None else (best[0], best[2], best[3])
+
+
+class _Fragments:
+    """The tables of `_with_shaded_rows` still in its result, each with the order key of its place in the result: a table
+    grown in place of others takes the place of the first of them, and so the key of that one. What `_grown_shaded_table`
+    and `_leaves_aligned_rows` look up among them is kept up to date as tables are replaced (`_ColumnGroup`, the boxes by
+    64pt height band), instead of every table looking at every other one: on a page of many separate shaded tables of the
+    same columns, the time grew with the square of their number (Pinned by:
+    test_pdf_shaded_tables.py::TestManySeparateShadedTables::test_many_shaded_tables_take_linear_time)."""
+
+    _BAND = 64.0
+    _MAX_BANDS = 128
+
+    def __init__(self, tables: list[object], box_of: "_PerTable", edges_of: "_PerTable", sides_of: "_PerTable") -> None:
+        self._box_of, self._edges_of, self._sides_of = box_of, edges_of, sides_of
+        self._alive: dict[int, tuple[int, object]] = {}  # id → (order key, table)
+        self._groups: dict[tuple[float, ...], _ColumnGroup] = {}
+        self._spanning: dict[tuple[float, float], list[float]] = {}  # (left, right) → the rules spanning it, sorted
+        self._bands: dict[int, dict[int, object]] = {}  # height band → the tables whose box reaches it, by id
+        self._always: dict[int, object] = {}  # tables whose box is not finite or taller than `_MAX_BANDS` bands
+        for key, table in enumerate(tables):
+            self._add(table, key)
+
+    def __contains__(self, table: object) -> bool:
+        entry = self._alive.get(id(table))
+        return entry is not None and entry[1] is table
+
+    def ordered(self) -> list[object]:
+        """The tables, in the order of the result."""
+        return [table for _, table in sorted(self._alive.values(), key=lambda entry: entry[0])]
+
+    def remove(self, tables: list[object]) -> int:
+        """Take `tables` out and give the order key of the first of them in the result."""
+        keys = []
+        for table in tables:
+            key, _ = self._alive.pop(id(table))
+            keys.append(key)
+            edges = self._edges_of(table)
+            for group in self._groups.values():
+                if _same_column_edges(edges, group.edges):
+                    group.remove(table)
+            for band in self._bands_of(table):
+                if band is None:
+                    del self._always[id(table)]
+                else:
+                    del self._bands[band][id(table)]
+        return min(keys)
+
+    def add(self, table: object, key: int) -> None:
+        """Put `table` in at the place of order key `key`."""
+        self._add(table, key)
+
+    def group(self, edges: list[float]) -> _ColumnGroup:
+        """The tables with the column boundaries `edges` (`_same_column_edges`)."""
+        found = self._groups.get(tuple(edges))
+        if found is None:
+            found = self._groups[tuple(edges)] = _ColumnGroup(edges, self._box_of, self._sides_of)
+            for key, table in sorted(self._alive.values(), key=lambda entry: entry[0]):
+                if _same_column_edges(self._edges_of(table), edges):
+                    found.add(table, key)
+        return found
+
+    def spanning(self, rules: list[tuple[float, float, float]], left: float, right: float) -> list[float]:
+        """The heights of the `rules` (the page's horizontal rules, the same at every call) that span `left` to `right`
+        within 2pt, sorted; worked out once for each width. Every table grown went through all the rules of the page."""
+        key = (left, right)
+        if key not in self._spanning:
+            self._spanning[key] = sorted(y for y, x0, x1 in rules if x0 <= left + 2 and x1 >= right - 2)
+        return self._spanning[key]
+
+    def overlapping(self, top: float, bottom: float) -> list[tuple[object, tuple[float, float, float, float]]]:
+        """(table, box) of every table whose box can reach the height from `top` to `bottom`, and some others: the caller
+        makes its own test, and only whether a table is given matters. Every table for a height that is not finite."""
+        if not (math.isfinite(top) and math.isfinite(bottom)) or top > bottom or bottom - top > self._BAND * self._MAX_BANDS:
+            tables = [table for _, table in self._alive.values()]
+        else:
+            found = dict(self._always)
+            for band in range(math.floor(top / self._BAND), math.floor(bottom / self._BAND) + 1):
+                found.update(self._bands.get(band, {}))
+            tables = list(found.values())
+        return [(table, self._box_of(table)) for table in tables]
+
+    def _add(self, table: object, key: int) -> None:
+        self._alive[id(table)] = (key, table)
+        edges = self._edges_of(table)
+        for group in self._groups.values():
+            if _same_column_edges(edges, group.edges):
+                group.add(table, key)
+        for band in self._bands_of(table):
+            if band is None:
+                self._always[id(table)] = table
+            else:
+                self._bands.setdefault(band, {})[id(table)] = table
+
+    def _bands_of(self, table: object) -> list[int | None]:
+        """The height bands the box of `table` reaches, or [None] for one that is always given."""
+        _, top, _, bottom = self._box_of(table)
+        if not (math.isfinite(top) and math.isfinite(bottom)) or top > bottom or bottom - top > self._BAND * self._MAX_BANDS:
+            return [None]
+        return list(range(math.floor(top / self._BAND), math.floor(bottom / self._BAND) + 1))
+
+def _leaves_aligned_rows(page: object, table: object, others: "list[object] | _Fragments", shaded: "_ShadingTest",
                          box_of: _PerTable | None = None) -> bool:
     """Whether a shaded table, as far as it could be grown (`_grown_shaded_table`), stops short of rows of the same columns:
     the band of one row height right above or below it has text in two or more columns that lines up with the table's own
@@ -208,7 +470,8 @@ def _leaves_aligned_rows(page: object, table: object, others: list[object], shad
     Such a table is dropped and the region is left to the borderless table search, which reads the whole table as if it had
     no shading. A single shaded data row in a borderless table could be grown by only one open band each way, so the table
     was cut at that row and the rows beyond it came out as a second table or as lines scattered column by column (Pinned by:
-    test_pdf_shaded_tables.py::TestOneShadedRowInABorderlessTable). The boxes of the tables are taken from `box_of`.
+    test_pdf_shaded_tables.py::TestOneShadedRowInABorderlessTable). The boxes of the tables are taken from `box_of`; `others`
+    may be the tables of `_with_shaded_rows` (`_Fragments`), which gives only those near enough to matter.
     """
     box_of = box_of or _PerTable(lambda table: table.bbox)
     edges = _column_edges(table)
@@ -218,12 +481,18 @@ def _leaves_aligned_rows(page: object, table: object, others: list[object], shad
     references = [cells for row in table.rows if (cells := _band_cells(page, (row.bbox[1], row.bbox[3]), edges)) is not None]
     x0, top, x1, bottom = box_of(table)
     reach = row_height * _SHADED_ROW_REACH
-    boxes = [box_of(other) for other in others]
-    if any(box[0] < x1 and box[2] > x0 and box[1] - bottom <= reach and top - box[3] <= reach
-           and shaded(other) for other, box in zip(others, boxes, strict=True)):
+
+    def near(low: float, high: float) -> list[tuple[object, tuple[float, float, float, float]]]:
+        """(table, box) of the others, all of them or at least those whose box reaches the height from `low` to `high`."""
+        if isinstance(others, _Fragments):
+            return [(other, box) for other, box in others.overlapping(low, high) if other is not table]
+        return list(zip(others, box_of.of(others), strict=True))
+
+    if any(box[0] < x1 and box[2] > x0 and box[1] - bottom <= reach and top - box[3] <= reach and shaded(other)
+           for other, box in near(top - reach - 1, bottom + reach + 1)):
         return False
     for band in ((top - row_height, top), (bottom, bottom + row_height)):
-        if any(box[1] < band[1] - 1 and box[3] > band[0] + 1 for box in boxes):
+        if any(box[1] < band[1] - 1 and box[3] > band[0] + 1 for _, box in near(band[0] - 1, band[1] + 1)):
             continue
         if _aligned_cells(_band_cells(page, band, edges), references):
             return True
@@ -290,6 +559,27 @@ def _with_merged_column_fragments(page: object, tables: list[object], shades: li
     box_of = box_of or _PerTable(lambda table: table.bbox)
     edges_of = edges_of or _PerTable(_column_edges)
     kept = {id(table) for table in shaded}  # the shaded fragments still in `result`
+    measured = list(zip(shaded, box_of.of(shaded), edges_of.of(shaded), strict=True))  # (fragment, box, column boundaries)
+    reach = row_height * _SHADED_ROW_REACH
+    # The fragments near a height are found by 64pt band, then tested as before and kept in the order of `shaded`: every
+    # widest fragment went through all the others (Pinned by: test_pdf_shaded_tables.py::TestManySeparateShadedTables::
+    # test_many_shaded_tables_take_linear_time)
+    by_band: dict[int, list[int]] = {}
+    always: list[int] = []
+    for position, (_, box, _) in enumerate(measured):
+        if not (math.isfinite(box[1]) and math.isfinite(box[3])) or box[1] > box[3] or box[3] - box[1] > 64.0 * 128:
+            always.append(position)
+            continue
+        for band in range(math.floor(box[1] / 64.0), math.floor(box[3] / 64.0) + 1):
+            by_band.setdefault(band, []).append(position)
+
+    def around(top: float, bottom: float) -> list[tuple[object, tuple, list[float]]]:
+        low, high = top - reach - 1, bottom + reach + 1
+        if not (math.isfinite(low) and math.isfinite(high)) or low > high or high - low > 64.0 * 128:
+            return measured
+        positions = {*always, *(position for band in range(math.floor(low / 64.0), math.floor(high / 64.0) + 1)
+                                for position in by_band.get(band, ()))}
+        return [measured[position] for position in sorted(positions)]
 
     for widest in sorted(shaded, key=lambda table: -len(edges_of(table))):
         edges = edges_of(widest)
@@ -301,10 +591,10 @@ def _with_merged_column_fragments(page: object, tables: list[object], shades: li
 
         while grew:
             top, bottom = min(box_of(member)[1] for member in members), max(box_of(member)[3] for member in members)
-            near = [other for other in shaded
+            near = [other for other, box, other_edges in around(top, bottom)
                     if id(other) in kept and id(other) not in joined
-                    and box_of(other)[1] - bottom <= row_height * _SHADED_ROW_REACH
-                    and top - box_of(other)[3] <= row_height * _SHADED_ROW_REACH and _edges_inside(edges_of(other), edges)]
+                    and box[1] - bottom <= row_height * _SHADED_ROW_REACH
+                    and top - box[3] <= row_height * _SHADED_ROW_REACH and _edges_inside(other_edges, edges)]
             members += near
             joined.update(id(other) for other in near)
             grew = bool(near)
@@ -328,9 +618,14 @@ class _ShadingTest:
     adding them for every cell of a table without shading took 10 seconds on a page of a 60 × 60 grid beside 3,000 small
     filled bars (Pinned by: test_pdf_shaded_tables.py::TestShadingOutsideTheTable)."""
 
+    _BAND = 64.0  # height (pt) of the bands the rectangles are looked up by (`_candidates`)
+    _MAX_BANDS = 128  # a rectangle or table taller than this many bands (or not finite) is matched without bands
+
     def __init__(self, shades: list[dict]) -> None:
         self._shades = shades
         self._verdicts: dict[int, tuple[object, bool]] = {}  # id of the table → (the table, verdict)
+        self._bands: dict[int, list[int]] | None = None  # band → positions in `shades` of the rectangles reaching it
+        self._always: list[int] = []  # positions of the rectangles looked at for every table
 
     def __call__(self, table: object) -> bool:
         known = self._verdicts.get(id(table))
@@ -339,12 +634,33 @@ class _ShadingTest:
         x0, top, x1, bottom = table.bbox
         # (a rectangle with a coordinate that is not a number fails these comparisons and adds nothing; added for every
         # cell, `min`/`max` in `_fill_cover` took it for one covering the whole cell)
-        near = [shade for shade in self._shades
+        near = [shade for shade in self._candidates(top, bottom)
                 if shade["x0"] < x1 and shade["x1"] > x0 and shade["top"] < bottom and shade["bottom"] > top]
         verdict = bool(near) and any(cell and _fill_cover(cell, touching) >= _FILL_MIN_COVER
                                      for cell, touching in _touching_each(table.cells, near))
         self._verdicts[id(table)] = (table, verdict)
         return verdict
+
+    def _candidates(self, top: float, bottom: float) -> list[dict]:
+        """The rectangles that can overlap the height from `top` to `bottom`, in the order of `shades`: those in the 64pt bands
+        it covers, and those that are not finite, turned inside out or taller than `_MAX_BANDS` bands, which are always given.
+        Every rectangle for a height that is not finite or that covers more bands. Every table scanned all the rectangles of
+        the page, so a page of many separate shaded tables took time with the square of their number (Pinned by:
+        test_pdf_shaded_tables.py::TestManySeparateShadedTables::test_many_shaded_tables_take_linear_time)."""
+        if not (math.isfinite(top) and math.isfinite(bottom)) or top > bottom or bottom - top > self._BAND * self._MAX_BANDS:
+            return self._shades
+        if self._bands is None:
+            self._bands = {}
+            for position, shade in enumerate(self._shades):
+                low, high = shade["top"], shade["bottom"]
+                if not (math.isfinite(low) and math.isfinite(high)) or low > high or high - low > self._BAND * self._MAX_BANDS:
+                    self._always.append(position)
+                    continue
+                for band in range(math.floor(low / self._BAND), math.floor(high / self._BAND) + 1):
+                    self._bands.setdefault(band, []).append(position)
+        positions = {*self._always, *(position for band in range(math.floor(top / self._BAND), math.floor(bottom / self._BAND) + 1)
+                                      for position in self._bands.get(band, ()))}
+        return [self._shades[position] for position in sorted(positions)]
 
 
 _TOUCH_BAND = 16.0  # height (pt) of the bands `_touching_each` sorts rectangles into
@@ -384,15 +700,21 @@ def _touching_each(cells: list[tuple | None], rects: list[dict]) -> list[tuple[t
     return result
 
 
-def _row_pitch(tables: list[object]) -> float:
+def _cell_sides(table: object) -> set[float]:
+    """The top and bottom sides of the cell boxes of a table (`_row_pitch`)."""
+    return {y for cell in table.cells if cell for y in (cell[1], cell[3])}
+
+
+def _row_pitch(tables: list[object], sides: list[set[float]] | None = None) -> float:
     """The row height of the table fragments: the median gap between the top and bottom sides of the cell boxes (sides within
-    1pt count as one). Rows of merged cells are tall.
+    1pt count as one). Rows of merged cells are tall. `sides` are the cell sides of each of `tables` (`_cell_sides`) when they
+    are known already.
 
     Using the median of pdfplumber's row heights gave two row heights on a table where a vertically merged cell spans every
     row, so the header band right above also covered the caption above the table and the header was not accepted
     (pinned by: test_pdf_round44.py::TestZebraTableWhoseMergedGroupsStartOnShadedRows)."""
     heights: list[float] = []
-    for y in sorted({y for table in tables for cell in table.cells if cell for y in (cell[1], cell[3])}):
+    for y in sorted(set().union(*sides) if sides is not None else {y for table in tables for y in _cell_sides(table)}):
         if not heights or y - heights[-1] > 1:
             heights.append(y)
     gaps = [lower - upper for upper, lower in pairwise(heights)]
@@ -468,8 +790,9 @@ def _regridded_fragments(page: object, members: list[object], edges: list[float]
     horizontals = [_rule_line(x0, y, x1, y) for y in boundaries for x0, x1 in zip(edges, edges[1:], strict=False)
                    if y in (top, bottom) or not crossed(y, x0, x1)]
 
-    page_left, page_top, page_right, page_bottom = page.bbox
-    box = (max(left - 1, page_left), max(top - 1, page_top), min(right + 1, page_right), min(bottom + 1, page_bottom))
+    box = _region_on_page(page, left, top, right, bottom)
+    if box is None:
+        return None
     found = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": verticals,
                                         "explicit_horizontal_lines": horizontals})
     if len(found) != 1 or len(_column_edges(found[0])) != len(edges):
@@ -519,7 +842,8 @@ def _column_edges(table: object) -> list[float]:
 
 
 def _grown_shaded_table(page: object, table: object, tables: list[object], rules: list[tuple[float, float, float]],
-                        box_of: "_PerTable | None" = None, edges_of: "_PerTable | None" = None) -> tuple[object, list[object]] | None:
+                        box_of: "_PerTable | None" = None, edges_of: "_PerTable | None" = None,
+                        sides_of: "_PerTable | None" = None) -> tuple[object, list[object]] | None:
     """The table found again after growing a ruled table with cell shading (`table`) by bands on the same column boundaries,
     and the tables it replaces. None when there is nothing to change.
 
@@ -534,44 +858,47 @@ def _grown_shaded_table(page: object, table: object, tables: list[object], rules
     right-aligned number columns and the whole growing step was given up (pinned by: test_pdf_shaded_tables.py::
     TestShadedTables::test_unshaded_header_over_banded_rows_with_right_aligned_numbers_stays_one_table). Vertical lines are
     drawn in each band exactly at the cell boundaries, only that region is searched again, and the table is replaced only
-    when exactly one table comes out. The region is cropped from the objects that can overlap it (`_cropped`), and the boxes
-    and column boundaries of the tables are measured once (`box_of`, `edges_of`).
+    when exactly one table comes out. The region is cropped from the objects that can overlap it (`_cropped`), and the boxes,
+    column boundaries and cell sides of the tables are measured once (`box_of`, `edges_of`, `sides_of`).
     """
     box_of = box_of or _PerTable(lambda table: table.bbox)
     edges_of = edges_of or _PerTable(_column_edges)
+    sides_of = sides_of or _PerTable(_cell_sides)
     edges = edges_of(table)
     if len(edges) < 3:
         return None
     left, right = edges[0], edges[-1]
-    fragments = [other for other in tables if _same_column_edges(edges_of(other), edges)]
-    # rows spanned by a merged cell are tall, so the last open band also covered the paragraph below the table ('끝.')
-    row_height = _row_pitch(fragments)
+    if not isinstance(tables, _Fragments):
+        tables = _Fragments(tables, box_of, edges_of, sides_of)
+    # The other tables with the same column boundaries (`_ColumnGroup`); rows spanned by a merged cell are tall, so the last
+    # open band also covered the paragraph below the table ('끝.')
+    fragments = tables.group(edges)
+    row_height = fragments.row_height()
     reach = row_height * _SHADED_ROW_REACH
-    spanning = sorted(y for y, x0, x1 in rules if x0 <= left + 2 and x1 >= right - 2)
+    spanning = tables.spanning(rules, left, right)
     chain, bands = [table], []  # the table fragments joined so far, (top, bottom, whether it is an open band)
     top, bottom = box_of(table)[1], box_of(table)[3]
     # The top and bottom of every fragment are measured once and the joined fragments are looked up by identity. Measuring
     # every fragment and searching the whole chain for it at every step grew with the cube of the number of shaded rows: 5
     # of the 7 seconds this function took on a striped table of 2,000 rows (a 53 KB file) (Pinned by:
-    # test_audit_pdf_mid.py::TestLongStripedTable::test_fragments_are_measured_once)
-    ends = [(box_of(fragment)[1], box_of(fragment)[3], fragment) for fragment in fragments]
+    # test_audit_pdf_mid.py::TestLongStripedTable::test_fragments_are_measured_once). The nearest fragment beyond an edge
+    # is found by binary search (`_ColumnGroup.nearest`) and so is the nearest rule, both the first in their order among
+    # equally near ones, and a fragment before a rule as near, as `min` over the fragments then the rules gives
     joined = {id(table)}
 
     # continue the bands downward (+1) and upward (-1)
     for direction in (1, -1):
         edge = bottom if direction > 0 else top
         while True:
-            nearby = [(start if direction > 0 else end, fragment) for start, end, fragment in ends if id(fragment) not in joined]
-            nearby = [(y, fragment) for y, fragment in nearby if -1 <= (y - edge) * direction <= reach]
-            nearby += [(y, None) for y in spanning if 1 < (y - edge) * direction <= reach]
-            if not nearby:
+            nearby = _nearest_beyond(fragments, spanning, edge, direction, reach, joined)
+            if nearby is None:
                 band = (edge, edge + row_height) if direction > 0 else (edge - row_height, edge)
                 if _band_cells(page, band, edges) is not None and _ends_the_text(page, band, direction, left, right, row_height):
                     bands.append((*band, True))  # added to the region only when accepted (below)
                 elif direction < 0 and _band_cells(page, band, edges) is not None:
                     bands += _unshaded_head(page, band, edges, row_height)
                 break
-            y, fragment = min(nearby, key=lambda item: (item[0] - edge) * direction)
+            y, fragment = nearby
             if (y - edge) * direction > 1:
                 band = (edge, y) if direction > 0 else (y, edge)
                 if _band_cells(page, band, edges) is None:
@@ -624,9 +951,8 @@ def _grown_shaded_table(page: object, table: object, tables: list[object], rules
     verticals = [_rule_line(x, band_top, x, band_bottom) for (band_top, band_bottom), _ in accepted for x in edges]
     horizontals = [_rule_line(left, y, right, y) for (band_top, band_bottom), is_open in accepted if is_open
                    for y in (band_top, band_bottom)]
-    page_left, page_top, page_right, page_bottom = page.bbox
-    box = (max(left - 1, page_left), max(top - 1, page_top), min(right + 1, page_right), min(bottom + 1, page_bottom))
-    if box[0] >= box[2] or box[1] >= box[3]:
+    box = _region_on_page(page, left, top, right, bottom)
+    if box is None:
         return None
     found = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": verticals,
                                         "explicit_horizontal_lines": horizontals})
@@ -634,6 +960,28 @@ def _grown_shaded_table(page: object, table: object, tables: list[object], rules
         return None
     return found[0], chain
 
+
+def _nearest_beyond(fragments: _ColumnGroup, spanning: list[float], edge: float, direction: int, reach: float,
+                    joined: set[int]) -> tuple[float, object | None] | None:
+    """(side, fragment or None for a rule) that a band of `_grown_shaded_table` runs to beyond `edge` in `direction`: the
+    nearest fragment not yet joined within -1 to `reach` (`_ColumnGroup.nearest`) or the nearest rule spanning the table
+    width (sorted `spanning`) more than 1pt and at most `reach` beyond, the fragment when they are as near. None when there
+    is neither. The rules are found by binary search in a window wider than the test, which is then made as it is made
+    over every rule, the first of their order among equally near ones."""
+    found = fragments.nearest(edge, direction, reach, joined)
+    if math.isfinite(edge) and math.isfinite(reach):
+        low, high = (edge - 2, edge + reach + 2) if direction > 0 else (edge - reach - 2, edge + 2)
+        rules = spanning[bisect_left(spanning, low):bisect_right(spanning, high)]
+    else:
+        rules = spanning
+    rule = None
+    for y in rules:
+        distance = (y - edge) * direction
+        if 1 < distance <= reach and (rule is None or distance < rule[0]):
+            rule = (distance, y)
+    if found is not None and (rule is None or found[0] <= rule[0]):
+        return found[1], found[2]
+    return None if rule is None else (rule[1], None)
 
 def _unshaded_head(page: object, band: tuple[float, float], edges: list[float],
                    row_height: float) -> list[tuple[float, float, bool]]:

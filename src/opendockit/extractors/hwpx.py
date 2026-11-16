@@ -18,7 +18,7 @@ from lxml import etree
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._charts import embedded_table, package_loader, render_chart
 from opendockit.extractors._equation import render_equation
-from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, decorated_text
+from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, command_link, decorated_text, has_text, link_end, link_start
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import (
@@ -157,6 +157,7 @@ class HwpxRenderer:
         self._memo_lengths: dict[str, int] = {}  # comment id above → number of characters gathered
         self._unspaced_memos: dict[str, None] = {}  # comments above with a non-empty range not ending in whitespace (get a space between paragraphs)
         self._memo_depth = 0  # 1 or more while comment text is rendered. That text is not the range of another comment
+        self._open_links: dict[str, str] = {}  # hyperlink field id not yet closed by fieldEnd → its address (`_open_link`)
         self.omitted_rows = 0  # rows dropped by the table grid cell limit (`TableGrid.omitted_rows`). Reported as a warning
 
     def render_paragraphs(self, container: etree._Element) -> list[str]:
@@ -173,7 +174,7 @@ class HwpxRenderer:
     def render_paragraph(self, paragraph: etree._Element) -> list[str]:
         self._note_memo_target(" ")  # between paragraphs of a comment range that spans several paragraphs
         # The head goes on the first text piece only, and a paragraph without text keeps its number (`_hangul.ParagraphPieces`).
-        pieces = ParagraphPieces(lambda text: self._decorate(paragraph, text))
+        pieces = ParagraphPieces(lambda text, plain: self._decorate(paragraph, text, plain))
         blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
 
         for run in _children(paragraph, "run"):
@@ -280,13 +281,13 @@ class HwpxRenderer:
 
             def branch_flush() -> None:
                 nonlocal start, own, produced
-                produced = produced or bool("".join(buffer[start:]).strip())
+                produced = produced or has_text(buffer[start:])
                 flush()
                 start, own = 0, len(blocks)
 
             for child in branch:
                 self._render_object(child, buffer, blocks, branch_flush)
-            if index == len(branches) - 1 or produced or "".join(buffer[start:]).strip() or any(block.strip() for block in blocks[own:]):
+            if index == len(branches) - 1 or produced or has_text(buffer[start:]) or any(block.strip() for block in blocks[own:]):
                 return
             del buffer[start:], blocks[own:]
             later = {field.get("id", "") for other in branches[index + 1:] for field in other.iter()
@@ -405,8 +406,13 @@ class HwpxRenderer:
             name = _local(node)
             if name == "fieldBegin" and node.get("type") == "MEMO":
                 self._open_memo(node)
+            elif name == "fieldBegin" and node.get("type") == "HYPERLINK":
+                self._open_link(node, buffer)
             elif name == "fieldEnd":
                 self._close_memo(node.get("beginIDRef", ""))
+                url = self._open_links.pop(node.get("beginIDRef", ""), None)
+                if url is not None:
+                    buffer.append(link_end(url))
             elif name in ("footNote", "endNote") and self._options.include_footnotes and not self._note_depth:
                 self._render_note(node, buffer)
             elif name in ("header", "footer") and self._options.include_headers_footers:
@@ -476,6 +482,20 @@ class HwpxRenderer:
         self._memo_lengths[field.get("id", "")] = 0
         self._unspaced_memos.pop(field.get("id", ""), None)
 
+    def _open_link(self, field: etree._Element, buffer: list[str]) -> None:
+        """A hyperlink field: the text up to the hp:fieldEnd with its id becomes `[text](address)` under `keep_links`, with the
+        address from the `Command` parameter (`_hangul.command_link`: http, https and mailto only). The text of a comment is plain,
+        as in DOCX (Pinned by: test_hwp.py::TestHyperlinks)."""
+        if not self._options.keep_links or self._memo_depth:
+            return
+        parameters = _child(field, "parameters")
+        command = next((param.text or "" for param in _children(parameters, "stringParam") if param.get("name") == "Command"), "") \
+            if parameters is not None else ""
+        url = command_link(command)
+        if url is not None:
+            self._open_links[field.get("id", "")] = url
+            buffer.append(link_start())
+
     def _note_memo_target(self, text: str) -> None:
         """Add a piece of body text to the ranges of the open comments. Only as much as will be shown is gathered (limit + 1 characters
         even without one trailing space, so that exceeding `COMMENT_TARGET_MAX` can be noticed), and a comment that has gathered enough
@@ -508,13 +528,13 @@ class HwpxRenderer:
     def memo_lines(self) -> str:
         return "\n".join(comment_line(author, text, "".join(target).strip()) for author, text, target in self.memos if text)
 
-    def _decorate(self, paragraph: etree._Element, text: str) -> str:
+    def _decorate(self, paragraph: etree._Element, text: str, plain: str) -> str:
         """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style, the heading mark to the paragraph's first text piece."""
         mark, level = self._paragraph_head(paragraph)
         style_name = self._styles.get(paragraph.get("styleIDRef", ""), "")
         margin = self._heads.margins.get(paragraph.get("paraPrIDRef", ""), 0)
         return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth),
-                              check=self._check_mark(paragraph))
+                              check=self._check_mark(paragraph), plain=plain)
 
     def _check_mark(self, paragraph: etree._Element) -> str:
         """The check state character (☑ or ☐) of a check bullet paragraph, plus a trailing space. Empty text if it is not a check bullet

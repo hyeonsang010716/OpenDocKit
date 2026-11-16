@@ -12,6 +12,7 @@ from urllib.parse import unquote
 
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.exc import InvalidXmlError, PackageNotFoundError
+from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.opc.package import PartFactory, _PackageLoader
 from pptx.opc.packuri import PACKAGE_URI, PackURI
 from pptx.package import Package
@@ -46,7 +47,15 @@ from opendockit.extractors._notation import (
     unread_ole_warning,
 )
 from opendockit.extractors._omml import render_omml
-from opendockit.extractors._package import core_properties, decimal_int, is_strict_package, open_package, parse_part
+from opendockit.extractors._package import (
+    core_properties,
+    decimal_int,
+    is_strict_package,
+    main_document_part,
+    open_package,
+    parse_part,
+    related_part,
+)
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_font_text
 from opendockit.markdown import TableGrid, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
@@ -56,6 +65,16 @@ from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 _SKIP_PLACEHOLDERS = {PP_PLACEHOLDER.DATE, PP_PLACEHOLDER.FOOTER, PP_PLACEHOLDER.SLIDE_NUMBER, PP_PLACEHOLDER.HEADER}
 _TITLE_PLACEHOLDERS = {PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.CENTER_TITLE}
 _BULLET_PLACEHOLDERS = {PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.OBJECT}
+# Type of a layout placeholder → the type of the master placeholder it inherits from (python-pptx's table in
+# `LayoutPlaceholder._base_placeholder`; another type is a KeyError there too. `_placeholder_base`)
+_MASTER_PLACEHOLDER_TYPES = {
+    PP_PLACEHOLDER.BODY: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.CHART: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.BITMAP: PP_PLACEHOLDER.BODY,
+    PP_PLACEHOLDER.CENTER_TITLE: PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.ORG_CHART: PP_PLACEHOLDER.BODY,
+    PP_PLACEHOLDER.DATE: PP_PLACEHOLDER.DATE, PP_PLACEHOLDER.FOOTER: PP_PLACEHOLDER.FOOTER,
+    PP_PLACEHOLDER.MEDIA_CLIP: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.OBJECT: PP_PLACEHOLDER.BODY,
+    PP_PLACEHOLDER.PICTURE: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.SLIDE_NUMBER: PP_PLACEHOLDER.SLIDE_NUMBER,
+    PP_PLACEHOLDER.SUBTITLE: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.TABLE: PP_PLACEHOLDER.BODY, PP_PLACEHOLDER.TITLE: PP_PLACEHOLDER.TITLE,
+}
 # Hand-typed bullets that make a line joined by a line break (a:br) inside a list-item paragraph an item one level down: '- ', '* ', '1. ',
 # '1) ' (numbers up to two digits — a date line such as '2024. 3.' is not one. '12. 31. 기준' (as of Dec 31), where another 'N.' follows,
 # is a date too). Other bullet characters are in `HAND_TYPED_BULLET`. Markdown does not read a '1) ' line as a list, so its indentation
@@ -183,7 +202,7 @@ def extract_pptx(data: bytes, options: ConvertOptions) -> Extraction:
     # (`_package.is_strict_package`).
     extraction = Extraction()
     try:
-        part = open_package(_open_presentation, data, extraction.warnings).main_document_part
+        part = main_document_part(open_package(_open_presentation, data, extraction.warnings))
     except (PackageNotFoundError, KeyError, ValueError) as exc:
         _reject_strict(data)
         raise CorruptedDocumentError("The PPTX document structure could not be read.") from exc
@@ -252,8 +271,7 @@ def _unwrap_alternate_content(tree: object, part: object) -> None:
             continue
         choice, fallback = _branch_shapes(alternate, "Choice"), _branch_shapes(alternate, "Fallback")
         charts = [shape for shape in choice if _has_chartex(shape)]
-        # Whether any value can be read is known from the first row (`room` 0), so the whole table is not built for the check
-        is_unreadable_chart = bool(charts) and not any(_chartex_text(shape, part, 0) for shape in charts)
+        is_unreadable_chart = bool(charts) and not any(_chartex_is_readable(shape, part) for shape in charts)
         shapes = fallback if fallback and (not choice or is_unreadable_chart) else choice
         position = parent.index(alternate)
         parent.remove(alternate)
@@ -277,15 +295,21 @@ def _render_slide(slide: object, index: int, options: ConvertOptions, extraction
     # (Pinned by: test_office.py::TestPptxStrikethroughTitlesAndHiddenSlides::test_second_title_placeholder_is_kept_as_text).
     title_shape = _title_shape(slide)
     skipped: list[object] = []
-    blocks = _render_shapes(slide.shapes, options, extraction, skipped, unread_ole, exclude=title_shape)
+    blocks = _render_shapes(slide.shapes, options, extraction, skipped, unread_ole, _SlideText(), exclude=title_shape)
     if unreadable or skipped:
         extraction.warnings.append(f"Slide {index}: skipped {unreadable + len(skipped)} unreadable shape(s).")
 
-    if options.include_speaker_notes and slide.has_notes_slide:
+    # The notes part is the first notes relationship of the slide: with two, `slide.has_notes_slide` raised ValueError and the whole
+    # slide was skipped (`_package.related_part`. Pinned by: test_audit_office.py::TestRelationshipTypeGivenTwice).
+    try:
+        notes_part = related_part(slide.part, RT.NOTES_SLIDE) if options.include_speaker_notes else None
+    except KeyError:
+        notes_part = None
+    if notes_part is not None:
         # Notes are outside the per-shape skip protection (`_render_shapes`), so one placeholder type in the notes or one notes part
         # rejected the whole document. Only those notes are skipped (Pinned by: test_office_robustness.py::TestPptxSpeakerNotesAreIsolated).
         try:
-            notes = _speaker_notes(slide.notes_slide)
+            notes = _speaker_notes(notes_part.notes_slide)
         except (AttributeError, KeyError, ValueError, InvalidXmlError):
             notes = ""
             extraction.warnings.append(f"Slide {index}: skipped the speaker notes because they could not be read.")
@@ -421,21 +445,46 @@ def _placeholder_type(shape: object) -> PP_PLACEHOLDER | None:
     return shape.placeholder_format.type if shape.is_placeholder else None
 
 
+@dataclass(slots=True)
+class _SlideText:
+    """Characters (`solid_length`) of the shapes of one slide rendered so far: the slide is counted only once it is rendered
+    (`_render_shapes`)."""
+
+    chars: int = 0
+
+    def room(self, extraction: Extraction, options: ConvertOptions) -> int | None:
+        """Characters the output can still take after the slides counted and the shapes of this slide (None: no limit)."""
+        left = chars_left(extraction, options)
+        return None if left is None else left - self.chars
+
+
 def _render_shapes(shapes: object, options: ConvertOptions, extraction: Extraction, skipped: list[object],
-                   unread_ole: list[object], exclude: object | None = None) -> list[str]:
+                   unread_ole: list[object], written: _SlideText, exclude: object | None = None) -> list[str]:
     """Render the shapes in reading order. A shape python-pptx raises on because of one odd attribute (ValueError, AttributeError,
     InvalidXmlError — a graphicFrame without a frame (p:xfrm) or graphic data (a:graphic), etc.) is skipped on its own and put in
     `skipped`. One shape used to reject the whole document
-    (Pinned by: test_office.py::TestOneBrokenShapeDoesNotRejectTheDeck::test_graphic_frame_missing_its_graphic_is_skipped_with_one_warning)."""
+    (Pinned by: test_office.py::TestOneBrokenShapeDoesNotRejectTheDeck::test_graphic_frame_missing_its_graphic_is_skipped_with_one_warning).
+
+    Once the shapes rendered (`written`) pass the characters the output can still take, the remaining shapes of the slide are not
+    rendered: the text is cut before them. A SmartArt writes its whole text at every frame, so 200 frames of a 400 K-character
+    SmartArt on one slide built 80 M characters before the slide was counted (Pinned by: test_office_table_char_limit.py::
+    TestRepeatedContentPastTheLimit::test_smartart_frames_are_read_once_and_stop_at_the_limit)."""
     blocks: list[str] = []
 
     for shape in _reading_order(shapes):
         if exclude is not None and shape._element is exclude._element:
             continue
+        room = written.room(extraction, options)
+        if room is not None and room < 0:
+            break
         try:
-            blocks.extend(_render_shape(shape, options, extraction, skipped, unread_ole))
+            rendered = _render_shape(shape, options, extraction, skipped, unread_ole, written)
         except (ValueError, AttributeError, InvalidXmlError):
             skipped.append(shape)
+            continue
+        blocks.extend(rendered)
+        if not isinstance(shape, GroupShape):  # the shapes of a group are counted as they are rendered
+            written.chars += sum(solid_length(block) for block in rendered)
     return blocks
 
 
@@ -604,28 +653,33 @@ def _placeholder_base(shape: object) -> object | None:
     square of their number (1,000 took 89 seconds. Pinned by:
     test_office_scaling_and_note_order.py::TestPptxManyInheritedPlaceholders). An index → layout placeholder table is built once per
     slide part, and a type → result table once per master part, and kept on that part (it goes away with the part).
+
+    The layout and the master are those of the first relationship of their type (`_package.related_part`): with two, python-pptx
+    raised ValueError and the placeholder lost its position and bullets (Pinned by:
+    test_audit_office.py::TestRelationshipTypeGivenTwice::test_pptx_placeholder_inherits_from_the_first_layout_and_master).
     """
     if isinstance(shape, (_BaseSlidePlaceholder, PlaceholderPicture)):
         part = shape.part
         layout_placeholders = part.__dict__.get("_converter_layout_placeholders")
         if layout_placeholders is None:
             layout_placeholders = {}
-            for placeholder in part.slide_layout.placeholders:  # when several share an index, the first one, like python-pptx
+            # When several share an index, the first one, like python-pptx
+            for placeholder in related_part(part, RT.SLIDE_LAYOUT).slide_layout.placeholders:
                 layout_placeholders.setdefault(placeholder.element.ph_idx, placeholder)
             part._converter_layout_placeholders = layout_placeholders
         return layout_placeholders.get(shape._element.ph_idx)
     if isinstance(shape, LayoutPlaceholder):
-        master = shape.part.slide_master.part
+        master = related_part(shape.part, RT.SLIDE_MASTER)
         master_placeholders = master.__dict__.setdefault("_converter_master_placeholders", {})
-        kind = shape._element.ph_type  # the type to look up in the master follows from this type (python-pptx's mapping table)
+        kind = shape._element.ph_type
         if kind not in master_placeholders:
-            master_placeholders[kind] = shape._base_placeholder
+            master_placeholders[kind] = master.slide_master.placeholders.get(_MASTER_PLACEHOLDER_TYPES[kind], None)
         return master_placeholders[kind]
     return shape._base_placeholder
 
 
 def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction, skipped: list[object],
-                  unread_ole: list[object]) -> list[str]:
+                  unread_ole: list[object], written: _SlideText) -> list[str]:
     # A shape hidden in the selection pane (p:cNvPr hidden) does not show in the slide show or in print. It is left out like DOCX hidden
     # text (w:vanish) — a draft price was read as if it were a valid value (deliberate. Pinned by: test_office.py::TestPptxHiddenShapes).
     if _is_hidden(shape) or _placeholder_type(shape) in _SKIP_PLACEHOLDERS:
@@ -635,7 +689,7 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
     # information and rejected the whole document
     # (Pinned by: test_office.py::test_shape_of_unrecognized_type_does_not_reject_the_deck).
     if isinstance(shape, GroupShape):
-        return _render_shapes(shape.shapes, options, extraction, skipped, unread_ole)
+        return _render_shapes(shape.shapes, options, extraction, skipped, unread_ole, written)
     image = _picture_blob(shape) if options.extract_images else None
     if image:
         return [extraction.add_image(image, alt=_shape_alt(shape))]
@@ -655,7 +709,7 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
             return []
         # The value rows stop once their text passes the characters the output can still take (`room`; Pinned by:
         # test_office_table_char_limit.py::TestChartValuesPastTheLimit::test_pptx_chart_stops_at_the_limit).
-        rendered = (render_chart(chart, load_related=related_loader(chart_part), room=chars_left(extraction, options))
+        rendered = (render_chart(chart, load_related=related_loader(chart_part), room=written.room(extraction, options))
                     if chart is not None else "")
         chart_part._converter_chart_title = rendered.split("\n", 1)[0]
         return [rendered] if chart is not None else []
@@ -667,7 +721,7 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
         as_bullets = _placeholder_type(shape) in _BULLET_PLACEHOLDERS
         return [*markers, _render_text_frame(shape.text_frame, as_bullets, _list_styles(shape), _inline_of(shape, options))]
     if _has_chartex(shape._element):
-        return [_chartex_text(shape._element, shape.part, chars_left(extraction, options)) or "[Chart]"]
+        return [_chartex_text(shape._element, shape.part, written.room(extraction, options)) or "[Chart]"]
     if next(shape._element.iter(f"{{{_PRESENTATION}}}oleObj"), None) is not None:
         # When no preview picture can be registered (image extraction is off or there is no preview), a placeholder and a count
         # warning are left, as for HWP and HWPX. Pasted sheets and documents vanished without a trace
@@ -693,13 +747,41 @@ def _has_chartex(element: object) -> bool:
 
 def _chartex_text(element: object, part: object, room: int | None) -> str:
     """Chart part referenced by the frame of a new chart kind (the cx:chart inside p:graphicFrame) → "[Chart] title" + value table
-    (rows up to `room`, as in `render_chart`). An empty string if it cannot be read."""
+    (rows up to `room`, as in `render_chart`). An empty string if it cannot be read.
+
+    As for a `c:chart` (`_render_shape`), the part is read once however many frames point at it, its values are written at the
+    first frame and the later frames give `[Chart] title`. It was parsed and rendered again for every frame (Pinned by:
+    test_audit_office.py::TestChartPartReferencedByManyFrames::test_pptx_chartex_is_read_once_and_its_values_written_once)."""
+    chart_part = _chartex_part(element, part)
+    if chart_part is None:  # broken or external relationship. Falls through to the fallback picture or the placeholder
+        return ""
+    if "_converter_chart_title" not in chart_part.__dict__:
+        chart_space = parse_part(chart_part.blob)
+        text = render_chartex(chart_space, room=room) if chart_space is not None else ""
+        chart_part._converter_chart_title = text.split("\n", 1)[0]
+        return text
+    return chart_part._converter_chart_title
+
+
+def _chartex_part(element: object, part: object) -> object | None:
+    """The chart part of the frame of a new chart kind; None for a broken or external relationship."""
     chart = next(element.iter(f"{{{_CHARTEX}}}chart"))
     try:
-        chart_space = parse_part(part.related_part(chart.get(f"{{{_RELATIONSHIPS}}}id")).blob)
-    except (KeyError, ValueError):  # broken or external relationship. Falls through to the fallback picture or the placeholder
-        return ""
-    return render_chartex(chart_space, room=room) if chart_space is not None else ""
+        return part.related_part(chart.get(f"{{{_RELATIONSHIPS}}}id"))
+    except (KeyError, ValueError):
+        return None
+
+
+def _chartex_is_readable(element: object, part: object) -> bool:
+    """Whether any value of the new chart kind can be read, known from its first row (`room` 0, so the whole table is not built for
+    the check). Decided once per chart part (kept on it), however many frames point at it."""
+    chart_part = _chartex_part(element, part)
+    if chart_part is None:
+        return False
+    if "_converter_chartex_readable" not in chart_part.__dict__:
+        chart_space = parse_part(chart_part.blob)
+        chart_part._converter_chartex_readable = chart_space is not None and bool(render_chartex(chart_space, room=0))
+    return chart_part._converter_chartex_readable
 
 
 def _ole_preview(shape: object) -> bytes | None:
@@ -747,10 +829,16 @@ def _render_smartart(shape: object) -> str:
     if relation is None:
         return ""
     try:
-        data_model = parse_part(shape.part.related_part(relation.get(f"{{{_RELATIONSHIPS}}}dm")).blob)
+        part = shape.part.related_part(relation.get(f"{{{_RELATIONSHIPS}}}dm"))
     except (KeyError, ValueError):  # broken or external relationship (TargetMode="External" is a ValueError). Only this SmartArt is skipped
         return ""
-    return render_smartart(data_model) if data_model is not None else ""
+    # The data part is read and rendered once however many frames point at it, and every frame writes its text, as in DOCX (the text
+    # is kept on the part and goes away with it). It was parsed and rendered again for every frame (Pinned by:
+    # test_office_table_char_limit.py::TestRepeatedContentPastTheLimit::test_smartart_frames_are_read_once_and_stop_at_the_limit).
+    if "_converter_smartart" not in part.__dict__:
+        data_model = parse_part(part.blob)
+        part._converter_smartart = render_smartart(data_model) if data_model is not None else ""
+    return part._converter_smartart
 
 
 def _render_text_frame(text_frame: object, as_bullets: bool, list_styles: list[object], inline: _Inline | None = None) -> str:

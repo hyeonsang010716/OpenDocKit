@@ -22,7 +22,7 @@ import zlib
 from lxml import etree
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
-from opendockit.extractors._charts import embedded_table
+from opendockit.extractors._charts import _value_rows, embedded_table
 from opendockit.extractors._inline import (
     LINK_OPEN,
     SUBSCRIPT,
@@ -39,7 +39,7 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._lists import cell_level_mark, format_number, is_placeholder_only, paragraph_head
 from opendockit.extractors._mathml import MATH_IGNORED, mathml_structure
-from opendockit.extractors._notation import TableBudget, comment_line, format_dutmal, note_table, omitted_rows_warning
+from opendockit.extractors._notation import TableBudget, chars_left, comment_line, format_dutmal, note_table, omitted_rows_warning
 from opendockit.extractors._package import decimal_int
 
 # Splitting a sheet into tables, title rows and merge filling are the spreadsheet extractor's rules. They are imported as they are
@@ -1112,11 +1112,20 @@ class _Renderer:
         titles = [_flat_text(node) for name in ("title", "subtitle") for node in chart.iterchildren(f"{{{_CHART}}}{name}")]
         head = "[Chart] " + " — ".join(title for title in titles if title)
         table = chart.find(_TABLE_ELEMENT)
-        rows = [[" ".join(_flat_text(child) for child in cell if child.tag == _P) for cell in row if cell.tag == _CELL]
-                for row in _rows(table)] if values and table is not None else []
-        rows = [row for row in rows if any(row)]
-        if not rows:
+        found = ([" ".join(_flat_text(child) for child in cell if child.tag == _P) for cell in row if cell.tag == _CELL]
+                 for row in _rows(table)) if values and table is not None else iter(())
+        found = (row for row in found if any(row))
+        header = next(found, None)
+        if header is None:
             return [head.strip()]
+        # The value rows below the header row stop once their text passes the characters the output can still take
+        # (`_charts._value_rows`, as for DOCX, PPTX, XLSX and HWPX charts). Every flow is charged with the characters counted so
+        # far, and those are all written before it: headers and footers are read before the body (a footer is counted after it),
+        # notes and speaker notes are written after the text they are read in, so the cut text is the front of the full conversion
+        # (Pinned by: test_office_table_char_limit.py::TestChartValuesPastTheLimit::test_odf_chart_stops_at_the_limit,
+        # test_odf_cut_chart_is_the_front_of_the_full_conversion).
+        room = chars_left(self._extraction, self._options)
+        rows = [header, *_value_rows(found, room)]
         if not rows[0][0] and len(rows) > 1:
             rows[0][0] = "Category"
         if context.in_note:
@@ -1388,7 +1397,10 @@ def _extract_text(renderer: _Renderer, body: etree._Element, styles_root: etree.
         master_styles.add(named)
         master_styles.add(styles_root.find(f"{{{_OFFICE}}}automatic-styles"))
         headers, footers = renderer.headers_and_footers(styles_root, master_styles)
-        extraction.count(sum(solid_length(text) for text in (*headers, *footers)), options)
+        # Headers are written before the body and footers after it, and each is counted at its place: counted with the headers, a
+        # footer made the body stop short and the cut text was not the front of the full conversion (Pinned by:
+        # test_odf.py::TestCharacterLimit::test_footer_is_counted_after_the_body).
+        extraction.count(sum(solid_length(text) for text in headers), options)
 
     # Read per top-level block and count characters; once the limit is exceeded the rest of the document is not read. Tracked
     # deletions live in `text:tracked-changes` at the top of the body, which is not a block, so deleted text never comes out
@@ -1399,6 +1411,7 @@ def _extract_text(renderer: _Renderer, body: etree._Element, styles_root: etree.
         rendered = renderer.block(node, _BODY)
         blocks.extend(rendered)
         extraction.count(sum(solid_length(block) for block in rendered), options)
+    extraction.count(sum(solid_length(text) for text in footers), options)
     text = join_blocks([*headers, *blocks, *footers, "\n".join(renderer.notes), "\n".join(renderer.comments)])
     extraction.sections.append(Section(SectionKind.DOCUMENT, 1, text))
 

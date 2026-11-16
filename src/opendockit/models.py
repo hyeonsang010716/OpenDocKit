@@ -207,7 +207,7 @@ class DocumentImage:
     failed: bool = False
     # Tiles of a very tall picture (a product detail page, a long screen capture) cut in order at a readable width (PNG/JPEG, same
     # format as `data`). An empty tuple for an ordinary picture. `data` is still the downscaled whole picture, so a describer that
-    # knows nothing about tiles can use it (`image._tiles`).
+    # knows nothing about tiles can use it (`image._tile_boxes`).
     tiles: tuple[bytes, ...] = field(default=(), repr=False)
 
 
@@ -238,6 +238,9 @@ class ConversionResult:
     marker_key: str = field(default="", repr=False)
     # `Extraction.time_limited` carried over: the result depends on how fast the machine was (the MCP server does not keep it).
     time_limited: bool = field(default=False, repr=False)
+    # Over the limit, how many of `sections` the cut `text` reaches (`converter._cut_sections`); None when nothing was cut. A
+    # section past the cut is kept, with its body emptied, so that rendering again after description has every original.
+    reached_sections: int | None = field(default=None, repr=False)
 
     @property
     def is_empty(self) -> bool:

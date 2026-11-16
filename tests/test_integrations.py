@@ -121,6 +121,43 @@ class TestLangChainLoader:
         assert [document.page_content for document in documents] == ["## Slide 1: Agenda", "## Slide 3: Results"]
         assert [document.metadata["section_index"] for document in documents] == [1, 3]
 
+    def test_sections_past_the_character_limit_give_no_piece(self, tmp_path):
+        """Past the cut a slide keeps its title and loses its body, which made it a title-only slide: a 20-slide deck cut in
+        the heading of slide 17 gave title pieces for slides 17-20 that the text never reaches. A slide that is only a title
+        inside the text (slide 1) is still a piece, a slide cut in its body is the part the text has, and a slide cut in its
+        heading is no piece."""
+        from io import BytesIO
+
+        from pptx import Presentation
+
+        deck = Presentation()
+        for number in range(1, 21):
+            slide = deck.slides.add_slide(deck.slide_layouts[5 if number == 1 else 1])
+            slide.shapes.title.text = f"Title {number}"
+            if number > 1:
+                slide.placeholders[1].text = "word " * 10
+        buffer = BytesIO()
+        deck.save(buffer)
+        (tmp_path / "deck.pptx").write_bytes(buffer.getvalue())
+
+        def cut(limit: int) -> tuple[list, str]:
+            options = ConvertOptions(max_chars=limit)
+            whole = langchain.OpenDocKitLoader(tmp_path / "deck.pptx", options=options).load()[0]
+            assert whole.metadata["exceeded"]
+            return langchain.OpenDocKitLoader(tmp_path / "deck.pptx", mode="sections", options=options).load(), whole.page_content
+
+        documents, text = cut(1200)
+
+        assert "Title 18" not in text
+        assert documents[0].page_content == "## Slide 1: Title 1"
+        assert [document.metadata["section_index"] for document in documents] == list(range(1, 18))
+        assert text.endswith(documents[-1].page_content) and documents[-1].page_content.endswith("word word")
+        assert all(document.page_content in text for document in documents)
+
+        documents, text = cut(text.index("## Slide 17") + len("## Sli"))
+
+        assert [document.metadata["section_index"] for document in documents] == list(range(1, 17))
+
     def test_lazy_load_converts_a_file_only_when_it_is_reached(self, files, tmp_path):
         """The second path does not exist: the first Document still comes out, and the error is raised when the second is asked for."""
         loader = langchain.OpenDocKitLoader([files["report.docx"], tmp_path / "missing.docx"])

@@ -32,7 +32,7 @@ This page is a summary for people building an upload screen on top of OpenDocKit
 
 ### Notation
 
-- Links come out as `[text](url)` and bold / italic as `**bold**` / `*italic*` in Word, PowerPoint, HTML, mail, OpenDocument text and slides, RTF and EPUB (`keep_links`, `keep_emphasis`, both on by default). **The marks and addresses count toward `char_count`.** Only `http`, `https` and `mailto` addresses are written; other links keep their text. PDF, Hangul and spreadsheet cells do not carry them.
+- Links come out as `[text](url)` and bold / italic as `**bold**` / `*italic*` in Word, PowerPoint, HTML, mail, OpenDocument text and slides, RTF and EPUB (`keep_links`, `keep_emphasis`, both on by default); Hangul (HWP / HWPX) keeps links but not emphasis. **The marks and addresses count toward `char_count`.** Only `http`, `https` and `mailto` addresses are written; other links keep their text. PDF and spreadsheet cells carry neither.
 - Superscripts and subscripts come out as `10^6`, `10^{-3}`, `H_2O` (an ordinal after a number, `21st`, is left as is).
   - In PDF they are inferred from character size and position, so they can be wrong, and they are not marked inside table cells.
 - A vertically merged table cell repeats its value on every row below. A table with horizontal merges (HWP, HWPX, DOCX, PPTX, HTML, ODT, ODP, RTF, EPUB) comes out as an HTML table (`rowspan`, `colspan`); the tags count toward the character count.
@@ -273,15 +273,16 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 - Pictures embedded in the document (`data:` addresses) and pictures saved inside MHTML.
 - Mail files (.eml, whatever the transfer encoding of the parts): the HTML body once (if there is none, the plain-text body as text) + `Subject:`, `From:`, `To:`, `Cc:`, `Date:` lines at the top with RFC 2047 decoded. Attachments (including PDFs displayed inline in the body) are not read (a warning gives names and count).
 - An mbox file of several mails: `## Message N` + headers + body for each mail (up to 100; beyond that a warning).
-- The question of a collapsed FAQ or accordion (the expand button) and its answer (the hidden block right after the button).
+- The question of a collapsed FAQ or accordion (the expand button) and its answer (the hidden block right after the button), and content folded with `hidden="until-found"`.
 - Strikethrough (tag or CSS) → `~~text~~`; the start number, reversed order and `a.`/`i.` styles of numbered lists.
+- Ruby (`<ruby>`, `<rt>`) → `base(ruby)`, as in DOCX and HWP.
 - The character encoding declared by the document (`<meta charset>`) is followed (when declaration and content disagree, the content decides). Line breaks inside a table cell are kept as `<br>`.
 
 ### What is dropped or changed
 
 - Scripts, styles, hidden elements (menus, modals, tooltips and so on), menus (`nav`), advertisements (`aside`) and comments are removed.
 - **External image addresses are not fetched** (security). Only the alt text remains.
-- Links come out as `[text](url)` for `http`, `https` and `mailto` addresses, in mail too; relative, `#fragment`, `javascript:` and other links keep only their text. Bold and italic come out as `**bold**` / `*italic*`. Input fields and select boxes give the value that was shown, check boxes and radio buttons come out as ☒ / ☐, and buttons other than expand buttons are not included.
+- Links come out as `[text](url)` for `http`, `https` and `mailto` addresses, in mail too; relative, `#fragment`, `javascript:` and other links keep only their text. Bold and italic come out as `**bold**` / `*italic*`. Input fields and select boxes give the value that was shown (the suggestions of a `<datalist>` are left out), check boxes and radio buttons come out as ☒ / ☐, and buttons other than expand buttons are not included.
 - Tables and headings with missing closing tags, and text placed outside table cells (subtotals and the like), are read the way a browser reads them. Block-quote marks (`>`) go down to 20 levels.
 - A large HTML stops as soon as its leading part alone exceeds 500,000 characters. An HTML of tens of MB that is mostly markup and stays within the limit can take tens of seconds.
 - Inside a code block (`<pre>`), a line starting with ``` gets a `\` in front (so the code block is not closed midway).

@@ -1159,6 +1159,112 @@ class TestMemo:
         assert result.text == "운영체제: Ubuntu 22.04 LTS"
 
 
+def _hwpx_link(field_id: int, command: str, text: str) -> str:
+    """A hyperlink field of HWPX around `text`: the address is in the Command parameter, as Hangul writes it."""
+    return (f'<hp:ctrl><hp:fieldBegin id="{field_id}" type="HYPERLINK" name=""><hp:parameters cnt="2">'
+            '<hp:integerParam name="Prop">0</hp:integerParam>'
+            f'<hp:stringParam name="Command">{command}</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl>'
+            f'<hp:t>{text}</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="{field_id}"/></hp:ctrl>')
+
+
+def _hwp_field(control: str, command: str = "") -> bytes:
+    """The CTRL_HEADER payload of an HWP field: control ID, attribute, other attribute, command (WORD length + WCHARs), id."""
+    return (control[::-1].encode("latin-1") + struct.pack("<IBH", 0, 0, len(command)) + command.encode("utf-16-le")
+            + struct.pack("<I", 7))
+
+
+class TestHyperlinks:
+    """Hyperlinks of HWPX (`hp:fieldBegin type="HYPERLINK"`) and HWP (the `%hlk` field) were plain text. Under `keep_links` they
+    are `[text](address)` through the shared rules, with the address from the field command (`http\\://a.example;1;0;0;`) and
+    only http, https and mailto kept, as for DOCX, ODF and RTF."""
+
+    BODY = ('<hp:p><hp:run><hp:t>See </hp:t>' + _hwpx_link(1, r"https\://example.com/a\;b?x=1;1;0;0;", "the site")
+            + "<hp:t>, </hp:t>" + _hwpx_link(2, r"mailto\:team@example.com;1;0;0;", "mail us")
+            + "<hp:t>, </hp:t>" + _hwpx_link(3, r"C\:\\docs\\plan.hwp;1;0;0;", "the plan")
+            + "<hp:t> and </hp:t>" + _hwpx_link(4, r"ftp\://files.example.com;1;0;0;", "files")
+            + "<hp:t>.</hp:t></hp:run></hp:p>")
+
+    def test_hwpx_hyperlink_becomes_a_markdown_link(self):
+        """A file, a bookmark or an ftp address keeps only its text; with `keep_links` off nothing changes."""
+        assert convert(builder.hwpx_bytes(self.BODY), "a.hwpx").text == (
+            "See [the site](https://example.com/a;b?x=1), [mail us](mailto:team@example.com), the plan and files.")
+        assert convert(builder.hwpx_bytes(self.BODY), "a.hwpx", ConvertOptions(keep_links=False)).text == (
+            "See the site, mail us, the plan and files.")
+
+    def test_hwpx_link_in_a_heading_cell_and_note_and_across_a_table(self):
+        """A heading is decided on its text without the address, as in DOCX: a long address does not make it body text. A link
+        in a table cell or a note is kept; a link whose end is past a table in the same paragraph stays text."""
+        address = "https\\://example.com/" + "a" * 150 + ";1;0;0;"
+        def row(field_id: int) -> str:   # a link in the first cell, text in the second
+            return "<hp:tr>" + "".join(
+                f'<hp:tc><hp:subList><hp:p><hp:run>{inner}</hp:run></hp:p></hp:subList><hp:cellAddr colAddr="{column}" rowAddr="0"/>'
+                '<hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>'
+                for column, inner in enumerate((_hwpx_link(field_id, r"https\://cell.example;1;0;0;", "셀"), "<hp:t>값</hp:t>"))
+            ) + "</hp:tr>"
+
+        body = (f'<hp:p styleIDRef="2"><hp:run>{_hwpx_link(1, address, "사업 개요")}</hp:run></hp:p>'
+                f'<hp:p><hp:run><hp:tbl rowCnt="1" colCnt="2">{row(2)}</hp:tbl></hp:run></hp:p>'
+                '<hp:p><hp:run><hp:t>본문</hp:t>' + _hwpx_note(_hwpx_p(_hwpx_link(3, r"https\://note.example;1;0;0;", "출처")))
+                + "</hp:run></hp:p>"
+                '<hp:p><hp:run><hp:ctrl><hp:fieldBegin id="4" type="HYPERLINK"><hp:parameters cnt="1"><hp:stringParam name="Command">'
+                r"https\://far.example;1;0;0;</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl><hp:t>앞</hp:t>"
+                f'<hp:tbl rowCnt="1" colCnt="2">{row(5)}</hp:tbl>'
+                '<hp:t>뒤</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="4"/></hp:ctrl></hp:run></hp:p>')
+
+        text = convert(builder.hwpx_bytes(body), "a.hwpx").text
+
+        assert text.startswith(f"# [사업 개요](https://example.com/{'a' * 150})\n\n| [셀](https://cell.example) | 값 |")
+        assert "본문[^1]" in text and text.endswith("[^1]: [출처](https://note.example)")
+        assert "앞\n\n| [셀](https://cell.example) | 값 |\n| --- | --- |\n\n뒤" in text
+
+    def test_hwpx_link_in_a_comment_stays_text(self):
+        """Comment text is plain, as in DOCX; the link around commented body text is kept."""
+        body = ('<hp:p><hp:run><hp:ctrl><hp:fieldBegin id="1" type="MEMO"><hp:subList><hp:p><hp:run>'
+                + _hwpx_link(2, r"https\://memo.example;1;0;0;", "참고") + "</hp:run></hp:p></hp:subList></hp:fieldBegin></hp:ctrl>"
+                + _hwpx_link(3, r"https\://body.example;1;0;0;", "본문") + '<hp:ctrl><hp:fieldEnd beginIDRef="1"/></hp:ctrl>'
+                "</hp:run></hp:p>")
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == '[본문](https://body.example)\n\n> Comment(on "본문"): 참고'
+
+    def test_hwp_hyperlink_field_becomes_a_markdown_link(self, monkeypatch):
+        """The command of the `%hlk` field control holds the address; a field end closes the last field opened, so the end of a
+        click-here field around a link does not close the link, and a link to a file keeps its text only."""
+        record = builder.hwp_record
+        section = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text(
+                "See ", (3, "%hlk"), "the site", (4, "%hlk"), ", ", (3, "%clk"), "[", (3, "%hlk"), "form", (4, "%hlk"), "]",
+                (4, "%clk"), " and ", (3, "%hlk"), "the plan", (4, "%hlk"), ".")),
+            record(TAG_CTRL_HEADER, 1, _hwp_field("%hlk", r"https\://example.com/a\;b;1;0;0;")),
+            record(TAG_CTRL_HEADER, 1, _hwp_field("%clk", "Clickhere:set:0:Direction:wstring:0:;")),
+            record(TAG_CTRL_HEADER, 1, _hwp_field("%hlk", r"https\://form.example;1;0;0;")),
+            record(TAG_CTRL_HEADER, 1, _hwp_field("%hlk", r"C\:\\plan.hwp;1;0;0;")),
+        ])
+        data = _fake_hwp(monkeypatch, sections=[section])
+
+        assert convert(data, "a.hwp").text == "See [the site](https://example.com/a;b), [[form](https://form.example)] and the plan."
+        assert convert(data, "a.hwp", ConvertOptions(keep_links=False)).text == "See the site, [form] and the plan."
+
+    def test_hwp_control_text_cannot_forge_a_link(self, monkeypatch):
+        """Ruby text is read from the control as it is: the link marks it may hold are dropped, so it cannot write a link to an
+        address that was not vetted."""
+        record = builder.hwp_record
+        forged = "\x12x\x13javascript:alert(1)\x14"
+        ruby = "tdut"[::-1].encode("latin-1") + b"".join(
+            struct.pack("<H", len(text)) + text.encode("utf-16-le") for text in (forged, "덧말")) + b"\x00" * 10
+        section = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text((3, "%hlk"), "링크", (4, "%hlk"), " ", (23, "tdut"))),
+            record(TAG_CTRL_HEADER, 1, _hwp_field("%hlk", r"https\://example.com;1;0;0;")),
+            record(TAG_CTRL_HEADER, 1, ruby),
+        ])
+        data = _fake_hwp(monkeypatch, sections=[section])
+
+        text = convert(data, "a.hwp").text
+
+        assert text == "[링크](https://example.com) xjavascript:alert(1)(덧말)"
+
+
 class TestEquations:
     """Hangul equations were emitted only as the raw script (`[Equation: {1} over {n}]`). They are converted to LaTeX, and the raw
     script is kept when that is not possible."""
