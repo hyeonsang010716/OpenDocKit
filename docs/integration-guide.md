@@ -26,7 +26,7 @@ This page is a summary for people building an upload screen on top of OpenDocKit
   - an image could not be described;
   - pages whose text exists only as an image were not described;
   - conversion stopped because the character limit was exceeded;
-  - an image file was not read because `extract_images` is off;
+  - an image file was not read because `extract_images` or `decode_images` is off;
   - RTF and embedded Word document fragments in DOCX imported content (altChunk) could not be converted.
 - `metadata`: title, author, page count, sheet count, encoding (only when present).
 

@@ -15,7 +15,10 @@ def extract_image(data: bytes, options: ConvertOptions) -> Extraction:
         # `extract_images=False` ignores images entirely (the options table in docs/options.md). The uploaded file is a single
         # picture, so the result is empty; say why
         # (Pinned by: test_image.py::TestAuditedImageGaps::test_extract_images_off_does_not_send_an_uploaded_image_to_the_describer).
-        extraction.warnings.append("This is an image file, but image extraction (extract_images) is turned off, so its content was not read.")
+        # The option named is the one the caller turned off: `decode_images=False` reaches here as `extract_images=False`
+        # (`converter._extract`), and naming `extract_images` sent the reader to an option they had left on.
+        option = "image extraction (extract_images)" if options.decode_images else "image decoding (decode_images)"
+        extraction.warnings.append(f"This is an image file, but {option} is turned off, so its content was not read.")
         return extraction
     split = split_tiff_pages(data)
     if not split.pages:

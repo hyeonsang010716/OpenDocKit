@@ -212,10 +212,12 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
         raise EncryptedDocumentError(_ZIP_PASSWORD_MESSAGES[document_format])
 
     # If the text alone is already over the limit, the pictures are not decoded. Decoding, downscaling and the vision-model calls
-    # after them would all be wasted. They keep their placeholder text all the same (`_placeholders_only`).
+    # after them would all be wasted. They keep their placeholder text all the same (`_placeholders_only`), as they do when
+    # decoding is turned off (`decode_images=False`): the alt text an author gave a picture stays in the text
+    # (Pinned by: test_converter.py::TestPlaceholdersWithoutDecoding).
     text_chars = sum(solid_length(section.template) for section in sections)
     exceeded = extraction.exceeded or (options.max_chars is not None and text_chars > options.max_chars)
-    if exceeded:
+    if exceeded or not options.decode_images:
         images, fallbacks = [], _placeholders_only(extraction.images, options)
     else:
         images, fallbacks = _prepare_images(extraction.images, sections, options, warnings, key)
@@ -300,6 +302,11 @@ def _extract(document_format: DocumentFormat, data: bytes, filename: str | None,
              options: ConvertOptions) -> tuple[DocumentFormat, Extraction]:
     """Call the extractor. UTF-8 text that was detected as PDF but does not read as one (a note explaining the PDF structure) is
     read again as text (`detect.pdf_lookalike_text_format`). Other rejections, such as password or size, are left as they are."""
+    # Without decoding, a PDF is read without drawing its pictures and pages, and an image file, which is nothing but its picture,
+    # is not read: the placeholders a PDF picture would leave carry no alt text, and drawing them is the cost the option is
+    # for (`ConvertOptions.decode_images`; Pinned by: test_converter.py::TestPlaceholdersWithoutDecoding).
+    if not options.decode_images and document_format in (DocumentFormat.PDF, DocumentFormat.IMAGE):
+        options = replace(options, extract_images=False)
     try:
         return document_format, EXTRACTORS[document_format](data, options)
     except Exception as exc:
