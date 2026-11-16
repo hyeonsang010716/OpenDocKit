@@ -24,7 +24,7 @@ A sixth review of the whole source. The sample outputs in `examples/` are unchan
 
 ### Fixed
 
-- **PDF**: a picture drawn at a position that is not a finite number (a scale of `1e200` twice) no longer rejects the
+- **PDF**: a picture drawn at a position that is not a finite number (a scale of 10^200, written out in digits, twice) no longer rejects the
   whole document as corrupted; neither does a page that `/Count` promises but pdfium cannot open when pdfminer cannot
   read the document. A vertical merge is repeated only into the rows it covers, so a table whose columns merge
   staggered pairs of rows no longer copies one merge's text into another's row. An open-sided table whose merged cells

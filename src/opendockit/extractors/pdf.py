@@ -645,6 +645,10 @@ def _countable_chars(page: _Page, tally: _EdgeTally | None = None) -> int:
                             *page.form_values])
 
 
+# Pages in a row that pdfium counts but cannot open, after which the document is taken to end (`_read_with_pdfium`).
+_MAX_UNOPENED_PAGES = 64
+
+
 def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
                       extraction: Extraction) -> tuple[list[_Page], int, int]:
     """When pdfminer cannot open the document at all, reads only the page text with pdfium. If pdfium cannot open it either, the
@@ -668,15 +672,26 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
         total = len(document)
         limit = total if options.max_pages is None else min(total, options.max_pages)
         pages = []
+        unopened = 0
         for index in range(limit):
             try:
                 pages.append(_pdfium_page(document, index))
+                unopened = 0
             except pdfium.PdfiumError:
                 # A page pdfium counts (it trusts `/Count`) but cannot open is an empty page, as on the normal path, and is
                 # listed with the other pages of this path in the structure-failure warning; its size is unknown
                 # (Pinned by: test_audit_pdf_head.py::TestPageOnlyPdfminerFinds::test_document_pdfminer_cannot_open_keeps_the_pages_pdfium_opens).
                 pages.append(_Page(number=index + 1, width=0.0, height=0.0, lines=[], tables=[], has_images=False,
                                    view=(0.0, 0.0, 0.0, 0.0), simple=True))
+                unopened += 1
+                if unopened == _MAX_UNOPENED_PAGES:
+                    # pdfium counts up to about a million pages that `/Count` promises, and the empty pages add no characters to
+                    # stop at: `/Count 1000000` over two pages (1.1 KB) took 105 s and 737 MB. A run this long is the pages
+                    # counted past the real ones, so it ends the document, and the run is not kept
+                    # (Pinned by: test_audit_pdf_head.py::TestPageOnlyPdfminerFinds::test_a_count_far_past_the_pages_ends_at_the_real_ones).
+                    del pages[-unopened:]
+                    total = limit = len(pages)
+                    break
             if extraction.count(_countable_chars(pages[-1]), options):
                 break
         return pages, total, limit

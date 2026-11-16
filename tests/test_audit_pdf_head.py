@@ -206,6 +206,18 @@ class TestPageOnlyPdfminerFinds:
         assert "Hello world" in result.text and "Second page" in result.text
         assert any("Structure analysis failed for 3 PDF page(s) (1, 2, 3)" in warning for warning in result.warnings)
 
+    def test_a_count_far_past_the_pages_ends_at_the_real_ones(self):
+        """pdfium counts what `/Count` promises, up to about a million pages: each became an empty page, which took 105 s and
+        737 MB for a 1.1 KB file."""
+        data = _two_kids(1_000_000, _text(b"Hello world"), _text(b"Second page")).replace(
+            b"/MediaBox [0 0 595 842]", b"/MediaBox [0 0 595 842] /Rotate /Foo", 1)
+
+        result = convert(data, "a.pdf")
+
+        assert "Hello world" in result.text and "Second page" in result.text
+        assert result.metadata["page_count"] == "2"
+        assert any("Structure analysis failed for 2 PDF page(s) (1, 2)" in warning for warning in result.warnings)
+
     def test_ordinary_two_page_document_is_unchanged(self):
         result = convert(_two_kids(2, _text(b"Hello world"), _text(b"Second page")), "a.pdf")
 

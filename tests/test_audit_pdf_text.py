@@ -380,13 +380,14 @@ class TestCharactersAtNonFinitePositions:
 
 
 class TestPicturesAtNonFinitePositions:
-    """A picture drawn under two scalings of 1e200 has NaN sides, which pass every comparison of the figure boxes; rounding
-    its box raised ValueError and the whole document was reported corrupted, with `extract_images` off as well."""
+    """A picture drawn under two scalings of 10^200 (written as an integer of 201 digits: PDF numbers have no exponent) has
+    NaN sides, which pass every comparison of the figure boxes; rounding its box raised ValueError and the whole document was
+    reported corrupted, with `extract_images` off as well."""
 
-    @pytest.mark.parametrize("scale", [b"1" + b"0" * 200, b"1e200"])
     @pytest.mark.parametrize("clip", [b"", b"0 0 300 300 re W n "])
     @pytest.mark.parametrize("extract_images", [True, False])
-    def test_the_page_is_read_without_the_picture_drawn_nowhere(self, scale, clip, extract_images):
+    def test_the_page_is_read_without_the_picture_drawn_nowhere(self, clip, extract_images):
+        scale = b"1" + b"0" * 200
         image = b"BI /W 2 /H 2 /CS /G /BPC 8 ID \x00\xff\xff\x00 EI"
         body = (b"q " + clip + b"%s 0 0 %s 0 0 cm %s 0 0 %s 0 0 cm " % (scale, scale, scale, scale) + image
                 + b" Q BT /F1 12 Tf 72 700 Td (Hello) Tj ET")
