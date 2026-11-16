@@ -27,10 +27,12 @@ pytestmark = pytest.mark.skipif(not PLUGIN.is_dir(), reason="the Dify plugin is 
 _TAGS = {"agent", "business", "design", "education", "entertainment", "finance", "image", "news", "other", "productivity", "rag",
          "search", "social", "travel", "utilities", "videos", "weather", "llm", "model_provider", "audio", "document",
          "devtools", "database", "security", "translation"}
-# What Dify itself accepts as the tags of a tool provider (`ToolLabelEnum`, Dify 1.19): it refuses to install a plugin
-# with any other, though the Marketplace vocabulary above is larger ('document' is not among these).
+# What Dify itself accepts, though the Marketplace vocabulary above is larger ('document' is in neither list below):
+# the tags of a tool provider (`ToolLabelEnum`, Dify 1.19), refused on upload, and the tags of the plugin
+# (`manifest_entities.PluginTag`, dify-plugin-daemon 0.6.15), refused by `dify plugin package`.
 _TOOL_LABELS = {"search", "image", "videos", "weather", "finance", "design", "travel", "social", "news", "medical",
                 "productivity", "education", "business", "entertainment", "utilities", "rag", "other"}
+_PLUGIN_TAGS = _TOOL_LABELS | {"agent", "trigger"}
 _PIN = re.compile(r"([A-Za-z0-9_.-]+)==(\d+\.\d+\.\d+)")
 
 
@@ -92,9 +94,11 @@ class TestManifest:
         for tags in (_yaml("manifest.yaml")["tags"], _yaml("provider/opendockit.yaml")["identity"]["tags"]):
             assert 1 <= len(tags) <= 3 and set(tags) <= _TAGS
 
-    def test_tool_provider_tags_are_ones_dify_installs(self):
-        """'document' in the provider made Dify 1.19 refuse the package on upload; the plugin's own tags are free text."""
+    def test_tags_are_ones_dify_packages_and_installs(self):
+        """'document' in the provider made Dify 1.19 refuse the package on upload, and in the manifest made the official
+        CLI refuse to build it."""
         assert set(_yaml("provider/opendockit.yaml")["identity"]["tags"]) <= _TOOL_LABELS
+        assert set(_yaml("manifest.yaml")["tags"]) <= _PLUGIN_TAGS
 
     def test_privacy_policy_is_shipped(self):
         policy = PLUGIN / _yaml("manifest.yaml")["privacy"]
