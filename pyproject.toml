@@ -80,6 +80,7 @@ Changelog = "https://github.com/hyeonsang010716/OpenDocKit/blob/main/CHANGELOG.m
 [dependency-groups]
 dev = [
     "opendockit[heic,openai,langchain,llamaindex,mcp]",
+    "gevent>=26.9",  # the Dify plugin's runtime serves requests with it (tests/test_dify_plugin.py)
     "pytest>=8.3",
     "pytest-xdist>=3.6",
     "reportlab>=4.2",
