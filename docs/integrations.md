@@ -125,12 +125,15 @@ is listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io
 
 [`hermes-plugin/`](../hermes-plugin) packages the same server for [Hermes Agent](https://github.com/NousResearch/hermes-agent)
 as a portable Agent Plugins v1 package: the server declaration (`mcp.json`, pinned to one OpenDocKit release) and a skill
-that teaches the agent to read the outline first and long documents by `sections`.
+that teaches the agent to read the outline first and long documents by `sections`. It is listed in the
+[Hermes plugin catalog](https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/opendockit.yaml), which installs the commit the entry pins:
 
 ```bash
-hermes plugins install hyeonsang010716/OpenDocKit#hermes-plugin
+hermes plugins install opendockit
 hermes plugins enable opendockit
 ```
+
+A commit newer than the catalog's installs from this repository: `hermes plugins install hyeonsang010716/OpenDocKit#hermes-plugin`.
 
 The server is started without `--root`; set `OPENDOCKIT_MCP_ROOTS` in the shell or in the Hermes profile's `.env` to
 restrict it. What the plugin does on the machine is listed in its [README](../hermes-plugin/README.md).

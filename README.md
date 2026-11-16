@@ -15,6 +15,7 @@
   <a href="https://pypi.org/project/opendockit/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/opendockit"></a>
   <a href="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/hyeonsang010716/OpenDocKit/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/opendockit.yaml"><img alt="Hermes Agent plugin catalog" src="https://img.shields.io/badge/Hermes%20Agent-plugin%20catalog-6e56cf"></a>
 </p>
 
 <p align="center">
@@ -162,6 +163,20 @@ To let the client start the server itself, with nothing installed beforehand, ad
 ```
 
 With `mode="sections"` each page, slide or sheet is its own Document, with its number in the metadata for citations. See [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md).
+
+### Hermes Agent
+
+OpenDocKit is listed in the [Hermes Agent plugin catalog](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog), where every plugin is reviewed by the Hermes
+maintainers and pinned to one commit:
+
+```bash
+hermes plugins install opendockit
+hermes plugins enable opendockit
+```
+
+Then ask Hermes about a file on your machine in a new session. It reads a long document by page, slide or sheet, sends
+nothing anywhere and needs no API key. What the plugin runs, and how to limit the folders it may read:
+[hermes-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/hermes-plugin/README.md).
 
 ## Supported formats
 
