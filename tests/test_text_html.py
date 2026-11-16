@@ -1518,6 +1518,55 @@ class TestAsciiUtf16WithoutBom:
         assert text.replace("\x00", "") == "OюK thaюnks"
 
 
+class TestSmallScriptUtf16WithoutBom:
+    """UTF-16 without a BOM of Cyrillic, Arabic, Devanagari or Thai text has every byte below 0x80 and NULs only after its
+    spaces and punctuation, so strict UTF-8 took it: the text came out as `@825B, :0: 45;0?`, an HTML page showed its tags as
+    text, and a paragraph without a line break was rejected as binary."""
+
+    _TEXTS = {
+        "ru": "Привет, как дела? Это тестовый документ для проверки кодировки.\r\nОтчёт о продажах за третий квартал 2024 года.",
+        "uk": "Звіт про продаж за третій квартал. Дякую за увагу, Євгене.",
+        "ar": "هذا تقرير المبيعات للربع الثالث. شكرا لاهتمامكم.",
+        "hi": "यह एक परीक्षण दस्तावेज़ है। धन्यवाद, नमस्ते।",
+        "th": "นี่คือ เอกสาร ทดสอบ ขอบคุณ ครับ",
+    }
+
+    @pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+    @pytest.mark.parametrize("language", list(_TEXTS))
+    def test_text_is_read(self, language, codec):
+        text = self._TEXTS[language]
+
+        assert decode_text(text.encode(codec)) == (text, codec)
+        assert convert(text.encode(codec), "a.txt").text == text.replace("\r\n", "\n")
+
+    @pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+    def test_paragraph_without_a_line_break_is_text(self, codec):
+        text = "Привет, как дела? Это тестовый документ для проверки кодировки. Спасибо за внимание."
+
+        result = convert(text.encode(codec), None)
+
+        assert result.format is DocumentFormat.TEXT
+        assert result.text == text
+
+    @pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+    def test_page_is_read_as_html(self, codec):
+        page = "<html><body><h1>Отчёт</h1><p>Продажи выросли на 5%, спасибо.</p></body></html>"
+
+        result = convert(page.encode(codec), "r.html")
+
+        assert result.text == "# Отчёт\n\nПродажи выросли на 5%, спасибо."
+        assert result.metadata["encoding"] == codec
+
+    @pytest.mark.parametrize("data", [
+        b"35=D\x0149=SENDER\x0156=TARGET\x0134=12\x0152=20240105-01:00:00\x00\n",  # a FIX log line with a NUL
+        b"rep\x04o\x00\x00r\x00\x05t \x03\x03o\x00f,",  # UTF-8 with stray NULs and control bytes
+        "über, the ü\x1fbe\x0er \x00\x02your\nt\x07he,\x00".encode(),
+        b"\x00\x02\x04\x02a\x01\x04\x02",
+    ])
+    def test_byte_text_with_nuls_and_control_bytes_keeps_its_reading(self, data):
+        assert decode_text(data) == (data.decode(), "utf-8")
+
+
 class TestDeclaredUtf16WithoutBom:
     """A declared `utf-16le` / `utf-16be` is taken only when the bytes bear it out. Taken whenever the bytes decoded into
     printable characters, ASCII and UTF-8 text carrying that label came out as ideographs without a warning."""
