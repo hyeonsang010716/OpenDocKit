@@ -3,6 +3,7 @@ type: plugin
 author: hyeonsang010716
 name: opendockit
 repo: https://github.com/hyeonsang010716/OpenDocKit
+contact: kyr76789@gmail.com
 label:
   en_US: OpenDocKit
 description:

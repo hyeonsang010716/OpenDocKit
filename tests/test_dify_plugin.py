@@ -85,6 +85,8 @@ class TestManifest:
         assert manifest["label"]["en_US"] and manifest["description"]["en_US"]
         assert (PLUGIN / "_assets" / manifest["icon"]).is_file()
         assert manifest["repo"] == "https://github.com/hyeonsang010716/OpenDocKit"
+        # Required by the Marketplace checks (dify-marketplace-toolkit, checks/manifest.py), which want an email address.
+        assert re.fullmatch(r"[^@\s]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", manifest["contact"])
 
     def test_tags_come_from_the_marketplace_vocabulary(self):
         for tags in (_yaml("manifest.yaml")["tags"], _yaml("provider/opendockit.yaml")["identity"]["tags"]):
