@@ -652,21 +652,24 @@ def _placeholder_base(shape: object) -> object | None:
     shape (`_reading_order`) and bullets (`_list_styles`) are inherited too, so a slide with many inheriting placeholders took the
     square of their number (1,000 took 89 seconds. Pinned by:
     test_office_scaling_and_note_order.py::TestPptxManyInheritedPlaceholders). An index → layout placeholder table is built once per
-    slide part, and a type → result table once per master part, and kept on that part (it goes away with the part).
+    layout part, and a type → result table once per master part, and kept on that part (it goes away with the part). The table
+    depends only on the layout, so slides sharing a layout share it: kept per slide part, every slide walked all placeholders of
+    its layout again, and 400 slides on a layout of 4,000 placeholders took 49 seconds (Pinned by:
+    test_office_scaling_and_note_order.py::TestPptxManyInheritedPlaceholders::test_many_slides_on_a_large_layout_take_linear_time).
 
     The layout and the master are those of the first relationship of their type (`_package.related_part`): with two, python-pptx
     raised ValueError and the placeholder lost its position and bullets (Pinned by:
     test_audit_office.py::TestRelationshipTypeGivenTwice::test_pptx_placeholder_inherits_from_the_first_layout_and_master).
     """
     if isinstance(shape, (_BaseSlidePlaceholder, PlaceholderPicture)):
-        part = shape.part
-        layout_placeholders = part.__dict__.get("_converter_layout_placeholders")
+        layout = related_part(shape.part, RT.SLIDE_LAYOUT)
+        layout_placeholders = layout.__dict__.get("_converter_layout_placeholders")
         if layout_placeholders is None:
             layout_placeholders = {}
             # When several share an index, the first one, like python-pptx
-            for placeholder in related_part(part, RT.SLIDE_LAYOUT).slide_layout.placeholders:
+            for placeholder in layout.slide_layout.placeholders:
                 layout_placeholders.setdefault(placeholder.element.ph_idx, placeholder)
-            part._converter_layout_placeholders = layout_placeholders
+            layout._converter_layout_placeholders = layout_placeholders
         return layout_placeholders.get(shape._element.ph_idx)
     if isinstance(shape, LayoutPlaceholder):
         master = related_part(shape.part, RT.SLIDE_MASTER)

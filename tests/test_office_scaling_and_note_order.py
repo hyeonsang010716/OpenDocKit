@@ -157,7 +157,8 @@ def _deck_with_inherited_placeholders(count: int) -> bytes:
 class TestPptxManyInheritedPlaceholders:
     """Every time a placeholder's position or bullet was inherited, python-pptx scanned the layout's placeholders from the start, so
     a slide with many inheriting placeholders took time quadratic in their number (89 s for 1,000). An idx → placeholder map is
-    built once per slide/layout."""
+    built once per layout/master. Kept per slide, every slide walked all placeholders of its layout again: 400 slides on a layout
+    of 4,000 placeholders took 49 s."""
 
     @pytest.mark.timing
     def test_slide_with_many_inherited_placeholders_takes_linear_time(self):
@@ -167,12 +168,74 @@ class TestPptxManyInheritedPlaceholders:
 
         assert elapsed < 3.0
 
+    @pytest.mark.timing
+    def test_many_slides_on_a_large_layout_take_linear_time(self):
+        layout = "".join(_layout_placeholder(index, index) for index in range(3_000))
+        data = _deck_on_layouts({7: layout}, [(7, _slide_placeholder(0, "x"))] * 300)
+
+        elapsed = _seconds(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=None)))
+
+        assert elapsed < allowed(2.0)
+
     def test_inherited_positions_still_decide_the_reading_order(self):
         data = _deck_with_inherited_placeholders(3)
 
         result = convert(data, "a.pptx")
 
         assert result.text.split("\n\n")[1:] == ["- t2", "- t1", "- t0"]
+
+    def test_each_slide_inherits_from_its_own_layout_and_keeps_its_own_positions(self):
+        """Two layouts give the same placeholder indexes opposite positions. A slide on either inherits from its own layout, and a
+        slide whose placeholder has its own position keeps it, without changing what the next slide on that layout inherits."""
+        first_up = _layout_placeholder(0, 1) + _layout_placeholder(1, 2)
+        second_up = _layout_placeholder(0, 2) + _layout_placeholder(1, 1)
+        own_position = '<p:spPr><a:xfrm><a:off x="0" y="600000"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr>'
+        slides = [(7, _slide_placeholder(0, "a0") + _slide_placeholder(1, "a1")),
+                  (6, _slide_placeholder(0, "b0") + _slide_placeholder(1, "b1")),
+                  (7, _slide_placeholder(0, "c0", own_position) + _slide_placeholder(1, "c1")),
+                  (7, _slide_placeholder(0, "d0") + _slide_placeholder(1, "d1")),
+                  (6, _slide_placeholder(0, "e0", own_position) + _slide_placeholder(1, "e1"))]
+        data = _deck_on_layouts({7: first_up, 6: second_up}, slides)
+
+        result = convert(data, "a.pptx")
+
+        texts = [block for block in result.text.split("\n\n") if block.startswith("- ")]
+        assert texts == ["- a0", "- a1", "- b1", "- b0", "- c1", "- c0", "- d0", "- d1", "- e1", "- e0"]
+
+
+def _layout_placeholder(index: int, rank: int) -> str:
+    """Body placeholder of a layout with idx `100 + index`, placed `rank` steps of 200,000 EMU down the slide."""
+    return (f'<p:sp><p:nvSpPr><p:cNvPr id="{index + 10}" name="p{index}"/><p:cNvSpPr/><p:nvPr><p:ph type="body" '
+            f'idx="{index + 100}"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="{rank * 200_000}"/>'
+            '<a:ext cx="100" cy="100"/></a:xfrm></p:spPr></p:sp>')
+
+
+def _slide_placeholder(index: int, text: str, properties: str = "<p:spPr/>") -> str:
+    """Slide placeholder with idx `100 + index` holding `text`; without its own frame it inherits the layout's position."""
+    return (f'<p:sp><p:nvSpPr><p:cNvPr id="{index + 10}" name="p{index}"/><p:cNvSpPr/><p:nvPr><p:ph type="body" '
+            f'idx="{index + 100}"/></p:nvPr></p:nvSpPr>{properties}<p:txBody><a:bodyPr/><a:p><a:r><a:t>{text}</a:t></a:r></a:p>'
+            '</p:txBody></p:sp>')
+
+
+def _deck_on_layouts(layouts: dict[int, str], slides: list[tuple[int, str]]) -> bytes:
+    """Presentation whose slides are each (layout file number, shapes) — 7 is the blank layout, 6 'Title Only' — with the given
+    shapes added to the layout files."""
+    from io import BytesIO
+
+    from pptx import Presentation
+
+    presentation = Presentation()
+    for layout, _shapes in slides:
+        presentation.slides.add_slide(presentation.slide_layouts[layout - 1])
+    buffer = BytesIO()
+    presentation.save(buffer)
+
+    def append(shapes: str):
+        return lambda xml: xml.replace("</p:spTree>", shapes + "</p:spTree>")
+
+    edits = {f"ppt/slides/slide{number}.xml": append(shapes) for number, (_layout, shapes) in enumerate(slides, 1)}
+    edits.update({f"ppt/slideLayouts/slideLayout{layout}.xml": append(shapes) for layout, shapes in layouts.items()})
+    return builder.zip_with(buffer.getvalue(), edits)
 
 
 def _numbering_with_levels(levels: str, lists: int) -> str:
