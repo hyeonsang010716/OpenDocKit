@@ -833,6 +833,114 @@ class TestAuditedAssemblyGaps:
         assert [section.text for section in result.sections] == [result.text]
 
 
+class TestPicturesInsideAQuote:
+    """A line inside a quote (`> `) holding a picture was looked at with its quote marks: a row of a quoted table was not a table
+    row, so the picture was cut out of its cell and its block put on lines of its own outside the quote — the table and the
+    quote broke in two — and in a quoted paragraph the block landed outside the quote and left a stray `>` behind it."""
+
+    _TABLE = ("<p>Reply</p><blockquote><table><tr><th>Name</th><th>Photo</th></tr>"
+              "<tr><td>Kim</td><td><img src='{uri}' alt='Kim portrait'></td></tr>"
+              "<tr><td>Lee</td><td>none</td></tr></table></blockquote>")
+
+    def test_picture_in_a_quoted_table_stays_in_its_cell(self):
+        html = self._TABLE.format(uri=_data_uri(seed=1))
+
+        assert convert(html.encode(), "a.html").text == (
+            "Reply\n\n> | Name | Photo |\n> | --- | --- |\n> | Kim | [Image: Kim portrait] |\n> | Lee | none |")
+
+    def test_description_in_a_quoted_table_stays_in_its_cell(self):
+        html = self._TABLE.format(uri=_data_uri(seed=1))
+
+        result = asyncio.run(aconvert(html.encode(), "a.html", describer=_FixedDescriber("A man smiling\nwearing glasses")))
+
+        assert result.text == ("Reply\n\n> | Name | Photo |\n> | --- | --- |\n"
+                               "> | Kim | [Image] A man smiling<br>wearing glasses |\n> | Lee | none |")
+
+    def test_picture_in_a_quoted_markdown_table_stays_in_its_cell(self):
+        markdown = (f"Intro\n\n> | Name | Photo |\n> | --- | --- |\n> | Kim | ![Kim portrait]({_data_uri(seed=1)}) |\n"
+                    "> | Lee | none |\n")
+
+        assert convert(markdown.encode(), "a.md").text == (
+            "Intro\n\n> | Name | Photo |\n> | --- | --- |\n> | Kim | [Image: Kim portrait] |\n> | Lee | none |")
+
+    def test_picture_in_a_quoted_html_table_stays_in_its_cell(self):
+        html = ("<blockquote><table><tr><th>a</th><th>b</th><th>c</th></tr>"
+                f"<tr><td colspan=2>sum <img src='{_data_uri(seed=4)}'></td><td>end</td></tr></table></blockquote>")
+
+        result = asyncio.run(aconvert(html.encode(), "a.html", describer=_FixedDescriber("x\ny")))
+
+        assert '> <tr><td colspan="2">sum [Image] x<br>y</td><td>end</td></tr>' in result.text
+
+    def test_picture_in_a_quoted_paragraph_stays_in_the_quote(self):
+        html = (f"<p>My reply.</p><blockquote><p>Original line one <img src='{_data_uri(seed=2)}' alt='signed contract scan'>"
+                " continues.</p><p>Original line two.</p></blockquote><p>Thanks</p>")
+
+        assert convert(html.encode(), "a.html").text == (
+            "My reply.\n\n> Original line one continues.\n>\n> [Image: signed contract scan]\n>\n> Original line two.\n\nThanks")
+
+    def test_description_in_a_nested_quote_gets_every_quote_mark(self):
+        html = (f"<blockquote><p>Outer</p><blockquote><p>Inner <img src='{_data_uri(seed=3)}'> text</p><p>Inner two</p>"
+                "</blockquote><p>Outer two</p></blockquote>")
+
+        result = asyncio.run(aconvert(html.encode(), "a.html", describer=_FixedDescriber("A chart\n\nwith two lines")))
+
+        assert result.text == ("> Outer\n>\n> > Inner text\n> >\n> > > [Image] A chart\n> > >\n> > > with two lines\n> >\n"
+                               "> > Inner two\n>\n> Outer two")
+
+    def test_description_at_the_end_of_a_quote_ends_with_it(self):
+        html = f"<blockquote><p>One <img src='{_data_uri(seed=3)}'></p></blockquote><p>After</p>"
+
+        result = asyncio.run(aconvert(html.encode(), "a.html", describer=_FixedDescriber("A chart")))
+
+        assert result.text == "> One\n>\n> > [Image] A chart\n\nAfter"
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<blockquote><p>One</p><p><img src='{uri}'></p><p>Two.</p></blockquote>", "> One\n>\n> Two."),
+        ("<blockquote><p>One</p><p><img src='{uri}'></p></blockquote><p>After</p>", "> One\n\nAfter"),
+        ("<blockquote><p><img src='{uri}'></p><p>Two.</p></blockquote>", "> Two."),
+        ("<blockquote><p>One <img src='{uri}'> two</p></blockquote>", "> One two"),
+    ], ids=["between-paragraphs", "at-the-end", "at-the-start", "inside-a-line"])
+    def test_skip_answer_in_a_quote_leaves_no_stray_quote_line(self, html, expected):
+        result = asyncio.run(aconvert(html.format(uri=_data_uri(seed=5)).encode(), "a.html", describer=_FixedDescriber("SKIP")))
+
+        assert result.text == expected
+
+    @pytest.mark.parametrize("limit", range(620, 1_740, 40))
+    def test_description_stops_at_exactly_the_image_that_crosses_the_limit(self, limit):
+        """The stop during description skips assembling the text and counts the most a picture can add
+        (`image_length_bound`). Inside a quote every line of its block also gets the quote marks; counted without them the bound
+        was short and the description ran past the picture that crossed the limit."""
+        from opendockit.converter import render
+        from opendockit.describe import describe_images
+
+        def quoted(inner: str) -> str:
+            return "<blockquote>" * 8 + inner + "</blockquote>" * 8
+
+        parts = []
+        for index in range(12):
+            picture = f"<img src='{_data_uri(seed=index)}'>"
+            parts.append(quoted([f"<p>before {index}</p><p>{picture}</p><p>after {index}</p>",
+                                 f"<p>line {index} {picture} tail</p>", f"<p>a {index}<br>{picture}<br>b {index}</p>"][index % 3]))
+        html = ("<html><body>" + "".join(parts) + "</body></html>").encode()
+        answers = {image_id: "\n".join(["가" * (5 + image_id)] * (1 + image_id % 4)) for image_id in range(1, 13)}
+
+        class Answers:
+            async def describe(self, image):
+                await asyncio.sleep(0)
+                return answers[image.id]
+
+        base = convert(html, "a.html", ConvertOptions(max_chars=limit))
+        crossing = [count for count in range(1, 13) if render(replace(base, images=[
+            replace(image, description=answers[image.id]) if index < count else replace(image, decorative=True)
+            for index, image in enumerate(base.images)])).exceeded]
+        assert crossing, "every limit swept lies between the text alone and the text with every description"
+
+        result = asyncio.run(describe_images(base, Answers(), max_concurrency=1))
+
+        assert result.exceeded
+        assert sum(1 for image in result.images if image.description) == crossing[0]
+
+
 class TestInputTypes:
     """`convert` takes the file content (bytes). A memoryview failed in format detection (`startswith`) and a path string failed
     detection too, both rejected as "could not parse the file format (corrupted)", which hid the cause."""

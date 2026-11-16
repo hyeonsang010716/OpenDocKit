@@ -12,7 +12,7 @@ import re
 from typing import Any, Protocol
 from weakref import WeakKeyDictionary
 
-from opendockit.converter import image_length_bound, render
+from opendockit.converter import image_length_bound, quote_widths, render
 from opendockit.markdown import clean_text
 from opendockit.models import ConversionResult, DocumentImage, ImageKind, image_marker_pattern
 
@@ -258,6 +258,7 @@ async def describe_images(result: ConversionResult, describer: ImageDescriber, *
     # (Pinned by: test_image.py::TestResourceBounds::test_description_stops_at_the_same_image_when_a_placeholder_appears_more_than_once).
     pattern = image_marker_pattern(result.marker_key)
     occurrences = Counter(int(found) for section in result.sections for found in pattern.findall(section.template))
+    quotes = quote_widths(result.sections, pattern)
     tasks = [asyncio.ensure_future(run(image)) for image in result.images if _is_pending(image)]
     try:
         for next_done in asyncio.as_completed(tasks):
@@ -270,7 +271,7 @@ async def describe_images(result: ConversionResult, describer: ImageDescriber, *
             # of pictures (25 seconds for 3,332 pictures). Only subtract the most characters one picture can add, and render for
             # an exact decision only when the headroom runs out. The stopping point is the same as when rendering every time
             # (Pinned by: test_image.py::TestResourceBounds::test_description_stops_at_exactly_the_image_that_crosses_the_limit).
-            headroom -= image_length_bound(image, result.fallbacks) * max(occurrences[image.id], 1)
+            headroom -= image_length_bound(image, result.fallbacks, quotes.get(image.id, 0)) * max(occurrences[image.id], 1)
             if headroom < 0:
                 headroom = limit - _floor_length(result, finished)
                 if headroom < 0:
