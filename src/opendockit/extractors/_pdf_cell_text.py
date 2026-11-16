@@ -5,6 +5,8 @@ merged cell, and cells whose text is drawn sideways.
 from bisect import bisect_left, bisect_right
 import re
 
+from pdfplumber.utils import extract_text
+
 from opendockit.extractors._pdf_artifacts import _is_sideways, _sideways_paragraphs
 from opendockit.extractors._pdf_chars import _text_from_chars
 from opendockit.extractors._pdf_model import (
@@ -60,7 +62,7 @@ def _cell_rows(table: object) -> list[list[str | None]]:
     row it does not cover and the row it does cover kept another merge's text ('| 구현 | 기획팀 |') (Pinned by:
     test_pdf_table_columns.py::TestStaggeredMerges).
     """
-    rows = table.extract(**_CELL_TEXT)
+    rows = _extracted(table)
     _read_sideways_cells(table, rows)
     _join_soft_wraps(table, rows)
     row_middles = _shared_middles([row.cells for row in table.rows], 1, 3)
@@ -260,6 +262,47 @@ def _read_sideways_cells(table: object, rows: list[list[str | None]]) -> None:
             chars = _chars_in_cell(every, cell)
             if all(_is_sideways(char) for char in chars if char["text"].strip()):
                 rows[row_index][column_index] = "\n".join(_sideways_paragraphs(chars))
+
+
+def _extracted(table: object) -> list[list[str | None]]:
+    """The cell text of a ruled table as pdfplumber's `Table.extract(**_CELL_TEXT)` gives it — the same characters of every row
+    and cell in the same order, read with the same `extract_text` — except that a row takes its characters from the page's
+    characters sorted by vertical middle (`_chars_by_middle`, built once per page) instead of testing every character of the
+    page. pdfplumber tests every character for every row: a 9.5 KB page of a 600-row table of 100 characters a row spent 9
+    of its seconds there (Pinned by: test_pdf_resource_limits.py::TestManyLinesReachingOutOfTheirCells)."""
+    middles, placed = _chars_by_middle(table.page)
+
+    def in_box(char: dict, box: tuple[float, float, float, float]) -> bool:  # pdfplumber's `char_in_bbox`
+        middle_y, middle_x = (char["top"] + char["bottom"]) / 2, (char["x0"] + char["x1"]) / 2
+        return box[0] <= middle_x < box[2] and box[1] <= middle_y < box[3]
+
+    rows = []
+    for row in table.rows:
+        top, bottom = row.bbox[1], row.bbox[3]
+        # every character whose middle is a number in [top, bottom); one that is not a number is in no box
+        band = sorted(placed[bisect_left(middles, top):bisect_left(middles, bottom)], key=lambda item: item[0])
+        row_chars = [char for _, char in band if in_box(char, row.bbox)]
+        texts: list[str | None] = []
+        for cell in row.cells:
+            if cell is None:
+                texts.append(None)
+                continue
+            cell_chars = [char for char in row_chars if in_box(char, cell)]
+            texts.append(extract_text(cell_chars, **_CELL_TEXT) if cell_chars else "")
+        rows.append(texts)
+    return rows
+
+
+def _chars_by_middle(page: object) -> tuple[list[float], list[tuple[int, dict]]]:
+    """All of the page's characters in order of their vertical middle, each with its place in `page.chars` (page order where
+    the middles are equal), as (list of middles, list of (place, character)). Built once per page (`_extracted`). A character
+    whose middle is not a number is inside no box and is left out."""
+    def build() -> tuple[list[float], list[tuple[int, dict]]]:
+        placed = [((char["top"] + char["bottom"]) / 2, order, char) for order, char in enumerate(page.chars)]
+        ordered = sorted((item for item in placed if item[0] == item[0]), key=lambda item: (item[0], item[1]))
+        return [middle for middle, _, _ in ordered], [(order, char) for _, order, char in ordered]
+
+    return _page_index(page, "chars_by_middle", build)
 
 
 def _sideways_by_middle(page: object) -> tuple:

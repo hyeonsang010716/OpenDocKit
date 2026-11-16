@@ -61,6 +61,7 @@ from opendockit.extractors._pdf_artifacts import (
     _is_tilted,
     _part_outside_cells,
     _sideways_paragraphs,
+    _text_chars_by_middle,
     _text_view,
     _text_without_artifacts,
     _unmeasured,
@@ -908,6 +909,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     # once — same reason as `overprinted` below
     in_place: dict[tuple[float, float, float, float], list[dict]] = {}
     shown = _text_view(page)
+    text_by_middle = None  # the page's non-blank characters by vertical middle, for the lines inside a cell
     for line, owner in zip(layout_lines, owners, strict=True):
         text = " ".join(line.get("text", "").split())
         if not text:
@@ -933,7 +935,8 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
             # '원' right up against the table border). Removing the whole line made them vanish, held neither by the cell text nor
             # by the body (Pinned by: test_pdf.py::TestRuledTables::
             # test_text_right_outside_a_cell_on_the_same_line_as_the_cell_text_is_kept).
-            line = _part_outside_cells(line, level, page_chars)
+            text_by_middle = text_by_middle or _text_chars_by_middle(page_chars)
+            line = _part_outside_cells(line, level, text_by_middle)
             if line is None:
                 continue
             text = line["text"]

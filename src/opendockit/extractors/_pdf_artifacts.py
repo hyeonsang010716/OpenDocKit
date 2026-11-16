@@ -151,7 +151,17 @@ class _CopyIndex:
         return False
 
 
-def _part_outside_cells(line: dict, chars: list[dict], page_chars: list[dict]) -> dict | None:
+def _text_chars_by_middle(chars: list[dict]) -> tuple[list[float], list[tuple[int, dict]]]:
+    """The non-blank characters of `chars` in order of their vertical middle, each with its place in `chars`, as (list of
+    middles, list of (place, character)) for `_part_outside_cells`. A character whose middle is not a number is inside no box
+    and is left out."""
+    placed = [((char["top"] + char["bottom"]) / 2, order, char) for order, char in enumerate(chars) if char["text"].strip()]
+    ordered = sorted((item for item in placed if item[0] == item[0]), key=lambda item: (item[0], item[1]))
+    return [middle for middle, _, _ in ordered], [(order, char) for _, order, char in ordered]
+
+
+def _part_outside_cells(line: dict, chars: list[dict],
+                        page_chars: tuple[list[float], list[tuple[int, dict]]]) -> dict | None:
     """Line holding only the characters outside the cells, for a layout line whose centre lies inside a table cell. None if there are
     no characters outside the cells (most cases).
 
@@ -163,6 +173,13 @@ def _part_outside_cells(line: dict, chars: list[dict], page_chars: list[dict]) -
     a table (`_faint_watermark`) was rebuilt from the body characters inside its box and the end of a body line ('계획이다.') came out
     once more (multipage.pdf sample from review round 32; it could not be reproduced with a small fixture, so there is no pinning
     test — same criterion as `_text_without_artifacts`).
+
+    `page_chars` are the page's non-blank characters by vertical middle (`_text_chars_by_middle`, built once per page), so only
+    those at the line's height are looked at, and they are taken in order of left edge, page order where it is the same — the
+    order of sorting all of the page's characters. Going through every character of the page for every such line (with
+    pdfplumber doing the same for every table row, `_extracted`) took 54 seconds for a 9.5 KB page: a ruled table of 600
+    rows, each with 100 characters and an 'X' 1.5pt right of the outer border
+    (Pinned by: test_pdf_resource_limits.py::TestManyLinesReachingOutOfTheirCells).
     """
     box = [(line["x0"], line["top"], line["x1"], line["bottom"])]
     half = (line["bottom"] - line["top"]) / 2
@@ -170,7 +187,10 @@ def _part_outside_cells(line: dict, chars: list[dict], page_chars: list[dict]) -
     if not any(char["text"].strip() for char in chars if id(char) in outside):
         return None
 
-    whole = sorted((char for char in page_chars if char["text"].strip() and _inside_any(char, box)), key=lambda char: char["x0"])
+    middles, placed = page_chars
+    band = placed[bisect_left(middles, line["top"]):bisect_right(middles, line["bottom"])]
+    whole = [char for _, _, char in sorted(((char["x0"], order, char) for order, char in band if _inside_any(char, box)),
+                                           key=lambda item: (item[0], item[1]))]
     for left, right in zip(whole, whole[1:], strict=False):
         is_boundary = (id(left) in outside) != (id(right) in outside)
         if is_boundary and right["x0"] - left["x1"] <= _LAPARAMS["word_margin"] * max(right["width"], right["height"]):
