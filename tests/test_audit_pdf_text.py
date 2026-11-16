@@ -399,6 +399,29 @@ class TestPicturesAtNonFinitePositions:
         assert result.images == []
 
 
+class TestPictureWidthThatIsNotANumber:
+    """The /Width of a picture divides into its resolution scale. Written as a string, an array or a name it raised
+    TypeError, and an integer of 400 digits OverflowError, so the whole document was reported corrupted, with
+    `extract_images` off as well. Such a width is taken as unknown: the picture is still found and the text read."""
+
+    @pytest.mark.parametrize("width", [b"(64)", b"[64]", b"/W64", b"1" + b"0" * 400, b"-64"])
+    @pytest.mark.parametrize("extract_images", [True, False])
+    def test_the_page_is_read_and_the_picture_kept(self, width, extract_images):
+        pixels = zlib.compress(bytes(range(256)) * 16)
+        body = b"q 200 0 0 150 72 400 cm /Im1 Do Q BT /F1 12 Tf 72 700 Td (Hello) Tj ET"
+        image = (b"<< /Type /XObject /Subtype /Image /Width %s /Height 64 /ColorSpace /DeviceGray /BitsPerComponent 8"
+                 b" /Filter /FlateDecode /Length %d >>\nstream\n" % (width, len(pixels)) + pixels + b"\nendstream")
+        data = _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                         3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font"
+                            b" << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> /XObject << /Im1 5 0 R >> >> >>",
+                         4: _stream(body), 5: image})
+
+        boxes = _figure_boxes(pdfplumber.open(BytesIO(data)).pages[0], (0, 0, 595, 842))
+        assert [(round(box[0]), round(box[2]), box[4]) for box in boxes] == [(72, 272, 0.0)]
+        result = convert(data, "a.pdf", ConvertOptions(extract_images=extract_images))
+        assert result.sections[0].text.startswith("Hello")
+
+
 class TestClipWithOffsetMediaBox:
     """The clip regions are recorded in pdfminer's page coordinates while pdfplumber moves x by the MediaBox's left edge, so
     on a page whose MediaBox does not start at x = 0 no clip matched its picture and the clipping was silently lost."""

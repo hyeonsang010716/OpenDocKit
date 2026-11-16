@@ -83,8 +83,7 @@ def _figure_boxes(page: object, view: tuple[float, float, float, float]) -> list
         # character at such a position (Pinned by: test_audit_pdf_text.py::TestPicturesAtNonFinitePositions)
         if x1 <= x0 or bottom <= top or not all(math.isfinite(value) for value in (x0, top, x1, bottom)):
             continue
-        source_width = (image.get("srcsize") or (0, 0))[0] or 0
-        shown.append((x0, top, x1, bottom, source_width / max(image["x1"] - image["x0"], 1.0)))
+        shown.append((x0, top, x1, bottom, _source_width(image) / max(image["x1"] - image["x0"], 1.0)))
 
     boxes = {}
     for x0, top, x1, bottom, native in _tiled_background(shown, view):
@@ -93,6 +92,22 @@ def _figure_boxes(page: object, view: tuple[float, float, float, float]) -> list
         key = (round(x0), round(top), round(x1), round(bottom))
         boxes[key] = (x0, top, x1, bottom, max(native, boxes.get(key, (0, 0, 0, 0, 0.0))[4]))
     return sorted(boxes.values(), key=lambda box: (box[1], box[0]))
+
+
+def _source_width(image: dict) -> float:
+    """The width of a picture in its own pixels (/Width), 0 when it is not a usable number.
+
+    The value comes from the file as it is: a /Width written as a string, an array or a name made the division of the
+    resolution scale raise TypeError and the whole document was reported corrupted, with `extract_images` off as well
+    (Pinned by: test_audit_pdf_text.py::TestPictureWidthThatIsNotANumber)."""
+    width = (image.get("srcsize") or (0, 0))[0]
+    if isinstance(width, bool) or not isinstance(width, (int, float)):
+        return 0.0
+    try:
+        width = float(width)
+    except OverflowError:  # an integer of hundreds of digits
+        return 0.0
+    return width if math.isfinite(width) and width > 0 else 0.0
 
 
 def _shifted(box: tuple[float, float, float, float], dx: float) -> tuple[float, float, float, float]:
