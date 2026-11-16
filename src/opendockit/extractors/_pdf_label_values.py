@@ -2,6 +2,8 @@
 right-aligned numbers, and the visual rows of a line.
 """
 
+from collections.abc import Callable
+from itertools import islice
 import math
 import re
 
@@ -46,6 +48,11 @@ def _label_value_rows(rows: list[list[_Line]], page_width: float) -> list[list[_
     found: list[list[_Line]] = []
     index = 0
     reach: dict = {}  # what `_centered_label_rows` worked out about the rows below each place (`_may_hold_labels`)
+    # The row of each line, when no line is in two rows (as `_visual_rows` gives them): `_without_left_block` then reads
+    # only the rows around its group
+    places = {id(line): position for position, row in enumerate(rows) for line in row}
+    if len(places) != sum(len(row) for row in rows):
+        places = None
 
     while index < len(rows):
         centered, taken = _centered_label_rows(rows, index, max_label, reach)
@@ -56,9 +63,12 @@ def _label_value_rows(rows: list[list[_Line]], page_width: float) -> list[list[_
         paired = _pairs_with([], rows[index], max_label)
         run = _label_value_run(rows, index, max_label) if paired else []
         if len(run) < 2 and (paired or len(rows[index]) > 2):
-            beside = _without_left_block(rows, index, max_label, page_width)
+            beside = _without_left_block(rows, index, max_label, page_width, distinct=places is not None)
             if beside is not None:
                 found.extend(beside)
+                if places is not None:
+                    index = max(places[id(line)] for row in beside for line in row) + 1
+                    continue
                 taken = {id(line) for row in beside for line in row}
                 index = max(position for position, row in enumerate(rows) if any(id(line) in taken for line in row)) + 1
                 continue
@@ -225,7 +235,8 @@ def _may_hold_labels(rows: list[list[_Line]], index: int, column: float, size: f
     return not finite or (high - first.x0 <= _TABLE_ROW_TOLERANCE and first.x0 - low <= _TABLE_ROW_TOLERANCE)
 
 
-def _without_left_block(rows: list[list[_Line]], index: int, max_label: float, page_width: float) -> list[list[_Line]] | None:
+def _without_left_block(rows: list[list[_Line]], index: int, max_label: float, page_width: float,
+                        distinct: bool = False) -> list[list[_Line]] | None:
     """The group of 'label value' rows found again from the rows with the lines of another column removed — lines that
     end to the left of the label column of the last two fragments (a label-value pair) of `rows[index]` (wrapped value
     lines attached). None if neither this row nor the row right below has such a line, or no group forms.
@@ -235,6 +246,11 @@ def _without_left_block(rows: list[list[_Line]], index: int, max_label: float, p
     TestLabelValueRowsBesideAnotherBlock::test_pairs_whose_first_rows_line_up_with_the_left_block_stay_paired). In that
     case, if every row of the group has a left line, it is a three-column layout rather than a left block, so the
     result is None (test_rows_of_three_short_columns_are_not_split_into_a_pair_and_a_left_line in the same class).
+
+    With `distinct` (no line is in two rows) only the rows the group and the tests around it read are taken without the
+    other column's lines (`_rows_kept_around`), with the same result as taking every row of the page: taken for every row
+    where the pairs break off, a page of 8,000 rows of three short lines took 12 seconds here (Pinned by:
+    test_pdf_label_value_rows.py::TestLabelValueRowsBesideAnotherBlock::test_rows_around_the_group_give_the_same_groups).
     """
     if len(rows[index]) < 2:
         return None
@@ -247,6 +263,8 @@ def _without_left_block(rows: list[list[_Line]], index: int, max_label: float, p
         return None
     if len(kept(rows[index])) == len(rows[index]) and len(kept(rows[index + 1])) == len(rows[index + 1]):
         return None
+    if distinct:
+        return _rows_kept_around(rows, index, kept, max_label, page_width)
     view = [row for row in map(kept, rows) if row]
     # The label is not always the first line left in its row: an edge that is not a number (NaN) drops it from its own row, and
     # `next` without a default raised StopIteration (Pinned by: test_pdf_label_value_rows.py::TestLabelWithAnEdgeThatIsNotANumber)
@@ -262,6 +280,74 @@ def _without_left_block(rows: list[list[_Line]], index: int, max_label: float, p
     if len(rows[index]) > 2 and all(sides[id(row[0])] for row in run):
         return None
     return _with_wrapped_values(run)
+
+
+def _rows_kept_around(rows: list[list[_Line]], index: int, kept: Callable[[list[_Line]], list[_Line]], max_label: float,
+                      page_width: float) -> list[list[_Line]] | None:
+    """`_without_left_block` from the point where it takes the other column's lines out of the rows, when no line is in
+    two rows: the label then starts no other row, and its group and the tests around it read only the nearest row above
+    that keeps a line, the rows of the group and two more, and down to the first row overlapping the value column when the
+    group ends in a wrapped value line. Those rows are taken (`kept`), twice as many again until they reach that far."""
+    own = kept(rows[index])
+    if own[0] is not rows[index][-2] or not _pairs_with([], own, max_label):
+        return None
+    view: list[list[_Line]] = []
+    sources: list[int] = []  # the place in `rows` of each row of `view`
+    for position in range(index - 1, -1, -1):
+        row = kept(rows[position])
+        if row:
+            view, sources = [row], [position]
+            break
+    start = len(view)
+    view.append(own)
+    sources.append(index)
+    following = index + 1  # the next row of `rows` to take
+
+    def take() -> None:
+        nonlocal following
+        row = kept(rows[following])
+        if row:
+            view.append(row)
+            sources.append(following)
+        following += 1
+
+    wanted = 16
+    while True:
+        while following < len(rows) and len(view) - start < wanted:
+            take()
+        run = _label_value_run(view, start, max_label)
+        if following >= len(rows) or start + len(run) + 1 < len(view):  # the group's last tests read rows that are there
+            break
+        wanted *= 2
+    widths = [row[1].x1 - row[1].x0 for row in run if len(row) == 2]
+    narrow = sum(1 for width in widths if width <= max_label * _VALUE_MAX_RATIO)
+    if narrow < 2 or narrow <= len(widths) - narrow:
+        return None
+    if len(run[-1]) == 1 and run[-1][0].x0 > run[0][1].x0 - _TABLE_ROW_TOLERANCE:  # `_stands_apart` looks further down
+        overlaps = _overlaps_value_column(run)
+        checked = start + len(run)
+        while True:
+            if checked < len(view):
+                if overlaps(view[checked]):
+                    break
+                checked += 1
+            elif following < len(rows):
+                take()
+            else:
+                break
+    if not _stands_apart(view, start, run, page_width):
+        return None
+    if len(rows[index]) > 2 and all(len(rows[sources[start + offset]]) > len(row) for offset, row in enumerate(run)):
+        return None
+    return _with_wrapped_values(run)
+
+
+def _overlaps_value_column(run: list[list[_Line]]) -> Callable[[list[_Line]], bool]:
+    """Whether a row has a line overlapping the value column of a group of 'label value' rows horizontally, from the
+    column's left edge to the widest value end (`_stands_apart`)."""
+    column = run[0][1]
+    right = max(row[1].x1 for row in run if len(row) == 2)
+    return lambda row: any(line.x0 < right and column.x0 < line.x1 for line in row)
 
 
 def _label_value_run(rows: list[list[_Line]], index: int, max_label: float) -> list[list[_Line]]:
@@ -321,9 +407,9 @@ def _stands_apart(rows: list[list[_Line]], index: int, run: list[list[_Line]], p
         # A group ending in a wrapped value line looks at the next line that overlaps the value column horizontally. In
         # a two-column layout a right-column line, where the left-column paragraph has ended, comes in as a wrapped
         # value line, and the right column continues below it too (left-column subheading rows are skipped).
-        right = max(row[1].x1 for row in run if len(row) == 2)
-        below = [row for row in rows[index + len(run):] if any(line.x0 < right and column.x0 < line.x1 for line in row)]
-        neighbors += below[:1]
+        overlaps = _overlaps_value_column(run)
+        below = next((row for row in islice(rows, index + len(run), None) if overlaps(row)), None)
+        neighbors += [below] if below is not None else []
     if any(_near(run, row) and any(abs(line.x0 - column.x0) <= _TABLE_ROW_TOLERANCE for line in row) for row in neighbors):
         return False
 
