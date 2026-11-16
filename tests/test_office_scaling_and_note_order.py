@@ -1,5 +1,5 @@
-"""DOCX/PPTX processing that was not proportional to the input size (many w:t in one run, deeply nested fields, slides with many
-inherited placeholders) and DOCX footnote numbers (the order of first reference, not the XML id)."""
+"""DOCX/PPTX processing that was not proportional to the input size (many w:t in one run, deeply nested fields, number definitions
+with many levels, slides with many inherited placeholders) and DOCX footnote numbers (the order of first reference, not the XML id)."""
 
 import time
 
@@ -7,7 +7,8 @@ import pytest
 
 from opendockit import ConvertOptions, convert
 from tests import builder
-from tests.test_office import _docx_with_body
+from tests.test_office import _docx_with_body, _number_level, _number_list, _paragraph
+from tests.timing import allowed
 
 
 _RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -172,3 +173,56 @@ class TestPptxManyInheritedPlaceholders:
         result = convert(data, "a.pptx")
 
         assert result.text.split("\n\n")[1:] == ["- t2", "- t1", "- t0"]
+
+
+def _numbering_with_levels(levels: str, lists: int) -> str:
+    """Numbering definition 0 with the given w:lvl elements, and `lists` w:num (numId from 1) pointing at it, each with a level
+    override that holds its own level 0 definition."""
+    override = '<w:lvlOverride w:ilvl="0"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:lvlOverride>'
+    return (f'<w:abstractNum w:abstractNumId="0">{levels}</w:abstractNum>'
+            + "".join(_number_list(num_id, 0, override) for num_id in range(1, lists + 1)))
+
+
+class TestDocxNumberingLevelsPastEight:
+    """The levels of a number definition (w:abstractNum/w:lvl) were all kept, whatever their index, and every w:num with a level
+    override (w:lvlOverride/w:lvl) copied them: 100,000 levels and 5,000 w:num (312 KB) took 44 s. A list level is clamped to 0–8
+    before it is looked up, so only those levels are kept now; the paragraph style a level points at is read for any level."""
+
+    @pytest.mark.timing
+    def test_many_levels_and_overriding_lists_take_linear_time(self):
+        levels = "".join(f'<w:lvl w:ilvl="{index}"/>' for index in range(40_000))
+        data = _docx_with_body(_paragraph("x", 1), numbering=_numbering_with_levels(levels, 4_000))
+
+        elapsed = _seconds(lambda: convert(data, "a.docx"))
+
+        assert elapsed < allowed(2.0)
+
+    def test_only_levels_zero_to_eight_are_kept(self):
+        from io import BytesIO
+
+        from docx import Document
+
+        from opendockit.extractors._docx_parts import _load_numbering
+
+        levels = "".join(f'<w:lvl w:ilvl="{index}"/>' for index in (-1, 0, 8, 9, 500))
+        data = _docx_with_body(_paragraph("x", 1), numbering=_numbering_with_levels(levels, 2))
+
+        lists = _load_numbering(Document(BytesIO(data)))
+
+        assert {num_id: sorted(number_list.levels) for num_id, number_list in lists.items()} == {"1": [0, 8], "2": [0, 8]}
+        assert all(sorted(number_list.indents) == [0, 8] for number_list in lists.values())
+
+    def test_levels_past_eight_still_read_as_level_eight(self):
+        """A paragraph at level 12, or in a style a level-12 definition points at, is numbered with level 8 as before."""
+        levels = (_number_level(0, "%1.") + _number_level(8, "(%9)") + _number_level(9, "nine %10")
+                  + _number_level(12, "twelve %13", extra='<w:pStyle w:val="Deep"/>'))
+        styles = ('<w:style w:type="paragraph" w:styleId="Deep"><w:name w:val="Deep"/>'
+                  '<w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr></w:style>')
+        body = _paragraph("top", 1) + _paragraph("deep", 1, 12) + _paragraph("styled", style="Deep") + _paragraph("nine", 1, 9)
+        data = _docx_with_body(body, numbering=f'<w:abstractNum w:abstractNumId="0">{levels}</w:abstractNum>' + _number_list(1),
+                               styles=styles)
+
+        result = convert(data, "a.docx")
+
+        deepest = "  " * 8
+        assert result.text == f"1. top\n{deepest}- (1) deep\n{deepest}- (2) styled\n{deepest}- (3) nine"
