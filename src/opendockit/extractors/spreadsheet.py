@@ -3,7 +3,7 @@
 import codecs
 from collections import deque
 from collections.abc import Iterator
-from datetime import datetime, time
+from datetime import date, datetime, time
 import html
 from io import BytesIO
 from itertools import islice
@@ -913,11 +913,13 @@ def _cell_text(cell: object) -> str:
         return reading.picture_text(value) if reading is not None and reading.picture_text is not None else ""
     number_format = _number_format(cell)
     number_format = _BUILTIN_FORMAT_FIXES.get(number_format, number_format)
-    if isinstance(value, (datetime, time)) and number_format and _ELAPSED_FORMAT.search(number_format):
+    if isinstance(value, (date, time)) and number_format and _ELAPSED_FORMAT.search(number_format):
         # openpyxl gives a duration only for `[h]`, `[hh]`, `[m]`, `[mm]`, `[s]` and `[ss]`, so a cell under `[hhh]:mm` (hours
         # with three digits) came as a date and lost its days (36 hours shown as `12:00:00`). It is the duration from the
         # workbook's epoch, as for the other elapsed formats (Pinned by:
-        # test_spreadsheet.py::TestXlsValues::test_elapsed_format_openpyxl_does_not_know_is_a_duration).
+        # test_spreadsheet.py::TestXlsValues::test_elapsed_format_openpyxl_does_not_know_is_a_duration). A date-only ISO cell
+        # (`t="d"`, a date) is that day at midnight, as in `format_cell` (Pinned by:
+        # test_spreadsheet_cell_values_and_controls.py::TestIsoDateCellsWithAFormat).
         value = from_excel(to_excel(value, cell.parent.parent.epoch), timedelta=True)
     if _is_serial_zero_shown_as_date(value, number_format):
         return "0"

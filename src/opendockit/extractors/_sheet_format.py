@@ -69,6 +69,11 @@ def format_cell(value: object, number_format: str | None) -> str:
     Alignment padding (`_-`, `* `) is not part of the value, so it is removed
     (Pinned by: test_quality.py::TestSpreadsheetNumberFormats).
     """
+    if type(value) is date:
+        # openpyxl gives a date-only ISO cell (`t="d"`, `<v>2024-01-05</v>`) as a date, which no format branch below took, so it
+        # ignored its display format (`2024-01-05` under `mmm-yy`, Excel `Jan-24`). It is that day at midnight, as a serial cell
+        # is (Pinned by: test_spreadsheet_cell_values_and_controls.py::TestIsoDateCellsWithAFormat).
+        value = datetime.combine(value, time())
     if isinstance(value, timedelta):
         return _elapsed_text(value, number_format)
     if isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0 and number_format \
