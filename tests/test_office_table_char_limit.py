@@ -34,6 +34,7 @@ from tests.test_office import (
     _pptx_with_chart,
     _pptx_with_smartart,
 )
+from tests.timing import allowed
 
 
 _ROWS = 20_000
@@ -699,6 +700,81 @@ class TestChartValuesPastTheLimit:
         assert best(_LIMIT) < best(None) * 0.7
 
 
+def _chart_of_own_points(series: int, points: int, *, shared: bool = False) -> str:
+    """Bar chart titled 'Own' of `series` series of `points` points. Each series uses point indexes of its own (series `s` from
+    `s * points`), or with `shared` all of them use the same indexes."""
+    def values(order: int) -> str:
+        first = 0 if shared else order * points
+        cached = "".join(f'<c:pt idx="{first + index}"><c:v>{index + 1}</c:v></c:pt>' for index in range(points))
+        return f'<c:numRef><c:numCache><c:ptCount val="{series * points}"/>{cached}</c:numCache></c:numRef>'
+
+    plot = "".join(f'<c:ser><c:idx val="{order}"/><c:order val="{order}"/><c:tx><c:v>S{order}</c:v></c:tx>'
+                   f"<c:val>{values(order)}</c:val></c:ser>" for order in range(series))
+    return _chart_xml(f"<c:barChart>{plot}</c:barChart>", title="Own")
+
+
+def _document_with_chart(kind: str, chart: str) -> bytes:
+    if kind == "pptx":
+        return builder.zip_with(_pptx_with_chart(), edit={"ppt/charts/chart1.xml": lambda _: chart})
+    if kind == "docx":
+        return _docx_with_chart(f"<w:p><w:r>{_docx_frame_of_chart()}</w:r></w:p>", chart)
+    if kind == "xlsx":
+        from tests.test_spreadsheet import _xlsx_with_chart
+
+        return builder.zip_with(_xlsx_with_chart(cached=True), edit={"xl/charts/chart1.xml": lambda _: chart})
+    body = '<hp:p><hp:run><hp:t>Sales:</hp:t><hp:chart chartIDRef="Chart/chart1.xml"/></hp:run></hp:p>'
+    return builder.zip_with(builder.hwpx_bytes(body), add={"Chart/chart1.xml": chart})
+
+
+class TestChartSeriesOnTheirOwnPoints:
+    """A chart's value table has a row for every point index of any series and a cell for every series in each row, so series
+    that each use their own point indexes made a table of series × points cells, nearly all empty: 300 series of 200 points (a
+    186 KB PPTX) built 18 million cells, 20.6 s and 1.5 GB. Empty cells have no text, so the character limit never stopped them.
+    Past `_charts._MAX_EMPTY_VALUE_CELLS` empty cells the remaining rows are left out with the table grid's warning; a table of
+    values is still read to the character limit (shared by PPTX, DOCX, XLSX and HWPX)."""
+
+    @pytest.mark.parametrize("kind", ["pptx", "docx", "xlsx", "hwpx"])
+    def test_rows_past_the_empty_cell_ceiling_are_left_out_with_a_warning(self, kind, monkeypatch):
+        from opendockit.extractors import _charts
+
+        monkeypatch.setattr(_charts, "_MAX_EMPTY_VALUE_CELLS", 100)
+        data = _document_with_chart(kind, _chart_of_own_points(5, 10))
+
+        result = convert(data, f"a.{kind}", ConvertOptions(max_chars=None))
+
+        # Each row holds 4 empty cells: after 26 rows there are 104, past the 100, so 24 of the 50 rows are left out
+        rows = re.findall(r"^\| (\d+) \|", result.text, flags=re.MULTILINE)
+        assert rows == [str(number) for number in range(1, 27)]
+        assert "The table is too large; the bottom 24 row(s) could not be converted." in result.warnings
+
+    def test_chart_of_values_is_not_bounded_by_the_ceiling(self, monkeypatch):
+        """Series sharing their point indexes leave no cell empty, so the ceiling never stops them, however many cells."""
+        from opendockit.extractors import _charts
+
+        monkeypatch.setattr(_charts, "_MAX_EMPTY_VALUE_CELLS", 10)
+        data = _document_with_chart("pptx", _chart_of_own_points(3, 50, shared=True))
+
+        result = convert(data, "a.pptx", ConvertOptions(max_chars=None))
+
+        assert "| 50 | 50 | 50 | 50 |" in result.text
+        assert not any("too large" in warning for warning in result.warnings)
+
+    def test_rows_within_the_ceiling_are_all_kept(self):
+        data = _document_with_chart("docx", _chart_of_own_points(3, 4))
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=None))
+
+        assert result.text.endswith("| 11 | | | 3 |\n| 12 | | | 4 |") and not result.warnings
+
+    @pytest.mark.timing
+    def test_many_series_on_their_own_points_take_linear_time(self):
+        data = _document_with_chart("pptx", _chart_of_own_points(300, 200))
+
+        elapsed = _seconds(lambda: convert(data, "a.pptx"))
+
+        assert elapsed < allowed(6.0)
+
+
 _REFERENCES = 40
 _CHUNK_REFERENCE = '<w:altChunk r:id="rIdChunk"/>'
 _CHUNK_TYPE = "text/html"
@@ -913,3 +989,149 @@ class TestRepeatedContentPastTheLimit:
         assert full.text.count("가져온 글 조각") == 5 and full.text.count("도식 항목") == 3
         assert [limit for limit, result in results.items() if result.exceeded != (full.char_count > limit)] == []
         assert [limit for limit, result in results.items() if result.text != full.text[:limit].rstrip()] == []
+
+
+# ---- Copies of a vertically merged cell ------------------------------------------------------------------------------------------
+
+def _merged_rows(big: str, rows: int) -> list[tuple[str, str]]:
+    """(first cell, second cell) per row under a header: `big` merged down over all the rows in the first column."""
+    return [("H1", "H2"), (big, "v0"), *(("", f"v{row}") for row in range(1, rows))]
+
+
+def _merged_document(kind: str, big: str, rows: int) -> tuple[bytes, str]:
+    """A table with a header row and `big` vertically merged over `rows` rows in the first column, in each format with row spans
+    (the merge as that format writes it: DOCX vMerge, PPTX rowSpan + vMerge, HWPX/HTML/ODT row span, RTF clvmgf/clvmrg)."""
+    cells = _merged_rows(big, rows)
+    if kind == "docx":
+        first = ['<w:vMerge w:val="restart"/>' if index == 1 else "<w:vMerge/>" if index else "" for index in range(len(cells))]
+        table = _docx_table(["".join([_docx_cell(a, merge), _docx_cell(b)]) for (a, b), merge in zip(cells, first, strict=True)])
+        return _docx_with_body("<w:p><w:r><w:t>Before</w:t></w:r></w:p>" + table), "a.docx"
+    if kind == "pptx":
+        from io import BytesIO
+
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        presentation = Presentation()
+        table = presentation.slides.add_slide(presentation.slide_layouts[6]).shapes.add_table(
+            len(cells), 2, Inches(1), Inches(1), Inches(6), Inches(4)).table
+        for row, (a, b) in enumerate(cells):
+            table.cell(row, 0).text, table.cell(row, 1).text = a, b
+        table.cell(1, 0).merge(table.cell(len(cells) - 1, 0))
+        buffer = BytesIO()
+        presentation.save(buffer)
+        return buffer.getvalue(), "a.pptx"
+    if kind == "hwpx":
+        cell = builder._hwpx_cell
+        trs = "".join("<hp:tr>" + (cell(row, 0, a, row_span=rows) if row == 1 else cell(row, 0, a) if row == 0 else "")
+                      + cell(row, 1, b) + "</hp:tr>" for row, (a, b) in enumerate(cells))
+        return builder.hwpx_bytes(f'<hp:p><hp:run><hp:tbl rowCnt="{len(cells)}" colCnt="2">{trs}</hp:tbl></hp:run></hp:p>'), "a.hwpx"
+    if kind == "odt":
+        def odf_cell(text: str, span: int = 1) -> str:
+            spanned = f' table:number-rows-spanned="{span}"' if span > 1 else ""
+            return f"<table:table-cell{spanned}><text:p>{text}</text:p></table:table-cell>"
+        trs = "".join("<table:table-row>" + (odf_cell(a, rows) if row == 1 else "<table:covered-table-cell/>" if row else odf_cell(a))
+                      + odf_cell(b) + "</table:table-row>" for row, (a, b) in enumerate(cells))
+        return _odf_document("text", f"<text:p>Before</text:p><table:table>{trs}</table:table>"), "a.odt"
+    if kind == "rtf":
+        def rtf_row(a: str, b: str, flag: str) -> str:
+            return f"\\trowd{flag}\\cellx1000\\cellx2000\\pard\\intbl {a}\\cell\\pard\\intbl {b}\\cell\\row\n"
+        body = "".join(rtf_row(a, b, r"\clvmgf" if row == 1 else r"\clvmrg" if row else "") for row, (a, b) in enumerate(cells))
+        return ("{\\rtf1\\ansi\\deff0\n\\pard Before\\par\n" + body + "}").encode("ascii"), "a.rtf"
+    trs = "".join("<tr>" + (f'<td rowspan="{rows}">{a}</td>' if row == 1 else "" if row else f"<th>{a}</th>")
+                  + (f"<th>{b}</th>" if row == 0 else f"<td>{b}</td>") + "</tr>" for row, (a, b) in enumerate(cells))
+    return f"<html><body><p>Before</p><table>{trs}</table></body></html>".encode(), "a.html"
+
+
+class TestMergedCopiesPastTheLimit:
+    """A vertically merged value is repeated on every row it covers, but the table budget counts the cell text once. The limit
+    never tripped while the cells were read, and the whole table was drawn before it was counted: a 38 KB DOCX with one
+    100,000-character cell merged over 5,000 rows took 65 s and 8.7 GB, char_count 500 million. The drawing now stops writing
+    rows once it is past the characters left (`TableGrid.render(room=...)`)."""
+
+    @pytest.mark.parametrize("kind", ["docx", "pptx", "hwpx", "odt", "rtf", "html"])
+    def test_copies_stop_at_the_limit_and_the_cut_is_the_front_of_the_full_text(self, kind):
+        data, name = _merged_document(kind, "abcd " * 400, 200)   # 200 copies of 1,600 characters
+        full = convert(data, name, ConvertOptions(max_chars=None))
+
+        result = convert(data, name, ConvertOptions(max_chars=_LIMIT))
+
+        assert full.char_count > 300_000 and full.text.count("abcd") == 200 * 400
+        assert result.exceeded and result.text == full.text[:_LIMIT].rstrip()
+        assert result.char_count < _LIMIT * 2  # drawn to the end it would be over 320,000 characters
+
+    @pytest.mark.parametrize("kind", ["docx", "pptx", "hwpx"])
+    def test_exceeded_and_the_cut_text_are_exact_at_every_limit(self, kind):
+        data, name = _merged_document(kind, "merged text", 12)
+        full = convert(data, name, ConvertOptions(max_chars=None))
+        limits = sorted({*range(0, full.char_count + 2, 3), full.char_count - 1, full.char_count})
+
+        results = {limit: convert(data, name, ConvertOptions(max_chars=limit)) for limit in limits}
+
+        assert full.text.count("merged text") == 12
+        assert [limit for limit, result in results.items() if result.exceeded != (full.char_count > limit)] == []
+        assert [limit for limit, result in results.items() if result.text != full.text[:limit].rstrip()] == []
+
+    def test_table_as_html_counts_no_copies(self):
+        """With a horizontal span left the table is HTML, where a merged value is written once (rowspan): a table whose copies
+        alone would pass the limit is read and written whole."""
+        big = "x" * 1_000
+        rows = [_docx_cell("Title", '<w:gridSpan w:val="2"/>') + _docx_cell("H"),
+                _docx_cell(big, '<w:vMerge w:val="restart"/>') + _docx_cell("a") + _docx_cell("b"),
+                *(_docx_cell("", "<w:vMerge/>") + _docx_cell(f"a{row}") + _docx_cell(f"b{row}") for row in range(1, 30))]
+        data = _docx_with_body(_docx_table(rows))
+        full = convert(data, "a.docx", ConvertOptions(max_chars=None))
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=full.char_count))
+
+        assert '<td rowspan="30">' + big in full.text and full.char_count < 3_000
+        assert not result.exceeded and result.text == full.text
+
+    def test_copies_inside_a_nested_table_stop_at_the_limit(self):
+        """A table nested in a cell is drawn by the outer table, as one-line HTML whose one-column rows each hold the copy."""
+        big = "가나다라 " * 400
+        inner = _docx_table([_docx_cell(big, '<w:vMerge w:val="restart"/>'), *(_docx_cell("", "<w:vMerge/>") for _ in range(299))])
+        data = _docx_with_body(_docx_table([_docx_cell("A") + _docx_cell("B"), f"<w:tc>{inner}<w:p/></w:tc>" + _docx_cell("C")]))
+        full = convert(data, "a.docx", ConvertOptions(max_chars=None))
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=_LIMIT))
+
+        assert full.text.count("가나다라") == 300 * 400
+        assert result.exceeded and result.text == full.text[:_LIMIT].rstrip() and result.char_count < _LIMIT * 2
+
+    def test_hwpx_footnote_table_stops_at_the_limit(self):
+        """A table in a footnote is one line (`note_table`) that holds every copy as well."""
+        cell = builder._hwpx_cell
+        trs = "<hp:tr>" + cell(0, 0, "가나다라 " * 400, row_span=300) + cell(0, 1, "v") + "</hp:tr>"
+        trs += "".join("<hp:tr>" + cell(row, 1, f"v{row}") + "</hp:tr>" for row in range(1, 300))
+        data = builder.hwpx_bytes('<hp:p><hp:run><hp:t>Body</hp:t><hp:ctrl><hp:footNote><hp:subList><hp:p><hp:run>'
+                                  f'<hp:tbl rowCnt="300" colCnt="2">{trs}</hp:tbl></hp:run></hp:p></hp:subList></hp:footNote></hp:ctrl>'
+                                  "</hp:run></hp:p>")
+        full = convert(data, "a.hwpx", ConvertOptions(max_chars=None))
+
+        result = convert(data, "a.hwpx", ConvertOptions(max_chars=_LIMIT))
+
+        assert full.text.count("가나다라") == 300 * 400
+        assert result.exceeded and result.text == full.text[:_LIMIT].rstrip() and result.char_count < _LIMIT * 2
+
+    def test_hangul_header_table_stops_at_the_limit(self):
+        """A table in an HWPX page header has no table budget of the body; it is drawn with the whole limit as room."""
+        cell = builder._hwpx_cell
+        trs = "<hp:tr>" + cell(0, 0, "가나다라 " * 400, row_span=300) + cell(0, 1, "v") + "</hp:tr>"
+        trs += "".join("<hp:tr>" + cell(row, 1, f"v{row}") + "</hp:tr>" for row in range(1, 300))
+        data = builder.hwpx_bytes('<hp:p><hp:run><hp:ctrl><hp:header><hp:subList><hp:p><hp:run>'
+                                  f'<hp:tbl rowCnt="300" colCnt="2">{trs}</hp:tbl></hp:run></hp:p></hp:subList></hp:header></hp:ctrl>'
+                                  "<hp:t>Body</hp:t></hp:run></hp:p>")
+        full = convert(data, "a.hwpx", ConvertOptions(max_chars=None, include_headers_footers=True))
+
+        result = convert(data, "a.hwpx", ConvertOptions(max_chars=_LIMIT, include_headers_footers=True))
+
+        assert full.text.count("가나다라") == 300 * 400
+        assert result.exceeded and result.text == full.text[:_LIMIT].rstrip() and result.char_count < _LIMIT * 2
+
+    def test_html_rowspan_copies_stop_at_the_limit(self):
+        data, name = _merged_document("html", "abcd " * 400, 200)
+
+        result = convert(data, name, ConvertOptions(max_chars=_LIMIT))
+
+        assert result.exceeded and result.char_count < _LIMIT * 2

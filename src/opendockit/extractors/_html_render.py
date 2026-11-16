@@ -23,6 +23,7 @@ from opendockit.extractors._html_base import (
     _omitted_rows,
     _Places,
     _replace,
+    _table_room,
 )
 from opendockit.extractors._html_tables import (
     STRIKE_KEY,
@@ -57,7 +58,15 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._lists import cell_level_mark, format_number, is_placeholder_only
 from opendockit.extractors._package import decimal_int
-from opendockit.markdown import TableGrid, clean_characters, escape_unpaired_fences, render_table, table_title
+from opendockit.markdown import (
+    TableGrid,
+    clean_characters,
+    escape_unpaired_fences,
+    render_table,
+    restore_spans,
+    spans_left,
+    table_title,
+)
 
 
 # ARIA tables (`_render_aria_grid`): table/cell roles, real table elements (handled as tables even when a role is attached), and
@@ -813,7 +822,10 @@ def _render_table(table: Tag) -> str:
     header_count = _header_row_count(table, rows)
     marks = _indent_marks(rows, header_count)
 
+    spans = spans_left()
     grid, header, placed_rows = _table_grid(rows, header_count, embedding=False, marks=marks)
+    # A table drawn into a cell of another table is not cut: the cell text is reworked there.
+    room = None if _in_cell.get() else _table_room.get()
     titles = _header_titles(grid.rows(), rows, header_count, placed_rows) if header_count > 1 else []
     if header_count - len(titles) <= 1 < header_count:
         # When the header rows are just a title row + one row, there is nothing to merge. The grid drawing (`render_table`, `TableGrid`)
@@ -832,11 +844,11 @@ def _render_table(table: Tag) -> str:
         # as well, or the first data row gets cut off with them
         # (Pinned by: test_quality.py::test_html_empty_header_row_does_not_swallow_the_first_data_row).
         header_rows = sum(1 for index in range(header_count) if index in placed_rows)
-        rendered = "\n\n".join([*titles, render_table([merged, *grid.rows()[header_rows:]])])
+        rendered = "\n\n".join([*titles, render_table([merged, *grid.rows()[header_rows:]], room=room)])
         drawn = grid
     else:
         headless = header_count == 0 and _names_values_in_pairs(rows)
-        rendered, drawn = grid.render(headless=headless), grid  # an HTML table if horizontal spans remain (markdown.TableGrid)
+        rendered, drawn = grid.render(headless=headless, room=room), grid  # an HTML table if horizontal spans remain (markdown.TableGrid)
         if any(_inner_tables(cell) for row in rows for cell in _row_cells(row)) and (
                 _is_html_table(rendered) or _mostly_nested_tables(rows)):
             # If it is already an HTML table, tables inside cells are kept as one-line HTML tables (`TableGrid.embed`, same shape as
@@ -848,8 +860,12 @@ def _render_table(table: Tag) -> str:
             # test_tables_inside_the_cells_of_an_html_form_keep_their_rows_and_columns,
             # test_data_table_with_a_small_nested_table_in_one_cell_stays_a_table,
             # test_name_value_table_whose_text_is_mostly_a_nested_table_keeps_both_structures).
+            # The grid is built again with its inner tables, and the first one is dropped: its spans are given back to the
+            # conversion's span budget first, so the table is charged once (Pinned by:
+            # test_core_html.py::TestSpanBudgetOfFrontParts::test_a_table_is_charged_once)
+            restore_spans(spans)
             drawn = _table_grid(rows, header_count, embedding=True, marks=marks)[0]
-            rendered = drawn.render(headless=headless)
+            rendered = drawn.render(headless=headless, room=room)
 
     # Rows dropped by the grid cell limit are warned about once at the end of the document, with the same wording as the other formats
     # (`_notation.omitted_rows_warning`) — the lower rows of an 'Excel download' HTML with very many rows vanished without a warning
@@ -946,8 +962,12 @@ def _table_grid(rows: list[Tag], header_count: int, *, embedding: bool,
             grid.place_next(row_index, text, row_span=row_span, col_span=col_span)
             placed_rows.update(range(row_index, row_index + row_span))
             if row_index < header_count:
+                # The header grid is a second drawing of the header rows (for joining them), not more spans of the
+                # document: it does not use up the conversion's span budget
+                left = spans_left()
                 header.place_next(row_index, text, row_span=min(row_span, header_count - row_index), col_span=col_span,
                                   fill_horizontal=True)
+                restore_spans(left)
     return grid, header, placed_rows
 
 

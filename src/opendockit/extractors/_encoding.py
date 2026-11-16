@@ -3,6 +3,7 @@ Western single-byte text, declared charsets, BOM-less UTF-16, and the warning fo
 """
 
 import codecs
+from collections import Counter
 import functools
 import re
 import unicodedata
@@ -77,7 +78,8 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     """Decode bytes to a string. Returns (string, encoding name). `declared` is the charset name the document itself states
     (HTML meta etc.).
 
-    Order: BOM → BOM-less UTF-16 declared and borne out by the bytes, or with NULs at every other byte → strict UTF-8 →
+    Order: BOM → BOM-less UTF-16 declared and borne out by the bytes, or with NULs at every other byte, or with NULs and
+    control bytes of one script below U+2000 (`_high_bytes_of_one_block`) → strict UTF-8 →
     almost UTF-8 (only when the end is cut or very few bytes are broken, or UTF-8 is declared and has a complete multi-byte
     character per broken one; replacement) → declared charset, strict → BOM-less UTF-16 → strict CP949 → CP949 with
     replacement (only when very few bytes are broken) → statistical detection → UTF-8 with replacement characters. The name
@@ -132,6 +134,16 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     # bear the label out (`_declared_utf16`).
     utf16 = _declared_utf16(data, declared) or (utf16_encoding(data, by_nul_side_only=True) if _alternating_nuls(data) else None)
     if utf16:
+        return data[:len(data) - len(data) % 2].decode(utf16) + _cut_ascii_character(data, utf16), utf16
+
+    # UTF-16 of Cyrillic, Arabic, Devanagari or Thai text can have every byte below 0x80 (`Привет` is `1F 04 40 04 …`) and
+    # NULs only after its spaces and punctuation, an eighth of the bytes, so strict UTF-8 took it and cleaning dropped the NULs
+    # and the 0x04 bytes: `@825B, :0: 45;0?` (Pinned by: test_text_html.py::TestSmallScriptUtf16WithoutBom). With NULs and a
+    # control byte that byte-oriented text never holds, UTF-16 is tried first, and taken only when nine in ten bytes at the
+    # high-byte side are NUL or the one control byte of the script (`_high_bytes_of_one_block`). ASCII or UTF-8 text with a
+    # stray NUL and SOH has letters there, and keeps its strict UTF-8 reading.
+    utf16 = utf16_encoding(data) if _holds_nuls_and_foreign_controls(data[:8192]) else None
+    if utf16 and _high_bytes_of_one_block(data, utf16):
         return data[:len(data) - len(data) % 2].decode(utf16) + _cut_ascii_character(data, utf16), utf16
 
     text = _strict(data, "utf-8")
@@ -483,10 +495,37 @@ def _declared_utf16(data: bytes, name: str | None) -> str | None:
     text = _strict(data, codec)
     if not text or not all(_printable(ch) for ch in text[:20_000]):
         return None
-    high_bytes = data[:8192][1 if codec == "utf-16-le" else 0::2]
-    if sum(1 for byte in high_bytes if byte < 0x20) * 2 >= len(high_bytes):
+    if _high_bytes_are_controls(data, codec):
         return codec
     return codec if _strict(data, "utf-8") is None and _everyday_cjk("".join(ch for ch in text[:20_000] if not ch.isascii())) else None
+
+
+def _high_bytes_are_controls(data: bytes, codec: str) -> bool:
+    """Are at least half of the bytes at the high-byte side of the head (`_high_bytes`) below 0x20 — the shape of UTF-16 text
+    of characters below U+2000: ASCII (`xx 00`), Cyrillic (`xx 04`), Arabic (`xx 06`), Devanagari (`xx 09`)."""
+    high_bytes = _high_bytes(data, codec)
+    return sum(1 for byte in high_bytes if byte < 0x20) * 2 >= len(high_bytes)
+
+
+def _high_bytes_of_one_block(data: bytes, codec: str) -> bool:
+    """Are nine in ten bytes at the high-byte side of the head (`_high_bytes`) either NUL or one and the same control byte —
+    the shape of UTF-16 text of one script below U+2000 and ASCII: every Cyrillic letter has 0x04, every Thai one 0x0E, every
+    space, digit and comma 0x00. Arbitrary control bytes with a few NULs have several values there (`\\x00\\x02\\x04\\x02a\\x01`
+    read `ȀȄšȄ`), and ASCII or UTF-8 text with a stray NUL and SOH has letters there."""
+    high_bytes = _high_bytes(data, codec)
+    controls = Counter(byte for byte in high_bytes if 0 < byte < 0x20)
+    return (high_bytes.count(0) + max(controls.values(), default=0)) * 10 >= len(high_bytes) * 9
+
+
+def _high_bytes(data: bytes, codec: str) -> bytes:
+    """The bytes at the high-byte side of the head: odd positions for "utf-16-le", even ones for "utf-16-be"."""
+    return data[:8192][1 if codec == "utf-16-le" else 0::2]
+
+
+def _holds_nuls_and_foreign_controls(sample: bytes) -> bool:
+    """Does the sample hold a NUL byte and a control byte that byte-oriented text never holds (`_NOT_IN_BYTE_TEXT`)? Then a
+    strict UTF-8 or CP949 reading is no evidence against UTF-16 (`decode_text`, `utf16_encoding`)."""
+    return b"\x00" in sample and _NOT_IN_BYTE_TEXT.search(sample) is not None
 
 
 def _alternating_nuls(data: bytes) -> bool:
@@ -676,11 +715,16 @@ def utf16_encoding(data: bytes, *, by_nul_side_only: bool = False) -> str | None
     data mixes in unassigned and private-use characters and fails the printable check. UTF-8/CP949 text in which NUL bytes are
     rare (a note with one stray NUL byte) is not seen as UTF-16 — CP949 text paired two bytes at a time sometimes decodes to
     printable characters, and 9 of 2,000 random Hangul texts were garbled as UTF-16
-    (Pinned by: test_text_html.py::TestTolerantTextDetection, TestLegacyTextWithNulBytes).
+    (Pinned by: test_text_html.py::TestTolerantTextDetection, TestLegacyTextWithNulBytes). Unless the head also holds a control
+    byte such text never has (`_holds_nuls_and_foreign_controls`): then only a byte order whose high-byte side is NUL or one
+    control byte (`_high_bytes_of_one_block`) is taken. Cyrillic UTF-16 has NULs only after its spaces and punctuation and is
+    ASCII without them, so a paragraph of it was rejected as binary
+    (Pinned by: test_detect.py::TestDetectFormat::test_cyrillic_utf16_paragraph_without_a_bom_is_text).
     """
     sample = data[:8192]
     nul_count = sample.count(0)
-    if not nul_count or (nul_count * 10 < len(sample) and (is_utf8_text(sample) or is_cp949_text(sample.replace(b"\x00", b"")))):
+    rare_nuls = nul_count * 10 < len(sample) and (is_utf8_text(sample) or is_cp949_text(sample.replace(b"\x00", b"")))
+    if not nul_count or (rare_nuls and not _holds_nuls_and_foreign_controls(sample)):
         return None
     data = data[:len(data) - len(data) % 2]
     sample = data[:8192]
@@ -689,6 +733,8 @@ def utf16_encoding(data: bytes, *, by_nul_side_only: bool = False) -> str | None
     candidates = ("utf-16-le", "utf-16-be") if little >= big else ("utf-16-be", "utf-16-le")
 
     for encoding in candidates[:1] if by_nul_side_only else candidates:
+        if rare_nuls and not _high_bytes_of_one_block(data, encoding):
+            continue  # looked at in the head before the whole input is decoded
         try:
             text = data.decode(encoding)
         except UnicodeDecodeError:

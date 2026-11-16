@@ -146,9 +146,11 @@ class HwpxRenderer:
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
         self.notes: list[str] = []
-        # Texts in order of first appearance, each once. Looked up in a list, 60,000 different headers took 11 s
-        # (Pinned by: test_audit_hangul.py::TestManyDistinctHeaders).
-        self.headers_footers: dict[str, None] = {}
+        # Header and footer texts in order of first appearance, each once per kind. Looked up in a list, 60,000 different headers took
+        # 11 s (Pinned by: test_audit_hangul.py::TestManyDistinctHeaders). Kept apart so headers go before the body and footers after
+        # it, as in DOCX and ODT (Pinned by: test_hwp.py::TestHeaderAndFooterPlacement).
+        self.headers: dict[str, None] = {}
+        self.footers: dict[str, None] = {}
         # Comments (review remarks): (author, text, pieces of the body range the comment is attached to). The range is the text between
         # fieldBegin and the fieldEnd with the same id
         self.memos: list[tuple[str, str, list[str]]] = []
@@ -351,7 +353,7 @@ class HwpxRenderer:
         # test_hwpx_header_chart_is_not_cut_by_the_characters_of_the_body).
         own = self._note_depth or any(grid is None for grid in self._grids)
         room = chars_left(Extraction() if own else self._extraction, self._options)
-        rendered = render_chart(root, table, package_loader(self._load_part, name), room)
+        rendered = render_chart(root, table, package_loader(self._load_part, name), room, self._extraction.warnings)
         self._charts[name] = rendered.split("\n", 1)[0]
         return rendered
 
@@ -422,8 +424,12 @@ class HwpxRenderer:
                         text = join_blocks(block for sub in _top_sublists(node) for block in self.render_paragraphs(sub))
                 finally:
                     self._grids.pop()
-                if text:
-                    self.headers_footers.setdefault(text)
+                found = self.headers if name == "header" else self.footers
+                if text and text not in found:
+                    found[text] = None
+                    # Every header is written before the body, so it is counted when first seen; footers after the body.
+                    if found is self.headers:
+                        self._extraction.count(solid_length(text), self._options)
             elif name == "autoNum":
                 buffer.append(_auto_number(node))
 
@@ -578,12 +584,15 @@ class HwpxRenderer:
         # registered with no placeholder, costing a description for nothing
         # (Pinned by: test_hwp.py::TestNestedTables::test_caption_of_an_inner_table_is_kept_with_it).
         if self._note_depth:
-            return join_blocks([caption_text, note_table(grid.rows())])
+            return join_blocks([caption_text, note_table(grid.rows(), self._options.max_chars)])
         if outer is not None:
             return join_blocks([caption_text, outer.embed(grid)])
         if self._cell_depth:
-            return join_blocks([caption_text, grid.flatten()])
-        rendered = grid.render()
+            return join_blocks([caption_text, grid.flatten(self._options.max_chars)])
+        # A table without a budget (in a header or footer) is drawn with the whole limit as room: what it writes past that is
+        # over the limit whatever comes before it (Pinned by:
+        # test_office_table_char_limit.py::TestMergedCopiesPastTheLimit::test_hangul_header_table_stops_at_the_limit)
+        rendered = grid.render(room=budget.room if budget is not None else self._options.max_chars)
         self.omitted_rows += grid.omitted_rows()
         return join_blocks([caption_text, rendered])
 
@@ -603,7 +612,7 @@ class HwpxRenderer:
                 continue
 
             row_at, col_at = _int(address.get("rowAddr"), row_index), _int(address.get("colAddr"), 0)
-            grid.place_or_next(row_at, col_at, text, row_span=row_span, col_span=col_span)
+            row_span, col_span = grid.place_or_next(row_at, col_at, text, row_span=row_span, col_span=col_span)
             if budget is not None and budget.add(row_at, col_at, text, row_span=row_span, col_span=col_span):
                 return True
         return False
@@ -690,7 +699,8 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
     # as `<cell text>`, so if no text remains after removing the cell marks
     # it is a document without text (empty table, shapes only). Used as is, `<>` noise went out as the body
     # (Pinned by: test_hwp.py::TestPreviewFallback).
-    body = join_blocks([*renderer.headers_footers, *blocks, "\n".join(renderer.notes), renderer.memo_lines()])
+    extraction.count(sum(solid_length(text) for text in renderer.footers), options)
+    body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes), renderer.memo_lines()])
     preview_text = preview.decode("utf-8", errors="replace")
     if not body.strip() and preview_text.translate(PREVIEW_CELL_MARKS).strip():
         body = preview_text

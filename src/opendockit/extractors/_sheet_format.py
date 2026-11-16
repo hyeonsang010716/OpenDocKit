@@ -2,9 +2,10 @@
 dates, times, elapsed time, percentages, digit places, sections and literal text.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
+import functools
 import math
 import re
 
@@ -33,14 +34,31 @@ def _format_within_length(number_format: str | None) -> str | None:
 _XML_GENERAL_DATE = "[$-x-general-date]yyyy-mm-dd h:mm:ss"
 
 
-# For interpreting number formats. Colours and conditions ([Red], [>=100]) are discarded and only the currency symbol ([$₩-412]) is kept.
-_FORMAT_BRACKET = re.compile(r"\[([^\]]*)\]")
+# For interpreting number formats: one left-to-right pass over quoted text, a backslash-escaped character, a bracket section
+# (colour, condition, locale, currency, elapsed time) and runs of anything else. Taking them in turn keeps a `[` or `]` inside
+# quotes or after a backslash a literal. Separate passes, brackets first, paired the `[` of one quoted literal with the `]` of a
+# later one and dropped everything between: 3 under `"Lv.["0"]"` came out as `Lv.` (Excel `Lv.[3]`), 5 under `\[0\]` as `5`,
+# and the `[>=` of the literal `" [>="` made the format conditional
+# (Pinned by: test_spreadsheet.py::TestBracketsInsideFormatLiterals).
+_FORMAT_TOKEN = re.compile(r'"([^"]*)"|\\(.)|\[([^\]]*)\]|[^"\\[]+|.', re.DOTALL)
 _FORMAT_QUOTED = re.compile(r'"([^"]*)"')
-_FORMAT_ESCAPED = re.compile(r'\\([^"])')
 _FORMAT_DATE_TOKENS = re.compile(r"[yYdDhHsS]|(?<![#0])[mM]")
 # `_x` leaves a space as wide as the character x, `*x` fills the cell with x (the `_-` and `* ` of the accounting format
 # `_-* #,##0_-`). They are for on-screen alignment, so they are not put into the value.
 _FORMAT_PADDING = re.compile(r"[_*].?")
+
+
+def _format_codes(number_format: str, bracket: Callable[[str], str] = lambda _: "") -> str:
+    """The format codes of a format: quoted text and backslash-escaped characters left out, and each bracket section replaced by
+    what `bracket` gives for it (by default nothing)."""
+    return "".join(bracket(token.group(0)) if token.group(3) is not None
+                   else "" if token.group(1) is not None or token.group(2) is not None else token.group(0)
+                   for token in _FORMAT_TOKEN.finditer(number_format))
+
+
+def _elapsed_only(token: str) -> str:
+    """A bracket section kept only when it is elapsed time (`[h]`, `[mm]`, `[ss]`)."""
+    return token if _ELAPSED_FORMAT.fullmatch(token) else ""
 
 
 def format_cell(value: object, number_format: str | None) -> str:
@@ -52,6 +70,11 @@ def format_cell(value: object, number_format: str | None) -> str:
     Alignment padding (`_-`, `* `) is not part of the value, so it is removed
     (Pinned by: test_quality.py::TestSpreadsheetNumberFormats).
     """
+    if type(value) is date:
+        # openpyxl gives a date-only ISO cell (`t="d"`, `<v>2024-01-05</v>`) as a date, which no format branch below took, so it
+        # ignored its display format (`2024-01-05` under `mmm-yy`, Excel `Jan-24`). It is that day at midnight, as a serial cell
+        # is (Pinned by: test_spreadsheet_cell_values_and_controls.py::TestIsoDateCellsWithAFormat).
+        value = datetime.combine(value, time())
     if isinstance(value, timedelta):
         return _elapsed_text(value, number_format)
     if isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0 and number_format \
@@ -84,7 +107,7 @@ def _negative_serial_text(value: float, number_format: str) -> str:
     1904 system), and a format showing a date gives the original number (Excel shows `####`). Converting it to a date emitted a
     non-existent day (1899-12-25) or a time wrapped around the day (22:30) as if it were fact. Common to XLSX, XLS and XML and to
     the 1900 and 1904 systems (Pinned by: test_spreadsheet.py::TestNegativeDateSerials)."""
-    if _ELAPSED_FORMAT.search(number_format):
+    if _is_elapsed_format(number_format):
         try:
             return _elapsed_text(timedelta(days=value), number_format)
         except OverflowError:
@@ -102,14 +125,21 @@ def _negative_serial_text(value: float, number_format: str) -> str:
 _ELAPSED_FORMAT = re.compile(r"\[(?:h+|m+|s+)\]", re.IGNORECASE)
 
 
+@functools.lru_cache(maxsize=1024)
+def _is_elapsed_format(number_format: str | None) -> bool:
+    """Whether the format has an elapsed section (`[h]`, `[mm]`, `[ss]`) outside quoted text and backslash escapes. Searching the
+    raw format took the literal `" [h]"` of `yyyy-mm-dd" [h]"` for one, so a date cell became a duration and came out as
+    `yyyy-00-dd [h]` (Pinned by: test_spreadsheet.py::TestElapsedSectionsInsideFormatLiterals). Common to XLSX, XLS and XML.
+    Kept per format: a sheet has a few formats over very many cells, and the format is read in one pass of tokens."""
+    return bool(number_format) and _ELAPSED_FORMAT.search(_format_codes(number_format, _elapsed_only)) is not None
+
+
 def _shows_time(number_format: str) -> bool:
     """Whether the format shows hours or seconds. Letters in quoted text and in bracket sections (colour, locale `[$-en-US]`,
     `[$-x-sysdate]`) are not format codes — the s/h inside them were taken as time and `00:00:00` was appended to date cells. Only
     elapsed time (`[h]`) is a time even inside brackets
     (Pinned by: test_spreadsheet.py::TestDateFormats::test_letters_inside_a_locale_bracket_are_not_time_codes)."""
-    codes = _FORMAT_BRACKET.sub(lambda match: match.group(0) if _ELAPSED_FORMAT.fullmatch(match.group(0)) else "",
-                                _FORMAT_QUOTED.sub("", number_format))
-    return re.search(r"[hHsS]", codes) is not None
+    return re.search(r"[hHsS]", _format_codes(number_format, _elapsed_only)) is not None
 
 
 # AM/PM markers. Removed first so that A, M and P are not taken as date/minute codes when counting date letters.
@@ -122,17 +152,17 @@ def _shows_date(number_format: str) -> bool:
     are not format codes. An elapsed section counts as the hour or second it shows (`[h]` → h, `[ss]` → s; `[mm]` is minutes and
     is left out): with every bracket section left out, the `mm` of `[h]:mm` and `[hh]:mm` read as a month, so an XLS zero
     duration came out as `0` instead of `0:00` (Pinned by: test_spreadsheet.py::TestXlsValues::test_zero_duration_is_a_duration)."""
-    letters = _code_letters(_ELAPSED_FORMAT.sub(lambda match: match.group(0)[1].lower().replace("m", ""), number_format))
+    letters = _code_letters(number_format, lambda token: token[1].lower().replace("m", "") if _ELAPSED_FORMAT.fullmatch(token) else "")
     if re.search(r"[ydeg]|a{3}", letters):
         return True
     return any(letters[:run.start()][-1:] != "h" and letters[run.end():run.end() + 1] != "s"
                for run in re.finditer(r"m+", letters))
 
 
-def _code_letters(number_format: str) -> str:
-    """Only the letters of the format codes (lower case). Quoted text, backslash-escaped characters, bracket sections and AM/PM
-    markers are left out."""
-    codes = _FORMAT_AM_PM.sub("", _FORMAT_ESCAPED.sub("", _FORMAT_BRACKET.sub("", _FORMAT_QUOTED.sub("", number_format))))
+def _code_letters(number_format: str, bracket: Callable[[str], str] = lambda _: "") -> str:
+    """Only the letters of the format codes (lower case). Quoted text, backslash-escaped characters, bracket sections (unless
+    `bracket` gives something for them) and AM/PM markers are left out."""
+    codes = _FORMAT_AM_PM.sub("", _format_codes(number_format, bracket))
     return re.sub(r"[^A-Za-z]", "", codes).lower()
 
 
@@ -161,7 +191,7 @@ def _is_weekday_only(number_format: str | None) -> bool:
     if not number_format or "a" not in number_format.lower():
         return False
     section = _FORMAT_SECTION.match(number_format)
-    codes = _FORMAT_ESCAPED.sub("", _FORMAT_BRACKET.sub("", _FORMAT_QUOTED.sub("", section.group(0) if section else "")))
+    codes = _format_codes(section.group(0) if section else "")
     return _WEEKDAY_ONLY_FORMAT.fullmatch(re.sub(r"[^A-Za-z]", "", codes)) is not None
 
 
@@ -180,12 +210,13 @@ def _elapsed_text(value: timedelta, number_format: str | None) -> str:
         clock = _clock_text(seconds, number_format, elapsed=True)
         if clock is not None:
             return (sign if seconds >= _smallest_unit(number_format) else "") + clock
-    units = {match.group(0)[1] for match in _ELAPSED_FORMAT.finditer(pattern)}  # a colour name (`[Magenta]`) is not an elapsed section
+    codes = _format_codes(pattern, _elapsed_only)
+    units = {match.group(0)[1] for match in _ELAPSED_FORMAT.finditer(codes)}  # a colour name (`[Magenta]`) is not an elapsed section
     if units == {"s"}:
         return f"{sign}{seconds}"
     if "h" not in units and "m" in units:
         return f"{sign}{seconds // 60}:{seconds % 60:02d}"
-    if "s" not in _FORMAT_QUOTED.sub("", pattern):
+    if "s" not in codes:
         minutes = seconds // 60
         return f"{sign if minutes else ''}{minutes // 60}:{minutes % 60:02d}"
     return f"{sign}{seconds // 3600}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
@@ -194,17 +225,13 @@ def _elapsed_text(value: timedelta, number_format: str | None) -> str:
 def _shows_seconds(number_format: str) -> bool:
     """Whether the format shows seconds (s). Quoted text, backslash-escaped characters and bracket sections (elapsed seconds `[ss]`
     do count as seconds) are not format codes."""
-    codes = _FORMAT_ESCAPED.sub("", _FORMAT_BRACKET.sub(
-        lambda match: match.group(0) if _ELAPSED_FORMAT.fullmatch(match.group(0)) else "", _FORMAT_QUOTED.sub("", number_format)))
-    return "s" in codes.lower()
+    return "s" in _format_codes(number_format, _elapsed_only).lower()
 
 
 def _smallest_unit(number_format: str) -> int:
     """Seconds in the smallest time unit the first section shows: 1 for seconds, 60 for minutes, otherwise 3,600. Quoted text,
     backslash-escaped characters and bracket sections other than elapsed ones (`[Magenta]`) are not format codes."""
-    codes = _FORMAT_ESCAPED.sub("", _FORMAT_BRACKET.sub(
-        lambda match: match.group(0) if _ELAPSED_FORMAT.fullmatch(match.group(0)) else "",
-        _FORMAT_QUOTED.sub("", _first_section(number_format)))).lower()
+    codes = _format_codes(_first_section(number_format), _elapsed_only).lower()
     return 1 if "s" in codes else 60 if "m" in codes else 3600
 
 
@@ -306,7 +333,7 @@ def _format_section(value: float, number_format: str) -> tuple[str, float, bool]
     if value < 0 and len(sections) > 1 and sections[1].strip():
         marked = _section_literals(sections[1]) not in ("", _section_literals(sections[0]))
         return sections[1], (-value if marked else value), marked
-    if value == 0 and len(sections) > 2 and ("0" in _FORMAT_QUOTED.sub("", sections[2]) or not _has_digit_places(sections[0])):
+    if value == 0 and len(sections) > 2 and ("0" in _format_codes(sections[2]) or not _has_digit_places(sections[0])):
         return sections[2], value, False
     return (sections[0] if sections else ""), value, False
 
@@ -314,7 +341,7 @@ def _format_section(value: float, number_format: str) -> tuple[str, float, bool]
 def _has_digit_places(section: str) -> bool:
     """Whether the section has digit places (`0`, `#`, `?`). Quoted text, backslash-escaped characters and bracket sections are not
     looked into."""
-    return re.search(r"[0#?]", _FORMAT_BRACKET.sub("", _FORMAT_ESCAPED.sub("", _FORMAT_QUOTED.sub("", section)))) is not None
+    return re.search(r"[0#?]", _format_codes(section)) is not None
 
 
 # What is removed to keep only the literals of a section: bracket sections (colour, condition, currency), padding (`_x`, `*x`),
@@ -336,7 +363,7 @@ _FORMAT_BARE_SYMBOLS = re.compile(r"[\s\-+()$:!^&'~{}<>=]*")
 
 
 def _apply_number_format(value: float, number_format: str) -> str | None:
-    if re.search(r"\[[<>=]", number_format):
+    if any(token.group(3) is not None and token.group(3)[:1] in ("<", ">", "=") for token in _FORMAT_TOKEN.finditer(number_format)):
         # A conditional format ([<=9999999]…;…) changes section depending on the value. It is not imitated; the original value is used
         return None
     if not math.isfinite(value):
@@ -344,20 +371,28 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
 
     section, value, signed_by_format = _format_section(value, number_format)
     section = section.lstrip()  # trailing whitespace may be part of `_ ` (underscore + space), so it is not stripped
-    if section.lower() in ("general", "@", "") or _SCIENTIFIC.search(_FORMAT_QUOTED.sub("", _FORMAT_ESCAPED.sub("", section))):
+    if section.lower() in ("general", "@", "") or _SCIENTIFIC.search(_format_codes(section)):
         return None
 
-    def bracket(match: re.Match[str]) -> str:
-        # A currency symbol (`[$₩-412]`) is a literal at the position where it sits in the format. Collecting it at the very front
-        # emitted the negative section `\-[$₩-412]#,##0` as `₩-…` instead of Excel's `-₩…`
-        # (Pinned by: test_spreadsheet.py::TestCurrencyPosition). Colour and locale sections are removed.
-        symbol = match.group(1)[1:].split("-")[0] if match.group(1).startswith("$") else ""
-        return f'"{symbol}"' if symbol and '"' not in symbol else ""
-
-    section = _FORMAT_BRACKET.sub(bracket, section)
-    section = _FORMAT_ESCAPED.sub(lambda match: f'"{match.group(1)}"', section)  # `\%` is the same literal as `"%"`
-    literals = _FORMAT_QUOTED.findall(section)
-    plain = _FORMAT_PADDING.sub("", _FORMAT_QUOTED.sub("\x00", section))
+    # Each literal (quoted text, a backslash-escaped character — `\%` is the same literal as `"%"` — and a currency symbol) becomes
+    # one `\x00` in `plain`, and its text goes into `literals` in order.
+    literals, pieces = [], []
+    for token in _FORMAT_TOKEN.finditer(section):
+        quoted, escaped, bracket = token.groups()
+        if bracket is not None:
+            # A currency symbol (`[$₩-412]`) is a literal at the position where it sits in the format. Collecting it at the very
+            # front emitted the negative section `\-[$₩-412]#,##0` as `₩-…` instead of Excel's `-₩…`
+            # (Pinned by: test_spreadsheet.py::TestCurrencyPosition). Colour and locale sections are removed.
+            symbol = bracket[1:].split("-")[0] if bracket.startswith("$") else ""
+            if symbol:
+                literals.append(symbol)
+                pieces.append("\x00")
+        elif quoted is not None or escaped is not None:
+            literals.append(quoted if quoted is not None else escaped)
+            pieces.append("\x00")
+        else:
+            pieces.append(token.group(0))
+    plain = _FORMAT_PADDING.sub("", "".join(pieces))
     if plain.replace("\x00", "").strip().lower() == "general":
         # The General format with only literals attached before/after (`General"명"`, `"약 "General`). The whole format was
         # discarded for having no digit places, and the unit was lost

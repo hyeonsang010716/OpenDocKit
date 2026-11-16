@@ -399,6 +399,59 @@ class TestPicturesAtNonFinitePositions:
         assert result.images == []
 
 
+def _page_with_picture(body: bytes, width: bytes = b"64", crop: bytes = b"") -> bytes:
+    """A one-page PDF whose content stream `body` can draw a 64-pixel grey picture as /Im1 (with /Width `width`) and write
+    with /F1 (Helvetica). `crop` is extra page dictionary entries such as a /CropBox."""
+    pixels = zlib.compress(bytes(range(256)) * 16)
+    image = (b"<< /Type /XObject /Subtype /Image /Width %s /Height 64 /ColorSpace /DeviceGray /BitsPerComponent 8"
+             b" /Filter /FlateDecode /Length %d >>\nstream\n" % (width, len(pixels)) + pixels + b"\nendstream")
+    return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                     3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] %s /Contents 4 0 R /Resources << /Font"
+                        b" << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> /XObject << /Im1 5 0 R >> >> >>" % crop,
+                     4: _stream(body), 5: image})
+
+
+class TestPictureWidthThatIsNotANumber:
+    """The /Width of a picture divides into its resolution scale. Written as a string, an array or a name it raised
+    TypeError, and an integer of 400 digits OverflowError, so the whole document was reported corrupted, with
+    `extract_images` off as well. Such a width is taken as unknown: the picture is still found and the text read."""
+
+    @pytest.mark.parametrize("width", [b"(64)", b"[64]", b"/W64", b"1" + b"0" * 400, b"-64"])
+    @pytest.mark.parametrize("extract_images", [True, False])
+    def test_the_page_is_read_and_the_picture_kept(self, width, extract_images):
+        data = _page_with_picture(b"q 200 0 0 150 72 400 cm /Im1 Do Q BT /F1 12 Tf 72 700 Td (Hello) Tj ET", width)
+
+        boxes = _figure_boxes(pdfplumber.open(BytesIO(data)).pages[0], (0, 0, 595, 842))
+        assert [(round(box[0]), round(box[2]), box[4]) for box in boxes] == [(72, 272, 0.0)]
+        result = convert(data, "a.pdf", ConvertOptions(extract_images=extract_images))
+        assert result.sections[0].text.startswith("Hello")
+
+
+class TestCropBoxOutsideTheMediaBox:
+    """A CropBox that does not meet the MediaBox leaves pdfium a 0 x 0 page, and pypdfium2 refused to draw it with a
+    ValueError ('Crop exceeds page dimensions') that reported the whole document corrupted when pictures were extracted.
+    Nothing of such a page is shown, so it has no picture to give: the text is read as with `extract_images` off, and a
+    page holding only a picture is reported as one that needs OCR."""
+
+    @pytest.mark.parametrize("crop", [b"/CropBox [612 0 1224 792]", b"/CropBox [700 900 900 1000]"])
+    def test_the_text_is_read_without_the_pictures(self, crop):
+        data = _page_with_picture(b"q 200 0 0 150 72 400 cm /Im1 Do Q BT /F1 12 Tf 72 700 Td (Hello) Tj ET", crop=crop)
+
+        result = convert(data, "a.pdf", ConvertOptions(extract_images=True))
+
+        assert result.sections[0].text == "Hello"
+        assert result.images == []
+        assert result.text == convert(data, "a.pdf", ConvertOptions(extract_images=False)).text
+
+    def test_a_page_holding_only_a_picture_is_reported(self):
+        data = _page_with_picture(b"q 595 0 0 842 0 0 cm /Im1 Do Q", crop=b"/CropBox [612 0 1224 792]")
+
+        result = convert(data, "a.pdf", ConvertOptions(extract_images=True))
+
+        assert result.images == []
+        assert any("OCR" in warning for warning in result.warnings)
+
+
 class TestClipWithOffsetMediaBox:
     """The clip regions are recorded in pdfminer's page coordinates while pdfplumber moves x by the MediaBox's left edge, so
     on a page whose MediaBox does not start at x = 0 no clip matched its picture and the clipping was silently lost."""

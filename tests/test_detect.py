@@ -122,6 +122,22 @@ class TestDetectFormat:
 
         assert result is DocumentFormat.TEXT
 
+    @pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+    def test_cyrillic_utf16_paragraph_without_a_bom_is_text(self, codec):
+        """Its NULs (after spaces and commas, a tenth of the bytes) and its 0x04 bytes looked like a binary file: without the
+        NULs the bytes are ASCII, which passed for UTF-8 text with stray NULs, so UTF-16 was not tried."""
+        data = "Привет, как дела? Это тестовый документ для проверки кодировки. Спасибо за внимание.".encode(codec)
+
+        result = detect_format(data, None)
+
+        assert result is DocumentFormat.TEXT
+
+    def test_ascii_with_nuls_and_control_bytes_is_still_binary(self):
+        data = b"35=D\x0149=SENDER\x0156=TARGET\x0134=12\x0152=20240105-01:00:00\x00\n" * 3
+
+        with pytest.raises(UnsupportedFormatError):
+            detect_format(data, None)
+
     def test_rejects_unknown_binary(self):
         data = b"\x7fELF\x02\x01\x01\x00\x00\x00\x00"
 

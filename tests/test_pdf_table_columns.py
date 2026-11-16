@@ -1542,3 +1542,40 @@ class TestVeryWideBorderlessRows:
             table_rows._drop_header_indexes()
 
             assert indexed == scanned
+
+
+class TestHeaderPiecesInOneColumn:
+    """Two header pieces under 1pt wide starting at the same x (characters piled up by a crafted file) pass as separate
+    cells, but both fall into the first of their columns, so the other column held no piece and measuring its span raised
+    ValueError: the whole document was reported corrupted. Such a header does not divide the rows into columns, so they
+    are no table and their lines stay in the body."""
+
+    @staticmethod
+    def _page(starts):
+        from opendockit.extractors._pdf_model import _Line, _Page
+
+        header = [_Line(top=100, bottom=110, x0=x0, x1=x0 + width, text=text, size=10)
+                  for (x0, width), text in zip(starts, ["A", "B", "Code", "Price"], strict=True)]
+        rows = [_Line(top=120 + row * 16, bottom=130 + row * 16, x0=x0, x1=x0 + 25, text=f"{name}{row}", size=10)
+                for row in range(3) for x0, name in ((72, "item"), (200, "C"), (320, "P"))]
+        return _Page(number=1, width=595, height=842, lines=[*header, *rows], tables=[], has_images=False,
+                     view=(0, 0, 595, 842))
+
+    def test_rows_under_two_header_pieces_in_one_column_are_no_table(self):
+        from opendockit.extractors._pdf_aligned_tables import _extract_aligned_tables
+
+        page = self._page([(72, 0), (72, 0), (200, 24), (320, 23)])
+
+        _extract_aligned_tables(page)
+
+        assert page.tables == []
+        assert [line.text for line in page.lines][:4] == ["A", "B", "Code", "Price"]
+
+    def test_the_same_rows_under_a_header_of_four_columns_are_a_table(self):
+        from opendockit.extractors._pdf_aligned_tables import _extract_aligned_tables
+
+        page = self._page([(72, 0), (130, 0), (200, 24), (320, 23)])
+
+        _extract_aligned_tables(page)
+
+        assert [table.rows[0] for table in page.tables] == [["A", "B", "Code", "Price"]]

@@ -324,9 +324,11 @@ class HwpRenderer:
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
         self.notes: list[str] = []
-        # Texts in order of first appearance, each once. Looked up in a list, 60,000 different headers took 11 s
-        # (Pinned by: test_audit_hangul.py::TestManyDistinctHeaders).
-        self.headers_footers: dict[str, None] = {}
+        # Header and footer texts in order of first appearance, each once per kind. Looked up in a list, 60,000 different headers took
+        # 11 s (Pinned by: test_audit_hangul.py::TestManyDistinctHeaders). Kept apart so headers go before the body and footers after
+        # it, as in DOCX and ODT (Pinned by: test_hwp.py::TestHeaderAndFooterPlacement).
+        self.headers: dict[str, None] = {}
+        self.footers: dict[str, None] = {}
         # The fields opened and not yet ended, innermost last: the address of a hyperlink that is kept, else None (`_start_field`)
         self._fields: list[str | None] = []
 
@@ -394,7 +396,7 @@ class HwpRenderer:
             elif kind in ("fn  ", "en  "):
                 self._render_note(control, buffer)
             elif kind in ("head", "foot"):
-                self._collect_header_footer(control)
+                self._collect_header_footer(control, self.headers if kind == "head" else self.footers)
             elif kind == "gso ":
                 # Text art text is a separate block, like hp:textart in HWPX. It was not read and was dropped entirely (Pinned by:
                 # test_hwp_heads_and_shapes.py::
@@ -558,7 +560,9 @@ class HwpRenderer:
         finally:
             self._numberings = saved
 
-    def _collect_header_footer(self, control: Record) -> None:
+    def _collect_header_footer(self, control: Record, found: dict[str, None]) -> None:
+        """Render a header or footer control into `found` (`headers` or `footers`). A header is counted against the character
+        limit when it is first seen, because every header is written before the body; footers are counted after the body."""
         if not self._options.include_headers_footers:
             return
         self._grids.append(None)
@@ -567,8 +571,10 @@ class HwpRenderer:
                 text = join_blocks(self.render(control.children))
         finally:
             self._grids.pop()
-        if text:
-            self.headers_footers.setdefault(text)
+        if text and text not in found:
+            found[text] = None
+            if found is self.headers:
+                self._extraction.count(solid_length(text), self._options)
 
     def _render_table(self, control: Record) -> str:
         """Table: under CTRL_HEADER(tbl) comes TABLE, followed, for each cell, by a LIST_HEADER and that cell's paragraphs as siblings.
@@ -610,7 +616,7 @@ class HwpRenderer:
                 columns = max(col_count, 1)
                 row, col, row_span, col_span = (_cell_address(header.payload, row_count, col_count)
                                                 or (position // columns, position % columns, 1, 1))
-                grid.place_or_next(row, col, text, row_span=row_span, col_span=col_span)
+                row_span, col_span = grid.place_or_next(row, col, text, row_span=row_span, col_span=col_span)
                 if budget is not None and budget.add(row, col, text, row_span=row_span, col_span=col_span):
                     break
         finally:
@@ -627,12 +633,15 @@ class HwpRenderer:
         # (Pinned by: test_hwp.py::TestNestedTables::test_caption_of_an_inner_table_is_kept_with_it).
         caption_text = join_blocks(self.render(caption))
         if self._note_depth:
-            return join_blocks([caption_text, note_table(grid.rows())])
+            return join_blocks([caption_text, note_table(grid.rows(), self._options.max_chars)])
         if outer is not None:
             return join_blocks([caption_text, outer.embed(grid)])
         if self._cell_depth:
-            return join_blocks([caption_text, grid.flatten()])
-        rendered = grid.render()
+            return join_blocks([caption_text, grid.flatten(self._options.max_chars)])
+        # A table without a budget (in a header or footer) is drawn with the whole limit as room: what it writes past that is
+        # over the limit whatever comes before it (Pinned by:
+        # test_office_table_char_limit.py::TestMergedCopiesPastTheLimit::test_hangul_header_table_stops_at_the_limit)
+        rendered = grid.render(room=budget.room if budget is not None else self._options.max_chars)
         self.omitted_rows += grid.omitted_rows()
         return join_blocks([caption_text, rendered])
 
@@ -996,7 +1005,8 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
     # The preview replaces the body only when parsing the body finished and there is no text. A document without text (empty table,
     # shapes only) has an empty preview too
     # (`_preview_text`), so the result stays empty (Pinned by: test_hwp.py::TestPreviewFallback).
-    body = join_blocks([*renderer.headers_footers, *blocks, "\n".join(renderer.notes)])
+    extraction.count(sum(solid_length(text) for text in renderer.footers), options)
+    body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes)])
     if not body.strip() and preview:
         body = preview
         extraction.warnings.append("The body could not be parsed, so the preview text saved by Hancom Office was used instead "

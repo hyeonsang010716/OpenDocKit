@@ -14,7 +14,7 @@ from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors._encoding import decode_text, decoding_warning
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._package import _XML_PARSER, decimal_int
-from opendockit.extractors._sheet_format import _ELAPSED_FORMAT, _MAX_FORMAT_LENGTH, _XML_GENERAL_DATE, format_cell
+from opendockit.extractors._sheet_format import _MAX_FORMAT_LENGTH, _XML_GENERAL_DATE, _is_elapsed_format, format_cell
 from opendockit.extractors._sheet_layout import _append_sheet, _collect_rows, _level_marked
 from opendockit.models import ConvertOptions, Extraction
 
@@ -362,7 +362,7 @@ def _xml_cell_value(data: etree._Element, number_format: str | None, not_finite:
             return format_cell(float(text), number_format)
         if kind == "DateTime":
             value = datetime.fromisoformat(text)
-            if number_format and _ELAPSED_FORMAT.search(number_format):
+            if _is_elapsed_format(number_format):
                 # Elapsed time is a duration measured from Excel's day 0. From 1900-03-01 on, Excel counts the non-existent day
                 # (1900-02-29) as one day
                 # (Pinned by: test_spreadsheet.py::TestDateFormats::test_xml_spreadsheet_elapsed_time_is_shown_as_total_hours).
@@ -427,7 +427,7 @@ def _xml_serial_text(value: float, number_format: str) -> str:
     (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetDatesAndTimes). Known accepted gap: the 1904 date system (`x:Date1904`) is
     not considered."""
     try:
-        if _ELAPSED_FORMAT.search(number_format):
+        if _is_elapsed_format(number_format):
             return format_cell(timedelta(days=value), number_format)
         if value < 0:
             return format_cell(value, number_format)  # a negative serial number is not a date (`_negative_serial_text`)

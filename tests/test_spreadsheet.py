@@ -2194,6 +2194,122 @@ class TestCurrencyPosition:
         assert result == expected
 
 
+class TestBracketsInsideFormatLiterals:
+    """Bracket sections were taken out of the format before quoted text and backslash-escaped characters were set aside, so a `[`
+    in one quoted literal and the `]` in a later one were read as one bracket section and everything between them, digit places
+    included, was dropped (3 under `"Lv.["0"]"` came out as `Lv.`), and a literal `" [>="` made the format conditional. The format
+    is read in one pass from the left: quoted and escaped characters are literals, and only a real bracket section is one."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (3, '"Lv.["0"]"', "Lv.[3]"),
+        (0.25, '"["0%"]"', "[25%]"),
+        (1234, '"["#,##0"]"', "[1,234]"),
+        (12, '#,##0" [kg]"', "12 [kg]"),
+        (5, "\\[0\\]", "[5]"),
+        (5, '0" [>=]"', "5 [>=]"),
+        (5, '"a\\b"0', "a\\b5"),
+        (5, '0\\"', '5"'),
+        (-1200, '[$₩-412]#,##0" [원]";[Red]\\-[$₩-412]#,##0" [원]"', "-₩1,200 [원]"),
+    ])
+    def test_brackets_in_literals_are_literals(self, value, number_format, expected):
+        result = format_cell(value, number_format)
+
+        assert result == expected
+
+    def test_real_condition_is_still_a_conditional_format(self):
+        result = format_cell(5, '[>=10]"big "0;"small "0')
+
+        assert result == "5"
+
+    def test_bracket_digits_are_not_a_zero_place(self):
+        """The 1 and 0 of the colour `[Color10]` are not a `0` place, so the zero section `"-"` is not used (as for the
+        accounting `"-"`)."""
+        result = format_cell(0, '#,##0;-#,##0;[Color10]"-"')
+
+        assert result == "0"
+
+    def test_escaped_letter_is_not_a_time_code(self):
+        """The `\\h` after a date is a literal h, not hours, so the date is not given a time."""
+        result = format_cell(datetime(2024, 3, 1), "yyyy-mm-dd\\h")
+
+        assert result == "2024-03-01"
+
+    def test_xlsx_cell(self):
+        data = _xlsx([["이름", "레벨"], ["가", 3]], {"B2": '"Lv.["0"]"'})
+
+        result = convert(data, "a.xlsx")
+
+        assert "| 가 | Lv.[3] |" in result.text
+
+
+class TestElapsedSectionsInsideFormatLiterals:
+    """Whether a cell is elapsed time was decided by searching the raw format, so the literal `" [h]"` of `yyyy-mm-dd" [h]"`
+    turned a date into a duration and it came out as `yyyy-00-dd [h]`. Only an elapsed section outside quotes and backslash
+    escapes makes a duration, in XLSX (openpyxl searches the raw format itself), XLS and Excel 2003 XML."""
+
+    @pytest.mark.parametrize("streamed", [False, True], ids=["full-load", "streamed"])
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (45352.25, 'yyyy-mm-dd" [h]"', "2024-03-01"),
+        (1.5, '"[h]" h:mm', "[h] 12:00"),
+        (1.5, "[h]:mm", "36:00"),
+    ])
+    def test_xlsx(self, monkeypatch, streamed, value, number_format, expected):
+        from opendockit.extractors import spreadsheet
+
+        if streamed:
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+        data = _xlsx([["항목", "값"], ["가", value]], {"B2": number_format})
+
+        result = convert(data, "a.xlsx")
+
+        assert f"| 가 | {expected} |" in result.text
+
+    @pytest.mark.parametrize("streamed", [False, True], ids=["full-load", "streamed"])
+    @pytest.mark.parametrize("number_format", ["General", "h:mm:ss"])
+    def test_an_iso_duration_stays_a_duration(self, monkeypatch, streamed, number_format):
+        """openpyxl gives a duration for an ISO duration cell (`t="d"`, `PT36H`) as well. Only a duration it made from a format
+        with an elapsed-looking literal is a serial again; this one kept its days before and keeps them."""
+        from opendockit.extractors import spreadsheet
+
+        if streamed:
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+        data = _xlsx([["항목", "값"], ["가", 1]], {"B2": number_format})
+        with zipfile.ZipFile(BytesIO(data)) as source:
+            parts = {info.filename: source.read(info) for info in source.infolist()}
+        sheet = parts["xl/worksheets/sheet1.xml"].decode()
+        cell = re.search(r'<c r="B2"[^>]*>.*?</c>', sheet).group(0)
+        style = re.search(r' s="\d+"', cell)
+        parts["xl/worksheets/sheet1.xml"] = sheet.replace(cell, f'<c r="B2"{style.group(0) if style else ""} t="d"><v>PT36H</v></c>').encode()
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as target:
+            for name, part in parts.items():
+                target.writestr(name, part)
+
+        result = convert(buffer.getvalue(), "a.xlsx")
+
+        assert "| 가 | 36:00" in result.text
+
+    def test_xls_date_cell(self):
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_DATE, 45352.25)
+
+        value = format_cell(_xls_value(cell, 0, 'yyyy-mm-dd" [h]"'), 'yyyy-mm-dd" [h]"')
+
+        assert value == "2024-03-01"
+
+    @pytest.mark.parametrize(("kind", "value"), [("Number", "45352.25"), ("DateTime", "2024-03-01T06:00:00")])
+    def test_xml_spreadsheet(self, kind, value):
+        data = _xml_spreadsheet('yyyy-mm-dd" [h]"', kind, value)
+
+        result = convert(data, "a.xls")
+
+        assert "| 가 | 2024-03-01 |" in result.text
+
+    def test_negative_serial_is_a_signed_time_not_a_duration(self):
+        result = format_cell(-0.5, 'h:mm" [h]"')
+
+        assert result == "-12:00:00"
+
+
 @contextmanager
 def _deadline(seconds: int) -> Iterator[None]:
     """Fail the test with TimeoutError if it does not finish within `seconds` (to reproduce a hang — before the fix xlrd ran
