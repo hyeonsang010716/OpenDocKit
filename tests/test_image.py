@@ -2545,8 +2545,9 @@ class TestPreparedImageBudget:
         assert result.warnings == ["The images take too much memory once prepared (more than max_uncompressed_bytes), so 1 "
                                    "image(s) were left as placeholders only."]
 
-    def test_nothing_but_a_picture_that_does_not_fit_is_too_large(self):
-        from opendockit import DocumentTooLargeError
+    def test_the_first_picture_is_kept_even_when_it_alone_is_over_the_budget(self):
+        # One picture is bounded by `image_max_side` already; a lone upload under a lowered option is prepared as before.
+        result = convert(builder.png_bytes(400, 300), "a.png", ConvertOptions(max_uncompressed_bytes=100))
 
-        with pytest.raises(DocumentTooLargeError, match="^The document becomes too large when decompressed.$"):
-            convert(builder.png_bytes(400, 300), "a.png", ConvertOptions(max_uncompressed_bytes=100))
+        assert len(result.images) == 1
+        assert result.warnings == []

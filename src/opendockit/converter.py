@@ -413,6 +413,7 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     # than its file: a 4.6 KB PNG of 1-bit noise became a 3 MB JPEG, so a 376 KB DOCX with 300 of them held 920 MB of pictures,
     # pickled once more out of an isolated worker (2.3 GB in the server). Once the next picture does not fit, it and every
     # picture not decoded yet keep only their placeholder (`_placeholders_only`, as past the character limit) with one warning.
+    # The first picture prepared is kept whatever its size, so the bound is the option or that one picture.
     # Scanned pages are decoded first, as the image limit picks them first (Pinned by: test_image.py::TestPreparedImageBudget).
     spent = 0
     full = False
@@ -423,7 +424,9 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
                 image = prepare_image(raw.data, min_side=options.min_image_side, max_side=options.image_max_side,
                                       filter_decorations=key[1])
                 size = len(image.data) + sum(len(tile) for tile in image.tiles)
-                if spent + size > options.max_uncompressed_bytes:
+                # The first picture prepared is always kept: a single picture is bounded by `image_max_side` already, and
+                # an uploaded photo under a lowered option was described before the bound existed
+                if spent and spent + size > options.max_uncompressed_bytes:
                     full = True
                     del image
                     continue
@@ -483,9 +486,6 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     if out_of_memory and not prepared and not _has_text(sections, marker):
         # Scanned pages that are the only content, none of which could be read: nothing else to give either.
         raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE)
-    if past and not prepared and not _has_text(sections, marker):
-        # Not one picture fits and there is nothing else: the document becomes too large once its pictures are decompressed.
-        raise DocumentTooLargeError("The document becomes too large when decompressed.")
     fallbacks.update(_placeholders_only(past, options))
     if unreadable:
         warnings.append(f"{unreadable} image(s) are in an unreadable format (WMF/EMF vectors, etc.) or corrupted "
