@@ -73,7 +73,7 @@ def _open_sided_tables(page: object) -> list[object]:
         # stacked, each range is examined separately.
         spans = {(round(edge["top"]), round(edge["bottom"])) for edge in verticals_between(left + 2, right - 2)
                  if left + 2 < edge["x0"] < right - 2}
-        for top, bottom in _outermost_spans(spans):
+        for top, bottom in _joined_spans(_outermost_spans(spans)):
             rules = bisect_right(rule_tops, bottom + 2) - bisect_left(rule_tops, top - 2)
             if rules < 3:
                 continue
@@ -212,6 +212,26 @@ def _outermost_spans(spans: set[tuple[int, int]]) -> list[tuple[int, int]]:
                    for other in outermost):
             outermost.append(span)
     return outermost
+
+
+def _joined_spans(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Join vertical ranges that overlap in part (by more than 2pt) into one range, their union, in top order. Ranges that
+    only meet at a shared rule (two tables of the same width stacked) stay apart.
+
+    When merged cells break every inner vertical line of an open-sided table (a header cell over columns 2-3 above, a
+    total cell over columns 1-2 below), no line runs the full height, and the lines give ranges that overlap without one
+    containing the other. Each was searched separately, both tables were kept, as neither box encloses the other, and the
+    rows they share came out twice (the counterpart of `_outermost_spans` for ranges that are not contained. Pinned by:
+    test_pdf.py::TestRuledTables::
+    test_open_sided_table_whose_merged_cells_break_every_column_rule_is_read_once).
+    """
+    joined: list[tuple[int, int]] = []
+    for top, bottom in sorted(spans):
+        if joined and top < joined[-1][1] - 2:
+            joined[-1] = (joined[-1][0], max(joined[-1][1], bottom))
+        else:
+            joined.append((top, bottom))
+    return joined
 
 
 def _merge_split_header(rows: list[list[str | None]]) -> list[list[str | None]]:

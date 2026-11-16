@@ -2973,6 +2973,27 @@ class TestRuledTables:
             "| 센서 | 영업이익 | 48 | 58 |\n| 센서 | 인원 | 120 | 131 |\n| 모듈 | 매출 | 388 | 421 |\n"
             "| 모듈 | 영업이익 | 27 | 29 |\n| 모듈 | 인원 | 85 | 88 |")
 
+    def test_open_sided_table_whose_merged_cells_break_every_column_rule_is_read_once(self):
+        """The header '2024년' spans columns 2-3 and the total '합계' columns 1-2, so the rule between columns 1 and 2 stops above
+        the total row and the rule between columns 2 and 3 starts below the header: the two give vertical ranges that overlap
+        without one containing the other. Each was searched as its own table, neither box enclosed the other, and the
+        '서울' and '부산' rows came out twice."""
+        columns, top, height = self._OPEN_COLUMNS[:4], 700, 22
+        rows = [["구분", "2024년", ""], ["", "상반기", "하반기"], ["서울", "100", "200"], ["부산", "300", "400"], ["합계", "", "1000"]]
+
+        def draw(pdf, index):
+            for line in range(len(rows) + 1):
+                pdf.line(columns[1] if line == 1 else columns[0], top - line * height, columns[-1], top - line * height)
+            pdf.line(columns[1], top, columns[1], top - height * (len(rows) - 1))
+            pdf.line(columns[2], top - height, columns[2], top - height * len(rows))
+            _draw_cells(pdf, columns, top, height, rows)
+            pdf.drawString(columns[0], top - height * len(rows) - 30, "표 아래 문단입니다.")
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("| 구분 | 2024년 상반기 | 2024년 하반기 |\n| --- | --- | --- |\n| 서울 | 100 | 200 |\n"
+                               "| 부산 | 300 | 400 |\n| 합계 | | 1000 |\n\n표 아래 문단입니다.")
+
     def test_closed_table_with_merged_first_column_under_a_two_column_header_is_kept_whole(self):
         """In a table closed on all four sides whose first column is vertically merged and whose header '구분' spans columns 1–2, the
         vertical rule between columns 1 and 2 is missing in the header row, so the horizontal rules avoiding the merged cells looked
