@@ -5,6 +5,11 @@ PDF, Word, PowerPoint, Excel, CSV, **HWP / HWPX**, OpenDocument, RTF, EPUB, HTML
 columns, merged cells are repeated in every row they cover, and a long document can be read one page, slide or sheet at
 a time, so it does not fill the context.
 
+![Hermes reads a Korean HWPX notice through the plugin and adds up the 2026 budget of the youth programs, keeping each row of a merged cell under its own field](../docs/assets/hermes/demo-hwpx.gif)
+
+*Hermes with Claude Sonnet 5.5, recorded unedited. The notice is fictional; the label of the merged "field" cell is
+repeated in every row, so the three lines named 구직 활동 수당 (job-seeking allowance) stay apart.*
+
 It is a portable [Agent Plugins v1](https://agent-plugins.org) package around the MCP server of
 [OpenDocKit](https://github.com/hyeonsang010716/OpenDocKit) (MIT). One install ships:
 
@@ -51,9 +56,9 @@ to read the outline and ask for sections, which is what the bundled skill teache
 
 ## What it does on your machine
 
-- **Runs a local process.** `uvx --python ">=3.12" --exclude-newer 2026-11-14T00:00:00Z --from "opendockit[mcp]==0.3.1" opendockit-mcp`, over stdio, for as
+- **Runs a local process.** `uvx --python ">=3.12" --exclude-newer 2026-11-16T00:00:00Z --from "opendockit[mcp]==0.3.8" opendockit-mcp`, over stdio, for as
   long as the session lives. `uvx` is the one Hermes manages.
-- **Downloads once.** The first start fetches `opendockit` 0.3.1 and its dependencies from PyPI into uv's cache, and a
+- **Downloads once.** The first start fetches `opendockit` 0.3.8 and its dependencies from PyPI into uv's cache, and a
   Python 3.12 or newer if the machine has none. The `opendockit` version is pinned, and `--exclude-newer` keeps its
   dependencies at the releases that existed on that date, so every install resolves the same set.
 - **Reads files, writes none.** By default the server can read any file your user can read, like the agent's own file
@@ -78,7 +83,7 @@ to read the outline and ask for sections, which is what the bundled skill teache
 ## Health check without Hermes
 
 ```bash
-uvx --python ">=3.12" --exclude-newer 2026-11-14T00:00:00Z --from "opendockit[mcp]==0.3.1" opendockit-mcp <<'EOF'
+uvx --python ">=3.12" --exclude-newer 2026-11-16T00:00:00Z --from "opendockit[mcp]==0.3.8" opendockit-mcp <<'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}
 EOF
 ```
@@ -87,7 +92,7 @@ A line of JSON naming the server `opendockit` means it starts.
 
 ## Version pinning
 
-`mcp.json` pins `opendockit[mcp]==0.3.1` and resolves its dependencies as of 2026-11-14. A newer OpenDocKit, or a
+`mcp.json` pins `opendockit[mcp]==0.3.8` and resolves its dependencies as of 2026-11-16. A newer OpenDocKit, or a
 newer release of a dependency, reaches catalog installs only through a commit here that
 moves the pin, followed by a reviewed SHA bump in the
 [Hermes plugin catalog](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog). The package never
