@@ -683,6 +683,7 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
         before: list[object] = []
         after: list[Tag] = []
         wrappers: list[Tag] = []
+        holding: set[int] | None = None  # the elements of the table holding a row or cell (`_holding_cells`), once asked for
         stack = [(child, False) for child in reversed(_rows_for_loose_cells(soup, table))]
 
         while stack:
@@ -694,7 +695,7 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
                 continue
             elif child.name == "table":
                 after.append(child)
-            elif child.name in _TABLE_PARTS or child.find(["tr", "td", "th"]) is not None:
+            elif child.name in _TABLE_PARTS or id(child) in (holding := _holding_cells(table) if holding is None else holding):
                 if in_row and child.name not in _TABLE_PARTS:
                     wrappers.append(child)
                 in_row = in_row or child.name == "tr"
@@ -706,6 +707,22 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
         _flatten_wrappers(wrappers)
         if before or after:
             _move_beside(table, before, after)
+
+
+def _holding_cells(table: Tag) -> set[int]:
+    """The ids of the elements inside `table` that hold a row or a cell (of this table or a table inside it), from one walk
+    over the table: each row and cell marks its ancestors up to the table, stopping at one already marked.
+
+    Asked of each element in turn (`find`), every element of a chain of wrappers walked down to the deepest one, so 16,000
+    cells each behind one more `<label>` took 6 to 15 seconds on CI runners (Pinned by: test_text_html.py::
+    TestContentOutsideTableCells::test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly)."""
+    holding: set[int] = set()
+    for cell in table.find_all(["tr", "td", "th"]):
+        node = cell.parent
+        while node is not None and node is not table and id(node) not in holding:
+            holding.add(id(node))
+            node = node.parent
+    return holding
 
 
 def _flatten_wrappers(wrappers: list[Tag]) -> None:
