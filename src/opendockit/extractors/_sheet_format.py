@@ -119,8 +119,10 @@ _FORMAT_AM_PM = re.compile(r"AM/PM|A/P", re.IGNORECASE)
 def _shows_date(number_format: str) -> bool:
     """Whether the format shows a date (year, month, day, weekday, era). `m` is minutes when the code right before it is `h` or the
     code right after it is `s` (same rule as Excel). Quoted text, backslash-escaped characters, bracket sections and AM/PM markers
-    are not format codes."""
-    letters = _code_letters(number_format)
+    are not format codes. An elapsed section counts as the hour or second it shows (`[h]` → h, `[ss]` → s; `[mm]` is minutes and
+    is left out): with every bracket section left out, the `mm` of `[h]:mm` and `[hh]:mm` read as a month, so an XLS zero
+    duration came out as `0` instead of `0:00` (Pinned by: test_spreadsheet.py::TestXlsValues::test_zero_duration_is_a_duration)."""
+    letters = _code_letters(_ELAPSED_FORMAT.sub(lambda match: match.group(0)[1].lower().replace("m", ""), number_format))
     if re.search(r"[ydeg]|a{3}", letters):
         return True
     return any(letters[:run.start()][-1:] != "h" and letters[run.end():run.end() + 1] != "s"

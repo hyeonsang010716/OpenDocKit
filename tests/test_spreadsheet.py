@@ -180,6 +180,22 @@ class TestXlsValues:
 
         assert value == "26:00"
 
+    @pytest.mark.parametrize(("number_format", "expected"),
+                             [("[h]:mm", "0:00"), ("[hh]:mm", "0:00"), ("[h]:mm:ss", "0:00:00"), ("[mm]:ss", "0:00")])
+    def test_zero_duration_is_a_duration(self, number_format, expected):
+        """With bracket sections left out, the `mm` of `[h]:mm` read as a month, so serial 0 was taken for the nonexistent day
+        '1900-01-00' and came out as `0`. XLSX gives `0:00`."""
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_DATE, 0.0)
+
+        value = format_cell(_xls_value(cell, 0, number_format), number_format)
+
+        assert value == expected
+
+    def test_zero_under_a_date_format_is_still_the_number(self):
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_DATE, 0.0)
+
+        assert format_cell(_xls_value(cell, 0, "yyyy-mm-dd [h]:mm"), "yyyy-mm-dd [h]:mm") == "0"
+
     def test_elapsed_time_value_too_large_for_a_duration_is_shown_as_the_number(self):
         """A value of 1 billion or more in a `[h]:mm` cell made timedelta raise OverflowError, so the whole document was
         rejected as 'corrupted'."""
