@@ -106,6 +106,10 @@ class TestNumberFormatRounding:
             (0.0125, "0.0%", "1.3%"),
             (1e300, "#,##0", f"{10 ** 300:,}"),
             (1.5, "0." + "0" * 600, "1.5"),  # a format beyond the rounding precision keeps the raw value
+            # Rounded from the value to 15 significant digits, as Excel shows it — from the 17 digits of repr these were 1.0 and 125
+            (0.7 * 1.5, "0.0", "1.1"),  # 1.0499999999999998
+            (1.255 * 100, "0", "126"),  # 125.49999999999999
+            (1234567890123456789, "0", "1234567890123460000"),
         ],
     )
     def test_rounds_half_up_like_excel(self, value, number_format, expected):

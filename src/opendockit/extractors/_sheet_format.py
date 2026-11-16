@@ -462,12 +462,15 @@ def _rounded(value: float, percent: bool, scale: int, decimals: int) -> Decimal:
     """Apply percent and scaling by thousands as the format says and round to `decimals` decimal places.
 
     Excel rounds 0.5 away from zero. With Python format specs (half to even, binary representation) 72.5 became 72 and 0.125
-    became 0.12. Rounding is done on the decimal representation shown on screen (`repr`)
+    became 0.12. Rounding is done on the value to 15 significant digits, as Excel shows it (and as General shows a float,
+    `_format_value`): from `repr` (17 digits) 0.7*1.5 = 1.0499999999999998 came out as 1.0 under `0.0` (Excel 1.1) and
+    1.255*100 = 125.49999999999999 as 125 under `0` (Excel 126). Digits past the 15th are zeros, as in Excel
+    (1234567890123456789 under `0` is 1234567890123460000)
     (Pinned by: test_spreadsheet.py::TestNumberFormatRounding).
     """
     with localcontext() as context:
         context.prec = 400  # even 1e308 keeps its integer part
-        number = Decimal(repr(value))
+        number = Decimal(format(value, ".15g"))
         if percent:
             number *= 100
         return number.scaleb(-3 * scale).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)
