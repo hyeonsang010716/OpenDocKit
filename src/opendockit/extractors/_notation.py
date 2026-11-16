@@ -29,12 +29,12 @@ class TableBudget:
 
     Only cell text that actually lands in the table is counted. A cell placed where an earlier cell or an earlier cell's span already
     sits is not counted — DOCX/PPTX: `TableGrid` drops it; HWP/HWPX: it moves to the next free slot of that row
-    (`TableGrid.place_or_next`), but that slot is unknown here, so this errs toward undercounting. A span is taken to cover exactly what
-    the file says — `TableGrid` only ever shrinks spans, so this errs toward undercounting. The copies of a vertically merged value
-    on the rows it covers are not counted (an HTML table does not write them); the drawing stops writing them at the limit
-    instead (`room`). Once the memory of covered slots exceeds
-    `_MAX_MARKS`, or a cell with an unknown position (`forget`) arrives, the remaining cells of that table are not counted (reading
-    just does not stop; the result is the same).
+    (`TableGrid.place_or_next`), but that slot is unknown here, so this errs toward undercounting. A span is taken to cover what
+    `TableGrid.place` placed it with (the count of the file after the span limits): a span the span budget left out covers nothing
+    here either, and the slots the file claims for it are not remembered one by one. The copies of a vertically merged value on the
+    rows it covers are not counted (an HTML table does not write them); the drawing stops writing them at the limit instead
+    (`room`). Once the memory of covered slots exceeds `_MAX_MARKS`, or a cell with an unknown position (`forget`) arrives, the
+    remaining cells of that table are not counted (reading just does not stop; the result is the same).
     Known accepted gap: a table whose bottom rows are dropped by the grid cell limit (5 million cells) may stop early by counting rows
     that will be dropped — dropped rows require filling 5 million cells with characters below the limit, which real documents do not.
     """

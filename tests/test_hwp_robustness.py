@@ -286,6 +286,31 @@ class TestSpansPastTheTable:
 
         assert result.warnings == ["The table is too large; the bottom 15 row(s) could not be converted."]
 
+    def test_many_tables_of_huge_spans_share_one_budget(self, monkeypatch):
+        """The span budget was per table: 50 small tables whose 50 empty cells each span 100×100 filled 500,000 cells apiece
+        (a 5.6 KB file: 13 s, no text, no warning). The tables of one conversion share one budget, and a table after them is
+        still drawn."""
+        from opendockit.markdown import _CONVERSION_SPAN_BUDGET, TableGrid
+
+        filled: list[int] = []
+        place = TableGrid.place
+
+        def counting(self, *args, **kwargs):
+            spans = place(self, *args, **kwargs)
+            filled.append(spans[0] * spans[1])
+            return spans
+
+        monkeypatch.setattr(TableGrid, "place", counting)
+        cells = "".join(builder._hwpx_cell(0, col * 100, "", row_span=100, col_span=100) for col in range(50))
+        table = f'<hp:p><hp:run><hp:tbl rowCnt="1" colCnt="5000"><hp:tr>{cells}</hp:tr></hp:tbl></hp:run></hp:p>'
+        last = ('<hp:p><hp:run><hp:tbl rowCnt="1" colCnt="2"><hp:tr>' + builder._hwpx_cell(0, 0, "끝")
+                + builder._hwpx_cell(0, 1, "값") + "</hp:tr></hp:tbl></hp:run></hp:p>")
+
+        result = convert(builder.hwpx_bytes("<hp:p><hp:run><hp:t>title</hp:t></hp:run></hp:p>" + table * 50 + last), "a.hwpx")
+
+        assert result.text == "title\n\n| 끝 | 값 |\n| --- | --- |"
+        assert sum(filled) <= _CONVERSION_SPAN_BUDGET + len(filled)  # per table it was 50 × 500,000 cells
+
 
 class TestCellsOnAnOccupiedAddress:
     """When a cell address pointed at a place taken by an earlier cell (two cells with the same address, or an earlier cell's

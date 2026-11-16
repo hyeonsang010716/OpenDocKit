@@ -3,7 +3,9 @@
 Table rendering and text normalization are done only here, in one place, so that every format produces output of the same shape.
 """
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from itertools import chain
 import re
 import unicodedata
@@ -69,8 +71,15 @@ _LIST_ITEM = re.compile(r"^ *(?:[-*]|\d+\.) ")
 # Upper bound on the cells one cell's span fills. Over it, the vertical span (the value repeated on each row) is kept first and
 # the horizontal one is reduced.
 _MAX_SPAN_AREA = 10_000
-# Total cells that spans may fill in one table. Once used up, later spans are ignored and the value goes only in the first cell.
+# Total cells that spans may fill in one table, and in one conversion (`span_budget`). Once used up, later spans are ignored and
+# the value goes only in the first cell. Per table only, many small tables of empty cells each spanning 100×100 filled 500,000
+# cells apiece and wrote nothing: a 5.6 KB HWPX took 13 s with no output and no warning
+# (Pinned by: test_markdown.py::TestTableGridLimits::test_spans_of_one_conversion_share_one_budget,
+# test_hwp_robustness.py::TestSpansPastTheTable::test_many_tables_of_huge_spans_share_one_budget).
 _SPAN_BUDGET = 500_000
+_CONVERSION_SPAN_BUDGET = 1_000_000
+# What is left of the conversion's span budget (a one-item list, shared by every table of the conversion; None outside `span_budget`).
+_spans_left: ContextVar[list[int] | None] = ContextVar("spans_left", default=None)
 # Upper bound on the grid cells rows() builds. Over it, the bottom rows are dropped and their number is reported through
 # `TableGrid.omitted_rows` (the extractor warns).
 _MAX_GRID_CELLS = 5_000_000
@@ -78,6 +87,31 @@ _MAX_GRID_CELLS = 5_000_000
 # The placeholder of a table inside a table (`TableGrid.embed`). Private-use characters, so clean_text removes any left unresolved.
 _EMBED = re.compile("\ue020(\\d+)\ue021")
 _TABLE_TAG = re.compile(r"</?(?:table|thead|tbody|tfoot|tr|td|th|br)\b[^>]*>", re.IGNORECASE)
+
+
+@contextmanager
+def span_budget() -> Iterator[None]:
+    """Give the tables drawn inside this block (one conversion, `converter.convert`) one budget of cells their spans may fill
+    together (`_CONVERSION_SPAN_BUDGET`), on top of each table's own."""
+    token = _spans_left.set([_CONVERSION_SPAN_BUDGET])
+    try:
+        yield
+    finally:
+        _spans_left.reset(token)
+
+
+def spans_left() -> int | None:
+    """What is left of the conversion's span budget (None outside `span_budget`), to put back with `restore_spans` when the same
+    content is drawn again from the start (the growing front parts of a large HTML page, `html._extract_front`)."""
+    left = _spans_left.get()
+    return None if left is None else left[0]
+
+
+def restore_spans(value: int | None) -> None:
+    """Put the conversion's span budget back to `value` (from `spans_left`)."""
+    left = _spans_left.get()
+    if left is not None and value is not None:
+        left[0] = value
 
 
 def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
@@ -682,19 +716,23 @@ class TableGrid:
         self._next_col: dict[int, int] = {}
 
     def place(self, row: int, col: int, text: str, *, row_span: int = 1, col_span: int = 1,
-              fill_horizontal: bool = False) -> None:
+              fill_horizontal: bool = False) -> tuple[int, int]:
         """`fill_horizontal` is for merging header rows — it fills the value into the horizontally merged cells too, so it can be
-        joined with the header below. A filled cell is a value, so the table extent reaches the spanned columns (`_last_col`)."""
+        joined with the header below. A filled cell is a value, so the table extent reaches the spanned columns (`_last_col`).
+        Returns the spans (rows, columns) the cell was placed with, after the limits (`TableBudget.add` marks what it covers)."""
         row_span, col_span = max(row_span, 1), max(col_span, 1)
         self.reach(row, col + col_span - 1 if fill_horizontal else col)
         if row_span * col_span > _MAX_SPAN_AREA:
             row_span = min(row_span, _MAX_SPAN_AREA)
             col_span = max(_MAX_SPAN_AREA // row_span, 1)
         if row_span * col_span > 1:
-            if row_span * col_span > self._span_budget:
+            shared = _spans_left.get()
+            if row_span * col_span > self._span_budget or (shared is not None and row_span * col_span > shared[0]):
                 row_span = col_span = 1
             else:
                 self._span_budget -= row_span * col_span
+                if shared is not None:
+                    shared[0] -= row_span * col_span
 
         owner = -1
         if (row, col) not in self._cells:
@@ -706,9 +744,10 @@ class TableGrid:
                 if (row + dr, col + dc) not in self._cells:
                     self._cells[row + dr, col + dc] = text if dr == dc == 0 else (copy if dc == 0 or fill_horizontal else "")
                     self._owners[row + dr, col + dc] = owner
+        return row_span, col_span
 
     def place_next(self, row: int, text: str, *, row_span: int = 1, col_span: int = 1,
-                   fill_horizontal: bool = False) -> None:
+                   fill_horizontal: bool = False) -> tuple[int, int]:
         """Place a cell that comes in order without an address (HTML), skipping the merged cells coming down from above.
 
         The empty spot is looked for from the column last placed on that row. Looking from column 0 was quadratic in the number
@@ -719,17 +758,16 @@ class TableGrid:
         while (row, col) in self._cells:
             col += 1
         self._next_col[row] = col
-        self.place(row, col, text, row_span=row_span, col_span=col_span, fill_horizontal=fill_horizontal)
+        return self.place(row, col, text, row_span=row_span, col_span=col_span, fill_horizontal=fill_horizontal)
 
-    def place_or_next(self, row: int, col: int, text: str, *, row_span: int = 1, col_span: int = 1) -> None:
+    def place_or_next(self, row: int, col: int, text: str, *, row_span: int = 1, col_span: int = 1) -> tuple[int, int]:
         """A cell with a written address (HWP, HWPX). If an earlier cell already occupies that spot (two cells with the same address,
         an earlier cell's span larger than the table), `place` would drop the text, so a cell with text is put in the next empty
         spot of that row like a cell without an address (`place_next`). In corrupted files cell text vanished without a warning
         (Pinned by: test_hwp_robustness.py::TestCellsOnAnOccupiedAddress)."""
         if (row, col) in self._cells and text.strip():
-            self.place_next(row, text, row_span=row_span, col_span=col_span)
-        else:
-            self.place(row, col, text, row_span=row_span, col_span=col_span)
+            return self.place_next(row, text, row_span=row_span, col_span=col_span)
+        return self.place(row, col, text, row_span=row_span, col_span=col_span)
 
     def reach(self, row: int, col: int) -> None:
         """Report, without text, that the table extends to this spot — a cell covered by a span (a DOCX/PPTX vMerge cell, etc.). A

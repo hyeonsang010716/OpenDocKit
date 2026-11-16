@@ -1112,7 +1112,7 @@ def _place_pptx_cells(table: object, grid: TableGrid, inline: _Inline | None, bu
                 continue
             text = "\n".join(_cell_paragraph_text(paragraph, inline) for paragraph in cell.text_frame.paragraphs)
             row_span, col_span = _span(element, "rowSpan"), _span(element, "gridSpan")
-            grid.place(row_index, col_index, text, row_span=row_span, col_span=col_span)
+            row_span, col_span = grid.place(row_index, col_index, text, row_span=row_span, col_span=col_span)
             if budget is not None and budget.add(row_index, col_index, text, row_span=row_span, col_span=col_span):
                 return
 

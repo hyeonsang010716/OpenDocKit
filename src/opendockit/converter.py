@@ -34,7 +34,7 @@ from opendockit.image import (
     needs_heif_plugin,
     prepare_image,
 )
-from opendockit.markdown import _split_quote, clean_line, clean_text, code_fences, neutralize_table_tags, solid_length
+from opendockit.markdown import _split_quote, clean_line, clean_text, code_fences, neutralize_table_tags, solid_length, span_budget
 from opendockit.models import (
     ConversionResult,
     ConvertOptions,
@@ -165,7 +165,7 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
         if document_format in _ZIP_FORMATS:
             _guard_zip(data, options)
         key = hashlib.sha256(data).hexdigest()[:16]
-        with marker_key(key):
+        with marker_key(key), span_budget():
             document_format, extraction = _extract(document_format, data, filename, options)
     except MemoryError:
         raise

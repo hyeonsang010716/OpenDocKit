@@ -609,7 +609,7 @@ class HwpxRenderer:
                 continue
 
             row_at, col_at = _int(address.get("rowAddr"), row_index), _int(address.get("colAddr"), 0)
-            grid.place_or_next(row_at, col_at, text, row_span=row_span, col_span=col_span)
+            row_span, col_span = grid.place_or_next(row_at, col_at, text, row_span=row_span, col_span=col_span)
             if budget is not None and budget.add(row_at, col_at, text, row_span=row_span, col_span=col_span):
                 return True
         return False

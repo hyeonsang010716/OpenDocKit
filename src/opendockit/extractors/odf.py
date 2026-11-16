@@ -980,8 +980,8 @@ class _Renderer:
                         text = merged_copy(text)
                     # A cell on a position an earlier span already covers (a file without its covered cells) moves to the next
                     # free position instead of losing its text.
-                    grid.place_or_next(row_at, column, text, row_span=row_span, col_span=col_span)
-                    if budget is not None and budget.add(row_at, column, text, row_span=row_span, col_span=col_span):
+                    placed = grid.place_or_next(row_at, column, text, row_span=row_span, col_span=col_span)
+                    if budget is not None and budget.add(row_at, column, text, row_span=placed[0], col_span=placed[1]):
                         stopped = True
                         break
                 row_at += 1

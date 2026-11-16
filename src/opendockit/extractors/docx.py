@@ -588,7 +588,7 @@ class _DocxRenderer:
             while continuing.get((row + row_span, col)) == span:
                 shown[row + row_span, col] = shown[row, col]
                 row_span += 1
-            grid.place(row, col, text, row_span=row_span, col_span=span)
+            row_span, span = grid.place(row, col, text, row_span=row_span, col_span=span)
             if budget is not None and budget.add(row, col, text, row_span=row_span, col_span=span):
                 break
 

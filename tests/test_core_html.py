@@ -250,6 +250,23 @@ class TestRowsLeftOutByTheGridLimit:
         assert result.warnings == []
 
 
+class TestSpanBudgetOfFrontParts:
+    def test_front_parts_that_are_not_returned_leave_the_span_budget_as_they_found_it(self, monkeypatch):
+        """A large page is first drawn from its front (`html._extract_front`). The tables of a conversion share one span budget
+        (`markdown.span_budget`, lowered here to 10 tables); spent by a front part that was then dropped, the page drawn whole
+        ignored the spans of its first tables and the text under the limit was not the front of the full conversion."""
+        monkeypatch.setattr("opendockit.markdown._CONVERSION_SPAN_BUDGET", 100_000)
+        table = ('<table><tr><td rowspan="100" colspan="100"></td><td>x</td></tr><tr><td>y</td></tr>'
+                 + "<tr><td></td></tr>" * 98 + "</table>")
+        data = f"<html><body>{table * 30}{'<i></i>' * 5000}<p>{'tail words ' * 2000}</p></body></html>".encode()
+        full = convert(data, "a.html", ConvertOptions(max_chars=None))
+
+        result = convert(data, "a.html", ConvertOptions(max_chars=full.char_count - 1))
+
+        assert full.text.startswith("x\n\ny\n\nx") and "| | x |" in full.text  # spans honored, then the budget is used up
+        assert result.exceeded and result.text == full.text[:full.char_count - 1].rstrip()
+
+
 class TestNestedListInsideATableCell:
     """A nested list was detached into a placeholder while rendering and not put back. A table with a table inside a cell renders
     its cells twice (flattened, and embedded), and the second rendering saw only the placeholder text and could not find the

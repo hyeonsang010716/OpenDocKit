@@ -5,7 +5,7 @@ import unicodedata
 import pytest
 
 from opendockit import convert
-from opendockit.markdown import TableGrid, clean_text, join_blocks, render_table, solid_length
+from opendockit.markdown import TableGrid, clean_text, join_blocks, render_table, solid_length, span_budget
 
 
 class TestCleanText:
@@ -361,6 +361,24 @@ class TestTableGridLimits:
 
         assert len(rows) < 3000
         assert grid.omitted_rows() == 3000 - len(rows)
+
+    def test_spans_of_one_conversion_share_one_budget(self):
+        """Each table has a budget of 500,000 cells for its spans, and the tables of one conversion share one of 1,000,000: the
+        third table's spans are ignored (its value goes only in the first cell). Outside a conversion only the table's own
+        budget applies."""
+        def table() -> tuple[TableGrid, list[tuple[int, int]]]:
+            grid = TableGrid()
+            spans = [grid.place(0, col * 100, "", row_span=100, col_span=100) for col in range(50)]
+            grid.place(1, 0, "A")
+            return grid, spans
+
+        with span_budget():
+            tables = [table() for _ in range(3)]
+        alone, alone_spans = table()
+
+        assert [spans[-1] for _, spans in tables] == [(100, 100), (100, 100), (1, 1)]
+        assert [grid.render() for grid, _ in tables] == ["", "", "A"]
+        assert alone_spans[-1] == (100, 100) and alone.render() == ""
 
     @pytest.mark.parametrize("horizontal", [False, True])
     def test_drawing_stops_writing_rows_past_the_room(self, horizontal):

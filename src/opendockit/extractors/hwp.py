@@ -616,7 +616,7 @@ class HwpRenderer:
                 columns = max(col_count, 1)
                 row, col, row_span, col_span = (_cell_address(header.payload, row_count, col_count)
                                                 or (position // columns, position % columns, 1, 1))
-                grid.place_or_next(row, col, text, row_span=row_span, col_span=col_span)
+                row_span, col_span = grid.place_or_next(row, col, text, row_span=row_span, col_span=col_span)
                 if budget is not None and budget.add(row, col, text, row_span=row_span, col_span=col_span):
                     break
         finally:

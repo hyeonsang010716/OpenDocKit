@@ -78,7 +78,7 @@ from opendockit.extractors._mail import (
     mail_messages,
 )
 from opendockit.extractors._notation import omitted_rows_warning
-from opendockit.markdown import solid_length
+from opendockit.markdown import restore_spans, solid_length, spans_left
 from opendockit.models import ConvertOptions, Extraction, RawImage, Section, SectionKind, quiet_warnings
 
 
@@ -383,8 +383,14 @@ def _extract_front(text: str, encoding: str, options: ConvertOptions,
     start = head.end() if head is not None else 0
     size = start + limit * _FIRST_FRONT_CHARS_PER_LIMIT
     last = start + limit * _LAST_FRONT_CHARS_PER_LIMIT
+    # Each front part is drawn from the start of the document, so each starts from the span budget the whole document would
+    # (`markdown.span_budget`): spent by the attempts before, the spans of the front part returned were not those of the full
+    # conversion. A front part that is not returned leaves the budget as it found it
+    # (Pinned by: test_core_html.py::TestSpanBudgetOfFrontParts).
+    spans = spans_left()
 
     while len(text) > size * 2:
+        restore_spans(spans)
         end = text.rfind(">", 0, size)
         if end <= 0:
             return None
@@ -405,11 +411,13 @@ def _extract_front(text: str, encoding: str, options: ConvertOptions,
             return extraction
         if counted * len(text) <= left * len(front):
             if size >= last:
+                restore_spans(spans)
                 return None  # at this density the whole may also be within the limit
             size = last
             continue
         # enough to exceed the limit + 1.25 times margin
         size = max(size * 3 // 2, start + (len(front) - start) * left * 5 // (counted * 4))
+    restore_spans(spans)
     return None
 
 
