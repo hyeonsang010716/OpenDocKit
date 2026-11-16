@@ -470,6 +470,14 @@ def _is_code_fence(line: str) -> bool:
     return line.endswith(_CODE_FENCE) and not line[:-len(_CODE_FENCE)].strip("> \t")
 
 
+# A closing strikethrough mark put right against an opening one (`_settle_strikes`): the key of the closing mark, the emphasis
+# marks and the end of a link (`](address)`; an address holds no parenthesis or whitespace, `_inline.link_target`) that its
+# tildes were moved out of, the four tildes, the start of a link and the emphasis marks that the opening tildes were moved out
+# of, and the key of the opening mark.
+_STRUCK_JOINT = re.compile(
+    re.escape(STRIKE_KEY) + r"((?:\*|\]\([^()\s]*\))*)~~~~((?:\[|\*)*)" + re.escape(STRIKE_KEY))
+
+
 def _settle_strikes(text: str) -> str:
     """The rendered text with the key taken off its strikethrough marks (`STRIKE_KEY`), and a closing mark that the rendering
     put right against an opening one (`~~a~~~~b~~`) joined into one pair (`~~ab~~`). Four tildes in a row are not a
@@ -477,10 +485,17 @@ def _settle_strikes(text: str) -> str:
     list item or paragraph with nothing in it, or one drawn inline (in a heading, a table cell, an `<ol>` that holds it
     directly), puts no break between the runs around it (Pinned by:
     test_audit_web_fixes.py::TestStrikethroughAroundBlocks::test_runs_with_nothing_rendered_between_them_are_one_pair,
-    test_struck_blocks_never_leave_marks_against_each_other). The key tells these marks from tildes of the document."""
+    test_struck_blocks_never_leave_marks_against_each_other). The key tells these marks from tildes of the document.
+
+    The tildes of a mark need not sit against its key: half of a pair at the edge of an emphasis or link span is moved out of
+    it (`_inline._without_edge_strike`) while the key stays inside, so the emphasis marks and the end of a link that the
+    rendering wrote between them (`_STRUCK_JOINT`) are kept and only the tildes go. A struck italic link and the struck text
+    after it gave `~~*old* [*terms*](https://e.com/)~~~~2023~~`
+    (Pinned by: test_audit_web_fixes.py::TestAdjacentStruckRuns::test_runs_joined_around_the_end_of_a_link_or_emphasis).
+    """
     if STRIKE_KEY not in text:
         return text
-    return text.replace(f"{STRIKE_KEY}~~~~{STRIKE_KEY}", "").replace(STRIKE_KEY, "")
+    return _STRUCK_JOINT.sub(r"\1\2", text).replace(STRIKE_KEY, "")
 
 
 def _settle_fences(text: str) -> str:
