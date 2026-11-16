@@ -12,6 +12,7 @@ import zipfile
 import openpyxl
 from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Font
+from openpyxl.utils.datetime import CALENDAR_MAC_1904
 import pytest
 import xlrd
 
@@ -154,6 +155,34 @@ class TestElapsedTime:
         result = convert(data, "a.xlsx")
 
         assert "| 설치 | 26:00 |" in result.text
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (1.5, "[hhh]:mm", "36:00"),
+        (0, "[hhh]:mm", "0:00"),
+        (0.0625, "[mmm]:ss", "90:00"),
+        (100.25, "[hhh]:mm", "2406:00"),
+    ])
+    def test_elapsed_format_openpyxl_does_not_know_is_a_duration(self, streamed, value, number_format, expected):
+        """openpyxl gives a duration only for `[h]`, `[hh]`, `[m]`, `[mm]`, `[s]` and `[ss]`; under `[hhh]:mm` the cell came as a
+        date, and 36 hours were shown as `12:00:00`."""
+        data = _xlsx([["작업", "기간"], ["설치", value]], {"B2": number_format})
+
+        result = convert(data, "a.xlsx")
+
+        assert f"| 설치 | {expected} |" in result.text
+
+    def test_elapsed_format_openpyxl_does_not_know_counts_from_the_1904_epoch(self):
+        workbook = openpyxl.Workbook()
+        workbook.epoch = CALENDAR_MAC_1904
+        workbook.active.append(["작업", "기간"])
+        workbook.active.append(["설치", 1.5])
+        workbook.active["B2"].number_format = "[hhh]:mm"
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.xlsx")
+
+        assert "| 설치 | 36:00 |" in result.text
 
 
 class TestXlsValues:
@@ -925,6 +954,79 @@ class TestOversizedStylesheet:
         assert "| 금액 | 1,234.50 |" in result.text
         assert not result.warnings
         assert styles[0].count(b"<font/>") == 1_000
+
+    @staticmethod
+    def _with_styles_encoded(data: bytes, encoding: str) -> bytes:
+        """The workbook with its styles part written in `encoding`, declared so (openpyxl reads such a part like any other)."""
+        buffer = BytesIO()
+        with zipfile.ZipFile(BytesIO(data)) as source, zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+            for name in source.namelist():
+                content = source.read(name)
+                if name == "xl/styles.xml":
+                    xml = re.sub(r"^<\?xml[^>]*\?>", "", content.decode("utf-8"))
+                    content = f'<?xml version="1.0" encoding="{encoding}" standalone="yes"?>{xml}'.encode(encoding)
+                target.writestr(name, content)
+        return buffer.getvalue()
+
+    @pytest.mark.parametrize("encoding", ["UTF-16", "UTF-16-LE", "UTF-16-BE"])
+    def test_styles_part_in_utf16_is_bounded_with_its_formats(self, encoding, monkeypatch):
+        """The bound looked for ASCII bytes, so a styles part in UTF-16 was never counted (900,000 cell formats: 6.5 s, 1.8 GB),
+        and one over the element bound lost every display format."""
+        styles = self._loaded_styles(monkeypatch)
+        data = _xlsx_with_damaged_styles(lambda xml: xml.replace("</fonts>", "<font/>" * 140_000 + "</fonts>", 1))
+
+        result = convert(self._with_styles_encoded(data, encoding), "a.xlsx")
+
+        assert "| 날짜 | 2026-03-05 |" in result.text
+        assert "| 금액 | 1,234.50 |" in result.text
+        assert result.warnings == ["The workbook's style table is unusually large, so only number and date display formats were read."]
+        assert len(styles[0]) < 2_000
+
+    def test_styles_part_in_a_declared_single_byte_encoding_keeps_its_format_codes(self, monkeypatch):
+        styles = self._loaded_styles(monkeypatch)
+
+        def damage(xml: str) -> str:
+            xml = xml.replace("</numFmts>", '<numFmt numFmtId="170" formatCode="#,##0.00 &quot;€&quot;"/></numFmts>', 1)
+            xml = xml.replace('<xf numFmtId="4"', '<xf numFmtId="170"', 1)
+            return xml.replace("</fonts>", "<font/>" * 140_000 + "</fonts>", 1)
+
+        result = convert(self._with_styles_encoded(_xlsx_with_damaged_styles(damage), "windows-1252"), "a.xlsx")
+
+        assert "| 금액 | 1,234.50 € |" in result.text
+        assert len(styles[0]) < 2_000
+
+    def test_styles_part_within_the_bound_in_utf16_is_read_by_openpyxl_as_written(self, monkeypatch):
+        styles = self._loaded_styles(monkeypatch)
+        data = _xlsx_with_damaged_styles(lambda xml: xml.replace("</fonts>", "<font/>" * 1_000 + "</fonts>", 1))
+
+        result = convert(self._with_styles_encoded(data, "UTF-16"), "a.xlsx")
+
+        assert "| 금액 | 1,234.50 |" in result.text
+        assert not result.warnings
+        assert styles[0].decode("utf-16").count("<font/>") == 1_000
+
+    def test_only_as_many_display_formats_as_cell_formats_are_read(self, monkeypatch):
+        """The cell formats and dxf were read up to `_MAX_CELL_FORMATS`, the display formats all: 4,000,000 of them (448 KB) took
+        5.8 s in the replacement."""
+        from opendockit.extractors import spreadsheet
+
+        monkeypatch.setattr(spreadsheet, "_MAX_CELL_FORMATS", 3)
+        read = []
+        original = spreadsheet._style_tags
+
+        def counted(xml, name, start, end):
+            for attributes in original(xml, name, start, end):
+                read.append(name)
+                yield attributes
+
+        monkeypatch.setattr(spreadsheet, "_style_tags", counted)
+        junk = '<numFmt numFmtId="300" formatCode="0"/>' * 1_000
+        data = _xlsx_with_damaged_styles(lambda xml: xml.replace("</numFmts>", junk + "</numFmts>", 1)
+                                         .replace("</fonts>", "<font/>" * 140_000 + "</fonts>", 1))
+
+        convert(data, "a.xlsx")
+
+        assert read.count(b"numFmt") <= 3
 
     @pytest.mark.timing
     def test_million_cell_formats_are_not_loaded(self):

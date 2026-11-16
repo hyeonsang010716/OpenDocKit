@@ -1,5 +1,6 @@
 """XLSX → one Markdown table per sheet, with the pictures, charts, text boxes, comments and form controls of the sheet."""
 
+import codecs
 from collections import deque
 from collections.abc import Iterator
 from datetime import datetime, time
@@ -18,7 +19,7 @@ from openpyxl.formula.tokenizer import TokenizerError
 from openpyxl.formula.translate import Translator, TranslatorError
 from openpyxl.styles.numbers import BUILTIN_FORMATS
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
-from openpyxl.utils.datetime import from_excel
+from openpyxl.utils.datetime import from_excel, to_excel
 from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.worksheet.formula import ArrayFormula
 
@@ -26,7 +27,7 @@ from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._openpyxl_reading import _RAW_OUT_OF_RANGE_SERIALS, _READING, _CellPicture, _CellReading, _is_number
 from opendockit.extractors._package import _XML_PARSER, ZIP_MEMBER_ERRORS, named_part
-from opendockit.extractors._sheet_format import _format_value, _format_within_length, _is_weekday_only, _shows_date, format_cell
+from opendockit.extractors._sheet_format import _ELAPSED_FORMAT, _format_value, _format_within_length, _is_weekday_only, _shows_date, format_cell
 from opendockit.extractors._sheet_layout import (
     _MAX_MERGED_CELLS,
     _Across,
@@ -396,24 +397,58 @@ _STYLE_ATTRIBUTES = rb"((?:\s+[\w:.-]+\s*=\s*(?:\"[^\"]*\"|'[^']*'))*)"
 _STYLE_ATTRIBUTE = re.compile(rb"([\w:.-]+)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')")
 
 
+_XML_ENCODING = re.compile(rb"""^<\?xml[^>]*?\sencoding\s*=\s*["']([A-Za-z][\w.:-]*)["']""")
+# The first bytes of an XML document written without a byte order mark in an encoding that does not keep ASCII as is (XML 1.0
+# Appendix F), checked after the marks (`codecs.BOM_UTF32_LE` begins with `codecs.BOM_UTF16_LE`).
+_XML_WIDE_STARTS = ((codecs.BOM_UTF32_LE, "utf-32"), (codecs.BOM_UTF32_BE, "utf-32"), (codecs.BOM_UTF16_LE, "utf-16"),
+                    (codecs.BOM_UTF16_BE, "utf-16"), (b"<\x00\x00\x00", "utf-32-le"), (b"\x00\x00\x00<", "utf-32-be"),
+                    (b"<\x00?\x00", "utf-16-le"), (b"\x00<\x00?", "utf-16-be"))
+
+
+def _styles_codec(head: bytes) -> str | None:
+    """The codec of a styles part that is not UTF-8, from its first bytes: a byte order mark or the first characters of a part
+    in UTF-16 or UTF-32, or the encoding its XML declaration names. None for UTF-8 and for an encoding Python does not know
+    (lxml refuses that part anyway). openpyxl reads a part in UTF-16 like any other, while the byte patterns of the bound look
+    for ASCII: a UTF-16 part of 900,000 cell formats was never counted and took 6.5 s and 1.8 GB, and one over the element bound
+    lost every display format in the replaced stylesheet (Pinned by: test_spreadsheet.py::TestOversizedStylesheet::
+    test_styles_part_in_utf16_is_bounded_with_its_formats)."""
+    wide = next((name for start, name in _XML_WIDE_STARTS if head.startswith(start)), None)
+    if wide is not None:
+        return wide
+    declared = _XML_ENCODING.match(head.removeprefix(codecs.BOM_UTF8))
+    if declared is None:
+        return None
+    try:
+        name = codecs.lookup(declared.group(1).decode("ascii")).name
+    except LookupError:
+        return None
+    # A declaration of UTF-16 or UTF-32 on bytes that are not is not followed (the part is read as ASCII, as libxml2 reads it)
+    return None if name == "utf-8" or name.startswith(("utf-16", "utf-32")) else name
+
+
 def _stylesheet_too_large(archive: zipfile.ZipFile) -> bool:
     """Whether the styles part has more entries or elements than `_MAX_STYLE_ENTRIES` / `_MAX_STYLE_ELEMENTS`. It is decompressed
-    and counted in chunks; a tag straddling a chunk boundary is counted with the next chunk. A missing or unreadable part is left
-    to openpyxl, as before."""
+    and counted in chunks (turned into UTF-8 first when written in another encoding, `_styles_codec`); a tag straddling a chunk
+    boundary is counted with the next chunk. A missing or unreadable part is left to openpyxl, as before."""
     entries = elements = 0
     tail = b""
+    decoder = None
     try:
         with archive.open(_STYLES_PATH) as stream:
             while True:
-                chunk = stream.read(1 << 20)
+                raw = stream.read(1 << 20)
+                if decoder is None:
+                    codec = _styles_codec(raw[:256])
+                    decoder = codecs.getincrementaldecoder(codec)(errors="replace") if codec else False
+                chunk = decoder.decode(raw, final=not raw).encode() if decoder else raw
                 text = tail + chunk
-                cut = text.rfind(b"<", max(0, len(text) - 64)) if chunk else -1
+                cut = text.rfind(b"<", max(0, len(text) - 64)) if raw else -1
                 body, tail = (text, b"") if cut < 0 else (text[:cut], text[cut:])
                 entries += len(_STYLE_ENTRY.findall(body))
                 elements += body.count(b"<") - body.count(b"</")
                 if entries > _MAX_STYLE_ENTRIES or elements > _MAX_STYLE_ELEMENTS:
                     return True
-                if not chunk:
+                if not raw:
                     return False
     except (KeyError, *ZIP_MEMBER_ERRORS):
         return False
@@ -444,6 +479,9 @@ def _with_bounded_number_formats(data: bytes) -> tuple[bytes, bool]:
     dropped or the display format it points to could not be read (such cells get the General format)."""
     with zipfile.ZipFile(BytesIO(data)) as archive:
         xml = archive.read(_STYLES_PATH)
+    codec = _styles_codec(xml[:256])
+    if codec:
+        xml = xml.decode(codec, errors="replace").encode()
     cell_formats: list[str] = []
     lost = False
     section = _style_section(xml, b"cellXfs")
@@ -457,7 +495,9 @@ def _with_bounded_number_formats(data: bytes) -> tuple[bytes, bool]:
     used = set(cell_formats)
     formats: dict[str, str] = {}
     section = _style_section(xml, b"numFmts")
-    for attributes in _style_tags(xml, b"numFmt", *section) if section else ():
+    # Only the first `_MAX_CELL_FORMATS` display formats are read, as for the cell formats: 4,000,000 of them (448 KB) took 5.8 s
+    # here (Excel allows about 250 of its own)
+    for attributes in islice(_style_tags(xml, b"numFmt", *section), _MAX_CELL_FORMATS) if section else ():
         number = attributes.get(b"numFmtId")
         number = str(int(number)) if _is_number(number) else None
         if number in used and number not in formats and attributes.get(b"formatCode"):
@@ -873,6 +913,12 @@ def _cell_text(cell: object) -> str:
         return reading.picture_text(value) if reading is not None and reading.picture_text is not None else ""
     number_format = _number_format(cell)
     number_format = _BUILTIN_FORMAT_FIXES.get(number_format, number_format)
+    if isinstance(value, (datetime, time)) and number_format and _ELAPSED_FORMAT.search(number_format):
+        # openpyxl gives a duration only for `[h]`, `[hh]`, `[m]`, `[mm]`, `[s]` and `[ss]`, so a cell under `[hhh]:mm` (hours
+        # with three digits) came as a date and lost its days (36 hours shown as `12:00:00`). It is the duration from the
+        # workbook's epoch, as for the other elapsed formats (Pinned by:
+        # test_spreadsheet.py::TestXlsValues::test_elapsed_format_openpyxl_does_not_know_is_a_duration).
+        value = from_excel(to_excel(value, cell.parent.parent.epoch), timedelta=True)
     if _is_serial_zero_shown_as_date(value, number_format):
         return "0"
     if isinstance(value, (int, float)) and not isinstance(value, bool) \

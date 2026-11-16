@@ -11,7 +11,8 @@ A sixth review of the whole source. The sample outputs in `examples/` are unchan
 ### Security
 
 - **XLSX**: a styles part with more than 131,072 entries or 1,000,000 elements is replaced before loading by one that
-  keeps only the display formats of the first 65,536 cell formats, with a warning. A 283 KB file with one cell and
+  keeps only the display formats of the first 65,536 cell formats, with a warning (a styles part written in UTF-16 is
+  counted too). A 283 KB file with one cell and
   1,000,000 cell formats took 7.8 seconds and 2.3 GB (now 0.7 seconds and 350 MB); 1,000,000 differential formats took
   21 seconds.
 - **PDF**: a line reaching out of the cells of a ruled table no longer scans every character of the page, and the cell
@@ -42,7 +43,8 @@ A sixth review of the whole source. The sample outputs in `examples/` are unchan
 - **Markdown**: a `data:` picture written in capitals (`DATA:IMAGE/PNG`) is extracted instead of leaving its base64 in
   the text.
 - **XLSX / XLS / Excel 2003 XML**: number formats round the value to 15 significant digits first, as Excel does, so
-  `0.7*1.5` under `0.0` is `1.1` (was `1.0`). An XLS zero duration under `[h]:mm` is `0:00` instead of `0`.
+  `0.7*1.5` under `0.0` is `1.1` (was `1.0`). An XLS zero duration under `[h]:mm` is `0:00` instead of `0`, and an XLSX cell under `[hhh]:mm` keeps
+  its days (`36:00`, was `12:00:00`).
 
 ## [0.3.8] - 2026-11-16
 
