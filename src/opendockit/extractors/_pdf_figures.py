@@ -414,6 +414,11 @@ class _PageRenderer:
             page = self._page(page_index)
             try:
                 width, height = page.get_size()  # visible area, rotation applied — same as the picture coordinates (relative to _view_box)
+                if width < 1 or height < 1:
+                    # A CropBox outside the MediaBox leaves pdfium a 0 x 0 page: nothing of it is shown, and pypdfium2 refused
+                    # to draw it with a ValueError that reported the whole document corrupted (Pinned by:
+                    # test_audit_pdf_text.py::TestCropBoxOutsideTheMediaBox)
+                    return None
                 if box is None:
                     return _render_bitmap(page, _capped_scale(scale, width * height))
                 if width * height * scale * scale <= _MAX_RENDER_PIXELS:
