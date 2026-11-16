@@ -3394,6 +3394,35 @@ class TestBlockPlacement:
 
         assert text.index("2. Team South grew least.") < text.index(block) < text.index("Source: finance.")
 
+    @pytest.mark.timing
+    def test_many_blocks_over_two_columns_of_many_paragraphs_take_linear_time(self):
+        """Fifty tables stacked at the top of the right column, then 1,000 one-line paragraphs of the left column and
+        1,000 of the right one, none beside a paragraph of the other column. Looking for a left-column paragraph beside
+        each right-column one paired every paragraph with every other for every table: 7.5 s for this page (a crafted
+        file needs no more than a few kilobytes for it). The pairs are now found by sorting, in a tenth of a second."""
+        import time
+
+        from opendockit.extractors._pdf_model import _Line, _Page, _Table
+        from opendockit.extractors._pdf_paragraphs import _render_page
+        from tests.timing import allowed
+
+        def column(x0, x1, name, start):
+            return [_Line(top=start + 12 * index, bottom=start + 12 * index + 10, x0=x0, x1=x1, text=f"{name} {index}",
+                          size=10 if index % 2 else 13) for index in range(1_000)]
+
+        tables = [_Table(top=10 + 20 * index, bottom=26 + 20 * index, x0=320, x1=540, text=f"| table {index} |\n| --- |")
+                  for index in range(50)]
+        lines = [*column(57, 280, "left", 1_020), *column(320, 540, "right", 13_020)]
+        page = _Page(number=1, width=595, height=25_100, lines=lines, tables=tables, has_images=False,
+                     view=(0, 0, 595, 25_100))
+        started = time.perf_counter()
+
+        text = _render_page(page, {}, 0.2)
+
+        assert time.perf_counter() - started < allowed(1.5)
+        blocks = text.split("\n\n")
+        assert blocks[:50] == [table.text for table in tables] and blocks[50] == "left 0" and blocks[-1] == "right 999"
+
 
 class TestFormFields:
     """The values entered in a fillable form (AcroForm) are not in the page content but in widget annotations."""

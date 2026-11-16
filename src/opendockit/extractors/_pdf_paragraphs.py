@@ -290,18 +290,66 @@ def _columns_apart(span: tuple[float, float], block: tuple[float, float, float, 
     test_centred_title_above_a_centred_narrow_table_does_not_make_two_columns).
     """
     top, bottom, x0, x1 = block
+    if any(not (left < x1 and x0 < right) and _beside((other_top, other_bottom), (top, bottom))
+           for other_top, other_bottom, left, right in boxes):
+        return True
 
-    def beside(first: tuple[float, float], second: tuple[float, float]) -> bool:
-        return min(first[1], second[1]) - max(first[0], second[0]) > _TABLE_ROW_TOLERANCE
+    body = [box for box in boxes if box[2] < x1 and x0 < box[3] and not (box[2] < span[1] and span[0] < box[3])
+            and box[3] - box[2] >= (x1 - x0) * _COLUMN_MIN_WIDTH_RATIO]
+    near = [box for box in boxes if box[2] < span[1] and span[0] < box[3]]
+    if not body or not near:
+        return False
+    if not all(math.isfinite(value) for box in (*body, *near) for value in box):
+        return any(_beside(box[:2], other[:2]) and not (box[2] < other[3] and other[2] < box[3]) for other in body for box in near)
+    # A paragraph that does not overlap `span` lies wholly on one side of it, and a paragraph of `span`'s column clears it
+    # only on that side: before it when it lies to the right of `span`, after it when to the left (mirrored, so that both
+    # read 'the near edge is at most the body edge')
+    return (_side_by_side([(other_top, other_bottom, left) for other_top, other_bottom, left, _ in body if left >= span[1]],
+                          [(near_top, near_bottom, right) for near_top, near_bottom, _, right in near])
+            or _side_by_side([(other_top, other_bottom, -right) for other_top, other_bottom, left, right in body
+                              if left < span[1]],
+                             [(near_top, near_bottom, -left) for near_top, near_bottom, left, _ in near]))
 
-    for other_top, other_bottom, left, right in boxes:
-        overlaps_block = left < x1 and x0 < right
-        if (overlaps_block and not (left < span[1] and span[0] < right) and right - left >= (x1 - x0) * _COLUMN_MIN_WIDTH_RATIO
-                and any(near_left < span[1] and span[0] < near_right and not (near_left < right and left < near_right)
-                        and beside((near_top, near_bottom), (other_top, other_bottom))
-                        for near_top, near_bottom, near_left, near_right in boxes)):
-            return True
-        if not overlaps_block and beside((other_top, other_bottom), (top, bottom)):
+
+def _beside(first: tuple[float, float], second: tuple[float, float]) -> bool:
+    """Whether two vertical ranges (top, bottom) overlap by more than `_TABLE_ROW_TOLERANCE`."""
+    return min(first[1], second[1]) - max(first[0], second[0]) > _TABLE_ROW_TOLERANCE
+
+
+def _side_by_side(bodies: list[tuple[float, float, float]], nears: list[tuple[float, float, float]]) -> bool:
+    """Whether some range of `bodies` (top, bottom, edge) is `_beside` some range of `nears` (top, bottom, edge) whose edge
+    is at most its own. All values are finite.
+
+    The bodies are taken by edge, the nears admitted as their edge is reached into a tree of the largest bottom by order
+    of top, and each body asks it about the nears whose top lies far enough above its bottom: n log n for each table or
+    picture. Pairing every body with every near took the square of the paragraphs (Pinned by: test_pdf.py::
+    TestBlockPlacement::test_many_blocks_over_two_columns_of_many_paragraphs_take_linear_time). `_beside` holds exactly
+    when every bottom is more than the tolerance below every top of the pair, and each of those is monotone in one value.
+    """
+    nears = [near for near in nears if near[1] - near[0] > _TABLE_ROW_TOLERANCE]
+    if not nears:
+        return False
+    by_top = sorted(range(len(nears)), key=lambda index: nears[index][0])
+    place = {index: rank for rank, index in enumerate(by_top, start=1)}
+    tops = [nears[index][0] for index in by_top]
+    deepest = [-math.inf] * (len(nears) + 1)  # Fenwick tree: the largest bottom among the admitted nears up to each rank
+    admitted = sorted(range(len(nears)), key=lambda index: nears[index][2])
+    taken = 0
+
+    for body_top, body_bottom, edge in sorted(bodies, key=lambda body: body[2]):
+        while taken < len(admitted) and nears[admitted[taken]][2] <= edge:
+            rank, lowest = place[admitted[taken]], nears[admitted[taken]][1]
+            while rank < len(deepest):
+                deepest[rank] = max(deepest[rank], lowest)
+                rank += rank & -rank
+            taken += 1
+        if body_bottom - body_top <= _TABLE_ROW_TOLERANCE:
+            continue
+        rank, reach = bisect_left(tops, True, key=lambda near_top: not body_bottom - near_top > _TABLE_ROW_TOLERANCE), -math.inf
+        while rank:
+            reach = max(reach, deepest[rank])
+            rank -= rank & -rank
+        if reach - body_top > _TABLE_ROW_TOLERANCE:
             return True
     return False
 
