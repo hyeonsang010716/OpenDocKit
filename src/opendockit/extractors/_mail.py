@@ -927,12 +927,25 @@ def _mail_body(message: Message, content_type: str, parts: list[Message] | None 
             continue
         payload = part.get_payload(decode=True)
         if isinstance(payload, bytes) and payload.strip():
-            text, encoding = decode_text(payload, part.get_content_charset())
-            if content_type == "text/plain" and str(part.get_param("format", "")).lower() == "flowed":
-                text = _unflowed(text, delete_space=str(part.get_param("delsp", "")).lower() == "yes")
+            text, encoding = plain_part_text(part, payload) if content_type == "text/plain" else decode_text(payload, part.get_content_charset())
             texts.append(text.strip())
             encodings.append(encoding)
     return ("\n\n".join(texts), encodings) if texts else None
+
+
+def plain_part_text(part: Message, payload: bytes) -> tuple[str, str]:
+    """A plain-text body part as text (its decoded `payload`, read with the part's charset) and the encoding used, with
+    `format=flowed` lines joined back (`_unflowed`, DelSp included). The text extractor (`_mail_body`) and the HTML extractor
+    (`_html_mail._mail_body_html`) read plain parts through it.
+
+    The HTML extractor decoded the plain parts placed beside an HTML part directly, so a flowed paragraph of a mail that also
+    had an HTML footer was broken at every line again
+    (Pinned by: test_core_word_lists_cell_blocks_and_mail_lines.py::TestFormatFlowedPlainMail::test_flowed_part_beside_an_html_part_is_joined_too).
+    """
+    text, encoding = decode_text(payload, part.get_content_charset())
+    if str(part.get_param("format", "")).lower() == "flowed":
+        text = _unflowed(text, delete_space=str(part.get_param("delsp", "")).lower() == "yes")
+    return text, encoding
 
 
 def _unflowed(text: str, *, delete_space: bool) -> str:
