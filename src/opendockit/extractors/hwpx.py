@@ -146,9 +146,11 @@ class HwpxRenderer:
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
         self.notes: list[str] = []
-        # Texts in order of first appearance, each once. Looked up in a list, 60,000 different headers took 11 s
-        # (Pinned by: test_audit_hangul.py::TestManyDistinctHeaders).
-        self.headers_footers: dict[str, None] = {}
+        # Header and footer texts in order of first appearance, each once per kind. Looked up in a list, 60,000 different headers took
+        # 11 s (Pinned by: test_audit_hangul.py::TestManyDistinctHeaders). Kept apart so headers go before the body and footers after
+        # it, as in DOCX and ODT (Pinned by: test_hwp.py::TestHeaderAndFooterPlacement).
+        self.headers: dict[str, None] = {}
+        self.footers: dict[str, None] = {}
         # Comments (review remarks): (author, text, pieces of the body range the comment is attached to). The range is the text between
         # fieldBegin and the fieldEnd with the same id
         self.memos: list[tuple[str, str, list[str]]] = []
@@ -422,8 +424,12 @@ class HwpxRenderer:
                         text = join_blocks(block for sub in _top_sublists(node) for block in self.render_paragraphs(sub))
                 finally:
                     self._grids.pop()
-                if text:
-                    self.headers_footers.setdefault(text)
+                found = self.headers if name == "header" else self.footers
+                if text and text not in found:
+                    found[text] = None
+                    # Every header is written before the body, so it is counted when first seen; footers after the body.
+                    if found is self.headers:
+                        self._extraction.count(solid_length(text), self._options)
             elif name == "autoNum":
                 buffer.append(_auto_number(node))
 
@@ -690,7 +696,8 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
     # as `<cell text>`, so if no text remains after removing the cell marks
     # it is a document without text (empty table, shapes only). Used as is, `<>` noise went out as the body
     # (Pinned by: test_hwp.py::TestPreviewFallback).
-    body = join_blocks([*renderer.headers_footers, *blocks, "\n".join(renderer.notes), renderer.memo_lines()])
+    extraction.count(sum(solid_length(text) for text in renderer.footers), options)
+    body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes), renderer.memo_lines()])
     preview_text = preview.decode("utf-8", errors="replace")
     if not body.strip() and preview_text.translate(PREVIEW_CELL_MARKS).strip():
         body = preview_text
