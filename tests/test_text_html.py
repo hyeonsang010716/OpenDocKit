@@ -2195,3 +2195,29 @@ class TestWesternHtmlWithoutAUsefulCharset:
         result = convert(data, "a.html")
 
         assert result.text == "Price 10€ café — naïve"
+
+
+class TestHeadingHoldingOnlyAPicture:
+    """A heading holding nothing but a picture (a logo in an `<h1>`) was a heading, the picture placeholder counting as its text:
+    the picture became a block of its own under a bare '#'."""
+
+    @staticmethod
+    def _uri() -> str:
+        from tests import builder
+
+        return "data:image/png;base64," + base64.b64encode(builder.png_bytes(200, 120, seed=2)).decode()
+
+    @pytest.mark.parametrize(("picture", "placeholder"), [
+        ("<img src='{uri}'>", "[Image]"),
+        ("<img src='{uri}' alt='Logo'>", "[Image: Logo]"),
+        ("<a href='https://example.com/'><img src='{uri}'></a>", "[Image]"),
+    ], ids=["bare", "alt", "linked"])
+    def test_picture_alone_in_a_heading_is_not_a_heading(self, picture, placeholder):
+        html = f"<p>Intro</p><h1>{picture.format(uri=self._uri())}</h1><h2>Scope</h2><p>Body</p>"
+
+        assert convert(html.encode(), "a.html").text == f"Intro\n\n{placeholder}\n\n## Scope\n\nBody"
+
+    def test_heading_with_text_beside_the_picture_stays_a_heading(self):
+        html = f"<h1><img src='{self._uri()}'> Annual report</h1><p>Body</p>"
+
+        assert convert(html.encode(), "a.html").text == "# Annual report\n\n[Image]\n\nBody"

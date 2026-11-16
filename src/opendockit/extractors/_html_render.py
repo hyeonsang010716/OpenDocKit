@@ -55,7 +55,7 @@ from opendockit.extractors._inline import (
     link_target,
     resolve_inline,
 )
-from opendockit.extractors._lists import cell_level_mark, format_number
+from opendockit.extractors._lists import cell_level_mark, format_number, is_placeholder_only
 from opendockit.extractors._package import decimal_int
 from opendockit.markdown import TableGrid, clean_characters, escape_unpaired_fences, render_table, table_title
 
@@ -401,6 +401,10 @@ def _render_heading(node: Tag, list_depth: int) -> str:
         return ""
     if _in_cell.get():
         return f"\n{title}\n"  # `## ` was left in the cell text (`_cell_text`)
+    if is_placeholder_only(title):
+        # A heading holding nothing but a picture is a paragraph of that picture, as in DOCX and HWP/HWPX: taken for a heading,
+        # the picture became a block of its own under a bare '#' (Pinned by: test_text_html.py::TestHeadingHoldingOnlyAPicture).
+        return f"\n\n{title}\n\n"
     return f"\n\n{'#' * _HEADINGS[node.name]} {title}\n\n"
 
 
