@@ -668,7 +668,14 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
         limit = total if options.max_pages is None else min(total, options.max_pages)
         pages = []
         for index in range(limit):
-            pages.append(_pdfium_page(document, index))
+            try:
+                pages.append(_pdfium_page(document, index))
+            except pdfium.PdfiumError:
+                # A page pdfium counts (it trusts `/Count`) but cannot open is an empty page, as on the normal path, and is
+                # listed with the other pages of this path in the structure-failure warning; its size is unknown
+                # (Pinned by: test_audit_pdf_head.py::TestPageOnlyPdfminerFinds::test_document_pdfminer_cannot_open_keeps_the_pages_pdfium_opens).
+                pages.append(_Page(number=index + 1, width=0.0, height=0.0, lines=[], tables=[], has_images=False,
+                                   view=(0.0, 0.0, 0.0, 0.0), simple=True))
             if extraction.count(_countable_chars(pages[-1]), options):
                 break
         return pages, total, limit

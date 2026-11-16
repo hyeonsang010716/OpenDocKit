@@ -162,7 +162,8 @@ def _two_kids(count: int, *bodies: bytes) -> bytes:
 
 class TestPageOnlyPdfminerFinds:
     """With `/Count 1` over two `/Kids`, pdfminer sees two pages and pdfium one. Asking pdfium for the second page raised
-    PdfiumError outside the page survey, and the whole document failed as corrupted although page 1 is readable."""
+    PdfiumError outside the page survey, and the whole document failed as corrupted although page 1 is readable. The path
+    for a document pdfminer cannot open at all failed the same way on a page pdfium counts but cannot open."""
 
     def test_blank_page_pdfium_cannot_open_stays_an_empty_page(self):
         result = convert(_two_kids(1, _text(b"Hello world"), b""), "a.pdf")
@@ -194,6 +195,16 @@ class TestPageOnlyPdfminerFinds:
 
         assert "Hello world" in result.text and "Second page" not in result.text
         assert any("Structure analysis failed for 1 PDF page(s)" in warning for warning in result.warnings)
+
+    def test_document_pdfminer_cannot_open_keeps_the_pages_pdfium_opens(self):
+        # `/Rotate /Foo` makes pdfminer refuse the whole document, and pdfium counts a third page it cannot open
+        data = _two_kids(3, _text(b"Hello world"), _text(b"Second page")).replace(b"/MediaBox [0 0 595 842]",
+                                                                                 b"/MediaBox [0 0 595 842] /Rotate /Foo", 1)
+
+        result = convert(data, "a.pdf")
+
+        assert "Hello world" in result.text and "Second page" in result.text
+        assert any("Structure analysis failed for 3 PDF page(s) (1, 2, 3)" in warning for warning in result.warnings)
 
     def test_ordinary_two_page_document_is_unchanged(self):
         result = convert(_two_kids(2, _text(b"Hello world"), _text(b"Second page")), "a.pdf")
