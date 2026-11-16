@@ -1114,6 +1114,21 @@ class TestMergedCopiesPastTheLimit:
         assert full.text.count("가나다라") == 300 * 400
         assert result.exceeded and result.text == full.text[:_LIMIT].rstrip() and result.char_count < _LIMIT * 2
 
+    def test_hangul_header_table_stops_at_the_limit(self):
+        """A table in an HWPX page header has no table budget of the body; it is drawn with the whole limit as room."""
+        cell = builder._hwpx_cell
+        trs = "<hp:tr>" + cell(0, 0, "가나다라 " * 400, row_span=300) + cell(0, 1, "v") + "</hp:tr>"
+        trs += "".join("<hp:tr>" + cell(row, 1, f"v{row}") + "</hp:tr>" for row in range(1, 300))
+        data = builder.hwpx_bytes('<hp:p><hp:run><hp:ctrl><hp:header><hp:subList><hp:p><hp:run>'
+                                  f'<hp:tbl rowCnt="300" colCnt="2">{trs}</hp:tbl></hp:run></hp:p></hp:subList></hp:header></hp:ctrl>'
+                                  "<hp:t>Body</hp:t></hp:run></hp:p>")
+        full = convert(data, "a.hwpx", ConvertOptions(max_chars=None, include_headers_footers=True))
+
+        result = convert(data, "a.hwpx", ConvertOptions(max_chars=_LIMIT, include_headers_footers=True))
+
+        assert full.text.count("가나다라") == 300 * 400
+        assert result.exceeded and result.text == full.text[:_LIMIT].rstrip() and result.char_count < _LIMIT * 2
+
     def test_html_rowspan_copies_stop_at_the_limit(self):
         data, name = _merged_document("html", "abcd " * 400, 200)
 

@@ -638,7 +638,10 @@ class HwpRenderer:
             return join_blocks([caption_text, outer.embed(grid)])
         if self._cell_depth:
             return join_blocks([caption_text, grid.flatten(self._options.max_chars)])
-        rendered = grid.render(room=budget.room if budget is not None else None)
+        # A table without a budget (in a header or footer) is drawn with the whole limit as room: what it writes past that is
+        # over the limit whatever comes before it (Pinned by:
+        # test_office_table_char_limit.py::TestMergedCopiesPastTheLimit::test_hangul_header_table_stops_at_the_limit)
+        rendered = grid.render(room=budget.room if budget is not None else self._options.max_chars)
         self.omitted_rows += grid.omitted_rows()
         return join_blocks([caption_text, rendered])
 
