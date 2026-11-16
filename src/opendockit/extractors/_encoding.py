@@ -144,7 +144,7 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     # stray NUL and SOH has letters there, and keeps its strict UTF-8 reading.
     utf16 = utf16_encoding(data) if _holds_nuls_and_foreign_controls(data[:8192]) else None
     if utf16 and _high_bytes_of_one_block(data, utf16):
-        return data[:len(data) - len(data) % 2].decode(utf16), utf16
+        return data[:len(data) - len(data) % 2].decode(utf16) + _cut_ascii_character(data, utf16), utf16
 
     text = _strict(data, "utf-8")
     if text is not None:
@@ -733,13 +733,13 @@ def utf16_encoding(data: bytes, *, by_nul_side_only: bool = False) -> str | None
     candidates = ("utf-16-le", "utf-16-be") if little >= big else ("utf-16-be", "utf-16-le")
 
     for encoding in candidates[:1] if by_nul_side_only else candidates:
+        if rare_nuls and not _high_bytes_of_one_block(data, encoding):
+            continue  # looked at in the head before the whole input is decoded
         try:
             text = data.decode(encoding)
         except UnicodeDecodeError:
             continue
         head = text[:20_000]
-        if rare_nuls and not _high_bytes_of_one_block(data, encoding):
-            continue
         if any(ch.isalnum() for ch in head) and all(_printable(ch) for ch in head):
             return encoding
     return None

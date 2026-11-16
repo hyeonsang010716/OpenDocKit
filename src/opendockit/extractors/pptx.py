@@ -662,7 +662,12 @@ def _placeholder_base(shape: object) -> object | None:
     test_audit_office.py::TestRelationshipTypeGivenTwice::test_pptx_placeholder_inherits_from_the_first_layout_and_master).
     """
     if isinstance(shape, (_BaseSlidePlaceholder, PlaceholderPicture)):
-        layout = related_part(shape.part, RT.SLIDE_LAYOUT)
+        # The layout part is looked up once per slide part too: `related_part` walks the slide's relationships, and a
+        # placeholder is asked about several times (position, bullets, reading order)
+        part = shape.part
+        layout = part.__dict__.get("_converter_layout_part")
+        if layout is None:
+            layout = part._converter_layout_part = related_part(part, RT.SLIDE_LAYOUT)
         layout_placeholders = layout.__dict__.get("_converter_layout_placeholders")
         if layout_placeholders is None:
             layout_placeholders = {}
