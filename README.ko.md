@@ -15,6 +15,7 @@
   <a href="https://pypi.org/project/opendockit/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/opendockit"></a>
   <a href="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/hyeonsang010716/OpenDocKit/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/opendockit.yaml"><img alt="Hermes Agent plugin catalog" src="https://img.shields.io/badge/Hermes%20Agent-plugin%20catalog-6e56cf"></a>
 </p>
 
 <p align="center">
@@ -165,6 +166,20 @@ opendockit-mcp --root ~/Documents     # MCP 서버: Claude, Cursor 등의 에이
 
 `mode="sections"`를 주면 페이지, 슬라이드, 시트가 각각 하나의 Document가 되고, 그 번호가 메타데이터에 들어 있어 출처 표기에 쓸 수 있습니다.
 [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md)를 참고하세요.
+
+### Hermes Agent
+
+OpenDocKit은 [Hermes Agent 플러그인 카탈로그](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog)에 등록되어 있습니다. 이 카탈로그의 플러그인은 모두 Hermes
+메인테이너가 검토하고 커밋 하나에 고정합니다.
+
+```bash
+hermes plugins install opendockit
+hermes plugins enable opendockit
+```
+
+새 세션에서 내 컴퓨터에 있는 파일에 대해 물어보면 됩니다. 긴 문서는 페이지·슬라이드·시트 단위로 읽고, 문서를 어디에도
+보내지 않으며 API 키도 필요 없습니다. 플러그인이 실행하는 것과 읽을 수 있는 폴더를 제한하는 방법은
+[hermes-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/hermes-plugin/README.md)에 있습니다.
 
 ## 지원 형식
 

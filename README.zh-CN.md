@@ -15,6 +15,7 @@
   <a href="https://pypi.org/project/opendockit/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/opendockit"></a>
   <a href="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/hyeonsang010716/OpenDocKit/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/opendockit.yaml"><img alt="Hermes Agent plugin catalog" src="https://img.shields.io/badge/Hermes%20Agent-plugin%20catalog-6e56cf"></a>
 </p>
 
 <p align="center">
@@ -162,6 +163,18 @@ opendockit-mcp --root ~/Documents     # MCP 服务器：让 Claude、Cursor 等�
 
 使用 `mode="sections"` 时，每一页、每张幻灯片或每个工作表各成为一个 Document，其编号保存在元数据中，可用于标注出处。
 详见 [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md)。
+
+### Hermes Agent
+
+OpenDocKit 已收录于 [Hermes Agent 插件目录](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog)。目录中的每个插件都经过 Hermes 维护者审核，并固定到一个提交：
+
+```bash
+hermes plugins install opendockit
+hermes plugins enable opendockit
+```
+
+之后在新会话中向 Hermes 询问本机上的文件即可。长文档按页、幻灯片或工作表分段读取，文档不会发送到任何地方，也不需要 API
+密钥。插件在本机运行什么、如何限制它可读取的文件夹，见 [hermes-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/hermes-plugin/README.md)。
 
 ## 支持的格式
 

@@ -18,7 +18,8 @@ It is a portable [Agent Plugins v1](https://agent-plugins.org) package around th
 - `skills/opendockit/` — when to use which tool, how to read a long document in parts, and what a scanned page or a
   warning means.
 
-This is an independent community plugin. It is not affiliated with Nous Research.
+This is an independent community plugin, listed in the Hermes plugin catalog ([entry](https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/opendockit.yaml)). It is not affiliated
+with Nous Research.
 
 ## Install
 
@@ -27,7 +28,8 @@ hermes plugins install opendockit      # from the Hermes plugin catalog
 hermes plugins enable opendockit
 ```
 
-Before it is listed, or to try a newer commit, install from this repository:
+The catalog installs the commit its entry pins (see [Version pinning](#version-pinning)). To try a newer commit, install
+from this repository:
 
 ```bash
 hermes plugins install hyeonsang010716/OpenDocKit#hermes-plugin
