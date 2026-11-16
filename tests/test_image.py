@@ -2449,3 +2449,104 @@ class TestScannedPagesLeftOutByTheImageLimit:
         assert warnings == ["There are many images, so only 0 were selected for description (scanned pages first). 1 page(s) "
                             "whose text exists only as an image (1) were left out and are empty, and 1 other image(s) were "
                             "left as placeholders only."]
+
+
+def _noise_tiles(seed: int, side: int = 1024) -> bytes:
+    """A 1-bit PNG of one 64×64 tile of noise repeated: a few KB as PNG, hundreds of KB once re-encoded as JPEG."""
+    import random
+
+    rng = random.Random(seed)
+    tile = Image.frombytes("1", (64, 64), bytes(rng.randrange(256) for _ in range(512)))
+    image = Image.new("1", (side, side))
+    for x in range(0, side, 64):
+        for y in range(0, side, 64):
+            image.paste(tile, (x, y))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
+def _prepared_bytes(data: bytes) -> int:
+    image = prepare_image(data, min_side=64, max_side=2048)
+    return len(image.data) + sum(len(tile) for tile in image.tiles)
+
+
+class TestPreparedImageBudget:
+    """Every prepared picture was kept, with no bound on their total: a 4.6 KB noise-tile PNG re-encodes to a 3 MB JPEG, so a
+    376 KB DOCX with 300 of them gave 920 MB of picture bytes (2.3 GB in the server of an IsolatedConverter). The prepared
+    pictures of a document now take at most `max_uncompressed_bytes`; the ones past it keep their placeholder."""
+
+    def _docx(self, pictures: list[bytes]) -> bytes:
+        from docx import Document
+        from docx.shared import Inches
+
+        document = Document()
+        document.add_paragraph("Pictures follow.")
+        for index, picture in enumerate(pictures):
+            document.add_picture(BytesIO(picture), width=Inches(1))
+            document.inline_shapes[index]._inline.docPr.set("descr", f"Floor plan {index + 1}")
+        buffer = BytesIO()
+        document.save(buffer)
+        return buffer.getvalue()
+
+    def test_pictures_past_the_budget_keep_their_placeholder_with_one_warning(self):
+        pictures = [_noise_tiles(seed) for seed in range(4)]
+        sizes = [_prepared_bytes(picture) for picture in pictures]
+        data = self._docx(pictures)
+        assert len(data) < sizes[0]  # each picture grows beyond the whole file once prepared
+
+        result = convert(data, "a.docx", ConvertOptions(max_uncompressed_bytes=sizes[0] + sizes[1] + sizes[2] // 2))
+
+        assert [image.alt for image in result.images] == ["Floor plan 1", "Floor plan 2"]
+        assert "[Image: Floor plan 3]" in result.text and "[Image: Floor plan 4]" in result.text
+        assert result.warnings == ["The images take too much memory once prepared (more than max_uncompressed_bytes), so 2 "
+                                   "image(s) were left as placeholders only."]
+
+    def test_pictures_within_the_default_budget_are_all_kept(self):
+        data = self._docx([_noise_tiles(seed) for seed in range(4)])
+
+        result = convert(data, "a.docx")
+
+        assert [image.alt for image in result.images] == ["Floor plan 1", "Floor plan 2", "Floor plan 3", "Floor plan 4"]
+        assert result.warnings == []
+
+    def test_scanned_pages_are_prepared_before_pictures_and_pages_left_out_are_named(self):
+        from opendockit.converter import _prepare_images
+        from opendockit.models import Extraction, Section, SectionKind, marker_key
+
+        extraction = Extraction()
+        with marker_key("k"):
+            figure = extraction.add_image(_noise_tiles(1))
+            first = extraction.add_image(_noise_tiles(2), kind=ImageKind.PAGE)
+            second = extraction.add_image(_noise_tiles(3), kind=ImageKind.PAGE)
+        sections = [Section(SectionKind.PAGE, 1, "", None, "text " + figure), Section(SectionKind.PAGE, 2, "", None, first),
+                    Section(SectionKind.PAGE, 3, "", None, second)]
+        warnings: list[str] = []
+        budget = _prepared_bytes(_noise_tiles(2)) + 1
+
+        images, fallbacks = _prepare_images(extraction.images, sections, ConvertOptions(max_uncompressed_bytes=budget),
+                                            warnings, "k")
+
+        assert [image.section_index for image in images] == [2]
+        assert fallbacks == {1: "[Image]", 2: "", 3: ""}
+        assert warnings == ["The images take too much memory once prepared (more than max_uncompressed_bytes), so 1 page(s) "
+                            "whose text exists only as an image (3) were left out and are empty, and 1 other image(s) were "
+                            "left as placeholders only."]
+
+    def test_logo_and_icon_past_the_budget_leave_nothing_and_are_not_counted(self):
+        logo = builder.png_bytes(300, 200, seed=9)
+        first = _noise_tiles(1, side=2048)  # about 3 MB prepared: more than the parts of the DOCX itself
+        data = self._docx([first, _noise_tiles(2), logo, logo, logo, builder.png_bytes(16, 16, seed=2)])
+
+        result = convert(data, "a.docx", ConvertOptions(max_uncompressed_bytes=_prepared_bytes(first) + 1))
+
+        assert [image.alt for image in result.images] == ["Floor plan 1"]
+        assert result.text == "Pictures follow.\n\n[Image: Floor plan 1]\n\n[Image: Floor plan 2]"
+        assert result.warnings == ["The images take too much memory once prepared (more than max_uncompressed_bytes), so 1 "
+                                   "image(s) were left as placeholders only."]
+
+    def test_nothing_but_a_picture_that_does_not_fit_is_too_large(self):
+        from opendockit import DocumentTooLargeError
+
+        with pytest.raises(DocumentTooLargeError, match="^The document becomes too large when decompressed.$"):
+            convert(builder.png_bytes(400, 300), "a.png", ConvertOptions(max_uncompressed_bytes=100))

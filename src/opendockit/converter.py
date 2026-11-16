@@ -408,13 +408,26 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     # The same picture (a stamp or logo placed on every page) is decoded only once. Even when the outcome is an exception (dropped,
     # undecodable), it is the same for the same picture (Pinned by: test_image.py::test_same_picture_is_decoded_once).
     decoded: dict[tuple[bytes, bool], tuple[PreparedImage, str] | ImageSkipped | ImageUnreadable] = {}
-    for raw in raw_images:
-        alt = _alt_text(raw)
+    # The prepared pictures of one document (downscaled data and tiles, all kept until the end) take at most
+    # `max_uncompressed_bytes` together, the per-document bound on decompressed bytes. A re-encoded picture can be far larger
+    # than its file: a 4.6 KB PNG of 1-bit noise became a 3 MB JPEG, so a 376 KB DOCX with 300 of them held 920 MB of pictures,
+    # pickled once more out of an isolated worker (2.3 GB in the server). Once the next picture does not fit, it and every
+    # picture not decoded yet keep only their placeholder (`_placeholders_only`, as past the character limit) with one warning.
+    # Scanned pages are decoded first, as the image limit picks them first (Pinned by: test_image.py::TestPreparedImageBudget).
+    spent = 0
+    full = False
+    for raw in sorted(raw_images, key=lambda raw: raw.kind is not ImageKind.PAGE):
         key = (raw.data, raw.kind is not ImageKind.STANDALONE)
-        if key not in decoded:
+        if key not in decoded and not full:
             try:
                 image = prepare_image(raw.data, min_side=options.min_image_side, max_side=options.image_max_side,
                                       filter_decorations=key[1])
+                size = len(image.data) + sum(len(tile) for tile in image.tiles)
+                if spent + size > options.max_uncompressed_bytes:
+                    full = True
+                    del image
+                    continue
+                spent += size
                 decoded[key] = (image, hashlib.sha256(image.data).hexdigest())
             except (ImageSkipped, ImageUnreadable) as outcome:
                 decoded[key] = outcome
@@ -433,7 +446,13 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
                 # (Pinned by: test_image.py::TestOutOfMemoryWhileReadingAPicture::test_what_is_left_of_a_picture_is_released_before_the_next_one).
                 decoded[key] = ImageOutOfMemory()
 
-        outcome = decoded[key]
+    past: list[RawImage] = []  # pictures past the budget of prepared bytes: not kept (the one that did not fit was let go of)
+    for raw in raw_images:
+        alt = _alt_text(raw)
+        outcome = decoded.get((raw.data, raw.kind is not ImageKind.STANDALONE))
+        if outcome is None:
+            past.append(raw)
+            continue
         if isinstance(outcome, ImageTooLarge) and raw.kind is ImageKind.STANDALONE:
             # A size problem, not corruption. A very large picture that cannot be read reduced (not a JPEG, or over the decode
             # limit even at 1/8) (Pinned by: test_core_image_and_assembly.py::TestVeryLargePictures).
@@ -464,6 +483,10 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     if out_of_memory and not prepared and not _has_text(sections, marker):
         # Scanned pages that are the only content, none of which could be read: nothing else to give either.
         raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE)
+    if past and not prepared and not _has_text(sections, marker):
+        # Not one picture fits and there is nothing else: the document becomes too large once its pictures are decompressed.
+        raise DocumentTooLargeError("The document becomes too large when decompressed.")
+    fallbacks.update(_placeholders_only(past, options))
     if unreadable:
         warnings.append(f"{unreadable} image(s) are in an unreadable format (WMF/EMF vectors, etc.) or corrupted "
                         "and were left as placeholder text.")
@@ -536,7 +559,25 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     elif left_figures:
         warnings.append(f"There are many images, so only {options.max_images} were selected for description (scanned pages first) "
                         f"and {left_figures} were left as placeholders only.")
+    warning = _past_budget_warning(past, fallbacks, locations)
+    if warning:
+        warnings.append(warning)
     return images, fallbacks
+
+
+def _past_budget_warning(past: list[RawImage], fallbacks: dict[int, str],
+                         locations: dict[int, tuple[Section, str]]) -> str | None:
+    """The one warning for the pictures left out by the budget of prepared bytes. Each picture is counted once (by its bytes);
+    a scanned page left out is empty and named, as for the image limit; a picture that leaves nothing (a logo, a divider) is
+    not counted, and with nothing to count there is no warning."""
+    pages = sorted({locations[raw.id][0].index if raw.id in locations else 1 for raw in past if raw.kind is ImageKind.PAGE})
+    figures = len({raw.data for raw in past if raw.kind is not ImageKind.PAGE and fallbacks.get(raw.id)})
+    start = "The images take too much memory once prepared (more than max_uncompressed_bytes), so "
+    if not pages:
+        return f"{start}{figures} image(s) were left as placeholders only." if figures else None
+    others = f", and {figures} other image(s) were left as placeholders only" if figures else ""
+    return (f"{start}{len(pages)} page(s) whose text exists only as an image ({page_list(pages)}) were left out and are "
+            f"empty{others}.")
 
 
 def _alt_text(raw: RawImage) -> str | None:
