@@ -78,7 +78,10 @@ def _figure_boxes(page: object, view: tuple[float, float, float, float]) -> list
             # The clip region is in pdfminer coordinates (0 at the bottom), so shift by how much the image box shrank at its top and bottom.
             x0, x1 = max(x0, clip[0]), min(x1, clip[2])
             top, bottom = max(top, image["top"] + image["y1"] - clip[3]), min(bottom, image["bottom"] - (clip[1] - image["y0"]))
-        if x1 <= x0 or bottom <= top:
+        # A picture drawn under a matrix that overflows to infinity has NaN sides, which pass every comparison and made the
+        # rounding below raise ValueError: the whole document was reported corrupted. It has no place on the page, like a
+        # character at such a position (Pinned by: test_audit_pdf_text.py::TestPicturesAtNonFinitePositions)
+        if x1 <= x0 or bottom <= top or not all(math.isfinite(value) for value in (x0, top, x1, bottom)):
             continue
         source_width = (image.get("srcsize") or (0, 0))[0] or 0
         shown.append((x0, top, x1, bottom, source_width / max(image["x1"] - image["x0"], 1.0)))
