@@ -313,3 +313,43 @@ class TestBrokenEncodedWordInAHeader:
     ])
     def test_header_that_decodes_as_a_whole_is_unchanged(self, value, expected):
         assert self._subject(value) == f"Subject: {expected}"
+
+
+class TestEncodedWordNextToText:
+    """The decoded pieces of a header were joined by `make_header`, which puts a space between an encoded word and the text
+    next to it unless that text has one: the quoted sender name `"=?euc-kr?B?…?=" <a@b>` came out as `" 홍구동 " <a@b>`."""
+
+    @staticmethod
+    def _head(name: str, value: str, filename: str = "a.eml") -> str:
+        data = (f"{name}: {value}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문").encode()
+        return convert(data, filename).text.split("\n")[0]
+
+    @pytest.mark.parametrize(("value", "expected"), [
+        ('"=?euc-kr?B?yKuxuLW/?=" <hong@example.com>', '"홍구동" <hong@example.com>'),
+        ('"Kim, =?utf-8?b?7ZmN?=" <kim@example.com>', '"Kim, 홍" <kim@example.com>'),
+        ("=?euc-kr?B?yKuxuLW/?= <hong@example.com>", "홍구동 <hong@example.com>"),
+    ])
+    @pytest.mark.parametrize("filename", ["a.eml", "a.mbox"])
+    def test_no_space_is_put_inside_the_quotes_of_a_name(self, value, expected, filename):
+        assert self._head("From", value, filename) == f"From: {expected}"
+
+    @pytest.mark.parametrize(("value", "expected"), [
+        ("=?utf-8?b?67O06rOg7ISc?=(final)", "보고서(final)"),
+        ("Re:=?utf-8?q?x?=", "Re:x"),
+        ("Re: =?utf-8?q?x?=", "Re: x"),
+        # the whitespace between two adjacent words is still dropped (RFC 2047)
+        ("=?utf-8?b?7ZWc?= =?utf-8?b?6riA?= (1)", "한글 (1)"),
+        ("=?us-ascii?q?Re:_?= =?utf-8?b?7ZWc6riA?=", "Re: 한글"),
+    ])
+    def test_a_word_against_the_text_next_to_it_is_joined_to_it(self, value, expected):
+        assert self._head("Subject", value) == f"Subject: {expected}"
+
+    def test_attachment_name_with_an_extension_after_the_word(self):
+        data = ("From: a@example.com\r\nSubject: quote\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=M\r\n\r\n"
+                "--M\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n견적 보내드립니다.\r\n--M\r\n"
+                'Content-Type: application/octet-stream\r\nContent-Disposition: attachment; filename="=?utf-8?b?6rKs7KCB7ISc?=.xlsx"\r\n'
+                "Content-Transfer-Encoding: base64\r\n\r\nUEsDBAoAAAAAAA==\r\n--M--\r\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert "견적서.xlsx" in result.warnings[0]
