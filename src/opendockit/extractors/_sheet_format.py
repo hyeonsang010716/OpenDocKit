@@ -106,7 +106,7 @@ def _negative_serial_text(value: float, number_format: str) -> str:
     1904 system), and a format showing a date gives the original number (Excel shows `####`). Converting it to a date emitted a
     non-existent day (1899-12-25) or a time wrapped around the day (22:30) as if it were fact. Common to XLSX, XLS and XML and to
     the 1900 and 1904 systems (Pinned by: test_spreadsheet.py::TestNegativeDateSerials)."""
-    if _ELAPSED_FORMAT.search(number_format):
+    if _is_elapsed_format(number_format):
         try:
             return _elapsed_text(timedelta(days=value), number_format)
         except OverflowError:
@@ -122,6 +122,13 @@ def _negative_serial_text(value: float, number_format: str) -> str:
 
 # Elapsed time formats (`[h]:mm`, `[mm]:ss`, `[ss]`). Beyond 24 hours the value does not roll over into days but is shown cumulatively.
 _ELAPSED_FORMAT = re.compile(r"\[(?:h+|m+|s+)\]", re.IGNORECASE)
+
+
+def _is_elapsed_format(number_format: str | None) -> bool:
+    """Whether the format has an elapsed section (`[h]`, `[mm]`, `[ss]`) outside quoted text and backslash escapes. Searching the
+    raw format took the literal `" [h]"` of `yyyy-mm-dd" [h]"` for one, so a date cell became a duration and came out as
+    `yyyy-00-dd [h]` (Pinned by: test_spreadsheet.py::TestElapsedSectionsInsideFormatLiterals). Common to XLSX, XLS and XML."""
+    return bool(number_format) and _ELAPSED_FORMAT.search(_format_codes(number_format, _elapsed_only)) is not None
 
 
 def _shows_time(number_format: str) -> bool:

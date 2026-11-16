@@ -2242,6 +2242,49 @@ class TestBracketsInsideFormatLiterals:
         assert "| 가 | Lv.[3] |" in result.text
 
 
+class TestElapsedSectionsInsideFormatLiterals:
+    """Whether a cell is elapsed time was decided by searching the raw format, so the literal `" [h]"` of `yyyy-mm-dd" [h]"`
+    turned a date into a duration and it came out as `yyyy-00-dd [h]`. Only an elapsed section outside quotes and backslash
+    escapes makes a duration, in XLSX (openpyxl searches the raw format itself), XLS and Excel 2003 XML."""
+
+    @pytest.mark.parametrize("streamed", [False, True], ids=["full-load", "streamed"])
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (45352.25, 'yyyy-mm-dd" [h]"', "2024-03-01"),
+        (1.5, '"[h]" h:mm', "[h] 12:00"),
+        (1.5, "[h]:mm", "36:00"),
+    ])
+    def test_xlsx(self, monkeypatch, streamed, value, number_format, expected):
+        from opendockit.extractors import spreadsheet
+
+        if streamed:
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+        data = _xlsx([["항목", "값"], ["가", value]], {"B2": number_format})
+
+        result = convert(data, "a.xlsx")
+
+        assert f"| 가 | {expected} |" in result.text
+
+    def test_xls_date_cell(self):
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_DATE, 45352.25)
+
+        value = format_cell(_xls_value(cell, 0, 'yyyy-mm-dd" [h]"'), 'yyyy-mm-dd" [h]"')
+
+        assert value == "2024-03-01"
+
+    @pytest.mark.parametrize(("kind", "value"), [("Number", "45352.25"), ("DateTime", "2024-03-01T06:00:00")])
+    def test_xml_spreadsheet(self, kind, value):
+        data = _xml_spreadsheet('yyyy-mm-dd" [h]"', kind, value)
+
+        result = convert(data, "a.xls")
+
+        assert "| 가 | 2024-03-01 |" in result.text
+
+    def test_negative_serial_is_a_signed_time_not_a_duration(self):
+        result = format_cell(-0.5, 'h:mm" [h]"')
+
+        assert result == "-12:00:00"
+
+
 @contextmanager
 def _deadline(seconds: int) -> Iterator[None]:
     """Fail the test with TimeoutError if it does not finish within `seconds` (to reproduce a hang — before the fix xlrd ran
