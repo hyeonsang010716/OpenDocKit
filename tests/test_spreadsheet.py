@@ -830,6 +830,96 @@ class TestDamagedStylesheet:
             convert(data, "a.xlsx")
 
 
+class TestOversizedStylesheet:
+    """openpyxl turns every entry of the styles part into objects while loading, on both paths: a 280 KB file with one cell and
+    1,000,000 cell formats took 8.9 s and 2.2 GB. Over the bound the styles part is replaced by one of display formats only, read
+    without building a tree, so dates and amounts keep their formats."""
+
+    @staticmethod
+    def _loaded_styles(monkeypatch) -> list[bytes]:
+        """The styles part of every workbook handed to openpyxl."""
+        from opendockit.extractors import spreadsheet
+
+        styles = []
+        original = spreadsheet.openpyxl.load_workbook
+
+        def load(source, **kwargs):
+            with zipfile.ZipFile(source) as archive:
+                styles.append(archive.read("xl/styles.xml"))
+            source.seek(0)
+            return original(source, **kwargs)
+
+        monkeypatch.setattr(spreadsheet.openpyxl, "load_workbook", load)
+        return styles
+
+    def test_display_formats_survive_too_many_style_entries(self, streamed, monkeypatch):
+        styles = self._loaded_styles(monkeypatch)
+        data = _xlsx_with_damaged_styles(lambda xml: xml.replace("</fonts>", "<font/>" * 140_000 + "</fonts>", 1))
+
+        result = convert(data, "a.xlsx")
+
+        assert "| 날짜 | 2026-03-05 |" in result.text
+        assert "| 금액 | 1,234.50 |" in result.text
+        assert result.warnings == ["The workbook's style table is unusually large, so only number and date display formats were read."]
+        assert len(styles) == 1 and len(styles[0]) < 2_000
+
+    def test_children_of_one_entry_count_toward_the_bound(self, monkeypatch):
+        """One font with 1,000,000 `<b/>` is a single entry, yet openpyxl's tree of it took 145 MB."""
+        styles = self._loaded_styles(monkeypatch)
+        data = _xlsx_with_damaged_styles(lambda xml: xml.replace("<font>", "<font>" + "<b/>" * 1_000_001, 1))
+
+        result = convert(data, "a.xlsx")
+
+        assert "| 금액 | 1,234.50 |" in result.text
+        assert len(styles[0]) < 2_000
+
+    def test_format_codes_are_read_with_quotes_and_brackets(self, monkeypatch):
+        """The replaced stylesheet is read without a parser: a format code holds escaped quotes and may hold `>` unescaped."""
+        def damage(xml: str) -> str:
+            xml = xml.replace("</numFmts>", "<numFmt numFmtId='170' formatCode='#,##0.00\"&#32;>원\"'/></numFmts>", 1)
+            xml = xml.replace('<xf numFmtId="4"', '<xf numFmtId=" 170"', 1)
+            return xml.replace("</fonts>", "<font/>" * 140_000 + "</fonts>", 1)
+
+        result = convert(_xlsx_with_damaged_styles(damage), "a.xlsx")
+
+        assert "| 금액 | 1,234.50 >원 |" in result.text
+
+    def test_cell_past_the_kept_cell_formats_has_the_general_format(self, monkeypatch):
+        from opendockit.extractors import spreadsheet
+
+        monkeypatch.setattr(spreadsheet, "_MAX_CELL_FORMATS", 2)
+        data = _xlsx_with_damaged_styles(lambda xml: xml.replace("</fonts>", "<font/>" * 140_000 + "</fonts>", 1))
+
+        result = convert(data, "a.xlsx")
+
+        assert "| 날짜 | 2026-03-05 |" in result.text
+        assert "| 금액 | 1234.5 |" in result.text
+        assert any("may appear as numbers" in warning for warning in result.warnings)
+
+    def test_stylesheet_within_the_bound_is_read_by_openpyxl_as_written(self, monkeypatch):
+        styles = self._loaded_styles(monkeypatch)
+        data = _xlsx_with_damaged_styles(lambda xml: xml.replace("</fonts>", "<font/>" * 1_000 + "</fonts>", 1))
+
+        result = convert(data, "a.xlsx")
+
+        assert "| 금액 | 1,234.50 |" in result.text
+        assert not result.warnings
+        assert styles[0].count(b"<font/>") == 1_000
+
+    @pytest.mark.timing
+    def test_million_cell_formats_are_not_loaded(self):
+        import time
+
+        xf = '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+        data = _xlsx_with_damaged_styles(lambda xml: xml.replace("</cellXfs>", xf * 1_000_000 + "</cellXfs>", 1))
+
+        started = time.perf_counter()
+        result = convert(data, "a.xlsx")
+
+        assert time.perf_counter() - started < 4
+        assert "| 금액 | 1,234.50 |" in result.text
+
+
 class TestEscapedCharactersInStrings:
     """OOXML writes characters that XML cannot hold as `_xHHHH_` (the CR of a line break is `_x000D_`). They came out as is in
     the cell text."""
