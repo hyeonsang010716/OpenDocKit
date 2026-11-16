@@ -66,6 +66,12 @@ _WHITESPACE = re.compile(r"\s+")
 # Number of bottom rows dropped by the table grid cell limit while the document is rendered (`_render_table` adds to it and
 # `_extract` reports it as a warning).
 _omitted_rows: ContextVar[list[int] | None] = ContextVar("omitted_rows", default=None)
+# The character limit while the document is rendered (`_extract`), for drawing its tables (`markdown.TableGrid.render(room=...)`): a
+# vertically merged value is repeated on every row it covers, and a 970 KB page with one 400,000-character cell merged over
+# 30,000 rows was drawn to 80 million characters (6 s) before the page was counted
+# (Pinned by: test_office_table_char_limit.py::TestMergedCopiesPastTheLimit::test_html_rowspan_copies_stop_at_the_limit). Only
+# the table's own text is charged against it, so it holds wherever the table is written.
+_table_room: ContextVar[int | None] = ContextVar("table_room", default=None)
 
 
 @dataclass(frozen=True, slots=True)

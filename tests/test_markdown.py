@@ -362,6 +362,24 @@ class TestTableGridLimits:
         assert len(rows) < 3000
         assert grid.omitted_rows() == 3000 - len(rows)
 
+    @pytest.mark.parametrize("horizontal", [False, True])
+    def test_drawing_stops_writing_rows_past_the_room(self, horizontal):
+        """A vertically merged value is repeated on every row it covers (in HTML each row still writes its own cells). With a
+        `room` the drawing stops after the row that passes it: the front of the full drawing, and only one drawing is cut."""
+        grid = TableGrid()
+        grid.place(0, 0, "H1", col_span=2 if horizontal else 1)
+        grid.place(0, 2, "H3")
+        grid.place(1, 0, "x" * 100, row_span=50)
+        for row in range(1, 51):
+            grid.place(row, 1, f"v{row}")
+            grid.place(row, 2, "y" * 100)
+        full = grid.render()
+
+        cut = grid.render(room=500)
+
+        assert full.startswith(cut.removesuffix("\n</table>")) and 500 < len(cut) < 1_000
+        assert full.startswith("<table>") == horizontal and grid.render() == full
+
 
 class TestMergedTableAsHtml:
     """A Markdown table cannot draw a horizontal merge, so the value stayed in the first cell only and the rest scattered as

@@ -633,12 +633,12 @@ class HwpRenderer:
         # (Pinned by: test_hwp.py::TestNestedTables::test_caption_of_an_inner_table_is_kept_with_it).
         caption_text = join_blocks(self.render(caption))
         if self._note_depth:
-            return join_blocks([caption_text, note_table(grid.rows())])
+            return join_blocks([caption_text, note_table(grid.rows(), self._options.max_chars)])
         if outer is not None:
             return join_blocks([caption_text, outer.embed(grid)])
         if self._cell_depth:
-            return join_blocks([caption_text, grid.flatten()])
-        rendered = grid.render()
+            return join_blocks([caption_text, grid.flatten(self._options.max_chars)])
+        rendered = grid.render(room=budget.room if budget is not None else None)
         self.omitted_rows += grid.omitted_rows()
         return join_blocks([caption_text, rendered])
 

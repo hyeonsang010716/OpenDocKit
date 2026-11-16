@@ -30,7 +30,9 @@ class TableBudget:
     Only cell text that actually lands in the table is counted. A cell placed where an earlier cell or an earlier cell's span already
     sits is not counted — DOCX/PPTX: `TableGrid` drops it; HWP/HWPX: it moves to the next free slot of that row
     (`TableGrid.place_or_next`), but that slot is unknown here, so this errs toward undercounting. A span is taken to cover exactly what
-    the file says — `TableGrid` only ever shrinks spans, so this errs toward undercounting. Once the memory of covered slots exceeds
+    the file says — `TableGrid` only ever shrinks spans, so this errs toward undercounting. The copies of a vertically merged value
+    on the rows it covers are not counted (an HTML table does not write them); the drawing stops writing them at the limit
+    instead (`room`). Once the memory of covered slots exceeds
     `_MAX_MARKS`, or a cell with an unknown position (`forget`) arrives, the remaining cells of that table are not counted (reading
     just does not stop; the result is the same).
     Known accepted gap: a table whose bottom rows are dropped by the grid cell limit (5 million cells) may stop early by counting rows
@@ -63,6 +65,13 @@ class TableBudget:
         """Characters already counted plus the cell text read from this table so far (what `add` compares with the limit)."""
         return self._extraction.chars + self._counted
 
+    @property
+    def room(self) -> int | None:
+        """The characters the output can still take before this table (the limit minus the characters already counted; None: no
+        limit), for drawing the table (`TableGrid.render(room=...)`). The cell text is counted once here, but a vertically merged
+        value is repeated on every row it covers when the table is drawn: the drawing stops writing rows once it is past this."""
+        return None if self._limit is None else self._limit - self._extraction.chars
+
     def forget(self) -> None:
         """A cell with an unknown position (`TableGrid.place_next`) arrived. Where it will sit is unknown, so the remaining cells of
         this table are not counted."""
@@ -90,13 +99,24 @@ def format_dutmal(main: str, annotation: str = "") -> str:
 NOTE_ROW_SEPARATOR = "; "
 
 
-def note_table(rows: Iterable[Iterable[str]]) -> str:
+def note_table(rows: Iterable[Iterable[str]], room: int | None = None) -> str:
     """Rows of a table inside a footnote → one line. Line breaks in cell text are merged into spaces; empty cells and empty rows are
     dropped. DOCX, HWP and HWPX use the same shape. Rendering a Markdown table and then merging with spaces gave
     '| 연도 | 값 | | --- |', and joining the cell paragraphs gave '구분 값 A 10'
-    (Pinned by: test_office_symbols_fields_notes.py::TestDocxTableInsideFootnote, test_hwp.py::TestTableInsideFootnote)."""
+    (Pinned by: test_office_symbols_fields_notes.py::TestDocxTableInsideFootnote, test_hwp.py::TestTableInsideFootnote).
+
+    `room` (the character limit) stops the rows once their own text is past it: the rows of `TableGrid.rows` repeat a vertically
+    merged value on every row it covers, and a 377 KB HWPX footnote with one 20,000-character cell merged over 2,000 rows
+    was joined to 40 million characters (Pinned by:
+    test_office_table_char_limit.py::TestMergedCopiesPastTheLimit::test_hwpx_footnote_table_stops_at_the_limit)."""
     lines = (" / ".join(text for text in (" ".join(cell.split()) for cell in row) if text) for row in rows)
-    return NOTE_ROW_SEPARATOR.join(line for line in lines if line)
+    kept: list[str] = []
+    for line in lines:
+        if line:
+            kept.append(line)
+            if room is not None and (room := room - solid_length(line)) < 0:
+                break
+    return NOTE_ROW_SEPARATOR.join(kept)
 
 
 # ---- Comments (review remarks) -----------------------------------------------------------------------------------

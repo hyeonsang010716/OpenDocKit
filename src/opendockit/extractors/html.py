@@ -16,7 +16,16 @@ from bs4.element import PreformattedString
 from lxml import etree
 
 from opendockit.extractors._encoding import decode_text, decoding_warning, decoding_warnings
-from opendockit.extractors._html_base import _DROP_TAGS, _PARSER_CALLERS, _Inline, _inline, _omitted_rows, _Places, _replace
+from opendockit.extractors._html_base import (
+    _DROP_TAGS,
+    _PARSER_CALLERS,
+    _Inline,
+    _inline,
+    _omitted_rows,
+    _Places,
+    _replace,
+    _table_room,
+)
 from opendockit.extractors._html_dom import (
     _closed_after,
     _closed_at_the_end,
@@ -470,6 +479,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _drop_unsettled_cut_table(soup, cut)
     rows: list[int] = []
     token = _omitted_rows.set(rows)
+    room_token = _table_room.set(options.max_chars)
     inline = _Inline(options.keep_links, options.keep_emphasis, cut) if options.keep_links or options.keep_emphasis else None
     inline_token = _inline.set(inline)
     try:
@@ -477,6 +487,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
         extraction.sections.append(Section(SectionKind.DOCUMENT, 1, rendered))
     finally:
         _inline.reset(inline_token)
+        _table_room.reset(room_token)
         _omitted_rows.reset(token)
     if omitted is not None:
         omitted.append(sum(rows))

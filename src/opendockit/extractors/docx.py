@@ -558,7 +558,7 @@ class _DocxRenderer:
         # (Pinned by: test_quality.py::test_docx_nested_table_keeps_its_rows_and_columns).
         if outer is not None:
             return outer.embed(grid)
-        rendered = grid.render()
+        rendered = grid.render(room=budget.room if budget is not None else None)
         self.omitted_rows += grid.omitted_rows()
         return rendered
 
@@ -577,7 +577,8 @@ class _DocxRenderer:
                     shown[row, col] = shown.get((row - 1, col), "")
                     grid.place(row, col, shown[row, col], col_span=span)
                     if budget is not None:
-                        # Only takes up the slot. The copy of the upper cell's text is not counted (it undercounts)
+                        # Only takes up the slot. The copy of the upper cell's text is not counted (it undercounts); the drawing
+                        # stops writing copies at the limit (`TableBudget.room`)
                         budget.add(row, col, "", col_span=span)
                 continue
 

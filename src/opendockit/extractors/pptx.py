@@ -1093,7 +1093,7 @@ def _render_pptx_table(table: object, extraction: Extraction, inline: _Inline | 
     """
     grid = TableGrid()
     _place_pptx_cells(table, grid, inline, budget)
-    rendered = grid.render()
+    rendered = grid.render(room=budget.room if budget is not None else None)
     if grid.omitted_rows():
         extraction.warnings.append(omitted_rows_warning(grid.omitted_rows()))
     return rendered

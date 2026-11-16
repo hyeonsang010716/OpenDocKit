@@ -995,12 +995,12 @@ class _Renderer:
 
         # A table inside a note is one line; a table inside a table is drawn in place by the outer table (`TableGrid.embed`).
         if context.in_note:
-            return note_table(grid.rows())
+            return note_table(grid.rows(), self._options.max_chars)
         if context.grid is not None:
             return context.grid.embed(grid)
         if context.in_cell:
-            return grid.flatten()
-        rendered = grid.render()
+            return grid.flatten(self._options.max_chars)
+        rendered = grid.render(room=budget.room if budget is not None else None)
         self.omitted_rows += grid.omitted_rows()
         return rendered
 

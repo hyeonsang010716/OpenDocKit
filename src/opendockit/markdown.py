@@ -3,7 +3,8 @@
 Table rendering and text normalization are done only here, in one place, so that every format produces output of the same shape.
 """
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from itertools import chain
 import re
 import unicodedata
 
@@ -440,7 +441,8 @@ def _html_cell(value: str) -> str:
     return "<br>".join(neutralize_table_tags(line) for line in _cell_lines(value))
 
 
-def render_table(rows: list[list[str | None]], *, merged_titles_only: bool = False, headless: bool = False) -> str:
+def render_table(rows: list[list[str | None]], *, merged_titles_only: bool = False, headless: bool = False,
+                 room: int | None = None) -> str:
     """Turn a two-dimensional list of cells into a GFM Markdown table.
 
     - A line break inside a cell becomes `<br>` (a Markdown table row has to be one line).
@@ -458,9 +460,69 @@ def render_table(rows: list[list[str | None]], *, merged_titles_only: bool = Fal
     With `headless`, the table has no header row: every row goes under an empty header row as data, and no title row is taken
     out either. Used only for HTML name–value tables that have a name cell on every row (`th, td, th, td`) — the values of the
     first row were read as column names (Pinned by: test_core_html.py::TestNameValueTablesWithRowHeaders).
+
+    `room` stops writing rows once the output is certain to be over the character limit (as in `TableGrid.render`).
     """
-    kept_rows = [row for row in rows if any(_clean_cell(cell or "") for cell in row)]
-    cleaned = [[_clean_cell(cell or "") for cell in row] for row in kept_rows]
+    return _render_rows(rows, merged_titles_only=merged_titles_only, headless=headless,
+                        room=None if room is None else _Room(room))
+
+
+class _Room:
+    """The characters a drawing of a table may still write before the output is certain to be over the character limit
+    (`TableGrid.render(room=...)`), shared by the tables nested in it. What is written is charged with its `solid_length` in the
+    order it appears in the output; once it is used up, the rest of the drawing is not written."""
+
+    __slots__ = ("left",)
+
+    def __init__(self, left: int) -> None:
+        self.left = left
+
+    def spend(self, text: str) -> bool:
+        """Charge `text`, written at this point of the drawing. True once the room is used up — nothing after it is written."""
+        self.left -= solid_length(text)
+        return self.left < 0
+
+
+def _within(parts: Iterable[str], room: _Room | None) -> list[str]:
+    """`parts` (in output order) up to and including the one with which the room is used up (all of them without a room). The
+    parts are produced only as they are taken, so the rows past the room are never built."""
+    if room is None:
+        return list(parts)
+    kept = []
+    for part in parts:
+        kept.append(part)
+        if room.spend(part):
+            break
+    return kept
+
+
+# Cell text at least this long is cleaned once per drawing (`_once_per_text`): the copies of a vertically merged cell are one text
+# repeated on every covered row.
+_LONG_CELL = 1_000
+
+
+def _once_per_text[T](clean: Callable[[str], T]) -> Callable[[str], T]:
+    """`clean` that works on each long text once and looks it up afterwards. Every copy of a 100,000-character cell merged over
+    5,000 rows was cleaned again, twice per drawing."""
+    done: dict[str, T] = {}
+
+    def cached(value: str) -> T:
+        if len(value) < _LONG_CELL:
+            return clean(value)
+        if value not in done:
+            done[value] = clean(value)
+        return done[value]
+    return cached
+
+
+def _render_rows(rows: list[list[str | None]], *, merged_titles_only: bool = False, headless: bool = False,
+                 room: _Room | None = None) -> str:
+    """`render_table` that stops writing rows once `room` is used up (`TableGrid.render`). Which rows, columns and title the table
+    has is decided on all the rows first, so the rows written are exactly the front of the table drawn to the end."""
+    clean = _once_per_text(_clean_cell)
+
+    kept_rows = [row for row in rows if any(clean(cell or "") for cell in row)]
+    cleaned = [[clean(cell or "") for cell in row] for row in kept_rows]
     if not cleaned:
         return ""
 
@@ -470,7 +532,7 @@ def render_table(rows: list[list[str | None]], *, merged_titles_only: bool = Fal
     grid = [[row[col] for col in keep] for row in padded]
 
     if len(keep) == 1:
-        return "\n\n".join(_uncell(row[0]) for row in grid)
+        return "\n\n".join(_within((_uncell(row[0]) for row in grid), room))
 
     # A title row at the top of a table (a horizontally merged title, or title + unit) used as the header row would lose the column
     # names, so it is moved into a paragraph above the table.
@@ -486,7 +548,7 @@ def render_table(rows: list[list[str | None]], *, merged_titles_only: bool = Fal
         keep = [col for col in range(len(grid[0])) if any(row[col] for row in grid)]
         grid = [[row[col] for col in keep] for row in grid]
         if len(keep) == 1:
-            return "\n\n".join([*titles, *(_uncell(row[0]) for row in grid)])
+            return "\n\n".join(_within(chain(titles, (_uncell(row[0]) for row in grid)), room))
 
     if headless:
         grid = [["" for _ in keep], *grid]
@@ -494,8 +556,8 @@ def render_table(rows: list[list[str | None]], *, merged_titles_only: bool = Fal
         "| " + " | ".join(grid[0]) + " |",
         "| " + " | ".join("---" for _ in keep) + " |",
     ]
-    lines.extend("| " + " | ".join(row) + " |" for row in grid[1:])
-    return "\n\n".join([*titles, "\n".join(lines)])
+    parts = _within(chain(titles, lines, ("| " + " | ".join(row) + " |" for row in grid[1:])), room)
+    return "\n\n".join(part for part in [*parts[:len(titles)], "\n".join(parts[len(titles):])] if part)
 
 
 def _has_open_cell(row: list[str | None], columns: list[int]) -> bool:
@@ -605,6 +667,8 @@ class TableGrid:
         # each level of nesting multiplied — a 736-byte ODT took 26 s and 1.4 GB
         # (Pinned by: test_markdown.py::TestMergedTableAsHtml::test_text_shaped_like_a_nested_table_placeholder_draws_nothing).
         self._drawn: set[int] = set()
+        # What the drawing under way may still write (`render(room=...)`; None: no limit), shared with the nested tables it draws.
+        self._room: _Room | None = None
         self._span_budget = _SPAN_BUDGET
         # The real extent of the table: the lowest row and rightmost column where a cell was placed (`place`) or a covered cell
         # was reported (`reach`). Spans are cut to this extent when drawing — extended by the span counts written in the file,
@@ -697,11 +761,26 @@ class TableGrid:
         self._embedded.append(table)
         return f"\ue020{len(self._embedded) - 1}\ue021"
 
-    def render(self, *, headless: bool = False) -> str:
-        """`headless` is a table with no header row (the argument of the same name in `render_table`; in HTML every cell is a td)."""
+    def render(self, *, headless: bool = False, room: int | None = None) -> str:
+        """`headless` is a table with no header row (the argument of the same name in `render_table`; in HTML every cell is a td).
+
+        `room` is the characters the output can still take before it is over the character limit (`TableBudget.room`; None: no
+        limit). Once what the drawing wrote (`solid_length`, in output order, nested tables included) passes it, the remaining rows
+        are not written: the output is over the limit with what comes before, so the text cut at the limit is the same. Which rows,
+        columns, title and HTML-or-not the table has is still decided on the whole table. A vertically merged value is repeated
+        on every row it covers, but the extractors count the cell text once (`TableBudget`): a 38 KB DOCX with one
+        100,000-character cell merged over 5,000 rows was drawn to 500 million characters (65 s, 8.7 GB) before the per-block
+        count saw it (Pinned by: test_office_table_char_limit.py::TestMergedCopiesPastTheLimit)."""
+        self._room = None if room is None else _Room(room)
+        try:
+            return self._draw(headless=headless)
+        finally:
+            self._room = None
+
+    def _draw(self, *, headless: bool = False) -> str:
         rows = self.rows()
         if not self._embedded:
-            return self._html(rows, headless=headless) or render_table(rows, headless=headless)
+            return self._html(rows, headless=headless) or _render_rows(rows, headless=headless, room=self._room)
         self._drawn = set()
 
         # A table inside a table cannot go in a Markdown cell, so it is HTML. Only a one-column box is unfolded into paragraphs as
@@ -710,14 +789,38 @@ class TableGrid:
         if html is not None:
             return html
         self._drawn = set()
-        text = _EMBED.sub(lambda match: f"\n\n{self._nested(match, inline=False)}\n\n", render_table(rows, headless=headless))
-        return _BLANK_RUN.sub("\n\n", text).strip()
+        if self._room is None:
+            text = _EMBED.sub(lambda match: f"\n\n{self._nested(match, inline=False)}\n\n", render_table(rows, headless=headless))
+            return _BLANK_RUN.sub("\n\n", text).strip()
+        # With a room the paragraphs are charged in order with the nested tables drawn between them; the box's own text is cut
+        # by its own length first (a copy of the room — nested tables only add to what comes before a row).
+        box = _render_rows(rows, headless=headless, room=_Room(self._room.left))
+        pieces: list[str] = []
+        end: int | None = 0
+        for match in _EMBED.finditer(box):
+            pieces.append(box[end:match.start()])
+            if self._room.spend(pieces[-1]):
+                end = None
+                break
+            pieces.append(f"\n\n{self._nested(match, inline=False)}\n\n")
+            end = match.end()
+            if self._room.left < 0:
+                end = None
+                break
+        if end is not None:
+            pieces.append(box[end:])
+            self._room.spend(pieces[-1])
+        return _BLANK_RUN.sub("\n\n", "".join(pieces)).strip()
 
-    def flatten(self) -> str:
-        """'cell / cell' lines for places that cannot hold a table (inside a footnote or header). Nested tables are flattened the same way."""
-        text = "\n".join(" / ".join(cell for cell in row if cell) for row in self.rows())
+    def flatten(self, room: int | None = None) -> str:
+        """'cell / cell' lines for places that cannot hold a table (inside a footnote or header). Nested tables are flattened the same
+        way. `room` stops the lines once their own text is past it (the character limit; a vertically merged value is on every
+        line it covers, as in `render`)."""
+        lines = (" / ".join(cell for cell in row if cell) for row in self.rows())
+        text = "\n".join(_within(lines, None if room is None else _Room(room)))
         self._drawn = set()
-        return _EMBED.sub(lambda match: self._embedded[index].flatten() if (index := self._first_use(match)) is not None else "", text)
+        return _EMBED.sub(lambda match: self._embedded[index].flatten(room) if (index := self._first_use(match)) is not None else "",
+                          text)
 
     def _first_use(self, match: re.Match[str]) -> int | None:
         """The number of the nested table a placeholder stands for, the first time it is met in a drawing; None for a number
@@ -734,10 +837,14 @@ class TableGrid:
         if index is None:
             return ""
         table = self._embedded[index]
-        if not inline:
-            return table.render()
-        table._drawn = set()
-        return table._html(table.rows(), force=True, inline=True) or ""
+        table._room = self._room
+        try:
+            if not inline:
+                return table._draw()
+            table._drawn = set()
+            return table._html(table.rows(), force=True, inline=True) or ""
+        finally:
+            table._room = None
 
     def _cell_html(self, text: str) -> str:
         html = _html_cell(text)
@@ -767,13 +874,19 @@ class TableGrid:
         visible in the Markdown grid is not lost in HTML either (a spot not covered by a start cell keeps the grid's text).
         """
         row_keys, col_keys = self._axes()
-        filled = [[bool(_cell_lines(cell)) for cell in row] for row in rows]
+        has_lines = _once_per_text(lambda cell: bool(_cell_lines(cell)))
+        filled = [[has_lines(cell) for cell in row] for row in rows]
         kept_rows = [index for index, row in enumerate(filled) if any(row)]
         if not kept_rows:
             return None
         kept_cols = _filled_columns(filled, kept_rows)
         if inline and len(kept_cols) == 1:
-            return "<br>".join(self._cell_html(rows[row][kept_cols[0]]) for row in kept_rows)
+            lines = []
+            for row in kept_rows:
+                lines.append(self._cell_html(rows[row][kept_cols[0]]))
+                if self._room is not None and self._room.spend(rows[row][kept_cols[0]]):
+                    break
+            return "<br>".join(lines)
         if force and len(kept_cols) == 1:
             return None
         starts, taken = self._starts(row_keys, col_keys, kept_rows, kept_cols)
@@ -803,15 +916,25 @@ class TableGrid:
         lines = ["<table>"]
         for row in range(len(kept_rows)):
             tag = "th" if row == 0 and not headless else "td"
-            cells = []
+            cells, written = [], 0
             for col in range(len(kept_cols)):
                 if (row, col) in starts:
                     text, row_span, col_span = starts[row, col]
                     spans = (f' rowspan="{row_span}"' if row_span > 1 else "") + (f' colspan="{col_span}"' if col_span > 1 else "")
                     cells.append(f"<{tag}{spans}>{self._cell_html(text)}</{tag}>")
                 elif (row, col) not in taken:
-                    cells.append(f"<{tag}>{self._cell_html(rows[kept_rows[row]][kept_cols[col]])}</{tag}>")
+                    text = rows[kept_rows[row]][kept_cols[col]]
+                    cells.append(f"<{tag}>{self._cell_html(text)}</{tag}>")
+                else:
+                    continue
+                # The cell text is charged once the row is written; the nested tables in it charged themselves as they were drawn
+                # (`solid_length` leaves their placeholders out).
+                written += solid_length(text) if self._room is not None else 0
             lines.append("<tr>" + "".join(cells) + "</tr>")
+            if self._room is not None:
+                self._room.left -= written
+                if self._room.left < 0:
+                    break
         lines.append("</table>")
         return "\n\n".join([*titles, ("" if inline else "\n").join(lines)])
 
