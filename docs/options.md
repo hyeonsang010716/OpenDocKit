@@ -28,6 +28,7 @@ result = convert(data, "deck.pptx", options)
 | `remove_repeated_page_lines` | `True` | Remove repeated PDF page headers, footers and page numbers |
 | `page_markers` | `True` | Page-boundary comments (`<!-- Page N -->`) between the pages of a PDF and of a multi-page TIFF |
 | `extract_images` | `True` | Image extraction. `False` ignores images completely: pictures inside a document leave no placeholder (HTML, mail and EPUB pictures that have alt text keep `[Image: alt text]`), and an image file uploaded on its own is not read (empty result plus a warning). However, OLE objects whose content is not read (a pasted Excel sheet and the like) still leave an `[OLE object]` placeholder and a warning (DOCX, PPTX, HWP, HWPX) |
+| `decode_images` | `True` | Picture decoding. `False` is for text only: no picture is decoded, downscaled or returned (`images` is empty), and each picture inside a document keeps the placeholder a conversion without description gives it — `[Image: alt text]`, `[Image]`, nothing for a decoration, a repeated logo or a scanned page — told from the picture's header. PDF pictures and pages, which would have to be drawn first, and an image file uploaded on its own are read as with `extract_images=False`. Use it when only the text is wanted: the alt text authors give pictures stays, at a fraction of the time and memory |
 | `max_images` | none | Number of images to describe per document (cost cap). Without it, all are described |
 | `min_image_side` | 64 | Images smaller than this (px) are discarded |
 | `repeated_image_threshold` | 3 | A picture repeated this many times is treated as a logo and discarded |
@@ -66,7 +67,7 @@ Values are checked when `ConvertOptions` is created.
 - For `max_chars`, `max_images`, `min_image_side` and `pdf_time_budget`, 0 means "allow none" and is accepted.
 - `None` means "no limit" and is accepted for `max_chars`, `max_pages`, `max_images` and `pdf_time_budget`.
 - A value of the wrong type — `None` for any other limit, `2.5`, `"100"`, `True` — raises `TypeError`.
-- The switches (`page_markers`, `extract_images`, `keep_links`, `keep_emphasis`, `include_speaker_notes`, `include_hidden_sheets`,
+- The switches (`page_markers`, `extract_images`, `decode_images`, `keep_links`, `keep_emphasis`, `include_speaker_notes`, `include_hidden_sheets`,
   `include_headers_footers`, `include_footnotes`, `remove_repeated_page_lines`) accept only `True` and `False`. Anything else —
   `0`, `1`, `None`, `"false"` — raises `TypeError`: a string would always count as true, and a number hides a mix-up with a limit.
 - A whole number written as a float (`max_chars=5e5`) is accepted as an integer.

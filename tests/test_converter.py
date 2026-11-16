@@ -404,6 +404,69 @@ class TestPasswordProtectedZip:
             convert(data, "a.docx")
 
 
+class TestPlaceholdersWithoutDecoding:
+    """`decode_images=False` is text without decoding a picture: every picture keeps the placeholder a conversion without
+    description gives it (`converter._placeholders_only`), so the alt text an author gave a picture stays, which
+    `extract_images=False` drops (a text-only integration lost `[Image: Quarterly revenue chart: Q3 up 12%]`)."""
+
+    @staticmethod
+    def _docx_with_every_kind_of_picture() -> bytes:
+        """A picture with alt text, one without, three copies of a logo, a divider and a WMF with alt text."""
+        from docx import Document
+        from docx.shared import Inches
+        from PIL import Image
+
+        divider = BytesIO()
+        Image.new("RGB", (800, 3), (90, 90, 90)).save(divider, "PNG")
+        pictures = [(builder.png_bytes(300, 200, seed=1), "Quarterly revenue chart: Q3 up 12%"), (builder.png_bytes(300, 200, seed=2), None),
+                    *[(builder.png_bytes(260, 90, seed=3), None)] * 3, (divider.getvalue(), None), (builder.png_bytes(300, 200, seed=4), "Org chart")]
+        document = Document()
+        for number, (picture, alt) in enumerate(pictures):
+            document.add_paragraph(f"Paragraph {number}")
+            document.add_picture(BytesIO(picture), width=Inches(2))
+            if alt:
+                document.inline_shapes[-1]._inline.docPr.set("descr", alt)
+        buffer = BytesIO()
+        document.save(buffer)
+        wmf = bytes.fromhex("d7cdc69a") + b"\0" * 60  # the last picture becomes a WMF: not decoded either way
+        out = BytesIO()
+        with zipfile.ZipFile(BytesIO(buffer.getvalue())) as source, zipfile.ZipFile(out, "w") as target:
+            last = sorted(name for name in source.namelist() if name.startswith("word/media/"))[-1]
+            for name in source.namelist():
+                target.writestr(name, wmf if name == last else source.read(name))
+        return out.getvalue()
+
+    def test_text_is_that_of_the_default_conversion_and_no_picture_is_decoded(self, monkeypatch: pytest.MonkeyPatch):
+        from opendockit import converter
+
+        data = self._docx_with_every_kind_of_picture()
+        full = convert(data, "a.docx")
+
+        def refuse(*args, **kwargs):
+            raise AssertionError("a picture was decoded")
+
+        monkeypatch.setattr(converter, "prepare_image", refuse)
+        result = convert(data, "a.docx", ConvertOptions(decode_images=False))
+
+        assert result.text == full.text and result.images == []
+        assert "[Image: Quarterly revenue chart: Q3 up 12%]" in result.text and "[Image: Org chart]" in result.text
+        assert "[Image: Quarterly revenue chart" not in convert(data, "a.docx", ConvertOptions(extract_images=False)).text
+
+    def test_pdf_and_image_files_are_read_as_without_extraction(self):
+        pdf = builder.pdf_with_images()
+        picture = builder.png_bytes(300, 200, seed=5)
+
+        assert convert(pdf, "a.pdf", ConvertOptions(decode_images=False)).text == convert(pdf, "a.pdf", ConvertOptions(extract_images=False)).text
+        result = convert(picture, "a.png", ConvertOptions(decode_images=False))
+
+        assert result.text == "" and result.images == []
+        assert "image decoding (decode_images) is turned off" in result.warnings[0]
+
+    def test_switch_takes_only_true_or_false(self):
+        with pytest.raises(TypeError):
+            ConvertOptions(decode_images=0)
+
+
 class TestRunningOutOfMemory:
     """Running out of memory anywhere in a conversion is 'too large or too complex' under plain `convert` too. A MemoryError
     inside an extractor was gathered with the parser failures ('Could not parse the … document. The file may be corrupted.'),

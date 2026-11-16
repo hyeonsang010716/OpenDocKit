@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **`decode_images=False`**: text without decoding pictures. No picture is decoded or returned, and each one keeps the
+  placeholder a conversion without description gives it, so the alt text an author gave a picture stays in the text
+  (`[Image: Quarterly revenue chart]`), which `extract_images=False` drops. PDF pictures and pages and image files
+  are read as with `extract_images=False`.
 - **Dify plugin** (`dify-plugin/`): one tool, Convert to Markdown, that turns a file uploaded to a Dify Workflow or
   Chatflow into its Markdown, one document per page, slide or sheet, and the warnings. Dify reads no HWP or HWPX by
   itself. Each file is converted in a worker process with OpenDocKit's memory and time limits (in the plugin process,
