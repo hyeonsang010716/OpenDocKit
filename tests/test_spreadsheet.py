@@ -2264,6 +2264,31 @@ class TestElapsedSectionsInsideFormatLiterals:
 
         assert f"| 가 | {expected} |" in result.text
 
+    @pytest.mark.parametrize("streamed", [False, True], ids=["full-load", "streamed"])
+    @pytest.mark.parametrize("number_format", ["General", "h:mm:ss"])
+    def test_an_iso_duration_stays_a_duration(self, monkeypatch, streamed, number_format):
+        """openpyxl gives a duration for an ISO duration cell (`t="d"`, `PT36H`) as well. Only a duration it made from a format
+        with an elapsed-looking literal is a serial again; this one kept its days before and keeps them."""
+        from opendockit.extractors import spreadsheet
+
+        if streamed:
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+        data = _xlsx([["항목", "값"], ["가", 1]], {"B2": number_format})
+        with zipfile.ZipFile(BytesIO(data)) as source:
+            parts = {info.filename: source.read(info) for info in source.infolist()}
+        sheet = parts["xl/worksheets/sheet1.xml"].decode()
+        cell = re.search(r'<c r="B2"[^>]*>.*?</c>', sheet).group(0)
+        style = re.search(r' s="\d+"', cell)
+        parts["xl/worksheets/sheet1.xml"] = sheet.replace(cell, f'<c r="B2"{style.group(0) if style else ""} t="d"><v>PT36H</v></c>').encode()
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as target:
+            for name, part in parts.items():
+                target.writestr(name, part)
+
+        result = convert(buffer.getvalue(), "a.xlsx")
+
+        assert "| 가 | 36:00" in result.text
+
     def test_xls_date_cell(self):
         cell = xlrd.sheet.Cell(xlrd.XL_CELL_DATE, 45352.25)
 

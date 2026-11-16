@@ -5,6 +5,7 @@ dates, times, elapsed time, percentages, digit places, sections and literal text
 from collections.abc import Callable, Iterator
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
+import functools
 import math
 import re
 
@@ -124,10 +125,12 @@ def _negative_serial_text(value: float, number_format: str) -> str:
 _ELAPSED_FORMAT = re.compile(r"\[(?:h+|m+|s+)\]", re.IGNORECASE)
 
 
+@functools.lru_cache(maxsize=1024)
 def _is_elapsed_format(number_format: str | None) -> bool:
     """Whether the format has an elapsed section (`[h]`, `[mm]`, `[ss]`) outside quoted text and backslash escapes. Searching the
     raw format took the literal `" [h]"` of `yyyy-mm-dd" [h]"` for one, so a date cell became a duration and came out as
-    `yyyy-00-dd [h]` (Pinned by: test_spreadsheet.py::TestElapsedSectionsInsideFormatLiterals). Common to XLSX, XLS and XML."""
+    `yyyy-00-dd [h]` (Pinned by: test_spreadsheet.py::TestElapsedSectionsInsideFormatLiterals). Common to XLSX, XLS and XML.
+    Kept per format: a sheet has a few formats over very many cells, and the format is read in one pass of tokens."""
     return bool(number_format) and _ELAPSED_FORMAT.search(_format_codes(number_format, _elapsed_only)) is not None
 
 
