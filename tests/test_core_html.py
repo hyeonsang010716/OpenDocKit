@@ -266,6 +266,28 @@ class TestSpanBudgetOfFrontParts:
         assert full.text.startswith("x\n\ny\n\nx") and "| | x |" in full.text  # spans honored, then the budget is used up
         assert result.exceeded and result.text == full.text[:full.char_count - 1].rstrip()
 
+    @pytest.mark.parametrize(("table", "spans"), [
+        # a two-row header: the header rows are drawn a second time to be joined (12 span cells: rowspan 10, colspan 2)
+        ('<table><thead><tr><th colspan="2">Head</th><th>H2</th></tr><tr><th>a</th><th>b</th><th>c</th></tr></thead>'
+         '<tr><td rowspan="10">merged</td><td>y</td><td>z</td></tr>' + "<tr><td>y</td><td>z</td></tr>" * 9 + "</table>", 12),
+        # an HTML table with a table in a cell: the grid is built again with it (5 span cells: rowspan 3, colspan 2)
+        ('<table><tr><th>A</th><th>B</th></tr><tr><td rowspan="3">merged</td>'
+         '<td><table><tr><td>i1</td><td>i2</td></tr><tr><td>i3</td><td>i4</td></tr></table></td></tr>'
+         '<tr><td>y</td></tr><tr><td>z</td></tr><tr><td colspan="2">wide</td></tr></table>', 5),
+    ], ids=["two-row-header", "nested-table"])
+    def test_a_table_is_charged_once(self, monkeypatch, table, spans):
+        """An HTML table was charged for its header grid as well, or once more when it was built again with a table inside
+        a cell, so the next table lost spans a page drawing each table once keeps. Under a budget of exactly two tables'
+        spans, both keep theirs."""
+        data = f"<html><body>{table}<p>between</p>{table}</body></html>".encode()
+        unbounded = convert(data, "a.html", ConvertOptions(max_chars=None))
+        monkeypatch.setattr("opendockit.markdown._CONVERSION_SPAN_BUDGET", 2 * spans)
+
+        result = convert(data, "a.html", ConvertOptions(max_chars=None))
+
+        assert result.text == unbounded.text
+        first, second = result.text.split("between")
+        assert first.strip() == second.strip()
 
 class TestNestedListInsideATableCell:
     """A nested list was detached into a placeholder while rendering and not put back. A table with a table inside a cell renders
