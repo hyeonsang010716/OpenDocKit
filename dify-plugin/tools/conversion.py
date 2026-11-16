@@ -16,8 +16,10 @@ _LOG = logging.getLogger(__name__)
 # (Pinned by: test_dify_plugin.py::TestConversion::test_a_file_without_text_fails_without_quoting_the_document).
 logging.getLogger("opendockit.integrations").setLevel(logging.ERROR)
 
-# The tool returns text, so pictures are not extracted: they would only cost memory on the way out of the worker.
-OPTIONS = ConvertOptions(extract_images=False)
+# The tool returns text, so no picture is decoded: pictures would only cost memory on the way out of the worker. Each one
+# keeps its placeholder, so the alt text an author gave a picture stays in the text (`[Image: …]`), which
+# `extract_images=False` dropped (Pinned by: test_dify_plugin.py::TestConversion::test_a_picture_keeps_its_alt_text).
+OPTIONS = ConvertOptions(decode_images=False)
 
 # A fixed sentence: the warnings that say why can quote the document (a hidden sheet's name), and errors never do.
 NO_TEXT = ("No text could be extracted from this file. It may be empty, or hold only scanned pages or pictures, which need "
