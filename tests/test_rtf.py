@@ -80,6 +80,15 @@ class TestParagraphsAndHeadings:
         body = _STYLES + r"\pard\outlinelevel0 Top\par\pard\outlinelevel2 Third\par\pard\s1\outlinelevel9 Body\par"
         assert _text(body) == "# Top\n\n### Third\n\nBody"
 
+    def test_heading_holding_only_a_picture_is_not_a_heading(self):
+        """A heading paragraph (style or outline level) holding nothing but a picture was a heading, the picture placeholder
+        counting as its text: the picture became a block of its own under a bare '#'. With text beside it, it stays a heading."""
+        first, second, third = (r"{\pict\pngblip " + _png(color=(40 * index, 30, 30)).hex() + "}" for index in range(3))
+        body = (_STYLES + rf"\pard Intro\par\pard\s1 {first}\par\pard\outlinelevel0 {second}\par"
+                rf"\pard\s2 {third} Scope\par\pard Body\par")
+
+        assert _text(body) == "Intro\n\n[Image]\n\n[Image]\n\n## Scope\n\n[Image]\n\nBody"
+
     def test_paragraph_properties_last_until_pard(self):
         """A second paragraph without `\\pard` keeps the style of the first; `\\pard` drops it."""
         assert _text(_STYLES + r"\pard\s1 A\par B\par\pard C\par") == "# A\n\n# B\n\nC"
