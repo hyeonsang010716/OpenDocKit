@@ -8,13 +8,13 @@
     "source": "github",
     "subfolder": "packages/opendockit-mcp"
   },
-  "version": "0.3.10",
+  "version": "0.3.11",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "opendockit-mcp",
-      "version": "0.3.10",
+      "version": "0.3.11",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

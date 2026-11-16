@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-11-16
+
+The Dify plugin, and text without decoding pictures. The sample outputs in `examples/` are unchanged.
+
 ### Added
 
 - **`decode_images=False`**: text without decoding pictures. No picture is decoded or returned, and each one keeps the
@@ -15,7 +19,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Dify plugin** (`dify-plugin/`): one tool, Convert to Markdown, that turns a file uploaded to a Dify Workflow or
   Chatflow into its Markdown, one document per page, slide or sheet, and the warnings. Dify reads no HWP or HWPX by
   itself. Each file is converted in a worker process with OpenDocKit's memory and time limits (in the plugin process,
-  without them, where the runtime cannot run worker processes at all). It is not part of the Python package.
+  without them, where the runtime cannot run worker processes at all). No picture is decoded, and each keeps its alt
+  text (`decode_images=False`). It is not part of the Python package.
 
 ## [0.3.10] - 2026-11-16
 
@@ -506,7 +511,8 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.10...HEAD
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.11...HEAD
+[0.3.11]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.11
 [0.3.10]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.10
 [0.3.9]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.9
 [0.3.8]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.8
