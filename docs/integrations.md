@@ -138,4 +138,15 @@ A commit newer than the catalog's installs from this repository: `hermes plugins
 The server is started without `--root`; set `OPENDOCKIT_MCP_ROOTS` in the shell or in the Hermes profile's `.env` to
 restrict it. What the plugin does on the machine is listed in its [README](../hermes-plugin/README.md).
 
+## Dify plugin
+
+[`dify-plugin/`](../dify-plugin) is a tool plugin for [Dify](https://github.com/langgenius/dify) and its
+Marketplace. Its one tool, **Convert to Markdown**, takes a file from a Workflow or Chatflow and returns the Markdown
+(`text`), one document per page, slide or sheet with the metadata above (`documents`), and the `warnings`. Dify reads
+no HWP or HWPX by itself; to accept them, a file input needs **Other file types** with `.hwp` and `.hwpx`.
+
+Each file is converted in a worker process of its own (`IsolatedConverter`), since every plugin of a Dify shares one
+runtime. Dify does not accept `.hwp` or `.hwpx` uploads into a knowledge base yet, so the plugin serves Workflows and
+Chatflows. Its [README](../dify-plugin/README.md) is the page shown on the Marketplace.
+
 Design notes: [decisions/integrations.md](decisions/integrations.md).
