@@ -939,6 +939,66 @@ class TestGroupedHeaderBetweenRules:
         assert "| 구분 | 2023년 남녀 이용률 남성 | 2023년 남녀 이용률 여성 | 2024년 남녀 이용률 남성 | 2024년 남녀 이용률 여성 |" in text
 
 
+def _rules_between_row_groups(groups: list[list[tuple[str, ...]]]) -> bytes:
+    """A borderless table with a horizontal rule above it and under each group of rows (the first group is the header): the
+    first column left-aligned, the others right-aligned. An empty cell is an empty string."""
+    rights = [0, 260, 360, 460]
+
+    def draw(pdf, index):
+        pdf.setFont(_FONT, 10)
+        pdf.drawString(80, 760, "1. 손익 현황")
+        y = 730.0
+        pdf.line(80, y + 14, 470, y + 14)
+        for group in groups:
+            for row in group:
+                pdf.drawString(80, y, row[0])
+                for right, text in zip(rights[1:], row[1:], strict=False):
+                    pdf.drawRightString(right, y, text)
+                y -= 18
+            pdf.line(80, y + 14, 470, y + 14)
+            y -= 4
+        pdf.drawString(80, y - 10, "표 아래에 이어지는 본문 문단입니다.")
+
+    return _korean_pdf(draw)
+
+
+class TestTwoDataRowsBetweenRules:
+    """A table ruled under its header and under each group of rows has two data rows between two rules, which looked like a
+    header stacked in two lines (`_join_ruled_header_lines`)."""
+
+    def test_two_rows_of_values_between_rules_stay_two_rows(self):
+        """The two rows were joined cell by cell into one ('| 매출 비용 | 1,000 800 | 1,200 900 |')."""
+        data = _rules_between_row_groups([[("구분", "2023년", "2024년")], [("매출", "1,000", "1,200"), ("비용", "800", "900")],
+                                          [("이익", "200", "300")]])
+
+        result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("1. 손익 현황\n\n| 구분 | 2023년 | 2024년 |\n| --- | --- | --- |\n| 매출 | 1,000 | 1,200 |\n"
+                               "| 비용 | 800 | 900 |\n| 이익 | 200 | 300 |\n\n표 아래에 이어지는 본문 문단입니다.")
+
+    def test_value_of_a_row_with_an_empty_cell_is_not_taken_for_an_upper_header_cell(self):
+        """With the last cell of the upper row empty, its value '1.6' lay above two cells of the lower row and was prefixed to
+        both of them as the upper cell of a two-level header."""
+        data = _rules_between_row_groups([[("구분", "1월", "2월", "3월")], [("매출", "849.7", "1.6", ""), ("비용", "81,547", "52.0", "91,234")],
+                                          [("이익", "200", "300", "400")]])
+
+        result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
+
+        assert ("| 구분 | 1월 | 2월 | 3월 |\n| --- | --- | --- | --- |\n| 매출 | 849.7 | 1.6 | |\n| 비용 | 81,547 | 52.0 | 91,234 |\n"
+                "| 이익 | 200 | 300 | 400 |") in result.text
+
+    def test_two_line_header_whose_second_line_is_numbers_is_still_joined(self):
+        """A header of period names over column numbers ('1분기 / (1)'): its second line is all numbers, but its first line
+        holds none, so it is a header, not data."""
+        data = _three_rule_statement([(12, [(153, "과목"), (260, "주석"), (330, "1분기"), (415, "2분기"), (490, "증감")]),
+                                      (24, [(330, "(1)"), (415, "(2)"), (490, "(3)")])])
+
+        result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
+
+        assert ("| 과목 | 주석 | 1분기 (1) | 2분기 (2) | 증감 (3) |\n| --- | --- | --- | --- | --- |\n"
+                "| Ⅰ. 매출액 | 23 | 152,340 | 138,920 | 13,420 |") in result.text
+
+
 def _gapped_table(gap: float, rows: list[tuple[str, ...]]) -> str:
     """Page text of a borderless table (below a title) whose columns are spaced by the longest cell text + `gap` pt. An empty cell is an empty
     string."""

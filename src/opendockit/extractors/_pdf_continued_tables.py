@@ -37,7 +37,8 @@ def _join_ruled_header_lines(page: _Page) -> None:
     into one row — the header became separate paragraphs and the first data row became the header (pinned by:
     test_pdf_table_columns.py::TestTwoLineHeaderBetweenRules). Joined only when the band is at most 4.5 lines high, every line
     in the band is short, the cells formed by grouping horizontally overlapping lines number three or more (one of them
-    multi-line), and the row right under the lower rule has three or more pieces.
+    multi-line), and the row right under the lower rule has three or more pieces — and not when the band is two or more
+    rows of values (`_holds_data_rows`).
 
     In a two-level header ('2023년' spanning the two columns '남성·여성') the upper cell does not overlap the lower cells
     horizontally, so it was not joined per cell. The upper cell is prefixed to each cell below it
@@ -56,7 +57,7 @@ def _join_ruled_header_lines(page: _Page) -> None:
         inside = [line for line in page.lines if line.top >= upper - 1 and line.bottom <= lower + 1
                   and line.x0 >= left - 2 and line.x1 <= right + 2]
         if (len(inside) < _TABLE_MIN_COLUMNS or any(line.x1 - line.x0 > max_cell for line in inside)
-                or lower - upper > statistics.median(line.height for line in inside) * 4.5):
+                or lower - upper > statistics.median(line.height for line in inside) * 4.5 or _holds_data_rows(inside)):
             continue
         grouped = _grouped_columns(inside)
         if grouped is None:
@@ -81,6 +82,24 @@ def _join_ruled_header_lines(page: _Page) -> None:
         first = next(index for index, line in enumerate(page.lines) if id(line) in taken)
         rest = [line for line in page.lines if id(line) not in taken]
         page.lines = [*rest[:first], *joined, *rest[first:]]
+
+
+def _holds_data_rows(lines: list[_Line]) -> bool:
+    """Whether the lines of a band between two rules are two or more data rows: every row (`_visual_rows`) has at least
+    `_TABLE_MIN_COLUMNS` pieces and a piece that is a numeric value, not a year or a date (`_NUMBER_CELL`, `_YEAR_OR_DATE`).
+
+    A table ruled after every group of rows (a rule under the header, under '매출·비용' and under the total) has two full
+    rows between two rules, which looked like a header stacked in two lines and was joined into one row
+    ('| 매출 비용 | 1,000 800 | 1,200 900 |'); with an empty cell in the upper row a value of it was taken for an upper
+    header cell and prefixed to two cells below. The lines of a stacked header hold names, years, periods and units
+    ('2025년 / (제12기)', '1분기', '(단위: 원)'); numbers at most on one of them, column numbers under period names
+    ('1분기 / (1)') (Pinned by: test_pdf_table_columns.py::TestTwoDataRowsBetweenRules).
+    """
+    rows = _visual_rows(lines)
+    return len(rows) >= 2 and all(
+        len(row) >= _TABLE_MIN_COLUMNS
+        and any(_NUMBER_CELL.match(line.text.strip()) and not _YEAR_OR_DATE.match(line.text.strip()) for line in row)
+        for row in rows)
 
 
 def _grouped_columns(lines: list[_Line]) -> list[list[_Line]] | None:
