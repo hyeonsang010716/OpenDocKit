@@ -34,6 +34,7 @@ from tests.test_office import (
     _pptx_with_chart,
     _pptx_with_smartart,
 )
+from tests.timing import allowed
 
 
 _ROWS = 20_000
@@ -697,6 +698,81 @@ class TestChartValuesPastTheLimit:
             return min(_seconds(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=limit))) for _ in range(2))
 
         assert best(_LIMIT) < best(None) * 0.7
+
+
+def _chart_of_own_points(series: int, points: int, *, shared: bool = False) -> str:
+    """Bar chart titled 'Own' of `series` series of `points` points. Each series uses point indexes of its own (series `s` from
+    `s * points`), or with `shared` all of them use the same indexes."""
+    def values(order: int) -> str:
+        first = 0 if shared else order * points
+        cached = "".join(f'<c:pt idx="{first + index}"><c:v>{index + 1}</c:v></c:pt>' for index in range(points))
+        return f'<c:numRef><c:numCache><c:ptCount val="{series * points}"/>{cached}</c:numCache></c:numRef>'
+
+    plot = "".join(f'<c:ser><c:idx val="{order}"/><c:order val="{order}"/><c:tx><c:v>S{order}</c:v></c:tx>'
+                   f"<c:val>{values(order)}</c:val></c:ser>" for order in range(series))
+    return _chart_xml(f"<c:barChart>{plot}</c:barChart>", title="Own")
+
+
+def _document_with_chart(kind: str, chart: str) -> bytes:
+    if kind == "pptx":
+        return builder.zip_with(_pptx_with_chart(), edit={"ppt/charts/chart1.xml": lambda _: chart})
+    if kind == "docx":
+        return _docx_with_chart(f"<w:p><w:r>{_docx_frame_of_chart()}</w:r></w:p>", chart)
+    if kind == "xlsx":
+        from tests.test_spreadsheet import _xlsx_with_chart
+
+        return builder.zip_with(_xlsx_with_chart(cached=True), edit={"xl/charts/chart1.xml": lambda _: chart})
+    body = '<hp:p><hp:run><hp:t>Sales:</hp:t><hp:chart chartIDRef="Chart/chart1.xml"/></hp:run></hp:p>'
+    return builder.zip_with(builder.hwpx_bytes(body), add={"Chart/chart1.xml": chart})
+
+
+class TestChartSeriesOnTheirOwnPoints:
+    """A chart's value table has a row for every point index of any series and a cell for every series in each row, so series
+    that each use their own point indexes made a table of series × points cells, nearly all empty: 300 series of 200 points (a
+    186 KB PPTX) built 18 million cells, 20.6 s and 1.5 GB. Empty cells have no text, so the character limit never stopped them.
+    Past `_charts._MAX_EMPTY_VALUE_CELLS` empty cells the remaining rows are left out with the table grid's warning; a table of
+    values is still read to the character limit (shared by PPTX, DOCX, XLSX and HWPX)."""
+
+    @pytest.mark.parametrize("kind", ["pptx", "docx", "xlsx", "hwpx"])
+    def test_rows_past_the_empty_cell_ceiling_are_left_out_with_a_warning(self, kind, monkeypatch):
+        from opendockit.extractors import _charts
+
+        monkeypatch.setattr(_charts, "_MAX_EMPTY_VALUE_CELLS", 100)
+        data = _document_with_chart(kind, _chart_of_own_points(5, 10))
+
+        result = convert(data, f"a.{kind}", ConvertOptions(max_chars=None))
+
+        # Each row holds 4 empty cells: after 26 rows there are 104, past the 100, so 24 of the 50 rows are left out
+        rows = re.findall(r"^\| (\d+) \|", result.text, flags=re.MULTILINE)
+        assert rows == [str(number) for number in range(1, 27)]
+        assert "The table is too large; the bottom 24 row(s) could not be converted." in result.warnings
+
+    def test_chart_of_values_is_not_bounded_by_the_ceiling(self, monkeypatch):
+        """Series sharing their point indexes leave no cell empty, so the ceiling never stops them, however many cells."""
+        from opendockit.extractors import _charts
+
+        monkeypatch.setattr(_charts, "_MAX_EMPTY_VALUE_CELLS", 10)
+        data = _document_with_chart("pptx", _chart_of_own_points(3, 50, shared=True))
+
+        result = convert(data, "a.pptx", ConvertOptions(max_chars=None))
+
+        assert "| 50 | 50 | 50 | 50 |" in result.text
+        assert not any("too large" in warning for warning in result.warnings)
+
+    def test_rows_within_the_ceiling_are_all_kept(self):
+        data = _document_with_chart("docx", _chart_of_own_points(3, 4))
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=None))
+
+        assert result.text.endswith("| 11 | | | 3 |\n| 12 | | | 4 |") and not result.warnings
+
+    @pytest.mark.timing
+    def test_many_series_on_their_own_points_take_linear_time(self):
+        data = _document_with_chart("pptx", _chart_of_own_points(300, 200))
+
+        elapsed = _seconds(lambda: convert(data, "a.pptx"))
+
+        assert elapsed < allowed(6.0)
 
 
 _REFERENCES = 40

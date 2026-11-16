@@ -681,6 +681,7 @@ class _DocxRenderer:
         # test_office_table_char_limit.py::TestChartValuesPastTheLimit::test_docx_chart_stops_at_the_limit,
         # test_header_chart_is_not_cut_by_the_characters_of_the_body).
         extra["room"] = self._room()
+        extra["warnings"] = self._extraction.warnings
         # Inside a table cell: a chart's value table is handed to the outer table (like a table inside a table). The Markdown table
         # text went into the cell and became a mess of `\|` and `<br>` (Pinned by: test_office_cells_and_notes.py::
         # TestDocxObjectsInsideTableCells).

@@ -353,7 +353,7 @@ class HwpxRenderer:
         # test_hwpx_header_chart_is_not_cut_by_the_characters_of_the_body).
         own = self._note_depth or any(grid is None for grid in self._grids)
         room = chars_left(Extraction() if own else self._extraction, self._options)
-        rendered = render_chart(root, table, package_loader(self._load_part, name), room)
+        rendered = render_chart(root, table, package_loader(self._load_part, name), room, self._extraction.warnings)
         self._charts[name] = rendered.split("\n", 1)[0]
         return rendered
 

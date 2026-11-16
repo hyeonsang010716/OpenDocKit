@@ -712,8 +712,8 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
             return []
         # The value rows stop once their text passes the characters the output can still take (`room`; Pinned by:
         # test_office_table_char_limit.py::TestChartValuesPastTheLimit::test_pptx_chart_stops_at_the_limit).
-        rendered = (render_chart(chart, load_related=related_loader(chart_part), room=written.room(extraction, options))
-                    if chart is not None else "")
+        rendered = (render_chart(chart, load_related=related_loader(chart_part), room=written.room(extraction, options),
+                                 warnings=extraction.warnings) if chart is not None else "")
         chart_part._converter_chart_title = rendered.split("\n", 1)[0]
         return [rendered] if chart is not None else []
     if shape.has_text_frame:
@@ -724,7 +724,7 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
         as_bullets = _placeholder_type(shape) in _BULLET_PLACEHOLDERS
         return [*markers, _render_text_frame(shape.text_frame, as_bullets, _list_styles(shape), _inline_of(shape, options))]
     if _has_chartex(shape._element):
-        return [_chartex_text(shape._element, shape.part, written.room(extraction, options)) or "[Chart]"]
+        return [_chartex_text(shape._element, shape.part, written.room(extraction, options), extraction.warnings) or "[Chart]"]
     if next(shape._element.iter(f"{{{_PRESENTATION}}}oleObj"), None) is not None:
         # When no preview picture can be registered (image extraction is off or there is no preview), a placeholder and a count
         # warning are left, as for HWP and HWPX. Pasted sheets and documents vanished without a trace
@@ -748,9 +748,9 @@ def _has_chartex(element: object) -> bool:
     return element.tag == f"{{{_PRESENTATION}}}graphicFrame" and next(element.iter(f"{{{_CHARTEX}}}chart"), None) is not None
 
 
-def _chartex_text(element: object, part: object, room: int | None) -> str:
+def _chartex_text(element: object, part: object, room: int | None, warnings: list[str]) -> str:
     """Chart part referenced by the frame of a new chart kind (the cx:chart inside p:graphicFrame) → "[Chart] title" + value table
-    (rows up to `room`, as in `render_chart`). An empty string if it cannot be read.
+    (rows up to `room`, rows left out reported in `warnings`, as in `render_chart`). An empty string if it cannot be read.
 
     As for a `c:chart` (`_render_shape`), the part is read once however many frames point at it, its values are written at the
     first frame and the later frames give `[Chart] title`. It was parsed and rendered again for every frame (Pinned by:
@@ -760,7 +760,7 @@ def _chartex_text(element: object, part: object, room: int | None) -> str:
         return ""
     if "_converter_chart_title" not in chart_part.__dict__:
         chart_space = parse_part(chart_part.blob)
-        text = render_chartex(chart_space, room=room) if chart_space is not None else ""
+        text = render_chartex(chart_space, room=room, warnings=warnings) if chart_space is not None else ""
         chart_part._converter_chart_title = text.split("\n", 1)[0]
         return text
     return chart_part._converter_chart_title
