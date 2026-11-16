@@ -647,11 +647,11 @@ class TestAbuttingTablesWithDifferentColumns:
         """A form with a block merged over rows 1-3 of the two right columns and another over rows 3-5 of the two left
         columns. The rows the right block starts in are as tall as the block when measured by their cells, so their middle
         lay in row 3, where the left columns are merged: the form was split after row 2, 'r3c0' fell out as a paragraph
-        and the second table took a data row as its header."""
+        and the second table took a data row as its header. Row 3 is the last row of the right block, so it repeats 'r1c2'."""
         result = convert(self._form_pdf([(1, 2, 3), (3, 0, 3)], heights), "a.pdf", ConvertOptions(page_markers=False))
 
         assert result.text == ("Application form\n\n| Head0 | Head1 | Head2 | Head3 |\n| --- | --- | --- | --- |\n"
-                               "| r1c0 | r1c1 | r1c2 | |\n| r2c0 | r2c1 | r1c2 | |\n| r3c0 | | | |\n| r3c0 | | r4c2 | r4c3 |\n"
+                               "| r1c0 | r1c1 | r1c2 | |\n| r2c0 | r2c1 | r1c2 | |\n| r3c0 | | r1c2 | |\n| r3c0 | | r4c2 | r4c3 |\n"
                                "| r3c0 | | r5c2 | r5c3 |\n| r6c0 | r6c1 | r6c2 | r6c3 |\n\nEnd of the form.")
 
     def test_merged_blocks_below_each_other_keep_one_table(self):
@@ -778,6 +778,51 @@ class TestAbuttingTablesWithDifferentColumns:
         result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
 
         assert result.text.startswith("| Name | Kim | Dept | Sales |\n| --- | --- | --- | --- |\n| Grade | Manager | Phone | 1234 |\n\n| Date |")
+
+
+def _merged_cells_pdf(xs: list[float], cells: list[tuple[int, int, int, int, str]], rows: int) -> bytes:
+    """A ruled grid of `rows` rows of 20pt between the column edges `xs`, each cell (first row, first column, rows, columns,
+    text) drawn as its own rectangle with its text in the middle, and a paragraph below."""
+    ys = [700 - 20 * row for row in range(rows + 1)]
+
+    def draw(pdf, index):
+        pdf.setLineWidth(0.6)
+        pdf.setFont(_FONT, 10)
+        for row, column, height, width, text in cells:
+            pdf.rect(xs[column], ys[row + height], xs[column + width] - xs[column], ys[row] - ys[row + height])
+            pdf.drawString(xs[column] + 5, (ys[row] + ys[row + height]) / 2 - 4, text)
+        pdf.drawString(xs[0], ys[-1] - 40, "표 아래 본문입니다.")
+
+    return _korean_pdf(draw)
+
+
+class TestStaggeredMerges:
+    """Vertical (or horizontal) merges that start in every cell of a row (or column), staggered against the merges of the
+    neighbouring column (or row)."""
+
+    def test_each_merged_cell_is_repeated_only_in_the_rows_it_covers(self):
+        """Column 1 merges rows 2-3 and 4-5, column 2 merges rows 1-2, 3-4 and 5-6. Every cell starting in rows 1-5 is merged
+        downwards, so the middle of such a row was measured on its boundary with the next row: a merge ending at that
+        boundary counted the next row as its own and copied its text there ('| 구현 | 기획팀 |', '| 종료 | 기획팀 |')."""
+        column_one = [(0, 1, "단계"), (1, 2, "착수"), (2, 4, "설계"), (4, 6, "구현"), (6, 7, "종료")]
+        column_two = [(0, 1, "담당"), (1, 3, "기획팀"), (3, 5, "개발팀"), (5, 7, "운영팀")]
+        cells = [(first, column, last - first, 1, text)
+                 for column, merges in enumerate((column_one, column_two)) for first, last, text in merges]
+
+        result = convert(_merged_cells_pdf([80, 220, 360], cells, 7), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("| 단계 | 담당 |\n| --- | --- |\n| 착수 | 기획팀 |\n| 설계 | 기획팀 |\n| 설계 | 개발팀 |\n"
+                               "| 구현 | 개발팀 |\n| 구현 | 운영팀 |\n| 종료 | 운영팀 |\n\n표 아래 본문입니다.")
+
+    def test_merge_in_a_column_beside_wide_cells_is_repeated(self):
+        """Every cell starting in column 2 is two columns wide, so the middle of column 2 was measured on the left edge of
+        column 3, and the merge in column 3 ('보류', rows 3-4) was taken to be in column 2: it was not repeated in row 4."""
+        cells = [(0, 0, 1, 2, "항목"), (0, 2, 1, 1, "상태"), (1, 0, 1, 1, "가"), (1, 1, 1, 2, "설명 문장"),
+                 (2, 0, 1, 2, "나 항목"), (2, 2, 2, 1, "보류"), (3, 0, 1, 2, "다 항목"), (4, 0, 1, 2, "라 항목"), (4, 2, 1, 1, "완료")]
+
+        result = convert(_merged_cells_pdf([80, 200, 320, 440], cells, 5), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert "| 나 항목 | | 보류 |\n| 다 항목 | | 보류 |\n| 라 항목 | | 완료 |" in result.text
 
 
 def _three_rule_statement(header_lines: list[tuple[float, list[tuple[float, str]]]], header_height: float = 30.0) -> bytes:

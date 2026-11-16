@@ -53,13 +53,18 @@ def _cell_rows(table: object) -> list[list[str | None]]:
     merged cell (a first row containing a cell that spans three rows, a first column containing a '합계' (total) cell that
     spans two columns), its middle moves into another row or column, and the repetition was lost in tables with both
     vertical and horizontal merges (pinned by: test_pdf.py::TestRuledTables::
-    test_vertical_merge_is_repeated_in_every_row_when_another_row_merges_columns).
+    test_vertical_merge_is_repeated_in_every_row_when_another_row_merges_columns). The band ends at the start of the next
+    row or column at the latest: when every cell starting in a row is merged downwards, the earliest end is the bottom of a
+    lower row, the middle fell on the boundary with the next row, and a merged cell ending at that boundary counted that
+    row as its own. In a table whose two columns merge staggered pairs of rows, the value of one merge was copied into a
+    row it does not cover and the row it does cover kept another merge's text ('| 구현 | 기획팀 |') (Pinned by:
+    test_pdf_table_columns.py::TestStaggeredMerges).
     """
     rows = table.extract(**_CELL_TEXT)
     _read_sideways_cells(table, rows)
     _join_soft_wraps(table, rows)
-    row_middles = [_shared_middle(row.cells, 1, 3) for row in table.rows]
-    column_middles = [_shared_middle(column.cells, 0, 2) for column in table.columns]
+    row_middles = _shared_middles([row.cells for row in table.rows], 1, 3)
+    column_middles = _shared_middles([column.cells for column in table.columns], 0, 2)
     containers: list[int] = []  # rows where a cell holding an inner table starts
     # The rows and columns a cell covers are looked up by bisection over the sorted middles, and the cells a merged cell may
     # enclose only among those of its own height bands (`_BoxIndex.near`): scanning every cell of the table for every
@@ -123,11 +128,18 @@ def _repeated_below(rows: list[list[str | None]], index: int) -> bool:
                for column, cell in enumerate(rows[index]))
 
 
-def _shared_middle(cells: list[tuple | None], low: int, high: int) -> float:
-    """The middle of the band where all the cells of one row (or column) overlap. `low` and `high` are the positions of the
-    start and end coordinates in a cell box."""
-    cells = [cell for cell in cells if cell is not None]
-    return (max(cell[low] for cell in cells) + min(cell[high] for cell in cells)) / 2
+def _shared_middles(groups: list[list[tuple | None]], low: int, high: int) -> list[float]:
+    """The middle of the band where all the cells of each row (or column) overlap, the band ending at the start of the next
+    row (or column) at the latest (`_cell_rows`). `groups` are the cells of each row (or column); `low` and `high` are the
+    positions of the start and end coordinates in a cell box."""
+    groups = [[cell for cell in cells if cell is not None] for cells in groups]
+    starts = sorted({cell[low] for cells in groups for cell in cells})
+    middles = []
+    for cells in groups:
+        start, end = max(cell[low] for cell in cells), min(cell[high] for cell in cells)
+        following = bisect_right(starts, start)
+        middles.append((start + (min(end, starts[following]) if following < len(starts) else end)) / 2)
+    return middles
 
 
 def _join_soft_wraps(table: object, rows: list[list[str | None]]) -> None:
