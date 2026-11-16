@@ -6,7 +6,11 @@ Marketplace vocabulary. These tests are what notices. The conversion itself live
 (`tools/conversion.py`), so it is run here as Dify runs it.
 """
 
+import ast
 import importlib.util
+from io import BytesIO
+import logging
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -50,8 +54,26 @@ def _requirements() -> dict[str, str]:
 def _conversion():
     spec = importlib.util.spec_from_file_location("dify_plugin_conversion", PLUGIN / "tools" / "conversion.py")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # No __pycache__ in dify-plugin/: the Marketplace's content check refuses one in a plugin folder.
+    written, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = written
     return module
+
+
+def _hidden_sheet_only_workbook(name: str) -> bytes:
+    """A workbook whose one visible sheet is empty and whose hidden sheet, named `name`, holds the data."""
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    hidden = workbook.create_sheet(name)
+    hidden["A1"] = "salary"
+    hidden.sheet_state = "hidden"
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
 
 
 # Two conversions at once in one thread, the way the Dify plugin runtime serves requests (gevent, patched as dify_plugin
@@ -149,13 +171,36 @@ class TestDeclarations:
 
         assert set(re.findall(r'create_variable_message\("(\w+)"', code)) == set(tool["output_schema"]["properties"])
 
-    def test_the_plugin_is_made_only_when_main_is_run(self):
-        """Each conversion runs in a worker that imports the main module again; a plugin made at import time would start
-        there too."""
-        lines = (PLUGIN / "main.py").read_text(encoding="utf-8").splitlines()
-        made = next(index for index, line in enumerate(lines) if "Plugin(" in line and not line.lstrip().startswith("#"))
+    def test_the_sdk_is_imported_and_the_plugin_made_only_when_main_is_run(self):
+        """Each conversion runs in a worker that imports the main module again. A plugin made at import time would start
+        there too, and the SDK's import patches the worker for gevent, which kept the worker alive after the plugin was
+        killed."""
+        module = ast.parse((PLUGIN / "main.py").read_text(encoding="utf-8"))
+        [guard] = module.body
+        guarded = ast.unparse(guard)
 
-        assert 'if __name__ == "__main__":' in lines[:made] and lines[made].startswith("    ")
+        assert isinstance(guard, ast.If) and ast.unparse(guard.test) == "__name__ == '__main__'"
+        assert "from dify_plugin import" in guarded and "Plugin(" in guarded
+
+    def test_it_keeps_the_sdk_s_request_timeout(self):
+        """`MAX_REQUEST_TIMEOUT` is read by the serverless runtime only: set here it limited nothing on self-hosted Dify
+        and cut Dify Cloud's default."""
+        assert "MAX_REQUEST_TIMEOUT" not in (PLUGIN / "main.py").read_text(encoding="utf-8")
+
+
+class TestUploadName:
+    @pytest.mark.parametrize(("filename", "extension", "name"), [
+        ("notice.hwpx", ".hwpx", "notice.hwpx"),
+        ("Report.CSV", ".csv", "Report.CSV"),
+        ("download", ".csv", "download.csv"),
+        ("download", "csv", "download.csv"),
+        (None, ".pdf", "document.pdf"),
+        (None, None, "document"),
+        ("notes.txt", None, "notes.txt"),
+    ])
+    def test_a_name_gets_the_extension_dify_recorded(self, filename, extension, name):
+        """CSV is told from plain text by its extension only: a remote file named 'download' must still read as a table."""
+        assert _conversion().upload_name(filename, extension) == name
 
 
 class TestWhatIsShipped:
@@ -185,40 +230,86 @@ class TestConversion:
         assert [document["metadata"]["section_index"] for document in converted.documents] == [1, 2, 3]
         assert {document["metadata"]["section_kind"] for document in converted.documents} == {"page"}
 
-    def test_a_file_without_text_fails_with_the_reason_said_once(self):
-        """A scanned page: the error says so, and does not repeat the library's own 'No text was extracted.' after it."""
+    def test_a_file_without_text_fails_without_quoting_the_document(self, caplog):
+        """The library's warnings can name a part of the document (here a hidden sheet). The error is a fixed sentence,
+        and nothing of the document reaches the log."""
+        conversion = _conversion()
+        data = _hidden_sheet_only_workbook("Salary Kim Minsu")
+        assert any("Salary Kim Minsu" in warning for warning in opendockit.convert(data, "pay.xlsx").warnings)
+
+        with caplog.at_level(logging.DEBUG), pytest.raises(conversion.NoTextError) as raised:
+            conversion.convert_upload(data, "pay.xlsx")
+
+        assert str(raised.value) == conversion.NO_TEXT
+        assert "Salary" not in caplog.text
+
+    def test_a_normal_file_is_converted_in_a_worker(self, monkeypatch):
+        """The conversion in the plugin process is for runtimes without worker pools only."""
         conversion = _conversion()
 
-        with pytest.raises(conversion.NoTextError) as raised:
-            conversion.convert_upload(builder.png_bytes(), "scan.png")
-        message = str(raised.value)
-        assert message.startswith(conversion.NO_TEXT) and message.count("No text") == 1
+        def here(*_):
+            raise AssertionError("converted in the plugin process")
+
+        monkeypatch.setattr(conversion, "convert", here)
+
+        assert "| 일정 | 3월 |" in conversion.convert_upload(builder.hwpx_bytes(), "notice.hwpx").text
 
     def test_two_requests_at_once_in_one_thread_both_finish(self, tmp_path):
         """Dify serves a plugin's requests side by side in one thread; without taking turns the second conversion failed
-        with "asyncio.run() cannot be called from a running event loop". Runs where gevent is installed (the Dify SDK
-        brings it)."""
+        with "asyncio.run() cannot be called from a running event loop"."""
         pytest.importorskip("gevent")
+        if os.name != "posix":
+            pytest.skip("the plugin runtime is Linux; IsolatedConverter is verified on Linux and macOS only")
+        # Run on the Python the plugin runs on: on 3.14 gevent with asyncio and multiprocessing hangs, old code or new.
+        if f"{sys.version_info.major}.{sys.version_info.minor}" != _yaml("manifest.yaml")["meta"]["runner"]["version"]:
+            pytest.skip("runs on the Python version of the plugin's runner")
         document = tmp_path / "notice.hwpx"
         document.write_bytes(builder.hwpx_bytes())
 
-        finished = subprocess.run([sys.executable, "-c", _TWO_AT_ONCE, str(PLUGIN / "tools" / "conversion.py"), str(document)],
+        finished = subprocess.run([sys.executable, "-B", "-c", _TWO_AT_ONCE, str(PLUGIN / "tools" / "conversion.py"), str(document)],
                                   capture_output=True, text=True, timeout=120, check=True)
 
         assert finished.stdout.split()[-1] == "2"
 
-    def test_a_runtime_that_cannot_start_a_worker_still_converts(self, monkeypatch):
-        """Some serverless runtimes cannot start a process (no shared memory for its semaphores)."""
+    def test_a_runtime_that_cannot_make_a_worker_pool_still_converts(self, monkeypatch):
+        """Some serverless runtimes cannot make a process pool at all (no shared memory for its semaphores)."""
         conversion = _conversion()
 
-        class NoProcesses:
+        class NoPools:
             def __init__(self, **_):
                 raise OSError(38, "Function not implemented")
 
-        monkeypatch.setattr(conversion, "IsolatedConverter", NoProcesses)
+        monkeypatch.setattr(conversion, "IsolatedConverter", NoPools)
         converted = conversion.convert_upload(builder.hwpx_bytes(), "notice.hwpx")
 
         assert "| 일정 | 3월 |" in converted.text
+
+    def test_a_worker_that_cannot_start_fails_the_file_instead_of_converting_it_here(self, monkeypatch):
+        """A worker that cannot start is a machine short of memory or processes: converting the file in the plugin process
+        then, without limits, would put every plugin of the Dify at risk."""
+        conversion = _conversion()
+
+        class ShortOfMemory:
+            def __init__(self, **_):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return None
+
+            async def convert(self, *_):
+                raise OSError(12, "Cannot allocate memory")
+
+        def here(*_):
+            raise AssertionError("converted in the plugin process")
+
+        monkeypatch.setattr(conversion, "IsolatedConverter", ShortOfMemory)
+        monkeypatch.setattr(conversion, "convert", here)
+
+        with pytest.raises(OSError, match="Cannot allocate memory"):
+            conversion.convert_upload(builder.hwpx_bytes(), "notice.hwpx")
 
     def test_a_broken_file_fails_with_the_library_error(self):
         with pytest.raises(opendockit.ConversionError):
