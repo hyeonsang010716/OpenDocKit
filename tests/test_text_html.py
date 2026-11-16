@@ -1769,7 +1769,9 @@ class TestContentOutsideTableCells:
     @pytest.mark.parametrize("build", [
         lambda count: "<table><tr><th>a</th><th>b</th></tr><tr><form>" + "<td>v</td>" * count + "</form></tr></table>",
         lambda count: "<table>" + "<tr><td>a</td><td>b</td></tr><td>c</td><td>d</td>" * count + "</table>",
-    ], ids=["wrapped", "outside-rows"])
+        # each cell behind one more wrapper: unwrapped level by level, every level put back all the cells below it
+        lambda count: "<table><tr>" + "<label><td>v</td>" * count + "</label>" * count + "</tr></table>",
+    ], ids=["wrapped", "outside-rows", "nested-wrappers"])
     def test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly(self, build):
         def seconds(count):
             started = time.perf_counter()

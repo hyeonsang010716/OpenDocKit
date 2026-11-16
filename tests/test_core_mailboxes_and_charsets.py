@@ -344,6 +344,20 @@ class TestEncodedWordNextToText:
     def test_a_word_against_the_text_next_to_it_is_joined_to_it(self, value, expected):
         assert self._head("Subject", value) == f"Subject: {expected}"
 
+    @pytest.mark.parametrize(("name", "value", "expected"), [
+        ("From", "=?utf-8?b?7ZmN6ri464+Z?=\r\n <hong@example.com>", "홍길동 <hong@example.com>"),
+        ("To", "=?utf-8?b?6rmA?= <kim@example.com>,\r\n =?utf-8?b?7ZmN?=\r\n <hong@example.com>",
+         "김 <kim@example.com>, 홍 <hong@example.com>"),
+        ("Subject", "Hello world\r\n =?utf-8?q?x?=", "Hello world x"),
+        ("Subject", "One\r\n\t=?utf-8?q?two?=\r\n three", "One two three"),
+        # two words folded apart are still one text (RFC 2047)
+        ("Subject", "=?utf-8?b?6rKs7KCB?=\r\n =?utf-8?b?7ISc?=", "견적서"),
+    ])
+    def test_a_folded_header_keeps_the_space_of_its_fold(self, name, value, expected):
+        """`decode_header` strips the space that starts each line of a folded header, so with the pieces joined as they are
+        `=?…?=\\r\\n <a@b>` became `홍길동<a@b>`."""
+        assert self._head(name, value) == f"{name}: {expected}"
+
     def test_attachment_name_with_an_extension_after_the_word(self):
         data = ("From: a@example.com\r\nSubject: quote\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=M\r\n\r\n"
                 "--M\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n견적 보내드립니다.\r\n--M\r\n"

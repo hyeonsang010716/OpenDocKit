@@ -822,13 +822,20 @@ def image_length_bound(image: DocumentImage, fallbacks: dict[int, str], quote: i
 
 
 def quote_widths(sections: list[Section], pattern: re.Pattern[str]) -> dict[int, int]:
-    """Image id → the length of the longest quote marks (`> `, `> > `) on a line holding its placeholder, for the pictures that
-    have one inside a quote (`image_length_bound`). The line start is carried from one placeholder to the next, so a long line
-    with many pictures is read once."""
+    """Image id → the length of the longest quote marks (`> `, `> > `) on any line of its section that holds a placeholder,
+    for the pictures of the sections that have a placeholder inside a quote (`image_length_bound`). The line start is carried
+    from one placeholder to the next, so a long line with many pictures is read once.
+
+    The widest of the section, not that of the picture's own line: whether the empty quote line after a picture is kept
+    depends on the line after it (`_settle_quote_gaps`), which may hold another picture, so describing a picture outside the
+    quote (`> ![](A)` followed by `![](B)`, a lazy continuation in Markdown) brought back the empty quote line of the
+    picture before it, which a SKIP answer had dropped, and the stop during description ran past the limit (Pinned by:
+    test_converter.py::TestPicturesInsideAQuote::test_a_picture_after_a_quoted_one_counts_the_quote_marks_of_its_neighbour)."""
     widths: dict[int, int] = {}
     for section in sections:
         template = section.template
-        start, position, width = 0, 0, 0
+        start, position, width, widest = 0, 0, 0, 0
+        found: list[int] = []
         for match in pattern.finditer(template):
             newline = template.rfind("\n", position, match.start())
             if newline >= 0 or position == 0:
@@ -836,9 +843,11 @@ def quote_widths(sections: list[Section], pattern: re.Pattern[str]) -> dict[int,
                 head = template[start:match.start()]
                 width = len(head) - len(_split_quote(head)[2]) if ">" in head else 0
             position = match.end()
-            if width:
-                image_id = int(match.group(1))
-                widths[image_id] = max(widths.get(image_id, 0), width)
+            widest = max(widest, width)
+            found.append(int(match.group(1)))
+        if widest:
+            for image_id in found:
+                widths[image_id] = max(widths.get(image_id, 0), widest)
     return widths
 
 

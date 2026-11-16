@@ -940,6 +940,41 @@ class TestPicturesInsideAQuote:
         assert result.exceeded
         assert sum(1 for image in result.images if image.description) == crossing[0]
 
+    @pytest.mark.parametrize("share", [4, 2])
+    def test_a_picture_after_a_quoted_one_counts_the_quote_marks_of_its_neighbour(self, share):
+        """Whether the empty quote line after a quoted picture is kept depends on the line after it. When that line holds a
+        picture outside the quote (a lazy continuation in Markdown), describing it brought back the empty quote line that a
+        SKIP answer for the quoted one had dropped, which its own bound (no quote marks) did not count: with 30-deep quotes
+        all 40 pictures were described where rendering every time stops at the twelfth."""
+        from opendockit.converter import render
+        from opendockit.describe import describe_images
+
+        deep = "> " * 30
+        source = "".join(f"{deep}x{index}\n{deep}![]({_data_uri(seed=index)})\n![]({_data_uri(seed=index + 1)})\n\n"
+                         for index in range(0, 40, 2)).encode()
+        answers = {image_id: "SKIP" if image_id % 2 else "d" for image_id in range(1, 41)}
+
+        def described(document, count):
+            return replace(document, images=[
+                replace(image, description=answers[image.id]) if index < count and answers[image.id] != "SKIP"
+                else replace(image, decorative=True) for index, image in enumerate(document.images)])
+
+        full = convert(source, "a.md")
+        floor, ceiling = render(described(full, 0)).char_count, render(described(full, 40)).char_count
+        base = convert(source, "a.md", ConvertOptions(max_chars=floor + (ceiling - floor) // share))
+        crossing = [count for count in range(1, 41) if render(described(base, count)).exceeded]
+
+        class Answers:
+            async def describe(self, image):
+                await asyncio.sleep(0)
+                return answers[image.id]
+
+        result = asyncio.run(describe_images(base, Answers(), max_concurrency=1))
+
+        answered = [index + 1 for index, image in enumerate(result.images) if image.description or image.decorative]
+        assert result.exceeded
+        assert max(answered) == crossing[0]
+
 
 class TestInputTypes:
     """`convert` takes the file content (bytes). A memoryview failed in format detection (`startswith`) and a path string failed

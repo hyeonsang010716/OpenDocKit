@@ -703,9 +703,47 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
             else:
                 before.append(child)
 
-        _unwrap_all(wrappers)
+        _flatten_wrappers(wrappers)
         if before or after:
             _move_beside(table, before, after)
+
+
+def _flatten_wrappers(wrappers: list[Tag]) -> None:
+    """Unwrap the elements between a row and its cells (`_foster_parent_table_content`), collected in document order,
+    wrappers inside wrappers included: every node they hold that is no wrapper takes the place of the outermost one, in
+    document order. Each node is detached once, from the back of its parent with its position known, and put in once.
+
+    Unwrapped one by one from the innermost, each level put back every cell gathered below it: 4,000 cells each behind one
+    more `<label>` (100 KB) took 8.5 s (Pinned by: test_text_html.py::TestContentOutsideTableCells::
+    test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly)."""
+    wrapped = {id(wrapper) for wrapper in wrappers}
+    places: dict[int, dict[int, int]] = {}  # parent id → (child id → position)
+    for wrapper in reversed(wrappers):
+        parent = wrapper.parent
+        if id(parent) in wrapped:
+            continue  # flattened with the outermost wrapper
+        holders, nodes = [wrapper], []
+        pending = [iter(wrapper.contents[:])]
+        while pending:
+            node = next(pending[-1], None)
+            if node is None:
+                pending.pop()
+            elif isinstance(node, Tag) and id(node) in wrapped:
+                holders.append(node)
+                pending.append(iter(node.contents[:]))
+            else:
+                nodes.append(node)
+        for holder in holders:
+            children = holder.contents[:]
+            for position in range(len(children) - 1, -1, -1):
+                if not (isinstance(children[position], Tag) and id(children[position]) in wrapped):
+                    children[position].extract(_self_index=position)
+        if id(parent) not in places:
+            places[id(parent)] = {id(child): index for index, child in enumerate(parent.contents)}
+        index = places[id(parent)][id(wrapper)]
+        wrapper.extract(_self_index=index)
+        for node in reversed(nodes):
+            parent.insert(index, node)
 
 
 def _rows_for_loose_cells(soup: BeautifulSoup, parent: Tag) -> list:
