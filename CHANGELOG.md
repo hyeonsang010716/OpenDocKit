@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Dify plugin** (`dify-plugin/`): one tool, Convert to Markdown, that turns a file uploaded to a Dify Workflow or
+  Chatflow into its Markdown, one document per page, slide or sheet, and the warnings. Dify reads no HWP or HWPX by
+  itself. Each file is converted in a worker process with OpenDocKit's memory and time limits. It is not part of the
+  Python package.
+
 ## [0.3.9] - 2026-11-16
 
 A sixth review of the whole source. The sample outputs in `examples/` are unchanged.

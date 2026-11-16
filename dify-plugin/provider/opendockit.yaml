@@ -1,0 +1,17 @@
+identity:
+  author: hyeonsang010716
+  name: opendockit
+  label:
+    en_US: OpenDocKit
+  description:
+    en_US: Convert HWP/HWPX, PDF, Word, PowerPoint, Excel and more to clean Markdown, offline.
+  icon: icon.png
+  # Only tags Dify accepts for a tool provider: Dify 1.19 refused the package with `document` here
+  # (Pinned by: test_dify_plugin.py::TestManifest::test_tool_provider_tags_are_ones_dify_installs).
+  tags:
+    - rag
+tools:
+  - tools/convert_document.yaml
+extra:
+  python:
+    source: provider/opendockit.py

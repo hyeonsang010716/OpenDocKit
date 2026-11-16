@@ -1,0 +1,35 @@
+identity:
+  name: convert_document
+  author: hyeonsang010716
+  label:
+    en_US: Convert to Markdown
+description:
+  human:
+    en_US: Convert a document to Markdown. HWP/HWPX, PDF, Word, PowerPoint, Excel, CSV, OpenDocument, RTF, EPUB, HTML and email.
+  llm: Convert an uploaded document to Markdown, keeping headings, lists, footnotes and tables (merged cells are repeated in every row). Reads HWP and HWPX (Hangul), PDF, DOCX, PPTX, XLSX, XLS, CSV, ODT, ODS, ODP, RTF, EPUB, HTML and EML files. Returns the whole text, and one document per page, slide or sheet.
+parameters:
+  - name: file
+    type: file
+    required: true
+    label:
+      en_US: Document
+    human_description:
+      en_US: The file to convert.
+    llm_description: The document to convert to Markdown.
+    form: llm
+output_schema:
+  type: object
+  properties:
+    documents:
+      type: array
+      items:
+        type: object
+      description: One document per page, slide or sheet that has text (one for the whole file when it has no such units), each with page_content and metadata.
+    warnings:
+      type: array
+      items:
+        type: string
+      description: What was skipped or approximated, in plain sentences.
+extra:
+  python:
+    source: tools/convert_document.py

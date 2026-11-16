@@ -1,0 +1,31 @@
+version: 0.3.9
+type: plugin
+author: hyeonsang010716
+name: opendockit
+repo: https://github.com/hyeonsang010716/OpenDocKit
+label:
+  en_US: OpenDocKit
+description:
+  en_US: Convert HWP/HWPX, PDF, Word, PowerPoint, Excel and more to clean Markdown, offline. Tables keep their rows and columns.
+icon: icon.png
+resource:
+  memory: 2147483648
+  permission: {}
+plugins:
+  tools:
+    - provider/opendockit.yaml
+meta:
+  version: 0.0.1
+  arch:
+    - amd64
+    - arm64
+  runner:
+    language: python
+    version: "3.12"
+    entrypoint: main
+created_at: 2026-11-16T00:00:00+09:00
+privacy: PRIVACY.md
+verified: false
+tags:
+  - document
+  - rag
