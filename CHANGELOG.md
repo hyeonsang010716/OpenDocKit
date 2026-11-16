@@ -12,9 +12,8 @@ A sixth review of the whole source. The sample outputs in `examples/` are unchan
 
 - **XLSX**: a styles part with more than 131,072 entries or 1,000,000 elements is replaced before loading by one that
   keeps only the display formats of the first 65,536 cell formats, with a warning (a styles part written in UTF-16 is
-  counted too). A 283 KB file with one cell and
-  1,000,000 cell formats took 7.8 seconds and 2.3 GB (now 0.7 seconds and 350 MB); 1,000,000 differential formats took
-  21 seconds.
+  counted too). A 283 KB file with one cell and 1,000,000 cell formats took 7.8 seconds and 2.3 GB (now 0.7 seconds and
+  350 MB); 1,000,000 differential formats took 21 seconds.
 - **PDF**: a line reaching out of the cells of a ruled table no longer scans every character of the page, and the cell
   text of a ruled table is read row by row from the characters at its height, with the same output (a 600-row table
   with a mark beside each row: 54 seconds → 4 seconds). The reading-order step that sets lines beside two columns below
@@ -24,27 +23,28 @@ A sixth review of the whole source. The sample outputs in `examples/` are unchan
 
 ### Fixed
 
-- **PDF**: a picture drawn at a position that is not a finite number (a scale of 10^200, written out in digits, twice) no longer rejects the
-  whole document as corrupted; neither does a page that `/Count` promises but pdfium cannot open when pdfminer cannot
-  read the document. A vertical merge is repeated only into the rows it covers, so a table whose columns merge
-  staggered pairs of rows no longer copies one merge's text into another's row. An open-sided table whose merged cells
-  break every inner rule is read once instead of twice. Two rows of values between two rules are no longer joined into
-  one row as a two-line header.
+- **PDF**: a picture drawn at a position that is not a finite number (a scale of 10^200, written out in digits, twice)
+  no longer rejects the whole document as corrupted; neither does a page that `/Count` promises but pdfium cannot open
+  when pdfminer cannot read the document (64 such pages in a row end it). A vertical merge is repeated only into the
+  rows it covers, so a table whose columns merge staggered pairs of rows no longer copies one merge's text into
+  another's row. An open-sided table whose merged cells break every inner rule is read once instead of twice. Two rows
+  of values between two rules are no longer joined into one row as a two-line header.
 - **HTML**: cells that lxml leaves outside a row are read, as a browser reads them: cells wrapped by a `<form>`, `<div>`
   or `<label>` inside a row, and cells written straight under the table or after a missing `<tr>` (they used to vanish,
   often leaving "No text was extracted"). A struck italic link followed by more struck text no longer gives `~~~~`. A
   heading holding only a picture is the picture, not an empty `#`. A `data-src` written as `DATA:` no longer turns the
   real picture into a lazy-load placeholder.
 - **Mail**: a decoded word next to plain text gets no space added, so `"=?euc-kr?B?…?=" <a@b>` is `"홍길동" <a@b>`
-  instead of `" 홍길동 " <a@b>`, and an attachment named `=?utf-8?b?…?=.xlsx` keeps its name whole.
+  instead of `" 홍길동 " <a@b>`, and an attachment named `=?utf-8?b?…?=.xlsx` keeps its name whole. The space of a
+  folded header is kept.
 - **Pictures in quotes**: a picture in a quoted table row stays in its cell and a picture in a quoted paragraph stays in
   the quote (a reply quoting a table with a photo used to split the table in two and set the photo outside the quote).
 - **DOCX / RTF**: a heading paragraph holding only a picture is the picture, not an empty `#` (or `# 1.`).
 - **Markdown**: a `data:` picture written in capitals (`DATA:IMAGE/PNG`) is extracted instead of leaving its base64 in
   the text.
 - **XLSX / XLS / Excel 2003 XML**: number formats round the value to 15 significant digits first, as Excel does, so
-  `0.7*1.5` under `0.0` is `1.1` (was `1.0`). An XLS zero duration under `[h]:mm` is `0:00` instead of `0`, and an XLSX cell under `[hhh]:mm` keeps
-  its days (`36:00`, was `12:00:00`).
+  `0.7*1.5` under `0.0` is `1.1` (was `1.0`). An XLS zero duration under `[h]:mm` is `0:00` instead of `0`, and an
+  XLSX cell under `[hhh]:mm` keeps its days (`36:00`, was `12:00:00`).
 
 ## [0.3.8] - 2026-11-16
 
