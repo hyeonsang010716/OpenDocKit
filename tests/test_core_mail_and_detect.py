@@ -279,3 +279,69 @@ class TestMailWithAnMboxFromLine:
 
         assert result.format is DocumentFormat.TEXT
         assert result.text.startswith("From the start of the quarter,")
+
+
+_INVITATION = ("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nSUMMARY:주간 회의\r\nDTSTART:20240105T010000Z\r\n"
+               "LOCATION:회의실\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+
+
+def _single_part_mail(content_type: str, payload: bytes, extra_headers: str = "") -> bytes:
+    return (f"From: kim@example.com\r\nTo: lee@example.com\r\nSubject: scan\r\nMIME-Version: 1.0\r\nContent-Type: {content_type}\r\n"
+            f"{extra_headers}Content-Transfer-Encoding: base64\r\n\r\n").encode() + base64.encodebytes(payload)
+
+
+class TestSinglePartMailThatIsNotPlainText:
+    """A mail whose only part is a meeting invitation (text/calendar, sent alone by calendar servers and ticketing tools) or a
+    part that is not text (a scan-to-email PDF, a photo) was not taken for mail: the raw headers and the base64 became the
+    result, without a warning."""
+
+    @pytest.mark.parametrize("filename", ["invite.eml", "invite.txt", None])
+    def test_single_invitation_part_is_read_as_its_event(self, filename):
+        data = _single_part_mail("text/calendar; method=REQUEST; charset=utf-8", _INVITATION.encode())
+
+        result = convert(data, filename)
+
+        assert result.format is DocumentFormat.TEXT
+        assert result.text == ("Subject: scan\nFrom: kim@example.com\nTo: lee@example.com\n\n"
+                               "Event:\n\n- Title: 주간 회의\n- Start: 2024-01-05 01:00 UTC\n- Location: 회의실")
+        assert result.warnings == []
+
+    @pytest.mark.parametrize("filename", ["scan.eml", "scan.txt", None])
+    @pytest.mark.parametrize(("content_type", "extra_headers"), [
+        ("application/pdf; name=scan.pdf", "Content-Disposition: attachment; filename=scan.pdf\r\n"),
+        ("application/pdf; name=scan.pdf", ""),
+        ("image/jpeg; name=scan.pdf", "Content-Disposition: inline\r\n"),
+    ])
+    def test_single_part_that_is_not_text_is_named_as_an_attachment(self, filename, content_type, extra_headers):
+        data = _single_part_mail(content_type, b"%PDF-1.4 " * 30, extra_headers)
+
+        result = convert(data, filename)
+
+        assert result.format is DocumentFormat.TEXT
+        assert result.text == "Subject: scan\nFrom: kim@example.com\nTo: lee@example.com"
+        assert result.warnings == ["1 mail attachment(s) (scan.pdf) were not read. Convert attachments separately."]
+
+    def test_html_mail_reads_a_forwarded_invitation_and_names_a_forwarded_scan(self):
+        """The HTML extractor reads the same way: the event of a forwarded single-part invitation goes after its headers, and a
+        forwarded single-part PDF is named in the warning."""
+        invitation = _single_part_mail("text/calendar; method=REQUEST; charset=utf-8", _INVITATION.encode()).decode()
+        scan = _single_part_mail("application/pdf; name=scan.pdf", b"%PDF-1.4 " * 30).decode()
+        data = ("From: kim@example.com\r\nTo: lee@example.com\r\nSubject: fw\r\nMIME-Version: 1.0\r\n"
+                "Content-Type: multipart/mixed; boundary=M\r\n\r\n--M\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+                f"{_HTML}\r\n--M\r\nContent-Type: message/rfc822\r\n\r\n{invitation}\r\n--M\r\nContent-Type: message/rfc822\r\n\r\n"
+                f"{scan}\r\n--M--\r\n").encode()
+
+        result = convert(data, "fw.eml")
+
+        assert result.format is DocumentFormat.HTML
+        assert "## Forwarded message\n\nSubject: scan\nFrom: kim@example.com\nTo: lee@example.com\n\nEvent:\n\n- Title: 주간 회의" in result.text
+        assert "BEGIN:VCALENDAR" not in result.text
+        assert result.warnings == ["1 mail attachment(s) (scan.pdf) were not read. Convert attachments separately."]
+
+    @pytest.mark.parametrize("content_type", ["text/html; charset=utf-8", "multipart/related; boundary=R"])
+    def test_html_and_related_top_levels_are_still_mhtml(self, content_type):
+        body = f"--R\r\nContent-Type: text/html; charset=utf-8\r\n\r\n{_HTML}\r\n--R--\r\n" if "related" in content_type else _HTML
+        data = f"MIME-Version: 1.0\r\nContent-Type: {content_type}\r\n\r\n{body}".encode()
+
+        assert detect_format(data, "page.mht") is DocumentFormat.HTML
+        assert convert(data, "page.txt").text.startswith("MIME-Version: 1.0\nContent-Type: ")

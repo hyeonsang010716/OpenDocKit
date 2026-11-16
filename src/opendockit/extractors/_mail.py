@@ -48,7 +48,12 @@ MIME_VERSION = re.compile(rb"^MIME-Version:", re.IGNORECASE | re.MULTILINE)
 # Mail that carries a body: multipart (related is MHTML — `html.is_mhtml`) or a single plain-text part.
 # A mail whose top-level type is message/rfc822 (a forwarded mail saved on its own, or a mail program that wraps the mail it
 # forwards) is mail too: it was text, headers and all (Pinned by: test_audit_web_fixes.py::TestTopLevelForwardedMail).
-_MAIL_CONTENT_TYPE = re.compile(rb"^Content-Type:\s*(?:multipart/(?!related\b)[\w.+-]+|text/plain|message/rfc822)\b",
+# So is a single meeting invitation part (text/calendar — calendar servers and ticketing tools send it alone) and a single
+# part that is not text (a scanner's application/pdf, a phone's image/jpeg): both were text, raw headers and base64 and all,
+# without a warning (Pinned by: test_core_mail_and_detect.py::TestSinglePartMailThatIsNotPlainText). The single part that is
+# not text is the mail's attachment (`_is_attachment`). text/html stays MHTML; other text types are not taken.
+_MAIL_CONTENT_TYPE = re.compile(rb"^Content-Type:\s*(?:multipart/(?!related\b)[\w.+-]+|text/(?:plain|calendar)|message/rfc822"
+                                rb"|(?:application|image|audio|video|model|font)/[\w.+-]+)\b",
                                 re.IGNORECASE | re.MULTILINE)
 # Identifying mail without MIME-Version (`_mail_without_mime_version`): the sender, a recipient/subject/date, and a MIME body
 # header (a mail Content-Type — related and HTML included — or Content-Transfer-Encoding).
@@ -132,7 +137,8 @@ def _after_mbox_from_line(data: bytes, start: int) -> int | None:
 
 def mime_mail(data: bytes) -> Message | None:
     """The message if this is a MIME mail whose leading header block has MIME-Version and a mail Content-Type (a multipart other
-    than multipart/related, or text/plain) (.eml, or .mht of the same structure), or a mail without MIME-Version
+    than multipart/related, text/plain, text/calendar, message/rfc822, or a type that is not text — `_MAIL_CONTENT_TYPE`)
+    (.eml, or .mht of the same structure), or a mail without MIME-Version
     (`_mail_without_mime_version`), otherwise None.
 
     Deliberate: it is read as mail whatever the transfer encoding (base64, quoted-printable, 7bit, 8bit). Previously only mail
@@ -574,6 +580,11 @@ def _forwarded_message(part: Message) -> Message | None:
     return inner
 
 
+# The types of a single-part mail's own part that are its body: the plain-text and HTML bodies and a meeting invitation
+# (`_mail_calendar.mail_calendar_events`). Any other is an attachment of the mail (`_is_attachment`).
+_TOP_LEVEL_BODY_TYPES = ("text/plain", "text/html", "text/calendar")
+
+
 def _is_attachment(part: Message, message: Message) -> bool:
     """Is this an attachment of `message`: its Content-Disposition is attachment, or a leaf part that is not the top one has a
     name (`name=`, `filename=`) and no Content-ID or Content-Location for the body to point at — a part with no Disposition, or
@@ -584,11 +595,16 @@ def _is_attachment(part: Message, message: Message) -> bool:
     Apple Mail and iOS Mail send a PDF placed in the middle of the body as `inline; filename=…`, which was neither read nor
     warned about (Pinned by: test_core_mail_parts_and_icons.py::TestHtmlBodySplitAroundAnInlineAttachment). A picture embedded
     in the body (Content-ID) and the name of a top-level single-part mail are not attachments.
+    The top-level part of a single-part mail is an attachment when it is not a type read as a body (`_TOP_LEVEL_BODY_TYPES`):
+    the PDF of a scan-to-email mail gave only the headers, without a warning
+    (Pinned by: test_core_mail_and_detect.py::TestSinglePartMailThatIsNotPlainText).
     Known accepted gap: a text part (text/*) with `inline; filename=…` is read as body (text a mail program shows unfolded in
     the body).
     """
-    if part is message or part.is_multipart():
+    if part.is_multipart():
         return False
+    if part is message:
+        return part.get_content_type() not in _TOP_LEVEL_BODY_TYPES
     disposition = part.get_content_disposition()
     if disposition == "attachment":
         return True
@@ -927,12 +943,25 @@ def _mail_body(message: Message, content_type: str, parts: list[Message] | None 
             continue
         payload = part.get_payload(decode=True)
         if isinstance(payload, bytes) and payload.strip():
-            text, encoding = decode_text(payload, part.get_content_charset())
-            if content_type == "text/plain" and str(part.get_param("format", "")).lower() == "flowed":
-                text = _unflowed(text, delete_space=str(part.get_param("delsp", "")).lower() == "yes")
+            text, encoding = plain_part_text(part, payload) if content_type == "text/plain" else decode_text(payload, part.get_content_charset())
             texts.append(text.strip())
             encodings.append(encoding)
     return ("\n\n".join(texts), encodings) if texts else None
+
+
+def plain_part_text(part: Message, payload: bytes) -> tuple[str, str]:
+    """A plain-text body part as text (its decoded `payload`, read with the part's charset) and the encoding used, with
+    `format=flowed` lines joined back (`_unflowed`, DelSp included). The text extractor (`_mail_body`) and the HTML extractor
+    (`_html_mail._mail_body_html`) read plain parts through it.
+
+    The HTML extractor decoded the plain parts placed beside an HTML part directly, so a flowed paragraph of a mail that also
+    had an HTML footer was broken at every line again
+    (Pinned by: test_core_word_lists_cell_blocks_and_mail_lines.py::TestFormatFlowedPlainMail::test_flowed_part_beside_an_html_part_is_joined_too).
+    """
+    text, encoding = decode_text(payload, part.get_content_charset())
+    if str(part.get_param("format", "")).lower() == "flowed":
+        text = _unflowed(text, delete_space=str(part.get_param("delsp", "")).lower() == "yes")
+    return text, encoding
 
 
 def _unflowed(text: str, *, delete_space: bool) -> str:

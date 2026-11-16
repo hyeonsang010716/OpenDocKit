@@ -1567,6 +1567,80 @@ def _hwpx_p(inner: str, shape: str = "0") -> str:
     return f'<hp:p paraPrIDRef="{shape}"><hp:run>{inner}</hp:run></hp:p>'
 
 
+def _hwp_header_footer(kind: str, text: str) -> bytes:
+    """Header (`head`) or footer (`foot`) control of a top-level paragraph, with one paragraph of text."""
+    return (builder.hwp_record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl(kind))
+            + builder.hwp_record(TAG_LIST_HEADER, 2, b"\x01\x00" + b"\x00" * 6) + _hwp_paragraph(2, text))
+
+
+def _hwpx_header_footer(kind: str, text: str) -> str:
+    return f"<hp:ctrl><hp:{kind}><hp:subList>{_hwpx_p(f'<hp:t>{text}</hp:t>')}</hp:subList></hp:{kind}></hp:ctrl>"
+
+
+class TestHeaderAndFooterPlacement:
+    """Header and footer texts were gathered together and written before the body, so a page footer came out on top
+    ('머리말\n\n꼬리말\n\n본문'). As in DOCX, ODT and RTF, headers go before the body and footers after it, then notes and
+    comments."""
+
+    _OPTIONS = ConvertOptions(include_headers_footers=True, max_chars=None)
+
+    def _hwp(self, monkeypatch, body: tuple[str, ...] = ("본문 첫 문단", "본문 끝 문단")) -> bytes:
+        section = (_hwp_paragraph(0, (16, "head"), (16, "foot"), body[0], (17, "fn  "))
+                   + _hwp_header_footer("head", "머리말") + _hwp_header_footer("foot", "꼬리말")
+                   + _hwp_note(0, _hwp_paragraph(2, "각주"))
+                   + b"".join(_hwp_paragraph(0, text) for text in body[1:]))
+        return _fake_hwp(monkeypatch, sections=[section])
+
+    def _hwpx(self, body: tuple[str, ...] = ("본문 첫 문단", "본문 끝 문단")) -> str:
+        memo = ('<hp:ctrl><hp:fieldBegin id="1" type="MEMO"><hp:subList>' + _hwpx_p("<hp:t>메모</hp:t>")
+                + '</hp:subList></hp:fieldBegin></hp:ctrl><hp:ctrl><hp:fieldEnd beginIDRef="1"/></hp:ctrl>')
+        return (_hwpx_p(_hwpx_header_footer("header", "머리말") + _hwpx_header_footer("footer", "꼬리말")
+                        + f"<hp:t>{body[0]}</hp:t>" + _hwpx_note(_hwpx_p("<hp:t>각주</hp:t>")) + memo)
+                + "".join(_hwpx_p(f"<hp:t>{text}</hp:t>") for text in body[1:]))
+
+    def test_hwp_footer_comes_after_the_body_and_before_the_notes(self, monkeypatch):
+        text = convert(self._hwp(monkeypatch), "a.hwp", self._OPTIONS).text
+
+        assert text == "머리말\n\n본문 첫 문단[^1]\n\n본문 끝 문단\n\n꼬리말\n\n[^1]: 각주"
+
+    def test_hwpx_footer_comes_after_the_body_and_before_the_notes_and_comments(self):
+        text = convert(builder.hwpx_bytes(self._hwpx()), "a.hwpx", self._OPTIONS).text
+
+        assert text == '머리말\n\n본문 첫 문단[^1]\n\n본문 끝 문단\n\n꼬리말\n\n[^1]: 각주\n\n> Comment: 메모'
+
+    def test_hwp_text_used_as_header_and_footer_is_written_in_both_places(self, monkeypatch):
+        section = (_hwp_paragraph(0, (16, "head"), (16, "foot"), "본문")
+                   + _hwp_header_footer("head", "회사") + _hwp_header_footer("foot", "회사"))
+
+        text = convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp", self._OPTIONS).text
+
+        assert text == "회사\n\n본문\n\n회사"
+
+    def test_hwpx_text_used_as_header_and_footer_is_written_in_both_places(self):
+        body = _hwpx_p(_hwpx_header_footer("header", "회사") + _hwpx_header_footer("footer", "회사") + "<hp:t>본문</hp:t>")
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx", self._OPTIONS).text == "회사\n\n본문\n\n회사"
+
+    @pytest.mark.parametrize("limit", [5, 12, 20, 30, 45])
+    def test_hwp_cut_text_is_the_front_of_the_full_conversion(self, monkeypatch, limit):
+        body = ("본문 첫 문단", *(f"본문 {index} 번째 문단" for index in range(10)))
+        data = self._hwp(monkeypatch, body)
+        full = convert(data, "a.hwp", self._OPTIONS).text
+
+        result = convert(data, "a.hwp", ConvertOptions(include_headers_footers=True, max_chars=limit))
+
+        assert result.exceeded and result.text == full[:limit].rstrip()
+
+    @pytest.mark.parametrize("limit", [5, 12, 20, 30, 45])
+    def test_hwpx_cut_text_is_the_front_of_the_full_conversion(self, limit):
+        data = builder.hwpx_bytes(self._hwpx(("본문 첫 문단", *(f"본문 {index} 번째 문단" for index in range(10)))))
+        full = convert(data, "a.hwpx", self._OPTIONS).text
+
+        result = convert(data, "a.hwpx", ConvertOptions(include_headers_footers=True, max_chars=limit))
+
+        assert result.exceeded and result.text == full[:limit].rstrip()
+
+
 class TestNotesInsideNotes:
     """A note took its number before its text was rendered, and the reference and definition read the counter afterwards, so a note
     inside a note gave both the inner number: 'Body[^2] end / [^2]: inner / [^2]: outer[^2]'. As in RTF and ODF, a note inside a

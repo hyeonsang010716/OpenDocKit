@@ -7,7 +7,7 @@ This page is a summary for people building an upload screen on top of OpenDocKit
 ### Limits
 
 - File size: at most **50 MB** (`max_file_bytes`). Above it, a `document_too_large` error.
-- Decompressed size: at most **500 MB** (`max_uncompressed_bytes`). Zip-bomb defense for DOCX, PPTX, XLSX, HWPX, ODT, ODS, ODP, EPUB, HWP, and the converted form of `.doc` / `.ppt`.
+- Decompressed size: at most **500 MB** (`max_uncompressed_bytes`). Zip-bomb defense for DOCX, PPTX, XLSX, HWPX, ODT, ODS, ODP, EPUB, HWP, and the converted form of `.doc` / `.ppt`. The prepared (re-encoded) pictures of one document are bounded by the same value; pictures past it keep their `[Image]` placeholder, with a warning.
 - Characters: at most **500,000** (`max_chars`). **Characters of image descriptions are included.**
   - When exceeded, conversion stops right there and returns `exceeded: true` (not an error).
   - `char_count` is then "the count at the moment it stopped"; the real document is longer.

@@ -17,7 +17,7 @@ import xlrd
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
-from opendockit.extractors._sheet_format import _ELAPSED_FORMAT, _format_within_length, _is_weekday_only, _shows_date, format_cell
+from opendockit.extractors._sheet_format import _format_within_length, _is_elapsed_format, _is_weekday_only, _shows_date, format_cell
 from opendockit.extractors._sheet_layout import (
     _CHECKED,
     _MAX_MERGED_CELLS,
@@ -757,7 +757,7 @@ def _xls_value(cell: xlrd.sheet.Cell, datemode: int, number_format: str | None) 
         # 0 under a date format is '1900-01-00' in Excel. Returned as a number, not the time '00:00:00'
         # (`_is_serial_zero_shown_as_date`)
         return cell.value
-    elapsed = bool(number_format and _ELAPSED_FORMAT.search(number_format))
+    elapsed = _is_elapsed_format(number_format)
     if cell.ctype == xlrd.XL_CELL_DATE or cell.ctype == xlrd.XL_CELL_NUMBER and (
             elapsed and is_date_format(number_format) or _is_weekday_only(number_format)):
         try:

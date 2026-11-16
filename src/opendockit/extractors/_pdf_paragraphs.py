@@ -269,10 +269,11 @@ def _columns_apart(span: tuple[float, float], block: tuple[float, float, float, 
                    boxes: list[tuple[float, float, float, float]]) -> bool:
     """Whether the columns really divide between a paragraph that `_in_other_column` took for another column (horizontal range
     `span`) and the table or picture (`block` = top, bottom, x0, x1). They divide when any paragraph (`boxes` = top, bottom,
-    x0, x1) either (1) overlaps the table or picture horizontally, does not overlap `span`, and is at least
-    `_COLUMN_MIN_WIDTH_RATIO` times as wide as the table or picture (body text of the table's or picture's column), or (2)
-    does not overlap the table or picture horizontally but overlaps it in height (text beside the table or picture,
-    including slides that put a picture beside text).
+    x0, x1) either (1) overlaps the table or picture horizontally, does not overlap `span`, is at least
+    `_COLUMN_MIN_WIDTH_RATIO` times as wide as the table or picture, and has a paragraph of `span`'s column beside it
+    (body text of the table's or picture's column, flowing side by side with the other column), or (2) does not overlap the
+    table or picture horizontally but overlaps it in height (text beside the table or picture, including slides that put a
+    picture beside text). Side by side means overlapping in height by more than `_TABLE_ROW_TOLERANCE`.
 
     With neither, the table or picture sits alone on its line in a single-column flow and is left in height order. On a
     single-column page the only paragraphs overlapping a centred narrow table or picture are page-width paragraphs that also
@@ -280,13 +281,75 @@ def _columns_apart(span: tuple[float, float], block: tuple[float, float, float, 
     or picture was moved after the paragraph at the top of the page (or to the end of the page), away from its subheading
     (pinned by: test_pdf.py::TestBlockPlacement::
     test_centred_narrow_table_on_a_one_column_page_stays_under_its_heading).
+
+    Deliberate: both cases ask for a real overlap in height and a column of its own. A short label right above a centred
+    table reaches about 0.1pt into its top edge with its descent, and a centred title wider than half the table touches
+    neither the table's height nor the short left-aligned lines; either one made a one-column page two columns, so the
+    tables went to the end of the page away from their labels, or before the short list above them (pinned by:
+    test_pdf.py::TestBlockPlacement::test_table_right_under_a_touching_label_stays_under_it,
+    test_centred_title_above_a_centred_narrow_table_does_not_make_two_columns).
     """
     top, bottom, x0, x1 = block
-    for other_top, other_bottom, left, right in boxes:
-        overlaps_block = left < x1 and x0 < right
-        if overlaps_block and not (left < span[1] and span[0] < right) and right - left >= (x1 - x0) * _COLUMN_MIN_WIDTH_RATIO:
-            return True
-        if not overlaps_block and other_top < bottom and top < other_bottom:
+    if any(not (left < x1 and x0 < right) and _beside((other_top, other_bottom), (top, bottom))
+           for other_top, other_bottom, left, right in boxes):
+        return True
+
+    body = [box for box in boxes if box[2] < x1 and x0 < box[3] and not (box[2] < span[1] and span[0] < box[3])
+            and box[3] - box[2] >= (x1 - x0) * _COLUMN_MIN_WIDTH_RATIO]
+    near = [box for box in boxes if box[2] < span[1] and span[0] < box[3]]
+    if not body or not near:
+        return False
+    if not all(math.isfinite(value) for box in (*body, *near) for value in box):
+        return any(_beside(box[:2], other[:2]) and not (box[2] < other[3] and other[2] < box[3]) for other in body for box in near)
+    # A paragraph that does not overlap `span` lies wholly on one side of it, and a paragraph of `span`'s column clears it
+    # only on that side: before it when it lies to the right of `span`, after it when to the left (mirrored, so that both
+    # read 'the near edge is at most the body edge')
+    return (_side_by_side([(other_top, other_bottom, left) for other_top, other_bottom, left, _ in body if left >= span[1]],
+                          [(near_top, near_bottom, right) for near_top, near_bottom, _, right in near])
+            or _side_by_side([(other_top, other_bottom, -right) for other_top, other_bottom, left, right in body
+                              if left < span[1]],
+                             [(near_top, near_bottom, -left) for near_top, near_bottom, left, _ in near]))
+
+
+def _beside(first: tuple[float, float], second: tuple[float, float]) -> bool:
+    """Whether two vertical ranges (top, bottom) overlap by more than `_TABLE_ROW_TOLERANCE`."""
+    return min(first[1], second[1]) - max(first[0], second[0]) > _TABLE_ROW_TOLERANCE
+
+
+def _side_by_side(bodies: list[tuple[float, float, float]], nears: list[tuple[float, float, float]]) -> bool:
+    """Whether some range of `bodies` (top, bottom, edge) is `_beside` some range of `nears` (top, bottom, edge) whose edge
+    is at most its own. All values are finite.
+
+    The bodies are taken by edge, the nears admitted as their edge is reached into a tree of the largest bottom by order
+    of top, and each body asks it about the nears whose top lies far enough above its bottom: n log n for each table or
+    picture. Pairing every body with every near took the square of the paragraphs (Pinned by: test_pdf.py::
+    TestBlockPlacement::test_many_blocks_over_two_columns_of_many_paragraphs_take_linear_time). `_beside` holds exactly
+    when every bottom is more than the tolerance below every top of the pair, and each of those is monotone in one value.
+    """
+    nears = [near for near in nears if near[1] - near[0] > _TABLE_ROW_TOLERANCE]
+    if not nears:
+        return False
+    by_top = sorted(range(len(nears)), key=lambda index: nears[index][0])
+    place = {index: rank for rank, index in enumerate(by_top, start=1)}
+    tops = [nears[index][0] for index in by_top]
+    deepest = [-math.inf] * (len(nears) + 1)  # Fenwick tree: the largest bottom among the admitted nears up to each rank
+    admitted = sorted(range(len(nears)), key=lambda index: nears[index][2])
+    taken = 0
+
+    for body_top, body_bottom, edge in sorted(bodies, key=lambda body: body[2]):
+        while taken < len(admitted) and nears[admitted[taken]][2] <= edge:
+            rank, lowest = place[admitted[taken]], nears[admitted[taken]][1]
+            while rank < len(deepest):
+                deepest[rank] = max(deepest[rank], lowest)
+                rank += rank & -rank
+            taken += 1
+        if body_bottom - body_top <= _TABLE_ROW_TOLERANCE:
+            continue
+        rank, reach = bisect_left(tops, True, key=lambda near_top: not body_bottom - near_top > _TABLE_ROW_TOLERANCE), -math.inf
+        while rank:
+            reach = max(reach, deepest[rank])
+            rank -= rank & -rank
+        if reach - body_top > _TABLE_ROW_TOLERANCE:
             return True
     return False
 

@@ -17,6 +17,7 @@ import re
 from lxml import etree
 
 from opendockit.extractors._lists import MAX_LEVEL, cell_level_mark
+from opendockit.extractors._notation import omitted_rows_warning
 from opendockit.extractors._package import _PACKAGE_RELATIONSHIPS, _relationships_of, _resolve_target, decimal_int, named_part, parse_part
 from opendockit.markdown import TableGrid, render_table, solid_length
 
@@ -53,6 +54,12 @@ _MAX_FORMAT_CHARS = 255
 # Real charts have two or three; every point joins every level, so 16,000 levels of one point each (a 125 KB file) took 11.7 s and
 # 1 GB. The outer levels past them are left out (Pinned by: test_audit_core.py::TestChartCategoriesOfManyLevels).
 _MAX_CATEGORY_LEVELS = 8
+# Empty cells a chart's value table may hold. A row is built for every point index of any series, with a cell for every series,
+# so series that each use their own point indexes make a table of series × points cells, nearly all empty: 300 series of 200
+# points (a 186 KB PPTX) built 18 million cells, 20.6 s and 1.5 GB. Empty cells have no text, so the character limit never stops
+# them; past this many the remaining rows are left out with a warning (Pinned by:
+# test_office_table_char_limit.py::TestChartSeriesOnTheirOwnPoints).
+_MAX_EMPTY_VALUE_CELLS = 1_000_000
 # Tokens of one section of a value display format (`_unit_format`): quoted text, the one character after a backslash, a currency
 # symbol ([$₩-412]), other brackets (color, condition), fill/spacing (`*x`, `_x`), digit placeholders (0 # ? , .), any other character.
 _FORMAT_TOKEN = re.compile(r'"([^"]*)"|\\(.)|\[\$([^\[\]-]*)(?:-[^\[\]]*)?\]|(\[[^\[\]]*\])|[_*].|([0#?,.])|(.)', re.DOTALL)
@@ -71,11 +78,13 @@ _RELATIONSHIP_ID = "{http://schemas.openxmlformats.org/officeDocument/2006/relat
 # ---- Charts ------------------------------------------------------------------------------------------------------
 
 def render_chart(chart_space: etree._Element, table: Callable[[list[list[str]]], str] = render_table,
-                 load_related: Callable[[str], bytes | None] | None = None, room: int | None = None) -> str:
+                 load_related: Callable[[str], bytes | None] | None = None, room: int | None = None,
+                 warnings: list[str] | None = None) -> str:
     """`c:chartSpace` → "[Chart] title" + axis title line + lines of the text boxes inside the chart + value table. `table` turns the
     value table's rows into text (`embedded_table` inside a table cell). `load_related` maps a relationship id of the chart part to
     that part's bytes (None if missing or unreadable). `room` is the number of characters the output can still take before it is
-    over the character limit (None: no limit); the value rows stop once their cell text passes it (`_value_rows`).
+    over the character limit (None: no limit); the value rows stop once their cell text passes it (`_value_rows`). Rows left out
+    because the value table holds too many empty cells are reported in `warnings` (`_MAX_EMPTY_VALUE_CELLS`).
 
     Category-axis charts (bar, line, pie …) merge every chart in the plot area (the bars + lines of a combo chart) into one row per
     category. Scatter and bubble charts have no categories, so each series puts its X/Y(/size) value pairs in rows
@@ -112,7 +121,7 @@ def render_chart(chart_space: etree._Element, table: Callable[[list[list[str]]],
                                        *_user_shape_lines(chart_space, load_related)) if line)
     tables = [_category_table([series for _, series, _ in category_series], table,
                               _is_flagged(chart_space.find(f"{{{_C}}}date1904")), _date_axis_format(plot_area),
-                              [shown for _, _, shown in category_series], room),
+                              [shown for _, _, shown in category_series], room, warnings),
               _xy_table(xy_series, table, room)]
     return "\n\n".join(part for part in (head, *tables) if part)
 
@@ -175,9 +184,9 @@ def embedded_table(outer: TableGrid) -> Callable[[list[list[str]]], str]:
 
 
 def render_chartex(chart_space: etree._Element, table: Callable[[list[list[str]]], str] = render_table,
-                   room: int | None = None) -> str:
+                   room: int | None = None, warnings: list[str] | None = None) -> str:
     """`cx:chartSpace` (the new chart kinds: waterfall, treemap, sunburst, histogram, funnel …) → "[Chart] title" + value table
-    (`table` and `room`, same as in `render_chart`).
+    (`table`, `room` and `warnings`, same as in `render_chart`).
 
     The category names (cx:strDim) and first numeric dimension (cx:numDim) of the data (cx:data) a series (cx:series) points to go
     one row per category. Multi-level categories use only the innermost level (the first cx:lvl; unlike `_points`, outer levels are
@@ -201,7 +210,7 @@ def render_chartex(chart_space: etree._Element, table: Callable[[list[list[str]]
     if not values:
         return ""
     title = _chartex_text(chart_space.find(f"{{{_CX}}}chart/{{{_CX}}}title/{{{_CX}}}tx"))
-    return f"[Chart] {title}".strip() + "\n\n" + _value_table(names, categories, values, table, room)
+    return f"[Chart] {title}".strip() + "\n\n" + _value_table(names, categories, values, table, room, warnings)
 
 
 def _chartex_points(dimension: etree._Element | None) -> dict[int, str]:
@@ -260,7 +269,7 @@ def _date_axis_format(plot_area: etree._Element | None) -> str:
 
 
 def _category_table(series_list: list[etree._Element], table: Callable[[list[list[str]]], str], date1904: bool,
-                    axis_format: str, shown_formats: list[str], room: int | None) -> str:
+                    axis_format: str, shown_formats: list[str], room: int | None, warnings: list[str] | None) -> str:
     if not series_list:
         return ""
     # The label of a category is that of the first series that has one
@@ -273,7 +282,7 @@ def _category_table(series_list: list[etree._Element], table: Callable[[list[lis
     values = [_value_points(series.find(f"{{{_C}}}val"), shown)
               for series, shown in zip(series_list, shown_formats, strict=True)]
     names = [_series_name(series, number) for number, series in enumerate(series_list, start=1)]
-    return _value_table(names, categories, values, table, room)
+    return _value_table(names, categories, values, table, room, warnings)
 
 
 class _Points:
@@ -298,30 +307,44 @@ class _Points:
 
 
 def _value_table(names: list[str], categories: dict[int, str] | _Points, values: list[dict[int, str]] | list[_Points],
-                 table: Callable[[list[list[str]]], str], room: int | None) -> str:
+                 table: Callable[[list[list[str]]], str], room: int | None, warnings: list[str] | None = None) -> str:
     """One row per category, one column per series. Rows are built only from the indexes of points that really exist — trusting
-    ptCount, a single number would make a huge table."""
+    ptCount, a single number would make a huge table. The rows stop once they hold `_MAX_EMPTY_VALUE_CELLS` empty cells, and the
+    rows left out are reported in `warnings` (`_value_rows`)."""
     indexes = sorted(set(categories).union(*values))
     rows = ([categories.get(index, str(index + 1)), *(_number(column.get(index, "")) for column in values)] for index in indexes)
-    return table([["Category", *names], *_value_rows(rows, room)])
+    return table([["Category", *names], *_value_rows(rows, room, len(indexes), warnings)])
 
 
-def _value_rows(rows: Iterable[list[str]], room: int | None) -> list[list[str]]:
+def _value_rows(rows: Iterable[list[str]], room: int | None, total: int | None = None,
+                warnings: list[str] | None = None) -> list[list[str]]:
     """The value rows of a chart, up to the first row at which their cell text (`solid_length`) passes `room` — the characters the
     output can still take before it is over the character limit. Every cell read is written, so a chart stopped there is over the
     limit as the full one is, and `exceeded` stays exact (the header row is not counted: it undercounts).
 
     A chart had no limit of its own: the slide or block it sits in was counted only once the whole table had been built, so
     1,000,000 cached points (a 5 MB PPTX) took 9 s and 2.5 GB. Deliberate: `max_chars` is the only volume limit, as for table rows,
-    so there is no fixed cap on points (Pinned by: test_office_table_char_limit.py::TestChartValuesPastTheLimit)."""
-    if room is None:
+    so there is no fixed cap on points (Pinned by: test_office_table_char_limit.py::TestChartValuesPastTheLimit).
+
+    With `total` (the number of rows `rows` gives), the rows also stop once they hold more than `_MAX_EMPTY_VALUE_CELLS` empty
+    cells, which the character limit cannot see, and the rows left out are reported in `warnings` with the table grid's warning
+    (`omitted_rows_warning`). Only empty cells are bounded: a table of values is still read to the character limit, however
+    many points it has (Pinned by: test_office_table_char_limit.py::TestChartSeriesOnTheirOwnPoints)."""
+    if room is None and total is None:
         return list(rows)
-    kept, counted = [], 0
+    kept, counted, empty = [], 0, 0
     for row in rows:
-        kept.append(row)
-        counted += sum(solid_length(cell) for cell in row)
-        if counted > room:
+        if total is not None and empty > _MAX_EMPTY_VALUE_CELLS:
+            if warnings is not None:
+                warnings.append(omitted_rows_warning(total - len(kept)))
             break
+        kept.append(row)
+        if total is not None:
+            empty += row.count("")
+        if room is not None:
+            counted += sum(solid_length(cell) for cell in row if cell)
+            if counted > room:
+                break
     return kept
 
 

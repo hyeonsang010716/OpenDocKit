@@ -29,6 +29,7 @@ from opendockit.extractors._mail import (
     mail_plain_body,
     mime_start,
     parse_mail,
+    plain_part_text,
 )
 from opendockit.extractors._mail import mime_header_block as _mime_header_block
 from opendockit.extractors._mail_calendar import mail_calendar_events
@@ -153,7 +154,7 @@ def _mail_body_html(message: Message) -> tuple[list[str], list[str]]:
             documents.append(_with_table_around_bare_rows(text))
             has_text = has_text or _has_text(text)
         else:
-            text, encoding = decode_text(payload, part.get_content_charset())
+            text, encoding = plain_part_text(part, payload)
             documents.append(_plain_paragraphs(text))
             read.add(id(part))
         encodings.append(encoding)

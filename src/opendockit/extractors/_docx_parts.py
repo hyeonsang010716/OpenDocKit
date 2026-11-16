@@ -108,6 +108,10 @@ def _load_numbering(document: object) -> dict[str, _NumberList]:
     testWORD_override_list_numbering.docx 'Test 4') into 'A', 'B', '3'
     (Pinned by: test_office.py::TestDocxNumbering::test_level_override_with_its_own_definition_replaces_the_level,
     test_level_override_restarts_only_with_a_start_override).
+    Only levels 0–8 of a definition are kept, like the level overrides: a list level is clamped to 0–8 before it is looked up, so
+    other levels are never used. Kept, every w:num with a level override copied all of them — 100,000 levels and 5,000 w:num
+    (312 KB) took 44 s. The paragraph style a level points at (w:pStyle) is still read for any level
+    (Pinned by: test_office_scaling_and_note_order.py::TestDocxNumberingLevelsPastEight).
     """
     try:
         numbering = document.part.numbering_part.element
@@ -128,11 +132,13 @@ def _load_numbering(document: object) -> dict[str, _NumberList]:
         levels, linked_styles, indents = {}, {}, {}
         for level in abstract.iterchildren(_w("lvl")):
             index = _int_value(level.get(_w("ilvl")), 0)
-            levels[index] = _level_definition(level, index)
-            indents[index] = _indent_values(level.find(f"{_w('pPr')}/{_w('ind')}"))
             style = level.find(_w("pStyle"))
             if style is not None:
                 linked_styles[style.get(_w("val"), "")] = index
+            if not 0 <= index <= 8:
+                continue
+            levels[index] = _level_definition(level, index)
+            indents[index] = _indent_values(level.find(f"{_w('pPr')}/{_w('ind')}"))
         abstract_levels[abstract_id], style_levels[abstract_id], abstract_indents[abstract_id] = levels, linked_styles, indents
         definition, link = abstract.find(_w("styleLink")), abstract.find(_w("numStyleLink"))
         if definition is not None:

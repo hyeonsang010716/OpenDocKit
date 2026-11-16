@@ -13,6 +13,48 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   itself. Each file is converted in a worker process with OpenDocKit's memory and time limits. It is not part of the
   Python package.
 
+## [0.3.10] - 2026-11-16
+
+A seventh review of the whole source. The sample outputs in `examples/` are unchanged.
+
+### Security
+
+- **Tables (DOCX, PPTX, HWP, HWPX, ODT, RTF, HTML)**: the copies of a vertically merged value on the rows it covers are
+  no longer drawn past the character limit. The cell text was counted once, so a 38 KB DOCX with one 100,000-character
+  cell merged over 5,000 rows was drawn to 500 million characters (65 seconds, 8.7 GB) before the limit saw it (now
+  0.3 seconds). The text cut at the limit and `exceeded` are the same as before. Tables in footnotes and headers stop
+  the same way.
+- **Tables**: the cells that spans may fill are bounded for the whole conversion (1,000,000), not only per table: a
+  5.6 KB HWPX of fifty empty tables with 100×100 spans took 13 seconds and wrote nothing (now 0.6 seconds).
+- **Pictures**: the prepared (re-encoded) pictures of one document take at most `max_uncompressed_bytes` together. A
+  4.6 KB PNG of 1-bit noise re-encodes to a 3 MB JPEG, so a 376 KB DOCX held 920 MB of pictures, and an
+  `IsolatedConverter` passed them on to the server process (2.3 GB). Pictures past the bound keep their placeholder,
+  with a warning; scanned pages are prepared first.
+- **DOCX**: only levels 0 to 8 of a number definition are kept, as Word uses (a 312 KB file with 100,000 levels and 5,000
+  lists took 44 seconds; now 0.4 seconds, same output).
+- **PPTX**: the placeholders of a layout are looked up once per layout instead of once per slide (400 slides on a layout
+  of 4,000 placeholders: 49 seconds → 0.5 seconds).
+- **Charts**: a value table stops at 1,000,000 empty cells, with a warning. Series that each use their own point
+  indexes made a table of series × points cells, nearly all empty (a 186 KB PPTX: 20 seconds and 1.5 GB).
+
+### Fixed
+
+- **PDF**: a table or picture right under a short label whose descent touches it, or under a centred title, stays where
+  it is on a one-column page instead of moving to the end of the page or before the list above it. A picture `/Width`
+  that is not a number, a CropBox outside the MediaBox (with `extract_images`), and a borderless-table header with two
+  pieces in one column no longer reject the whole document as corrupted.
+- **Mail**: a mail whose only part is a meeting invitation (`text/calendar`) or an attachment (a scanner's
+  `application/pdf`) is read as mail (headers, the event, the attachment warning) instead of raw headers and base64. A
+  `format=flowed` plain part next to an HTML part has its lines joined, as without the HTML part.
+- **Text, HTML, CSV**: UTF-16 without a BOM of Cyrillic, Arabic, Devanagari or Thai text is read as UTF-16; it came out
+  as ASCII garbage (`@825B, :0: 45;0?`), or as an unsupported binary file when it was one paragraph.
+- **HWP / HWPX**: with `include_headers_footers`, page footers come after the body, as in DOCX, ODT and RTF (they came
+  before it, right after the headers).
+- **XLSX / XLS / Excel 2003 XML**: square brackets inside quoted or escaped literals of a number format stay literals:
+  3 under `"Lv.["0"]"` is `Lv.[3]` (was `Lv.`), 12 under `#,##0" [kg]"` is `12 [kg]` (was `12`), and a quoted `" [>="`
+  or `"[h]"` no longer makes the format conditional or a duration. A date-only ISO cell (`t="d"`) follows its display
+  format (`Jan-24` under `mmm-yy`, was `2024-01-05`).
+
 ## [0.3.9] - 2026-11-16
 
 A sixth review of the whole source. The sample outputs in `examples/` are unchanged.
@@ -460,7 +502,8 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.9...HEAD
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.10...HEAD
+[0.3.10]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.10
 [0.3.9]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.9
 [0.3.8]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.8
 [0.3.7]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.7

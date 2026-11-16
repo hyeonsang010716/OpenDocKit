@@ -452,9 +452,9 @@ class _Flow:
                 outer.holds = True
         elif self.kind == "note":
             # A table inside a footnote is one line, as in DOCX/HWP (`_notation.note_table` shape: cells ' / ', rows '; ').
-            self.add_block(NOTE_ROW_SEPARATOR.join(line for line in grid.flatten().split("\n") if line.strip()))
+            self.add_block(NOTE_ROW_SEPARATOR.join(line for line in grid.flatten(self.reader.options.max_chars).split("\n") if line.strip()))
         else:
-            self.add_block(grid.render())
+            self.add_block(grid.render(room=table.budget.room if table.budget is not None else None))
             self.reader.omitted_rows += grid.omitted_rows()
 
     def add_block(self, text: str) -> None:

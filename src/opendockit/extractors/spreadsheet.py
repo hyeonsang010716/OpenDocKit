@@ -3,7 +3,7 @@
 import codecs
 from collections import deque
 from collections.abc import Iterator
-from datetime import datetime, time
+from datetime import date, datetime, time, timedelta
 import html
 from io import BytesIO
 from itertools import islice
@@ -27,7 +27,15 @@ from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._openpyxl_reading import _RAW_OUT_OF_RANGE_SERIALS, _READING, _CellPicture, _CellReading, _is_number
 from opendockit.extractors._package import _XML_PARSER, ZIP_MEMBER_ERRORS, named_part
-from opendockit.extractors._sheet_format import _ELAPSED_FORMAT, _format_value, _format_within_length, _is_weekday_only, _shows_date, format_cell
+from opendockit.extractors._sheet_format import (
+    _ELAPSED_FORMAT,
+    _format_value,
+    _format_within_length,
+    _is_elapsed_format,
+    _is_weekday_only,
+    _shows_date,
+    format_cell,
+)
 from opendockit.extractors._sheet_layout import (
     _MAX_MERGED_CELLS,
     _Across,
@@ -913,12 +921,23 @@ def _cell_text(cell: object) -> str:
         return reading.picture_text(value) if reading is not None and reading.picture_text is not None else ""
     number_format = _number_format(cell)
     number_format = _BUILTIN_FORMAT_FIXES.get(number_format, number_format)
-    if isinstance(value, (datetime, time)) and number_format and _ELAPSED_FORMAT.search(number_format):
+    if isinstance(value, (date, time)) and _is_elapsed_format(number_format):
         # openpyxl gives a duration only for `[h]`, `[hh]`, `[m]`, `[mm]`, `[s]` and `[ss]`, so a cell under `[hhh]:mm` (hours
         # with three digits) came as a date and lost its days (36 hours shown as `12:00:00`). It is the duration from the
         # workbook's epoch, as for the other elapsed formats (Pinned by:
-        # test_spreadsheet.py::TestXlsValues::test_elapsed_format_openpyxl_does_not_know_is_a_duration).
+        # test_spreadsheet.py::TestXlsValues::test_elapsed_format_openpyxl_does_not_know_is_a_duration). A date-only ISO cell
+        # (`t="d"`, a date) is that day at midnight, as in `format_cell` (Pinned by:
+        # test_spreadsheet_cell_values_and_controls.py::TestIsoDateCellsWithAFormat).
         value = from_excel(to_excel(value, cell.parent.parent.epoch), timedelta=True)
+    elif isinstance(value, timedelta) and number_format and _ELAPSED_FORMAT.search(number_format) \
+            and not _is_elapsed_format(number_format):
+        # openpyxl looks for an elapsed section in the raw first section, quoted text included, so a date under
+        # `yyyy-mm-dd" [h]"` came as a duration and went out as `yyyy-00-dd [h]`. It is the serial number again: a date, a time
+        # below 1, the number when negative (`format_cell`) (Pinned by: test_spreadsheet.py::TestElapsedSectionsInsideFormatLiterals).
+        # Only a duration openpyxl made from such a format: a real duration (an ISO `PT36H` of a `t="d"` cell) stays one
+        # (Pinned by: test_spreadsheet.py::TestElapsedSectionsInsideFormatLiterals::test_an_iso_duration_stays_a_duration).
+        serial = to_excel(value)
+        value = serial if serial < 0 else from_excel(serial, cell.parent.parent.epoch)
     if _is_serial_zero_shown_as_date(value, number_format):
         return "0"
     if isinstance(value, (int, float)) and not isinstance(value, bool) \

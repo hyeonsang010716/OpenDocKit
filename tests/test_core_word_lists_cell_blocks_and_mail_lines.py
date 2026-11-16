@@ -99,6 +99,21 @@ class TestFormatFlowedPlainMail:
 
         assert result.text.endswith("첫 줄\n둘째 줄")
 
+    @pytest.mark.parametrize(("params", "expected"), [("format=flowed", "This is a long flowed paragraph that wraps."),
+                                                       ("format=flowed; delsp=yes", "super califragilistic")])
+    def test_flowed_part_beside_an_html_part_is_joined_too(self, params, expected):
+        body = ("This is a long \r\nflowed paragraph \r\nthat wraps.\r\n" if "delsp" not in params
+                else "super  \r\ncalifragi \r\nlistic\r\n")
+        data = ("From: a@example.com\r\nTo: b@example.com\r\nSubject: f\r\nMIME-Version: 1.0\r\n"
+                "Content-Type: multipart/mixed; boundary=B\r\n\r\n"
+                f"--B\r\nContent-Type: text/plain; charset=utf-8; {params}\r\n\r\n{body}"
+                "--B\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>footer html</p>\r\n--B--\r\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert expected in result.text
+        assert "footer html" in result.text
+
 
 _MAILBOX = (b"From z@z Mon Oct  5 10:00:00 2026\nFrom: z@z\nSubject: s1\nMIME-Version: 1.0\n"
             b"Content-Type: text/plain; charset=utf-8\n\nfirst\n>From here\n>>From there\n> From quoted\n\n"

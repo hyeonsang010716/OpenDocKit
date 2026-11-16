@@ -75,6 +75,12 @@ def _extract_tables(page: _Page) -> None:
         header = run[0]
         grid = [[""] * len(header) for _ in run]
         columns = [_row_columns(row, header) for row in run]
+        if len({column for row_columns in columns for column in row_columns}) < len(header):
+            # Two header pieces fell into one column (pieces under 1pt wide starting at the same x pass `_is_separate`), so
+            # a column held no piece at all and measuring its span raised ValueError, reporting the whole document
+            # corrupted. Such a header does not divide the row into columns; its lines stay in the body flow (Pinned by:
+            # test_pdf_table_columns.py::TestHeaderPiecesInOneColumn)
+            continue
         for row_index, row in enumerate(run):
             for line, column in zip(row, columns[row_index], strict=True):
                 cell = grid[row_index][column]

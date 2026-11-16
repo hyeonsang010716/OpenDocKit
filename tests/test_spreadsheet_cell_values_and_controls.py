@@ -2,9 +2,11 @@
 of form-control check boxes and option buttons, a single malformed cell value, SmartArt placed on a sheet, date/time cells without
 a format."""
 
+from datetime import date
 from hashlib import md5, sha1
 from io import BytesIO
 import struct
+import zipfile
 
 import openpyxl
 import pytest
@@ -487,3 +489,42 @@ class TestIsoDateCellsWithoutAFormat:
         result = convert(data, "a.xlsx")
 
         assert f"| {shown} | 2 |" in result.text
+
+
+class TestIsoDateCellsWithAFormat:
+    """openpyxl gives a date-only `t="d"` cell (`<v>2024-01-05</v>`, what openpyxl writes with `iso_dates` for a date) as a date,
+    not a datetime, and the cell ignored its display format: `2024-01-05` under `mmm-yy`, `yyyy` and `h:mm`. It now follows the
+    format as the same day written as a serial number does."""
+
+    @pytest.mark.parametrize(("number_format", "shown"), [
+        ("mmm-yy", "2024-01"), ("yyyy", "2024"), ('yyyy"년" m"월"', "2024-01"), ("h:mm", "0:00"), ("yyyy-mm-dd h:mm", "2024-01-05 00:00"),
+        ("yyyy-mm-dd", "2024-01-05"), ("General", "2024-01-05"),
+    ])
+    def test_date_follows_its_format(self, load_mode, number_format, shown):
+        data = _iso_date_workbook(date(2024, 1, 5), number_format)
+
+        result = convert(data, "a.xlsx")
+
+        assert f"| {shown} | 2 |" in result.text
+
+    def test_date_under_an_elapsed_format_is_the_duration_from_the_epoch(self, load_mode):
+        """As a date and time `t="d"` cell is: 1900-01-02 is 2 days after the epoch (1899-12-31), 48 hours."""
+        data = _iso_date_workbook(date(1900, 1, 2), "[hhh]:mm")
+
+        result = convert(data, "a.xlsx")
+
+        assert "| 48:00 | 2 |" in result.text
+
+
+def _iso_date_workbook(value: date, number_format: str) -> bytes:
+    """A workbook whose A2 is a date-only `t="d"` cell (`<v>YYYY-MM-DD</v>`) under `number_format`."""
+    workbook = openpyxl.Workbook()
+    workbook.iso_dates = True
+    sheet = workbook.active
+    sheet.append(["a", "b"])
+    sheet.append([value, 2])
+    sheet["A2"].number_format = number_format
+    buffer = BytesIO()
+    workbook.save(buffer)
+    assert f't="d"><v>{value.isoformat()}</v>'.encode() in zipfile.ZipFile(buffer).read(_SHEET)
+    return buffer.getvalue()

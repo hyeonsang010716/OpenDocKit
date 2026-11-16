@@ -558,7 +558,7 @@ class _DocxRenderer:
         # (Pinned by: test_quality.py::test_docx_nested_table_keeps_its_rows_and_columns).
         if outer is not None:
             return outer.embed(grid)
-        rendered = grid.render()
+        rendered = grid.render(room=budget.room if budget is not None else None)
         self.omitted_rows += grid.omitted_rows()
         return rendered
 
@@ -577,7 +577,8 @@ class _DocxRenderer:
                     shown[row, col] = shown.get((row - 1, col), "")
                     grid.place(row, col, shown[row, col], col_span=span)
                     if budget is not None:
-                        # Only takes up the slot. The copy of the upper cell's text is not counted (it undercounts)
+                        # Only takes up the slot. The copy of the upper cell's text is not counted (it undercounts); the drawing
+                        # stops writing copies at the limit (`TableBudget.room`)
                         budget.add(row, col, "", col_span=span)
                 continue
 
@@ -587,7 +588,7 @@ class _DocxRenderer:
             while continuing.get((row + row_span, col)) == span:
                 shown[row + row_span, col] = shown[row, col]
                 row_span += 1
-            grid.place(row, col, text, row_span=row_span, col_span=span)
+            row_span, span = grid.place(row, col, text, row_span=row_span, col_span=span)
             if budget is not None and budget.add(row, col, text, row_span=row_span, col_span=span):
                 break
 
@@ -681,6 +682,7 @@ class _DocxRenderer:
         # test_office_table_char_limit.py::TestChartValuesPastTheLimit::test_docx_chart_stops_at_the_limit,
         # test_header_chart_is_not_cut_by_the_characters_of_the_body).
         extra["room"] = self._room()
+        extra["warnings"] = self._extraction.warnings
         # Inside a table cell: a chart's value table is handed to the outer table (like a table inside a table). The Markdown table
         # text went into the cell and became a mess of `\|` and `<br>` (Pinned by: test_office_cells_and_notes.py::
         # TestDocxObjectsInsideTableCells).

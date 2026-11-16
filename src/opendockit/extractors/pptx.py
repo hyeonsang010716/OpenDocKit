@@ -652,21 +652,29 @@ def _placeholder_base(shape: object) -> object | None:
     shape (`_reading_order`) and bullets (`_list_styles`) are inherited too, so a slide with many inheriting placeholders took the
     square of their number (1,000 took 89 seconds. Pinned by:
     test_office_scaling_and_note_order.py::TestPptxManyInheritedPlaceholders). An index → layout placeholder table is built once per
-    slide part, and a type → result table once per master part, and kept on that part (it goes away with the part).
+    layout part, and a type → result table once per master part, and kept on that part (it goes away with the part). The table
+    depends only on the layout, so slides sharing a layout share it: kept per slide part, every slide walked all placeholders of
+    its layout again, and 400 slides on a layout of 4,000 placeholders took 49 seconds (Pinned by:
+    test_office_scaling_and_note_order.py::TestPptxManyInheritedPlaceholders::test_many_slides_on_a_large_layout_take_linear_time).
 
     The layout and the master are those of the first relationship of their type (`_package.related_part`): with two, python-pptx
     raised ValueError and the placeholder lost its position and bullets (Pinned by:
     test_audit_office.py::TestRelationshipTypeGivenTwice::test_pptx_placeholder_inherits_from_the_first_layout_and_master).
     """
     if isinstance(shape, (_BaseSlidePlaceholder, PlaceholderPicture)):
+        # The layout part is looked up once per slide part too: `related_part` walks the slide's relationships, and a
+        # placeholder is asked about several times (position, bullets, reading order)
         part = shape.part
-        layout_placeholders = part.__dict__.get("_converter_layout_placeholders")
+        layout = part.__dict__.get("_converter_layout_part")
+        if layout is None:
+            layout = part._converter_layout_part = related_part(part, RT.SLIDE_LAYOUT)
+        layout_placeholders = layout.__dict__.get("_converter_layout_placeholders")
         if layout_placeholders is None:
             layout_placeholders = {}
             # When several share an index, the first one, like python-pptx
-            for placeholder in related_part(part, RT.SLIDE_LAYOUT).slide_layout.placeholders:
+            for placeholder in layout.slide_layout.placeholders:
                 layout_placeholders.setdefault(placeholder.element.ph_idx, placeholder)
-            part._converter_layout_placeholders = layout_placeholders
+            layout._converter_layout_placeholders = layout_placeholders
         return layout_placeholders.get(shape._element.ph_idx)
     if isinstance(shape, LayoutPlaceholder):
         master = related_part(shape.part, RT.SLIDE_MASTER)
@@ -709,8 +717,8 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
             return []
         # The value rows stop once their text passes the characters the output can still take (`room`; Pinned by:
         # test_office_table_char_limit.py::TestChartValuesPastTheLimit::test_pptx_chart_stops_at_the_limit).
-        rendered = (render_chart(chart, load_related=related_loader(chart_part), room=written.room(extraction, options))
-                    if chart is not None else "")
+        rendered = (render_chart(chart, load_related=related_loader(chart_part), room=written.room(extraction, options),
+                                 warnings=extraction.warnings) if chart is not None else "")
         chart_part._converter_chart_title = rendered.split("\n", 1)[0]
         return [rendered] if chart is not None else []
     if shape.has_text_frame:
@@ -721,7 +729,7 @@ def _render_shape(shape: object, options: ConvertOptions, extraction: Extraction
         as_bullets = _placeholder_type(shape) in _BULLET_PLACEHOLDERS
         return [*markers, _render_text_frame(shape.text_frame, as_bullets, _list_styles(shape), _inline_of(shape, options))]
     if _has_chartex(shape._element):
-        return [_chartex_text(shape._element, shape.part, written.room(extraction, options)) or "[Chart]"]
+        return [_chartex_text(shape._element, shape.part, written.room(extraction, options), extraction.warnings) or "[Chart]"]
     if next(shape._element.iter(f"{{{_PRESENTATION}}}oleObj"), None) is not None:
         # When no preview picture can be registered (image extraction is off or there is no preview), a placeholder and a count
         # warning are left, as for HWP and HWPX. Pasted sheets and documents vanished without a trace
@@ -745,9 +753,9 @@ def _has_chartex(element: object) -> bool:
     return element.tag == f"{{{_PRESENTATION}}}graphicFrame" and next(element.iter(f"{{{_CHARTEX}}}chart"), None) is not None
 
 
-def _chartex_text(element: object, part: object, room: int | None) -> str:
+def _chartex_text(element: object, part: object, room: int | None, warnings: list[str]) -> str:
     """Chart part referenced by the frame of a new chart kind (the cx:chart inside p:graphicFrame) → "[Chart] title" + value table
-    (rows up to `room`, as in `render_chart`). An empty string if it cannot be read.
+    (rows up to `room`, rows left out reported in `warnings`, as in `render_chart`). An empty string if it cannot be read.
 
     As for a `c:chart` (`_render_shape`), the part is read once however many frames point at it, its values are written at the
     first frame and the later frames give `[Chart] title`. It was parsed and rendered again for every frame (Pinned by:
@@ -757,7 +765,7 @@ def _chartex_text(element: object, part: object, room: int | None) -> str:
         return ""
     if "_converter_chart_title" not in chart_part.__dict__:
         chart_space = parse_part(chart_part.blob)
-        text = render_chartex(chart_space, room=room) if chart_space is not None else ""
+        text = render_chartex(chart_space, room=room, warnings=warnings) if chart_space is not None else ""
         chart_part._converter_chart_title = text.split("\n", 1)[0]
         return text
     return chart_part._converter_chart_title
@@ -1090,7 +1098,7 @@ def _render_pptx_table(table: object, extraction: Extraction, inline: _Inline | 
     """
     grid = TableGrid()
     _place_pptx_cells(table, grid, inline, budget)
-    rendered = grid.render()
+    rendered = grid.render(room=budget.room if budget is not None else None)
     if grid.omitted_rows():
         extraction.warnings.append(omitted_rows_warning(grid.omitted_rows()))
     return rendered
@@ -1109,7 +1117,7 @@ def _place_pptx_cells(table: object, grid: TableGrid, inline: _Inline | None, bu
                 continue
             text = "\n".join(_cell_paragraph_text(paragraph, inline) for paragraph in cell.text_frame.paragraphs)
             row_span, col_span = _span(element, "rowSpan"), _span(element, "gridSpan")
-            grid.place(row_index, col_index, text, row_span=row_span, col_span=col_span)
+            row_span, col_span = grid.place(row_index, col_index, text, row_span=row_span, col_span=col_span)
             if budget is not None and budget.add(row_index, col_index, text, row_span=row_span, col_span=col_span):
                 return
 
