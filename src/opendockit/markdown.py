@@ -75,7 +75,10 @@ _MAX_SPAN_AREA = 10_000
 # the value goes only in the first cell. Per table only, many small tables of empty cells each spanning 100×100 filled 500,000
 # cells apiece and wrote nothing: a 5.6 KB HWPX took 13 s with no output and no warning
 # (Pinned by: test_markdown.py::TestTableGridLimits::test_spans_of_one_conversion_share_one_budget,
-# test_hwp_robustness.py::TestSpansPastTheTable::test_many_tables_of_huge_spans_share_one_budget).
+# test_hwp_robustness.py::TestSpansPastTheTable::test_many_tables_of_huge_spans_share_one_budget). A span is charged the area it
+# claims, which it fills when placed, not the one the table's real extent clips it to at render time (Known accepted gap: a page
+# of many `colspan="100"` section rows uses the budget up sooner. Pinned by: test_markdown.py::TestTableGridLimits::
+# test_a_span_is_charged_the_area_the_file_claims_past_the_table).
 _SPAN_BUDGET = 500_000
 _CONVERSION_SPAN_BUDGET = 1_000_000
 # What is left of the conversion's span budget (a one-item list, shared by every table of the conversion; None outside `span_budget`).
