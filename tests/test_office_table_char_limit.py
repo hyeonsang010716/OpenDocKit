@@ -784,6 +784,11 @@ def _chunk_html(words: str) -> bytes:
     return f"<html><body><p>{words}</p></body></html>".encode()
 
 
+# A chunk holding a paragraph and a table of two rows (relationship rIdChunkT)
+_CHUNK_TABLE_REFERENCE = '<w:altChunk r:id="rIdChunkT"/>'
+_CHUNK_WITH_A_TABLE = b"<html><body><p>pre</p><table><tr><td>k1</td><td>v1</td></tr><tr><td>k2</td><td>v2</td></tr></table></body></html>"
+
+
 def _docx_with_repeated_chunk(where: str, words: str = "Begin " + "chunk " * 149) -> bytes:
     """`_REFERENCES` references to one imported HTML part from the text boxes of one paragraph, from one table cell, from the
     cells of a table nested in a cell, from a table nested in each cell of a row, or (`where` "header") from the header part,
@@ -863,7 +868,7 @@ class TestRepeatedContentPastTheLimit:
     200 references to a 400 K-character chunk from one paragraph (a 39 KB file) built 80 M characters (0.8 s and 300 MB for 30)
     before the cut. Once the output is past the limit, further references write nothing; the text cut at the limit is the same."""
 
-    @pytest.mark.parametrize("where", ["text_boxes", "cell", "header"])
+    @pytest.mark.parametrize("where", ["text_boxes", "header"])
     def test_docx_chunk_references_stop_at_the_limit(self, where, monkeypatch: pytest.MonkeyPatch):
         from opendockit.extractors import docx as docx_module
 
@@ -919,13 +924,74 @@ class TestRepeatedContentPastTheLimit:
         assert [limit for limit, result in results.items() if result.exceeded != (full.char_count > limit)] == []
         assert [limit for limit, result in results.items() if result.text != full.text[:limit].rstrip()] == []
 
-    @pytest.mark.parametrize("where", ["nested_cells", "nested_tables"])
+    @pytest.mark.parametrize("inside", ["chunk", "smartart"])
+    def test_content_before_a_nested_table_does_not_leave_out_what_is_inside_it(self, inside):
+        """A cell of the top-level table is counted once it is read, so what it wrote before a table nested in it is still
+        charged while the nested table is read. Checked against that, an imported part before the nested table that passed
+        the limit left out what was inside it: the nested table came out empty and the outer table was drawn as Markdown
+        instead of HTML, so the cut text was not the front of the full conversion. Inside a nested table only the ceiling far
+        past the limit applies (`docx._DocxRenderer._cut_before_it`). Below the first row's text the table budget stops
+        before the second row is read, and a table drawn from the rows read may differ from the full one (a recorded gap of
+        `TableBudget`), so the limits start there."""
+        content = _CHUNK_REFERENCE if inside == "chunk" else f"<w:p><w:r>{_SMARTART_FRAME}</w:r></w:p>"
+        body = (_docx_table([_docx_cell("head") + _docx_cell("x"),
+                             f"<w:tc>{content}<w:tbl><w:tr><w:tc>{content}<w:p/></w:tc></w:tr></w:tbl><w:p/></w:tc>" + _docx_cell("y")])
+                + "<w:p><w:r><w:t>end</w:t></w:r></w:p>")
+        relationship = (f'<Relationship Id="rIdDgm" Type="{_RELATIONSHIPS_NS}/diagramData" Target="diagrams/data1.xml"/>'
+                        "</Relationships>")
+        data = builder.zip_with(_docx_with_chunks(body, {"rIdChunk": ("chunk1.html", _CHUNK_TYPE, _chunk_html("alpha beta"))}),
+                                edit={"word/_rels/document.xml.rels": lambda xml: xml.replace("</Relationships>", relationship)},
+                                add={"word/diagrams/data1.xml": _smartart_model("alpha beta")})
+        full = convert(data, "a.docx", ConvertOptions(max_chars=None))
+
+        first_row = len("head") + len("x")
+        results = {limit: convert(data, "a.docx", ConvertOptions(max_chars=limit)) for limit in range(first_row, full.char_count + 2)}
+
+        assert full.text.startswith("<table>") and full.text.count("alpha beta") == 2
+        assert [limit for limit, result in results.items() if result.exceeded != (full.char_count > limit)] == []
+        assert [limit for limit, result in results.items() if result.text != full.text[:limit].rstrip()] == []
+
+    def test_content_left_out_of_a_cell_does_not_change_how_the_table_is_drawn(self):
+        """A chunk holding a table makes the table it is imported into HTML (the chunk table is nested in the cell). Left out
+        of the cell once the text before it passed the limit, the table was drawn as Markdown, so the cut text was not the
+        front of the full conversion. Inside a table only the ceiling far past the limit applies
+        (`docx._DocxRenderer._cut_before_it`)."""
+        body = (_docx_table([_docx_cell("x") + f"<w:tc>{_CHUNK_REFERENCE}{_CHUNK_TABLE_REFERENCE}<w:p/></w:tc>"])
+                + "<w:p><w:r><w:t>end</w:t></w:r></w:p>")
+        data = _docx_with_chunks(body, {"rIdChunk": ("chunk1.html", _CHUNK_TYPE, _chunk_html("alpha beta")),
+                                        "rIdChunkT": ("chunk2.html", _CHUNK_TYPE, _CHUNK_WITH_A_TABLE)})
+        full = convert(data, "a.docx", ConvertOptions(max_chars=None))
+
+        results = {limit: convert(data, "a.docx", ConvertOptions(max_chars=limit)) for limit in range(len("x"), full.char_count + 2)}
+
+        assert full.text.startswith("<table>") and "<td>k2</td>" in full.text
+        assert [limit for limit, result in results.items() if result.exceeded != (full.char_count > limit)] == []
+        assert [limit for limit, result in results.items() if result.text != full.text[:limit].rstrip()] == []
+
+    def test_a_chunk_table_in_a_cell_is_not_cut_at_the_limit_of_the_document(self):
+        """An imported part is converted on its own and its Markdown tables are read back into tables nested in the cell.
+        Converted with the document's limit, its table stopped there and came back as a header row without its rule line,
+        which is not read back as a table: the cell lost its nested table, the outer table its HTML drawing, and the cut
+        text was not the front of the full conversion. It is converted with the limit `docx._FAR_PAST_THE_LIMIT` further."""
+        body = (_docx_table([f"<w:tc>{_CHUNK_TABLE_REFERENCE}<w:p/></w:tc>" + _docx_cell("x")])
+                + "<w:p><w:r><w:t>end</w:t></w:r></w:p>")
+        data = _docx_with_chunks(body, {"rIdChunkT": ("chunk2.html", _CHUNK_TYPE, _CHUNK_WITH_A_TABLE)})
+        full = convert(data, "a.docx", ConvertOptions(max_chars=None))
+
+        results = {limit: convert(data, "a.docx", ConvertOptions(max_chars=limit)) for limit in range(len("pre"), full.char_count + 2)}
+
+        assert full.text.startswith("<table>") and "<td>k2</td>" in full.text
+        assert [limit for limit, result in results.items() if result.exceeded != (full.char_count > limit)] == []
+        assert [limit for limit, result in results.items() if result.text != full.text[:limit].rstrip()] == []
+
+    @pytest.mark.parametrize("where", ["cell", "nested_cells", "nested_tables"])
     def test_docx_chunk_references_inside_nested_tables_stop_far_past_the_limit(self, where, monkeypatch: pytest.MonkeyPatch):
-        """A table nested in a cell is a placeholder in the cell text, which the outer table's budget counts as nothing, so what
-        was written inside it was given back with every cell: 200 references to a 400 K-character chunk from the cells of a
-        table inside a cell built 80 M characters (10 s, 1.7 GB). What is written there is counted towards a ceiling far past
-        the limit (`docx._FAR_PAST_THE_LIMIT`), which stops it; below that ceiling the text is written as before, so the
-        tables are drawn as in the full conversion."""
+        """Inside a table, what is written stops only at a ceiling far past the limit (`docx._FAR_PAST_THE_LIMIT`): content
+        left out there changes how the whole table is drawn. 200 references to a 400 K-character chunk from the blocks of one
+        cell built 80 M characters (19.5 s, 1.6 GB); a table nested in a cell is a placeholder in the cell text, which the
+        outer table's budget counts as nothing, so what was written inside it was given back with every cell, and the same
+        references from the cells of a table inside a cell built 80 M characters (10 s, 1.7 GB). Below the ceiling the text
+        is written as before, so the tables are drawn as in the full conversion."""
         from opendockit.extractors import docx as docx_module
 
         data = _docx_with_repeated_chunk(where, "Begin " + "chunk " * 16_666)  # 100,000 characters a reference

@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+
+- **DOCX**: the text cut at `max_chars` is again the front of the full conversion for tables that hold imported content
+  (`w:altChunk`) or SmartArt. Since 0.3.8 they were left out of a cell once the text before them passed the limit, and
+  a left-out part that held a table, or one inside a table nested in the cell, made the table Markdown instead of HTML;
+  inside a table they now stop only at the ceiling 100,000 characters past the limit, as in nested tables. Since 0.3.10
+  the table of an imported part was cut at the document's limit, which emptied the cell's nested table the same way.
+
 ## [0.3.11] - 2026-11-16
 
 The Dify plugin, and text without decoding pictures. The sample outputs in `examples/` are unchanged.

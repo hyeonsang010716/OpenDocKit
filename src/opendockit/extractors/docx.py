@@ -229,9 +229,9 @@ class _DocxRenderer:
         The paragraphs, cells and text boxes of one block are all rendered before the block is counted, and one imported part or
         SmartArt writes its whole content at every reference: 200 references to a 400 K-character chunk from the text boxes of
         one paragraph or the blocks of one cell, or 200 frames of one SmartArt, built 80 M characters before anything was cut.
-        Once nothing is left, further imported content and SmartArt are not written (`_chunk_blocks`, `_object_block`): the
+        Once nothing is left, further imported content and SmartArt outside tables are not written (`_cut_before_it`): the
         text is already past the limit before them, so the cut text is the same (Pinned by: test_office_table_char_limit.py::
-        TestRepeatedContentPastTheLimit)."""
+        TestRepeatedContentPastTheLimit). Inside a table only `_far_past_the_limit` stops them."""
         if self._options.max_chars is None:
             return None
         return self._options.max_chars - self._counted() - self._pending
@@ -257,8 +257,8 @@ class _DocxRenderer:
         cells of a table inside a cell built 80 M characters (10 s, 1.7 GB) under a 5,000-character limit (Pinned by:
         test_office_table_char_limit.py::TestRepeatedContentPastTheLimit::
         test_docx_chunk_references_inside_nested_tables_stop_far_past_the_limit).
-        Deliberate: this is only a ceiling on the work past the limit, far beyond the text that can still be written; `_room`
-        alone decides everything else. Content left out inside a table changes how the whole table is drawn (an empty column
+        Deliberate: this is only a ceiling on the work past the limit, far beyond the text that can still be written; outside
+        tables `_room` decides (`_cut_before_it`). Content left out inside a table changes how the whole table is drawn (an empty column
         is dropped, a nested table that becomes a box is unfolded, a table with no nested table left is Markdown instead of
         HTML), so the text before the cut changes too: left out as soon as the nested content passed the limit, the cut text
         was not the front of the full conversion at about a third of all limits of documents with nested tables
@@ -267,6 +267,29 @@ class _DocxRenderer:
         if self._options.max_chars is None:
             return False
         return self._counted() + self._direct_pending + self._nested_written > self._options.max_chars + _FAR_PAST_THE_LIMIT
+
+    def _cut_before_it(self) -> bool:
+        """Whether the text is cut before the imported content or SmartArt about to be written, which is then left out
+        (`_chunk_blocks`, `_smartart_block`): no room is left (`_room`), or the text is far past the limit
+        (`_far_past_the_limit`). Inside a table, top-level or nested, only the second is checked, as `_far_past_the_limit`
+        says: what is left out of a cell changes how the whole table is drawn. Checked against `_room` in a cell, a chunk
+        holding a table, left out after the text before it passed the limit, no longer made the table HTML (Pinned by:
+        test_office_table_char_limit.py::TestRepeatedContentPastTheLimit::
+        test_content_left_out_of_a_cell_does_not_change_how_the_table_is_drawn), and as a top-level cell is counted only once
+        it is read, what it wrote before a table nested in it left out what was inside that table, which came out empty
+        (Pinned by: test_office_table_char_limit.py::TestRepeatedContentPastTheLimit::
+        test_content_before_a_nested_table_does_not_leave_out_what_is_inside_it)."""
+        if not self._grids:
+            room = self._room()
+            if room is not None and room < 0:
+                return True
+        return self._far_past_the_limit()
+
+    def _chunk_options(self) -> ConvertOptions:
+        """The options imported content is converted with: those of the document, with the limit `_FAR_PAST_THE_LIMIT` further
+        (`_chunk_blocks`)."""
+        limit = self._options.max_chars
+        return self._options if limit is None else replace(self._options, max_chars=limit + _FAR_PAST_THE_LIMIT)
 
     def _written(self, text: str) -> str:
         """`text` of imported content, SmartArt or a chart, charged to the characters written since the last count (`_room`)."""
@@ -319,20 +342,27 @@ class _DocxRenderer:
         blob = getattr(part, "blob", None)
         if not blob:  # broken relationship or empty part
             return []
-        room = self._room()
-        if (room is not None and room < 0) or self._far_past_the_limit():  # past the limit: the text is cut before it (`_room`)
+        if self._cut_before_it():
             return []
 
         content_type = part.content_type.split(";")[0].strip().lower()
         # A part is converted once however many w:altChunk point at it; each reference still writes its content. It was
         # converted again per reference, and a chunk that gives no text never moves the character count: 20 references to 2 MB
         # of empty <div> took 60 s (Pinned by: test_audit_office.py::TestDocxChunkPartReferencedManyTimes).
+        # It is converted with the limit moved `_FAR_PAST_THE_LIMIT` further (`_chunk_options`): inside a table cell its Markdown
+        # tables are read back into tables nested in the cell (`_embed_markdown_tables`), and what is written in a table stops
+        # only at that ceiling (`_cut_before_it`). With the document's own limit, a chunk table stopped at it
+        # (`markdown.TableGrid.render(room=...)`) and came back as a header row without its rule line, which is not read back as
+        # a table: the cell lost its nested table, the outer table its HTML drawing, and the cut text was not the front of the
+        # full conversion. The work stays bounded by the ceiling
+        # (Pinned by: test_office_table_char_limit.py::TestRepeatedContentPastTheLimit::
+        # test_a_chunk_table_in_a_cell_is_not_cut_at_the_limit_of_the_document).
         if part in self._chunks:
             imported = self._chunks[part]
         elif content_type in _HTML_CHUNK_TYPES or (content_type in _MHT_CHUNK_TYPES and is_mhtml(blob)):
-            imported = extract_html(blob, self._options)
+            imported = extract_html(blob, self._chunk_options())
         elif content_type in _TEXT_CHUNK_TYPES:
-            imported = extract_text(blob, self._options)
+            imported = extract_text(blob, self._chunk_options())
         else:
             self.unread_chunks += 1
             return []
@@ -696,9 +726,8 @@ class _DocxRenderer:
         shown with `cell_level_mark`, and once outside — Pinned by: test_office_cells_and_notes.py::
         TestDocxObjectsInsideTableCells); every frame still writes it, as every reference to an imported part does
         (`_chunk_blocks`). The part was parsed and rendered again for every frame, and once the output is past the character
-        limit nothing more is written (`_room`. Pinned by: test_office_table_char_limit.py::TestRepeatedContentPastTheLimit)."""
-        room = self._room()
-        if (room is not None and room < 0) or self._far_past_the_limit():
+        limit nothing more is written (`_cut_before_it`. Pinned by: test_office_table_char_limit.py::TestRepeatedContentPastTheLimit)."""
+        if self._cut_before_it():
             return ""
         key = (part, bool(self._grids))
         if key not in self._smartart:

@@ -4,7 +4,7 @@ import unicodedata
 
 import pytest
 
-from opendockit import convert
+from opendockit import convert, markdown
 from opendockit.markdown import TableGrid, clean_text, join_blocks, render_table, solid_length, span_budget
 
 
@@ -379,6 +379,28 @@ class TestTableGridLimits:
         assert [spans[-1] for _, spans in tables] == [(100, 100), (100, 100), (1, 1)]
         assert [grid.render() for grid, _ in tables] == ["", "", "A"]
         assert alone_spans[-1] == (100, 100) and alone.render() == ""
+
+    def test_a_span_is_charged_the_area_the_file_claims_past_the_table(self, monkeypatch: pytest.MonkeyPatch):
+        """Known accepted gap: a span fills the cells it claims when it is placed, before the table's real extent is known,
+        so it is charged that area, not the one it is drawn over. Section rows written `colspan="100"` in a table of three
+        columns take 100 cells each, and once the conversion's budget is used up the section rows of later tables are
+        drawn as ordinary rows of a Markdown table."""
+        monkeypatch.setattr(markdown, "_CONVERSION_SPAN_BUDGET", 1_000)
+
+        def table() -> tuple[TableGrid, list[tuple[int, int]]]:
+            grid, spans = TableGrid(), []
+            for row in range(5):
+                spans.append(grid.place(2 * row, 0, f"S{row}", col_span=100))
+                for col in range(3):
+                    grid.place(2 * row + 1, col, f"v{row}{col}")
+            return grid, spans
+
+        with span_budget():
+            tables = [table() for _ in range(3)]
+
+        assert [spans for _, spans in tables] == [[(1, 100)] * 5, [(1, 100)] * 5, [(1, 1)] * 5]
+        assert '<td colspan="3">S1</td>' in tables[1][0].render()
+        assert "| S1 |  |  |" in tables[2][0].render()
 
     @pytest.mark.parametrize("horizontal", [False, True])
     def test_drawing_stops_writing_rows_past_the_room(self, horizontal):
