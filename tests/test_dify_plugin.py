@@ -243,6 +243,23 @@ class TestConversion:
         assert str(raised.value) == conversion.NO_TEXT
         assert "Salary" not in caplog.text
 
+    def test_a_picture_keeps_its_alt_text(self):
+        """No picture is decoded, but the alt text an author gave one stays: with `extract_images=False` a DOCX picture
+        described as a revenue chart came out of Dify as nothing."""
+        from docx import Document
+        from docx.shared import Inches
+
+        document = Document()
+        document.add_paragraph("Revenue grew in Q3.")
+        document.add_picture(BytesIO(builder.png_bytes(300, 200, seed=1)), width=Inches(2))
+        document.inline_shapes[-1]._inline.docPr.set("descr", "Quarterly revenue chart: Q3 up 12%")
+        buffer = BytesIO()
+        document.save(buffer)
+
+        converted = _conversion().convert_upload(buffer.getvalue(), "report.docx")
+
+        assert converted.text == "Revenue grew in Q3.\n\n[Image: Quarterly revenue chart: Q3 up 12%]"
+
     def test_a_normal_file_is_converted_in_a_worker(self, monkeypatch):
         """The conversion in the plugin process is for runtimes without worker pools only."""
         conversion = _conversion()

@@ -35,7 +35,7 @@ No setup or credentials are needed.
 ## Limits
 
 - **No OCR.** Scanned pages and images have no text to extract; the tool fails with "No text could be extracted from
-  this file".
+  this file". A picture inside a document keeps the alt text its author gave it, as `[Image: …]`.
 - **Legacy `.doc` and `.ppt`** are not read: they need LibreOffice, which the plugin runtime does not have.
 - **Knowledge base uploads:** Dify does not accept `.hwp` or `.hwpx` files there yet, so use the tool in Workflows and
   Chatflows.
