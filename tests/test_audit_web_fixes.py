@@ -482,6 +482,24 @@ class TestAdjacentStruckRuns:
     def test_runs_that_are_apart_already_keep_their_own_marks(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><del><em>old <a href='https://e.com/'>terms</a></em></del><del>2023</del></p>",
+         "~~*old* [*terms*](https://e.com/)2023~~"),
+        ("<p><del><b>old <a href='https://e.com/a'>terms</a></b></del><del><i><a href='https://e.com/b'>new</a> rules</i></del></p>",
+         "~~**old** [**terms**](https://e.com/a)[*new*](https://e.com/b) *rules*~~"),
+        # the tildes stay against the key: unchanged
+        ("<p><del><b>old <i>terms</i></b></del><del>2023</del></p>", "**~~old *terms*~~**~~2023~~"),
+        ("<p><del>2023 </del><del><em><a href='https://e.com/'>new</a> terms</em></del></p>",
+         "~~2023~~ ~~[*new*](https://e.com/) *terms*~~"),
+    ])
+    def test_runs_joined_around_the_end_of_a_link_or_emphasis(self, html, expected):
+        """An emphasis span that a link splits gives each piece one half of the pair, and the half is moved out of its piece
+        while the key of the mark stays inside: the closing tildes after the address met the opening ones of the next run
+        and were not joined, `~~*old* [*terms*](https://e.com/)~~~~2023~~`."""
+        options = ConvertOptions(keep_links=True, keep_emphasis=True)
+
+        assert convert(html.encode(), "a.html", options).text == expected
+
     @pytest.mark.parametrize(("inner", "expected"), [
         # a table holding a code block is marked cell by cell (`TestNoMarksInsideCode`): its last cell met the text after it
         ("<del>x<table><tr><td><pre>in1</pre></td><td>in2</td></tr></table>y</del>", "~~x~~in1 ~~in2~~ ~~y~~"),

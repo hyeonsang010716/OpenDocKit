@@ -1980,6 +1980,55 @@ class TestDocxListDepthCheckBoxesAndLongHeadings:
         assert result.text == "# 2023년 신규지표 1차 합의 제안서\n\n# 제2장 추진 배경 및 필요성\n\n본문"
 
 
+class TestDocxHeadingHoldingOnlyAPicture:
+    """A heading-style paragraph holding only a picture was a heading, the picture placeholder counting as its text: the
+    picture became a block of its own under a bare '#' (and '# 1.' with an auto number)."""
+
+    @staticmethod
+    def _document(style: str, *, number: bool = False) -> bytes:
+        from docx import Document
+        from docx.oxml import parse_xml
+        from docx.shared import Inches
+
+        document = Document()
+        num_id = re.search(r'w:numId w:val="(\d+)"', document.styles["List Number"].element.xml).group(1)
+        document.add_paragraph("Intro text.")
+        for content in (None, "Scope"):
+            paragraph = document.add_paragraph(style=style)
+            if number:
+                paragraph._p.get_or_add_pPr().append(parse_xml(
+                    '<w:numPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                    f'<w:ilvl w:val="0"/><w:numId w:val="{num_id}"/></w:numPr>'))
+            if content is None:
+                paragraph.add_run().add_picture(BytesIO(builder.png_bytes(400, 300, seed=3)), width=Inches(2))
+            else:
+                paragraph.add_run(content)
+            document.add_paragraph("Body after.")
+        buffer = BytesIO()
+        document.save(buffer)
+        return buffer.getvalue()
+
+    @pytest.mark.parametrize("style", ["Heading 1", "Title"])
+    def test_picture_alone_in_a_heading_is_not_a_heading(self, style):
+        result = convert(self._document(style), "a.docx")
+
+        assert result.text == "Intro text.\n\n[Image]\n\nBody after.\n\n# Scope\n\nBody after."
+
+    def test_numbered_heading_holding_only_a_picture_still_counts_its_number(self):
+        """The number is counted (the next heading is 2.) but not written in front of the picture."""
+        result = convert(self._document("Heading 1", number=True), "a.docx")
+
+        assert result.text == "Intro text.\n\n[Image]\n\nBody after.\n\n# 2. Scope\n\nBody after."
+
+    def test_picture_alone_on_an_outline_level_is_not_a_heading(self):
+        data = builder.zip_with(self._document("Normal"), {"word/document.xml": lambda xml: xml.replace(
+            "<w:pPr/><w:r><w:drawing>", '<w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:r><w:drawing>', 1)})
+
+        result = convert(data, "a.docx")
+
+        assert result.text == "Intro text.\n\n[Image]\n\nBody after.\n\nScope\n\nBody after."
+
+
 class TestDocxFieldsAndRuns:
     @staticmethod
     def _run(text: str, properties: str = "") -> str:

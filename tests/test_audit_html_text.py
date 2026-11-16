@@ -268,6 +268,19 @@ class TestDataUriWrittenWithCapitalsOrLeadingSpace:
         assert result.images == []
         assert result.text == "text\n\n[Image: lazy] [Image: icon]"
 
+    @pytest.mark.parametrize("scheme", ["data:", "DATA:", "Data:"])
+    def test_data_uri_in_data_src_with_capitals_is_no_lazy_address(self, scheme):
+        """A `data-src` holding a data: URI is no address of a real picture, so the picture in `src` is extracted. Compared in
+        lower case only, `DATA:image/png…` there made the picture a lazy placeholder and left only its alt text."""
+        encoded = base64.b64encode(png_bytes()).decode()
+        html = (f'<p>text</p><img alt="Sales by region" data-src="{scheme}image/png;base64,{encoded}" '
+                f'src="data:image/png;base64,{encoded}">')
+
+        result = convert(html.encode(), "a.html")
+
+        assert len(result.images) == 1
+        assert result.text == "text\n\n[Image: Sales by region]"
+
 
 class TestDamagedTextBehindAByteOrderMark:
     """Text that starts with a BOM was decoded with replacement characters but never reported it: a lone UTF-16 surrogate or a

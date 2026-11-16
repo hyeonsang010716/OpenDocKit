@@ -34,7 +34,7 @@ from opendockit.image import (
     needs_heif_plugin,
     prepare_image,
 )
-from opendockit.markdown import clean_line, clean_text, code_fences, neutralize_table_tags, solid_length
+from opendockit.markdown import _split_quote, clean_line, clean_text, code_fences, neutralize_table_tags, solid_length
 from opendockit.models import (
     ConversionResult,
     ConvertOptions,
@@ -652,7 +652,15 @@ def _render_template(template: str, images: dict[int, DocumentImage], fallbacks:
         if not ids:
             lines.append(_FENCED_LINE + line if index in fenced else line)
             continue
-        row = line.strip()
+        # A line inside a quote (`> `, `> > `) is looked at without its quote marks, and what goes in keeps them. Looked at
+        # whole, a row of a quoted table (`> | Kim | ⟦IMG⟧ |`) was not a table row: the picture was cut out of its cell and
+        # its block put on lines of its own outside the quote, which broke the table and the quote in two; in a quoted
+        # paragraph the block landed outside the quote (Pinned by: test_converter.py::TestPicturesInsideAQuote).
+        prefix, content = "", line
+        if ">" in line:
+            _, depth, content = _split_quote(line)
+            prefix = line[: len(line) - len(content)] if depth else ""
+        row = content.strip()
         markup = row.startswith("<tr>") and row.endswith("</tr>")
         if markup or (len(row) > 1 and row.startswith("|") and row.endswith("|")):
             # Inside a table cell: a table row has to be one line, so fold it into one line. An HTML table (a table with merged
@@ -676,14 +684,82 @@ def _render_template(template: str, images: dict[int, DocumentImage], fallbacks:
         # spaces' started again at every space of a run, so a line with 80,000 spaces before a picture took 4 seconds
         # (Pinned by: test_audit_core.py::TestSpacesOnALineWithAPicture).
         pieces, position = [], 0
-        for match in pattern.finditer(line):
-            pieces.append(line[position:match.start()])
+        for match in pattern.finditer(content):
+            pieces.append(content[position:match.start()])
             position = match.end()
-        body = " ".join(piece.strip(" ") for piece in [*pieces, line[position:]]).strip()
-        text = line[: len(line) - len(line.lstrip())] + body if body else ""
+        body = " ".join(piece.strip(" ") for piece in [*pieces, content[position:]]).strip()
+        text = prefix + content[: len(content) - len(content.lstrip())] + body if body else ""
         blocks = [block for block in (_block_text(images, fallbacks, image_id) for image_id in ids) if block]
+        if prefix:
+            lines.append(_quoted_blocks(prefix, text, blocks))
+            continue
         lines.append("\n\n".join(part for part in [text, *blocks] if part) + ("\n" if blocks else ""))
-    return _collapse_blank_lines("\n".join(lines)).strip()
+    rendered = "\n".join(lines)
+    if _QUOTE_GAP in rendered:
+        rendered = _settle_quote_gaps(rendered)
+    return _collapse_blank_lines(rendered).strip()
+
+
+# A mark attached during rendering to the empty quote line (`>`) that follows a picture block inside a quote, or that stands for
+# a quoted line left with nothing (a private-use character — `clean_text` has already removed it, so it is not in the body).
+_QUOTE_GAP = "\ue031"
+
+
+def _quoted_blocks(prefix: str, text: str, blocks: list[str]) -> str:
+    """The rendering of a quoted line holding pictures: as outside a quote, but every line of the picture blocks gets the quote
+    marks of the line (`prefix`, a description becoming a quote in the quote) and the blank lines around them are empty quote
+    lines, so the block stays in the quote. The empty line after the blocks, or the whole line when nothing is left of it, is
+    an empty quote line marked `_QUOTE_GAP` that `_settle_quote_gaps` keeps only between two lines with text: next to the empty
+    quote line that already separates two quoted paragraphs (or a SKIP answer that left the line empty) it left a stray `>`
+    (Pinned by: test_converter.py::TestPicturesInsideAQuote)."""
+    blank = prefix.rstrip()
+    parts = [text] if text else []
+    parts += ["\n".join(prefix + line if line.strip() else blank for line in block.split("\n")) for block in blocks]
+    rendered = f"\n{blank}\n".join(parts)
+    if blocks or not text:
+        rendered = (rendered + "\n" if rendered else "") + _QUOTE_GAP + blank
+    return rendered
+
+
+def _settle_quote_gaps(text: str) -> str:
+    """Keep an empty quote line marked `_QUOTE_GAP` only where it separates two lines with text, and drop the others: at the start
+    or end of the section, or next to an empty line or another empty quote line no deeper than it. A run of them is kept once.
+    A quoted line left with nothing (a picture answered SKIP on a line of its own) also takes one of the two empty lines around
+    it, as two blank lines become one outside a quote: the empty quote lines before and after it are kept once, and one before
+    the end of the quote is dropped. It only removes lines, and at most one line of the text besides the marked ones for each
+    picture, which `image_length_bound` counts."""
+    source = text.split("\n")
+    kept: list[str] = []
+    skip = -1
+    for index, line in enumerate(source):
+        if index == skip:
+            continue
+        if not line.startswith(_QUOTE_GAP):
+            kept.append(line)
+            continue
+        gap = line[len(_QUOTE_GAP):]
+        depth = _split_quote(gap)[1]
+        following = source[index + 1] if index + 1 < len(source) else None
+        after = following is not None and _is_separator(following, depth)
+        if not kept or _is_separator(kept[-1], depth):
+            if after and following.strip() and not following.startswith(_QUOTE_GAP):
+                skip = index + 1
+            elif kept and kept[-1].strip() and (following is None or not following.strip()):
+                kept.pop()
+        elif following is not None and not after:
+            kept.append(gap)
+    return "\n".join(kept)
+
+
+def _is_separator(line: str, depth: int) -> bool:
+    """Whether `line` already separates blocks for an empty quote line `depth` marks deep: an empty line, a `_QUOTE_GAP` line or
+    an empty quote line with at most `depth` marks."""
+    if not line.strip() or line.startswith(_QUOTE_GAP):
+        return True
+    if ">" not in line:
+        return False
+    _, marks, content = _split_quote(line)
+    return 0 < marks <= depth and not content.strip()
 
 
 # A mark attached during rendering to lines inside a code fence (a private-use character — `clean_text` has already removed it,
@@ -718,7 +794,7 @@ def _collapse_blank_lines(text: str) -> str:
     return "\n".join(lines)
 
 
-def image_length_bound(image: DocumentImage, fallbacks: dict[int, str]) -> int:
+def image_length_bound(image: DocumentImage, fallbacks: dict[int, str], quote: int = 0) -> int:
     """The most the character count of `render` can grow when this picture goes from the erased (decorative) state to its current state.
 
     A placeholder becomes a block (`_block_text`) in a paragraph and one line (`_cell_text`) in a table cell, and gets one blank
@@ -731,12 +807,48 @@ def image_length_bound(image: DocumentImage, fallbacks: dict[int, str]) -> int:
     lines it no longer has, every SKIP answer used up headroom, so in a document just under the limit the whole text was
     assembled again every few pictures — quadratic in the number of pictures, on the event loop (2,000 pictures: 2.6 s)
     (Pinned by: test_core_image_and_assembly.py::TestDecorativeAnswersNearTheLimit).
+    Inside a quote (`quote`, the length of the longest quote marks before the placeholder, `quote_widths`) every line of the
+    block gets those marks, and the blank lines around it and the one a neighbouring empty quote line may now keep
+    (`_settle_quote_gaps`) are empty quote lines: the marks are counted once per line of the block and three more times.
+    Without them the bound was short by the marks, and the stop during description could miss the limit
+    (Pinned by: test_converter.py::TestPicturesInsideAQuote::test_description_stops_at_exactly_the_image_that_crosses_the_limit).
     """
     if _erased(image):
         return 0
     images = {image.id: image}
-    return max(len(_block_text(images, fallbacks, image.id)), len(_cell_text(images, fallbacks, image.id)),
+    block = _block_text(images, fallbacks, image.id)
+    return max(len(block) + quote * (block.count("\n") + 4), len(_cell_text(images, fallbacks, image.id)),
                len(_cell_text(images, fallbacks, image.id, html=True))) + 3
+
+
+def quote_widths(sections: list[Section], pattern: re.Pattern[str]) -> dict[int, int]:
+    """Image id → the length of the longest quote marks (`> `, `> > `) on any line of its section that holds a placeholder,
+    for the pictures of the sections that have a placeholder inside a quote (`image_length_bound`). The line start is carried
+    from one placeholder to the next, so a long line with many pictures is read once.
+
+    The widest of the section, not that of the picture's own line: whether the empty quote line after a picture is kept
+    depends on the line after it (`_settle_quote_gaps`), which may hold another picture, so describing a picture outside the
+    quote (`> ![](A)` followed by `![](B)`, a lazy continuation in Markdown) brought back the empty quote line of the
+    picture before it, which a SKIP answer had dropped, and the stop during description ran past the limit (Pinned by:
+    test_converter.py::TestPicturesInsideAQuote::test_a_picture_after_a_quoted_one_counts_the_quote_marks_of_its_neighbour)."""
+    widths: dict[int, int] = {}
+    for section in sections:
+        template = section.template
+        start, position, width, widest = 0, 0, 0, 0
+        found: list[int] = []
+        for match in pattern.finditer(template):
+            newline = template.rfind("\n", position, match.start())
+            if newline >= 0 or position == 0:
+                start = newline + 1
+                head = template[start:match.start()]
+                width = len(head) - len(_split_quote(head)[2]) if ">" in head else 0
+            position = match.end()
+            widest = max(widest, width)
+            found.append(int(match.group(1)))
+        if widest:
+            for image_id in found:
+                widths[image_id] = max(widths.get(image_id, 0), widest)
+    return widths
 
 
 def _erased(image: DocumentImage | None) -> bool:

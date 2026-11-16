@@ -5,6 +5,8 @@ merged cell, and cells whose text is drawn sideways.
 from bisect import bisect_left, bisect_right
 import re
 
+from pdfplumber.utils import extract_text
+
 from opendockit.extractors._pdf_artifacts import _is_sideways, _sideways_paragraphs
 from opendockit.extractors._pdf_chars import _text_from_chars
 from opendockit.extractors._pdf_model import (
@@ -53,13 +55,18 @@ def _cell_rows(table: object) -> list[list[str | None]]:
     merged cell (a first row containing a cell that spans three rows, a first column containing a '합계' (total) cell that
     spans two columns), its middle moves into another row or column, and the repetition was lost in tables with both
     vertical and horizontal merges (pinned by: test_pdf.py::TestRuledTables::
-    test_vertical_merge_is_repeated_in_every_row_when_another_row_merges_columns).
+    test_vertical_merge_is_repeated_in_every_row_when_another_row_merges_columns). The band ends at the start of the next
+    row or column at the latest: when every cell starting in a row is merged downwards, the earliest end is the bottom of a
+    lower row, the middle fell on the boundary with the next row, and a merged cell ending at that boundary counted that
+    row as its own. In a table whose two columns merge staggered pairs of rows, the value of one merge was copied into a
+    row it does not cover and the row it does cover kept another merge's text ('| 구현 | 기획팀 |') (Pinned by:
+    test_pdf_table_columns.py::TestStaggeredMerges).
     """
-    rows = table.extract(**_CELL_TEXT)
+    rows = _extracted(table)
     _read_sideways_cells(table, rows)
     _join_soft_wraps(table, rows)
-    row_middles = [_shared_middle(row.cells, 1, 3) for row in table.rows]
-    column_middles = [_shared_middle(column.cells, 0, 2) for column in table.columns]
+    row_middles = _shared_middles([row.cells for row in table.rows], 1, 3)
+    column_middles = _shared_middles([column.cells for column in table.columns], 0, 2)
     containers: list[int] = []  # rows where a cell holding an inner table starts
     # The rows and columns a cell covers are looked up by bisection over the sorted middles, and the cells a merged cell may
     # enclose only among those of its own height bands (`_BoxIndex.near`): scanning every cell of the table for every
@@ -123,11 +130,18 @@ def _repeated_below(rows: list[list[str | None]], index: int) -> bool:
                for column, cell in enumerate(rows[index]))
 
 
-def _shared_middle(cells: list[tuple | None], low: int, high: int) -> float:
-    """The middle of the band where all the cells of one row (or column) overlap. `low` and `high` are the positions of the
-    start and end coordinates in a cell box."""
-    cells = [cell for cell in cells if cell is not None]
-    return (max(cell[low] for cell in cells) + min(cell[high] for cell in cells)) / 2
+def _shared_middles(groups: list[list[tuple | None]], low: int, high: int) -> list[float]:
+    """The middle of the band where all the cells of each row (or column) overlap, the band ending at the start of the next
+    row (or column) at the latest (`_cell_rows`). `groups` are the cells of each row (or column); `low` and `high` are the
+    positions of the start and end coordinates in a cell box."""
+    groups = [[cell for cell in cells if cell is not None] for cells in groups]
+    starts = sorted({cell[low] for cells in groups for cell in cells})
+    middles = []
+    for cells in groups:
+        start, end = max(cell[low] for cell in cells), min(cell[high] for cell in cells)
+        following = bisect_right(starts, start)
+        middles.append((start + (min(end, starts[following]) if following < len(starts) else end)) / 2)
+    return middles
 
 
 def _join_soft_wraps(table: object, rows: list[list[str | None]]) -> None:
@@ -248,6 +262,47 @@ def _read_sideways_cells(table: object, rows: list[list[str | None]]) -> None:
             chars = _chars_in_cell(every, cell)
             if all(_is_sideways(char) for char in chars if char["text"].strip()):
                 rows[row_index][column_index] = "\n".join(_sideways_paragraphs(chars))
+
+
+def _extracted(table: object) -> list[list[str | None]]:
+    """The cell text of a ruled table as pdfplumber's `Table.extract(**_CELL_TEXT)` gives it — the same characters of every row
+    and cell in the same order, read with the same `extract_text` — except that a row takes its characters from the page's
+    characters sorted by vertical middle (`_chars_by_middle`, built once per page) instead of testing every character of the
+    page. pdfplumber tests every character for every row: a 9.5 KB page of a 600-row table of 100 characters a row spent 9
+    of its seconds there (Pinned by: test_pdf_resource_limits.py::TestManyLinesReachingOutOfTheirCells)."""
+    middles, placed = _chars_by_middle(table.page)
+
+    def in_box(char: dict, box: tuple[float, float, float, float]) -> bool:  # pdfplumber's `char_in_bbox`
+        middle_y, middle_x = (char["top"] + char["bottom"]) / 2, (char["x0"] + char["x1"]) / 2
+        return box[0] <= middle_x < box[2] and box[1] <= middle_y < box[3]
+
+    rows = []
+    for row in table.rows:
+        top, bottom = row.bbox[1], row.bbox[3]
+        # every character whose middle is a number in [top, bottom); one that is not a number is in no box
+        band = sorted(placed[bisect_left(middles, top):bisect_left(middles, bottom)], key=lambda item: item[0])
+        row_chars = [char for _, char in band if in_box(char, row.bbox)]
+        texts: list[str | None] = []
+        for cell in row.cells:
+            if cell is None:
+                texts.append(None)
+                continue
+            cell_chars = [char for char in row_chars if in_box(char, cell)]
+            texts.append(extract_text(cell_chars, **_CELL_TEXT) if cell_chars else "")
+        rows.append(texts)
+    return rows
+
+
+def _chars_by_middle(page: object) -> tuple[list[float], list[tuple[int, dict]]]:
+    """All of the page's characters in order of their vertical middle, each with its place in `page.chars` (page order where
+    the middles are equal), as (list of middles, list of (place, character)). Built once per page (`_extracted`). A character
+    whose middle is not a number is inside no box and is left out."""
+    def build() -> tuple[list[float], list[tuple[int, dict]]]:
+        placed = [((char["top"] + char["bottom"]) / 2, order, char) for order, char in enumerate(page.chars)]
+        ordered = sorted((item for item in placed if item[0] == item[0]), key=lambda item: (item[0], item[1]))
+        return [middle for middle, _, _ in ordered], [(order, char) for _, order, char in ordered]
+
+    return _page_index(page, "chars_by_middle", build)
 
 
 def _sideways_by_middle(page: object) -> tuple:

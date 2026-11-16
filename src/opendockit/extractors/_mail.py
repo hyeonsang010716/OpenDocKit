@@ -7,7 +7,7 @@ import binascii
 import codecs
 import email
 from email.errors import HeaderParseError
-from email.header import Header, decode_header, make_header
+from email.header import Header, decode_header
 from email.message import Message
 from email.parser import BytesHeaderParser
 import quopri
@@ -763,6 +763,10 @@ def _decoded_run(words: list[str], gaps: list[str]) -> str:
     return "".join(pieces)
 
 
+# A line break that folds a header: one followed by a space or tab (RFC 5322 §2.2.3)
+_FOLD = re.compile(r"\r?\n(?=[ \t])")
+
+
 def _decoded_words(text: str) -> str:
     """Decode RFC 2047 words. The charset of a word is read with the superset codec, as for a body
     (`_header_codec` — EUC-KR → CP949).
@@ -776,18 +780,21 @@ def _decoded_words(text: str) -> str:
     # attachment name rejected the whole mail
     # (Pinned by: test_audit_html_text.py::TestEncodedWordThatCannotBeDecoded).
     try:
-        pieces = decode_header(text)
+        pieces = decode_header(_FOLD.sub("", text))
     except (LookupError, UnicodeError, ValueError, HeaderParseError):
         return text
     # In a word labeled Windows-1252/ISO-8859-1 nearly every byte decodes strictly, so a CP949 subject was garbled into `[°øÁö]`.
-    # It is judged by its content, like the same declaration on a body
-    # (`_latin_labeled_text`, Pinned by: test_core_html_mail_hidden_and_frames.py::TestEncodedWordLabeledLatinButKorean).
-    pieces = [(_latin_labeled_text(chunk, charset).encode(), "utf-8") if isinstance(chunk, bytes) and _header_codec(charset) == _WESTERN
-              else (chunk, charset) for chunk, charset in pieces]
-    try:
-        return str(make_header([(chunk, _header_codec(charset)) for chunk, charset in pieces]))
-    except (LookupError, UnicodeError, ValueError, HeaderParseError):
-        return "".join(_header_chunk_text(chunk, charset) for chunk, charset in pieces)
+    # It is judged by its content, like the same declaration on a body (`_header_chunk_text` → `_latin_labeled_text`,
+    # Pinned by: test_core_html_mail_hidden_and_frames.py::TestEncodedWordLabeledLatinButKorean).
+    # The pieces are joined as they are: `make_header` puts a space between an encoded piece and the text next to it unless
+    # that text has one, so the quoted name `"=?euc-kr?B?…?=" <a@b>` became `" 홍구동 " <a@b>` and the attachment name
+    # `=?utf-8?b?…?=.xlsx` `견적서 .xlsx`.
+    # The whitespace between two adjacent encoded words is already dropped by `decode_header` (RFC 2047), and a word written
+    # against the text before it (`Re:=?utf-8?q?x?=`) is joined to it, as the `email.policy.default` parser does. A folded
+    # header is unfolded first (RFC 5322: the line break goes, the space after it stays, `_FOLD`): `decode_header` strips the
+    # space starting each line, so `=?…?=\r\n <a@b>` became `홍길동<a@b>` and `Hello world\r\n =?utf-8?q?x?=` `Hello worldx`
+    # (Pinned by: test_core_mailboxes_and_charsets.py::TestEncodedWordNextToText).
+    return "".join(_header_chunk_text(chunk, charset) for chunk, charset in pieces)
 
 
 def _latin_labeled_text(chunk: bytes, charset: str | None) -> str:

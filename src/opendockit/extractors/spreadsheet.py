@@ -1,10 +1,12 @@
 """XLSX → one Markdown table per sheet, with the pictures, charts, text boxes, comments and form controls of the sheet."""
 
+import codecs
 from collections import deque
 from collections.abc import Iterator
 from datetime import datetime, time
 import html
 from io import BytesIO
+from itertools import islice
 import re
 import zipfile
 from zipfile import BadZipFile
@@ -17,15 +19,15 @@ from openpyxl.formula.tokenizer import TokenizerError
 from openpyxl.formula.translate import Translator, TranslatorError
 from openpyxl.styles.numbers import BUILTIN_FORMATS
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
-from openpyxl.utils.datetime import from_excel
+from openpyxl.utils.datetime import from_excel, to_excel
 from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.worksheet.formula import ArrayFormula
 
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._openpyxl_reading import _RAW_OUT_OF_RANGE_SERIALS, _READING, _CellPicture, _CellReading, _is_number
-from opendockit.extractors._package import _XML_PARSER, named_part
-from opendockit.extractors._sheet_format import _format_value, _format_within_length, _is_weekday_only, _shows_date, format_cell
+from opendockit.extractors._package import _XML_PARSER, ZIP_MEMBER_ERRORS, named_part
+from opendockit.extractors._sheet_format import _ELAPSED_FORMAT, _format_value, _format_within_length, _is_weekday_only, _shows_date, format_cell
 from opendockit.extractors._sheet_layout import (
     _MAX_MERGED_CELLS,
     _Across,
@@ -142,7 +144,10 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
         formulas_only = formulas_only or placeholder_zeros
         reading = _READING.get()
         reading.rich_values = _rich_values(archive, set(archive.namelist()))
-    styles_reduced = formats_lost = False
+        styles_too_large = _stylesheet_too_large(archive)
+    styles_reduced = formats_lost = formats_cut = False
+    if styles_too_large:
+        data, formats_cut = _with_bounded_number_formats(data)
     try:
         # rich_text: read superscript/subscript on part of the characters in a cell (full load only — streaming gives plain text).
         workbook = _load_workbook(BytesIO(data), read_only=read_only, data_only=not formulas_only, rich_text=True)
@@ -179,6 +184,10 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
     extraction = Extraction()
     if repeated:
         extraction.warnings.append("The workbook points to the same sheet more than once, so it was read only once.")
+    if styles_too_large:
+        extraction.warnings.append("The workbook's style table is unusually large, so only number and date display formats were read."
+                                   + (" Some display formats could not be kept, so dates and amounts may appear as numbers."
+                                      if formats_cut else ""))
     if styles_reduced:
         extraction.warnings.append("Some cell style information is corrupted, so some display formats could not be read. "
                                    "Dates and amounts may appear as numbers."
@@ -341,21 +350,161 @@ def _with_number_formats_only(data: bytes) -> tuple[bytes, bool] | None:
         cell_xfs = root.findall(f"{main}cellXfs/{main}xf")
         lost = (any(not _is_number(fmt.get("numFmtId")) or not fmt.get("formatCode") for fmt in number_formats)
                 or any(xf.get("numFmtId") is not None and not _is_number(xf.get("numFmtId")) for xf in cell_xfs))
-        formats = "".join(f'<numFmt numFmtId="{fmt.get("numFmtId")}" formatCode="{html.escape(fmt.get("formatCode", ""))}"/>'
-                          for fmt in number_formats if _is_number(fmt.get("numFmtId")))
-        cell_formats = "".join(f'<xf numFmtId="{xf.get("numFmtId") if _is_number(xf.get("numFmtId")) else 0}" applyNumberFormat="1"/>'
-                               for xf in cell_xfs) or '<xf numFmtId="0"/>'
-        differential = "<dxf/>" * len(root.findall(f"{main}dxfs/{main}dxf"))
-        styles = (f'<styleSheet xmlns="{_SPREADSHEET_MAIN}"><numFmts>{formats}</numFmts><fonts><font/></fonts>'
-                  '<fills><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
-                  '<borders><border/></borders><cellStyleXfs><xf numFmtId="0"/></cellStyleXfs>'
-                  f'<cellXfs>{cell_formats}</cellXfs><cellStyles><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
-                  f"<dxfs>{differential}</dxfs></styleSheet>")
-        buffer = BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as copy:
-            for info in archive.infolist():
-                copy.writestr(info.filename, styles.encode() if info.filename == _STYLES_PATH else archive.read(info))
-    return buffer.getvalue(), lost
+        formats = [(fmt.get("numFmtId"), fmt.get("formatCode", "")) for fmt in number_formats if _is_number(fmt.get("numFmtId"))]
+        cell_formats = [xf.get("numFmtId") if _is_number(xf.get("numFmtId")) else "0" for xf in cell_xfs]
+        styles = _number_formats_stylesheet(formats, cell_formats, len(root.findall(f"{main}dxfs/{main}dxf")))
+    return _with_styles(data, styles), lost
+
+
+def _number_formats_stylesheet(formats: list[tuple[str, str]], cell_formats: list[str], differential: int) -> bytes:
+    """A minimal stylesheet: the display formats (id, format code), one cell format per entry of `cell_formats` (its numFmtId) and
+    `differential` empty dxf entries."""
+    number_formats = "".join(f'<numFmt numFmtId="{number}" formatCode="{html.escape(code)}"/>' for number, code in formats)
+    cell_xfs = "".join(f'<xf numFmtId="{number}" applyNumberFormat="1"/>' for number in cell_formats) or '<xf numFmtId="0"/>'
+    return (f'<styleSheet xmlns="{_SPREADSHEET_MAIN}"><numFmts>{number_formats}</numFmts><fonts><font/></fonts>'
+            '<fills><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+            '<borders><border/></borders><cellStyleXfs><xf numFmtId="0"/></cellStyleXfs>'
+            f'<cellXfs>{cell_xfs}</cellXfs><cellStyles><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+            f"<dxfs>{'<dxf/>' * differential}</dxfs></styleSheet>").encode()
+
+
+def _with_styles(data: bytes, styles: bytes) -> bytes:
+    """A copy of the workbook whose styles part is `styles`."""
+    buffer = BytesIO()
+    with zipfile.ZipFile(BytesIO(data)) as archive, zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as copy:
+        for info in archive.infolist():
+            copy.writestr(info.filename, styles if info.filename == _STYLES_PATH else archive.read(info))
+    return buffer.getvalue()
+
+
+# openpyxl turns every entry of the styles part into objects while loading, on the full-load and streaming paths alike: a 283 KB
+# file with one cell and 1,000,000 cell formats took 7.8 s and 2.3 GB (0.7 s, 350 MB with the bound), 1,000,000 dxf 21 s, and
+# 200,000 number formats, fonts, fills, borders, named styles, table styles or colours each cost 140–420 MB.
+# The conversion uses only the display format of each cell format (`_format_id`; fonts of whole cells are not read), so when the
+# styles part has more entries (`_STYLE_ENTRY`) or elements than the bounds below, it is replaced before loading by a stylesheet
+# of display formats only (`_with_bounded_number_formats`), read without building a tree. Excel allows about 64,000 cell formats
+# and 1,024 fonts, so the entry bound leaves room for a workbook at Excel's limits with as many named styles. Elements count
+# children too: one font with 1,000,000 `<b/>` took 145 MB
+# (Pinned by: test_spreadsheet.py::TestOversizedStylesheet).
+_MAX_STYLE_ENTRIES = 131_072
+_MAX_STYLE_ELEMENTS = 1_000_000
+# Cell formats kept in the replaced stylesheet. A cell pointing past them has the General format (the warning says so).
+_MAX_CELL_FORMATS = 65_536
+_STYLE_ENTRY = re.compile(
+    rb"<(?:[\w.-]+:)?(?:numFmt|font|fill|border|xf|cellStyle|dxf|tableStyle|tableStyleElement|rgbColor|color)[\s/>]")
+# The attributes of a tag in the styles part. A quoted value may hold `>` (`formatCode="[>100]0"`)
+_STYLE_ATTRIBUTES = rb"((?:\s+[\w:.-]+\s*=\s*(?:\"[^\"]*\"|'[^']*'))*)"
+_STYLE_ATTRIBUTE = re.compile(rb"([\w:.-]+)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')")
+
+
+_XML_ENCODING = re.compile(rb"""^<\?xml[^>]*?\sencoding\s*=\s*["']([A-Za-z][\w.:-]*)["']""")
+# The first bytes of an XML document written without a byte order mark in an encoding that does not keep ASCII as is (XML 1.0
+# Appendix F), checked after the marks (`codecs.BOM_UTF32_LE` begins with `codecs.BOM_UTF16_LE`).
+_XML_WIDE_STARTS = ((codecs.BOM_UTF32_LE, "utf-32"), (codecs.BOM_UTF32_BE, "utf-32"), (codecs.BOM_UTF16_LE, "utf-16"),
+                    (codecs.BOM_UTF16_BE, "utf-16"), (b"<\x00\x00\x00", "utf-32-le"), (b"\x00\x00\x00<", "utf-32-be"),
+                    (b"<\x00?\x00", "utf-16-le"), (b"\x00<\x00?", "utf-16-be"))
+
+
+def _styles_codec(head: bytes) -> str | None:
+    """The codec of a styles part that is not UTF-8, from its first bytes: a byte order mark or the first characters of a part
+    in UTF-16 or UTF-32, or the encoding its XML declaration names. None for UTF-8 and for an encoding Python does not know
+    (lxml refuses that part anyway). openpyxl reads a part in UTF-16 like any other, while the byte patterns of the bound look
+    for ASCII: a UTF-16 part of 900,000 cell formats was never counted and took 6.5 s and 1.8 GB, and one over the element bound
+    lost every display format in the replaced stylesheet (Pinned by: test_spreadsheet.py::TestOversizedStylesheet::
+    test_styles_part_in_utf16_is_bounded_with_its_formats)."""
+    wide = next((name for start, name in _XML_WIDE_STARTS if head.startswith(start)), None)
+    if wide is not None:
+        return wide
+    declared = _XML_ENCODING.match(head.removeprefix(codecs.BOM_UTF8))
+    if declared is None:
+        return None
+    try:
+        name = codecs.lookup(declared.group(1).decode("ascii")).name
+    except LookupError:
+        return None
+    # A declaration of UTF-16 or UTF-32 on bytes that are not is not followed (the part is read as ASCII, as libxml2 reads it)
+    return None if name == "utf-8" or name.startswith(("utf-16", "utf-32")) else name
+
+
+def _stylesheet_too_large(archive: zipfile.ZipFile) -> bool:
+    """Whether the styles part has more entries or elements than `_MAX_STYLE_ENTRIES` / `_MAX_STYLE_ELEMENTS`. It is decompressed
+    and counted in chunks (turned into UTF-8 first when written in another encoding, `_styles_codec`); a tag straddling a chunk
+    boundary is counted with the next chunk. A missing or unreadable part is left to openpyxl, as before."""
+    entries = elements = 0
+    tail = b""
+    decoder = None
+    try:
+        with archive.open(_STYLES_PATH) as stream:
+            while True:
+                raw = stream.read(1 << 20)
+                if decoder is None:
+                    codec = _styles_codec(raw[:256])
+                    decoder = codecs.getincrementaldecoder(codec)(errors="replace") if codec else False
+                chunk = decoder.decode(raw, final=not raw).encode() if decoder else raw
+                text = tail + chunk
+                cut = text.rfind(b"<", max(0, len(text) - 64)) if raw else -1
+                body, tail = (text, b"") if cut < 0 else (text[:cut], text[cut:])
+                entries += len(_STYLE_ENTRY.findall(body))
+                elements += body.count(b"<") - body.count(b"</")
+                if entries > _MAX_STYLE_ENTRIES or elements > _MAX_STYLE_ELEMENTS:
+                    return True
+                if not raw:
+                    return False
+    except (KeyError, *ZIP_MEMBER_ERRORS):
+        return False
+
+
+def _style_tags(xml: bytes, name: bytes, start: int, end: int) -> Iterator[dict[bytes, str]]:
+    """The attributes of each `<name …>` tag in `xml[start:end]`, decoded, one per tag in order. A tag whose attributes are damaged
+    gives the ones before the damage, so the positions of the tags after it do not shift."""
+    pattern = re.compile(rb"<(?:[\w.-]+:)?" + name + rb"(?=[\s/>])" + _STYLE_ATTRIBUTES)
+    for match in pattern.finditer(xml, start, end):
+        yield {attribute.group(1): html.unescape((attribute.group(2) if attribute.group(2) is not None else attribute.group(3))
+                                                 .decode("utf-8", errors="replace"))
+               for attribute in _STYLE_ATTRIBUTE.finditer(match.group(1))}
+
+
+def _style_section(xml: bytes, name: bytes) -> tuple[int, int] | None:
+    """Where the inside of the first `<name>` element of the styles part lies (up to its closing tag, or the end of the part)."""
+    opening = re.compile(rb"<(?:[\w.-]+:)?" + name + rb"(?=[\s/>])" + _STYLE_ATTRIBUTES + rb"\s*(/?)>").search(xml)
+    if opening is None or opening.group(2):
+        return None
+    closing = re.compile(rb"</(?:[\w.-]+:)?" + name + rb"\s*>").search(xml, opening.end())
+    return opening.end(), len(xml) if closing is None else closing.start()
+
+
+def _with_bounded_number_formats(data: bytes) -> tuple[bytes, bool]:
+    """A copy whose styles part is replaced by a stylesheet of display formats only, read from the part without building a tree:
+    the first `_MAX_CELL_FORMATS` cell formats (their numFmtId) and the display formats they use. Also whether a cell format was
+    dropped or the display format it points to could not be read (such cells get the General format)."""
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        xml = archive.read(_STYLES_PATH)
+    codec = _styles_codec(xml[:256])
+    if codec:
+        xml = xml.decode(codec, errors="replace").encode()
+    cell_formats: list[str] = []
+    lost = False
+    section = _style_section(xml, b"cellXfs")
+    for attributes in _style_tags(xml, b"xf", *section) if section else ():
+        if len(cell_formats) == _MAX_CELL_FORMATS:
+            lost = True
+            break
+        number = attributes.get(b"numFmtId")
+        lost = lost or (number is not None and not _is_number(number))
+        cell_formats.append(str(int(number)) if _is_number(number) else "0")
+    used = set(cell_formats)
+    formats: dict[str, str] = {}
+    section = _style_section(xml, b"numFmts")
+    # Only the first `_MAX_CELL_FORMATS` display formats are read, as for the cell formats: 4,000,000 of them (448 KB) took 5.8 s
+    # here (Excel allows about 250 of its own)
+    for attributes in islice(_style_tags(xml, b"numFmt", *section), _MAX_CELL_FORMATS) if section else ():
+        number = attributes.get(b"numFmtId")
+        number = str(int(number)) if _is_number(number) else None
+        if number in used and number not in formats and attributes.get(b"formatCode"):
+            formats[number] = attributes[b"formatCode"]
+    section = _style_section(xml, b"dxfs")
+    differential = sum(1 for _ in islice(_style_tags(xml, b"dxf", *section), _MAX_CELL_FORMATS)) if section else 0
+    return _with_styles(data, _number_formats_stylesheet(list(formats.items()), cell_formats, differential)), lost
 
 
 def _repaired_copies(data: bytes) -> Iterator[tuple[bytes, bool, bool]]:
@@ -764,6 +913,12 @@ def _cell_text(cell: object) -> str:
         return reading.picture_text(value) if reading is not None and reading.picture_text is not None else ""
     number_format = _number_format(cell)
     number_format = _BUILTIN_FORMAT_FIXES.get(number_format, number_format)
+    if isinstance(value, (datetime, time)) and number_format and _ELAPSED_FORMAT.search(number_format):
+        # openpyxl gives a duration only for `[h]`, `[hh]`, `[m]`, `[mm]`, `[s]` and `[ss]`, so a cell under `[hhh]:mm` (hours
+        # with three digits) came as a date and lost its days (36 hours shown as `12:00:00`). It is the duration from the
+        # workbook's epoch, as for the other elapsed formats (Pinned by:
+        # test_spreadsheet.py::TestXlsValues::test_elapsed_format_openpyxl_does_not_know_is_a_duration).
+        value = from_excel(to_excel(value, cell.parent.parent.epoch), timedelta=True)
     if _is_serial_zero_shown_as_date(value, number_format):
         return "0"
     if isinstance(value, (int, float)) and not isinstance(value, bool) \

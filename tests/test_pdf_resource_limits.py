@@ -997,3 +997,58 @@ class TestShapesWithoutAFinitePosition:
 
         assert len(boxes) == 2 and all(math.isfinite(value) for box in boxes for value in box)
         assert [(curve["x0"], curve["x1"]) for curve in kept] == [(300.0, 500.0)]
+
+
+def _table_with_marks_outside(rows: int, letters: int = 100) -> bytes:
+    """A tall page with a two-column ruled table of `rows` rows of 8pt, `letters` characters in the second column of each
+    row and an 'X' 1.5pt right of the outer border on each row: pdfminer joins the 'X' into the line of the cell text."""
+    top, right = 14_380, 62 + letters * 3.336 + 1
+    parts = [b"0.5 w"]
+    parts += [b"40 %.2f m %.2f %.2f l S" % (top - row * 8, right, top - row * 8) for row in range(rows + 1)]
+    parts += [b"%.2f %d m %.2f %d l S" % (x, top, x, top - rows * 8) for x in (40, 60, right)]
+    for row in range(rows):
+        y = top - row * 8 - 6
+        parts.append(b"BT /F1 6 Tf 42 %.2f Td (k) Tj 20 0 Td (%s) Tj ET" % (y, b"a" * letters))
+        parts.append(b"BT /F1 6 Tf %.2f %.2f Td (X) Tj ET" % (right + 1.5, y))
+    page = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d 14400] /Contents 4 0 R " % (right + 60) + _FONT + b" >>"
+    return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
+                     4: _flate_stream(b"\n".join(parts))})
+
+
+class TestManyLinesReachingOutOfTheirCells:
+    """A layout line inside a ruled cell is rebuilt from its characters outside the cells (`_part_outside_cells`), and every
+    such line went through all of the page's characters, as pdfplumber's `Table.extract` does for every row of a table: a
+    9.5 KB page of a 600-row table with an 'X' beside every row took 54 seconds inside one page, where the time budget never
+    looks."""
+
+    def test_the_characters_looked_at_grow_with_the_lines(self, monkeypatch):
+        from opendockit.extractors import _pdf_artifacts
+
+        calls = [0]
+        inside_any = _pdf_artifacts._inside_any
+
+        def counted(obj, boxes):
+            calls[0] += 1
+            return inside_any(obj, boxes)
+
+        monkeypatch.setattr(_pdf_artifacts, "_inside_any", counted)
+        seen = []
+        for rows in (20, 80):
+            calls[0] = 0
+            result = convert(_table_with_marks_outside(rows))
+            seen.append(calls[0])
+            assert result.text.count("X") == rows
+
+        assert seen[1] < seen[0] * 6  # four times the rows; sixteen times the work before
+
+    @pytest.mark.timing
+    def test_a_long_table_with_marks_outside_is_read_quickly(self):
+        import time
+
+        from tests.timing import allowed
+
+        started = time.perf_counter()
+        result = convert(_table_with_marks_outside(300))
+
+        assert time.perf_counter() - started < allowed(5), "13 seconds before"
+        assert result.text.count("X") == 300

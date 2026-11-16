@@ -36,6 +36,7 @@ from opendockit.extractors._html_tables import (
     _is_layout_table,
     _is_one_column_box,
     _names_values_in_pairs,
+    _nearest,
     _table_rows,
 )
 from opendockit.extractors._inline import (
@@ -131,6 +132,8 @@ _OVERLAY_ROLES = {"dialog", "alertdialog", "menu", "menubar", "tooltip", "naviga
 # (`_foster_parent_table_content`).
 _TABLE_PARTS = {"thead", "tbody", "tfoot", "tr"}
 _TABLE_CELLS = {"td", "th", "caption", "colgroup", "col"}
+# What ends a run of cells outside a row (`_rows_for_loose_cells`), as in a browser.
+_ROW_ENDS = {"tr", "thead", "tbody", "tfoot", "table", "caption", "colgroup", "col"}
 _TABLE_TAG = re.compile(r"<table[\s>]", re.IGNORECASE)
 _ROW_START = re.compile(r"<tr[\s>]", re.IGNORECASE)
 
@@ -667,14 +670,24 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
     without a warning. Elements wrapping rows (`<form>`) are descended into. Whitespace-only text is not moved. Processing is
     in document order, so a table taken out is processed again at its own turn (no recursion)
     (Pinned by: test_text_html.py::TestContentOutsideTableCells).
+
+    Cells that lxml leaves outside a row are put in one, as a browser does: an element between a row and its cells
+    (`<tr><form><td>`, a div, a label) is unwrapped, so the cells sit right under the row and what else it held goes before the
+    table, and cells written straight under the table or a row group (`<table><td>`, a `<tr>` left out after the header row)
+    are wrapped in a new row, one per run up to the next row (`_rows_for_loose_cells`). The rows are read only from cells right
+    under a row, so these cells disappeared, and with them every row of a table built that way
+    (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_cells_wrapped_inside_a_row_are_read,
+    test_cells_outside_any_row_are_read).
     """
     for table in soup.find_all("table"):
         before: list[object] = []
         after: list[Tag] = []
-        stack = list(reversed(table.contents))
+        wrappers: list[Tag] = []
+        holding: set[int] | None = None  # the elements of the table holding a row or cell (`_holding_cells`), once asked for
+        stack = [(child, False) for child in reversed(_rows_for_loose_cells(soup, table))]
 
         while stack:
-            child = stack.pop()
+            child, in_row = stack.pop()
             if isinstance(child, NavigableString):
                 if str(child).strip():
                     before.append(child)
@@ -682,13 +695,117 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
                 continue
             elif child.name == "table":
                 after.append(child)
-            elif child.name in _TABLE_PARTS or child.find(["tr", "td", "th"]) is not None:
-                stack.extend(reversed(child.contents))
+            elif child.name in _TABLE_PARTS or id(child) in (holding := _holding_cells(table) if holding is None else holding):
+                if in_row and child.name not in _TABLE_PARTS:
+                    wrappers.append(child)
+                in_row = in_row or child.name == "tr"
+                contents = child.contents if in_row else _rows_for_loose_cells(soup, child)
+                stack.extend((node, in_row) for node in reversed(contents))
             else:
                 before.append(child)
 
+        _flatten_wrappers(wrappers)
         if before or after:
             _move_beside(table, before, after)
+
+
+def _holding_cells(table: Tag) -> set[int]:
+    """The ids of the elements inside `table` that hold a row or a cell (of this table or a table inside it), from one walk
+    over the table: each row and cell marks its ancestors up to the table, stopping at one already marked.
+
+    Asked of each element in turn (`find`), every element of a chain of wrappers walked down to the deepest one, so 16,000
+    cells each behind one more `<label>` took 6 to 15 seconds on CI runners (Pinned by: test_text_html.py::
+    TestContentOutsideTableCells::test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly)."""
+    holding: set[int] = set()
+    for cell in table.find_all(["tr", "td", "th"]):
+        node = cell.parent
+        while node is not None and node is not table and id(node) not in holding:
+            holding.add(id(node))
+            node = node.parent
+    return holding
+
+
+def _flatten_wrappers(wrappers: list[Tag]) -> None:
+    """Unwrap the elements between a row and its cells (`_foster_parent_table_content`), collected in document order,
+    wrappers inside wrappers included: every node they hold that is no wrapper takes the place of the outermost one, in
+    document order. Each node is detached once, from the back of its parent with its position known, and put in once.
+
+    Unwrapped one by one from the innermost, each level put back every cell gathered below it: 4,000 cells each behind one
+    more `<label>` (100 KB) took 8.5 s (Pinned by: test_text_html.py::TestContentOutsideTableCells::
+    test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly)."""
+    wrapped = {id(wrapper) for wrapper in wrappers}
+    places: dict[int, dict[int, int]] = {}  # parent id → (child id → position)
+    for wrapper in reversed(wrappers):
+        parent = wrapper.parent
+        if id(parent) in wrapped:
+            continue  # flattened with the outermost wrapper
+        holders, nodes = [wrapper], []
+        pending = [iter(wrapper.contents[:])]
+        while pending:
+            node = next(pending[-1], None)
+            if node is None:
+                pending.pop()
+            elif isinstance(node, Tag) and id(node) in wrapped:
+                holders.append(node)
+                pending.append(iter(node.contents[:]))
+            else:
+                nodes.append(node)
+        for holder in holders:
+            children = holder.contents[:]
+            for position in range(len(children) - 1, -1, -1):
+                if not (isinstance(children[position], Tag) and id(children[position]) in wrapped):
+                    children[position].extract(_self_index=position)
+        if id(parent) not in places:
+            places[id(parent)] = {id(child): index for index, child in enumerate(parent.contents)}
+        index = places[id(parent)][id(wrapper)]
+        wrapper.extract(_self_index=index)
+        for node in reversed(nodes):
+            parent.insert(index, node)
+
+
+def _rows_for_loose_cells(soup: BeautifulSoup, parent: Tag) -> list:
+    """The children of `parent` (a table, a row group or an element wrapping rows), with each run of cells right under it put
+    into a new row first. A run starts at a cell and ends at its last cell before a row, a row group, a table, a caption or
+    column element, or an element that holds rows of this table; text and inline elements between its cells go into the row
+    with them (and from there before the table), as does an element that wraps cells (unwrapped there).
+
+    The children from the first run on are detached from the back (each one the last child, its position known) and appended
+    again, the runs inside their new rows: detaching or inserting each in the middle of the list moves the children after it,
+    and 40,000 runs between the rows of one table took time quadratic in them
+    (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly).
+    """
+    contents = parent.contents
+    runs: list[tuple[int, int]] = []
+    start = last = None
+    for index, child in enumerate(contents):
+        if isinstance(child, Tag) and child.name in ("td", "th"):
+            start = index if start is None else start
+            last = index
+        elif start is not None and isinstance(child, Tag) and (
+                child.name in _ROW_ENDS or _nearest(child, wanted={"tr"}, stop={"table", "td", "th"})):
+            runs.append((start, last))
+            start = None
+    if start is not None:
+        runs.append((start, last))
+    if not runs:
+        return contents
+
+    first = runs[0][0]
+    tail = contents[first:]
+    for index in range(len(contents) - 1, first - 1, -1):
+        contents[index].extract(_self_index=index)
+    ends = {start - first: last - first for start, last in runs}
+    position = 0
+    while position < len(tail):
+        if position in ends:
+            row = soup.new_tag("tr")
+            parent.append(row)
+            row.extend(tail[position:ends[position] + 1])
+            position = ends[position] + 1
+        else:
+            parent.append(tail[position])
+            position += 1
+    return parent.contents
 
 
 def _move_beside(table: Tag, before: list, after: list) -> None:
@@ -746,7 +863,13 @@ def _unwrap_all(tags: list[Tag]) -> None:
             places[id(parent)] = {id(child): index for index, child in enumerate(parent.contents)}
         index = places[id(parent)][id(tag)]
         tag.extract(_self_index=index)
-        for child in reversed(tag.contents[:]):
+        # The children are detached from the back with their positions known too: `insert` would look each one up among the
+        # siblings it still has, and a row whose 10,000 cells one element wraps took time quadratic in them
+        # (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly).
+        children = tag.contents[:]
+        for position in range(len(children) - 1, -1, -1):
+            children[position].extract(_self_index=position)
+        for child in reversed(children):
             parent.insert(index, child)
 
 
@@ -1583,10 +1706,12 @@ def _image_placeholder(image: Tag, extraction: Extraction, options: ConvertOptio
 def _is_lazy(image: Tag) -> bool:
     """Whether the picture is lazy-loaded: the real address sits in an attribute such as `data-src`, `data-original` or `data-lazy-src`
     (name contains src / original / lazy, value is an address that is not data: — text containing `.` or `/`). The data: URI in `src` is
-    then a placeholder picture."""
+    then a placeholder picture. The scheme is compared without case, as for `src`: a `data-src` written `DATA:image/png…` was
+    taken for the address of the real picture and the picture in `src` was not extracted
+    (Pinned by: test_audit_html_text.py::TestDataUriWrittenWithCapitalsOrLeadingSpace::test_data_uri_in_data_src_with_capitals_is_no_lazy_address)."""
     for name, value in image.attrs.items():
         text = str(value).strip()
-        if (name.startswith("data-") and any(word in name for word in _LAZY_SOURCE_WORDS) and not text.startswith("data:")
+        if (name.startswith("data-") and any(word in name for word in _LAZY_SOURCE_WORDS) and text[:5].lower() != "data:"
                 and ("." in text or "/" in text)):
             return True
     return False

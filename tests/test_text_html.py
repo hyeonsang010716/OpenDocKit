@@ -1726,6 +1726,63 @@ class TestContentOutsideTableCells:
 
         assert result.text == "| 이름 | 값 |\n| --- | --- |\n| 홍 | 1 |"
 
+    @pytest.mark.parametrize("wrapper", ['form method="post" action="/edit"', "div", "center", "label", "strong"])
+    def test_cells_wrapped_inside_a_row_are_read(self, wrapper):
+        name = wrapper.split()[0]
+        html = (f"<table><tr><th>Name</th><th>Qty</th></tr>"
+                f"<tr><{wrapper}><input type=hidden name=id value=7><td>Apple</td><td>3</td></{name}></tr>"
+                f"<tr><{wrapper}><td>Pear</td><td>5</td></{name}></tr></table>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "| Name | Qty |\n| --- | --- |\n| Apple | 3 |\n| Pear | 5 |"
+
+    def test_text_beside_wrapped_cells_comes_before_the_table(self):
+        html = "<table><tr><div>Note<td>a</td><td>b</td></div></tr><tr><td>c</td><td>d</td></tr></table>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "Note\n\n| a | b |\n| --- | --- |\n| c | d |"
+
+    def test_a_table_inside_a_wrapped_cell_is_read(self):
+        html = ("<table><tr><td>Layout</td><form><td><table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr>"
+                "</table></td></form></tr></table>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "Layout\n\n| a | b |\n| --- | --- |\n| c | d |"
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<table><td>Name</td><td>Kim</td></table>", "| Name | Kim |\n| --- | --- |"),
+        ("<table><tr><th>Item</th><th>Price</th></tr><td>Apple</td><td>100</td></table>",
+         "| Item | Price |\n| --- | --- |\n| Apple | 100 |"),
+        ("<table><tbody><tr><td>a</td><td>b</td></tr><td>c</td>note<td>d</td><tr><td>e</td><td>f</td></tr></tbody></table>",
+         "note\n\n| a | b |\n| --- | --- |\n| c | d |\n| e | f |"),
+        ("<table><caption>Prices</caption><td>a</td><td>b</td></table>", "Prices\n\n| a | b |\n| --- | --- |"),
+    ], ids=["no-row", "row-left-out", "between-rows", "after-a-caption"])
+    def test_cells_outside_any_row_are_read(self, html, expected):
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == expected
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("build", [
+        lambda count: "<table><tr><th>a</th><th>b</th></tr><tr><form>" + "<td>v</td>" * count + "</form></tr></table>",
+        lambda count: "<table>" + "<tr><td>a</td><td>b</td></tr><td>c</td><td>d</td>" * count + "</table>",
+        # each cell behind one more wrapper: unwrapped level by level, every level put back all the cells below it
+        lambda count: "<table><tr>" + "<label><td>v</td>" * count + "</label>" * count + "</tr></table>",
+    ], ids=["wrapped", "outside-rows", "nested-wrappers"])
+    def test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly(self, build):
+        def seconds(count):
+            started = time.perf_counter()
+            convert(build(count).encode(), "a.html", ConvertOptions(max_chars=None))
+            return time.perf_counter() - started
+
+        seconds(500)
+        small, large = seconds(2_000), seconds(16_000)
+
+        assert large < 8 * small * 2 + 0.5
+
     @pytest.mark.timing
     def test_deeply_chained_open_tables_are_read_quickly(self):
         import time
@@ -2140,3 +2197,29 @@ class TestWesternHtmlWithoutAUsefulCharset:
         result = convert(data, "a.html")
 
         assert result.text == "Price 10€ café — naïve"
+
+
+class TestHeadingHoldingOnlyAPicture:
+    """A heading holding nothing but a picture (a logo in an `<h1>`) was a heading, the picture placeholder counting as its text:
+    the picture became a block of its own under a bare '#'."""
+
+    @staticmethod
+    def _uri() -> str:
+        from tests import builder
+
+        return "data:image/png;base64," + base64.b64encode(builder.png_bytes(200, 120, seed=2)).decode()
+
+    @pytest.mark.parametrize(("picture", "placeholder"), [
+        ("<img src='{uri}'>", "[Image]"),
+        ("<img src='{uri}' alt='Logo'>", "[Image: Logo]"),
+        ("<a href='https://example.com/'><img src='{uri}'></a>", "[Image]"),
+    ], ids=["bare", "alt", "linked"])
+    def test_picture_alone_in_a_heading_is_not_a_heading(self, picture, placeholder):
+        html = f"<p>Intro</p><h1>{picture.format(uri=self._uri())}</h1><h2>Scope</h2><p>Body</p>"
+
+        assert convert(html.encode(), "a.html").text == f"Intro\n\n{placeholder}\n\n## Scope\n\nBody"
+
+    def test_heading_with_text_beside_the_picture_stays_a_heading(self):
+        html = f"<h1><img src='{self._uri()}'> Annual report</h1><p>Body</p>"
+
+        assert convert(html.encode(), "a.html").text == "# Annual report\n\n[Image]\n\nBody"

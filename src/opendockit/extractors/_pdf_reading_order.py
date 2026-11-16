@@ -2,6 +2,7 @@
 a lone centred line pushed behind lower text, sidebars and captions.
 """
 
+from bisect import bisect_right, insort
 import statistics
 
 from opendockit.extractors._pdf_model import (
@@ -40,6 +41,10 @@ _COLUMN_CONTINUE_RATIO = 3.0
 # Each candidate to move looks at the page's line pairs, so it gets slow on a page of scattered text pieces. A body page usually has
 # around 100 lines.
 _LONE_LINE_MAX_LINES = 500
+# Lines the windows of right-aligned lines (`_alternating_window`) of one page may take in all, counted once per window
+# looked at; the turn-backs after that stay as read. A page of 1,400 lines, all one window looked at from every turn-back,
+# stays within it.
+_ALTERNATING_WORK = 1_000_000
 # Difference between centres (relative to the page width, `_centred_on`) for a line to count as placed in the middle of the page.
 _CENTRED_TOLERANCE_RATIO = 0.03
 
@@ -232,6 +237,12 @@ def _below_both_columns(lines: list[_Line], left_end: float, right_start: float,
     width, this is the closing text of a page whose left column is longer — the subheading and paragraph at the end of
     the left column were pushed after the right column (Pinned by:
     test_heading_and_paragraph_closing_the_longer_left_column_stay_in_the_left_column).
+    The lines above each candidate are not gone through again for it: their lowest bottom, leftmost edge and the gaps
+    between them (sorted, for the median) are carried along from line to line, the bottoms of the tables and figures are
+    looked up by bisection and the lines reaching towards the right column by their tops (`_RightReaching`), with the same
+    results as the plain computations, which took time with the square of the lines: 8,000 left lines alternating two
+    widths under one right-column line took 1.2 seconds here (Pinned by:
+    test_pdf_reading_order.py::TestManyLinesBesideColumns).
     """
     rights = [line for line in lines if line.x0 >= left_end]
     if not rights:
@@ -239,22 +250,57 @@ def _below_both_columns(lines: list[_Line], left_end: float, right_start: float,
 
     right_bottom = max(line.bottom for line in rights)
     lefts = sorted((line for line in lines if line.x1 <= right_start), key=lambda line: line.top)
+    block_bottoms = sorted(bottom for x1, bottom in blocks if x1 <= right_start and bottom == bottom)
+    reaching = _RightReaching(lines, left_end)
+    gaps: list[float] = []  # sorted gaps between the lines above, where the lower line starts below the upper one
+    lowest = leftmost = 0.0  # `max(bottom)` and `min(x0)` of the lines above, folded in the same order as `max` and `min`
     for index, line in enumerate(lefts):
-        above = lefts[:index]
-        if not above or line.top < right_bottom - 1 or line.x1 > left_end - line.height:
+        if index:  # the line right above joins the lines above
+            newest = lefts[index - 1]
+            if index == 1:
+                lowest, leftmost = newest.bottom, newest.x0
+            else:
+                lowest = newest.bottom if newest.bottom > lowest else lowest
+                leftmost = newest.x0 if newest.x0 < leftmost else leftmost
+                if newest.top > lefts[index - 2].bottom:
+                    insort(gaps, newest.top - lefts[index - 2].bottom)
+        if not index or line.top < right_bottom - 1 or line.x1 > left_end - line.height:
             continue
-        gaps = [lower.top - upper.bottom for upper, lower in zip(above, above[1:], strict=False) if lower.top > upper.bottom]
-        gap = line.top - max(other.bottom for other in above)
-        left_bottom = max([other.bottom for other in above]
-                          + [bottom for x1, bottom in blocks if x1 <= right_start and bottom <= line.top])
-        if (line.x0 <= min(other.x0 for other in above) + _TABLE_ROW_TOLERANCE
-                and gap >= max(line.height * 0.5, statistics.median(gaps) * 2 if gaps else 0.0)
-                and right_bottom >= left_bottom - line.height and not _fills_column_below(line, lefts[index + 1:], lines, left_end)):
+        gap = line.top - lowest
+        # `max` keeps a NaN it starts with; otherwise the lowest bottom among the lines and the blocks that end above the line
+        reached = bisect_right(block_bottoms, line.top) if line.top == line.top else 0
+        left_bottom = (lowest if lowest != lowest or not reached or block_bottoms[reached - 1] <= lowest
+                       else block_bottoms[reached - 1])
+        if (line.x0 <= leftmost + _TABLE_ROW_TOLERANCE
+                and gap >= max(line.height * 0.5, _sorted_median(gaps) * 2 if gaps else 0.0)
+                and right_bottom >= left_bottom - line.height
+                and not _fills_column_below(line, lefts[index + 1:index + 3], reaching, left_end)):
             return line.top
     return float("inf")
 
 
-def _fills_column_below(line: _Line, lower: list[_Line], lines: list[_Line], left_end: float) -> bool:
+def _sorted_median(values: list[float]) -> float:
+    """`statistics.median` of a list that is already sorted."""
+    middle = len(values) // 2
+    return values[middle] if len(values) % 2 else (values[middle - 1] + values[middle]) / 2
+
+
+class _RightReaching:
+    """The tops of the lines that reach past the left column's end (`x1 > left_end`), sorted, to tell whether one of them
+    starts strictly between two heights — what `_fills_column_below` asks of all the lines. A top that is not a number
+    is never between two heights and is left out."""
+
+    def __init__(self, lines: list[_Line], left_end: float) -> None:
+        self._tops = sorted(line.top for line in lines if line.x1 > left_end and line.top == line.top)
+
+    def between(self, above: float, below: float) -> bool:
+        if above != above or below != below:
+            return False
+        index = bisect_right(self._tops, above)
+        return index < len(self._tops) and self._tops[index] < below
+
+
+def _fills_column_below(line: _Line, lower: list[_Line], reaching: "_RightReaching", left_end: float) -> bool:
     """Whether the left-column line right below `line` (with no other line in between; the first line of `lower`)
     fills the column width and wraps at that width onto the next line (the second line of `lower`, same left edge and
     gap at most `_WRAP_LINE_GAP_RATIO` times the line height) — the left-column text continues.
@@ -272,7 +318,7 @@ def _fills_column_below(line: _Line, lower: list[_Line], lines: list[_Line], lef
     wrap_gap = lower[1].top - lower[0].bottom
     if abs(lower[1].x0 - lower[0].x0) > _TABLE_ROW_TOLERANCE or not 0 <= wrap_gap <= lower[0].height * _WRAP_LINE_GAP_RATIO:
         return False
-    return not any(line.top < other.top < lower[0].top and other.x1 > left_end for other in lines)
+    return not reaching.between(line.top, lower[0].top)
 
 
 def _paragraph_columns(page: _Page) -> tuple[float, float, float] | None:
@@ -454,14 +500,19 @@ def _read_alternating_sides_in_turn(page: _Page) -> None:
     side-by-side columns or text boxes are not touched (`_alternating_window`).
     Known accepted gap: places with only one right-aligned line, and places where the right lines all have the same
     width (their left edges match too, so they cannot be told from side-by-side text boxes), stay as they are.
+    The windows a page looks at take at most `_ALTERNATING_WORK` lines in all; the turn-backs after that stay as read.
+    Every turn-back of a page whose lines alternate between two sides that are no right-aligned group grows its window
+    over all of them again, so 20,000 such lines took 20 seconds here, of 21 for their 56 KB page (Pinned by:
+    test_pdf_reading_order.py::TestManyLinesBesideColumns).
     """
     if page.simple:
         return
     lines = page.lines  # Modified in place
     index = 1
+    work = [_ALTERNATING_WORK]  # lines the windows may still take (`_alternating_window`)
 
-    while index < len(lines):
-        window = _alternating_window(lines, index) if lines[index].top < lines[index - 1].top else None
+    while index < len(lines) and work[0] > 0:
+        window = _alternating_window(lines, index, work) if lines[index].top < lines[index - 1].top else None
         if window is None:
             index += 1
             continue
@@ -470,7 +521,7 @@ def _read_alternating_sides_in_turn(page: _Page) -> None:
         index = end
 
 
-def _alternating_window(lines: list[_Line], index: int) -> tuple[int, int] | None:
+def _alternating_window(lines: list[_Line], index: int, work: list[int]) -> tuple[int, int] | None:
     """The range of lines [start, end) to put back in top-to-bottom order, containing the place (`index`) where the
     reading order went back up. None if the conditions are not met.
 
@@ -506,9 +557,16 @@ def _alternating_window(lines: list[_Line], index: int) -> tuple[int, int] | Non
     start, end = index - 1, index + 1
 
     while start > 0 and lines[start - 1].top < lines[start].top and side(lines[start - 1]) is not None:
+        if end - start >= work[0]:  # the page's work is spent (`_ALTERNATING_WORK`)
+            work[0] = 0
+            return None
         start -= 1
     while end < len(lines) and side(lines[end]) is not None:
+        if end - start >= work[0]:
+            work[0] = 0
+            return None
         end += 1
+    work[0] -= end - start
 
     window = lines[start:end]
     right = [line for line in window if side(line)]

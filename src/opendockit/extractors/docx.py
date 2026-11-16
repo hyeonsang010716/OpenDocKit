@@ -60,7 +60,7 @@ from opendockit.extractors._inline import (
     plain_inline,
     resolve_inline,
 )
-from opendockit.extractors._lists import HAND_TYPED_BULLET, Numbering, cell_level_mark, list_item_prefix
+from opendockit.extractors._lists import HAND_TYPED_BULLET, Numbering, cell_level_mark, is_placeholder_only, list_item_prefix
 from opendockit.extractors._notation import (
     COMMENT_TARGET_MAX,
     OLE_PLACEHOLDER,
@@ -424,12 +424,20 @@ class _DocxRenderer:
         # text are joined with a space below.
         is_body = self._grids or len(text) > _HEADING_MAX_CHARS
         heading = None if is_body else self._heading_level(paragraph, style)
+        # A heading-style paragraph (or one with an outline level) holding nothing but a picture is no heading: its number is
+        # counted above, but neither the heading mark nor the number is written, as HWP/HWPX do (`_lists.is_placeholder_only`).
+        # Taken for a heading, the picture became a block of its own under a bare '#' (or '# 1.')
+        # (Pinned by: test_office.py::TestDocxHeadingHoldingOnlyAPicture).
+        picture_only = bool(heading) and is_placeholder_only(text)
         if self.inline is not None:
             # A heading keeps its links but is not emphasized — the heading styles are bold themselves, and a title typed in bold
             # is a heading, not an emphasis. Bold or italic over a whole paragraph (a label line, a header cell) is how the
             # paragraph is styled and is left unmarked (`_inline.resolve_inline`. Pinned by:
             # test_inline_formatting.py::TestDocxEmphasis::test_heading_is_not_emphasized, TestWholeBlocks).
             text = resolve_inline(marked, emphasis=not heading).strip()
+        if picture_only:
+            self._list_items.clear()
+            return [text, *after]
         if heading:
             self._list_items.clear()
             # A heading with an auto number keeps the number in front of the heading text (a bullet is dropped). Returning right at

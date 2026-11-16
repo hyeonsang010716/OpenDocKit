@@ -1790,6 +1790,17 @@ class TestMarkdownDataUriPictures:
         assert describer.seen[0].alt == "결과 그래프"
         assert "base64" not in result.text
 
+    @pytest.mark.parametrize("scheme", ["Data:image/png", "DATA:IMAGE/PNG", "data:Image/png"])
+    def test_data_uri_written_with_capitals_is_extracted(self, scheme):
+        """The quick check before the picture pattern looked for `data:image/` in lower case only, while the pattern ignores
+        case: a picture whose address was written with capitals left its base64 in the body."""
+        data = _markdown_with_a_data_uri_picture().replace(b"data:image/png", scheme.encode())
+
+        result = convert(data, "report.md")
+
+        assert len(result.images) == 1
+        assert result.text == "# 실험 보고서\n\n결과는 아래 그림과 같다.\n\n[Image: 결과 그래프]\n\n## 결론\n\n매출이 12% 늘었다."
+
     def test_without_picture_extraction_only_the_alt_text_is_left(self):
         result = convert(_markdown_with_a_data_uri_picture(), "report.md", ConvertOptions(extract_images=False))
 

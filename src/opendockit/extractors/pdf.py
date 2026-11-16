@@ -61,6 +61,7 @@ from opendockit.extractors._pdf_artifacts import (
     _is_tilted,
     _part_outside_cells,
     _sideways_paragraphs,
+    _text_chars_by_middle,
     _text_view,
     _text_without_artifacts,
     _unmeasured,
@@ -644,6 +645,10 @@ def _countable_chars(page: _Page, tally: _EdgeTally | None = None) -> int:
                             *page.form_values])
 
 
+# Pages in a row that pdfium counts but cannot open, after which the document is taken to end (`_read_with_pdfium`).
+_MAX_UNOPENED_PAGES = 64
+
+
 def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
                       extraction: Extraction) -> tuple[list[_Page], int, int]:
     """When pdfminer cannot open the document at all, reads only the page text with pdfium. If pdfium cannot open it either, the
@@ -667,8 +672,26 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
         total = len(document)
         limit = total if options.max_pages is None else min(total, options.max_pages)
         pages = []
+        unopened = 0
         for index in range(limit):
-            pages.append(_pdfium_page(document, index))
+            try:
+                pages.append(_pdfium_page(document, index))
+                unopened = 0
+            except pdfium.PdfiumError:
+                # A page pdfium counts (it trusts `/Count`) but cannot open is an empty page, as on the normal path, and is
+                # listed with the other pages of this path in the structure-failure warning; its size is unknown
+                # (Pinned by: test_audit_pdf_head.py::TestPageOnlyPdfminerFinds::test_document_pdfminer_cannot_open_keeps_the_pages_pdfium_opens).
+                pages.append(_Page(number=index + 1, width=0.0, height=0.0, lines=[], tables=[], has_images=False,
+                                   view=(0.0, 0.0, 0.0, 0.0), simple=True))
+                unopened += 1
+                if unopened == _MAX_UNOPENED_PAGES:
+                    # pdfium counts up to about a million pages that `/Count` promises, and the empty pages add no characters to
+                    # stop at: `/Count 1000000` over two pages (1.1 KB) took 105 s and 737 MB. A run this long is the pages
+                    # counted past the real ones, so it ends the document, and the run is not kept
+                    # (Pinned by: test_audit_pdf_head.py::TestPageOnlyPdfminerFinds::test_a_count_far_past_the_pages_ends_at_the_real_ones).
+                    del pages[-unopened:]
+                    total = limit = len(pages)
+                    break
             if extraction.count(_countable_chars(pages[-1]), options):
                 break
         return pages, total, limit
@@ -901,6 +924,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     # once — same reason as `overprinted` below
     in_place: dict[tuple[float, float, float, float], list[dict]] = {}
     shown = _text_view(page)
+    text_by_middle = None  # the page's non-blank characters by vertical middle, for the lines inside a cell
     for line, owner in zip(layout_lines, owners, strict=True):
         text = " ".join(line.get("text", "").split())
         if not text:
@@ -926,7 +950,8 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
             # '원' right up against the table border). Removing the whole line made them vanish, held neither by the cell text nor
             # by the body (Pinned by: test_pdf.py::TestRuledTables::
             # test_text_right_outside_a_cell_on_the_same_line_as_the_cell_text_is_kept).
-            line = _part_outside_cells(line, level, page_chars)
+            text_by_middle = text_by_middle or _text_chars_by_middle(page_chars)
+            line = _part_outside_cells(line, level, text_by_middle)
             if line is None:
                 continue
             text = line["text"]

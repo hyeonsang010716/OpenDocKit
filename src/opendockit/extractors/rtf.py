@@ -25,7 +25,7 @@ from opendockit.extractors._inline import (
     link_off,
     resolve_inline,
 )
-from opendockit.extractors._lists import paragraph_head
+from opendockit.extractors._lists import is_placeholder_only, paragraph_head
 from opendockit.extractors._notation import NOTE_ROW_SEPARATOR, TableBudget, omitted_rows_warning
 from opendockit.markdown import TableGrid, join_blocks, merged_copy, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
@@ -610,8 +610,11 @@ class _Flow:
         lines = [line for line in (" ".join(line.split()) for line in text.split("\n")) if line]
         if not lines:
             return ""
-        if level:
+        if level and not is_placeholder_only(plain):
             return f"{'#' * level} {' '.join(lines)}"
+        # A heading paragraph holding nothing but a picture is written as that picture, with no mark, as in DOCX: it still ends
+        # the numbering a heading ends. Taken for a heading, the picture became a block of its own under a bare '#'
+        # (Pinned by: test_rtf.py::TestParagraphsAndHeadings::test_heading_holding_only_a_picture_is_not_a_heading).
         if mark is not None:
             lines[0] = paragraph_head(mark[0], mark[1], in_cell=in_cell, heading=False) + lines[0]
         return "\n".join(lines)

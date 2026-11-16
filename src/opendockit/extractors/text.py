@@ -158,6 +158,8 @@ _MARKDOWN_DATA_PICTURE = re.compile(
     r"|(?(closed)|(?!))data:image/[^\s\"'<>`]*+)"
     r"(?P<other_after>[^<>]*)>",
     re.IGNORECASE)
+# Where a data: URI picture may be, for the quick check before the picture pattern (scheme and type in any case).
+_DATA_IMAGE_SCHEME = re.compile("data:image/", re.IGNORECASE)
 # The line-start opening of a code fence (three or more backticks or tildes) and the closing line (fence marker + only spaces or
 # tabs). The closing line also takes a trailing `\r` — because of the `\r` left on CRLF lines split at `\n`, a data: URI picture
 # example inside a block was extracted as a picture (Pinned by: test_core_round48.py::TestCodeFenceWithWindowsLineBreaks).
@@ -184,7 +186,9 @@ def extract_markdown(data: bytes, options: ConvertOptions) -> Extraction:
     """
     extraction = _plain_text(data)
     section = extraction.sections[0]
-    if "data:image/" not in section.text:
+    # The quick check is as blind to case as the picture pattern: `Data:image/png` and `DATA:IMAGE/PNG` left their base64 in the
+    # body (Pinned by: test_image.py::TestMarkdownDataUriPictures::test_data_uri_written_with_capitals_is_extracted).
+    if _DATA_IMAGE_SCHEME.search(section.text) is None:
         return extraction
 
     pieces = []

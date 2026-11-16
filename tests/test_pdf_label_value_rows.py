@@ -111,6 +111,66 @@ class TestLabelValueRowsBesideAnotherBlock:
 
         assert "매출 1,200" not in text
 
+    def test_rows_around_the_group_give_the_same_groups(self):
+        """Taking the other column's lines out of only the rows around the group (no line in two rows) gives what taking
+        them out of every row of the page gives."""
+        import random
+
+        from opendockit.extractors._pdf_label_values import _without_left_block
+        from opendockit.extractors._pdf_model import _Line, _visual_rows
+
+        rng = random.Random(4)
+        groups = 0
+        for _ in range(5_000):
+            lines, top = [], 20.0
+            for _ in range(rng.randint(1, 40)):
+                kind, height = rng.random(), rng.choice([10.0, 10.0, 8.0, 12.0])
+                if kind < 0.6:  # a label and its value
+                    x0 = rng.choice([100.0, 100.0, rng.uniform(90, 140)])
+                    lines.append(_Line(top=top, bottom=top + height, x0=x0, x1=x0 + rng.choice([30.0, 50.0, rng.uniform(5, 200)]),
+                                       text="label", size=height))
+                    x0 = rng.choice([200.0, 200.0, 260.0, rng.uniform(180, 400)])
+                    lines.append(_Line(top=top + rng.choice([0.0, 0.0, 3.0]), bottom=top + height, x0=x0,
+                                       x1=x0 + rng.choice([40.0, 80.0, 300.0]), text="value", size=height))
+                elif kind < 0.75:  # a wrapped value
+                    lines.append(_Line(top=top, bottom=top + height, x0=200.0, x1=rng.uniform(210, 320), text="more", size=height))
+                elif kind < 0.9:  # three short pieces
+                    lines += [_Line(top=top, bottom=top + height, x0=x, x1=x + rng.uniform(20, 60), text="cell", size=height)
+                              for x in (10.0, 100.0, 200.0)]
+                else:
+                    lines.append(_Line(top=top, bottom=top + height, x0=rng.uniform(10, 100), x1=rng.uniform(300, 560),
+                                       text="wide line", size=height))
+                top += rng.choice([12.0, 12.0, 14.0, 20.0, rng.uniform(5, 40)])
+            left = 20.0 + rng.choice([0.0, 3.0, 6.0])
+            while rng.random() < 0.7 and left < top:  # the block on the left, at a pitch of its own
+                lines.append(_Line(top=left, bottom=left + 9, x0=10.0, x1=rng.choice([60.0, 80.0, 95.0]), text="left", size=9.0))
+                left += rng.choice([12.0, 14.0, 17.0])
+            rows = _visual_rows(lines)
+
+            for index in range(len(rows)):
+                around = _without_left_block(rows, index, 80, 600, distinct=True)
+                assert around == _without_left_block(rows, index, 80, 600)
+                groups += around is not None
+        assert groups > 1_000
+
+    @pytest.mark.timing
+    def test_many_rows_of_three_short_lines_are_read_in_linear_time(self):
+        import time
+
+        from opendockit.extractors._pdf_label_values import _label_value_rows
+        from opendockit.extractors._pdf_model import _Line
+        from tests.timing import allowed
+
+        rows = [[_Line(top=10 + row * 12, bottom=20 + row * 12, x0=x + (row % mod) * step, x1=x + 30 + (row % mod) * step,
+                       text=text, size=10) for x, mod, step, text in ((10, 7, 3, "ab"), (200, 5, 7, "cd"), (400, 3, 11, "ef"))]
+                for row in range(8_000)]
+
+        started = time.perf_counter()
+        found = _label_value_rows(rows, 600)
+
+        assert time.perf_counter() - started < allowed(1)  # 12 seconds before
+        assert found == []
+
 
 def _invoice_with_totals(item_rows: int = 4) -> bytes:
     """A reportlab invoice: a striped item table (no rules, only a bottom border), a totals block at the right below it, and bank account and
