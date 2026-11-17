@@ -16,6 +16,7 @@
   <a href="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/hyeonsang010716/OpenDocKit/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/opendockit.yaml"><img alt="Hermes Agent plugin catalog" src="https://img.shields.io/badge/Hermes%20Agent-plugin%20catalog-6e56cf"></a>
+  <a href="https://marketplace.dify.ai/plugin/hyeonsang010716/opendockit"><img alt="Dify Marketplace" src="https://img.shields.io/badge/Dify-Marketplace-155eef"></a>
 </p>
 
 <p align="center">
@@ -181,6 +182,20 @@ hermes plugins enable opendockit
 보내지 않으며 API 키도 필요 없습니다. 플러그인이 실행하는 것과 읽을 수 있는 폴더를 제한하는 방법은
 [hermes-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/hermes-plugin/README.md)에 있습니다.
 
+### Dify
+
+OpenDocKit은 [Dify Marketplace](https://marketplace.dify.ai/plugin/hyeonsang010716/opendockit)에 등록되어 있습니다. Dify 메인테이너의 검토를 거쳤습니다. 내 Dify에서 **Plugins**를
+열고 Marketplace에서 OpenDocKit을 찾아 설치하세요. 그다음 Workflow나 Chatflow에서:
+
+1. **Start** 노드에 **File** 변수를 추가합니다. HWP와 HWPX는 **Other file types**를 고르고 `.hwp`와 `.hwpx`를
+   추가합니다.
+2. **OpenDocKit → Convert to Markdown** 도구를 추가하고 파일을 넘깁니다.
+3. LLM 노드에서 `text`를 쓰거나, 페이지·슬라이드·시트마다 하나씩 나오는 `documents`를 씁니다.
+
+Dify는 HWP와 HWPX를 직접 읽지 못합니다. 파일은 내 Dify 안에서, 메모리와 시간 제한이 걸린 작업 프로세스에서 변환되며 API
+키가 필요 없고 다른 곳으로 아무것도 보내지 않습니다. 출력과 한계는
+[dify-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/dify-plugin/README.md)에 있습니다.
+
 ## 지원 형식
 
 | 형식 | 섹션 단위 | 주요 기능 |
@@ -239,7 +254,7 @@ OpenDocKit이 그 문서에서 만들어 낸 Markdown이 비전 모델을 쓴 �
 | [옵션](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`, 예외, 오류 코드 |
 | [이미지](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | 추출, 필터링, 비전 모델, 직접 만드는 설명기 |
 | [서버에서 실행하기](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`, 자원 제한, 글자 수 예산 |
-| [연동](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, MCP 서버 |
+| [연동](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, MCP 서버, Hermes Agent, Dify |
 | [연동 가이드](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | 업로드 화면에서 사용자에게 알려야 할 것 |
 | [설계](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | 왜 이렇게 만들었고 어떻게 검증했는지 |
 | [한계](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | 알려진 한계를 있는 그대로 |
