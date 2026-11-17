@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Changed
+
+- **PDF footnotes**: a line of em dashes above the notes (`——————`) is a footnote rule like a drawn one. The slip
+  opinions of the US Supreme Court type their rule this way, so none of their notes was linked; in four opinions 345
+  marks are now `[^n]` with their notes. Every other condition for linking a page is the same.
+
 ### Fixed
 
 - **DOCX**: the text cut at `max_chars` is again the front of the full conversion for tables that hold imported content
