@@ -6,12 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.3.13] - 2026-11-17
+
+Titles for the two MCP tools, and the Claude Code plugin. The sample outputs in `examples/` are unchanged.
+
 ### Added
 
 - **Claude Code plugin** (`claude-plugin/`, listed by `.claude-plugin/marketplace.json`): the MCP server and a skill
   for reading documents the Read tool cannot open, installed with
-  `/plugin install opendockit --marketplace hyeonsang010716/OpenDocKit`. It starts OpenDocKit 0.3.12, the release the
-  Hermes plugin pins. It is not part of the Python package.
+  `/plugin install opendockit --marketplace hyeonsang010716/OpenDocKit`. It starts the release the Hermes plugin pins.
+  It is not part of the Python package.
 
 ### Changed
 
@@ -552,7 +556,8 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.12...HEAD
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.13...HEAD
+[0.3.13]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.13
 [0.3.12]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.12
 [0.3.11]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.11
 [0.3.10]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.10
