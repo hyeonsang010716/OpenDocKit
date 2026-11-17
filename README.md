@@ -16,6 +16,7 @@
   <a href="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/hyeonsang010716/OpenDocKit/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/opendockit.yaml"><img alt="Hermes Agent plugin catalog" src="https://img.shields.io/badge/Hermes%20Agent-plugin%20catalog-6e56cf"></a>
+  <a href="https://marketplace.dify.ai/plugin/hyeonsang010716/opendockit"><img alt="Dify Marketplace" src="https://img.shields.io/badge/Dify-Marketplace-155eef"></a>
 </p>
 
 <p align="center">
@@ -178,6 +179,20 @@ Then ask Hermes about a file on your machine in a new session. It reads a long d
 nothing anywhere and needs no API key. What the plugin runs, and how to limit the folders it may read:
 [hermes-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/hermes-plugin/README.md).
 
+### Dify
+
+OpenDocKit is on the [Dify Marketplace](https://marketplace.dify.ai/plugin/hyeonsang010716/opendockit), reviewed by the Dify maintainers. In your Dify, open **Plugins**, find
+OpenDocKit in the Marketplace and install it. Then, in a Workflow or Chatflow:
+
+1. Add a **File** variable to the **Start** node. For HWP and HWPX, choose **Other file types** and add `.hwp` and
+   `.hwpx`.
+2. Add the tool **OpenDocKit → Convert to Markdown** and pass it the file.
+3. Use its `text` in an LLM node, or `documents` for one item per page, slide or sheet.
+
+Dify reads no HWP or HWPX by itself. The file is converted inside your Dify, in a worker process with memory and time
+limits, with no API key and nothing sent anywhere else. Outputs and limits:
+[dify-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/dify-plugin/README.md).
+
 ## Supported formats
 
 | Format | Sections | Highlights |
@@ -232,7 +247,7 @@ without a vision model — so you can judge the output before installing anythin
 | [Options](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`, exceptions and error codes |
 | [Images](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | Extraction, filtering, vision models, custom describers |
 | [Running on a server](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`, resource limits, the character budget |
-| [Integrations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex and the MCP server |
+| [Integrations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, the MCP server, Hermes Agent and Dify |
 | [Integration guide](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | What an upload UI should tell its users |
 | [Design](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | Why it is built this way, and how it was verified |
 | [Limitations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | Known gaps, stated plainly |

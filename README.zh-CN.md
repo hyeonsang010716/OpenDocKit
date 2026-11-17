@@ -16,6 +16,7 @@
   <a href="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hyeonsang010716/OpenDocKit/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/hyeonsang010716/OpenDocKit/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/opendockit.yaml"><img alt="Hermes Agent plugin catalog" src="https://img.shields.io/badge/Hermes%20Agent-plugin%20catalog-6e56cf"></a>
+  <a href="https://marketplace.dify.ai/plugin/hyeonsang010716/opendockit"><img alt="Dify Marketplace" src="https://img.shields.io/badge/Dify-Marketplace-155eef"></a>
 </p>
 
 <p align="center">
@@ -176,6 +177,18 @@ hermes plugins enable opendockit
 之后在新会话中向 Hermes 询问本机上的文件即可。长文档按页、幻灯片或工作表分段读取，文档不会发送到任何地方，也不需要 API
 密钥。插件在本机运行什么、如何限制它可读取的文件夹，见 [hermes-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/hermes-plugin/README.md)。
 
+### Dify
+
+OpenDocKit 已上架 [Dify Marketplace](https://marketplace.dify.ai/plugin/hyeonsang010716/opendockit)，经过 Dify 维护者审核。在你的 Dify 中打开 **Plugins**，在 Marketplace 中找到
+OpenDocKit 并安装。然后在 Workflow 或 Chatflow 中：
+
+1. 在 **Start** 节点添加一个 **File** 变量。HWP 和 HWPX 需选择 **Other file types**，并添加 `.hwp` 和 `.hwpx`。
+2. 添加工具 **OpenDocKit → Convert to Markdown**，把文件传给它。
+3. 在 LLM 节点中使用 `text`，或使用每页、每张幻灯片或每个工作表一项的 `documents`。
+
+Dify 本身无法读取 HWP 或 HWPX。文件在你自己的 Dify 中、在有内存和时间限制的工作进程里转换，不需要 API 密钥，也不会发送到任何其他地方。输出和限制见
+[dify-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/dify-plugin/README.md)。
+
 ## 支持的格式
 
 | 格式 | 分节单位 | 要点 |
@@ -231,7 +244,7 @@ hermes plugins enable opendockit
 | [选项](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`、异常和错误码 |
 | [图片](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | 提取、筛选、视觉模型、自定义描述器 |
 | [在服务器上运行](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`、资源限制、字符预算 |
-| [集成](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain、LlamaIndex 和 MCP 服务器 |
+| [集成](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain、LlamaIndex、MCP 服务器、Hermes Agent 和 Dify |
 | [集成指南](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | 上传界面应该告诉用户什么 |
 | [设计](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | 为什么这样设计，以及如何验证 |
 | [局限](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | 已知的不足，如实说明 |

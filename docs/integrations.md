@@ -147,6 +147,7 @@ no HWP or HWPX by itself; to accept them, a file input needs **Other file types*
 
 Each file is converted in a worker process of its own (`IsolatedConverter`), since every plugin of a Dify shares one
 runtime. Dify does not accept `.hwp` or `.hwpx` uploads into a knowledge base yet, so the plugin serves Workflows and
-Chatflows. Its [README](../dify-plugin/README.md) is the page shown on the Marketplace.
+Chatflows. It is on the [Dify Marketplace](https://marketplace.dify.ai/plugin/hyeonsang010716/opendockit): in Dify, open **Plugins** and install OpenDocKit from the Marketplace. Its
+[README](../dify-plugin/README.md) is the page shown there.
 
 Design notes: [decisions/integrations.md](decisions/integrations.md).
