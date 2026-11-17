@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.3.12] - 2026-11-17
+
+The Open WebUI document loader, and PDF footnotes under a rule typed as a line of dashes. The sample outputs in
+`examples/` are unchanged.
+
 ### Added
 
 - **Open WebUI document loader** (`opendockit-open-webui`, extra `open-webui`): a small HTTP server for Open WebUI's
@@ -535,7 +540,8 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.11...HEAD
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.12...HEAD
+[0.3.12]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.12
 [0.3.11]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.11
 [0.3.10]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.10
 [0.3.9]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.9
