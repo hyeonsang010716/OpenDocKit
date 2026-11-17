@@ -137,6 +137,17 @@ class TestLinked:
         assert "The debt ratio rose to 135[^1]% in the first half." in text
         assert text.rstrip().endswith("——————\n\n[^1]: Debt ratio is total liabilities divided by total equity.")
 
+    def test_typed_rule_at_the_same_height_on_every_page(self):
+        """With a one-line note on every page the line of dashes is at the same height near the bottom of each page; it is a
+        rule there, not a repeated footer."""
+        pages = [{"body": [[_FILLER], [f"Point {number} rose", ("^", str(number)), " this year."], [_FILLER]], "rule": None,
+                  "typed_rule": "——————", "notes": [[("^", str(number)), f" Note {number} explains the point."]]} for number in (1, 2, 3, 4)]
+        text = _text(*pages)
+
+        assert text.count("——————") == 4
+        assert all(f"Point {number} rose[^{number}] this year." in text and f"[^{number}]: Note {number} explains the point." in text
+                   for number in (1, 2, 3, 4))
+
     def test_raised_number_that_no_note_has_stays_as_it_is(self):
         """An exponent after the last mark cannot take a note: the marks are chosen in reading order, one per note number."""
         text = _text({"body": [["Rents rose", ("^", "1"), " on sites of 2,400 m", ("^", "2"), " and more."], [_FILLER],
@@ -391,6 +402,15 @@ class TestLeftAsIs:
     def test_notes_as_large_as_the_body(self):
         """A numbered list under a short rule is set in the body size."""
         self._assert_unlinked(_text({"body": _UNLINKED_BODY, "note_size": 11.0, "notes": [[("^", "1"), " First item of a list."]]}))
+
+    def test_repeated_line_of_dashes_without_notes_is_still_removed(self):
+        """A line of dashes is kept from the repeated-footer removal only with a note right under it: a footer divider above
+        the same line on every page goes, as before."""
+        pages = [{"body": [[_FILLER], [f"Point {number} rose this year."], [_FILLER]], "rule": None, "typed_rule": "——————",
+                  "notes": [["Company confidential"]]} for number in (1, 2, 3, 4)]
+        text = _text(*pages)
+
+        assert "——————" not in text and "Company confidential" not in text
 
     def test_notes_under_dashes_as_large_as_the_body(self):
         """A line of em dashes is a rule only as a drawn one is: a numbered list under it in the body size is not notes."""

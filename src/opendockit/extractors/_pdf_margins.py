@@ -6,6 +6,7 @@ from collections import Counter
 import re
 
 from opendockit.extractors._pdf_aligned_tables import _aligned_table_runs
+from opendockit.extractors._pdf_footnotes import _TYPED_RULE, _note_start
 from opendockit.extractors._pdf_label_values import _label_value_rows
 from opendockit.extractors._pdf_model import (
     _CAPTION_GAP_RATIO,
@@ -100,6 +101,8 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
       (test_values_of_a_one_column_list_at_the_page_edges_are_not_removed_as_repeated_lines).
       The position is checked as well so that the page number of a page with the same number in figure tick labels
       does not remain (public paper PDF).
+    - A footnote rule typed as a line of em dashes with a note right under it (`_pdf_footnotes._TYPED_RULE`): with a
+      one-line note on most pages it is a bottom row at the same height, and its removal left the notes unlinked.
     """
     if len(pages) < 3:
         return
@@ -117,6 +120,12 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
         # test_wrapped_first_cell_survives_on_every_page).
         protected.update(id(original) for line in cells for original in line.joined)
         protected.update(id(line) for row in _label_value_rows(rows, page.width) for line in row)
+        # A footnote rule typed as a line of em dashes with a note right under it: on pages with a one-line note it is one of
+        # the bottom two rows, and removed as repeated it left every such page unlinked, where a drawn rule is not a line
+        # (Pinned by: test_pdf_footnotes.py::TestLinked::test_typed_rule_at_the_same_height_on_every_page,
+        # TestLeftAsIs::test_repeated_line_of_dashes_without_notes_is_still_removed).
+        protected.update(id(row[0]) for row, below in zip(rows, rows[1:], strict=False)
+                         if len(row) == 1 and _TYPED_RULE.fullmatch(row[0].text.strip()) and _note_start(below[0].text))
         captions = _caption_lines(page)
         body: dict[str, list[list[_Line]]] = {}  # Text with digits masked → body rows (outside the margin and edge rows)
         for row in rows:
