@@ -33,8 +33,17 @@ _PARSER_CALLERS = r"opendockit\.extractors\._?html"
 # (Pinned by: test_text_html.py::TestFormValues::test_suggestions_of_a_datalist_are_left_out).
 _DROP_TAGS = ["script", "style", "noscript", "noframes", "noembed", "template", "svg", "iframe", "embed", "button", "head", "nav",
               "datalist"]
-# An aside inside these elements is a warning/note box of the main content (`_drop_sidebars`).
+# An aside inside these elements is a warning/note box of the main content (`_drop_sidebars`). An element with one of these ARIA
+# roles is the same landmark: Sphinx themes, docs.python.org and Read the Docs mark the body `<div role="main">`, and their
+# footnotes, topics and sidebars (`<aside>` since docutils 0.18) were removed as side menus
+# (Pinned by: test_core_html_blocks.py::TestAsideInsideTheMainContent::test_aside_inside_a_role_main_element_is_kept).
 _MAIN_CONTENT_TAGS = ["main", "article"]
+_MAIN_CONTENT_ROLES = frozenset(_MAIN_CONTENT_TAGS)
+
+
+def _is_main_content(tag: Tag) -> bool:
+    """Whether `tag` is the main content: a `<main>` / `<article>`, or an element whose ARIA role is main or article."""
+    return tag.name in _MAIN_CONTENT_TAGS or not _MAIN_CONTENT_ROLES.isdisjoint(str(tag.get("role") or "").lower().split())
 
 
 # Marks for checkboxes and radio buttons. The same characters as DOCX legacy form fields (docx.py).
@@ -122,10 +131,11 @@ def _replace(node: PageElement, new: PageElement | str, places: _Places) -> None
 
 
 def _content_holders(soup: BeautifulSoup) -> set[int]:
-    """`id`s of the content elements (main / article) and their ancestors, and of the ancestors of h1 (not h1 itself)."""
+    """`id`s of the content elements (main / article, `_is_main_content`) and their ancestors, and of the ancestors of h1 (not h1
+    itself)."""
     holders: set[int] = set()
-    for tag in soup.find_all([*_MAIN_CONTENT_TAGS, "h1"]):
-        node = tag if tag.name in _MAIN_CONTENT_TAGS else tag.parent
+    for tag in soup.find_all(lambda tag: tag.name == "h1" or _is_main_content(tag)):
+        node = tag if _is_main_content(tag) else tag.parent
         while node is not None and id(node) not in holders:
             holders.add(id(node))
             node = node.parent

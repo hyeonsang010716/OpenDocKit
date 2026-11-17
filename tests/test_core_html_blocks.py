@@ -2,6 +2,8 @@
 full-width row in it."""
 
 
+import pytest
+
 from opendockit import convert
 
 
@@ -26,6 +28,25 @@ class TestAsideInsideTheMainContent:
         result = convert(html.encode(), "a.html")
 
         assert result.text == "본문\n\n참고 상자"
+
+    @pytest.mark.parametrize("role", ["main", "article", "region main"])
+    def test_aside_inside_a_role_main_element_is_kept(self, role):
+        """Sphinx themes, docs.python.org and Read the Docs mark the body `<div role="main">` and write footnotes and topics as
+        `<aside>`. They were removed as side menus."""
+        html = (f'<body><aside class="menu"><p>사이드 메뉴</p></aside><div class="body" role="{role}"><h1>설정</h1>'
+                '<p>기본 제한 시간은 30초입니다.</p><aside class="topic"><p>요약: 연결 전에 설정합니다.</p></aside>'
+                '<aside class="footnote" role="doc-footnote"><p>이전 버전은 10초였습니다.</p></aside></div></body>')
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "# 설정\n\n기본 제한 시간은 30초입니다.\n\n요약: 연결 전에 설정합니다.\n\n이전 버전은 10초였습니다."
+
+    def test_aria_hidden_wrapper_of_a_role_main_element_is_kept(self):
+        """An aria-hidden element holding the main content is not removed, as for `<main>` (`_content_holders`)."""
+        html = ('<body><div class="page"><div aria-hidden="true"><div role="main"><p>본문 첫 문단입니다.</p></div></div>'
+                '<div aria-hidden="true"><p>팝업</p></div><p>바닥글 안내 문구입니다. 문의는 고객센터로 해 주세요.</p></div></body>')
+
+        assert convert(html.encode(), "a.html").text == "본문 첫 문단입니다.\n\n바닥글 안내 문구입니다. 문의는 고객센터로 해 주세요."
 
     def test_sidebar_aside_outside_the_main_content_is_still_dropped(self):
         html = "<body><div class=wrap><aside><ul><li>메뉴 1</li><li>메뉴 2</li></ul></aside><div><p>본문</p></div></div></body>"

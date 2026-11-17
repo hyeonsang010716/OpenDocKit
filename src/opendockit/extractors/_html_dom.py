@@ -25,6 +25,7 @@ from opendockit.extractors._html_base import (
     _PARSER_CALLERS,
     _UNCHECKED,
     _content_holders,
+    _is_main_content,
     _list_number,
     _Places,
     _replace,
@@ -175,8 +176,8 @@ _MARKDOWN_HEADING = re.compile(r"^#{1,6} ", re.MULTILINE)
 
 
 def _drop_sidebars(soup: BeautifulSoup) -> None:
-    """Removes `<aside>` (side menus, ads, related posts) outside the main content (`_MAIN_CONTENT_TAGS`). An aside inside the
-    main content is kept.
+    """Removes `<aside>` (side menus, ads, related posts) outside the main content (`_is_main_content`: main, article, or an
+    element with the ARIA role main or article). An aside inside the main content is kept.
 
     Removing every aside made the warning/note boxes (`<aside class="warning">`) in the body of technical documents and notices
     vanish without a warning (Pinned by: test_core_html_blocks.py::TestAsideInsideTheMainContent). Deliberate: an aside used as
@@ -185,7 +186,10 @@ def _drop_sidebars(soup: BeautifulSoup) -> None:
     # Decided for all of them in one walk and removed together (`_lying_inside`, `_decompose_all`)
     # (Pinned by: test_audit_html_text.py::TestManyElementsThatLookUpwardsUnderDeepNesting)
     asides = soup.find_all("aside")
-    kept = _lying_inside(asides, _MAIN_CONTENT_TAGS)
+    if not asides:
+        return
+    landmarks = {id(tag) for tag in soup.find_all(_is_main_content)}  # `role="main"` / `role="article"` too
+    kept = _lying_inside(asides, _MAIN_CONTENT_TAGS, marked=landmarks)
     _decompose_all([aside for aside in asides if id(aside) not in kept])
 
 
@@ -504,10 +508,11 @@ def _flatten_nested_headings(soup: BeautifulSoup) -> None:
             _move_after(outer, [heading, *heading.next_siblings])
 
 
-def _lying_inside(nodes: list[PageElement], names: Container[str], inside: dict[int, bool] | None = None) -> set[int]:
-    """`id`s of those of `nodes` that lie inside an element named in `names` (the same answer as `find_parent(names)` for each,
-    as the tree is now). Each node walks upwards and stops at an element already visited, so it is linear time. Calls that ask
-    about the same tree and `names` may share `inside` (what was learned on the way up).
+def _lying_inside(nodes: list[PageElement], names: Container[str], inside: dict[int, bool] | None = None,
+                  marked: Container[int] = frozenset()) -> set[int]:
+    """`id`s of those of `nodes` that lie inside an element named in `names` or whose `id` is in `marked` (the same answer as
+    `find_parent(names)` for each, as the tree is now). Each node walks upwards and stops at an element already visited, so it is
+    linear time. Calls that ask about the same tree and `names` may share `inside` (what was learned on the way up).
 
     `find_parent` walks to the root for every node that has no such ancestor: 8,000 headings under 8,000 unclosed `<div>`
     (117KB) took 31 seconds (Pinned by: test_audit_html_text.py::TestManyHeadingsUnderDeepNesting).
@@ -519,10 +524,10 @@ def _lying_inside(nodes: list[PageElement], names: Container[str], inside: dict[
     for node in nodes:
         path: list[Tag] = []
         parent = node.parent
-        while parent is not None and parent.name not in names and id(parent) not in inside:
+        while parent is not None and parent.name not in names and id(parent) not in marked and id(parent) not in inside:
             path.append(parent)
             parent = parent.parent
-        lies_inside = parent is not None and (parent.name in names or inside[id(parent)])
+        lies_inside = parent is not None and (parent.name in names or id(parent) in marked or inside[id(parent)])
         inside.update((id(passed), lies_inside) for passed in path)
         if lies_inside:
             found.add(id(node))
