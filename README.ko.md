@@ -183,6 +183,18 @@ hermes plugins enable opendockit
 보내지 않으며 API 키도 필요 없습니다. 플러그인이 실행하는 것과 읽을 수 있는 폴더를 제한하는 방법은
 [hermes-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/hermes-plugin/README.md)에 있습니다.
 
+### Claude Code
+
+이 저장소가 플러그인의 마켓플레이스입니다. 다음 한 줄로 설치합니다.
+
+```text
+/plugin install opendockit --marketplace hyeonsang010716/OpenDocKit
+```
+
+그다음 내 컴퓨터의 문서에 대해 Claude에게 물어보세요. Read 도구가 열지 못하는 Word, PowerPoint, Excel, HWP/HWPX 파일을 읽고,
+긴 PDF는 페이지 단위로 읽습니다. 플러그인이 실행하는 것과 읽을 수 있는 폴더를 제한하는 방법은
+[claude-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/claude-plugin/README.md)에 있습니다.
+
 ### Dify
 
 OpenDocKit은 [Dify Marketplace](https://marketplace.dify.ai/plugin/hyeonsang010716/opendockit)에 등록되어 있습니다. Dify 메인테이너의 검토를 거쳤습니다. 내 Dify에서 **Plugins**를
@@ -271,7 +283,7 @@ OpenDocKit이 그 문서에서 만들어 낸 Markdown이 비전 모델을 쓴 �
 | [옵션](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`, 예외, 오류 코드 |
 | [이미지](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | 추출, 필터링, 비전 모델, 직접 만드는 설명기 |
 | [서버에서 실행하기](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`, 자원 제한, 글자 수 예산 |
-| [연동](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, MCP 서버, Hermes Agent, Dify, Open WebUI |
+| [연동](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, MCP 서버, Hermes Agent, Claude Code, Dify, Open WebUI |
 | [연동 가이드](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | 업로드 화면에서 사용자에게 알려야 할 것 |
 | [설계](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | 왜 이렇게 만들었고 어떻게 검증했는지 |
 | [한계](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | 알려진 한계를 있는 그대로 |

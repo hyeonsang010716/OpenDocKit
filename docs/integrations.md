@@ -139,6 +139,22 @@ A commit newer than the catalog's installs from this repository: `hermes plugins
 The server is started without `--root`; set `OPENDOCKIT_MCP_ROOTS` in the shell or in the Hermes profile's `.env` to
 restrict it. What the plugin does on the machine is listed in its [README](../hermes-plugin/README.md).
 
+### Claude Code plugin
+
+[`claude-plugin/`](../claude-plugin) packages the same server for [Claude Code](https://code.claude.com): the server
+declaration (`.mcp.json`, pinned to the release and date the Hermes plugin pins) and a skill that sends Claude to it for
+the formats its Read tool cannot open and for long PDFs, outline first. This repository is its marketplace
+([`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json)):
+
+```text
+/plugin install opendockit --marketplace hyeonsang010716/OpenDocKit
+```
+
+On Claude Code older than 2.1.275, `/plugin marketplace add hyeonsang010716/OpenDocKit` first, then
+`/plugin install opendockit@opendockit`. The tools are `mcp__plugin_opendockit_opendockit__document_outline` and
+`…__convert_document`. The server inherits Claude Code's environment, so `OPENDOCKIT_MCP_ROOTS` exported in the shell
+restricts it. Details: its [README](../claude-plugin/README.md).
+
 ## Dify plugin
 
 [`dify-plugin/`](../dify-plugin) is a tool plugin for [Dify](https://github.com/langgenius/dify) and its
