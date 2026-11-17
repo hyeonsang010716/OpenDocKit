@@ -132,4 +132,5 @@ together; a test compares their code, links, figures and structure. Everything e
 ## Releasing (maintainers)
 
 1. Update `version` in `pyproject.toml` and move the `Unreleased` entries in `CHANGELOG.md` under the new version.
-2. Tag the commit `vX.Y.Z` and push the tag. The release workflow builds and publishes to PyPI.
+2. Tag the commit `vX.Y.Z` and push the tag. The release workflow builds and publishes to PyPI and the MCP Registry,
+   then makes the GitHub release from the version's `CHANGELOG.md` section. A tag without one stops before publishing.
