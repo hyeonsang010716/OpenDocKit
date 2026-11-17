@@ -621,6 +621,7 @@ class TestCommandLine:
         assert set(tools["convert_document"].input_schema["properties"]) == {"path", "sections", "max_chars"}
         assert all(word in tools["convert_document"].description for word in ("path:", "sections:", "max_chars:"))
         assert all(tool.annotations.read_only_hint and not tool.annotations.destructive_hint for tool in tools.values())
+        assert all(tool.title and tool.annotations.title == tool.title for tool in tools.values())
 
     def test_server_announces_tools_and_nothing_it_does_not_have(self):
         """A client builds the agent's tool list from what the server announces. Announcing prompts and resources, as the

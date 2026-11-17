@@ -139,7 +139,7 @@ class TestWhatIsShipped:
     def test_plugin_holds_only_readable_text(self):
         files = sorted(path.relative_to(PLUGIN).as_posix() for path in PLUGIN.rglob("*") if path.is_file())
 
-        assert files == [".claude-plugin/icon.png", ".claude-plugin/plugin.json", ".mcp.json", "LICENSE", "README.md",
+        assert files == [".claude-plugin/icon.png", ".claude-plugin/plugin.json", ".mcp.json", "LICENSE", "PRIVACY.md", "README.md",
                          "skills/opendockit/SKILL.md"]
         for name in files:
             if not name.endswith(".png"):

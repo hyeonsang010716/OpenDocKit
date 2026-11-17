@@ -146,10 +146,15 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
                 cache.popitem(last=False)
         return result
 
-    # Both tools only read: clients use the hint to decide whether a call needs the user's confirmation.
-    reads_only = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
+    # Both tools only read: clients use the hint to decide whether a call needs the user's confirmation. Each has a title for
+    # the people who see a tool listed or asked about (the Anthropic Software Directory asks for title, readOnlyHint and
+    # destructiveHint) (Pinned by: test_mcp_server.py::TestCommandLine::test_tools_are_described_for_the_agent).
+    def reads_only(title: str) -> ToolAnnotations:
+        return ToolAnnotations(title=title, read_only_hint=True, destructive_hint=False, idempotent_hint=True,
+                               open_world_hint=False)
 
-    @server.tool(structured_output=False, annotations=reads_only, description=(
+    @server.tool(title="Convert document to Markdown", structured_output=False,
+                 annotations=reads_only("Convert document to Markdown"), description=(
         "Convert a local document to Markdown.\n\n"
         "path: the file to read (absolute, or relative to where the server was started).\n"
         'sections: which pages, slides or sheets to return, by their numbers in document_outline: "3" or "2-5". '
@@ -176,7 +181,7 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
             tail.append("[No text was extracted.]")
         return "\n\n".join(part for part in (text, *tail) if part)
 
-    @server.tool(structured_output=False, annotations=reads_only, description=(
+    @server.tool(title="Outline a document", structured_output=False, annotations=reads_only("Outline a document"), description=(
         "Describe a local document without returning its text: format, title, size, and its pages, slides or sheets with "
         "their numbers, titles and lengths. Use it to decide which `sections` to ask convert_document for.\n\n"
         "path: the file to read (absolute, or relative to where the server was started)."))
