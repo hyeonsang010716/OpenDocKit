@@ -143,6 +143,7 @@ class TestProcess:
         assert broken.status_code == 422 and broken.text.endswith(".") and "zip" not in broken.text.lower()
         assert (empty.status_code, empty.text) == (422, "The file is empty.")
 
+    @pytest.mark.skipif(os.name != "posix", reason="worker processes are used on POSIX only; elsewhere files go to a thread")
     def test_conversion_runs_in_a_worker_process(self, client, monkeypatch):
         """The loader's own process must not parse the document: a file built to hang or expand would end the server every
         upload goes through."""
