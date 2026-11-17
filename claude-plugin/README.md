@@ -33,6 +33,21 @@ Summarise ~/Documents/quarterly-report.hwp and list the figures in its tables.
 
 No account and no API key.
 
+## Examples
+
+The sample files are in the repository, under
+[`examples/samples`](https://github.com/hyeonsang010716/OpenDocKit/tree/main/examples/samples). Download them, then
+ask with their path on your computer:
+
+1. `Read score-table.hwpx and give each student's total score.` An HWPX file (Korean word processor) with a table;
+   the totals are 232, 231, 264 and 198.
+2. `What does slide 2 of launch-plan.pptx say, including the speaker notes?` A deck read slide by slide: the outline
+   first, then only slide 2.
+3. `In sales.xlsx, which region had the largest share, and what were its quarterly figures?` A workbook with two
+   tables and a chart on one sheet; the answer is North, $120k, $135k, $150k and $170k.
+4. `Summarise the revenue by region in quarterly-report.docx.` A Word table whose category cells are merged; each row
+   keeps its category.
+
 ## What you get
 
 | Tool | What it returns |
@@ -74,6 +89,24 @@ same code until this file changes. The plugin's version is the OpenDocKit releas
 - Scanned PDFs and photos: no OCR. Claude's Read tool can look at such a page as an image.
 - Legacy `.doc` and `.ppt` need LibreOffice. On Windows, HTML, email and EPUB are not supported.
 - The server reads local files only, not URLs.
+
+## Troubleshooting
+
+- **`/mcp` shows the `opendockit` server as failed.** It is started with `uvx`, part of [uv](https://docs.astral.sh/uv/).
+  Check that `uvx --version` works in the shell Claude Code runs in, then start a new session.
+- **The first call takes long.** The first start downloads the package, and Python if needed. Later sessions start
+  from uv's cache.
+- **"The file is outside the folders this server may read."** `OPENDOCKIT_MCP_ROOTS` is set and the file is not
+  under it. Add the folder, or unset the variable, and start a new session.
+- **A scanned PDF or a photo comes back without text.** There is no OCR; Claude's Read tool can look at such a page.
+- **A short fixed message instead of the text** (password-protected, damaged, too large, unsupported format, timed
+  out after 2 minutes) says why the file could not be converted. Retrying does not change it.
+
+## Support and privacy
+
+- Questions and bugs: [GitHub issues](https://github.com/hyeonsang010716/OpenDocKit/issues).
+- Security problems: report them privately, as [SECURITY.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/SECURITY.md) explains.
+- What the plugin does with your files: [PRIVACY.md](PRIVACY.md). In short, nothing leaves your computer.
 
 ## License
 
