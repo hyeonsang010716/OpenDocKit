@@ -4,6 +4,7 @@ python-docx is used only to open the package and find parts; the body is read by
 handle text boxes, tracked insertions (w:ins) or footnote references, and `_Row.cells` does not tell horizontal merges from vertical ones.
 """
 
+from bisect import bisect_left
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -558,6 +559,12 @@ class _DocxRenderer:
                 merge = properties.find(_w("vMerge")) if properties is not None else None
                 cells.append((row_index, col, span, merge is not None and merge.get(_w("val"), "continue") == "continue", cell))
                 col += span
+
+        # A continuation cell with no cell above any of its columns (in the first row, or below the columns a row skips with
+        # w:gridBefore) continues no merge and is an ordinary cell. It took the text of the missing cell above (none), so its own
+        # text was lost without a warning — a column of such cells vanished with its text (Pinned by:
+        # test_office.py::TestMergeFlagsWithoutAStartingCell).
+        cells = _orphans_made_ordinary(cells)
 
         # Continuation cells are tied into a row span only when they are as wide as the starting cell. Tying cells of a different
         # width made the span go down at the starting cell's width and cover the neighbouring cell
@@ -1173,3 +1180,21 @@ def _note_block(block: etree._Element, image_marker: Callable[[etree._Element], 
     if block.tag == _w("tbl"):
         return note_table([text(cell) for cell in _children(row, _w("tc"))] for row in _children(block, _w("tr")))
     return text(block)
+
+
+def _orphans_made_ordinary(cells: list[tuple[int, int, int, bool, etree._Element]]) -> list[tuple[int, int, int, bool, etree._Element]]:
+    """`cells` with each continuation cell that has no cell above any of its columns turned into an ordinary cell. The cells of a
+    row come in column order and do not overlap, so the columns a row fills are found by bisecting its starts — a span written
+    in the file (gridSpan="1000000000") is never walked column by column."""
+    starts: dict[int, list[int]] = {}
+    ends: dict[int, list[int]] = {}
+    for row, col, span, _, _ in cells:
+        starts.setdefault(row, []).append(col)
+        ends.setdefault(row, []).append(col + span)
+
+    def filled_above(row: int, col: int, span: int) -> bool:
+        above = starts.get(row - 1, [])
+        last = bisect_left(above, col + span) - 1  # the last cell above that starts left of this cell's end
+        return last >= 0 and ends[row - 1][last] > col
+
+    return [(row, col, span, continues and filled_above(row, col, span), cell) for row, col, span, continues, cell in cells]
