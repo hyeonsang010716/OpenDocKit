@@ -12,8 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   External content extraction engine. Open WebUI sends it every uploaded file and indexes one document per page, slide
   or sheet; a PDF page carries `page`, so a citation names and opens the right page. Open WebUI reads no HWP or HWPX by
   itself. Each file is converted offline in a worker process with memory and time limits; the server needs an API key
-  of at least 16 characters, listens on `127.0.0.1` by default, refuses files past its queue at once, and answers every
-  failure with a fixed sentence.
+  of at least 16 characters, listens on `127.0.0.1` by default, refuses files past its queue at once, refuses rather
+  than cuts a document past its limits (50 MB, 10,000,000 characters; both can be set), and answers every failure with
+  a fixed sentence.
 
 ### Changed
 

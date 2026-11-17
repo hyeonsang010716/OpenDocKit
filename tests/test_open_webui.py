@@ -233,11 +233,24 @@ class TestProcess:
         assert sent[0]["status"] == 400
         assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
 
+    def test_a_picture_file_fails_with_the_no_text_sentence(self, client):
+        """Open WebUI sends pictures to an External engine unless its media types are set; one is not indexed as '[Image]'."""
+        response = _put(client, builder.png_bytes(), "photo.png", content_type="image/png")
+
+        assert (response.status_code, response.text) == (422, open_webui.NO_TEXT)
+
+    def test_size_limit_can_be_raised(self):
+        """Annual reports with pictures are often past 50 MB: the operator sets the limit (`--max-file-mb`)."""
+        response = asyncio.run(_put_async(open_webui.create_app(KEY, max_file_bytes=1024), b"x" * 2048, "notes.txt"))
+
+        assert (response.status_code, response.text) == (413, "The file is too large (maximum 1KB).")
+
     def test_document_over_the_character_limit_is_refused(self):
         """Indexed in part, a document cut at `max_chars` would be missing its end without a word."""
         response = asyncio.run(_put_async(open_webui.create_app(KEY, max_chars=10), builder.docx_bytes(), "report.docx"))
 
         assert (response.status_code, response.text) == (422, open_webui.TOO_LONG)
+        assert open_webui.DEFAULT_MAX_CHARS == 10_000_000  # far above real documents; a bound on what one result holds
 
     def test_files_beyond_the_queue_are_refused_at_once(self, monkeypatch):
         """With one worker and one place in the queue, a third file at once gets 503 without waiting; the two others finish."""
@@ -287,7 +300,7 @@ class TestProcess:
 
 
 class TestCreateApp:
-    @pytest.mark.parametrize("arguments", [{"workers": 0}, {"workers": True}, {"queue": -1}, {"max_chars": 0}])
+    @pytest.mark.parametrize("arguments", [{"workers": 0}, {"workers": True}, {"queue": -1}, {"max_chars": 0}, {"max_file_bytes": 0}])
     def test_wrong_arguments_are_refused(self, arguments):
         with pytest.raises(ValueError):
             open_webui.create_app(KEY, **arguments)
@@ -333,6 +346,16 @@ class TestCommandLine:
         open_webui.main([])
 
         assert (started["host"], started["port"]) == ("127.0.0.1", 8765)
+
+    def test_limits_from_the_command_line(self, monkeypatch):
+        made: dict = {}
+        monkeypatch.setenv(open_webui.API_KEY_VARIABLE, KEY)
+        monkeypatch.setattr(open_webui, "create_app", lambda key, **options: made.update(options))
+        monkeypatch.setattr(open_webui.uvicorn, "run", lambda app, **options: None)
+
+        open_webui.main(["--max-chars", "0", "--max-file-mb", "200"])
+
+        assert made["max_chars"] is None and made["max_file_bytes"] == 200 * 1024 * 1024
 
     @pytest.mark.timing
     @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race

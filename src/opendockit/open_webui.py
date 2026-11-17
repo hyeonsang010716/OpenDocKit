@@ -51,6 +51,12 @@ API_KEY_VARIABLE = "OPENDOCKIT_OPEN_WEBUI_API_KEY"
 # key on a port other machines can reach is guessed (Pinned by: test_open_webui.py::TestCommandLine::test_short_key_is_refused).
 _MIN_KEY_LENGTH = 16
 DEFAULT_PORT = 8765
+# A document past this many characters is refused, not cut. The limit is far above real documents (a 237-page Supreme Court
+# opinion is 500,000) and is there for the server: a result comes back from its worker into this process whole, and is
+# held twice more while it is written as JSON; a workbook of millions of filled cells must not bring gigabytes of it
+# (Pinned by: test_open_webui.py::TestProcess::test_document_over_the_character_limit_is_refused).
+DEFAULT_MAX_CHARS = 10_000_000
+DEFAULT_MAX_FILE_MB = 50
 
 # Open WebUI names a stored upload '<file id>_<original name>' and sends that in `X-Filename`; the id is not part of the name
 # the document was given (Pinned by: test_open_webui.py::TestUploadName).
@@ -103,9 +109,11 @@ def documents(result: ConversionResult, name: str) -> list[dict[str, Any]]:
     return found
 
 
-def create_app(api_key: str, *, workers: int = 2, queue: int = 16, max_chars: int | None = None) -> "Starlette":
+def create_app(api_key: str, *, workers: int = 2, queue: int = 16, max_chars: int | None = DEFAULT_MAX_CHARS,
+               max_file_bytes: int = DEFAULT_MAX_FILE_MB * 1024 * 1024) -> "Starlette":
     """The loader as an ASGI application. `workers` files are converted at once and `queue` more wait for a worker; a file
-    beyond that is answered 503 at once. `max_chars` refuses longer documents (none by default)."""
+    beyond that is answered 503 at once. A document longer than `max_chars` characters (None: no limit) or a file larger than
+    `max_file_bytes` is refused."""
     if Starlette is None:
         raise ImportError(_NEEDS_EXTRA)
     if len(api_key) < _MIN_KEY_LENGTH:
@@ -116,10 +124,12 @@ def create_app(api_key: str, *, workers: int = 2, queue: int = 16, max_chars: in
         raise ValueError("queue must be an integer of at least 0.")
     if max_chars is not None and (isinstance(max_chars, bool) or not isinstance(max_chars, int) or max_chars < 1):
         raise ValueError("max_chars must be an integer of at least 1 or None.")
+    if isinstance(max_file_bytes, bool) or not isinstance(max_file_bytes, int) or max_file_bytes < 1:
+        raise ValueError("max_file_bytes must be an integer of at least 1.")
     # No picture is decoded: the answer is text, so pictures would only cost memory on the way out of the worker. Each keeps
     # its placeholder, alt text included (`[Image: Quarterly revenue chart]`), which `extract_images=False` drops
     # (Pinned by: test_open_webui.py::TestProcess::test_a_picture_keeps_its_alt_text).
-    options = ConvertOptions(decode_images=False, max_chars=max_chars)
+    options = ConvertOptions(decode_images=False, max_chars=max_chars, max_file_bytes=max_file_bytes)
     expected = f"Bearer {api_key}".encode()
     state: dict[str, Any] = {"converter": None, "accepted": 0}
 
@@ -214,8 +224,10 @@ def main(argv: list[str] | None = None) -> None:
                         help="files converted at once, each in a worker process of up to 2 GB (default: %(default)s)")
     parser.add_argument("--queue", type=int, default=16, metavar="N",
                         help="files that may wait for a worker; more are refused with 503 (default: %(default)s)")
-    parser.add_argument("--max-chars", type=int, default=None, metavar="N",
-                        help="refuse documents longer than N characters (default: no limit)")
+    parser.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS, metavar="N",
+                        help="refuse documents longer than N characters; 0 for no limit (default: %(default)s)")
+    parser.add_argument("--max-file-mb", type=int, default=DEFAULT_MAX_FILE_MB, metavar="N",
+                        help="refuse files larger than N MB; each file waiting in the queue is held in memory (default: %(default)s)")
     parser.add_argument("--version", action="version", version=f"opendockit-open-webui {__version__}")
     args = parser.parse_args(argv)
     if Starlette is None:
@@ -226,12 +238,14 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(f"set {API_KEY_VARIABLE} to the API key Open WebUI will send (for example: openssl rand -hex 32)")
     if len(key) < _MIN_KEY_LENGTH:
         parser.error(f"{API_KEY_VARIABLE} must be at least {_MIN_KEY_LENGTH} characters long (for example: openssl rand -hex 32)")
-    for flag, value, low in (("--workers", args.workers, 1), ("--queue", args.queue, 0), ("--max-chars", args.max_chars, 1)):
-        if value is not None and value < low:
+    for flag, value, low in (("--workers", args.workers, 1), ("--queue", args.queue, 0), ("--max-chars", args.max_chars, 0),
+                             ("--max-file-mb", args.max_file_mb, 1)):
+        if value < low:
             parser.error(f"{flag} must be at least {low}")
     if not 0 < args.port < 65536:
         parser.error("--port must be between 1 and 65535")
-    app = create_app(key, workers=args.workers, queue=args.queue, max_chars=args.max_chars)
+    app = create_app(key, workers=args.workers, queue=args.queue, max_chars=args.max_chars or None,
+                     max_file_bytes=args.max_file_mb * 1024 * 1024)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info", server_header=False)
 
 
