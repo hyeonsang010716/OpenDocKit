@@ -940,9 +940,17 @@ def _cell_text(cell: object) -> str:
         value = serial if serial < 0 else from_excel(serial, cell.parent.parent.epoch)
     if _is_serial_zero_shown_as_date(value, number_format):
         return "0"
-    if isinstance(value, (int, float)) and not isinstance(value, bool) \
-            and (_format_id(cell) in _EAST_ASIAN_DATE_FORMAT_IDS or _is_weekday_only(number_format)):
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and _format_id(cell) in _EAST_ASIAN_DATE_FORMAT_IDS:
         return _serial_date_text(value, cell.parent.parent.epoch)
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0 and _is_weekday_only(number_format):
+        # openpyxl does not take `aaa` for a date format. The serial becomes a date shown in the format, as `dddd` and XLS show
+        # it (the day only): through `_serial_date_text` 45000.25 went out as '2023-03-15 06:00:00', and 45000.999999 rounded
+        # to the next day (Pinned by: test_audit_spreadsheet_fixes.py::TestWeekdayFormatWithATime). A negative serial and one
+        # past the calendar stay the number, as in XLS.
+        try:
+            value = from_excel(value, cell.parent.parent.epoch)
+        except (OverflowError, ValueError):
+            pass
     return format_cell(value, number_format)
 
 

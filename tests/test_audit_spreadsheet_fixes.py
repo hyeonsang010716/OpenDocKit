@@ -5,7 +5,9 @@ from io import BytesIO
 import struct
 
 import openpyxl
+from openpyxl.comments import Comment
 from openpyxl.worksheet import _reader as openpyxl_sheet_reader
+import pytest
 
 from opendockit import convert
 from opendockit.extractors import _openpyxl_reading, spreadsheet, xls
@@ -307,3 +309,96 @@ class TestSerialSixtyIsTheDayBefore:
         result = convert(_xml_workbook(table, styles), "a.xml")
 
         assert result.text.endswith("| serial 59 | 1900-02-28 |\n| serial 60 | 1900-02-28 |")
+
+
+_HEADER_ROW = '<row r="1"><c r="A1" t="inlineStr"><is><t>a</t></is></c><c r="B1" t="inlineStr"><is><t>b</t></is></c></row>'
+_STREAMED = '<mergeCells count="1"><mergeCell ref="A1:CV20000"/></mergeCells>'  # more cells than a full load accepts
+_MALFORMED_WARNING = ("1 malformed cell value(s) were copied as the text written in the file "
+                      "(a shared-string index that points to no text is left blank).")
+
+
+class TestCellsWithoutAReference:
+    """`r` may be left out of a cell. On such a cell that also had to be read as its raw text, openpyxl's `coordinate_to_tuple("")`
+    raised UnboundLocalError instead of ValueError, and the whole workbook was rejected as corrupted."""
+
+    @pytest.mark.parametrize("after", ["", _STREAMED], ids=["loaded", "streamed"])
+    def test_malformed_value_in_a_cell_without_a_reference_is_its_text(self, after):
+        data = _with_sheet_xml(_sheet_xml(_HEADER_ROW + '<row r="2"><c><v>1</v></c><c><v>1,5</v></c></row>', after))
+
+        result = convert(data, "a.xlsx")
+
+        assert result.text.endswith("| a | b |\n| --- | --- |\n| 1 | 1,5 |")
+        assert result.warnings == [_MALFORMED_WARNING]
+
+    def test_shared_string_index_past_the_strings_in_a_cell_without_a_reference_is_blank(self):
+        data = _with_sheet_xml(_sheet_xml(_HEADER_ROW + '<row r="2"><c><v>1</v></c><c t="s"><v>7</v></c><c><v>3</v></c></row>'))
+
+        result = convert(data, "a.xlsx")
+
+        assert result.text.endswith("| a | b | |\n| --- | --- | --- |\n| 1 | | 3 |")
+        assert result.warnings == [_MALFORMED_WARNING]
+
+
+class TestCommentsWithoutAReference:
+    """A comment whose `ref` is empty once `$` and spaces are taken out reached openpyxl's `coordinate_to_tuple("")`, which raises
+    UnboundLocalError: one such comment rejected the whole workbook. It is skipped, as a comment on no cell is."""
+
+    @pytest.mark.parametrize("reference", ["", "$", " "])
+    def test_comment_without_a_cell_is_skipped(self, reference):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["name", "amount"])
+        sheet.append(["a", 1])
+        sheet.append(["b", 2])
+        sheet["B2"].comment = Comment("checked", "me")
+        sheet["B3"].comment = Comment("second", "me")
+        data = builder.zip_with(_saved(workbook), edit={
+            "xl/comments/comment1.xml": lambda xml: xml.replace('ref="B3"', f'ref="{reference}"')})
+
+        result = convert(data, "a.xlsx")
+
+        assert '> Comment(me, cell B2, on "a: 1"): checked' in result.text
+        assert "second" not in result.text
+        assert "| b | 2 |" in result.text
+
+
+class TestMalformedFormatAndValue:
+    """When the cell-format index is not a number the cell is parsed again without it, and that second reading skipped the checks
+    of the first: '1E400' came out as 'inf' without a warning, and 400 digits rejected the whole workbook with OverflowError."""
+
+    @pytest.mark.parametrize("value", ["1E400", "4" * 400])
+    def test_value_that_cannot_be_shown_is_its_text(self, value):
+        row = f'<row r="2"><c r="A2" t="inlineStr"><is><t>x</t></is></c><c r="B2" s="bad"><v>{value}</v></c></row>'
+
+        result = convert(_with_sheet_xml(_sheet_xml(_HEADER_ROW + row)), "a.xlsx")
+
+        assert result.text.endswith(f"| x | {value} |")
+        assert result.warnings == [_MALFORMED_WARNING]
+
+    def test_number_under_a_malformed_format_index_is_still_read(self):
+        row = '<row r="2"><c r="A2" t="inlineStr"><is><t>x</t></is></c><c r="B2" s="bad"><v>2.5</v></c></row>'
+
+        result = convert(_with_sheet_xml(_sheet_xml(_HEADER_ROW + row)), "a.xlsx")
+
+        assert result.text.endswith("| x | 2.5 |")
+        assert not result.warnings
+
+
+class TestWeekdayFormatWithATime:
+    """openpyxl does not take `aaa` for a date format, so a weekday-only cell went through the conversion meant for East Asian
+    built-in formats, which shows the time of a fractional serial: '2023-03-15 06:00:00' where `dddd` and XLS show the day, and
+    a serial just before midnight rounded to the next day."""
+
+    @pytest.mark.parametrize("serial", ["45000.25", "45000.999999"])
+    def test_weekday_formats_show_the_day_only(self, serial):
+        data = builder.zip_with(_formatted_workbook("aaa", "aaaa", "dddd"),
+                                edit={_SHEET: lambda xml: xml.replace("<v>1</v>", f"<v>{serial}</v>")})
+
+        result = convert(data, "a.xlsx")
+
+        assert result.text.endswith("| row 1 | 2023-03-15 |\n| row 2 | 2023-03-15 |\n| row 3 | 2023-03-15 |")
+
+    def test_negative_serial_under_a_weekday_format_stays_the_number(self):
+        data = builder.zip_with(_formatted_workbook("aaa"), edit={_SHEET: lambda xml: xml.replace("<v>1</v>", "<v>-5</v>")})
+
+        assert convert(data, "a.xlsx").text.endswith("| row 1 | -5 |")
