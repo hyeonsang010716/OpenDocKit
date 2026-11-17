@@ -147,18 +147,24 @@ def _extract_html(data: bytes, options: ConvertOptions) -> Extraction:
     # (Pinned by: test_text_html.py::TestHtmlDeclaredCharset).
     # Mail (.eml, `_mail.mime_mail`) has its HTML body part read like MHTML, with the header (subject, sender …) placed before
     # the body (Pinned by: test_text_html.py::TestEncodedMail, test_core_mail_and_detect.py::TestMailWithoutTransferEncoding).
-    # Mail read as MHTML (a single text/html part, or multipart/related with embedded photos) also gets its mail header in
-    # front when it has one (`_mail.is_sent_mail`).
+    # Mail shaped like MHTML (a single text/html part, or multipart/related with embedded photos) is read as mail when it was
+    # sent (`_mail.is_sent_mail`).
     # An mbox mailbox (two or more mails) is a mailbox even when its first mail is MHTML-shaped (same order as `detect`).
     mails, total = mail_box(data)
     if len(mails) < 2 and is_mhtml(data):
         message = _mhtml_message(data)
-        mail = message if is_sent_mail(message) else None
+        if is_sent_mail(message):
+            # A sent mail shaped like MHTML (a single text/html part; multipart/related at the top, as Outlook and Apple Mail send
+            # a mail with pictures in its body) is read as the mail it is. Read as a saved page, only its first HTML body part was
+            # read: a meeting invitation, a forwarded mail, the plain-text body of a picture-only HTML and the HTML parts after
+            # the first were lost without a warning
+            # (Pinned by: test_core_mail_parts_and_icons.py::TestMailWithRelatedPartsAtTheTop).
+            return _extract_mail([message], 1, options)
         part = _html_part(message)
     else:
         if any(mail_reads_as_html(mail) for mail in mails):
             return _extract_mail(mails, total, options)
-        message = mail = part = None
+        message = part = None
     saved_picture = None
     if part is None:
         declared = _declared_charset(data)
@@ -172,18 +178,11 @@ def _extract_html(data: bytes, options: ConvertOptions) -> Extraction:
     if extraction is None:
         extraction = _extract(text, encoding, options, saved_picture)
 
-    if mail is None:
-        section = extraction.sections[0]
-        section.text = _with_title_heading(section.text, extraction.metadata.get("title"))
-        warning = _unread_frame_warning(message, text) if part is not None else None
-        if warning:
-            extraction.warnings.append(warning)
-    elif part is not None:
-        section = extraction.sections[0]
-        section.text = f"{mail_head_text(mail)}\n\n{section.text}".lstrip()
-        warning = mail_attachment_warning(mail)
-        if warning:
-            extraction.warnings.append(warning)
+    section = extraction.sections[0]
+    section.text = _with_title_heading(section.text, extraction.metadata.get("title"))
+    warning = _unread_frame_warning(message, text) if part is not None else None
+    if warning:
+        extraction.warnings.append(warning)
     return extraction
 
 
@@ -452,8 +451,9 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
 
     _reopen_raw_text_elements(soup, _closed_at_the_end(text) if closed is None else closed)
     cut = frozenset() if whole else _open_at_the_end(soup)
-    folded = _folded_answers(soup, cut)
-    _keep_expander_buttons(soup)
+    openers: set[int] = set()
+    folded = _folded_answers(soup, cut, openers)
+    _keep_expander_buttons(soup, openers)
     _keep_svg_labels(soup, cut)
     _decompose_all(soup.find_all(_DROP_TAGS))
     _drop_sidebars(soup)

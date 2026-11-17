@@ -3453,3 +3453,61 @@ class TestOfficeLineBreaksNestedFieldsAndMetadata:
 
         assert result.text == ("- 사업비\n  - ~~1차: 10억원~~\n  - ~~2차: 5억원~~\n  - 합계: 12억원\n\n"
                                "~~삭제 예정 첫 줄~~\n~~둘째 줄~~")
+
+
+class TestMergeFlagsWithoutAStartingCell:
+    """A cell marked as the continuation of a merge with no cell above it (the first row, below the columns a row skips) or, in
+    PPTX, no cell spanning it, continues nothing. It took the text of the missing cell, so its own text was lost without a warning
+    — and a column of such cells vanished with its text."""
+
+    @staticmethod
+    def _cell(text: str, properties: str = "") -> str:
+        return f"<w:tc><w:tcPr>{properties}</w:tcPr><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:tc>"
+
+    def _docx_table(self, *rows: str) -> str:
+        return convert(_docx_with_body("<w:tbl>" + "".join(f"<w:tr>{row}</w:tr>" for row in rows) + "</w:tbl>"), "a.docx").text
+
+    def test_docx_continuation_cell_in_the_first_row_keeps_its_text(self):
+        text = self._docx_table(self._cell("Total", "<w:vMerge/>") + self._cell("B") + self._cell("C"),
+                                self._cell("D") + self._cell("E") + self._cell("F"))
+
+        assert text == "| Total | B | C |\n| --- | --- | --- |\n| D | E | F |"
+
+    def test_docx_continuation_cell_below_skipped_columns_keeps_its_text(self):
+        text = self._docx_table('<w:trPr><w:gridBefore w:val="1"/></w:trPr>' + self._cell("B") + self._cell("C"),
+                                self._cell("Lost", '<w:vMerge w:val="continue"/>') + self._cell("E") + self._cell("F"))
+
+        assert text == "| | B | C |\n| --- | --- | --- |\n| Lost | E | F |"
+
+    def test_docx_continuation_below_a_first_row_continuation_joins_it(self):
+        text = self._docx_table(self._cell("Region", "<w:vMerge/>") + self._cell("2023"),
+                                self._cell("", "<w:vMerge/>") + self._cell("2024"))
+
+        assert text == "| Region | 2023 |\n| --- | --- |\n| Region | 2024 |"
+
+    def test_docx_continuation_under_a_wide_cell_still_continues_it(self):
+        """A cell above that spans the column from further left is a cell above: the merge is continued as before."""
+        text = self._docx_table(self._cell("A", '<w:gridSpan w:val="2"/><w:vMerge w:val="restart"/>') + self._cell("B"),
+                                self._cell("H") + self._cell("stale", "<w:vMerge/>") + self._cell("Y"))
+
+        assert text == "| A | B |\n| --- | --- |\n| H | Y |"
+
+    def test_docx_huge_column_span_is_not_walked(self):
+        text = self._docx_table(self._cell("A", '<w:gridSpan w:val="1000000000"/>'),
+                                self._cell("B", "<w:vMerge/>") + self._cell("C"))
+
+        assert "A" in text and "C" in text
+
+    @pytest.mark.parametrize("flag", ['vMerge="1"', 'hMerge="1"'])
+    def test_pptx_merge_flag_on_a_cell_no_cell_spans_keeps_its_text(self, flag):
+        data = _pptx_with_shape_xml(_raw_table([_raw_cell("가", flag) + _raw_cell("나"), _raw_cell("다") + _raw_cell("라")]))
+
+        assert "| 가 | 나 |\n| --- | --- |\n| 다 | 라 |" in convert(data, "a.pptx").text
+
+    def test_pptx_cell_covered_by_a_span_is_still_skipped(self):
+        data = _pptx_with_shape_xml(_raw_table([_raw_cell("가", 'rowSpan="2"') + _raw_cell("나"),
+                                                _raw_cell("stale", 'vMerge="1"') + _raw_cell("라")]))
+
+        text = convert(data, "a.pptx").text
+
+        assert "| 가 | 나 |\n| --- | --- |\n| 가 | 라 |" in text and "stale" not in text

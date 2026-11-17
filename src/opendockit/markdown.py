@@ -772,6 +772,10 @@ class TableGrid:
             return self.place_next(row, text, row_span=row_span, col_span=col_span)
         return self.place(row, col, text, row_span=row_span, col_span=col_span)
 
+    def covers(self, row: int, col: int) -> bool:
+        """Whether a placed cell, or the span of one, already fills this spot."""
+        return (row, col) in self._cells
+
     def reach(self, row: int, col: int) -> None:
         """Report, without text, that the table extends to this spot — a cell covered by a span (a DOCX/PPTX vMerge cell, etc.). A
         table whose last row is entirely covered by vertical spans from the cells above does not lose that row either

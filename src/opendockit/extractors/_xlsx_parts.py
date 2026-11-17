@@ -210,8 +210,13 @@ def _xlsx_comments(archive: zipfile.ZipFile, names: set[str], sheet_path: str,
 
 def _cell_address(reference: str) -> tuple[int, int] | None:
     """`E5` → (5, 5). A range (`E5:F6`) gives its top-left cell. None if it is not an address."""
+    cell = reference.split(":")[0].replace("$", "").strip().upper()
+    if not cell:
+        # openpyxl's coordinate_to_tuple raises UnboundLocalError on an empty reference: one comment with `ref=""` rejected the
+        # whole workbook (Pinned by: test_audit_spreadsheet_fixes.py::TestCommentsWithoutAReference)
+        return None
     try:
-        row, column = coordinate_to_tuple(reference.split(":")[0].replace("$", "").strip().upper())
+        row, column = coordinate_to_tuple(cell)
     except (ValueError, TypeError, IndexError):
         return None
     return row, column

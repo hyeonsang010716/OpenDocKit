@@ -715,3 +715,63 @@ class TestSignaturesAndTnefAttachments:
 
         assert result.warnings == ["1 Outlook-only attachment(s) (winmail.dat) cannot be read. Attachments or formatted body text "
                                    "inside may be missing."]
+
+
+def _related_mail(*parts: str, top: str = "multipart/related") -> bytes:
+    """A sent mail whose top level is `top` (Outlook and Apple Mail send a mail with pictures in its body as multipart/related),
+    holding `parts` and a picture the HTML refers to by cid."""
+    picture = ("Content-Type: image/png\nContent-ID: <logo@x>\nContent-Transfer-Encoding: base64\n\n"
+               + base64.b64encode(builder.png_bytes()).decode())
+    body = "".join(f"--R\n{part}\n" for part in (*parts, picture))
+    return (f'From: kim@corp.co.kr\nTo: lee@corp.co.kr\nSubject: Planning\nMIME-Version: 1.0\nContent-Type: {top}; boundary="R"\n\n'
+            f"{body}--R--\n").encode()
+
+
+_INVITATION_BRANCHES = ('Content-Type: multipart/alternative; boundary="A"\n\n'
+                        "--A\nContent-Type: text/plain; charset=utf-8\n\nThe planning meeting is at 3 pm.\n"
+                        '--A\nContent-Type: text/html; charset=utf-8\n\n<p>Please join the planning meeting.</p><img src="cid:logo@x">\n'
+                        "--A\nContent-Type: text/calendar; charset=utf-8; method=REQUEST\n\n"
+                        "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:Planning\nDTSTART:20240307T060000Z\nLOCATION:Room 1\n"
+                        "END:VEVENT\nEND:VCALENDAR\n--A--")
+
+
+class TestMailWithRelatedPartsAtTheTop:
+    """A sent mail whose top level is multipart/related is shaped like a saved page (MHTML), and only its first HTML body part
+    was read: what the same mail kept as multipart/mixed — a meeting invitation, a forwarded mail, the plain-text body of a
+    picture-only HTML — was lost without a warning."""
+
+    def test_meeting_invitation_is_read_as_in_a_mixed_mail(self):
+        related = convert(_related_mail(_INVITATION_BRANCHES), "a.eml", ConvertOptions(extract_images=False))
+        mixed = convert(_related_mail(_INVITATION_BRANCHES, top="multipart/mixed"), "a.eml", ConvertOptions(extract_images=False))
+
+        assert related.text == mixed.text
+        assert related.text.startswith("Subject: Planning\nFrom: kim@corp.co.kr\nTo: lee@corp.co.kr\n\n"
+                                       "Please join the planning meeting.")
+        assert "- Title: Planning" in related.text and "- Location: Room 1" in related.text
+
+    def test_forwarded_mail_is_read(self):
+        forwarded = ("Content-Type: message/rfc822\n\nFrom: boss@corp.co.kr\nSubject: Original\nContent-Type: text/plain\n\n"
+                     "The original body.")
+        html = 'Content-Type: text/html; charset=utf-8\n\n<p>See the mail below.</p><img src="cid:logo@x">'
+
+        text = convert(_related_mail(html, forwarded), "a.eml", ConvertOptions(extract_images=False)).text
+
+        assert text.endswith("See the mail below.\n\n## Forwarded message\n\nSubject: Original\nFrom: boss@corp.co.kr\n\n"
+                             "The original body.")
+
+    def test_plain_body_of_a_picture_only_html_is_read(self):
+        branches = ('Content-Type: multipart/alternative; boundary="A"\n\n'
+                    "--A\nContent-Type: text/plain; charset=utf-8\n\nThe sale ends Friday.\n"
+                    '--A\nContent-Type: text/html; charset=utf-8\n\n<img src="cid:logo@x">\n--A--')
+
+        text = convert(_related_mail(branches), "a.eml", ConvertOptions(extract_images=False)).text
+
+        assert text == "Subject: Planning\nFrom: kim@corp.co.kr\nTo: lee@corp.co.kr\n\nThe sale ends Friday."
+
+    def test_picture_in_the_body_is_still_read(self):
+        html = 'Content-Type: text/html; charset=utf-8\n\n<p>Our new logo:</p><img src="cid:logo@x" alt="logo">'
+
+        result = convert(_related_mail(html), "a.eml")
+
+        assert result.text.startswith("Subject: Planning\nFrom: kim@corp.co.kr\nTo: lee@corp.co.kr\n\nOur new logo:")
+        assert len(result.images) == 1

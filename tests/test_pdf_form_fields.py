@@ -157,3 +157,28 @@ class TestFreeTextAnnotations:
         text = convert(_free_text_pdf([_free_text(b"125 699 325 715", b"Secret", flags=flags)]), "a.pdf").sections[0].text
 
         assert "Secret" not in text
+
+
+class TestFieldNames:
+    """`/T` and `/TU` are not inherited. The `/TU` of a field that only groups other fields was taken for each field under it, so
+    every value got the same name ('Applicant details: Kim', 'Applicant details: 010-1234')."""
+
+    @staticmethod
+    def _text_widget(parent: int, y: int, entries: bytes) -> bytes:
+        return b"<< /Type /Annot /Subtype /Widget /Parent %d 0 R /FT /Tx %s /Rect [72 %d 300 %d] >>" % (parent, entries, y, y + 20)
+
+    def test_tooltip_of_a_group_does_not_name_the_fields_under_it(self):
+        data = _form_pdf({6: b"<< /T (applicant) /TU (Applicant details) /Kids [7 0 R 8 0 R] >>"},
+                         {7: self._text_widget(6, 600, b"/T (name) /V (Kim)"),
+                          8: self._text_widget(6, 570, b"/T (phone) /TU (Phone number) /V (010-1234)")})
+
+        text = convert(data, "a.pdf").sections[0].text
+
+        assert text.endswith("name: Kim\nPhone number: 010-1234")
+        assert "Applicant details" not in text
+
+    def test_widget_without_a_name_takes_the_tooltip_of_its_field(self):
+        data = _form_pdf({6: b"<< /FT /Tx /T (name) /TU (Full name) /V (Kim) /Kids [7 0 R] >>"},
+                         {7: b"<< /Type /Annot /Subtype /Widget /Parent 6 0 R /Rect [72 600 300 620] >>"})
+
+        assert convert(data, "a.pdf").sections[0].text.endswith("Full name: Kim")

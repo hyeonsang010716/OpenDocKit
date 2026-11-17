@@ -6,6 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+
+- **PDF shaded tables**: in a striped table, the cells beside a cell merged over two rows with its text centred on them
+  no longer run into one cell (`South Lee`).
+- **PDF forms**: a field is named by its own `/TU` or `/T`. The tooltip of a field grouping others named every field
+  under it, so their values could not be told apart.
+- **HTML**: an element with the role `main` or `article` is the main content, as `<main>` is: the footnotes, topics
+  and sidebars of Sphinx and Read the Docs pages (asides since docutils 0.18) are no longer removed as side menus. A
+  plain `<button>` question whose folded answer is kept is kept too, instead of leaving the answer without it.
+- **Mail**: a sent mail with `multipart/related` at the top (Outlook and Apple Mail, with pictures in the body) is read
+  as mail, so its meeting invitation, forwarded mails and the plain body of a picture-only HTML are no longer lost.
+- **DOCX / PPTX**: a cell marked as continuing a merge that has no cell to continue (a `w:vMerge` in the first row,
+  a PPTX `vMerge`/`hMerge` cell no cell spans) keeps its text.
+- **XLSX**: a cell without an `r` address that holds a malformed value, and a comment with an empty `ref`, no longer
+  reject the whole workbook. A value under a malformed format index is checked like any other (`1E400` was `inf`).
+  Weekday-only formats (`aaa`) show the day, as `dddd` and XLS do, not the date and time.
+
 ## [0.3.13] - 2026-11-17
 
 Titles for the two MCP tools, and the Claude Code plugin. The sample outputs in `examples/` are unchanged.

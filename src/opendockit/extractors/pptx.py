@@ -1111,10 +1111,13 @@ def _place_pptx_cells(table: object, grid: TableGrid, inline: _Inline | None, bu
         row = _Row(tr, table.rows)
         for col_index, cell in enumerate(row.cells):
             element = cell._tc
-            if element.get("hMerge") in _TRUE or element.get("vMerge") in _TRUE:
+            if (element.get("hMerge") in _TRUE or element.get("vMerge") in _TRUE) and grid.covers(row_index, col_index):
                 # A covered cell is inside the table too — the last row is not removed even when all of it is covered
                 grid.reach(row_index, col_index)
                 continue
+            # A cell marked as merged that no cell above or to its left spans (in the first row, past a span cut short) covers
+            # nothing and is read as an ordinary cell: skipped, its text was lost without a warning
+            # (Pinned by: test_office.py::TestMergeFlagsWithoutAStartingCell).
             text = "\n".join(_cell_paragraph_text(paragraph, inline) for paragraph in cell.text_frame.paragraphs)
             row_span, col_span = _span(element, "rowSpan"), _span(element, "gridSpan")
             row_span, col_span = grid.place(row_index, col_index, text, row_span=row_span, col_span=col_span)

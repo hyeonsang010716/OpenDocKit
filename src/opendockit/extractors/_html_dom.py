@@ -25,6 +25,7 @@ from opendockit.extractors._html_base import (
     _PARSER_CALLERS,
     _UNCHECKED,
     _content_holders,
+    _is_main_content,
     _list_number,
     _Places,
     _replace,
@@ -175,8 +176,8 @@ _MARKDOWN_HEADING = re.compile(r"^#{1,6} ", re.MULTILINE)
 
 
 def _drop_sidebars(soup: BeautifulSoup) -> None:
-    """Removes `<aside>` (side menus, ads, related posts) outside the main content (`_MAIN_CONTENT_TAGS`). An aside inside the
-    main content is kept.
+    """Removes `<aside>` (side menus, ads, related posts) outside the main content (`_is_main_content`: main, article, or an
+    element with the ARIA role main or article). An aside inside the main content is kept.
 
     Removing every aside made the warning/note boxes (`<aside class="warning">`) in the body of technical documents and notices
     vanish without a warning (Pinned by: test_core_html_blocks.py::TestAsideInsideTheMainContent). Deliberate: an aside used as
@@ -185,7 +186,10 @@ def _drop_sidebars(soup: BeautifulSoup) -> None:
     # Decided for all of them in one walk and removed together (`_lying_inside`, `_decompose_all`)
     # (Pinned by: test_audit_html_text.py::TestManyElementsThatLookUpwardsUnderDeepNesting)
     asides = soup.find_all("aside")
-    kept = _lying_inside(asides, _MAIN_CONTENT_TAGS)
+    if not asides:
+        return
+    landmarks = {id(tag) for tag in soup.find_all(_is_main_content)}  # `role="main"` / `role="article"` too
+    kept = _lying_inside(asides, _MAIN_CONTENT_TAGS, marked=landmarks)
     _decompose_all([aside for aside in asides if id(aside) not in kept])
 
 
@@ -504,10 +508,11 @@ def _flatten_nested_headings(soup: BeautifulSoup) -> None:
             _move_after(outer, [heading, *heading.next_siblings])
 
 
-def _lying_inside(nodes: list[PageElement], names: Container[str], inside: dict[int, bool] | None = None) -> set[int]:
-    """`id`s of those of `nodes` that lie inside an element named in `names` (the same answer as `find_parent(names)` for each,
-    as the tree is now). Each node walks upwards and stops at an element already visited, so it is linear time. Calls that ask
-    about the same tree and `names` may share `inside` (what was learned on the way up).
+def _lying_inside(nodes: list[PageElement], names: Container[str], inside: dict[int, bool] | None = None,
+                  marked: Container[int] = frozenset()) -> set[int]:
+    """`id`s of those of `nodes` that lie inside an element named in `names` or whose `id` is in `marked` (the same answer as
+    `find_parent(names)` for each, as the tree is now). Each node walks upwards and stops at an element already visited, so it is
+    linear time. Calls that ask about the same tree and `names` may share `inside` (what was learned on the way up).
 
     `find_parent` walks to the root for every node that has no such ancestor: 8,000 headings under 8,000 unclosed `<div>`
     (117KB) took 31 seconds (Pinned by: test_audit_html_text.py::TestManyHeadingsUnderDeepNesting).
@@ -519,10 +524,10 @@ def _lying_inside(nodes: list[PageElement], names: Container[str], inside: dict[
     for node in nodes:
         path: list[Tag] = []
         parent = node.parent
-        while parent is not None and parent.name not in names and id(parent) not in inside:
+        while parent is not None and parent.name not in names and id(parent) not in marked and id(parent) not in inside:
             path.append(parent)
             parent = parent.parent
-        lies_inside = parent is not None and (parent.name in names or inside[id(parent)])
+        lies_inside = parent is not None and (parent.name in names or id(parent) in marked or inside[id(parent)])
         inside.update((id(passed), lies_inside) for passed in path)
         if lies_inside:
             found.add(id(node))
@@ -833,16 +838,20 @@ def _move_after(anchor: Tag, nodes: list) -> None:
         anchor = node
 
 
-def _keep_expander_buttons(soup: BeautifulSoup) -> None:
-    """Keeps the text of expander buttons: buttons inside a heading (h1–h6) and buttons with `aria-expanded`/`aria-controls`.
-    The questions of an accordion are there. One inside a heading becomes heading text; any other becomes a line (block). The
-    remaining buttons (copy, search, close) are removed by `_DROP_TAGS`
-    (Pinned by: test_text_html.py::TestCollapsedQuestionsAndAnswers).
+def _keep_expander_buttons(soup: BeautifulSoup, openers: Container[int] = frozenset()) -> None:
+    """Keeps the text of expander buttons: buttons inside a heading (h1–h6), buttons with `aria-expanded`/`aria-controls`, and
+    the buttons that open a folded answer that is kept (`openers`, from `_folded_answers`). The questions of an accordion are
+    there. One inside a heading becomes heading text; any other becomes a line (block). The remaining buttons (copy, search,
+    close) are removed by `_DROP_TAGS`
+    (Pinned by: test_text_html.py::TestCollapsedQuestionsAndAnswers). A plain `<button>` question kept its answer and was itself
+    removed, leaving answers without their questions
+    (Pinned by: test_text_html.py::TestCollapsedQuestionsAndAnswers::test_plain_button_whose_answer_is_kept_is_kept).
     """
     buttons = soup.find_all("button")
     in_headings = _lying_inside(buttons, _HEADINGS)
     for button in buttons:
-        if id(button) not in in_headings and (button.has_attr("aria-expanded") or button.has_attr("aria-controls")):
+        if id(button) not in in_headings and (button.has_attr("aria-expanded") or button.has_attr("aria-controls")
+                                              or id(button) in openers):
             button.name = "div"
     _unwrap_all([button for button in buttons if id(button) in in_headings])
 
@@ -873,7 +882,7 @@ def _unwrap_all(tags: list[Tag]) -> None:
             parent.insert(index, child)
 
 
-def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> set[int]:
+def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset(), openers: set[int] | None = None) -> set[int]:
     """The 'folded answers' (`id`s) among hidden elements that are not to be removed. A saved FAQ keeps its answers folded with
     inline `display:none` and unfolds one when its question is clicked.
 
@@ -882,7 +891,8 @@ def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> s
     its immediately preceding sibling is an element that unfolds it (a link that goes nowhere else, a button, a heading, a dt,
     or an element wrapping just one of those), its name/role is not a menu, modal or tooltip, and less than half of its text
     is links (a bundle of links is a menu). Anything inside a hidden element is removed together with the outer one. An
-    element cut at the end of the front part (`cut`, `_open_at_the_end`) is not kept, since its link ratio is unknown.
+    element cut at the end of the front part (`cut`, `_open_at_the_end`) is not kept, since its link ratio is unknown. The
+    `id`s of the buttons that open a kept answer are added to `openers` (`_keep_expander_buttons` keeps them).
     """
     folded: set[int] = set()
     # Blocks inside a hidden block that was measured and is not kept: they go with it (`_drop_hidden`) and are not measured.
@@ -895,18 +905,23 @@ def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> s
             continue
         if id(tag) in cut or not _FOLDED_STYLE.search(str(tag.get("style", ""))) or _has_hidden(tag) or tag.get("aria-hidden") == "true":
             continue
-        opener = tag.find_previous_sibling(True)
-        if opener is None or not _is_opener(opener) or _is_overlay(tag):
+        sibling = tag.find_previous_sibling(True)
+        opener = _opener(sibling) if sibling is not None else None
+        if opener is None or _is_overlay(tag):
             continue
         length = _solid_length(tag)
         if length and 2 * sum(_solid_length(link) for link in tag.find_all("a")) < length:
             folded.add(id(tag))
+            if openers is not None and opener.name == "button":
+                openers.add(id(opener))
         elif _hidden_by_style(tag):
             removed.update(id(inner) for inner in tag.find_all(_FOLDED_TAGS))
     return folded
 
 
-def _is_opener(tag: Tag) -> bool:
+def _opener(tag: Tag) -> Tag | None:
+    """The element of `tag` that unfolds what follows it (a link that goes nowhere else, a button, a heading, a dt, a summary),
+    or None."""
     # A wrapper around a single element is peeled off: <p><a href="#">질문</a></p>, <div class="q"><button>…</button></div>
     for _ in range(3):
         children = [child for child in tag.contents if isinstance(child, Tag) or str(child).strip()]
@@ -914,8 +929,8 @@ def _is_opener(tag: Tag) -> bool:
             break
         tag = children[0]
     if tag.name == "a":
-        return _STAYING_LINK.match(str(tag.get("href", ""))) is not None
-    return tag.name in _OPENER_TAGS and bool(tag.get_text(strip=True))
+        return tag if _STAYING_LINK.match(str(tag.get("href", ""))) is not None else None
+    return tag if tag.name in _OPENER_TAGS and tag.get_text(strip=True) else None
 
 
 def _is_overlay(tag: Tag) -> bool:

@@ -109,15 +109,7 @@ def _tolerant_parse_cell(parser: object, element: object) -> dict:
         return _parse_cell(parser, element)
     counter = parser.col_counter
     try:
-        cell = _parse_cell(parser, element)
-        value = cell["value"]
-        if isinstance(value, float) and not math.isfinite(value):
-            raise ValueError  # `1E+400` becomes infinity: it came out as 'inf', or a date format rejected the whole document with OverflowError
-        if isinstance(value, int) and not isinstance(value, bool) and abs(value) > sys.float_info.max:
-            # Digits without `.` or `E` are read as an int, so 400 nines passed the check above and every number format
-            # (General too) rejected the whole document when turning it into a float
-            # (Pinned by: test_audit_spreadsheet_fixes.py::TestIntegerTooLargeForAFloat).
-            raise ValueError
+        cell = _checked(_parse_cell(parser, element))
     except (TranslatorError, TokenizerError):
         # A formula openpyxl cannot read or cannot move to this cell (a shared formula whose reference moves off the sheet).
         # It rejected the whole workbook; the cell is left blank, as when values are read (`_unresolved_formulas`)
@@ -160,6 +152,19 @@ def _tolerant_parse_cell(parser: object, element: object) -> dict:
     return cell
 
 
+def _checked(cell: dict) -> dict:
+    """The cell openpyxl parsed, or ValueError when its number cannot be shown."""
+    value = cell["value"]
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError  # `1E+400` becomes infinity: it came out as 'inf', or a date format rejected the whole document with OverflowError
+    if isinstance(value, int) and not isinstance(value, bool) and abs(value) > sys.float_info.max:
+        # Digits without `.` or `E` are read as an int, so 400 nines passed the check above and every number format
+        # (General too) rejected the whole document when turning it into a float
+        # (Pinned by: test_audit_spreadsheet_fixes.py::TestIntegerTooLargeForAFloat).
+        raise ValueError
+    return cell
+
+
 def _raw_cell(parser: object, element: object) -> dict:
     """A cell openpyxl could not interpret: if only its cell-format index is non-numeric, drop that and interpret it again. Otherwise
     use the text exactly as written in the file (the booleans 'true'/'false' become booleans; a shared-string index has no text to
@@ -169,12 +174,19 @@ def _raw_cell(parser: object, element: object) -> dict:
         stripped.attrib.pop("s", None)
         counter = parser.col_counter
         try:
-            return {**_parse_cell(parser, stripped), "malformed": 0}
+            # The value is checked as on the first reading: with a malformed format index too, '1E400' came out as 'inf' and 400
+            # digits rejected the whole workbook (Pinned by: test_audit_spreadsheet_fixes.py::TestMalformedFormatAndValue)
+            return {**_checked(_parse_cell(parser, stripped)), "malformed": 0}
         except (ValueError, IndexError, TypeError, OverflowError):
             parser.col_counter = counter
 
+    reference = element.get("r")
     try:
-        row, column = coordinate_to_tuple(element.get("r") or "")
+        if not reference:
+            # `r` may be left out. openpyxl's coordinate_to_tuple raises UnboundLocalError on an empty reference, which rejected
+            # the whole workbook (Pinned by: test_audit_spreadsheet_fixes.py::TestCellsWithoutAReference)
+            raise ValueError
+        row, column = coordinate_to_tuple(reference)
         parser.col_counter = column
     except (ValueError, TypeError, IndexError):
         parser.col_counter += 1
