@@ -1,0 +1,14 @@
+{
+  "name": "opendockit",
+  "owner": {
+    "name": "hyeonsang010716"
+  },
+  "description": "OpenDocKit for Claude Code: read local documents as Markdown through its MCP server.",
+  "plugins": [
+    {
+      "name": "opendockit",
+      "source": "./claude-plugin",
+      "description": "Read local documents as Markdown: PDF, Word, PowerPoint, Excel, HWP/HWPX, OpenDocument, RTF, EPUB, HTML and email, whole or by page, slide or sheet."
+    }
+  ]
+}

@@ -180,6 +180,18 @@ Then ask Hermes about a file on your machine in a new session. It reads a long d
 nothing anywhere and needs no API key. What the plugin runs, and how to limit the folders it may read:
 [hermes-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/hermes-plugin/README.md).
 
+### Claude Code
+
+Install the plugin from this repository, which is its marketplace:
+
+```text
+/plugin install opendockit --marketplace hyeonsang010716/OpenDocKit
+```
+
+Then ask Claude about a document on your machine. It reads Word, PowerPoint, Excel and HWP/HWPX files, which its Read
+tool cannot open, and long PDFs by page. What the plugin runs, and how to limit the folders it may read:
+[claude-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/claude-plugin/README.md).
+
 ### Dify
 
 OpenDocKit is on the [Dify Marketplace](https://marketplace.dify.ai/plugin/hyeonsang010716/opendockit), reviewed by the Dify maintainers. In your Dify, open **Plugins**, find
@@ -264,7 +276,7 @@ without a vision model — so you can judge the output before installing anythin
 | [Options](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`, exceptions and error codes |
 | [Images](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | Extraction, filtering, vision models, custom describers |
 | [Running on a server](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`, resource limits, the character budget |
-| [Integrations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, the MCP server, Hermes Agent, Dify and Open WebUI |
+| [Integrations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, the MCP server, Hermes Agent, Claude Code, Dify and Open WebUI |
 | [Integration guide](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | What an upload UI should tell its users |
 | [Design](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | Why it is built this way, and how it was verified |
 | [Limitations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | Known gaps, stated plainly |

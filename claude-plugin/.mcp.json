@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "opendockit": {
+      "command": "uvx",
+      "args": [
+        "--python",
+        ">=3.12",
+        "--exclude-newer",
+        "2026-11-17T05:44:00Z",
+        "--from",
+        "opendockit[mcp]==0.3.12",
+        "opendockit-mcp"
+      ]
+    }
+  }
+}

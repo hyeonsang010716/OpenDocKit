@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Claude Code plugin** (`claude-plugin/`, listed by `.claude-plugin/marketplace.json`): the MCP server and a skill
+  for reading documents the Read tool cannot open, installed with
+  `/plugin install opendockit --marketplace hyeonsang010716/OpenDocKit`. It starts OpenDocKit 0.3.12, the release the
+  Hermes plugin pins. It is not part of the Python package.
+
 ## [0.3.12] - 2026-11-17
 
 The Open WebUI document loader, and PDF footnotes under a rule typed as a line of dashes. The sample outputs in

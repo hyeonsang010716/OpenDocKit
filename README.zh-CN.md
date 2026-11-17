@@ -178,6 +178,17 @@ hermes plugins enable opendockit
 之后在新会话中向 Hermes 询问本机上的文件即可。长文档按页、幻灯片或工作表分段读取，文档不会发送到任何地方，也不需要 API
 密钥。插件在本机运行什么、如何限制它可读取的文件夹，见 [hermes-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/hermes-plugin/README.md)。
 
+### Claude Code
+
+本仓库就是该插件的插件市场，一行命令即可安装：
+
+```text
+/plugin install opendockit --marketplace hyeonsang010716/OpenDocKit
+```
+
+然后向 Claude 询问你电脑上的文档。它能读取 Read 工具打不开的 Word、PowerPoint、Excel 和 HWP/HWPX 文件，并按页读取较长的 PDF。插件运行的内容以及如何限制可读取的文件夹见
+[claude-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/claude-plugin/README.md)。
+
 ### Dify
 
 OpenDocKit 已上架 [Dify Marketplace](https://marketplace.dify.ai/plugin/hyeonsang010716/opendockit)，经过 Dify 维护者审核。在你的 Dify 中打开 **Plugins**，在 Marketplace 中找到
@@ -260,7 +271,7 @@ opendockit-open-webui --host 0.0.0.0     # then in Open WebUI: Documents → Ext
 | [选项](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`、异常和错误码 |
 | [图片](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | 提取、筛选、视觉模型、自定义描述器 |
 | [在服务器上运行](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`、资源限制、字符预算 |
-| [集成](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain、LlamaIndex、MCP 服务器、Hermes Agent、Dify 和 Open WebUI |
+| [集成](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain、LlamaIndex、MCP 服务器、Hermes Agent、Claude Code、Dify 和 Open WebUI |
 | [集成指南](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | 上传界面应该告诉用户什么 |
 | [设计](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | 为什么这样设计，以及如何验证 |
 | [局限](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | 已知的不足，如实说明 |
