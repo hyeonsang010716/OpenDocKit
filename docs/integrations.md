@@ -1,15 +1,16 @@
 # Integrations
 
-OpenDocKit's result can be handed straight to LangChain, to LlamaIndex, or to an agent through the Model Context Protocol.
+OpenDocKit's result can be handed straight to LangChain, to LlamaIndex, to Open WebUI, or to an agent through the Model Context Protocol.
 Each integration is an optional extra: none of them is installed, or imported, unless you ask for it.
 
 ```bash
 pip install "opendockit[langchain]"     # OpenDocKitLoader, OpenDocKitParser
 pip install "opendockit[llamaindex]"    # OpenDocKitReader
 pip install "opendockit[mcp]"           # the opendockit-mcp server
+pip install "opendockit[open-webui]"    # the opendockit-open-webui document loader
 ```
 
-All three cut a document the same way and use the same metadata, so an index built with one cites the same pages as an
+They all cut a document the same way and use the same metadata, so an index built with one cites the same pages as an
 index built with another.
 
 ## One piece per file, or per page / slide / sheet
@@ -149,5 +150,60 @@ Each file is converted in a worker process of its own (`IsolatedConverter`), sin
 runtime. Dify does not accept `.hwp` or `.hwpx` uploads into a knowledge base yet, so the plugin serves Workflows and
 Chatflows. It is on the [Dify Marketplace](https://marketplace.dify.ai/plugin/hyeonsang010716/opendockit): in Dify, open **Plugins** and install OpenDocKit from the Marketplace. Its
 [README](../dify-plugin/README.md) is the page shown there.
+
+## Open WebUI document loader
+
+`opendockit-open-webui` is a document loader for [Open WebUI](https://github.com/open-webui/open-webui): its
+**External** content extraction engine sends every uploaded file to it, and indexes what comes back — one document per
+page, slide or sheet with the metadata above, a PDF page also with `page`, so a citation says "page 3" and opens the
+PDF there. Open WebUI's own loaders read no HWP or HWPX, and its slim image reads only text formats without an
+external one.
+
+```bash
+pip install "opendockit[open-webui]"
+export OPENDOCKIT_OPEN_WEBUI_API_KEY=$(openssl rand -hex 32)
+opendockit-open-webui                  # http://127.0.0.1:8765; --host 0.0.0.0 to be reached from a container
+```
+
+In Open WebUI, **Admin Settings → Documents**: set **Content Extraction Engine** to **External**, the URL to the
+loader (`http://host.docker.internal:8765` when Open WebUI runs in Docker on the same machine) and the API key to the
+same key. Open WebUI calls a loader only when a key is set, and falls back to its own loaders without a word when it
+is not. The same settings as environment variables of Open WebUI:
+
+```bash
+CONTENT_EXTRACTION_ENGINE=external
+EXTERNAL_DOCUMENT_LOADER_URL=http://opendockit:8765
+EXTERNAL_DOCUMENT_LOADER_API_KEY=<the same key>
+CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES=       # empty: pictures and videos are not sent to the loader
+```
+
+Set `CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES` to empty, not just leave it out: unset, Open WebUI sends pictures
+and videos to an External engine, and a video upload then fails ("This binary file format is not supported.") where
+Open WebUI's own engines keep it for the model. Set empty, both are handled as with its own engines (checked on
+v0.13.3). In the settings page an unset value looks the same as an empty one, so set it in the environment.
+
+Next to Open WebUI in Docker Compose, with nothing to build:
+
+```yaml
+  opendockit:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    command: uvx --from "opendockit[open-webui]>=0.3.12" opendockit-open-webui --host 0.0.0.0
+    environment:
+      OPENDOCKIT_OPEN_WEBUI_API_KEY: ${OPENDOCKIT_OPEN_WEBUI_API_KEY}
+```
+
+The first release with the loader is 0.3.12; pin the version you have tested (`==`) in production.
+
+- Each file is converted offline in a worker process of its own, ended after 2 minutes or (on Linux) at 2 GB; `--workers`
+  files at once (2), `--queue` more waiting (16), and a file past that is refused with 503 at once.
+- Pictures keep their placeholders, alt text included; nothing is sent to a vision model, so a scanned PDF fails with
+  "No text could be extracted from this file." Legacy `.doc` and `.ppt` need LibreOffice in the loader's image.
+- Every failure is a fixed sentence Open WebUI shows to the user (`The file is too large (maximum 50MB).`, `The Office
+  document is password-protected. …`), and the loader's log names no file.
+- A file over 50 MB is refused (`--max-file-mb`; every file waiting in the queue is held in memory), and so is a document
+  over 10,000,000 characters (`--max-chars`, `0` for no limit) — refused, not cut, since Open WebUI has no way to show
+  that only its beginning was indexed. A 237-page court opinion is 500,000 characters and converts in about 12 seconds.
+- The key comes from the environment only, never the command line, and is at least 16 characters. The loader listens on
+  `127.0.0.1` unless told otherwise; put it on a network only Open WebUI can reach.
 
 Design notes: [decisions/integrations.md](decisions/integrations.md).

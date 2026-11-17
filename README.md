@@ -74,6 +74,7 @@ pip install "opendockit[heic]"        # + HEIC/HEIF images (pulls in GPL/LGPL-li
 pip install "opendockit[langchain]"   # + LangChain loader
 pip install "opendockit[llamaindex]"  # + LlamaIndex reader
 pip install "opendockit[mcp]"         # + MCP server for agents
+pip install "opendockit[open-webui]"  # + document loader for Open WebUI
 ```
 
 Requires Python 3.12 or newer on Linux or macOS. Windows is not supported yet for HTML, email and EPUB
@@ -193,6 +194,22 @@ Dify reads no HWP or HWPX by itself. The file is converted inside your Dify, in 
 limits, with no API key and nothing sent anywhere else. Outputs and limits:
 [dify-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/dify-plugin/README.md).
 
+### Open WebUI
+
+`opendockit-open-webui` is a document loader for Open WebUI's **External** content extraction engine. Open WebUI sends
+it every uploaded file and indexes one document per page, slide or sheet; a citation from a PDF names and opens the
+right page. Open WebUI reads no HWP or HWPX by itself.
+
+```bash
+pip install "opendockit[open-webui]"
+export OPENDOCKIT_OPEN_WEBUI_API_KEY=$(openssl rand -hex 32)
+opendockit-open-webui --host 0.0.0.0     # then in Open WebUI: Documents → External, this URL and the same key
+```
+
+In **Admin Settings → Documents**, set **Content Extraction Engine** to **External**, the loader's URL and the same API
+key. Each file is converted offline in a worker process with memory and time limits. Docker Compose, limits and errors:
+[docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md#open-webui-document-loader).
+
 ## Supported formats
 
 | Format | Sections | Highlights |
@@ -247,7 +264,7 @@ without a vision model — so you can judge the output before installing anythin
 | [Options](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`, exceptions and error codes |
 | [Images](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | Extraction, filtering, vision models, custom describers |
 | [Running on a server](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`, resource limits, the character budget |
-| [Integrations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, the MCP server, Hermes Agent and Dify |
+| [Integrations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, the MCP server, Hermes Agent, Dify and Open WebUI |
 | [Integration guide](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | What an upload UI should tell its users |
 | [Design](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | Why it is built this way, and how it was verified |
 | [Limitations](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | Known gaps, stated plainly |

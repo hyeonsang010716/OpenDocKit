@@ -75,6 +75,7 @@ pip install "opendockit[heic]"        # + HEIC/HEIF 이미지 (GPL/LGPL 라이�
 pip install "opendockit[langchain]"   # + LangChain 로더
 pip install "opendockit[llamaindex]"  # + LlamaIndex 리더
 pip install "opendockit[mcp]"         # + 에이전트용 MCP 서버
+pip install "opendockit[open-webui]"  # + Open WebUI용 문서 로더
 ```
 
 Linux 또는 macOS에서 Python 3.12 이상이 필요합니다. Windows에서는 HTML, 이메일, EPUB를 아직 지원하지 않습니다
@@ -196,6 +197,22 @@ Dify는 HWP와 HWPX를 직접 읽지 못합니다. 파일은 내 Dify 안에서,
 키가 필요 없고 다른 곳으로 아무것도 보내지 않습니다. 출력과 한계는
 [dify-plugin/README.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/dify-plugin/README.md)에 있습니다.
 
+### Open WebUI
+
+`opendockit-open-webui`는 Open WebUI의 **External** 콘텐츠 추출 엔진에 붙이는 문서 로더입니다. Open WebUI가 업로드된
+파일을 모두 이 로더로 보내고, 페이지·슬라이드·시트마다 문서 하나씩을 색인합니다. PDF에서 온 인용은 해당 페이지를 표시하고
+그 페이지를 엽니다. Open WebUI는 HWP와 HWPX를 직접 읽지 못합니다.
+
+```bash
+pip install "opendockit[open-webui]"
+export OPENDOCKIT_OPEN_WEBUI_API_KEY=$(openssl rand -hex 32)
+opendockit-open-webui --host 0.0.0.0     # then in Open WebUI: Documents → External, this URL and the same key
+```
+
+**Admin Settings → Documents**에서 **Content Extraction Engine**을 **External**로 바꾸고 로더의 URL과 같은 API 키를
+넣으세요. 파일은 메모리와 시간 제한이 걸린 작업 프로세스에서 오프라인으로 변환됩니다. Docker Compose 설정, 제한과 오류는
+[docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md#open-webui-document-loader)에 있습니다.
+
 ## 지원 형식
 
 | 형식 | 섹션 단위 | 주요 기능 |
@@ -254,7 +271,7 @@ OpenDocKit이 그 문서에서 만들어 낸 Markdown이 비전 모델을 쓴 �
 | [옵션](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`, 예외, 오류 코드 |
 | [이미지](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | 추출, 필터링, 비전 모델, 직접 만드는 설명기 |
 | [서버에서 실행하기](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`, 자원 제한, 글자 수 예산 |
-| [연동](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, MCP 서버, Hermes Agent, Dify |
+| [연동](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain, LlamaIndex, MCP 서버, Hermes Agent, Dify, Open WebUI |
 | [연동 가이드](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | 업로드 화면에서 사용자에게 알려야 할 것 |
 | [설계](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | 왜 이렇게 만들었고 어떻게 검증했는지 |
 | [한계](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | 알려진 한계를 있는 그대로 |
