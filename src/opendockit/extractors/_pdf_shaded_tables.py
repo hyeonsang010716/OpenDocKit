@@ -3,7 +3,7 @@ table grown from shaded bands where no rule is drawn.
 """
 
 from bisect import bisect_left, bisect_right
-from collections.abc import Callable
+from collections.abc import Callable, Container
 from itertools import pairwise
 import math
 import statistics
@@ -920,9 +920,10 @@ def _grown_shaded_table(page: object, table: object, tables: list[object], rules
     columns = len(edges) - 1
     references, merged = [], []  # cell text of the reference rows, (band, cell text, whether it is an open band)
     for fragment in chain:
-        for row in fragment.rows:
+        merged_over = _vertically_merged(fragment, edges)
+        for index, row in enumerate(fragment.rows):
             band = (row.bbox[1], row.bbox[3])
-            cells = _band_cells(page, band, edges)
+            cells = _band_cells(page, band, edges, merged_over.get(index, frozenset()))
             if len(row.cells) == columns and all(cell is not None for cell in row.cells):
                 references.append(cells)
             elif cells is not None:
@@ -1074,11 +1075,13 @@ def _rule_line(x0: float, top: float, x1: float, bottom: float) -> dict:
     return {"object_type": "line", "x0": x0, "x1": x1, "top": top, "bottom": bottom, "width": x1 - x0, "height": bottom - top}
 
 
-def _band_cells(page: object, band: tuple[float, float], edges: list[float]) -> list[tuple[float, float] | None] | None:
+def _band_cells(page: object, band: tuple[float, float], edges: list[float],
+                covered: Container[int] = frozenset()) -> list[tuple[float, float] | None] | None:
     """(left end, right end) per column of the text in a horizontal band (`band` = top, bottom) split by the column boundaries
     (`edges`). Only when there is text in two or more columns, all the text lies inside the band and the table width, and no
-    line crosses a column boundary at word spacing; otherwise None (`_band_chars`)."""
-    cells = _band_chars(page, band, edges)
+    line crosses a column boundary at word spacing; otherwise None (`_band_chars`). The columns in `covered` belong to a cell
+    merged down from or into another row and are left out."""
+    cells = _band_chars(page, band, edges, covered)
     if cells is None:
         return None
     return [(min(char["x0"] for char in cell), max(char["x1"] for char in cell)) if cell else None for cell in cells]
@@ -1093,9 +1096,13 @@ def _is_header_band(page: object, band: tuple[float, float], edges: list[float])
     return not any(_NUMBER_CELL.match(text) for text in texts)
 
 
-def _band_chars(page: object, band: tuple[float, float], edges: list[float]) -> list[list[dict]] | None:
+def _band_chars(page: object, band: tuple[float, float], edges: list[float],
+                covered: Container[int] = frozenset()) -> list[list[dict]] | None:
     """The characters per column for `_band_cells` (the column containing each character's centre). None unless the same
-    conditions hold.
+    conditions hold. The characters of the columns in `covered` are left out before they are tested: they are the text of a
+    cell merged over this row and the next or the one before, which a browser centres on the rows it spans, so it sticks out
+    of each of them (Pinned by: test_pdf_shaded_tables.py::TestCentredTextOfAMergedCell::
+    test_cells_beside_a_merged_cell_stay_apart).
 
     A character that reaches into the band by less than `_BAND_SLACK_RATIO` of its height belongs to the neighbouring row and
     is not counted — the character boxes of a Word number column touched the band of the row below by 0.06pt, that band was
@@ -1108,6 +1115,8 @@ def _band_chars(page: object, band: tuple[float, float], edges: list[float]) -> 
     chars = [char for char in ordered[bisect_left(tops, top - tallest):bisect_left(tops, bottom)]
              if char["x1"] > left and char["x0"] < right
              and min(char["bottom"], bottom) - max(char["top"], top) >= (char["bottom"] - char["top"]) * _BAND_SLACK_RATIO]
+    if covered:
+        chars = [char for char in chars if _column_of(char, edges) not in covered]
     for char in chars:
         slack = (char["bottom"] - char["top"]) * _BAND_SLACK_RATIO
         if (char["top"] < top - slack or char["bottom"] > bottom + slack or char["x0"] < left - 1 or char["x1"] > right + 1):
@@ -1116,8 +1125,7 @@ def _band_chars(page: object, band: tuple[float, float], edges: list[float]) -> 
     cells: list[list[dict]] = [[] for _ in edges[1:]]  # characters per column (the column containing the centre)
 
     for char in chars:
-        middle = (char["x0"] + char["x1"]) / 2
-        cells[max(0, min(bisect_right(edges, middle) - 1, len(cells) - 1))].append(char)
+        cells[_column_of(char, edges)].append(char)
 
     # when the text of two neighbouring columns on the same line sits at word spacing on either side of a column boundary, the
     # text crosses that boundary
@@ -1140,6 +1148,30 @@ def _band_chars(page: object, band: tuple[float, float], edges: list[float]) -> 
     if sum(1 for cell in cells if cell) < 2:
         return None
     return cells
+
+
+def _column_of(char: dict, edges: list[float]) -> int:
+    """The column (between `edges`) that holds the centre of `char`, the first or last for a centre outside them."""
+    return max(0, min(bisect_right(edges, (char["x0"] + char["x1"]) / 2) - 1, len(edges) - 2))
+
+
+def _vertically_merged(table: object, edges: list[float]) -> dict[int, set[int]]:
+    """Row index → the columns where a cell of `table` merged down from a row above lies over that row (its text is not the
+    row's own). The rows a cell covers are those that start inside it (pdfplumber gives the row a merged cell starts on the
+    height of that cell), found by bisection over the row tops: the cells of one column cover each row at most once, so a
+    long table with many merged groups is not compared row by row with every cell."""
+    rows = sorted((row.bbox[1], index) for index, row in enumerate(table.rows))
+    tops = [top for top, _ in rows]
+    middles = [(left + right) / 2 for left, right in pairwise(edges)]
+    merged: dict[int, set[int]] = {}
+    for x0, cell_top, x1, cell_bottom in (cell for cell in table.cells if cell is not None):
+        covered = rows[bisect_right(tops, cell_top + 1):bisect_left(tops, cell_bottom - 1)]
+        if not covered:
+            continue
+        columns = range(bisect_right(middles, x0), bisect_left(middles, x1))
+        for _, index in covered:
+            merged.setdefault(index, set()).update(columns)
+    return merged
 
 
 def _chars_by_top(page: object) -> tuple[list[float], list[dict], float]:

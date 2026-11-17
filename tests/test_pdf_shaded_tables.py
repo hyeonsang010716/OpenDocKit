@@ -249,6 +249,58 @@ class TestShadedTablesWithMergedCells:
         assert text.count("1,200") == 1 and text.index("5,370") < text.index("본부별 인원은")
 
 
+def _striped_with_a_centred_merge(rows: list[list[str | None]], merged: tuple[int, int], *, rules: bool, box: bool) -> bytes:
+    """A striped table (header and odd rows shaded cell by cell) whose cell `merged` (row, column) spans that row and the next,
+    with the shading of its first row and its text centred on the two rows (Chrome `vertical-align: middle`). `None` marks
+    the cell it covers. With `rules` a rule is drawn under every row except across the merged cell; with `box` only the outer
+    border is drawn."""
+    def draw(pdf, index):
+        from reportlab.lib import colors
+
+        edges, top, height = [60.0, 160.0, 260.0, 360.0], 740.0, 24.0
+        first, column = merged
+        pdf.setFont(_FONT, 9)
+        for row_index, row in enumerate(rows):
+            if row_index == 0 or row_index % 2:
+                pdf.setFillColor(colors.HexColor("#B0C4DE" if row_index == 0 else "#DDE4F0"))
+                for col, text in enumerate(row):
+                    if text is not None:
+                        span = 2 if (row_index, col) == merged else 1
+                        pdf.rect(edges[col], top - (row_index + span) * height, edges[col + 1] - edges[col], span * height,
+                                 stroke=0, fill=1)
+        pdf.setFillColor(colors.black)
+        for row_index, row in enumerate(rows):
+            for col, text in enumerate(row):
+                if text is not None:
+                    y = top - (row_index + 1) * height - 3 if (row_index, col) == merged else top - (row_index + 1) * height + 6
+                    pdf.drawString(edges[col] + 4, y, text)
+        if rules:
+            for boundary in range(len(rows) + 1):
+                right = edges[column] if boundary == first + 1 else edges[-1]
+                pdf.line(edges[0], top - boundary * height, right, top - boundary * height)
+        if box:
+            pdf.rect(edges[0], top - len(rows) * height, edges[-1] - edges[0], len(rows) * height, stroke=1, fill=0)
+        pdf.drawString(edges[0], top - len(rows) * height - 30, "Closing paragraph after the table.")
+
+    return _korean_pdf(draw)
+
+
+class TestCentredTextOfAMergedCell:
+    """A browser centres the text of a cell merged over two rows on both, so it sticks out of each. The band of the row beside
+    it was rejected as 'text sticking out of the band', and that row kept the cell pdfplumber made of its columns without
+    fills: '| South Lee | | shared |'."""
+
+    @pytest.mark.parametrize("box", [False, True], ids=["ruled", "ruled-and-boxed"])
+    def test_cells_beside_a_merged_cell_stay_apart(self, box):
+        rows = [["Region", "Owner", "Note"], ["North", "Kim", "shared"], ["South", "Lee", None], ["East", "Park", "solo"]]
+
+        text = convert(_striped_with_a_centred_merge(rows, (1, 2), rules=True, box=box), "a.pdf",
+                       ConvertOptions(page_markers=False)).text
+
+        assert ("| Region | Owner | Note |\n| --- | --- | --- |\n| North | Kim | shared |\n| South | Lee | shared |\n"
+                "| East | Park | solo |") in text
+
+
 class TestOneShadedRowInABorderlessTable:
     """A shaded fragment could be grown by only one open band above and one below, so a borderless table with one or two
     shaded data rows was cut at the shaded row: the rows beyond it became a second table, or lines scattered column by
