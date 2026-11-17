@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -119,6 +120,13 @@ def test_untimed_fails_once():
 '''
 
 
+def _outcomes(output: str) -> dict[str, int]:
+    """The counts of the last line of a pytest run ('2 failed, 2 passed, 13 warnings, 4 rerun in 1.04s'), warnings left out:
+    a plugin's deprecation warnings vary with the Python version."""
+    counts = re.findall(r"(\d+) (failed|passed|rerun|error|errors|skipped)\b", output.strip().splitlines()[-1])
+    return {name: int(number) for number, name in counts}
+
+
 class TestTimingTestsAreRunAgain:
     """A failed timing test runs twice more and passes when one run does; any other test gets no second chance (`conftest.py`)."""
 
@@ -141,7 +149,7 @@ class TestTimingTestsAreRunAgain:
         run, runs = self._run(tmp_path)
 
         assert run.returncode == 1, run.stdout + run.stderr
-        assert "2 failed, 2 passed, 4 rerun" in run.stdout, run.stdout
+        assert _outcomes(run.stdout) == {"failed": 2, "passed": 2, "rerun": 4}, run.stdout
         assert runs == {"stalled": 2, "slow": 3, "class": 2, "untimed": 1}
 
     def test_with_the_plugin_switched_off_every_test_runs_once(self, tmp_path):
@@ -149,5 +157,5 @@ class TestTimingTestsAreRunAgain:
         run, runs = self._run(tmp_path, "-p", "no:rerunfailures")
 
         assert run.returncode == 1, run.stdout + run.stderr
-        assert "4 failed in" in run.stdout and "rerun" not in run.stdout, run.stdout
+        assert _outcomes(run.stdout) == {"failed": 4}, run.stdout
         assert runs == {"stalled": 1, "slow": 1, "class": 1, "untimed": 1}

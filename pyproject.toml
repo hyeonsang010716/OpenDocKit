@@ -82,7 +82,7 @@ dev = [
     "opendockit[heic,openai,langchain,llamaindex,mcp]",
     "gevent>=26.9",  # the Dify plugin's runtime serves requests with it (tests/test_dify_plugin.py)
     "pytest>=8.3",
-    "pytest-rerunfailures>=16.0",  # reruns a failed timing test (tests/conftest.py); MPL-2.0, development only
+    "pytest-rerunfailures>=16.0.1",  # reruns a failed timing test (tests/conftest.py); MPL-2.0, development only
     "pytest-xdist>=3.6",
     "reportlab>=4.2",
     "ruff>=0.8",

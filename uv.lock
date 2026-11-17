@@ -1919,7 +1919,7 @@ dev = [
     { name = "gevent", specifier = ">=26.9" },
     { name = "opendockit", extras = ["heic", "openai", "langchain", "llamaindex", "mcp"] },
     { name = "pytest", specifier = ">=8.3" },
-    { name = "pytest-rerunfailures", specifier = ">=16.0" },
+    { name = "pytest-rerunfailures", specifier = ">=16.0.1" },
     { name = "pytest-xdist", specifier = ">=3.6" },
     { name = "reportlab", specifier = ">=4.2" },
     { name = "ruff", specifier = ">=0.8" },
