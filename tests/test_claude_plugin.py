@@ -139,6 +139,17 @@ class TestWhatIsShipped:
     def test_plugin_holds_only_readable_text(self):
         files = sorted(path.relative_to(PLUGIN).as_posix() for path in PLUGIN.rglob("*") if path.is_file())
 
-        assert files == [".claude-plugin/plugin.json", ".mcp.json", "LICENSE", "README.md", "skills/opendockit/SKILL.md"]
+        assert files == [".claude-plugin/icon.png", ".claude-plugin/plugin.json", ".mcp.json", "LICENSE", "README.md",
+                         "skills/opendockit/SKILL.md"]
         for name in files:
-            (PLUGIN / name).read_text(encoding="utf-8")
+            if not name.endswith(".png"):
+                (PLUGIN / name).read_text(encoding="utf-8")
+
+    def test_icon_is_one_the_plugin_directory_takes(self):
+        """The directory takes the listing icon once, at the first submission: a square PNG of 512 to 2048 px under 2 MB."""
+        from PIL import Image
+
+        icon = PLUGIN / ".claude-plugin" / "icon.png"
+        with Image.open(icon) as image:
+            assert image.format == "PNG" and image.width == image.height and 512 <= image.width <= 2048
+        assert icon.stat().st_size < 2 * 1024 * 1024
