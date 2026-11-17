@@ -1,12 +1,11 @@
 """Unclosed raw-text elements (textarea, xmp, plaintext) and the front check of a large HTML, an HTML example inside a closed
 textarea, the time to remove many hidden or dropped elements under the same parent."""
 
-import time
-
 import pytest
 
 from opendockit import ConvertOptions, convert
 from tests import needs_html5_tokenizer
+from tests.timing import fastest
 
 
 def _stock_page(rows: int, opening: str = "<textarea name=memo/>") -> bytes:
@@ -116,9 +115,7 @@ class TestHtmlExampleInsideAClosedTextarea:
 
 def _seconds(build, count: int) -> float:
     data = build(count)
-    started = time.perf_counter()
-    convert(data, "a.html")
-    return time.perf_counter() - started
+    return fastest(lambda: convert(data, "a.html"))
 
 
 class TestManyRemovedSiblingsTakeLinearTime:
@@ -135,8 +132,6 @@ class TestManyRemovedSiblingsTakeLinearTime:
     ], ids=["display-none", "button", "comment", "aria-hidden"])
     @pytest.mark.timing
     def test_removal_time_grows_linearly(self, build):
-        _seconds(build, 500)
-
         small, large = _seconds(build, 2_000), _seconds(build, 16_000)
 
         assert large < 8 * small * 2 + 0.5

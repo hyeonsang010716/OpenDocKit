@@ -9,6 +9,7 @@ import pytest
 
 from opendockit import convert
 from tests import needs_html5_tokenizer
+from tests.timing import fastest
 
 
 _PLAIN = "[가을 세일] 10월 10일~20일 전 품목 30% 할인\n쿠폰 코드: FALL30"
@@ -181,19 +182,13 @@ class TestAriaHiddenAppRootUnderAModal:
     def test_many_aria_hidden_elements_take_linear_time(self, layout):
         """For every aria-hidden element the whole body text was measured again (children of body) and the main-content elements
         were searched for again in the subtree (nested elements), taking 39–47 s (quadratic) on 468KB."""
-        import time
-
         def seconds(count: int) -> float:
             if layout == "siblings":
                 body = "".join(f'<span aria-hidden="true">★</span><p>문단 {n} 내용</p>' for n in range(count))
             else:
                 body = '<div aria-hidden="true"><p>장식</p>' * count + "</div>" * count + "<p>본문</p>"
             data = f"<html><body>{body}</body></html>".encode()
-            started = time.perf_counter()
-            convert(data, "a.html")
-            return time.perf_counter() - started
-
-        seconds(500)
+            return fastest(lambda: convert(data, "a.html"))
 
         small, large = seconds(1_500), seconds(6_000)
 
@@ -353,15 +348,9 @@ class TestRawTextElementsLeftOpen:
     def test_many_unclosed_elements_take_linear_time(self):
         """If the re-read remainder has another unclosed element, what follows it is read again; re-reading them one at a time is
         quadratic in their number."""
-        import time
-
         def seconds(count: int) -> float:
             data = ("<html><body>" + "<textarea><p>문단</p>" * count + "</body></html>").encode()
-            started = time.perf_counter()
-            convert(data, "a.html")
-            return time.perf_counter() - started
-
-        seconds(200)
+            return fastest(lambda: convert(data, "a.html"))
 
         small, large = seconds(2_000), seconds(8_000)
 

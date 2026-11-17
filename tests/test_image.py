@@ -36,6 +36,7 @@ from opendockit.extractors.hwp import (
 from opendockit.image import ImageSkipped, ImageUnreadable, prepare_image
 from tests import builder
 from tests.test_hwp import _OLE_MAGIC
+from tests.timing import Fastest
 
 
 class FakeDescriber:
@@ -1289,20 +1290,20 @@ class TestResourceBounds:
     def test_pictures_of_a_huge_page_take_linear_time(self):
         """A ruled grid with a picture in each of 3,600 cells (a 3,400pt page) spent 26 seconds opening the page once per
         picture."""
-        import time
-
         from opendockit import ConvertOptions
 
         spent = []
         for size in (20, 60):
             data, boxes = self._pictures_on_huge_pages(size)
-            renderer = _pdf_figures._PageRenderer(data, ConvertOptions())
-            try:
-                started = time.perf_counter()
-                assert all(renderer.render(0, box) for box in boxes)
-                spent.append(time.perf_counter() - started)
-            finally:
-                renderer.close()
+            timer = Fastest()
+            for _ in timer:
+                renderer = _pdf_figures._PageRenderer(data, ConvertOptions())  # anew: it keeps the page it drew from open
+                try:
+                    with timer:
+                        assert all(renderer.render(0, box) for box in boxes)
+                finally:
+                    renderer.close()
+            spent.append(timer.seconds)
         small, large = spent
 
         assert large < 12 * small + 0.5  # 9 times the pictures: 27 times as long when every picture opened the page again
@@ -1535,6 +1536,7 @@ class TestAuditedImageGaps:
         assert any("could not be described" in warning for warning in result.warnings)
 
     @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
     def test_cancelling_aconvert_still_cancels_it(self):
         """The handling above must not swallow a real cancellation (cancel on the outer task) as well."""
         class Slow(FakeDescriber):

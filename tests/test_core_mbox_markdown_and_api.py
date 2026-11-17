@@ -4,12 +4,12 @@ inside a document, convert called with its arguments in the wrong places."""
 import asyncio
 import base64
 from io import BytesIO
-import time
 
 from PIL import Image
 import pytest
 
 from opendockit import ConvertOptions, aconvert, convert, convert_file
+from tests.timing import fastest
 
 
 def _unclosed_mail(number: int) -> str:
@@ -69,9 +69,7 @@ class TestMarkdownDataUriVariants:
     def test_unclosed_data_uri_followed_by_long_whitespace_takes_linear_time(self, opening):
         def seconds(count: int) -> float:
             data = f"{opening}iVBORw0KGgo{' ' * count}x {opening}".encode()
-            started = time.perf_counter()
-            convert(data, "a.md")
-            return time.perf_counter() - started
+            return fastest(lambda: convert(data, "a.md"))
 
         small, large = seconds(20_000), seconds(160_000)
 

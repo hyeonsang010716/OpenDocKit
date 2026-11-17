@@ -2,7 +2,6 @@
 (slide) as `> Comment(author, on "…"): text` lines."""
 
 from io import BytesIO
-import time
 
 from pptx import Presentation
 import pytest
@@ -10,6 +9,7 @@ import pytest
 from opendockit import ConvertOptions, convert
 from tests import builder
 from tests.test_office import _WORD_NAMESPACES, _docx_with_body
+from tests.timing import fastest
 
 
 _RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -117,9 +117,7 @@ class TestDocxComments:
             body = ("<w:p>" + "".join(f'<w:commentRangeStart w:id="{index}"/>' for index in range(count))
                     + "<w:r><w:t/></w:r>" * count + "</w:p>")
             data = _docx_with_comments(body, "".join(_comment(str(index), "갑", f"메모{index}") for index in range(count)))
-            started = time.perf_counter()
-            text = convert(data, "a.docx").text
-            return time.perf_counter() - started, text
+            return fastest(lambda: convert(data, "a.docx")), convert(data, "a.docx").text
 
         small, _ = elapsed(2_000)
         large, text = elapsed(4_000)

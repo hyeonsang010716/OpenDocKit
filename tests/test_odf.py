@@ -5,7 +5,6 @@ Every document is an ODF package built in memory (`_package`): a ZIP with `mimet
 """
 
 from io import BytesIO
-import time
 import zipfile
 
 import pytest
@@ -15,6 +14,7 @@ from opendockit.extractors import odf as odf_module
 from opendockit.extractors.odf import extract_odt
 from opendockit.models import DocumentFormat, SectionKind
 from tests import builder
+from tests.timing import fastest
 
 
 _NAMESPACES = " ".join(f'xmlns:{prefix}="{uri}"' for prefix, uri in {
@@ -1151,9 +1151,7 @@ class TestHostileInput:
             rows = "".join(_row(_cell(f"이름{index}"), _cell(str(index)), _cell("비고", 'table:number-rows-spanned="2"'))
                            for index in range(count))
             data = _package("spreadsheet", _sheet("S", rows))
-            started = time.perf_counter()
-            convert(data, "a.ods", ConvertOptions(max_chars=None))
-            return time.perf_counter() - started
+            return fastest(lambda: convert(data, "a.ods", ConvertOptions(max_chars=None)))
 
         small = max(elapsed(5_000), 0.01)
         assert elapsed(20_000) < small * 10
@@ -1166,10 +1164,9 @@ class TestHostileInput:
             merged = _row(*[_cell(f"m{index}", 'table:number-rows-spanned="2"') for index in range(count)])
             plain = _row(*[_cell("x") for _ in range(count)])
             data = _package("spreadsheet", _sheet("S", merged, plain, plain))
-            started = time.perf_counter()
-            result = convert(data, "a.ods", ConvertOptions(max_sheet_cols=16_384, max_chars=None))
-            assert f"m{count - 1}" in result.text
-            return time.perf_counter() - started
+            options = ConvertOptions(max_sheet_cols=16_384, max_chars=None)
+            assert f"m{count - 1}" in convert(data, "a.ods", options).text
+            return fastest(lambda: convert(data, "a.ods", options))
 
         small = max(elapsed(3_000), 0.01)
         assert elapsed(12_000) < small * 10

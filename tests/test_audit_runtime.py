@@ -180,6 +180,7 @@ class TestClosingWithConversionsUnderWay:
     retrieved ... Bad file descriptor")."""
 
     @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
     @_posix_only
     def test_running_and_waiting_files_end_as_closed_and_each_pool_is_stopped_once(self, monkeypatch):
         stopped, logged = [], []
@@ -246,6 +247,7 @@ class TestConverterUsedFromSuccessiveEventLoops:
     "RuntimeError: <Queue ...> is bound to a different event loop"."""
 
     @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
     @_posix_only
     def test_files_wait_for_a_worker_in_a_later_event_loop_too(self):
         converter = IsolatedConverter(workers=2)
@@ -270,6 +272,7 @@ class TestConverterBuiltBeforeAFork:
     long as the master lived — the leak the watch exists to prevent."""
 
     @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
     @pytest.mark.skipif(not hasattr(os, "fork"), reason="needs fork")
     def test_worker_leaves_with_the_forked_server_that_uses_it_not_with_the_master(self, tmp_path):
         script = ("import asyncio, os, signal, time\n"

@@ -8,6 +8,7 @@ import pytest
 
 from opendockit import ConvertOptions, DocumentFormat, convert
 from opendockit.extractors._encoding import decode_text
+from tests.timing import fastest
 
 
 class TestDecodeText:
@@ -1062,13 +1063,9 @@ class TestRuby:
     def test_nested_rubies_take_linear_time(self):
         """Each ruby walked up to the root, and every inner ruby was replaced in the tree in turn: 20,000 rubies nested in each
         other (280 KB) took 32 seconds. Measured against the same nesting of spans."""
-        import time
-
         def elapsed(tag: str) -> float:
-            html = "<p>" + f"<{tag}>a" * 20_000 + "<rt>x</rt>" + f"</{tag}>" * 20_000 + "</p>"
-            started = time.perf_counter()
-            convert(html.encode(), "a.html")
-            return time.perf_counter() - started
+            data = ("<p>" + f"<{tag}>a" * 20_000 + "<rt>x</rt>" + f"</{tag}>" * 20_000 + "</p>").encode()
+            return fastest(lambda: convert(data, "a.html"))
 
         spans = elapsed("span")
 
@@ -1713,15 +1710,9 @@ class TestMalformedNesting:
     def test_many_heading_tags_left_open_take_linear_time(self):
         """Each time a heading inside a heading was moved out, bs4 walked the whole remaining chain under the heading being moved, so
         156KB of repeated `<h3>제목` took 9.9 s (quadratic)."""
-        import time
-
         def seconds(count: int) -> float:
             data = ("<html><body>" + "<h3>제목" * count + "</body></html>").encode()
-            started = time.perf_counter()
-            convert(data, "a.html", ConvertOptions(max_chars=None))
-            return time.perf_counter() - started
-
-        seconds(500)
+            return fastest(lambda: convert(data, "a.html", ConvertOptions(max_chars=None)))
 
         small, large = seconds(2_000), seconds(8_000)
 
@@ -1823,11 +1814,9 @@ class TestContentOutsideTableCells:
     ], ids=["wrapped", "outside-rows", "nested-wrappers"])
     def test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly(self, build):
         def seconds(count):
-            started = time.perf_counter()
-            convert(build(count).encode(), "a.html", ConvertOptions(max_chars=None))
-            return time.perf_counter() - started
+            data = build(count).encode()
+            return fastest(lambda: convert(data, "a.html", ConvertOptions(max_chars=None)))
 
-        seconds(500)
         small, large = seconds(2_000), seconds(16_000)
 
         assert large < 8 * small * 2 + 0.5
