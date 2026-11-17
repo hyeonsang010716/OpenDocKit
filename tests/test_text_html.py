@@ -1261,6 +1261,25 @@ class TestCollapsedQuestionsAndAnswers:
 
         assert result.text == "배송은 얼마나 걸리나요?\n\n2~3일 걸립니다.\n\n본문"
 
+    def test_plain_button_whose_answer_is_kept_is_kept(self):
+        """A plain `<button>` question (no aria attributes) let its folded answer be kept, but was itself removed with the other
+        buttons, leaving answers without their questions."""
+        html = ("<div class='faq'><button class='q'>배송은 얼마나 걸리나요?</button>"
+                "<div class='a' style='display:none'><p>영업일 기준 3~5일 걸립니다.</p></div>"
+                "<div class='q'><button>반품할 수 있나요?</button></div>"
+                "<div class='a' style='display:none'>받은 날부터 30일 안에 할 수 있습니다.</div></div>")
+
+        result = convert(html.encode(), "faq.html")
+
+        assert result.text == ("배송은 얼마나 걸리나요?\n\n영업일 기준 3~5일 걸립니다.\n\n"
+                               "반품할 수 있나요?\n\n받은 날부터 30일 안에 할 수 있습니다.")
+
+    def test_plain_button_whose_hidden_block_is_removed_is_removed(self):
+        html = ('<button>메뉴</button><div style="display:none"><a href="/a">회사 소개</a> <a href="/b">채용</a></div>'
+                "<p>본문</p><button>복사</button><div style='display:none' class='modal'>모달 창의 글</div>")
+
+        assert convert(html.encode(), "faq.html").text == "본문"
+
     def test_definition_folded_under_its_term_is_kept(self):
         html = '<dl><dt>Q1</dt><dd style="display:none">답 하나</dd><dt><a href="javascript:;">Q2</a></dt><dd style="DISPLAY: none">답 둘</dd></dl>'
 

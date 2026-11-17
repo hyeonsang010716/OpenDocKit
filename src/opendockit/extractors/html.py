@@ -452,8 +452,9 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
 
     _reopen_raw_text_elements(soup, _closed_at_the_end(text) if closed is None else closed)
     cut = frozenset() if whole else _open_at_the_end(soup)
-    folded = _folded_answers(soup, cut)
-    _keep_expander_buttons(soup)
+    openers: set[int] = set()
+    folded = _folded_answers(soup, cut, openers)
+    _keep_expander_buttons(soup, openers)
     _keep_svg_labels(soup, cut)
     _decompose_all(soup.find_all(_DROP_TAGS))
     _drop_sidebars(soup)
