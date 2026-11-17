@@ -3,7 +3,6 @@ chart sheets."""
 
 from io import BytesIO
 import struct
-from time import perf_counter
 
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
@@ -14,6 +13,7 @@ import pytest
 from opendockit import ConvertOptions, convert
 from opendockit.extractors import xls
 from tests import builder
+from tests.timing import fastest
 
 
 _SLIDE = "ppt/slides/slide1.xml"
@@ -51,9 +51,7 @@ class TestPptxTableRows:
         (21 s for 8,000 rows). With 8 times the rows the time should be a little over 8 times (over 40 times if quadratic)."""
         def seconds(rows: int) -> float:
             data = _pptx_with_table(rows)
-            started = perf_counter()
-            convert(data, "a.pptx")
-            return perf_counter() - started
+            return fastest(lambda: convert(data, "a.pptx"))
 
         small, large = seconds(500), seconds(4_000)
 

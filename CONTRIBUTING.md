@@ -83,7 +83,10 @@ character limit belong to `converter.py`. The details are in [docs/decisions/cor
 4. **Mark tests that measure time.** A test that asserts on elapsed time or waits on a real timeout gets
    `@pytest.mark.timing`. CI runs those one at a time (`uv run pytest -m timing`) after the parallel run
    (`uv run pytest -n auto -m "not timing"`), so a busy machine cannot fail them. Prefer comparing two input sizes
-   ("4× the input takes less than 8× the time") over an absolute number of seconds.
+   ("4× the input takes less than 8× the time") over an absolute number of seconds, and measure each size with
+   `tests.timing.fastest` (or `Fastest` when the input has to be made anew for every run): one stall of a shared CI
+   runner otherwise reads as slow code. A failed timing test is run again up to twice (`tests/conftest.py`); do not
+   loosen a bound to make one pass.
 5. **Update the docs** if users will notice: `docs/formats.md`, `docs/limitations.md`, `CHANGELOG.md`.
 
 ## Rules that do not bend

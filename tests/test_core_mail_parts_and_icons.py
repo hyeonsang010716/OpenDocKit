@@ -9,6 +9,7 @@ import pytest
 from opendockit import ConvertOptions, DocumentFormat, convert
 from opendockit.extractors import _mail
 from tests import builder, needs_html5_tokenizer
+from tests.timing import fastest
 
 
 def _encoded_word(value: str, codec: str, label: str) -> str:
@@ -557,10 +558,8 @@ class TestMailsAreRenderedApart:
                             for number in range(count))
             data = (f"From: kim@example.com\r\nTo: lee@example.com\r\nSubject: 조각\r\nMIME-Version: 1.0\r\n"
                     f"Content-Type: multipart/mixed; boundary=B\r\n\r\n{parts}--B--\r\n").encode()
-            started = time.perf_counter()
-            result = convert(data, "a.eml")
-            assert f"조각 {count - 1}" in result.text
-            return time.perf_counter() - started
+            assert f"조각 {count - 1}" in convert(data, "a.eml").text
+            return fastest(lambda: convert(data, "a.eml"))
 
         small, large = seconds(250), seconds(1_000)
 

@@ -39,6 +39,7 @@ from opendockit.extractors.hwp import (
     parse_records,
 )
 from tests import builder
+from tests.timing import fastest
 
 
 _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
@@ -1124,14 +1125,9 @@ class TestMemo:
                            f"<hp:t>메모{index}</hp:t></hp:run></hp:p></hp:subList></hp:fieldBegin></hp:ctrl></hp:run></hp:p>"
                            for index in range(count))
             data = builder.hwpx_bytes(body)
-            # The faster of two runs. A single pause of the machine (about 0.2 s on the Windows runner, where the conversion itself
-            # measured linear) in the one run of the larger document read as a conversion slower than linear.
-            spent = []
-            for _ in range(2):
-                started = time.perf_counter()
-                text = convert(data, "a.hwpx").text
-                spent.append(time.perf_counter() - started)
-            return min(spent), text
+            # The fastest of a few runs. A single pause of the machine (about 0.2 s on the Windows runner, where the conversion
+            # itself measured linear) in the one run of the larger document read as a conversion slower than linear.
+            return fastest(lambda: convert(data, "a.hwpx")), convert(data, "a.hwpx").text
 
         small, _ = elapsed(4_000)
         large, text = elapsed(8_000)

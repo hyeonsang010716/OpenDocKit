@@ -11,3 +11,18 @@ def _no_old_parser_warning(monkeypatch):
     test_core_html.py::TestOlderHtmlParser, which switches it back on.
     """
     monkeypatch.setattr("opendockit.extractors.html.HTML5_TOKENIZER", True)
+
+
+# A failed timing test is run up to twice more, a second apart, and passes if one of the runs does. Only a timing test: elsewhere a
+# second chance would hide a real bug that shows up only sometimes. A stall of the shared CI runner fails one run; code that
+# became slow fails all three (Pinned by: test_timing.py::TestTimingTestsAreRunAgain).
+TIMING_RERUNS = 2
+TIMING_RERUN_DELAY = 1.0
+
+
+def pytest_collection_modifyitems(config, items):
+    if not config.pluginmanager.hasplugin("rerunfailures"):  # switched off (`-p no:rerunfailures`): every run counts
+        return
+    for item in items:
+        if item.get_closest_marker("timing") is not None:
+            item.add_marker(pytest.mark.flaky(reruns=TIMING_RERUNS, reruns_delay=TIMING_RERUN_DELAY))

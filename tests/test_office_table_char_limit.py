@@ -34,7 +34,7 @@ from tests.test_office import (
     _pptx_with_chart,
     _pptx_with_smartart,
 )
-from tests.timing import allowed
+from tests.timing import allowed, fastest
 
 
 _ROWS = 20_000
@@ -171,7 +171,7 @@ class TestCharacterLimitInsideOneTable:
 
         def best(kind: str) -> float:
             data = _docx_big_header_table(kind, 60_000, cell="cell text abcdefghij")
-            return min(_seconds(lambda: convert(data, "a.docx", options)) for _ in range(2))
+            return fastest(lambda: convert(data, "a.docx", options), runs=2)
 
         assert best("header") < best("body") * 2.5 + 0.5
 
@@ -488,7 +488,7 @@ class TestPptxCharacterLimitInsideOneTable:
         table hidden (parsed, not rendered), so the speed of the machine does not matter."""
         def best(hidden: bool) -> float:
             data = _pptx_big_table(60_000, hidden=hidden)
-            return min(_seconds(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=_LIMIT))) for _ in range(2))
+            return fastest(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=_LIMIT)), runs=2)
 
         assert best(hidden=False) < best(hidden=True) * 2 + 0.3
 
@@ -695,7 +695,7 @@ class TestChartValuesPastTheLimit:
         data = _pptx_with_big_chart(200_000, scatter=scatter)
 
         def best(limit: int | None) -> float:
-            return min(_seconds(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=limit))) for _ in range(2))
+            return fastest(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=limit)), runs=2)
 
         assert best(_LIMIT) < best(None) * 0.7
 

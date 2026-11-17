@@ -7,6 +7,7 @@ import pytest
 from opendockit import ImageKind, convert
 from tests import builder
 from tests.test_pdf import _korean_pdf
+from tests.timing import Fastest
 
 
 def _image(width: int, height: int, seed: int = 3):
@@ -198,15 +199,15 @@ class TestManyPicturesInRuledCells:
 
     @pytest.mark.timing
     def test_cell_lines_take_linear_time(self):
-        import time
-
         spent = []
         for size in (20, 40):
-            boxes, chars, figures = self._grid(size)
-            started = time.perf_counter()
-            table = self._table(boxes, chars, figures)
-            spent.append(time.perf_counter() - started)
-            assert len(table.cell_lines) == size * size and table.cell_lines[0] == (52.0, 60.0)
+            timer = Fastest()
+            for _ in timer:
+                boxes, chars, figures = self._grid(size)
+                with timer:
+                    table = self._table(boxes, chars, figures)
+                assert len(table.cell_lines) == size * size and table.cell_lines[0] == (52.0, 60.0)
+            spent.append(timer.seconds)
         small, large = spent
 
         assert large < 8 * small + 0.5  # 16 times as long when every cell scanned the whole page

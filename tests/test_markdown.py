@@ -6,6 +6,7 @@ import pytest
 
 from opendockit import convert, markdown
 from opendockit.markdown import TableGrid, clean_text, join_blocks, render_table, solid_length, span_budget
+from tests.timing import fastest
 
 
 class TestCleanText:
@@ -1010,13 +1011,9 @@ class TestTildeFences:
     def test_many_unclosed_fences_take_linear_time(self):
         """Each opening fence looks for its closing fence; with thousands of unclosed ones inside a quote and a long closing
         fence in a later quote, a plain forward search would read on to the end of the quote for each of them."""
-        import time
-
         def run(count: int) -> float:
             text = "> ````x\n" * count + "> ```\n" * count + "\nbreak\n> ````\n"
-            started = time.perf_counter()
-            clean_text(text)
-            return time.perf_counter() - started
+            return fastest(lambda: clean_text(text))
 
         small, large = run(2_000), run(20_000)
 

@@ -8,7 +8,7 @@ import pytest
 from opendockit import ConvertOptions, DocumentTooLargeError, convert
 from opendockit.extractors import _pdf_marks, _pdf_model, _pdf_pdfminer, _pdf_pieces
 from tests.test_pdf import _raw_pdf
-from tests.timing import allowed
+from tests.timing import Fastest, allowed
 
 
 _FONT_OBJECT = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
@@ -422,17 +422,17 @@ class TestManySquaresOnOnePage:
     def test_squares_beside_much_text_take_linear_time(self):
         """Every box scanned all the characters and lines of the page for one inside it and for its label: 8,000 separate
         8pt squares beside 400 lines of text took 32 seconds."""
-        import time
-
         from opendockit.extractors import pdf as pdf_module
 
         spent = []
         for boxes, chars in ((1_000, 6_000), (4_000, 24_000)):
-            page, lines = self._squares_beside_text(boxes, chars)
-            started = time.perf_counter()
-            pdf_module._mark_checkboxes(page, lines, [])
-            spent.append(time.perf_counter() - started)
-            assert all(line.text == "☐ label" for line in lines)
+            timer = Fastest()
+            for _ in timer:
+                page, lines = self._squares_beside_text(boxes, chars)  # anew: a line already marked is left alone
+                with timer:
+                    pdf_module._mark_checkboxes(page, lines, [])
+                assert all(line.text == "☐ label" for line in lines)
+            spent.append(timer.seconds)
         small, large = spent
 
         assert large < 8 * small + 0.5  # 16 times as long when every box scanned every character

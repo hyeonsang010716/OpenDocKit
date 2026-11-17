@@ -5,7 +5,6 @@ in memory: DOCX and PPTX with python-docx / python-pptx plus the XML those libra
 """
 
 from io import BytesIO
-import time
 
 from docx import Document
 from docx.opc.constants import RELATIONSHIP_TYPE
@@ -31,6 +30,7 @@ from opendockit.extractors._inline import (
     resolve_inline,
 )
 from tests import builder
+from tests.timing import fastest
 
 
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -117,16 +117,6 @@ def _add_runs(paragraph: object, runs: tuple[tuple[str, dict], ...]) -> None:
             run.font.italic = look["italic"]
         if "link" in look:
             run.hyperlink.address = look["link"]
-
-
-def _seconds(action) -> float:
-    """Fastest of three runs — a brief stall of the machine must not look like slow code."""
-    best = float("inf")
-    for _ in range(3):
-        started = time.perf_counter()
-        action()
-        best = min(best, time.perf_counter() - started)
-    return best
 
 
 class TestLinkTargets:
@@ -801,7 +791,7 @@ class TestLinearTime:
         small, large = document(5_000), document(20_000)
         assert convert(large, "a.docx").text.startswith("**단어0** *단어1* 단어2 **단어3**")
 
-        assert _seconds(lambda: convert(large, "a.docx")) < 8 * _seconds(lambda: convert(small, "a.docx"))
+        assert fastest(lambda: convert(large, "a.docx")) < 8 * fastest(lambda: convert(small, "a.docx"))
 
     @pytest.mark.timing
     def test_docx_paragraph_with_many_links(self):
@@ -811,7 +801,7 @@ class TestLinearTime:
 
         small, large = document(5_000), document(20_000)
 
-        assert _seconds(lambda: convert(large, "a.docx")) < 8 * _seconds(lambda: convert(small, "a.docx"))
+        assert fastest(lambda: convert(large, "a.docx")) < 8 * fastest(lambda: convert(small, "a.docx"))
 
     @pytest.mark.timing
     def test_html_page_with_many_links(self):
@@ -825,7 +815,7 @@ class TestLinearTime:
 
         # Four times the links: 4x when linear, 16x when quadratic. The bound is 12, not 8: on a Linux virtual machine short of
         # memory the large page measured 8.3x in two runs of five while the time per link was flat from 10,000 to 80,000 links.
-        assert _seconds(lambda: convert(large, "a.html", options)) < 12 * _seconds(lambda: convert(small, "a.html", options))
+        assert fastest(lambda: convert(large, "a.html", options)) < 12 * fastest(lambda: convert(small, "a.html", options))
 
     @pytest.mark.timing
     def test_html_unclosed_emphasis_elements_nested_once_per_paragraph(self):
@@ -837,7 +827,7 @@ class TestLinearTime:
         options = ConvertOptions(max_chars=None)
         small, large = page(5_000), page(20_000)
 
-        assert _seconds(lambda: convert(large, "a.html", options)) < 8 * _seconds(lambda: convert(small, "a.html", options))
+        assert fastest(lambda: convert(large, "a.html", options)) < 8 * fastest(lambda: convert(small, "a.html", options))
 
     @pytest.mark.timing
     def test_resolver_with_many_lines_placeholders_and_brackets(self):
@@ -848,7 +838,7 @@ class TestLinearTime:
 
         small, large = text(10_000), text(40_000)
 
-        assert _seconds(lambda: resolve_inline(large)) < 8 * _seconds(lambda: resolve_inline(small))
+        assert fastest(lambda: resolve_inline(large)) < 8 * fastest(lambda: resolve_inline(small))
 
 
 class TestStruckScriptRuns:

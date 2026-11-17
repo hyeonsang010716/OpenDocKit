@@ -6,6 +6,7 @@ import pytest
 
 from opendockit import ConvertOptions, convert
 from tests.test_pdf import _FONT, _korean_pdf
+from tests.timing import Fastest
 
 
 _ROWS = [["지점", "매출(백만원)", "전년 대비", "담당"], ["서울 본점", "1,250", "+12%", "김민수"], ["부산 지점", "830", "-3%", "이정훈"],
@@ -615,7 +616,6 @@ class TestManySeparateShadedTables:
     @pytest.mark.timing
     def test_many_shaded_tables_take_linear_time(self):
         from io import BytesIO
-        import time
 
         import pdfplumber
 
@@ -624,13 +624,16 @@ class TestManySeparateShadedTables:
 
         spent = []
         for count in (75, 300):
-            with pdfplumber.open(BytesIO(_separate_shaded_tables_pdf(count))) as document:
-                page = document.pages[0]
-                fragments = page.find_tables(_TABLE_SETTINGS)  # the page's own table search is not measured
-                started = time.perf_counter()
-                tables = _with_shaded_rows(page, fragments)
-                spent.append(time.perf_counter() - started)
-                assert len(tables) == count and all(len(table.rows) == 2 for table in tables)
+            data = _separate_shaded_tables_pdf(count)
+            timer = Fastest()
+            for _ in timer:
+                with pdfplumber.open(BytesIO(data)) as document:  # anew: the page keeps the lists made for its tables
+                    page = document.pages[0]
+                    fragments = page.find_tables(_TABLE_SETTINGS)  # the page's own table search is not measured
+                    with timer:
+                        tables = _with_shaded_rows(page, fragments)
+                    assert len(tables) == count and all(len(table.rows) == 2 for table in tables)
+            spent.append(timer.seconds)
         small, large = spent
 
         assert large < 8 * small + 0.5  # 16 times as long when every table cropped the whole page

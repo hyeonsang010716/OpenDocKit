@@ -11,7 +11,6 @@
 from datetime import datetime, time, timedelta
 from io import BytesIO
 import struct
-from time import perf_counter
 
 import openpyxl
 from openpyxl.comments import Comment
@@ -23,6 +22,7 @@ from opendockit.extractors.xls import extract_xls
 from opendockit.models import ConvertOptions
 from tests import builder
 from tests.test_spreadsheet import _anchor, _xlsx_with_drawing
+from tests.timing import fastest
 
 
 _THREADED = "http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments"
@@ -175,9 +175,7 @@ class TestFloatingPictureCells:
         def seconds(anchors: int) -> float:
             data = _xlsx_with_drawing("".join(_picture_at(row % 2, 2, "rId1") for row in range(anchors)),
                                       {"image1.png": builder.png_bytes(seed=3)})
-            started = perf_counter()
-            convert(data, "a.xlsx")
-            return perf_counter() - started
+            return fastest(lambda: convert(data, "a.xlsx"))
 
         small, large = seconds(5_000), seconds(60_000)
 

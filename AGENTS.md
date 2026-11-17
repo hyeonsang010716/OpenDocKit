@@ -30,7 +30,8 @@ document that justifies it.
 ## Rules
 
 - A change in behavior comes with a test that builds its document in memory (`tests/builder.py`). No binary fixtures.
-- A test that asserts on elapsed time or waits on a real timeout is marked `@pytest.mark.timing` (CI runs those serially).
+- A test that asserts on elapsed time or waits on a real timeout is marked `@pytest.mark.timing` (CI runs those serially,
+  and a failed one is run again up to twice). A test comparing two measurements times each with `tests.timing.fastest`.
   Tests that call a real vision model are marked `live` and skipped unless `OPENDOCKIT_LIVE_TESTS=1`; never run them unasked.
 - A deliberate trade-off gets a row in `docs/decisions/` and a `Pinned by:` comment at the code site.
 - Extractors only produce sections; normalization, headings, images and limits belong to `converter.py`.

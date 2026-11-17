@@ -8,7 +8,7 @@ import pytest
 from opendockit import ConvertOptions, convert
 from tests import builder
 from tests.test_office import _docx_with_body, _number_level, _number_list, _paragraph
-from tests.timing import allowed
+from tests.timing import allowed, fastest
 
 
 _RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -19,14 +19,6 @@ def _seconds(convert_once) -> float:
     started = time.perf_counter()
     convert_once()
     return time.perf_counter() - started
-
-
-def _best_seconds(convert_once, runs: int = 3) -> float:
-    """Fastest of several measurements — used when looking at a ratio. With a single measurement, a brief OS stall in between
-    (hundreds of ms) doubled the ratio, and the test failed on rare occasions during the full unit test run (Deliberate — it does
-    not depend on other tests: confirmed unrelated to threads, child processes and a large heap). The fastest value filters out
-    transient stalls and still shows processing that itself became slow (about 16 times if quadratic)."""
-    return min(_seconds(convert_once) for _ in range(runs))
 
 
 def _run(text: str) -> str:
@@ -82,7 +74,7 @@ class TestDocxLongRunsAndDeepFields:
 
         small, large = nested(2000), nested(8000)
 
-        ratio = _best_seconds(lambda: convert(large, "a.docx")) / max(_best_seconds(lambda: convert(small, "a.docx")), 0.01)
+        ratio = fastest(lambda: convert(large, "a.docx")) / max(fastest(lambda: convert(small, "a.docx")), 0.01)
 
         assert ratio < 8  # linear gives about 4 times for 4 times the input, quadratic about 16 times
 

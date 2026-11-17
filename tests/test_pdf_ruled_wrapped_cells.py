@@ -5,6 +5,7 @@ import pytest
 
 from opendockit import convert
 from tests.test_pdf import _FONT
+from tests.timing import Fastest
 
 
 def _three_rule_table(valign: str, *, before: str = "표 1. 운영 지표") -> bytes:
@@ -161,19 +162,19 @@ class TestLongRunsOfLinesBetweenRules:
 
     @pytest.mark.timing
     def test_long_run_of_lines_between_rules_takes_linear_time(self):
-        import time
-
         from opendockit.extractors._pdf_model import _Line
         from opendockit.extractors._pdf_wrapped_cells import _with_ruled_wrapped_cells
 
         spent = []
         for count in (3_000, 12_000):
-            rows = [[_Line(top=10 + index * 12, bottom=20 + index * 12, x0=50, x1=300, text=f"line {index}", size=10)]
-                    for index in range(count)]
-            rules = [(5.0, 40.0, 500.0), (20 + count * 12.0, 40.0, 500.0)]
-            started = time.perf_counter()
-            assert _with_ruled_wrapped_cells(rows, rules) == rows
-            spent.append(time.perf_counter() - started)
+            timer = Fastest()
+            for _ in timer:
+                rows = [[_Line(top=10 + index * 12, bottom=20 + index * 12, x0=50, x1=300, text=f"line {index}", size=10)]
+                        for index in range(count)]
+                rules = [(5.0, 40.0, 500.0), (20 + count * 12.0, 40.0, 500.0)]
+                with timer:
+                    assert _with_ruled_wrapped_cells(rows, rules) == rows
+            spent.append(timer.seconds)
         small, large = spent
 
         assert large < 8 * small + 0.5  # 16 times as long when every line scanned the run to its end
