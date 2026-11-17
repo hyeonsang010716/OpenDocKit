@@ -36,8 +36,8 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
     The values of a fillable form are not in the page content but in the annotation's `/V`, so they do not appear in the character
     extraction of pdfminer or pdfium. Only the labels remained and the values were dropped without a warning (Pinned by:
     test_pdf.py::TestFormFields::test_filled_form_values_are_appended_to_their_page).
-    - The name is `/TU` (the name shown to the user), or `/T` when absent. Field attributes are inherited from `/Parent` (radio
-      groups).
+    - The name is `/TU` (the name shown to the user), or `/T` when absent, of the field itself (`_field_name`). Other field
+      attributes are inherited from `/Parent` (radio groups).
     - Text and choice fields (`/Tx`, `/Ch`) are included only when they have a value, checkboxes as on ☑ / off ☐, and for radio
       buttons only the value of the button that is on. A checkbox field with two or more widgets ('agree / do not agree' under the
       same name) contributes only the export value of the widget that is on, like a radio group — as a ☐·☑ pair the information
@@ -191,10 +191,25 @@ def _field_text(widget: dict) -> str | None:
     else:
         return None
 
-    name = _field_string(_inherited(widget, "TU")) or _field_string(_inherited(widget, "T"))
+    name = _field_name(widget)
     if not value:
         return None
     return f"{name}: {value}" if name else value
+
+
+def _field_name(widget: dict) -> str:
+    """The name of the field a widget belongs to: `/TU` (the name shown to the user), else `/T`, both of the nearest node that has
+    either — the widget itself, or the field above it when the widget is only a kid of that field. Neither is inherited: a `/TU`
+    found higher up belongs to a group of fields, and it named every field under it ('Applicant details: Kim', 'Applicant
+    details: 010-1234' for the fields `name` and `phone`) (Pinned by: test_pdf_form_fields.py::TestFieldNames)."""
+    node: object = widget
+    for _ in range(_FIELD_PARENT_DEPTH):
+        if not isinstance(node, dict):
+            break
+        if node.get("TU") is not None or node.get("T") is not None:
+            return _field_string(resolve1(node.get("TU"))) or _field_string(resolve1(node.get("T")))
+        node = resolve1(node.get("Parent"))
+    return ""
 
 
 def _choice_text(widget: dict) -> str:
