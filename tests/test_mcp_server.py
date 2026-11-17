@@ -666,6 +666,7 @@ class TestCommandLine:
             mcp_server.create_server()
 
     @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
     def test_server_speaks_mcp_over_stdio(self, files):
         """The real thing: the server started as a separate process, a client talking to it over stdin / stdout. Nothing the
         conversion does (a worker process, a library's output) may write to stdout, which carries the protocol."""

@@ -1536,6 +1536,7 @@ class TestAuditedImageGaps:
         assert any("could not be described" in warning for warning in result.warnings)
 
     @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
     def test_cancelling_aconvert_still_cancels_it(self):
         """The handling above must not swallow a real cancellation (cancel on the outer task) as well."""
         class Slow(FakeDescriber):

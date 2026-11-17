@@ -23,6 +23,8 @@ import time
 _REFERENCE_SECONDS = 0.04  # what the loop in `allowed` takes on the machine the bounds were written on
 _MAX_STRETCH = 8.0
 RUNS = 3
+_clock = time.perf_counter  # module-level names, so that tests/test_timing.py can replace them without touching `time` itself
+_collect = gc.collect
 
 
 def allowed(seconds: float) -> float:
@@ -63,12 +65,12 @@ class Fastest:
             yield self
 
     def __enter__(self) -> "Fastest":
-        gc.collect()
-        self._started = time.perf_counter()
+        _collect()
+        self._started = _clock()
         return self
 
     def __exit__(self, kind: object, value: object, traceback: object) -> None:
-        spent = time.perf_counter() - self._started
+        spent = _clock() - self._started
         self._started = None
         if kind is None:
             self.seconds = min(self.seconds, spent)

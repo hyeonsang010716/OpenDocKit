@@ -22,6 +22,7 @@ from opendockit import (
 # Every test here starts worker processes and waits on real timeouts: run serially (see `timing` in pyproject.toml).
 pytestmark = [
     pytest.mark.timing,
+    pytest.mark.no_rerun,  # a worker that ends wrongly once is a bug, not a slow runner: never run again
     # These tests kill and inspect worker processes with POSIX signals. On Windows one of them never finished in CI
     # (a conversion was still running when the converter was closed), so IsolatedConverter is unverified there.
     pytest.mark.skipif(sys.platform == "win32", reason="worker process control is tested on POSIX only"),

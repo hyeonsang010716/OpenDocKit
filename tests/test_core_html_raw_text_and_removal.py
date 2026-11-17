@@ -1,7 +1,6 @@
 """Unclosed raw-text elements (textarea, xmp, plaintext) and the front check of a large HTML, an HTML example inside a closed
 textarea, the time to remove many hidden or dropped elements under the same parent."""
 
-
 import pytest
 
 from opendockit import ConvertOptions, convert

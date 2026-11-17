@@ -82,7 +82,7 @@ dev = [
     "opendockit[heic,openai,langchain,llamaindex,mcp]",
     "gevent>=26.9",  # the Dify plugin's runtime serves requests with it (tests/test_dify_plugin.py)
     "pytest>=8.3",
-    "pytest-rerunfailures>=16.0.1",  # reruns a failed timing test (tests/conftest.py); MPL-2.0, development only
+    "pytest-rerunfailures>=16.6",  # reruns a failed timing test (tests/conftest.py); MPL-2.0, development only
     "pytest-xdist>=3.6",
     "reportlab>=4.2",
     "ruff>=0.8",
@@ -103,7 +103,8 @@ addopts = "-raR --strict-markers --strict-config"  # R: list the timing tests th
 xfail_strict = true
 markers = [
     "live: calls a real vision model; skipped unless OPENDOCKIT_LIVE_TESTS=1 and OPENAI_API_KEY are set",
-    "timing: asserts on wall-clock time or real timeouts; CI runs these serially (`-m timing`) so load from parallel workers cannot fail them, and a failed one is run again up to twice (tests/conftest.py)",
+    "timing: asserts on wall-clock time or real timeouts; CI runs these serially (`-m timing`) so load from parallel workers cannot fail them, and a failed one is run again up to twice, at most 10 reruns a session (tests/conftest.py)",
+    "no_rerun: a timing test that starts processes or threads and checks how they end; a failed one is never run again, as the failure can be a real race",
 ]
 
 [tool.ruff]

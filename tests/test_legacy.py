@@ -539,6 +539,7 @@ class TestRunner:
         assert list(scratch.iterdir()) == []
 
     @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
     @pytest.mark.skipif(os.name != "posix", reason="process groups are the POSIX mechanism; the stand-in launcher is a shell script")
     def test_timeout_kills_the_whole_process_group(self, monkeypatch, scratch, tmp_path):
         """`soffice` is a launcher and the real program its child. The stand-in starts a long-running child and waits for it;
@@ -558,6 +559,7 @@ class TestRunner:
         assert list(scratch.iterdir()) == []
 
     @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
     @pytest.mark.skipif(os.name != "posix", reason="the guard process is the POSIX mechanism; the stand-in launcher is a shell script")
     def test_killing_the_converting_process_leaves_no_launcher_child_and_no_folder(self, scratch, tmp_path):
         """`IsolatedConverter` ends a worker with SIGKILL (time limit, cancelled request, shutdown), so no `finally` of the
@@ -609,6 +611,7 @@ class TestRunner:
         assert guard.poll() is not None and tmp_path.exists()   # stopped by us: it removed nothing
 
     @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
     @pytest.mark.skipif(os.name != "posix", reason="the guard process is the POSIX mechanism; the stand-in launcher is a shell script")
     def test_guard_does_not_wait_for_a_process_forked_during_the_conversion(self, scratch, tmp_path):
         """The converting process forks while a conversion runs (a pre-fork server, fork-start multiprocessing), so the fork
@@ -715,6 +718,7 @@ def _docx_with_linked_picture(url: str) -> bytes:
 
 @real_libreoffice
 @pytest.mark.timing
+@pytest.mark.no_rerun  # starts LibreOffice, several at once: one failure can be a real collision
 class TestRealLibreOffice:
     """End to end with the installed LibreOffice. The .doc / .ppt inputs are made by LibreOffice itself from the in-memory
     DOCX / PPTX of `tests/builder.py`."""

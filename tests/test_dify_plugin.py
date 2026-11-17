@@ -215,6 +215,7 @@ class TestWhatIsShipped:
 
 
 @pytest.mark.timing  # each conversion starts a worker process
+@pytest.mark.no_rerun  # and two requests share one thread: one failure can be a real race
 class TestConversion:
     def test_an_hwpx_upload_gives_its_markdown_with_merged_cells_repeated(self):
         converted = _conversion().convert_upload(builder.hwpx_bytes(), "notice.hwpx")

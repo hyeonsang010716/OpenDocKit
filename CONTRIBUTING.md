@@ -85,8 +85,9 @@ character limit belong to `converter.py`. The details are in [docs/decisions/cor
    (`uv run pytest -n auto -m "not timing"`), so a busy machine cannot fail them. Prefer comparing two input sizes
    ("4× the input takes less than 8× the time") over an absolute number of seconds, and measure each size with
    `tests.timing.fastest` (or `Fastest` when the input has to be made anew for every run): one stall of a shared CI
-   runner otherwise reads as slow code. A failed timing test is run again up to twice (`tests/conftest.py`); do not
-   loosen a bound to make one pass.
+   runner otherwise reads as slow code. A failed timing test is run again up to twice (`tests/conftest.py`, at most 10
+   reruns a session); do not loosen a bound to make one pass. A timing test that starts processes or threads and checks
+   how they end also gets `@pytest.mark.no_rerun`: a failure there can be a real race, and a rerun would hide it.
 5. **Update the docs** if users will notice: `docs/formats.md`, `docs/limitations.md`, `CHANGELOG.md`.
 
 ## Rules that do not bend

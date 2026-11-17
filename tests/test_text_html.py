@@ -1063,7 +1063,6 @@ class TestRuby:
     def test_nested_rubies_take_linear_time(self):
         """Each ruby walked up to the root, and every inner ruby was replaced in the tree in turn: 20,000 rubies nested in each
         other (280 KB) took 32 seconds. Measured against the same nesting of spans."""
-
         def elapsed(tag: str) -> float:
             data = ("<p>" + f"<{tag}>a" * 20_000 + "<rt>x</rt>" + f"</{tag}>" * 20_000 + "</p>").encode()
             return fastest(lambda: convert(data, "a.html"))
