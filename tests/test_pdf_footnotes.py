@@ -33,12 +33,15 @@ def _draw_line(pdf, x: float, y: float, runs: list[Run], font: str, size: float)
 
 def _draw_page(pdf, body: list[list[Run]], notes: list[list[Run]], *, font: str = _LATIN, body_size: float = 11.0,
                note_size: float = 9.0, rule: tuple[float, float] | None = (_LEFT, 144.0), rule_y: float = _RULE_Y,
-               note_x: float = _LEFT, body_x: float = _LEFT, body_top: float = _BODY_TOP) -> None:
-    """One page: `body` lines from the top, then the rule (left end, length; None for no rule) and the `notes` under it."""
+               note_x: float = _LEFT, body_x: float = _LEFT, body_top: float = _BODY_TOP, typed_rule: str | None = None) -> None:
+    """One page: `body` lines from the top, then the rule (left end, length; None for no rule) and the `notes` under it.
+    `typed_rule` is a line of text in the note size where the rule would be (the US Supreme Court types '——————')."""
     for index, runs in enumerate(body):
         _draw_line(pdf, body_x, body_top - index * body_size * 1.3, runs, font, body_size)
     if rule is not None:
         pdf.rect(rule[0], rule_y, rule[1], 0.5, stroke=0, fill=1)
+    if typed_rule is not None:
+        _draw_line(pdf, note_x, rule_y - 2, [typed_rule], font, note_size)
     for index, runs in enumerate(notes):
         _draw_line(pdf, note_x, rule_y - 12 - index * note_size * 1.2, runs, font, note_size)
 
@@ -123,6 +126,16 @@ class TestLinked:
 
         assert "Revenue grew[^1] and costs fell[^2]." in text
         assert f"{_FILLER}\n\n[^1]: Revenue is stated before the deduction of returns, rebates, volume bonuses and\nsales discounts.\n\n[^2]: Costs exclude depreciation." in text
+
+    def test_rule_typed_as_a_line_of_dashes(self):
+        """The slip opinions of the US Supreme Court draw no rule: they type '——————' in the note size above the notes. The line
+        of dashes is a rule like a drawn one, and stays in the text."""
+        text = _text({"body": [[_FILLER], ["The debt ratio rose to 135", ("^", "1"), "% in the first half."], [_FILLER]],
+                      "rule": None, "typed_rule": "——————",
+                      "notes": [[("^", "1"), " Debt ratio is total liabilities divided by total equity."]]})
+
+        assert "The debt ratio rose to 135[^1]% in the first half." in text
+        assert text.rstrip().endswith("——————\n\n[^1]: Debt ratio is total liabilities divided by total equity.")
 
     def test_raised_number_that_no_note_has_stays_as_it_is(self):
         """An exponent after the last mark cannot take a note: the marks are chosen in reading order, one per note number."""
@@ -378,6 +391,17 @@ class TestLeftAsIs:
     def test_notes_as_large_as_the_body(self):
         """A numbered list under a short rule is set in the body size."""
         self._assert_unlinked(_text({"body": _UNLINKED_BODY, "note_size": 11.0, "notes": [[("^", "1"), " First item of a list."]]}))
+
+    def test_notes_under_dashes_as_large_as_the_body(self):
+        """A line of em dashes is a rule only as a drawn one is: a numbered list under it in the body size is not notes."""
+        self._assert_unlinked(_text({"body": _UNLINKED_BODY, "rule": None, "typed_rule": "——————", "note_size": 11.0,
+                                     "notes": [[("^", "1"), " First item of a list."]]}))
+
+    @pytest.mark.parametrize("typed", ["-" * 20, "_" * 20, "Signed: ——————"])
+    def test_line_of_hyphens_is_not_a_footnote_rule(self, typed):
+        """Only a line of nothing but em dashes is taken for a typed rule: hyphens and underscores are also a blank to fill in
+        or a divider, and dashes after a label are a blank."""
+        self._assert_unlinked(_text({"body": _UNLINKED_BODY, "rule": None, "typed_rule": typed, "notes": [[("^", "1"), " Source."]]}))
 
     def test_other_line_between_the_notes(self):
         """A line of another kind between the notes (indented under them, not a line of the notes) means what is under the rule

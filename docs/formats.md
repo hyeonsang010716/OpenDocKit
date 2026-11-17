@@ -26,7 +26,8 @@ Text flow:
 - Diagonal watermarks, fake bold and shadow duplicates are removed.
 - Word spacing is restored for text that was placed word by word without space characters.
 - Page numbers in a dotted table of contents are kept; the dot leader is reduced to a single ` … `.
-- Footnotes are linked as `[^1]` and `[^1]: …` where the page proves it: a short footnote rule with smaller notes under it,
+- Footnotes are linked as `[^1]` and `[^1]: …` where the page proves it: a short footnote rule (drawn, or typed as a line of em dashes `——————` as in US Supreme
+  Court opinions) with smaller notes under it,
   raised note numbers that run on, and exactly one raised mark in the body for each note number, in the order of the notes.
   The note stays at the bottom of its page. Any other page keeps the raised number (`135^1%`) and the note text as they are.
 

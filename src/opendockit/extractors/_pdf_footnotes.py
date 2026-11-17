@@ -7,7 +7,8 @@ unless the page proves it, and a wrong note attached to a sentence misleads more
 when every piece of evidence agrees, and otherwise it is left exactly as it was (`_link_footnotes`):
 
 1. A footnote rule: a short horizontal rule (`_RULE_MIN_LENGTH`, at most `_RULE_MAX_SHARE` of the page width, not inside a
-   table) with the notes right under it, starting at its left end. Word, LibreOffice and LaTeX draw one.
+   table) with the notes right under it, starting at its left end. Word, LibreOffice and LaTeX draw one; the US Supreme Court
+   types one as a line of em dashes (`_TYPED_RULE`).
 2. The notes: every line under the rule down to the first gap, in a smaller size than the body (`_NOTE_SIZE_RATIO`), with no
    other line between them and no further note after the gap. A note starts with its number raised (`^1`, `^{1)}`); after the
    first note no line starts with another kind of mark (`*`, `†`, a raised letter), no line that does not start a note follows
@@ -78,6 +79,14 @@ _NOTE_SIZE_RATIO = 0.95
 # A page with more candidate rules than this is not looked at (a form of underlined blanks). Each candidate looks at the lines of
 # the page once (Pinned by: test_pdf_footnotes.py::TestLeftAsIs::test_page_of_many_short_rules).
 _MAX_CANDIDATE_RULES = 50
+# A footnote rule typed as text: a line of nothing but em dashes. The slip opinions of the US Supreme Court set their notes under
+# '——————' in the note size, with no drawn rule; without it none of the 189 pages with notes in four opinions (Dobbs, SFFA,
+# Loper Bright, Trump v. United States) was linked, with it 194 of 210 were. It is measured as a drawn rule (length, left end, not
+# in a table) and every other condition stays; the line itself stays in the text. Only the em dash is taken: it is the one seen
+# in documents, and a line of hyphens or underscores is also a blank to fill in or a divider (Pinned by:
+# test_pdf_footnotes.py::TestLinked::test_rule_typed_as_a_line_of_dashes, TestLeftAsIs::test_line_of_hyphens_is_not_a_footnote_rule,
+# test_notes_under_dashes_as_large_as_the_body).
+_TYPED_RULE = re.compile(r"—{2,}")
 
 # The number that starts a note: raised (`^1`, `^{12}`, `^{1)}`) and followed by the text. A plain number is not taken: a wrapped
 # line of a note can start with one ('2 percent of the floor area'), and every note linked in the measured documents had its
@@ -196,8 +205,10 @@ def _note_areas(page: _Page) -> list[_Notes]:
     spread = [line for line in page.lines if line.size > 0]
     if not spread:
         return []
+    typed = [line for line in page.lines if _TYPED_RULE.fullmatch(line.text.strip())]
+    drawn = page.rules + [((line.top + line.bottom) / 2, line.x0, line.x1) for line in typed]
     # Counted before the tables are looked at: a page of thousands of short rules and hundreds of tables is not compared pair by pair
-    rules = [rule for rule in page.rules if _RULE_MIN_LENGTH <= rule[2] - rule[1] <= page.width * _RULE_MAX_SHARE]
+    rules = [rule for rule in drawn if _RULE_MIN_LENGTH <= rule[2] - rule[1] <= page.width * _RULE_MAX_SHARE]
     if len(rules) > _MAX_CANDIDATE_RULES:
         return []
     rules = [rule for rule in rules
@@ -213,6 +224,7 @@ def _note_areas(page: _Page) -> list[_Notes]:
         areas.append(area)
     if not areas:
         return []
+    taken.update(id(line) for line in typed)  # a rule, not body text
     body = [line.size for line in spread if id(line) not in taken]
     if not body:
         return []
