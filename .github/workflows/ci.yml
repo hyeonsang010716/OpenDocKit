@@ -81,6 +81,7 @@ jobs:
           uv pip install --python /tmp/wheel-env dist/*.whl
           /tmp/wheel-env/bin/python -c "import opendockit; print(opendockit.__version__)"
           /tmp/wheel-env/bin/opendockit --help
+          /tmp/wheel-env/bin/opendockit-open-webui --version
       - name: Build the launcher and start the server from the two wheels
         run: |
           uv build packages/opendockit-mcp --out-dir dist-mcp
