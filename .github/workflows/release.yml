@@ -4,7 +4,8 @@ name: Release
 # packages/opendockit-mcp, which depends on that exact version), then the entry of the MCP server in the MCP Registry.
 # Uses PyPI trusted publishing: add this repository and the `release.yml` workflow as a trusted publisher
 # for both projects on PyPI, and create a GitHub environment named `pypi`. No API token is needed.
-# The MCP Registry accepts the workflow's own identity for the `io.github.<owner>/` namespace.
+# The MCP Registry accepts the workflow's own identity for the `io.github.<owner>/` namespace. Last, the GitHub release
+# of the tag is made from its CHANGELOG.md section.
 on:
   push:
     tags: ["v*"]
@@ -39,6 +40,9 @@ jobs:
         run: |
           version=$(uv run --no-project python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != version $version"; exit 1; }
+      # Before anything is published: the GitHub release at the end is made from this section.
+      - name: Check that CHANGELOG.md has a section for the tag
+        run: python3 .github/scripts/release_notes.py "${GITHUB_REF_NAME#v}" > /dev/null
       - run: uv build
       - run: uv build packages/opendockit-mcp --out-dir dist-mcp
       - uses: actions/upload-artifact@v7
@@ -120,3 +124,25 @@ jobs:
           echo "opendockit-mcp $version did not appear on PyPI"; exit 1
       - run: ./mcp-publisher login github-oidc
       - run: ./mcp-publisher publish packages/opendockit-mcp/server.json
+
+  # The GitHub release was made by hand after the other jobs, and two releases (0.3.12, 0.3.13) were published to PyPI
+  # without one, leaving the CHANGELOG's links to their release pages dead. A re-run finds the release made and stops.
+  github-release:
+    timeout-minutes: 10
+    needs: registry
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create the GitHub release from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "The release $GITHUB_REF_NAME exists already."
+            exit 0
+          fi
+          python3 .github/scripts/release_notes.py "${GITHUB_REF_NAME#v}" > notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
