@@ -135,11 +135,6 @@ def create_app(api_key: str, *, workers: int = 2, queue: int = 16, max_chars: in
 
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
-        if os.name == "posix":
-            # One worker process per file, ended after 2 minutes or at 2 GB (Linux): a document built to hang or expand must
-            # end its worker, not the server every upload of the Open WebUI goes through. IsolatedConverter is verified on
-            # Linux and macOS only (docs/limitations.md); elsewhere files are converted in a thread of this process.
-            state["converter"] = IsolatedConverter(workers=workers)
         try:
             yield
         finally:
@@ -172,9 +167,18 @@ def create_app(api_key: str, *, workers: int = 2, queue: int = 16, max_chars: in
             return PlainTextResponse(f"The file is too large (maximum {_size_text(options.max_file_bytes)}).", status_code=413)
         try:
             check_size(data, options)  # an empty file: the library's own sentence, before a worker is asked
-            if state["converter"] is None:
+            if os.name != "posix":
+                # IsolatedConverter is verified on Linux and macOS only (docs/limitations.md): elsewhere files are converted
+                # in a thread of this process
                 result = await asyncio.to_thread(convert, data, name, options)
             else:
+                if state["converter"] is None:
+                    # One worker process per file, ended after 2 minutes or at 2 GB (Linux): a document built to hang or
+                    # expand must end its worker, not the server every upload of the Open WebUI goes through. Made on the
+                    # first file, not in the lifespan: an app mounted in another one, whose lifespan Starlette does not run,
+                    # converted every file in this process without a limit (Pinned by: test_open_webui.py::TestProcess::
+                    # test_an_app_mounted_in_another_one_converts_in_a_worker)
+                    state["converter"] = IsolatedConverter(workers=workers)
                 result = await state["converter"].convert(data, name, options)
         except ConversionError as error:
             return PlainTextResponse(str(error), status_code=422)

@@ -1250,6 +1250,22 @@ class TestMhtml:
 
         assert [image.alt for image in result.images] == ["Quarterly sales"]
 
+    def test_picture_sent_as_octet_stream_is_extracted(self):
+        """Some mail programs send the pictures of the body as `application/octet-stream`. Only `image/*` parts were looked
+        up, so such a picture was neither extracted nor reported (a part with a Content-ID is no attachment)."""
+        from tests import builder
+
+        picture = base64.encodebytes(builder.png_bytes(seed=1)).decode()
+        data = ('MIME-Version: 1.0\nFrom: a@example.com\nTo: b@example.com\nSubject: s\nContent-Type: multipart/related; boundary="b"\n\n'
+                '--b\nContent-Type: text/html; charset=utf-8\n\n<p>before <img src="cid:image001.png@01DA" alt="Quarterly sales"> after</p>\n'
+                '--b\nContent-Type: application/octet-stream; name="image001.png"\nContent-ID: <image001.png@01DA>\n'
+                f"Content-Transfer-Encoding: base64\n\n{picture}--b--\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert [image.alt for image in result.images] == ["Quarterly sales"]
+        assert not result.warnings
+
     @pytest.mark.parametrize("source", ["cid:photo%201.png@example.com", "CID:photo%201.png@example.com"])
     def test_cid_address_written_as_its_content_id_is_found(self, source):
         """A Content-ID may hold a `%` itself, and mail programs repeat it in the address as it is. Looked up only percent-decoded,
@@ -1827,6 +1843,17 @@ class TestContentOutsideTableCells:
         result = convert(html.encode(), "a.html")
 
         assert result.text == "| 가 | 1 |\n| --- | --- |\n\n| 나 | 2 |\n| --- | --- |\n| 다 | 3 |"
+
+    def test_text_after_a_table_inside_a_table_left_open_stays_after_it(self):
+        # A browser closes the first table at the second one's start tag: the heading between them goes before the first,
+        # what follows the second stays after it
+        html = ("<h2>1. 매출</h2><table><tr><td>사과</td><td>3</td></tr><h2>2. 비용</h2>"
+                "<table><tr><td>임대료</td><td>100</td></tr></table><h2>3. 요약</h2><p>이익이 늘었다.</p>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == ("## 1. 매출\n\n## 2. 비용\n\n| 사과 | 3 |\n| --- | --- |\n\n| 임대료 | 100 |\n| --- | --- |\n\n"
+                               "## 3. 요약\n\n이익이 늘었다.")
 
     def test_whitespace_and_hidden_inputs_between_rows_add_nothing(self):
         html = ("<table>\n  <input type=hidden name=id value=7>\n<tr><td>가</td><td>1</td></tr>\n&nbsp;\n"

@@ -5,7 +5,7 @@ from io import BytesIO
 
 import pytest
 
-from opendockit import convert
+from opendockit import ConvertOptions, convert
 from opendockit.markdown import clean_text
 from tests.pdf_modules import replace_everywhere
 
@@ -713,6 +713,26 @@ def test_pdf_text_inside_form_xobjects_stays_where_it_is_drawn():
     words = ["입사 지원서", "성명", "홍길동", "생년월일", "1990-01-02", "주소", "서울시 종로구", "위 내용이 사실임을 확인합니다."]
     positions = [result.text.index(word) for word in words]
     assert positions == sorted(positions)
+
+
+def test_pdf_form_xobject_beside_a_paragraph_does_not_split_it():
+    """A paragraph drawn through a Form XObject beside a paragraph drawn on the page went in right after the first line of
+    that paragraph, the line on its left, as a form value goes after its label. It goes after the whole paragraph, as when
+    both are drawn on the page."""
+    def draw(pdf):
+        pdf.beginForm("note")
+        pdf.setFont("HYSMyeongJo-Medium", 10)
+        for index in range(3):
+            pdf.drawString(320, 720 - index * 12, f"참고 {index + 1}번째 줄입니다")
+        pdf.endForm()
+        for index in range(6):
+            pdf.drawString(72, 720 - index * 12, f"본문 {index + 1}번째 줄입니다")
+        pdf.doForm("note")
+
+    result = convert(_pdf_canvas(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+    assert result.text == ("\n".join(f"본문 {index}번째 줄입니다" for index in range(1, 7)) + "\n\n"
+                           + "\n".join(f"참고 {index}번째 줄입니다" for index in range(1, 4)))
 
 
 def test_pdf_side_by_side_form_xobjects_are_not_interleaved():

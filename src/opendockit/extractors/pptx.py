@@ -884,7 +884,7 @@ def _render_text_frame(text_frame: object, as_bullets: bool, list_styles: list[o
     test_office.py::TestOfficeLineBreaksNestedFieldsAndMetadata::test_pptx_line_breaks_in_a_text_box_paragraph_keep_their_lines).
     """
     rendered = []
-    counters: dict[int, tuple[str, int]] = {}  # level → (number scheme, last number)
+    counters: dict[int, tuple[str, int, int]] = {}  # level → (number scheme, start number of the run, last number)
     for paragraph in text_frame.paragraphs:
         lines = [" ".join(line.split()) for line in _paragraph_text(paragraph, inline).split("\n")]
         lines = [line for line in lines if line]
@@ -899,9 +899,15 @@ def _render_text_frame(text_frame: object, as_bullets: bool, list_styles: list[o
         if is_numbered:
             scheme = bullet.get("type", "arabicPeriod")
             previous = counters.get(level)
-            start = bullet.get("startAt", "1")
-            number = previous[1] + 1 if previous and previous[0] == scheme else start_number(decimal_int(start, 1))
-            counters[level] = (scheme, number)
+            given = bullet.get("startAt") or None
+            start = start_number(decimal_int(given or "1", 1))
+            # A start number other than the run's starts the count over; without one the paragraph continues the run
+            # (Pinned by: test_office.py::TestPptxAutoNumbering::test_another_start_number_starts_the_count_over)
+            if previous and previous[0] == scheme and (given is None or start == previous[1]):
+                counters[level] = (scheme, previous[1], previous[2] + 1)
+            else:
+                counters[level] = (scheme, start, start)
+            number = counters[level][2]
             rendered.append(_item_lines(list_item_prefix(_auto_number(number, scheme), level), lines))
             continue
 

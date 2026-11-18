@@ -893,6 +893,13 @@ class TestObjects:
         text = _odt(self.BODY, parts={"Object 1/content.xml": self.FORMULA.format(namespaces=_NAMESPACES, mathml=mathml).encode()})
         assert text == r"성장률은 $\$5\{n$ 이다."
 
+    def test_words_of_an_mtext_keep_their_spaces(self):
+        """The same as an HTML equation: words of an `<mtext>` are `\\text{…}` with their end spaces, not glued to the
+        variables beside them."""
+        mathml = "<math:mrow><math:mi>g</math:mi><math:mtext> if </math:mtext><math:mi>n</math:mi></math:mrow>"
+        text = _odt(self.BODY, parts={"Object 1/content.xml": self.FORMULA.format(namespaces=_NAMESPACES, mathml=mathml).encode()})
+        assert text == r"성장률은 $g\text{ if }n$ 이다."
+
     def test_formula_without_readable_mathml_keeps_its_starmath_text(self):
         """A formula whose MathML part is empty: the StarMath annotation is kept between `$` (not LaTeX — a recorded gap), which
         beats losing the formula."""

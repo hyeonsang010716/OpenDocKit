@@ -9,6 +9,7 @@ import hashlib
 from io import BytesIO, StringIO
 import math
 import struct
+import sys
 import zlib
 
 import olefile
@@ -531,9 +532,12 @@ def _scan_xls_drawings(stream: bytes, max_inflated_bytes: int) -> list[list[str 
             text_left, runs_left = struct.unpack_from("<HH", body, 10)
             pieces = []
         elif record_id == _BIFF_CONTINUE and text_left > 0:
-            piece = body[1:].decode("utf-16-le" if body[0] & 1 else "latin-1", errors="replace")
-            pieces.append(piece)
-            text_left -= len(piece)
+            wide = body[0] & 1
+            pieces.append(body[1:].decode("utf-16-le" if wide else "latin-1", errors="replace"))
+            # The TXO counts UTF-16 code units: a character outside the BMP (an emoji) is two. Counted as one, the text never
+            # ran out and the formatting runs in the next CONTINUE were read as text ('on time(@') (Pinned by:
+            # test_spreadsheet.py::TestXlsDrawings::test_text_with_a_character_outside_the_bmp_ends_where_the_txo_says)
+            text_left -= (len(body) - 1) // 2 if wide else len(body) - 1
             if text_left <= 0:
                 text = "".join(pieces).replace("\r\n", "\n").replace("\r", "\n").strip()
                 if text and object_type != _OBJECT_NOTE:
@@ -675,7 +679,8 @@ def _escher_picture(store: bytearray, entry: tuple[int, int, int, int], max_byte
         if store[start + 32] != 0:  # 0 = deflate, 0xFE = no compression
             return payload or None
         try:
-            payload = zlib.decompressobj().decompress(payload, max_bytes + 1)
+            # zlib takes the length as a C ssize_t (`hwp._read_stream_to_end`)
+            payload = zlib.decompressobj().decompress(payload, min(max_bytes + 1, sys.maxsize))
         except zlib.error:
             return None
         return payload if payload and len(payload) <= max_bytes else None

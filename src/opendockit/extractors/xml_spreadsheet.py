@@ -354,8 +354,9 @@ def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None]
 def _xml_cell_value(data: etree._Element, number_format: str | None, not_finite: list[str] | None = None) -> str:
     text = "".join(data.itertext()).strip()  # rich text (html tags inside ss:Data) too: characters only
     kind = _ss(data, "Type")
-    if kind == "String" and len(data):
-        return _xml_rich_text(data).strip()
+    if kind == "String":
+        # The text section of its format, as in XLSX and XLS (`_sheet_format._text_in_format`)
+        return format_cell(_xml_rich_text(data).strip() if len(data) else text, number_format)
     if kind == "Number" and _is_not_finite(text):
         # `1E+400` and `NaN` came out as `inf` and `nan`. Kept as written with a count warning, as in XLSX
         # (Pinned by: test_audit_spreadsheet_fixes.py::TestXmlNumberThatIsNotFinite).

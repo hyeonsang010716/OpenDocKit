@@ -150,6 +150,15 @@ class TestNumberFormatRounding:
 
         assert result == expected
 
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (-0.0, "0.00", "0.00"), (-0.0, "#,##0", "0"), (-0.0, "0%", "0%"), (-0.0, '"$"#,##0.00', "$0.00"),
+        (-0.0, "#,##0;(#,##0)", "0"), (-0.0, "0.0;-0.0;0", "0"),
+        (-0.001, "0.00", "-0.00"),  # a negative rounded to zero keeps its sign, as in Excel
+    ])
+    def test_negative_zero_is_shown_without_a_sign(self, value, number_format, expected):
+        """A stored -0.0 (`<v>-0.0</v>`, `-0` in Excel 2003 XML) is zero: Excel shows it without a sign, as General does."""
+        assert format_cell(value, number_format) == expected
+
 
 class TestElapsedTime:
     @pytest.mark.parametrize(
@@ -1253,6 +1262,21 @@ class TestXlsDrawings:
 
         assert extraction.sections[0].text.endswith("USD\n\nUnit: 원")
 
+    def test_text_with_a_character_outside_the_bmp_ends_where_the_txo_says(self):
+        """The TXO counts UTF-16 code units, two for an emoji. Counted as one character, the formatting runs (position 4 and
+        font 2, then the closing run at 6) in the next CONTINUE were read as text after it."""
+        text = "완료 ✅ 🚀"
+        units = len(text.encode("utf-16-le")) // 2
+        runs = struct.pack("<HH4xHH4x", 4, 2, units, 0)
+        box = (builder.xls_record(0x00EC, builder.escher_record(0xF004, version=0xF)) + builder.xls_object(6)
+               + builder.xls_record(0x01B6, struct.pack("<HH6xHHI", 0x0212, 0, units, len(runs), 0))
+               + builder.xls_record(0x003C, b"\x01" + text.encode("utf-16-le")) + builder.xls_record(0x003C, runs))
+        data = builder.xls_bytes([("Sheet1", _XLS_ROWS, box)])
+
+        extraction = self._convert(data)
+
+        assert extraction.sections[0].text == f"{_XLS_TABLE}\n\n{text}"
+
     def test_cell_comment_is_not_read_as_a_text_box(self):
         """A cell comment is also held in a TXO record. It is not read as a text box — comments go at the end of the sheet with
         their cell through the NOTE record (test_spreadsheet_notes_pictures_and_times.py::TestXlsCellComments). Without a NOTE it
@@ -1346,6 +1370,34 @@ class TestXlsDrawings:
 
         assert extraction.exceeded
         assert len(extraction.sections) == 1
+
+
+class TestTextSections:
+    """A text cell is shown by the text section of its format (the fourth, or the only one when it holds `@`), with the
+    literals around it. They were dropped: a name lost the title Excel shows with it, a code its prefix."""
+
+    @pytest.mark.parametrize(("number_format", "expected"), [
+        ('@" 님"', "홍길동 님"), ('"(주)"@', "(주)홍길동"), ('0;-0;0;"코드: "@', "코드: 홍길동"), ('"["@"]"', "[홍길동]"),
+        ("_(@_)", "홍길동"), ("[Red]@", "홍길동"), ("@", "홍길동"), ("General", "홍길동"), ("0.00", "홍길동"),
+        ('0;0;0;"n/a"', "홍길동"),  # a text section without `@` would hide the text
+        (";;;", "홍길동"),
+    ])
+    def test_text_cell_gets_the_literals_of_its_text_section(self, number_format, expected):
+        assert format_cell("홍길동", number_format) == expected
+
+    def test_xlsx_and_excel_2003_xml_text_cells_show_their_literals(self):
+        workbook = openpyxl.Workbook()
+        workbook.active.append(["이름", "직급"])
+        workbook.active.append(["홍길동", "과장"])
+        workbook.active["A2"].number_format = '@" 님"'
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        xlsx = convert(buffer.getvalue(), "a.xlsx")
+        xml = convert(_xml_spreadsheet('@" 님"', "String", "홍길동"), "a.xml")
+
+        assert "| 홍길동 님 | 과장 |" in xlsx.text
+        assert "| 가 | 홍길동 님 |" in xml.text
 
 
 class TestTextOnlyNumberFormats:

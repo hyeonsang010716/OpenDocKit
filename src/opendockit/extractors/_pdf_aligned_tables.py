@@ -627,9 +627,15 @@ def _column_table_runs(page: _Page, runs: list[list[list[_Line]]], columns: tupl
     # test_lines_of_a_joined_row_are_not_a_second_table).
     in_table = {id(original) for run in runs for row in run for line in row for original in (line, *line.joined)}
     rest = [line for line in page.lines if id(line) not in in_table]
-    found: list[list[list[_Line]]] = []
-    for side in ([line for line in rest if line.x1 <= right_start], [line for line in rest if line.x0 >= left_end]):
-        found += [_regrouped_half_rows(run, max_cell) for run in _table_runs(_visual_rows(side), max_cell)]
+    # A line lying wholly in the gap between the columns fits both sides. The right side gets only those no table of the
+    # left side took: given to both, the last column of a left table poking into the gap, or the middle column of a
+    # page-wide table dropped as mixing the two columns (`_mixes_two_columns`), became a column of a table on each side and
+    # came out twice (Pinned by: test_pdf.py::TestBorderlessTableInOneColumn::test_a_column_in_the_gap_is_read_once).
+    found = [_regrouped_half_rows(run, max_cell)
+             for run in _table_runs(_visual_rows([line for line in rest if line.x1 <= right_start]), max_cell)]
+    taken = {id(original) for run in found for row in run for line in row for original in (line, *line.joined)}
+    right = [line for line in rest if line.x0 >= left_end and id(line) not in taken]
+    found += [_regrouped_half_rows(run, max_cell) for run in _table_runs(_visual_rows(right), max_cell)]
     return found
 
 

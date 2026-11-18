@@ -273,6 +273,15 @@ class TestMathMl:
         assert convert(html.encode(), "a.html").text == ("Total $\\$5×n$ per unit, $\\{a\\}∪\\{b\\}$, "
                                                         "$\\frac{50}{\\%}\\#\\backslash$")
 
+    def test_words_of_an_mtext_keep_their_spaces(self):
+        """The text of an `<mtext>` was stripped like a variable, so `f(x)=1 if x>0` read `1ifx>0`. Words become `\\text{…}`
+        with their end spaces; an mtext of spaces is one space and one of symbols stays literal."""
+        html = ("<p><math><mi>f</mi><mo>(</mo><mi>x</mi><mo>)</mo><mo>=</mo><mn>1</mn><mtext>&nbsp;if&nbsp;</mtext>"
+                "<mi>x</mi><mo>&gt;</mo><mn>0</mn></math>, "
+                "<math><mi>a</mi><mtext> </mtext><mi>b</mi><mtext>,</mtext><mi>c</mi><mtext>모든&nbsp;</mtext><mi>n</mi></math></p>")
+
+        assert convert(html.encode(), "a.html").text == r"$f(x)=1\text{ if }x>0$, $a b,c\text{모든 }n$"
+
     def test_math_inside_a_table_cell_stays_in_the_cell(self):
         html = ("<table><tr><th>항목</th><th>식</th></tr>"
                 "<tr><td>넓이</td><td><math><mi>π</mi><msup><mi>r</mi><mn>2</mn></msup></math></td></tr></table>")

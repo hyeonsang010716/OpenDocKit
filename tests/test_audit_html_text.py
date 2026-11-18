@@ -530,7 +530,8 @@ class TestMuchContentOutsideTheCellsOfATable:
          "p\n\nonetwo **bold**three\n\n| a | b |\n| --- | --- |\n| c | d |\n\nq"),
         ("<table><tr><td>a</td><td>b</td></tr>x<table><tr><td>c</td><td>d</td></tr>y</table>"
          "<table><tr><td>e</td><td>f</td></tr></table>z</table><p>q</p>",
-         "xz\n\n| a | b |\n| --- | --- |\n\ny\n\n| c | d |\n| --- | --- |\n\n| e | f |\n| --- | --- |\n\nq"),
+         # z follows the tables: a browser has closed the outer table at the first inner one
+         "x\n\n| a | b |\n| --- | --- |\n\ny\n\n| c | d |\n| --- | --- |\n\n| e | f |\n| --- | --- |\n\nz\n\nq"),
         ("<div>before<table><form>in form<tr><td>a</td><td>b</td></tr></form></table>after</div>",
          "beforein form\n\n| a | b |\n| --- | --- |\n\nafter"),
     ])
