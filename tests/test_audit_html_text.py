@@ -608,6 +608,18 @@ class TestListItemWithManyUnpairedFenceLines:
         assert text.startswith("-")
         assert seconds < allowed(6)
 
+    @pytest.mark.timing
+    def test_many_code_blocks_take_linear_time(self):
+        """With no fence line of text left to find, the next one was looked for again after every code block, to the end of
+        the item: one item of 40,000 `<pre>` blocks (507 KB) took 21 s."""
+        def html(count):
+            return ("<ul><li>" + "<pre>x</pre>t" * count + "</li></ul>").encode()
+
+        small, large = html(5_000), html(20_000)
+
+        assert fastest(lambda: convert(large, "a.html")) < 8 * fastest(lambda: convert(small, "a.html")) + 0.05
+        assert convert(html(2), "a.html").text == "-\n\n```\nx\n```\n\nt\n\n```\nx\n```\n\nt"
+
     @pytest.mark.parametrize(("item", "expected"), [
         ("first<pre>a  b\n\n\nc</pre>then<pre>d</pre>last", "- first\n\n```\na  b\n\n\nc\n```\n\nthen\n\n```\nd\n```\n\nlast"),
         ("<pre></pre>after", "-\n\n```\n\n```\n\nafter"),

@@ -790,9 +790,12 @@ def _split_at_fenced(text: str) -> list[str]:
             break  # both are looked for from `position` on; a piece that starts before it would never let the loop end
         pieces += [text[position:start], text[start:stop]]
         position = stop
-        if block < position:
+        # Looked for again only when the last one found lies behind: none found (-1) stays none. Looked for again after every
+        # code block, one item of 40,000 `<pre>` blocks and no fence line of text (507 KB) read on to its end 40,000 times, 21 s
+        # (Pinned by: test_audit_html_text.py::TestListItemWithManyUnpairedFenceLines::test_many_code_blocks_take_linear_time).
+        if 0 <= block < position:
             block = _line_start(text, f"{_CODE_FENCE}\n", position)
-        if plain < position:
+        if 0 <= plain < position:
             plain = _line_start(text, "```\n", position)
     pieces.append(text[position:])
     return pieces
