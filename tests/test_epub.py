@@ -216,6 +216,28 @@ class TestChapterMarkup:
 
         assert convert(_epub({"ch1.xhtml": _page(body)}), "book.epub").text == "앞\n\n뒤\n\n끝"
 
+    @pytest.mark.parametrize(("namespaces", "expected"), [
+        (["http://www.w3.org/1998/Math/MathML"], "넓이는 $πr^2$ 이다."),
+        (["urn:x-chemistry", "http://www.w3.org/1998/Math/MathML"], "넓이는 $πr^2$ 이다."),
+        (["urn:x-chemistry"], "넓이는 원주율 곱하기 r의 제곱 이다."),
+    ])
+    def test_only_one_branch_of_a_content_switch_is_read(self, namespaces, expected) -> None:
+        """A reading system shows one branch of an `<epub:switch>`: the first case whose markup it reads, else the default.
+        Both came out, the formula and then its text fallback."""
+        cases = "".join(f'<epub:case required-namespace="{namespace}"><math xmlns="http://www.w3.org/1998/Math/MathML">'
+                        "<mi>π</mi><msup><mi>r</mi><mn>2</mn></msup></math></epub:case>" for namespace in namespaces)
+        body = (f'<p>넓이는 <epub:switch id="s1">{cases}'
+                "<epub:default>원주율 곱하기 <span>r</span>의 제곱</epub:default></epub:switch> 이다.</p>")
+
+        assert convert(_epub({"ch1.xhtml": _page(body)}), "book.epub").text == expected
+
+    def test_default_of_a_content_switch_is_read_in_a_chapter_that_is_not_well_formed(self) -> None:
+        """A chapter that is not well-formed XML is read by the HTML parser, which keeps the `epub:` prefix in the names."""
+        body = ('<p>값&nbsp;<epub:switch><epub:case required-namespace="urn:x-chem">C<sub>2</sub></epub:case>'
+                "<epub:default><span>탄소</span> 두 개</epub:default></epub:switch> 끝</p><p>다음</p>")
+
+        assert convert(_epub({"ch1.xhtml": _page(body)}), "book.epub").text == "값 탄소 두 개 끝\n\n다음"
+
     def test_cdata_sections_and_prefixed_xhtml_elements_are_read_as_xml(self) -> None:
         """Two things only XML knows: a CDATA section (an HTML parser takes it for a comment and drops the text) and XHTML
         elements written with a namespace prefix (`<h:h1>`), which an HTML parser does not recognize as headings or lists."""
