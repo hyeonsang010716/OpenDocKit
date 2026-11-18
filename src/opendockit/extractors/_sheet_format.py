@@ -117,7 +117,10 @@ def _negative_serial_text(value: float, number_format: str) -> str:
             # positive one is. It rejected the whole document
             # (Pinned by: test_audit_spreadsheet.py::TestNegativeValueTooLargeForADuration).
             return _format_value(value)
-    if _shows_date(number_format) or math.isinf(value):
+    if _shows_date(number_format) or math.isinf(value * 86400):
+        # More seconds than a float holds (-1E+305 days, or infinity): `round` raised OverflowError and the whole workbook was
+        # rejected. Shown as the number, as under an elapsed format
+        # (Pinned by: test_audit_spreadsheet.py::TestNegativeValueTooLargeForADuration::test_time_only_format_whose_seconds_do_not_fit_in_a_float).
         return _format_value(value)
     seconds = round(-value * 86400)
     return f"-{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"

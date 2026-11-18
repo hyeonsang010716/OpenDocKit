@@ -462,9 +462,41 @@ class TestNegativeValueTooLargeForADuration:
         (-1e12, "[h]:mm", "-1000000000000"), (1e12, "[h]:mm", "1000000000000"), (-1e12, "[ss]", "-1000000000000"),
         (-0.5, "[h]:mm", "-12:00"), (-1e12, "h:mm", "-24000000000000:00:00"),
         (float("-inf"), "[h]:mm", "-inf"), (float("-inf"), "h:mm", "-inf"), (float("-inf"), "yyyy-mm-dd", "-inf"),
+        (-1e305, "h:mm", "-1e+305"), (-1.7e308, "mm:ss", "-1.7e+308"), (-1e305, "h:mm AM/PM", "-1e+305"),
     ])
     def test_format_cell(self, value, number_format, expected):
         assert spreadsheet.format_cell(value, number_format) == expected
+
+    def test_time_only_format_whose_seconds_do_not_fit_in_a_float(self):
+        """-1E+305 days under `h:mm` is more seconds than a float holds: `round(inf)` raised OverflowError and the whole
+        workbook was rejected. It is shown as the number, as an infinite value is."""
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["name", "time"])
+        sheet.append(["a", -1e305])
+        sheet["B2"].number_format = "h:mm"
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| name | time |\n| --- | --- |\n| a | -1e+305 |"
+
+    def test_time_only_format_whose_seconds_do_not_fit_in_a_float_in_xls(self):
+        import xlrd
+
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_DATE, -1e305)
+
+        assert spreadsheet.format_cell(xls._xls_value(cell, 0, "h:mm"), "h:mm") == "-1e+305"
+
+    def test_time_only_format_whose_seconds_do_not_fit_in_a_float_in_xml_spreadsheet(self):
+        styles = '<Style ss:ID="s0"><NumberFormat ss:Format="h:mm"/></Style>'
+        rows = ("<Row>" + _xml_cell("name") + _xml_cell("time") + "</Row>"
+                "<Row>" + _xml_cell("a") + _xml_cell("-1E+305", "Number", 'ss:StyleID="s0"') + "</Row>")
+
+        result = convert(_xml_workbook(rows, styles), "a.xml")
+
+        assert result.text == "## Sheet: s\n\n| name | time |\n| --- | --- |\n| a | -1e+305 |"
 
     def test_xlsx(self):
         workbook = openpyxl.Workbook()
