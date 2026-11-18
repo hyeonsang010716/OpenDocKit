@@ -1805,11 +1805,21 @@ def _hidden_by_style(tag: Tag) -> bool:
 
 
 def _has_hidden(tag: Tag) -> bool:
-    """Whether the `hidden` attribute hides `tag`. `hidden="until-found"` does not: it folds content that a browser still
-    searches and opens when it is found or linked to — the standard way to fold the answers of an FAQ or the sections of an
-    accordion, as `<details>` does, whose folded content is read too. Other hiding on the element (`display:none`) still
-    counts (Pinned by: test_text_html.py::TestCollapsedQuestionsAndAnswers::test_content_hidden_until_found_is_kept)."""
-    return tag.has_attr("hidden") and str(tag["hidden"]).lower() != "until-found"
+    """Whether the markup of `tag` itself hides it: the `hidden` attribute, a `<dialog>` that is not open, or a `popover`.
+
+    `hidden="until-found"` does not: it folds content that a browser still searches and opens when it is found or linked to —
+    the standard way to fold the answers of an FAQ or the sections of an accordion, as `<details>` does, whose folded content
+    is read too. Other hiding on the element (`display:none`) still counts
+    (Pinned by: test_text_html.py::TestCollapsedQuestionsAndAnswers::test_content_hidden_until_found_is_kept).
+
+    Every browser draws a `<dialog>` without `open` and an element with `popover` as `display: none` until a script opens it,
+    and a page saved after opening a dialog keeps its `open`. Read as body text, the closed feedback and cookie dialogs of a
+    page were appended to it, a heading of one in front of the title (Pinned by: test_text_html.py::TestClosedDialogsAndPopovers).
+    A `role="dialog"` element is an ordinary element: modal libraries show and hide it with their own classes.
+    """
+    if tag.has_attr("hidden") and str(tag["hidden"]).lower() != "until-found":
+        return True
+    return (tag.name == "dialog" and not tag.has_attr("open")) or tag.has_attr("popover")
 
 
 def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool = True) -> None:

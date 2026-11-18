@@ -1341,6 +1341,26 @@ class TestMhtml:
         assert "[Image: 외부]" in result.text
 
 
+class TestClosedDialogsAndPopovers:
+    """A `<dialog>` without `open` and an element with `popover` are not shown until a script opens them (browsers draw them as
+    `display: none`), and they were read as body text: the closed feedback and cookie dialogs of a page came after its body,
+    a heading of one in front of the title. An open dialog is shown and read; a `role="dialog"` element is an ordinary one."""
+
+    def test_closed_dialog_and_popover_are_not_read(self):
+        html = ("<html><head><title>Report</title></head><body><h1>Report</h1><p>Revenue doubled.</p>"
+                '<dialog id="feedback"><h2>Provide feedback</h2><p>We read every piece of feedback.</p></dialog>'
+                '<dialog aria-modal="true"><p>We use cookies. Accept all?</p></dialog>'
+                "<div popover>Tooltip text that is not on screen.</div><div popover=manual>Manual popover.</div></body></html>")
+
+        assert convert(html.encode(), "a.html").text == "# Report\n\nRevenue doubled."
+
+    def test_open_dialog_and_role_dialog_are_read(self):
+        html = ('<html><body><p>Body</p><dialog open><p>Session expired.</p></dialog>'
+                '<div role="dialog"><p>Sign in to continue.</p></div></body></html>')
+
+        assert convert(html.encode(), "a.html").text == "Body\n\nSession expired.\n\nSign in to continue."
+
+
 class TestCollapsedQuestionsAndAnswers:
     """Saved FAQ and accordion pages fold the answer away with an inline `display:none` and put the question in a `<button>`. Hidden
     elements and buttons were removed whole, so the questions and answers vanished. Only expander buttons and their targets are
