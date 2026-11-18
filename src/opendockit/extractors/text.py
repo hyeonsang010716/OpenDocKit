@@ -153,9 +153,13 @@ def _plain_text(data: bytes) -> Extraction:
 # (`alt="a < b"`), leave the picture as text, as before.
 _ALT_CHARACTER = r"(?:[^\[\]\n!]|!(?!\[)|\n(?![ \t\r]*\n))"
 _PICTURE_ALT = r"(?:" + _ALT_CHARACTER + r"|\[" + _ALT_CHARACTER + r"*+\]|\[)*"
-# One attribute of `<img` or a piece of it: a quoted value, which may hold `>` but not `<`, or one character that is not
-# `<` or `>`. Atomic, so a quote that opens a value closed before the next `<` is never read as a lone character instead.
-_TAG_PIECE = r"""(?>"[^"<]*"|'[^'<]*'|[^<>])"""
+# One attribute of `<img` or a piece of it: a quoted value after its `=`, which may hold `>` but not `<`, or one character
+# that is not `<` or `>`. Atomic, so a quote that opens a value closed before the next `<` is never read as a lone character
+# instead. A quote opens a value only right after `=`, as in HTML: a stray one (`alt='it's'`, `alt="5" screen"`) took the
+# ` src="data:…` after it for one value, `src` was never found and the base64 stayed in the text
+# (Pinned by: test_core_mbox_markdown_and_api.py::TestMarkdownPicturesWithBracketsLineBreaksAndAnglesInTheirText::
+# test_img_with_a_stray_quote_before_src_is_extracted).
+_TAG_PIECE = r"""(?>=\s*"[^"<]*"|=\s*'[^'<]*'|[^<>])"""
 _DATA_IMAGE = r"data:image/[\w.+-]+(?:;[\w.+-]+=[^;,\s()<>\"']*)*;base64,"
 _MARKDOWN_DATA_PICTURE = re.compile(
     r"!\[(?P<alt>" + _PICTURE_ALT + r")\]\(\s*(?:<" + _DATA_IMAGE + r"(?P<angle_data>[A-Za-z0-9+/=\s]*)>\s*"

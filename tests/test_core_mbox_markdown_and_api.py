@@ -100,6 +100,18 @@ class TestMarkdownPicturesWithBracketsLineBreaksAndAnglesInTheirText:
         assert result.text == f"# 제목\n\n[Image: {alt}]\n\n끝"
 
     @pytest.mark.parametrize("markdown", [
+        "<img alt='it's' src=\"data:image/png;base64,{p}\" title='x'>",
+        '<img alt="5" screen" src="data:image/png;base64,{p}" width="100">',
+    ])
+    def test_img_with_a_stray_quote_before_src_is_extracted(self, markdown):
+        """A quote opens an attribute value only right after `=`: a stray one took the `src` after it for part of a value,
+        and the picture kept its base64 in the text."""
+        result = convert(f"# 제목\n\n{markdown.format(p=_png())}\n\n끝".encode(), "a.md")
+
+        assert len(result.images) == 1
+        assert "base64" not in result.text and "끝" in result.text
+
+    @pytest.mark.parametrize("markdown", [
         "![a\n\nb](data:image/png;base64,{p})",          # a blank line ends the paragraph, and the alt text with it
         "![a [b](data:image/png;base64,{p})",               # an unbalanced bracket is text, as before
     ])
