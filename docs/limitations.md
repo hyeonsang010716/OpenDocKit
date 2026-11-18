@@ -4,25 +4,34 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 
 ## Platforms
 
-- **Linux and macOS are the supported platforms.** The full test suite runs on both for every change.
-- **Windows is not supported yet for HTML, email and EPUB.** OpenDocKit reads malformed HTML the way a browser does, which relies on
-  the HTML5 tokenizer of libxml2 2.14. lxml bundles that version on Linux and macOS, but its Windows wheels still bundle
-  libxml2 2.11. With the older parser, text after the end of a page, a second concatenated document, the content of
-  `<textarea>`/`<xmp>` and — most importantly — further parts of a mail (forwarded messages, calendar invitations, later
-  messages of an mbox) can go missing. When that parser is in use, every HTML or mail result carries a warning saying so.
-  EPUB chapters, and HTML chunks imported into a DOCX, are read by the same code and carry the warning too. The other
-  formats do not depend on it.
-- **`IsolatedConverter` is verified on Linux and macOS only.** Its memory limit applies on Linux; on macOS the time limit and
-  process isolation remain. On Windows it is untested: in CI, closing a converter while a conversion was still running did
-  not return.
+- **Linux, macOS and Windows are the supported platforms.** The full test suite runs on all three for every change.
+- **A large malformed page on Windows is still read by the older parser.** Reading malformed HTML the way a browser does
+  needs an HTML5 parser. lxml bundles one (libxml2 2.14) on Linux and macOS, but its Windows wheels bundle libxml2 2.11, so
+  there html5lib builds the tree instead. html5lib is written in Python and is quadratic on three shapes — the text an
+  unclosed `<textarea>`/`<xmp>`/`<plaintext>` swallows, how many of them are left open, and nesting — so a page over
+  256 KB, nested deeper than 1,000 elements, or leaving more than 16 raw-text elements open, goes to the older parser
+  after all. For those pages — and only those — text after the end of the page, a
+  second concatenated document, the content of raw-text elements and further parts of a mail can go missing, and the
+  result carries a warning saying so. EPUB chapters, and HTML chunks imported into a DOCX, are read by the same code.
+- **`IsolatedConverter` runs on all three platforms.** Its memory limit applies on Linux (`RLIMIT_AS`) and on Windows (a job
+  object's `ProcessMemoryLimit`); macOS accepts neither, so there the time limit and process isolation remain. A worker
+  leaves with a server that was killed outright everywhere: on POSIX by watching the server's pid, on Windows by waiting on
+  a handle to it.
+- **A worker costs more on Windows.** There is no fork server to preload this package into, so every file pays a full
+  interpreter start and `import opendockit` — measured at 0.66 s per file, against a few milliseconds elsewhere. It is the
+  price of a fresh worker per file there, and it does not apply to `convert` itself.
+- **Building an `IsolatedConverter` on Windows needs a `__main__` guard.** Workers are started by spawning a new interpreter
+  that re-imports the program, so a converter made at module level builds converters without end. Make it inside
+  `if __name__ == "__main__":`, or in a function a server calls.
 
 ## Integrations
 
 - **LangChain, LlamaIndex and the MCP server convert offline.** Pictures and scanned pages stay placeholders; to have them
   described, convert with a describer yourself ([integrations.md](integrations.md)).
-- **The MCP server** speaks stdio only, and on Windows it converts without the worker process that limits memory and time
-  on Linux and macOS. Without `--root` it reads any file its user can read. In `sections` mode a page, sheet or slide
-  without text is left out, so section numbers can have gaps.
+- **The MCP server** speaks stdio only. Without `--root` it reads any file its user can read, and where `--root` is given,
+  the folder is checked again as the file is opened on POSIX but only around the open on Windows, which narrows the moment
+  a folder could be swapped without closing it. In `sections` mode a page, sheet or slide without text is left out, so
+  section numbers can have gaps.
 
 ## General
 

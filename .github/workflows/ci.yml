@@ -29,18 +29,16 @@ jobs:
     timeout-minutes: 40
     name: test (py${{ matrix.python }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Windows is not verified yet: its result is reported but does not fail the workflow.
-    # Remove `experimental` (and add the Windows classifier in pyproject.toml) once it is green.
-    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         python: ["3.12", "3.13", "3.14"]
         include:
+          # Windows runs on one version: its own code paths (the job object of `IsolatedConverter`, the LibreOffice job,
+          # html5lib as the tree builder) do not differ between Python versions, and a full matrix would double the run.
           - os: windows-latest
             python: "3.12"
-            experimental: true
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3

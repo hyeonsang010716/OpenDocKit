@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Windows is a supported platform.** The suite runs there for every change, and the sample outputs are identical to
+  the ones Linux and macOS write.
+  - `IsolatedConverter` keeps the memory limit it is given (the `ProcessMemoryLimit` of a job object, as `RLIMIT_AS` is
+    on Linux); it used to be accepted, validated and then ignored, so a server ran every conversion without it. A worker
+    also leaves with a server that was killed outright, as it does on POSIX.
+  - **MCP server** and **Open WebUI loader**: a file is converted in a worker process there too. Both fell back to a
+    thread of the server, which gave up the memory limit, the time limit and the process isolation at once.
+  - **Legacy `.doc` and `.ppt`**: LibreOffice is ended with the process that started it, so a conversion whose worker is
+    killed on its time limit no longer leaves it running, and a guard process removes the folder holding the uploaded
+    document, as on POSIX.
+  - **HTML, mail and EPUB**: malformed and multi-part pages are read whole. lxml's Windows wheels bundle a libxml2
+    without the HTML5 tokenizer, so text after the end of a page, a second concatenated document, the content of
+    `<textarea>`/`<xmp>` and the further parts of a mail were lost; html5lib builds the tree there instead. A page over
+    256 KB, nested deeper than 1,000 elements, or leaving more than 16 raw-text elements open is still read by the older
+    parser — html5lib is quadratic on those — and the result says so.
+
+### Fixed
+
+- **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if
+  that worker died first. The queue the file travels on is no longer waited for.
+- **MCP server**: the path of a call is resolved in a thread, as its content already was. A path the file system is slow
+  to answer for — a disconnected network drive, a sleeping disk, a UNC name on Windows — stopped the whole server, and
+  with it the agent's session, until it answered.
+
 ## [0.3.14] - 2026-11-19
 
 Fixes from five audit rounds, most of them small files that cost a lot of time or memory, and content that was lost.
