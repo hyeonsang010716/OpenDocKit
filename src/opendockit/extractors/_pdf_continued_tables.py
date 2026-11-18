@@ -26,6 +26,16 @@ from opendockit.extractors._pdf_paragraphs import _table_text
 # Year and date cells common in header rows ('2024', '2024년', 'FY2024', '2024.12.31', '2024-12'). When deciding on the header row to
 # repeat they are not treated as numeric value cells (`_has_value_text`).
 _YEAR_OR_DATE = re.compile(r"^(?:FY\s?)?(?:19|20)\d{2}(?:년도?|[.\-/]\s?\d{1,2}(?:[.\-/]\s?\d{1,2})?\.?)?$")
+# A column number under a period name in a header ('1분기 / (1)'), not a value (`_is_value_piece`).
+_COLUMN_NUMBER = re.compile(r"^\(\d{1,2}\)$")
+
+
+def _is_value_piece(text: str) -> bool:
+    """Whether a line piece is numeric values only (`_NUMBER_CELL` for every word: '8,400', and '12 4,800' that pdfminer
+    merged from two cells), none of them a year, a date or a column number."""
+    words = text.split()
+    return bool(words) and all(_NUMBER_CELL.match(word) and not _YEAR_OR_DATE.match(word) and not _COLUMN_NUMBER.match(word)
+                               for word in words)
 
 
 def _join_ruled_header_lines(page: _Page) -> None:
@@ -96,6 +106,11 @@ def _holds_data_rows(lines: list[_Line]) -> bool:
     ('1분기 / (1)') (Pinned by: test_pdf_table_columns.py::TestTwoDataRowsBetweenRules).
     """
     rows = _visual_rows(lines)
+    if rows and len(rows[0]) >= _TABLE_MIN_COLUMNS and any(_is_value_piece(line.text) for line in rows[0]):
+        # A full row of values on top, with the second line of a wrapped cell under it: a data row of a table ruled under every
+        # row. Joined as a stacked header, the cells lost the places pdfminer split them at ('| | 12 4,800 |')
+        # (Pinned by: test_pdf_table_columns.py::TestDataRowsBetweenRulesWithAWrappedCell).
+        return True
     return len(rows) >= 2 and all(
         len(row) >= _TABLE_MIN_COLUMNS
         and any(_NUMBER_CELL.match(line.text.strip()) and not _YEAR_OR_DATE.match(line.text.strip()) for line in row)
@@ -124,7 +139,11 @@ def _grouped_columns(lines: list[_Line]) -> list[list[_Line]] | None:
         cells = sorted(below[id(line)], key=lambda cell: cell.x0)
         if len(cells) < 2:
             continue
-        if not centre(cells[0]) < centre(line) < centre(cells[-1]):
+        # The upper cell of a two-level header names columns; it is never over values. The first line of a wrapped cell of a
+        # data row whose cells sit on its last line (Excel's bottom alignment) is above the values of that row, and was put in
+        # front of every one of them ('| Research and development 8,400 |')
+        # (Pinned by: test_pdf_table_columns.py::TestDataRowsBetweenRulesWithAWrappedCell).
+        if not centre(cells[0]) < centre(line) < centre(cells[-1]) or any(_is_value_piece(cell.text) for cell in cells):
             return None
         columns += [[line, cell] for cell in cells]
     return columns

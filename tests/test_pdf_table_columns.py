@@ -1024,6 +1024,59 @@ class TestTwoDataRowsBetweenRules:
                 "| Ⅰ. 매출액 | 23 | 152,340 | 138,920 | 13,420 |") in result.text
 
 
+def _ruled_under_every_row(rows: list[tuple[list[str], ...]], lefts: list[float], *, bottom_aligned: bool,
+                           rights: frozenset[int] = frozenset()) -> bytes:
+    """A table ruled under every row, without column rules (Excel's default borders): each cell is a list of lines, drawn from
+    its left edge in `lefts` (up to it for the columns in `rights`), the rows top-aligned or bottom-aligned (Excel's default
+    alignment)."""
+    def draw(pdf, index):
+        pdf.setFont("Helvetica", 10)
+        pdf.drawString(60, 800, "Expenses by department for the first quarter of the year.")
+        y = 780.0
+        pdf.setLineWidth(0.5)
+        pdf.line(60, y, 540, y)
+        for row in rows:
+            height = max(len(cell) for cell in row) * 12 + 8
+            for column, (left, cell) in enumerate(zip(lefts, row, strict=True)):
+                first = y - height + 5 + (len(cell) - 1) * 12 if bottom_aligned else y - 13
+                for number, line in enumerate(cell):
+                    (pdf.drawRightString if column in rights else pdf.drawString)(left, first - number * 12, line)
+            y -= height
+            pdf.line(60, y, 540, y)
+        pdf.drawString(60, y - 30, "Amounts are in thousands of won.")
+
+    return _korean_pdf(draw)
+
+
+class TestDataRowsBetweenRulesWithAWrappedCell:
+    """In a table ruled under every row, the band of a row with a wrapped cell was taken for a header (`_join_ruled_header_lines`).
+    Bottom-aligned, the first line of the wrapped label lies above the values of its row and was taken for the upper cell of
+    a two-level header, prefixed to every one of them; top-aligned, the row was joined as a stacked header and two values
+    pdfminer had merged into one piece ('12 4,800') could no longer be split."""
+
+    @pytest.mark.parametrize("bottom_aligned", [True, False], ids=["bottom-aligned", "top-aligned"])
+    def test_row_with_a_wrapped_cell_stays_a_data_row(self, bottom_aligned):
+        rows = [(["Department"], ["Jan"], ["Feb"], ["Mar"]), (["Sales"], ["1,200"], ["1,350"], ["1,100"]),
+                (["Research and development", "(incl. licences)"], ["8,400"], ["8,150"], ["9,020"]),
+                (["Marketing"], ["2,100"], ["2,300"], ["1,950"]), (["Total"], ["11,700"], ["11,800"], ["12,070"])]
+
+        text = convert(_ruled_under_every_row(rows, [64, 230, 320, 410], bottom_aligned=bottom_aligned), "a.pdf",
+                       ConvertOptions(page_markers=False)).text
+
+        assert ("| Department | Jan | Feb | Mar |\n| --- | --- | --- | --- |\n| Sales | 1,200 | 1,350 | 1,100 |\n"
+                "| Research and development<br>(incl. licences) | 8,400 | 8,150 | 9,020 |\n| Marketing | 2,100 | 2,300 | 1,950 |") in text
+
+    def test_values_merged_into_one_piece_are_split_in_a_row_with_a_wrapped_cell(self):
+        rows = [(["Code"], ["Description"], ["Qty"], ["Price"], ["Note"]), (["A-100"], ["Steel bolt"], ["40"], ["1,200"], ["ok"]),
+                (["B-300"], ["Hydraulic pump with", "mounting bracket"], ["12"], ["4,800"], ["late"]),
+                (["C-500"], ["Control panel"], ["3"], ["9,900"], ["ok"])]
+
+        text = convert(_ruled_under_every_row(rows, [64, 130, 382, 390, 490], bottom_aligned=False, rights=frozenset({2})),
+                       "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| B-300 | Hydraulic pump with<br>mounting bracket | 12 | 4,800 | late |" in text
+
+
 def _gapped_table(gap: float, rows: list[tuple[str, ...]]) -> str:
     """Page text of a borderless table (below a title) whose columns are spaced by the longest cell text + `gap` pt. An empty cell is an empty
     string."""
