@@ -308,7 +308,11 @@ def _fenced_spans(text: str) -> list[tuple[int, int]]:
     `code_fences` is (Pinned by: test_core_text_and_mail.py::TestMarkdownHtmlImageDataUri::
     test_many_unclosed_fence_lines_before_a_picture_take_linear_time).
     """
-    if "```" not in text and "~~~" not in text and "\u1fef" not in text:
+    # A fence holds three backticks or tildes once cleaned, and cleaning removes characters but adds none of these (U+1FEF becomes
+    # a backtick under NFC), so a text with fewer has no code block. Looked for as runs in the raw text, a fence that a removed
+    # character sat inside (`~~\u200b~` on both lines) was missed and its picture example extracted
+    # (Pinned by: test_image.py::TestDataUriPictureInACodeBlockThatCleaningSees).
+    if text.count("`") + text.count("\u1fef") < 3 and text.count("~") < 3:
         return []
     starts, ends = [0], []
     for line_break in _LINE_BREAK.finditer(text):

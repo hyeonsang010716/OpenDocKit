@@ -1851,6 +1851,10 @@ class TestDataUriPictureInACodeBlockThatCleaningSees:
         "Example:\n\n~~~\n{picture}\n~~~~~\n\nDone.\n",
         "> ```markdown\n> {picture}\n> ```\n\nDone.\n",
         "\u200b```markdown\n# Example\n\n{picture}\n```\n\nDone.\n",
+        # A fence only once cleaning removes the zero-width space inside it, on both lines: the quick check before pairing looked
+        # for a fence in the raw text and found none
+        "Intro\n\n~~\u200b~\n{picture}\n~~\u200b~\n\nDone.\n",
+        "Intro\n\n`\u200b``\n{picture}\n``\u2060`\n\nDone.\n",
         "1. Example:\r\n\r\n   ```markdown\r\n   {picture}\r\n   ```\r\n\r\nDone.\r\n",
     ])
     def test_picture_inside_a_code_block_that_cleaning_sees_stays_as_code(self, document):
