@@ -48,8 +48,9 @@ def _put(client, data: bytes, name: str, **headers) -> httpx.Response:
 
 
 async def _put_async(app, data, name: str) -> httpx.Response:
-    """A request to `app` without its lifespan (files are converted in a thread), for what a test client run in one thread
-    cannot do: several requests at once, a body that is read as it comes."""
+    """A request to `app` without its lifespan, for what a test client run in one thread cannot do: several requests at once,
+    a body that is read as it comes. A test that converts a file this way sets `os.name` to "nt", so the file goes to a thread
+    and no worker pool is left without the lifespan that closes it."""
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://loader") as async_client:
         return await async_client.put("/process", content=data, headers=_headers(name))
 
@@ -245,8 +246,9 @@ class TestProcess:
 
         assert (response.status_code, response.text) == (413, "The file is too large (maximum 1KB).")
 
-    def test_document_over_the_character_limit_is_refused(self):
+    def test_document_over_the_character_limit_is_refused(self, monkeypatch):
         """Indexed in part, a document cut at `max_chars` would be missing its end without a word."""
+        monkeypatch.setattr(open_webui.os, "name", "nt")
         response = asyncio.run(_put_async(open_webui.create_app(KEY, max_chars=10), builder.docx_bytes(), "report.docx"))
 
         assert (response.status_code, response.text) == (422, open_webui.TOO_LONG)
@@ -264,7 +266,7 @@ class TestProcess:
             return convert(data, filename, options)
 
         monkeypatch.setattr(open_webui, "convert", slow)
-        monkeypatch.setattr(open_webui.os, "name", "nt")  # files go to a thread: the lifespan is not run here anyway
+        monkeypatch.setattr(open_webui.os, "name", "nt")  # files go to a thread, so `slow` is the one called
         app = open_webui.create_app(KEY, workers=1, queue=1)
         data = builder.docx_bytes()
 
@@ -286,11 +288,46 @@ class TestProcess:
             raise ValueError("Quarterly revenue 12,345 for ACME")
 
         monkeypatch.setattr(open_webui, "convert", failing)
+        monkeypatch.setattr(open_webui.os, "name", "nt")  # files go to a thread, so `failing` is the one called
         with caplog.at_level(logging.DEBUG):
             response = asyncio.run(_put_async(open_webui.create_app(KEY), builder.docx_bytes(), "report.docx"))
 
         assert (response.status_code, response.text) == (500, open_webui.FAILED)
         assert "ACME" not in caplog.text and "ValueError" in caplog.text
+
+    @pytest.mark.skipif(os.name != "posix", reason="worker processes are used on POSIX only")
+    def test_an_app_mounted_in_another_one_converts_in_a_worker(self, monkeypatch):
+        """Starlette does not run the lifespan of a mounted app. The workers were made there, so such an app converted every
+        file in the server process, without the worker's time and memory limits."""
+        from starlette.applications import Starlette
+        from starlette.routing import Mount
+
+        in_server: list[str] = []
+        made: list[object] = []
+        convert = open_webui.convert
+
+        def in_this_process(data, filename, options):  # called only for a file converted in the server process
+            in_server.append(filename)
+            return convert(data, filename, options)
+
+        class Recorded(open_webui.IsolatedConverter):
+            def __init__(self, **arguments):
+                super().__init__(**arguments)
+                made.append(self)
+
+        monkeypatch.setattr(open_webui, "convert", in_this_process)
+        monkeypatch.setattr(open_webui, "IsolatedConverter", Recorded)
+        parent = Starlette(routes=[Mount("/owui", app=open_webui.create_app(KEY))])
+        try:
+            with TestClient(parent) as test_client:
+                response = test_client.put("/owui/process", content=builder.docx_bytes(), headers=_headers("report.docx"))
+        finally:
+            for converter in made:  # nothing closes them: the mounted app's lifespan is not run
+                asyncio.run(converter.aclose())
+
+        assert response.status_code == 200
+        assert "1장 개요" in response.json()[0]["page_content"]
+        assert (len(made), in_server) == (1, [])
 
     def test_health_needs_no_key(self, client):
         assert (client.get("/health").status_code, client.get("/health").text) == (200, "ok")
