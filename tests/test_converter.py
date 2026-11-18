@@ -1123,7 +1123,6 @@ class WritingPipe:
         return self.written
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="named pipes are POSIX")
 class TestHugeLimits:
     """A size limit of sys.maxsize or more is the natural way to say "no limit" (None is refused). zlib and zipfile take a
     length as a C ssize_t, so one past such a limit raised OverflowError: every compressed HWP and every ODT was reported
@@ -1149,6 +1148,7 @@ class TestHugeLimits:
             assert expected.text
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="named pipes are POSIX")
 class TestReadingWithinTheSizeLimit:
     """`convert_file` refused a file over `max_file_bytes` from the size the file system reports, which is 0 for a pipe or a
     device: such a file was read to its end first (`opendockit /dev/zero` grew without bound). It is now read only up to the
