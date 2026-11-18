@@ -473,7 +473,9 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     # gave `약1,000원` and `0.00USD`, unlike the LibreOffice and Excel screens
     # (Pinned by: test_spreadsheet.py::TestNumberFormatLiteralsAndOptionalDecimals).
     prefix = literal_text(prefix_raw).lstrip()
-    suffix = literal_text(suffix_raw.replace("%", ""), iter(literals[literals_before + core.count("\x00"):])).rstrip()
+    # A `%` stays where the format puts it (`0.0 %` → 12.5 %, `%0` → %50); it was moved to right after the digits, giving
+    # `12.5%` and `%50%` (Pinned by: test_audit_spreadsheet.py::TestPercentWhereTheFormatPutsIt).
+    suffix = literal_text(suffix_raw, iter(literals[literals_before + core.count("\x00"):])).rstrip()
     # Deliberate: a % shielded by quotes or a backslash is a literal. Searching the original format string turned 2.5 under
     # `0.0"%p"` into "250.0%%p", 100 times too large (Pinned by: test_quality.py::TestSpreadsheetNumberFormats).
     percent = "%" in plain
@@ -498,7 +500,7 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     if places.endswith(("#", "?")):
         rest = _without_trailing_zeros(places, rest)
         dot = dot if rest else ""  # 12 under `0.###` → 12 (same as LibreOffice)
-    if any(char not in "0#?,%" for char in fraction):
+    if any(char not in "0#?," for char in fraction):
         # Literals between decimal places (`0.0\E+0`, `0.00" "00`) stay where they are, the decimal digits filling the places from
         # the left as in Excel. They were dropped, so 5 under `0.0\E+0` came out as `5.00` instead of `5.0E+0`
         # (Pinned by: test_audit_spreadsheet_fixes.py::TestLiteralsBetweenDecimalPlaces).
@@ -523,7 +525,7 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
         # empty section gives the value instead of nothing
         # (Pinned by: test_audit_spreadsheet.py::TestZeroIntegerUnderOptionalPlaces).
         integer = ""
-    return f"{sign}{prefix}{integer}{dot}{rest}{'%' if percent else ''}{suffix}"
+    return f"{sign}{prefix}{integer}{dot}{rest}{suffix}"
 
 
 def _grouped(digits: str) -> str:
@@ -566,7 +568,7 @@ def _rounded(value: float, percent: bool, scale: int, decimals: int) -> Decimal:
 
 def _fill_decimals(template: str, literals: list[str], digits: str) -> str:
     """Put the decimal digits into the decimal-part format (`0`/`#`/`?` places and literals) from the left. A `?` without a digit is
-    a space and a `#` without one is nothing; scaling commas and `%` are not shown here."""
+    a space and a `#` without one is nothing; scaling commas are not shown here."""
     pieces, remaining = iter(literals), iter(digits)
     filled = []
     for char in template:
@@ -574,7 +576,7 @@ def _fill_decimals(template: str, literals: list[str], digits: str) -> str:
             filled.append(next(remaining, " " if char == "?" else ""))
         elif char == "\x00":
             filled.append(next(pieces, ""))
-        elif char not in ",%":
+        elif char != ",":
             filled.append(char)
     return "".join(filled)
 

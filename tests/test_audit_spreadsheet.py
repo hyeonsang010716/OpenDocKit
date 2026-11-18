@@ -962,6 +962,37 @@ class TestZeroIntegerUnderOptionalPlaces:
         assert convert(buffer.getvalue(), "a.xlsx").text.endswith("| a | .50 |")
 
 
+class TestPercentWhereTheFormatPutsIt:
+    """The `%` of a format was always put right after the digits and dropped from where it stood, so 0.125 under `0.0 %` came
+    out as `12.5%` (Excel `12.5 %`) and 0.5 under `%0` as `%50%` (Excel `%50`). It stays where the format puts it; the value is
+    still multiplied by 100."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (0.125, "0.0 %", "12.5 %"),
+        (1, "0.00 %", "100.00 %"),
+        (0.5, "%0", "%50"),
+        (0.125, "0.0%", "12.5%"),
+        (0.125, '0.0%" 증가"', "12.5% 증가"),
+        (2.5, '0.0"%p"', "2.5%p"),
+        (2.5, "0.0\\%", "2.5%"),
+        (0.5, '0" %"', "1 %"),
+        (-0.125, "0.0 %;(0.0 %)", "(12.5 %)"),
+    ])
+    def test_format_cell(self, value, number_format, expected):
+        assert format_cell(value, number_format) == expected
+
+    def test_xls_and_xml_spreadsheet(self):
+        import xlrd
+
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_NUMBER, 0.125)
+        styles = '<Style ss:ID="s0"><NumberFormat ss:Format="0.0 %"/></Style>'
+        rows = ("<Row>" + _xml_cell("name") + _xml_cell("rate") + "</Row>"
+                "<Row>" + _xml_cell("a") + _xml_cell(0.125, "Number", 'ss:StyleID="s0"') + "</Row>")
+
+        assert format_cell(xls._xls_value(cell, 0, "0.0 %"), "0.0 %") == "12.5 %"
+        assert convert(_xml_workbook(rows, styles), "a.xml").text.endswith("| a | 12.5 % |")
+
+
 class TestQuestionMarkPlaces:
     """A `?` digit place without a significant digit is a space in Excel (it keeps a column aligned on the decimal point). A `?`
     decimal place showed its 0 (1.5 under `0.??` came out as `1.50`) and a `?` integer place its 0 (`?.??` → `0.50`)."""
