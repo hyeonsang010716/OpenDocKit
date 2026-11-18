@@ -36,6 +36,7 @@ from opendockit.extractors._docx_runs import (
     _MC,
     _V,
     _children,
+    _custom_mark,
     _drawing_alt,
     _drawing_lines,
     _embed_markdown_tables,
@@ -1089,7 +1090,49 @@ def _note_parts(document: object, placeholders: dict[str, str]) -> dict[str, tup
         if root is not None:
             _keep_filled_placeholders(root, placeholders)
             found[kind] = (part, root)
+    if found:
+        _drop_custom_marks(document.element, found)
     return found
+
+
+def _drop_custom_marks(body: etree._Element, note_parts: dict[str, tuple[object, etree._Element]]) -> None:
+    """Take the custom mark (`_custom_mark`) off the start of the note it marks. Word writes that mark into the note as text where
+    `w:footnoteRef` would stand, so it came out as '[^1]: * Estimated.'. Only a note without w:footnoteRef / w:endnoteRef whose
+    first paragraph starts with exactly the mark text of its first reference loses it; a mark made of a symbol (w:sym) stays
+    in the note, an accepted gap (Pinned by:
+    test_office_symbols_fields_notes.py::TestDocxCustomNoteMark)."""
+    marks: dict[tuple[str, str], str] = {}
+    for reference in body.iter(_w("footnoteReference"), _w("endnoteReference")):
+        mark = "".join(piece.text or "" for piece in _custom_mark(reference) if piece.tag == _w("t"))
+        kind = "footnote" if reference.tag == _w("footnoteReference") else "endnote"
+        if mark.strip():
+            marks.setdefault((kind, reference.get(_w("id"), "")), mark.strip())
+    if not marks:
+        return
+    for kind, (_part, root) in note_parts.items():
+        for note in root.iterchildren(_w(kind)):
+            mark = marks.get((kind, note.get(_w("id"), "")))
+            paragraph = next(note.iter(_w("p")), None) if mark else None
+            if paragraph is None or next(note.iter(_w("footnoteRef"), _w("endnoteRef")), None) is not None:
+                continue
+            taken: list[tuple[etree._Element, str]] = []  # (w:t, what is left of it once the mark is taken off)
+            for piece in paragraph.iter(_w("t")):
+                text = (piece.text or "") if taken else (piece.text or "").lstrip()
+                if not text:
+                    continue
+                if mark.startswith(text):
+                    taken.append((piece, ""))
+                    mark = mark[len(text):]
+                elif text.startswith(mark):
+                    taken.append((piece, text[len(mark):]))
+                    mark = ""
+                else:
+                    break
+                if not mark:
+                    break
+            if not mark:
+                for piece, rest in taken:
+                    piece.text = rest
 
 
 _W14_PARA_ID = "{http://schemas.microsoft.com/office/word/2010/wordml}paraId"
