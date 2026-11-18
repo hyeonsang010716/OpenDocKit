@@ -7,11 +7,13 @@ Every book is built in memory with `_epub`: chapter files under `OEBPS/`, a pack
 from io import BytesIO
 import zipfile
 
+from lxml import etree
 import pytest
 
 from opendockit import ConvertOptions, CorruptedDocumentError, DocumentFormat, EncryptedDocumentError, SectionKind, convert
 from opendockit.extractors import epub
 from tests import builder
+from tests.timing import Fastest
 
 
 _CONTAINER = ('<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>'
@@ -230,6 +232,26 @@ class TestChapterMarkup:
                 "<epub:default>원주율 곱하기 <span>r</span>의 제곱</epub:default></epub:switch> 이다.</p>")
 
         assert convert(_epub({"ch1.xhtml": _page(body)}), "book.epub").text == expected
+
+    @pytest.mark.timing
+    def test_many_content_switches_take_linear_time(self) -> None:
+        """Each switch was replaced by looking up its position among the children of its parent: a chapter of 20,000
+        switches side by side took 2.9 s."""
+        def seconds(count: int) -> float:
+            switch = ('<epub:switch><epub:case required-namespace="http://www.w3.org/1998/Math/MathML"><p>m</p></epub:case>'
+                      "<epub:default><p>d</p></epub:default></epub:switch>")
+            chapter = ('<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">'
+                       f"<body>{switch * count}</body></html>").encode()
+            timer = Fastest()
+            for _ in timer:
+                root = etree.fromstring(chapter, parser=epub._CHAPTER_PARSER)
+                with timer:
+                    epub._choose_switch_branches(root)
+            return timer.seconds
+
+        small, large = seconds(5_000), seconds(20_000)
+
+        assert large < 8 * small + 0.02
 
     def test_default_of_a_content_switch_is_read_in_a_chapter_that_is_not_well_formed(self) -> None:
         """A chapter that is not well-formed XML is read by the HTML parser, which keeps the `epub:` prefix in the names."""
