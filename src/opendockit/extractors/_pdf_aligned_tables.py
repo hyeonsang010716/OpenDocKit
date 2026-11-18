@@ -10,7 +10,7 @@ import math
 import re
 import statistics
 
-from opendockit.extractors._pdf_continued_tables import _YEAR_OR_DATE
+from opendockit.extractors._pdf_continued_tables import _YEAR_OR_DATE, _is_value_piece
 from opendockit.extractors._pdf_model import (
     _COLUMN_LINES_MIN,
     _FAR_VALUE,
@@ -196,6 +196,7 @@ def _aligned_table_runs(page: _Page) -> list[list[list[_Line]]]:
     if columns is not None:
         runs = [run for run in runs if not _mixes_two_columns(run, *columns)]
         runs += _column_table_runs(page, runs, columns, max_cell)
+    runs = [run for run in runs if not _reads_as_prose_columns(run)]
     rows = _visual_rows(page.lines)
     runs = [_cut_at_closing_rule(run, page.rules) for run in runs]
 
@@ -657,6 +658,50 @@ def _mixes_two_columns(run: list[list[_Line]], left_end: float, right_start: flo
     if any("across" in row for row in sides) or not set().union(*sides) >= {"left", "right"}:
         return False
     return any(len(row) == 1 for row in sides)
+
+
+# A column of prose lines (`_reads_as_prose_columns`): at least this share of its pieces hold three words or more, and as many
+# fill most of the width of its widest piece (`_PROSE_FILL`); the last line of a paragraph is short.
+_PROSE_SHARE = 0.5
+_PROSE_FILL = 0.75
+_PROSE_WORDS = 3
+_PROSE_COLUMN_EDGE = 4.0  # pieces whose left edges are this close start the same column
+
+
+def _reads_as_prose_columns(run: list[list[_Line]]) -> bool:
+    """Whether a borderless table found across the page (`run`) is the lines of three or more columns of prose read side by
+    side: no piece is a value (`_is_value_piece`), and in every column (pieces whose left edges lie within
+    `_PROSE_COLUMN_EDGE` of each other, two pieces or more) most pieces hold three words or more and fill most of the width of
+    the column's widest piece.
+
+    A column of a newsletter, a brochure or a three-column paper is 138–153 pt wide on A4 or Letter, within the width of a
+    table cell, and its lines stand side by side at the same heights, so every row held three short pieces on the same left
+    edges: prose became tables that read across the columns (LibreOffice, Chrome `column-count: 3`: 330 to 1,202 of 1,419
+    words out of place), and their first row was carried to the next page as a header (Pinned by: test_pdf.py::
+    TestProseInThreeColumns). The two-column check (`_table_columns`) knows two columns only. A table has a column that is
+    not prose — labels, numbers, short cells — and none of the borderless tables of the test documents has a column with a
+    single piece of three words. Known accepted gap: a borderless table whose every column is wrapped sentences filling the
+    column (no label column, no number) is read as prose.
+    """
+    pieces = [line for row in run for line in row]
+    if len(run) < _TABLE_MIN_ROWS or any(_is_value_piece(line.text) for line in pieces):
+        return False
+    columns: list[list[_Line]] = []
+    for line in sorted(pieces, key=lambda line: line.x0):
+        if columns and line.x0 - columns[-1][-1].x0 <= _PROSE_COLUMN_EDGE:
+            columns[-1].append(line)
+        else:
+            columns.append([line])
+    columns = [column for column in columns if len(column) >= 2]
+    if len(columns) < _TABLE_MIN_COLUMNS:
+        return False
+    for column in columns:
+        widest = max(line.x1 - line.x0 for line in column)
+        wordy = sum(len(line.text.split()) >= _PROSE_WORDS for line in column)
+        filled = sum(line.x1 - line.x0 >= _PROSE_FILL * widest for line in column)
+        if min(wordy, filled) < _PROSE_SHARE * len(column):
+            return False
+    return True
 
 
 def _table_columns(page: _Page) -> tuple[float, float] | None:

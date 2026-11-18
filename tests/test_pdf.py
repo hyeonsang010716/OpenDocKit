@@ -853,6 +853,55 @@ class TestBorderlessTableEnd:
         assert "| 부서 | 1분기 | 2분기 | 3분기 |\n| --- |" in result.text
 
 
+_PROSE = ("It is a truth universally acknowledged that a single man in possession of a good fortune must be in want of a "
+          "wife. However little known the feelings or views of such a man may be on his first entering a neighbourhood, this "
+          "truth is so well fixed in the minds of the surrounding families that he is considered the rightful property of "
+          "some one or other of their daughters. My dear, said his lady to him one day, have you heard that the park is let "
+          "at last? He replied that he had not. But it is, returned she, for the neighbour has just been here and told me "
+          "all about it.")
+
+
+def _prose_columns(columns: int, width: float, gap: float = 18) -> bytes:
+    """An A4 page of `columns` columns of left-aligned prose, `width` pt each, lines at the same heights in every column."""
+    from reportlab.lib.utils import simpleSplit
+
+    def draw(pdf, index):
+        pdf.setFont("Helvetica", 10)
+        lines = simpleSplit(_PROSE, "Helvetica", 10, width)
+        for column in range(columns):
+            left = 72 + column * (width + gap)
+            for number, line in enumerate(lines):
+                pdf.drawString(left, 770 - number * 14, line)
+
+    return _korean_pdf(draw)
+
+
+class TestProseInThreeColumns:
+    """A column of a newsletter or a three-column paper is narrower than a table cell may be, and its lines stand beside those
+    of the other columns at the same heights, so every row held three short pieces on the same left edges and the page was
+    read as borderless tables, across the columns. A table has a column that is not prose: labels, numbers, short cells."""
+
+    @pytest.mark.parametrize("columns", [3, 4])
+    def test_columns_of_prose_are_not_a_table(self, columns):
+        text = convert(_prose_columns(columns, 138 if columns == 3 else 100), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| --- |" not in text
+        assert sorted(text.split()) == sorted(_PROSE.split() * columns)
+
+    def test_borderless_table_with_a_column_of_sentences_is_still_a_table(self):
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 10)
+            rows = [("Step", "What is done", "Owner"), ("Plan", "Agree on the scope and the budget", "Board"),
+                    ("Build", "Write the code and the tests for it", "Team"), ("Ship", "Release it and watch the errors", "Ops")]
+            for number, row in enumerate(rows):
+                for left, cell in zip((72, 160, 420), row, strict=True):
+                    pdf.drawString(left, 770 - number * 16, cell)
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| Build | Write the code and the tests for it | Team |" in text
+
+
 class TestBorderlessTableInOneColumn:
     """A borderless table (or one with only three horizontal rules: top, below the header, bottom) inside one column of a two-column
     page. Grouping rows from lines at the same height across the whole page slipped a body line of the other column into every row,
