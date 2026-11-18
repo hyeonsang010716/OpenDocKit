@@ -319,10 +319,19 @@ def _mhtml_pictures(message: Message) -> Callable[[str], bytes | None]:
         if location:
             parts.setdefault(location, part)
 
+    # The bytes of each part, decoded once and the same object handed out for every reference: decoded again for each `<img>`,
+    # a 4.7 MB logo referred to 400 times in a 6.6 MB mail took 2.9 GB, all of it copies erased as a repeated logo afterwards
+    # (Pinned by: test_text_html.py::TestMhtml::test_picture_referred_to_many_times_is_decoded_once).
+    decoded: dict[int, bytes | None] = {}
+
     def find(source: str) -> bytes | None:
         part = _part_at(parts, source) or (parts.get(_resolved(base, source)) if base else None)
-        payload = part_content(part) if part is not None else None
-        return payload if isinstance(payload, bytes) and payload else None
+        if part is None:
+            return None
+        if id(part) not in decoded:
+            payload = part_content(part)
+            decoded[id(part)] = payload if isinstance(payload, bytes) and payload else None
+        return decoded[id(part)]
 
     return find
 

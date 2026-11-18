@@ -1282,6 +1282,38 @@ class TestMhtml:
 
         assert [image.alt for image in result.images] == ["Quarterly sales"]
 
+    def test_picture_referred_to_many_times_is_decoded_once(self, monkeypatch):
+        """Each `<img>` decoded its picture part again into bytes of its own: a 4.7 MB logo referred to 400 times in a 6.6 MB
+        mail took 2.9 GB. The part is decoded once and the same bytes go to every reference."""
+        import base64
+
+        from opendockit.extractors import _html_mail
+        from tests import builder
+
+        decoded = []
+        part_content = _html_mail.part_content
+
+        def counting(part):
+            if part.get_content_maintype() == "image":
+                decoded.append(part)
+            return part_content(part)
+
+        monkeypatch.setattr(_html_mail, "part_content", counting)
+        picture = base64.encodebytes(builder.png_bytes(seed=1)).decode().replace("\n", "\r\n")
+        html = "<html><body><p>본문</p>" + '<p><img src="cid:logo@x"> 행</p>' * 50 + "</body></html>"
+        data = (
+            'MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary="B"\r\n\r\n'
+            f"--B\r\nContent-Type: text/html; charset=\"utf-8\"\r\n\r\n{html}\r\n"
+            f"--B\r\nContent-Type: image/png\r\nContent-Transfer-Encoding: base64\r\nContent-ID: <logo@x>\r\n\r\n{picture}"
+            "--B--\r\n"
+        ).encode()
+
+        result = convert(data, "page.mht")
+
+        assert len(decoded) == 1
+        assert result.text == "본문\n\n" + "\n\n".join(["행"] * 50)  # a picture repeated this often is erased as a logo, as before
+        assert result.images == []
+
     def test_picture_saved_with_the_page_is_extracted(self):
         """The picture parts saved with the page (`cid:`, Content-Location) were not extracted, so only the alt text of MHTML pictures
         remained. External addresses are not fetched."""
