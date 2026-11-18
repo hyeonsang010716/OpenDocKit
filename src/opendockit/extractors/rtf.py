@@ -662,6 +662,9 @@ class _Reader:
         self._list: list[list[int]] | None = None
         self._overrides: dict[int, int] = {}  # `\ls` number → list id
         self._override_id: int | None = None
+        # `\ls` number → the `\lfolevel` groups of its override, in level order: [start-at flag, start] (`_level_start`)
+        self._override_starts: dict[int, list[list]] = {}
+        self._override_levels: list[list] = []  # those of the override being read
         self._counters: dict[int, list[int | None]] = {}
         self._simple_counters: list[int | None] = [None] * (_MAX_LEVEL + 1)
         self._info_key = ""
@@ -1278,10 +1281,21 @@ class _Reader:
         elif dest == _LISTOVERRIDE:
             if word == b"listoverride":
                 self._override_id = None
+                self._override_levels = []
             elif word == b"listid":
                 self._override_id = number
+            elif word == b"lfolevel":
+                if len(self._override_levels) < _MAX_LIST_LEVELS:
+                    self._override_levels.append([False, None])
+            elif word == b"listoverridestartat":
+                if self._override_levels:
+                    self._override_levels[-1][0] = True
+            elif word == b"levelstartat":
+                if self._override_levels:
+                    self._override_levels[-1][1] = number if number is not None and 0 <= number <= 1_000_000 else 1
             elif word == b"ls" and number is not None and self._override_id is not None:
                 self._overrides[number] = self._override_id
+                self._override_starts[number] = self._override_levels
         elif dest == _PN:
             paragraph = self._flow.paragraph
             if word == b"pnlvlblt":
@@ -1413,13 +1427,23 @@ class _Reader:
             if levels[level][0] == 255:
                 return None
             counters = self._counters.setdefault(paragraph.ls, [None] * (_MAX_LEVEL + 1))
-            return self._next_number(counters, level, levels[level][1]), depth
+            return self._next_number(counters, level, self._level_start(paragraph.ls, level, levels[level][1])), depth
         if paragraph.pn is None:
             self.end_simple_numbering()
             return None
         if paragraph.pn == "-":
             return "-", paragraph.pn_level
         return self._next_number(self._simple_counters, paragraph.pn_level, 1), paragraph.pn_level
+
+    def _level_start(self, ls: int, level: int, start: int) -> int:
+        """The first number of `level` in the list override `\\lsN`: the start-at the override sets for it (Word's 'Set numbering
+        value' writes `{\\lfolevel\\listoverridestartat\\levelstartat5}`, the n-th `\\lfolevel` for level n), else the list's
+        `start`. Without it, a list set to start at 5 was numbered from 1
+        (Pinned by: test_rtf.py::TestLists::test_start_at_of_a_list_override_sets_the_first_number)."""
+        overridden = self._override_starts.get(ls, [])
+        if level < len(overridden) and overridden[level][0] and overridden[level][1] is not None:
+            return overridden[level][1]
+        return start
 
     def typed_level(self, indent: int) -> int:
         indents = self.typed_indents

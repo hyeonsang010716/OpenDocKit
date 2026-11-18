@@ -468,6 +468,20 @@ class TestLists:
         assert _text(body) == ("- apple\n  - red\n- pear\n\nBetween\n\n"
                                "1. first\n  1. sub a\n  2. sub b\n2. second\n  1. sub c")
 
+    def test_start_at_of_a_list_override_sets_the_first_number(self):
+        """Word's 'Set numbering value' writes an override of the list with a start-at for the level
+        (`{\\lfolevel\\listoverridestartat\\levelstartat5}`, the n-th `\\lfolevel` for level n): its numbers started at 1. A
+        sub-level restarts at its own start-at; the override counts on its own, as every `\\ls` does. An `\\lfolevel` without
+        `\\listoverridestartat` keeps the start of the list."""
+        overrides = (r"{\*\listoverridetable{\listoverride\listid22\listoverridecount2"
+                     r"{\lfolevel\listoverridestartat\levelstartat5}{\lfolevel\listoverridestartat\levelstartat3}\ls4}"
+                     r"{\listoverride\listid22\listoverridecount1{\lfolevel\levelstartat7}\ls5}}")
+        body = (_LISTS + overrides + r"\pard\ls2 one\par\pard\ls2 two\par\pard Between\par\pard\ls4 five\par"
+                r"\pard\ls4\ilvl1 sub\par\pard\ls4\ilvl1 sub2\par\pard\ls4\ilvl0 six\par\pard\ls4\ilvl1 again\par"
+                r"\pard Other\par\pard\ls5 first\par")
+        assert _text(body) == ("1. one\n2. two\n\nBetween\n\n5. five\n  3. sub\n  4. sub2\n6. six\n  3. again\n\nOther\n\n"
+                               "1. first")
+
     def test_list_without_a_definition_is_a_bullet_list(self):
         """`\\ls7` with no list table entry: the numbering type cannot be told."""
         assert _text(r"\pard\ls7 one\par\pard\ls7\ilvl1 two\par") == "- one\n  - two"
