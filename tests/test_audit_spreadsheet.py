@@ -925,6 +925,43 @@ class TestXlsNumberThatIsNotFinite:
         assert extraction.warnings == ["2 number cell value(s) that are not finite numbers were left blank."]
 
 
+class TestZeroIntegerUnderOptionalPlaces:
+    """A `#` integer place shows nothing for a zero integer part in Excel, so 0.5 under `#.##` is `.5`; the 0 was shown
+    (`0.5`). Only formats with no integer places at all dropped it. Deliberate: when the 0 is the only digit left (0 under
+    `#,###`, where Excel shows an empty cell) it stays, as an empty section gives the value instead of nothing."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (0.5, "#.##", ".5"),
+        (0.5, "#,###.00", ".50"),
+        (0.25, "#.0#", ".25"),
+        (0.5, "#.00", ".50"),
+        (-0.5, "#.##", "-.5"),
+        (0.004, "#.#%", ".4%"),
+        (1.5, "#.##", "1.5"),
+        (0, "#,###", "0"),
+        (0.4, "#,###", "0"),
+        (0, "#", "0"),
+        (0, "#.##", "0"),
+        (0, ".##", "0"),
+        (0.5, ".00", ".50"),
+        (0.5, "0.00", "0.50"),
+        (0, "#,##0", "0"),
+    ])
+    def test_format_cell(self, value, number_format, expected):
+        assert format_cell(value, number_format) == expected
+
+    def test_xlsx(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["item", "share"])
+        sheet.append(["a", 0.5])
+        sheet["B2"].number_format = "#,###.00"
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        assert convert(buffer.getvalue(), "a.xlsx").text.endswith("| a | .50 |")
+
+
 class TestQuestionMarkPlaces:
     """A `?` digit place without a significant digit is a space in Excel (it keeps a column aligned on the decimal point). A `?`
     decimal place showed its 0 (1.5 under `0.??` came out as `1.50`) and a `?` integer place its 0 (`?.??` → `0.50`)."""

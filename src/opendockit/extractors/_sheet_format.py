@@ -516,8 +516,13 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
         # (Pinned by: test_spreadsheet.py::TestZeroPaddingWithAThousandsSeparator).
         digits = integer.replace(",", "").zfill(whole.count("0"))
         integer = _grouped(digits) if "," in whole else digits
-    elif not whole and integer == "0":
-        integer = ""  # for a format without integer places Excel does not show the 0 either (0.5 under `.00` → .50)
+    elif integer == "0" and not whole.strip("#,") and any(char.isdigit() for char in rest):
+        # A `#` integer place shows nothing for a zero integer part, as does a format without integer places: 0.5 under `#.##` is
+        # `.5` and under `.00` `.50` in Excel. Only the format without integer places dropped it, so `#.##` gave `0.5`.
+        # Deliberate: when no other digit is shown (0 under `#,###`, `#` or `.##`, where Excel shows nothing), the 0 stays, as an
+        # empty section gives the value instead of nothing
+        # (Pinned by: test_audit_spreadsheet.py::TestZeroIntegerUnderOptionalPlaces).
+        integer = ""
     return f"{sign}{prefix}{integer}{dot}{rest}{'%' if percent else ''}{suffix}"
 
 

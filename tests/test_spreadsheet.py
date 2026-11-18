@@ -625,7 +625,7 @@ class TestFormatsWithoutIntegerDigits:
             (0.5, ".00", ".50"),
             (12.345, ".00", "12.35"),
             (-0.5, ".00", "-.50"),
-            (0.5, "#.00", "0.50"),
+            (0.5, "#.00", ".50"),  # a `#` integer place shows nothing for a zero integer part, as in Excel
             (0.5, "0.00", "0.50"),
         ],
     )
