@@ -67,7 +67,7 @@ from opendockit.extractors._html_mail import (
     is_mhtml,
     mail_reads_as_html,
 )
-from opendockit.extractors._html_math import _put_math
+from opendockit.extractors._html_math import _put_math, _put_tex_scripts
 from opendockit.extractors._html_render import _render_nodes, _settle_fences
 from opendockit.extractors._mail import (
     FORWARDED_MAIL_TITLE,
@@ -457,6 +457,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     folded = _folded_answers(soup, cut, openers)
     _keep_expander_buttons(soup, openers)
     _keep_svg_labels(soup, cut)
+    _put_tex_scripts(soup)
     _decompose_all(soup.find_all(_DROP_TAGS))
     _drop_sidebars(soup)
     # Not only comments: a DOCTYPE in the middle of the body is a node of its own too, and its name came out as the paragraph

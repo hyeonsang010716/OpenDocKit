@@ -279,6 +279,23 @@ class TestMathMl:
         post-scripts of an `mmultiscripts` were joined to the base (`C614`)."""
         assert convert(f"<p><math>{mathml}</math></p>".encode(), "a.html").text == f"${latex}$"
 
+    def test_tex_in_a_mathjax_script_is_the_formula(self):
+        """`<script type="math/tex">` is the input of MathJax 2 and what kramdown (Jekyll, GitHub Pages) writes for `$…$` and
+        `$$…$$`; in a page MathJax has not rendered the formula is nowhere else, and it vanished with the scripts. In a page saved
+        after MathJax ran, the formula is read once: from the MathML MathJax put before the script, or from the TeX when the
+        rendered formula is only drawn glyphs."""
+        kramdown = ('<p>By the theorem <script type="math/tex">a^2+b^2=c^2</script> holds.</p>'
+                    '<script type="math/tex; mode=display">\\sum_{i=1}^{n} i</script><p>Hence.</p>')
+        frame = '<span class="MathJax" id="MathJax-Element-1-Frame">{inside}</span><script type="math/tex">E=mc^2</script>'
+        with_mathml = frame.format(inside='<span class="MJX_Assistive_MathML"><math><mi>E</mi><mo>=</mo><mi>m</mi>'
+                                          "<msup><mi>c</mi><mn>2</mn></msup></math></span>")
+        glyphs_only = frame.format(inside="<span>E</span><span>=</span><span>m</span><span>c</span><span>2</span>")
+
+        assert convert(kramdown.encode(), "a.html").text == "By the theorem $a^2+b^2=c^2$ holds.\n\n$\\sum_{i=1}^{n} i$\n\nHence."
+        assert convert(f"<p>Energy {with_mathml} holds.</p>".encode(), "a.html").text == "Energy $E=mc^2$ holds."
+        assert convert(f"<p>Energy {glyphs_only} holds.</p>".encode(), "a.html").text == "Energy $E=mc^2$ holds."
+        assert convert(b'<p>x</p><script type="text/javascript">var a = "math/tex";</script>', "a.html").text == "x"
+
     def test_literal_text_is_escaped(self):
         """A `$` in the text of an equation ended the math span (`$$5×n$` opened display math), and braces typed in an `<mo>` or
         as fences vanished as LaTeX grouping. They are escaped as in Office equations; the LaTeX the converter writes is not."""

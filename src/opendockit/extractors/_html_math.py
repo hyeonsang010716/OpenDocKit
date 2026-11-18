@@ -50,6 +50,34 @@ def _put_math(soup: BeautifulSoup) -> None:
             math.append(f"${latex}$")  # surrounding spacing stays as in the source (so no space appears before a comma)
 
 
+def _put_tex_scripts(soup: BeautifulSoup) -> None:
+    """Replaces the TeX of `<script type="math/tex">` (also `; mode=display`) with the same `$LaTeX$` notation, before scripts
+    are removed. It is the input form of MathJax 2 and what kramdown (Jekyll, GitHub Pages) writes for `$…$` and `$$…$$`: in a
+    page MathJax has not rendered, the formula is nowhere else, and it vanished with the scripts, with no warning
+    (Pinned by: test_core_html.py::TestMathMl::test_tex_in_a_mathjax_script_is_the_formula).
+
+    A page saved after MathJax 2 ran has the rendered formula right before the script, in an element whose class names MathJax.
+    When that element holds MathML (the assistive copy), the formula is read from it and the script is dropped; when it holds
+    only the drawn glyphs, it is replaced by the TeX, which reads better than the glyphs one by one.
+    """
+    for script in soup.find_all("script", type=True):
+        if not str(script["type"]).strip().lower().startswith("math/tex"):
+            continue
+        tex = " ".join(script.get_text().split())
+        frame = script.find_previous_sibling(True)
+        rendered = frame is not None and "mathjax" in " ".join(frame.get("class") or ()).lower()
+        if rendered and frame.find("math") is not None:
+            continue  # read from the MathML MathJax put in the page
+        target = frame if rendered else script
+        if rendered:
+            script.decompose()
+        target.clear()
+        target.attrs = {}
+        target.name = "span"
+        if tex:
+            target.append(f"${tex}$")
+
+
 def _maths_holding_page_blocks(soup: BeautifulSoup) -> list[Tag]:
     """`<math>` elements holding page blocks such as paragraphs, tables and lists (except inside annotation-xml). That is the
     body after an unclosed `<math>` having landed inside it, not an equation — it is unwrapped and read as ordinary text.
