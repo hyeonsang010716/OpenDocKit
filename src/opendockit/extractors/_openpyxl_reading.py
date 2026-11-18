@@ -24,6 +24,7 @@ from openpyxl.packaging.relationship import RelationshipList
 from openpyxl.reader import excel as _openpyxl_excel_reader
 from openpyxl.reader import workbook as _openpyxl_workbook_reader
 from openpyxl.styles.cell_style import CellStyleList
+from openpyxl.styles.numbers import BUILTIN_FORMATS, BUILTIN_FORMATS_MAX_SIZE
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from openpyxl.utils.datetime import from_excel, from_ISO8601
 from openpyxl.worksheet import _reader as _openpyxl_sheet_reader
@@ -33,6 +34,7 @@ from openpyxl.xml.constants import SHEET_MAIN_NS
 from openpyxl.xml.functions import iterparse as _openpyxl_iterparse
 
 from opendockit.extractors._package import _XML_PARSER, decimal_int, named_part
+from opendockit.extractors._sheet_format import _format_within_length, _is_elapsed_format
 
 
 # When the value of a date-formatted cell is outside the date range (9999-12-31), openpyxl turns it into a '#VALUE!' error cell and
@@ -271,7 +273,29 @@ def _apply_stylesheet_noting_styles(archive: object, workbook: openpyxl.Workbook
     reading = _READING.get()
     if reading is not None:
         reading.style_count = len(workbook._cell_styles)
+        _elapsed_styles_as_durations(workbook)
     return applied
+
+
+def _elapsed_styles_as_durations(workbook: openpyxl.Workbook) -> None:
+    """Have openpyxl's sheet parser make a duration of every date cell under an elapsed format, not only the ones it knows.
+
+    openpyxl knows `[h]`, `[hh]`, `[m]`, `[mm]`, `[s]` and `[ss]`; a cell under `[hhh]:mm` or `[mmm]:ss` came as a date, and
+    turning that date back into a serial lost the day Excel counts for its non-existent 1900-02-29: 60 under `[hhh]:mm` was
+    `1416:00`, where `[h]:mm` gives `1440:00`. The duration is now made from the serial as for `[h]:mm`
+    (Pinned by: test_spreadsheet.py::TestElapsedTime::test_elapsed_format_openpyxl_does_not_know_is_measured_from_the_serial).
+    The same formats as `_cell_text` sees (`_format_within_length`); a format id that is not defined is left to the parser.
+    """
+    formats, durations = workbook._number_formats, workbook._timedelta_formats
+    for index in workbook._date_formats:
+        try:
+            format_id = workbook._cell_styles[index].numFmtId
+            number_format = (BUILTIN_FORMATS.get(format_id, "General") if format_id < BUILTIN_FORMATS_MAX_SIZE
+                             else formats[format_id - BUILTIN_FORMATS_MAX_SIZE])
+        except (IndexError, TypeError):
+            continue
+        if _is_elapsed_format(_format_within_length(number_format)):
+            durations.add(index)
 
 
 _parse_row = _openpyxl_sheet_reader.WorkSheetParser.parse_row

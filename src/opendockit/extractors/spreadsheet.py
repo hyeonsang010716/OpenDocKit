@@ -935,12 +935,12 @@ def _cell_text(cell: object) -> str:
     number_format = _number_format(cell)
     number_format = _BUILTIN_FORMAT_FIXES.get(number_format, number_format)
     if isinstance(value, (date, time)) and _is_elapsed_format(number_format):
-        # openpyxl gives a duration only for `[h]`, `[hh]`, `[m]`, `[mm]`, `[s]` and `[ss]`, so a cell under `[hhh]:mm` (hours
-        # with three digits) came as a date and lost its days (36 hours shown as `12:00:00`). It is the duration from the
-        # workbook's epoch, as for the other elapsed formats (Pinned by:
-        # test_spreadsheet.py::TestXlsValues::test_elapsed_format_openpyxl_does_not_know_is_a_duration). A date-only ISO cell
-        # (`t="d"`, a date) is that day at midnight, as in `format_cell` (Pinned by:
-        # test_spreadsheet_cell_values_and_controls.py::TestIsoDateCellsWithAFormat).
+        # An ISO date cell (`t="d"`) arrives as a date whatever its format; under an elapsed format it is the duration from the
+        # workbook's epoch, as for a serial. A number cell under an elapsed format openpyxl does not know (`[hhh]:mm`) is made a
+        # duration from its serial while reading (`_elapsed_styles_as_durations`): through its date it lost its days (36 hours
+        # shown as `12:00:00`, Pinned by: test_spreadsheet.py::TestElapsedTime::test_elapsed_format_openpyxl_does_not_know_is_a_duration)
+        # and then Excel's 1900-02-29 (60 → `1416:00`). A date-only ISO cell (`t="d"`, a date) is that day at midnight, as in
+        # `format_cell` (Pinned by: test_spreadsheet_cell_values_and_controls.py::TestIsoDateCellsWithAFormat).
         value = from_excel(to_excel(value, cell.parent.parent.epoch), timedelta=True)
     elif isinstance(value, timedelta) and number_format and _ELAPSED_FORMAT.search(number_format) \
             and not _is_elapsed_format(number_format):

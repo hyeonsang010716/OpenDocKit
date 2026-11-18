@@ -203,6 +203,24 @@ class TestElapsedTime:
 
         assert f"| 설치 | {expected} |" in result.text
 
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (59, "[hhh]:mm", "1416:00"),
+        (60, "[hhh]:mm", "1440:00"),
+        (60.5, "[hhh]:mm", "1452:00"),
+        (61, "[hhh]:mm", "1464:00"),
+        (60, "[mmm]:ss", "86400:00"),
+        (60, "[h]:mm", "1440:00"),
+        (-0.25, "[hhh]:mm", "-6:00"),
+    ])
+    def test_elapsed_format_openpyxl_does_not_know_is_measured_from_the_serial(self, streamed, value, number_format, expected):
+        """The date openpyxl made of the cell was turned back into a serial, which lost the day Excel counts for its non-existent
+        1900-02-29: 60 under `[hhh]:mm` was `1416:00`, where `[h]:mm` and XLS give `1440:00`."""
+        data = _xlsx([["작업", "기간"], ["설치", value]], {"B2": number_format})
+
+        result = convert(data, "a.xlsx")
+
+        assert f"| 설치 | {expected} |" in result.text
+
     def test_elapsed_format_openpyxl_does_not_know_counts_from_the_1904_epoch(self):
         workbook = openpyxl.Workbook()
         workbook.epoch = CALENDAR_MAC_1904
@@ -215,6 +233,21 @@ class TestElapsedTime:
         result = convert(buffer.getvalue(), "a.xlsx")
 
         assert "| 설치 | 36:00 |" in result.text
+
+    def test_elapsed_format_openpyxl_does_not_know_holds_a_serial_past_the_1904_calendar(self):
+        """A duration is not a date: 2958465.5 under `[hhh]:mm` in a 1904 workbook is past the last date, yet it is the hours,
+        as under `[h]:mm` and in XLS."""
+        workbook = openpyxl.Workbook()
+        workbook.epoch = CALENDAR_MAC_1904
+        workbook.active.append(["작업", "기간"])
+        workbook.active.append(["설치", 2958465.5])
+        workbook.active["B2"].number_format = "[hhh]:mm"
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.xlsx")
+
+        assert "| 설치 | 71003172:00 |" in result.text
 
 
 class TestXlsValues:
