@@ -672,8 +672,12 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
 
     lxml leaves the text of `</tr>소계: 300<tr>` and `<table>안내</table>` inside the table as is, and puts the next table
     after a missing `</table>` inside the outer table (outside its cells). Rendering reads only cells, so these vanished
-    without a warning. Elements wrapping rows (`<form>`) are descended into. Whitespace-only text is not moved. Processing is
-    in document order, so a table taken out is processed again at its own turn (no recursion)
+    without a warning. A browser closes the outer table at such a table's start tag, so text and inline elements after it go
+    after the table too, in order, not before it: the headings and paragraphs after the second of two tables, the first left
+    open, came out ahead of both tables (Pinned by: test_text_html.py::TestContentOutsideTableCells::
+    test_text_after_a_table_inside_a_table_left_open_stays_after_it). Elements wrapping rows (`<form>`) are descended into.
+    Whitespace-only text is not moved. Processing is in document order, so a table taken out is processed again at its own
+    turn (no recursion)
     (Pinned by: test_text_html.py::TestContentOutsideTableCells).
 
     Cells that lxml leaves outside a row are put in one, as a browser does: an element between a row and its cells
@@ -686,7 +690,8 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
     """
     for table in soup.find_all("table"):
         before: list[object] = []
-        after: list[Tag] = []
+        after: list[object] = []
+        closed = False  # a table was met outside the cells: a browser has closed this table there
         wrappers: list[Tag] = []
         holding: set[int] | None = None  # the elements of the table holding a row or cell (`_holding_cells`), once asked for
         stack = [(child, False) for child in reversed(_rows_for_loose_cells(soup, table))]
@@ -695,11 +700,12 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
             child, in_row = stack.pop()
             if isinstance(child, NavigableString):
                 if str(child).strip():
-                    before.append(child)
+                    (after if closed else before).append(child)
             elif not isinstance(child, Tag) or child.name in _TABLE_CELLS:
                 continue
             elif child.name == "table":
                 after.append(child)
+                closed = True
             elif child.name in _TABLE_PARTS or id(child) in (holding := _holding_cells(table) if holding is None else holding):
                 if in_row and child.name not in _TABLE_PARTS:
                     wrappers.append(child)
@@ -707,7 +713,7 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
                 contents = child.contents if in_row else _rows_for_loose_cells(soup, child)
                 stack.extend((node, in_row) for node in reversed(contents))
             else:
-                before.append(child)
+                (after if closed else before).append(child)
 
         _flatten_wrappers(wrappers)
         if before or after:

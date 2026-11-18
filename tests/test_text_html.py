@@ -1844,6 +1844,17 @@ class TestContentOutsideTableCells:
 
         assert result.text == "| 가 | 1 |\n| --- | --- |\n\n| 나 | 2 |\n| --- | --- |\n| 다 | 3 |"
 
+    def test_text_after_a_table_inside_a_table_left_open_stays_after_it(self):
+        # A browser closes the first table at the second one's start tag: the heading between them goes before the first,
+        # what follows the second stays after it
+        html = ("<h2>1. 매출</h2><table><tr><td>사과</td><td>3</td></tr><h2>2. 비용</h2>"
+                "<table><tr><td>임대료</td><td>100</td></tr></table><h2>3. 요약</h2><p>이익이 늘었다.</p>")
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == ("## 1. 매출\n\n## 2. 비용\n\n| 사과 | 3 |\n| --- | --- |\n\n| 임대료 | 100 |\n| --- | --- |\n\n"
+                               "## 3. 요약\n\n이익이 늘었다.")
+
     def test_whitespace_and_hidden_inputs_between_rows_add_nothing(self):
         html = ("<table>\n  <input type=hidden name=id value=7>\n<tr><td>가</td><td>1</td></tr>\n&nbsp;\n"
                 "<tr><td>나</td><td>2</td></tr></table>")
