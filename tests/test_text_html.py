@@ -1250,6 +1250,22 @@ class TestMhtml:
 
         assert [image.alt for image in result.images] == ["Quarterly sales"]
 
+    def test_picture_sent_as_octet_stream_is_extracted(self):
+        """Some mail programs send the pictures of the body as `application/octet-stream`. Only `image/*` parts were looked
+        up, so such a picture was neither extracted nor reported (a part with a Content-ID is no attachment)."""
+        from tests import builder
+
+        picture = base64.encodebytes(builder.png_bytes(seed=1)).decode()
+        data = ('MIME-Version: 1.0\nFrom: a@example.com\nTo: b@example.com\nSubject: s\nContent-Type: multipart/related; boundary="b"\n\n'
+                '--b\nContent-Type: text/html; charset=utf-8\n\n<p>before <img src="cid:image001.png@01DA" alt="Quarterly sales"> after</p>\n'
+                '--b\nContent-Type: application/octet-stream; name="image001.png"\nContent-ID: <image001.png@01DA>\n'
+                f"Content-Transfer-Encoding: base64\n\n{picture}--b--\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert [image.alt for image in result.images] == ["Quarterly sales"]
+        assert not result.warnings
+
     @pytest.mark.parametrize("source", ["cid:photo%201.png@example.com", "CID:photo%201.png@example.com"])
     def test_cid_address_written_as_its_content_id_is_found(self, source):
         """A Content-ID may hold a `%` itself, and mail programs repeat it in the address as it is. Looked up only percent-decoded,

@@ -298,6 +298,9 @@ def _mhtml_pictures(message: Message) -> Callable[[str], bytes | None]:
     `cid:<Content-ID>` and Content-Location, and relative addresses are resolved against the location of the first HTML part.
     Picture bytes are decoded only for the ones referred to. Only parts inside the file are considered — external addresses
     are still never fetched (Pinned by: test_text_html.py::TestMhtml::test_picture_saved_with_the_page_is_extracted).
+    A part of the generic type `application/octet-stream` is a picture part too: some mail programs send the pictures of the
+    body that way, and such a picture was neither extracted nor reported. What it holds is told from its bytes, as for every
+    picture (Pinned by: test_text_html.py::TestMhtml::test_picture_sent_as_octet_stream_is_extracted).
     """
     parts: dict[str, Message] = {}
     base = ""
@@ -305,7 +308,7 @@ def _mhtml_pictures(message: Message) -> Callable[[str], bytes | None]:
         location = str(part.get("Content-Location") or "").strip()
         if part.get_content_type() == "text/html":
             base = base or location
-        if part.get_content_maintype() != "image":
+        if part.get_content_maintype() != "image" and part.get_content_type() != "application/octet-stream":
             continue
         content_id = str(part.get("Content-ID") or "").strip().strip("<>")
         if content_id:
