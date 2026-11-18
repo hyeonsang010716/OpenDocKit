@@ -146,6 +146,7 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
             image.info.pop("transparency", None)   # a level of the file, not of the stretched picture
             image = _stretch_to_8bit(image)
         image = _with_its_key_as_alpha(image)
+        image = _blendable(image)
 
         # Any alpha band (RGBA, LA, PA, premultiplied RGBa as a HEIF may hold it) or a transparent palette entry
         # (`transparency`) keeps the picture transparent; the transparent grey level or colour of an L or RGB PNG is an alpha
@@ -249,8 +250,8 @@ def _with_its_key_as_alpha(image: Image.Image) -> Image.Image:
     Done before the downscale: shrunk first, the edge of a keyed background was a blend of the key colour and the picture —
     no longer the key, so it stayed, opaque: a magenta-keyed 4000×4000 PNG kept 9,106 magenta pixels around its subject
     (Pinned by: test_image.py::TestTransparentColourOfAPng::test_keyed_background_leaves_no_fringe_when_downscaled).
-    A palette picture keeps its `transparency` and is converted when it is written (`_encoded`): Pillow shrinks it without
-    blending."""
+    A palette picture keeps its `transparency`: it becomes an alpha band when the picture is made `RGBA` before the
+    downscale (`_blendable`), exactly the pixels of the transparent entries."""
     key = image.info.get("transparency")
     if key is None or image.mode not in ("1", "L", "RGB"):
         return image
@@ -262,6 +263,24 @@ def _with_its_key_as_alpha(image: Image.Image) -> Image.Image:
         del image.info["transparency"]
         return image
     return (image.convert("L") if image.mode == "1" else image).convert("RGBA" if image.mode == "RGB" else "LA")
+
+
+def _blendable(image: Image.Image) -> Image.Image:
+    """A 1-bit picture as `L`, a palette picture as `RGB`, or `RGBA` when it has a transparent entry or an alpha band (`PA`);
+    any other picture as it is. Done before the downscale and the tiles.
+
+    Pillow shrinks a picture of mode `1`, `P` or `PA` by nearest neighbour whatever filter it is asked for: a row either was
+    kept or vanished, so the 2 px rules of a bilevel fax page shrunk to 0.29 were there 58 times out of 100, and text lost
+    its thin strokes (Pinned by: test_image.py::TestBilevelAndPalettePicturesShrunkWithBlending). As `L`, `RGB` or `RGBA`
+    it is blended (LANCZOS); a transparent entry is an alpha band by then, so its colour is never blended into the edge.
+    The written picture is the same mode as before (`_encoded` converts to RGB or RGBA)."""
+    if image.mode == "1":
+        return image.convert("L")
+    if image.mode == "PA" or (image.mode == "P" and "transparency" in image.info):
+        return image.convert("RGBA")
+    if image.mode == "P":
+        return image.convert("RGB")
+    return image
 
 
 def _truncated_jpeg(data: bytes, max_side: int) -> Image.Image | None:

@@ -2499,6 +2499,70 @@ class TestTransparentColourOfAPng:
         assert tile.getpixel((5, 5))[3] == 0 and tile.getpixel((300, 600)) == (0, 0, 0, 255)
 
 
+def _ruled_page(mode: str) -> Image.Image:
+    """A 1000×2800 white page with 40 black rules 2 px thick and 60 px apart, as a form or a table on a bilevel scan has."""
+    from PIL import ImageDraw
+
+    page = Image.new("L", (1000, 2800), 255)
+    for index in range(40):
+        ImageDraw.Draw(page).rectangle((50, 100 + index * 60, 950, 101 + index * 60), fill=0)
+    return page.convert(mode)
+
+
+def _rules_down_the_middle(picture: Image.Image) -> int:
+    grey = picture.convert("L")
+    dark = [grey.getpixel((grey.width // 2, y)) < 200 for y in range(grey.height)]
+    return sum(1 for y, is_dark in enumerate(dark) if is_dark and (y == 0 or not dark[y - 1]))
+
+
+class TestBilevelAndPalettePicturesShrunkWithBlending:
+    """Pillow shrinks a 1-bit or a palette picture by nearest neighbour whatever filter it is asked for: a 2 px rule of a fax
+    either fell on a kept row or vanished, and a page of 100 rules shrunk to 0.29 kept 58 of them."""
+
+    @pytest.mark.parametrize("mode", ["1", "P", "PA", "L"])
+    def test_every_thin_rule_is_still_there(self, mode):
+        buffer = BytesIO()
+        _ruled_page(mode).save(buffer, format="TIFF" if mode == "PA" else "PNG")
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=800)
+
+        assert (result.width, result.height) == (286, 800)
+        assert _rules_down_the_middle(Image.open(BytesIO(result.data))) == 40
+
+    def test_transparent_palette_picture_keeps_its_transparency_without_a_fringe(self):
+        """Converted to RGBA before the shrink, the transparent entry is an alpha band: its colour is never blended in."""
+        from PIL import ImageDraw
+
+        picture = Image.new("P", (2000, 2000), 0)
+        picture.putpalette([255, 0, 255, 0, 0, 0])
+        ImageDraw.Draw(picture).ellipse((250, 250, 1750, 1750), fill=1)
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG", transparency=0)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=500)
+
+        shown = Image.open(BytesIO(result.data)).convert("RGBA")
+        visible = [shown.getpixel((x, y)) for y in (100, 250, 400) for x in range(500) if shown.getpixel((x, y))[3] > 0]
+        assert result.mime_type == "image/png"
+        assert shown.getpixel((3, 3))[3] == 0 and shown.getpixel((250, 250)) == (0, 0, 0, 255)
+        assert [pixel for pixel in visible if pixel[0] > 60] == []
+
+    def test_tiles_of_a_tall_bilevel_picture_are_blended_too(self):
+        from PIL import ImageDraw
+
+        picture = Image.new("L", (1500, 30000), 255)
+        for index in range(40):
+            ImageDraw.Draw(picture).rectangle((50, 100 + index * 60, 1450, 101 + index * 60), fill=0)
+        buffer = BytesIO()
+        picture.convert("1").save(buffer, format="PNG")
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=800)
+
+        first = Image.open(BytesIO(result.tiles[0]))
+        assert first.size == (301, 800)
+        assert _rules_down_the_middle(first) == 40
+
+
 class TestScannedPagesLeftOutByTheImageLimit:
     """A scanned page image that `max_images` left out leaves its page empty, yet the warning said it was 'left as a
     placeholder' and the page was named nowhere."""
