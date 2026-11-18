@@ -17,6 +17,7 @@ from pptx.opc.package import PartFactory, _PackageLoader
 from pptx.opc.packuri import PACKAGE_URI, PackURI
 from pptx.package import Package
 from pptx.parts.presentation import PresentationPart
+from pptx.parts.slide import NotesSlidePart, SlideLayoutPart, SlideMasterPart
 from pptx.shapes.group import GroupShape
 from pptx.shapes.placeholder import LayoutPlaceholder, PlaceholderPicture, _BaseSlidePlaceholder, _InheritsDimensions
 from pptx.table import _Row
@@ -308,9 +309,15 @@ def _render_slide(slide: object, index: int, options: ConvertOptions, extraction
     if notes_part is not None:
         # Notes are outside the per-shape skip protection (`_render_shapes`), so one placeholder type in the notes or one notes part
         # rejected the whole document. Only those notes are skipped (Pinned by: test_office_robustness.py::TestPptxSpeakerNotesAreIsolated).
+        # A notes relationship to a part that is not a notes slide is unreadable notes as well: pointing at a slide (its own one
+        # too), python-pptx asked that slide for its notes again and recursed without end, rejecting the deck (Pinned by:
+        # test_audit_office.py::TestPptxLayoutOrMasterRelationshipToAnotherKindOfPart::
+        # test_notes_relationship_to_a_part_that_is_not_notes_skips_only_the_notes).
         try:
-            notes = _speaker_notes(notes_part.notes_slide)
+            notes = _speaker_notes(notes_part.notes_slide) if isinstance(notes_part, NotesSlidePart) else None
         except (AttributeError, KeyError, ValueError, InvalidXmlError):
+            notes = None
+        if notes is None:
             notes = ""
             extraction.warnings.append(f"Slide {index}: skipped the speaker notes because they could not be read.")
         if notes:
@@ -660,6 +667,10 @@ def _placeholder_base(shape: object) -> object | None:
     The layout and the master are those of the first relationship of their type (`_package.related_part`): with two, python-pptx
     raised ValueError and the placeholder lost its position and bullets (Pinned by:
     test_audit_office.py::TestRelationshipTypeGivenTwice::test_pptx_placeholder_inherits_from_the_first_layout_and_master).
+    A layout or master relationship that points at a part of another kind leaves nothing to inherit (None), as a missing one
+    does: asked for its `slide_layout` / `slide_master`, a master or notes slide raised AttributeError from the reading order,
+    outside the protection of one shape, and the slide was skipped; a slide or layout pointing at itself made python-pptx recurse
+    without end and the deck was rejected (Pinned by: test_audit_office.py::TestPptxLayoutOrMasterRelationshipToAnotherKindOfPart).
     """
     if isinstance(shape, (_BaseSlidePlaceholder, PlaceholderPicture)):
         # The layout part is looked up once per slide part too: `related_part` walks the slide's relationships, and a
@@ -668,6 +679,8 @@ def _placeholder_base(shape: object) -> object | None:
         layout = part.__dict__.get("_converter_layout_part")
         if layout is None:
             layout = part._converter_layout_part = related_part(part, RT.SLIDE_LAYOUT)
+        if not isinstance(layout, SlideLayoutPart):
+            return None
         layout_placeholders = layout.__dict__.get("_converter_layout_placeholders")
         if layout_placeholders is None:
             layout_placeholders = {}
@@ -678,6 +691,8 @@ def _placeholder_base(shape: object) -> object | None:
         return layout_placeholders.get(shape._element.ph_idx)
     if isinstance(shape, LayoutPlaceholder):
         master = related_part(shape.part, RT.SLIDE_MASTER)
+        if not isinstance(master, SlideMasterPart):
+            return None
         master_placeholders = master.__dict__.setdefault("_converter_master_placeholders", {})
         kind = shape._element.ph_type
         if kind not in master_placeholders:
