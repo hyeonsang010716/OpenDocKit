@@ -39,7 +39,7 @@ from opendockit.extractors._inline import (
     resolve_strikes,
 )
 from opendockit.extractors._lists import cell_level_mark, format_number, is_placeholder_only, paragraph_head
-from opendockit.extractors._mathml import MATH_IGNORED, literal, mathml_structure
+from opendockit.extractors._mathml import MATH_IGNORED, literal, mathml_structure, text_leaf
 from opendockit.extractors._notation import TableBudget, chars_left, comment_line, format_dutmal, note_table, omitted_rows_warning
 from opendockit.extractors._package import decimal_int
 
@@ -542,7 +542,9 @@ def _mathml_latex(node: etree._Element, depth: int) -> str:
         return literal("".join("".join(node.itertext()).split()))
     parts = [_mathml_latex(child, depth + 1) for child in node if isinstance(child.tag, str)]
     if not parts:
-        return literal(" ".join((node.text or "").split()))   # mi, mn, mo, mtext, ms
+        if name == "mtext":
+            return text_leaf(node.text or "")
+        return literal(" ".join((node.text or "").split()))   # mi, mn, mo, ms
     if name == "semantics":
         return parts[0]   # the first child is the presentation form, the rest are annotations
     if name == "mspace":

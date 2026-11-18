@@ -23,6 +23,20 @@ def literal(text: str) -> str:
     return _literal(text)
 
 
+def text_leaf(text: str) -> str:
+    """The LaTeX of an `<mtext>` with the text `text`. Words are `\\text{…}` with the spaces at its ends kept, as a Hangul
+    equation writes its text (`_equation`): the leaf was stripped like a variable, so `1<mtext> if </mtext>x` read `1ifx`
+    (Pinned by: test_core_html.py::TestMathMl::test_words_of_an_mtext_keep_their_spaces). Text without a letter stays
+    literal text, its end spaces kept as spaces, and text of spaces only is one space, as an `<mspace>` is."""
+    words = " ".join(text.split())
+    if not words:
+        return " " if text else ""
+    lead, trail = " " if text[:1].isspace() else "", " " if text[-1:].isspace() else ""
+    if not any(char.isalpha() for char in words):
+        return f"{lead}{literal(words)}{trail}"
+    return f"\\text{{{lead}{literal(words)}{trail}}}"
+
+
 def braced(text: str) -> str:
     """`text` as the argument of a script: one character stands as it is, more are wrapped in braces."""
     return text if len(text) == 1 else f"{{{text}}}"
