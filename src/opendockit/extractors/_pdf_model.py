@@ -151,6 +151,18 @@ class _Line:
         return max(self.bottom - self.top, 1.0)
 
 
+def _original_lines_of(line: _Line) -> tuple[_Line, ...]:
+    """The line, the line it was split from (`source`), the lines joined into it (`joined`) and the lines those were split
+    from: every line of the body flow it stands for.
+
+    A cell joined from pieces split from one line ('Dept' and '45,896' of a right-aligned cell beside a left-aligned one,
+    which pdfminer read as one line) lists the pieces in `joined`, not their line: only the pieces were removed, so the
+    line stayed in the body flow and its text came out twice (Pinned by:
+    test_audit_pdf_tail.py::TestJoinedPiecesOfASplitLine)."""
+    found = [line, *line.joined]
+    return tuple(found + [original.source for original in found if original.source is not None])
+
+
 @dataclass(slots=True)
 class _Table:
     top: float
