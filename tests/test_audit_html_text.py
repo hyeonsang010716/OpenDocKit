@@ -12,7 +12,7 @@ from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors import _html_dom, _html_mail
 from opendockit.extractors import html as html_extractor
 from tests.builder import png_bytes
-from tests.timing import allowed
+from tests.timing import allowed, fastest
 
 
 _MAIL_HEAD = "From: a@b.c\r\nTo: d@e.f\r\nMIME-Version: 1.0\r\n"
@@ -693,6 +693,18 @@ class TestManyButtonsInsideOneHeading:
 
         assert text == "# " + "ab" * 40000
         assert seconds < allowed(4)
+
+    @pytest.mark.timing
+    def test_buttons_left_open_are_unwrapped_in_linear_time(self):
+        """lxml nests each button left open in the one before, and unwrapping them from the innermost out moved all their
+        children again at every level: 8,000 of them (70 KB) took 43 s."""
+        def html(count):
+            return ("<h2>" + "<button>b" * count).encode()
+
+        small, large = html(4_000), html(16_000)
+
+        assert fastest(lambda: convert(large, "a.html")) < 8 * fastest(lambda: convert(small, "a.html")) + 0.05
+        assert convert(html(3), "a.html").text == "## bbb"
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<h2>A<button>B <i>C</i></button>D<button></button><button>E</button></h2><p>p</p>", "## AB CDE\n\np"),

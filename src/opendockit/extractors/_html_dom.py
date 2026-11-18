@@ -867,28 +867,40 @@ def _keep_expander_buttons(soup: BeautifulSoup, openers: Container[int] = frozen
 
 def _unwrap_all(tags: list[Tag]) -> None:
     """`unwrap()` for each of `tags`, collected in document order: the element is taken out and its children stay in its place.
-    It goes from the back and measures the child positions once per parent, like `_decompose_all` — unwrapping a later sibling
-    leaves the position of an earlier one unchanged, and the children of an element are done before the element itself.
+    The children of every parent that holds one of them are laid out anew once: each of `tags` is replaced by its children, and
+    those that are themselves among `tags` by theirs in turn, which is the tree unwrapping them one by one leaves. Every node is
+    detached from the back of its parent and appended once.
 
     bs4's `unwrap` looks up the position of the element among its siblings from the start: 40,000 buttons in one heading
-    (703KB) took 11 seconds (Pinned by: test_audit_html_text.py::TestManyButtonsInsideOneHeading).
+    (703KB) took 11 seconds. Unwrapped one by one from the innermost out, elements nested in each other (buttons left open inside
+    a heading, which lxml nests each in the one before) moved all their children again at every level: 8,000 of them (70 KB)
+    took 43 s (Pinned by: test_audit_html_text.py::TestManyButtonsInsideOneHeading). Detaching every child of a parent from the
+    back keeps a row whose 10,000 cells one element wraps linear too
+    (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly).
     """
-    places: dict[int, dict[int, int]] = {}  # parent id → (child id → position)
-
-    for tag in reversed(tags):
-        parent = tag.parent
-        if id(parent) not in places:
-            places[id(parent)] = {id(child): index for index, child in enumerate(parent.contents)}
-        index = places[id(parent)][id(tag)]
-        tag.extract(_self_index=index)
-        # The children are detached from the back with their positions known too: `insert` would look each one up among the
-        # siblings it still has, and a row whose 10,000 cells one element wraps took time quadratic in them
-        # (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly).
-        children = tag.contents[:]
-        for position in range(len(children) - 1, -1, -1):
-            children[position].extract(_self_index=position)
-        for child in reversed(children):
-            parent.insert(index, child)
+    chosen = {id(tag) for tag in tags}
+    parents = {id(tag.parent): tag.parent for tag in tags if id(tag.parent) not in chosen}
+    for parent in parents.values():
+        laid_out: list[PageElement] = []
+        emptied: list[Tag] = [parent]
+        stack = [iter(parent.contents[:])]
+        while stack:
+            child = next(stack[-1], None)
+            if child is None:
+                stack.pop()
+            elif id(child) in chosen:
+                emptied.append(child)
+                stack.append(iter(child.contents[:]))
+            else:
+                laid_out.append(child)
+        # The innermost first: bs4 walks down to the last descendant of whatever it detaches, so a chain detached from the top
+        # was walked again from every level
+        for holder in reversed(emptied):
+            children = holder.contents
+            for position in range(len(children) - 1, -1, -1):
+                children[position].extract(_self_index=position)
+        for child in laid_out:
+            parent.append(child)
 
 
 def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset(), openers: set[int] | None = None) -> set[int]:
