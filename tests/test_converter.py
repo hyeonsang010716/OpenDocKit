@@ -1,6 +1,7 @@
 """Converter boundary: limits, exception wrapping, assembly, async."""
 
 import asyncio
+import base64
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
@@ -1002,6 +1003,38 @@ class TestPicturesInsideAQuote:
 
         assert result.exceeded
         assert sum(1 for image in result.images if image.description) == crossing[0]
+
+    @pytest.mark.parametrize(("source", "name"), [
+        ("> wordwordwo\n" + "> ![]({tiny})\n" * 5, "a.md"),
+        ("<blockquote><p>wordwordwo</p>" + "<p><img src='{tiny}'></p>" * 5 + "</blockquote>", "a.html"),
+        ("<blockquote><p>wordwordwo</p>" + "<blockquote><p><img src='{tiny}'></p></blockquote>" * 5 + "</blockquote>", "a.html"),
+    ], ids=["markdown", "html", "nested-html"])
+    def test_erased_pictures_in_a_quote_do_not_count_toward_the_limit(self, source, name):
+        """The estimate before rendering counted the quote marks of a quoted line holding only a picture, and the empty quote
+        lines around it, but rendering drops those lines when the picture is erased (too small to carry information): a
+        12-character quote was reported over a limit of 12 to 15 (HTML: up to 20) and came back with `char_count` 16."""
+        tiny = "data:image/png;base64," + base64.b64encode(builder.png_bytes(10, 10)).decode()
+        data = source.format(tiny=tiny).encode()
+
+        full = convert(data, name, ConvertOptions(max_chars=None))
+        assert full.text == "> wordwordwo"
+        for limit in range(len(full.text) - 2, len(full.text) + 10):
+            result = convert(data, name, ConvertOptions(max_chars=limit))
+            assert result.exceeded == (len(full.text) > limit), limit
+            assert result.char_count == len(full.text), limit
+
+    def test_erased_quoted_pictures_leave_the_real_picture_of_a_document_within_the_limit(self):
+        """Counted over the limit, the document skipped decoding: the one real picture beside 20 erased quoted ones was not
+        returned for description at a limit equal to the full length."""
+        tiny = "data:image/png;base64," + base64.b64encode(builder.png_bytes(10, 10)).decode()
+        data = (f"![sales]({_data_uri(seed=1)})\n\n> wordwordwo\n" + f"> ![]({tiny})\n" * 20).encode()
+
+        full = convert(data, "a.md", ConvertOptions(max_chars=None))
+        result = convert(data, "a.md", ConvertOptions(max_chars=len(full.text)))
+
+        assert result.text == full.text == "[Image: sales]\n\n> wordwordwo"
+        assert not result.exceeded
+        assert len(result.images) == 1
 
     @pytest.mark.parametrize("share", [4, 2])
     def test_a_picture_after_a_quoted_one_counts_the_quote_marks_of_its_neighbour(self, share):

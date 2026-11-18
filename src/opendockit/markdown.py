@@ -90,6 +90,8 @@ _MAX_GRID_CELLS = 5_000_000
 # The placeholder of a table inside a table (`TableGrid.embed`). Private-use characters, so clean_text removes any left unresolved.
 _EMBED = re.compile("\ue020(\\d+)\ue021")
 _TABLE_TAG = re.compile(r"</?(?:table|thead|tbody|tfoot|tr|td|th|br)\b[^>]*>", re.IGNORECASE)
+# A line of quote marks and nothing else (once placeholders and removed characters are gone), left out of `solid_length`.
+_BARE_QUOTE_LINE = re.compile(r"^[^\S\n]*>(?:[^\S\n]*>)*[^\S\n]*$", re.MULTILINE)
 
 
 @contextmanager
@@ -434,6 +436,13 @@ def solid_length(text: str) -> int:
     # (Pinned by: test_markdown.py::TestSolidLength::test_nested_table_placeholder_is_not_counted).
     text = _EMBED.sub("", IMAGE_MARKER.sub("", text))
     text = _PRIVATE_USE.sub("", _CONTROL.sub("", _INVISIBLE.sub("", text)).translate(_SYMBOL_FONT_GLYPHS))
+    # The quote marks of a line that holds nothing else go too: rendering drops a quoted line left with only its marks when
+    # the picture on it is erased (too small, a repeated logo), and the empty quote lines around it
+    # (`converter._settle_quote_gaps`). Counted, a 12-character quote with five erased pictures was reported over a limit of
+    # 12 to 15 and skipped decoding the real picture beside it
+    # (Pinned by: test_converter.py::TestPicturesInsideAQuote::test_erased_pictures_in_a_quote_do_not_count_toward_the_limit).
+    if ">" in text:
+        text = _BARE_QUOTE_LINE.sub("", text)
     return len("".join(unicodedata.normalize("NFC", text).split()))
 
 

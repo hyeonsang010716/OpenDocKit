@@ -123,6 +123,15 @@ class TestSolidLength:
         assert solid_length(grid.render()) >= solid_length("머리") + solid_length("값 " + forged)
 
 
+    @pytest.mark.parametrize("text", ["> ⟦IMG:1⟧", ">\n> > \u200b\n>>", " >  > \t", "> \ue020" + "1" + "\ue021"])
+    def test_quote_marks_of_a_line_with_nothing_else_are_not_counted(self, text):
+        """Rendering drops a quoted line left with only its marks when the picture on it is erased, and the empty quote lines
+        around it (`converter._settle_quote_gaps`), so those marks are not certain to remain."""
+        assert solid_length(text) == 0
+
+    def test_quote_marks_of_a_line_with_text_are_counted(self):
+        assert solid_length("> 가나\n> > b ⟦IMG:1⟧") == solid_length(">가나>>b")
+
 class TestRenderTable:
     def test_renders_gfm_table_with_header_row(self):
         rows = [["이름", "값"], ["a", "1"]]
