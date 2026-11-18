@@ -197,6 +197,61 @@ class TestMathMl:
 
         assert result.text == "값 $a_{n}$ 을 본다."
 
+    @staticmethod
+    def _wikipedia_formula(display: bool) -> str:
+        """A formula as a saved Wikipedia article holds it (MediaWiki's Math extension): the MathML in a `display: none` copy
+        for screen readers, then the SVG picture, aria-hidden, with the TeX in its alt."""
+        mode, tag = ("display", "div") if display else ("inline", "span")
+        return (f'<{tag} class="mwe-math-element mwe-math-element-{"block" if display else "inline"}">'
+                f'<{tag} class="mwe-math-mathml-{mode} mwe-math-mathml-a11y" style="display: none;">'
+                f'<math xmlns="http://www.w3.org/1998/Math/MathML"{" display=\"block\"" if display else ""} '
+                'alttext="{\\displaystyle E=mc^{2}}"><semantics><mrow class="MJX-TeXAtom-ORD"><mstyle displaystyle="true" '
+                'scriptlevel="0"><mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mrow class="MJX-TeXAtom-ORD"><mn>2</mn></mrow>'
+                '</msup></mstyle></mrow><annotation encoding="application/x-tex">{\\displaystyle E=mc^{2}}</annotation>'
+                f'</semantics></math></{tag}><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/0abc" '
+                f'class="mwe-math-fallback-image-{mode} mw-invert skin-invert" aria-hidden="true" '
+                'style="vertical-align: -0.338ex; width:9.5ex; height:2.676ex;" alt="{\\displaystyle E=mc^{2}}">'
+                f'</{tag}>')
+
+    def test_formula_of_a_saved_wikipedia_article_is_read_once(self):
+        """Wikipedia hides the MathML of every formula with `display: none` and draws the formula with an aria-hidden picture
+        whose alt is the TeX. Both were removed, so every formula of a saved article vanished without a trace."""
+        html = (f"<html><body><main><p>The equation {self._wikipedia_formula(False)} relates mass and energy.</p>"
+                f"<p>In full:</p>{self._wikipedia_formula(True)}<p>where c is the speed of light.</p></main></body></html>")
+
+        result = convert(html.encode(), "Mass-energy_equivalence.html")
+
+        assert result.text == ("The equation $E=mc^{2}$ relates mass and energy.\n\nIn full:\n\n$E=mc^{2}$\n\n"
+                               "where c is the speed of light.")
+
+    def test_hidden_formula_without_a_picture_after_it_is_removed(self):
+        """Only the hidden copy of a formula drawn by an aria-hidden picture right after it is kept: other hidden MathML, and a
+        hidden copy beside more than the formula or hidden by the `hidden` attribute, are hidden content as before."""
+        html = ('<p>A<span style="display:none"><math><mi>x</mi></math></span> B'
+                '<span style="display:none"><math><mi>y</mi></math></span><img src="y.png" alt="y"> C'
+                '<span style="display:none">note <math><mi>z</mi></math></span><img src="z.svg" aria-hidden="true" alt="z"> D'
+                '<span hidden><math><mi>w</mi></math></span><img src="w.svg" aria-hidden="true" alt="w"> E'
+                '<span style="display:none"><math><mi>v</mi></math></span><img src="chevron.svg" aria-hidden="true" alt=""> F'
+                '<span style="display:none"><math><mi>u</mi></math></span> Show <img src="u.svg" aria-hidden="true" alt="u"> G</p>')
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text == "A B [Image: y] C D E F Show G"
+
+    @pytest.mark.parametrize(("source", "latex"), [
+        ('<annotation encoding="application/x-tex">{\\displaystyle \\frac{a}{b}}</annotation>', "\\frac{a}{b}"),
+        ('<annotation encoding="application/x-tex">{\\displaystyle a}+{\\displaystyle b}</annotation>',
+         "{\\displaystyle a}+{\\displaystyle b}"),
+        ('<annotation encoding="application/x-tex">{\\displaystyle \\{x\\}}</annotation>', "\\{x\\}"),
+        ('<annotation encoding="application/x-tex">{\\displaystyle a\\}</annotation>', "{\\displaystyle a\\}"),
+    ])
+    def test_display_style_wrapper_of_wikipedia_is_taken_off(self, source, latex):
+        """Wikipedia wraps every formula in `{\\displaystyle …}`, in its TeX annotation as in its alttext; only the alttext lost
+        it. Only a group that holds the whole formula is taken off."""
+        html = f"<p>So <math><semantics><mi>x</mi>{source}</semantics></math>.</p>"
+
+        assert convert(html.encode(), "a.html").text == f"So ${latex}$."
+
     def test_presentation_mathml_is_linearized(self):
         html = ("<p>면적 <math><msup><mi>r</mi><mn>2</mn></msup><mi>π</mi></math>, 비율 <math><mfrac><mn>3</mn><mn>4</mn></mfrac></math>, "
                 "근 <math><msqrt><mn>2</mn></msqrt></math>, 첨자 <math><msub><mi>a</mi><mn>10</mn></msub></math>, "
@@ -207,6 +262,16 @@ class TestMathMl:
 
         assert result.text == ("면적 $r^2π$, 비율 $\\frac{3}{4}$, 근 $\\sqrt{2}$, 첨자 $a_{10}$, 세제곱근 $\\sqrt[3]{x}$, "
                                "합 $∑_{i=1}^{n}i$")
+
+    def test_literal_text_is_escaped(self):
+        """A `$` in the text of an equation ended the math span (`$$5×n$` opened display math), and braces typed in an `<mo>` or
+        as fences vanished as LaTeX grouping. They are escaped as in Office equations; the LaTeX the converter writes is not."""
+        html = ("<p>Total <math><mtext>$</mtext><mn>5</mn><mo>×</mo><mi>n</mi></math> per unit, "
+                "<math><mo>{</mo><mi>a</mi><mo>}</mo><mo>∪</mo><mfenced open='{' close='}'><mi>b</mi></mfenced></math>, "
+                "<math><mfrac><mn>50</mn><mtext>%</mtext></mfrac><mi>#</mi><mi>\\</mi></math></p>")
+
+        assert convert(html.encode(), "a.html").text == ("Total $\\$5×n$ per unit, $\\{a\\}∪\\{b\\}$, "
+                                                        "$\\frac{50}{\\%}\\#\\backslash$")
 
     def test_math_inside_a_table_cell_stays_in_the_cell(self):
         html = ("<table><tr><th>항목</th><th>식</th></tr>"

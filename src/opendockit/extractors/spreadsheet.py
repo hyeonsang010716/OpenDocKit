@@ -21,7 +21,7 @@ from openpyxl.styles.numbers import BUILTIN_FORMATS
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from openpyxl.utils.datetime import from_excel, to_excel
 from openpyxl.utils.exceptions import InvalidFileException
-from openpyxl.worksheet.formula import ArrayFormula
+from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
@@ -81,6 +81,12 @@ _FULL_LOAD_MAX_SHEET_BYTES = 20 * 1024 * 1024
 # (Pinned by: test_office.py::TestReportedGaps::test_xlsx_with_a_large_pivot_cache_is_streamed).
 _MAX_PIVOT_CACHE_BYTES = 1024 * 1024
 _PIVOT_CACHE_DEFINITION = "/pivotCacheDefinition"
+# Upper bound on the number of merge ranges in a full load, beside the bound on the cells they cover (`_MAX_MERGED_CELLS`). openpyxl
+# also spends about 40 µs on each range whatever its size (it creates the range and sets borders on its edge cells): 100,000
+# one-cell merges, which cover only 100,000 cells, took 4 s and 490,000 of them 20 s and 558 MB. Above the bound the workbook is
+# streamed, as above the cell bound. 50,000 ranges take about as long as the slowest full load the cell bound lets through (one
+# merge of 500,000 cells, about 2 s) (Pinned by: test_spreadsheet.py::TestManySmallMergeRanges).
+_MAX_MERGE_RANGES = 50_000
 # Merge ranges in sheet XML (`<mergeCell ref="A1:B2"/>`). An element name cannot be written another way in XML, but an attribute
 # value can vary in quotes, whitespace and character references, so attributes are skipped one at a time to find ref, and the value
 # is decoded with html.unescape. Hyperlink ranges are not counted: they are not parsed while reading (`_SHEET_PARTS_LEFT_UNREAD`),
@@ -134,11 +140,13 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
         large = sum(info.file_size for info in sheets) > _FULL_LOAD_MAX_SHEET_BYTES
         # In a full load openpyxl decompresses a picture again for every reference (a 56KB file pointing to one picture 40 times used
         # 1.2GB) and creates a cell object for every position a merge covers (a 4.8KB file with one merge used 800MB). When that
-        # much exceeds the limit, the workbook is streamed, which reads each picture once and does not read merges
+        # much exceeds the limit, the workbook is streamed, which reads each picture once and does not read merges. Many small
+        # merge ranges cost as much as one large one (`_MAX_MERGE_RANGES`)
         # (Pinned by: test_image.py::TestResourceBounds::test_xlsx_picture_referenced_many_times_is_read_once,
-        # test_xlsx_picture_reference_count_cannot_be_dodged, test_office.py::TestXlsx::test_huge_merged_range_is_read_without_expanding_it).
+        # test_xlsx_picture_reference_count_cannot_be_dodged, test_office.py::TestXlsx::test_huge_merged_range_is_read_without_expanding_it,
+        # test_spreadsheet.py::TestManySmallMergeRanges).
         read_only = (large or _picture_reference_bytes(archive) > options.max_uncompressed_bytes
-                     or _merged_cell_count(archive, sheet_names) > _MAX_MERGED_CELLS
+                     or _too_many_merges(archive, sheet_names)
                      or _pivot_cache_bytes(archive) > _MAX_PIVOT_CACHE_BYTES)
         # A workbook large enough for its sheet XML to be big was saved by Excel, so it contains results. The sheet XML is not
         # scanned a second time. Small workbooks that are streamed because of pictures or merges are checked
@@ -151,6 +159,7 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
                              and _only_zero_results(archive, sheet_names))
         formulas_only = formulas_only or placeholder_zeros
         reading = _READING.get()
+        reading.streamed = read_only
         reading.rich_values = _rich_values(archive, set(archive.namelist()))
         styles_too_large = _stylesheet_too_large(archive)
     styles_reduced = formats_lost = formats_cut = False
@@ -737,7 +746,11 @@ def _unresolved_formulas(xml: bytes, max_cols: int) -> dict[int, dict[int, str]]
         if formula is not None and reference:
             text = formula.text or ""
             try:
-                if formula.get("t") == "shared" and text:
+                if formula.get("t") == "dataTable":
+                    # Shown as when formulas are read as written (`_data_table_formula`)
+                    # (Pinned by: test_spreadsheet.py::TestDataTableFormulas::test_data_table_without_a_result_beside_results).
+                    text = _data_table_formula(dict(formula.attrib))[1:]
+                elif formula.get("t") == "shared" and text:
                     shared[formula.get("si")] = (text, reference)
                 elif formula.get("t") == "shared" and formula.get("si") in shared:
                     first, origin = shared[formula.get("si")]
@@ -922,12 +935,12 @@ def _cell_text(cell: object) -> str:
     number_format = _number_format(cell)
     number_format = _BUILTIN_FORMAT_FIXES.get(number_format, number_format)
     if isinstance(value, (date, time)) and _is_elapsed_format(number_format):
-        # openpyxl gives a duration only for `[h]`, `[hh]`, `[m]`, `[mm]`, `[s]` and `[ss]`, so a cell under `[hhh]:mm` (hours
-        # with three digits) came as a date and lost its days (36 hours shown as `12:00:00`). It is the duration from the
-        # workbook's epoch, as for the other elapsed formats (Pinned by:
-        # test_spreadsheet.py::TestXlsValues::test_elapsed_format_openpyxl_does_not_know_is_a_duration). A date-only ISO cell
-        # (`t="d"`, a date) is that day at midnight, as in `format_cell` (Pinned by:
-        # test_spreadsheet_cell_values_and_controls.py::TestIsoDateCellsWithAFormat).
+        # An ISO date cell (`t="d"`) arrives as a date whatever its format; under an elapsed format it is the duration from the
+        # workbook's epoch, as for a serial. A number cell under an elapsed format openpyxl does not know (`[hhh]:mm`) is made a
+        # duration from its serial while reading (`_elapsed_styles_as_durations`): through its date it lost its days (36 hours
+        # shown as `12:00:00`, Pinned by: test_spreadsheet.py::TestElapsedTime::test_elapsed_format_openpyxl_does_not_know_is_a_duration)
+        # and then Excel's 1900-02-29 (60 → `1416:00`). A date-only ISO cell (`t="d"`, a date) is that day at midnight, as in
+        # `format_cell` (Pinned by: test_spreadsheet_cell_values_and_controls.py::TestIsoDateCellsWithAFormat).
         value = from_excel(to_excel(value, cell.parent.parent.epoch), timedelta=True)
     elif isinstance(value, timedelta) and number_format and _ELAPSED_FORMAT.search(number_format) \
             and not _is_elapsed_format(number_format):
@@ -946,7 +959,11 @@ def _cell_text(cell: object) -> str:
         # openpyxl does not take `aaa` for a date format. The serial becomes a date shown in the format, as `dddd` and XLS show
         # it (the day only): through `_serial_date_text` 45000.25 went out as '2023-03-15 06:00:00', and 45000.999999 rounded
         # to the next day (Pinned by: test_audit_spreadsheet_fixes.py::TestWeekdayFormatWithATime). A negative serial and one
-        # past the calendar stay the number, as in XLS.
+        # past the calendar stay the number, as in XLS. Serial 0 is the number 0, as under any format that shows a date
+        # (`_is_serial_zero_shown_as_date`, which sees only the midnight openpyxl makes for a date format): it came out as
+        # `00:00:00` (Pinned by: test_audit_spreadsheet_fixes.py::TestWeekdayFormatWithATime::test_serial_zero_is_the_number).
+        if value == 0:
+            return "0"
         try:
             value = from_excel(value, cell.parent.parent.epoch)
         except (OverflowError, ValueError):
@@ -1003,7 +1020,7 @@ def _serial_date_text(value: float, epoch: datetime) -> str:
 
 
 def _plain_value(value: object) -> object:
-    """When formulas are read as written, an array formula arrives as an object. Turn it into the formula text. Rich text (text
+    """When formulas are read as written, an array formula or a data table arrives as an object. Turn it into the formula text. Rich text (text
     whose font changes within the cell) is joined into one text with only the superscript/subscript pieces marked — joined as plain
     text, m² became m2
     (Pinned by: test_spreadsheet.py::TestSuperscriptInCells)."""
@@ -1011,7 +1028,28 @@ def _plain_value(value: object) -> object:
         return resolve_scripts("".join(_rich_piece(piece) for piece in value))
     if isinstance(value, str):
         return _unescape_xstring(value)
+    if isinstance(value, DataTableFormula):
+        return _data_table_formula(dict(value))
     return value.text if isinstance(value, ArrayFormula) else value
+
+
+def _data_table_formula(attributes: dict[str, str]) -> str:
+    """The formula of a What-If data table (`<f t="dataTable" r1="A1" …/>`) as Excel shows it, `=TABLE(row input, column input)`.
+
+    It has no formula text, only attributes: when formulas were read as written, openpyxl's object came out as
+    `<openpyxl.worksheet.formula.DataTableFormula object at 0x…>`, a different text on every run
+    (Pinned by: test_spreadsheet.py::TestDataTableFormulas). A two-variable table (`dt2D`) has the row input in `r1` and the
+    column input in `r2`; a one-variable table has its one input in `r1`, the row input when `dtr` is set and the column input
+    otherwise. An input cell that was deleted (`del1`, `del2`) is `#REF!`, as Excel shows it.
+    """
+    def flag(name: str) -> bool:
+        return str(attributes.get(name, "")).strip().lower() in ("1", "true")
+
+    first = "#REF!" if flag("del1") else str(attributes.get("r1") or "").strip()
+    if flag("dt2D"):
+        second = "#REF!" if flag("del2") else str(attributes.get("r2") or "").strip()
+        return f"=TABLE({first},{second})"
+    return f"=TABLE({first},)" if flag("dtr") else f"=TABLE(,{first})"
 
 
 _VERTICAL_ALIGN_SCRIPTS = {"superscript": SUPERSCRIPT, "subscript": SUBSCRIPT}
@@ -1050,9 +1088,30 @@ def _unescape_xstring(text: str) -> str:
     return unescaped.replace("\r\n", "\n").replace("\r", "\n").replace("\v", "\n")
 
 
+def _too_many_merges(archive: zipfile.ZipFile, sheet_names: list[str]) -> bool:
+    """Whether the merge ranges of the sheets cover more than `_MAX_MERGED_CELLS` cells or are more than `_MAX_MERGE_RANGES`
+    ranges — either way a full load costs too much (stops once a cap is exceeded)."""
+    cells = ranges = 0
+    for area in _merge_areas(archive, sheet_names):
+        cells += area
+        ranges += 1
+        if cells > _MAX_MERGED_CELLS or ranges > _MAX_MERGE_RANGES:
+            return True
+    return cells > _MAX_MERGED_CELLS or ranges > _MAX_MERGE_RANGES
+
+
 def _merged_cell_count(archive: zipfile.ZipFile, sheet_names: list[str]) -> int:
     """Total number of cells covered by the merge ranges of the sheets (stops once the cap is exceeded)."""
     total = 0
+    for area in _merge_areas(archive, sheet_names):
+        total += area
+        if total > _MAX_MERGED_CELLS:
+            return total
+    return total
+
+
+def _merge_areas(archive: zipfile.ZipFile, sheet_names: list[str]) -> Iterator[int]:
+    """The number of cells each usable merge range of the sheets covers, one range at a time."""
     for name in sheet_names:
         xml = archive.read(name)
         if b"mergeCell" not in xml:
@@ -1075,10 +1134,7 @@ def _merged_cell_count(archive: zipfile.ZipFile, sheet_names: list[str]) -> int:
                 # A reversed range was counted as negative and cancelled out a large merge (`_readable_merges` discards it.
                 # Pinned by: test_office_round45.py::TestMalformedMergeRangeAndTheMergeLimit)
                 continue
-            total += (max_col - min_col + 1) * (max_row - min_row + 1)
-            if total > _MAX_MERGED_CELLS:
-                return total
-    return total
+            yield (max_col - min_col + 1) * (max_row - min_row + 1)
 
 
 def _pivot_cache_bytes(archive: zipfile.ZipFile) -> int:

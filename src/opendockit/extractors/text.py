@@ -5,7 +5,6 @@ import binascii
 import bisect
 from email.message import Message
 import html
-import itertools
 import re
 
 from opendockit.extractors._encoding import decode_text, decoding_warnings
@@ -23,6 +22,7 @@ from opendockit.extractors._mail import (
     mail_plain_body,
 )
 from opendockit.extractors._mail_calendar import mail_calendar_text
+from opendockit.markdown import clean_characters, code_fences
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
@@ -127,7 +127,7 @@ def _plain_text(data: bytes) -> Extraction:
 # URI took 3.4 seconds (quadratic) (Pinned by: test_core_text_and_mail.py::TestMarkdownHtmlImageDataUri::
 # test_unclosed_data_uri_followed_by_long_whitespace_takes_linear_time). The field of an unquoted src ends only where the base64
 # characters end (so that it does not share characters with the attribute field after it). Trailing whitespace is dropped when
-# decoding. The attribute fields of `<img` do not cross `<` or `>`. Balanced code fence blocks are found first, line by line, and
+# decoding. The attribute fields of `<img` do not cross `<` or `>`. The code blocks `clean_text` will see are found first and
 # skipped (`_fenced_spans`). The last two branches (`other_…`) are data: URI pictures that are not base64 (percent-encoded SVG
 # etc.), which keep only the alt text as in HTML — left as the original, one picture used 140,000 characters
 # (Pinned by: test_core_round45.py::TestMarkdownDataUriPicturesThatAreNotBase64). The address field takes, like CommonMark, no
@@ -160,11 +160,9 @@ _MARKDOWN_DATA_PICTURE = re.compile(
     re.IGNORECASE)
 # Where a data: URI picture may be, for the quick check before the picture pattern (scheme and type in any case).
 _DATA_IMAGE_SCHEME = re.compile("data:image/", re.IGNORECASE)
-# The line-start opening of a code fence (three or more backticks or tildes) and the closing line (fence marker + only spaces or
-# tabs). The closing line also takes a trailing `\r` — because of the `\r` left on CRLF lines split at `\n`, a data: URI picture
-# example inside a block was extracted as a picture (Pinned by: test_core_round48.py::TestCodeFenceWithWindowsLineBreaks).
-_FENCE_OPENING = re.compile(r"`{3,}|~{3,}")
-_FENCE_CLOSING = re.compile(r"(`{3,}|~{3,})[ \t]*\r?")
+# The line breaks `clean_characters` makes `\n` (CRLF, CR, vertical tab, form feed, next line), for finding the lines of the text
+# `clean_text` will see (`_fenced_spans`).
+_LINE_BREAK = re.compile("\r\n|[\r\n\x0b\x0c\x85]")
 # The alt attribute of `<img>` (inside quotes, or an unquoted value).
 # Is the picture address (the `](` after Markdown alt text, the src attribute of `<img`) an SVG data: URI.
 _SVG_SOURCE = re.compile(r"(?:\]\(\s*<?|src\s*=\s*[\"']?\s*)data:image/svg", re.IGNORECASE)
@@ -247,8 +245,11 @@ def _without_pictures(text: str, pictures: list[re.Match]) -> list[str]:
 _BACKTICK_RUN = re.compile(r"`+")
 # Paragraph boundary (blank line). Inline code is not paired across it. CRLF and CR line breaks are taken too — looking only at
 # `\n`, in MD saved on Windows code was paired across paragraphs and a picture stayed as text
-# (Pinned by: test_core_round47.py::TestInlineCodeAcrossParagraphsWithWindowsLineBreaks).
-_BLANK_LINE = re.compile(r"(?:\r\n?|\n)[ \t]*(?:\r\n?|\n)")
+# (Pinned by: test_core_round47.py::TestInlineCodeAcrossParagraphsWithWindowsLineBreaks). Each line break is atomic: `\r\n?`
+# could give back its `\n` to the second one, so every single CRLF line break was a blank line and code written over two lines
+# of a CRLF paragraph was not code (Pinned by: test_core_round47.py::TestInlineCodeAcrossParagraphsWithWindowsLineBreaks::
+# test_code_over_two_lines_of_a_paragraph_is_code_with_any_line_break).
+_BLANK_LINE = re.compile(r"(?>\r\n?|\n)[ \t]*(?>\r\n?|\n)")
 
 
 def _inline_code_spans(text: str) -> list[tuple[int, int]]:
@@ -293,60 +294,34 @@ def _paragraph_code_spans(text: str) -> list[tuple[int, int]]:
 
 
 def _fenced_spans(text: str) -> list[tuple[int, int]]:
-    """The (start, end) character positions of balanced code fence blocks: from a line that starts with a fence marker (three or
-    more backticks or tildes) to the end of the first line after it that is the same marker + whitespace only. If no closing
-    line matches the opening marker, the marker is shortened one character at a time (four → three) and searched again, and if
-    there is still none it is not a block (that line is text too).
+    """The (start, end) character positions of the code blocks of the text, from the start of the opening fence line to the end
+    of the closing one: the code blocks `clean_text` and the picture rendering will see (`markdown.code_fences`, both fence
+    characters, as in TXT and MD). The fences are looked for in the lines as cleaning will see them (`clean_characters`: every
+    line break it knows, and a zero-width space or other removed character before a fence gone), line for line the lines of
+    the text.
 
-    Previously a single regex (`^(`{3,}|~{3,})…(?:.*?\n)??(?P=mark)`) looked for a closing line up to the end of the text for
-    every opening line, so 32,000 unmatched opening lines + one picture took the square of the number of lines
-    (Pinned by: test_core_text_and_mail.py::TestMarkdownHtmlImageDataUri::
-    test_many_unclosed_fence_lines_before_a_picture_take_linear_time). The positions of closing lines are collected per marker
-    and binary-searched — the pair chosen is the same as with the old regex.
+    The extraction used to pair fences its own way, only at the start of a line and closed by a fence no longer than the
+    opening one: a fenced example indented in a list item, or closed by a longer fence, was a code block to `clean_text` while
+    its data: URI picture example was extracted and the code line became `[Image: logo]`
+    (Pinned by: test_image.py::TestDataUriPictureInACodeBlockThatCleaningSees). A `\r` left at the end of a closing line of
+    CRLF text closed nothing (Pinned by: test_core_round48.py::TestCodeFenceWithWindowsLineBreaks). Linear in the text, as
+    `code_fences` is (Pinned by: test_core_text_and_mail.py::TestMarkdownHtmlImageDataUri::
+    test_many_unclosed_fence_lines_before_a_picture_take_linear_time).
     """
-    lines = text.split("\n")
-    starts = list(itertools.accumulate((len(line) + 1 for line in lines), initial=0))
-    closings: dict[tuple[str, int], list[int]] = {}  # (marker character, marker length) → closing line numbers
-
-    for index, line in enumerate(lines):
-        match = _FENCE_CLOSING.fullmatch(line)
-        if match:
-            closings.setdefault((line[0], len(match.group(1))), []).append(index)
-
-    # For each marker character (backtick, tilde), the marker lengths of the closing lines (ascending). An opening line looks only
-    # at lengths up to its own, so it walks no more steps than it has marker characters.
-    lengths: dict[str, list[int]] = {}
-    for character, length in sorted(closings, key=lambda mark: mark[1]):
-        lengths.setdefault(character, []).append(length)
-    spans = []
-    index = 0
-
-    while index < len(lines):
-        closing = _fence_closing(lines[index], index, closings, lengths)
-        if closing is None:
-            index += 1
-            continue
-        spans.append((starts[index], starts[closing] + len(lines[closing])))
-        index = closing + 1
-    return spans
-
-
-def _fence_closing(line: str, index: int, closings: dict[tuple[str, int], list[int]],
-                   lengths: dict[str, list[int]]) -> int | None:
-    """If the `index`-th line `line` is a fence opening line, the number of the line that closes its block (the longest marker is
-    tried first), otherwise None."""
-    opening = _FENCE_OPENING.match(line)
-    if opening is None:
-        return None
-    run = opening.group()
-    candidates = lengths.get(run[0], [])
-
-    for position in range(bisect.bisect_right(candidates, len(run)) - 1, -1, -1):
-        found = closings[run[0], candidates[position]]
-        after = bisect.bisect_right(found, index)
-        if after < len(found):
-            return found[after]
-    return None
+    # A fence holds three backticks or tildes once cleaned, and cleaning removes characters but adds none of these (U+1FEF becomes
+    # a backtick under NFC), so a text with fewer has no code block. Looked for as runs in the raw text, a fence that a removed
+    # character sat inside (`~~\u200b~` on both lines) was missed and its picture example extracted
+    # (Pinned by: test_image.py::TestDataUriPictureInACodeBlockThatCleaningSees).
+    if text.count("`") + text.count("\u1fef") < 3 and text.count("~") < 3:
+        return []
+    starts, ends = [0], []
+    for line_break in _LINE_BREAK.finditer(text):
+        ends.append(line_break.start())
+        starts.append(line_break.end())
+    ends.append(len(text))
+    # Cleaning makes exactly these line breaks `\n` and adds none, so its lines are the lines of the text one for one.
+    lines = clean_characters(text).split("\n")
+    return [(starts[opening], ends[closing]) for opening, closing in code_fences(lines).blocks]
 
 
 def _markdown_picture(match: re.Match, extraction: Extraction, options: ConvertOptions) -> str:

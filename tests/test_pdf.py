@@ -528,6 +528,30 @@ class TestRepeatedMarginsAndBorderlessTables:
         assert "- 3 -" not in result.text
         assert "3쪽의 1번째 본문 문장이다." in result.text
 
+    def test_only_margin_and_edge_rows_are_compared_with_the_body_column(self, monkeypatch):
+        """Every row of a page was compared with the body rows of its shape, though only a margin or edge row can be removed:
+        a page of thousands of lines of one shape ('Item 3') took the square of their number. The body stays, the repeated
+        footer still goes."""
+        from opendockit.extractors import _pdf_margins
+        from opendockit.extractors._pdf_model import _Line, _Page
+
+        def page(number):
+            lines = [_Line(top=100 + index * 2, bottom=101.5 + index * 2, x0=50, x1=80, text=f"Item {index % 10}", size=1.5)
+                     for index in range(300)]
+            lines.append(_Line(top=780, bottom=790, x0=50, x1=200, text="Company confidential", size=10))
+            return _Page(number=number, width=595, height=800, lines=lines, tables=[], has_images=False, view=(0, 0, 595, 800))
+
+        compared = []
+        is_column_value = _pdf_margins._is_column_value
+        monkeypatch.setattr(_pdf_margins, "_is_column_value",
+                            lambda row, alike: compared.append(row[0].text) or is_column_value(row, alike))
+        pages = [page(number) for number in (1, 2, 3)]
+
+        _pdf_margins._remove_repeated_margins(pages)
+
+        assert [line.text for line in pages[0].lines] == [f"Item {index % 10}" for index in range(300)]
+        assert len(compared) == 3 * 4  # the top two and bottom two rows of each page (453 before)
+
     @pytest.mark.parametrize("values", [["김담당", "이담당", "박담당"], [f"{number * 7919 % 500000:,}" for number in range(1, 39)]])
     def test_values_of_a_one_column_list_at_the_page_edges_are_not_removed_as_repeated_lines(self, values):
         """A column pushed onto the following pages because it overflowed the print width (a single column of the person in charge) has
@@ -1369,6 +1393,85 @@ class TestDrawingArtifacts:
         assert result.text.count("사업 추진 계획") == 1
         assert result.text.count("총 예산 1,500") == 1
         assert "| 항목 | 수량 | 금액 |" in result.text
+
+    @pytest.mark.parametrize("shifts", [(0, 0.3), (0.3, 0)], ids=["copy-drawn-right", "copy-drawn-left"])
+    def test_a_word_in_fake_bold_on_part_of_a_line_is_read_once(self, shifts):
+        """A word in fake bold (drawn twice, 0.3pt apart) with the rest of its line drawn as a separate run: pdfminer put one copy of
+        the word in a line of its own and the other with the rest of the line, and both lines held the same kept characters. Only a
+        copy line with exactly the same text was dropped, so the word came out a second time as a paragraph of its own ('Area: the
+        floor is large in total.' then 'Area:'), and a word in the middle of the line split it in two ('The plan is important' /
+        'important for the whole team this year.')."""
+        lines = [("Helvetica", "", "Area:", " the floor is large in total."),
+                 (_FONT, "", "추진 목표", " 올해 매출을 늘린다."),
+                 ("Helvetica", "The plan is ", "important", " for the whole team this year."),
+                 ("Helvetica", "Revenue for the year was ", "stable.", "")]
+
+        def draw(pdf, index):
+            for number, (font, before, word, after) in enumerate(lines):
+                pdf.setFont(font, 11)
+                y, x = 780 - number * 30, 72
+                pdf.drawString(x, y, before)
+                x += pdf.stringWidth(before, font, 11)
+                for shift in shifts:
+                    pdf.drawString(x + shift, y, word)
+                pdf.drawString(x + pdf.stringWidth(word, font, 11), y, after)
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.sections[0].text == "\n\n".join("".join(line[1:]) for line in lines)
+
+    def test_text_repeated_beside_a_word_in_fake_bold_is_kept(self):
+        """Dropping the second copy of a word in fake bold must not drop real repeats: a short line that repeats the start of the next
+        line, the same word printed twice on one line, and equal values side by side are all characters of their own."""
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 11)
+
+            def bold_then(x, y, word, after=""):
+                for shift in (0, 0.3):
+                    pdf.drawString(x + shift, y, word)
+                pdf.drawString(x + pdf.stringWidth(word, "Helvetica", 11), y, after)
+
+            bold_then(72, 780, "Area:")
+            bold_then(72, 765, "Area:", " the floor is large in total.")
+            bold_then(72, 735, "Note:", " Note: the totals are final.")
+            bold_then(72, 705, "Total", " 100")
+            bold_then(300, 705, "100")
+            bold_then(400, 705, "100")
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.text.count("Area:") == 2
+        assert "Area: the floor is large in total." in result.text
+        assert "Note: Note: the totals are final." in result.text
+        assert result.text.count("100") == 3
+
+    @pytest.mark.parametrize(("big", "leading"), [(18, 11), (19, 11.5), (20, 12), (18, 12)])
+    def test_line_with_a_tall_character_under_a_word_in_fake_bold_keeps_the_line_above(self, big, leading):
+        """The line under a word in fake bold holds one character about twice the body size at ordinary leading. Its box reaches
+        up over the centres of the characters of the line above, so it held them all and passed for the one line of the group:
+        the line above, with its word in fake bold, was dropped without a trace. Only lines on the same row are one line."""
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 10)
+            pdf.drawString(72, 760, "An opening paragraph line comes first here.")
+            x = 72 + pdf.stringWidth("The plan is ", "Helvetica", 10)
+            pdf.drawString(72, 730, "The plan is ")
+            for shift in (0, 0.3):
+                pdf.drawString(x + shift, 730, "important")
+            pdf.drawString(x + pdf.stringWidth("important", "Helvetica", 10), 730, " for the whole team this year.")
+            y = 730 - leading
+            pdf.drawString(72, y, "The total comes to ")
+            x = 72 + pdf.stringWidth("The total comes to ", "Helvetica", 10)
+            pdf.setFont("Helvetica", big)
+            pdf.drawString(x, y, "42")
+            x += pdf.stringWidth("42", "Helvetica", big)
+            pdf.setFont("Helvetica", 10)
+            pdf.drawString(x, y, " units over the whole of the year.")
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.text.count("The plan is important for the whole team this year.") == 1
+        assert result.text.count("important") == 1
+        assert "The total comes to 42 units over the whole of the year." in result.text
 
     def test_shadow_drawn_in_another_colour_slightly_offset_is_read_once(self):
         """A shadow effect (the same text drawn first in grey, shifted by 1.2–3pt) exceeds the fake-bold threshold of 1pt and came out

@@ -3,7 +3,7 @@ text drawn outside the page view, and sideways text set apart to be read in its 
 """
 
 from bisect import bisect_left, bisect_right
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 import math
 import statistics
 
@@ -501,6 +501,122 @@ def _text_without_artifacts(line: dict, text: str, inside: list[dict], kept_line
     if len(text.replace(" ", "")) > len(own):
         return _text_from_chars(own) or text
     return text
+
+
+_Prepared = tuple[dict, int | None, str, list[dict]]  # (layout line, XObject number, text, kept characters around it)
+
+
+def _held_chars(line: dict, inside: list[dict]) -> list[dict]:
+    """The visible kept characters that make up a layout line: centred inside its box both ways and at least half its height (the
+    characters `_text_without_artifacts` counts as the line's own). A character touching the line's end is not counted — its
+    centre lies beyond it."""
+    half = (line["bottom"] - line["top"]) / 2
+    return [char for char in inside if char["text"].strip() and char["bottom"] - char["top"] >= half
+            and line["top"] <= (char["top"] + char["bottom"]) / 2 <= line["bottom"]
+            and line["x0"] <= (char["x0"] + char["x1"]) / 2 <= line["x1"]]
+
+
+# Lines recorded as holding one character (`_rejoined_copy_lines`). A word in fake bold is in two or three lines; a crafted page of
+# many lines over the same characters would otherwise compare every pair of them. A line past the bound is not joined, as before.
+_MAX_CHAR_HOLDERS = 8
+
+
+def _same_row(line: dict, other: dict) -> bool:
+    """Whether two layout lines lie on one row: their vertical centres are no more than half the height of the smaller one apart. The
+    copies of a word in fake bold are on the line they belong to; a line on the row below is not, however far its box
+    reaches (`_rejoined_copy_lines`)."""
+    height = min(line["bottom"] - line["top"], other["bottom"] - other["top"])
+    return abs((line["top"] + line["bottom"]) - (other["top"] + other["bottom"])) / 2 <= height / 2
+
+
+def _rejoined_copy_lines(prepared: list[_Prepared], has_copies: Callable[[dict], bool]) -> list[_Prepared]:
+    """`prepared` with the layout lines that hold the same kept characters made into one line, when every one of them lies over
+    removed copies (`has_copies`) and is drawn in the same place (page or XObject).
+
+    A word in fake bold on part of a line (drawn twice 0.3pt apart, the rest of the line drawn as its own run) is two layout
+    lines in pdfminer: one copy of the word alone, and the other copy joined to the rest of the line. The copy is removed, but
+    each line picks the kept characters around it, so both held the word, and the copy check (`_text_without_artifacts`) drops
+    only a line with exactly the same text: the word came out again as a paragraph of its own ('Area:' after 'Area: the floor
+    is large in total.'), and a word in the middle split its line ('The plan is important' / 'important for the whole team')
+    (Pinned by: test_pdf.py::TestDrawingArtifacts::test_a_word_in_fake_bold_on_part_of_a_line_is_read_once). Of such a group,
+    a line holding all of the group's characters is kept as it is and the others are dropped; otherwise the lines become one
+    line over all their characters, its text rebuilt from them. Lines holding the same characters (a whole line drawn twice)
+    are left to the copy check as before. Text printed twice is two sets of characters, so it never shares one (Pinned by:
+    test_text_repeated_beside_a_word_in_fake_bold_is_kept). Lines with the same kept-character list (lines at the same place,
+    `in_place` of `_read_page`) are looked at once and share the fate of the first.
+
+    Only lines on the same row are one line (`_same_row`), and the line kept for a group must have text for every character of
+    the group: the line under a word in fake bold that holds one character about twice the body size has a box reaching over
+    the centres of the line above, so it held all of that line's characters and was kept for the group, and the line above was
+    dropped without a trace (Pinned by: test_pdf.py::TestDrawingArtifacts::
+    test_line_with_a_tall_character_under_a_word_in_fake_bold_keeps_the_line_above)."""
+    first_of: dict[int, int] = {}  # id(kept-character list) → the first line with it
+    holders: dict[int, list[int]] = {}  # id(character) → the lines looked at that hold it
+    held: dict[int, list[dict]] = {}
+    parent: dict[int, int] = {}
+
+    def root(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    copies: dict[tuple[float, float, float, float], bool] = {}  # by box: lines at the same place have the same copies
+    for index, (line, owner, _, inside) in enumerate(prepared):
+        if first_of.setdefault(id(inside), index) != index:
+            continue
+        box = (line["x0"], line["x1"], line["top"], line["bottom"])
+        if box not in copies:
+            copies[box] = has_copies(line)
+        if not copies[box]:
+            continue
+        held[index] = _held_chars(line, inside)
+        parent[index] = index
+        for char in held[index]:
+            others = holders.setdefault(id(char), [])
+            for other in others:
+                if prepared[other][1] == owner and _same_row(prepared[other][0], line):
+                    parent[root(other)] = root(index)
+            if len(others) < _MAX_CHAR_HOLDERS:
+                others.append(index)
+
+    groups: dict[int, list[int]] = {}
+    for index in parent:
+        groups.setdefault(root(index), []).append(index)
+    replaced: dict[int, _Prepared | None] = {}  # first line of a kept-character list → its replacement (None: dropped)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        sets = [{id(char) for char in held[index]} for index in group]
+        if all(chars == sets[0] for chars in sets):
+            continue
+        union = set().union(*sets)
+        whole = next((index for index, chars in zip(group, sets, strict=True)
+                      if chars == union and len("".join(prepared[index][2].split())) >= len(union)), None)
+        if whole is None:
+            whole = min(group)
+            seen: set[int] = set()
+            inside = [char for index in sorted(group) for char in prepared[index][3]
+                      if id(char) not in seen and not seen.add(id(char))]
+            lines = [prepared[index][0] for index in group]
+            line = {**prepared[whole][0], "x0": min(line["x0"] for line in lines), "x1": max(line["x1"] for line in lines),
+                    "top": min(line["top"] for line in lines), "bottom": max(line["bottom"] for line in lines)}
+            text = _text_from_chars(inside)
+            line["text"] = text
+            replaced[whole] = (line, prepared[whole][1], text, inside)
+        for index in group:
+            if index != whole:
+                replaced[index] = None
+    if not replaced:
+        return prepared
+    result = []
+    for index, entry in enumerate(prepared):
+        first = first_of[id(entry[3])]
+        if first not in replaced:
+            result.append(entry)
+        elif first == index and replaced[first] is not None:
+            result.append(replaced[first])
+    return result
 
 
 def _xobject_owners(page: object) -> list[int | None]:

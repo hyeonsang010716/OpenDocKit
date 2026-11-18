@@ -4,7 +4,7 @@ python-docx is used only to open the package and find parts; the body is read by
 handle text boxes, tracked insertions (w:ins) or footnote references, and `_Row.cells` does not tell horizontal merges from vertical ones.
 """
 
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -569,7 +569,7 @@ class _DocxRenderer:
         # Continuation cells are tied into a row span only when they are as wide as the starting cell. Tying cells of a different
         # width made the span go down at the starting cell's width and cover the neighbouring cell
         # (test_docx_vertical_merge_whose_width_changes_keeps_the_neighbour_cell). A cell that could not be tied repeats the text of
-        # the cell above.
+        # the cell above, looked up by the columns that cell covers (`_text_above`).
         grid = TableGrid()
         # The top-level table checks the character limit while reading its cells (`_notation.TableBudget`). The text of an inner table
         # is not counted as cell text of the outer table (it undercounts). A header or footer table is checked against its own
@@ -606,22 +606,26 @@ class _DocxRenderer:
         continuing = {(row, col): span for row, col, span, is_continuation, _ in cells if is_continuation}
         # (row, column) → text shown in that cell (merged_copy). A continuation cell has that of the cell right above
         shown: dict[tuple[int, int], str] = {}
+        # Row → the start columns, end columns and shown texts of its cells read so far, in column order (`_text_above`)
+        placed: dict[int, tuple[list[int], list[int], list[str]]] = {}
         for row, col, span, is_continuation, cell in cells:
             if is_continuation:
                 # A covered cell is inside the table too — the last row is not removed even when all of it is covered (TableGrid.reach)
                 grid.reach(row, col)
                 if (row, col) not in shown:
-                    shown[row, col] = shown.get((row - 1, col), "")
+                    shown[row, col] = _text_above(placed.get(row - 1), col, span)
                     grid.place(row, col, shown[row, col], col_span=span)
                     if budget is not None:
                         # Only takes up the slot. The copy of the upper cell's text is not counted (it undercounts); the drawing
                         # stops writing copies at the limit (`TableBudget.room`)
                         budget.add(row, col, "", col_span=span)
+                _note_placed(placed, row, col, span, shown[row, col])
                 continue
 
             text = self._cell_text(cell)
             row_span = 1
             shown[row, col] = merged_copy(text)
+            _note_placed(placed, row, col, span, shown[row, col])
             while continuing.get((row + row_span, col)) == span:
                 shown[row + row_span, col] = shown[row, col]
                 row_span += 1
@@ -1180,6 +1184,33 @@ def _note_block(block: etree._Element, image_marker: Callable[[etree._Element], 
     if block.tag == _w("tbl"):
         return note_table([text(cell) for cell in _children(row, _w("tc"))] for row in _children(block, _w("tr")))
     return text(block)
+
+
+def _note_placed(placed: dict[int, tuple[list[int], list[int], list[str]]], row: int, col: int, span: int, text: str) -> None:
+    """Record a cell of `row` (read in column order) with the text it shows, for the continuation cells of the next row."""
+    starts, ends, texts = placed.setdefault(row, ([], [], []))
+    starts.append(col)
+    ends.append(col + span)
+    texts.append(text)
+
+
+def _text_above(above: tuple[list[int], list[int], list[str]] | None, col: int, span: int) -> str:
+    """Text shown in the first cell of the row above that covers one of the columns `col` … `col + span - 1` ("" when none does),
+    for a continuation cell that could not be tied into a row span.
+
+    Looked up by the starting column only, a continuation under the second column of a two-column cell found nothing and came
+    out empty, while the one under the first column repeated the text (Pinned by: test_office.py::TestReportedGaps::
+    test_docx_continuations_under_every_column_of_a_wider_cell_repeat_its_text, test_docx_wider_continuation_repeats_the_first_cell_above_it).
+    The cells above are found by bisecting their starts, as in `_orphans_made_ordinary`: a span is never walked column by column."""
+    if above is None:
+        return ""
+    starts, ends, texts = above
+    index = bisect_right(starts, col) - 1  # the last cell above that starts at or left of this cell's first column
+    if index < 0 or ends[index] <= col:
+        index += 1  # that one ends before this cell: the next one, when it starts under this cell
+        if index >= len(starts) or starts[index] >= col + span:
+            return ""
+    return texts[index]
 
 
 def _orphans_made_ordinary(cells: list[tuple[int, int, int, bool, etree._Element]]) -> list[tuple[int, int, int, bool, etree._Element]]:

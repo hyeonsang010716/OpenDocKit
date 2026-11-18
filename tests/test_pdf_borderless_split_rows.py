@@ -296,6 +296,83 @@ class TestRowsBetweenTwoTablesThatBelongToTheTableBelow:
                 "| 가지 | done | 15 | 89,100 |\n| South | 유지 | 93 | 52,588 |\n| 양산 | 유지 | 43 | 83,133 |\n\n이상.") in text
 
 
+def _platypus_table_pdf(*tables: list[str], space: float = 6.0) -> bytes:
+    """Reportlab platypus tables with their default style (no rules, 6pt cell padding) in 9pt type between two paragraphs,
+    `space` pt below the first paragraph and 20pt apart. Each row is 'a|b|…' with empty parts for empty cells. The cells of
+    a row stand 12pt apart, so pdfminer merges some neighbouring cells into one piece ('R1C0값 572,1001') and others not,
+    differently from row to row."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table
+
+    pdfmetrics.registerFont(UnicodeCIDFont(_FONT))
+    body = ParagraphStyle("b", fontName=_FONT, fontSize=10, leading=14)
+    style = [("FONTNAME", (0, 0), (-1, -1), _FONT), ("FONTSIZE", (0, 0), (-1, -1), 9)]
+    story = [Paragraph("표 앞의 설명 문단입니다.", body), Spacer(1, space)]
+    for number, rows in enumerate(tables):
+        story += [*([Spacer(1, 20)] if number else []), Table([row.split("|") for row in rows], style=style)]
+    buffer = BytesIO()
+    SimpleDocTemplate(buffer, pagesize=A4).build([*story, Spacer(1, 12), Paragraph("표 뒤 문단.", body)])
+    return buffer.getvalue()
+
+
+class TestUniformTableFoundInSeveralParts:
+    """One borderless table whose cells all stand at the same x on every row, with neighbouring cells merged by pdfminer
+    differently from row to row. Its rows 1–3 and 8–11 were found as tables first, rows 4–7 (two of them a single piece
+    wider than a table cell) only by splitting the lines in no table, and the three parts were never joined: they came
+    out as three tables, and the last one, its columns taken from its own first row ('R8C0값 410,2081 | 373,2082 |
+    322,2084'), had four columns, so 'R10C3값' and 'R11C4값' stood one column to the left."""
+
+    _ROWS = ["H20열|H21열|H22열|H23열|H24열", "R201C0값|572,2011|R201C2값|780,2013|R201C4값", "R202C0값||794,2022||",
+             "R203C0값|591,2031|564,2032|R203C3값|704,2034", "R204C0값|R204C1값|R204C2값|R204C3값|45,2044",
+             "|R205C1값|R205C2값|R205C3값|274,2054", "R206C0값|R206C1값|256,2062||824,2064",
+             "R207C0값|139,2071|R207C2값|R207C3값|R207C4값", "R208C0값|410,2081|373,2082||322,2084",
+             "R209C0값|876,2091|782,2093|R209C3값|", "|R210C1값||R210C3값|880,2104", "R211C0값|859,2111|R211C2값||R211C4값"]
+
+    def test_the_parts_come_out_as_one_table_with_every_cell_in_its_column(self):
+        text = convert(_platypus_table_pdf(self._ROWS), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("표 앞의 설명 문단입니다.\n\n| H20열 | H21열 | H22열 | H23열 | H24열 |\n| --- | --- | --- | --- | --- |\n"
+                "| R201C0값 | 572,2011 | R201C2값 | 780,2013 | R201C4값 |\n| R202C0값 | | 794,2022 | | |\n"
+                "| R203C0값 | 591,2031 | 564,2032 | R203C3값 | 704,2034 |\n"
+                "| R204C0값 | R204C1값 | R204C2값 | R204C3값 | 45,2044 |\n| | R205C1값 | R205C2값 | R205C3값 | 274,2054 |\n"
+                "| R206C0값 | R206C1값 | 256,2062 | | 824,2064 |\n| R207C0값 | 139,2071 | R207C2값 | R207C3값 | R207C4값 |\n"
+                "| R208C0값 | 410,2081 | 373,2082 | | 322,2084 |\n| R209C0값 | 876,2091 | 782,2093 | R209C3값 | |\n"
+                "| | R210C1값 | | R210C3값 | 880,2104 |\n| R211C0값 | 859,2111 | R211C2값 | | R211C4값 |\n\n표 뒤 문단.") in text
+
+
+class TestLowerPartOfATableAtThePageEnd:
+    """One table set in two parts on a page — its lower part starts with a row of text only, so the search keeps the parts
+    apart — and continued on the next page without its header. The first row of the lower part was carried to the next page
+    as the header, and that row came out twice."""
+
+    _ROWS = [*TestUniformTableFoundInSeveralParts._ROWS[:4], "R204C0값|R204C1값|R204C2값|R204C3값|R204C4값",
+             *TestUniformTableFoundInSeveralParts._ROWS[5:],
+             *(f"R{n}C0값|{n},{n}1|R{n}C2값|{n * 3},{n}3|R{n}C4값" for n in range(212, 230))]
+
+    def test_the_next_page_gets_the_header_of_the_upper_part(self):
+        text = convert(_platypus_table_pdf(self._ROWS, space=450), "a.pdf").text
+
+        page = text.split("<!-- Page 2 -->")
+        assert "| R203C0값 | 591,2031 | 564,2032 | R203C3값 | 704,2034 |\n\n| R204C0값 | R204C1값 |" in page[0]
+        assert page[1].startswith("\n\n| H20열 | H21열 | H22열 | H23열 | H24열 |\n| --- | --- | --- | --- | --- |\n"
+                                  "| R212C0값 | 212,2121 |")
+        assert text.count("R204C0값") == 1
+
+    def test_a_table_of_its_own_under_another_table_still_gets_its_own_header(self):
+        """A separate table with its own header 20pt under another table with the same columns is not a part of it."""
+        upper = ["부서|인원|예산|비고", *(f"부서{n}|{n}|{n * 1000:,}|유지" for n in range(1, 8))]
+        lower = ["품목|수량|단가|메모", *(f"품목{n}|{n}|{n * 1234:,}|확인" for n in range(1, 40))]
+
+        page = convert(_platypus_table_pdf(upper, lower, space=0), "a.pdf").text.split("<!-- Page 2 -->")
+
+        assert page[1].startswith("\n\n| 품목 | 수량 | 단가 | 메모 |\n| --- | --- | --- | --- |\n| 품목")
+
+
 def _random_ruled_tables(seed: int) -> tuple[bytes, list[str]]:
     """One or two pages of ruled, open-sided, partly ruled and shaded tables (1–14 rows, 1–7 columns, some columns and rows
     of almost no size) with a distinct word in every filled cell, drawn from `seed`. Returns the PDF and the words."""

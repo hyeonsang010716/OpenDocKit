@@ -52,6 +52,11 @@ _CHARSET_PRESCAN_BYTES = 4096
 _XML_DECLARATION = re.compile(r"\A\s*<\?xml\b[^>]*\?>")
 _SPACE_ENTITIES = frozenset({"nbsp", "ensp", "emsp", "thinsp"})
 _UNREAD_TAGS = frozenset({"script", "style"})
+# EPUB 3 content switching (`_choose_switch_branches`): the element names of the OPS namespace as XML and as the HTML parser
+# reads them (prefix kept), and the namespaces whose markup is read here (MathML becomes `$LaTeX$`).
+_OPS = "{http://www.idpf.org/2007/ops}"
+_SWITCH_NAMES = {name: (f"{_OPS}{name}", f"epub:{name}") for name in ("switch", "case", "default")}
+_READ_NAMESPACES = frozenset({"http://www.w3.org/1998/Math/MathML"})
 # Entities stay unexpanded (an entity defined in the chapter cannot multiply itself) and nothing is fetched.
 _CHAPTER_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, remove_comments=True, remove_pis=True)
 # libxml2's HTML parser keeps at most 2,048 nested elements and drops what lies deeper. A chapter that reaches that depth
@@ -309,6 +314,7 @@ class _Book:
           in the Markdown (Pinned by: test_epub.py::TestLinks).
         - Pictures of the package are put into `src` as `data:` URIs, the one form the HTML extractor takes pictures from
           without fetching anything (Pinned by: test_epub.py::TestPictures).
+        - Of an `<epub:switch>` only the branch a reading system shows is kept (`_choose_switch_branches`).
         - `<style>` and `<script>` are removed (the HTML extractor drops them anyway): written out as HTML their text is raw, so
           a CDATA section holding `</style><p>…` closed the element early and the rest came out as text
           (Pinned by: test_epub.py::TestChapterMarkup::test_style_holding_a_closing_tag_in_cdata_shows_nothing).
@@ -316,6 +322,7 @@ class _Book:
         root = _parse_chapter(data, self._extraction.warnings)
         if root is None:
             return None
+        _choose_switch_branches(root)
         elements = list(root.iter(etree.Element))
         body = None
         pictures: list[tuple[etree._Element, str]] = []
@@ -434,6 +441,43 @@ def _is_cut_by_depth(root: etree._Element) -> bool:
         if depth >= _HTML_PARSER_DEPTH:
             return True
     return False
+
+
+def _choose_switch_branches(root: etree._Element) -> None:
+    """Put in place of each `<epub:switch>` the one branch a reading system shows: the first `<epub:case>` whose
+    `required-namespace` is markup read here (`_READ_NAMESPACES`, MathML), otherwise the `<epub:default>`. With the namespaces
+    taken off, both branches came out one after the other, the formula and its text fallback (`$πr^2$pi times r squared`)
+    (Pinned by: test_epub.py::TestChapterMarkup::test_only_one_branch_of_a_content_switch_is_read)."""
+    for switch in list(root.iter(*_SWITCH_NAMES["switch"])):
+        if switch.getparent() is None:
+            continue
+        branches = [child for child in switch if isinstance(child.tag, str)]
+        chosen = next((branch for branch in branches if branch.tag in _SWITCH_NAMES["case"]
+                       and branch.get("required-namespace", "").strip() in _READ_NAMESPACES), None)
+        if chosen is None:
+            chosen = next((branch for branch in branches if branch.tag in _SWITCH_NAMES["default"]), None)
+        _put_in_place(switch, chosen)
+
+
+def _put_in_place(element: etree._Element, content: etree._Element | None) -> None:
+    """Put the text and the children of `content` (or nothing) in place of `element`, leaving the text that follows `element`
+    (its tail) where it is."""
+    parent = element.getparent()
+    position = parent.index(element)
+    children = list(content) if content is not None else []
+    text = (content.text or "") if content is not None else ""
+    tail = element.tail or ""
+    parent.remove(element)
+    for offset, child in enumerate(children):
+        parent.insert(position + offset, child)
+    if children:
+        children[-1].tail = (children[-1].tail or "") + tail
+        tail = ""
+    previous = parent[position - 1] if position else None
+    if previous is not None:
+        previous.tail = (previous.tail or "") + text + tail
+    else:
+        parent.text = (parent.text or "") + text + tail
 
 
 def _remove_keeping_tail(element: etree._Element) -> None:

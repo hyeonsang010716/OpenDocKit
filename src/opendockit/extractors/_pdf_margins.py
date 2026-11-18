@@ -133,10 +133,15 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
                 body.setdefault(_row_shape(row), []).append(row)
         keys: dict[str, list[_Line]] = {}
         for row in rows:
-            if any(id(line) in protected for line in row) or _is_column_value(row, body.get(_row_shape(row), ())):
+            if any(id(line) in protected for line in row):
                 continue
             in_margin = all(_in_margin(line, page) for line in row)
             if not in_margin and (id(row[0]) not in edge or any(id(line) in captions for line in row)):
+                continue
+            # Only a margin or edge row is compared with the body rows of its shape: comparing every row made a page of many
+            # lines of one shape quadratic (Pinned by: test_pdf.py::TestRepeatedMarginsAndBorderlessTables::
+            # test_only_margin_and_edge_rows_are_compared_with_the_body_column)
+            if _is_column_value(row, body.get(_row_shape(row), ())):
                 continue
             keys.setdefault(_row_key(row, in_margin, title_size), []).extend(row)
 

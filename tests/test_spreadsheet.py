@@ -24,6 +24,7 @@ from opendockit.extractors.spreadsheet import _merged_cell_count
 from opendockit.extractors.xls import _xls_value
 from opendockit.models import Extraction, image_marker
 from tests import builder
+from tests.timing import fastest
 
 
 def _xlsx(rows: list[list[object]], number_formats: dict[str, str] | None = None) -> bytes:
@@ -91,6 +92,37 @@ class TestNumberFormatSections:
         result = format_cell(value, number_format)
 
         assert result == expected
+
+
+class TestZeroPaddingWithAThousandsSeparator:
+    """The 0s of the integer part pad the number to that many digits, and with a thousands separator Excel groups the padded digits.
+    The padding was dropped once the format had a comma: 1234 under `00,000` came out as `1,234` (Excel `01,234`)."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (1234, "00,000", "01,234"),
+        (5, "0,000", "0,005"),
+        (4321, "000,000", "004,321"),
+        (0, "00,000", "00,000"),
+        (-12, "00,000", "-00,012"),
+        (5.5, "0,000.00", "0,005.50"),
+        (5, "#,#00", "05"),
+        (-5, "0,000;(0,000)", "(0,005)"),
+        (4321000, "000,000,", "004,321"),
+        (1234567, "0,000", "1,234,567"),
+        (5, "#,##0", "5"),
+        (1234567, "#,##0", "1,234,567"),
+        (1234567, "#,##0,", "1,235"),
+        (-1234.5, "#,##0.00", "-1,234.50"),
+    ])
+    def test_padded_digits_are_grouped(self, value, number_format, expected):
+        assert format_cell(value, number_format) == expected
+
+    def test_xlsx_and_excel_2003_xml_pad_alike(self):
+        xlsx = convert(_xlsx([["항목", "값"], ["가", 1234]], {"B2": "00,000"}), "a.xlsx")
+        xml = convert(_xml_spreadsheet("00,000", "Number", "1234"), "a.xls")
+
+        assert "| 가 | 01,234 |" in xlsx.text
+        assert "| 가 | 01,234 |" in xml.text
 
 
 class TestNumberFormatRounding:
@@ -171,6 +203,24 @@ class TestElapsedTime:
 
         assert f"| 설치 | {expected} |" in result.text
 
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (59, "[hhh]:mm", "1416:00"),
+        (60, "[hhh]:mm", "1440:00"),
+        (60.5, "[hhh]:mm", "1452:00"),
+        (61, "[hhh]:mm", "1464:00"),
+        (60, "[mmm]:ss", "86400:00"),
+        (60, "[h]:mm", "1440:00"),
+        (-0.25, "[hhh]:mm", "-6:00"),
+    ])
+    def test_elapsed_format_openpyxl_does_not_know_is_measured_from_the_serial(self, streamed, value, number_format, expected):
+        """The date openpyxl made of the cell was turned back into a serial, which lost the day Excel counts for its non-existent
+        1900-02-29: 60 under `[hhh]:mm` was `1416:00`, where `[h]:mm` and XLS give `1440:00`."""
+        data = _xlsx([["작업", "기간"], ["설치", value]], {"B2": number_format})
+
+        result = convert(data, "a.xlsx")
+
+        assert f"| 설치 | {expected} |" in result.text
+
     def test_elapsed_format_openpyxl_does_not_know_counts_from_the_1904_epoch(self):
         workbook = openpyxl.Workbook()
         workbook.epoch = CALENDAR_MAC_1904
@@ -183,6 +233,21 @@ class TestElapsedTime:
         result = convert(buffer.getvalue(), "a.xlsx")
 
         assert "| 설치 | 36:00 |" in result.text
+
+    def test_elapsed_format_openpyxl_does_not_know_holds_a_serial_past_the_1904_calendar(self):
+        """A duration is not a date: 2958465.5 under `[hhh]:mm` in a 1904 workbook is past the last date, yet it is the hours,
+        as under `[h]:mm` and in XLS."""
+        workbook = openpyxl.Workbook()
+        workbook.epoch = CALENDAR_MAC_1904
+        workbook.active.append(["작업", "기간"])
+        workbook.active.append(["설치", 2958465.5])
+        workbook.active["B2"].number_format = "[hhh]:mm"
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.xlsx")
+
+        assert "| 설치 | 71003172:00 |" in result.text
 
 
 class TestXlsValues:
@@ -729,6 +794,42 @@ def streamed(request, monkeypatch):
     if request.param:
         monkeypatch.setattr(spreadsheet, "_MAX_MERGED_CELLS", -1)
     return request.param
+
+
+class TestDataTableFormulas:
+    """A What-If data table has no formula text, only attributes (`<f t="dataTable" r1="A1" …/>`). Read as formulas, openpyxl's
+    object came out as `<openpyxl.worksheet.formula.DataTableFormula object at 0x…>`, a different text on every run. It is shown
+    as Excel shows it, `=TABLE(row input, column input)`."""
+
+    @staticmethod
+    def _workbook(table: str, results: dict[str, str] | None = None) -> bytes:
+        """Rate in B1, a formula on it in B2, and the data table's first cell in B3 (`table` is the attributes of its `<f>`)."""
+        data = _xlsx([["이율", 0.05], ["이자", "=B1*2"], [0.1, "=TABLE_CELL"], [0.2, None]])
+        if results:
+            data = _with_stored_results(data, results)
+        return builder.zip_with(data, edit={"xl/worksheets/sheet1.xml": lambda xml: xml.replace(
+            "<f>TABLE_CELL</f><v></v>", f'<f t="dataTable" ref="B3:B4" {table}/>')})
+
+    @pytest.mark.parametrize(("table", "expected"), [
+        ('dt2D="0" dtr="0" r1="B1"', "=TABLE(,B1)"),
+        ('dt2D="0" dtr="1" r1="B1"', "=TABLE(B1,)"),
+        ('dt2D="1" dtr="0" r1="B1" r2="A1"', "=TABLE(B1,A1)"),
+        ('dt2D="true" r1="B1" r2="A1" del2="1"', "=TABLE(B1,#REF!)"),
+        ('r1="B1"', "=TABLE(,B1)"),
+    ])
+    def test_data_table_read_as_formulas_is_shown_as_excel_shows_it(self, streamed, table, expected):
+        result = convert(self._workbook(table), "a.xlsx")
+
+        assert result.text == ("## Sheet: Sheet\n\n| 이율 | 0.05 |\n| --- | --- |\n| 이자 | =B1*2 |\n"
+                               f"| 0.1 | {expected} |\n| 0.2 | |")
+
+    def test_data_table_without_a_result_beside_results(self, streamed):
+        """Values are read when any formula has a result; a data table without one is filled in as when formulas are read."""
+        result = convert(self._workbook('dt2D="0" dtr="0" r1="B1"', {"B1*2": "0.1"}), "a.xlsx")
+
+        assert "| 이자 | 0.1 |\n| 0.1 | =TABLE(,B1) |" in result.text
+        assert result.warnings == ["Sheet 'Sheet': 1 formula(s) with no stored result were copied as written "
+                                   "(opening and re-saving the file in Excel converts them to values)."]
 
 
 class TestSheetDrawings:
@@ -1830,6 +1931,52 @@ class TestXmlSpreadsheetDatesAndTimes:
         assert f"| 가 | {expected} |" in result.text
 
     @pytest.mark.parametrize(("number_format", "expected"), [
+        ("yyyy\\-mm\\-dd", "0"),
+        ("Short Date", "0"),
+        ("General Date", "0"),
+        ("mm/dd/yyyy hh:mm:ss", "0"),
+        ("mmm-yy", "0"),
+        ("hh:mm", "00:00"),
+        ("Long Time", "0:00:00"),
+        ("[h]:mm", "0:00"),
+    ])
+    def test_serial_zero_under_a_date_format_is_the_number(self, number_format, expected):
+        """Serial 0 under a format that shows a date is Excel's non-existent '1900-01-00' (an empty date of a form, a formula that
+        returned 0). It came out as the time '00:00:00'; XLSX and XLS show the number 0. Under a time-only format it is midnight."""
+        data = _xml_spreadsheet(number_format, "Number", "0")
+
+        result = convert(data, "a.xls")
+
+        assert f"| 가 | {expected} |" in result.text
+
+    def test_datetime_on_day_zero_under_a_date_format_stays_a_time(self):
+        """A `DateTime` on day 0 is how Excel 2003 XML writes a time-only value, so midnight on it stays the time alone, as other
+        times on day 0 under a date format do (`test_time_only_value_follows_the_time_format`)."""
+        data = _xml_spreadsheet("Short Date", "DateTime", "1899-12-31T00:00:00.000")
+
+        result = convert(data, "a.xls")
+
+        assert "| 가 | 00:00:00 |" in result.text
+
+    @pytest.mark.parametrize(("number_format", "value", "expected"), [
+        ("aaa", "45000", "2023-03-15"),
+        ("aaaa", "45000.75", "2023-03-15"),
+        ("aaa", "61", "1900-03-01"),
+        ("[$-412]aaaa", "45000", "2023-03-15"),
+        ("aaa", "0.5", "12:00:00"),
+        ("aaa", "-5", "-5"),
+        ("aaa", "1E+10", "10000000000"),
+    ])
+    def test_weekday_only_number_is_a_date_as_in_xlsx_and_xls(self, number_format, value, expected):
+        """openpyxl does not take `aaa` for a date format, so the serial came out as the number; XLSX and XLS show the date, as
+        for `dddd`. A negative serial and one past the calendar stay the number, as there."""
+        data = _xml_spreadsheet(number_format, "Number", value)
+
+        result = convert(data, "a.xls")
+
+        assert f"| 가 | {expected} |" in result.text
+
+    @pytest.mark.parametrize(("number_format", "expected"), [
         ("Short Time", "13:30"),
         ("Medium Time", "13:30"),
         ("Long Time", "13:30:00"),
@@ -2433,6 +2580,77 @@ class TestEmptyRangeReferences:
         result = convert(data, "a.xlsx")
 
         assert result.text == convert(builder.xlsx_bytes(), "a.xlsx").text
+
+
+class TestManySmallMergeRanges:
+    """openpyxl's full load spends about 40 µs on each merge range whatever its size, so 490,000 one-cell merges — only 490,000
+    cells, under the covered-cell bound — took 20 s and 558 MB. Past `_MAX_MERGE_RANGES` ranges the workbook is streamed, which
+    gives what the covered-cell bound already gives: the value in the first cell only."""
+
+    _ROWS = [["구분", "값"], ["가", 1], [None, 2], [None, 3]]
+    _FILLED = "## Sheet: Sheet\n\n| 구분 | 값 |\n| --- | --- |\n| 가 | 1 |\n| 가 | 2 |\n| 가 | 3 |"
+    _FIRST_CELL_ONLY = "## Sheet: Sheet\n\n| 구분 | 값 |\n| --- | --- |\n| 가 | 1 |\n| | 2 |\n| | 3 |"
+
+    @classmethod
+    def _workbook(cls, merges: list[str]) -> bytes:
+        refs = "".join(f'<mergeCell ref="{ref}"/>' for ref in merges)
+        return builder.zip_with(_xlsx(cls._ROWS), edit={"xl/worksheets/sheet1.xml": lambda xml: xml.replace(
+            "</sheetData>", f'</sheetData><mergeCells count="{len(merges)}">{refs}</mergeCells>')})
+
+    @staticmethod
+    def _one_cell_merges(count: int) -> list[str]:
+        """One-cell merges to the right of the table, 50 to a row, where they cover no value."""
+        cells = (f"{openpyxl.utils.get_column_letter(5 + number % 50)}{1 + number // 50}" for number in range(count))
+        return [f"{cell}:{cell}" for cell in cells]
+
+    @staticmethod
+    def _recording_loads(monkeypatch) -> list[object]:
+        from opendockit.extractors import spreadsheet
+
+        modes = []
+        original_load = openpyxl.load_workbook
+
+        def recording_load(*args, **kwargs):
+            modes.append(kwargs.get("read_only"))
+            return original_load(*args, **kwargs)
+
+        monkeypatch.setattr(spreadsheet.openpyxl, "load_workbook", recording_load)
+        return modes
+
+    def test_a_moderate_number_of_merges_is_still_filled(self, monkeypatch):
+        modes = self._recording_loads(monkeypatch)
+        merges = ["A2:A4", *self._one_cell_merges(1_000)]
+
+        result = convert(self._workbook(merges), "a.xlsx")
+
+        assert modes == [False]
+        assert result.text == self._FILLED
+
+    def test_more_ranges_than_the_bound_are_streamed_like_merges_over_the_cell_bound(self, monkeypatch):
+        from opendockit.extractors import spreadsheet
+
+        modes = self._recording_loads(monkeypatch)
+        monkeypatch.setattr(spreadsheet, "_MAX_MERGE_RANGES", 2)
+        data = self._workbook(["A2:A4", "E1:E1", "F1:F1"])
+
+        result = convert(data, "a.xlsx")
+
+        assert modes == [True]
+        assert result.text == self._FIRST_CELL_ONLY
+        monkeypatch.setattr(spreadsheet, "_MAX_MERGE_RANGES", 3)
+        assert convert(data, "a.xlsx").text == self._FILLED
+        assert modes == [True, False]
+
+    @pytest.mark.timing
+    def test_many_one_cell_merges_do_not_cost_a_full_load_each(self):
+        """10 times the merges, past the bound, must take less than 3 times as long (about 10 times when each range was loaded)."""
+        def seconds(count: int) -> float:
+            data = self._workbook(self._one_cell_merges(count))
+            return fastest(lambda: convert(data, "a.xlsx"))
+
+        small, large = seconds(20_000), seconds(200_000)
+
+        assert large < 3 * small
 
 
 class TestMissingPartRelationships:

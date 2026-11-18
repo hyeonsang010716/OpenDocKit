@@ -2,7 +2,9 @@
 a lone centred line pushed behind lower text, sidebars and captions.
 """
 
-from bisect import bisect_right, insort
+from bisect import bisect_left, bisect_right, insort
+from itertools import accumulate
+import math
 import statistics
 
 from opendockit.extractors._pdf_model import (
@@ -38,8 +40,8 @@ _WRAP_LINE_GAP_RATIO = 1.5
 
 _COLUMN_CONTINUE_RATIO = 3.0
 # On a page with more lines than this, lines pushed back in a single-column flow are not moved up (`_read_lone_lines_in_place`).
-# Each candidate to move looks at the page's line pairs, so it gets slow on a page of scattered text pieces. A body page usually has
-# around 100 lines.
+# Each candidate to move looks at all the page's lines (`_one_flow`, sorted lookups since a page of 480 lines took 7 seconds), so the
+# pass is quadratic in the lines and gets slow on a page of scattered text pieces. A body page usually has around 100 lines.
 _LONE_LINE_MAX_LINES = 500
 # Lines the windows of right-aligned lines (`_alternating_window`) of one page may take in all, counted once per window
 # looked at; the turn-backs after that stay as read. A page of 1,400 lines, all one window looked at from every turn-back,
@@ -776,14 +778,12 @@ def _one_flow(line: _Line, below: list[_Line], lines: list[_Line], blocks: list[
     bottom = max(other.bottom for other in below)
     alone = sum(1 for top, end, _, _ in beyond if top < bottom and line.top < end) <= 1
 
-    def bridges(x0: float, x1: float) -> bool:
-        if x0 <= gap[0] and gap[1] <= x1:
-            return True
-        return x0 < line.x1 and line.x0 < x1 and any(x0 < other_x1 and other_x0 < x1 for _, _, other_x0, other_x1 in far)
-
-    if not alone and not any(bridges(x0, x1) for _, _, x0, x1 in spans):
+    # Something bridges the gap: it covers the gap, or it overlaps both `line` and something on the far side
+    covers = any(x0 <= gap[0] and gap[1] <= x1 for _, _, x0, x1 in spans)
+    if not alone and not covers and not _any_overlap([(x0, x1) for _, _, x0, x1 in spans if x0 < line.x1 and line.x0 < x1],
+                                                     [(x0, x1) for _, _, x0, x1 in far]):
         return False
-    if any(top < other_bottom and other_top < end for top, end, _, _ in east for other_top, other_bottom, _, _ in west):
+    if _any_overlap([(top, end) for top, end, _, _ in east], [(top, end) for top, end, _, _ in west]):
         return False
     west_lines = [other for other in lines if other.x1 <= gap[0] + _TABLE_ROW_TOLERANCE]
     east_lines = [other for other in lines if other.x0 >= gap[1] - _TABLE_ROW_TOLERANCE]
@@ -793,13 +793,60 @@ def _one_flow(line: _Line, below: list[_Line], lines: list[_Line], blocks: list[
 def _interleaved(lines: list[_Line], others: list[_Line]) -> bool:
     """Whether `lines` contains a line with lines of `others` close in height (`_is_beside`) both right above and
     right below it, and those two lines share a left edge (lines of one column) — two text boxes alternating, offset by
-    half a line. Lines above and below with different left edges are centred captions."""
+    half a line. Lines above and below with different left edges are centred captions.
+
+    `others` is sorted by vertical centre once, and each line looks only at those whose centre can be close enough
+    (the tallest line bounds `_is_beside`'s reach); the left edges are matched by their nearest neighbours in order.
+    Comparing every line with every other line, for each line `_read_lone_lines_in_place` tries to move, made that pass
+    cubic in a page's lines: 480 lines took 7 seconds, outside the page time budget; now 0.23 (Pinned by:
+    test_pdf_reading_order.py::TestManyLinesLiftedInPlace). With a coordinate that is not a finite number every pair is
+    compared as before."""
+    if not lines or not others:
+        return False
+    if not all(math.isfinite(value) for line in (*lines, *others) for value in (line.top, line.bottom, line.x0, line.x1)):
+        return any(_interleaved_at(line, [other for other in others if _is_beside(other, line)]) for line in lines)
+    by_centre = sorted(others, key=lambda other: other.top + other.bottom)
+    centres = [other.top + other.bottom for other in by_centre]
+    tallest = max(other.height for other in others)
     for line in lines:
         middle = line.top + line.bottom
-        near = [other for other in others if _is_beside(other, line)]
-        above = [other.x0 for other in near if other.top + other.bottom < middle]
-        below = [other.x0 for other in near if other.top + other.bottom > middle]
-        if any(abs(upper - lower) <= _TABLE_ROW_TOLERANCE for upper in above for lower in below):
+        reach = 2 * max(tallest, line.height) * _COLUMN_MIX_NEAR + 1.0  # wider than `_is_beside` allows; it decides
+        near = [other for other in by_centre[bisect_left(centres, middle - reach):bisect_right(centres, middle + reach)]
+                if _is_beside(other, line)]
+        if _interleaved_at(line, near):
+            return True
+    return False
+
+
+def _interleaved_at(line: _Line, near: list[_Line]) -> bool:
+    """Whether a line of `near` right above `line` and one right below it share a left edge (`_interleaved`)."""
+    middle = line.top + line.bottom
+    above = [other.x0 for other in near if other.top + other.bottom < middle]
+    below = sorted(other.x0 for other in near if other.top + other.bottom > middle)
+    for upper in above:
+        # The left edge closest to `upper` is one of its two neighbours in order
+        index = bisect_left(below, upper)
+        if any(abs(upper - lower) <= _TABLE_ROW_TOLERANCE for lower in below[max(index - 1, 0):index + 1]):
+            return True
+    return False
+
+
+def _any_overlap(spans: list[tuple[float, float]], others: list[tuple[float, float]]) -> bool:
+    """Whether a (low, high) of `spans` and one of `others` overlap (low < other high and other low < high).
+
+    `others` is sorted by low end with the running maximum of high ends, so each span looks up the others starting before its
+    high end at once (`_one_flow` compared every pair, for each line `_read_lone_lines_in_place` tries to move). With a value
+    that is not a finite number every pair is compared."""
+    if not spans or not others:
+        return False
+    if not all(math.isfinite(value) for pair in (*spans, *others) for value in pair):
+        return any(low < other_high and other_low < high for low, high in spans for other_low, other_high in others)
+    ordered = sorted(others)
+    lows = [low for low, _ in ordered]
+    reach = list(accumulate((high for _, high in ordered), max))
+    for low, high in spans:
+        count = bisect_left(lows, high)  # the others whose low end is below `high`
+        if count and reach[count - 1] > low:
             return True
     return False
 

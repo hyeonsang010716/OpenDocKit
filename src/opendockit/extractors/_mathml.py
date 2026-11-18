@@ -5,10 +5,22 @@ text of a leaf is. What an element becomes once its child elements are rendered 
 so an equation reads the same from HTML and from ODF.
 """
 
+from opendockit.extractors._omml import _literal
+
+
 # Elements with a base and one or two scripts → the mark of the first script.
 MATH_SCRIPTS = {"msup": "^", "msub": "_", "msubsup": "_", "munder": "_", "mover": "^", "munderover": "_"}
 # Elements that are not part of the text of an equation.
 MATH_IGNORED = frozenset(("annotation", "annotation-xml", "none", "mprescripts", "mphantom"))
+
+
+def literal(text: str) -> str:
+    """The text of a leaf (mi, mn, mo, mtext, ms, the text between elements, the fences of an mfenced) with the characters
+    LaTeX or the Markdown `$…$` would read as syntax escaped, as in the text of an Office equation (`_omml._literal`): a `$`
+    in `<mtext>$</mtext><mn>5</mn>` gave `$$5×n$`, which opened display math and swallowed the text after it, and a brace
+    typed in an `<mo>` vanished as grouping (Pinned by: test_core_html.py::TestMathMl::test_literal_text_is_escaped,
+    test_odf.py::TestObjects::test_literal_text_of_a_formula_is_escaped)."""
+    return _literal(text)
 
 
 def braced(text: str) -> str:
@@ -38,7 +50,7 @@ def mathml_structure(name: str, parts: list[str], fence: tuple[str, str, str] | 
     if name == "mroot" and len(parts) >= 2:
         return f"\\sqrt[{parts[1]}]{{{parts[0]}}}"
     if name == "mfenced":
-        opening, separator, closing = fence or ("(", ",", ")")
+        opening, separator, closing = (literal(mark) for mark in fence or ("(", ",", ")"))
         return f"{opening}{separator.join(parts)}{closing}"
     if name == "mtable":
         rows = " \\\\ ".join(parts)

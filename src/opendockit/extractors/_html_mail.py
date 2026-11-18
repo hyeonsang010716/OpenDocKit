@@ -7,7 +7,7 @@ from email.message import Message
 from html import escape
 import itertools
 import re
-from urllib.parse import urljoin
+from urllib.parse import unquote, urljoin
 
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from bs4.element import PreformattedString
@@ -29,6 +29,7 @@ from opendockit.extractors._mail import (
     mail_plain_body,
     mime_start,
     parse_mail,
+    part_content,
     plain_part_text,
 )
 from opendockit.extractors._mail import mime_header_block as _mime_header_block
@@ -102,7 +103,7 @@ def mail_html_parts(message: Message) -> list[tuple[bytes, str | None]]:
     parts = []
 
     for part in mail_html_body_parts(message):
-        payload = part.get_payload(decode=True)
+        payload = part_content(part)
         if payload:
             parts.append((payload, part.get_content_charset()))
     return parts
@@ -146,7 +147,7 @@ def _mail_body_html(message: Message) -> tuple[list[str], list[str]]:
     # Plain-text parts outside an alternative (the plain-text body or footer of a mixed) are placed in order with the HTML
     # parts, each a document of its own (`html._extract_documents`).
     for part in mail_body_sequence(message):
-        payload = part.get_payload(decode=True)
+        payload = part_content(part)
         if not isinstance(payload, bytes) or not payload.strip():
             continue
         if part.get_content_type() == "text/html":
@@ -198,12 +199,12 @@ def _unread_frame_warning(message: Message, page: str) -> str | None:
         soup = BeautifulSoup(page, "lxml")
     sources = [str(frame.get("src") or "").strip() for frame in soup.find_all(["iframe", "frame"])]
     found = {id(part): part for source in sources if source
-             and (part := frames.get(source) or frames.get(_resolved(base, source))) is not None}
+             and (part := _part_at(frames, source) or frames.get(_resolved(base, source))) is not None}
     if not found:
         return None
     own = _visible_length(page)
     for part in found.values():
-        payload = part.get_payload(decode=True)
+        payload = part_content(part)
         if isinstance(payload, bytes) and _visible_length(decode_text(payload, part.get_content_charset(), markup=True)[0]) > own:
             return ("The body of the web page seems to be inside a frame (iframe). The frame content was not read — open the "
                     "body page directly, save it, and convert that file.")
@@ -281,12 +282,12 @@ def _html_part(message: Message) -> tuple[bytes, str | None] | None:
     (Pinned by: test_audit_web_fixes.py::TestHtmlAttachmentBeforeTheBodyOfAnMhtmlShapedMail)."""
     if is_sent_mail(message):
         for part in mail_html_body_parts(message):
-            payload = part.get_payload(decode=True)
+            payload = part_content(part)
             if payload:
                 return payload, part.get_content_charset()
     for part in message.walk():
         if part.get_content_type() == "text/html":
-            payload = part.get_payload(decode=True)
+            payload = part_content(part)
             if payload:
                 return payload, part.get_content_charset()
     return None
@@ -313,11 +314,24 @@ def _mhtml_pictures(message: Message) -> Callable[[str], bytes | None]:
             parts.setdefault(location, part)
 
     def find(source: str) -> bytes | None:
-        part = parts.get(source) or (parts.get(_resolved(base, source)) if base else None)
-        payload = part.get_payload(decode=True) if part is not None else None
+        part = _part_at(parts, source) or (parts.get(_resolved(base, source)) if base else None)
+        payload = part_content(part) if part is not None else None
         return payload if isinstance(payload, bytes) and payload else None
 
     return find
+
+
+def _part_at(parts: dict[str, Message], source: str) -> Message | None:
+    """The part of a mail at the address `source`: as written, or for a `cid:` address with its scheme in lower case and then
+    with its Content-ID percent-decoded, as RFC 2392 writes it (`CID:logo.1@example.com`, `cid:logo%2E1@example.com` are the
+    part whose Content-ID is `<logo.1@example.com>`). Looked up only as written, such a picture was neither extracted nor
+    reported (Pinned by: test_text_html.py::TestMhtml::test_cid_address_is_matched_as_rfc_2392_writes_it); looked up only
+    decoded, a Content-ID that holds a `%` itself and is written the same in the address (`photo%201.png@example.com`, as
+    most mail programs repeat it) was not found (test_cid_address_written_as_its_content_id_is_found)."""
+    part = parts.get(source)
+    if part is None and source[:4].lower() == "cid:":
+        part = parts.get(f"cid:{source[4:]}") or parts.get(f"cid:{unquote(source[4:])}")
+    return part
 
 
 def _resolved(base: str, source: str) -> str:

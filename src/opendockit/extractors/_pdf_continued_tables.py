@@ -170,7 +170,9 @@ def _carry_table_headers(pages: list[_Page]) -> None:
     table whose values are text ('연도 | 주요 내용') does not get its header carried over. When every column of the previous
     table is open below (a row split at the end of the page, `_closed_at_open_ends`), the first row of this page is the rest
     of that row and is not taken as its own header (pinned by:
-    TestRowSplitAcrossPages::test_row_whose_cells_are_all_open_at_the_page_end_stays_in_the_table).
+    TestRowSplitAcrossPages::test_row_whose_cells_are_all_open_at_the_page_end_stays_in_the_table). The previous table
+    is the whole table that its bottom table is the lowest part of (`_with_the_parts_above`): its header is the header of
+    the topmost part and every condition above is checked on all its rows.
     """
     for previous, page in zip(pages, pages[1:], strict=False):
         if page.number != previous.number + 1 or not previous.tables or not page.tables:
@@ -201,12 +203,15 @@ def _carry_table_headers(pages: list[_Page]) -> None:
             grid = _regrid(first.lines, last.spans)
         else:
             grid = first.rows if len(first.spans) == len(last.spans) and _same_columns(last.spans, first.spans) else None
-        header = last.rows[0]
-        if grid is None or len(last.rows) < _TABLE_MIN_ROWS or not _looks_like_header(header, [*last.rows[1:], grid[0]]):
+        # The rows of the table that `last` is the lower part of (`_with_the_parts_above`); `last.rows` when it is a table of
+        # its own
+        rows = _with_the_parts_above(previous, last)
+        header = rows[0]
+        if grid is None or len(rows) < _TABLE_MIN_ROWS or not _looks_like_header(header, [*rows[1:], grid[0]]):
             continue
         if _starts_with_own_header(last, first, grid):
             continue
-        if len(header) == 2 and sum(1 for row in last.rows[1:] if _has_number_text(row[1:])) * 2 <= len(last.rows) - 1:
+        if len(header) == 2 and sum(1 for row in rows[1:] if _has_number_text(row[1:])) * 2 <= len(rows) - 1:
             # a two-column table with no numeric value column may be a 'label | value' form grid — there is no telling whether
             # the first row is a header
             continue
@@ -216,6 +221,41 @@ def _carry_table_headers(pages: list[_Page]) -> None:
             first.bands = ((-math.inf, -math.inf), *first.bands)  # the carried-over header row has no position on the page
         if first.lines:
             first.spans = last.spans  # fitted to the previous table's columns, so the next page is fitted to them too
+
+
+def _with_the_parts_above(page: _Page, table: _Table) -> list[list[str]]:
+    """The cell rows of the borderless table that `table` (the bottom table of `page`) is the lowest part of: the parts
+    right above it, each a borderless table with the same columns (`_same_columns`) whose last row it continues at its row
+    pitch (the median gap between its rows + 1pt) with no line or picture in between, from the topmost part down — the
+    first row is that part's header. `table.rows` when there is no such part.
+
+    One table set in two parts on a page (the lower part starts with a row of text only, so the search keeps the parts
+    apart, `_split_merged_cells`) had the first data row of its lower part carried to the next page as the header, and
+    that row came out twice; the header of the table is the one at the top of its upper part (Pinned by:
+    test_pdf_borderless_split_rows.py::TestLowerPartOfATableAtThePageEnd). A separate table with its own header set apart
+    from the table above it by more than the row pitch is not a part of it and keeps its own header (same class).
+    """
+    def pitch(part: _Table) -> float | None:
+        gaps = [min(line.top for line in lower) - max(line.bottom for line in upper)
+                for upper, lower in zip(part.lines, part.lines[1:], strict=False)]
+        return statistics.median(gaps) if gaps else None
+
+    parts = [table]
+    while True:
+        lowest = parts[0]
+        above = [other for other in page.tables if other.bottom <= lowest.top]
+        if not lowest.lines or not above:
+            break
+        upper = max(above, key=lambda other: other.bottom)
+        usual = pitch(upper)
+        gap = min(line.top for line in lowest.lines[0]) - max(line.bottom for line in upper.lines[-1]) if upper.lines else None
+        if (usual is None or gap is None or gap > usual + 1.0 or not upper.rows
+                or len(upper.spans) != len(lowest.spans) or not _same_columns(upper.spans, lowest.spans)
+                or any(upper.bottom < line.bottom and line.top < lowest.top for line in page.lines)
+                or any(upper.bottom < figure[3] and figure[1] < lowest.top for figure in page.figures)):
+            break
+        parts.insert(0, upper)
+    return [row for part in parts for row in part.rows]
 
 
 def _starts_with_own_header(last: _Table, first: _Table, grid: list[list[str]] | None = None) -> bool:

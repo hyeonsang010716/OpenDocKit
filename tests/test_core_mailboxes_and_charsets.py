@@ -163,6 +163,39 @@ class TestForwardedMailInATransferEncoding:
         assert result.warnings == []
 
 
+class TestBase64CutOffAtAnyLength:
+    """A base64 body cut off in transit at one more than a multiple of four letters came out as the base64 itself: the standard
+    library gives the encoded letters back for that length and only records a defect. Cut at any other length it gave the text
+    up to the cut. The letter left over carries less than a byte, so the text up to the cut is read at every length."""
+
+    TEXT = "The meeting moves to 3 pm on Friday, in 4B."  # 43 bytes, 58 letters and padding
+
+    @staticmethod
+    def _mail(content_type: str, body: str) -> bytes:
+        return (_OUTER_HEAD + f"Content-Type: {content_type}; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+                + "\r\n".join(body[start:start + 76] for start in range(0, len(body), 76)) + "\r\n").encode()
+
+    @pytest.mark.parametrize("content_type", ["text/plain", "text/html"])
+    @pytest.mark.parametrize(("letters", "kept"), [(53, 39), (54, 40), (55, 41)])
+    def test_the_text_up_to_the_cut_is_read(self, content_type, letters, kept):
+        body = _b64(self.TEXT)[:letters]
+
+        result = convert(self._mail(content_type, body), "a.eml")
+
+        assert result.text.endswith("\n\n" + self.TEXT[:kept].rstrip())
+        assert result.warnings == []
+
+    def test_a_forwarded_mail_in_base64_cut_off_is_read(self):
+        wrapped = _b64(_INNER_MAIL)[:-3]  # `…Cg==` cut to `…C`: one letter after the last whole byte, the line break
+        data = (_OUTER_HEAD + "Content-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain; charset=utf-8\r\n"
+                "\r\nFYI\r\n--b\r\nContent-Type: message/rfc822\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+                f"{wrapped}\r\n--b--\r\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.text.endswith("## Forwarded message\n\nSubject: 원본 메일\nFrom: park@a.com\nTo: kim@a.com\n\n원본 본문 내용입니다.")
+
+
 class TestEncryptedMail:
     """A mail encrypted with S/MIME (top-level application/pkcs7-mime) was a 'successful' result of headers and base64 ciphertext.
     With PGP/MIME encryption (multipart/encrypted) only the headers were left. It is reported with `EncryptedDocumentError`, like a

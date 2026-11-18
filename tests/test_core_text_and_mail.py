@@ -10,13 +10,14 @@ from opendockit import ConvertOptions, DocumentFormat, convert
 from tests import builder, needs_html5_tokenizer
 
 
-def _forward(outer_body: str, inner: str, *, outer_type: str = "text/plain", disposition: str = "") -> bytes:
+def _forward(outer_body: str, inner: str, *, outer_type: str = "text/plain", disposition: str = "",
+             kind: str = "message/rfc822") -> bytes:
     """A mail with `outer_body` as its body and `inner` (a mail written from its headers on) attached as a message/rfc822 part
-    ('forward as attachment')."""
+    ('forward as attachment'), or a part of type `kind`."""
     return ("From: c@example.com\nTo: d@example.com\nSubject: 전달: 견적\nMIME-Version: 1.0\n"
             "Content-Type: multipart/mixed; boundary=OUT\n\n"
             f"--OUT\nContent-Type: {outer_type}; charset=utf-8\n\n{outer_body}\n"
-            f"--OUT\nContent-Type: message/rfc822\n{disposition}\n{inner}\n--OUT--\n").encode()
+            f"--OUT\nContent-Type: {kind}\n{disposition}\n{inner}\n--OUT--\n").encode()
 
 
 _INNER_ALTERNATIVE = ("From: a@example.com\nTo: b@example.com\nSubject: 견적\nMIME-Version: 1.0\n"
@@ -27,6 +28,51 @@ _INNER_HTML_ONLY = ("From: a@example.com\nTo: b@example.com\nSubject: 견적\nMI
                     "Content-Type: text/html; charset=utf-8\n\n<html><body><p>견적 금액은 300만 원입니다.</p></body></html>")
 _OUTER_HEAD = "Subject: 전달: 견적\nFrom: c@example.com\nTo: d@example.com"
 _INNER_HEAD = "Subject: 견적\nFrom: a@example.com\nTo: b@example.com"
+
+
+class TestInternationalizedForwardedMail:
+    """message/global (RFC 6532) is message/rfc822 for a mail whose headers may be UTF-8. The parser holds the mail inside the
+    part as it does for message/rfc822, but only message/rfc822 was read as a forwarded mail, and the part counted as neither
+    body nor attachment: the forwarded mail vanished without a warning."""
+
+    _INNER = ("From: 김철수 <kim@example.com>\nSubject: 계약서 검토 요청\nContent-Type: text/plain; charset=utf-8\n\n"
+              "계약 금액은 3억 2천만원입니다.")
+    _FORWARD = "## Forwarded message\n\nSubject: 계약서 검토 요청\nFrom: 김철수 <kim@example.com>\n\n계약 금액은 3억 2천만원입니다."
+
+    @pytest.mark.parametrize(("outer_type", "outer_body"), [("text/plain", "아래 메일 확인 바랍니다."),
+                                                            ("text/html", "<p>아래 메일 확인 바랍니다.</p>")])
+    @pytest.mark.parametrize("disposition", ["", 'Content-Disposition: attachment; filename="original.eml"\n'])
+    def test_it_is_read_like_a_forwarded_message_rfc822_part(self, outer_type, outer_body, disposition):
+        data = _forward(outer_body, self._INNER, outer_type=outer_type, disposition=disposition, kind="message/global")
+
+        result = convert(data, "fwd.eml")
+
+        assert result.text == f"{_OUTER_HEAD}\n\n아래 메일 확인 바랍니다.\n\n{self._FORWARD}"
+        assert result.warnings == []
+
+    def test_one_in_base64_is_decoded(self):
+        """Unlike message/rfc822, message/global may be in base64 or quoted-printable (RFC 6532 section 3.5)."""
+        encoded = base64.encodebytes(self._INNER.encode()).decode()
+        data = _forward("아래 메일 확인 바랍니다.", encoded, disposition="Content-Transfer-Encoding: base64\n",
+                        kind="message/global")
+
+        assert convert(data, "fwd.eml").text == f"{_OUTER_HEAD}\n\n아래 메일 확인 바랍니다.\n\n{self._FORWARD}"
+
+    def test_one_in_a_digest_is_read(self):
+        data = ("From: c@example.com\nTo: d@example.com\nSubject: 전달: 견적\nMIME-Version: 1.0\n"
+                "Content-Type: multipart/digest; boundary=D\n\n--D\nContent-Type: message/global\n\n"
+                f"{self._INNER}\n--D--\n").encode()
+
+        assert convert(data, "fwd.eml").text == f"{_OUTER_HEAD}\n\n{self._FORWARD}"
+
+    def test_a_mail_that_is_itself_message_global_is_read(self):
+        data = ("From: c@example.com\nTo: d@example.com\nSubject: 전달: 견적\nMIME-Version: 1.0\n"
+                f"Content-Type: message/global\n\n{self._INNER}\n").encode()
+
+        result = convert(data, "fwd.eml")
+
+        assert result.format is DocumentFormat.TEXT
+        assert result.text == f"{_OUTER_HEAD}\n\n{self._FORWARD}"
 
 
 class TestForwardedMail:
@@ -286,14 +332,17 @@ class TestMarkdownHtmlImageDataUri:
 
         assert "data:image" not in result.text
 
-    @pytest.mark.parametrize(("opening", "closing"), [("```", "```"), ("~~~", "~~~ "), ("````", "```"), ("```", "~~~")])
-    def test_picture_between_fences_is_code_only_when_the_fence_closes(self, opening, closing):
+    @pytest.mark.parametrize(("opening", "closing", "closes"), [
+        ("```", "```", True), ("~~~", "~~~ ", True), ("```", "````", True), ("````", "```", False), ("```", "~~~", False)])
+    def test_picture_between_fences_is_code_only_when_the_fence_closes(self, opening, closing, closes):
+        """A fence is closed as CommonMark closes it, by a fence of the same character at least as long (`markdown.code_fences`,
+        what `clean_text` pairs): a ```` ```` ```` opening is not closed by ```` ``` ````."""
         picture = '<img src="data:image/png;base64,iVBORw0KGgo=">'
         data = f"{opening}html\n{picture}\n{closing}\n\n{picture}\n".encode()
 
         result = convert(data, "a.md")
 
-        assert result.text.count("data:image") == (0 if opening[0] != closing[0] else 1)
+        assert result.text.count("data:image") == (1 if closes else 0)
 
     def test_html_image_inside_a_code_block_is_left_as_code(self):
         data = b'```html\n<img src="data:image/png;base64,iVBORw0KGgo=">\n```\n\nafter\n'

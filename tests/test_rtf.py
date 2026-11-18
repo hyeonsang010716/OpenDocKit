@@ -13,6 +13,7 @@ import pytest
 from opendockit import ConvertOptions, CorruptedDocumentError, convert
 from opendockit.extractors import rtf as rtf_module
 from opendockit.extractors.rtf import extract_rtf
+from tests.timing import fastest
 
 
 def _rtf(body: str, *, head: str = r"\ansi\ansicpg1252\deff0") -> bytes:
@@ -201,6 +202,38 @@ class TestCharacters:
         assert _text(r"{\fonttbl{\f1\cpg500 F;}}\f1 caf\'e9\par") == "café"
         assert _text(r"{\fonttbl{\f1\cpg1026 F;}}\f1 caf\'e9\par") == "café"
         assert _text(r"50% \'e9\par", head=r"\ansi\ansicpg864") == "50٪ ﻯ"
+
+    @pytest.mark.parametrize(("body", "head", "expected"), [
+        # Shift_JIS: 'ソ' is 83 5C and '表' 95 5C, the trail a backslash; GBK: '調' is D5 7B and '諁' D5 7D, the trail a brace.
+        (r"{\fonttbl{\f0\fcharset128 MS Mincho;}}\f0 \'83\\\'95\\\par", r"\ansi\ansicpg932", "ソ表"),
+        (r"{\fonttbl{\f0\fcharset134 SimSun;}}\f0 \'d5\{\'d5\}\par", r"\ansi\ansicpg936", "調諁"),
+        # A font with its own code page in a Western document: Big5 '功' is A5 5C.
+        (r"{\fonttbl{\f1\fcharset136 MingLiU;}}A {\f1 \'a5\\} B\par", r"\ansi\ansicpg1252", "A 功 B"),
+    ])
+    def test_double_byte_character_whose_trail_is_an_escaped_symbol_is_one_character(self, body, head, expected):
+        """In Shift_JIS, GBK and Big5 the trail byte of a character can be 5C, 7B or 7D, which a writer has to write as the
+        control symbol `\\\\`, `\\{` or `\\}`. The bytes before the symbol were decoded alone, so the lead byte became '�' and the
+        symbol a backslash or brace of its own."""
+        assert _text(body, head=head) == expected
+
+    def test_lead_byte_written_as_plain_text_before_an_escaped_trail_is_one_character(self):
+        data = b"{\\rtf1\\ansi\\ansicpg932\n\x83\\\\ x\\par}"
+
+        assert convert(data, "a.rtf").text == "ソ x"
+
+    @pytest.mark.parametrize(("body", "head", "expected"), [
+        (r"\'83\'5c\\ a\{b\}\par", r"\ansi\ansicpg932", "ソ\\ a{b}"),
+        (r"caf\'e9\\ \'e9\{\par", r"\ansi\ansicpg1252", "café\\ é{"),
+        (r"\'c7\'d1\\\'b0\\\'b0\{\'b0\}\par", r"\ansi\ansicpg949", "한\\�\\�{�}"),
+        (r"{\uc2\u12477\'83\'5c}\\\par", r"\ansi\ansicpg932", "ソ\\"),
+        (r"{\uc1\u12477\'83}\\\par", r"\ansi\ansicpg932", "ソ\\"),
+        (r"{\fonttbl{\f0\fcharset0 Arial;}}\f0 caf\'e9\{\par", r"\ansi\ansicpg932", "café{"),
+    ])
+    def test_escaped_symbol_that_completes_no_character_is_the_symbol(self, body, head, expected):
+        """A backslash or brace after a whole character, after ASCII, in a single-byte code page, after a lead byte it makes no
+        character with (CP949 has no trail 5C, 7B or 7D), after a `\\uN` fallback, or in a font with
+        `\\fcharset0` (whose bytes may be Western text) is the symbol itself."""
+        assert _text(body, head=head) == expected
 
     def test_unicode_escapes_cover_negative_values_and_surrogate_pairs(self):
         """'한' (U+D55C) is `\\u-10916`, '😀' is the surrogate pair `\\u-10179\\u-8704`; each escape is followed by one fallback
@@ -805,6 +838,18 @@ class TestHostileInput:
         result = convert(data, "a.rtf")
         assert time.perf_counter() - started < 5
         assert result.warnings == ["A table holds more than 10,000 tables inside it; the tables after that were left out."]
+
+    @pytest.mark.timing
+    def test_double_byte_characters_with_an_escaped_trail_take_linear_time(self):
+        """Whether a `\\\\`, `\\{` or `\\}` completes a character is found by feeding the run to a decoder once, a piece at a
+        time, not by decoding the whole run again at every symbol."""
+        def run(count: int) -> float:
+            data = rb"{\rtf1\ansi\ansicpg932 " + rb"\'83\\" * count + b"}"
+            return fastest(lambda: convert(data, "a.rtf", ConvertOptions(max_chars=None)))
+
+        small, large = run(10_000), run(100_000)
+
+        assert large < small * 30
 
     def test_paragraph_of_endless_runs_keeps_its_text_in_a_bounded_number_of_runs(self, monkeypatch: pytest.MonkeyPatch):
         """One paragraph of runs that cannot be merged (`{\\b a}b` again and again; 2.8 million of them took 16 seconds and

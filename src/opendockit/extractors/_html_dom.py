@@ -6,7 +6,7 @@ pictures turned into placeholders.
 import base64
 import binascii
 import bisect
-from collections.abc import Callable, Container
+from collections.abc import Callable, Container, Iterator
 import itertools
 import re
 
@@ -953,8 +953,17 @@ def _put_form_values(soup: BeautifulSoup) -> None:
     number of controls of one form (16,000 took 5.6 s). A span is an element rendering merely descends into, so the result is
     the same as placing the text pieces directly
     (Pinned by: TestFormValues::test_thousands_of_form_controls_are_replaced_in_linear_time).
+
+    A control inside a select or a textarea is left alone: emptying the one around it takes it out. lxml nests every select left
+    open inside the one before it, and emptying each of them in turn walked all the selects inside it again (`clear` finds the
+    last descendant of every child it takes out): 8,000 questions with a select each left open (607 KB) took 20 seconds
+    (Pinned by: TestFormValues::test_selects_left_open_take_linear_time).
     """
-    for control in soup.find_all(["input", "select", "textarea"]):
+    controls = soup.find_all(["input", "select", "textarea"])
+    held = _lying_inside(controls, {"select", "textarea"})
+    for control in controls:
+        if id(control) in held:
+            continue
         if control.name == "input":
             values = _input_values(control)
         elif control.name == "select":
@@ -1229,12 +1238,38 @@ def _input_values(control: Tag) -> list[str]:
 
 def _selected_options(control: Tag) -> list[str]:
     """Chosen options. A single-choice list falls back to its first option when nothing is chosen (that is what browsers show). A
-    multiple-choice list gives every chosen option."""
-    options = control.find_all("option")
+    multiple-choice list gives every chosen option.
+
+    A select inside the select is not read: lxml puts the next select inside a select left open (inside its last option when
+    that is left open too), and read with it the outer select showed the chosen option of the inner one, or the inner select's
+    text after its own option's (Pinned by:
+    test_text_html.py::TestFormValues::test_a_select_left_open_shows_its_own_option_not_one_of_the_select_inside_it)."""
+    options = [node for node in _outside_selects(control) if isinstance(node, Tag) and node.name == "option"]
     chosen = [option for option in options if option.has_attr("selected")]
     if not control.has_attr("multiple"):
         chosen = chosen[-1:] or options[:1]
-    return [", ".join(text for text in (" ".join(option.get_text().split()) for option in chosen) if text)]
+    return [", ".join(text for text in (" ".join(_option_text(option).split()) for option in chosen) if text)]
+
+
+def _outside_selects(tag: Tag) -> Iterator[PageElement]:
+    """The descendants of `tag` in document order, leaving out every select inside it with all it holds."""
+    stack = [iter(tag.contents)]
+    while stack:
+        node = next(stack[-1], None)
+        if node is None:
+            stack.pop()
+        elif not isinstance(node, Tag):
+            yield node
+        elif node.name != "select":
+            yield node
+            stack.append(iter(node.contents))
+
+
+def _option_text(option: Tag) -> str:
+    """The text of `option` as `get_text` gives it, without the text of a select inside it (`_selected_options`)."""
+    kinds = option.interesting_string_types
+    return "".join(node for node in _outside_selects(option)
+                   if isinstance(node, NavigableString) and (type(node) is kinds if isinstance(kinds, type) else type(node) in kinds))
 
 
 def _mark_scripts(soup: BeautifulSoup) -> None:
@@ -1773,8 +1808,11 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     block next to a spacer, a dot or an unsubscribe line converted to nothing while the block had to hold all the text of its part.
     The cost is known: a hidden preview block longer than the visible text of its part is shown
     (Pinned by: test_core_html_mail_hidden_and_frames.py::TestAriaHiddenBlockHoldingAMailPart).
+
+    The hidden MathML copy of a formula drawn by an aria-hidden picture stays (`_hidden_math_copy`).
     """
-    _decompose_all(_hidden_nodes(soup, [tag for tag in soup.find_all(_hidden_by_style) if id(tag) not in kept]))
+    _decompose_all(_hidden_nodes(soup, [tag for tag in soup.find_all(_hidden_by_style)
+                                        if id(tag) not in kept and not _hidden_math_copy(tag)]))
 
     marked = soup.find_all(attrs={"aria-hidden": "true"})
     if not marked:
@@ -1784,6 +1822,32 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     page = max(_solid_length(body), 1) if body is not None else 1
     _decompose_all([tag for tag in marked if id(tag) not in holders
                     and not (whole and body is not None and tag.parent is body and 2 * _solid_length(tag) >= page)])
+
+
+def _hidden_math_copy(tag: Tag) -> bool:
+    """Whether hidden `tag` is the MathML of a formula whose picture follows it, hidden from screen readers: `tag` is a `<math>`
+    or holds only one, hidden by its style, and right after it comes an `<img aria-hidden="true">` with alt text (the TeX).
+    That is how Wikipedia (MediaWiki's Math extension) writes every formula — `<span class="mwe-math-mathml-a11y"
+    style="display: none;"><math …>` for screen readers (its stylesheet shows it to them), then the SVG picture with the TeX in
+    its alt for the eye. Both were removed, the copy as
+    hidden and the picture as aria-hidden, and every formula of a saved article vanished. The copy is kept and read as the
+    formula once (`_html_math._put_math`); the picture is still removed. Any other hidden MathML is removed as before
+    (Pinned by: test_core_html.py::TestMathMl::test_formula_of_a_saved_wikipedia_article_is_read_once,
+    test_hidden_formula_without_a_picture_after_it_is_removed)."""
+    if _has_hidden(tag):
+        return False
+    if tag.name != "math":
+        content = [child for child in tag.contents if isinstance(child, Tag) or str(child).strip()]
+        if len(content) != 1 or not isinstance(content[0], Tag) or content[0].name != "math":
+            return False
+    # The picture comes right after the copy (only white space between) and its alt is the formula: a hidden answer followed by an
+    # aria-hidden icon (a chevron without alt text, or one after text) stays hidden
+    # (Pinned by: test_core_html.py::TestMathMl::test_hidden_formula_without_a_picture_after_it_is_removed).
+    picture = tag.next_sibling
+    while isinstance(picture, NavigableString) and not str(picture).strip():
+        picture = picture.next_sibling
+    return (isinstance(picture, Tag) and picture.name == "img" and str(picture.get("aria-hidden", "")).strip().lower() == "true"
+            and bool(str(picture.get("alt", "")).strip()))
 
 
 def _hidden_nodes(soup: BeautifulSoup, hidden: list[Tag]) -> list[PageElement]:

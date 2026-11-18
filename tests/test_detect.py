@@ -249,6 +249,20 @@ def test_rtf_is_read_as_rtf_whatever_the_extension(data, filename, expected):
     assert result.text == expected
 
 
+@pytest.mark.parametrize("prefix", [b"\xef\xbb\xbf", b"\xef\xbb\xbf\r\n", b"\r\n"])
+def test_rtf_behind_a_byte_order_mark_is_read_as_rtf(prefix):
+    """An RTF saved with a UTF-8 byte order mark in front (PowerShell 5 `Out-File -Encoding utf8`, a .NET StreamWriter) was
+    taken for text: the mark is not whitespace to `lstrip`, so the header was not seen, and the control words became the body
+    with an extension warning. The RTF extractor already read the header behind the mark."""
+    data = prefix + b"{\\rtf1\\ansi\\ansicpg949\\deff0{\\fonttbl{\\f0 Arial;}}\\f0 Quarterly report\\par \\'c7\\'d1\\'b1\\'db\\par}"
+
+    result = convert(data, "report.rtf")
+
+    assert detect_format(data, "report.rtf") is DocumentFormat.RTF
+    assert result.text == "Quarterly report\n\n한글"
+    assert result.warnings == []
+
+
 def test_text_file_that_shows_svg_markup_is_still_text():
     assert detect_format("<svg> 태그 설명 메모".encode(), "a.txt") is DocumentFormat.TEXT
     assert detect_format("메모: {\\rtf1 로 시작하는 파일은 RTF 다".encode(), "a.txt") is DocumentFormat.TEXT

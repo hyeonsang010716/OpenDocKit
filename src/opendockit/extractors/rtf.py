@@ -117,6 +117,8 @@ _CHARACTERS = {
 # `\~` non-breaking space, `\_` non-breaking hyphen (a plain hyphen, so that the word is found by search). `\-` (optional hyphen) and
 # the other symbols produce nothing.
 _SYMBOLS = {b"~": " ", b"_": "-", b"{": "{", b"}": "}", b"\\": "\\", b"\t": "\t"}
+# The control symbols whose byte can be the trail byte of a double-byte character (`_Reader._completes`).
+_TRAIL_SYMBOLS = frozenset((b"\\", b"{", b"}"))
 
 # Windows code page of a font charset (`\fcharsetN`). 0 (ANSI) is decided at decode time (`_ANSI`); 1 (default) and 2 (symbol) use
 # the document's code page.
@@ -639,6 +641,9 @@ class _Reader:
         self._star = False
         self._fresh = False  # nothing but white space has been read since the last `{`
         self._raw: list[bytes] = []  # text bytes waiting to be decoded with the code page of the state they were read in
+        # (code page, incremental decoder, how many pieces of `_raw` it was fed) while a control symbol may complete a
+        # character (`_completes`)
+        self._run_decoder: tuple[str, codecs.IncrementalDecoder, int] | None = None
         self._skip = 0  # fallback characters still to drop after `\uN`
         self._dropped: list[bytes] = []  # … the bytes dropped so far, and those of them that may start the escaped character
         self._lead: bytes | None = None
@@ -741,6 +746,13 @@ class _Reader:
                         break
             elif kind == 4:
                 if self._raw:
+                    symbol = token.group(4)
+                    # The trail byte of the double-byte character the run ends in, written as a symbol: part of the run
+                    # (`_completes`; the dropping of a `\uN` fallback is left as it is).
+                    if symbol in _TRAIL_SYMBOLS and not self._skip and self._lead is None and self._completes(symbol):
+                        self._raw.append(symbol)
+                        self._star = False
+                        continue
                     self._flush()
                 self._skip, self._lead = 0, None
                 self._symbol(token.group(4))
@@ -966,7 +978,40 @@ class _Reader:
     def _flush(self) -> None:
         raw = b"".join(self._raw)
         self._raw.clear()
+        self._run_decoder = None
         self._deliver(self._decode(raw))
+
+    def _completes(self, symbol: bytes) -> bool:
+        """Whether the byte of the control symbol `\\\\`, `\\{` or `\\}` is the trail byte of a double-byte character whose lead
+        byte ends the run read so far (`_raw`): in Shift_JIS, GBK and Big5 a trail byte can be 5C, 7B or 7D, and a writer has
+        to write it as the symbol. Delivered as a symbol of its own, the lead byte was decoded alone: 'ソ' (83 5C) came out as
+        '�' and a backslash (Pinned by: test_rtf.py::TestCharacters::
+        test_double_byte_character_whose_trail_is_an_escaped_symbol_is_one_character). Only a lead byte that makes a character
+        with it: after a whole character, after ASCII, in a single-byte code page or where the pair is no character (CP949 has
+        no such trail) the symbol is itself (test_escaped_symbol_that_completes_no_character_is_the_symbol). So is it in a font
+        with `\\fcharset0`, whose bytes may be Western text: taken as a trail there, 'café{' in a Japanese document became
+        'caf' and a kanji.
+
+        The run is fed to an incremental decoder once, a piece at a time as it grows, so a run of many such characters is not
+        decoded again at each symbol (Pinned by: test_rtf.py::TestHostileInput::
+        test_double_byte_characters_with_an_escaped_trail_take_linear_time)."""
+        codec = self._codec()
+        if codec not in _DOUBLE_BYTE or self._font_codec() == _ANSI:
+            return False
+        if self._run_decoder is None or self._run_decoder[0] != codec:
+            self._run_decoder = (codec, codecs.getincrementaldecoder(codec)("replace"), 0)
+        codec, decoder, fed = self._run_decoder
+        for piece in self._raw[fed:]:
+            decoder.decode(piece)
+        self._run_decoder = (codec, decoder, len(self._raw))
+        pending = decoder.getstate()[0]
+        if not pending:
+            return False
+        try:
+            (pending + symbol).decode(codec)
+        except UnicodeDecodeError:
+            return False
+        return True
 
     def _decode(self, raw: bytes) -> str:
         """Bytes → text with the code page of the current font, or the document's.

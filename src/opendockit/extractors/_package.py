@@ -36,6 +36,8 @@ _OFFICE_DOCUMENT = "http://schemas.openxmlformats.org/officeDocument/2006/relati
 _STRICT_OFFICE_DOCUMENT = "http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument"
 _XML_CONTENT_TYPES = {"application/xml", "text/xml"}
 _CORE_PROPERTIES = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
+# Content type of the document-properties part; the libraries load only such a part as their properties part (`core_properties`)
+_CORE_PROPERTIES_TYPE = "application/vnd.openxmlformats-package.core-properties+xml"
 
 
 def decimal_int[T](value: str | None, default: T, *, signed: bool = False) -> int | T:
@@ -163,10 +165,17 @@ def core_properties(package: object) -> dict[str, str]:
     properties are an extra, not the body — for a core.xml whose root element has the wrong namespace the library raised
     AttributeError and the whole document was rejected. If unreadable, they are left empty
     (Pinned by: test_office_robustness.py::TestDocumentPropertiesAndSlideRoots).
+
+    A relationship to a part that is not a document-properties part is left out too, before the part is asked anything: pointing
+    back at word/document.xml, python-docx asked the document part for the package's properties again, recursed without end, and
+    the document was rejected as corrupted (Pinned by: test_audit_office.py::TestRelationshipPointingBackAtTheMainPart::
+    test_document_properties_relationship_to_another_part_leaves_out_title_and_author).
     """
     try:
         part = related_part(package, _CORE_PROPERTIES)
     except KeyError:
+        return {}
+    if getattr(part, "content_type", None) != _CORE_PROPERTIES_TYPE:
         return {}
     try:
         # python-docx reads the values through the part's `core_properties`; a python-pptx part holds them itself

@@ -473,12 +473,22 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
         # (Pinned by: test_quality.py::TestSpreadsheetNumberFormats). An integer place `?` without a digit is a space, as in
         # Excel (0.5 under `?.??` → ` .5 `, Pinned by: test_audit_spreadsheet.py::TestQuestionMarkPlaces).
         integer = _fill_digits(whole, literals[literals_before:], integer)
-    elif whole.count("0") > 1 and "," not in whole:
-        # The 0s of the integer part are the minimum number of digits (employee number / postal code 001234 written as `000000`)
-        integer = integer.zfill(whole.count("0"))
+    elif whole.count("0") > 1 and all(char in "0#?," for char in whole):
+        # The 0s of the integer part are the minimum number of digits (employee number / postal code 001234 written as `000000`).
+        # With a thousands separator Excel pads first and groups the padded digits: 1234 under `00,000` is `01,234` and 5 under
+        # `0,000` is `0,005`. The padding was dropped, giving `1,234` and `5`
+        # (Pinned by: test_spreadsheet.py::TestZeroPaddingWithAThousandsSeparator).
+        digits = integer.replace(",", "").zfill(whole.count("0"))
+        integer = _grouped(digits) if "," in whole else digits
     elif not whole and integer == "0":
         integer = ""  # for a format without integer places Excel does not show the 0 either (0.5 under `.00` → .50)
     return f"{sign}{prefix}{integer}{dot}{rest}{'%' if percent else ''}{suffix}"
+
+
+def _grouped(digits: str) -> str:
+    """Digits with a thousands separator between every three from the right (leading zeros kept, unlike `format(n, ",")`)."""
+    head = len(digits) % 3 or 3
+    return ",".join([digits[:head], *(digits[index:index + 3] for index in range(head, len(digits), 3))])
 
 
 def _without_trailing_zeros(places: str, digits: str) -> str:

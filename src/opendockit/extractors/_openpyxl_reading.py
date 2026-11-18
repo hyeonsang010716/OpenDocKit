@@ -24,6 +24,7 @@ from openpyxl.packaging.relationship import RelationshipList
 from openpyxl.reader import excel as _openpyxl_excel_reader
 from openpyxl.reader import workbook as _openpyxl_workbook_reader
 from openpyxl.styles.cell_style import CellStyleList
+from openpyxl.styles.numbers import BUILTIN_FORMATS, BUILTIN_FORMATS_MAX_SIZE
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from openpyxl.utils.datetime import from_excel, from_ISO8601
 from openpyxl.worksheet import _reader as _openpyxl_sheet_reader
@@ -33,6 +34,7 @@ from openpyxl.xml.constants import SHEET_MAIN_NS
 from openpyxl.xml.functions import iterparse as _openpyxl_iterparse
 
 from opendockit.extractors._package import _XML_PARSER, decimal_int, named_part
+from opendockit.extractors._sheet_format import _format_within_length, _is_elapsed_format
 
 
 # When the value of a date-formatted cell is outside the date range (9999-12-31), openpyxl turns it into a '#VALUE!' error cell and
@@ -87,6 +89,7 @@ class _CellReading:
     row_numbers: list[int] | None = None  # row numbers of the streamed sheet being read, in the order read (`_streamed_rows`)
     part_results: dict[tuple[str, ...], object] = field(default_factory=dict)  # what a part gave, kept for this workbook (`_once_per_part`)
     sheet_parts: dict[int, str] = field(default_factory=dict)  # `id` of a sheet object → path of its part (`_sheets_noting_parts`)
+    streamed: bool = False  # the workbook is read by streaming, which has no use for merges (`_parse_cells_and_merges`)
 
 
 # Deliberate: the cell interpretation of openpyxl's sheet parser (`WorkSheetParser.parse_cell`) and the place that knows the number
@@ -270,7 +273,29 @@ def _apply_stylesheet_noting_styles(archive: object, workbook: openpyxl.Workbook
     reading = _READING.get()
     if reading is not None:
         reading.style_count = len(workbook._cell_styles)
+        _elapsed_styles_as_durations(workbook)
     return applied
+
+
+def _elapsed_styles_as_durations(workbook: openpyxl.Workbook) -> None:
+    """Have openpyxl's sheet parser make a duration of every date cell under an elapsed format, not only the ones it knows.
+
+    openpyxl knows `[h]`, `[hh]`, `[m]`, `[mm]`, `[s]` and `[ss]`; a cell under `[hhh]:mm` or `[mmm]:ss` came as a date, and
+    turning that date back into a serial lost the day Excel counts for its non-existent 1900-02-29: 60 under `[hhh]:mm` was
+    `1416:00`, where `[h]:mm` gives `1440:00`. The duration is now made from the serial as for `[h]:mm`
+    (Pinned by: test_spreadsheet.py::TestElapsedTime::test_elapsed_format_openpyxl_does_not_know_is_measured_from_the_serial).
+    The same formats as `_cell_text` sees (`_format_within_length`); a format id that is not defined is left to the parser.
+    """
+    formats, durations = workbook._number_formats, workbook._timedelta_formats
+    for index in workbook._date_formats:
+        try:
+            format_id = workbook._cell_styles[index].numFmtId
+            number_format = (BUILTIN_FORMATS.get(format_id, "General") if format_id < BUILTIN_FORMATS_MAX_SIZE
+                             else formats[format_id - BUILTIN_FORMATS_MAX_SIZE])
+        except (IndexError, TypeError):
+            continue
+        if _is_elapsed_format(_format_within_length(number_format)):
+            durations.add(index)
 
 
 _parse_row = _openpyxl_sheet_reader.WorkSheetParser.parse_row
@@ -352,15 +377,22 @@ def _parse_cells_and_merges(parser: object) -> Iterator[tuple[int, list]]:
     """While this module is reading, make `WorkSheetParser.parse` read only cells and merges (`_SHEET_PARTS_LEFT_UNREAD`). A row
     that has been read is also taken out of the tree — openpyxl only empties it, so one empty element per row stayed in memory
     until the sheet ended (Pinned by: test_audit_spreadsheet_fixes.py::TestSheetScansKeepNoTree)."""
-    if _READING.get() is None:
+    reading = _READING.get()
+    if reading is None:
         yield from _parse_sheet(parser)
         return
 
     data = None  # `<sheetData>`: rows already read are removed from it, so the parsed tree does not grow with the sheet
+    merges = None  # `<mergeCells>` of a streamed sheet: emptied the same way, as its merges are not used
     for event, element in _openpyxl_sheet_reader.iterparse(parser.source, events=("start", "end")):
         if event == "start":
             if element.tag == _openpyxl_sheet_reader.DATA_TAG and data is None:
                 data = element
+            elif element.tag == _openpyxl_sheet_reader.MERGE_TAG and reading.streamed:
+                merges = element
+            continue
+        if element.tag == _MERGE_CELL_TAG and merges is not None:
+            del merges[:]
             continue
         if element.tag == _openpyxl_sheet_reader.ROW_TAG:
             row = parser.parse_row(element)
@@ -369,8 +401,13 @@ def _parse_cells_and_merges(parser: object) -> Iterator[tuple[int, list]]:
                 del data[:]
             yield row
         elif element.tag == _openpyxl_sheet_reader.MERGE_TAG:
-            parser.merged_cells = _readable_merges(element)
+            # Streaming does not use merges, so they are neither kept in the tree nor turned into objects: a sheet streamed
+            # because it has too many merge ranges spent 3 s and 200 MB on 490,000 of them
+            # (Pinned by: test_spreadsheet.py::TestManySmallMergeRanges).
+            if not reading.streamed:
+                parser.merged_cells = _readable_merges(element)
             element.clear()
+            merges = None
         elif element.tag in _SHEET_PARTS_LEFT_UNREAD:
             element.clear()
 

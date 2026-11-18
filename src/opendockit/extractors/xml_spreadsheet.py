@@ -14,7 +14,14 @@ from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors._encoding import decode_text, decoding_warning
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._package import _XML_PARSER, decimal_int
-from opendockit.extractors._sheet_format import _MAX_FORMAT_LENGTH, _XML_GENERAL_DATE, _is_elapsed_format, format_cell
+from opendockit.extractors._sheet_format import (
+    _MAX_FORMAT_LENGTH,
+    _XML_GENERAL_DATE,
+    _is_elapsed_format,
+    _is_weekday_only,
+    _shows_date,
+    format_cell,
+)
 from opendockit.extractors._sheet_layout import _append_sheet, _collect_rows, _level_marked
 from opendockit.models import ConvertOptions, Extraction
 
@@ -356,7 +363,10 @@ def _xml_cell_value(data: etree._Element, number_format: str | None, not_finite:
             not_finite.append(text)
         return text
     try:
-        if kind == "Number" and number_format and is_date_format(number_format):
+        if kind == "Number" and number_format and (is_date_format(number_format) or _is_weekday_only(number_format)):
+            # openpyxl does not take a weekday-only format (`aaa`) for a date format, so 45000 under `aaa` came out as `45000`
+            # where XLSX and XLS show the date, as for `dddd` (Pinned by:
+            # test_spreadsheet.py::TestXmlSpreadsheetDatesAndTimes::test_weekday_only_number_is_a_date_as_in_xlsx_and_xls).
             return _xml_serial_text(float(text), number_format)
         if kind == "Number":
             return format_cell(float(text), number_format)
@@ -431,6 +441,13 @@ def _xml_serial_text(value: float, number_format: str) -> str:
             return format_cell(timedelta(days=value), number_format)
         if value < 0:
             return format_cell(value, number_format)  # a negative serial number is not a date (`_negative_serial_text`)
+        if value == 0 and _shows_date(number_format):
+            # Serial 0 under a format that shows a date is Excel's non-existent '1900-01-00': the number 0, as in XLSX and XLS
+            # (`_is_serial_zero_shown_as_date`). It came out as the time '00:00:00' (Pinned by:
+            # test_spreadsheet.py::TestXmlSpreadsheetDatesAndTimes::test_serial_zero_under_a_date_format_is_the_number).
+            # Not a `DateTime` written on day 0 (`1899-12-31T00:00:00`): that is a time-only value, kept as a time
+            # (`_xml_cell_value`).
+            return "0"
         return format_cell(from_excel(value), number_format)
     except (OverflowError, ValueError):
         return format_cell(value, number_format)

@@ -217,6 +217,11 @@ def _split_runs(runs: list[list[list[_Line]]], rows: list[list[_Line]], taken: s
     Each table used to grow on its own from the same used lines, so a row that pdfminer merged differently between two
     tables was taken by the table above (downwards) and by the table below (upwards): it came out in both tables, and the
     one table stayed split in two (Pinned by: test_pdf_borderless_split_rows.py::TestRowMergedDifferentlyBetweenTwoTables).
+
+    A joined table is searched for again with the table its rows lead into in turn: one uniform table that pdfminer merged
+    differently from row to row was found in three parts (rows 1–3 and 8–11 first, rows 4–7 only by splitting the lines in
+    no table), only the first two could be joined, and the third, its columns taken from its own merged first row, had a
+    column too few (Pinned by: test_pdf_borderless_split_rows.py::TestUniformTableFoundInSeveralParts).
     """
     starts: dict[int, int] = {}  # position in `rows` of the first row of a table → the number of that table
     for number, run in enumerate(runs):
@@ -224,15 +229,20 @@ def _split_runs(runs: list[list[list[_Line]]], rows: list[list[_Line]], taken: s
         if first:
             starts.setdefault(min(first), number)
     result: list[list[list[_Line]] | None] = list(runs)
+
+    def searched(table: list[list[_Line]], number: int) -> tuple[list[list[_Line]], list[list[_Line]] | None]:
+        return _split_merged_cells(table, rows, taken, max_cell, rules,
+                                   {position: runs[other] for position, other in starts.items()
+                                    if other != number and result[other] is not None})
+
     for number in sorted(range(len(runs)), key=lambda number: min(line.top for line in runs[number][0])):
         if result[number] is None:
             continue  # searched for together with a table above it
-        found, joined = _split_merged_cells(runs[number], rows, taken, max_cell, rules,
-                                            {position: runs[other] for position, other in starts.items()
-                                             if other != number and result[other] is not None})
-        result[number] = found
-        if joined is not None:
+        found, joined = searched(runs[number], number)
+        while joined is not None:
             result[next(other for other, run in enumerate(runs) if run is joined)] = None
+            found, joined = searched(found, number)
+        result[number] = found
         taken.update(id(original) for row in found for line in row for original in (line, line.source, *line.joined)
                      if original is not None)
     return [run for run in result if run is not None]
@@ -240,8 +250,12 @@ def _split_runs(runs: list[list[list[_Line]]], rows: list[list[_Line]], taken: s
 
 def _row_positions(table_row: list[_Line], rows: list[list[_Line]]) -> list[int]:
     """The positions in `rows` that hold the original lines of a table row (for a cell joined from several lines, those
-    lines)."""
-    members = {id(original) for line in table_row for original in (line, *line.joined)}
+    lines; for a piece split from a line, `source`, that line).
+
+    A table found by splitting the lines in no table (`_split_line_table_runs`) holds only split pieces. Without their
+    source lines it had no position in `rows`: it could not grow, no table above could lead into it, and one table found
+    in parts stayed split (Pinned by: test_pdf_borderless_split_rows.py::TestUniformTableFoundInSeveralParts)."""
+    members = {id(original) for line in table_row for original in (line, line.source, *line.joined) if original is not None}
     return [index for index, row in enumerate(rows) if any(id(line) in members for line in row)]
 
 
@@ -296,7 +310,8 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
     (LibreOffice's 3px cell padding) and so have no wide gap are left as they are.
 
     Returns (table, the other table it was joined with or None). When the rows below lead into the first row of another
-    found table (`starts`: position in `rows` of a table's first row → that table) that starts with a data row (a numeric
+    found table (`starts`: position in `rows` of a table's first row → that table), or that table starts right below this
+    one, and it starts with a data row (a numeric
     value cell) and every gap on the way is within the row pitch of the two tables, the region down to the end of that
     table, and on below it as far as that table would have grown by itself, is searched for first, and it becomes one
     table only when exactly one table is found that holds every line of both (the same conditions as above). Otherwise
@@ -347,7 +362,10 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
             if _row_gap(upper, row) > upper[0].height * 2.5 or ruled(upper, row):
                 break
             if not joins(row):
-                if after and starts and position in starts:
+                # The other table may also start right at the next row, with no row in between: the three parts of one
+                # uniform table touched each other and were never joined (Pinned by: test_pdf_borderless_split_rows.py::
+                # TestUniformTableFoundInSeveralParts). The conditions for joining below are the same either way.
+                if starts and position in starts:
                     following = starts[position]
                 break
             after.append(row)

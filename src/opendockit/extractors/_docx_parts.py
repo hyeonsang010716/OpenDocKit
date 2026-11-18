@@ -4,11 +4,13 @@ definitions with the number format, start and indent of each level.
 
 from dataclasses import dataclass
 
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.parts.styles import StylesPart
 from lxml import etree
 
 from opendockit.extractors._docx_runs import _int_attr, _int_value, _is_on, _w
 from opendockit.extractors._lists import DOCX_NUMBER_SHAPES, NumberLevel, start_number
-from opendockit.extractors._package import decimal_int, parse_part
+from opendockit.extractors._package import decimal_int, parse_part, related_part
 
 
 @dataclass(slots=True)
@@ -62,10 +64,20 @@ def _raw_part_root(part: object, kind: str) -> etree._Element | None:
 
 
 def _styles_root(document: object) -> etree._Element | None:
+    """Root of the styles part. Without a styles relationship python-docx's default styles are used, as before.
+
+    A styles part python-docx did not load as one (another kind of part, a generic content type) is read from its bytes and
+    `document.styles` is not asked: for a relationship pointing back at word/document.xml python-docx asked the document part
+    for its styles again, recursed without end, and the document was rejected as corrupted (Pinned by: test_audit_office.py::
+    TestRelationshipPointingBackAtTheMainPart::test_docx_styles_relationship_to_the_document_reads_the_body_without_styles)."""
     try:
-        return document.styles.element
-    except (AttributeError, ValueError):
-        return _raw_part_root(document.part, "styles")
+        related = related_part(document.part, RT.STYLES)
+    except KeyError:  # no internal styles relationship
+        try:
+            return document.styles.element
+        except (AttributeError, ValueError):
+            return _raw_part_root(document.part, "styles")
+    return related.element if isinstance(related, StylesPart) else _raw_part_root(document.part, "styles")
 
 
 def _load_styles(document: object) -> dict[str, _Style]:

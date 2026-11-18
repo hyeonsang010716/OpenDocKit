@@ -902,3 +902,71 @@ class TestManyLinesBesideColumns:
 
         assert time.perf_counter() - started < allowed(2)  # 20 seconds before
         assert page.lines == lines
+
+
+class TestManyLinesLiftedInPlace:
+    """Lifting a line read after the lines below it (`_read_lone_lines_in_place`) checked, for every line it tried to move,
+    every line of the page against every other (`_one_flow`, `_interleaved`): cubic in the lines of a page, and outside the
+    page time budget. 240 pairs of a left line and a right line set slightly higher (pdfminer reads them left, right, left, …)
+    took 7 seconds a page, 22 seconds for an 11KB file of three such pages."""
+
+    @staticmethod
+    def _pairs(count: int):
+        from opendockit.extractors._pdf_model import _Line, _Page
+
+        lines = []
+        for index in range(count):
+            top = 60 + index * 40
+            lines.append(_Line(top=top, bottom=top + 5, x0=40, x1=70, text=f"left{index}", size=5))
+            lines.append(_Line(top=top - 5.5, bottom=top - 0.5, x0=80, x1=112, text=f"right{index}", size=5))
+        return _Page(number=1, width=595, height=count * 40 + 100, lines=lines, tables=[], has_images=False,
+                     view=(0, 0, 595, count * 40 + 100))
+
+    def test_the_checks_answer_as_comparing_every_pair(self):
+        import math
+        import random
+
+        from opendockit.extractors._pdf_model import _Line
+        from opendockit.extractors._pdf_reading_order import _any_overlap, _interleaved, _interleaved_at, _is_beside
+
+        rng = random.Random(11)
+        found = [0, 0]
+        for _ in range(3_000):
+            def value(low, high):
+                if rng.random() < 0.01:
+                    return rng.choice([math.nan, math.inf, -math.inf])
+                return rng.choice([float(rng.randrange(int(low), int(high), 5)), rng.uniform(low, high)])
+
+            spans = [(start, start + rng.choice([0.0, 2.0, 5.0, 30.0])) for start in (value(0, 100) for _ in range(rng.randint(0, 8)))]
+            others = [(start, start + rng.choice([0.0, 2.0, 5.0, 30.0])) for start in (value(0, 100) for _ in range(rng.randint(0, 8)))]
+            expected = any(low < other_high and other_low < high for low, high in spans for other_low, other_high in others)
+            assert _any_overlap(spans, others) == expected
+            found[0] += expected
+
+            def line():
+                top, x0 = value(0, 120), value(0, 300)
+                return _Line(top=top, bottom=top + rng.choice([5.0, 10.0, 12.0]), x0=x0, x1=x0 + rng.choice([20.0, 80.0, 150.0]),
+                             text="t", size=10)
+
+            lines, others = [line() for _ in range(rng.randint(0, 8))], [line() for _ in range(rng.randint(0, 12))]
+            expected = any(_interleaved_at(line, [other for other in others if _is_beside(other, line)]) for line in lines)
+            assert _interleaved(lines, others) == expected
+            found[1] += expected
+        assert min(found) > 40
+
+    @pytest.mark.timing
+    def test_lifting_lines_grows_less_than_cubically_with_the_lines_of_a_page(self):
+        from opendockit.extractors._pdf_reading_order import _read_lone_lines_in_place
+        from tests.timing import Fastest
+
+        def run(count: int) -> float:
+            timer = Fastest()
+            for _ in timer:
+                page = self._pairs(count)
+                with timer:
+                    _read_lone_lines_in_place(page)
+            return timer.seconds
+
+        small, large = run(60), run(240)  # 120 and 480 lines: 16 times the work when quadratic, 64 when cubic
+
+        assert large < small * 40  # 0.11 s and 7 s before; 0.01 s and 0.23 s now

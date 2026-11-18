@@ -984,6 +984,31 @@ class TestFormValues:
         assert result.text.count("값") == 4000 and result.text.count("☒") == 4000 and result.text.count(" b ") == 4000
         assert elapsed < 4.0
 
+    def test_a_select_left_open_shows_its_own_option_not_one_of_the_select_inside_it(self):
+        """lxml puts the next select inside a select left open (in its last option when that is left open too). The outer select
+        read the options of the inner one as its own, so it showed the inner select's chosen option, or the text of the inner
+        select after its own option's."""
+        inside = ("<p>Q1 <select><option>Yes</option><option>No</option><p>Q2 <select><option>Red</option>"
+                  "<option selected>Blue</option></select></select></p><p>end</p>")
+        in_the_option = ("<p>Q3 <select><option>Up<option selected>Down<select><option>Left</option>"
+                         "<option>Right</option></select></select></p><p>end</p>")
+
+        assert convert(inside.encode(), "a.html").text == "Q1 Yes\n\nend"
+        assert convert(in_the_option.encode(), "a.html").text == "Q3 Down\n\nend"
+
+    @pytest.mark.timing
+    def test_selects_left_open_take_linear_time(self):
+        """lxml nests every select left open inside the one before it, and each select read the options and text of all the
+        selects inside it, also those the select around it had already replaced: 8,000 questions (607 KB) took 20 seconds."""
+        def seconds(count: int) -> float:
+            data = "".join(f'<p>Question {index}: <select name="q{index}"><option>Yes</option><option selected>No</option>'
+                           for index in range(count)).encode()
+            return fastest(lambda: convert(data, "a.html"))
+
+        small, large = seconds(2_000), seconds(8_000)
+
+        assert large < 8 * small + 0.5
+
 
 class TestRuby:
     """Row of html.md: ruby is `base(annotation)`, the shape of HWP/HWPX dutmal, DOCX and ODF ruby (`_notation.format_dutmal`).
@@ -1207,6 +1232,39 @@ class TestMhtml:
         result = convert(data, None)
 
         assert result.text == self.EXPECTED
+
+    @pytest.mark.parametrize("source", ["cid:logo.1@example.com", "CID:logo.1@example.com", "Cid:logo%2E1@example.com",
+                                        "cid:logo.1%40example.com"])
+    def test_cid_address_is_matched_as_rfc_2392_writes_it(self, source):
+        """The scheme of a `cid:` address is case-insensitive and its Content-ID is percent-encoded (RFC 2392). Looked up as
+        written, the picture was neither extracted nor reported."""
+        from tests import builder
+
+        picture = base64.encodebytes(builder.png_bytes(seed=1)).decode()
+        data = ('MIME-Version: 1.0\nFrom: a@example.com\nTo: b@example.com\nSubject: s\nContent-Type: multipart/related; boundary="b"\n\n'
+                f'--b\nContent-Type: text/html; charset=utf-8\n\n<p>before <img src="{source}" alt="Quarterly sales"> after</p>\n'
+                f"--b\nContent-Type: image/png\nContent-ID: <logo.1@example.com>\nContent-Transfer-Encoding: base64\n\n{picture}"
+                "--b--\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert [image.alt for image in result.images] == ["Quarterly sales"]
+
+    @pytest.mark.parametrize("source", ["cid:photo%201.png@example.com", "CID:photo%201.png@example.com"])
+    def test_cid_address_written_as_its_content_id_is_found(self, source):
+        """A Content-ID may hold a `%` itself, and mail programs repeat it in the address as it is. Looked up only percent-decoded,
+        such a picture was no longer found."""
+        from tests import builder
+
+        picture = base64.encodebytes(builder.png_bytes(seed=1)).decode()
+        data = ('MIME-Version: 1.0\nFrom: a@example.com\nTo: b@example.com\nSubject: s\nContent-Type: multipart/related; boundary="b"\n\n'
+                f'--b\nContent-Type: text/html; charset=utf-8\n\n<p>before <img src="{source}" alt="Quarterly sales"> after</p>\n'
+                f"--b\nContent-Type: image/png\nContent-ID: <photo%201.png@example.com>\nContent-Transfer-Encoding: base64\n\n{picture}"
+                "--b--\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert [image.alt for image in result.images] == ["Quarterly sales"]
 
     def test_picture_saved_with_the_page_is_extracted(self):
         """The picture parts saved with the page (`cid:`, Content-Location) were not extracted, so only the alt text of MHTML pictures

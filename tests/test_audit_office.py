@@ -696,3 +696,122 @@ class TestRelationshipTypeGivenTwice:
 
         assert text == convert(proper, "sample.pptx").text
         assert text.index("Text box") < text.index("Body placeholder")
+
+
+def _deck_with_inheriting_placeholders() -> bytes:
+    """Slide 1 on the title-and-content layout: a title, a body placeholder with no position of its own and a text box below
+    it. Slide 2 has speaker notes."""
+    from pptx import Presentation
+
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = "제목"
+    slide.placeholders[1].text = "본문 내용"
+    slide.shapes.add_textbox(Inches(1), Inches(5), Inches(3), Inches(1)).text = "글상자"
+    noted = presentation.slides.add_slide(presentation.slide_layouts[6])
+    noted.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1)).text = "둘째 장"
+    noted.notes_slide.notes_text_frame.text = "발표 메모"
+    return _docx_saved(presentation)
+
+
+def _retarget(kind: str, target: str | None) -> Callable[[str], str]:
+    """An edit of a `.rels` part pointing the relationship of `kind` at `target`, or removing it (None)."""
+    pattern = rf'<Relationship [^>]*/{kind}"[^>]*/>'
+    if target is None:
+        return lambda xml: re.sub(pattern, "", xml)
+    return lambda xml: re.sub(pattern, lambda match: re.sub(r'Target="[^"]*"', f'Target="{target}"', match.group(0)), xml)
+
+
+class TestPptxLayoutOrMasterRelationshipToAnotherKindOfPart:
+    """A slide's layout relationship (or a layout's master relationship) that points at a part of another kind made python-pptx
+    raise AttributeError when asked for the placeholders (a master or notes slide has no `slide_layout`), or recurse without end
+    (a slide or layout pointing at itself, or at another slide / layout). The error came from the reading order, outside the
+    protection of one shape, so the slide was skipped or the whole deck rejected. The placeholder is read as if the relationship
+    were missing: nothing to inherit, position 0. A notes relationship to a part that is not a notes slide skips only the notes."""
+
+    @pytest.mark.parametrize("target", ["../slideMasters/slideMaster1.xml", "../notesSlides/notesSlide1.xml", "slide1.xml",
+                                        "slide2.xml"], ids=["master", "notes-slide", "itself", "another-slide"])
+    def test_slide_is_read_as_with_a_missing_layout_relationship(self, target):
+        deck = _deck_with_inheriting_placeholders()
+        missing = builder.zip_with(deck, edit={"ppt/slides/_rels/slide1.xml.rels": _retarget("slideLayout", None)})
+        data = builder.zip_with(deck, edit={"ppt/slides/_rels/slide1.xml.rels": _retarget("slideLayout", target)})
+
+        result = convert(data, "sample.pptx")
+
+        assert result.sections[0].text == convert(missing, "sample.pptx").sections[0].text == "- 본문 내용\n\n글상자"
+        assert result.text.startswith("## Slide 1: 제목\n\n- 본문 내용\n\n글상자\n\n## Slide 2")
+        assert result.warnings == []
+
+    @pytest.mark.parametrize("target", ["slideLayout2.xml", "slideLayout1.xml", "../slides/slide1.xml"],
+                             ids=["itself", "another-layout", "slide"])
+    def test_slide_is_read_as_with_a_missing_master_relationship(self, target):
+        deck = _deck_with_inheriting_placeholders()
+        relationships = "ppt/slideLayouts/_rels/slideLayout2.xml.rels"
+        missing = builder.zip_with(deck, edit={relationships: _retarget("slideMaster", None)})
+        data = builder.zip_with(deck, edit={relationships: _retarget("slideMaster", target)})
+
+        result = convert(data, "sample.pptx")
+
+        assert result.text == convert(missing, "sample.pptx").text
+        assert result.sections[0].text == "- 본문 내용\n\n글상자"
+        assert result.warnings == []
+
+    @pytest.mark.parametrize("target", ["slide2.xml", "slide1.xml", "../slideLayouts/slideLayout1.xml"],
+                             ids=["its-slide", "another-slide", "layout"])
+    def test_notes_relationship_to_a_part_that_is_not_notes_skips_only_the_notes(self, target):
+        data = builder.zip_with(_deck_with_inheriting_placeholders(), edit={
+            "ppt/slides/_rels/slide2.xml.rels": _retarget("notesSlide", target)})
+
+        result = convert(data, "sample.pptx")
+
+        assert result.text == "## Slide 1: 제목\n\n- 본문 내용\n\n글상자\n\n## Slide 2\n\n둘째 장"
+        assert result.warnings == ["Slide 2: skipped the speaker notes because they could not be read."]
+
+
+class TestRelationshipPointingBackAtTheMainPart:
+    """A DOCX styles or document-properties relationship that points back at word/document.xml made python-docx ask the
+    document part for its styles / properties again, which recursed without end, and a body that reads fine was rejected as
+    corrupted. Styles and properties are an extra: the body is read without them, with no warning."""
+
+    _BODY = TestDocxStylesAndNumberingWithAGenericContentType._BODY
+
+    def test_docx_styles_relationship_to_the_document_reads_the_body_without_styles(self):
+        data = builder.zip_with(_docx_with_body(self._BODY), edit={
+            "word/_rels/document.xml.rels": _retarget("styles", "document.xml")})
+
+        result = convert(data, "sample.docx")
+
+        assert result.text == "Chapter\n\nfirst\n\nsecond"
+        assert result.warnings == []
+
+    @pytest.mark.parametrize(("name", "target"), [("sample.docx", "word/document.xml"), ("sample.docx", "word/styles.xml"),
+                                                  ("sample.pptx", "ppt/presentation.xml"), ("sample.pptx", "ppt/slides/slide1.xml")])
+    def test_document_properties_relationship_to_another_part_leaves_out_title_and_author(self, name, target):
+        if name.endswith(".docx"):
+            document = Document()
+            document.add_paragraph("Body")
+        else:
+            from pptx import Presentation
+
+            document = Presentation()
+            document.slides.add_slide(document.slide_layouts[6]).shapes.add_textbox(0, 0, Inches(2), Inches(1)).text = "Body"
+        document.core_properties.title = "Plan"
+        document.core_properties.author = "Kim"
+        proper = _docx_saved(document)
+        data = builder.zip_with(proper, edit={"_rels/.rels": _retarget("core-properties", target)})
+
+        result = convert(data, name)
+
+        assert result.text == convert(proper, name).text and "Body" in result.text
+        assert "title" not in result.metadata and "author" not in result.metadata
+        assert result.warnings == []
+
+    @pytest.mark.parametrize("kind", ["numbering", "settings", "fontTable", "theme"])
+    def test_docx_other_relationship_to_the_document_keeps_the_body(self, kind):
+        proper = _docx_with_body(self._BODY)
+        data = builder.zip_with(proper, edit={"word/_rels/document.xml.rels": _retarget(kind, "document.xml")})
+
+        result = convert(data, "sample.docx")
+
+        assert result.text == ("# Chapter\n\nfirst\n\nsecond" if kind == "numbering" else convert(proper, "sample.docx").text)
+        assert result.warnings == []

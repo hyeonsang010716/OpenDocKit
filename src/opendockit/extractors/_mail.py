@@ -3,10 +3,9 @@ nesting limits, its body parts in document order, forwarded mails, decoded heade
 """
 
 import base64
-import binascii
 import codecs
 import email
-from email.errors import HeaderParseError
+from email.errors import HeaderParseError, InvalidBase64LengthDefect
 from email.header import Header, decode_header
 from email.message import Message
 from email.parser import BytesHeaderParser
@@ -47,12 +46,13 @@ _MAIL_BOX_TITLE = "Message"
 MIME_VERSION = re.compile(rb"^MIME-Version:", re.IGNORECASE | re.MULTILINE)
 # Mail that carries a body: multipart (related is MHTML — `html.is_mhtml`) or a single plain-text part.
 # A mail whose top-level type is message/rfc822 (a forwarded mail saved on its own, or a mail program that wraps the mail it
-# forwards) is mail too: it was text, headers and all (Pinned by: test_audit_web_fixes.py::TestTopLevelForwardedMail).
+# forwards) is mail too: it was text, headers and all (Pinned by: test_audit_web_fixes.py::TestTopLevelForwardedMail), and so
+# is one of type message/global (`_FORWARD_TYPES`).
 # So is a single meeting invitation part (text/calendar — calendar servers and ticketing tools send it alone) and a single
 # part that is not text (a scanner's application/pdf, a phone's image/jpeg): both were text, raw headers and base64 and all,
 # without a warning (Pinned by: test_core_mail_and_detect.py::TestSinglePartMailThatIsNotPlainText). The single part that is
 # not text is the mail's attachment (`_is_attachment`). text/html stays MHTML; other text types are not taken.
-_MAIL_CONTENT_TYPE = re.compile(rb"^Content-Type:\s*(?:multipart/(?!related\b)[\w.+-]+|text/(?:plain|calendar)|message/rfc822"
+_MAIL_CONTENT_TYPE = re.compile(rb"^Content-Type:\s*(?:multipart/(?!related\b)[\w.+-]+|text/(?:plain|calendar)|message/(?:rfc822|global)"
                                 rb"|(?:application|image|audio|video|model|font)/[\w.+-]+)\b",
                                 re.IGNORECASE | re.MULTILINE)
 # Identifying mail without MIME-Version (`_mail_without_mime_version`): the sender, a recipient/subject/date, and a MIME body
@@ -498,6 +498,11 @@ def is_sent_mail(message: Message) -> bool:
 # The heading text placed before a forwarded mail (message/rfc822 part). Text (`extract_text`) and HTML (`html.extract_html`)
 # mail use the same text.
 FORWARDED_MAIL_TITLE = "Forwarded message"
+# The types of a part that holds a forwarded mail: message/rfc822, and message/global (RFC 6532), the same for a mail whose
+# headers may be UTF-8. The parser holds the mail inside a message/global part as it does for message/rfc822, but only
+# message/rfc822 was read, and the part counted as neither body nor attachment: the forwarded mail vanished without a warning
+# (Pinned by: test_core_text_and_mail.py::TestInternationalizedForwardedMail).
+_FORWARD_TYPES = frozenset({"message/rfc822", "message/global"})
 # Upper limit on the number of forwarded mails read. Those beyond it are only named in a warning, like attachments (not reached
 # unless a mail has been forwarded over and over).
 _MAX_FORWARDED_MAILS = 20
@@ -546,15 +551,15 @@ def _mail_parts(message: Message) -> list[Message]:
 
 
 def _forwarded_message(part: Message) -> Message | None:
-    """The mail inside if the part is message/rfc822, otherwise None. One wrapped in a transfer encoding (base64,
-    quoted-printable) is decoded and parsed again.
+    """The mail inside if the part is a forwarded mail (`_FORWARD_TYPES`), otherwise None. One wrapped in a transfer encoding
+    (base64, quoted-printable) is decoded and parsed again.
 
     Exchange sometimes sends a forwarded mail wrapped in base64. The parser reads the wrapped text as a mail without headers, so
     the base64 appeared as is where the forwarded mail belongs
     (Pinned by: test_core_mailboxes_and_charsets.py::TestForwardedMailInATransferEncoding). The part is replaced with the decoded
     mail, so a later call returns the same message.
     """
-    if part.get_content_type() != "message/rfc822":
+    if part.get_content_type() not in _FORWARD_TYPES:
         return None
     payload = part.get_payload()
     inner = payload[0] if isinstance(payload, list) and payload and isinstance(payload[0], Message) else None
@@ -563,16 +568,16 @@ def _forwarded_message(part: Message) -> Message | None:
         return inner
 
     # A mail wrapped in base64 is read by the parser as text without headers. With quoted-printable the headers are already
-    # parsed, so the header lines are restored and decoded together with the rest.
+    # parsed, so the header lines are restored and decoded together with the rest. Base64 cut off at any length is decoded up to
+    # the cut (`base64_prefix`; Pinned by: test_core_mailboxes_and_charsets.py::TestBase64CutOffAtAnyLength).
     wrapped = inner.get_payload()
     if not isinstance(wrapped, str) or (encoding == "base64" and inner.keys()):
         return inner
     if inner.keys():
         wrapped = "".join(f"{name}: {value}\n" for name, value in inner.items()) + "\n" + wrapped
     try:
-        raw = (base64.b64decode("".join(wrapped.split()) + "==", validate=False) if encoding == "base64"
-               else quopri.decodestring(wrapped.encode("ascii", errors="replace")))
-    except (binascii.Error, ValueError):
+        raw = base64_prefix(wrapped) if encoding == "base64" else quopri.decodestring(wrapped.encode("ascii", errors="replace"))
+    except ValueError:
         return inner
     inner = parse_mail(raw)
     part.set_payload([inner])
@@ -658,9 +663,9 @@ def _html_body_parts(part: Message, message: Message, depth: int) -> list[Messag
 
 
 def _is_forward(part: Message, message: Message) -> bool:
-    """Is `part` a forwarded mail (message/*) of `message`, or `message` itself when its type is message/rfc822? Neither has a
-    body of `message` in it — `mail_messages` reads the mail inside separately."""
-    return part.get_content_maintype() == "message" and (part is not message or part.get_content_type() == "message/rfc822")
+    """Is `part` a forwarded mail (message/*) of `message`, or `message` itself when its type is a forwarded mail's
+    (`_FORWARD_TYPES`)? Neither has a body of `message` in it — `mail_messages` reads the mail inside separately."""
+    return part.get_content_maintype() == "message" and (part is not message or part.get_content_type() in _FORWARD_TYPES)
 
 
 def mail_body_sequence(message: Message) -> list[Message]:
@@ -935,13 +940,44 @@ def mail_plain_body(message: Message, parts: list[Message] | None = None) -> tup
     return _mail_body(message, "text/plain", parts)
 
 
+def part_content(part: Message) -> bytes | None:
+    """The content of a leaf part, its transfer encoding (base64, quoted-printable) decoded: `get_payload(decode=True)`, except
+    that base64 whose letters come to one more than a multiple of four is decoded up to the last whole byte (`base64_prefix`).
+
+    For that length the standard library gives back the base64 itself, undecoded, and only records a defect on the part, so a
+    body cut off in transit at one length in four came out as a page of base64 letters, while one cut at any other length
+    gave the text up to the cut. The one letter left over carries six bits, less than a byte, so nothing is lost by dropping
+    it, and the part is read like one cut at any other length, without a warning
+    (Pinned by: test_core_mailboxes_and_charsets.py::TestBase64CutOffAtAnyLength).
+    """
+    seen = len(part.defects)
+    payload = part.get_payload(decode=True)
+    if not any(isinstance(defect, InvalidBase64LengthDefect) for defect in part.defects[seen:]):
+        return payload
+    encoded = part.get_payload()
+    return base64_prefix(encoded) if isinstance(encoded, str) else payload
+
+
+# What base64 decoding leaves out: anything that is not one of its 64 letters (line breaks, stray characters, padding).
+_NOT_BASE64 = re.compile(r"[^A-Za-z0-9+/]+")
+
+
+def base64_prefix(encoded: str) -> bytes:
+    """The bytes of the base64 `encoded`, up to the last whole byte. Characters that are not base64 letters are left out, and
+    a letter left over after the last whole byte (one more than a multiple of four) is dropped (`part_content`)."""
+    letters = _NOT_BASE64.sub("", encoded)
+    if len(letters) % 4 == 1:
+        letters = letters[:-1]
+    return base64.b64decode(letters + "=" * (-len(letters) % 4))
+
+
 def _mail_body(message: Message, content_type: str, parts: list[Message] | None = None) -> tuple[str, list[str]] | None:
     texts, encodings = [], []
 
     for part in mail_body_parts(message) if parts is None else parts:
         if part.get_content_type() != content_type:
             continue
-        payload = part.get_payload(decode=True)
+        payload = part_content(part)
         if isinstance(payload, bytes) and payload.strip():
             text, encoding = plain_part_text(part, payload) if content_type == "text/plain" else decode_text(payload, part.get_content_charset())
             texts.append(text.strip())

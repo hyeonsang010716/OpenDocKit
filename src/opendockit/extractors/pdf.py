@@ -60,6 +60,7 @@ from opendockit.extractors._pdf_artifacts import (
     _is_sideways,
     _is_tilted,
     _part_outside_cells,
+    _rejoined_copy_lines,
     _sideways_paragraphs,
     _text_chars_by_middle,
     _text_view,
@@ -959,6 +960,9 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
         if not in_table:
             in_place[spot] = inside
         prepared.append((line, owner, text, inside))
+    # Lines holding the same kept characters over removed copies become one (a word in fake bold on part of a line; Pinned by:
+    # test_pdf.py::TestDrawingArtifacts::test_a_word_in_fake_bold_on_part_of_a_line_is_read_once)
+    prepared = _rejoined_copy_lines(prepared, lambda line: copy_index.at(line)[0])
     spacings = _letter_spacings(list({id(inside): inside for *_, inside in prepared}.values()))  # each identical group of characters once
 
     lines, line_owners = [], []
