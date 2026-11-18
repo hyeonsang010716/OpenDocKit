@@ -318,6 +318,41 @@ class TestOneShadedRowInABorderlessTable:
         assert text == plain
 
 
+class TestShadedHeaderRowAndFirstColumn:
+    """A borderless table whose header row and one column are each shaded with one rectangle: the sides of the two
+    rectangles gave pdfplumber a grid of two rows and two columns, and the whole table was read as two cells, a column of
+    names over a cell of every number ('120 135 160<br>45 52 60<br>…'). A cell whose lines are split into columns by one
+    blank strip is not a cell of the table's grid, and the table is read as if it had no shading."""
+
+    _ROWS = [["지역", "2022", "2023", "2024"], ["서울", "120", "135", "160"], ["부산", "45", "52", "60"],
+             ["대구", "30", "33", "41"], ["인천", "55", "58", "61"]]
+
+    def _pdf(self, shading):
+        def draw(pdf, index):
+            from reportlab.platypus import Table, TableStyle
+
+            pdf.setFont(_FONT, 10)
+            pdf.drawString(72, 790, "지역별 실적 (단위: 건)")
+            table = Table(self._ROWS, colWidths=[70, 60, 60, 60])
+            table.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), _FONT, 10),
+                                       *(("BACKGROUND", start, end, (0.85, 0.85, 0.85)) for start, end in shading)]))
+            _, height = table.wrapOn(pdf, 0, 0)
+            table.drawOn(pdf, 72, 770 - height)
+            pdf.drawString(72, 740 - height, "이상.")
+
+        return _korean_pdf(draw)
+
+    @pytest.mark.parametrize("column", [0, 3], ids=["first-column", "last-column"])
+    def test_table_reads_as_if_it_had_no_shading(self, column):
+        options = ConvertOptions(page_markers=False)
+        plain = convert(self._pdf([]), "a.pdf", options).text
+
+        text = convert(self._pdf([((0, 0), (-1, 0)), ((column, 1), (column, -1))]), "a.pdf", options).text
+
+        assert "| 지역 | 2022 | 2023 | 2024 |\n| --- | --- | --- | --- |\n| 서울 | 120 | 135 | 160 |" in plain
+        assert text == plain
+
+
 def _ruled_shaded_pdf(rows: list[tuple], edges: list[float], totals: list[tuple], grid: bool = True) -> bytes:
     """A table whose every row is shaded with one rectangle (two band colours) and, with `grid`, ruled with a full grid.
     A cell is a list of lines; the columns after the second are right-aligned. `totals` are lines without rules or shading
