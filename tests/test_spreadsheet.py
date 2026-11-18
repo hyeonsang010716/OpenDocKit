@@ -150,6 +150,15 @@ class TestNumberFormatRounding:
 
         assert result == expected
 
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (-0.0, "0.00", "0.00"), (-0.0, "#,##0", "0"), (-0.0, "0%", "0%"), (-0.0, '"$"#,##0.00', "$0.00"),
+        (-0.0, "#,##0;(#,##0)", "0"), (-0.0, "0.0;-0.0;0", "0"),
+        (-0.001, "0.00", "-0.00"),  # a negative rounded to zero keeps its sign, as in Excel
+    ])
+    def test_negative_zero_is_shown_without_a_sign(self, value, number_format, expected):
+        """A stored -0.0 (`<v>-0.0</v>`, `-0` in Excel 2003 XML) is zero: Excel shows it without a sign, as General does."""
+        assert format_cell(value, number_format) == expected
+
 
 class TestElapsedTime:
     @pytest.mark.parametrize(

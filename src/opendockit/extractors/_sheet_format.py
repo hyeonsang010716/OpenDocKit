@@ -368,6 +368,12 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
         return None
     if not math.isfinite(value):
         return None
+    # A stored -0.0 (`<v>-0.0</v>`, `-0` in Excel 2003 XML) is zero, which Excel shows without a sign; it kept the sign of its
+    # float into the rounded text ('-0.00', '-$0.00') while General showed 0 (Pinned by: test_spreadsheet.py::
+    # TestNumberFormatRounding::test_negative_zero_is_shown_without_a_sign). A small negative rounded to zero keeps it (-0.001
+    # under `0.00` is -0.00, as in Excel).
+    if value == 0:
+        value = 0.0
 
     section, value, signed_by_format = _format_section(value, number_format)
     section = section.lstrip()  # trailing whitespace may be part of `_ ` (underscore + space), so it is not stripped
