@@ -949,8 +949,13 @@ def _cell_text(cell: object) -> str:
         # below 1, the number when negative (`format_cell`) (Pinned by: test_spreadsheet.py::TestElapsedSectionsInsideFormatLiterals).
         # Only a duration openpyxl made from such a format: a real duration (an ISO `PT36H` of a `t="d"` cell) stays one
         # (Pinned by: test_spreadsheet.py::TestElapsedSectionsInsideFormatLiterals::test_an_iso_duration_stays_a_duration).
+        # A serial past the last date (9999-12-31) is the number, as under a plain date format: OverflowError rejected the whole
+        # workbook (Pinned by: test_spreadsheet.py::TestElapsedSectionsInsideFormatLiterals::test_xlsx_serial_past_the_last_date_is_the_number).
         serial = to_excel(value)
-        value = serial if serial < 0 else from_excel(serial, cell.parent.parent.epoch)
+        try:
+            value = serial if serial < 0 else from_excel(serial, cell.parent.parent.epoch)
+        except (OverflowError, ValueError):
+            value = serial
     if _is_serial_zero_shown_as_date(value, number_format):
         return "0"
     if isinstance(value, (int, float)) and not isinstance(value, bool) and _format_id(cell) in _EAST_ASIAN_DATE_FORMAT_IDS:

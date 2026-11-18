@@ -339,7 +339,12 @@ def _regrid(rows: list[list[_Line]], spans: tuple[tuple[float, float], ...]) -> 
     """The cell text of a borderless table's rows (line pieces) fitted to another table's column ranges (`spans`). Each piece
     must overlap exactly one column (a piece spanning several columns is tried split into its wide-gap pieces,
     `_Line.parts`), and when two pieces land in one cell they are joined with `<br>` only when the second is a wrapped line
-    placed below the row's first line. None if anything does not fit."""
+    placed below the row's first line. None if anything does not fit.
+
+    The empty piece of no width that stands for an empty cell of the first row (`_with_empty_cells`) holds no text and is
+    left out: it overlaps no column, so the table at the top of the next page whose first row had an empty cell did not
+    fit and the first data row became the header (Pinned by: test_pdf_table_columns.py::TestTableContinuedOnTheNextPage::
+    test_header_is_carried_over_when_the_first_row_has_an_empty_cell)."""
     def columns(x0: float, x1: float) -> list[int]:
         return [index for index, span in enumerate(spans) if min(x1, span[1]) - max(x0, span[0]) > 0]
 
@@ -347,6 +352,8 @@ def _regrid(rows: list[list[_Line]], spans: tuple[tuple[float, float], ...]) -> 
     for row in rows:
         cells = [""] * len(spans)
         for line in row:
+            if not line.text:
+                continue
             pieces = line.parts if line.parts and len(columns(line.x0, line.x1)) > 1 else ((line.x0, line.x1, line.text),)
             for x0, x1, text in pieces:
                 found = columns(x0, x1)

@@ -142,7 +142,7 @@ def _mail_body_html(message: Message) -> tuple[list[str], list[str]]:
     documents: list[str] = []
     encodings: list[str] = []
     read: set[int] = set()
-    has_text = False
+    html_texts: list[str] = []
 
     # Plain-text parts outside an alternative (the plain-text body or footer of a mixed) are placed in order with the HTML
     # parts, each a document of its own (`html._extract_documents`).
@@ -153,16 +153,19 @@ def _mail_body_html(message: Message) -> tuple[list[str], list[str]]:
         if part.get_content_type() == "text/html":
             text, encoding = decode_text(payload, part.get_content_charset() or _declared_charset(payload), markup=True)
             documents.append(_with_table_around_bare_rows(text))
-            has_text = has_text or _has_text(text)
+            html_texts.append(text)
         else:
             text, encoding = plain_part_text(part, payload)
             documents.append(_plain_paragraphs(text))
             read.add(id(part))
         encodings.append(encoding)
 
-    # When the HTML has no visible text, the plain-text branch of the alternative goes after it
+    # When the HTML has no visible text, the plain-text branch of the alternative goes after it. The HTML is looked at only
+    # when there is such a branch: parsed whole for every mail, a 37 MB HTML mail took 9.9 s and 1 GB where the same page
+    # stopped at its front part (`_extract_front`) took 4.2 s
+    # (Pinned by: test_audit_html_text.py::TestLargeHtmlMailWithoutAPlainBranch::test_html_is_not_parsed_for_text_it_does_not_need).
     leftover = [part for part in mail_body_parts(message) if part.get_content_type() == "text/plain" and id(part) not in read]
-    plain = mail_plain_body(message, leftover) if leftover and not has_text else None
+    plain = mail_plain_body(message, leftover) if leftover and not any(_has_text(text) for text in html_texts) else None
     if plain:
         return [*documents, _plain_paragraphs(plain[0])], [*encodings, *plain[1]]
     return documents, encodings

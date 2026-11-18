@@ -143,6 +143,35 @@ class TestPptxSpeakerNoteLevels:
         assert "> Speaker notes: 핵심 메시지" in result.text
         assert "number" not in result.text
 
+    def test_text_box_wrapped_in_alternate_content_on_the_notes_page_is_part_of_the_notes(self):
+        """A text box on the notes page wrapped in `mc:AlternateContent` (PowerPoint does so for a box holding an equation) was
+        not a shape for python-pptx, and the notes page never unwrapped it as a slide does, so its text was dropped. The
+        mc:Choice shape is read and the mc:Fallback copy is not."""
+        from lxml import etree
+        from pptx import Presentation
+        from pptx.util import Cm
+
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+        slide.shapes.title.text = "추이"
+        slide.notes_slide.notes_text_frame.text = "핵심 메시지"
+        box = slide.shapes.add_textbox(Cm(1), Cm(1), Cm(5), Cm(2))
+        box.text_frame.text = "수식 메모"
+        shape = etree.tostring(box._element).decode()
+        slide.shapes._spTree.remove(box._element)
+        alternate = etree.fromstring(
+            '<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">'
+            f'<mc:Choice xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" Requires="a14">{shape}</mc:Choice>'
+            f'<mc:Fallback>{shape.replace("수식 메모", "대체용")}</mc:Fallback></mc:AlternateContent>')
+        slide.notes_slide.shapes._spTree.append(alternate)
+        buffer = BytesIO()
+        presentation.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.pptx")
+
+        assert "> Speaker notes: 핵심 메시지\n> 수식 메모" in result.text
+        assert "대체용" not in result.text
+
 
 class TestPptxTableCellLevels:
     """Paragraphs of a PPTX table cell were joined without their level (a:pPr lvl), so sub-items were flattened. They are marked

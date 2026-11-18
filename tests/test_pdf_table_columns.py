@@ -197,6 +197,31 @@ class TestTableContinuedOnTheNextPage:
         for section in result.sections:
             assert section.text.count("사번") == 1
 
+    def test_header_is_carried_over_when_the_first_row_has_an_empty_cell(self):
+        """The first row of the borderless table on the next page gets an empty piece of no width for its empty cell, which
+        overlaps no column of the previous table: the table did not fit those columns, and its first data row became the
+        header."""
+        columns = (72, 150, 250, 350, 450)
+
+        def row(pdf, y, cells):
+            for x, text in zip(columns, cells, strict=True):
+                if text:
+                    pdf.drawString(x, y, text)
+
+        def draw(pdf, index):
+            if index == 0:
+                row(pdf, 770, ["구분", "성명", "부서", "금액", "비고"])
+            numbers, y = (range(30), 750) if index == 0 else (range(30, 45), 800)
+            for number in numbers:
+                row(pdf, y, [f"N{number}", f"홍길동{number % 7}", "영업본부", f"{number * 1234:,}",
+                             "" if number % 3 == 0 else "해당 없음"])
+                y -= 20
+
+        result = convert(_korean_pdf(draw, pages=2), "a.pdf")
+
+        assert result.sections[1].text.startswith("| 구분 | 성명 | 부서 | 금액 | 비고 |\n| --- | --- | --- | --- | --- |\n"
+                                                   "| N30 | 홍길동2 | 영업본부 | 37,020 | |\n")
+
     def test_new_table_with_its_own_header_at_the_top_of_the_next_page_keeps_its_header(self):
         """When a different table with the same column layout starts at the top of the next page with its own header, the previous table's header
         is not put on top of it."""

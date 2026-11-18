@@ -1424,6 +1424,63 @@ class TestDrawingArtifacts:
         assert result.text.count("총 예산 1,500") == 1
         assert "| 항목 | 수량 | 금액 |" in result.text
 
+    @pytest.mark.parametrize(("size", "spacing", "scale"), [(8, -0.8, 100), (7, -0.7, 100), (6, 0, 60)],
+                             ids=["8pt-tc-10%", "7pt-tc-10%", "6pt-tz-60"])
+    def test_doubled_narrow_letters_under_tight_spacing_are_both_kept(self, size, spacing, scale):
+        """Small text with tight character spacing (Tc of -10% of the size) or condensed scaling (Tz 60), nothing drawn twice: the
+        second 'l' of 'will' starts less than 1pt after the first, so it was taken for a fake-bold copy and removed ('Al staff wil
+        folow the ful bil')."""
+        text = "All staff will follow the full bill of skills; see www.example.com/hello..."
+
+        def draw(pdf, index):
+            line = pdf.beginText(72, 700)
+            line.setFont("Helvetica", size)
+            line.setCharSpace(spacing)
+            line.setHorizScale(scale)
+            line.textOut(text)
+            pdf.drawText(line)
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.sections[0].text == text
+
+    @pytest.mark.parametrize("copy_first", [False, True], ids=["copy-drawn-after", "copy-drawn-before"])
+    def test_fake_bold_under_tight_spacing_is_read_once(self, copy_first):
+        """Fake bold (the line drawn a second time 0.3pt to the right) of small text with tight character spacing is still one
+        line, its doubled narrow letters kept once each."""
+        text = "All staff will follow the full bill of skills."
+
+        def draw(pdf, index):
+            for shift in ((0.3, 0) if copy_first else (0, 0.3)):
+                line = pdf.beginText(72 + shift, 700)
+                line.setFont("Helvetica", 8)
+                line.setCharSpace(-0.8)
+                line.textOut(text)
+                pdf.drawText(line)
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.sections[0].text == text
+
+    def test_a_line_rebuilt_around_fake_bold_keeps_its_space_characters(self):
+        """A line drawn glyph by glyph with tight character spacing (each glyph advanced by its width minus 10% of the size, as
+        Hangul's -10% character spacing exports), one word in fake bold drawn into the same line. With the copies removed the line is
+        rebuilt from its glyphs, and the spaces were guessed from the gaps alone: under the tight spacing every word gap is
+        narrower than that, so the line came out as 'Theplanisimportantforthewholeteamthisyear.'."""
+        text = "The plan is important for the whole team this year."
+
+        def draw(pdf, index):
+            x = 72
+            pdf.setFont("Helvetica", 10)
+            for place, char in enumerate(text):
+                for shift in ((0, 0.3) if 12 <= place < 21 else (0,)):
+                    pdf.drawString(x + shift, 700, char)
+                x += pdf.stringWidth(char, "Helvetica", 10) - 1
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.sections[0].text == text
+
     @pytest.mark.parametrize("shifts", [(0, 0.3), (0.3, 0)], ids=["copy-drawn-right", "copy-drawn-left"])
     def test_a_word_in_fake_bold_on_part_of_a_line_is_read_once(self, shifts):
         """A word in fake bold (drawn twice, 0.3pt apart) with the rest of its line drawn as a separate run: pdfminer put one copy of
@@ -3127,6 +3184,29 @@ class TestRuledTables:
         assert result.text == ("| 구분 | 2024년 상반기 | 2024년 하반기 |\n| --- | --- | --- |\n| 서울 | 100 | 200 |\n"
                                "| 부산 | 300 | 400 |\n| 합계 | | 1000 |\n\n표 아래 문단입니다.")
 
+    def test_open_sided_table_whose_last_row_breaks_every_column_rule_keeps_it(self):
+        """The total '소계' spans columns 1-2 and the last row's remark columns 2-3, so the rule between columns 2 and 3 stops
+        above the last row and the rule between columns 1 and 2 has a piece of its own beside the last row only. That piece's
+        range meets the range above only at the rule between them and holds two rules, so it was never searched and the last
+        row came out under the table as loose lines."""
+        columns, top, height = self._OPEN_COLUMNS[:4], 700, 22
+        rows = [["구분", "내용", "금액"], ["인건비", "연구원", "12,000"], ["재료비", "시약", "3,500"], ["소계", "", "15,500"],
+                ["비고", "부가세 별도", ""]]
+
+        def draw(pdf, index):
+            for line in range(len(rows) + 1):
+                pdf.line(columns[0], top - line * height, columns[-1], top - line * height)
+            pdf.line(columns[1], top, columns[1], top - height * 3)
+            pdf.line(columns[1], top - height * 4, columns[1], top - height * 5)
+            pdf.line(columns[2], top, columns[2], top - height * 4)
+            _draw_cells(pdf, columns, top, height, rows)
+            pdf.drawString(columns[0], top - height * len(rows) - 30, "표 아래 문단입니다.")
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("| 구분 | 내용 | 금액 |\n| --- | --- | --- |\n| 인건비 | 연구원 | 12,000 |\n"
+                               "| 재료비 | 시약 | 3,500 |\n| 소계 | | 15,500 |\n| 비고 | 부가세 별도 | |\n\n표 아래 문단입니다.")
+
     def test_closed_table_with_merged_first_column_under_a_two_column_header_is_kept_whole(self):
         """In a table closed on all four sides whose first column is vertically merged and whose header '구분' spans columns 1–2, the
         vertical rule between columns 1 and 2 is missing in the header row, so the horizontal rules avoiding the merged cells looked
@@ -3195,6 +3275,33 @@ class TestRuledTables:
         assert result.text.count("주1)") == 2
         assert result.text.count("주2)") == 2
         assert "\n원\n" in result.text
+
+    def test_text_outside_a_cell_with_tight_spacing_keeps_its_space_characters(self):
+        """A note right outside the table's border on the line of the last row, drawn with tight character spacing: the line was
+        rebuilt from its glyphs outside the cell alone and its spaces guessed from the gaps, which tight spacing makes narrower
+        than a word gap ('k won' → 'kwon')."""
+        columns, top, height = [60, 200, 330], 742, 20
+        rows = [["Item", "Amount"], ["Server rent", "12,000"], ["Software", "8,500"], ["Upkeep", "24,000"]]
+
+        def draw(pdf, index):
+            for line in range(len(rows) + 1):
+                pdf.line(columns[0], top - line * height, columns[-1], top - line * height)
+            for x in columns:
+                pdf.line(x, top, x, top - height * len(rows))
+            pdf.setFont("Helvetica", 10)
+            for number, row in enumerate(rows):
+                pdf.drawString(columns[0] + 4, top - number * height - 14, row[0])
+                pdf.drawRightString(columns[2] - 3, top - number * height - 14, row[1])
+            note = pdf.beginText(columns[2] + 3, top - (len(rows) - 1) * height - 14)
+            note.setFont("Helvetica", 10)
+            note.setCharSpace(-1)
+            note.textOut("k won")
+            pdf.drawText(note)
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert "| Upkeep | 24,000 |" in result.text
+        assert result.text.endswith("\n\nk won")
 
     def test_text_rotated_inside_a_cell_is_read_in_its_own_direction(self):
         """A category name written rotated 90 degrees in a vertically merged cell ('기계 설비') was read top to bottom like horizontal

@@ -33,7 +33,10 @@ in the metadata.
 | `warnings` | One line per warning the converter raised (a hidden sheet left out, a scanned page without text, …). Absent when there are none |
 | `exceeded` | `True` when `max_chars` stopped the conversion. Absent otherwise |
 
-Every value is a string, an integer or a boolean, because vector stores reject anything else.
+Every value is a string, an integer or a boolean, because vector stores reject anything else. The LlamaIndex reader
+keeps `warnings` and `exceeded` out of the text LlamaIndex embeds and sends to the LLM with each node, and `source` out of
+the embedded text (`excluded_embed_metadata_keys`, `excluded_llm_metadata_keys`): many warnings made the metadata longer
+than a chunk.
 
 ## LangChain
 
@@ -108,7 +111,8 @@ is listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io
 
 - **The answer is bounded.** One call returns at most `max_chars` characters of the document (100,000 unless the agent
   asks for more or the server is started with `--max-chars`), followed by a short note and the converter's warnings when
-  there are any. A longer document is cut there, and the note tells the agent to read the outline and ask for `sections`.
+  there are any. A longer document is cut there, and the note tells the agent to read the outline and ask for `sections` — or, for a
+  document without pages, slides or sheets (a DOCX, an HTML page), to raise `max_chars`, as the outline says too.
 - **Which files it may read.** Without `--root`, any file the user running the server can read. With `--root DIR`
   (repeatable; or the `OPENDOCKIT_MCP_ROOTS` environment variable, separated like `PATH`) only files under those
   folders; symbolic links are followed before the check, and an empty value is an error rather than "everything". Give it the folders the agent is meant to see.

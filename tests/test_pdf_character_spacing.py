@@ -37,3 +37,23 @@ class TestWideCharacterSpacing:
 
     def test_line_with_ordinary_spacing_is_unchanged(self):
         assert "총 사업비는 1,234,567천원이다." in _spaced_lines(0.3, [(50, 780, "총 사업비는 1,234,567천원이다.")])
+
+    def test_a_word_in_synthetic_italic_does_not_keep_its_line_spaced_out(self):
+        """A word in synthetic italic (an oblique text matrix, how LibreOffice and Word slant a Korean font) has its character
+        boxes widened by the slant, so its gaps were negative, and the whole letter-spaced line stayed spaced out
+        ('매 출 을 보 고 서 현 황 크게 것이다 향 후 현 황')."""
+        def draw(pdf, index):
+            x = 72
+            for words, slanted in [("매출을 보고서 현황 ", False), ("크게 것이다 ", True), ("향후 현황", False)]:
+                run = pdf.beginText(x, 700)
+                if slanted:
+                    run.setTextTransform(1, 0, 0.35, 1, x, 700)
+                run.setFont(_FONT, 9)
+                run.setCharSpace(2)
+                run.textOut(words)
+                pdf.drawText(run)
+                x += pdf.stringWidth(words, _FONT, 9) + 2 * len(words)
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == "매출을 보고서 현황 크게 것이다 향후 현황"

@@ -117,7 +117,10 @@ def _negative_serial_text(value: float, number_format: str) -> str:
             # positive one is. It rejected the whole document
             # (Pinned by: test_audit_spreadsheet.py::TestNegativeValueTooLargeForADuration).
             return _format_value(value)
-    if _shows_date(number_format) or math.isinf(value):
+    if _shows_date(number_format) or math.isinf(value * 86400):
+        # More seconds than a float holds (-1E+305 days, or infinity): `round` raised OverflowError and the whole workbook was
+        # rejected. Shown as the number, as under an elapsed format
+        # (Pinned by: test_audit_spreadsheet.py::TestNegativeValueTooLargeForADuration::test_time_only_format_whose_seconds_do_not_fit_in_a_float).
         return _format_value(value)
     seconds = round(-value * 86400)
     return f"-{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
@@ -470,10 +473,14 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     # gave `약1,000원` and `0.00USD`, unlike the LibreOffice and Excel screens
     # (Pinned by: test_spreadsheet.py::TestNumberFormatLiteralsAndOptionalDecimals).
     prefix = literal_text(prefix_raw).lstrip()
-    suffix = literal_text(suffix_raw.replace("%", ""), iter(literals[literals_before + core.count("\x00"):])).rstrip()
+    # A `%` stays where the format puts it (`0.0 %` → 12.5 %, `%0` → %50); it was moved to right after the digits, giving
+    # `12.5%` and `%50%` (Pinned by: test_audit_spreadsheet.py::TestPercentWhereTheFormatPutsIt).
+    suffix = literal_text(suffix_raw, iter(literals[literals_before + core.count("\x00"):])).rstrip()
     # Deliberate: a % shielded by quotes or a backslash is a literal. Searching the original format string turned 2.5 under
     # `0.0"%p"` into "250.0%%p", 100 times too large (Pinned by: test_quality.py::TestSpreadsheetNumberFormats).
-    percent = "%" in plain
+    # Each bare `%` multiplies by 100, as in Excel (`0%%`: 0.125 → 1250%%); kept where it stands, a second one showed a value
+    # scaled once (`13%%`) (Pinned by: test_audit_spreadsheet.py::TestPercentWhereTheFormatPutsIt).
+    percents = plain.count("%")
     # A comma between digit places is a thousands separator; commas attached after the digit places mean dividing by 1,000 once
     # per comma for display (`#,##0,` = in thousands).
     # Ignoring the trailing commas emits the 1,235 of a "단위: 천원" (unit: thousand won) table as 1,234,567, read as 1,000 times
@@ -484,7 +491,7 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     places = "".join(char for char in fraction if char in "0#?")
     decimals = len(places)
     try:
-        number = _rounded(value, percent, scale, decimals)
+        number = _rounded(value, percents, scale, decimals)
     except InvalidOperation:
         return None  # a format with hundreds of decimal places — the original value is used
     text = f"{number:,.{decimals}f}" if "," in whole else f"{number:.{decimals}f}"
@@ -495,7 +502,7 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     if places.endswith(("#", "?")):
         rest = _without_trailing_zeros(places, rest)
         dot = dot if rest else ""  # 12 under `0.###` → 12 (same as LibreOffice)
-    if any(char not in "0#?,%" for char in fraction):
+    if any(char not in "0#?," for char in fraction):
         # Literals between decimal places (`0.0\E+0`, `0.00" "00`) stay where they are, the decimal digits filling the places from
         # the left as in Excel. They were dropped, so 5 under `0.0\E+0` came out as `5.00` instead of `5.0E+0`
         # (Pinned by: test_audit_spreadsheet_fixes.py::TestLiteralsBetweenDecimalPlaces).
@@ -513,9 +520,14 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
         # (Pinned by: test_spreadsheet.py::TestZeroPaddingWithAThousandsSeparator).
         digits = integer.replace(",", "").zfill(whole.count("0"))
         integer = _grouped(digits) if "," in whole else digits
-    elif not whole and integer == "0":
-        integer = ""  # for a format without integer places Excel does not show the 0 either (0.5 under `.00` → .50)
-    return f"{sign}{prefix}{integer}{dot}{rest}{'%' if percent else ''}{suffix}"
+    elif integer == "0" and not whole.strip("#,") and any(char.isdigit() for char in rest):
+        # A `#` integer place shows nothing for a zero integer part, as does a format without integer places: 0.5 under `#.##` is
+        # `.5` and under `.00` `.50` in Excel. Only the format without integer places dropped it, so `#.##` gave `0.5`.
+        # Deliberate: when no other digit is shown (0 under `#,###`, `#` or `.##`, where Excel shows nothing), the 0 stays, as an
+        # empty section gives the value instead of nothing
+        # (Pinned by: test_audit_spreadsheet.py::TestZeroIntegerUnderOptionalPlaces).
+        integer = ""
+    return f"{sign}{prefix}{integer}{dot}{rest}{suffix}"
 
 
 def _grouped(digits: str) -> str:
@@ -538,8 +550,8 @@ def _without_trailing_zeros(places: str, digits: str) -> str:
     return "".join(kept)
 
 
-def _rounded(value: float, percent: bool, scale: int, decimals: int) -> Decimal:
-    """Apply percent and scaling by thousands as the format says and round to `decimals` decimal places.
+def _rounded(value: float, percents: int, scale: int, decimals: int) -> Decimal:
+    """Apply percent (×100 per `%`) and scaling by thousands as the format says and round to `decimals` decimal places.
 
     Excel rounds 0.5 away from zero. With Python format specs (half to even, binary representation) 72.5 became 72 and 0.125
     became 0.12. Rounding is done on the value to 15 significant digits, as Excel shows it (and as General shows a float,
@@ -551,14 +563,14 @@ def _rounded(value: float, percent: bool, scale: int, decimals: int) -> Decimal:
     with localcontext() as context:
         context.prec = 400  # even 1e308 keeps its integer part
         number = Decimal(format(value, ".15g"))
-        if percent:
-            number *= 100
+        if percents:
+            number *= 100 ** percents
         return number.scaleb(-3 * scale).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)
 
 
 def _fill_decimals(template: str, literals: list[str], digits: str) -> str:
     """Put the decimal digits into the decimal-part format (`0`/`#`/`?` places and literals) from the left. A `?` without a digit is
-    a space and a `#` without one is nothing; scaling commas and `%` are not shown here."""
+    a space and a `#` without one is nothing; scaling commas are not shown here."""
     pieces, remaining = iter(literals), iter(digits)
     filled = []
     for char in template:
@@ -566,7 +578,7 @@ def _fill_decimals(template: str, literals: list[str], digits: str) -> str:
             filled.append(next(remaining, " " if char == "?" else ""))
         elif char == "\x00":
             filled.append(next(pieces, ""))
-        elif char not in ",%":
+        elif char != ",":
             filled.append(char)
     return "".join(filled)
 

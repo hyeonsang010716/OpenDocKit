@@ -219,6 +219,8 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
     # (a 38 KB document took 312 seconds. Pinned by: test_office_scaling_and_note_order.py::
     # TestDocxLongRunsAndDeepFields::test_run_with_many_text_pieces_takes_linear_time).
     run_looks: dict[etree._Element, _RunLook] = {}
+    # The characters of a custom note mark (`_custom_mark`): the generated label stands for them
+    custom_marks: set[etree._Element] = set()
 
     def with_run_marks(run: etree._Element, text: str) -> str:
         """A character that a run writes without w:t (a non-breaking hyphen, a symbol) with the strikethrough and emphasis marks
@@ -294,6 +296,8 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                             fields[-1].instruction.append(code.text)
                 continue
             if tag == _w("sdt") and _shows_placeholder(child):
+                continue
+            if custom_marks and child in custom_marks:
                 continue
             if tag == _w("t"):
                 look = run_looks.get(element) or run_looks.setdefault(element, _RunLook.of(element, body_size, inline))
@@ -384,6 +388,7 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
             elif tag == f"{{{_M}}}oMath":
                 parts.append(render_omml(child))
             elif tag in (_w("footnoteReference"), _w("endnoteReference")):
+                custom_marks.update(_custom_mark(child))
                 if notes is None:
                     continue
                 kind = "footnote" if tag == _w("footnoteReference") else "endnote"
@@ -446,6 +451,20 @@ def _is_drop_cap(paragraph: etree._Element) -> bool:
 def _next_is_paragraph(paragraph: etree._Element) -> bool:
     following = paragraph.getnext()
     return following is not None and following.tag == _w("p")
+
+
+def _custom_mark(reference: etree._Element) -> list[etree._Element]:
+    """The characters (w:t, w:sym) right after a footnote / endnote reference in its run that Word's Insert Footnote > Custom mark
+    put there as the mark (`w:customMarkFollows` on), or nothing. The mark was written next to the generated label, which stands
+    for it: 'Text[^1]* and more' (Pinned by: test_office_symbols_fields_notes.py::TestDocxCustomNoteMark)."""
+    if reference.get(_w("customMarkFollows"), "0") not in ("1", "true", "on"):
+        return []
+    pieces = []
+    for sibling in reference.itersiblings():
+        if sibling.tag not in (_w("t"), _w("sym")):
+            break
+        pieces.append(sibling)
+    return pieces
 
 
 def _is_on(element: etree._Element | None) -> bool:

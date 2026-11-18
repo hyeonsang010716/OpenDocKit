@@ -1,6 +1,6 @@
 # Running in a server
 
-This page explains how to use OpenDocKit behind an upload endpoint: how the per-file character limit works (`max_chars` stops conversion rather than truncating), how to run conversions in isolated worker processes with `IsolatedConverter` in a FastAPI application, which resource limits apply and why, and what those limits cannot stop. Option details are in [options.md](options.md); a summary for people building the upload UI is in [integration-guide.md](integration-guide.md).
+This page explains how to use OpenDocKit behind an upload endpoint: how the per-file character limit works (`max_chars` stops conversion rather than truncating), how to run conversions in isolated worker processes with `IsolatedConverter` in a FastAPI application, which resource limits apply and why, and what they bound in the main process. Option details are in [options.md](options.md); a summary for people building the upload UI is in [integration-guide.md](integration-guide.md).
 
 ## Character limit
 
@@ -114,11 +114,9 @@ In a Linux container (8 GB of memory), 5 kinds of normal documents and 23 crafte
 
 Known accepted gap: for a DOCX with a large empty XML, lxml reports running out of memory not as `MemoryError` but as `XMLSyntaxError("unknown error")`. The file is blocked, but with the "may be corrupted" message. There is no way to tell this apart from genuinely broken XML, so it is left as is.
 
-### What the limits cannot stop
+### What the limits bound in the main process
 
-The following happens outside the worker, in the main process. It does not occur with normal documents, only with crafted image files, so it is to be fixed in the library before opening a public service where anyone can upload.
-
-- **Memory when the conversion result is copied to the main process.** The result (including images) crosses to the main process by pickle, and the main process uses about 2.2 times the total image size (a result with 2.4 GB of images cost the main process 5.3 GB). Even within the 2 GB worker limit, 1.5–2 GB may appear in the main process (estimate). For normal documents, even a 50 MB scanned PDF has 134–141 MB of images in total. Where to fix: a limit on the total bytes of result images.
+- **Memory when the conversion result is copied to the main process.** The result (including images) crosses to the main process by pickle, and the main process uses about 2.2 times the total image size (a result with 2.4 GB of images cost the main process 5.3 GB). The prepared pictures of one document are bounded by `max_uncompressed_bytes` together (500 MB by default; the first picture is always kept, and it is bounded by `image_max_side`), and pictures past the bound keep their placeholder with a warning ([images.md](images.md)). So the main process needs about 2.2 × `max_uncompressed_bytes` for one result at most, about 1.1 GB by default; lower the option to lower that. For normal documents, even a 50 MB scanned PDF has 134–141 MB of images in total.
 
 Fixed: **CPU in the image description step.** Each picture judged decorative (SKIP) used to use up headroom of the limit check as if it had added three characters, so in a document just under the limit the whole text was assembled again every few pictures (10,000 pictures blocked the event loop for 245 s). An erased picture now counts as adding nothing (`converter.image_length_bound` returns 0 for it), and description assembles the document only when a picture that really adds text uses the headroom up.
 

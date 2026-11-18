@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from opendockit import convert
+from opendockit import ConvertOptions, convert
 from opendockit.extractors._inline import mark_strike, resolve_strikes
 from tests import builder
 from tests.test_office import (
@@ -320,6 +320,67 @@ class TestDocxNoteReferenceWithoutContent:
                 '<w:footnoteReference w:id="1"/></w:r>', '<w:footnoteReference w:id="1"/></w:r><w:r><w:footnoteReference w:id="2"/></w:r>')})
 
         assert convert(data, "a.docx").text == "배출량[^1]\n\n[^1]: 둘째 각주"
+
+
+def _docx_with_custom_mark(kind: str, flag: str, note_start: str = "*", mark: str = "*") -> bytes:
+    """Document whose body references note 1 of `kind` (footnote / endnote) with Word's Insert Footnote > Custom mark `mark`: the
+    reference carries `w:customMarkFollows` = `flag` and the mark follows as text in the same run; the note starts with
+    `note_start` as text in place of `w:footnoteRef`."""
+    style = f'<w:rPr><w:rStyle w:val="{kind.capitalize()}Reference"/></w:rPr>'
+    body = ("<w:p>" + _run("배출량") + f'<w:r>{style}<w:{kind}Reference w:customMarkFollows="{flag}" w:id="1"/><w:t>{mark}</w:t></w:r>'
+            + _run(" 기준") + "</w:p>")
+    note = (f'<w:{kind}s xmlns:w="{_WORD_NS}"><w:{kind} w:id="1"><w:p><w:r>{style}<w:t>{note_start}</w:t></w:r>{_run(" 추정치")}'
+            f"</w:p></w:{kind}></w:{kind}s>")
+    return builder.zip_with(_docx_with_body(body), edit={
+        "word/_rels/document.xml.rels": lambda xml: xml.replace(
+            "</Relationships>", f'<Relationship Id="rIdNotes" Type="{_RELATIONSHIPS_NS}/{kind}s" Target="{kind}s.xml"/>'
+                                "</Relationships>"),
+        "[Content_Types].xml": lambda xml: xml.replace(
+            "</Types>", f'<Override PartName="/word/{kind}s.xml" ContentType="application/vnd.openxmlformats-officedocument.'
+                        f'wordprocessingml.{kind}s+xml"/></Types>'),
+    }, add={f"word/{kind}s.xml": note})
+
+
+class TestDocxCustomNoteMark:
+    """A footnote with a custom mark (Insert Footnote > Custom mark) is stored as `w:footnoteReference w:customMarkFollows="1"`
+    followed by the mark as text in the same run, and the note starts with the mark as text where `w:footnoteRef` would be. The
+    mark was written next to the generated label: 'Text[^1]* and more', '[^1]: * Estimated.'."""
+
+    @pytest.mark.parametrize("flag", ["1", "true", "on"])
+    def test_custom_footnote_mark_is_written_once_as_the_label(self, flag):
+        result = convert(_docx_with_custom_mark("footnote", flag), "a.docx")
+
+        assert result.text == "배출량[^1] 기준\n\n[^1]: 추정치"
+
+    def test_custom_endnote_mark_is_written_once_as_the_label(self):
+        result = convert(_docx_with_custom_mark("endnote", "1"), "a.docx")
+
+        assert result.text == "배출량[^endnote1] 기준\n\n[^endnote1]: 추정치"
+
+    @pytest.mark.parametrize("flag", ["0", "false", "off"])
+    def test_text_after_an_ordinary_reference_stays(self, flag):
+        result = convert(_docx_with_custom_mark("footnote", flag), "a.docx")
+
+        assert result.text == "배출량[^1]* 기준\n\n[^1]: * 추정치"
+
+    def test_custom_mark_is_left_out_with_the_reference_when_footnotes_are_not_included(self):
+        result = convert(_docx_with_custom_mark("footnote", "1"), "a.docx", ConvertOptions(include_footnotes=False))
+
+        assert result.text == "배출량 기준"
+
+    def test_note_that_does_not_start_with_the_mark_keeps_its_text(self):
+        result = convert(_docx_with_custom_mark("footnote", "1", note_start="주"), "a.docx")
+
+        assert result.text == "배출량[^1] 기준\n\n[^1]: 주 추정치"
+
+    def test_letter_mark_is_taken_off_a_note_only_as_a_word_of_its_own(self):
+        """A letter mark is taken off the start of the note only where a word could end: a note that does not repeat the
+        mark 'a' keeps the 'a' of 'about'."""
+        repeated = convert(_docx_with_custom_mark("footnote", "1", note_start="a", mark="a"), "a.docx")
+        not_repeated = convert(_docx_with_custom_mark("footnote", "1", note_start="about", mark="a"), "a.docx")
+
+        assert repeated.text == "배출량[^1] 기준\n\n[^1]: 추정치"
+        assert not_repeated.text == "배출량[^1] 기준\n\n[^1]: about 추정치"
 
 
 class TestStrikeResolutionIsLinear:

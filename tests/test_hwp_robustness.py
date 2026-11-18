@@ -25,6 +25,7 @@ from tests.test_hwp import (
     TAG_TABLE,
     _fake_hwp,
 )
+from tests.timing import allowed, fastest
 
 
 _HUGE = "9" * 5000  # more digits than int() accepts (over 4,300)
@@ -311,6 +312,37 @@ class TestSpansPastTheTable:
         assert result.text == "title\n\n| 끝 | 값 |\n| --- | --- |"
         assert sum(filled) <= _CONVERSION_SPAN_BUDGET + len(filled)  # per table it was 50 × 500,000 cells
 
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("binary", [False, True])
+    def test_far_apart_spans_of_many_tables_take_little_time(self, monkeypatch, binary):
+        """One cell at column 65,536 spanning 10,000 rows and one at row 65,536 spanning 1,000 columns, each within the span
+        limits, made a grid of 10,000 × 1,001 cells per table: a 400-byte table took 6 s, ten of them 63 s (HWP the same,
+        with 65,535 rows and columns declared). The grid is built from the rows and columns that hold text."""
+        record = builder.hwp_record
+        if binary:
+            cells = [(0, 1000, "A", 10_000, 1), (65_534, 0, "B", 1, 1000)]
+            table = b"".join([
+                record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+                record(TAG_PARA_TEXT, 1, builder.hwp_text((11, "tbl "))),
+                record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("tbl ")),
+                record(TAG_TABLE, 2, struct.pack("<IHH", 0, 65_535, 65_535) + b"\x00" * 10),
+                *(part for row, col, text, row_span, col_span in cells
+                  for part in (record(TAG_LIST_HEADER, 2, builder.hwp_cell(row, col, row_span=row_span, col_span=col_span)),
+                               _paragraph(text, 2))),
+            ])
+            data, name = _fake_hwp(monkeypatch, sections=[table * 3]), "a.hwp"
+        else:
+            table = ("<hp:p><hp:run><hp:tbl><hp:tr>" + builder._hwpx_cell(0, 65_536, "A", row_span=10_000)
+                     + builder._hwpx_cell(65_536, 0, "B", col_span=1_000) + "</hp:tr></hp:tbl></hp:run></hp:p>")
+            data, name = builder.hwpx_bytes(table * 3), "a.hwpx"
+
+        seconds = fastest(lambda: convert(data, name))
+        result = convert(data, name)
+
+        assert seconds < allowed(1.0)
+        assert result.warnings == []
+        assert result.text.count("| B | |") == 3
 
 class TestCellsOnAnOccupiedAddress:
     """When a cell address pointed at a place taken by an earlier cell (two cells with the same address, or an earlier cell's

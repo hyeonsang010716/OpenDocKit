@@ -1811,6 +1811,17 @@ class TestDocxNumbering:
 
         assert result.text == "1) 개요\n\n  - a. 배경\n    1. 첫째\n      - 1.1. 세부\n  - b. 목적\n\n2) 범위"
 
+    def test_sub_items_with_full_width_digits_take_a_bullet(self):
+        """A lower level in full-width digits (decimalFullWidth, '１.') was taken for the Markdown '1.' form, because `\\d` matches
+        any Unicode digit. A list marker is ASCII digits only, so '  １. Sub' was continuation text of the item above."""
+        numbering = ('<w:abstractNum w:abstractNumId="0">' + _number_level(0, "%1.") + _number_level(1, "%2.", "decimalFullWidth")
+                     + "</w:abstractNum>" + _number_list(1))
+        body = "".join(_paragraph(text, 1, level) for text, level in [("개요", 0), ("배경", 1), ("목적", 1), ("범위", 0)])
+
+        result = convert(_docx_with_body(body, numbering=numbering), "a.docx")
+
+        assert result.text == "1. 개요\n  - １. 배경\n  - ２. 목적\n2. 범위"
+
     def test_list_level_without_a_list_id_takes_the_list_of_the_paragraph_style(self):
         """When w:numPr has only a level (ilvl) and no numId, the numbered list is that of the paragraph style. The number was dropped
         entirely."""

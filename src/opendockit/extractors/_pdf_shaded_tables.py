@@ -37,6 +37,10 @@ _BAND_SLACK_RATIO = 0.3  # share of the character height that may stick out of a
 # cell (`_regridded_fragments`). Chrome placed the text of a cell merged over an even number of rows 25% across the row boundary.
 # This tells it from a character box grazing the neighbouring row (0.06pt).
 _MERGED_TEXT_CROSSING = 0.15
+# A cell of a shaded table with this many lines of text, all of them split by one blank strip at least this many times the
+# character height wide, holds columns of its own (`_holds_columns`)
+_INNER_COLUMN_LINES = 3
+_INNER_COLUMN_GAP_RATIO = 1.0
 _CELL_GAP_MIN_RATIO = 0.5  # characters either side of a cell boundary closer than this (vs. character size) are text crossing it (a word gap)
 
 
@@ -177,7 +181,8 @@ def _with_shaded_rows(page: object, tables: list[object]) -> list[object]:
         grown = _grown_shaded_table(page, table, result, rules, box_of, edges_of, sides_of)
         new, replaced = grown if grown is not None else (table, [table])
         position = result.remove(replaced)
-        if not _leaves_aligned_rows(page, new, result, shaded, box_of) or _has_drawn_columns(page, new):
+        if (not _leaves_aligned_rows(page, new, result, shaded, box_of) and not _holds_columns(page, new)
+                or _has_drawn_columns(page, new)):
             result.add(new, position)
     return _with_merged_column_fragments(page, result.ordered(), shades, shaded, box_of, edges_of)
 
@@ -496,6 +501,62 @@ def _leaves_aligned_rows(page: object, table: object, others: "list[object] | _F
             continue
         if _aligned_cells(_band_cells(page, band, edges), references):
             return True
+    return False
+
+
+def _holds_columns(page: object, table: object) -> bool:
+    """Whether a cell of the table (a row and a column of its grid) holds `_INNER_COLUMN_LINES` or more lines of text that
+    all have text on both sides of one blank strip at least `_INNER_COLUMN_GAP_RATIO` times the character height wide:
+    columns of a table inside one cell.
+
+    Then the shading is not the table's grid, and the table is left to the borderless search like one that stops short of
+    aligned rows (`_leaves_aligned_rows`). A borderless table whose header row and first column were each shaded with one
+    rectangle gave pdfplumber a grid of two rows and two columns, and the whole table was read as two cells: '| 지역 |
+    2022 2023 2024 |' over '| 서울<br>부산<br>… | 120 135 160<br>45 52 60<br>… |' (Pinned by:
+    test_pdf_shaded_tables.py::TestShadedHeaderRowAndFirstColumn). Every row and column of the grid is looked at, as
+    pdfplumber gives no cell where the shading leaves one without sides. Each character is looked at once per row. A box of
+    one column or one row is not looked at: shading that is no grid at all (a shaded code listing whose comments line up)
+    stays as it is.
+    """
+    edges = _column_edges(table)
+    if len(edges) < 3 or len(table.rows) < 2:
+        return False
+    tops, ordered, tallest = _chars_by_top(page)
+    for row in table.rows:
+        _, top, _, bottom = row.bbox
+        cells: dict[int, list[dict]] = {}
+        for char in ordered[bisect_left(tops, top - tallest):bisect_left(tops, bottom)]:
+            if edges[0] <= (char["x0"] + char["x1"]) / 2 <= edges[-1] and top <= (char["top"] + char["bottom"]) / 2 <= bottom:
+                cells.setdefault(_column_of(char, edges), []).append(char)
+        if any(_split_by_one_strip(chars) for chars in cells.values()):
+            return True
+    return False
+
+
+def _split_by_one_strip(chars: list[dict]) -> bool:
+    """Whether the characters of one cell (in order of their top edge) make `_INNER_COLUMN_LINES` or more lines that all
+    have text on both sides of one blank strip at least `_INNER_COLUMN_GAP_RATIO` times the character height wide
+    (`_holds_columns`)."""
+    if len(chars) < _INNER_COLUMN_LINES * 2:
+        return False
+    size = statistics.median(char["bottom"] - char["top"] for char in chars)
+    lines: list[tuple[float, float, float]] = []  # (top of the first character, left end, right end) per line
+    for char in chars:
+        if lines and char["top"] - lines[-1][0] <= size / 2:
+            first, left, right = lines[-1]
+            lines[-1] = (first, min(left, char["x0"]), max(right, char["x1"]))
+        else:
+            lines.append((char["top"], char["x0"], char["x1"]))
+    if len(lines) < _INNER_COLUMN_LINES:
+        return False
+    # A strip blank on every line has text on both sides on every line when the line starting furthest right starts left
+    # of it and the line ending furthest left ends right of it
+    latest_start, earliest_end = max(left for _, left, _ in lines), min(right for _, _, right in lines)
+    end = -math.inf
+    for char in sorted(chars, key=lambda char: char["x0"]):
+        if char["x0"] - end >= size * _INNER_COLUMN_GAP_RATIO and latest_start < end and earliest_end > char["x0"]:
+            return True
+        end = max(end, char["x1"])
     return False
 
 

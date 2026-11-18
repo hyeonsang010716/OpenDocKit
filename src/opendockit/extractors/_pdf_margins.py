@@ -17,6 +17,7 @@ from opendockit.extractors._pdf_model import (
     _TABLE_ROW_TOLERANCE,
     _in_margin,
     _Line,
+    _original_lines_of,
     _Page,
     _visual_rows,
 )
@@ -113,12 +114,11 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
         rows = _visual_rows(page.lines)
         edge = {id(line) for row in _edge_rows(rows) for line in row}
         cells = [line for run in _aligned_table_runs(page) for row in run for line in row]
-        protected = {id(line.source or line) for line in cells}
         # A cell joined from several lines stands for its original lines, which are the ones in `page.lines`: unprotected,
         # the first line of a wrapped cell in the top row of a table repeated on every page was removed and the table fell
         # apart (Pinned by: test_audit_pdf_tail.py::TestJoinedCellLinesAtThePageTop::
         # test_wrapped_first_cell_survives_on_every_page).
-        protected.update(id(original) for line in cells for original in line.joined)
+        protected = {id(original) for line in cells for original in _original_lines_of(line)}
         protected.update(id(line) for row in _label_value_rows(rows, page.width) for line in row)
         # A footnote rule typed as a line of em dashes with a note right under it: on pages with a one-line note it is one of
         # the bottom two rows, and removed as repeated it left every such page unlinked, where a drawn rule is not a line

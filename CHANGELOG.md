@@ -69,6 +69,46 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Open WebUI loader**: an app from `create_app` mounted in another Starlette or FastAPI app converts in worker
   processes too; Starlette runs no lifespan of a mounted app, and every file was converted in the server process
   without the 2-minute and 2 GB limits.
+- **PDF text**: small text with tight character spacing or condensed width keeps both letters of `ll` and its spaces;
+  the second letter was taken for a fake-bold copy (`Al staffwil folow`). A line rebuilt around a word in fake bold keeps
+  the spaces the PDF draws (`Theplanisimportant`). A drop cap drawn after its lines (as LibreOffice writes it) joins its
+  word (`O` / `nce upon a time`), and one word in synthetic italic no longer keeps a letter-spaced line spaced out.
+- **PDF tables**: a borderless cell joined from the pieces of one line (cells centred over a wrapped cell, as Hangul
+  exports them) is no longer repeated as a paragraph under the table. The header is carried to the next page when that
+  page's first row has an empty cell. An open-sided table whose last row merges across every column rule keeps that
+  row, and a table shaded with one rectangle for the header row and one for the first column is no longer read as two
+  cells.
+- **Tables (HWP, HWPX and every format)**: a few cells far apart (one spanning 10,000 rows, another 1,000 columns) no
+  longer build a dense grid of empty cells: a 1.9 KB HWPX took 6.5 seconds per table. A table is drawn from the rows and
+  columns that hold text, and the empty cells of one conversion share one budget.
+- **CSV**: a run of empty lines is skipped in one step and the lines are no longer all held in memory: a header and then
+  50 MB of line breaks took 32 seconds and 4 GB.
+- **XLSX / XLS / Excel 2003 XML**: `#.##` shows 0.5 as `.5` and `#,###.00` as `.50`, as Excel does. A bare `%` stays where
+  the format puts it (`0.0 %` → `12.5 %`, `%0` → `%50`), and each one multiplies by 100 (`0%%` → `1250%%`). A huge negative under `h:mm`, and a serial past 9999-12-31
+  under a date format with a quoted `[h]`, no longer reject the workbook.
+- **DOCX**: a footnote with a custom mark (Insert Footnote > Custom mark) no longer writes the mark twice
+  (`Text[^1]*`). First-page and even-page headers that Word does not show (the option unticked, the part kept) are left
+  out. Lower-level numbers in full-width digits (`１.`) get their bullet; they ran into the item above.
+- **PPTX**: unwrapping `mc:AlternateContent` takes linear time (40,000 wrapped shapes: 19.6 seconds), and a wrapped text
+  box on a notes page is part of the notes.
+- **RTF / ODT**: an empty numbered paragraph takes its number, as in Word, LibreOffice and DOCX (`1.` then `3.` after an
+  empty item). An RTF list override starts at the number it sets (`\listoverridestartat`).
+- **HTML**: a link or emphasis around the nested list of a list item is no longer written across the list. Every
+  caption of a table is kept. Many `<xmp>` or `<textarea>` elements no longer take quadratic time (400,000: 10.8
+  seconds).
+- **Mail**: the HTML of a mail is searched for visible text only when a plain-text branch waits on it; a 37 MB HTML mail
+  was parsed whole, 9.9 seconds and 1 GB.
+- **EPUB**: many `<epub:switch>` elements no longer take quadratic time.
+- **Pictures**: a 1-bit or palette picture (a fax TIFF, a bilevel scan, a GIF) is blended when it is shrunk; Pillow
+  shrank it by nearest neighbour, and 2 px rules and thin strokes vanished. Scanned pages that are copies of one
+  picture are each counted in the warning (100 such pages were '10 page(s)').
+- **Markdown files**: a data: URI picture whose alt text holds brackets (`![Figure [1]](…)`) or a line break, or an
+  `<img>` whose quoted alt holds `>`, is extracted; its base64 stayed in the text.
+- **MCP server**: a long document without pages, slides or sheets is no longer sent to `document_outline` and
+  `sections`, which gave the same first characters again; the note says to raise `max_chars`, and the outline no longer
+  says it is returned whole.
+- **LlamaIndex reader**: `warnings` and `exceeded` stay out of the text LlamaIndex embeds and sends to the LLM with every
+  node, and `source` out of the embedded text; a file with many warnings was refused by `SentenceSplitter`.
 
 ## [0.3.13] - 2026-11-17
 

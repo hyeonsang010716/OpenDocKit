@@ -2,6 +2,7 @@
 closed up, and superscripts and subscripts marked."""
 
 from bisect import bisect_left, bisect_right
+from collections.abc import Callable
 import math
 import re
 import statistics
@@ -77,12 +78,29 @@ def _text_from_chars(chars: list[dict]) -> str:
     return " ".join("".join(parts).split())
 
 
+# A character whose text matrix leans its upright strokes by more than this (c / d, about 6 degrees) is slanted: synthetic italic
+# (`_glyph_gaps`).
+_SLANT_RATIO = 0.1
+
+
+def _is_slanted(char: dict) -> bool:
+    """Whether the character is written horizontally with a slanted text matrix (synthetic italic)."""
+    a, b, c, d = (char.get("matrix") or (1.0, 0.0, 0.0, 1.0))[:4]
+    return abs(b) <= _SLANT_RATIO * abs(a) and abs(c) > _SLANT_RATIO * abs(d)
+
+
 def _glyph_gaps(chars: list[dict]) -> tuple[list[dict], list[float]]:
     """The line's characters laid left to right, and the gaps between two neighbouring characters that have no space character
-    between them."""
+    between them.
+
+    A gap next to a slanted character is not one: synthetic italic (an oblique text matrix, how LibreOffice and Word slant a
+    font that has no italic, such as any Korean font) widens the box of each character by the slant, so the gaps of a word in
+    it are negative, and one such word kept a letter-spaced line from being closed up ('매 출 을 보 고 서') (Pinned by:
+    test_pdf_character_spacing.py::TestWideCharacterSpacing::test_a_word_in_synthetic_italic_does_not_keep_its_line_spaced_out).
+    Known accepted gap: a line all in synthetic italic has no gaps and is not closed up."""
     ordered = sorted(chars, key=lambda char: char["x0"])
     gaps = [right["x0"] - left["x1"] for left, right in zip(ordered, ordered[1:], strict=False)
-            if left["text"].strip() and right["text"].strip()]
+            if left["text"].strip() and right["text"].strip() and not (_is_slanted(left) or _is_slanted(right))]
     return ordered, gaps
 
 
@@ -430,3 +448,51 @@ def _drop_cap(chars: list[dict], line_text: str) -> tuple[str, float, float] | N
     if spaced or _initial_is_a_word(letter, line_text[2:]):
         return line_text, top, bottom
     return letter + line_text[2:], top, bottom
+
+
+# Lone capitals looked at per page as initials drawn after their lines (`_joined_late_initials`). A page has a few drop caps; a
+# crafted page of many single capitals would otherwise compare each with every line.
+_MAX_LATE_INITIALS = 16
+
+
+def _joined_late_initials(prepared: list[tuple[dict, int | None, str, list[dict]]],
+                          chars_of: Callable[[dict], list[dict]]) -> list[tuple[dict, int | None, str, list[dict]]]:
+    """`prepared` (layout line, XObject number, text, characters around it) with each layout line of a lone capital that opens
+    the line beside it as a drop cap (`_drop_cap`) made one line with it, as pdfminer makes them when the initial is drawn
+    first; `chars_of` gives the characters around a line.
+
+    LibreOffice writes a drop cap after the text of its paragraph, so pdfminer kept the initial a line of its own: it came out
+    as a paragraph of its own and its word lost its first letter ('O' / 'nce upon a time') (Pinned by:
+    test_pdf_reading_order.py::TestDropCaps::test_a_drop_cap_drawn_after_its_lines_is_joined_to_its_word). The line beside is
+    the highest one that starts right of the capital's left edge and no further than its height past it, with its middle
+    within the capital's height, on the same page or XObject; the two are joined only when `_drop_cap` takes the joined line
+    for a drop cap, so a large letter that is a label, or a line of another paragraph, stays apart as before. Deliberate: past
+    `_MAX_LATE_INITIALS` lone capitals on a page, the rest are left as they are."""
+    initials = [index for index, (_, _, text, _) in enumerate(prepared)
+                if len(text) == 1 and text.isalpha() and text.isupper()][:_MAX_LATE_INITIALS]
+    replaced: dict[int, tuple[dict, int | None, str, list[dict]] | None] = {}
+    for index in initials:
+        # A capital already joined as the line beside another initial is not an initial itself: joined again, the line it
+        # was joined to was dropped with the first initial (Pinned by: test_pdf_reading_order.py::TestDropCaps::
+        # test_a_lone_capital_joined_beside_an_initial_is_not_joined_again)
+        if index in replaced:
+            continue
+        initial, owner, letter, _ = prepared[index]
+        reach = initial["bottom"] - initial["top"]
+        beside = [other for other, (line, line_owner, _, _) in enumerate(prepared)
+                  if other != index and other not in replaced and line_owner == owner
+                  and initial["top"] <= (line["top"] + line["bottom"]) / 2 <= initial["bottom"]
+                  and initial["x0"] < line["x0"] <= initial["x1"] + reach]
+        if not beside:
+            continue
+        first = min(beside, key=lambda other: (prepared[other][0]["top"], prepared[other][0]["x0"]))
+        line, _, text, _ = prepared[first]
+        joined = {**line, "x0": initial["x0"], "top": min(line["top"], initial["top"]),
+                  "bottom": max(line["bottom"], initial["bottom"]), "text": f"{letter} {text}"}
+        inside = chars_of(joined)
+        if _drop_cap(inside, joined["text"]) is not None:
+            replaced[first] = (joined, owner, joined["text"], inside)
+            replaced[index] = None
+    if not replaced:
+        return prepared
+    return [replaced.get(index, entry) for index, entry in enumerate(prepared) if replaced.get(index, entry) is not None]

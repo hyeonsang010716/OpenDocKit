@@ -8,7 +8,7 @@ import pytest
 from opendockit import ConvertOptions, convert
 from tests import builder
 from tests.test_office import _docx_with_body, _number_level, _number_list, _paragraph
-from tests.timing import allowed, fastest
+from tests.timing import Fastest, allowed, fastest
 
 
 _RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -193,6 +193,52 @@ class TestPptxManyInheritedPlaceholders:
 
         texts = [block for block in result.text.split("\n\n") if block.startswith("- ")]
         assert texts == ["- a0", "- a1", "- b1", "- b0", "- c1", "- c0", "- d0", "- d1", "- e1", "- e0"]
+
+
+class TestPptxManyShapesWrappedInAlternateContent:
+    """Each `mc:AlternateContent` on a slide was replaced by its shapes with `parent.index` + `parent.insert`, which walk the
+    sibling list, so the unwrapping took time quadratic in the number of wrapped shapes: 40,000 of them took 19.6 s against
+    3.5 s for the same shapes unwrapped, before any character limit was checked. The shapes are moved in front of the wrapper
+    instead."""
+
+    @staticmethod
+    def _shape_tree(count: int) -> object:
+        from lxml import etree
+
+        wrapper = ('<mc:AlternateContent><mc:Choice Requires="a14"><p:sp><p:nvSpPr><p:cNvPr id="{0}" name="t{0}"/></p:nvSpPr>'
+                   '<p:txBody><a:bodyPr/><a:p><a:r><a:t>s{0}</a:t></a:r></a:p></p:txBody></p:sp></mc:Choice>'
+                   '<mc:Fallback><p:sp><p:nvSpPr><p:cNvPr id="{0}" name="f{0}"/></p:nvSpPr></p:sp></mc:Fallback>'
+                   '</mc:AlternateContent>')
+        return etree.fromstring(
+            '<p:spTree xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
+            'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+            'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">'
+            + "".join(wrapper.format(index) for index in range(count)) + "</p:spTree>")
+
+    @pytest.mark.timing
+    def test_unwrapping_many_wrapped_shapes_takes_linear_time(self):
+        from opendockit.extractors.pptx import _unwrap_alternate_content
+
+        def seconds(count: int) -> float:
+            timer = Fastest()
+            for _ in timer:
+                tree = self._shape_tree(count)
+                with timer:
+                    _unwrap_alternate_content(tree, None)
+            return timer.seconds
+
+        ratio = seconds(12_000) / max(seconds(3_000), 0.005)
+
+        assert ratio < 8  # linear gives about 4 times for 4 times the input, quadratic about 16 times
+
+    def test_wrapped_shapes_keep_their_order_and_choice(self):
+        from opendockit.extractors.pptx import _unwrap_alternate_content
+
+        tree = self._shape_tree(3)
+
+        _unwrap_alternate_content(tree, None)
+
+        assert [shape.find(".//{*}cNvPr").get("name") for shape in tree] == ["t0", "t1", "t2"]
 
 
 def _layout_placeholder(index: int, rank: int) -> str:

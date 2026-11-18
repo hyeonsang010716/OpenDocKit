@@ -143,20 +143,38 @@ def _plain_text(data: bytes) -> Extraction:
 # address that itself holds a `<` or `>` — nothing else could reach a `>` from there. Without that, every `src=` of a tag
 # that is never closed walked to the end of the tag and back: 8,000 of them in one `<img` (234KB) took 19 seconds. The matches
 # are the same as before (Pinned by: test_audit_html_text.py::TestUnclosedImgTagWithManySources).
-_PICTURE_ALT = r"(?:[^\]\n!]|!(?!\[))*"
+# The alt text may hold brackets in balanced pairs one level deep (`![Figure [1]: sales](…)`) and single line breaks, not a
+# blank line, as CommonMark allows; an `<img` attribute value in quotes may hold `>` (`alt="Revenue > target"`), one piece of
+# the tag at a time (`_TAG_PIECE`). The alt text field stopped at any `]` or line break and the tag fields at any `>`, so those
+# pictures kept their base64 in the body, and `<img src="data:…" alt="Revenue > target">` lost its alt and left `target">`
+# (Pinned by: test_core_mbox_markdown_and_api.py::TestMarkdownPicturesWithBracketsLineBreaksAndAnglesInTheirText). Both stay
+# linear: the alt text still stops before the next `![`, and a quoted value does not cross `<`, so no field crosses the `<`
+# that the next `<img` starts with. Known accepted gaps: brackets nested two levels deep, and a quoted attribute holding `<`
+# (`alt="a < b"`), leave the picture as text, as before.
+_ALT_CHARACTER = r"(?:[^\[\]\n!]|!(?!\[)|\n(?![ \t\r]*\n))"
+_PICTURE_ALT = r"(?:" + _ALT_CHARACTER + r"|\[" + _ALT_CHARACTER + r"*+\]|\[)*"
+# One attribute of `<img` or a piece of it: a quoted value after its `=`, which may hold `>` but not `<`, or one character
+# that is not `<` or `>`. Atomic, so a quote that opens a value closed before the next `<` is never read as a lone character
+# instead. A quote opens a value only right after `=`, as in HTML: a stray one (`alt='it's'`, `alt="5" screen"`) took the
+# ` src="data:…` after it for one value, `src` was never found and the base64 stayed in the text
+# (Pinned by: test_core_mbox_markdown_and_api.py::TestMarkdownPicturesWithBracketsLineBreaksAndAnglesInTheirText::
+# test_img_with_a_stray_quote_before_src_is_extracted).
+_TAG_PIECE = r"""(?>=\s*"[^"<]*"|=\s*'[^'<]*'|[^<>])"""
 _DATA_IMAGE = r"data:image/[\w.+-]+(?:;[\w.+-]+=[^;,\s()<>\"']*)*;base64,"
 _MARKDOWN_DATA_PICTURE = re.compile(
     r"!\[(?P<alt>" + _PICTURE_ALT + r")\]\(\s*(?:<" + _DATA_IMAGE + r"(?P<angle_data>[A-Za-z0-9+/=\s]*)>\s*"
     r"|" + _DATA_IMAGE + r"(?P<data>[A-Za-z0-9+/=\s]*))"
     r"(?:\"[^\"\n]*\"\s*|'[^'\n]*'\s*|\([^()\n]*\)\s*)?\)"
-    r"|<img\b(?=[^<>]*>)(?P<before>[^<>]*?)\bsrc\s*=\s*(?:(?P<quote>[\"'])\s*" + _DATA_IMAGE + r"(?P<tag_data>[A-Za-z0-9+/=\s]*)(?P=quote)"
-    r"|" + _DATA_IMAGE + r"(?P<bare_data>[A-Za-z0-9+/=]*)(?![A-Za-z0-9+/=]))(?P<after>[^<>]*)>"
+    r"|<img\b(?=" + _TAG_PIECE + r"*>)(?P<before>" + _TAG_PIECE + r"*?)\bsrc\s*=\s*"
+    r"(?:(?P<quote>[\"'])\s*" + _DATA_IMAGE + r"(?P<tag_data>[A-Za-z0-9+/=\s]*)(?P=quote)"
+    r"|" + _DATA_IMAGE + r"(?P<bare_data>[A-Za-z0-9+/=]*)(?![A-Za-z0-9+/=]))"
+    r"(?P<after>" + _TAG_PIECE + r"*)>"
     r"|!\[(?P<other_alt>" + _PICTURE_ALT + r")\]\(\s*(?:<data:image/[^<>\n]*+>|data:image/(?:[^\s()]|\([^\s()]*+\))*+)\s*"
     r"(?:\"[^\"\n]*\"\s*|'[^'\n]*'\s*|\([^()\n]*\)\s*)?\)"
-    r"|<img\b(?:(?=[^<>]*>)(?P<closed>))?(?P<other_before>[^<>]*?)\bsrc\s*=\s*"
+    r"|<img\b(?:(?=" + _TAG_PIECE + r"*>)(?P<closed>))?(?P<other_before>" + _TAG_PIECE + r"*?)\bsrc\s*=\s*"
     r"(?:\"\s*data:image/(?(closed)|[^\"<>]*+[<>])[^\"]*+\"|'\s*data:image/(?(closed)|[^'<>]*+[<>])[^']*+'"
     r"|(?(closed)|(?!))data:image/[^\s\"'<>`]*+)"
-    r"(?P<other_after>[^<>]*)>",
+    r"(?P<other_after>" + _TAG_PIECE + r"*)>",
     re.IGNORECASE)
 # Where a data: URI picture may be, for the quick check before the picture pattern (scheme and type in any case).
 _DATA_IMAGE_SCHEME = re.compile("data:image/", re.IGNORECASE)

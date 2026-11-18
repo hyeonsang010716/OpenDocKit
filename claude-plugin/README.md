@@ -59,7 +59,8 @@ Claude Code names them `mcp__plugin_opendockit_opendockit__document_outline` and
 `mcp__plugin_opendockit_opendockit__convert_document`. Both are marked read-only.
 
 One call returns at most `max_chars` characters of the document. A longer one is cut with a note that tells Claude to
-read the outline and ask for sections, which the bundled skill teaches it to do first.
+read the outline and ask for sections, which the bundled skill teaches it to do first; a document without pages, slides
+or sheets has nothing to ask for, and its note says to raise `max_chars` instead.
 
 ## What it does on your machine
 

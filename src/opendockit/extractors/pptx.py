@@ -274,10 +274,12 @@ def _unwrap_alternate_content(tree: object, part: object) -> None:
         charts = [shape for shape in choice if _has_chartex(shape)]
         is_unreadable_chart = bool(charts) and not any(_chartex_is_readable(shape, part) for shape in charts)
         shapes = fallback if fallback and (not choice or is_unreadable_chart) else choice
-        position = parent.index(alternate)
+        # The shapes are moved in front of the wrapper, which is then removed. Finding its position with `parent.index` and
+        # inserting there walked the sibling list for every wrapper: 40,000 wrapped shapes took 19.6 s against 3.5 s unwrapped
+        # (Pinned by: test_office_scaling_and_note_order.py::TestPptxManyShapesWrappedInAlternateContent).
+        for shape in shapes:
+            alternate.addprevious(shape)
         parent.remove(alternate)
-        for offset, shape in enumerate(shapes):
-            parent.insert(position + offset, shape)
 
 
 def _branch_shapes(alternate: object, name: str) -> list[object]:
@@ -397,6 +399,11 @@ def _speaker_notes(notes_slide: object) -> str:
     removed before iteration, as on a slide (`_drop_unreadable_shapes`).
     """
     _drop_unreadable_shapes(notes_slide.shapes._spTree)
+    # A text box wrapped in `mc:AlternateContent` is unwrapped as on a slide: it is not a shape for python-pptx, so a wrapped
+    # box on the notes page was dropped with its text
+    # (Pinned by: test_office_cells_and_notes.py::TestPptxSpeakerNoteLevels::
+    # test_text_box_wrapped_in_alternate_content_on_the_notes_page_is_part_of_the_notes).
+    _unwrap_alternate_content(notes_slide.shapes._spTree, notes_slide.part)
     body = notes_slide.notes_text_frame
     # A text box placed separately on the notes page (the way LibreOffice exports notes) is notes too. Placeholders such as the slide
     # picture, page number and header are not notes text

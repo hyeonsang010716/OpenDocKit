@@ -462,9 +462,41 @@ class TestNegativeValueTooLargeForADuration:
         (-1e12, "[h]:mm", "-1000000000000"), (1e12, "[h]:mm", "1000000000000"), (-1e12, "[ss]", "-1000000000000"),
         (-0.5, "[h]:mm", "-12:00"), (-1e12, "h:mm", "-24000000000000:00:00"),
         (float("-inf"), "[h]:mm", "-inf"), (float("-inf"), "h:mm", "-inf"), (float("-inf"), "yyyy-mm-dd", "-inf"),
+        (-1e305, "h:mm", "-1e+305"), (-1.7e308, "mm:ss", "-1.7e+308"), (-1e305, "h:mm AM/PM", "-1e+305"),
     ])
     def test_format_cell(self, value, number_format, expected):
         assert spreadsheet.format_cell(value, number_format) == expected
+
+    def test_time_only_format_whose_seconds_do_not_fit_in_a_float(self):
+        """-1E+305 days under `h:mm` is more seconds than a float holds: `round(inf)` raised OverflowError and the whole
+        workbook was rejected. It is shown as the number, as an infinite value is."""
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["name", "time"])
+        sheet.append(["a", -1e305])
+        sheet["B2"].number_format = "h:mm"
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.xlsx")
+
+        assert result.text == "## Sheet: Sheet\n\n| name | time |\n| --- | --- |\n| a | -1e+305 |"
+
+    def test_time_only_format_whose_seconds_do_not_fit_in_a_float_in_xls(self):
+        import xlrd
+
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_DATE, -1e305)
+
+        assert spreadsheet.format_cell(xls._xls_value(cell, 0, "h:mm"), "h:mm") == "-1e+305"
+
+    def test_time_only_format_whose_seconds_do_not_fit_in_a_float_in_xml_spreadsheet(self):
+        styles = '<Style ss:ID="s0"><NumberFormat ss:Format="h:mm"/></Style>'
+        rows = ("<Row>" + _xml_cell("name") + _xml_cell("time") + "</Row>"
+                "<Row>" + _xml_cell("a") + _xml_cell("-1E+305", "Number", 'ss:StyleID="s0"') + "</Row>")
+
+        result = convert(_xml_workbook(rows, styles), "a.xml")
+
+        assert result.text == "## Sheet: s\n\n| name | time |\n| --- | --- |\n| a | -1e+305 |"
 
     def test_xlsx(self):
         workbook = openpyxl.Workbook()
@@ -891,6 +923,75 @@ class TestXlsNumberThatIsNotFinite:
 
         assert extraction.sections[0].text == "| day | when |\n| --- | --- |\n| 2023-03-15 |  |"
         assert extraction.warnings == ["2 number cell value(s) that are not finite numbers were left blank."]
+
+
+class TestZeroIntegerUnderOptionalPlaces:
+    """A `#` integer place shows nothing for a zero integer part in Excel, so 0.5 under `#.##` is `.5`; the 0 was shown
+    (`0.5`). Only formats with no integer places at all dropped it. Deliberate: when the 0 is the only digit left (0 under
+    `#,###`, where Excel shows an empty cell) it stays, as an empty section gives the value instead of nothing."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (0.5, "#.##", ".5"),
+        (0.5, "#,###.00", ".50"),
+        (0.25, "#.0#", ".25"),
+        (0.5, "#.00", ".50"),
+        (-0.5, "#.##", "-.5"),
+        (0.004, "#.#%", ".4%"),
+        (1.5, "#.##", "1.5"),
+        (0, "#,###", "0"),
+        (0.4, "#,###", "0"),
+        (0, "#", "0"),
+        (0, "#.##", "0"),
+        (0, ".##", "0"),
+        (0.5, ".00", ".50"),
+        (0.5, "0.00", "0.50"),
+        (0, "#,##0", "0"),
+    ])
+    def test_format_cell(self, value, number_format, expected):
+        assert format_cell(value, number_format) == expected
+
+    def test_xlsx(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["item", "share"])
+        sheet.append(["a", 0.5])
+        sheet["B2"].number_format = "#,###.00"
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        assert convert(buffer.getvalue(), "a.xlsx").text.endswith("| a | .50 |")
+
+
+class TestPercentWhereTheFormatPutsIt:
+    """The `%` of a format was always put right after the digits and dropped from where it stood, so 0.125 under `0.0 %` came
+    out as `12.5%` (Excel `12.5 %`) and 0.5 under `%0` as `%50%` (Excel `%50`). It stays where the format puts it; the value is
+    still multiplied by 100."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (0.125, "0.0 %", "12.5 %"),
+        (1, "0.00 %", "100.00 %"),
+        (0.5, "%0", "%50"),
+        (0.125, "0.0%", "12.5%"),
+        (0.125, '0.0%" 증가"', "12.5% 증가"),
+        (2.5, '0.0"%p"', "2.5%p"),
+        (2.5, "0.0\\%", "2.5%"),
+        (0.5, '0" %"', "1 %"),
+        (-0.125, "0.0 %;(0.0 %)", "(12.5 %)"),
+        (0.125, "0%%", "1250%%"),  # each `%` multiplies by 100, as in Excel
+    ])
+    def test_format_cell(self, value, number_format, expected):
+        assert format_cell(value, number_format) == expected
+
+    def test_xls_and_xml_spreadsheet(self):
+        import xlrd
+
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_NUMBER, 0.125)
+        styles = '<Style ss:ID="s0"><NumberFormat ss:Format="0.0 %"/></Style>'
+        rows = ("<Row>" + _xml_cell("name") + _xml_cell("rate") + "</Row>"
+                "<Row>" + _xml_cell("a") + _xml_cell(0.125, "Number", 'ss:StyleID="s0"') + "</Row>")
+
+        assert format_cell(xls._xls_value(cell, 0, "0.0 %"), "0.0 %") == "12.5 %"
+        assert convert(_xml_workbook(rows, styles), "a.xml").text.endswith("| a | 12.5 % |")
 
 
 class TestQuestionMarkPlaces:

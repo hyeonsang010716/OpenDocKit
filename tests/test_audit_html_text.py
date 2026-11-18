@@ -196,6 +196,12 @@ class TestCaptionOfATableInsideACell:
 
         assert result.text == "CAP\n\n| 1 | 2 |\n| --- | --- |\n| 3 | 4 |"
 
+    def test_every_caption_of_the_table_comes_out(self):
+        """A browser shows both captions of `<table><caption>T1</caption><caption>T2</caption>`; the second was lost."""
+        result = convert(f"<table><caption>CAP1</caption><caption>CAP2</caption>{_TWO_ROWS}</table>".encode(), "a.html")
+
+        assert result.text == "CAP1\n\nCAP2\n\n| 1 | 2 |\n| --- | --- |\n| 3 | 4 |"
+
 
 class TestDoctypeInsideTheBody:
     """A `<!DOCTYPE …>` in the middle of the body (pages pasted together, a template included twice) is kept by the parser as a
@@ -772,3 +778,41 @@ class TestFrameCheckOfASavedPageWithoutFrames:
         result = convert(_saved_page("<html><body><p>shell &lt;iframe src='f0.html'&gt;</p></body></html>", 2), "a.mht")
 
         assert result.warnings == []
+
+
+class TestLargeHtmlMailWithoutAPlainBranch:
+    """Whether the HTML body has visible text matters only when a plain-text branch could go after it, but every HTML part of a
+    mail was parsed whole to find out: a 37 MB single-part HTML mail over the limit took 9.9 s and 1 GB, where the same page
+    stopped at its front part took 4.2 s."""
+
+    @pytest.fixture
+    def parses(self, monkeypatch):
+        """The number of characters handed to the HTML parser, per call."""
+        sizes: list[int] = []
+
+        def counting(markup, *args, **kwargs):
+            sizes.append(len(markup))
+            return BeautifulSoup(markup, *args, **kwargs)
+
+        for module in (html_extractor, _html_mail, _html_dom):  # every module that calls the parser
+            monkeypatch.setattr(module, "BeautifulSoup", counting)
+        return sizes
+
+    def test_html_is_not_parsed_for_text_it_does_not_need(self, parses):
+        page = "<html><body>" + "<p>paragraph of the mail</p>" * 2000 + "</body></html>"
+        mail = ("From: a@example.com\r\nSubject: report\r\nMIME-Version: 1.0\r\n"
+                f"Content-Type: text/html; charset=utf-8\r\n\r\n{page}").encode()
+
+        result = convert(mail, "a.eml", ConvertOptions(max_chars=1000))
+
+        assert result.exceeded
+        assert max(parses) < len(page) // 2
+
+    def test_html_without_text_still_takes_the_plain_branch_after_it(self):
+        mail = (b"From: a@example.com\r\nSubject: logo\r\nMIME-Version: 1.0\r\n"
+                b"Content-Type: multipart/alternative; boundary=b\r\n\r\n"
+                b"--b\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nplain body\r\n"
+                b"--b\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<html><body><img src=\"cid:x\"></body></html>\r\n"
+                b"--b--\r\n")
+
+        assert convert(mail, "a.eml").text.endswith("plain body")

@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 import re
 
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.opc.exceptions import PackageNotFoundError
 from docx.oxml.exceptions import InvalidXmlError
 from docx.package import Package
@@ -36,6 +37,7 @@ from opendockit.extractors._docx_runs import (
     _MC,
     _V,
     _children,
+    _custom_mark,
     _drawing_alt,
     _drawing_lines,
     _embed_markdown_tables,
@@ -71,7 +73,14 @@ from opendockit.extractors._notation import (
     omitted_rows_warning,
     unread_ole_warning,
 )
-from opendockit.extractors._package import core_properties, is_strict_package, main_document_part, open_package, parse_part
+from opendockit.extractors._package import (
+    core_properties,
+    is_strict_package,
+    main_document_part,
+    open_package,
+    parse_part,
+    related_part,
+)
 from opendockit.extractors.html import extract_html
 from opendockit.extractors.text import extract_text
 from opendockit.markdown import TableGrid, join_blocks, merged_copy, solid_length
@@ -1011,6 +1020,19 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
     return extraction
 
 
+def _even_and_odd_headers(document: object) -> bool:
+    """Whether the settings part turns on even-page headers and footers (w:evenAndOddHeaders). Read from the part's bytes:
+    python-docx `settings` asks a settings relationship that points back at the document part for its settings again, without
+    end (`_package.related_part`; a missing or unreadable settings part is off)."""
+    try:
+        part = related_part(document.part, RT.SETTINGS)
+    except KeyError:
+        return False
+    blob = getattr(part, "blob", None)
+    root = parse_part(blob) if blob else None
+    return root is not None and root.tag == _w("settings") and _is_on(root.find(_w("evenAndOddHeaders")))
+
+
 def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str, options: ConvertOptions,
                         written: int) -> tuple[str, int]:
     """(the text of the headers or footers of the document, `written` plus its characters). `written` is the number of
@@ -1027,10 +1049,23 @@ def _header_footer_text(document: object, renderer: _DocxRenderer, kind: str, op
     # every copy whose text differed: a numbered paragraph counted on ('1. Company', '2. Company' …) and a picture was registered
     # once per section (Pinned by: test_audit_office.py::TestDocxHeaderSharedBySections).
     rendered: set[object] = set()
+    # A first-page header shows only in a section with w:titlePg, an even-page one only with w:evenAndOddHeaders in the settings
+    # (ECMA-376 17.10.1). Word keeps those parts when the option is unticked and never shows them again, and they were read as if
+    # shown: 'Default header\n\nOld cover-page header\n\nBody'. A section without a header of a kind it shows inherits the one of
+    # the section before it, whether that section shows it or not (Pinned by: test_audit_office.py::
+    # TestDocxHeaderOfAPageKindThatIsOff).
+    even_pages = _even_and_odd_headers(document)
+    latest: dict[str, object] = {}  # kind attribute → the header of the last section that has its own
     for section in document.sections:
+        title_page = _is_on(section._sectPr.find(_w("titlePg")))
         for attribute in _HEADER_FOOTER_KINDS[kind]:
             story = getattr(section, attribute)
-            if story.is_linked_to_previous:
+            if not story.is_linked_to_previous:
+                latest[attribute] = story
+            if (attribute.startswith("first_page") and not title_page) or (attribute.startswith("even_page") and not even_pages):
+                continue
+            story = latest.get(attribute)
+            if story is None:
                 continue
             # A header detached because its part is missing (`_package.repair_package`, KeyError) and a reference without r:id
             # (python-docx InvalidXmlError, any of the default, first-page and even-page kinds) skip only that header. The reference
@@ -1089,7 +1124,50 @@ def _note_parts(document: object, placeholders: dict[str, str]) -> dict[str, tup
         if root is not None:
             _keep_filled_placeholders(root, placeholders)
             found[kind] = (part, root)
+    if found:
+        _drop_custom_marks(document.element, found)
     return found
+
+
+def _drop_custom_marks(body: etree._Element, note_parts: dict[str, tuple[object, etree._Element]]) -> None:
+    """Take the custom mark (`_custom_mark`) off the start of the note it marks. Word writes that mark into the note as text where
+    `w:footnoteRef` would stand, so it came out as '[^1]: * Estimated.'. Only a note without w:footnoteRef / w:endnoteRef whose
+    first paragraph starts with exactly the mark text of its first reference, not followed by a letter or digit, loses it;
+    a mark made of a symbol (w:sym) stays in the note, an accepted gap (Pinned by:
+    test_office_symbols_fields_notes.py::TestDocxCustomNoteMark)."""
+    marks: dict[tuple[str, str], str] = {}
+    for reference in body.iter(_w("footnoteReference"), _w("endnoteReference")):
+        mark = "".join(piece.text or "" for piece in _custom_mark(reference) if piece.tag == _w("t"))
+        kind = "footnote" if reference.tag == _w("footnoteReference") else "endnote"
+        if mark.strip():
+            marks.setdefault((kind, reference.get(_w("id"), "")), mark.strip())
+    if not marks:
+        return
+    for kind, (_part, root) in note_parts.items():
+        for note in root.iterchildren(_w(kind)):
+            mark = marks.get((kind, note.get(_w("id"), "")))
+            paragraph = next(note.iter(_w("p")), None) if mark else None
+            if paragraph is None or next(note.iter(_w("footnoteRef"), _w("endnoteRef")), None) is not None:
+                continue
+            taken: list[tuple[etree._Element, str]] = []  # (w:t, what is left of it once the mark is taken off)
+            for piece in paragraph.iter(_w("t")):
+                text = (piece.text or "") if taken else (piece.text or "").lstrip()
+                if not text:
+                    continue
+                if mark.startswith(text):
+                    taken.append((piece, ""))
+                    mark = mark[len(text):]
+                elif text.startswith(mark) and not text[len(mark):len(mark) + 1].isalnum():
+                    # The mark ends where a word could: a note that does not repeat the mark 'a' kept 'bout' of 'about'
+                    taken.append((piece, text[len(mark):]))
+                    mark = ""
+                else:
+                    break
+                if not mark:
+                    break
+            if not mark:
+                for piece, rest in taken:
+                    piece.text = rest
 
 
 _W14_PARA_ID = "{http://schemas.microsoft.com/office/word/2010/wordml}paraId"

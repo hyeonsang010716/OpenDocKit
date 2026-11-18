@@ -461,19 +461,21 @@ def _choose_switch_branches(root: etree._Element) -> None:
 
 def _put_in_place(element: etree._Element, content: etree._Element | None) -> None:
     """Put the text and the children of `content` (or nothing) in place of `element`, leaving the text that follows `element`
-    (its tail) where it is."""
+    (its tail) where it is. The children go in next to `element` and the text onto its neighbour: looking up its position in
+    the parent for every switch made a chapter of 20,000 switches take 2.9 s
+    (Pinned by: test_epub.py::TestChapterMarkup::test_many_content_switches_take_linear_time)."""
     parent = element.getparent()
-    position = parent.index(element)
+    previous = element.getprevious()
     children = list(content) if content is not None else []
     text = (content.text or "") if content is not None else ""
     tail = element.tail or ""
+    element.tail = None
+    for child in children:
+        element.addprevious(child)
     parent.remove(element)
-    for offset, child in enumerate(children):
-        parent.insert(position + offset, child)
     if children:
         children[-1].tail = (children[-1].tail or "") + tail
         tail = ""
-    previous = parent[position - 1] if position else None
     if previous is not None:
         previous.tail = (previous.tail or "") + text + tail
     else:

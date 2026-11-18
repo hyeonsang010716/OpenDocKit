@@ -652,6 +652,52 @@ class TestPdfImages:
         assert result.sections[1].text == ""
         assert any("1 page(s) whose text exists only as an image (2)" in warning for warning in result.warnings)
 
+    def test_identical_scanned_pages_are_each_counted(self):
+        """A scan of 12 blank-looking pages that are the same picture: the copies are described once, through the first, and
+        the warning counted the pictures, not the pages — 100 such pages were '10 page(s)'."""
+        result = convert(_same_scan_on_every_page(12), "scan.pdf")
+
+        assert len(result.images) == 1
+        assert ("12 page(s) whose text exists only as an image (1, 2, 3, 4, 5, 6, 7, 8, 9, 10 and more) are empty because they "
+                "did not go through image description (OCR).") in result.warnings
+
+    def test_identical_scanned_pages_left_out_by_the_image_limit_are_each_counted(self):
+        from opendockit.converter import _prepare_images
+        from opendockit.models import Extraction, Section, SectionKind, marker_key
+
+        extraction = Extraction()
+        with marker_key("k"):
+            markers = [extraction.add_image(builder.png_bytes(400, 300, seed=1), kind=ImageKind.PAGE) for _ in range(3)]
+        sections = [Section(SectionKind.PAGE, index, "", None, marker) for index, marker in enumerate(markers, start=1)]
+        warnings: list[str] = []
+
+        images, _ = _prepare_images(extraction.images, sections, ConvertOptions(max_images=0), warnings, "k")
+
+        assert images == []
+        assert warnings == ["There are many images, so only 0 were selected for description (scanned pages first). 3 page(s) "
+                            "whose text exists only as an image (1, 2, 3) were left out and are empty."]
+
+    def test_identical_scanned_pages_described_through_the_first_are_not_reported(self):
+        result = described(_same_scan_on_every_page(3), "scan.pdf", FakeDescriber(answers={1: "Scanned text"}))
+
+        assert all("Scanned text" in section.text for section in result.sections) and len(result.sections) == 3
+        assert not any("whose text exists only as an image" in warning for warning in result.warnings)
+
+
+def _same_scan_on_every_page(pages: int) -> bytes:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    for _ in range(pages):
+        pdf.drawImage(ImageReader(BytesIO(builder.png_bytes(600, 800, seed=21))), 0, 0, width=width, height=height)
+        pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
 
 class TestDescribeImages:
     def test_failure_keeps_placeholder_and_warns(self):
@@ -2497,6 +2543,70 @@ class TestTransparentColourOfAPng:
 
         tile = Image.open(BytesIO(result.tiles[0])).convert("RGBA")
         assert tile.getpixel((5, 5))[3] == 0 and tile.getpixel((300, 600)) == (0, 0, 0, 255)
+
+
+def _ruled_page(mode: str) -> Image.Image:
+    """A 1000×2800 white page with 40 black rules 2 px thick and 60 px apart, as a form or a table on a bilevel scan has."""
+    from PIL import ImageDraw
+
+    page = Image.new("L", (1000, 2800), 255)
+    for index in range(40):
+        ImageDraw.Draw(page).rectangle((50, 100 + index * 60, 950, 101 + index * 60), fill=0)
+    return page.convert(mode)
+
+
+def _rules_down_the_middle(picture: Image.Image) -> int:
+    grey = picture.convert("L")
+    dark = [grey.getpixel((grey.width // 2, y)) < 200 for y in range(grey.height)]
+    return sum(1 for y, is_dark in enumerate(dark) if is_dark and (y == 0 or not dark[y - 1]))
+
+
+class TestBilevelAndPalettePicturesShrunkWithBlending:
+    """Pillow shrinks a 1-bit or a palette picture by nearest neighbour whatever filter it is asked for: a 2 px rule of a fax
+    either fell on a kept row or vanished, and a page of 100 rules shrunk to 0.29 kept 58 of them."""
+
+    @pytest.mark.parametrize("mode", ["1", "P", "PA", "L"])
+    def test_every_thin_rule_is_still_there(self, mode):
+        buffer = BytesIO()
+        _ruled_page(mode).save(buffer, format="TIFF" if mode == "PA" else "PNG")
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=800)
+
+        assert (result.width, result.height) == (286, 800)
+        assert _rules_down_the_middle(Image.open(BytesIO(result.data))) == 40
+
+    def test_transparent_palette_picture_keeps_its_transparency_without_a_fringe(self):
+        """Converted to RGBA before the shrink, the transparent entry is an alpha band: its colour is never blended in."""
+        from PIL import ImageDraw
+
+        picture = Image.new("P", (2000, 2000), 0)
+        picture.putpalette([255, 0, 255, 0, 0, 0])
+        ImageDraw.Draw(picture).ellipse((250, 250, 1750, 1750), fill=1)
+        buffer = BytesIO()
+        picture.save(buffer, format="PNG", transparency=0)
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=500)
+
+        shown = Image.open(BytesIO(result.data)).convert("RGBA")
+        visible = [shown.getpixel((x, y)) for y in (100, 250, 400) for x in range(500) if shown.getpixel((x, y))[3] > 0]
+        assert result.mime_type == "image/png"
+        assert shown.getpixel((3, 3))[3] == 0 and shown.getpixel((250, 250)) == (0, 0, 0, 255)
+        assert [pixel for pixel in visible if pixel[0] > 60] == []
+
+    def test_tiles_of_a_tall_bilevel_picture_are_blended_too(self):
+        from PIL import ImageDraw
+
+        picture = Image.new("L", (1500, 30000), 255)
+        for index in range(40):
+            ImageDraw.Draw(picture).rectangle((50, 100 + index * 60, 1450, 101 + index * 60), fill=0)
+        buffer = BytesIO()
+        picture.convert("1").save(buffer, format="PNG")
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=800)
+
+        first = Image.open(BytesIO(result.tiles[0]))
+        assert first.size == (301, 800)
+        assert _rules_down_the_middle(first) == 40
 
 
 class TestScannedPagesLeftOutByTheImageLimit:

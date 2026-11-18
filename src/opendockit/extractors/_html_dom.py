@@ -6,6 +6,7 @@ pictures turned into placeholders.
 import base64
 import binascii
 import bisect
+from collections import deque
 from collections.abc import Callable, Container, Iterator
 import itertools
 import re
@@ -551,13 +552,15 @@ def _reopen_raw_text_elements(soup: BeautifulSoup, closed: frozenset[str]) -> No
     left as is (`_put_form_values`). Re-reading happens at most `_MAX_REOPENED` times — if the re-read rest again has an
     unclosed element, what follows it is read again, which is quadratic in their number
     (Pinned by: TestRawTextElementsLeftOpen::test_many_unclosed_elements_take_linear_time). Known accepted gap: what follows
-    more unclosed elements in a row than that stays as text with its tags.
+    more unclosed elements in a row than that stays as text with its tags. The work list is a deque: taking each element from
+    the front of a list shifted the whole list, and a page of 400,000 closed `<xmp>` spent 10.8 s in this pass
+    (Pinned by: TestRawTextElementsLeftOpen::test_many_closed_elements_take_linear_time).
     """
-    pending = soup.find_all(_RAW_TEXT_TAGS)
+    pending = deque(soup.find_all(_RAW_TEXT_TAGS))
     reopened = 0
 
     while pending:
-        tag = pending.pop(0)
+        tag = pending.popleft()
         text = tag.get_text()
         cut = text.find("<")
         if reopened < _MAX_REOPENED and cut >= 0 and tag.name not in closed and _reaches_the_end(tag):
@@ -567,8 +570,8 @@ def _reopen_raw_text_elements(soup: BeautifulSoup, closed: frozenset[str]) -> No
             container = rest.body or rest
             nodes = list(container.contents)
             _move_after(tag, [node.extract() for node in nodes])
-            pending[:0] = [found for node in nodes if isinstance(node, Tag)
-                           for found in ([node] if node.name in _RAW_TEXT_TAGS else node.find_all(_RAW_TEXT_TAGS))]
+            pending.extendleft(reversed([found for node in nodes if isinstance(node, Tag)
+                                         for found in ([node] if node.name in _RAW_TEXT_TAGS else node.find_all(_RAW_TEXT_TAGS))]))
             if not text[:cut].strip():
                 tag.decompose()
                 continue

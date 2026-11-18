@@ -113,6 +113,35 @@ class TestJoinedCellLinesOnATwoColumnPage:
         assert result.text.rstrip().endswith(table)
 
 
+class TestJoinedPiecesOfASplitLine:
+    """A borderless table with vertically centred cells whose last cell wraps to two lines, and a right-aligned first cell
+    close enough to the left-aligned cell after it for pdfminer to read the two as one line: the row joined the pieces
+    split from that line, the line itself stayed in the body flow, and 'Dept 45,896' came out a second time under the
+    table."""
+
+    @staticmethod
+    def _draw(pdf, page):
+        from reportlab.platypus import Table, TableStyle
+
+        pdf.setFont("Helvetica", 11)
+        pdf.drawString(72, 800, "The first line of the paragraph.")
+        table = Table([["Amount", "Name", "Area", "Date"], ["Dept", "45,896", "North", "Research\nEast"]],
+                      colWidths=[125, 125, 79, 85])
+        table.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), "Helvetica", 11), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                   ("ALIGN", (0, 1), (0, -1), "RIGHT"), ("ALIGN", (3, 1), (3, -1), "CENTER"),
+                                   ("ALIGN", (0, 0), (-1, 0), "CENTER")]))
+        _, height = table.wrapOn(pdf, 0, 0)
+        table.drawOn(pdf, 72, 780 - height)
+        pdf.drawString(72, 760 - height, "That is all for this report.")
+
+    def test_line_of_the_joined_pieces_is_read_once(self):
+        result = convert(_pdf(self._draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text.count("45,896") == 1
+        assert "45,896 | North | Research<br>East |" in result.text
+        assert result.text.rstrip().endswith("That is all for this report.")
+
+
 def _wrapped_lines_pdf(count: int, rows_below: int) -> bytes:
     """A borderless table (header, one row) with `count` one-word lines at line spacing under the first cell, in the gap
     before the second header, and `rows_below` more table rows under them."""

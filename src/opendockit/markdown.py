@@ -60,11 +60,13 @@ _BLANK_RUN = re.compile(r"\n{3,}")
 # (Pinned by: test_audit_web_fixes.py::TestEmptyListItemHoldingANestedList). Any other paragraph that is only `-` or `2025.`
 # is stripped as before: with its spaces kept, five of them made it an indented code block. A marker followed only by
 # whitespace (`  - `) is a bare marker too: it was taken for a list line, kept its indentation, lost the trailing space, and
-# the next cleaning then stripped it as a bare marker (Pinned by: test_markdown.py::TestCleaningTwice).
-_LIST_LINE = re.compile(r"^( +)(?:[-*]|\d+\.) (?=[ \t]*\S)")
-_BARE_LIST_MARKER = re.compile(r"^( +)(?:[-*]|\d+\.)[ \t]*$")
-_EMPTY_ITEM = re.compile(r"^( *)([-*]|\d+\.)$")
-_LIST_ITEM = re.compile(r"^ *(?:[-*]|\d+\.) ")
+# the next cleaning then stripped it as a bare marker (Pinned by: test_markdown.py::TestCleaningTwice). A list marker is ASCII
+# digits: with `\d`, '１.' and '١.' lines kept their indentation (four spaces made a code block) and were joined to the item
+# above them (Pinned by: test_markdown.py::TestCleanText::test_number_in_other_digits_is_not_a_list_line).
+_LIST_LINE = re.compile(r"^( +)(?:[-*]|[0-9]+\.) (?=[ \t]*\S)")
+_BARE_LIST_MARKER = re.compile(r"^( +)(?:[-*]|[0-9]+\.)[ \t]*$")
+_EMPTY_ITEM = re.compile(r"^( *)([-*]|[0-9]+\.)$")
+_LIST_ITEM = re.compile(r"^ *(?:[-*]|[0-9]+\.) ")
 # The span counts and cell addresses of a table are numbers written in the file, so they are not trusted as is. A few KB of input
 # used seconds and gigabytes (DOCX gridSpan of 3 million, HWPX cell address 3000×3000, 150 HTML cells each merged 200×200).
 # Pinned by: test_markdown.py::TestTableGridLimits.
@@ -81,11 +83,24 @@ _MAX_SPAN_AREA = 10_000
 # test_a_span_is_charged_the_area_the_file_claims_past_the_table).
 _SPAN_BUDGET = 500_000
 _CONVERSION_SPAN_BUDGET = 1_000_000
-# What is left of the conversion's span budget (a one-item list, shared by every table of the conversion; None outside `span_budget`).
+# What is left of the conversion's span budget and grid budget (`_CONVERSION_GRID_BUDGET`), shared by every table of the
+# conversion ([spans, grid]; None outside `span_budget`).
 _spans_left: ContextVar[list[int] | None] = ContextVar("spans_left", default=None)
 # Upper bound on the grid cells rows() builds. Over it, the bottom rows are dropped and their number is reported through
 # `TableGrid.omitted_rows` (the extractor warns).
 _MAX_GRID_CELLS = 5_000_000
+# Empty grid cells the tables of one conversion may build beyond as many as hold text (`span_budget`). The grid is every row
+# that holds a cell by every column that holds one, so a few cells far apart make a dense grid of empty cells: in a 1.9 KB
+# HWPX, one cell spanning 10,000 rows in one column and one spanning 1,000 columns in another row (each within the span
+# limits) made 10,000 × 1,001 cells, of which 11,000 were filled, cut to 5 million and walked for 6 s per table; a 200 KB
+# HTML table of 10,000 one-cell rows and one row of 1,000 cells did the same with no span. A table drawn (`render`,
+# `flatten`) is built only from the rows and columns that hold text, which empties out the spans, and the empty cells left
+# past as many as are filled are charged here. Once it is used up, the bottom rows of a table are dropped and reported like
+# those over `_MAX_GRID_CELLS` (Pinned by: test_markdown.py::TestTableGridLimits::test_far_apart_spans_do_not_build_a_dense_grid,
+# test_empty_cells_of_one_conversion_share_one_budget, test_hwp_robustness.py::TestSpansPastTheTable::
+# test_far_apart_spans_of_many_tables_take_little_time). A table holds at least as many empty cells as filled ones for free,
+# so a real table, whose cells are mostly filled, does not use it.
+_CONVERSION_GRID_BUDGET = 1_000_000
 # The structural tags of an HTML table. Those inside cell text are neutralized by neutralize_table_tags.
 # The placeholder of a table inside a table (`TableGrid.embed`). Private-use characters, so clean_text removes any left unresolved.
 _EMBED = re.compile("\ue020(\\d+)\ue021")
@@ -97,26 +112,27 @@ _BARE_QUOTE_LINE = re.compile(r"^[^\S\n]*>(?:[^\S\n]*>)*[^\S\n]*$", re.MULTILINE
 @contextmanager
 def span_budget() -> Iterator[None]:
     """Give the tables drawn inside this block (one conversion, `converter.convert`) one budget of cells their spans may fill
-    together (`_CONVERSION_SPAN_BUDGET`), on top of each table's own."""
-    token = _spans_left.set([_CONVERSION_SPAN_BUDGET])
+    together (`_CONVERSION_SPAN_BUDGET`), on top of each table's own, and one of the empty grid cells they may build
+    (`_CONVERSION_GRID_BUDGET`)."""
+    token = _spans_left.set([_CONVERSION_SPAN_BUDGET, _CONVERSION_GRID_BUDGET])
     try:
         yield
     finally:
         _spans_left.reset(token)
 
 
-def spans_left() -> int | None:
-    """What is left of the conversion's span budget (None outside `span_budget`), to put back with `restore_spans` when the same
-    content is drawn again from the start (the growing front parts of a large HTML page, `html._extract_front`)."""
+def spans_left() -> tuple[int, ...] | None:
+    """What is left of the conversion's span and grid budgets (None outside `span_budget`), to put back with `restore_spans`
+    when the same content is drawn again from the start (the growing front parts of a large HTML page, `html._extract_front`)."""
     left = _spans_left.get()
-    return None if left is None else left[0]
+    return None if left is None else tuple(left)
 
 
-def restore_spans(value: int | None) -> None:
-    """Put the conversion's span budget back to `value` (from `spans_left`)."""
+def restore_spans(value: tuple[int, ...] | None) -> None:
+    """Put the conversion's span and grid budgets back to `value` (from `spans_left`)."""
     left = _spans_left.get()
     if left is not None and value is not None:
-        left[0] = value
+        left[:] = value
 
 
 def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
@@ -726,6 +742,9 @@ class TableGrid:
         # Row → the column before which every column is filled (where `place_next` starts looking for an empty spot). Cells are
         # never removed, so the earlier columns stay filled.
         self._next_col: dict[int, int] = {}
+        # The axes built since the last cell was placed (`_axes`, keyed by `filled_only`), so a drawing that builds the grid
+        # more than once (`_draw`, then `_html`) charges the conversion's grid budget once.
+        self._axes_built: dict[bool, tuple[list[int], list[int], int]] = {}
 
     def place(self, row: int, col: int, text: str, *, row_span: int = 1, col_span: int = 1,
               fill_horizontal: bool = False) -> tuple[int, int]:
@@ -733,6 +752,7 @@ class TableGrid:
         joined with the header below. A filled cell is a value, so the table extent reaches the spanned columns (`_last_col`).
         Returns the spans (rows, columns) the cell was placed with, after the limits (`TableBudget.add` marks what it covers)."""
         row_span, col_span = max(row_span, 1), max(col_span, 1)
+        self._axes_built.clear()
         self.reach(row, col + col_span - 1 if fill_horizontal else col)
         if row_span * col_span > _MAX_SPAN_AREA:
             row_span = min(row_span, _MAX_SPAN_AREA)
@@ -790,9 +810,11 @@ class TableGrid:
         table whose last row is entirely covered by vertical spans from the cells above does not lose that row either
         (Pinned by: test_markdown.py::TestTableGridLimits::test_covered_cell_reported_by_the_extractor_keeps_its_row)."""
         self._last_row, self._last_col = max(self._last_row, row), max(self._last_col, col)
+        self._axes_built.clear()
 
     def omitted_rows(self) -> int:
-        """Number of bottom rows dropped by the grid cell limit (`_MAX_GRID_CELLS`) in the last drawing (nested tables included).
+        """Number of bottom rows dropped by the grid cell limit (`_MAX_GRID_CELLS`) or the conversion's grid budget
+        (`_CONVERSION_GRID_BUDGET`) in the last drawing (nested tables included).
         The extractor reports it as a warning."""
         return self._omitted + sum(table.omitted_rows() for table in self._embedded)
 
@@ -800,7 +822,10 @@ class TableGrid:
         """Build the grid from only the rows and columns where cells were placed. Rows and columns with no cell are removed by
         render_table anyway, so they are never built in the first place, keeping one far-away cell address from inflating an
         empty grid."""
-        row_keys, col_keys = self._axes()
+        return self._grid(filled_only=False)
+
+    def _grid(self, *, filled_only: bool) -> list[list[str]]:
+        row_keys, col_keys = self._axes(filled_only=filled_only)
         return [[self._cells.get((row, col), "") for col in col_keys] for row in row_keys]
 
     def embed(self, table: "TableGrid") -> str:
@@ -832,7 +857,7 @@ class TableGrid:
             self._room = None
 
     def _draw(self, *, headless: bool = False) -> str:
-        rows = self.rows()
+        rows = self._grid(filled_only=True)
         if not self._embedded:
             return self._html(rows, headless=headless) or _render_rows(rows, headless=headless, room=self._room)
         self._drawn = set()
@@ -870,7 +895,7 @@ class TableGrid:
         """'cell / cell' lines for places that cannot hold a table (inside a footnote or header). Nested tables are flattened the same
         way. `room` stops the lines once their own text is past it (the character limit; a vertically merged value is on every
         line it covers, as in `render`)."""
-        lines = (" / ".join(cell for cell in row if cell) for row in self.rows())
+        lines = (" / ".join(cell for cell in row if cell) for row in self._grid(filled_only=True))
         text = "\n".join(_within(lines, None if room is None else _Room(room)))
         self._drawn = set()
         return _EMBED.sub(lambda match: self._embedded[index].flatten(room) if (index := self._first_use(match)) is not None else "",
@@ -896,7 +921,7 @@ class TableGrid:
             if not inline:
                 return table._draw()
             table._drawn = set()
-            return table._html(table.rows(), force=True, inline=True) or ""
+            return table._html(table._grid(filled_only=True), force=True, inline=True) or ""
         finally:
             table._room = None
 
@@ -904,13 +929,38 @@ class TableGrid:
         html = _html_cell(text)
         return _EMBED.sub(lambda match: self._nested(match, inline=True), html) if self._embedded else html
 
-    def _axes(self) -> tuple[list[int], list[int]]:
-        if not self._cells:
+    def _axes(self, *, filled_only: bool) -> tuple[list[int], list[int]]:
+        """The rows and columns of the grid: those where a cell was placed, or with `filled_only` (a drawing) those where one
+        holds text — `render` removes the rows and columns without any anyway, and `flatten` writes no blank line for them.
+        The bottom rows over the grid cell limit, or over what is left of the conversion's grid budget
+        (`_CONVERSION_GRID_BUDGET`), are dropped."""
+        if filled_only in self._axes_built:
+            rows, cols, self._omitted = self._axes_built[filled_only]
+            return rows, cols
+        has_text = _once_per_text(lambda text: bool(text.strip()))
+        spots = [(row, col) for (row, col), text in self._cells.items() if row <= self._last_row and col <= self._last_col
+                 and (not filled_only or has_text(text))]
+        if not spots:
+            self._omitted = 0
             return [], []
-        rows = sorted({row for row, _ in self._cells if row <= self._last_row})
-        cols = sorted({col for _, col in self._cells if col <= self._last_col})
+        rows = sorted({row for row, _ in spots})
+        cols = sorted({col for _, col in spots})
         kept = max(_MAX_GRID_CELLS // len(cols), 1)
+        shared = _spans_left.get()
+        if shared is not None:
+            filled: dict[int, int] = {}
+            for row, col in spots:
+                if filled_only or has_text(self._cells[row, col]):
+                    filled[row] = filled.get(row, 0) + 1
+            # The empty cells past as many as are filled, for the first `count` rows; the most rows within what is left.
+            charge = written = 0
+            for count, row in enumerate(rows[:kept], start=1):
+                written += filled.get(row, 0)
+                if count == 1 or count * len(cols) - 2 * written <= shared[1]:
+                    kept, charge = count, max(count * len(cols) - 2 * written, 0)
+            shared[1] = max(shared[1] - charge, 0)
         self._omitted = max(len(rows) - kept, 0)
+        self._axes_built[filled_only] = rows[:kept], cols, self._omitted
         return rows[:kept], cols
 
     def _html(self, rows: list[list[str]], *, force: bool = False, inline: bool = False, headless: bool = False) -> str | None:
@@ -927,7 +977,7 @@ class TableGrid:
         the header row (th). A title row spanning all columns alone does not make it HTML — the output is as before. Text
         visible in the Markdown grid is not lost in HTML either (a spot not covered by a start cell keeps the grid's text).
         """
-        row_keys, col_keys = self._axes()
+        row_keys, col_keys = self._axes(filled_only=True)
         has_lines = _once_per_text(lambda cell: bool(_cell_lines(cell)))
         filled = [[has_lines(cell) for cell in row] for row in rows]
         kept_rows = [index for index, row in enumerate(filled) if any(row)]

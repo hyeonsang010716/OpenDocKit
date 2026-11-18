@@ -21,6 +21,7 @@ from opendockit.extractors._pdf_model import (
     _TABLE_MIN_ROWS,
     _TABLE_ROW_TOLERANCE,
     _Line,
+    _original_lines_of,
     _Page,
     _Table,
     _visual_rows,
@@ -97,8 +98,8 @@ def _extract_tables(page: _Page) -> None:
                                   x0=min(line.x0 for line in cells), x1=max(line.x1 for line in cells), rows=grid,
                                   spans=tuple((min(line.x0 for line in lines), max(line.x1 for line in lines)) for lines in placed),
                                   lines=run))
-        used.update(id(line.source or line) for line in cells)  # for split pieces (_split_merged_cells) the original line is removed
-        used.update(id(original) for line in cells for original in line.joined)
+        # for split pieces (_split_merged_cells) the original line is removed, and for a joined cell its original lines
+        used.update(id(original) for line in cells for original in _original_lines_of(line))
     if used:
         page.lines = [line for line in page.lines if id(line) not in used]
 
@@ -202,8 +203,7 @@ def _aligned_table_runs(page: _Page) -> list[list[list[_Line]]]:
     # again while growing upward and it came out in two tables
     # (pinned by: test_pdf_table_columns.py::TestRowsOfASplitTableAreNotTakenAgain)
     # The original lines of a cell joined from several lines are used lines as well.
-    taken = {id(original) for run in runs for row in run for line in row for original in (line, line.source, *line.joined)
-             if original is not None}
+    taken = {id(original) for run in runs for row in run for line in row for original in _original_lines_of(line)}
     return _split_runs(runs, rows, taken, max_cell, page.rules)
 
 
@@ -243,8 +243,7 @@ def _split_runs(runs: list[list[list[_Line]]], rows: list[list[_Line]], taken: s
             result[next(other for other, run in enumerate(runs) if run is joined)] = None
             found, joined = searched(found, number)
         result[number] = found
-        taken.update(id(original) for row in found for line in row for original in (line, line.source, *line.joined)
-                     if original is not None)
+        taken.update(id(original) for row in found for line in row for original in _original_lines_of(line))
     return [run for run in result if run is not None]
 
 
@@ -255,7 +254,7 @@ def _row_positions(table_row: list[_Line], rows: list[list[_Line]]) -> list[int]
     A table found by splitting the lines in no table (`_split_line_table_runs`) holds only split pieces. Without their
     source lines it had no position in `rows`: it could not grow, no table above could lead into it, and one table found
     in parts stayed split (Pinned by: test_pdf_borderless_split_rows.py::TestUniformTableFoundInSeveralParts)."""
-    members = {id(original) for line in table_row for original in (line, line.source, *line.joined) if original is not None}
+    members = {id(original) for line in table_row for original in _original_lines_of(line)}
     return [index for index, row in enumerate(rows) if any(id(line) in members for line in row)]
 
 
@@ -418,8 +417,7 @@ def _split_merged_cells(run: list[list[_Line]], rows: list[list[_Line]], taken: 
     if following is not None:
         last = max(_row_positions(following[-1], rows), default=-1)
         lower = rows[end + 1 + len(after):last + 1]
-        members = {id(original) for row in following for line in row for original in (line, line.source, *line.joined)
-                   if original is not None}
+        members = {id(original) for row in following for line in row for original in _original_lines_of(line)}
         # Only the round-44 shape is joined: the other table starts with a row holding a clearly measured value
         # (`_measured_value`: a number with a thousands separator or a decimal point — not a bare integer, bare
         # percentage, year or date, which are just as common in a header of its own: '구분 | 2023 | 2024',
@@ -477,8 +475,7 @@ def _measured_value(text: str) -> bool:
 def _original_lines(table: list[list[_Line]]) -> set[int]:
     """The ids of the lines a borderless table holds: its pieces, the lines they were split from (`source`) and the lines
     of its joined cells (`joined`)."""
-    return {id(original) for row in table for line in row for original in (line, line.source, *line.joined)
-            if original is not None}
+    return {id(original) for row in table for line in row for original in _original_lines_of(line)}
 
 
 def _cell_pieces(line: _Line) -> list[tuple[float, float, str]]:

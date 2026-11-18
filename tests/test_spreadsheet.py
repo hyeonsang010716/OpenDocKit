@@ -625,7 +625,7 @@ class TestFormatsWithoutIntegerDigits:
             (0.5, ".00", ".50"),
             (12.345, ".00", "12.35"),
             (-0.5, ".00", "-.50"),
-            (0.5, "#.00", "0.50"),
+            (0.5, "#.00", ".50"),  # a `#` integer place shows nothing for a zero integer part, as in Excel
             (0.5, "0.00", "0.50"),
         ],
     )
@@ -2247,6 +2247,70 @@ class TestCsvLimitsAndHints:
         assert result.text == "| sep=; | 값 |\n| --- | --- |\n| 가 | 1 |"
 
 
+class TestCsvRunsOfEmptyRecords:
+    """Empty records never count toward max_chars, and every line was kept in a list and every empty record as a row of its own,
+    so a CSV that is a header and then 50 MB of line breaks took 32 s and 4 GB for a 23-character result. A run of empty records
+    is skipped in one step; the file is still read to the end."""
+
+    @pytest.mark.parametrize("empty", ["\n", "\r\n", ",,,,,\r\n", " , ,\n"], ids=["lf", "crlf", "delimiters", "spaces"])
+    def test_a_run_renders_as_a_single_empty_record(self, empty):
+        data = "제목\n" + empty * 3 + "이름,값\n가,1\n" + empty * 5_000 + "나,2\n" + empty * 2 + "비고\n" + empty * 7
+
+        result = convert(data.encode(), "a.csv")
+
+        assert result.text == convert("제목\n\n이름,값\n가,1\n\n나,2\n\n비고\n\n".encode(), "a.csv").text
+        assert "| 나 | 2 |" in result.text
+
+    def test_tab_separated(self):
+        data = "이름\t값\n가\t1\n" + "\t\t\n" * 5_000 + "합계\t1\n"
+
+        result = convert(data.encode(), "a.tsv")
+
+        assert result.text == "| 이름 | 값 |\n| --- | --- |\n| 가 | 1 |\n| 합계 | 1 |"
+
+    def test_line_numbers_of_a_broken_quote_after_a_run_stay_right(self):
+        data = "a,b\n" + ",,\r\n" * 1_000 + 'x,"a"b\n' + "\n" * 10 + "y,2\n\n\n\nz,\"q\n"
+
+        result = convert(data.encode(), "a.csv")
+
+        assert result.text == '| a | b |\n| --- | --- |\n| x | ab |\n| y | 2 |\n| z | "q |'
+        assert result.warnings == ["The quoting in the CSV is inconsistent from line 1017 on, so the rest was split by the "
+                                   "delimiter only."]
+
+    def test_empty_lines_inside_a_quoted_cell_are_kept(self):
+        data = 'a,b\nx,"첫\n\n , \n\n끝"\ny,2\n'
+
+        result = convert(data.encode(), "a.csv")
+
+        assert result.text == "| a | b |\n| --- | --- |\n| x | 첫<br>,<br>끝 |\n| y | 2 |"
+
+    def test_memory_does_not_grow_with_the_run(self):
+        import tracemalloc
+
+        data = b"a,b\n1,2\n" + b"\r\n" * 2_500_000 + b"3,4\n"
+
+        tracemalloc.start()
+        result = convert(data, "a.csv")
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+
+        assert peak < 60 * 1024 * 1024
+        assert result.text.endswith("| 3 | 4 |")
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("empty", [b"\n", b",,,,,,,,,\r\n"], ids=["lf", "delimiters"])
+    def test_a_long_run_is_read_quickly(self, empty):
+        import time
+
+        data = b"a,b\n" + empty * (20_000_000 // len(empty)) + b"1,2\n"
+
+        started = time.perf_counter()
+        result = convert(data, "a.csv")
+
+        assert time.perf_counter() - started < 1
+        assert result.text == "| a | b |\n| --- | --- |\n| 1 | 2 |"
+
+
 class TestXmlSpreadsheetNamedFormats:
     """Named formats of Excel 2003 XML missing from the table (Scientific, Euro Currency, Yes/No, True/False, On/Off) were caught
     by openpyxl's `is_date_format` (the s, y, d … in the name) and became dates/times: 0.000123 → `00:00:11`,
@@ -2507,6 +2571,27 @@ class TestElapsedSectionsInsideFormatLiterals:
         result = format_cell(-0.5, 'h:mm" [h]"')
 
         assert result == "-12:00:00"
+
+    @pytest.mark.parametrize("streamed", [False, True], ids=["full-load", "streamed"])
+    def test_xlsx_serial_past_the_last_date_is_the_number(self, monkeypatch, streamed):
+        """Past 9999-12-31 (serial 2958466 on) the duration openpyxl made could not be turned back into a date: OverflowError
+        rejected the whole workbook. It is the number, as under a plain date format."""
+        from opendockit.extractors import spreadsheet
+
+        if streamed:
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+        data = _xlsx([["항목", "값"], ["가", 3_000_000], ["나", 2958466], ["다", 45352.25]],
+                     {"B2": 'yyyy-mm-dd" [h]"', "B3": 'yyyy-mm-dd" [h]"', "B4": 'yyyy-mm-dd" [h]"'})
+
+        result = convert(data, "a.xlsx")
+
+        assert "| 가 | 3000000 |\n| 나 | 2958466 |\n| 다 | 2024-03-01 |" in result.text
+
+    def test_xls_and_xml_serial_past_the_last_date_is_the_number(self):
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_DATE, 3_000_000.0)
+
+        assert format_cell(_xls_value(cell, 0, 'yyyy-mm-dd" [h]"'), 'yyyy-mm-dd" [h]"') == "3000000"
+        assert "| 가 | 3000000 |" in convert(_xml_spreadsheet('yyyy-mm-dd" [h]"', "Number", "3000000"), "a.xls").text
 
 
 @contextmanager

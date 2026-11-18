@@ -233,6 +233,78 @@ class TestDocxHeaderSharedBySections:
         assert len(extraction.images) == 1
 
 
+class TestDocxHeaderOfAPageKindThatIsOff:
+    """Word keeps the first-page and even-page header parts when 'Different first page' (w:titlePg of the section) or 'Different
+    odd and even pages' (w:evenAndOddHeaders in the settings) is unticked, and never shows them again. They were read as if
+    shown: 'Default header\\n\\nOld cover-page header\\n\\nBody'."""
+
+    _OPTIONS = ConvertOptions(include_headers_footers=True)
+
+    def test_first_page_header_without_title_page_is_left_out(self):
+        document = Document()
+        document.add_paragraph("Body")
+        section = document.sections[0]
+        section.header.paragraphs[0].text = "Default header"
+        section.different_first_page_header_footer = True
+        section.first_page_header.paragraphs[0].text = "Old cover-page header"
+        section.first_page_footer.paragraphs[0].text = "Old cover-page footer"
+        section.different_first_page_header_footer = False
+
+        assert convert(_docx_saved(document), "sample.docx", self._OPTIONS).text == "Default header\n\nBody"
+
+    def test_even_page_header_without_even_and_odd_headers_is_left_out(self):
+        document = Document()
+        document.add_paragraph("Body")
+        document.sections[0].header.paragraphs[0].text = "Default header"
+        document.settings.odd_and_even_pages_header_footer = True
+        document.sections[0].even_page_header.paragraphs[0].text = "Old even-page header"
+        document.settings.odd_and_even_pages_header_footer = False
+
+        assert convert(_docx_saved(document), "sample.docx", self._OPTIONS).text == "Default header\n\nBody"
+
+    @pytest.mark.parametrize("value", ["0", "false", "off"])
+    def test_title_page_switched_off_by_its_value_leaves_the_first_page_header_out(self, value):
+        document = Document()
+        document.add_paragraph("Body")
+        section = document.sections[0]
+        section.different_first_page_header_footer = True
+        section.first_page_header.paragraphs[0].text = "Old cover-page header"
+        data = builder.zip_with(_docx_saved(document), edit={
+            "word/document.xml": lambda xml: xml.replace("<w:titlePg/>", f'<w:titlePg w:val="{value}"/>')})
+
+        assert convert(data, "sample.docx", self._OPTIONS).text == "Body"
+
+    def test_later_section_with_a_title_page_shows_the_first_page_header_it_inherits(self):
+        """A section with w:titlePg and no first-page header of its own shows the one of the section before it, even when that
+        section itself does not show it."""
+        document = Document()
+        document.add_paragraph("section 1")
+        first = document.sections[0]
+        first.different_first_page_header_footer = True
+        first.first_page_header.paragraphs[0].text = "Cover header"
+        first.different_first_page_header_footer = False
+        second = document.add_section()
+        document.add_paragraph("section 2")
+        second.different_first_page_header_footer = True
+        assert second.first_page_header.is_linked_to_previous
+
+        assert convert(_docx_saved(document), "sample.docx", self._OPTIONS).text == "Cover header\n\nsection 1\n\nsection 2"
+
+    @pytest.mark.parametrize("not_xml", [False, True], ids=["another-root-element", "not-xml"])
+    def test_unreadable_settings_leave_out_only_the_even_page_header(self, not_xml):
+        document = Document()
+        document.add_paragraph("Body")
+        document.sections[0].header.paragraphs[0].text = "Default header"
+        document.settings.odd_and_even_pages_header_footer = True
+        document.sections[0].even_page_header.paragraphs[0].text = "Even header"
+        data = builder.zip_with(_docx_saved(document), edit={
+            "word/settings.xml": lambda xml: "not xml" if not_xml else xml.replace("w:settings", "w:other")})
+
+        result = convert(data, "sample.docx", self._OPTIONS)
+
+        assert result.text == "Default header\n\nBody"
+
+
 class TestDocxFootnoteNobodyReferences:
     """Every note of the footnotes part was rendered, referenced or not, and only the referenced ones were written. A picture in
     a note the body never references was registered as a picture of the document with no placeholder anywhere."""

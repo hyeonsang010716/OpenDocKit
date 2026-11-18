@@ -5,11 +5,13 @@ multipart/mixed, CP949 header words labelled ISO-8859-1, `<noframes>`, MHTML who
 import base64
 import quopri
 
+from bs4 import BeautifulSoup
 import pytest
 
 from opendockit import convert
+from opendockit.extractors import _html_dom
 from tests import needs_html5_tokenizer
-from tests.timing import fastest
+from tests.timing import Fastest, fastest
 
 
 _PLAIN = "[가을 세일] 10월 10일~20일 전 품목 30% 할인\n쿠폰 코드: FALL30"
@@ -355,6 +357,22 @@ class TestRawTextElementsLeftOpen:
         small, large = seconds(2_000), seconds(8_000)
 
         assert large < 8 * small + 0.5
+
+    @pytest.mark.timing
+    def test_many_closed_elements_take_linear_time(self):
+        """Every raw text element of the page goes through the work list of the pass, closed ones too; taking each from the front
+        of a list shifted the whole list, quadratic in their number (400,000 `<xmp>` spent 10.8 s in the pass)."""
+        def seconds(count: int) -> float:
+            timer = Fastest()
+            for _ in timer:
+                soup = BeautifulSoup("<p>" + "<xmp>v</xmp>" * count + "</p>", "lxml")
+                with timer:
+                    _html_dom._reopen_raw_text_elements(soup, frozenset())
+            return timer.seconds
+
+        small, large = seconds(20_000), seconds(80_000)
+
+        assert large < 8 * small + 0.02
 
     @needs_html5_tokenizer
     def test_closed_xmp_is_a_code_block(self):

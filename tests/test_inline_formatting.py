@@ -577,6 +577,18 @@ class TestHtmlLinks:
 
         assert _html_text(html) == "제목\n\n요약 문장\n\n| 가 | 나 |\n| --- | --- |\n| 1 | 2 |\n\n- 항목"
 
+    def test_link_around_a_nested_list_of_an_item_stays_text(self):
+        """Inside a list item the nested list is set aside while the item is drawn; a span around it is still a span around
+        a list, closed or not, and so is emphasis."""
+        options = ConvertOptions(keep_links=True, keep_emphasis=True)
+
+        assert _html_text('<ul><li><a href="https://example.com/d">문서<ul><li>안내</li></ul></a></li></ul>',
+                          options) == "- 문서\n  - 안내"
+        assert _html_text('<ul><li><a href="https://example.com/d">문서<ul><li>안내</li></ul></li></ul>',
+                          options) == "- 문서\n  - 안내"
+        assert _html_text('<ul><li><b>단계</b> 설명 <em>더<ol><li>가</li></ol> 뒤</em></li></ul>',
+                          options) == "- **단계** 설명 더\n  1. 가\n\n뒤"
+
     def test_link_in_a_heading_a_list_item_and_a_quote(self):
         html = ('<h2><a href="https://example.com/h">공지</a> 사항</h2><ul><li><a href="https://example.com/1">첫째</a> 항목</li></ul>'
                 '<blockquote><p>인용 <a href="https://example.com/q">출처</a></p></blockquote>')
