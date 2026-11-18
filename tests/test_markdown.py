@@ -75,6 +75,16 @@ class TestCleanText:
 
         assert result == "첫 줄\n\n둘째 줄"
 
+    def test_unicode_line_and_paragraph_separators_are_line_breaks(self):
+        """U+2028 and U+2029 were kept as they were, though form feed and U+0085 become line breaks: one stayed inside a table
+        cell, split `str.splitlines` in the middle of a table row, and let a quoted fence escape the first cleaning, so that
+        cleaning the result again changed it. The Ogham space mark U+1680, the one other Unicode space left, is a space."""
+        assert clean_text("first line\u2028second line\u2029next\u1680word") == "first line\nsecond line\nnext word"
+        assert render_table([["name", "note"], ["kim", "line 1\u2028line 2"]]) == ("| name | note |\n| --- | --- |\n"
+                                                                                  "| kim | line 1<br>line 2 |")
+        once = clean_text("\u2028> ```")
+        assert clean_text(once) == once
+
     @pytest.mark.parametrize("collapse_spaces", [True, False])
     def test_page_break_and_vertical_tab_become_line_breaks(self, collapse_spaces):
         """Form feed (\\f) and vertical tab (\\v) were removed without a space like other control characters, so `합계 100\\f200 이월`

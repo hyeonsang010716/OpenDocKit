@@ -28,7 +28,11 @@ _INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u
 # left only by a latin-1 decode or a numeric reference, and is never text (Pinned by:
 # test_markdown.py::TestInvisibleAndControlCharacters::test_removes_c1_controls_and_breaks_lines_at_next_line).
 _CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f]")
-_LINE_BREAK_CONTROLS = str.maketrans({"\x0b": "\n", "\x0c": "\n", "\x85": "\n"})
+# The Unicode line and paragraph separators (U+2028, U+2029) are line breaks too: the macOS text system writes U+2028 for a line
+# break (TextEdit, Pages, Mail RTF), and kept, it stayed inside a table cell, split `str.splitlines` in the middle of a table row,
+# and let a quoted fence escape the first cleaning, so cleaning twice gave another text
+# (Pinned by: test_markdown.py::TestCleanText::test_unicode_line_and_paragraph_separators_are_line_breaks).
+_LINE_BREAK_CONTROLS = str.maketrans({"\x0b": "\n", "\x0c": "\n", "\x85": "\n", "\u2028": "\n", "\u2029": "\n"})
 # The private use areas (BMP and supplementary planes 15 and 16). Symbols of fonts specific to Hangul (HWP) and Office are mapped
 # here and become meaningless characters in any other environment. Hancom fonts use the supplementary areas too (U+F02B1 etc.)
 # (Pinned by: test_markdown.py::TestCleanText::test_removes_supplementary_private_use_characters).
@@ -49,7 +53,7 @@ _SYMBOL_FONT_GLYPHS = str.maketrans({
     # (Pinned by: test_markdown.py::TestCleanText::test_expands_latin_ligatures_but_keeps_other_compatibility_characters).
     "\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi", "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st",
 })
-_SPACE_LIKE = re.compile("[  -   　]")
+_SPACE_LIKE = re.compile("[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]")  # the Unicode spaces, the Ogham space mark too
 # The characters cleaning can leave a backtick for: the backtick, and the Greek varia U+1FEF, which NFC turns into one.
 _BACKTICK_SOURCES = ("`", "\u1fef")
 _INNER_SPACES = re.compile(r"[ \t]+")
