@@ -28,8 +28,11 @@ _ZIP_MAGIC = b"PK\x03\x04"
 _HWP3_MAGIC = b"HWP Document File V3"
 _PDF_MAGIC = b"%PDF-"
 _RTF_MAGIC = b"{\\rtf"
-# SVG image: the top element (after a DOCTYPE) is <svg>. Passed through as text, the path coordinates become the body.
-_SVG_ROOT = re.compile(rb"(?:<!doctype\s+svg\b[^>]*>\s*)?<svg[\s>]", re.IGNORECASE)
+# SVG image: the top element (after a DOCTYPE) is <svg>. Passed through as text, the path coordinates become the body. A DOCTYPE
+# may hold an internal subset of declarations (`[ <!ENTITY ns_svg "…"> ]`, written by Adobe Illustrator into every SVG it
+# exports), whose `>` ended it before: such an SVG passed as text (Pinned by: test_detect.py::TestDoctypeWithAnInternalSubset).
+_DOCTYPE = rb"<!doctype\b[^>\[]*(?:\[[^\]]*\])?\s*>"
+_SVG_ROOT = re.compile(rb"(?:" + _DOCTYPE.replace(rb"\b", rb"\s+svg\b", 1) + rb"\s*)?<svg[\s>]", re.IGNORECASE)
 # Found only in a PDF body: the cross-reference table position (startxref) or an object header (`12 0 obj`).
 # An object header is looked for only from the first digit of a number (`(?<!\d)`): started again at every digit of a run, the search
 # took 5 seconds for 40,000 digits after a late header, in the first check every upload goes through. The same files match
@@ -52,7 +55,7 @@ _LEADING_MARKUP_NOISE = re.compile(rb"(?:\s+|<!--.*?-->|<\?xml[^>]*\?>)*", re.DO
 # Range searched for HTML signals. Export files that start with a long <style> or comment had no signal within 2KB.
 _HTML_SNIFF_BYTES = 64 * 1024
 # XML prolog (whitespace, comments, processing instructions, DOCTYPE). What follows them is the top element.
-_XML_PROLOG = re.compile(rb"(?:\s+|<!--.*?-->|<\?[^>]*\?>|<!doctype[^>]*>)*", re.DOTALL | re.IGNORECASE)
+_XML_PROLOG = re.compile(rb"(?:\s+|<!--.*?-->|<\?[^>]*\?>|" + _DOCTYPE + rb")*", re.DOTALL | re.IGNORECASE)
 # Top element name of a document that starts with an XML declaration. Unless it is an HTML element (`_HTML_ROOT_NAMES`) the document is
 # XML data (`_is_xml_data`).
 _XML_DECLARATION = re.compile(rb"<\?xml[\s?]")

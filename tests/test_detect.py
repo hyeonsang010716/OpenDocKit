@@ -236,6 +236,30 @@ def test_svg_is_reported_as_unsupported_instead_of_passing_as_text(data, filenam
         convert(data, filename)
 
 
+class TestDoctypeWithAnInternalSubset:
+    """A DOCTYPE may hold an internal subset of declarations, whose `>` ended it before. Adobe Illustrator writes one into
+    every SVG it exports, so such an SVG passed as text with its path coordinates as the body, and XML data with one was read
+    as HTML, its text run together after a stray `]>`."""
+
+    _SUBSET = ('<!DOCTYPE {root} PUBLIC "-//W3C//DTD SVG 1.1//EN" "x.dtd" [\n\t<!ENTITY ns_svg "http://www.w3.org/2000/svg">\n'
+               '\t<!ENTITY ns_xlink "http://www.w3.org/1999/xlink">\n]>\n')
+
+    @pytest.mark.parametrize("filename", ["logo.svg", None])
+    def test_illustrator_svg_is_reported_as_unsupported(self, filename):
+        data = ('<?xml version="1.0" encoding="utf-8"?>\n<!-- Generator: Adobe Illustrator 16.0.0, SVG Export Plug-In -->\n'
+                + self._SUBSET.format(root="svg") + '<svg version="1.1" xmlns="&ns_svg;"><path d="M306.5,120.3c-45.2,0"/></svg>')
+
+        with pytest.raises(UnsupportedFormatError, match="SVG"):
+            convert(data.encode(), filename)
+
+    def test_xml_data_after_one_is_xml_data(self):
+        data = '<?xml version="1.0"?>\n' + self._SUBSET.format(root="note") + "<note><to>Kim</to><body>Hello</body></note>"
+
+        result = convert(data.encode(), None)
+
+        assert result.format == DocumentFormat.TEXT
+
+
 @pytest.mark.parametrize("data, filename, expected", [
     (b"{\\rtf1\\ansi\\ansicpg949 \\'c7\\'d1\\'b1\\'db\\par}", "a.rtf", "한글"),
     (b"{\\rtf1\\ansi text\\par}", "a.doc", "text"),
