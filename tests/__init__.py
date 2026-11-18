@@ -6,16 +6,23 @@ import time
 
 import pytest
 
-from opendockit.extractors.html import HTML5_TOKENIZER
+from opendockit.extractors._html_base import HTML5_TOKENIZER, READS_LIKE_A_BROWSER
 
 
 if os.name == "nt":
     from ctypes import wintypes
 
 
-# Some HTML and mail tests pin behavior that needs the HTML5 tokenizer of libxml2 2.14. lxml's Windows wheels still bundle
-# libxml2 2.11, where the same input loses content (docs/limitations.md); the extractor reports that with a warning.
-needs_html5_tokenizer = pytest.mark.skipif(not HTML5_TOKENIZER, reason="needs the HTML5 tokenizer of libxml2 2.14 or newer")
+# Some HTML and mail tests pin behavior that needs an HTML5 parser: libxml2 2.14 or, where lxml bundles an older one (its
+# Windows wheels), html5lib. Only an install that has neither loses that content (docs/limitations.md), and there these
+# tests are skipped and the extractor reports the gap with a warning.
+needs_html5_tokenizer = pytest.mark.skipif(not READS_LIKE_A_BROWSER, reason="needs an HTML5 parser: libxml2 2.14 or html5lib")
+
+# A few tests pin how long a crafted page takes, and that holds only where libxml2's own tokenizer reads it. html5lib is
+# quadratic on the same pages, and the builder gate (`_html_base.builder_for`) hands them to the older parser instead, which
+# is quadratic on them too — so neither builder keeps the promise where libxml2 is older than 2.14.
+needs_libxml2_html5_tokenizer = pytest.mark.skipif(
+    not HTML5_TOKENIZER, reason="the time this pins holds only with the HTML5 tokenizer of libxml2 2.14")
 
 
 if os.name == "posix":

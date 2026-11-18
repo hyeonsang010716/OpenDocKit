@@ -9,11 +9,10 @@ import itertools
 import re
 from urllib.parse import unquote, urljoin
 
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from bs4.element import PreformattedString
 
 from opendockit.extractors._encoding import decode_text
-from opendockit.extractors._html_base import _DROP_TAGS, _PARSER_CALLERS, _WHITESPACE
+from opendockit.extractors._html_base import _DROP_TAGS, _WHITESPACE, parse_html
 from opendockit.extractors._html_dom import _closed_at_the_end, _decompose_all, _drop_hidden, _reopen_raw_text_elements, _with_table_around_bare_rows
 from opendockit.extractors._mail import (
     MIME_HEAD_BYTES,
@@ -34,7 +33,6 @@ from opendockit.extractors._mail import (
 )
 from opendockit.extractors._mail import mime_header_block as _mime_header_block
 from opendockit.extractors._mail_calendar import mail_calendar_events
-from opendockit.models import quiet_warnings
 
 
 # Characters that draw nothing on screen: zero-width spaces and joiners (ZWSP/ZWNJ/ZWJ/WJ/BOM), the combining grapheme joiner
@@ -198,8 +196,8 @@ def _unread_frame_warning(message: Message, page: str) -> str | None:
             if key:
                 frames.setdefault(key, part)
 
-    with quiet_warnings((XMLParsedAsHTMLWarning, _PARSER_CALLERS)):
-        soup = BeautifulSoup(page, "lxml")
+    # Lenient: the question is which frames the markup names, not what a browser would draw from it.
+    soup = parse_html(page, lenient=True)
     sources = [str(frame.get("src") or "").strip() for frame in soup.find_all(["iframe", "frame"])]
     found = {id(part): part for source in sources if source
              and (part := _part_at(frames, source) or frames.get(_resolved(base, source))) is not None}
@@ -222,8 +220,7 @@ def _visible_length(html: str) -> int:
 def _visible_strings(html: str) -> list[str]:
     """Text pieces outside elements that are not rendered (`_DROP_TAGS`) and hidden elements (`_drop_hidden`). Invisible
     characters (`_INVISIBLE_TEXT`) are removed."""
-    with quiet_warnings((XMLParsedAsHTMLWarning, _PARSER_CALLERS)):
-        soup = BeautifulSoup(html, "lxml")
+    soup = parse_html(html)
     _reopen_raw_text_elements(soup, _closed_at_the_end(html))
     _decompose_all(soup.find_all([*_DROP_TAGS, "title"]))
     _drop_hidden(soup)

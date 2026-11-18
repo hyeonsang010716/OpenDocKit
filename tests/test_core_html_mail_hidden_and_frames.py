@@ -10,7 +10,7 @@ import pytest
 
 from opendockit import convert
 from opendockit.extractors import _html_dom
-from tests import needs_html5_tokenizer
+from tests import needs_html5_tokenizer, needs_libxml2_html5_tokenizer
 from tests.timing import Fastest, fastest
 
 
@@ -346,7 +346,7 @@ class TestRawTextElementsLeftOpen:
         assert result.text == "앞\n\n본문 문단 하나\n\n| 구분 | 값 |\n| --- | --- |\n| 가 | 1 |"
 
     @pytest.mark.timing
-    @needs_html5_tokenizer
+    @needs_libxml2_html5_tokenizer
     def test_many_unclosed_elements_take_linear_time(self):
         """If the re-read remainder has another unclosed element, what follows it is read again; re-reading them one at a time is
         quadratic in their number."""

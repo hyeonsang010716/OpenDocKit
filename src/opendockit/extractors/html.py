@@ -11,20 +11,23 @@ from collections.abc import Callable
 from email.message import Message
 import re
 
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+from bs4 import BeautifulSoup
 from bs4.element import PreformattedString
-from lxml import etree
 
 from opendockit.extractors._encoding import decode_text, decoding_warning, decoding_warnings
 from opendockit.extractors._html_base import (
     _DROP_TAGS,
-    _PARSER_CALLERS,
+    READS_LIKE_A_BROWSER,
+    TREE_BUILDER,
     _Inline,
     _inline,
     _omitted_rows,
     _Places,
     _replace,
     _table_room,
+    builder_for,
+    builder_for_document,
+    parse_html,
 )
 from opendockit.extractors._html_dom import (
     _closed_after,
@@ -83,7 +86,7 @@ from opendockit.extractors._mail import (
 )
 from opendockit.extractors._notation import omitted_rows_warning
 from opendockit.markdown import restore_spans, solid_length, spans_left
-from opendockit.models import ConvertOptions, Extraction, RawImage, Section, SectionKind, quiet_warnings
+from opendockit.models import ConvertOptions, Extraction, RawImage, Section, SectionKind
 
 
 # Elements whose `<title>` is not the document title: SVG (a tooltip) and MathML.
@@ -128,20 +131,40 @@ _LINK_ADDRESS = re.compile(r"\]\((?:https?://|mailto:)[^()\s]*\)", re.IGNORECASE
 _LINK_BRACKETS = re.compile(r"[\[\]]")
 
 
-# The HTML5 tokenizer arrived in libxml2 2.14. Reading malformed pages "like a browser" below (content after `</html>`, a
-# second concatenated document, raw-text elements such as <textarea>/<xmp>) depends on it.
-# lxml's wheels for Linux and macOS bundle 2.14 from lxml 6.0 on, but its Windows wheels still bundle 2.11, where those
-# inputs silently lose content. The result cannot be repaired here, so it is reported
-# (Pinned by: test_core_html.py::TestOlderHtmlParser; tests that need the tokenizer are skipped via `tests.needs_html5_tokenizer`).
-HTML5_TOKENIZER = etree.LIBXML_VERSION >= (2, 14)
-_OLD_PARSER_WARNING = ("The installed lxml bundles an HTML parser older than libxml2 2.14 (as its Windows builds do), so content of "
-                       "malformed or multi-part HTML and mail (text after the end of the page, further mail parts) may be missing.")
+# Reading malformed pages "like a browser" below (content after `</html>`, a second concatenated document, raw-text elements
+# such as <textarea>/<xmp>, the later parts of a mail) needs an HTML5 parser. Which one builds the tree is decided in
+# `_html_base`: libxml2's own tokenizer from 2.14, or html5lib where lxml bundles an older libxml2 (its Windows wheels).
+# The warning is for the one case where neither is there — html5lib not installed on such a platform — because the content
+# is then lost and cannot be repaired here
+# (Pinned by: test_core_html.py::TestOlderHtmlParser).
+_OLD_PARSER_WARNING = ("The installed lxml bundles an HTML parser older than libxml2 2.14 (as its Windows builds do) and html5lib "
+                       "is not installed, so content of malformed or multi-part HTML and mail (text after the end of the page, "
+                       "further mail parts) may be missing.")
+# The same loss, for the pages handed to the older parser because the HTML5 one reads their shape too slowly — very large
+# or very deeply nested (`_html_base._HTML5LIB_MAX_CHARS`, `_HTML5LIB_MAX_DEPTH`). Its own sentence, so that it is clear
+# which of the two happened.
+_LARGE_PAGE_WARNING = ("This page is too large or too deeply nested to read with the HTML5 parser, and the one bundled with "
+                       "lxml on this platform was used instead, so content of malformed or multi-part HTML and mail (text "
+                       "after the end of the page, further mail parts) may be missing.")
 
 
 def extract_html(data: bytes, options: ConvertOptions) -> Extraction:
-    extraction = _extract_html(data, options)
-    if not HTML5_TOKENIZER and _OLD_PARSER_WARNING not in extraction.warnings:
-        extraction.warnings.append(_OLD_PARSER_WARNING)
+    # Decided once, from the whole file, and held for every parse this document needs. The size is counted in bytes against
+    # a limit in characters: for text that is not ASCII that errs towards the older parser, which is the safe way round.
+    builder = builder_for(data)
+    token = builder_for_document.set(builder)
+    try:
+        extraction = _extract_html(data, options)
+    finally:
+        builder_for_document.reset(token)
+    if not READS_LIKE_A_BROWSER:
+        warning = _OLD_PARSER_WARNING
+    elif builder != TREE_BUILDER:
+        warning = _LARGE_PAGE_WARNING
+    else:
+        return extraction
+    if warning not in extraction.warnings:
+        extraction.warnings.append(warning)
     return extraction
 
 
@@ -319,8 +342,7 @@ def _unread_title(documents: list[str], read: int = 0) -> str:
             if not closings:
                 break
             looked = looked[:closings[-1].end()]
-        with quiet_warnings((XMLParsedAsHTMLWarning, _PARSER_CALLERS)):
-            title = _document_title(BeautifulSoup(looked, "lxml"))
+        title = _document_title(parse_html(looked))
         if title:
             return title
         if end < len(document):
@@ -445,8 +467,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     # For an HTML fragment starting with an XML declaration (`<?xml …?><TABLE>`), bs4 emitted XMLParsedAsHTMLWarning to the
     # caller. This is a document already decided to be read with this parser — XML data goes to text at detection
     # (Pinned by: test_core_html.py::TestXmlDataWithHtmlElementNames).
-    with quiet_warnings((XMLParsedAsHTMLWarning, _PARSER_CALLERS)):
-        soup = BeautifulSoup(text, "lxml")
+    soup = parse_html(text)
 
     metadata = {"encoding": encoding}
     title = _document_title(soup)

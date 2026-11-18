@@ -30,6 +30,9 @@ classifiers = [
 dependencies = [
     "beautifulsoup4>=4.13,!=4.14.0",  # 4.14.0 mis-parses some documents; fixed in 4.14.1
     "charset-normalizer>=3.5",
+    # Only where lxml bundles libxml2 older than 2.14, which is its Windows wheels: the HTML extractor builds its
+    # tree with html5lib there, so that malformed and multi-part pages do not lose content (docs/decisions/html.md).
+    "html5lib>=1.1; sys_platform == 'win32'",
     "lxml>=6.0",  # the HTML extractor relies on the HTML5 tokenizer of libxml2 2.14, first bundled in lxml 6.0
     "olefile>=0.47",
     "openpyxl>=3.1.4",

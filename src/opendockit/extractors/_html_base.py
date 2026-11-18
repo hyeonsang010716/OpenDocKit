@@ -7,8 +7,11 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 import re
 
-from bs4 import BeautifulSoup, Tag
-from bs4.element import PageElement
+from bs4 import BeautifulSoup, Tag, XMLParsedAsHTMLWarning
+from bs4.element import NavigableString, PageElement, Script, Stylesheet
+from lxml import etree
+
+from opendockit.models import quiet_warnings
 
 
 # The modules that hand markup to the HTML parser, as the regex `models.quiet_warnings` matches the module a warning comes
@@ -16,6 +19,151 @@ from bs4.element import PageElement
 # that warning from the caller of `convert` names these modules only
 # (Pinned by: test_core_html.py::TestPagesWithAnXmlDeclaration).
 _PARSER_CALLERS = r"opendockit\.extractors\._?html"
+
+# Which tree builder reads a page like a browser.
+#
+# Malformed and multi-part pages (content after `</html>`, a second concatenated document, raw-text elements such as
+# <textarea>/<xmp>, the later parts of a mail) are only read whole by a parser that follows HTML5. libxml2 has the HTML5
+# tokenizer from 2.14, which lxml's Linux and macOS wheels bundle from lxml 6.0 — but its Windows wheels still bundle 2.11,
+# and no lxml release changes that (7.0.0b1 was measured to bundle 2.11.9 as well). There, html5lib builds the tree instead:
+# it is a full HTML5 parser, and bs4 can use it to build the same kind of tree. It costs 2 to 4 times the parse of an
+# ordinary page, and far more on the two shapes it is quadratic on (`_HTML5LIB_MAX_CHARS`, `_HTML5LIB_MAX_DEPTH`), which is
+# why it is not used where libxml2 is new enough.
+# Where neither is available the old reading stays, and `html._OLD_PARSER_WARNING` says what may be missing
+# (Pinned by: test_core_html.py::TestOlderHtmlParser).
+HTML5_TOKENIZER = etree.LIBXML_VERSION >= (2, 14)
+try:
+    import html5lib as _html5lib
+except ImportError:   # not installed: only the default dependency on Windows brings it
+    _html5lib = None
+TREE_BUILDER = "lxml" if HTML5_TOKENIZER or _html5lib is None else "html5lib"
+# Whether the pages above are read whole, whichever builder does it.
+READS_LIKE_A_BROWSER = HTML5_TOKENIZER or _html5lib is not None
+
+
+# How large a page html5lib may read. Its tokenizer is Python, and the time it spends on the text an unclosed raw-text
+# element (<textarea>, <xmp>, <plaintext>) swallows grows with the square of that text: measured on Windows 11, a page of
+# 272 KB took 0.29 s, one of 547 KB 4.1 s and one of 1.12 MB 36.8 s, where libxml2 took 0.05 s, 0.05 s and 0.14 s. An
+# ordinary page, attributes and all, costs only 2 to 4 times as much, but the shape cannot be known before parsing, so the
+# limit is on size. Past it the page is read by the older parser and reported, which is what an install without html5lib
+# does: a large page is never slower than it was
+# (Pinned by: test_core_html.py::TestLargePagesKeepTheOlderParser).
+_HTML5LIB_MAX_CHARS = 256 * 1024
+
+# The builder for the document being read, set by `extract_html` from its size. One document is read by one builder from
+# beginning to end: the front check of a large page parses a slice of it (`_extract_front`), and a slice small enough for
+# html5lib while the whole page was not gave the two readings different text, so a limit met by the whole conversion was
+# reported as exceeded (Pinned by:
+# test_core_html_raw_text_and_removal.py::TestUnclosedRawTextElementInALargePage::test_textarea_closed_after_the_front_is_not_read_as_html).
+builder_for_document: ContextVar[str | None] = ContextVar("builder_for_document", default=None)
+
+
+# How deeply a page html5lib reads may nest. Its tree construction walks the open elements for every tag, so the time grows
+# with the square of the nesting: measured on Windows 11, 2,000 nested `<div>` took 0.28 s, 4,000 took 1.05 s and 8,000 took
+# 6.18 s, where libxml2 took 0.01 s, 0.02 s and 0.05 s — and closing every one of them makes no difference (8,000 closed:
+# 5.86 s). Size does not catch this: the 8,000-deep page is 39 KB. Real pages nest a few tens deep
+# (Pinned by: test_core_html.py::TestDeeplyNestedPagesKeepTheOlderParser).
+_HTML5LIB_MAX_DEPTH = 1_000
+
+# Elements left out of the depth estimate below, because markup leaves them open as a matter of course and HTML closes them
+# on its own: counting them would read an ordinary page of unclosed `<p>` as thousands deep and send it to the older parser,
+# which is the very markup html5lib is here for. Void elements never nest at all.
+_SELF_CLOSING = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+                           "track", "wbr"})
+_AUTO_CLOSING = frozenset({"p", "li", "dt", "dd", "option", "optgroup", "tr", "td", "th", "thead", "tbody", "tfoot",
+                           "caption", "colgroup", "rt", "rp", "html", "head", "body"})
+_TAG = re.compile(r"<(/?)([a-zA-Z][^\s/>]*)")
+
+# How many raw-text elements (<textarea>, <xmp>, <plaintext>) may be left open before the page goes to the older parser.
+# Each one swallows the rest of the document, and html5lib spends time on that text in proportion to its square, so a page
+# that leaves thousands of them open is quadratic in their number as well: 2,000 took 0.6 s and 8,000 took 9.1 s. The number
+# is `_html_dom._MAX_REOPENED`, the point at which the repair pass stops re-reading what was swallowed anyway, so nothing is
+# given up that was being repaired
+# (Pinned by: test_core_html_mail_hidden_and_frames.py::TestRawTextElementsLeftOpen::test_many_unclosed_elements_take_linear_time).
+_HTML5LIB_MAX_RAW_TEXT_LEFT_OPEN = 16
+_RAW_TEXT = frozenset({"textarea", "xmp", "plaintext"})
+
+
+def _too_slow_a_shape(markup: str, depth_limit: int) -> bool:
+    """Whether the markup is one of the shapes html5lib is quadratic on: nested deeper than `depth_limit`, or leaving more
+    than `_HTML5LIB_MAX_RAW_TEXT_LEFT_OPEN` raw-text elements open.
+
+    An estimate, not the tree: elements that close themselves or that HTML closes for you are left out (`_SELF_CLOSING`,
+    `_AUTO_CLOSING`), and a stray end tag only ever lifts the depth back up. It is read once and stops at the first limit
+    reached, so it costs a fraction of either parse.
+    """
+    depth = 0
+    left_open = 0
+    for match in _TAG.finditer(markup):
+        name = match.group(2).lower()
+        closing = bool(match.group(1))
+        if name in _RAW_TEXT:
+            left_open += -1 if closing else 1
+            if left_open > _HTML5LIB_MAX_RAW_TEXT_LEFT_OPEN:
+                return True
+        if name in _SELF_CLOSING or name in _AUTO_CLOSING:
+            continue
+        if closing:
+            depth = max(0, depth - 1)
+        else:
+            depth += 1
+            if depth > depth_limit:
+                return True
+    return False
+
+
+def builder_for(markup: "str | bytes") -> str:
+    """The builder to read one document with: html5lib unless the markup is one of the shapes it is slow on.
+
+    Takes the file as it arrived or the text it decoded to; the size is checked first, so the bytes are never copied for a
+    document large enough for that to matter. Only tag names are read from them, and those are ASCII.
+    """
+    if TREE_BUILDER != "html5lib":
+        return TREE_BUILDER
+    if len(markup) > _HTML5LIB_MAX_CHARS:
+        return "lxml"
+    if isinstance(markup, bytes):
+        markup = markup.decode("latin-1", "replace")
+    return "lxml" if _too_slow_a_shape(markup, _HTML5LIB_MAX_DEPTH) else TREE_BUILDER
+
+
+def parse_html(markup: str, *, lenient: bool = False) -> BeautifulSoup:
+    """The tree of a page, built by whichever parser reads it like a browser here.
+
+    Every HTML tree of this package is built through this function, so that the choice is made in one place. The warning
+    filter is part of it: bs4 warns about a page that starts with an XML declaration, at the place that called it.
+
+    `lenient` asks for the forgiving parser whatever this platform would otherwise use. It is for a question about what the
+    markup holds rather than about what a browser would show: an HTML5 parser drops a `<frameset>` that comes after body
+    content, which is right for rendering and wrong for noticing that a saved page keeps its body in a frame (Pinned by:
+    test_audit_html_text.py::TestFrameCheckOfASavedPageWithoutFrames::test_body_inside_a_frame_is_still_reported).
+    """
+    if lenient:
+        builder = "lxml"
+    else:   # the document's builder; outside a document (a lone call) decided from this markup alone
+        builder = builder_for_document.get() or builder_for(markup)
+    with quiet_warnings((XMLParsedAsHTMLWarning, _PARSER_CALLERS)):
+        soup = BeautifulSoup(markup, builder)
+    if builder == "html5lib":
+        _type_the_text_of_scripts_and_styles(soup)
+    return soup
+
+
+# The text of these elements is not content, and bs4 gives it a string class of its own so that `get_text()` can leave it
+# out. The class is only applied where libxml2 builds the tree: html5lib leaves the text an ordinary string, while the tag
+# still says it keeps `Script` / `Stylesheet` — so `get_text()` on it matched nothing and came back empty. The TeX of a
+# `<script type="math/tex">`, which is the only thing the formula is written in on a page MathJax has not rendered, was
+# read back that way and vanished. Given its class here, so that nothing downstream has to know which parser built the tree
+# (Pinned by: test_core_html.py::TestMathMl::test_tex_in_a_mathjax_script_is_the_formula).
+_TEXT_CLASSES = (("script", Script), ("style", Stylesheet))
+
+
+def _type_the_text_of_scripts_and_styles(soup: BeautifulSoup) -> None:
+    classes = dict(_TEXT_CLASSES)
+    for element in soup.find_all(list(classes)):
+        for child in list(element.contents):   # replaced as we go
+            if type(child) is NavigableString:
+                child.replace_with(classes[element.name](str(child)))
 
 
 # Elements that are not content. Removed whole.
