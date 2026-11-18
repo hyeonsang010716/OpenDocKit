@@ -652,6 +652,52 @@ class TestPdfImages:
         assert result.sections[1].text == ""
         assert any("1 page(s) whose text exists only as an image (2)" in warning for warning in result.warnings)
 
+    def test_identical_scanned_pages_are_each_counted(self):
+        """A scan of 12 blank-looking pages that are the same picture: the copies are described once, through the first, and
+        the warning counted the pictures, not the pages — 100 such pages were '10 page(s)'."""
+        result = convert(_same_scan_on_every_page(12), "scan.pdf")
+
+        assert len(result.images) == 1
+        assert ("12 page(s) whose text exists only as an image (1, 2, 3, 4, 5, 6, 7, 8, 9, 10 and more) are empty because they "
+                "did not go through image description (OCR).") in result.warnings
+
+    def test_identical_scanned_pages_left_out_by_the_image_limit_are_each_counted(self):
+        from opendockit.converter import _prepare_images
+        from opendockit.models import Extraction, Section, SectionKind, marker_key
+
+        extraction = Extraction()
+        with marker_key("k"):
+            markers = [extraction.add_image(builder.png_bytes(400, 300, seed=1), kind=ImageKind.PAGE) for _ in range(3)]
+        sections = [Section(SectionKind.PAGE, index, "", None, marker) for index, marker in enumerate(markers, start=1)]
+        warnings: list[str] = []
+
+        images, _ = _prepare_images(extraction.images, sections, ConvertOptions(max_images=0), warnings, "k")
+
+        assert images == []
+        assert warnings == ["There are many images, so only 0 were selected for description (scanned pages first). 3 page(s) "
+                            "whose text exists only as an image (1, 2, 3) were left out and are empty."]
+
+    def test_identical_scanned_pages_described_through_the_first_are_not_reported(self):
+        result = described(_same_scan_on_every_page(3), "scan.pdf", FakeDescriber(answers={1: "Scanned text"}))
+
+        assert all("Scanned text" in section.text for section in result.sections) and len(result.sections) == 3
+        assert not any("whose text exists only as an image" in warning for warning in result.warnings)
+
+
+def _same_scan_on_every_page(pages: int) -> bytes:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    for _ in range(pages):
+        pdf.drawImage(ImageReader(BytesIO(builder.png_bytes(600, 800, seed=21))), 0, 0, width=width, height=height)
+        pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
 
 class TestDescribeImages:
     def test_failure_keeps_placeholder_and_warns(self):

@@ -376,10 +376,11 @@ def render(result: ConversionResult) -> ConversionResult:
     failed = sum(1 for image in result.images if image.failed)
     if failed:
         warnings.append(f"{failed} image(s) could not be described (the vision model call failed) and were left as placeholder text.")
-    unread_pages = [image for image in result.images if image.kind is ImageKind.PAGE and not image.description]
-    if unread_pages:
-        warnings.append(f"{len(unread_pages)} page(s) whose text exists only as an image "
-                        f"({page_list([image.section_index for image in unread_pages])}) "
+    unread = [image for image in result.images if image.kind is ImageKind.PAGE and not image.description]
+    if unread:
+        unread_pages = _pages_holding(result.sections, {image.id for image in unread}, pattern,
+                                      [image.section_index for image in unread])
+        warnings.append(f"{len(unread_pages)} page(s) whose text exists only as an image ({page_list(unread_pages)}) "
                         "are empty because they did not go through image description (OCR).")
 
     # Whether the limit is exceeded is counted exactly on the text rendered here. If the extraction stage stopped first, the value
@@ -538,13 +539,13 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
               [: options.max_images]}
     locations = _locate_markers(sections, image_marker_pattern(marker))
     images: list[DocumentImage] = []
-    left_pages: list[int] = []
+    left_page_ids: list[int] = []
     left_figures = 0
     for raw, alt, image in candidates:
         section, context = locations.get(raw.id, (None, ""))
         if raw.id not in chosen:
             if raw.kind is ImageKind.PAGE:
-                left_pages.append(section.index if section else 1)
+                left_page_ids.append(raw.id)
             else:
                 left_figures += 1
             continue
@@ -558,6 +559,8 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     # pictures 'left as placeholders' and its pages are named, as `render` names the pages that were not described. Counted
     # with the pictures, the warning said every one had kept a placeholder and never named the empty pages
     # (Pinned by: test_image.py::TestScannedPagesLeftOutByTheImageLimit).
+    left_pages = _pages_holding(sections, set(left_page_ids), image_marker_pattern(marker),
+                                [locations[image_id][0].index if image_id in locations else 1 for image_id in left_page_ids])
     if left_pages:
         figures = f", and {left_figures} other image(s) were left as placeholders only" if left_figures else ""
         warnings.append(f"There are many images, so only {options.max_images} were selected for description (scanned pages first). "
@@ -675,6 +678,22 @@ def _point_aliases_at_first(sections: list[Section], aliases: dict[int, int], ma
 
         for index, section in enumerate(sections):
             sections[index] = replace(section, template=pattern.sub(point, section.template))
+
+
+def _pages_holding(sections: list[Section], image_ids: set[int], pattern: re.Pattern[str], also: list[int]) -> list[int]:
+    """The numbers of the sections whose original holds the placeholder of one of `image_ids`, with `also` (the section each
+    picture was found in), in order and once each.
+
+    A copy of a picture points at the first one (`_point_aliases_at_first`), so a scan whose pages are the same picture is one
+    image placed on every page. Counted by the images, 100 such pages left empty were '10 page(s)', naming 10 of them
+    (Pinned by: test_image.py::TestPdfImages::test_identical_scanned_pages_are_each_counted)."""
+    pages = set(also)
+    if not image_ids:
+        return sorted(pages)
+    for section in sections:
+        if any(int(match.group(1)) in image_ids for match in pattern.finditer(section.template)):
+            pages.add(section.index)
+    return sorted(pages)
 
 
 def _locate_markers(sections: list[Section], pattern: re.Pattern[str]) -> dict[int, tuple[Section, str]]:
