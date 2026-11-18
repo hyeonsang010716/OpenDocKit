@@ -1866,6 +1866,34 @@ class TestXmlSpreadsheetDatesAndTimes:
 
         assert f"| 가 | {expected} |" in result.text
 
+    @pytest.mark.parametrize(("number_format", "expected"), [
+        ("yyyy\\-mm\\-dd", "0"),
+        ("Short Date", "0"),
+        ("General Date", "0"),
+        ("mm/dd/yyyy hh:mm:ss", "0"),
+        ("mmm-yy", "0"),
+        ("hh:mm", "00:00"),
+        ("Long Time", "0:00:00"),
+        ("[h]:mm", "0:00"),
+    ])
+    def test_serial_zero_under_a_date_format_is_the_number(self, number_format, expected):
+        """Serial 0 under a format that shows a date is Excel's non-existent '1900-01-00' (an empty date of a form, a formula that
+        returned 0). It came out as the time '00:00:00'; XLSX and XLS show the number 0. Under a time-only format it is midnight."""
+        data = _xml_spreadsheet(number_format, "Number", "0")
+
+        result = convert(data, "a.xls")
+
+        assert f"| 가 | {expected} |" in result.text
+
+    def test_datetime_on_day_zero_under_a_date_format_stays_a_time(self):
+        """A `DateTime` on day 0 is how Excel 2003 XML writes a time-only value, so midnight on it stays the time alone, as other
+        times on day 0 under a date format do (`test_time_only_value_follows_the_time_format`)."""
+        data = _xml_spreadsheet("Short Date", "DateTime", "1899-12-31T00:00:00.000")
+
+        result = convert(data, "a.xls")
+
+        assert "| 가 | 00:00:00 |" in result.text
+
     @pytest.mark.parametrize(("number_format", "value", "expected"), [
         ("aaa", "45000", "2023-03-15"),
         ("aaaa", "45000.75", "2023-03-15"),

@@ -19,6 +19,7 @@ from opendockit.extractors._sheet_format import (
     _XML_GENERAL_DATE,
     _is_elapsed_format,
     _is_weekday_only,
+    _shows_date,
     format_cell,
 )
 from opendockit.extractors._sheet_layout import _append_sheet, _collect_rows, _level_marked
@@ -440,6 +441,13 @@ def _xml_serial_text(value: float, number_format: str) -> str:
             return format_cell(timedelta(days=value), number_format)
         if value < 0:
             return format_cell(value, number_format)  # a negative serial number is not a date (`_negative_serial_text`)
+        if value == 0 and _shows_date(number_format):
+            # Serial 0 under a format that shows a date is Excel's non-existent '1900-01-00': the number 0, as in XLSX and XLS
+            # (`_is_serial_zero_shown_as_date`). It came out as the time '00:00:00' (Pinned by:
+            # test_spreadsheet.py::TestXmlSpreadsheetDatesAndTimes::test_serial_zero_under_a_date_format_is_the_number).
+            # Not a `DateTime` written on day 0 (`1899-12-31T00:00:00`): that is a time-only value, kept as a time
+            # (`_xml_cell_value`).
+            return "0"
         return format_cell(from_excel(value), number_format)
     except (OverflowError, ValueError):
         return format_cell(value, number_format)
