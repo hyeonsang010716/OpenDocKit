@@ -766,3 +766,52 @@ class TestPptxLayoutOrMasterRelationshipToAnotherKindOfPart:
 
         assert result.text == "## Slide 1: 제목\n\n- 본문 내용\n\n글상자\n\n## Slide 2\n\n둘째 장"
         assert result.warnings == ["Slide 2: skipped the speaker notes because they could not be read."]
+
+
+class TestRelationshipPointingBackAtTheMainPart:
+    """A DOCX styles or document-properties relationship that points back at word/document.xml made python-docx ask the
+    document part for its styles / properties again, which recursed without end, and a body that reads fine was rejected as
+    corrupted. Styles and properties are an extra: the body is read without them, with no warning."""
+
+    _BODY = TestDocxStylesAndNumberingWithAGenericContentType._BODY
+
+    def test_docx_styles_relationship_to_the_document_reads_the_body_without_styles(self):
+        data = builder.zip_with(_docx_with_body(self._BODY), edit={
+            "word/_rels/document.xml.rels": _retarget("styles", "document.xml")})
+
+        result = convert(data, "sample.docx")
+
+        assert result.text == "Chapter\n\nfirst\n\nsecond"
+        assert result.warnings == []
+
+    @pytest.mark.parametrize(("name", "target"), [("sample.docx", "word/document.xml"), ("sample.docx", "word/styles.xml"),
+                                                  ("sample.pptx", "ppt/presentation.xml"), ("sample.pptx", "ppt/slides/slide1.xml")])
+    def test_document_properties_relationship_to_another_part_leaves_out_title_and_author(self, name, target):
+        if name.endswith(".docx"):
+            document = Document()
+            document.add_paragraph("Body")
+        else:
+            from pptx import Presentation
+
+            document = Presentation()
+            document.slides.add_slide(document.slide_layouts[6]).shapes.add_textbox(0, 0, Inches(2), Inches(1)).text = "Body"
+        document.core_properties.title = "Plan"
+        document.core_properties.author = "Kim"
+        proper = _docx_saved(document)
+        data = builder.zip_with(proper, edit={"_rels/.rels": _retarget("core-properties", target)})
+
+        result = convert(data, name)
+
+        assert result.text == convert(proper, name).text and "Body" in result.text
+        assert "title" not in result.metadata and "author" not in result.metadata
+        assert result.warnings == []
+
+    @pytest.mark.parametrize("kind", ["numbering", "settings", "fontTable", "theme"])
+    def test_docx_other_relationship_to_the_document_keeps_the_body(self, kind):
+        proper = _docx_with_body(self._BODY)
+        data = builder.zip_with(proper, edit={"word/_rels/document.xml.rels": _retarget(kind, "document.xml")})
+
+        result = convert(data, "sample.docx")
+
+        assert result.text == ("# Chapter\n\nfirst\n\nsecond" if kind == "numbering" else convert(proper, "sample.docx").text)
+        assert result.warnings == []
