@@ -1808,8 +1808,11 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     block next to a spacer, a dot or an unsubscribe line converted to nothing while the block had to hold all the text of its part.
     The cost is known: a hidden preview block longer than the visible text of its part is shown
     (Pinned by: test_core_html_mail_hidden_and_frames.py::TestAriaHiddenBlockHoldingAMailPart).
+
+    The hidden MathML copy of a formula drawn by an aria-hidden picture stays (`_hidden_math_copy`).
     """
-    _decompose_all(_hidden_nodes(soup, [tag for tag in soup.find_all(_hidden_by_style) if id(tag) not in kept]))
+    _decompose_all(_hidden_nodes(soup, [tag for tag in soup.find_all(_hidden_by_style)
+                                        if id(tag) not in kept and not _hidden_math_copy(tag)]))
 
     marked = soup.find_all(attrs={"aria-hidden": "true"})
     if not marked:
@@ -1819,6 +1822,25 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
     page = max(_solid_length(body), 1) if body is not None else 1
     _decompose_all([tag for tag in marked if id(tag) not in holders
                     and not (whole and body is not None and tag.parent is body and 2 * _solid_length(tag) >= page)])
+
+
+def _hidden_math_copy(tag: Tag) -> bool:
+    """Whether hidden `tag` is the MathML of a formula whose picture follows it, hidden from screen readers: `tag` is a `<math>`
+    or holds only one, hidden by its style, and the next element is an `<img aria-hidden="true">`. That is how Wikipedia (MediaWiki's Math extension)
+    writes every formula — `<span class="mwe-math-mathml-a11y" style="display: none;"><math …>` for screen readers (its
+    stylesheet shows it to them), then the SVG picture with the TeX in its alt for the eye. Both were removed, the copy as
+    hidden and the picture as aria-hidden, and every formula of a saved article vanished. The copy is kept and read as the
+    formula once (`_html_math._put_math`); the picture is still removed. Any other hidden MathML is removed as before
+    (Pinned by: test_core_html.py::TestMathMl::test_formula_of_a_saved_wikipedia_article_is_read_once,
+    test_hidden_formula_without_a_picture_after_it_is_removed)."""
+    if _has_hidden(tag):
+        return False
+    if tag.name != "math":
+        content = [child for child in tag.contents if isinstance(child, Tag) or str(child).strip()]
+        if len(content) != 1 or not isinstance(content[0], Tag) or content[0].name != "math":
+            return False
+    picture = tag.find_next_sibling(True)
+    return picture is not None and picture.name == "img" and str(picture.get("aria-hidden", "")).strip().lower() == "true"
 
 
 def _hidden_nodes(soup: BeautifulSoup, hidden: list[Tag]) -> list[PageElement]:

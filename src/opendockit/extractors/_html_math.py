@@ -9,10 +9,10 @@ from opendockit.extractors._html_base import _BLOCK_TAGS, _HEADINGS
 from opendockit.extractors._mathml import MATH_IGNORED, mathml_structure
 
 
-# MathML (`_put_math`): annotation encodings of the LaTeX the document wrote, the wrapper of Wikipedia's alttext, script
+# MathML (`_put_math`): annotation encodings of the LaTeX the document wrote, the opening of Wikipedia's wrapper, script
 # elements → marks, elements that are not text, and the maximum depth unfolded LaTeX-style (recursion).
 _TEX_ENCODINGS = {"application/x-tex", "tex", "latex", "application/x-latex", "text/x-tex"}
-_DISPLAY_STYLE = re.compile(r"\{\\displaystyle\s*(.*)\}", re.DOTALL)
+_DISPLAY_STYLE = re.compile(r"\{\\displaystyle(?![A-Za-z])\s*")
 _MAX_MATH_DEPTH = 50
 # Page blocks that cannot appear inside an equation (`_maths_holding_page_blocks`).
 _PAGE_BLOCKS_IN_MATH = [*_BLOCK_TAGS, *_HEADINGS, "table", "ul", "ol", "li", "pre"]
@@ -24,9 +24,10 @@ def _put_math(soup: BeautifulSoup) -> None:
     (Pinned by: test_core_html.py::TestMathMl).
 
     The LaTeX the document wrote is used first: `<annotation encoding="application/x-tex">` (LaTeXML, MathJax) or, without it,
-    `alttext` (Wikipedia's `{\\displaystyle …}` is stripped). The whole element is replaced so that presentation MathML and the
-    annotation text do not run together and give the same expression twice. With neither, the presentation MathML is unfolded
-    LaTeX-style (`_mathml_latex`). The replacement method is the same as `_put_form_values` (in-place span, linear time).
+    `alttext` (Wikipedia's `{\\displaystyle …}` is stripped from either, `_unwrapped`). The whole element is replaced so that
+    presentation MathML and the annotation text do not run together and give the same expression twice. With neither, the
+    presentation MathML is unfolded LaTeX-style (`_mathml_latex`). The replacement method is the same as `_put_form_values`
+    (in-place span, linear time).
     """
     for math in _maths_holding_page_blocks(soup):
         math.unwrap()
@@ -74,13 +75,33 @@ def _math_source(math: Tag) -> str | None:
         if str(annotation.get("encoding", "")).strip().lower() in _TEX_ENCODINGS:
             text = " ".join(annotation.get_text().split())
             if text:
-                return text
+                return _unwrapped(text)
 
     text = " ".join(str(math.get("alttext", "")).split())
-    if not text:
-        return None
-    wrapped = _DISPLAY_STYLE.fullmatch(text)
-    return wrapped.group(1).strip() if wrapped else text
+    return _unwrapped(text) if text else None
+
+
+def _unwrapped(latex: str) -> str:
+    """`latex` without the `{\\displaystyle …}` group Wikipedia wraps every formula in, in its alttext and in its TeX
+    annotation alike (the annotation came out as `${\\displaystyle E=mc^{2}}$`). Only a group that holds the whole formula is
+    taken off: in `{\\displaystyle a}+{\\displaystyle b}` the first group closes before the end, and the text stays as it is
+    (Pinned by: test_core_html.py::TestMathMl::test_display_style_wrapper_of_wikipedia_is_taken_off)."""
+    opening = _DISPLAY_STYLE.match(latex)
+    if opening is None:
+        return latex
+    depth = 0
+    index = 0
+    while index < len(latex):
+        character = latex[index]
+        if character == "\\":
+            index += 2  # an escaped character (`\\{`, `\\}`) opens and closes nothing
+            continue
+        depth += {"{": 1, "}": -1}.get(character, 0)
+        index += 1
+        if depth == 0:
+            break
+    # The group must close on the last character: before it, the group holds only part of the formula
+    return latex[opening.end():-1].strip() if depth == 0 and index == len(latex) else latex
 
 
 def _mathml_latex(node: object, depth: int) -> str:
