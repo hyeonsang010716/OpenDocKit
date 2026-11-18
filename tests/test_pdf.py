@@ -1424,6 +1424,44 @@ class TestDrawingArtifacts:
         assert result.text.count("총 예산 1,500") == 1
         assert "| 항목 | 수량 | 금액 |" in result.text
 
+    @pytest.mark.parametrize(("size", "spacing", "scale"), [(8, -0.8, 100), (7, -0.7, 100), (6, 0, 60)],
+                             ids=["8pt-tc-10%", "7pt-tc-10%", "6pt-tz-60"])
+    def test_doubled_narrow_letters_under_tight_spacing_are_both_kept(self, size, spacing, scale):
+        """Small text with tight character spacing (Tc of -10% of the size) or condensed scaling (Tz 60), nothing drawn twice: the
+        second 'l' of 'will' starts less than 1pt after the first, so it was taken for a fake-bold copy and removed ('Al staff wil
+        folow the ful bil')."""
+        text = "All staff will follow the full bill of skills; see www.example.com/hello..."
+
+        def draw(pdf, index):
+            line = pdf.beginText(72, 700)
+            line.setFont("Helvetica", size)
+            line.setCharSpace(spacing)
+            line.setHorizScale(scale)
+            line.textOut(text)
+            pdf.drawText(line)
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.sections[0].text == text
+
+    @pytest.mark.parametrize("copy_first", [False, True], ids=["copy-drawn-after", "copy-drawn-before"])
+    def test_fake_bold_under_tight_spacing_is_read_once(self, copy_first):
+        """Fake bold (the line drawn a second time 0.3pt to the right) of small text with tight character spacing is still one
+        line, its doubled narrow letters kept once each."""
+        text = "All staff will follow the full bill of skills."
+
+        def draw(pdf, index):
+            for shift in ((0.3, 0) if copy_first else (0, 0.3)):
+                line = pdf.beginText(72 + shift, 700)
+                line.setFont("Helvetica", 8)
+                line.setCharSpace(-0.8)
+                line.textOut(text)
+                pdf.drawText(line)
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.sections[0].text == text
+
     @pytest.mark.parametrize("shifts", [(0, 0.3), (0.3, 0)], ids=["copy-drawn-right", "copy-drawn-left"])
     def test_a_word_in_fake_bold_on_part_of_a_line_is_read_once(self, shifts):
         """A word in fake bold (drawn twice, 0.3pt apart) with the rest of its line drawn as a separate run: pdfminer put one copy of

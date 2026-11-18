@@ -23,6 +23,11 @@ from opendockit.extractors._pdf_pdfminer import _LAPARAMS
 # itself (even the narrowest 'l' is 0.22 × the character size).
 _DUPLICATE_DISTANCE = 1.0
 _DUPLICATE_RATIO = 0.15
+# ... and no farther across than this fraction of the character's own width: under tight character spacing (Tc of -10% of the
+# size, LibreOffice's 'condensed by 1.5pt' at 8pt) or condensed scaling (Tz 60) the real successor of a narrow letter ('ll' of
+# 'will') starts closer than 1pt, but still a third of its width or more on, while fake bold shifts a copy by 0.3–0.4pt, within it
+# for an 'l' of 6pt and more.
+_DUPLICATE_WIDTH_RATIO = 0.3
 # A copy in a different colour (shadow effect) is looked for beyond 1pt, up to _DUPLICATE_RATIO × the character size. It is searched
 # with this grid (pt) (shadows are within 3–4pt).
 _SHADOW_GRID = 4.0
@@ -291,7 +296,13 @@ def _without_drawing_artifacts(page: object) -> tuple[object, list[dict]]:
       table cells became '항항목목' (every character doubled). When the same character, font and size appears again within
       `_DUPLICATE_DISTANCE`, only the first is kept. pdfplumber's `dedupe_chars` is not used because it looks up positions in the
       character list with `list.index`, which costs the square of the character count (Pinned by:
-      test_pdf.py::TestDrawingArtifacts::test_fake_bold_drawn_twice_is_read_once).
+      test_pdf.py::TestDrawingArtifacts::test_fake_bold_drawn_twice_is_read_once). Across, the copy must also lie within
+      `_DUPLICATE_WIDTH_RATIO` of the character's width: small text with tight character spacing (Tc of -10% of the size, Tz 60)
+      has the second 'l' of 'will' start 0.98pt after the first, and it was removed as a copy ('Al staff wil folow the ful bil')
+      although nothing was drawn twice. A character of zero width keeps the distance alone (`_unmeasured`). Known accepted gap:
+      spacing tighter than about -0.7 × a glyph's width still loses its repeat ('...' at -19%) (Pinned by:
+      test_pdf.py::TestDrawingArtifacts::test_doubled_narrow_letters_under_tight_spacing_are_both_kept,
+      test_fake_bold_under_tight_spacing_is_read_once).
     - Diagonal watermarks ('대외비', 'CONFIDENTIAL'): on every page they were inserted character by character at the end of the body
       and, being large, took first place in the heading levels. Large characters (`_WATERMARK_SIZE_RATIO`) whose writing direction is
       neither horizontal nor vertical are removed from the page. Small tilted characters (chart tick labels) are kept for table cells
@@ -331,7 +342,9 @@ def _without_drawing_artifacts(page: object) -> tuple[object, list[dict]]:
             key = (char["text"], char["fontname"], round(char["size"], 1))
             column, row = round(char["x0"] / _DUPLICATE_DISTANCE), round(char["top"] / _DUPLICATE_DISTANCE)
             tolerance = min(_DUPLICATE_DISTANCE, char["size"] * _DUPLICATE_RATIO)
-            if any(abs(other["x0"] - char["x0"]) <= tolerance and abs(other["top"] - char["top"]) <= tolerance
+            width = abs(char["x1"] - char["x0"])
+            across = min(tolerance, width * _DUPLICATE_WIDTH_RATIO) if width > 0 else tolerance
+            if any(abs(other["x0"] - char["x0"]) <= across and abs(other["top"] - char["top"]) <= tolerance
                    for dx in (-1, 0, 1) for dy in (-1, 0, 1) for other in cells.get((*key, column + dx, row + dy), ())):
                 dropped.append(char)
                 continue
