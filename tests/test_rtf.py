@@ -505,6 +505,17 @@ class TestLists:
                 r"\pard\ls2{\v x}\par\pard\ls2 " + box + r"four\par\pard\ls2 five\par")
         assert _text(body) == "1. one\n4. boxed\n5. four\n6. five"
 
+    def test_numbered_heading_takes_its_number_and_restarts_the_levels_under_it(self):
+        """A heading of a list (Word's numbered chapter headings, a contract's clauses) did not take its number: the items under
+        the second chapter went on from those under the first ('3. b1') and an item of the chapters' level after them did not
+        count the chapters. The heading's number is counted, still not written (the gap of the headings row); an empty
+        numbered heading takes its number too, as an empty list paragraph does."""
+        heading, item = r"\pard\outlinelevel0\ls2\ilvl0 ", r"\pard\ls2\ilvl1 "
+        body = (_LISTS + heading + r"Chapter A\par" + item + r"a1\par" + item + r"a2\par" + heading + r"Chapter B\par"
+                + item + r"b1\par" + item + r"b2\par" + r"\pard\outlinelevel0\ls2\ilvl0\par" + r"\pard\ls2\ilvl0 item\par")
+
+        assert _text(body) == "# Chapter A\n\n  1. a1\n  2. a2\n\n# Chapter B\n\n  1. b1\n  2. b2\n4. item"
+
     def test_list_without_a_definition_is_a_bullet_list(self):
         """`\\ls7` with no list table entry: the numbering type cannot be told."""
         assert _text(r"\pard\ls7 one\par\pard\ls7\ilvl1 two\par") == "- one\n  - two"

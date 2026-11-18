@@ -581,7 +581,7 @@ class _Flow:
         paragraph, reader = self.paragraph, self.reader
         if self.kind == "note" or (paragraph.ls is None and paragraph.pn is None) or reader.mark_hidden():
             return
-        if in_cell or not reader.heading_level(paragraph):
+        if in_cell or not reader.heading_level(paragraph) or paragraph.ls is not None:
             reader.list_mark(paragraph)
 
     def _paragraph_text(self, *, in_cell: bool, kept: bool = True, marked: bool = False) -> str:
@@ -606,6 +606,12 @@ class _Flow:
                 level = reader.heading_level(paragraph)
             if level:
                 reader.end_simple_numbering()
+                if paragraph.ls is not None:
+                    # A heading of a list takes its number, which is not written (rtf.md): not counted, the numbers under it
+                    # went on from those under the heading before (`# Chapter B` then `3.`, `4.` where Word shows 1, 2), and an
+                    # item of the heading's level after them did not count the headings (Pinned by:
+                    # test_rtf.py::TestLists::test_numbered_heading_takes_its_number_and_restarts_the_levels_under_it).
+                    reader.list_mark(paragraph)
             else:
                 mark = reader.list_mark(paragraph)
                 start = plain.lstrip()
