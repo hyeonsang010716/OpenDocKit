@@ -33,7 +33,10 @@ in the metadata.
 | `warnings` | One line per warning the converter raised (a hidden sheet left out, a scanned page without text, …). Absent when there are none |
 | `exceeded` | `True` when `max_chars` stopped the conversion. Absent otherwise |
 
-Every value is a string, an integer or a boolean, because vector stores reject anything else.
+Every value is a string, an integer or a boolean, because vector stores reject anything else. The LlamaIndex reader
+keeps `warnings` and `exceeded` out of the text LlamaIndex embeds and sends to the LLM with each node, and `source` out of
+the embedded text (`excluded_embed_metadata_keys`, `excluded_llm_metadata_keys`): many warnings made the metadata longer
+than a chunk.
 
 ## LangChain
 

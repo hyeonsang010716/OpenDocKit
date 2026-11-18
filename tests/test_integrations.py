@@ -248,6 +248,38 @@ class TestLlamaIndexReader:
         assert formats == {"hwpx", "xlsx"}
         assert all(document.metadata["file_name"] in ("notice.hwpx", "book.xlsx") for document in documents)
 
+    def test_warnings_and_the_path_are_kept_out_of_the_text_that_is_embedded(self, tmp_path):
+        """The warnings are one line per warning, and LlamaIndex puts every metadata value in front of each node it embeds and
+        sends to the LLM: a workbook with 80 hidden sheets had 5,269 characters of warnings, and `SentenceSplitter` refused
+        it ('Metadata length (1132) is longer than chunk size (1024)'). They stay in the metadata, for filtering."""
+        from io import BytesIO
+
+        from llama_index.core import SimpleDirectoryReader
+        from llama_index.core.node_parser import SentenceSplitter
+        from llama_index.core.schema import MetadataMode
+        import openpyxl
+
+        book = openpyxl.Workbook()
+        book.active.append(["region", "sales"])
+        for index in range(80):
+            book.create_sheet(f"Hidden breakdown {index}").sheet_state = "hidden"
+        buffer = BytesIO()
+        book.save(buffer)
+        (tmp_path / "book.xlsx").write_bytes(buffer.getvalue())
+
+        documents = llama_index.OpenDocKitReader(mode="sections").load_data(tmp_path / "book.xlsx")
+        through_directory = SimpleDirectoryReader(input_files=[str(tmp_path / "book.xlsx")],
+                                                  file_extractor={".xlsx": llama_index.OpenDocKitReader()}).load_data()
+
+        assert documents[0].metadata["warnings"].count("\n") >= 79
+        for document in (*documents, *through_directory):
+            embedded, prompted = document.get_content(MetadataMode.EMBED), document.get_content(MetadataMode.LLM)
+            assert "warnings:" not in embedded and "warnings:" not in prompted
+            assert "source:" not in embedded and f"source: {tmp_path / 'book.xlsx'}" in prompted
+            assert "section_index: 1" in prompted or document.metadata.get("section_index") is None
+        assert len(SentenceSplitter(chunk_size=1024).get_nodes_from_documents(documents)) == 1
+        assert "file_name" in through_directory[0].excluded_embed_metadata_keys   # the directory reader adds its own
+
     def test_unknown_mode_is_rejected(self):
         with pytest.raises(ValueError, match="'single' or 'sections'"):
             llama_index.OpenDocKitReader(mode="chunks")
