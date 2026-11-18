@@ -76,6 +76,55 @@ class TestMarkdownDataUriVariants:
         assert large < 8 * small * 2 + 0.5
 
 
+class TestMarkdownPicturesWithBracketsLineBreaksAndAnglesInTheirText:
+    """CommonMark allows balanced brackets and single line breaks in alt text, and HTML a `>` inside a quoted attribute. The
+    alt text field stopped at any `]` or line break and the `<img` fields at any `>`, so these pictures kept their base64 in
+    the body, and `<img src="data:…" alt="Revenue > target">` lost its alt and left `target">` behind."""
+
+    @pytest.mark.parametrize("markdown, alt", [
+        ("![Figure [1]: sales](data:image/png;base64,{p})", "Figure [1]: sales"),
+        ("![a long alt text that the editor\nwrapped onto two lines](data:image/png;base64,{p})",
+         "a long alt text that the editor wrapped onto two lines"),
+        ("![two\r\nlines](data:image/png;base64,{p})", "two lines"),
+        ('<img alt="Revenue > target" src="data:image/png;base64,{p}">', "Revenue > target"),
+        ('<img src="data:image/png;base64,{p}" alt="Revenue > target">', "Revenue > target"),
+        ("<img src='data:image/png;base64,{p}' title='a > b' alt=빨강>", "빨강"),
+    ])
+    def test_picture_is_extracted(self, markdown, alt):
+        data = f"# 제목\n\n{markdown.format(p=_png())}\n\n끝".encode()
+
+        result = convert(data, "a.md")
+
+        assert len(result.images) == 1
+        assert "base64" not in result.text
+        assert result.text == f"# 제목\n\n[Image: {alt}]\n\n끝"
+
+    @pytest.mark.parametrize("markdown", [
+        "![a\n\nb](data:image/png;base64,{p})",          # a blank line ends the paragraph, and the alt text with it
+        "![a [b](data:image/png;base64,{p})",               # an unbalanced bracket is text, as before
+    ])
+    def test_what_is_not_one_picture_stays_as_before(self, markdown):
+        data = markdown.format(p=_png()).encode()
+
+        result = convert(data, "a.md")
+
+        if "\n\n" in markdown:
+            assert not result.images and "![a" in result.text
+        else:
+            assert len(result.images) == 1 and result.text == r"[Image: a \[b]"
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("piece", ["![[", "![a [b] ", "![a\n", '<img alt="a > b" ', '<img alt="', "<img alt='a > b' src=\"data:image/png;base64,A\" "])
+    def test_many_unclosed_openers_take_linear_time(self, piece):
+        def seconds(count: int) -> float:
+            data = (piece * count + " data:image/png;base64,AAAA\n").encode()
+            return fastest(lambda: convert(data, "a.md"))
+
+        small, large = seconds(5_000), seconds(40_000)
+
+        assert large < 8 * small * 2 + 0.5
+
+
 class TestTooLargePictureInsideADocument:
     """A picture over the decode limit (about 179 million pixels) was reported as 'WMF/EMF vectors, etc. or corrupted', so there was
     no way to tell that it was left out because of its size, not corruption."""
