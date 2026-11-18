@@ -34,7 +34,7 @@ from openpyxl.xml.constants import SHEET_MAIN_NS
 from openpyxl.xml.functions import iterparse as _openpyxl_iterparse
 
 from opendockit.extractors._package import _XML_PARSER, decimal_int, named_part
-from opendockit.extractors._sheet_format import _format_within_length, _is_elapsed_format
+from opendockit.extractors._sheet_format import _format_within_length, _is_date_number_format, _is_elapsed_format
 
 
 # When the value of a date-formatted cell is outside the date range (9999-12-31), openpyxl turns it into a '#VALUE!' error cell and
@@ -273,8 +273,30 @@ def _apply_stylesheet_noting_styles(archive: object, workbook: openpyxl.Workbook
     reading = _READING.get()
     if reading is not None:
         reading.style_count = len(workbook._cell_styles)
+        _numbers_under_literal_codes(workbook)
         _elapsed_styles_as_durations(workbook)
     return applied
+
+
+def _style_format(workbook: openpyxl.Workbook, index: int) -> str:
+    """The number format of cell style `index` (IndexError or TypeError for a style or format id that is not defined)."""
+    format_id = workbook._cell_styles[index].numFmtId
+    return (BUILTIN_FORMATS.get(format_id, "General") if format_id < BUILTIN_FORMATS_MAX_SIZE
+            else workbook._number_formats[format_id - BUILTIN_FORMATS_MAX_SIZE])
+
+
+def _numbers_under_literal_codes(workbook: openpyxl.Workbook) -> None:
+    """Have openpyxl's sheet parser keep the number of a cell whose format holds a date code only inside a literal, as the
+    format is read in one pass (`_is_date_number_format`): `0\\"" screen"` is a number of inches, and openpyxl took the `s` of
+    ` screen"` for seconds, so 27 came out as `1900-01-27`
+    (Pinned by: test_spreadsheet.py::TestEscapedQuoteBeforeAQuotedLiteral). The same formats as `_cell_text` sees."""
+    for index in list(workbook._date_formats):
+        try:
+            number_format = _style_format(workbook, index)
+        except (IndexError, TypeError):
+            continue
+        if not _is_date_number_format(_format_within_length(number_format)):
+            workbook._date_formats.discard(index)
 
 
 def _elapsed_styles_as_durations(workbook: openpyxl.Workbook) -> None:
@@ -286,12 +308,10 @@ def _elapsed_styles_as_durations(workbook: openpyxl.Workbook) -> None:
     (Pinned by: test_spreadsheet.py::TestElapsedTime::test_elapsed_format_openpyxl_does_not_know_is_measured_from_the_serial).
     The same formats as `_cell_text` sees (`_format_within_length`); a format id that is not defined is left to the parser.
     """
-    formats, durations = workbook._number_formats, workbook._timedelta_formats
+    durations = workbook._timedelta_formats
     for index in workbook._date_formats:
         try:
-            format_id = workbook._cell_styles[index].numFmtId
-            number_format = (BUILTIN_FORMATS.get(format_id, "General") if format_id < BUILTIN_FORMATS_MAX_SIZE
-                             else formats[format_id - BUILTIN_FORMATS_MAX_SIZE])
+            number_format = _style_format(workbook, index)
         except (IndexError, TypeError):
             continue
         if _is_elapsed_format(_format_within_length(number_format)):

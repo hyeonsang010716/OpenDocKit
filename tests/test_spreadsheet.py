@@ -2505,6 +2505,45 @@ class TestBracketsInsideFormatLiterals:
         assert "| 가 | Lv.[3] |" in result.text
 
 
+class TestEscapedQuoteBeforeAQuotedLiteral:
+    """openpyxl decides whether a format is a date with quoted text stripped by a lazy `".*?"`, which pairs a backslash-escaped
+    quote with the opening quote of the next literal: in `0\\"" screen"` (a screen size in inches) it is left with ` screen"` and
+    takes its `s` for seconds. 27 came out as `1900-01-27` and a negative size as `-648:00:00`. The format is read in one pass
+    from the left, as for its literals, in XLSX (full load and streaming), Excel 2003 XML and for a negative value."""
+
+    _CASES = [
+        (27, '0\\"" screen"', '27" screen'),
+        (31.5, '0\\"" screen"', '32" screen'),
+        (7.5, '0.0\\"" (inch)"', '7.5" (inch)'),
+        (12.25, '0.0\\" "thick"', '12.3" thick'),
+    ]
+
+    @pytest.mark.parametrize("streamed", [False, True], ids=["full-load", "streamed"])
+    @pytest.mark.parametrize(("value", "number_format", "expected"), _CASES)
+    def test_xlsx(self, monkeypatch, streamed, value, number_format, expected):
+        from opendockit.extractors import spreadsheet
+
+        if streamed:
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+        data = _xlsx([["항목", "값"], ["가", value]], {"B2": number_format})
+
+        assert f"| 가 | {expected} |" in convert(data, "a.xlsx").text
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), _CASES)
+    def test_excel_2003_xml(self, value, number_format, expected):
+        data = _xml_spreadsheet(number_format, "Number", str(value))
+
+        assert f"| 가 | {expected} |" in convert(data, "a.xml").text
+
+    def test_negative_value(self):
+        assert format_cell(-27, '0\\"" screen"') == '-27" screen'
+
+    def test_a_date_with_a_quoted_letter_is_still_a_date(self):
+        data = _xlsx([["항목", "값"], ["가", 45352.25]], {"B2": 'yyyy-mm-dd" s"'})
+
+        assert "| 가 | 2024-03-01 |" in convert(data, "a.xlsx").text
+
+
 class TestElapsedSectionsInsideFormatLiterals:
     """Whether a cell is elapsed time was decided by searching the raw format, so the literal `" [h]"` of `yyyy-mm-dd" [h]"`
     turned a date into a duration and it came out as `yyyy-00-dd [h]`. Only an elapsed section outside quotes and backslash

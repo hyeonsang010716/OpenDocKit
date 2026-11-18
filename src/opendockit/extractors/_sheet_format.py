@@ -78,7 +78,7 @@ def format_cell(value: object, number_format: str | None) -> str:
     if isinstance(value, timedelta):
         return _elapsed_text(value, number_format)
     if isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0 and number_format \
-            and is_date_format(number_format):
+            and _is_date_number_format(number_format):
         return _negative_serial_text(float(value), number_format)
     if isinstance(value, datetime) and number_format and number_format.lower() != "general":
         if not _shows_time(number_format):
@@ -137,6 +137,22 @@ def _is_elapsed_format(number_format: str | None) -> bool:
     `yyyy-00-dd [h]` (Pinned by: test_spreadsheet.py::TestElapsedSectionsInsideFormatLiterals). Common to XLSX, XLS and XML.
     Kept per format: a sheet has a few formats over very many cells, and the format is read in one pass of tokens."""
     return bool(number_format) and _ELAPSED_FORMAT.search(_format_codes(number_format, _elapsed_only)) is not None
+
+
+@functools.lru_cache(maxsize=1024)
+def _is_date_number_format(number_format: str | None) -> bool:
+    """Whether a number under the format is a date or time: openpyxl's `is_date_format` (a date or time code in the first
+    section, not after `_` or `\\`), with the literals read in one pass from the left (`_FORMAT_TOKEN`).
+
+    openpyxl strips quoted text with a lazy `".*?"`, which pairs a backslash-escaped quote with the opening quote of the literal
+    after it: in `0\\"" screen"` (a screen size in inches) it was left with ` screen"` and took its `s` for seconds, so 27
+    came out as `1900-01-27` and 31.5 as `1900-01-31` (Excel `27" screen`, `32" screen`). It never takes a format for a date
+    that openpyxl does not (Pinned by: test_spreadsheet.py::TestEscapedQuoteBeforeAQuotedLiteral). Common to XLSX, XLS and XML.
+    """
+    if not is_date_format(number_format):
+        return False
+    codes = _format_codes(_first_section(number_format), _elapsed_only)
+    return re.search(r"(?<![_\\])[dmhysDMHYS]", codes) is not None
 
 
 def _shows_time(number_format: str) -> bool:

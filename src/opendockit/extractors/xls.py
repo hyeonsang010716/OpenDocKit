@@ -13,12 +13,18 @@ import sys
 import zlib
 
 import olefile
-from openpyxl.styles.numbers import is_date_format
 import xlrd
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
-from opendockit.extractors._sheet_format import _format_within_length, _is_elapsed_format, _is_weekday_only, _shows_date, format_cell
+from opendockit.extractors._sheet_format import (
+    _format_within_length,
+    _is_date_number_format,
+    _is_elapsed_format,
+    _is_weekday_only,
+    _shows_date,
+    format_cell,
+)
 from opendockit.extractors._sheet_layout import (
     _CHECKED,
     _MAX_MERGED_CELLS,
@@ -766,7 +772,7 @@ def _xls_value(cell: xlrd.sheet.Cell, datemode: int, number_format: str | None) 
         return cell.value
     elapsed = _is_elapsed_format(number_format)
     if cell.ctype == xlrd.XL_CELL_DATE or weekday_only or cell.ctype == xlrd.XL_CELL_NUMBER and (
-            elapsed and is_date_format(number_format)):
+            elapsed and _is_date_number_format(number_format)):
         try:
             # A value that does not fit in a duration (a billion days or more) raises OverflowError. The whole document was rejected
             # as 'corrupted'. The original value is shown

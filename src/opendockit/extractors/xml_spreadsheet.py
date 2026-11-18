@@ -6,7 +6,6 @@ import math
 import re
 
 from lxml import etree
-from openpyxl.styles.numbers import is_date_format
 from openpyxl.utils.cell import get_column_letter
 from openpyxl.utils.datetime import from_excel
 
@@ -17,6 +16,7 @@ from opendockit.extractors._package import _XML_PARSER, decimal_int
 from opendockit.extractors._sheet_format import (
     _MAX_FORMAT_LENGTH,
     _XML_GENERAL_DATE,
+    _is_date_number_format,
     _is_elapsed_format,
     _is_weekday_only,
     _shows_date,
@@ -364,7 +364,7 @@ def _xml_cell_value(data: etree._Element, number_format: str | None, not_finite:
             not_finite.append(text)
         return text
     try:
-        if kind == "Number" and number_format and (is_date_format(number_format) or _is_weekday_only(number_format)):
+        if kind == "Number" and number_format and (_is_date_number_format(number_format) or _is_weekday_only(number_format)):
             # openpyxl does not take a weekday-only format (`aaa`) for a date format, so 45000 under `aaa` came out as `45000`
             # where XLSX and XLS show the date, as for `dddd` (Pinned by:
             # test_spreadsheet.py::TestXmlSpreadsheetDatesAndTimes::test_weekday_only_number_is_a_date_as_in_xlsx_and_xls).
