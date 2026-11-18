@@ -1124,6 +1124,31 @@ class WritingPipe:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="named pipes are POSIX")
+class TestHugeLimits:
+    """A size limit of sys.maxsize or more is the natural way to say "no limit" (None is refused). zlib and zipfile take a
+    length as a C ssize_t, so one past such a limit raised OverflowError: every compressed HWP and every ODT was reported
+    corrupted, and a compressed XLS metafile was dropped."""
+
+    @pytest.mark.parametrize("limit", [sys.maxsize, 10**20])
+    def test_compressed_hwp_odt_and_xls_picture_convert_as_with_the_default_limit(self, monkeypatch, limit):
+        from tests.test_hwp import _fake_hwp, _sample_section
+        from tests.test_odf import _package
+
+        metafile = builder.xls_picture_store(builder.xls_emf_blip(b"\x01\x00\x00\x00" + bytes(200)))
+        samples = {
+            "a.hwp": _fake_hwp(monkeypatch, flags=1, sections=[_sample_section()]),
+            "a.odt": _package("text", "<text:p>본문</text:p>"),
+            "a.xls": builder.xls_bytes([("S", [["가", "나"], ["1", "2"]], builder.xls_picture(1))], metafile),
+        }
+        for name, data in samples.items():
+            expected = convert(data, name)
+
+            result = convert(data, name, ConvertOptions(max_uncompressed_bytes=limit))
+
+            assert (result.text, len(result.images)) == (expected.text, len(expected.images)), name
+            assert expected.text
+
+
 class TestReadingWithinTheSizeLimit:
     """`convert_file` refused a file over `max_file_bytes` from the size the file system reports, which is 0 for a pipe or a
     device: such a file was read to its end first (`opendockit /dev/zero` grew without bound). It is now read only up to the

@@ -9,6 +9,7 @@ import hashlib
 from io import BytesIO, StringIO
 import math
 import struct
+import sys
 import zlib
 
 import olefile
@@ -678,7 +679,8 @@ def _escher_picture(store: bytearray, entry: tuple[int, int, int, int], max_byte
         if store[start + 32] != 0:  # 0 = deflate, 0xFE = no compression
             return payload or None
         try:
-            payload = zlib.decompressobj().decompress(payload, max_bytes + 1)
+            # zlib takes the length as a C ssize_t (`hwp._read_stream_to_end`)
+            payload = zlib.decompressobj().decompress(payload, min(max_bytes + 1, sys.maxsize))
         except zlib.error:
             return None
         return payload if payload and len(payload) <= max_bytes else None

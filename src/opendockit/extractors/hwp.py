@@ -901,7 +901,9 @@ def _read_stream_to_end(ole: olefile.OleFileIO, name: str, compressed: bool,
     # decompressobj raises no exception on a stream with a truncated end, which salvages what was read (eof is false if the end marker
     # was not reached). One byte more than the limit is decompressed to notice an overrun.
     inflater = zlib.decompressobj(-15)
-    data = inflater.decompress(raw, budget.remaining + 1)
+    # zlib takes the length as a C ssize_t: a limit of sys.maxsize or more ("no limit") raised OverflowError, and every
+    # compressed HWP was reported corrupted (Pinned by: test_converter.py::TestHugeLimits)
+    data = inflater.decompress(raw, min(budget.remaining + 1, sys.maxsize))
     budget.remaining -= len(data)
     if budget.remaining < 0:
         raise DocumentTooLargeError("The document becomes too large when decompressed.")

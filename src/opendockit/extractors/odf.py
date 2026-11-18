@@ -15,6 +15,7 @@ from dataclasses import dataclass, replace
 from io import BytesIO
 from itertools import groupby
 import re
+import sys
 from urllib.parse import unquote
 import zipfile
 import zlib
@@ -406,7 +407,8 @@ class _Package:
             return None
         try:
             with self._archive.open(info) as part:
-                data = part.read(self._limit + 1)
+                # zipfile hands the length to zlib as a C ssize_t (`hwp._read_stream_to_end`)
+                data = part.read(min(self._limit + 1, sys.maxsize))
         except (zipfile.BadZipFile, zlib.error, EOFError, OSError, RuntimeError, NotImplementedError, ValueError):
             return None
         return data if len(data) <= self._limit else None
