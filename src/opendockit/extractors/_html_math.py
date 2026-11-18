@@ -126,7 +126,8 @@ def _mathml_latex(node: object, depth: int) -> str:
     if name == "mspace":
         return " "
     fence = (node.get("open", "("), str(node.get("separators", ",")).strip()[:1], node.get("close", ")")) if name == "mfenced" else None
-    structure = mathml_structure(name, parts, fence)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
+    elements = [(child.name, [inner.name for inner in child.children if isinstance(inner, Tag)]) for child in children]
+    structure = mathml_structure(name, parts, fence, elements)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
     if structure is not None:
         return structure
     if not children:

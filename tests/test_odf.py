@@ -904,6 +904,12 @@ class TestObjects:
         text = _odt(self.BODY, parts={"Object 1/content.xml": self.FORMULA.format(namespaces=_NAMESPACES, mathml=mathml).encode()})
         assert text == r"성장률은 $g=\frac{R_t-R_{t-1}}{\sqrt{n}}$ 이다."
 
+    def test_script_on_a_scripted_base_keeps_its_group(self):
+        """The same rules as an HTML equation: a superscript on a superscript is braced (`{x^2}^3`, not `x^2^3`)."""
+        mathml = ("<math:msup><math:msup><math:mi>x</math:mi><math:mn>2</math:mn></math:msup><math:mn>3</math:mn></math:msup>")
+        text = _odt(self.BODY, parts={"Object 1/content.xml": self.FORMULA.format(namespaces=_NAMESPACES, mathml=mathml).encode()})
+        assert text == r"성장률은 ${x^2}^3$ 이다."
+
     def test_literal_text_of_a_formula_is_escaped(self):
         """The same escapes as an HTML or Office equation: a `$` in the text ended the math span."""
         mathml = "<math:mrow><math:mtext>$</math:mtext><math:mn>5</math:mn><math:mo>{</math:mo><math:mi>n</math:mi></math:mrow>"

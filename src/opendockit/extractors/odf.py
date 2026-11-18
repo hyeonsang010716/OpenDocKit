@@ -547,7 +547,8 @@ def _mathml_latex(node: etree._Element, depth: int) -> str:
         return ""
     if depth >= _MAX_DEPTH:
         return literal("".join("".join(node.itertext()).split()))
-    parts = [_mathml_latex(child, depth + 1) for child in node if isinstance(child.tag, str)]
+    children = [child for child in node if isinstance(child.tag, str)]
+    parts = [_mathml_latex(child, depth + 1) for child in children]
     if not parts:
         if name == "mtext":
             return text_leaf(node.text or "")
@@ -557,7 +558,9 @@ def _mathml_latex(node: etree._Element, depth: int) -> str:
     if name == "mspace":
         return " "
     fence = (node.get("open", "("), (node.get("separators") or ",").strip()[:1], node.get("close", ")")) if name == "mfenced" else None
-    structure = mathml_structure(name, parts, fence)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
+    elements = [(child.tag.rsplit("}", 1)[-1], [inner.tag.rsplit("}", 1)[-1] for inner in child if isinstance(inner.tag, str)])
+                for child in children]
+    structure = mathml_structure(name, parts, fence, elements)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
     return "".join(parts) if structure is None else structure
 
 

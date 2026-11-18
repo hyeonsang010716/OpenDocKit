@@ -263,6 +263,22 @@ class TestMathMl:
         assert result.text == ("면적 $r^2π$, 비율 $\\frac{3}{4}$, 근 $\\sqrt{2}$, 첨자 $a_{10}$, 세제곱근 $\\sqrt[3]{x}$, "
                                "합 $∑_{i=1}^{n}i$")
 
+    @pytest.mark.parametrize(("mathml", "latex"), [
+        ("<msup><msup><mi>x</mi><mn>2</mn></msup><mn>3</mn></msup>", "{x^2}^3"),
+        ("<msup><msup><mi>f</mi><mo>&#x2032;</mo></msup><mn>2</mn></msup>", "{f^′}^2"),
+        ("<msub><msub><mi>a</mi><mi>i</mi></msub><mi>j</mi></msub>", "{a_i}_j"),
+        ("<msup><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><mn>2</mn></msup>", "{a+b}^2"),
+        ("<msup><msub><mi>a</mi><mi>i</mi></msub><mn>2</mn></msup>", "a_i^2"),
+        ("<msup><mrow><mi>x</mi></mrow><mn>2</mn></msup>", "x^2"),
+        ("<mmultiscripts><mi>C</mi><none/><none/><mprescripts/><mn>6</mn><mn>14</mn></mmultiscripts>", "{}_{6}^{14}C"),
+    ])
+    def test_script_on_a_scripted_or_grouped_base_keeps_its_group(self, mathml, latex):
+        """A script on a base that is itself a script on the same side came out as `x^2^3` (a LaTeX error, confusable with
+        `x^{2^3}`), and one on a group of several elements applied to its last one (`a+b^2`): such a base is braced, as in
+        Office equations. A superscript on a subscript and a group of one element stay as they are. The pre- and
+        post-scripts of an `mmultiscripts` were joined to the base (`C614`)."""
+        assert convert(f"<p><math>{mathml}</math></p>".encode(), "a.html").text == f"${latex}$"
+
     def test_literal_text_is_escaped(self):
         """A `$` in the text of an equation ended the math span (`$$5×n$` opened display math), and braces typed in an `<mo>` or
         as fences vanished as LaTeX grouping. They are escaped as in Office equations; the LaTeX the converter writes is not."""
