@@ -42,6 +42,44 @@ class TestBlankLinesInCodeNextToAPicture:
 
         assert [result.exceeded for result in results] == [True, False]
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<pre>one\n    two {img} tail\n\n\nafter</pre>", "```\none\n    two tail\n\n[Image: 도식]\n\n\nafter\n```"),
+        ("<pre>one\n{img}\n\n\nafter</pre>", "```\none\n[Image: 도식]\n\n\nafter\n```"),
+        ("<pre>one {img}\ntwo</pre>", "```\none\n\n[Image: 도식]\n\ntwo\n```"),
+        ("<pre>one\ntwo {img}</pre>", "```\none\ntwo\n\n[Image: 도식]\n```"),
+        ("<blockquote><pre>one\n    two {img} tail\n\n\nafter</pre></blockquote>",
+         "> ```\n> one\n>     two tail\n>\n> [Image: 도식]\n>\n>\n> after\n> ```"),
+        ("<blockquote><pre>one\n{img}\n\n\nafter</pre></blockquote>", "> ```\n> one\n> [Image: 도식]\n>\n>\n> after\n> ```"),
+        ("<blockquote><pre>one {img}\ntwo</pre></blockquote>", "> ```\n> one\n>\n> [Image: 도식]\n>\n> two\n> ```"),
+    ], ids=["before-blank-lines", "alone-before-blank-lines", "before-code", "before-the-closing-fence", "in-a-quote",
+            "alone-in-a-quote", "before-code-in-a-quote"])
+    def test_picture_inside_a_code_block_adds_no_blank_line_of_its_own(self, html, expected):
+        """A picture inside `<pre>` got the blank line that follows a picture block in a paragraph, on top of the blank lines
+        of the code after it: two blank lines became three, and one went in before the closing fence. The blank line after the
+        block is written only before a line of code."""
+        data = html.format(img=_PICTURE.removeprefix("<p>그림</p>")).encode()
+
+        result = convert(data, "a.html")
+
+        assert result.text == expected
+        assert [convert(data, "a.html", options=ConvertOptions(max_chars=limit)).exceeded
+                for limit in (len(expected) - 1, len(expected))] == [True, False]
+
+    def test_description_inside_a_code_block_adds_no_blank_line_of_its_own(self):
+        import asyncio
+
+        from opendockit import aconvert
+
+        class Describer:
+            async def describe(self, image):
+                return "A box\nwith two lines"
+
+        data = ("<pre>one\n    two " + _PICTURE.removeprefix("<p>그림</p>") + " tail\n\n\nafter</pre>").encode()
+
+        result = asyncio.run(aconvert(data, "a.html", describer=Describer()))
+
+        assert result.text == "```\none\n    two tail\n\n> [Image] A box\n> with two lines\n\n\nafter\n```"
+
 
 def _jpeg(width: int, height: int) -> bytes:
     buffer = BytesIO()

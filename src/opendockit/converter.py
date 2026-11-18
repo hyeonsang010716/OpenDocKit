@@ -701,7 +701,8 @@ def _render_template(template: str, images: dict[int, DocumentImage], fallbacks:
 
     lines: list[str] = []
     fenced = _fenced_lines(template)
-    for index, line in enumerate(template.split("\n")):
+    source = template.split("\n")
+    for index, line in enumerate(source):
         ids = [int(found) for found in pattern.findall(line)]
         if not ids:
             lines.append(_FENCED_LINE + line if index in fenced else line)
@@ -744,10 +745,16 @@ def _render_template(template: str, images: dict[int, DocumentImage], fallbacks:
         body = " ".join(piece.strip(" ") for piece in [*pieces, content[position:]]).strip()
         text = prefix + content[: len(content) - len(content.lstrip())] + body if body else ""
         blocks = [block for block in (_block_text(images, fallbacks, image_id) for image_id in ids) if block]
+        # Inside a code block the blank line after the block goes in only before a line of code: the blank lines of the code
+        # after it stay as written (they are not collapsed), so the one of the block came on top of them — two blank lines
+        # became three — and one went in before the closing fence
+        # (Pinned by: test_core_image_and_assembly.py::TestBlankLinesInCodeNextToAPicture::
+        # test_picture_inside_a_code_block_adds_no_blank_line_of_its_own).
+        gap = index not in fenced or (index + 1 in fenced and _split_quote(source[index + 1])[2].strip() != "")
         if prefix:
-            lines.append(_quoted_blocks(prefix, text, blocks))
+            lines.append(_quoted_blocks(prefix, text, blocks, gap=gap))
             continue
-        lines.append("\n\n".join(part for part in [text, *blocks] if part) + ("\n" if blocks else ""))
+        lines.append("\n\n".join(part for part in [text, *blocks] if part) + ("\n" if blocks and gap else ""))
     rendered = "\n".join(lines)
     if _QUOTE_GAP in rendered:
         rendered = _settle_quote_gaps(rendered)
@@ -759,18 +766,19 @@ def _render_template(template: str, images: dict[int, DocumentImage], fallbacks:
 _QUOTE_GAP = "\ue031"
 
 
-def _quoted_blocks(prefix: str, text: str, blocks: list[str]) -> str:
+def _quoted_blocks(prefix: str, text: str, blocks: list[str], *, gap: bool = True) -> str:
     """The rendering of a quoted line holding pictures: as outside a quote, but every line of the picture blocks gets the quote
     marks of the line (`prefix`, a description becoming a quote in the quote) and the blank lines around them are empty quote
     lines, so the block stays in the quote. The empty line after the blocks, or the whole line when nothing is left of it, is
     an empty quote line marked `_QUOTE_GAP` that `_settle_quote_gaps` keeps only between two lines with text: next to the empty
     quote line that already separates two quoted paragraphs (or a SKIP answer that left the line empty) it left a stray `>`
-    (Pinned by: test_converter.py::TestPicturesInsideAQuote)."""
+    (Pinned by: test_converter.py::TestPicturesInsideAQuote). Without `gap` (a line inside a code block not followed by a line
+    of code) there is no empty line after the blocks."""
     blank = prefix.rstrip()
     parts = [text] if text else []
     parts += ["\n".join(prefix + line if line.strip() else blank for line in block.split("\n")) for block in blocks]
     rendered = f"\n{blank}\n".join(parts)
-    if blocks or not text:
+    if (blocks and gap) or not (text or blocks):
         rendered = (rendered + "\n" if rendered else "") + _QUOTE_GAP + blank
     return rendered
 
