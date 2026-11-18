@@ -50,6 +50,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   of four is decoded up to the cut, not shown as base64. A `cid:` address in upper case or percent-encoded finds its
   picture.
 - **EPUB**: only one branch of an `<epub:switch>` is read, not the formula and its text fallback.
+- **HTML**: what follows a table that sits inside a table left open (a missing `</table>`) stays after it, as in a
+  browser; the headings and paragraphs after the second table came out ahead of both. The words of a MathML `<mtext>`
+  are `\text{…}` with their spaces (also in ODF): `1 if x>0` read `1ifx>0`.
+- **Mail**: a body picture sent as `application/octet-stream` with a Content-ID is extracted; it was neither extracted
+  nor reported.
+- **PDF tables**: on a two-column page, a column of a borderless table lying in the gap between the page columns is
+  written once; it was read into a table on each side.
+- **PDF text**: a paragraph drawn through a Form XObject beside a paragraph on the page goes after that paragraph, as
+  when both are drawn on the page; it was wedged in after its first line.
+- **PPTX**: a numbered paragraph whose start number differs from the run's starts over at it (three items, then two set
+  to start at 7, read `4. 5.`).
+- **XLS**: a text box with an emoji ends where its text ends; its formatting was read as text after it (`on time(@`).
+- **XLSX / XLS / Excel 2003 XML**: a stored `-0` shows as `0.00` or `$0.00` under its format, not `-0.00`. A text cell shows the
+  literals of its format's text section (`@" 님"` → `홍길동 님`).
+- **Limits**: `max_uncompressed_bytes` of `sys.maxsize` or more no longer rejects every compressed HWP and ODT as
+  corrupted, nor drops the compressed pictures of an XLS.
+- **Open WebUI loader**: an app from `create_app` mounted in another Starlette or FastAPI app converts in worker
+  processes too; Starlette runs no lifespan of a mounted app, and every file was converted in the server process
+  without the 2-minute and 2 GB limits.
 
 ## [0.3.13] - 2026-11-17
 
