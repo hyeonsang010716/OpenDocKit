@@ -1370,6 +1370,57 @@ class TestDrawingArtifacts:
         assert result.text.count("총 예산 1,500") == 1
         assert "| 항목 | 수량 | 금액 |" in result.text
 
+    @pytest.mark.parametrize("shifts", [(0, 0.3), (0.3, 0)], ids=["copy-drawn-right", "copy-drawn-left"])
+    def test_a_word_in_fake_bold_on_part_of_a_line_is_read_once(self, shifts):
+        """A word in fake bold (drawn twice, 0.3pt apart) with the rest of its line drawn as a separate run: pdfminer put one copy of
+        the word in a line of its own and the other with the rest of the line, and both lines held the same kept characters. Only a
+        copy line with exactly the same text was dropped, so the word came out a second time as a paragraph of its own ('Area: the
+        floor is large in total.' then 'Area:'), and a word in the middle of the line split it in two ('The plan is important' /
+        'important for the whole team this year.')."""
+        lines = [("Helvetica", "", "Area:", " the floor is large in total."),
+                 (_FONT, "", "추진 목표", " 올해 매출을 늘린다."),
+                 ("Helvetica", "The plan is ", "important", " for the whole team this year."),
+                 ("Helvetica", "Revenue for the year was ", "stable.", "")]
+
+        def draw(pdf, index):
+            for number, (font, before, word, after) in enumerate(lines):
+                pdf.setFont(font, 11)
+                y, x = 780 - number * 30, 72
+                pdf.drawString(x, y, before)
+                x += pdf.stringWidth(before, font, 11)
+                for shift in shifts:
+                    pdf.drawString(x + shift, y, word)
+                pdf.drawString(x + pdf.stringWidth(word, font, 11), y, after)
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.sections[0].text == "\n\n".join("".join(line[1:]) for line in lines)
+
+    def test_text_repeated_beside_a_word_in_fake_bold_is_kept(self):
+        """Dropping the second copy of a word in fake bold must not drop real repeats: a short line that repeats the start of the next
+        line, the same word printed twice on one line, and equal values side by side are all characters of their own."""
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 11)
+
+            def bold_then(x, y, word, after=""):
+                for shift in (0, 0.3):
+                    pdf.drawString(x + shift, y, word)
+                pdf.drawString(x + pdf.stringWidth(word, "Helvetica", 11), y, after)
+
+            bold_then(72, 780, "Area:")
+            bold_then(72, 765, "Area:", " the floor is large in total.")
+            bold_then(72, 735, "Note:", " Note: the totals are final.")
+            bold_then(72, 705, "Total", " 100")
+            bold_then(300, 705, "100")
+            bold_then(400, 705, "100")
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.text.count("Area:") == 2
+        assert "Area: the floor is large in total." in result.text
+        assert "Note: Note: the totals are final." in result.text
+        assert result.text.count("100") == 3
+
     def test_shadow_drawn_in_another_colour_slightly_offset_is_read_once(self):
         """A shadow effect (the same text drawn first in grey, shifted by 1.2–3pt) exceeds the fake-bold threshold of 1pt and came out
         twice on every line. The same character drawn again in another colour within 0.15 times the character size is a copy. The same
