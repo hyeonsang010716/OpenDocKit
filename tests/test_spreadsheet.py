@@ -1866,6 +1866,24 @@ class TestXmlSpreadsheetDatesAndTimes:
 
         assert f"| 가 | {expected} |" in result.text
 
+    @pytest.mark.parametrize(("number_format", "value", "expected"), [
+        ("aaa", "45000", "2023-03-15"),
+        ("aaaa", "45000.75", "2023-03-15"),
+        ("aaa", "61", "1900-03-01"),
+        ("[$-412]aaaa", "45000", "2023-03-15"),
+        ("aaa", "0.5", "12:00:00"),
+        ("aaa", "-5", "-5"),
+        ("aaa", "1E+10", "10000000000"),
+    ])
+    def test_weekday_only_number_is_a_date_as_in_xlsx_and_xls(self, number_format, value, expected):
+        """openpyxl does not take `aaa` for a date format, so the serial came out as the number; XLSX and XLS show the date, as
+        for `dddd`. A negative serial and one past the calendar stay the number, as there."""
+        data = _xml_spreadsheet(number_format, "Number", value)
+
+        result = convert(data, "a.xls")
+
+        assert f"| 가 | {expected} |" in result.text
+
     @pytest.mark.parametrize(("number_format", "expected"), [
         ("Short Time", "13:30"),
         ("Medium Time", "13:30"),
