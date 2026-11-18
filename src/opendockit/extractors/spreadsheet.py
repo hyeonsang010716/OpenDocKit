@@ -959,7 +959,11 @@ def _cell_text(cell: object) -> str:
         # openpyxl does not take `aaa` for a date format. The serial becomes a date shown in the format, as `dddd` and XLS show
         # it (the day only): through `_serial_date_text` 45000.25 went out as '2023-03-15 06:00:00', and 45000.999999 rounded
         # to the next day (Pinned by: test_audit_spreadsheet_fixes.py::TestWeekdayFormatWithATime). A negative serial and one
-        # past the calendar stay the number, as in XLS.
+        # past the calendar stay the number, as in XLS. Serial 0 is the number 0, as under any format that shows a date
+        # (`_is_serial_zero_shown_as_date`, which sees only the midnight openpyxl makes for a date format): it came out as
+        # `00:00:00` (Pinned by: test_audit_spreadsheet_fixes.py::TestWeekdayFormatWithATime::test_serial_zero_is_the_number).
+        if value == 0:
+            return "0"
         try:
             value = from_excel(value, cell.parent.parent.epoch)
         except (OverflowError, ValueError):

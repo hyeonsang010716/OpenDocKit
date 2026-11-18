@@ -8,6 +8,7 @@ import openpyxl
 from openpyxl.comments import Comment
 from openpyxl.worksheet import _reader as openpyxl_sheet_reader
 import pytest
+import xlrd
 
 from opendockit import convert
 from opendockit.extractors import _openpyxl_reading, spreadsheet, xls
@@ -402,3 +403,25 @@ class TestWeekdayFormatWithATime:
         data = builder.zip_with(_formatted_workbook("aaa"), edit={_SHEET: lambda xml: xml.replace("<v>1</v>", "<v>-5</v>")})
 
         assert convert(data, "a.xlsx").text.endswith("| row 1 | -5 |")
+
+    def test_serial_zero_is_the_number(self):
+        """Serial 0 under a format that shows a date is the number 0 (Excel's '1900-01-00'), as `dddd` gives it. Under `aaa` it
+        came out as the time `00:00:00` in XLSX and XLS, where the zero check ran before the weekday conversion or only for
+        cells xlrd takes for dates."""
+        data = builder.zip_with(_formatted_workbook("aaa", "aaaa", "dddd"),
+                                edit={_SHEET: lambda xml: xml.replace("<v>1</v>", "<v>0</v>")})
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_NUMBER, 0.0, 0)
+        styles = '<Style ss:ID="s0"><NumberFormat ss:Format="aaa"/></Style>'
+
+        xlsx = convert(data, "a.xlsx").text
+        xls_text = format_cell(xls._xls_value(cell, 0, "aaa"), "aaa")
+        xml = convert(_xml_workbook("<Row>" + _xml_cell(0, "Number", 'ss:StyleID="s0"') + "</Row>", styles), "a.xml").text
+
+        assert xlsx.endswith("| row 1 | 0 |\n| row 2 | 0 |\n| row 3 | 0 |")
+        assert xls_text == "0"
+        assert xml == "## Sheet: s\n\n0"
+
+    def test_a_weekday_number_cell_in_xls_is_still_a_date(self):
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_NUMBER, 45000.25, 0)
+
+        assert format_cell(xls._xls_value(cell, 0, "aaa"), "aaa") == "2023-03-15"

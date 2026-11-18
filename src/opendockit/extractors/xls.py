@@ -753,13 +753,15 @@ def _xls_value(cell: xlrd.sheet.Cell, datemode: int, number_format: str | None) 
     format consisting only of an elapsed section (`[ss]`, `[mm]`, `[h]`) — xlrd decides after removing bracket sections and hands
     it over as a number cell, so the serial number was emitted (XLSX gives the cumulative value; Pinned by:
     test_spreadsheet.py::TestXlsValues::test_number_cell_with_only_an_elapsed_section_is_a_duration)."""
-    if cell.ctype == xlrd.XL_CELL_DATE and cell.value == 0 and number_format and _shows_date(number_format):
+    weekday_only = cell.ctype == xlrd.XL_CELL_NUMBER and _is_weekday_only(number_format)
+    if (cell.ctype == xlrd.XL_CELL_DATE or weekday_only) and cell.value == 0 and number_format and _shows_date(number_format):
         # 0 under a date format is '1900-01-00' in Excel. Returned as a number, not the time '00:00:00'
-        # (`_is_serial_zero_shown_as_date`)
+        # (`_is_serial_zero_shown_as_date`). xlrd hands a weekday-only cell (`aaa`) over as a number, which skipped this
+        # (Pinned by: test_audit_spreadsheet_fixes.py::TestWeekdayFormatWithATime::test_serial_zero_is_the_number).
         return cell.value
     elapsed = _is_elapsed_format(number_format)
-    if cell.ctype == xlrd.XL_CELL_DATE or cell.ctype == xlrd.XL_CELL_NUMBER and (
-            elapsed and is_date_format(number_format) or _is_weekday_only(number_format)):
+    if cell.ctype == xlrd.XL_CELL_DATE or weekday_only or cell.ctype == xlrd.XL_CELL_NUMBER and (
+            elapsed and is_date_format(number_format)):
         try:
             # A value that does not fit in a duration (a billion days or more) raises OverflowError. The whole document was rejected
             # as 'corrupted'. The original value is shown
