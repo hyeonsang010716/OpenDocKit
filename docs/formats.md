@@ -224,7 +224,7 @@ Headers:
 
 Forwarded and encrypted mail:
 
-- A mail forwarded as an attachment (`message/rfc822`) follows the outer body under a `## Forwarded message` heading with its own headers and body (up to 20; base64-wrapped ones are unwrapped).
+- A mail forwarded as an attachment (`message/rfc822`, or `message/global` for internationalized mail) follows the outer body under a `## Forwarded message` heading with its own headers and body (up to 20; base64-wrapped ones are unwrapped).
 - Mail encrypted with S/MIME or PGP raises `EncryptedDocumentError`.
 
 Meeting invitations:
