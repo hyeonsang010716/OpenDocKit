@@ -2,6 +2,7 @@
 closed up, and superscripts and subscripts marked."""
 
 from bisect import bisect_left, bisect_right
+from collections.abc import Callable
 import math
 import re
 import statistics
@@ -430,3 +431,46 @@ def _drop_cap(chars: list[dict], line_text: str) -> tuple[str, float, float] | N
     if spaced or _initial_is_a_word(letter, line_text[2:]):
         return line_text, top, bottom
     return letter + line_text[2:], top, bottom
+
+
+# Lone capitals looked at per page as initials drawn after their lines (`_joined_late_initials`). A page has a few drop caps; a
+# crafted page of many single capitals would otherwise compare each with every line.
+_MAX_LATE_INITIALS = 16
+
+
+def _joined_late_initials(prepared: list[tuple[dict, int | None, str, list[dict]]],
+                          chars_of: Callable[[dict], list[dict]]) -> list[tuple[dict, int | None, str, list[dict]]]:
+    """`prepared` (layout line, XObject number, text, characters around it) with each layout line of a lone capital that opens
+    the line beside it as a drop cap (`_drop_cap`) made one line with it, as pdfminer makes them when the initial is drawn
+    first; `chars_of` gives the characters around a line.
+
+    LibreOffice writes a drop cap after the text of its paragraph, so pdfminer kept the initial a line of its own: it came out
+    as a paragraph of its own and its word lost its first letter ('O' / 'nce upon a time') (Pinned by:
+    test_pdf_reading_order.py::TestDropCaps::test_a_drop_cap_drawn_after_its_lines_is_joined_to_its_word). The line beside is
+    the highest one that starts right of the capital's left edge and no further than its height past it, with its middle
+    within the capital's height, on the same page or XObject; the two are joined only when `_drop_cap` takes the joined line
+    for a drop cap, so a large letter that is a label, or a line of another paragraph, stays apart as before. Deliberate: past
+    `_MAX_LATE_INITIALS` lone capitals on a page, the rest are left as they are."""
+    initials = [index for index, (_, _, text, _) in enumerate(prepared)
+                if len(text) == 1 and text.isalpha() and text.isupper()][:_MAX_LATE_INITIALS]
+    replaced: dict[int, tuple[dict, int | None, str, list[dict]] | None] = {}
+    for index in initials:
+        initial, owner, letter, _ = prepared[index]
+        reach = initial["bottom"] - initial["top"]
+        beside = [other for other, (line, line_owner, _, _) in enumerate(prepared)
+                  if other != index and other not in replaced and line_owner == owner
+                  and initial["top"] <= (line["top"] + line["bottom"]) / 2 <= initial["bottom"]
+                  and initial["x0"] < line["x0"] <= initial["x1"] + reach]
+        if not beside:
+            continue
+        first = min(beside, key=lambda other: (prepared[other][0]["top"], prepared[other][0]["x0"]))
+        line, _, text, _ = prepared[first]
+        joined = {**line, "x0": initial["x0"], "top": min(line["top"], initial["top"]),
+                  "bottom": max(line["bottom"], initial["bottom"]), "text": f"{letter} {text}"}
+        inside = chars_of(joined)
+        if _drop_cap(inside, joined["text"]) is not None:
+            replaced[first] = (joined, owner, joined["text"], inside)
+            replaced[index] = None
+    if not replaced:
+        return prepared
+    return [replaced.get(index, entry) for index, entry in enumerate(prepared) if replaced.get(index, entry) is not None]

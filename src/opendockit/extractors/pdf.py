@@ -74,6 +74,7 @@ from opendockit.extractors._pdf_chars import (
     _drawn_text,
     _drop_cap,
     _gap_parts,
+    _joined_late_initials,
     _letter_spaced_text,
     _letter_spacings,
     _raised_digits_unshown,
@@ -963,6 +964,10 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     # Lines holding the same kept characters over removed copies become one (a word in fake bold on part of a line; Pinned by:
     # test_pdf.py::TestDrawingArtifacts::test_a_word_in_fake_bold_on_part_of_a_line_is_read_once)
     prepared = _rejoined_copy_lines(prepared, lambda line: copy_index.at(line)[0])
+    # An initial drawn after its lines is joined to the first of them (Pinned by: test_pdf_reading_order.py::TestDropCaps::
+    # test_a_drop_cap_drawn_after_its_lines_is_joined_to_its_word)
+    prepared = _joined_late_initials(prepared, lambda line: [char for char in _chars_at_line_level(line, chars, char_tops)
+                                                             if line["x0"] - 1 <= char["x0"] <= line["x1"] + 1])
     spacings = _letter_spacings(list({id(inside): inside for *_, inside in prepared}.values()))  # each identical group of characters once
 
     lines, line_owners = [], []

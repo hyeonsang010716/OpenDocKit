@@ -526,15 +526,22 @@ class TestDropCaps:
     _NEXT = ["Next paragraph starts here and continues", "on another line for a while."]
 
     def _pdf(self, initial: str, lines: list[str], size: float | None = None, baseline: float | None = None, *, rows: int = 2,
-             gap: float = 2, space: str | None = None, spaces: bool = True, leading: float = 13) -> bytes:
+             gap: float = 2, space: str | None = None, spaces: bool = True, leading: float = 13, last: bool = False) -> bytes:
         """A large `initial` and the 11pt `lines` beside it, `leading` apart, the first on the baseline 700. By default the
         initial is a drop cap over `rows` lines: it stands on the baseline of the last of them and its top is level with the
         capitals of the first. `space` writes a space glyph after the initial ('big') or before the text ('small');
-        without `spaces` every word is placed by itself and the page has no space glyph at all."""
+        without `spaces` every word is placed by itself and the page has no space glyph at all. With `last` the initial is
+        drawn after all the text, as LibreOffice writes it."""
         def draw(pdf, index):
             height = (0.718 * 11 + leading * (rows - 1)) / 0.718 if size is None else size
-            pdf.setFont("Helvetica", height)
-            pdf.drawString(72, 700 - leading * (rows - 1) if baseline is None else baseline, initial + (" " if space == "big" else ""))
+
+            def draw_initial():
+                pdf.setFont("Helvetica", height)
+                pdf.drawString(72, 700 - leading * (rows - 1) if baseline is None else baseline,
+                               initial + (" " if space == "big" else ""))
+
+            if not last:
+                draw_initial()
             left = 72 + pdf.stringWidth(initial, "Helvetica", height) + gap
             pdf.setFont("Helvetica", 11)
             for number, text in enumerate([*lines, *self._NEXT]):
@@ -543,6 +550,8 @@ class TestDropCaps:
                 for word in [text] if spaces else text.split():
                     pdf.drawString(x, y, word)
                     x += pdf.stringWidth(word + " ", "Helvetica", 11)
+            if last:
+                draw_initial()
 
         return _korean_pdf(draw)
 
@@ -551,6 +560,22 @@ class TestDropCaps:
         text = convert(self._pdf("T", self._LINES, rows=rows), "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert text == "\n".join(["The quick brown fox jumps over the", *self._LINES[1:]]) + "\n\n" + "\n".join(self._NEXT)
+
+    @pytest.mark.parametrize("rows", [2, 3])
+    def test_a_drop_cap_drawn_after_its_lines_is_joined_to_its_word(self, rows):
+        """LibreOffice writes a drop cap after the text of its paragraph, so pdfminer kept the initial a line of its own: it
+        came out as a paragraph of its own and the word lost its first letter ('T' / 'he quick brown'). The next paragraph
+        stays apart."""
+        text = convert(self._pdf("T", self._LINES, rows=rows, last=True), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == "\n".join(["The quick brown fox jumps over the", *self._LINES[1:]]) + "\n\n" + "\n".join(self._NEXT)
+
+    def test_an_initial_drawn_after_its_lines_with_a_space_glyph_is_a_word(self):
+        """The space glyph written after a one-letter word drawn last widens the initial's line over the text beside it; the
+        initial still opens that line, as a word ('A round table')."""
+        text = convert(self._pdf("A", self._TABLE, space="big", last=True), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text.startswith("A round table was set for the\nguests who came from far away")
 
     _OPTION = ["the second option, which costs less", "but takes two more weeks to deliver", "and has no warranty at all"]
 
@@ -566,6 +591,8 @@ class TestDropCaps:
         text = convert(self._pdf(initial, lines, **options), "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert f"{initial} {lines[0]}" in text
+        drawn_last = convert(self._pdf(initial, lines, **options, last=True), "a.pdf", ConvertOptions(page_markers=False)).text
+        assert f"{initial}{lines[0]}" not in drawn_last and lines[0] in drawn_last
 
     _STEP = ["ress and hold the button until", "the light goes out and then", "let go of it and wait for", "the unit to start again"]
 
