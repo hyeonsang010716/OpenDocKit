@@ -31,8 +31,11 @@ _PARSER_CALLERS = r"opendockit\.extractors\._?html"
 # `<datalist>` is the list of suggestions an input offers while one types, which a browser never draws: its options came out
 # glued into one word after the field (`City AfghanistanAlbania…`), and so did the fallback `<select>` some pages put in it
 # (Pinned by: test_text_html.py::TestFormValues::test_suggestions_of_a_datalist_are_left_out).
+# What `<video>` and `<audio>` hold is for browsers that cannot play them, as `<noembed>` is, and a browser that can never shows
+# it: "Your browser does not support the video tag." came out as a paragraph of the page, glued to the one of the audio after it
+# (Pinned by: test_text_html.py::TestMediaFallbackAndQuotes). Their text alternative is a caption file (`<track>`).
 _DROP_TAGS = ["script", "style", "noscript", "noframes", "noembed", "template", "svg", "iframe", "embed", "button", "head", "nav",
-              "datalist"]
+              "datalist", "video", "audio"]
 # An aside inside these elements is a warning/note box of the main content (`_drop_sidebars`). An element with one of these ARIA
 # roles is the same landmark: Sphinx themes, docs.python.org and Read the Docs mark the body `<div role="main">`, and their
 # footnotes, topics and sidebars (`<aside>` since docutils 0.18) were removed as side menus

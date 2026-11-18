@@ -1384,6 +1384,23 @@ class TestLineNumberedCodeBlocks:
         assert "| before | after |" in convert(html.encode(), "a.html").text
 
 
+class TestMediaFallbackAndQuotes:
+    """What `<video>` and `<audio>` hold is for browsers that cannot play them, and it came out as paragraphs of the page; the
+    quotation marks a browser draws around `<q>` were missing, so quoted words read as the writer's own."""
+
+    def test_media_fallback_is_left_out(self):
+        html = ('<p>Watch the demo:</p><video controls src="demo.mp4"><track kind="captions" src="demo.vtt">'
+                'Your browser does not support the video tag.</video><audio src="a.mp3">Your browser does not support the audio '
+                'element.</audio><p>Next paragraph.</p>')
+
+        assert convert(html.encode(), "a.html").text == "Watch the demo:\n\nNext paragraph."
+
+    def test_quotation_marks_of_q_are_drawn(self):
+        html = "<p>He said <q>we will <q>not</q> raise the rate</q> on Monday.</p>"
+
+        assert convert(html.encode(), "a.html").text == "He said \u201cwe will \u2018not\u2019 raise the rate\u201d on Monday."
+
+
 class TestPermalinksOfHeadings:
     """Sphinx (docs.python.org, Read the Docs) and MkDocs put a permalink anchor in every heading and API signature, which a
     browser shows only when the pointer is over it: they came out as `# Introduction¶` and `foo(*x*)¶: Return x.`."""

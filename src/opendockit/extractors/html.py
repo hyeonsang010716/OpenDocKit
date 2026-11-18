@@ -48,6 +48,7 @@ from opendockit.extractors._html_dom import (
     _nest_word_lists,
     _open_at_the_end,
     _put_form_values,
+    _put_quotes,
     _put_ruby,
     _put_symbol_fonts,
     _reopen_raw_text_elements,
@@ -485,6 +486,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _put_form_values(soup)
     _mark_scripts(soup)
     _put_ruby(soup)
+    _put_quotes(soup)
     _mark_struck_text(soup, links=options.keep_links, emphasis=options.keep_emphasis)
 
     _flatten_nested_headings(soup)

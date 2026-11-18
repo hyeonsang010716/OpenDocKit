@@ -1008,6 +1008,20 @@ def _put_form_values(soup: BeautifulSoup) -> None:
         control.append(" ")
 
 
+def _put_quotes(soup: BeautifulSoup) -> None:
+    """Put the quotation marks a browser draws around `<q>` into the text: “…”, and ‘…’ for one inside another. Without them
+    `The minister said <q>we will not raise the rate</q>` read as if the words were the writer's own
+    (Pinned by: test_text_html.py::TestMediaFallbackAndQuotes)."""
+    quotes = soup.find_all("q")
+    if not quotes:
+        return
+    nested = _lying_inside(quotes, ("q",))
+    for quote in quotes:
+        opening, closing = ("\u2018", "\u2019") if id(quote) in nested else ("\u201c", "\u201d")
+        quote.insert(0, opening)
+        quote.append(closing)
+
+
 def _put_ruby(soup: BeautifulSoup) -> None:
     """Replace ruby (`<ruby>`) with its base text and annotation in the shape of the other extractors, `base(annotation)`
     (`_notation.format_dutmal`; HWP/HWPX dutmal, DOCX w:ruby, ODF text:ruby). Without `<rp>` the annotation was glued to the
