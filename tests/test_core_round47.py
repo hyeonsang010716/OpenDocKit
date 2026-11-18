@@ -31,6 +31,19 @@ class TestInlineCodeAcrossParagraphsWithWindowsLineBreaks:
         assert "base64," not in result.text
         assert "`ls`" in result.text
 
+    @pytest.mark.parametrize("line_break", ["\n", "\r\n", "\r"])
+    def test_code_over_two_lines_of_a_paragraph_is_code_with_any_line_break(self, line_break):
+        """A single CRLF line break was a blank line to the paragraph boundary (`\\r\\n?` gave its `\\n` to the second line
+        break), so inline code over two lines of a CRLF paragraph was split and the picture example in it was extracted, while
+        with LF or CR it stayed code. A blank line of either kind still separates paragraphs (the test above)."""
+        markdown = f"Write `the example\n![chart](data:image/png;base64,{_png_base64()})` as is."
+        data = markdown.replace("\n", line_break).encode()
+
+        result = convert(data, "guide.md")
+
+        assert result.images == []
+        assert "![chart](data:image/png;base64," in result.text
+
 
 class TestTransparentPictureEncoding:
     """Transparent pictures were rewritten with PNG `optimize=True`, which took most of the conversion time of picture-heavy PPTX

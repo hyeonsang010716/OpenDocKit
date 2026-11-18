@@ -245,8 +245,11 @@ def _without_pictures(text: str, pictures: list[re.Match]) -> list[str]:
 _BACKTICK_RUN = re.compile(r"`+")
 # Paragraph boundary (blank line). Inline code is not paired across it. CRLF and CR line breaks are taken too — looking only at
 # `\n`, in MD saved on Windows code was paired across paragraphs and a picture stayed as text
-# (Pinned by: test_core_round47.py::TestInlineCodeAcrossParagraphsWithWindowsLineBreaks).
-_BLANK_LINE = re.compile(r"(?:\r\n?|\n)[ \t]*(?:\r\n?|\n)")
+# (Pinned by: test_core_round47.py::TestInlineCodeAcrossParagraphsWithWindowsLineBreaks). Each line break is atomic: `\r\n?`
+# could give back its `\n` to the second one, so every single CRLF line break was a blank line and code written over two lines
+# of a CRLF paragraph was not code (Pinned by: test_core_round47.py::TestInlineCodeAcrossParagraphsWithWindowsLineBreaks::
+# test_code_over_two_lines_of_a_paragraph_is_code_with_any_line_break).
+_BLANK_LINE = re.compile(r"(?>\r\n?|\n)[ \t]*(?>\r\n?|\n)")
 
 
 def _inline_code_spans(text: str) -> list[tuple[int, int]]:
