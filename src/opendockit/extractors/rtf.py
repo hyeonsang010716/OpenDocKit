@@ -666,6 +666,7 @@ class _Reader:
         self._high = 0  # a high surrogate waiting for its low half
 
         self._document_codec = "cp1252"
+        self._cocoa = False  # written by the macOS text system (`\cocoartf`: TextEdit, Pages, Mail, `textutil`)
         self._default_font: int | None = None
         self._fonts: dict[int, str | None] = {}
         self._font: int | None = None  # font table entry being read
@@ -929,7 +930,7 @@ class _Reader:
         if not font:
             if len(dropped) == 1 and dropped.decode("cp1252", "replace") == escaped:
                 return False
-            codec = self._document_codec if font is None or self._document_codec in _DOUBLE_BYTE else "cp1252"  # as `_codec`
+            codec = self._document_codec if font is None else self._ansi_codec()  # as `_codec`
         else:
             codec = font
         try:
@@ -1063,8 +1064,21 @@ class _Reader:
         """The code page the bytes of the current run are read with first (`_decode`)."""
         codec = self._font_codec()
         if codec == _ANSI:
-            return self._document_codec if self._document_codec in _DOUBLE_BYTE else "cp1252"
+            return self._ansi_codec()
         return codec or self._document_codec
+
+    def _ansi_codec(self) -> str:
+        """The code page a font with `\\fcharset0` is read with first: the document's when it is double-byte (writers that
+        declare every font as ANSI store Hangul in it), otherwise CP1252.
+
+        The macOS text system declares every font as ANSI too, but writes each character outside CP1252 as `\\uN` and only
+        CP1252 ones as bytes. Its `\\ansicpg` follows the system language, so on a Korean, Japanese or Chinese Mac a smart
+        apostrophe or a no-break space before a letter is a valid pair in the document's code page: "It\\'92s" came out as
+        'It뭩' and "5\\'a0kg" as '5쟪g'. In its files the font's bytes are CP1252
+        (Pinned by: test_rtf.py::TestCharacters::test_ansi_font_written_by_the_macos_text_system_is_western)."""
+        if self._cocoa or self._document_codec not in _DOUBLE_BYTE:
+            return "cp1252"
+        return self._document_codec
 
     def _deliver(self, text: str) -> None:
         self._high = 0
@@ -1228,6 +1242,8 @@ class _Reader:
             state.dest = _LISTOVERRIDE
         elif word == b"ansicpg":
             self._document_codec = _page_codec(number or 0) or self._document_codec
+        elif word == b"cocoartf":
+            self._cocoa = True
         elif word == b"mac":
             self._document_codec = "mac_roman"
         elif word == b"pc":

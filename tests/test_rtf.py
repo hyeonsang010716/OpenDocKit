@@ -140,6 +140,19 @@ class TestCharacters:
         fonts = r"{\fonttbl{\f0\fcharset0 Gulim;}}"
         assert _text(fonts + r"\f0 " + _cp949("안녕") + r"\par caf\'e9 au lait\par", head=r"\ansi\ansicpg949") == "안녕\n\ncafé au lait"
 
+    @pytest.mark.parametrize("page", [949, 932, 936, 950])
+    def test_ansi_font_written_by_the_macos_text_system_is_western(self, page):
+        """TextEdit, Pages, Mail and `textutil` write `\\cocoartf`, declare every font `\\fcharset0`, follow the system language
+        in `\\ansicpg`, write each character outside CP1252 as `\\uN` and only CP1252 ones as bytes. On a Korean, Japanese or
+        Chinese Mac a smart apostrophe or a no-break space before a letter is a valid pair in that code page, so "It's" came out
+        as 'It뭩' and "5 kg" as '5쟪g'. In such a file the font's bytes are CP1252; elsewhere they are tried with the document's
+        code page first, as before (the test above)."""
+        head = rf"\ansi\ansicpg{page}\cocoartf2870" + "\n" + r"\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\froman\fcharset0 Times-Roman;}"
+        body = (r"\pard\pardeftab720\sa240\partightenfactor0" + "\n\n" + r"\f0\fs24 \cf0 It\'92s done. Total\'a0sum: 5\'a0kg\par "
+                r"\uc0\u54924 \u51032 \u47197 : It\'92s 3\'a0pm, caf\'e9 \'93q\'94\par ")
+
+        assert _text(body, head=head) == "It’s done. Total sum: 5 kg\n\n회의록: It’s 3 pm, café “q”"
+
     def test_fallback_counted_in_characters_drops_the_whole_double_byte_character(self):
         """`\\uc1` followed by a two-byte CP949 fallback (writers that count `\\ucN` in characters): the byte that completes the
         dropped lead byte is dropped too — it came out as '가�'. A fallback counted in bytes (`\\uc2`), a one-byte fallback
