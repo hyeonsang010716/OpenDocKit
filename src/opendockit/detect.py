@@ -185,7 +185,10 @@ def _detect(data: bytes, filename: str | None) -> DocumentFormat:
         return DocumentFormat.IMAGE
     if _is_raw_biff(data):
         return DocumentFormat.XLS
-    if data[:64].lstrip().startswith(_RTF_MAGIC):
+    # The header may follow a UTF-8 byte order mark and blank lines, as the RTF extractor reads it. Not a byte of whitespace to
+    # `lstrip`, the mark hid the header of an RTF saved by PowerShell 5 or a .NET StreamWriter, and its control words became
+    # the body of a text (Pinned by: test_detect.py::test_rtf_behind_a_byte_order_mark_is_read_as_rtf).
+    if data[:64].removeprefix(b"\xef\xbb\xbf").lstrip().startswith(_RTF_MAGIC):
         return DocumentFormat.RTF
     if data.startswith(_HWP3_MAGIC):
         raise UnsupportedFormatError("Hangul 3.0 or earlier (HWP 3.x) documents are not supported. "
