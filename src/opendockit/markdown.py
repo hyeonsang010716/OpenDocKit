@@ -60,11 +60,13 @@ _BLANK_RUN = re.compile(r"\n{3,}")
 # (Pinned by: test_audit_web_fixes.py::TestEmptyListItemHoldingANestedList). Any other paragraph that is only `-` or `2025.`
 # is stripped as before: with its spaces kept, five of them made it an indented code block. A marker followed only by
 # whitespace (`  - `) is a bare marker too: it was taken for a list line, kept its indentation, lost the trailing space, and
-# the next cleaning then stripped it as a bare marker (Pinned by: test_markdown.py::TestCleaningTwice).
-_LIST_LINE = re.compile(r"^( +)(?:[-*]|\d+\.) (?=[ \t]*\S)")
-_BARE_LIST_MARKER = re.compile(r"^( +)(?:[-*]|\d+\.)[ \t]*$")
-_EMPTY_ITEM = re.compile(r"^( *)([-*]|\d+\.)$")
-_LIST_ITEM = re.compile(r"^ *(?:[-*]|\d+\.) ")
+# the next cleaning then stripped it as a bare marker (Pinned by: test_markdown.py::TestCleaningTwice). A list marker is ASCII
+# digits: with `\d`, '１.' and '١.' lines kept their indentation (four spaces made a code block) and were joined to the item
+# above them (Pinned by: test_markdown.py::TestCleanText::test_number_in_other_digits_is_not_a_list_line).
+_LIST_LINE = re.compile(r"^( +)(?:[-*]|[0-9]+\.) (?=[ \t]*\S)")
+_BARE_LIST_MARKER = re.compile(r"^( +)(?:[-*]|[0-9]+\.)[ \t]*$")
+_EMPTY_ITEM = re.compile(r"^( *)([-*]|[0-9]+\.)$")
+_LIST_ITEM = re.compile(r"^ *(?:[-*]|[0-9]+\.) ")
 # The span counts and cell addresses of a table are numbers written in the file, so they are not trusted as is. A few KB of input
 # used seconds and gigabytes (DOCX gridSpan of 3 million, HWPX cell address 3000×3000, 150 HTML cells each merged 200×200).
 # Pinned by: test_markdown.py::TestTableGridLimits.

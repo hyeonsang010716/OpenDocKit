@@ -94,6 +94,13 @@ class TestCleanText:
 
         assert result == "- 항목\n  - 하위 항목\n들여쓴 본문"
 
+    @pytest.mark.parametrize("digit", ["１", "١"], ids=["full-width", "arabic-indic"])
+    def test_number_in_other_digits_is_not_a_list_line(self, digit):
+        """A Markdown list marker is ASCII digits; `\\d` also matched '１.' and '١.', so such a line kept its indentation (four
+        spaces made it a code block) and joined the item above it as a list item, reading as one line with it."""
+        assert clean_text(f"intro\n\n    {digit}. item") == f"intro\n\n{digit}. item"
+        assert join_blocks(["1. first", f"{digit}. second"]) == f"1. first\n\n{digit}. second"
+
     def test_keeps_code_fence_content_verbatim(self):
         text = "```\ndef f():\n    return  1\n```"
 

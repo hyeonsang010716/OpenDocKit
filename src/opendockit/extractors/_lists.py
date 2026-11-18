@@ -222,9 +222,11 @@ def list_item_prefix(number: str, depth: int) -> str:
     them, so there was no telling they were sub-items. It is the same form as letter numbers in HTML. The top level keeps the number
     as is — adding a bullet to '제1조' / '가.' paragraphs is noise
     (Pinned by: test_office.py::TestDocxNumbering::test_sub_items_with_numbers_other_than_digit_period_keep_their_level).
+    The '1.' form is ASCII digits only, as in CommonMark: full-width '１.' (decimalFullWidth) matched `\\d` and ran into the item
+    above (Pinned by: test_office.py::TestDocxNumbering::test_sub_items_with_full_width_digits_take_a_bullet).
     """
     indent = "  " * depth
-    return f"{indent}{number} " if depth == 0 or re.fullmatch(r"\d+\.", number) else f"{indent}- {number} "
+    return f"{indent}{number} " if depth == 0 or re.fullmatch(r"[0-9]+\.", number) else f"{indent}- {number} "
 
 
 def _counting_number(value: int, digits: str, units: str, zero: str) -> str:
