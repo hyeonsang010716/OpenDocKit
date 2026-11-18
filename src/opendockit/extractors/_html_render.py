@@ -97,6 +97,15 @@ _ADDRESS_BREAKS = re.compile("[\t\n\r]")
 _LIST_SLOT_OPEN = "\ue024" + "".join(chr(0xE100 + byte) for byte in secrets.token_bytes(8))
 _LIST_SLOT_CLOSE = "\ue025"
 _LIST_SLOT = re.compile(f"{re.escape(_LIST_SLOT_OPEN)}(\\d+){_LIST_SLOT_CLOSE}")
+
+
+class _ListSlot(NavigableString):
+    """The placeholder of a nested list detached while its item is rendered. `_render_nodes` takes it for the list it stands
+    for: a list no link or emphasis span can hold (`_inline.BLOCK_INSIDE`). As plain text, `<a>Docs<ul>…</ul></a>` in an item
+    was written as a link across the nested list, `[Docs\n  - Guide\n\n](url)`
+    (Pinned by: test_inline_formatting.py::TestHtmlLinks::test_link_around_a_nested_list_of_an_item_stays_text)."""
+
+
 # Maximum list indentation depth. Deeper lists are folded onto one line (a list 14,000 levels deep was rejected with a
 # recursion-limit error) (Pinned by: test_text_html.py::TestDeepNesting).
 _MAX_LIST_DEPTH = 20
@@ -188,6 +197,8 @@ def _render_nodes(nodes: list, list_depth: int) -> str:
     while stack:
         node = stack.pop()
         if isinstance(node, NavigableString):
+            if inline is not None and isinstance(node, _ListSlot):
+                frames[-1].append(BLOCK_INSIDE)
             frames[-1].append(_WHITESPACE.sub(" ", str(node)))
         elif node is _QUOTE_END:
             inner = _single_blank_lines(_frame_text(frames.pop(), inline).strip())
@@ -612,7 +623,7 @@ def _render_list_items(node: Tag, list_depth: int) -> str:
         # A list inside a quote block of the item stays in the quote, which draws it (Pinned by:
         # test_core_html.py::TestListInsideAQuoteInsideAnItem).
         nested = _nearest(item, wanted={"ul", "ol"}, stop={"li", "table", "blockquote"})
-        slots = [NavigableString(f"{_LIST_SLOT_OPEN}{index}{_LIST_SLOT_CLOSE}") for index in range(len(nested))]
+        slots = [_ListSlot(f"{_LIST_SLOT_OPEN}{index}{_LIST_SLOT_CLOSE}") for index in range(len(nested))]
         # Swapped through `_replace` (one position lookup per parent): `replace_with` per list took 6.4 seconds for one item
         # with 20,000 lists (Pinned by: test_audit_html_text.py::TestManyListsOrTablesSetAsideWhileTheirParentIsRendered)
         places: _Places = {}
