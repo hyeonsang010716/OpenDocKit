@@ -597,16 +597,20 @@ def _render_rows(rows: list[list[str | None]], *, merged_titles_only: bool = Fal
         return "\n\n".join(_within((_uncell(row[0]) for row in grid), room))
 
     # A title row at the top of a table (a horizontally merged title, or title + unit) used as the header row would lose the column
-    # names, so it is moved into a paragraph above the table.
+    # names, so it is moved into a paragraph above the table. The rows are walked by index and the grid cut once: cut after every
+    # title row, a list of 200,000 one-cell rows above a full row (an 800 KB CSV) took 59 s
+    # (Pinned by: test_markdown.py::TestRenderTable::test_many_title_rows_take_linear_time).
     titles = []
-    while len(keep) >= 2 and len(grid) > 1 and not headless:
-        title = _title_of([cell for cell in grid[0] if cell], len(keep), grid[0], grid[1:2 + _HEADER_PROBE_ROWS])
-        if title is None or (merged_titles_only and sum(1 for cell in grid[0] if cell) == 1
+    while len(keep) >= 2 and len(grid) - len(titles) > 1 and not headless:
+        top = grid[len(titles)]
+        title = _title_of([cell for cell in top if cell], len(keep), top,
+                          grid[len(titles) + 1:len(titles) + 2 + _HEADER_PROBE_ROWS])
+        if title is None or (merged_titles_only and sum(1 for cell in top if cell) == 1
                              and _has_open_cell(kept_rows[len(titles)], keep)):
             break
         titles.append(_uncell(title))
-        grid = grid[1:]
     if titles:
+        grid = grid[len(titles):]
         keep = [col for col in range(len(grid[0])) if any(row[col] for row in grid)]
         grid = [[row[col] for col in keep] for row in grid]
         if len(keep) == 1:

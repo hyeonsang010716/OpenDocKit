@@ -140,6 +140,18 @@ class TestSolidLength:
         assert solid_length("> 가나\n> > b ⟦IMG:1⟧") == solid_length(">가나>>b")
 
 class TestRenderTable:
+    @pytest.mark.timing
+    def test_many_title_rows_take_linear_time(self):
+        """Each one-cell row at the top is lifted as a title, and the rest of the grid was copied after every one of them: a list of
+        one-cell rows above a full row took the square of its length (an 800 KB CSV of 200,000 such rows: 59 s)."""
+        def rows(count):
+            return [["a", "", ""]] * count + [["total", "1", "2"]]
+
+        small, large = rows(10_000), rows(40_000)
+
+        assert fastest(lambda: render_table(large)) < 8 * fastest(lambda: render_table(small)) + 0.05
+        assert render_table(rows(3)) == "a\n\na\n\na\n\n| total | 1 | 2 |\n| --- | --- | --- |"
+
     def test_renders_gfm_table_with_header_row(self):
         rows = [["이름", "값"], ["a", "1"]]
 
