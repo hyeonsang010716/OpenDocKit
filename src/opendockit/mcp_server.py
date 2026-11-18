@@ -53,7 +53,7 @@ _RANGE = re.compile(r"\s*(\d{1,9})\s*(?:-\s*(\d{1,9})\s*)?\Z")
 _INSTRUCTIONS = (
     "Converts local documents (PDF, DOCX, PPTX, XLSX, HWP/HWPX, ODT/ODS/ODP, RTF, EPUB, HTML, email, CSV, text) to Markdown, "
     "keeping tables, headings and lists. For a long document call document_outline first, then convert_document with "
-    "`sections` to read the pages, slides or sheets you need."
+    "`sections` to read the pages, slides or sheets you need. A document without them is returned up to max_chars."
 )
 # What the SDK serves for every server, whether or not anything was registered for it.
 _UNUSED_METHODS = ("prompts/list", "prompts/get", "resources/list", "resources/read", "resources/templates/list")
@@ -171,8 +171,19 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
             text, note = _selected(result, chosen, max_chars)
         else:
             text = result.text
-            note = ("The document is longer than max_chars and was cut. Call document_outline and read it by `sections`, "
-                    "or raise max_chars.") if result.exceeded else ""
+            # Only a document with pages, slides or sheets can be read by `sections`. A long DOCX was sent to the outline,
+            # and `sections` gave the same first characters again
+            # (Pinned by: test_mcp_server.py::TestConvertDocument::
+            # test_long_document_without_units_is_told_to_raise_max_chars_not_to_read_by_sections).
+            # A cut result keeps the units up to the cut, the first one at least.
+            if not result.exceeded:
+                note = ""
+            elif _units(result):
+                note = ("The document is longer than max_chars and was cut. Call document_outline and read it by `sections`, "
+                        "or raise max_chars.")
+            else:
+                note = ("The document is longer than max_chars and was cut. It is not divided into pages, slides or sheets: "
+                        "raise max_chars to read more.")
         warnings = [_one_line(warning) for warning in result.warnings if not warning.startswith("The conversion was stopped")]
         tail = [f"[{note}]"] if note else []
         if warnings:
@@ -195,6 +206,11 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
         if units:
             lines.append("")
             lines += [_outline_line(section) for section in units]
+        elif len(result.text) > default_max_chars:
+            # Not 'returns it whole': a call without max_chars stops at the default (Pinned by: test_mcp_server.py::
+            # TestDocumentOutline::test_document_without_units_longer_than_max_chars_is_not_said_to_be_returned_whole).
+            lines.append("The document is not divided into pages, slides or sheets; convert_document returns its first "
+                         f"{default_max_chars:,} characters unless max_chars is raised.")
         elif result.text.strip():
             lines.append("The document is not divided into pages, slides or sheets; convert_document returns it whole.")
         else:

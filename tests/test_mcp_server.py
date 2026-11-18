@@ -91,6 +91,16 @@ class TestConvertDocument:
         assert whole.split("\n\n[")[-1].startswith("The document is not divided into pages, slides or sheets; this is all of it.")
         assert "is longer than max_chars: it was cut. Raise max_chars" in cut and "fewer sections" not in cut
 
+    def test_long_document_without_units_is_told_to_raise_max_chars_not_to_read_by_sections(self, files):
+        """A long DOCX has no pages to ask for: the note sent the agent to the outline and `sections`, and `sections="2"`
+        returned the same first 100,000 characters again, so the rest could not be reached that way."""
+        text = call("convert_document", {"path": str(files["report.docx"]), "max_chars": 20})
+        note = text.split("\n\n[", 1)[1]
+
+        assert note.startswith("The document is longer than max_chars and was cut. It is not divided into pages, slides or "
+                               "sheets: raise max_chars to read more.]")
+        assert "sections" not in note and "document_outline" not in note
+
     def test_long_document_is_cut_at_max_chars_with_a_note_saying_how_to_read_the_rest(self, files):
         """An agent's context is the scarce thing. The text is cut at `max_chars` and the note tells the agent what to do next;
         the converter's own 'stopped' warning is not repeated under it."""
@@ -151,6 +161,16 @@ class TestDocumentOutline:
         outline = call("document_outline", {"path": str(files["report.docx"])})
 
         assert "not divided into pages, slides or sheets" in outline
+
+    def test_document_without_units_longer_than_max_chars_is_not_said_to_be_returned_whole(self, files):
+        """The outline of a 292,888-character DOCX said 'convert_document returns it whole', which returned 100,000."""
+        short = call("document_outline", {"path": str(files["report.docx"])})
+        long = call("document_outline", {"path": str(files["report.docx"])}, default_max_chars=20)
+
+        assert "The document is not divided into pages, slides or sheets; convert_document returns it whole." in short
+        assert ("The document is not divided into pages, slides or sheets; convert_document returns its first 20 characters "
+                "unless max_chars is raised.") in long
+        assert "returns it whole" not in long
 
 
 class TestWhichFilesMayBeRead:

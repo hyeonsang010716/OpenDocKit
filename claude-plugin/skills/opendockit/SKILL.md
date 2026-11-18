@@ -46,7 +46,8 @@ The tools are `mcp__plugin_opendockit_opendockit__document_outline` and
    - long document: `path` plus `sections`, for example `"3"` or `"2-5"`, using the numbers the outline showed.
      Read the parts the question needs, not the whole file.
 4. If the answer ends with a note that the document was cut, do not raise `max_chars` by reflex. Read the outline
-   and ask for the `sections` you still need.
+   and ask for the `sections` you still need. A document that is not divided into pages, slides or sheets (the note
+   and the outline say so) cannot be read by `sections`: raise `max_chars` to read more of it.
 5. Read the `Warnings:` lines after the text. They say what was skipped or approximated (a scanned page, a picture,
    a chart that could not be read). Tell the user when a warning affects the answer.
 
