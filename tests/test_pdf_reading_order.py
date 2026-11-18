@@ -577,6 +577,20 @@ class TestDropCaps:
 
         assert text.startswith("A round table was set for the\nguests who came from far away")
 
+    def test_a_lone_capital_joined_beside_an_initial_is_not_joined_again(self, monkeypatch):
+        """A lone capital taken as the line beside an initial is not looked at as an initial afterwards: joined again to the line
+        beside it, the line it already held (the first initial with it) was dropped."""
+        from opendockit.extractors import _pdf_chars
+
+        monkeypatch.setattr(_pdf_chars, "_drop_cap", lambda chars, text: (text, 0.0, 0.0))  # every join is taken
+        def line(text, x0, top, bottom):
+            return ({"x0": x0, "x1": x0 + 8 * len(text), "top": top, "bottom": bottom, "text": text}, None, text, [])
+        prepared = [line("I", 0, 0, 30), line("A", 12, 5, 15), line("rest of the first line", 22, 5, 15)]
+
+        joined = _pdf_chars._joined_late_initials(prepared, lambda _: [])
+
+        assert [text for _, _, text, _ in joined] == ["I A", "rest of the first line"]
+
     _OPTION = ["the second option, which costs less", "but takes two more weeks to deliver", "and has no warranty at all"]
 
     @pytest.mark.parametrize(("initial", "lines", "options"), [

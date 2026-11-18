@@ -472,6 +472,11 @@ def _joined_late_initials(prepared: list[tuple[dict, int | None, str, list[dict]
                 if len(text) == 1 and text.isalpha() and text.isupper()][:_MAX_LATE_INITIALS]
     replaced: dict[int, tuple[dict, int | None, str, list[dict]] | None] = {}
     for index in initials:
+        # A capital already joined as the line beside another initial is not an initial itself: joined again, the line it
+        # was joined to was dropped with the first initial (Pinned by: test_pdf_reading_order.py::TestDropCaps::
+        # test_a_lone_capital_joined_beside_an_initial_is_not_joined_again)
+        if index in replaced:
+            continue
         initial, owner, letter, _ = prepared[index]
         reach = initial["bottom"] - initial["top"]
         beside = [other for other, (line, line_owner, _, _) in enumerate(prepared)
