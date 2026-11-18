@@ -172,6 +172,23 @@ class TestTextDocument:
                     f'<text:p>사이</text:p><text:list text:style-name="L1">{item("다", "x1")}</text:list>', styles=styles)
         assert text == "1. 가\n  - a) a1\n  - b) a2\n2. 나\n  - a) b1\n\n사이\n\n1. 다\n  - a) x1"
 
+    def test_empty_list_item_still_takes_its_number(self):
+        """LibreOffice draws the number of an item whose paragraph is empty, as Word does in DOCX. It was not counted, so '3.
+        셋' came out as '2.'. The empty item is not written, and a hidden paragraph (shown nowhere) is not counted. The number
+        is taken where the empty paragraph is (before a list nested in the item), and a later paragraph of the item with text
+        carries it; a `text:numbered-paragraph` with an empty paragraph counts the same way."""
+        hidden = '<text:p>x<text:hidden-paragraph text:condition="ooow:1" text:is-hidden="true"/></text:p>'
+
+        def item(*paragraphs: str) -> str:
+            return "<text:list-item>" + "".join(paragraphs) + "</text:list-item>"
+
+        nested = '<text:list><text:list-item><text:p>a1</text:p></text:list-item></text:list>'
+        body = ('<text:list text:style-name="Numbers">' + item("<text:p>하나</text:p>", nested) + item("<text:p/>")
+                + item(hidden) + item("<text:p>셋</text:p>") + item("<text:p/>", nested) + item("<text:p> </text:p>", "<text:p>다섯</text:p>")
+                + "</text:list>" + '<text:numbered-paragraph text:style-name="Numbers"><text:p/></text:numbered-paragraph>'
+                + '<text:numbered-paragraph text:style-name="Numbers"><text:p>일곱</text:p></text:numbered-paragraph>')
+        assert _odt(body, styles=_LIST_STYLES) == "1. 하나\n  - 가. a1\n3. 셋\n  - 가. a1\n5. 다섯\n7. 일곱"
+
     def test_continue_list_continues_the_list_it_names(self):
         """`text:continue-list` names the list it continues by `xml:id`: across a list of the same style that started again in
         between, the numbers go on from the named list (and the style comes from it when the continuing list names none)."""

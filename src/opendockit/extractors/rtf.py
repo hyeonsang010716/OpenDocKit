@@ -477,16 +477,17 @@ class _Flow:
             else:
                 self.add_block(block)
 
-    def end_paragraph(self) -> None:
+    def end_paragraph(self, *, marked: bool = False) -> None:
+        """`marked`: the paragraph ends at its own paragraph mark (`\\par`), so it is there even when it is empty."""
         depth = self._depth()
         self._enter(depth)
         if depth:
             table = self.tables[-1]
-            text = self._paragraph_text(in_cell=True, kept=_takes_cells(table))
+            text = self._paragraph_text(in_cell=True, kept=_takes_cells(table), marked=marked)
             if text:
                 table.cell.append(text)
             return
-        text = self._paragraph_text(in_cell=False)
+        text = self._paragraph_text(in_cell=False, marked=marked)
         if text:
             self.add_block(text)
 
@@ -570,13 +571,25 @@ class _Flow:
             self._pieces = []
         self._look = None
 
-    def _paragraph_text(self, *, in_cell: bool, kept: bool = True) -> str:
+    def _count_empty_item(self, *, in_cell: bool) -> None:
+        """An empty paragraph of a list still takes its number, as Word draws it (DOCX counts it too); it is not written. Not
+        counted, '3. three' after an empty item came out as '2.'
+        (Pinned by: test_rtf.py::TestLists::test_empty_numbered_paragraph_still_takes_its_number). Only a paragraph ended by
+        its own `\\par`: the end of a flow, a `\\cell` or a `\\sect` right after a `\\par` close no paragraph of the
+        document, and counted they would take a number from the list the properties still name. One whose paragraph mark is
+        hidden or deleted (`\\v`, `\\deleted` in force at `\\par`) is not in the document and is not counted either."""
+        paragraph, reader = self.paragraph, self.reader
+        if self.kind == "note" or (paragraph.ls is None and paragraph.pn is None) or reader.mark_hidden():
+            return
+        if in_cell or not reader.heading_level(paragraph):
+            reader.list_mark(paragraph)
+
+    def _paragraph_text(self, *, in_cell: bool, kept: bool = True, marked: bool = False) -> str:
         """The Markdown of the paragraph that ends. With `kept` False its text is not wanted (a cell of a table that takes no more
-        cells): only what the paragraph changes for the ones after it — list numbers, a heading ending a numbering — is done."""
+        cells): only what the paragraph changes for the ones after it — list numbers, a heading ending a numbering — is done.
+        `marked`: it ends at its own `\\par` (`end_paragraph`)."""
         self._settle()
         runs = self.runs
-        if not runs:
-            return ""
         self.runs = []
         reader, paragraph, options = self.reader, self.paragraph, self.reader.options
         # What the paragraph is (empty, a heading, a list item) is decided on the text without marks, so the decisions are the
@@ -584,6 +597,8 @@ class _Flow:
         plain = "".join(run[0] for run in runs)
         first_line = next((line for line in (" ".join(line.split()) for line in plain.split("\n")) if line), "")
         if not first_line:
+            if marked:
+                self._count_empty_item(in_cell=in_cell)
             return ""
         level = mark = None
         if self.kind != "note":
@@ -1096,7 +1111,7 @@ class _Reader:
             return
         if symbol in (b"\r", b"\n"):  # a backslash before a line break is `\par`
             if self._state.dest == _BODY:
-                self._flow.end_paragraph()
+                self._flow.end_paragraph(marked=True)
             return
         text = _SYMBOLS.get(symbol)
         if text:
@@ -1126,7 +1141,7 @@ class _Reader:
         paragraph = flow.paragraph
         on = number is None or number != 0
         if word == b"par" or word == b"sect":
-            flow.end_paragraph()
+            flow.end_paragraph(marked=word == b"par")
         elif word == b"pard":
             flow.paragraph = _Paragraph()
         elif word == b"plain":
@@ -1406,6 +1421,10 @@ class _Reader:
 
     def end_simple_numbering(self) -> None:
         self._simple_counters = [None] * (_MAX_LEVEL + 1)
+
+    def mark_hidden(self) -> bool:
+        """Whether the paragraph mark being read is hidden or deleted text."""
+        return self._state.hidden
 
     def list_mark(self, paragraph: _Paragraph) -> tuple[str, int] | None:
         """('-' or 'N.', level) of a list paragraph, None for a paragraph outside a list.

@@ -74,6 +74,7 @@ _RUBY, _RUBY_BASE, _RUBY_TEXT = f"{{{_TEXT}}}ruby", f"{{{_TEXT}}}ruby-base", f"{
 _SECTION = f"{{{_TEXT}}}section"
 _NUMBER = f"{{{_TEXT}}}number"
 _HIDDEN_TEXT, _HIDDEN_PARAGRAPH, _IS_HIDDEN = f"{{{_TEXT}}}hidden-text", f"{{{_TEXT}}}hidden-paragraph", f"{{{_TEXT}}}is-hidden"
+_CHANGE = f"{{{_TEXT}}}change"
 _TEXT_STYLE_NAME, _OUTLINE_LEVEL = f"{{{_TEXT}}}style-name", f"{{{_TEXT}}}outline-level"
 _TABLE_ELEMENT, _ROW = f"{{{_TABLE}}}table", f"{{{_TABLE}}}table-row"
 _CELL, _COVERED = f"{{{_TABLE}}}table-cell", f"{{{_TABLE}}}covered-table-cell"
@@ -520,6 +521,12 @@ def _is_hidden(paragraph: etree._Element) -> bool:
     return any(child.tag == _HIDDEN_PARAGRAPH and child.get(_IS_HIDDEN) == "true" for child in paragraph)
 
 
+def _takes_a_number_when_empty(paragraph: etree._Element) -> bool:
+    """Whether an empty paragraph of a list item is shown with its label: not a hidden paragraph (`_is_hidden`) and not the mark
+    a tracked deletion leaves (`text:change`), the way DOCX counts an empty numbered paragraph but not a deleted one."""
+    return not _is_hidden(paragraph) and next(paragraph.iter(_CHANGE), None) is None
+
+
 def _repeat(node: etree._Element, attribute: str) -> int:
     return min(max(decimal_int(node.get(attribute), 1), 1), _FAR)
 
@@ -801,6 +808,7 @@ class _Renderer:
                 continue
             headed = item.tag == _LIST_HEADER   # a list header is a paragraph of the list without a label
             start = decimal_int(item.get(f"{{{_TEXT}}}start-value"), None)
+            pending: str | None = None   # the label an empty first paragraph took, for the item's next paragraph with text
             for child in item:
                 if child.tag == _LIST:
                     if level + 1 < _MAX_DEPTH and depth + 1 < _MAX_DEPTH:
@@ -810,7 +818,16 @@ class _Renderer:
                         blocks.append(_flat_text(child))
                     continue
                 rendered = self.block(child, context, depth + 1)
-                if rendered and not headed and child.tag in (_P, _H):
+                if not rendered and not headed and child.tag in (_P, _H) and _takes_a_number_when_empty(child):
+                    # LibreOffice draws the label of an item whose paragraph is empty, as Word does (DOCX counts it too): the
+                    # number is taken here and the empty paragraph is not written. Not counted, '3. 셋' after an empty item
+                    # came out as '2.' (Pinned by: test_odf.py::TestTextDocument::test_empty_list_item_still_takes_its_number).
+                    pending = self._item_head(style, level, counters, start, context)
+                    headed = True
+                elif rendered and pending is not None and child.tag == _P:
+                    rendered[0] = pending + rendered[0]
+                    pending = None
+                elif rendered and not headed and child.tag in (_P, _H):
                     as_heading = not (context.in_cell or context.in_note or context.plain)
                     # A heading that carries its label (`text:number`, not empty) shows that label in its text already
                     # (`_inline`): the item is counted and no second label is written, also where the heading is a plain
@@ -889,6 +906,8 @@ class _Renderer:
                 else:
                     rendered[0] = head + rendered[0]
             blocks.extend(rendered)
+        if not labelled and listed and any(child.tag in (_P, _H) and _takes_a_number_when_empty(child) for child in node):
+            self._item_head(style, level, counters, start, context)   # an empty numbered paragraph is counted, as a list item is
         return [block for block in blocks if block]
 
     def _list_counters(self, node: etree._Element, style: str | None) -> tuple[dict[int, int], str | None]:

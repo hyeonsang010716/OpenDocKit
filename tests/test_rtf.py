@@ -482,6 +482,16 @@ class TestLists:
         assert _text(body) == ("1. one\n2. two\n\nBetween\n\n5. five\n  3. sub\n  4. sub2\n6. six\n  3. again\n\nOther\n\n"
                                "1. first")
 
+    def test_empty_numbered_paragraph_still_takes_its_number(self):
+        """Word draws the number of an empty list paragraph (the DOCX of the same document counts it): it was not counted, so
+        'three' came out as '2.'. The empty paragraph is not written. A paragraph whose mark is hidden or deleted is not in
+        the document and takes no number; one holding only hidden text is an empty paragraph. The end of a text box right
+        after its `\\par` is no paragraph and takes none either."""
+        box = r"{\shp{\*\shpinst{\shptxt \pard\ls2 boxed\par}}}"
+        body = (_LISTS + r"\pard\ls2 one\par\pard\ls2\par\pard\ls2{\v hidden\par}\pard\ls2{\deleted gone\par}"
+                r"\pard\ls2{\v x}\par\pard\ls2 " + box + r"four\par\pard\ls2 five\par")
+        assert _text(body) == "1. one\n4. boxed\n5. four\n6. five"
+
     def test_list_without_a_definition_is_a_bullet_list(self):
         """`\\ls7` with no list table entry: the numbering type cannot be told."""
         assert _text(r"\pard\ls7 one\par\pard\ls7\ilvl1 two\par") == "- one\n  - two"
