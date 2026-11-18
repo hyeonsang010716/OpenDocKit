@@ -51,6 +51,7 @@ from opendockit.extractors._html_dom import (
     _put_ruby,
     _put_symbol_fonts,
     _reopen_raw_text_elements,
+    _unwrap_line_numbered_code,
     _with_table_around_bare_rows,
     _with_title_heading,
 )
@@ -466,6 +467,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _drop_hidden(soup, kept=folded, whole=whole)
     _drop_permalinks(soup)
     _keep_preserved_line_breaks(soup)
+    _unwrap_line_numbered_code(soup)
 
     extraction = Extraction(metadata=metadata, images=list(images or ()))
     warning = decoding_warning(encoding)

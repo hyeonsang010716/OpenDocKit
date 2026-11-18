@@ -1364,6 +1364,26 @@ class TestWhiteSpacePreserved:
             "first\nline\n\njoined words\n\nplain text\n\n```\ncode\n  kept\n```")
 
 
+class TestLineNumberedCodeBlocks:
+    """Pygments (`linenos="table"`), Hugo and Rouge write a code block shown with line numbers as a table of one row and two
+    cells, each holding one `<pre>`: it came out as a Markdown table of `<br>`-joined lines, the pipes of the code escaped."""
+
+    def test_line_numbers_beside_a_code_block_are_left_out(self):
+        pygments = ('<table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span>1</span>\n'
+                    '<span>2</span></pre></div></td><td class="code"><div class="highlight"><pre><span></span>def f(x):\n'
+                    '    return x | 1\n</pre></div></td></tr></table>')
+        rouge = ('<table class="rouge-table"><tbody><tr><td class="gutter gl"><pre class="lineno">1\n2\n</pre></td>'
+                 '<td class="code"><pre>a = 1\nb = 2\n</pre></td></tr></tbody></table>')
+
+        assert convert(f"<p>Example:</p>{pygments}{rouge}".encode(), "a.html").text == (
+            "Example:\n\n```\ndef f(x):\n    return x | 1\n```\n\n```\na = 1\nb = 2\n```")
+
+    def test_a_table_of_two_code_cells_without_line_numbers_stays_a_table(self):
+        html = "<table><tr><td><pre>before</pre></td><td><pre>after</pre></td></tr></table>"
+
+        assert "| before | after |" in convert(html.encode(), "a.html").text
+
+
 class TestPermalinksOfHeadings:
     """Sphinx (docs.python.org, Read the Docs) and MkDocs put a permalink anchor in every heading and API signature, which a
     browser shows only when the pointer is over it: they came out as `# Introduction¶` and `foo(*x*)¶: Return x.`."""

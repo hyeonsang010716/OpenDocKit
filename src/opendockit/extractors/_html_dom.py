@@ -1855,6 +1855,57 @@ def _keep_preserved_line_breaks(soup: BeautifulSoup) -> None:
         _replace(text, holder, places)
 
 
+# The text of the line-number cell of a code block: numbers separated by white space.
+_LINE_NUMBERS = re.compile(r"\s*\d+(?:\s+\d+)*\s*")
+
+
+def _unwrap_line_numbered_code(soup: BeautifulSoup) -> None:
+    """Replace a code block shown with its line numbers beside it by the code block alone.
+
+    Pygments (`linenos="table"`, Sphinx, MkDocs Material), Hugo and Rouge (Jekyll) write a numbered code block as a table of one
+    row and two cells, each holding one `<pre>`: the line numbers and the code. It came out as a Markdown table of `<br>`-joined
+    lines, the numbers in a column of their own, and the pipes of the code escaped
+    (Pinned by: test_text_html.py::TestLineNumberedCodeBlocks). Only that shape is taken: one row, two cells with nothing but
+    one `<pre>` each, exactly one of them nothing but numbers, and no table inside.
+    """
+    places: _Places = {}
+    for table in soup.find_all("table"):
+        # Only the table's own rows and cells, and only `<div>` wrappers down to the `<pre>`, are looked at: searching each
+        # table's whole subtree took the square of the depth of tables nested in each other
+        # (Pinned by: test_text_html.py::TestDeepNesting::test_deeply_nested_tables_are_read_quickly).
+        rows = [row for part in [table, *_element_children(table, ("thead", "tbody", "tfoot"))]
+                for row in _element_children(part, ("tr",))]
+        cells = _element_children(rows[0], ("td", "th")) if len(rows) == 1 else []
+        pres = [pre for pre in (_only_pre(cell) for cell in cells) if pre is not None]
+        if len(cells) != 2 or len(pres) != 2:
+            continue
+        numbered = [index for index, pre in enumerate(pres) if _LINE_NUMBERS.fullmatch(pre.get_text())]
+        if len(numbered) != 1:
+            continue
+        code = pres[1 - numbered[0]].extract()
+        _replace(table, code, places)
+
+
+def _element_children(tag: Tag, names: tuple[str, ...]) -> list[Tag]:
+    return [child for child in tag.children if isinstance(child, Tag) and child.name in names]
+
+
+def _only_pre(cell: Tag, wrappers: int = 3) -> Tag | None:
+    """The `<pre>` that is all a table cell holds, inside at most `wrappers` `<div>`s (Pygments puts its code in
+    `<div class="highlight">`), or None."""
+    node = cell
+    for _ in range(wrappers + 1):
+        content = [child for child in node.children if isinstance(child, Tag) or str(child).strip()]
+        if len(content) != 1 or not isinstance(content[0], Tag):
+            return None
+        node = content[0]
+        if node.name == "pre":
+            return node
+        if node.name != "div":
+            return None
+    return None
+
+
 # The mark of the permalink anchor documentation generators put in every heading and API signature (Sphinx and MkDocs `¶`,
 # others `#`, `§`, a link or an anchor sign), with or without a variation selector.
 _PERMALINK_MARKS = frozenset({"¶", "#", "§", "\U0001F517", "\u2693", "\U0001F517\ufe0f", "\u2693\ufe0f", "\u2693\ufe0e"})
