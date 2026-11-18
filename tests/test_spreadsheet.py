@@ -24,6 +24,7 @@ from opendockit.extractors.spreadsheet import _merged_cell_count
 from opendockit.extractors.xls import _xls_value
 from opendockit.models import Extraction, image_marker
 from tests import builder
+from tests.timing import fastest
 
 
 def _xlsx(rows: list[list[object]], number_formats: dict[str, str] | None = None) -> bytes:
@@ -2433,6 +2434,77 @@ class TestEmptyRangeReferences:
         result = convert(data, "a.xlsx")
 
         assert result.text == convert(builder.xlsx_bytes(), "a.xlsx").text
+
+
+class TestManySmallMergeRanges:
+    """openpyxl's full load spends about 40 µs on each merge range whatever its size, so 490,000 one-cell merges — only 490,000
+    cells, under the covered-cell bound — took 20 s and 558 MB. Past `_MAX_MERGE_RANGES` ranges the workbook is streamed, which
+    gives what the covered-cell bound already gives: the value in the first cell only."""
+
+    _ROWS = [["구분", "값"], ["가", 1], [None, 2], [None, 3]]
+    _FILLED = "## Sheet: Sheet\n\n| 구분 | 값 |\n| --- | --- |\n| 가 | 1 |\n| 가 | 2 |\n| 가 | 3 |"
+    _FIRST_CELL_ONLY = "## Sheet: Sheet\n\n| 구분 | 값 |\n| --- | --- |\n| 가 | 1 |\n| | 2 |\n| | 3 |"
+
+    @classmethod
+    def _workbook(cls, merges: list[str]) -> bytes:
+        refs = "".join(f'<mergeCell ref="{ref}"/>' for ref in merges)
+        return builder.zip_with(_xlsx(cls._ROWS), edit={"xl/worksheets/sheet1.xml": lambda xml: xml.replace(
+            "</sheetData>", f'</sheetData><mergeCells count="{len(merges)}">{refs}</mergeCells>')})
+
+    @staticmethod
+    def _one_cell_merges(count: int) -> list[str]:
+        """One-cell merges to the right of the table, 50 to a row, where they cover no value."""
+        cells = (f"{openpyxl.utils.get_column_letter(5 + number % 50)}{1 + number // 50}" for number in range(count))
+        return [f"{cell}:{cell}" for cell in cells]
+
+    @staticmethod
+    def _recording_loads(monkeypatch) -> list[object]:
+        from opendockit.extractors import spreadsheet
+
+        modes = []
+        original_load = openpyxl.load_workbook
+
+        def recording_load(*args, **kwargs):
+            modes.append(kwargs.get("read_only"))
+            return original_load(*args, **kwargs)
+
+        monkeypatch.setattr(spreadsheet.openpyxl, "load_workbook", recording_load)
+        return modes
+
+    def test_a_moderate_number_of_merges_is_still_filled(self, monkeypatch):
+        modes = self._recording_loads(monkeypatch)
+        merges = ["A2:A4", *self._one_cell_merges(1_000)]
+
+        result = convert(self._workbook(merges), "a.xlsx")
+
+        assert modes == [False]
+        assert result.text == self._FILLED
+
+    def test_more_ranges_than_the_bound_are_streamed_like_merges_over_the_cell_bound(self, monkeypatch):
+        from opendockit.extractors import spreadsheet
+
+        modes = self._recording_loads(monkeypatch)
+        monkeypatch.setattr(spreadsheet, "_MAX_MERGE_RANGES", 2)
+        data = self._workbook(["A2:A4", "E1:E1", "F1:F1"])
+
+        result = convert(data, "a.xlsx")
+
+        assert modes == [True]
+        assert result.text == self._FIRST_CELL_ONLY
+        monkeypatch.setattr(spreadsheet, "_MAX_MERGE_RANGES", 3)
+        assert convert(data, "a.xlsx").text == self._FILLED
+        assert modes == [True, False]
+
+    @pytest.mark.timing
+    def test_many_one_cell_merges_do_not_cost_a_full_load_each(self):
+        """10 times the merges, past the bound, must take less than 3 times as long (about 10 times when each range was loaded)."""
+        def seconds(count: int) -> float:
+            data = self._workbook(self._one_cell_merges(count))
+            return fastest(lambda: convert(data, "a.xlsx"))
+
+        small, large = seconds(20_000), seconds(200_000)
+
+        assert large < 3 * small
 
 
 class TestMissingPartRelationships:

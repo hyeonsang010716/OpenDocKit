@@ -81,6 +81,12 @@ _FULL_LOAD_MAX_SHEET_BYTES = 20 * 1024 * 1024
 # (Pinned by: test_office.py::TestReportedGaps::test_xlsx_with_a_large_pivot_cache_is_streamed).
 _MAX_PIVOT_CACHE_BYTES = 1024 * 1024
 _PIVOT_CACHE_DEFINITION = "/pivotCacheDefinition"
+# Upper bound on the number of merge ranges in a full load, beside the bound on the cells they cover (`_MAX_MERGED_CELLS`). openpyxl
+# also spends about 40 µs on each range whatever its size (it creates the range and sets borders on its edge cells): 100,000
+# one-cell merges, which cover only 100,000 cells, took 4 s and 490,000 of them 20 s and 558 MB. Above the bound the workbook is
+# streamed, as above the cell bound. 50,000 ranges take about as long as the slowest full load the cell bound lets through (one
+# merge of 500,000 cells, about 2 s) (Pinned by: test_spreadsheet.py::TestManySmallMergeRanges).
+_MAX_MERGE_RANGES = 50_000
 # Merge ranges in sheet XML (`<mergeCell ref="A1:B2"/>`). An element name cannot be written another way in XML, but an attribute
 # value can vary in quotes, whitespace and character references, so attributes are skipped one at a time to find ref, and the value
 # is decoded with html.unescape. Hyperlink ranges are not counted: they are not parsed while reading (`_SHEET_PARTS_LEFT_UNREAD`),
@@ -134,11 +140,13 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
         large = sum(info.file_size for info in sheets) > _FULL_LOAD_MAX_SHEET_BYTES
         # In a full load openpyxl decompresses a picture again for every reference (a 56KB file pointing to one picture 40 times used
         # 1.2GB) and creates a cell object for every position a merge covers (a 4.8KB file with one merge used 800MB). When that
-        # much exceeds the limit, the workbook is streamed, which reads each picture once and does not read merges
+        # much exceeds the limit, the workbook is streamed, which reads each picture once and does not read merges. Many small
+        # merge ranges cost as much as one large one (`_MAX_MERGE_RANGES`)
         # (Pinned by: test_image.py::TestResourceBounds::test_xlsx_picture_referenced_many_times_is_read_once,
-        # test_xlsx_picture_reference_count_cannot_be_dodged, test_office.py::TestXlsx::test_huge_merged_range_is_read_without_expanding_it).
+        # test_xlsx_picture_reference_count_cannot_be_dodged, test_office.py::TestXlsx::test_huge_merged_range_is_read_without_expanding_it,
+        # test_spreadsheet.py::TestManySmallMergeRanges).
         read_only = (large or _picture_reference_bytes(archive) > options.max_uncompressed_bytes
-                     or _merged_cell_count(archive, sheet_names) > _MAX_MERGED_CELLS
+                     or _too_many_merges(archive, sheet_names)
                      or _pivot_cache_bytes(archive) > _MAX_PIVOT_CACHE_BYTES)
         # A workbook large enough for its sheet XML to be big was saved by Excel, so it contains results. The sheet XML is not
         # scanned a second time. Small workbooks that are streamed because of pictures or merges are checked
@@ -151,6 +159,7 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
                              and _only_zero_results(archive, sheet_names))
         formulas_only = formulas_only or placeholder_zeros
         reading = _READING.get()
+        reading.streamed = read_only
         reading.rich_values = _rich_values(archive, set(archive.namelist()))
         styles_too_large = _stylesheet_too_large(archive)
     styles_reduced = formats_lost = formats_cut = False
@@ -1050,9 +1059,30 @@ def _unescape_xstring(text: str) -> str:
     return unescaped.replace("\r\n", "\n").replace("\r", "\n").replace("\v", "\n")
 
 
+def _too_many_merges(archive: zipfile.ZipFile, sheet_names: list[str]) -> bool:
+    """Whether the merge ranges of the sheets cover more than `_MAX_MERGED_CELLS` cells or are more than `_MAX_MERGE_RANGES`
+    ranges — either way a full load costs too much (stops once a cap is exceeded)."""
+    cells = ranges = 0
+    for area in _merge_areas(archive, sheet_names):
+        cells += area
+        ranges += 1
+        if cells > _MAX_MERGED_CELLS or ranges > _MAX_MERGE_RANGES:
+            return True
+    return cells > _MAX_MERGED_CELLS or ranges > _MAX_MERGE_RANGES
+
+
 def _merged_cell_count(archive: zipfile.ZipFile, sheet_names: list[str]) -> int:
     """Total number of cells covered by the merge ranges of the sheets (stops once the cap is exceeded)."""
     total = 0
+    for area in _merge_areas(archive, sheet_names):
+        total += area
+        if total > _MAX_MERGED_CELLS:
+            return total
+    return total
+
+
+def _merge_areas(archive: zipfile.ZipFile, sheet_names: list[str]) -> Iterator[int]:
+    """The number of cells each usable merge range of the sheets covers, one range at a time."""
     for name in sheet_names:
         xml = archive.read(name)
         if b"mergeCell" not in xml:
@@ -1075,10 +1105,7 @@ def _merged_cell_count(archive: zipfile.ZipFile, sheet_names: list[str]) -> int:
                 # A reversed range was counted as negative and cancelled out a large merge (`_readable_merges` discards it.
                 # Pinned by: test_office_round45.py::TestMalformedMergeRangeAndTheMergeLimit)
                 continue
-            total += (max_col - min_col + 1) * (max_row - min_row + 1)
-            if total > _MAX_MERGED_CELLS:
-                return total
-    return total
+            yield (max_col - min_col + 1) * (max_row - min_row + 1)
 
 
 def _pivot_cache_bytes(archive: zipfile.ZipFile) -> int:

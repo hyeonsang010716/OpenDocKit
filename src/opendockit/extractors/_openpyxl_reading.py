@@ -87,6 +87,7 @@ class _CellReading:
     row_numbers: list[int] | None = None  # row numbers of the streamed sheet being read, in the order read (`_streamed_rows`)
     part_results: dict[tuple[str, ...], object] = field(default_factory=dict)  # what a part gave, kept for this workbook (`_once_per_part`)
     sheet_parts: dict[int, str] = field(default_factory=dict)  # `id` of a sheet object → path of its part (`_sheets_noting_parts`)
+    streamed: bool = False  # the workbook is read by streaming, which has no use for merges (`_parse_cells_and_merges`)
 
 
 # Deliberate: the cell interpretation of openpyxl's sheet parser (`WorkSheetParser.parse_cell`) and the place that knows the number
@@ -352,15 +353,22 @@ def _parse_cells_and_merges(parser: object) -> Iterator[tuple[int, list]]:
     """While this module is reading, make `WorkSheetParser.parse` read only cells and merges (`_SHEET_PARTS_LEFT_UNREAD`). A row
     that has been read is also taken out of the tree — openpyxl only empties it, so one empty element per row stayed in memory
     until the sheet ended (Pinned by: test_audit_spreadsheet_fixes.py::TestSheetScansKeepNoTree)."""
-    if _READING.get() is None:
+    reading = _READING.get()
+    if reading is None:
         yield from _parse_sheet(parser)
         return
 
     data = None  # `<sheetData>`: rows already read are removed from it, so the parsed tree does not grow with the sheet
+    merges = None  # `<mergeCells>` of a streamed sheet: emptied the same way, as its merges are not used
     for event, element in _openpyxl_sheet_reader.iterparse(parser.source, events=("start", "end")):
         if event == "start":
             if element.tag == _openpyxl_sheet_reader.DATA_TAG and data is None:
                 data = element
+            elif element.tag == _openpyxl_sheet_reader.MERGE_TAG and reading.streamed:
+                merges = element
+            continue
+        if element.tag == _MERGE_CELL_TAG and merges is not None:
+            del merges[:]
             continue
         if element.tag == _openpyxl_sheet_reader.ROW_TAG:
             row = parser.parse_row(element)
@@ -369,8 +377,13 @@ def _parse_cells_and_merges(parser: object) -> Iterator[tuple[int, list]]:
                 del data[:]
             yield row
         elif element.tag == _openpyxl_sheet_reader.MERGE_TAG:
-            parser.merged_cells = _readable_merges(element)
+            # Streaming does not use merges, so they are neither kept in the tree nor turned into objects: a sheet streamed
+            # because it has too many merge ranges spent 3 s and 200 MB on 490,000 of them
+            # (Pinned by: test_spreadsheet.py::TestManySmallMergeRanges).
+            if not reading.streamed:
+                parser.merged_cells = _readable_merges(element)
             element.clear()
+            merges = None
         elif element.tag in _SHEET_PARTS_LEFT_UNREAD:
             element.clear()
 
