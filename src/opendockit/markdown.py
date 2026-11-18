@@ -931,8 +931,9 @@ class TableGrid:
 
     def _axes(self, *, filled_only: bool) -> tuple[list[int], list[int]]:
         """The rows and columns of the grid: those where a cell was placed, or with `filled_only` (a drawing) those where one
-        holds text — the rows and columns without any are removed by the drawing anyway. The bottom rows over the grid cell
-        limit, or over what is left of the conversion's grid budget (`_CONVERSION_GRID_BUDGET`), are dropped."""
+        holds text — `render` removes the rows and columns without any anyway, and `flatten` writes no blank line for them.
+        The bottom rows over the grid cell limit, or over what is left of the conversion's grid budget
+        (`_CONVERSION_GRID_BUDGET`), are dropped."""
         if filled_only in self._axes_built:
             rows, cols, self._omitted = self._axes_built[filled_only]
             return rows, cols
