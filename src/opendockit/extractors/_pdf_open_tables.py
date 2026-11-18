@@ -73,9 +73,11 @@ def _open_sided_tables(page: object) -> list[object]:
         # stacked, each range is examined separately.
         spans = {(round(edge["top"]), round(edge["bottom"])) for edge in verticals_between(left + 2, right - 2)
                  if left + 2 < edge["x0"] < right - 2}
-        for top, bottom in _joined_spans(_outermost_spans(spans)):
-            rules = bisect_right(rule_tops, bottom + 2) - bisect_left(rule_tops, top - 2)
-            if rules < 3:
+        def rules_within(top: float, bottom: float, tops: list[float] = rule_tops) -> int:
+            return bisect_right(tops, bottom + 2) - bisect_left(tops, top - 2)
+
+        for top, bottom in _joined_spans(_outermost_spans(spans), rules_within):
+            if rules_within(top, bottom) < 3:
                 continue
             closed = [side for side in sides
                       if any(edge["top"] <= top + 2 and edge["bottom"] >= bottom - 2 for edge in side)]
@@ -214,9 +216,10 @@ def _outermost_spans(spans: set[tuple[int, int]]) -> list[tuple[int, int]]:
     return outermost
 
 
-def _joined_spans(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+def _joined_spans(spans: list[tuple[int, int]], rules_within: Callable[[float, float], int]) -> list[tuple[int, int]]:
     """Join vertical ranges that overlap in part (by more than 2pt) into one range, their union, in top order. Ranges that
-    only meet at a shared rule (two tables of the same width stacked) stay apart.
+    only meet at a shared rule (two tables of the same width stacked) stay apart, unless one of them holds fewer than three
+    rules (`rules_within`: the number of rules of the width from its top to its bottom) and so cannot be a table of its own.
 
     When merged cells break every inner vertical line of an open-sided table (a header cell over columns 2-3 above, a
     total cell over columns 1-2 below), no line runs the full height, and the lines give ranges that overlap without one
@@ -224,10 +227,18 @@ def _joined_spans(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
     rows they share came out twice (the counterpart of `_outermost_spans` for ranges that are not contained. Pinned by:
     test_pdf.py::TestRuledTables::
     test_open_sided_table_whose_merged_cells_break_every_column_rule_is_read_once).
+
+    A last row that merges the columns the total row above it does not (a remark over columns 2-3 under a total over
+    columns 1-2) has a range of its own that only meets the range above at the rule between them. Kept apart, it held two
+    rules, was never searched, and the row came out under the table as loose lines (Pinned by: test_pdf.py::TestRuledTables::
+    test_open_sided_table_whose_last_row_breaks_every_column_rule_keeps_it). Ranges of three or more rules each stay apart:
+    joining every range that meets another merged abutting tables (Pinned by: test_pdf_table_columns.py::
+    TestAbuttingTablesWithDifferentColumns::test_table_below_a_block_with_a_boundary_of_its_own_is_another_table).
     """
     joined: list[tuple[int, int]] = []
     for top, bottom in sorted(spans):
-        if joined and top < joined[-1][1] - 2:
+        if joined and (top < joined[-1][1] - 2 or (top <= joined[-1][1] + 2
+                       and min(rules_within(*joined[-1]), rules_within(top, bottom)) < 3)):
             joined[-1] = (joined[-1][0], max(joined[-1][1], bottom))
         else:
             joined.append((top, bottom))

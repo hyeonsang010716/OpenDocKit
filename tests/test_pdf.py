@@ -3184,6 +3184,29 @@ class TestRuledTables:
         assert result.text == ("| 구분 | 2024년 상반기 | 2024년 하반기 |\n| --- | --- | --- |\n| 서울 | 100 | 200 |\n"
                                "| 부산 | 300 | 400 |\n| 합계 | | 1000 |\n\n표 아래 문단입니다.")
 
+    def test_open_sided_table_whose_last_row_breaks_every_column_rule_keeps_it(self):
+        """The total '소계' spans columns 1-2 and the last row's remark columns 2-3, so the rule between columns 2 and 3 stops
+        above the last row and the rule between columns 1 and 2 has a piece of its own beside the last row only. That piece's
+        range meets the range above only at the rule between them and holds two rules, so it was never searched and the last
+        row came out under the table as loose lines."""
+        columns, top, height = self._OPEN_COLUMNS[:4], 700, 22
+        rows = [["구분", "내용", "금액"], ["인건비", "연구원", "12,000"], ["재료비", "시약", "3,500"], ["소계", "", "15,500"],
+                ["비고", "부가세 별도", ""]]
+
+        def draw(pdf, index):
+            for line in range(len(rows) + 1):
+                pdf.line(columns[0], top - line * height, columns[-1], top - line * height)
+            pdf.line(columns[1], top, columns[1], top - height * 3)
+            pdf.line(columns[1], top - height * 4, columns[1], top - height * 5)
+            pdf.line(columns[2], top, columns[2], top - height * 4)
+            _draw_cells(pdf, columns, top, height, rows)
+            pdf.drawString(columns[0], top - height * len(rows) - 30, "표 아래 문단입니다.")
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == ("| 구분 | 내용 | 금액 |\n| --- | --- | --- |\n| 인건비 | 연구원 | 12,000 |\n"
+                               "| 재료비 | 시약 | 3,500 |\n| 소계 | | 15,500 |\n| 비고 | 부가세 별도 | |\n\n표 아래 문단입니다.")
+
     def test_closed_table_with_merged_first_column_under_a_two_column_header_is_kept_whole(self):
         """In a table closed on all four sides whose first column is vertically merged and whose header '구분' spans columns 1–2, the
         vertical rule between columns 1 and 2 is missing in the header row, so the horizontal rules avoiding the merged cells looked
