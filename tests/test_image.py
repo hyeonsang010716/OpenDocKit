@@ -37,7 +37,7 @@ from opendockit.extractors.hwp import (
 from opendockit.image import ImageSkipped, ImageUnreadable, prepare_image
 from tests import builder
 from tests.test_hwp import _OLE_MAGIC
-from tests.timing import Fastest
+from tests.timing import Fastest, fastest
 
 
 class FakeDescriber:
@@ -1835,6 +1835,63 @@ class TestMarkdownDataUriPictures:
 
         assert result.text == "```markdown\n![a](data:image/png;base64,iVBORw0KGgo=)\n```\n\nafter"
         assert not result.images
+
+
+class TestDataUriPictureInACodeBlockThatCleaningSees:
+    """MD picture extraction paired code fences its own way: only at the start of a line, and a fence closed by one no longer
+    than itself. `clean_text` and the converter pair them as CommonMark does (`markdown.code_fences`), so a fenced example
+    indented in a list item, or closed by a longer fence, was a code block to them while its data: URI picture example was
+    extracted and the code line became `[Image: logo]`. The extraction now sees the code blocks `clean_text` sees."""
+
+    _PICTURE = f"![logo](data:image/png;base64,{base64.b64encode(builder.png_bytes()).decode()})"
+
+    @pytest.mark.parametrize("document", [
+        "1. Example:\n\n   ```markdown\n   # Example\n\n   {picture}\n   ```\n\nDone.\n",
+        "Example:\n\n```markdown\n# Example\n\n{picture}\n````\n\nDone.\n",
+        "Example:\n\n~~~\n{picture}\n~~~~~\n\nDone.\n",
+        "> ```markdown\n> {picture}\n> ```\n\nDone.\n",
+        "\u200b```markdown\n# Example\n\n{picture}\n```\n\nDone.\n",
+        "1. Example:\r\n\r\n   ```markdown\r\n   {picture}\r\n   ```\r\n\r\nDone.\r\n",
+    ])
+    def test_picture_inside_a_code_block_that_cleaning_sees_stays_as_code(self, document):
+        result = convert(document.format(picture=self._PICTURE).encode(), "guide.md")
+
+        assert not result.images
+        assert self._PICTURE in result.text
+        assert "[Image" not in result.text
+
+    def test_indented_example_in_a_list_item_is_kept_verbatim(self):
+        data = f"1. Example:\n\n   ```markdown\n   {self._PICTURE}\n   ```\n\nDone.\n".encode()
+
+        result = convert(data, "guide.md")
+
+        assert result.text == f"1. Example:\n\n   ```markdown\n   {self._PICTURE}\n   ```\n\nDone."
+
+    @pytest.mark.parametrize("document", [
+        "````markdown\n{picture}\n```\n\nDone.\n",
+        "```markdown\n\n{picture}\n``` x\n\nDone.\n",
+        "> ```markdown\n\n{picture}\n> ```\n\nDone.\n",
+    ])
+    def test_picture_after_a_fence_that_is_never_closed_is_extracted(self, document):
+        """A fence closed only by a shorter fence, by a fence line with text after it, or by a fence in a quote it is not in, is
+        no code block to `clean_text` either: what follows it is text, and its picture is a picture. (The picture stands after a
+        blank line so that no inline code pairs the fence lines around it.)"""
+        result = convert(document.format(picture=self._PICTURE).encode(), "guide.md")
+
+        assert "data:image" not in result.text
+        assert "[Image: logo]" in result.text
+
+    @pytest.mark.timing
+    def test_many_indented_fences_that_are_never_closed_take_linear_time(self):
+        """The fences are paired over the cleaned lines of the whole text: thousands of indented opening fences, each longer
+        than every closing fence after it, are still walked once."""
+        def run(count: int) -> float:
+            data = ("   ````x\n" * count + "   ```\n" * count + "\n![a](data:image/png;base64,iVBORw0KGgo=)\n").encode()
+            return fastest(lambda: convert(data, "a.md"))
+
+        small, large = run(2_000), run(20_000)
+
+        assert large < max(small * 30, 2.0)
 
 
 class TestHeicWithoutTheOptionalExtra:

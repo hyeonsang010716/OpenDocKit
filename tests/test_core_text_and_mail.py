@@ -286,14 +286,17 @@ class TestMarkdownHtmlImageDataUri:
 
         assert "data:image" not in result.text
 
-    @pytest.mark.parametrize(("opening", "closing"), [("```", "```"), ("~~~", "~~~ "), ("````", "```"), ("```", "~~~")])
-    def test_picture_between_fences_is_code_only_when_the_fence_closes(self, opening, closing):
+    @pytest.mark.parametrize(("opening", "closing", "closes"), [
+        ("```", "```", True), ("~~~", "~~~ ", True), ("```", "````", True), ("````", "```", False), ("```", "~~~", False)])
+    def test_picture_between_fences_is_code_only_when_the_fence_closes(self, opening, closing, closes):
+        """A fence is closed as CommonMark closes it, by a fence of the same character at least as long (`markdown.code_fences`,
+        what `clean_text` pairs): a ```` ```` ```` opening is not closed by ```` ``` ````."""
         picture = '<img src="data:image/png;base64,iVBORw0KGgo=">'
         data = f"{opening}html\n{picture}\n{closing}\n\n{picture}\n".encode()
 
         result = convert(data, "a.md")
 
-        assert result.text.count("data:image") == (0 if opening[0] != closing[0] else 1)
+        assert result.text.count("data:image") == (1 if closes else 0)
 
     def test_html_image_inside_a_code_block_is_left_as_code(self):
         data = b'```html\n<img src="data:image/png;base64,iVBORw0KGgo=">\n```\n\nafter\n'
