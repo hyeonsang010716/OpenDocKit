@@ -1462,6 +1462,25 @@ class TestDrawingArtifacts:
 
         assert result.sections[0].text == text
 
+    def test_a_line_rebuilt_around_fake_bold_keeps_its_space_characters(self):
+        """A line drawn glyph by glyph with tight character spacing (each glyph advanced by its width minus 10% of the size, as
+        Hangul's -10% character spacing exports), one word in fake bold drawn into the same line. With the copies removed the line is
+        rebuilt from its glyphs, and the spaces were guessed from the gaps alone: under the tight spacing every word gap is
+        narrower than that, so the line came out as 'Theplanisimportantforthewholeteamthisyear.'."""
+        text = "The plan is important for the whole team this year."
+
+        def draw(pdf, index):
+            x = 72
+            pdf.setFont("Helvetica", 10)
+            for place, char in enumerate(text):
+                for shift in ((0, 0.3) if 12 <= place < 21 else (0,)):
+                    pdf.drawString(x + shift, 700, char)
+                x += pdf.stringWidth(char, "Helvetica", 10) - 1
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.sections[0].text == text
+
     @pytest.mark.parametrize("shifts", [(0, 0.3), (0.3, 0)], ids=["copy-drawn-right", "copy-drawn-left"])
     def test_a_word_in_fake_bold_on_part_of_a_line_is_read_once(self, shifts):
         """A word in fake bold (drawn twice, 0.3pt apart) with the rest of its line drawn as a separate run: pdfminer put one copy of
@@ -3233,6 +3252,33 @@ class TestRuledTables:
         assert result.text.count("주1)") == 2
         assert result.text.count("주2)") == 2
         assert "\n원\n" in result.text
+
+    def test_text_outside_a_cell_with_tight_spacing_keeps_its_space_characters(self):
+        """A note right outside the table's border on the line of the last row, drawn with tight character spacing: the line was
+        rebuilt from its glyphs outside the cell alone and its spaces guessed from the gaps, which tight spacing makes narrower
+        than a word gap ('k won' → 'kwon')."""
+        columns, top, height = [60, 200, 330], 742, 20
+        rows = [["Item", "Amount"], ["Server rent", "12,000"], ["Software", "8,500"], ["Upkeep", "24,000"]]
+
+        def draw(pdf, index):
+            for line in range(len(rows) + 1):
+                pdf.line(columns[0], top - line * height, columns[-1], top - line * height)
+            for x in columns:
+                pdf.line(x, top, x, top - height * len(rows))
+            pdf.setFont("Helvetica", 10)
+            for number, row in enumerate(rows):
+                pdf.drawString(columns[0] + 4, top - number * height - 14, row[0])
+                pdf.drawRightString(columns[2] - 3, top - number * height - 14, row[1])
+            note = pdf.beginText(columns[2] + 3, top - (len(rows) - 1) * height - 14)
+            note.setFont("Helvetica", 10)
+            note.setCharSpace(-1)
+            note.textOut("k won")
+            pdf.drawText(note)
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert "| Upkeep | 24,000 |" in result.text
+        assert result.text.endswith("\n\nk won")
 
     def test_text_rotated_inside_a_cell_is_read_in_its_own_direction(self):
         """A category name written rotated 90 degrees in a vertically merged cell ('기계 설비') was read top to bottom like horizontal

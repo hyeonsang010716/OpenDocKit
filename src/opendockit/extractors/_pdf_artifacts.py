@@ -201,7 +201,12 @@ def _part_outside_cells(line: dict, chars: list[dict],
         if is_boundary and right["x0"] - left["x1"] <= _LAPARAMS["word_margin"] * max(right["width"], right["height"]):
             return None
     own = [char for char in whole if id(char) in outside]
-    return {**line, "x0": min(char["x0"] for char in own), "x1": max(char["x1"] for char in own), "text": _text_from_chars(own)}
+    # With the space characters outside the cells: from the gaps alone, a note with tight character spacing lost its spaces
+    # ('k won' → 'kwon') (Pinned by: test_pdf.py::TestRuledTables::
+    # test_text_outside_a_cell_with_tight_spacing_keeps_its_space_characters)
+    spaces = [char for char in chars if id(char) in outside and not char["text"].strip()]
+    return {**line, "x0": min(char["x0"] for char in own), "x1": max(char["x1"] for char in own),
+            "text": _text_from_chars([*own, *spaces])}
 
 
 def _is_sideways(char: dict) -> bool:
@@ -503,8 +508,9 @@ def _text_without_artifacts(line: dict, text: str, inside: list[dict], kept_line
     like a line with remaining characters (Pinned by: test_pdf.py::TestHorizontalWatermark).
     """
     half = (line["bottom"] - line["top"]) / 2
-    own = [char for char in inside if char["text"].strip() and line["top"] <= (char["top"] + char["bottom"]) / 2 <= line["bottom"]
-           and char["bottom"] - char["top"] >= half]
+    held = [char for char in inside if line["top"] <= (char["top"] + char["bottom"]) / 2 <= line["bottom"]
+            and char["bottom"] - char["top"] >= half]
+    own = [char for char in held if char["text"].strip()]
     if not own:
         return None
     reach = max(_DUPLICATE_DISTANCE, (line["bottom"] - line["top"]) * _DUPLICATE_RATIO) if shadowed else _DUPLICATE_DISTANCE
@@ -512,7 +518,10 @@ def _text_without_artifacts(line: dict, text: str, inside: list[dict], kept_line
            for other in kept_lines.get(text, ())):
         return None
     if len(text.replace(" ", "")) > len(own):
-        return _text_from_chars(own) or text
+        # With the line's space characters: from the gaps alone, a line with tight character spacing (each glyph advanced by
+        # its width minus 10% of the size) lost every space ('Theplanisimportantforthewholeteamthisyear.') (Pinned by:
+        # test_pdf.py::TestDrawingArtifacts::test_a_line_rebuilt_around_fake_bold_keeps_its_space_characters)
+        return _text_from_chars(held) or text
     return text
 
 
