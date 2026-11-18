@@ -128,6 +128,7 @@ _PAGE_CODECS = {932: "cp932", 936: "gbk", 949: "cp949", 950: "cp950", 1361: "joh
                 10003: "euc_kr", 10008: "gb2312", 20127: "ascii", 28591: "latin-1", 65001: "utf-8"}
 _DOUBLE_BYTE = frozenset(("cp932", "gbk", "cp949", "cp950", "johab"))
 _ANSI = ""  # a font with `\fcharset0`
+_LINE_SEPARATORS = frozenset("\u2028\u2029")  # a line break wherever they stand (`_Reader._unicode`)
 
 _H_FIRST, _H_CONTINUES, _V_FIRST, _V_CONTINUES = 1, 2, 4, 8
 _MERGE_FLAGS = {b"clmgf": _H_FIRST, b"clmrg": _H_CONTINUES, b"clvmgf": _V_FIRST, b"clvmrg": _V_CONTINUES}
@@ -1119,7 +1120,10 @@ class _Reader:
         elif code:
             escaped = chr(code)
         if escaped:
-            self._deliver(escaped)
+            # The line and paragraph separators are line breaks, as `\line`: the macOS text system writes `\uc0\u8232` for every
+            # line break (TextEdit, Pages, Mail), and a line is joined at its white space, so 'Line one' and 'Line two' ran into one
+            # line (Pinned by: test_rtf.py::TestCharacters::test_line_separator_of_the_macos_text_system_is_a_line_break).
+            self._deliver("\n" if escaped in _LINE_SEPARATORS else escaped)
         self._skip, self._dropped, self._lead, self._escaped = skip, [], None, escaped
 
     def _symbol(self, symbol: bytes) -> None:

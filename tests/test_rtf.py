@@ -153,6 +153,13 @@ class TestCharacters:
 
         assert _text(body, head=head) == "It’s done. Total sum: 5 kg\n\n회의록: It’s 3 pm, café “q”"
 
+    def test_line_separator_of_the_macos_text_system_is_a_line_break(self):
+        """TextEdit, Pages and Mail write a line break (`<br>`, Shift+Return) as U+2028 (`\\uc0\\u8232`), not as `\\line`. A
+        line is joined at its white space, which U+2028 is, so the two lines ran into one, and so did the lines of a cell."""
+        cell = r"\trowd\cellx2000\cellx4000 a\uc0\u8232 b\cell c\cell\row"
+        assert _text(r"Line one\uc0\u8232 Line two\par\pard " + cell + r"\pard x\uc0\u8233 y\par") == (
+            "Line one\nLine two\n\n| a<br>b | c |\n| --- | --- |\n\nx\ny")
+
     def test_fallback_counted_in_characters_drops_the_whole_double_byte_character(self):
         """`\\uc1` followed by a two-byte CP949 fallback (writers that count `\\ucN` in characters): the byte that completes the
         dropped lead byte is dropped too — it came out as '가�'. A fallback counted in bytes (`\\uc2`), a one-byte fallback
