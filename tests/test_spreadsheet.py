@@ -2572,6 +2572,27 @@ class TestElapsedSectionsInsideFormatLiterals:
 
         assert result == "-12:00:00"
 
+    @pytest.mark.parametrize("streamed", [False, True], ids=["full-load", "streamed"])
+    def test_xlsx_serial_past_the_last_date_is_the_number(self, monkeypatch, streamed):
+        """Past 9999-12-31 (serial 2958466 on) the duration openpyxl made could not be turned back into a date: OverflowError
+        rejected the whole workbook. It is the number, as under a plain date format."""
+        from opendockit.extractors import spreadsheet
+
+        if streamed:
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+        data = _xlsx([["항목", "값"], ["가", 3_000_000], ["나", 2958466], ["다", 45352.25]],
+                     {"B2": 'yyyy-mm-dd" [h]"', "B3": 'yyyy-mm-dd" [h]"', "B4": 'yyyy-mm-dd" [h]"'})
+
+        result = convert(data, "a.xlsx")
+
+        assert "| 가 | 3000000 |\n| 나 | 2958466 |\n| 다 | 2024-03-01 |" in result.text
+
+    def test_xls_and_xml_serial_past_the_last_date_is_the_number(self):
+        cell = xlrd.sheet.Cell(xlrd.XL_CELL_DATE, 3_000_000.0)
+
+        assert format_cell(_xls_value(cell, 0, 'yyyy-mm-dd" [h]"'), 'yyyy-mm-dd" [h]"') == "3000000"
+        assert "| 가 | 3000000 |" in convert(_xml_spreadsheet('yyyy-mm-dd" [h]"', "Number", "3000000"), "a.xls").text
+
 
 @contextmanager
 def _deadline(seconds: int) -> Iterator[None]:
