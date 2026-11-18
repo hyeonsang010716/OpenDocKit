@@ -33,6 +33,12 @@ from opendockit.extractors.pptx import extract_pptx
 from opendockit.models import ConvertOptions, Extraction
 
 
+if os.name == "nt":
+    from opendockit import _windows
+else:
+    _windows = None
+
+
 # Path of the LibreOffice program to use. An empty value switches the bridge off (no subprocess is ever started).
 SOFFICE_ENVIRONMENT_VARIABLE = "OPENDOCKIT_SOFFICE"
 
@@ -238,7 +244,12 @@ def _run(command: list[str], working_folder: Path) -> None:
     # real program is a grandchild. On POSIX it gets its own process group, and the whole group is killed on timeout; killing
     # only the launcher left `soffice.bin` running (Pinned by: test_legacy.py::TestRunner::test_timeout_kills_the_whole_process_group).
     own_group = os.name == "posix"
-    guard = _start_guard(working_folder) if own_group else None
+    guard = _start_guard(working_folder) if own_group else _start_windows_guard(working_folder)
+    # On Windows a job object ends LibreOffice in place of the process group: our death closes its handle and the kernel
+    # ends the launcher and the `soffice.bin` it started with us, so a worker killed on its time limit — where no `finally`
+    # of ours runs — leaves no program behind, and the guard above removes the folder
+    # (Pinned by: test_legacy.py::TestRunner::test_killing_the_converting_process_leaves_no_launcher_child_and_no_folder_windows).
+    job = _windows.job_for_children() if _windows is not None else None
     process = None
     try:
         try:
@@ -246,8 +257,12 @@ def _run(command: list[str], working_folder: Path) -> None:
                                        cwd=working_folder, start_new_session=own_group, shell=False)
         except OSError as exc:
             raise ProgramNotStarted from exc
-        if guard is not None:
+        if guard is not None and own_group:   # the Windows guard watches this process, so there is nothing to tell it
             _tell_guard(guard, process.pid)
+        if job is not None:
+            # Known accepted gap: the launcher is put in after it started, so a `soffice.bin` it managed to start in those
+            # microseconds is outside the job. `taskkill /T` below still ends that one on the normal path.
+            _windows.add_process(job, process.pid)
         process.wait(timeout=CONVERSION_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
         raise ConversionTimeout from exc
@@ -257,6 +272,8 @@ def _run(command: list[str], working_folder: Path) -> None:
             _kill(process, own_group)
         if guard is not None:
             _stop_guard(guard)
+        if job is not None:
+            _windows.close_job(job)
 
 
 # What the guard process runs. It waits for its standard input to close, which happens when the process that started the
@@ -283,6 +300,58 @@ _GUARD = (
     "shutil.rmtree(sys.argv[1], ignore_errors=True)\n"
 )
 _PYTHON_PROGRAM = re.compile(r"(?:python|pypy)[\w.-]*\Z", re.IGNORECASE)
+
+# What the Windows guard runs. It waits on a handle to the process that started it — no pipe and no polling — and removes
+# the folder once that process is gone. The job object ends LibreOffice itself, so the folder is all this has to remove.
+#
+# The removal is tried again until it works, for `_WINDOWS_GUARD_SECONDS`. Windows refuses to remove a folder that is a
+# running process's current directory, and LibreOffice is started with the folder as its own (`cwd=working_folder`): the
+# kernel ends it when the job's handle closes, but it does so after the process this guard waits on has already gone, so a
+# single attempt removes nothing and `ignore_errors` hides that it removed nothing
+# (Pinned by: test_legacy.py::TestRunner::test_the_windows_guard_removes_a_folder_still_held_as_a_current_directory).
+_WINDOWS_GUARD_SECONDS = 30.0
+_WINDOWS_GUARD = (
+    "import ctypes, os, shutil, sys, time\n"
+    "from ctypes import wintypes\n"
+    "library = ctypes.WinDLL('kernel32', use_last_error=True)\n"
+    "library.OpenProcess.restype = wintypes.HANDLE\n"
+    "library.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]\n"
+    "library.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]\n"
+    "handle = library.OpenProcess(0x00100000, False, int(sys.argv[2]))\n"   # SYNCHRONIZE
+    "if handle:\n"
+    "    library.WaitForSingleObject(handle, 0xFFFFFFFF)\n"
+    "deadline = time.monotonic() + float(sys.argv[3])\n"
+    "while True:\n"
+    "    shutil.rmtree(sys.argv[1], ignore_errors=True)\n"
+    "    if not os.path.exists(sys.argv[1]) or time.monotonic() >= deadline:\n"
+    "        break\n"
+    "    time.sleep(0.1)\n"
+)
+
+
+def _start_windows_guard(folder: Path) -> subprocess.Popen | None:
+    """Start the process that removes the folder if this one is killed outright (Windows).
+
+    The job object ends LibreOffice when this process dies, but nothing removed the folder holding the uploaded document —
+    the user's own file, left on disk. This does what the POSIX guard does, the Windows way: a bare Python process waiting
+    on a handle to this one. It is killed in the `finally` of `_run`, so on the ordinary path it never acts.
+
+    Known accepted gap: the guard is a child of this process and so is in the same job, so a server killed outright ends it
+    together with the worker and the folder stays. It covers what the POSIX guard covers — a worker ended on its time
+    limit, on a cancelled request and at shutdown
+    (Pinned by: test_legacy.py::TestRunner::test_killing_the_converting_process_leaves_no_launcher_child_and_no_folder_windows).
+    """
+    program = sys.executable or ""
+    if getattr(sys, "frozen", False) or not _PYTHON_PROGRAM.match(os.path.basename(program)):
+        return None
+    try:
+        # CREATE_NO_WINDOW: a bare `python.exe` would flash a console window on every conversion.
+        return subprocess.Popen([program, "-I", "-S", "-c", _WINDOWS_GUARD, str(folder), str(os.getpid()),
+                                 str(_WINDOWS_GUARD_SECONDS)],
+                                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                creationflags=subprocess.CREATE_NO_WINDOW, shell=False)
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
 def _start_guard(folder: Path) -> subprocess.Popen | None:

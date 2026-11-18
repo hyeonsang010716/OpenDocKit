@@ -123,7 +123,7 @@ Fixed: **CPU in the image description step.** Each picture judged decorative (SK
 **Legacy `.doc` and `.ppt`.** These start LibreOffice from inside the worker, with its own fixed limit of 60 seconds — below
 the 2-minute default, so the conversion normally ends with its own `document_too_large` error. If you set `timeout` below
 60 seconds the worker is killed first; on Linux and macOS a small guard process then ends LibreOffice and removes its
-temporary folder (on Windows both can be left behind). On Linux, LibreOffice inherits the worker's memory limit. The
-bridge is not a sandbox: see [limitations.md](limitations.md#word-97-2003-doc-and-powerpoint-97-2003-ppt).
+temporary folder, and on Windows a job object ends it and a guard process removes the folder. On Linux, LibreOffice
+inherits the worker's memory limit. The bridge is not a sandbox: see [limitations.md](limitations.md#word-97-2003-doc-and-powerpoint-97-2003-ppt).
 
 One bad file can hold a worker for up to 2 minutes, during which other uploads wait. If that becomes a problem, limit the number of uploads per user.

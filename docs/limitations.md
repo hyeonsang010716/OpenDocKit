@@ -191,7 +191,9 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   no memory limit of its own beyond what the surrounding process or container imposes.
 - **Password detection** reads the documented header fields and was not verified against files protected by Word or
   PowerPoint themselves; a protected file it misses is reported as corrupted.
-- **Windows**: supported in code, not tested.
+- **Windows**: run and tested. A conversion whose process is killed outright leaves no LibreOffice behind (a job
+  object ends it) and a guard process removes its temporary folder, as on POSIX. Known accepted gap: that guard is in the
+  same job as the worker, so a server killed outright ends it too and the folder stays.
 
 ## Links and emphasis
 
