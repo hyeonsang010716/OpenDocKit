@@ -195,9 +195,19 @@ def iter_records(stream: bytes, budget: _RecordBudget | None = None) -> Iterator
         yield root
 
 
-# The two bytes of one character (UTF-16 unit) that is a control character (0-31). A match at an odd byte is made of bytes spanning two
-# characters (the '00 00' in 'A' 41 00 + '가' 00 AC), so it is text (`decode_para_text` skips it).
-_CONTROL_UNIT = re.compile(rb"[\x00-\x1f]\x00")
+# The characters (UTF-16 units, two bytes each) from an even byte up to the first control character of 8 WCHARs (inline or
+# extended: 1-9, 11, 12, 14-23). It goes two bytes at a time, so bytes spanning two characters (the '01 00' in 'Ā' 00 01 +
+# '가' 00 AC) are never taken for a control, and possessively, so it keeps no backtracking state however long the text is. The
+# char controls of one WCHAR stay in the text and are replaced after decoding (`_CHAR_CONTROLS`).
+_UP_TO_WIDE_CONTROL = re.compile(rb"(?:[^\x01-\x09\x0b\x0c\x0e-\x17].|.[^\x00])*+", re.DOTALL)
+# What the char controls (one WCHAR: 0, 10, 13 and 24-31) become in the text: a hyphen, a space, or nothing (a line break stays
+# itself). Replaced with `str.replace`, one control at a time and only when the text holds one: `str.translate` goes character by
+# character on Hangul text, 40 times slower.
+_CHAR_CONTROLS = tuple((chr(unit), _CHAR_REPLACEMENTS.get(unit, "")) for unit in range(32)
+                       if unit not in _EXTENDED_CONTROLS and unit not in _INLINE_CONTROLS and unit != 10)
+_CHAR_CONTROL_TEXT = re.compile("[" + "".join(control for control, _ in _CHAR_CONTROLS) + "]")
+# Characters that are nothing but char controls that are dropped (0, 13, 25-29).
+_DROPPED_CONTROLS_ONLY = re.compile(rb"(?:[\x00\x0d\x19-\x1d]\x00)*+")
 # Character shape runs of a paragraph: (start character position, (super/subscript mark, struck through or not)). Ascending by position,
 # and neighboring runs have different values.
 ShapeRuns = list[tuple[int, tuple[str | None, bool]]]
@@ -212,6 +222,10 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
     Text between control characters is gathered as bytes and decoded at once. Making a Python integer per character (tuple or list), one
     paragraph of 24 million characters used 1.9GB
     (Pinned by: test_hwp_robustness.py::TestHugeParagraphText). Text with the same mark is decoded as one piece even across control characters.
+    The char controls of one WCHAR (line break, hyphen, fixed-width space, paragraph end …) are decoded with the text around them and
+    replaced in the decoded text (`_CHAR_CONTROLS`): taken one at a time, a paragraph of line breaks made a bytes object per character
+    again, and one of dropped controls a loop round per character (60 MB of line breaks in a 57 KB file: 13 s and 4.6 GB)
+    (Pinned by: test_hwp_robustness.py::TestHugeParagraphText::test_paragraph_of_char_controls_is_decoded_in_one_go).
     """
     count = len(payload) // 2
     view = memoryview(payload)
@@ -225,9 +239,14 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
         if pieces:
             script, struck = shape
             decoded = b"".join(pieces).decode("utf-16-le", errors="replace")
-            decoded = mark_script(decoded, script) if script else decoded
-            parts.append(mark_strike(decoded) if struck else decoded)
             pieces.clear()
+            if _CHAR_CONTROL_TEXT.search(decoded):
+                for control, replacement in _CHAR_CONTROLS:
+                    if control in decoded:
+                        decoded = decoded.replace(control, replacement)
+            if decoded:  # nothing but controls that are dropped
+                decoded = mark_script(decoded, script) if script else decoded
+                parts.append(mark_strike(decoded) if struck else decoded)
 
     def add(start: int, stop: int, piece: bytes | None = None) -> None:
         """Gather the text at character positions [start, stop) (that one character if `piece` is given), split per run mark."""
@@ -237,18 +256,19 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
                 run += 1
             wanted = runs[run][1] if run >= 0 else (None, False)
             end = min(stop, runs[run + 1][0]) if run + 1 < len(runs) else stop
+            span = piece if piece is not None else view[2 * start:2 * end]
             if wanted != shape:
+                if _DROPPED_CONTROLS_ONLY.fullmatch(span):  # leaves no text, so it does not split the run around it
+                    start = end
+                    continue
                 flush()
                 shape = wanted
-            pieces.append(piece if piece is not None else view[2 * start:2 * end])
+            pieces.append(span)
             start = end
 
     index = 0
     while index < count:
-        match = _CONTROL_UNIT.search(payload, 2 * index, 2 * count)
-        while match is not None and match.start() % 2:
-            match = _CONTROL_UNIT.search(payload, match.start() + 1, 2 * count)
-        control = match.start() // 2 if match is not None else count
+        control = _UP_TO_WIDE_CONTROL.match(payload, 2 * index, 2 * count).end() // 2
         add(index, control)
         if control == count:
             break
@@ -257,19 +277,12 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
         if unit in _EXTENDED_CONTROLS:
             flush()
             parts.append(unit)
-            index = control + 8
-        elif unit in _INLINE_CONTROLS:
-            if unit == 9:
-                add(control, control + 1, "\t".encode("utf-16-le"))
-            elif unit == FIELD_END:
-                flush()
-                parts.append(unit)
-            index = control + 8
-        else:
-            replacement = _CHAR_REPLACEMENTS.get(unit)
-            if replacement:
-                add(control, control + 1, replacement.encode("utf-16-le"))
-            index = control + 1
+        elif unit == 9:
+            add(control, control + 1, "\t".encode("utf-16-le"))
+        elif unit == FIELD_END:
+            flush()
+            parts.append(unit)
+        index = control + 8
     flush()
     return parts
 

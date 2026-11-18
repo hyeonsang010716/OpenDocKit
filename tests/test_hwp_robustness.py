@@ -462,6 +462,55 @@ class TestHugeParagraphText:
         assert parts == ["가" * 2_000_000]
         assert peak < 4 * len(payload)  # an integer per character would take more than 20 times
 
+    @pytest.mark.parametrize(("unit", "text"), [(10, "\n"), (24, "-"), (30, " "), (31, " ")])
+    def test_paragraph_of_char_controls_is_decoded_in_one_go(self, unit, text):
+        """A char control of one WCHAR that stands for a character (line break, hyphen, fixed-width space) was taken one at a time,
+        making a bytes object per character again: 63 times the paragraph, and 60 MB of line breaks in a 57 KB file took 13 s
+        and 4.6 GB. They are decoded with the text around them."""
+        import tracemalloc
+
+        from opendockit.extractors.hwp import decode_para_text
+
+        payload = struct.pack("<H", unit) * 2_000_000
+        tracemalloc.start()
+
+        try:
+            parts = decode_para_text(payload)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+        assert parts == [text * 2_000_000]
+        assert peak < 4 * len(payload)
+
+    def test_char_controls_read_the_same_inside_text(self):
+        """Replaced in the decoded text, the char controls give what they gave one at a time: a hyphen, a space, a line break,
+        or nothing (paragraph end, null, reserved), and a dropped one between two parts of a marked run does not split the run."""
+        from opendockit.extractors.hwp import decode_para_text
+
+        def units(*values):
+            return b"".join(value.encode("utf-16-le") if isinstance(value, str) else struct.pack("<H", value) for value in values)
+
+        superscript = ("^", False)
+
+        assert decode_para_text(units("a", 24, "b", 30, "c", 31, "d", 10, "e", 0, 13, 25, 29, "f", 13)) == ["a-b c d\nef"]
+        assert decode_para_text(units(13)) == []
+        assert (decode_para_text(units("ab", 0, "cd"), [(0, superscript), (2, (None, False)), (3, superscript)])
+                == decode_para_text(units("abcd"), [(0, superscript)]))
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("payload", [struct.pack("<H", 13) * 2_000_000, "Ā".encode("utf-16-le") * 2_000_000],
+                             ids=["dropped controls", "bytes like a control across two characters"])
+    def test_paragraph_without_text_or_with_control_like_bytes_takes_as_long_as_text(self, payload):
+        """A paragraph of char controls that are dropped (paragraph end, null) went round the loop once per character: 4 MB took
+        0.44 s, a 190 KB file of 200 MB took 24 s, and nothing of it counts toward the character limit. Text whose bytes look
+        like a control across two characters ('Ā' is 00 01, so 'ĀĀ' holds 01 00 at an odd byte) did the same, 4.5 s for
+        4 MB. Both take as long as ordinary text now."""
+        from opendockit.extractors.hwp import decode_para_text
+
+        text = "가".encode("utf-16-le") * 2_000_000
+        assert fastest(lambda: decode_para_text(payload)) < 5 * fastest(lambda: decode_para_text(text)) + 0.01
+
     def test_bytes_that_look_like_a_control_across_two_characters_are_text(self):
         """Bytes spanning two characters, such as 'A' (41 00) followed by '가' (00 AC), may look like a control character (1f or
         below + 00), but they are text unless they sit on a character boundary."""
