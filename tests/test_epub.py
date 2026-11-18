@@ -511,6 +511,21 @@ class TestBrokenPackages:
         assert result.text == "남은 장"
         assert [warning for warning in result.warnings if "3 chapter(s)" in warning]
 
+    @pytest.mark.parametrize(("listed", "stored"), [("NFC", "NFD"), ("NFD", "NFC")])
+    def test_member_names_in_another_normalization_are_found(self, listed, stored) -> None:
+        """macOS stores the Hangul of a file name decomposed (NFD) and `zip` keeps it, while the package document is typed
+        composed (NFC): the chapter was not found and the book was rejected as having no readable chapter."""
+        import unicodedata
+
+        name = "제1장.xhtml"
+        data = _epub({unicodedata.normalize(listed, name): None},
+                     files={"OEBPS/" + unicodedata.normalize(stored, name): _page("<p>본문</p>").encode()})
+
+        result = convert(data, "book.epub")
+
+        assert result.text == "본문"
+        assert result.warnings == []
+
     def test_package_is_found_by_its_extension_when_the_container_is_broken(self) -> None:
         for container in (None, "<container><rootfiles", _CONTAINER.replace("{path}", "missing/package.opf")):
             data = _epub({"ch1.xhtml": _page("<p>본문</p>")}, container=container,
