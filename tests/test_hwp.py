@@ -320,6 +320,18 @@ class TestHwp:
         with pytest.raises(DocumentTooLargeError):
             convert(data, "bomb.hwp", ConvertOptions(max_uncompressed_bytes=1_000_000))
 
+    def test_uncompressed_streams_are_bounded_by_uncompressed_limit(self, monkeypatch):
+        """Streams stored without compression were never counted. The directory entries of an OLE file can all point at one
+        sector chain, so 300 picture entries on one 4 MB stream read 1.2 GB from a 4 MB file and 100 section entries on one
+        1 MB stream took 12 s, past any limit. They count as a stored ZIP member does."""
+        record = builder.hwp_record
+        section = record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, "가".encode("utf-16-le") * 50_000)
+        data = _fake_hwp(monkeypatch, flags=0, sections=[section] * 20)  # 20 sections of 100 KB, as if aliased to one stream
+
+        with pytest.raises(DocumentTooLargeError):
+            convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=1_000_000, max_chars=None))
+        assert convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=3_000_000, max_chars=None)).text.count("가") == 1_000_000
+
     def test_password_document_raises(self, monkeypatch):
         data = _fake_hwp(monkeypatch, flags=0b10, sections=[_sample_section()])
 

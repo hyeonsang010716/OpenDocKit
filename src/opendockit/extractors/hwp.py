@@ -909,6 +909,13 @@ def _read_stream_to_end(ole: olefile.OleFileIO, name: str, compressed: bool,
     """Stream bytes and whether it was read to the end. zlib.error if the compression is broken."""
     raw = ole.openstream(name).read()
     if not compressed:
+        # A stream stored without compression counts toward the limit too, as a stored ZIP member does: the directory entries of an
+        # OLE file can all point at one sector chain, so a 4 MB file with 300 picture entries on one 4 MB stream read 1.2 GB, and
+        # 100 section entries on one 1 MB stream took 12 s, past any `max_uncompressed_bytes`. The streams of a real file add up to
+        # no more than the file (Pinned by: test_hwp.py::test_uncompressed_streams_are_bounded_by_uncompressed_limit).
+        budget.remaining -= len(raw)
+        if budget.remaining < 0:
+            raise DocumentTooLargeError("The document becomes too large when decompressed.")
         return raw, True
 
     # decompressobj raises no exception on a stream with a truncated end, which salvages what was read (eof is false if the end marker
