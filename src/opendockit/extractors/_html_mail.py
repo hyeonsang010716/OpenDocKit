@@ -199,7 +199,7 @@ def _unread_frame_warning(message: Message, page: str) -> str | None:
         soup = BeautifulSoup(page, "lxml")
     sources = [str(frame.get("src") or "").strip() for frame in soup.find_all(["iframe", "frame"])]
     found = {id(part): part for source in sources if source
-             and (part := frames.get(_part_address(source)) or frames.get(_resolved(base, source))) is not None}
+             and (part := _part_at(frames, source) or frames.get(_resolved(base, source))) is not None}
     if not found:
         return None
     own = _visible_length(page)
@@ -314,19 +314,24 @@ def _mhtml_pictures(message: Message) -> Callable[[str], bytes | None]:
             parts.setdefault(location, part)
 
     def find(source: str) -> bytes | None:
-        part = parts.get(_part_address(source)) or (parts.get(_resolved(base, source)) if base else None)
+        part = _part_at(parts, source) or (parts.get(_resolved(base, source)) if base else None)
         payload = part_content(part) if part is not None else None
         return payload if isinstance(payload, bytes) and payload else None
 
     return find
 
 
-def _part_address(source: str) -> str:
-    """`source` as the parts of a mail are looked up by: a `cid:` address with its scheme in lower case and its Content-ID
-    percent-decoded, as RFC 2392 writes it (`CID:logo.1@example.com`, `cid:logo%2E1@example.com` are the part whose
-    Content-ID is `<logo.1@example.com>`); any other address as it is. Looked up as written, such a picture was neither
-    extracted nor reported (Pinned by: test_text_html.py::TestMhtml::test_cid_address_is_matched_as_rfc_2392_writes_it)."""
-    return f"cid:{unquote(source[4:])}" if source[:4].lower() == "cid:" else source
+def _part_at(parts: dict[str, Message], source: str) -> Message | None:
+    """The part of a mail at the address `source`: as written, or for a `cid:` address with its scheme in lower case and then
+    with its Content-ID percent-decoded, as RFC 2392 writes it (`CID:logo.1@example.com`, `cid:logo%2E1@example.com` are the
+    part whose Content-ID is `<logo.1@example.com>`). Looked up only as written, such a picture was neither extracted nor
+    reported (Pinned by: test_text_html.py::TestMhtml::test_cid_address_is_matched_as_rfc_2392_writes_it); looked up only
+    decoded, a Content-ID that holds a `%` itself and is written the same in the address (`photo%201.png@example.com`, as
+    most mail programs repeat it) was not found (test_cid_address_written_as_its_content_id_is_found)."""
+    part = parts.get(source)
+    if part is None and source[:4].lower() == "cid:":
+        part = parts.get(f"cid:{source[4:]}") or parts.get(f"cid:{unquote(source[4:])}")
+    return part
 
 
 def _resolved(base: str, source: str) -> str:

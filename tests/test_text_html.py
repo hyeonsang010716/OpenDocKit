@@ -1250,6 +1250,22 @@ class TestMhtml:
 
         assert [image.alt for image in result.images] == ["Quarterly sales"]
 
+    @pytest.mark.parametrize("source", ["cid:photo%201.png@example.com", "CID:photo%201.png@example.com"])
+    def test_cid_address_written_as_its_content_id_is_found(self, source):
+        """A Content-ID may hold a `%` itself, and mail programs repeat it in the address as it is. Looked up only percent-decoded,
+        such a picture was no longer found."""
+        from tests import builder
+
+        picture = base64.encodebytes(builder.png_bytes(seed=1)).decode()
+        data = ('MIME-Version: 1.0\nFrom: a@example.com\nTo: b@example.com\nSubject: s\nContent-Type: multipart/related; boundary="b"\n\n'
+                f'--b\nContent-Type: text/html; charset=utf-8\n\n<p>before <img src="{source}" alt="Quarterly sales"> after</p>\n'
+                f"--b\nContent-Type: image/png\nContent-ID: <photo%201.png@example.com>\nContent-Transfer-Encoding: base64\n\n{picture}"
+                "--b--\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert [image.alt for image in result.images] == ["Quarterly sales"]
+
     def test_picture_saved_with_the_page_is_extracted(self):
         """The picture parts saved with the page (`cid:`, Content-Location) were not extracted, so only the alt text of MHTML pictures
         remained. External addresses are not fetched."""
