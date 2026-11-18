@@ -21,7 +21,7 @@ from openpyxl.styles.numbers import BUILTIN_FORMATS
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from openpyxl.utils.datetime import from_excel, to_excel
 from openpyxl.utils.exceptions import InvalidFileException
-from openpyxl.worksheet.formula import ArrayFormula
+from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
@@ -746,7 +746,11 @@ def _unresolved_formulas(xml: bytes, max_cols: int) -> dict[int, dict[int, str]]
         if formula is not None and reference:
             text = formula.text or ""
             try:
-                if formula.get("t") == "shared" and text:
+                if formula.get("t") == "dataTable":
+                    # Shown as when formulas are read as written (`_data_table_formula`)
+                    # (Pinned by: test_spreadsheet.py::TestDataTableFormulas::test_data_table_without_a_result_beside_results).
+                    text = _data_table_formula(dict(formula.attrib))[1:]
+                elif formula.get("t") == "shared" and text:
                     shared[formula.get("si")] = (text, reference)
                 elif formula.get("t") == "shared" and formula.get("si") in shared:
                     first, origin = shared[formula.get("si")]
@@ -1012,7 +1016,7 @@ def _serial_date_text(value: float, epoch: datetime) -> str:
 
 
 def _plain_value(value: object) -> object:
-    """When formulas are read as written, an array formula arrives as an object. Turn it into the formula text. Rich text (text
+    """When formulas are read as written, an array formula or a data table arrives as an object. Turn it into the formula text. Rich text (text
     whose font changes within the cell) is joined into one text with only the superscript/subscript pieces marked — joined as plain
     text, m² became m2
     (Pinned by: test_spreadsheet.py::TestSuperscriptInCells)."""
@@ -1020,7 +1024,28 @@ def _plain_value(value: object) -> object:
         return resolve_scripts("".join(_rich_piece(piece) for piece in value))
     if isinstance(value, str):
         return _unescape_xstring(value)
+    if isinstance(value, DataTableFormula):
+        return _data_table_formula(dict(value))
     return value.text if isinstance(value, ArrayFormula) else value
+
+
+def _data_table_formula(attributes: dict[str, str]) -> str:
+    """The formula of a What-If data table (`<f t="dataTable" r1="A1" …/>`) as Excel shows it, `=TABLE(row input, column input)`.
+
+    It has no formula text, only attributes: when formulas were read as written, openpyxl's object came out as
+    `<openpyxl.worksheet.formula.DataTableFormula object at 0x…>`, a different text on every run
+    (Pinned by: test_spreadsheet.py::TestDataTableFormulas). A two-variable table (`dt2D`) has the row input in `r1` and the
+    column input in `r2`; a one-variable table has its one input in `r1`, the row input when `dtr` is set and the column input
+    otherwise. An input cell that was deleted (`del1`, `del2`) is `#REF!`, as Excel shows it.
+    """
+    def flag(name: str) -> bool:
+        return str(attributes.get(name, "")).strip().lower() in ("1", "true")
+
+    first = "#REF!" if flag("del1") else str(attributes.get("r1") or "").strip()
+    if flag("dt2D"):
+        second = "#REF!" if flag("del2") else str(attributes.get("r2") or "").strip()
+        return f"=TABLE({first},{second})"
+    return f"=TABLE({first},)" if flag("dtr") else f"=TABLE(,{first})"
 
 
 _VERTICAL_ALIGN_SCRIPTS = {"superscript": SUPERSCRIPT, "subscript": SUBSCRIPT}

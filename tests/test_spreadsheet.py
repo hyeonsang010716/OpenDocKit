@@ -732,6 +732,42 @@ def streamed(request, monkeypatch):
     return request.param
 
 
+class TestDataTableFormulas:
+    """A What-If data table has no formula text, only attributes (`<f t="dataTable" r1="A1" …/>`). Read as formulas, openpyxl's
+    object came out as `<openpyxl.worksheet.formula.DataTableFormula object at 0x…>`, a different text on every run. It is shown
+    as Excel shows it, `=TABLE(row input, column input)`."""
+
+    @staticmethod
+    def _workbook(table: str, results: dict[str, str] | None = None) -> bytes:
+        """Rate in B1, a formula on it in B2, and the data table's first cell in B3 (`table` is the attributes of its `<f>`)."""
+        data = _xlsx([["이율", 0.05], ["이자", "=B1*2"], [0.1, "=TABLE_CELL"], [0.2, None]])
+        if results:
+            data = _with_stored_results(data, results)
+        return builder.zip_with(data, edit={"xl/worksheets/sheet1.xml": lambda xml: xml.replace(
+            "<f>TABLE_CELL</f><v></v>", f'<f t="dataTable" ref="B3:B4" {table}/>')})
+
+    @pytest.mark.parametrize(("table", "expected"), [
+        ('dt2D="0" dtr="0" r1="B1"', "=TABLE(,B1)"),
+        ('dt2D="0" dtr="1" r1="B1"', "=TABLE(B1,)"),
+        ('dt2D="1" dtr="0" r1="B1" r2="A1"', "=TABLE(B1,A1)"),
+        ('dt2D="true" r1="B1" r2="A1" del2="1"', "=TABLE(B1,#REF!)"),
+        ('r1="B1"', "=TABLE(,B1)"),
+    ])
+    def test_data_table_read_as_formulas_is_shown_as_excel_shows_it(self, streamed, table, expected):
+        result = convert(self._workbook(table), "a.xlsx")
+
+        assert result.text == ("## Sheet: Sheet\n\n| 이율 | 0.05 |\n| --- | --- |\n| 이자 | =B1*2 |\n"
+                               f"| 0.1 | {expected} |\n| 0.2 | |")
+
+    def test_data_table_without_a_result_beside_results(self, streamed):
+        """Values are read when any formula has a result; a data table without one is filled in as when formulas are read."""
+        result = convert(self._workbook('dt2D="0" dtr="0" r1="B1"', {"B1*2": "0.1"}), "a.xlsx")
+
+        assert "| 이자 | 0.1 |\n| 0.1 | =TABLE(,B1) |" in result.text
+        assert result.warnings == ["Sheet 'Sheet': 1 formula(s) with no stored result were copied as written "
+                                   "(opening and re-saving the file in Excel converts them to values)."]
+
+
 class TestSheetDrawings:
     def test_text_box_text_is_kept_below_the_table(self, streamed):
         """A note (unit, basis) written in a text box beside the table was dropped without a warning."""
