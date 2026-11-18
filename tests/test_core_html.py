@@ -230,11 +230,13 @@ class TestMathMl:
         html = ('<p>A<span style="display:none"><math><mi>x</mi></math></span> B'
                 '<span style="display:none"><math><mi>y</mi></math></span><img src="y.png" alt="y"> C'
                 '<span style="display:none">note <math><mi>z</mi></math></span><img src="z.svg" aria-hidden="true" alt="z"> D'
-                '<span hidden><math><mi>w</mi></math></span><img src="w.svg" aria-hidden="true" alt="w"> E</p>')
+                '<span hidden><math><mi>w</mi></math></span><img src="w.svg" aria-hidden="true" alt="w"> E'
+                '<span style="display:none"><math><mi>v</mi></math></span><img src="chevron.svg" aria-hidden="true" alt=""> F'
+                '<span style="display:none"><math><mi>u</mi></math></span> Show <img src="u.svg" aria-hidden="true" alt="u"> G</p>')
 
         result = convert(html.encode(), "a.html")
 
-        assert result.text == "A B [Image: y] C D E"
+        assert result.text == "A B [Image: y] C D E F Show G"
 
     @pytest.mark.parametrize(("source", "latex"), [
         ('<annotation encoding="application/x-tex">{\\displaystyle \\frac{a}{b}}</annotation>', "\\frac{a}{b}"),

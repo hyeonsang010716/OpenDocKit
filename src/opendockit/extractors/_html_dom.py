@@ -1826,9 +1826,10 @@ def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool 
 
 def _hidden_math_copy(tag: Tag) -> bool:
     """Whether hidden `tag` is the MathML of a formula whose picture follows it, hidden from screen readers: `tag` is a `<math>`
-    or holds only one, hidden by its style, and the next element is an `<img aria-hidden="true">`. That is how Wikipedia (MediaWiki's Math extension)
-    writes every formula — `<span class="mwe-math-mathml-a11y" style="display: none;"><math …>` for screen readers (its
-    stylesheet shows it to them), then the SVG picture with the TeX in its alt for the eye. Both were removed, the copy as
+    or holds only one, hidden by its style, and right after it comes an `<img aria-hidden="true">` with alt text (the TeX).
+    That is how Wikipedia (MediaWiki's Math extension) writes every formula — `<span class="mwe-math-mathml-a11y"
+    style="display: none;"><math …>` for screen readers (its stylesheet shows it to them), then the SVG picture with the TeX in
+    its alt for the eye. Both were removed, the copy as
     hidden and the picture as aria-hidden, and every formula of a saved article vanished. The copy is kept and read as the
     formula once (`_html_math._put_math`); the picture is still removed. Any other hidden MathML is removed as before
     (Pinned by: test_core_html.py::TestMathMl::test_formula_of_a_saved_wikipedia_article_is_read_once,
@@ -1839,8 +1840,14 @@ def _hidden_math_copy(tag: Tag) -> bool:
         content = [child for child in tag.contents if isinstance(child, Tag) or str(child).strip()]
         if len(content) != 1 or not isinstance(content[0], Tag) or content[0].name != "math":
             return False
-    picture = tag.find_next_sibling(True)
-    return picture is not None and picture.name == "img" and str(picture.get("aria-hidden", "")).strip().lower() == "true"
+    # The picture comes right after the copy (only white space between) and its alt is the formula: a hidden answer followed by an
+    # aria-hidden icon (a chevron without alt text, or one after text) stays hidden
+    # (Pinned by: test_core_html.py::TestMathMl::test_hidden_formula_without_a_picture_after_it_is_removed).
+    picture = tag.next_sibling
+    while isinstance(picture, NavigableString) and not str(picture).strip():
+        picture = picture.next_sibling
+    return (isinstance(picture, Tag) and picture.name == "img" and str(picture.get("aria-hidden", "")).strip().lower() == "true"
+            and bool(str(picture.get("alt", "")).strip()))
 
 
 def _hidden_nodes(soup: BeautifulSoup, hidden: list[Tag]) -> list[PageElement]:
