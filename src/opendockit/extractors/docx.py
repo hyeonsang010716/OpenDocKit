@@ -1132,8 +1132,8 @@ def _note_parts(document: object, placeholders: dict[str, str]) -> dict[str, tup
 def _drop_custom_marks(body: etree._Element, note_parts: dict[str, tuple[object, etree._Element]]) -> None:
     """Take the custom mark (`_custom_mark`) off the start of the note it marks. Word writes that mark into the note as text where
     `w:footnoteRef` would stand, so it came out as '[^1]: * Estimated.'. Only a note without w:footnoteRef / w:endnoteRef whose
-    first paragraph starts with exactly the mark text of its first reference loses it; a mark made of a symbol (w:sym) stays
-    in the note, an accepted gap (Pinned by:
+    first paragraph starts with exactly the mark text of its first reference, not followed by a letter or digit, loses it;
+    a mark made of a symbol (w:sym) stays in the note, an accepted gap (Pinned by:
     test_office_symbols_fields_notes.py::TestDocxCustomNoteMark)."""
     marks: dict[tuple[str, str], str] = {}
     for reference in body.iter(_w("footnoteReference"), _w("endnoteReference")):
@@ -1157,7 +1157,8 @@ def _drop_custom_marks(body: etree._Element, note_parts: dict[str, tuple[object,
                 if mark.startswith(text):
                     taken.append((piece, ""))
                     mark = mark[len(text):]
-                elif text.startswith(mark):
+                elif text.startswith(mark) and not text[len(mark):len(mark) + 1].isalnum():
+                    # The mark ends where a word could: a note that does not repeat the mark 'a' kept 'bout' of 'about'
                     taken.append((piece, text[len(mark):]))
                     mark = ""
                 else:
