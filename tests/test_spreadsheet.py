@@ -1253,6 +1253,21 @@ class TestXlsDrawings:
 
         assert extraction.sections[0].text.endswith("USD\n\nUnit: 원")
 
+    def test_text_with_a_character_outside_the_bmp_ends_where_the_txo_says(self):
+        """The TXO counts UTF-16 code units, two for an emoji. Counted as one character, the formatting runs (position 4 and
+        font 2, then the closing run at 6) in the next CONTINUE were read as text after it."""
+        text = "완료 ✅ 🚀"
+        units = len(text.encode("utf-16-le")) // 2
+        runs = struct.pack("<HH4xHH4x", 4, 2, units, 0)
+        box = (builder.xls_record(0x00EC, builder.escher_record(0xF004, version=0xF)) + builder.xls_object(6)
+               + builder.xls_record(0x01B6, struct.pack("<HH6xHHI", 0x0212, 0, units, len(runs), 0))
+               + builder.xls_record(0x003C, b"\x01" + text.encode("utf-16-le")) + builder.xls_record(0x003C, runs))
+        data = builder.xls_bytes([("Sheet1", _XLS_ROWS, box)])
+
+        extraction = self._convert(data)
+
+        assert extraction.sections[0].text == f"{_XLS_TABLE}\n\n{text}"
+
     def test_cell_comment_is_not_read_as_a_text_box(self):
         """A cell comment is also held in a TXO record. It is not read as a text box — comments go at the end of the sheet with
         their cell through the NOTE record (test_spreadsheet_notes_pictures_and_times.py::TestXlsCellComments). Without a NOTE it

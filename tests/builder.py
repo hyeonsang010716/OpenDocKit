@@ -406,7 +406,7 @@ def xls_text_box(text: str, *, object_type: int = 6, unicode: bool = True) -> by
     encoded = b"\x01" + text.encode("utf-16-le") if unicode else b"\x00" + text.encode("latin-1")
     return (xls_record(0x00EC, escher_record(0xF004, version=0xF)) + xls_object(object_type)
             + xls_record(0x00EC, escher_record(0xF00D))
-            + xls_record(0x01B6, struct.pack("<HH6xHHI", 0x0212, 0, len(text), 16, 0))
+            + xls_record(0x01B6, struct.pack("<HH6xHHI", 0x0212, 0, (len(encoded) - 1) // (2 if unicode else 1), 16, 0))
             + xls_record(0x003C, encoded) + xls_record(0x003C, bytes(16)))
 
 
