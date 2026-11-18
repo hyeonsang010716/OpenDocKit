@@ -58,7 +58,7 @@ from opendockit.extractors._package import (
     related_part,
 )
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_font_text
-from opendockit.markdown import TableGrid, solid_length
+from opendockit.markdown import _INVISIBLE, TableGrid, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
@@ -894,7 +894,10 @@ def _render_text_frame(text_frame: object, as_bullets: bool, list_styles: list[o
     counters: dict[int, tuple[str, int, int]] = {}  # level → (number scheme, start number of the run, last number)
     for paragraph in text_frame.paragraphs:
         lines = [" ".join(line.split()) for line in _paragraph_text(paragraph, inline).split("\n")]
-        lines = [line for line in lines if line]
+        # A line of nothing but characters cleaning removes (zero-width space, soft hyphen …) is empty: formatted, their run was
+        # taken out already and the paragraph skipped, unformatted it wrote a bare number
+        # (Pinned by: test_inline_formatting.py::TestInvisibleCharacters::test_paragraph_of_invisible_characters_is_empty).
+        lines = [line for line in lines if _INVISIBLE.sub("", line).strip()]
         level = _paragraph_level(paragraph)
         bullet = _bullet(paragraph._p, level, list_styles)
         is_numbered = bullet is not None and bullet.tag == f"{{{_DRAWING}}}buAutoNum"

@@ -83,7 +83,7 @@ from opendockit.extractors._package import (
 )
 from opendockit.extractors.html import extract_html
 from opendockit.extractors.text import extract_text
-from opendockit.markdown import TableGrid, join_blocks, merged_copy, solid_length
+from opendockit.markdown import _INVISIBLE, TableGrid, join_blocks, merged_copy, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, renumber_image_markers
 
 
@@ -417,6 +417,11 @@ class _DocxRenderer:
         # `marked` still holds the temporary link and emphasis marks. Everything that decides what the paragraph is (empty, a
         # heading, too long for a heading) looks at the text without them, so those decisions are the same with the options off.
         text = plain_inline(marked).strip() if self.inline is not None else marked
+        # Empty is decided on the text without the characters cleaning removes (zero-width space, soft hyphen, BOM, direction
+        # marks): `resolve_inline` takes them out of a formatted run, so a list paragraph holding only one in bold had no text left
+        # for its item, and the whole document was rejected; unformatted, it wrote a bare number, or a bare `#` for a heading
+        # (Pinned by: test_inline_formatting.py::TestInvisibleCharacters::test_paragraph_of_invisible_characters_is_empty).
+        blank = not _INVISIBLE.sub("", text).strip()
         # Charts, SmartArt and text boxes go after the paragraph text as separate blocks.
         after = [block for block in objects if block]
         with self._own_lists():
@@ -446,8 +451,8 @@ class _DocxRenderer:
         # final version and are not counted (Pinned by: test_office.py::TestDocxNumbering::
         # test_empty_numbered_paragraph_still_counts, test_numbered_paragraph_moved_away_by_tracked_change_does_not_count).
         style = self._paragraph_style(paragraph)
-        list_prefix = None if not text and _is_deleted_paragraph(paragraph) else self._list_prefix(paragraph, style)
-        if not text:
+        list_prefix = None if blank and _is_deleted_paragraph(paragraph) else self._list_prefix(paragraph, style)
+        if blank:
             return after
         if _is_drop_cap(paragraph) and _next_is_paragraph(paragraph):
             self._drop_cap = (paragraph, marked)
