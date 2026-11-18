@@ -47,12 +47,13 @@ _MAIL_BOX_TITLE = "Message"
 MIME_VERSION = re.compile(rb"^MIME-Version:", re.IGNORECASE | re.MULTILINE)
 # Mail that carries a body: multipart (related is MHTML — `html.is_mhtml`) or a single plain-text part.
 # A mail whose top-level type is message/rfc822 (a forwarded mail saved on its own, or a mail program that wraps the mail it
-# forwards) is mail too: it was text, headers and all (Pinned by: test_audit_web_fixes.py::TestTopLevelForwardedMail).
+# forwards) is mail too: it was text, headers and all (Pinned by: test_audit_web_fixes.py::TestTopLevelForwardedMail), and so
+# is one of type message/global (`_FORWARD_TYPES`).
 # So is a single meeting invitation part (text/calendar — calendar servers and ticketing tools send it alone) and a single
 # part that is not text (a scanner's application/pdf, a phone's image/jpeg): both were text, raw headers and base64 and all,
 # without a warning (Pinned by: test_core_mail_and_detect.py::TestSinglePartMailThatIsNotPlainText). The single part that is
 # not text is the mail's attachment (`_is_attachment`). text/html stays MHTML; other text types are not taken.
-_MAIL_CONTENT_TYPE = re.compile(rb"^Content-Type:\s*(?:multipart/(?!related\b)[\w.+-]+|text/(?:plain|calendar)|message/rfc822"
+_MAIL_CONTENT_TYPE = re.compile(rb"^Content-Type:\s*(?:multipart/(?!related\b)[\w.+-]+|text/(?:plain|calendar)|message/(?:rfc822|global)"
                                 rb"|(?:application|image|audio|video|model|font)/[\w.+-]+)\b",
                                 re.IGNORECASE | re.MULTILINE)
 # Identifying mail without MIME-Version (`_mail_without_mime_version`): the sender, a recipient/subject/date, and a MIME body
@@ -498,6 +499,11 @@ def is_sent_mail(message: Message) -> bool:
 # The heading text placed before a forwarded mail (message/rfc822 part). Text (`extract_text`) and HTML (`html.extract_html`)
 # mail use the same text.
 FORWARDED_MAIL_TITLE = "Forwarded message"
+# The types of a part that holds a forwarded mail: message/rfc822, and message/global (RFC 6532), the same for a mail whose
+# headers may be UTF-8. The parser holds the mail inside a message/global part as it does for message/rfc822, but only
+# message/rfc822 was read, and the part counted as neither body nor attachment: the forwarded mail vanished without a warning
+# (Pinned by: test_core_text_and_mail.py::TestInternationalizedForwardedMail).
+_FORWARD_TYPES = frozenset({"message/rfc822", "message/global"})
 # Upper limit on the number of forwarded mails read. Those beyond it are only named in a warning, like attachments (not reached
 # unless a mail has been forwarded over and over).
 _MAX_FORWARDED_MAILS = 20
@@ -546,15 +552,15 @@ def _mail_parts(message: Message) -> list[Message]:
 
 
 def _forwarded_message(part: Message) -> Message | None:
-    """The mail inside if the part is message/rfc822, otherwise None. One wrapped in a transfer encoding (base64,
-    quoted-printable) is decoded and parsed again.
+    """The mail inside if the part is a forwarded mail (`_FORWARD_TYPES`), otherwise None. One wrapped in a transfer encoding
+    (base64, quoted-printable) is decoded and parsed again.
 
     Exchange sometimes sends a forwarded mail wrapped in base64. The parser reads the wrapped text as a mail without headers, so
     the base64 appeared as is where the forwarded mail belongs
     (Pinned by: test_core_mailboxes_and_charsets.py::TestForwardedMailInATransferEncoding). The part is replaced with the decoded
     mail, so a later call returns the same message.
     """
-    if part.get_content_type() != "message/rfc822":
+    if part.get_content_type() not in _FORWARD_TYPES:
         return None
     payload = part.get_payload()
     inner = payload[0] if isinstance(payload, list) and payload and isinstance(payload[0], Message) else None
@@ -658,9 +664,9 @@ def _html_body_parts(part: Message, message: Message, depth: int) -> list[Messag
 
 
 def _is_forward(part: Message, message: Message) -> bool:
-    """Is `part` a forwarded mail (message/*) of `message`, or `message` itself when its type is message/rfc822? Neither has a
-    body of `message` in it — `mail_messages` reads the mail inside separately."""
-    return part.get_content_maintype() == "message" and (part is not message or part.get_content_type() == "message/rfc822")
+    """Is `part` a forwarded mail (message/*) of `message`, or `message` itself when its type is a forwarded mail's
+    (`_FORWARD_TYPES`)? Neither has a body of `message` in it — `mail_messages` reads the mail inside separately."""
+    return part.get_content_maintype() == "message" and (part is not message or part.get_content_type() in _FORWARD_TYPES)
 
 
 def mail_body_sequence(message: Message) -> list[Message]:
