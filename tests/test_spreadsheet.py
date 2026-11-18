@@ -94,6 +94,37 @@ class TestNumberFormatSections:
         assert result == expected
 
 
+class TestZeroPaddingWithAThousandsSeparator:
+    """The 0s of the integer part pad the number to that many digits, and with a thousands separator Excel groups the padded digits.
+    The padding was dropped once the format had a comma: 1234 under `00,000` came out as `1,234` (Excel `01,234`)."""
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), [
+        (1234, "00,000", "01,234"),
+        (5, "0,000", "0,005"),
+        (4321, "000,000", "004,321"),
+        (0, "00,000", "00,000"),
+        (-12, "00,000", "-00,012"),
+        (5.5, "0,000.00", "0,005.50"),
+        (5, "#,#00", "05"),
+        (-5, "0,000;(0,000)", "(0,005)"),
+        (4321000, "000,000,", "004,321"),
+        (1234567, "0,000", "1,234,567"),
+        (5, "#,##0", "5"),
+        (1234567, "#,##0", "1,234,567"),
+        (1234567, "#,##0,", "1,235"),
+        (-1234.5, "#,##0.00", "-1,234.50"),
+    ])
+    def test_padded_digits_are_grouped(self, value, number_format, expected):
+        assert format_cell(value, number_format) == expected
+
+    def test_xlsx_and_excel_2003_xml_pad_alike(self):
+        xlsx = convert(_xlsx([["항목", "값"], ["가", 1234]], {"B2": "00,000"}), "a.xlsx")
+        xml = convert(_xml_spreadsheet("00,000", "Number", "1234"), "a.xls")
+
+        assert "| 가 | 01,234 |" in xlsx.text
+        assert "| 가 | 01,234 |" in xml.text
+
+
 class TestNumberFormatRounding:
     """Python rounding (half to even) differs from Excel (0.5 rounds up), so 72.5 came out as 72 and 0.125 as 0.12."""
 
