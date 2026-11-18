@@ -22,6 +22,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **XLSX**: a cell without an `r` address that holds a malformed value, and a comment with an empty `ref`, no longer
   reject the whole workbook. A value under a malformed format index is checked like any other (`1E400` was `inf`).
   Weekday-only formats (`aaa`) show the day, as `dddd` and XLS do, not the date and time.
+- **PDF text**: a word in fake bold on part of a line (drawn twice 0.3pt apart, common in PDFs exported from Hangul) is
+  read once; it came out again as a paragraph of its own, or split its line in two. Lifting a line pushed down in a
+  single column no longer compares every pair of lines on the page: a 480-line page took 7 seconds, outside
+  `pdf_time_budget` (an 11 KB file took 22 seconds); it takes 0.2.
+- **PDF tables**: a borderless table that pdfminer merged differently from row to row is one table again, not three,
+  with every cell in its column (one part had a column too few and its values stood one column to the left). The next
+  page of such a table gets the header of its top part, not a data row of its lower part, which came out twice.
+- **Character limit**: the quote marks of a quoted line holding only a picture that is erased (too small, a repeated
+  logo) no longer count, so a document within `max_chars` is no longer reported `exceeded` and its pictures are decoded.
+- **Pictures**: alt text Office or Hangul wrote itself (`그림 3`) is recognised in decomposed (NFD) Hangul too. A picture
+  inside an HTML `<pre>` no longer adds a blank line to the code block.
+- **Markdown**: the data: URI pictures inside a code block are left alone in every code block cleaning sees — a fence
+  indented in a list item, or closed by a longer fence — and inline code over two lines of a CRLF file is code.
+- **RTF**: a file behind a UTF-8 byte order mark (PowerShell 5, .NET) is read as RTF, not as its source text. A
+  Shift_JIS, GBK or Big5 character whose second byte is written as `\\`, `\{` or `\}` is one character, not `�\`.
+- **DOCX / PPTX**: a styles or document-properties relationship pointing back at the body, and a slide layout, master
+  or notes relationship pointing at another kind of part, no longer reject the document or drop the slide. A merge
+  continuation under the second column of a wider cell repeats its text instead of coming out empty.
+- **XLSX / XLS / Excel 2003 XML**: a workbook with very many small merges (490,000: 20 seconds, 558 MB) is streamed. A
+  What-If data table read as formulas is `=TABLE(…)`, not an object address that changed on every run. Zero padding
+  is kept with a thousands separator (`00,000` → `01,234`). `[hhh]:mm` no longer loses a day for serial 60. Serial 0
+  under a date or weekday format is `0` everywhere, and Excel 2003 XML reads weekday-only formats as dates.
+- **HTML**: every formula of a saved Wikipedia article is kept, once, without its `{\displaystyle …}` wrapper. A `$`
+  or brace in MathML (also in ODF) is escaped. Selects left open no longer take quadratic time (8,000: 20 seconds).
+- **Mail**: a forwarded mail of type `message/global` is read. A base64 body cut off at one letter past a whole group
+  of four is decoded up to the cut, not shown as base64. A `cid:` address in upper case or percent-encoded finds its
+  picture.
+- **EPUB**: only one branch of an `<epub:switch>` is read, not the formula and its text fallback.
 
 ## [0.3.13] - 2026-11-17
 
