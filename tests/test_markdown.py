@@ -419,6 +419,54 @@ class TestTableGridLimits:
         assert '<td colspan="3">S1</td>' in tables[1][0].render()
         assert "| S1 |  |  |" in tables[2][0].render()
 
+    def test_far_apart_spans_do_not_build_a_dense_grid(self):
+        """One cell spanning 10,000 rows in a far column and one spanning 1,000 columns in a far row, each within the span
+        limits, made a grid of every row by every column: 10,000 × 1,001 cells, of which 11,000 were filled, cut at the grid
+        cell limit (5 million) so that the bottom rows were lost, and walked for 6 s per table (a 1.9 KB HWPX). The drawing
+        builds the grid from the rows and columns that hold text."""
+        grid = TableGrid()
+        grid.place(0, 65_536, "A", row_span=10_000)
+        grid.place(65_536, 0, "B", col_span=1_000)
+
+        result = grid.render()
+
+        assert result.split("\n")[:3] == ["|  | A |", "| --- | --- |", "|  | A |"]
+        assert result.endswith("\n|  | A |\n| B |  |") and result.count("\n") == 10_001
+        assert grid.omitted_rows() == 0
+
+    def test_empty_cells_of_one_conversion_share_one_budget(self, monkeypatch: pytest.MonkeyPatch):
+        """A table of 20 one-cell rows and one row of 10 cells builds 21 × 10 cells for 30 filled ones, with no span (a 200 KB
+        HTML table of 10,000 such rows and a row of 1,000 cells took 9 s, and every such table of a conversion as long). The
+        empty cells past as many as are filled are charged to the conversion: the second table loses its bottom rows (the
+        extractor warns), while a table whose cells are filled is not charged and is drawn whole. Outside a conversion only
+        the grid cell limit applies."""
+        monkeypatch.setattr(markdown, "_CONVERSION_GRID_BUDGET", 200)
+
+        def ragged() -> TableGrid:
+            grid = TableGrid()
+            for row in range(20):
+                grid.place(row, 0, f"a{row}")
+            for col in range(10):
+                grid.place(20, col, f"b{col}")
+            return grid
+
+        def filled() -> TableGrid:
+            grid = TableGrid()
+            for row in range(3):
+                for col in range(3):
+                    grid.place(row, col, f"{row}{col}")
+            return grid
+
+        with span_budget():
+            first, second, third = ragged(), ragged(), filled()
+            drawn = [first.render(), second.render(), third.render()]
+        alone = ragged()
+        alone.render()
+
+        assert [first.omitted_rows(), second.omitted_rows(), third.omitted_rows(), alone.omitted_rows()] == [0, 15, 0, 0]
+        assert "| b0 | b1 |" in drawn[0] and "b0" not in drawn[1] and drawn[1].split("\n\n")[-1] == "a5"
+        assert drawn[2].endswith("| 20 | 21 | 22 |")
+
     @pytest.mark.parametrize("horizontal", [False, True])
     def test_drawing_stops_writing_rows_past_the_room(self, horizontal):
         """A vertically merged value is repeated on every row it covers (in HTML each row still writes its own cells). With a
