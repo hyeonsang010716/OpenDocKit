@@ -193,6 +193,36 @@ class TestArguments:
         assert "Traceback" not in stderr and "BrokenPipeError" not in stderr
 
 
+    @pytest.mark.parametrize("flags", [[], ["--json"], ["--count"]])
+    def test_closed_pipe_ends_quietly_after_a_short_output(self, tmp_path, flags):
+        """Output smaller than the output buffer reached a closed pipe only at exit, outside the handler, and ended with
+        'Exception ignored … BrokenPipeError' and exit code 120."""
+        import subprocess
+        import sys
+
+        path = tmp_path / "short.txt"
+        path.write_text("짧은 문서\n", encoding="utf-8")
+        process = subprocess.Popen([sys.executable, "-m", "opendockit", str(path), *flags], cwd=tmp_path,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        process.stdout.close()  # before the conversion, which takes longer than starting the process
+        stderr = process.stderr.read().decode()
+        code = process.wait(timeout=30)
+
+        assert stderr == ""
+        assert code == 1
+
+    def test_version_is_printed_without_a_file(self, capsys, monkeypatch):
+        """The other two commands print their version; this one wanted a file first."""
+        from opendockit import __version__, cli
+
+        monkeypatch.setattr("sys.argv", ["opendockit", "--version"])
+        with pytest.raises(SystemExit) as exit_info:
+            cli.main()
+
+        assert exit_info.value.code == 0
+        assert capsys.readouterr().out == f"opendockit {__version__}\n"
+
 def test_json_output_summarizes_picture_tiles_like_picture_data(tmp_path, monkeypatch, capsys):
     """The tiles of a very tall picture (`tiles`) came out in `--json` as raw bytes (repr) and the output went over 1MB. Like `data`,
     only their size is written."""

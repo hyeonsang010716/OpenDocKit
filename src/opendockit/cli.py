@@ -1,6 +1,7 @@
 """Command-line entry point for trying a conversion.
 
     opendockit <file> [--count | --json] [--describe [--model NAME]]
+    opendockit --version
 
 `--describe` has an OpenAI vision model describe the images (this costs money). The key is read from the `OPENAI_API_KEY`
 environment variable, and `--describe` needs the optional extra: `pip install "opendockit[openai]"`.
@@ -18,6 +19,7 @@ from opendockit import (
     ConversionError,
     ConversionResult,
     OpenAIImageDescriber,
+    __version__,
     convert_file,
     describe_images,
 )
@@ -38,6 +40,9 @@ def main() -> int:
     parser.add_argument("--describe", action="store_true",
                         help="describe the images with an OpenAI vision model and fill the descriptions into the text")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"model to use for --describe (default {DEFAULT_MODEL})")
+    # As `opendockit-mcp` and `opendockit-open-webui` have it; the bug report form asks for the version
+    # (Pinned by: test_cli.py::TestArguments::test_version_is_printed_without_a_file).
+    parser.add_argument("--version", action="version", version=f"opendockit {__version__}")
     args = parser.parse_args()
 
     path = Path(args.path)
@@ -63,6 +68,10 @@ def main() -> int:
 
     try:
         _print_result(result, args)
+        # Flushed here: output smaller than the buffer reached the closed pipe only at exit, outside this block, and ended
+        # with an 'Exception ignored' message and exit code 120
+        # (Pinned by: test_cli.py::TestArguments::test_closed_pipe_ends_quietly_after_a_short_output).
+        sys.stdout.flush()
     except BrokenPipeError:
         # The reader closed first, as with `| head`. Finish without dumping a traceback. Point standard output at /dev/null so
         # the error does not fire again at exit while flushing the remaining output buffer
