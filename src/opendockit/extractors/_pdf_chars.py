@@ -78,12 +78,29 @@ def _text_from_chars(chars: list[dict]) -> str:
     return " ".join("".join(parts).split())
 
 
+# A character whose text matrix leans its upright strokes by more than this (c / d, about 6 degrees) is slanted: synthetic italic
+# (`_glyph_gaps`).
+_SLANT_RATIO = 0.1
+
+
+def _is_slanted(char: dict) -> bool:
+    """Whether the character is written horizontally with a slanted text matrix (synthetic italic)."""
+    a, b, c, d = (char.get("matrix") or (1.0, 0.0, 0.0, 1.0))[:4]
+    return abs(b) <= _SLANT_RATIO * abs(a) and abs(c) > _SLANT_RATIO * abs(d)
+
+
 def _glyph_gaps(chars: list[dict]) -> tuple[list[dict], list[float]]:
     """The line's characters laid left to right, and the gaps between two neighbouring characters that have no space character
-    between them."""
+    between them.
+
+    A gap next to a slanted character is not one: synthetic italic (an oblique text matrix, how LibreOffice and Word slant a
+    font that has no italic, such as any Korean font) widens the box of each character by the slant, so the gaps of a word in
+    it are negative, and one such word kept a letter-spaced line from being closed up ('매 출 을 보 고 서') (Pinned by:
+    test_pdf_character_spacing.py::TestWideCharacterSpacing::test_a_word_in_synthetic_italic_does_not_keep_its_line_spaced_out).
+    Known accepted gap: a line all in synthetic italic has no gaps and is not closed up."""
     ordered = sorted(chars, key=lambda char: char["x0"])
     gaps = [right["x0"] - left["x1"] for left, right in zip(ordered, ordered[1:], strict=False)
-            if left["text"].strip() and right["text"].strip()]
+            if left["text"].strip() and right["text"].strip() and not (_is_slanted(left) or _is_slanted(right))]
     return ordered, gaps
 
 
