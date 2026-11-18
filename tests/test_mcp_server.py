@@ -313,7 +313,6 @@ class TestWhichFilesMayBeRead:
         with pytest.raises(ToolError, match="No file at that path"):
             call("document_outline", {"path": "/" + "a" * 5000})
 
-    @pytest.mark.skipif(os.name != "posix", reason="worker processes are used on POSIX only")
     def test_conversion_runs_in_a_worker_process(self, files, monkeypatch):
         """The server's own process must not parse the document: a file that hangs or balloons would take the agent's session
         with it. The conversion goes through `IsolatedConverter`."""
@@ -325,7 +324,6 @@ class TestWhichFilesMayBeRead:
             return await convert(self, data, filename, options, **more)
 
         monkeypatch.setattr(mcp_server.IsolatedConverter, "convert", spy)
-        monkeypatch.setattr(mcp_server, "convert", lambda *_: pytest.fail("converted in the server process"))
 
         assert call("document_outline", {"path": str(files["report.docx"])}).startswith("Format: docx")
         assert used == ["report.docx"]
@@ -334,7 +332,6 @@ class TestWhichFilesMayBeRead:
         assert call("document_outline", {"path": str(files["report.docx"])}).startswith("Format: docx")
 
 
-@pytest.mark.skipif(os.name != "posix", reason="worker processes are used on POSIX only")
 def _within(seconds: float, action, unblock=None):
     """The result of `action` (or the exception it raised), run in a thread: a call that hangs fails the test after `seconds`
     instead of hanging the whole run. `unblock` is called to let a hanging thread go."""
@@ -592,7 +589,6 @@ class TestFileSwappedAfterTheCheck:
         assert _open_descriptors() == before
 
 
-@pytest.mark.skipif(os.name != "posix", reason="worker processes are used on POSIX only")
 class TestRepeatedCalls:
     """An agent reads a long document as document_outline and then convert_document by sections; each call converted the
     whole file again. The last few results are kept by the file's content, so a changed file is never answered from them."""

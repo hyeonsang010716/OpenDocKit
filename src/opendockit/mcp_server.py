@@ -27,7 +27,7 @@ import re
 import stat
 
 from opendockit import __version__
-from opendockit.converter import _size_text, convert, read_limited, section_heading
+from opendockit.converter import _size_text, read_limited, section_heading
 from opendockit.exceptions import ConversionError, DocumentTooLargeError
 from opendockit.isolated import IsolatedConverter
 from opendockit.models import ConversionResult, ConvertOptions, Section, SectionKind
@@ -124,16 +124,11 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
             if key in cache:
                 cache.move_to_end(key)
                 return cache[key]
-            if os.name != "posix":
-                # IsolatedConverter is verified on Linux and macOS only (docs/limitations.md): elsewhere the file is converted
-                # in a thread of this process, without the worker's memory and time limits.
-                result = await asyncio.to_thread(convert, data, file.name, options)
-            else:
-                if converter is None:
-                    # One worker process per file, ended after 2 minutes or 2 GB: a document that hangs or balloons must not
-                    # take the server, and the agent's session, with it.
-                    converter = IsolatedConverter(workers=1)
-                result = await converter.convert(data, file.name, options)
+            if converter is None:
+                # One worker process per file, ended after 2 minutes or 2 GB: a document that hangs or balloons must not
+                # take the server, and the agent's session, with it.
+                converter = IsolatedConverter(workers=1)
+            result = await converter.convert(data, file.name, options)
         except ConversionError as error:
             raise ToolError(str(error)) from error
         except OSError as error:   # no permission, a file removed meanwhile
