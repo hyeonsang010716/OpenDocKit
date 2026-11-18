@@ -2573,6 +2573,19 @@ class TestPptxAutoNumbering:
 
         assert body == "III. 셋째\nIV. 넷째\n① 동그라미\n(1) 괄호\n一. 한자"
 
+    def test_another_start_number_starts_the_count_over(self):
+        """A paragraph whose start number differs from the run's starts over at it (LibreOffice draws the same); a paragraph
+        without one continues. Only the scheme was compared, so a list set to start at 7 after three items read '4. 5.'."""
+        data = _pptx_with_paragraphs([
+            ("하나", 0, _AUTO_NUMBER), ("둘", 0, _AUTO_NUMBER),
+            ("일곱", 0, '<a:buAutoNum type="arabicPeriod" startAt="7"/>'),
+            ("여덟", 0, '<a:buAutoNum type="arabicPeriod" startAt="7"/>'),
+            ("아홉", 0, _AUTO_NUMBER)])
+
+        body = _slide_body(data)
+
+        assert body == "1. 하나\n2. 둘\n7. 일곱\n8. 여덟\n9. 아홉"
+
     def test_body_placeholder_keeps_bullets_but_not_on_paragraphs_without_one(self):
         """In a body placeholder only paragraphs with an inherited bullet get '- '. Putting '- ' on a top-level paragraph whose bullet
         was removed directly (a:buNone) made intro and closing sentences read like list items."""
