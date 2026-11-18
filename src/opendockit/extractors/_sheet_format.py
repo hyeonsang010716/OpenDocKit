@@ -478,7 +478,9 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     suffix = literal_text(suffix_raw, iter(literals[literals_before + core.count("\x00"):])).rstrip()
     # Deliberate: a % shielded by quotes or a backslash is a literal. Searching the original format string turned 2.5 under
     # `0.0"%p"` into "250.0%%p", 100 times too large (Pinned by: test_quality.py::TestSpreadsheetNumberFormats).
-    percent = "%" in plain
+    # Each bare `%` multiplies by 100, as in Excel (`0%%`: 0.125 → 1250%%); kept where it stands, a second one showed a value
+    # scaled once (`13%%`) (Pinned by: test_audit_spreadsheet.py::TestPercentWhereTheFormatPutsIt).
+    percents = plain.count("%")
     # A comma between digit places is a thousands separator; commas attached after the digit places mean dividing by 1,000 once
     # per comma for display (`#,##0,` = in thousands).
     # Ignoring the trailing commas emits the 1,235 of a "단위: 천원" (unit: thousand won) table as 1,234,567, read as 1,000 times
@@ -489,7 +491,7 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     places = "".join(char for char in fraction if char in "0#?")
     decimals = len(places)
     try:
-        number = _rounded(value, percent, scale, decimals)
+        number = _rounded(value, percents, scale, decimals)
     except InvalidOperation:
         return None  # a format with hundreds of decimal places — the original value is used
     text = f"{number:,.{decimals}f}" if "," in whole else f"{number:.{decimals}f}"
@@ -548,8 +550,8 @@ def _without_trailing_zeros(places: str, digits: str) -> str:
     return "".join(kept)
 
 
-def _rounded(value: float, percent: bool, scale: int, decimals: int) -> Decimal:
-    """Apply percent and scaling by thousands as the format says and round to `decimals` decimal places.
+def _rounded(value: float, percents: int, scale: int, decimals: int) -> Decimal:
+    """Apply percent (×100 per `%`) and scaling by thousands as the format says and round to `decimals` decimal places.
 
     Excel rounds 0.5 away from zero. With Python format specs (half to even, binary representation) 72.5 became 72 and 0.125
     became 0.12. Rounding is done on the value to 15 significant digits, as Excel shows it (and as General shows a float,
@@ -561,8 +563,8 @@ def _rounded(value: float, percent: bool, scale: int, decimals: int) -> Decimal:
     with localcontext() as context:
         context.prec = 400  # even 1e308 keeps its integer part
         number = Decimal(format(value, ".15g"))
-        if percent:
-            number *= 100
+        if percents:
+            number *= 100 ** percents
         return number.scaleb(-3 * scale).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)
 
 

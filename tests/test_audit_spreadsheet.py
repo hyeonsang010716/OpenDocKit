@@ -977,6 +977,7 @@ class TestPercentWhereTheFormatPutsIt:
         (2.5, "0.0\\%", "2.5%"),
         (0.5, '0" %"', "1 %"),
         (-0.125, "0.0 %;(0.0 %)", "(12.5 %)"),
+        (0.125, "0%%", "1250%%"),  # each `%` multiplies by 100, as in Excel
     ])
     def test_format_cell(self, value, number_format, expected):
         assert format_cell(value, number_format) == expected
