@@ -516,6 +516,19 @@ def _held_chars(line: dict, inside: list[dict]) -> list[dict]:
             and line["x0"] <= (char["x0"] + char["x1"]) / 2 <= line["x1"]]
 
 
+# Lines recorded as holding one character (`_rejoined_copy_lines`). A word in fake bold is in two or three lines; a crafted page of
+# many lines over the same characters would otherwise compare every pair of them. A line past the bound is not joined, as before.
+_MAX_CHAR_HOLDERS = 8
+
+
+def _same_row(line: dict, other: dict) -> bool:
+    """Whether two layout lines lie on one row: their vertical centres are no more than half the height of the smaller one apart. The
+    copies of a word in fake bold are on the line they belong to; a line on the row below is not, however far its box
+    reaches (`_rejoined_copy_lines`)."""
+    height = min(line["bottom"] - line["top"], other["bottom"] - other["top"])
+    return abs((line["top"] + line["bottom"]) - (other["top"] + other["bottom"])) / 2 <= height / 2
+
+
 def _rejoined_copy_lines(prepared: list[_Prepared], has_copies: Callable[[dict], bool]) -> list[_Prepared]:
     """`prepared` with the layout lines that hold the same kept characters made into one line, when every one of them lies over
     removed copies (`has_copies`) and is drawn in the same place (page or XObject).
@@ -530,9 +543,15 @@ def _rejoined_copy_lines(prepared: list[_Prepared], has_copies: Callable[[dict],
     line over all their characters, its text rebuilt from them. Lines holding the same characters (a whole line drawn twice)
     are left to the copy check as before. Text printed twice is two sets of characters, so it never shares one (Pinned by:
     test_text_repeated_beside_a_word_in_fake_bold_is_kept). Lines with the same kept-character list (lines at the same place,
-    `in_place` of `_read_page`) are looked at once and share the fate of the first."""
+    `in_place` of `_read_page`) are looked at once and share the fate of the first.
+
+    Only lines on the same row are one line (`_same_row`), and the line kept for a group must have text for every character of
+    the group: the line under a word in fake bold that holds one character about twice the body size has a box reaching over
+    the centres of the line above, so it held all of that line's characters and was kept for the group, and the line above was
+    dropped without a trace (Pinned by: test_pdf.py::TestDrawingArtifacts::
+    test_line_with_a_tall_character_under_a_word_in_fake_bold_keeps_the_line_above)."""
     first_of: dict[int, int] = {}  # id(kept-character list) → the first line with it
-    holder: dict[int, int] = {}  # id(character) → the first line looked at that holds it
+    holders: dict[int, list[int]] = {}  # id(character) → the lines looked at that hold it
     held: dict[int, list[dict]] = {}
     parent: dict[int, int] = {}
 
@@ -554,9 +573,12 @@ def _rejoined_copy_lines(prepared: list[_Prepared], has_copies: Callable[[dict],
         held[index] = _held_chars(line, inside)
         parent[index] = index
         for char in held[index]:
-            other = holder.setdefault(id(char), index)
-            if other != index and prepared[other][1] == owner:
-                parent[root(other)] = root(index)
+            others = holders.setdefault(id(char), [])
+            for other in others:
+                if prepared[other][1] == owner and _same_row(prepared[other][0], line):
+                    parent[root(other)] = root(index)
+            if len(others) < _MAX_CHAR_HOLDERS:
+                others.append(index)
 
     groups: dict[int, list[int]] = {}
     for index in parent:
@@ -569,7 +591,8 @@ def _rejoined_copy_lines(prepared: list[_Prepared], has_copies: Callable[[dict],
         if all(chars == sets[0] for chars in sets):
             continue
         union = set().union(*sets)
-        whole = next((index for index, chars in zip(group, sets, strict=True) if chars == union), None)
+        whole = next((index for index, chars in zip(group, sets, strict=True)
+                      if chars == union and len("".join(prepared[index][2].split())) >= len(union)), None)
         if whole is None:
             whole = min(group)
             seen: set[int] = set()

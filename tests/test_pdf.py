@@ -1445,6 +1445,34 @@ class TestDrawingArtifacts:
         assert "Note: Note: the totals are final." in result.text
         assert result.text.count("100") == 3
 
+    @pytest.mark.parametrize(("big", "leading"), [(18, 11), (19, 11.5), (20, 12), (18, 12)])
+    def test_line_with_a_tall_character_under_a_word_in_fake_bold_keeps_the_line_above(self, big, leading):
+        """The line under a word in fake bold holds one character about twice the body size at ordinary leading. Its box reaches
+        up over the centres of the characters of the line above, so it held them all and passed for the one line of the group:
+        the line above, with its word in fake bold, was dropped without a trace. Only lines on the same row are one line."""
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 10)
+            pdf.drawString(72, 760, "An opening paragraph line comes first here.")
+            x = 72 + pdf.stringWidth("The plan is ", "Helvetica", 10)
+            pdf.drawString(72, 730, "The plan is ")
+            for shift in (0, 0.3):
+                pdf.drawString(x + shift, 730, "important")
+            pdf.drawString(x + pdf.stringWidth("important", "Helvetica", 10), 730, " for the whole team this year.")
+            y = 730 - leading
+            pdf.drawString(72, y, "The total comes to ")
+            x = 72 + pdf.stringWidth("The total comes to ", "Helvetica", 10)
+            pdf.setFont("Helvetica", big)
+            pdf.drawString(x, y, "42")
+            x += pdf.stringWidth("42", "Helvetica", big)
+            pdf.setFont("Helvetica", 10)
+            pdf.drawString(x, y, " units over the whole of the year.")
+
+        result = convert(_korean_pdf(draw), "a.pdf")
+
+        assert result.text.count("The plan is important for the whole team this year.") == 1
+        assert result.text.count("important") == 1
+        assert "The total comes to 42 units over the whole of the year." in result.text
+
     def test_shadow_drawn_in_another_colour_slightly_offset_is_read_once(self):
         """A shadow effect (the same text drawn first in grey, shifted by 1.2–3pt) exceeds the fake-bold threshold of 1pt and came out
         twice on every line. The same character drawn again in another colour within 0.15 times the character size is a copy. The same
