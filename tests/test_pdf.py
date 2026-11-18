@@ -528,6 +528,30 @@ class TestRepeatedMarginsAndBorderlessTables:
         assert "- 3 -" not in result.text
         assert "3쪽의 1번째 본문 문장이다." in result.text
 
+    def test_only_margin_and_edge_rows_are_compared_with_the_body_column(self, monkeypatch):
+        """Every row of a page was compared with the body rows of its shape, though only a margin or edge row can be removed:
+        a page of thousands of lines of one shape ('Item 3') took the square of their number. The body stays, the repeated
+        footer still goes."""
+        from opendockit.extractors import _pdf_margins
+        from opendockit.extractors._pdf_model import _Line, _Page
+
+        def page(number):
+            lines = [_Line(top=100 + index * 2, bottom=101.5 + index * 2, x0=50, x1=80, text=f"Item {index % 10}", size=1.5)
+                     for index in range(300)]
+            lines.append(_Line(top=780, bottom=790, x0=50, x1=200, text="Company confidential", size=10))
+            return _Page(number=number, width=595, height=800, lines=lines, tables=[], has_images=False, view=(0, 0, 595, 800))
+
+        compared = []
+        is_column_value = _pdf_margins._is_column_value
+        monkeypatch.setattr(_pdf_margins, "_is_column_value",
+                            lambda row, alike: compared.append(row[0].text) or is_column_value(row, alike))
+        pages = [page(number) for number in (1, 2, 3)]
+
+        _pdf_margins._remove_repeated_margins(pages)
+
+        assert [line.text for line in pages[0].lines] == [f"Item {index % 10}" for index in range(300)]
+        assert len(compared) == 3 * 4  # the top two and bottom two rows of each page (453 before)
+
     @pytest.mark.parametrize("values", [["김담당", "이담당", "박담당"], [f"{number * 7919 % 500000:,}" for number in range(1, 39)]])
     def test_values_of_a_one_column_list_at_the_page_edges_are_not_removed_as_repeated_lines(self, values):
         """A column pushed onto the following pages because it overflowed the print width (a single column of the person in charge) has
