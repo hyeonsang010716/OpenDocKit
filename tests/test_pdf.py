@@ -1009,6 +1009,36 @@ class TestBorderlessTableInOneColumn:
         assert ("| 형식 | 평균 | 최대 | 건수 |\n| --- | --- | --- | --- |\n| PDF | 1.2 | 8.4 | 320 |\n"
                 "| DOCX | 0.3 | 1.1 | 210 |\n| HWP | 0.5 | 2.0 | 150 |") in result.text
 
+    def test_a_column_in_the_gap_is_read_once(self):
+        """The last column of the left table pokes into the gap between the page columns. Lines in the gap were given to the
+        tables of both columns, so '17.3 | 19.1 | 11.4' also became the first column of the right table."""
+        sentence, other = "본 연구에서는 다양한 형식의 문서를 변환하는", "실험 결과 제안 방법은 정확도가 향상되었다"
+
+        def draw(pdf, index):
+            pdf.setFont(_FONT, 9)
+            for number in range(8):
+                pdf.drawString(50, 722 - number * 13, f"{sentence} 왼{number + 1}")
+                pdf.drawString(310, 722 - number * 13, f"{other} 오{number + 1}")
+            for row, values in enumerate([["데이터셋", "기존", "제안", "향상"], ["공문", "71.2", "88.5", "17.3"],
+                                          ["논문", "65.0", "84.1", "19.1"], ["견적서", "80.3", "91.7", "11.4"]]):
+                for x, value in zip((50, 140, 205, 280), values, strict=True):
+                    pdf.drawString(x, 600 - row * 14, value)
+            for row, values in enumerate([["형식", "평균", "최대", "건수"], ["PDF", "1.2", "8.4", "320"],
+                                          ["DOCX", "0.3", "1.1", "210"], ["HWP", "0.5", "2.0", "150"]]):
+                for x, value in zip((310, 390, 450, 500), values, strict=True):
+                    pdf.drawString(x, 586 - row * 14, value)
+            for number in range(20):
+                pdf.drawString(50, 535 - number * 13, f"{sentence} 아래{number + 1}")
+                pdf.drawString(310, 521 - number * 13, f"{other} 밑{number + 1}")
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert ("| 데이터셋 | 기존 | 제안 | 향상 |\n| --- | --- | --- | --- |\n| 공문 | 71.2 | 88.5 | 17.3 |\n"
+                "| 논문 | 65.0 | 84.1 | 19.1 |\n| 견적서 | 80.3 | 91.7 | 11.4 |") in result.text
+        assert ("| 형식 | 평균 | 최대 | 건수 |\n| --- | --- | --- | --- |\n| PDF | 1.2 | 8.4 | 320 |\n"
+                "| DOCX | 0.3 | 1.1 | 210 |\n| HWP | 0.5 | 2.0 | 150 |") in result.text
+        assert result.text.count("17.3") == 1
+
     def test_paragraph_ends_above_a_table_with_a_wide_note_column_are_not_two_columns(self):
         """On a single-column page, when the last lines of paragraphs (25–50% of the page width) are on the left and the wide '비고'
         (remarks) cells of a table are on the right, not at the same height, the page was judged two-column and the '비고' column fell
