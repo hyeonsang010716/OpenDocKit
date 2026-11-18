@@ -628,14 +628,23 @@ def _place_xobject_lines(lines: list[_Line], owners: list[int | None]) -> list[_
     # index of the page-text line to insert before (len(placed) means the end) → blocks, in their original order
     before: dict[int, list[_Line]] = {}
     for group in groups.values():
-        before.setdefault(_xobject_position(placed, group[0]), []).extend(group)
+        before.setdefault(_xobject_position(placed, group, lines), []).extend(group)
     return [line for index in range(len(placed) + 1) for line in [*before.get(index, []), *placed[index:index + 1]]]
 
 
-def _xobject_position(placed: list[_Line], first: _Line) -> int:
-    """Position at which to insert the first line of an XObject (before which page-text line): right after the text to its left on
-    the same line → before the first line below it in the same column → after the last line above it in the same column → before the
-    first line below it regardless of column → the end."""
+def _xobject_position(placed: list[_Line], group: list[_Line], lines: list[_Line]) -> int:
+    """Position at which to insert the lines of an XObject (`group`, its first line first; `lines` are all the page's lines,
+    drawn on the page or in XObjects) before which page-text line: right after the text to its left on the same line →
+    before the first line below it in the same column → after the last line above it in the same column → before the first line
+    below it regardless of column → the end.
+
+    The text to the left is meant for a label beside its value. When the line after it continues it beside the block with
+    nothing else to its right (a label has its value there), the block sits beside a paragraph and goes after the whole
+    paragraph, as drawn directly on the page:
+    a paragraph of three lines in an XObject was wedged into the paragraph beside it after its first line
+    (Pinned by: test_quality.py::test_pdf_form_xobject_beside_a_paragraph_does_not_split_it)."""
+    first = group[0]
+
     def same_column(line: _Line) -> bool:
         return line.x0 < first.x1 and first.x0 < line.x1
 
@@ -643,7 +652,12 @@ def _xobject_position(placed: list[_Line], first: _Line) -> int:
     left = [index for index, line in enumerate(placed)
             if line.top <= middle <= line.bottom and line.x1 <= first.x0 + 1]
     if left:
-        return max(left, key=lambda index: placed[index].x1) + 1
+        index = max(left, key=lambda index: placed[index].x1)
+        if index + 1 < len(placed) and _continues_beside(placed[index], placed[index + 1], group, lines):
+            index += 1
+            while index + 1 < len(placed) and _next_line_of(placed[index], placed[index + 1]):
+                index += 1
+        return index + 1
     below = next((index for index, line in enumerate(placed) if line.top >= first.top and same_column(line)), None)
     if below is not None:
         return below
@@ -651,6 +665,25 @@ def _xobject_position(placed: list[_Line], first: _Line) -> int:
     if above:
         return above[-1] + 1
     return next((index for index, line in enumerate(placed) if line.top >= first.top), len(placed))
+
+
+def _next_line_of(line: _Line, after: _Line) -> bool:
+    """Whether `after` is the next line of the paragraph of `line`: in the same column and below it, at most a line height apart."""
+    return after.x0 < line.x1 and line.x0 < after.x1 and 0 <= after.top - line.bottom <= line.height
+
+
+def _continues_beside(line: _Line, after: _Line, group: list[_Line], lines: list[_Line]) -> bool:
+    """Whether `after`, the page-text line after `line` (the text to the left of the XObject block `group`), continues the
+    paragraph of `line` beside the block: its middle lies beside a later line of the block, and no other line of the page
+    (`lines`, outside the block) lies to its right on its row (then it is a label with its value)."""
+    middle = (after.top + after.bottom) / 2
+    first = group[0]
+    if not (_next_line_of(line, after) and after.x1 <= first.x0 + 1
+            and any(block_line.top <= middle <= block_line.bottom for block_line in group[1:])):
+        return False
+    block = {id(block_line) for block_line in group}
+    return not any(other is not after and id(other) not in block and other.top <= middle <= other.bottom
+                   and other.x0 >= after.x1 - 1 for other in lines)
 
 
 @dataclass(slots=True)
