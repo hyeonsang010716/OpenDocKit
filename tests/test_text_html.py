@@ -1233,6 +1233,23 @@ class TestMhtml:
 
         assert result.text == self.EXPECTED
 
+    @pytest.mark.parametrize("source", ["cid:logo.1@example.com", "CID:logo.1@example.com", "Cid:logo%2E1@example.com",
+                                        "cid:logo.1%40example.com"])
+    def test_cid_address_is_matched_as_rfc_2392_writes_it(self, source):
+        """The scheme of a `cid:` address is case-insensitive and its Content-ID is percent-encoded (RFC 2392). Looked up as
+        written, the picture was neither extracted nor reported."""
+        from tests import builder
+
+        picture = base64.encodebytes(builder.png_bytes(seed=1)).decode()
+        data = ('MIME-Version: 1.0\nFrom: a@example.com\nTo: b@example.com\nSubject: s\nContent-Type: multipart/related; boundary="b"\n\n'
+                f'--b\nContent-Type: text/html; charset=utf-8\n\n<p>before <img src="{source}" alt="Quarterly sales"> after</p>\n'
+                f"--b\nContent-Type: image/png\nContent-ID: <logo.1@example.com>\nContent-Transfer-Encoding: base64\n\n{picture}"
+                "--b--\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert [image.alt for image in result.images] == ["Quarterly sales"]
+
     def test_picture_saved_with_the_page_is_extracted(self):
         """The picture parts saved with the page (`cid:`, Content-Location) were not extracted, so only the alt text of MHTML pictures
         remained. External addresses are not fetched."""
