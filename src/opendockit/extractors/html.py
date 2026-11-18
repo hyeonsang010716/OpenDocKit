@@ -40,6 +40,7 @@ from opendockit.extractors._html_dom import (
     _foster_parent_table_content,
     _image_placeholder,
     _keep_expander_buttons,
+    _keep_preserved_line_breaks,
     _keep_svg_labels,
     _mark_scripts,
     _mark_struck_text,
@@ -463,6 +464,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _decompose_all(soup.find_all(string=lambda node: isinstance(node, PreformattedString)))
     _drop_hidden(soup, kept=folded, whole=whole)
     _drop_permalinks(soup)
+    _keep_preserved_line_breaks(soup)
 
     extraction = Extraction(metadata=metadata, images=list(images or ()))
     warning = decoding_warning(encoding)

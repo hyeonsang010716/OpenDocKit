@@ -1341,6 +1341,29 @@ class TestMhtml:
         assert "[Image: 외부]" in result.text
 
 
+class TestWhiteSpacePreserved:
+    """`white-space: pre-wrap` or `pre-line` on an element is how web applications and notification mails show text a person
+    typed, and its line breaks were collapsed into spaces like those of ordinary text: the steps of a ticket, an address, the
+    lines of a note in a table cell ran into one line."""
+
+    def test_line_breaks_of_preserved_text_are_kept(self):
+        html = ('<h1>Ticket 4812</h1><div style="white-space: pre-wrap">Steps to reproduce:\n1. Open the settings page\n'
+                '2. Click Save\n\nExpected: saved\nActual: error 500</div><p style="white-space:pre-line">홍길동\n서울특별시 중구'
+                '</p><table><tr><th>항목</th><th>내용</th></tr><tr><td>비고</td><td style="white-space:pre-wrap">1차: 3월 2일\n'
+                '2차: 3월 9일</td></tr></table>')
+
+        assert convert(html.encode(), "a.html").text == (
+            "# Ticket 4812\n\nSteps to reproduce:\n1. Open the settings page\n2. Click Save\n\nExpected: saved\n"
+            "Actual: error 500\n\n홍길동\n서울특별시 중구\n\n| 항목 | 내용 |\n| --- | --- |\n| 비고 | 1차: 3월 2일<br>2차: 3월 9일 |")
+
+    def test_the_nearest_white_space_decides_and_source_indentation_adds_nothing(self):
+        html = ('<div style="white-space:pre-wrap">\n  <p>first\nline</p>\n  <p style="color:red; white-space: normal">joined\n'
+                'words</p>\n</div><p>plain\ntext</p><pre>code\n  kept</pre>')
+
+        assert convert(html.encode(), "a.html").text == (
+            "first\nline\n\njoined words\n\nplain text\n\n```\ncode\n  kept\n```")
+
+
 class TestPermalinksOfHeadings:
     """Sphinx (docs.python.org, Read the Docs) and MkDocs put a permalink anchor in every heading and API signature, which a
     browser shows only when the pointer is over it: they came out as `# Introduction¶` and `foo(*x*)¶: Return x.`."""

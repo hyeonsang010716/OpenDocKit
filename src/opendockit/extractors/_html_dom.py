@@ -1800,6 +1800,61 @@ def _is_spacer(data: bytes) -> bool:
     return width <= _SPACER_SIDE and height <= _SPACER_SIDE
 
 
+# The `white-space` of an inline style (the last one written wins), and the values that keep the line breaks of the text.
+_WHITE_SPACE = re.compile(r"(?<![\w-])white-space\s*:\s*([a-z-]+)", re.IGNORECASE)
+_KEEPS_LINE_BREAKS = frozenset({"pre", "pre-wrap", "pre-line", "break-spaces"})
+
+
+def _keep_preserved_line_breaks(soup: BeautifulSoup) -> None:
+    """Turn the line breaks of text under an inline `white-space: pre`, `pre-wrap`, `pre-line` or `break-spaces` into `<br>`.
+
+    Rendering collapses white space as a browser does for ordinary text, and that style is how web applications and
+    notification mails show text a person typed: the steps of a ticket, a comment, an address, a note in a table cell ran
+    into one line (`Steps to reproduce: 1. Open … 2. Click Save`) (Pinned by: test_text_html.py::TestWhiteSpacePreserved).
+    The nearest element that sets `white-space` decides, as the property is inherited; text inside a `<pre>` is left to the code
+    block. Text of white space only at the edge of a block (the indentation of the source between blocks) is left alone.
+    Known accepted gaps: the spaces of such text are still collapsed (the indentation under `pre` is lost), and a
+    `white-space` set by a style sheet rather than the element is not seen.
+    """
+    if not any(_WHITE_SPACE.search(str(tag["style"])) for tag in soup.find_all(style=True)):
+        return
+    keeps: dict[int, bool] = {}  # element id → whether its text keeps its line breaks
+
+    def decided(element: Tag | None) -> bool:
+        chain = []
+        while element is not None and id(element) not in keeps:
+            if element.name in _CODE_BLOCKS:
+                keeps[id(element)] = False
+                break
+            values = _WHITE_SPACE.findall(str(element.get("style", ""))) if element.attrs else []
+            if values:
+                keeps[id(element)] = values[-1].lower() in _KEEPS_LINE_BREAKS
+                break
+            chain.append(element)
+            element = element.parent
+        answer = keeps.get(id(element), False) if element is not None else False
+        for link in chain:
+            keeps[id(link)] = answer
+        return answer
+
+    places: _Places = {}
+    for text in soup.find_all(string=lambda node: "\n" in node and not isinstance(node, PreformattedString)):
+        if not decided(text.parent):
+            continue
+        if not text.strip():
+            before, after = text.previous_sibling, text.next_sibling
+            if (before is None or after is None or (isinstance(before, Tag) and before.name in _BETWEEN_RUNS)
+                    or (isinstance(after, Tag) and after.name in _BETWEEN_RUNS)):
+                continue
+        holder = soup.new_tag("span")
+        for index, line in enumerate(str(text).split("\n")):
+            if index:
+                holder.append(soup.new_tag("br"))
+            if line:
+                holder.append(line)
+        _replace(text, holder, places)
+
+
 # The mark of the permalink anchor documentation generators put in every heading and API signature (Sphinx and MkDocs `¶`,
 # others `#`, `§`, a link or an anchor sign), with or without a variation selector.
 _PERMALINK_MARKS = frozenset({"¶", "#", "§", "\U0001F517", "\u2693", "\U0001F517\ufe0f", "\u2693\ufe0f", "\u2693\ufe0e"})
