@@ -9,6 +9,7 @@ import time
 import pytest
 
 from opendockit.extractors._equation import equation_to_latex, render_equation
+from tests.timing import fastest
 
 
 class TestSpecExamples:
@@ -175,6 +176,31 @@ class TestRules:
         result = equation_to_latex("x &= 1 # y &= 2")
 
         assert result == r"\begin{aligned} x & = 1 \\ y & = 2 \end{aligned}"
+
+
+class TestRepeatedStacks:
+    """The top of an `atop` lost its braces like any argument, so a chain of them came out as `{a \\atop b \\atop c}`, which TeX
+    rejects as ambiguous, and every repetition scanned the whole top again: 20 equations of `a atop a atop …` in a 1.6 KB HWPX
+    took 10 s."""
+
+    @pytest.mark.parametrize("script, latex", [
+        ("a atop b atop c", r"{{a \atop b} \atop c}"),  # as `{a atop b} atop c` is read, and as `a over b over c` nests
+        ("{a atop b} atop c", r"{{a \atop b} \atop c}"),
+        ("a atop {b atop c}", r"{a \atop {b \atop c}}"),
+        ("x atop y over z", r"\frac{x \atop y}{z}"),
+    ])
+    def test_a_stack_on_a_stack_keeps_its_group(self, script, latex):
+        assert equation_to_latex(script) == latex
+
+    @pytest.mark.timing
+    def test_long_chain_of_stacks_takes_linear_time(self):
+        def chain(count):
+            return " atop ".join(["a"] * count)
+
+        small, large = chain(300), chain(1_200)  # 8,394 characters, within the 10,000 of a script
+
+        assert fastest(lambda: equation_to_latex(large)) < 8 * fastest(lambda: equation_to_latex(small)) + 0.01
+        assert equation_to_latex(large).count(r"\atop") == 1_199
 
 
 class TestFallback:

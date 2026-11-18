@@ -271,8 +271,14 @@ class _Parser:
                 self._index += 1
                 while items and not items[-1]:
                     items.pop()  # `{a+b} ~over~ {c}` — so the visible blank before it does not steal the numerator
-                top = _bare(items.pop() if items else "")
-                items.append(_INFIX[key](top, _bare(self._scripted_term())))
+                top = items.pop() if items else ""
+                # The braces of an `\atop` are its own group, so they stay on one that is the top of the next: stripped,
+                # `a atop b atop c` came out as `{a \atop b \atop c}`, which TeX rejects as ambiguous, and every repetition
+                # scanned the whole top again (`a atop a atop …`, 20 such equations in a 1.6 KB file: 10 s)
+                # (Pinned by: test_equation.py::TestRepeatedStacks).
+                top = top if key == "atop" and isinstance(top, _Stack) else _bare(top)
+                latex = _INFIX[key](top, _bare(self._scripted_term()))
+                items.append(_Stack(latex) if key == "atop" else latex)
             elif key in _SCRIPTS:
                 self._index += 1
                 script = f"{_SCRIPTS[key]}{{{_bare(self._script())}}}"
@@ -468,6 +474,12 @@ def _greek(word: str) -> str:
 
 def _text(text: str) -> str:
     return r"\text{" + text.translate(_TEXT_ESCAPES) + "}"
+
+
+class _Stack(str):
+    """The LaTeX of an `atop` (`{top \\atop bottom}`), told apart from other terms while it is still one."""
+
+    __slots__ = ()
 
 
 def _bare(text: str) -> str:
