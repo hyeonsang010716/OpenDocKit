@@ -786,6 +786,10 @@ def _decoded_run(words: list[str], gaps: list[str]) -> str:
 
 # A line break that folds a header: one followed by a space or tab (RFC 5322 §2.2.3)
 _FOLD = re.compile(r"\r?\n(?=[ \t])")
+# The start of an RFC 2047 word as `decode_header` reads one (its pattern up to the encoded text), and the characters
+# `str.splitlines` breaks a line at, as `decode_header` splits the header with it.
+_WORD_START = re.compile(r"=\?[^?]*\?[qQbB]\?")
+_LINE_BREAK = re.compile("[\n\r\x0b\x0c\x1c-\x1e\x85\u2028\u2029]")
 
 
 def _decoded_words(text: str) -> str:
@@ -797,11 +801,26 @@ def _decoded_words(text: str) -> str:
     (Pinned by: test_core_mail_parts_and_icons.py::TestKoreanEncodedWordsWithExtendedHangul). Words that still do not decode are
     decoded piece by piece with `decode_text`.
     """
+    unfolded, rest = _FOLD.sub("", text), ""
+    # `decode_header` looks for the `?=` closing a word from every word start to the end of the line, so a header of word starts
+    # that are never closed took the square of its length (`=?a?q?x` repeated: 137 KB in 9 s; a forwarded mail's subject or an
+    # attachment name is not bounded by the 256 KB header range). Only a start after the last `?=` can fail that way, and no word
+    # is complete from there on: that rest is left as written, which is what `decode_header` makes of it, and only the text
+    # before it is decoded. The rest starts after the last `?=`, which may close a word even when a start begins at its `=`
+    # (`…?=?a?q?x`). A header of several lines is split into lines by `decode_header`, so that one is left to the word by word
+    # decoding of `_decoded_header`
+    # (Pinned by: test_core_mailboxes_and_charsets.py::TestUnclosedEncodedWords).
+    last_end = unfolded.rfind("?=")
+    unclosed = _WORD_START.search(unfolded, last_end + 2 if last_end >= 0 else 0)
+    if unclosed is not None:
+        if _LINE_BREAK.search(unfolded):
+            return text
+        unfolded, rest = unfolded[:unclosed.start()], unfolded[unclosed.start():]
     # A word whose base64 is broken (`=?utf-8?b?A?=`) raises HeaderParseError, which is not a ValueError: one subject or
     # attachment name rejected the whole mail
     # (Pinned by: test_audit_html_text.py::TestEncodedWordThatCannotBeDecoded).
     try:
-        pieces = decode_header(_FOLD.sub("", text))
+        pieces = decode_header(unfolded)
     except (LookupError, UnicodeError, ValueError, HeaderParseError):
         return text
     # In a word labeled Windows-1252/ISO-8859-1 nearly every byte decodes strictly, so a CP949 subject was garbled into `[°øÁö]`.
@@ -815,7 +834,7 @@ def _decoded_words(text: str) -> str:
     # header is unfolded first (RFC 5322: the line break goes, the space after it stays, `_FOLD`): `decode_header` strips the
     # space starting each line, so `=?…?=\r\n <a@b>` became `홍길동<a@b>` and `Hello world\r\n =?utf-8?q?x?=` `Hello worldx`
     # (Pinned by: test_core_mailboxes_and_charsets.py::TestEncodedWordNextToText).
-    return "".join(_header_chunk_text(chunk, charset) for chunk, charset in pieces)
+    return "".join(_header_chunk_text(chunk, charset) for chunk, charset in pieces) + rest
 
 
 def _latin_labeled_text(chunk: bytes, charset: str | None) -> str:
