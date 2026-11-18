@@ -130,8 +130,9 @@ _CLOSED = "This IsolatedConverter is closed."
 _SMALL_TEXT = b"first line\n\nsecond paragraph\n"
 # A CSV (8MB) that takes seconds to convert: still running when the converter is closed
 _SLOW_CSV = ("가나다 라마바 사아자 1234,5678\n" * 200_000).encode()
-# Tests that start worker processes wait on them: marked `timing` (run serially), and POSIX only (see tests/test_isolated.py)
-_posix_only = pytest.mark.skipif(sys.platform == "win32", reason="worker process control is tested on POSIX only")
+# Tests that start worker processes wait on them: marked `timing`, so CI runs them one at a time. They run on every
+# platform — nothing in them is POSIX-specific, and the closing of a converter with a conversion still under way is the
+# one that used to hang on Windows (`isolated._new_pool` cancels the call queue's join for it).
 
 
 async def _wait_for_worker(converter: IsolatedConverter) -> None:
@@ -181,7 +182,6 @@ class TestClosingWithConversionsUnderWay:
 
     @pytest.mark.timing
     @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
-    @_posix_only
     def test_running_and_waiting_files_end_as_closed_and_each_pool_is_stopped_once(self, monkeypatch):
         stopped, logged = [], []
         stop = isolated._stop
@@ -248,7 +248,6 @@ class TestConverterUsedFromSuccessiveEventLoops:
 
     @pytest.mark.timing
     @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
-    @_posix_only
     def test_files_wait_for_a_worker_in_a_later_event_loop_too(self):
         converter = IsolatedConverter(workers=2)
 
