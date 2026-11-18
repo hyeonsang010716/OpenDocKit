@@ -261,6 +261,16 @@ class TestMathMl:
         assert result.text == ("면적 $r^2π$, 비율 $\\frac{3}{4}$, 근 $\\sqrt{2}$, 첨자 $a_{10}$, 세제곱근 $\\sqrt[3]{x}$, "
                                "합 $∑_{i=1}^{n}i$")
 
+    def test_literal_text_is_escaped(self):
+        """A `$` in the text of an equation ended the math span (`$$5×n$` opened display math), and braces typed in an `<mo>` or
+        as fences vanished as LaTeX grouping. They are escaped as in Office equations; the LaTeX the converter writes is not."""
+        html = ("<p>Total <math><mtext>$</mtext><mn>5</mn><mo>×</mo><mi>n</mi></math> per unit, "
+                "<math><mo>{</mo><mi>a</mi><mo>}</mo><mo>∪</mo><mfenced open='{' close='}'><mi>b</mi></mfenced></math>, "
+                "<math><mfrac><mn>50</mn><mtext>%</mtext></mfrac><mi>#</mi><mi>\\</mi></math></p>")
+
+        assert convert(html.encode(), "a.html").text == ("Total $\\$5×n$ per unit, $\\{a\\}∪\\{b\\}$, "
+                                                        "$\\frac{50}{\\%}\\#\\backslash$")
+
     def test_math_inside_a_table_cell_stays_in_the_cell(self):
         html = ("<table><tr><th>항목</th><th>식</th></tr>"
                 "<tr><td>넓이</td><td><math><mi>π</mi><msup><mi>r</mi><mn>2</mn></msup></math></td></tr></table>")

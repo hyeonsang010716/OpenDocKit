@@ -887,6 +887,12 @@ class TestObjects:
         text = _odt(self.BODY, parts={"Object 1/content.xml": self.FORMULA.format(namespaces=_NAMESPACES, mathml=mathml).encode()})
         assert text == r"성장률은 $g=\frac{R_t-R_{t-1}}{\sqrt{n}}$ 이다."
 
+    def test_literal_text_of_a_formula_is_escaped(self):
+        """The same escapes as an HTML or Office equation: a `$` in the text ended the math span."""
+        mathml = "<math:mrow><math:mtext>$</math:mtext><math:mn>5</math:mn><math:mo>{</math:mo><math:mi>n</math:mi></math:mrow>"
+        text = _odt(self.BODY, parts={"Object 1/content.xml": self.FORMULA.format(namespaces=_NAMESPACES, mathml=mathml).encode()})
+        assert text == r"성장률은 $\$5\{n$ 이다."
+
     def test_formula_without_readable_mathml_keeps_its_starmath_text(self):
         """A formula whose MathML part is empty: the StarMath annotation is kept between `$` (not LaTeX — a recorded gap), which
         beats losing the formula."""

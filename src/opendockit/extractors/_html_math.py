@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from bs4.element import PreformattedString
 
 from opendockit.extractors._html_base import _BLOCK_TAGS, _HEADINGS
-from opendockit.extractors._mathml import MATH_IGNORED, mathml_structure
+from opendockit.extractors._mathml import MATH_IGNORED, literal, mathml_structure
 
 
 # MathML (`_put_math`): annotation encodings of the LaTeX the document wrote, the opening of Wikipedia's wrapper, script
@@ -109,14 +109,14 @@ def _mathml_latex(node: object, depth: int) -> str:
     fractions, radicals, upper/lower limits) readable (the same as `_omml.omml_to_latex`). Unknown elements have their
     children joined in order. Deeper than `_MAX_MATH_DEPTH`, only the characters are joined."""
     if isinstance(node, NavigableString):
-        return "" if isinstance(node, PreformattedString) else str(node).strip()
+        return "" if isinstance(node, PreformattedString) else literal(str(node).strip())
     if not isinstance(node, Tag):
         return ""
     name = node.name
     if name in MATH_IGNORED:
         return ""
     if depth >= _MAX_MATH_DEPTH:
-        return "".join(node.get_text().split())
+        return literal("".join(node.get_text().split()))
 
     children = [child for child in node.children if isinstance(child, Tag)]
     parts = [_mathml_latex(child, depth + 1) for child in children]
@@ -130,7 +130,7 @@ def _mathml_latex(node: object, depth: int) -> str:
     if structure is not None:
         return structure
     if not children:
-        return " ".join(node.get_text().split())  # mi·mn·mo·mtext·ms
+        return literal(" ".join(node.get_text().split()))  # mi·mn·mo·mtext·ms
     # Unknown elements have their child elements and the text between them joined in order. Joining only the elements lost the
     # `-` of `<math>- <span>…</span></math>`
     # (Pinned by: test_core_round45.py::TestLimitOnBrokenHtml::test_text_beside_elements_inside_math_is_kept).
