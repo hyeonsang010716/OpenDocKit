@@ -38,7 +38,7 @@ from opendockit.extractors._html_tables import (
     _mostly_nested_tables,
     _names_values_in_pairs,
     _nearest,
-    _own_caption,
+    _own_captions,
     _row_cells,
     _row_span,
     _span,
@@ -824,8 +824,7 @@ def _item_blocks(text: str) -> list[str]:
 
 
 def _render_table(table: Tag) -> str:
-    caption = _own_caption(table)
-    caption_text = _title_text(caption) if caption else ""
+    caption_text = "\n\n".join(text for caption in _own_captions(table) if (text := _title_text(caption)))
     rows = _table_rows(table)
     if (_is_one_column_box(rows) or _is_layout_table(rows)) and _layout_depth.get() < _MAX_LAYOUT_DEPTH:
         rendered = _render_layout_table(rows)
@@ -1046,8 +1045,7 @@ def _flat_table_text(table: Tag) -> str:
     `get_text(" ")` inserts a space at every text node, so `매출 1<b>2</b>,345원` became `매출 1 2 ,345원` and `CO<sub>2</sub>` became
     `CO _2` (Pinned by: test_core_html_layout_cells.py::TestNestedTableFlattenedIntoACell).
     """
-    caption = table.find("caption", recursive=False)
-    parts = [_inline_text(caption)] if caption is not None else []
+    parts = [_inline_text(caption) for caption in table.find_all("caption", recursive=False)]
     parts.extend(_inline_text(cell) if cell.find([*_HEADINGS, "blockquote"]) is None else " ".join(cell.get_text(" ").split())
                  for row in _table_rows(table) for cell in _row_cells(row))  # keeps heading / quote marks (`#`, `>`) out of the one line
     return " ".join(part for part in parts if part)

@@ -57,12 +57,13 @@ def _measured_length(node: Tag) -> int:
     return sum(map(len, text.split())) - 2 * text.count("~~") - len(STRIKE_KEY) * text.count(STRIKE_KEY)
 
 
-def _own_caption(table: Tag) -> Tag | None:
-    """The caption of this table: the first one outside its cells and inner tables (the parser leaves a caption written inside
-    tbody or a wrapping form where it is). `table.find("caption")` also found the caption of a table nested in a cell, so the
-    outer table took it and it came out twice (Pinned by: test_audit_html_text.py::TestCaptionOfATableInsideACell)."""
-    found = _nearest(table, wanted={"caption"}, stop={"table", "td", "th"})
-    return found[0] if found else None
+def _own_captions(table: Tag) -> list[Tag]:
+    """The captions of this table, in source order: those outside its cells and inner tables (the parser leaves a caption
+    written inside tbody or a wrapping form where it is). `table.find("caption")` also found the caption of a table nested in a
+    cell, so the outer table took it and it came out twice (Pinned by: test_audit_html_text.py::TestCaptionOfATableInsideACell).
+    A browser shows every caption of a table above it; taking only the first lost the text of a second one
+    (Pinned by: test_audit_html_text.py::TestCaptionOfATableInsideACell::test_every_caption_of_the_table_comes_out)."""
+    return _nearest(table, wanted={"caption"}, stop={"table", "td", "th"})
 
 
 def _holds_blocks(cell: Tag) -> bool:
@@ -124,7 +125,7 @@ def _is_html_table(rendered: str) -> bool:
 
 def _has_one_row_header(table: Tag, rows: list[Tag]) -> bool:
     """Whether it has no caption or multi-row header and so can sit as a one-line HTML table inside an outer HTML cell (`_embedded_grid`)."""
-    return _own_caption(table) is None and _header_row_count(table, rows) <= 1
+    return not _own_captions(table) and _header_row_count(table, rows) <= 1
 
 
 def _is_layout_table(rows: list[Tag]) -> bool:

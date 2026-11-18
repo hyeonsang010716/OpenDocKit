@@ -196,6 +196,12 @@ class TestCaptionOfATableInsideACell:
 
         assert result.text == "CAP\n\n| 1 | 2 |\n| --- | --- |\n| 3 | 4 |"
 
+    def test_every_caption_of_the_table_comes_out(self):
+        """A browser shows both captions of `<table><caption>T1</caption><caption>T2</caption>`; the second was lost."""
+        result = convert(f"<table><caption>CAP1</caption><caption>CAP2</caption>{_TWO_ROWS}</table>".encode(), "a.html")
+
+        assert result.text == "CAP1\n\nCAP2\n\n| 1 | 2 |\n| --- | --- |\n| 3 | 4 |"
+
 
 class TestDoctypeInsideTheBody:
     """A `<!DOCTYPE …>` in the middle of the body (pages pasted together, a template included twice) is kept by the parser as a
