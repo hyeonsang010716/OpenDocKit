@@ -6,7 +6,7 @@ pictures turned into placeholders.
 import base64
 import binascii
 import bisect
-from collections.abc import Callable, Container
+from collections.abc import Callable, Container, Iterator
 import itertools
 import re
 
@@ -953,8 +953,17 @@ def _put_form_values(soup: BeautifulSoup) -> None:
     number of controls of one form (16,000 took 5.6 s). A span is an element rendering merely descends into, so the result is
     the same as placing the text pieces directly
     (Pinned by: TestFormValues::test_thousands_of_form_controls_are_replaced_in_linear_time).
+
+    A control inside a select or a textarea is left alone: emptying the one around it takes it out. lxml nests every select left
+    open inside the one before it, and emptying each of them in turn walked all the selects inside it again (`clear` finds the
+    last descendant of every child it takes out): 8,000 questions with a select each left open (607 KB) took 20 seconds
+    (Pinned by: TestFormValues::test_selects_left_open_take_linear_time).
     """
-    for control in soup.find_all(["input", "select", "textarea"]):
+    controls = soup.find_all(["input", "select", "textarea"])
+    held = _lying_inside(controls, {"select", "textarea"})
+    for control in controls:
+        if id(control) in held:
+            continue
         if control.name == "input":
             values = _input_values(control)
         elif control.name == "select":
@@ -1229,12 +1238,38 @@ def _input_values(control: Tag) -> list[str]:
 
 def _selected_options(control: Tag) -> list[str]:
     """Chosen options. A single-choice list falls back to its first option when nothing is chosen (that is what browsers show). A
-    multiple-choice list gives every chosen option."""
-    options = control.find_all("option")
+    multiple-choice list gives every chosen option.
+
+    A select inside the select is not read: lxml puts the next select inside a select left open (inside its last option when
+    that is left open too), and read with it the outer select showed the chosen option of the inner one, or the inner select's
+    text after its own option's (Pinned by:
+    test_text_html.py::TestFormValues::test_a_select_left_open_shows_its_own_option_not_one_of_the_select_inside_it)."""
+    options = [node for node in _outside_selects(control) if isinstance(node, Tag) and node.name == "option"]
     chosen = [option for option in options if option.has_attr("selected")]
     if not control.has_attr("multiple"):
         chosen = chosen[-1:] or options[:1]
-    return [", ".join(text for text in (" ".join(option.get_text().split()) for option in chosen) if text)]
+    return [", ".join(text for text in (" ".join(_option_text(option).split()) for option in chosen) if text)]
+
+
+def _outside_selects(tag: Tag) -> Iterator[PageElement]:
+    """The descendants of `tag` in document order, leaving out every select inside it with all it holds."""
+    stack = [iter(tag.contents)]
+    while stack:
+        node = next(stack[-1], None)
+        if node is None:
+            stack.pop()
+        elif not isinstance(node, Tag):
+            yield node
+        elif node.name != "select":
+            yield node
+            stack.append(iter(node.contents))
+
+
+def _option_text(option: Tag) -> str:
+    """The text of `option` as `get_text` gives it, without the text of a select inside it (`_selected_options`)."""
+    kinds = option.interesting_string_types
+    return "".join(node for node in _outside_selects(option)
+                   if isinstance(node, NavigableString) and (type(node) is kinds if isinstance(kinds, type) else type(node) in kinds))
 
 
 def _mark_scripts(soup: BeautifulSoup) -> None:
