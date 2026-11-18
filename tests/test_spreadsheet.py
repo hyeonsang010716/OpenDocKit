@@ -1372,6 +1372,34 @@ class TestXlsDrawings:
         assert len(extraction.sections) == 1
 
 
+class TestTextSections:
+    """A text cell is shown by the text section of its format (the fourth, or the only one when it holds `@`), with the
+    literals around it. They were dropped: a name lost the title Excel shows with it, a code its prefix."""
+
+    @pytest.mark.parametrize(("number_format", "expected"), [
+        ('@" 님"', "홍길동 님"), ('"(주)"@', "(주)홍길동"), ('0;-0;0;"코드: "@', "코드: 홍길동"), ('"["@"]"', "[홍길동]"),
+        ("_(@_)", "홍길동"), ("[Red]@", "홍길동"), ("@", "홍길동"), ("General", "홍길동"), ("0.00", "홍길동"),
+        ('0;0;0;"n/a"', "홍길동"),  # a text section without `@` would hide the text
+        (";;;", "홍길동"),
+    ])
+    def test_text_cell_gets_the_literals_of_its_text_section(self, number_format, expected):
+        assert format_cell("홍길동", number_format) == expected
+
+    def test_xlsx_and_excel_2003_xml_text_cells_show_their_literals(self):
+        workbook = openpyxl.Workbook()
+        workbook.active.append(["이름", "직급"])
+        workbook.active.append(["홍길동", "과장"])
+        workbook.active["A2"].number_format = '@" 님"'
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        xlsx = convert(buffer.getvalue(), "a.xlsx")
+        xml = convert(_xml_spreadsheet('@" 님"', "String", "홍길동"), "a.xml")
+
+        assert "| 홍길동 님 | 과장 |" in xlsx.text
+        assert "| 가 | 홍길동 님 |" in xml.text
+
+
 class TestTextOnlyNumberFormats:
     """A format with only text and no digit place (`"매우 좋음"` on the value 5) shows just that text on screen in Excel. The format
     was dropped and the raw value 5 came out."""

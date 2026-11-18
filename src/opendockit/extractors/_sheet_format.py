@@ -65,8 +65,8 @@ def format_cell(value: object, number_format: str | None) -> str:
     """Turn a cell value into a string the way it appears on screen in Excel.
 
     Deliberate: emitting 108.2% as 1.082 or 125,000,000 as 125000000 makes an LLM misread the figures. Only percent, thousands
-    separators, scaling by thousands, zero padding, decimal places, currency symbols and leading/trailing literals ("원") are
-    applied; complex things such as dates, fractions, exponents and conditional formats use the original value.
+    separators, scaling by thousands, zero padding, decimal places, currency symbols, leading/trailing literals ("원") and the
+    text section of a text cell are applied; complex things such as dates, fractions, exponents and conditional formats use the original value.
     Alignment padding (`_-`, `* `) is not part of the value, so it is removed
     (Pinned by: test_quality.py::TestSpreadsheetNumberFormats).
     """
@@ -96,6 +96,8 @@ def format_cell(value: object, number_format: str | None) -> str:
             return shown.isoformat(sep=" ", timespec="seconds" if _shows_seconds(number_format) else "minutes")
     if isinstance(value, time) and number_format and number_format.lower() != "general" and not _shows_date(number_format):
         return _time_text(value, number_format)
+    if isinstance(value, str) and number_format:
+        return _text_in_format(value, number_format)
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not number_format:
         return _format_value(value)
     formatted = _apply_number_format(float(value), number_format)
@@ -336,6 +338,31 @@ def _format_section(value: float, number_format: str) -> tuple[str, float, bool]
     if value == 0 and len(sections) > 2 and ("0" in _format_codes(sections[2]) or not _has_digit_places(sections[0])):
         return sections[2], value, False
     return (sections[0] if sections else ""), value, False
+
+
+def _text_in_format(text: str, number_format: str) -> str:
+    """A text cell as its format shows it: the text section — the fourth, or the only one when it holds `@` — with each `@`
+    replaced by the text and its literals around it (`@" 님"` → `홍길동 님`, `"(주)"@` → `(주)한빛`). Padding (`_x`, `*x`) and
+    colour and locale sections are left out, a currency section is its symbol. The literals were dropped, and a name or code
+    lost the title or prefix Excel shows with it (Pinned by: test_spreadsheet.py::TestTextSections). A text section without
+    `@` (`"n/a"`) would hide the text and is not applied, nor is a format without a text section (Excel shows the text)."""
+    if "@" not in number_format:  # General and every number format: nothing to look into
+        return _format_value(text)
+    sections = [match.group(0) for match in _FORMAT_SECTION.finditer(number_format)]
+    section = sections[3] if len(sections) > 3 else sections[0] if len(sections) == 1 else ""
+    if "@" not in _format_codes(section):
+        return _format_value(text)
+    text = _format_value(text)
+    pieces = []
+    for token in _FORMAT_TOKEN.finditer(section):
+        quoted, escaped, bracket = token.groups()
+        if bracket is not None:
+            pieces.append(bracket[1:].split("-")[0] if bracket.startswith("$") else "")
+        elif quoted is not None or escaped is not None:
+            pieces.append(quoted if quoted is not None else escaped)
+        else:
+            pieces.append(_FORMAT_PADDING.sub("", token.group(0)).replace("@", text))
+    return "".join(pieces).strip()
 
 
 def _has_digit_places(section: str) -> bool:
