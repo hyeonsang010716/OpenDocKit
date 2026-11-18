@@ -3,10 +3,9 @@ nesting limits, its body parts in document order, forwarded mails, decoded heade
 """
 
 import base64
-import binascii
 import codecs
 import email
-from email.errors import HeaderParseError
+from email.errors import HeaderParseError, InvalidBase64LengthDefect
 from email.header import Header, decode_header
 from email.message import Message
 from email.parser import BytesHeaderParser
@@ -569,16 +568,16 @@ def _forwarded_message(part: Message) -> Message | None:
         return inner
 
     # A mail wrapped in base64 is read by the parser as text without headers. With quoted-printable the headers are already
-    # parsed, so the header lines are restored and decoded together with the rest.
+    # parsed, so the header lines are restored and decoded together with the rest. Base64 cut off at any length is decoded up to
+    # the cut (`base64_prefix`; Pinned by: test_core_mailboxes_and_charsets.py::TestBase64CutOffAtAnyLength).
     wrapped = inner.get_payload()
     if not isinstance(wrapped, str) or (encoding == "base64" and inner.keys()):
         return inner
     if inner.keys():
         wrapped = "".join(f"{name}: {value}\n" for name, value in inner.items()) + "\n" + wrapped
     try:
-        raw = (base64.b64decode("".join(wrapped.split()) + "==", validate=False) if encoding == "base64"
-               else quopri.decodestring(wrapped.encode("ascii", errors="replace")))
-    except (binascii.Error, ValueError):
+        raw = base64_prefix(wrapped) if encoding == "base64" else quopri.decodestring(wrapped.encode("ascii", errors="replace"))
+    except ValueError:
         return inner
     inner = parse_mail(raw)
     part.set_payload([inner])
@@ -941,13 +940,44 @@ def mail_plain_body(message: Message, parts: list[Message] | None = None) -> tup
     return _mail_body(message, "text/plain", parts)
 
 
+def part_content(part: Message) -> bytes | None:
+    """The content of a leaf part, its transfer encoding (base64, quoted-printable) decoded: `get_payload(decode=True)`, except
+    that base64 whose letters come to one more than a multiple of four is decoded up to the last whole byte (`base64_prefix`).
+
+    For that length the standard library gives back the base64 itself, undecoded, and only records a defect on the part, so a
+    body cut off in transit at one length in four came out as a page of base64 letters, while one cut at any other length
+    gave the text up to the cut. The one letter left over carries six bits, less than a byte, so nothing is lost by dropping
+    it, and the part is read like one cut at any other length, without a warning
+    (Pinned by: test_core_mailboxes_and_charsets.py::TestBase64CutOffAtAnyLength).
+    """
+    seen = len(part.defects)
+    payload = part.get_payload(decode=True)
+    if not any(isinstance(defect, InvalidBase64LengthDefect) for defect in part.defects[seen:]):
+        return payload
+    encoded = part.get_payload()
+    return base64_prefix(encoded) if isinstance(encoded, str) else payload
+
+
+# What base64 decoding leaves out: anything that is not one of its 64 letters (line breaks, stray characters, padding).
+_NOT_BASE64 = re.compile(r"[^A-Za-z0-9+/]+")
+
+
+def base64_prefix(encoded: str) -> bytes:
+    """The bytes of the base64 `encoded`, up to the last whole byte. Characters that are not base64 letters are left out, and
+    a letter left over after the last whole byte (one more than a multiple of four) is dropped (`part_content`)."""
+    letters = _NOT_BASE64.sub("", encoded)
+    if len(letters) % 4 == 1:
+        letters = letters[:-1]
+    return base64.b64decode(letters + "=" * (-len(letters) % 4))
+
+
 def _mail_body(message: Message, content_type: str, parts: list[Message] | None = None) -> tuple[str, list[str]] | None:
     texts, encodings = [], []
 
     for part in mail_body_parts(message) if parts is None else parts:
         if part.get_content_type() != content_type:
             continue
-        payload = part.get_payload(decode=True)
+        payload = part_content(part)
         if isinstance(payload, bytes) and payload.strip():
             text, encoding = plain_part_text(part, payload) if content_type == "text/plain" else decode_text(payload, part.get_content_charset())
             texts.append(text.strip())

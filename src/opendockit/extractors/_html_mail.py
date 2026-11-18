@@ -29,6 +29,7 @@ from opendockit.extractors._mail import (
     mail_plain_body,
     mime_start,
     parse_mail,
+    part_content,
     plain_part_text,
 )
 from opendockit.extractors._mail import mime_header_block as _mime_header_block
@@ -102,7 +103,7 @@ def mail_html_parts(message: Message) -> list[tuple[bytes, str | None]]:
     parts = []
 
     for part in mail_html_body_parts(message):
-        payload = part.get_payload(decode=True)
+        payload = part_content(part)
         if payload:
             parts.append((payload, part.get_content_charset()))
     return parts
@@ -146,7 +147,7 @@ def _mail_body_html(message: Message) -> tuple[list[str], list[str]]:
     # Plain-text parts outside an alternative (the plain-text body or footer of a mixed) are placed in order with the HTML
     # parts, each a document of its own (`html._extract_documents`).
     for part in mail_body_sequence(message):
-        payload = part.get_payload(decode=True)
+        payload = part_content(part)
         if not isinstance(payload, bytes) or not payload.strip():
             continue
         if part.get_content_type() == "text/html":
@@ -203,7 +204,7 @@ def _unread_frame_warning(message: Message, page: str) -> str | None:
         return None
     own = _visible_length(page)
     for part in found.values():
-        payload = part.get_payload(decode=True)
+        payload = part_content(part)
         if isinstance(payload, bytes) and _visible_length(decode_text(payload, part.get_content_charset(), markup=True)[0]) > own:
             return ("The body of the web page seems to be inside a frame (iframe). The frame content was not read — open the "
                     "body page directly, save it, and convert that file.")
@@ -281,12 +282,12 @@ def _html_part(message: Message) -> tuple[bytes, str | None] | None:
     (Pinned by: test_audit_web_fixes.py::TestHtmlAttachmentBeforeTheBodyOfAnMhtmlShapedMail)."""
     if is_sent_mail(message):
         for part in mail_html_body_parts(message):
-            payload = part.get_payload(decode=True)
+            payload = part_content(part)
             if payload:
                 return payload, part.get_content_charset()
     for part in message.walk():
         if part.get_content_type() == "text/html":
-            payload = part.get_payload(decode=True)
+            payload = part_content(part)
             if payload:
                 return payload, part.get_content_charset()
     return None
@@ -314,7 +315,7 @@ def _mhtml_pictures(message: Message) -> Callable[[str], bytes | None]:
 
     def find(source: str) -> bytes | None:
         part = parts.get(source) or (parts.get(_resolved(base, source)) if base else None)
-        payload = part.get_payload(decode=True) if part is not None else None
+        payload = part_content(part) if part is not None else None
         return payload if isinstance(payload, bytes) and payload else None
 
     return find

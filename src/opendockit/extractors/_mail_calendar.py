@@ -5,7 +5,7 @@ from email.message import Message
 import re
 
 from opendockit.extractors._encoding import decode_text
-from opendockit.extractors._mail import _is_attachment, _mail_parts
+from opendockit.extractors._mail import _is_attachment, _mail_parts, part_content
 from opendockit.extractors._package import decimal_int
 
 
@@ -58,7 +58,7 @@ def mail_calendar_events(message: Message) -> list[tuple[str, list[tuple[str, st
     for part in _mail_parts(message):
         if part.get_content_type() != "text/calendar" or _is_attachment(part, message):
             continue
-        payload = part.get_payload(decode=True)
+        payload = part_content(part)
         if not isinstance(payload, bytes) or len(payload) > _MAX_CALENDAR_BYTES:
             continue
         # Folding is by bytes (75 octets), so Outlook splits even between the bytes of a Hangul character. Unfolding after decoding
