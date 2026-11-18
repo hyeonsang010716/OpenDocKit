@@ -32,6 +32,7 @@ from opendockit.extractors._html_dom import (
     _decompose_all,
     _document_nodes,
     _drop_hidden,
+    _drop_permalinks,
     _drop_sidebars,
     _drop_unsettled_cut_table,
     _flatten_nested_headings,
@@ -461,6 +462,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     # `html` (Pinned by: test_audit_html_text.py::TestDoctypeInsideTheBody)
     _decompose_all(soup.find_all(string=lambda node: isinstance(node, PreformattedString)))
     _drop_hidden(soup, kept=folded, whole=whole)
+    _drop_permalinks(soup)
 
     extraction = Extraction(metadata=metadata, images=list(images or ()))
     warning = decoding_warning(encoding)

@@ -1800,6 +1800,27 @@ def _is_spacer(data: bytes) -> bool:
     return width <= _SPACER_SIDE and height <= _SPACER_SIDE
 
 
+# The mark of the permalink anchor documentation generators put in every heading and API signature (Sphinx and MkDocs `¶`,
+# others `#`, `§`, a link or an anchor sign), with or without a variation selector.
+_PERMALINK_MARKS = frozenset({"¶", "#", "§", "\U0001F517", "\u2693", "\U0001F517\ufe0f", "\u2693\ufe0f", "\u2693\ufe0e"})
+
+
+def _drop_permalinks(soup: BeautifulSoup) -> None:
+    """Remove the permalink anchors of headings and definition terms: a link to a place on the page (`href="#…"`) whose whole
+    text is a permalink mark (`_PERMALINK_MARKS`), inside h1–h6 or a `<dt>`.
+
+    A browser shows the mark only when the pointer is over the heading. Sphinx (docs.python.org, Read the Docs) and MkDocs put
+    one in every heading and API signature, so they came out as `# Introduction¶` and `foo(*x*)¶: Return x.`, with the links
+    option on or off (Pinned by: test_text_html.py::TestPermalinksOfHeadings). Generators that hide their anchor
+    (`aria-hidden`, a zero-width space for text) were left out already.
+    """
+    links = [link for link in soup.find_all("a", href=True)
+             if str(link["href"]).startswith("#") and link.get_text().strip() in _PERMALINK_MARKS]
+    if links:
+        inside = _lying_inside(links, (*_HEADINGS, "dt"))
+        _decompose_all([link for link in links if id(link) in inside])
+
+
 def _hidden_by_style(tag: Tag) -> bool:
     return tag.attrs is not None and (_has_hidden(tag) or bool(_HIDDEN_STYLE.search(str(tag.get("style", "")))))
 

@@ -1341,6 +1341,26 @@ class TestMhtml:
         assert "[Image: 외부]" in result.text
 
 
+class TestPermalinksOfHeadings:
+    """Sphinx (docs.python.org, Read the Docs) and MkDocs put a permalink anchor in every heading and API signature, which a
+    browser shows only when the pointer is over it: they came out as `# Introduction¶` and `foo(*x*)¶: Return x.`."""
+
+    def test_permalink_marks_of_headings_and_signatures_are_left_out(self):
+        html = ('<div role="main"><h1>Introduction<a class="headerlink" href="#intro" title="Link to this heading">¶</a></h1>'
+                '<p>Text.</p><dl><dt id="foo"><span>foo</span>(<em>x</em>)<a class="headerlink" href="#foo">¶</a></dt>'
+                '<dd><p>Return x.</p></dd></dl><h2 id="usage">Usage<a href="#usage">&para;</a></h2><p>x</p>'
+                '<h3 id="s">Setup <a href="#s">#</a></h3><p>y</p></div>')
+
+        expected = "# Introduction\n\nText.\n\nfoo(*x*): Return x.\n\n## Usage\n\nx\n\n### Setup\n\ny"
+        assert convert(html.encode(), "a.html").text == expected
+        assert convert(html.encode(), "a.html", ConvertOptions(keep_links=False)).text == expected
+
+    def test_a_link_with_words_in_a_heading_and_a_mark_outside_one_stay(self):
+        html = '<h2>See <a href="#notes">the notes</a></h2><p>Section <a href="#s2">§</a> 2.</p>'
+
+        assert convert(html.encode(), "a.html").text == "## See the notes\n\nSection § 2."  # as before
+
+
 class TestClosedDialogsAndPopovers:
     """A `<dialog>` without `open` and an element with `popover` are not shown until a script opens them (browsers draw them as
     `display: none`), and they were read as body text: the closed feedback and cookie dialogs of a page came after its body,
