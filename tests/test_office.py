@@ -1105,6 +1105,64 @@ class TestReportedGaps:
                                '<tr><td colspan="2">A</td><td>B</td></tr>\n'
                                "<tr><td>A</td><td>X</td><td>Y</td></tr>\n</table>")
 
+    @staticmethod
+    def _merge_table(rows: list[list[tuple[str, int, str | None]]], skipped: dict[int, int] | None = None) -> str:
+        """A DOCX table body from rows of (text, column span, vMerge value: restart, continue or None), `skipped` giving the
+        w:gridBefore of a row."""
+        def cell(text, span, merge):
+            properties = (f'<w:gridSpan w:val="{span}"/>' if span > 1 else "") + (
+                '<w:vMerge w:val="restart"/>' if merge == "restart" else "<w:vMerge/>" if merge else "")
+            return f"<w:tc><w:tcPr>{properties}</w:tcPr><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:tc>"
+
+        def row(index, cells):
+            before = (skipped or {}).get(index)
+            properties = f'<w:trPr><w:gridBefore w:val="{before}"/></w:trPr>' if before else ""
+            return f"<w:tr>{properties}" + "".join(cell(*values) for values in cells) + "</w:tr>"
+        return "<w:tbl>" + "".join(row(index, cells) for index, cells in enumerate(rows)) + "</w:tbl>"
+
+    def test_docx_continuations_under_every_column_of_a_wider_cell_repeat_its_text(self):
+        """Two one-column continuations under a two-column starting cell: the one under the second column found no cell starting
+        at its column above and came out empty. The text above is looked up by the columns the cell above covers, also down a
+        chain of continuations."""
+        body = self._merge_table([[("H1", 1, None), ("H2", 1, None), ("H3", 1, None)],
+                                  [("A", 2, "restart"), ("B", 1, None)],
+                                  [("", 1, "continue"), ("", 1, "continue"), ("C", 1, None)],
+                                  [("", 1, "continue"), ("", 1, "continue"), ("D", 1, None)]])
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == ("<table>\n<tr><th>H1</th><th>H2</th><th>H3</th></tr>\n"
+                               '<tr><td colspan="2">A</td><td>B</td></tr>\n'
+                               "<tr><td>A</td><td>A</td><td>C</td></tr>\n"
+                               "<tr><td>A</td><td>A</td><td>D</td></tr>\n</table>")
+
+    def test_docx_merge_of_the_same_width_keeps_its_row_span_above_narrower_continuations(self):
+        """A continuation as wide as the starting cell is still tied into its row span; the narrower ones below repeat its text."""
+        body = self._merge_table([[("H1", 1, None), ("H2", 1, None), ("H3", 1, None)],
+                                  [("A", 2, "restart"), ("B", 1, None)],
+                                  [("", 2, "continue"), ("C", 1, None)],
+                                  [("", 1, "continue"), ("", 1, "continue"), ("D", 1, None)]])
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == ("<table>\n<tr><th>H1</th><th>H2</th><th>H3</th></tr>\n"
+                               '<tr><td rowspan="2" colspan="2">A</td><td>B</td></tr>\n'
+                               "<tr><td>C</td></tr>\n"
+                               "<tr><td>A</td><td>A</td><td>D</td></tr>\n</table>")
+
+    def test_docx_wider_continuation_repeats_the_first_cell_above_it(self):
+        """A two-column continuation whose first column has no cell above (the row above skips it with w:gridBefore) continues
+        the cell above its second column and repeats that text instead of coming out empty."""
+        body = self._merge_table([[("H1", 1, None), ("H2", 1, None), ("H3", 1, None)],
+                                  [("B", 1, "restart"), ("C", 1, None)],
+                                  [("", 2, "continue"), ("D", 1, None)]], skipped={1: 1})
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == ("<table>\n<tr><th>H1</th><th>H2</th><th>H3</th></tr>\n"
+                               "<tr><td></td><td>B</td><td>C</td></tr>\n"
+                               '<tr><td colspan="2">B</td><td>D</td></tr>\n</table>')
+
     def test_xlsx_with_a_large_pivot_cache_is_streamed(self, monkeypatch):
         """A full openpyxl load turns the pivot cache, which is never used, into objects in its entirety (a 2.8MB file took 14 seconds
         and 1.5GB). The criterion that looked only at the sheet XML size did not catch it."""
@@ -3486,11 +3544,13 @@ class TestMergeFlagsWithoutAStartingCell:
         assert text == "| Region | 2023 |\n| --- | --- |\n| Region | 2024 |"
 
     def test_docx_continuation_under_a_wide_cell_still_continues_it(self):
-        """A cell above that spans the column from further left is a cell above: the merge is continued as before."""
+        """A cell above that spans the column from further left is a cell above: the merge is continued as before (its own text
+        is not read) and it repeats the text of that cell (it came out empty, `_text_above`)."""
         text = self._docx_table(self._cell("A", '<w:gridSpan w:val="2"/><w:vMerge w:val="restart"/>') + self._cell("B"),
                                 self._cell("H") + self._cell("stale", "<w:vMerge/>") + self._cell("Y"))
 
-        assert text == "| A | B |\n| --- | --- |\n| H | Y |"
+        assert text == ('<table>\n<tr><th colspan="2">A</th><th>B</th></tr>\n'
+                        "<tr><td>H</td><td>A</td><td>Y</td></tr>\n</table>")
 
     def test_docx_huge_column_span_is_not_walked(self):
         text = self._docx_table(self._cell("A", '<w:gridSpan w:val="1000000000"/>'),
