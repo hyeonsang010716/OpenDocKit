@@ -339,6 +339,19 @@ class TestMathMl:
         assert convert(preview.encode(), "a.html").text == "Let $x^2$ be."
         assert convert(other.encode(), "a.html").text == "Let $x^2$ and see$y$."
 
+    def test_a_formula_that_opens_a_fragment_is_kept(self):
+        """The parser puts a script before the first text or block of a fragment in the head, which is removed: a fragment that
+        opened with a formula lost it, where with a `<body>` written it was read. After a title or a meta element the head is
+        the page's own and its scripts stay there."""
+        display = '<script type="math/tex; mode=display">E=mc^2</script>\n<p>is famous</p>'
+        inline = '<script type="math/tex">E</script> <script type="math/tex">m</script> are letters.'
+        titled = '<title>T</title><script type="math/tex">x</script><p>body</p>'
+
+        assert convert(display.encode(), "a.html").text == "$E=mc^2$\n\nis famous"
+        assert convert(inline.encode(), "a.html").text == "$E$ $m$ are letters."
+        assert convert(b'<script type="math/tex">E</script>', "a.html").text == "$E$"
+        assert convert(titled.encode(), "a.html").text == "# T\n\nbody"
+
     def test_comments_in_the_tex_of_a_script_are_left_out(self):
         """kramdown wraps a displayed formula in `% <![CDATA[` and `%]]>`: once the lines were joined, the `%` of the wrapper
         made the whole formula a comment, and a comment inside a formula took the next line along. An escaped `\\%` is a

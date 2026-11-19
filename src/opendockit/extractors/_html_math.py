@@ -3,7 +3,7 @@
 import re
 
 from bs4 import BeautifulSoup, Comment, NavigableString, Tag
-from bs4.element import PreformattedString
+from bs4.element import PageElement, PreformattedString
 
 from opendockit.extractors._html_base import _BLOCK_TAGS, _HEADINGS
 from opendockit.extractors._html_dom import _decompose_all
@@ -64,7 +64,8 @@ def _put_tex_scripts(soup: BeautifulSoup) -> None:
     """Replaces the TeX of `<script type="math/tex">` (also `; mode=display`) with the same `$LaTeX$` notation, before scripts
     are removed. It is the input form of MathJax 2 and what kramdown (Jekyll, GitHub Pages) writes for `$…$` and `$$…$$`: in a
     page MathJax has not rendered, the formula is nowhere else, and it vanished with the scripts, with no warning
-    (Pinned by: test_core_html.py::TestMathMl::test_tex_in_a_mathjax_script_is_the_formula).
+    (Pinned by: test_core_html.py::TestMathMl::test_tex_in_a_mathjax_script_is_the_formula). A formula that opens a fragment
+    is taken out of the head the parser put it in (`_formulas_out_of_the_head`).
 
     A page saved after MathJax 2 ran has the rendered formula right before the script (`_mathjax_frame`). When it holds MathML
     (the assistive copy), it is replaced by that MathML, from which the formula is read; when it holds only the drawn glyphs,
@@ -76,10 +77,11 @@ def _put_tex_scripts(soup: BeautifulSoup) -> None:
     its siblings, and a paragraph of 20,000 formulas took 14 seconds where 10,000 took 3 (Pinned by:
     test_core_html.py::TestMathMl::test_many_mathjax_formulas_take_linear_time).
     """
+    scripts = [script for script in soup.find_all("script", type=True)
+               if str(script["type"]).strip().lower().startswith("math/tex")]
+    _formulas_out_of_the_head(soup, scripts)
     framed: list[Tag] = []
-    for script in soup.find_all("script", type=True):
-        if not str(script["type"]).strip().lower().startswith("math/tex"):
-            continue
+    for script in scripts:
         tex = " ".join(_tex_without_comments(script.get_text()).split())
         frame = _mathjax_frame(script)
         math = None
@@ -97,6 +99,38 @@ def _put_tex_scripts(soup: BeautifulSoup) -> None:
         elif tex:
             target.append(f"${tex}$")
     _decompose_all(framed)
+
+
+# What stands only in the head of a page (`_formulas_out_of_the_head`).
+_HEAD_ONLY = frozenset({"title", "meta", "link", "base", "style"})
+
+
+def _formulas_out_of_the_head(soup: BeautifulSoup, scripts: list[Tag]) -> None:
+    """Moves the formula scripts among `scripts` that the parser put in the head to the start of the body. A fragment that opens
+    with a `<script type="math/tex">` has it put in the head, as everything before the first text or block, and the head is
+    removed: the formula was lost, where with a `<body>` written it was read (Pinned by:
+    test_core_html.py::TestMathMl::test_a_formula_that_opens_a_fragment_is_kept). Only the scripts that come after nothing
+    that stands only in a head (`_HEAD_ONLY`): after a title or a meta element the head is the page's own."""
+    head = soup.head
+    if head is None or not scripts:
+        return
+    formulas = {id(script) for script in scripts}
+    moved: list[PageElement] = []
+    for child in head.contents:
+        if isinstance(child, Tag) and child.name in _HEAD_ONLY:
+            break
+        # with the white space after a formula, which keeps it apart from the text after it (`$E$ is`, not `$E$is`)
+        if id(child) in formulas or (moved and type(child) is NavigableString and not child.strip()):
+            moved.append(child)
+    if not moved:
+        return
+    body = soup.body
+    if body is None:
+        body = soup.new_tag("body")
+        head.insert_after(body)
+    _decompose_all(moved, detach_only=True)
+    for node in reversed(moved):
+        body.insert(0, node)
 
 
 def _mathjax_frame(script: Tag) -> Tag | None:
