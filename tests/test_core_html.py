@@ -134,6 +134,20 @@ class TestItemTextStartingLikeABlock:
         assert result.text == f"- Item text\n\n{drawn}\n\n-\n\n{drawn}\n\n- last"
 
     @pytest.mark.parametrize(("html", "expected"), [
+        ("<ul><li><code>&lt;table&gt;</code> starts a table<br>second line</li></ul>", "- <table> starts a table second line"),
+        ("<ul><li>&lt;tablet&gt; line one<br>line two</li></ul>", "- <tablet> line one line two"),
+        ("<ol><li>&lt;table&gt;<br>opens</li><li>&lt;tr&gt;<br>row</li></ol>", "1. <table> opens\n2. <tr> row"),
+        ("<ul><li>&lt;table&gt;<br>&lt;tr&gt;&lt;td&gt;x&lt;/td&gt;&lt;/tr&gt;<br>&lt;/table&gt; typed</li></ul>",
+         "- <table> <tr><td>x</td></tr> </table> typed"),
+        ('<table><tr><td><ul><li>&lt;table&gt; - d<br>c</li></ul></td><td>x</td></tr><tr><td colspan="2">m</td></tr>'
+         '</table>', '<table>\n<tr><th>- &lt;table> - d c</th><th>x</th></tr>\n<tr><td colspan="2">m</td></tr>\n</table>'),
+    ])
+    def test_item_text_that_starts_with_a_table_tag_stays_on_the_bullet_line(self, html, expected):
+        """Item text that starts with the words `<table>` or `<tablet>` was taken for a table drawn as HTML: the bullet was left
+        empty and the text moved under it with its lines kept, inside a table cell too."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
         ("<ul><li>| a | b |</li><li>```js</li></ul>", "- | a | b |\n- \\```js"),
         ("<ul><li>| a | b |<ul><li>n</li></ul></li></ul>", "- | a | b |\n  - n"),
     ])

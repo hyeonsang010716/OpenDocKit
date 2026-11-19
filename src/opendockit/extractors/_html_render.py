@@ -663,8 +663,8 @@ def _is_drawn_block(block: str) -> bool:
     that starts with a fence or `|`. A quote of several lines on the bullet line kept only its first line in the item: the
     second line (`> second`) started a quote outside the list and split it
     (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock::test_quote_of_several_lines_at_the_start_of_an_item_goes_below).
-    A table drawn as HTML (`<table>`, for merged cells) is one too."""
-    return block.startswith(_DRAWN_BLOCK_STARTS) and "\n" in block
+    A table drawn as HTML (`<table>`, for merged cells) is one too, and only one so drawn (`_is_html_drawn_table`)."""
+    return "\n" in block and (block.startswith(_DRAWN_BLOCK_STARTS) or _is_html_drawn_table(block))
 
 
 def _item_pieces(blocks: list[str], nested_count: int) -> list[str | int]:
@@ -811,9 +811,21 @@ def _line_start(text: str, mark: str, position: int) -> int:
         position = found + 1
 
 
-# The first characters of the item blocks drawn on several lines (`_is_drawn_block`, `_item_blocks`): a code block, a table
-# (Markdown, or HTML for merged cells), a quote block.
-_DRAWN_BLOCK_STARTS = ("```", "|", ">", "<table")
+# The first characters of the item blocks drawn on several lines (`_is_drawn_block`, `_item_blocks`): a code block, a Markdown
+# table, a quote block. A table drawn as HTML is told by its whole shape (`_is_html_drawn_table`).
+_DRAWN_BLOCK_STARTS = ("```", "|", ">")
+
+
+def _is_html_drawn_table(paragraph: str) -> bool:
+    """Is this paragraph a table drawn as HTML (`TableGrid.render`, for merged cells): a `<table>` line, `<tr>…</tr>` lines, a
+    `</table>` line, as nothing but the drawing writes them (the text of its cells is escaped and holds no line break). Taken
+    by its first characters, item text that starts with the words `<table>` or `<tablet>` (`&lt;table&gt;`) was moved under an
+    empty bullet with its lines kept, and so inside a table cell (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock::
+    test_item_text_that_starts_with_a_table_tag_stays_on_the_bullet_line)."""
+    if not paragraph.startswith("<table>\n") or not paragraph.endswith("\n</table>"):
+        return False
+    rows = paragraph[len("<table>\n"):-len("\n</table>")].split("\n")
+    return all(row.startswith("<tr>") and row.endswith("</tr>") for row in rows)
 
 
 def _item_blocks(text: str) -> list[str]:
@@ -829,7 +841,7 @@ def _item_blocks(text: str) -> list[str]:
             continue
         for paragraph in _BLANK_LINES.split(part):
             if paragraph.strip():
-                kept = (paragraph.lstrip().startswith(("|", "<table"))
+                kept = (paragraph.lstrip().startswith("|") or _is_html_drawn_table(paragraph.strip())
                         or all(line.lstrip().startswith(">") for line in paragraph.strip().split("\n")))
                 blocks.append(paragraph.strip() if kept else " ".join(paragraph.split()))
     return blocks
