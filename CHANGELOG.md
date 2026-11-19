@@ -25,6 +25,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Server use**: `IsolatedConverter.convert` reports running out of memory while copying the content as too large,
   as `convert` does, instead of letting a raw `MemoryError` out.
 - **Open WebUI**: a UUID inside the uploaded file's own name is kept; only Open WebUI's leading file id is taken off.
+- **PDF reading order**: on the last page of a two-column article whose right column holds only a few closing lines at
+  its top, the rest of a ragged-right left column below them is no longer moved after the right column.
 
 ## [0.3.14] - 2026-11-19
 

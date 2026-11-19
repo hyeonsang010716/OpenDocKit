@@ -422,6 +422,46 @@ class TestShortColumnsUnderOneHeading:
         assert "\n".join(self._LEFT) in text
 
 
+class TestShortRightColumn:
+    """Last page of a two-column article set ragged right: the left column runs down the page and the right column holds
+    only the closing lines at its top, ending level with the end of the first left paragraph. The first line of the next
+    left paragraph, short of the column width, was taken for text below both columns, so the rest of the left column came
+    out after the right column."""
+
+    _WIDTHS = [42, 44, 52, 46, 51, 49, 50, 30]  # characters per line: ragged right
+
+    @classmethod
+    def _line(cls, label: str, number: int) -> str:
+        return (f"{label} line {number} " + "lorem ipsum dolor sit amet " * 3)[:cls._WIDTHS[number]]
+
+    def _pdf(self, paragraphs: int) -> bytes:
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer)
+        pdf.setFont("Times-Roman", 10)
+        y = 780.0
+        for paragraph in range(paragraphs):
+            for number in range(8):
+                pdf.drawString(56, y, self._line(f"Left{paragraph}", number))
+                y -= 12.5
+            y -= 6
+        for number in range(8):
+            pdf.drawString(314, 780 - number * 12.5, self._line("Right", number))
+        pdf.showPage()
+        pdf.save()
+        return buffer.getvalue()
+
+    @pytest.mark.parametrize("paragraphs", [3, 5])
+    def test_left_column_running_on_below_the_right_column_comes_before_it(self, paragraphs):
+        text = convert(self._pdf(paragraphs), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        marks = [f"Left{paragraph} line {number}" for paragraph in range(paragraphs) for number in range(8)]
+        marks += [f"Right line {number}" for number in range(8)]
+        order = [text.index(mark) for mark in marks]
+        assert order == sorted(order)
+
+
 class TestSidebarBesideTheBody:
     """The left 30% sidebar of a résumé (name, contact details) has narrow lines and does not qualify for the two-column decision, and pdfminer
     read the sidebar after reading all of the body on the right, so the name came out at the end of the page."""
@@ -803,10 +843,24 @@ def _plain_below_both_columns(lines, left_end, right_start, blocks):
             return False
         return not any(line.top < other.top < lower[0].top and other.x1 > left_end for other in lines)
 
+    def flows_past(lefts, index, height):
+        end, wraps = index, False
+        while end + 1 < len(lefts):
+            upper, lower = lefts[end], lefts[end + 1]
+            if not (abs(lower.x0 - upper.x0) <= _TABLE_ROW_TOLERANCE
+                    and 0 <= lower.top - upper.bottom <= upper.height * _WRAP_LINE_GAP_RATIO):
+                break
+            wraps = wraps or (end > index and upper.x1 > left_end - upper.height)
+            end += 1
+        top, last = lefts[index].top, lefts[end]
+        return (end > index + 1 and wraps and last.bottom - top > height
+                and not any(top < other.top < last.top and other.x1 > left_end for other in lines))
+
     rights = [line for line in lines if line.x0 >= left_end]
     if not rights:
         return float("inf")
     right_bottom = max(line.bottom for line in rights)
+    right_height = right_bottom - min(line.top for line in rights)
     lefts = sorted((line for line in lines if line.x1 <= right_start), key=lambda line: line.top)
     for index, line in enumerate(lefts):
         above = lefts[:index]
@@ -818,7 +872,8 @@ def _plain_below_both_columns(lines, left_end, right_start, blocks):
                           + [bottom for x1, bottom in blocks if x1 <= right_start and bottom <= line.top])
         if (line.x0 <= min(other.x0 for other in above) + _TABLE_ROW_TOLERANCE
                 and gap >= max(line.height * 0.5, statistics.median(gaps) * 2 if gaps else 0.0)
-                and right_bottom >= left_bottom - line.height and not fills_column_below(line, lefts[index + 1:])):
+                and right_bottom >= left_bottom - line.height and not fills_column_below(line, lefts[index + 1:])
+                and not flows_past(lefts, index, right_height)):
             return line.top
     return float("inf")
 
