@@ -18,6 +18,7 @@ from opendockit import (
     convert,
 )
 from tests import process_is_alive
+from tests.timing import Fastest
 
 
 # Every test here starts worker processes and waits on real timeouts: run serially (see `timing` in pyproject.toml).
@@ -35,6 +36,26 @@ _NO_LIMIT = ConvertOptions(max_chars=None)
 
 def _worker_pids(converter: IsolatedConverter) -> list[int]:
     return [pid for pool in converter._pools for pid in (pool._processes or {})]
+
+
+@pytest.fixture(scope="module")
+def fresh_worker() -> float:
+    """Seconds a small file takes in a worker that has to start for it: the fastest of a few (`tests.timing.Fastest`).
+
+    A few milliseconds where the fork server is preloaded. On Windows each file starts a whole interpreter and imports
+    this package — measured on Windows 11 at 0.7 s on Python 3.12 and 1.0 s on 3.14, more on a CI runner — and a bound of
+    one second for "the next file is not kept waiting" then measured the start rather than the wait: the Windows 3.14
+    job failed it (Pinned by: TestIsolatedConverter::test_time_limit_kills_that_worker_and_the_next_file_converts).
+    """
+    async def measure() -> float:
+        timer = Fastest()
+        async with IsolatedConverter() as converter:
+            for _ in timer:
+                with timer:
+                    await converter.convert(_SMALL_TEXT, "a.txt")
+        return timer.seconds
+
+    return asyncio.run(measure())
 
 
 async def _wait_for_worker(converter: IsolatedConverter) -> list[int]:
@@ -142,10 +163,14 @@ class TestIsolatedConverter:
         with pytest.raises(TypeError, match="convert_file"):
             asyncio.run(scenario())
 
-    def test_time_limit_kills_that_worker_and_the_next_file_converts(self):
-        """`asyncio.wait_for` alone only stopped the waiting; the worker kept running (docs/server.md)."""
+    def test_time_limit_kills_that_worker_and_the_next_file_converts(self, fresh_worker):
+        """`asyncio.wait_for` alone only stopped the waiting; the worker kept running (docs/server.md). The time limit and
+        the bound on the next file are one second on top of what a worker takes to start here, which the time limit counts:
+        the next file needs a fresh worker too, and on Windows that start alone is about a second."""
+        limit = 1.0 + fresh_worker
+
         async def scenario():
-            async with IsolatedConverter(timeout=1.0) as converter:
+            async with IsolatedConverter(timeout=limit) as converter:
                 task = asyncio.create_task(converter.convert(_SLOW_CSV, "a.csv", _NO_LIMIT))
                 pids = await _wait_for_worker(converter)
                 with pytest.raises(DocumentTooLargeError) as caught:
@@ -160,7 +185,7 @@ class TestIsolatedConverter:
         assert str(error) == TOO_COMPLEX_MESSAGE
         assert not any(_is_alive(pid) for pid in pids)
         assert "둘째 문단" in result.text
-        assert elapsed < 1.0
+        assert elapsed < limit
 
     def test_worker_that_dies_ends_only_that_file(self):
         """When memory runs short a C extension kills the whole process instead of raising. The server reports only that file as
@@ -200,8 +225,9 @@ class TestIsolatedConverter:
 
         assert "둘째 문단" in result.text
 
-    def test_cancelled_request_stops_its_worker(self):
-        """If the worker kept running after the request was dropped, the next file queued up behind it."""
+    def test_cancelled_request_stops_its_worker(self, fresh_worker):
+        """If the worker kept running after the request was dropped, the next file queued up behind it. Bounded at one
+        second on top of a worker's start, which the next file pays for as well."""
         async def scenario():
             async with IsolatedConverter() as converter:
                 task = asyncio.create_task(converter.convert(_SLOW_CSV, "a.csv", _NO_LIMIT))
@@ -217,7 +243,7 @@ class TestIsolatedConverter:
         pids, elapsed = asyncio.run(scenario())
 
         assert not any(_is_alive(pid) for pid in pids)
-        assert elapsed < 1.0
+        assert elapsed < 1.0 + fresh_worker
 
     def test_each_file_gets_a_fresh_worker(self):
         """Each file gets a new worker so that memory grown by a large document does not linger in the worker."""

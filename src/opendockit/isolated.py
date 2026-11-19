@@ -66,9 +66,10 @@ class IsolatedConverter:
     a list set by other code in the same process (it does not apply to a forkserver that is already running).
 
     On Windows there is no forkserver and no preloading, so every file pays a full interpreter start and `import opendockit`
-    (measured: 0.66 s per file, against a few ms where the forkserver is preloaded). It is the price of a fresh worker per file
-    there. For the same reason a program that builds an `IsolatedConverter` on a spawn platform must do so under
-    `if __name__ == "__main__":`, or the child process re-runs the module and builds converters without end.
+    (measured on Windows 11: 0.7 s per file on Python 3.12 and 1.0 s on 3.14, against a few ms where the forkserver is
+    preloaded). It is the price of a fresh worker per file there, and `timeout` counts it. For the same reason a program
+    that builds an `IsolatedConverter` on a spawn platform must do so under `if __name__ == "__main__":`, or the child
+    process re-runs the module and builds converters without end.
     """
 
     def __init__(self, *, workers: int = 1, memory_limit: int | None = _DEFAULT_MEMORY_LIMIT,

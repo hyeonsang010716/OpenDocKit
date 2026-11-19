@@ -18,8 +18,9 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   leaves with a server that was killed outright everywhere: on POSIX by watching the server's pid, on Windows by waiting on
   a handle to it.
 - **A worker costs more on Windows.** There is no fork server to preload this package into, so every file pays a full
-  interpreter start and `import opendockit` — measured at 0.66 s per file, against a few milliseconds elsewhere. It is the
-  price of a fresh worker per file there, and it does not apply to `convert` itself.
+  interpreter start and `import opendockit` — measured on Windows 11 at 0.7 s per file on Python 3.12 and 1.0 s on 3.14,
+  against a few milliseconds elsewhere. It is the price of a fresh worker per file there, and it does not apply to
+  `convert` itself. The time limit counts it: a `timeout` of a few seconds leaves a second less for the conversion.
 - **Building an `IsolatedConverter` on Windows needs a `__main__` guard.** Workers are started by spawning a new interpreter
   that re-imports the program, so a converter made at module level builds converters without end. Make it inside
   `if __name__ == "__main__":`, or in a function a server calls.
