@@ -640,6 +640,12 @@ def _render_list_items(node: Tag, list_depth: int) -> str:
         # zero-width space the fence was not seen (Pinned by: test_text_html.py::TestTextThatLooksLikeAFence::
         # test_item_text_that_starts_with_a_fence_behind_a_character_that_cleaning_removes).
         first = pieces.pop(0) if pieces and isinstance(pieces[0], str) and not _is_drawn_block(pieces[0]) else ""
+        # A table drawn as HTML that opens a nested item stays on its bullet line, on one line: the bullet left empty is
+        # stripped of its indentation as a bare marker, and the nested item came out as one of the outer list (`- a\n-`) with
+        # the table outside both (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock::
+        # test_html_table_opening_a_nested_item_stays_in_it).
+        if not first and list_depth and pieces and isinstance(pieces[0], str) and _is_html_drawn_table(pieces[0]):
+            first = " ".join(pieces.pop(0).split("\n"))
         if "`" in first and clean_characters(first).lstrip().startswith("```"):
             first = "\\" + first
 

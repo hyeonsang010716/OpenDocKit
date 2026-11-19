@@ -133,6 +133,17 @@ class TestItemTextStartingLikeABlock:
 
         assert result.text == f"- Item text\n\n{drawn}\n\n-\n\n{drawn}\n\n- last"
 
+    def test_html_table_opening_a_nested_item_stays_in_it(self):
+        """A nested item holding only a table drawn as HTML was left as an empty bullet, which cleaning strips of its
+        indentation as a bare marker: the item came out as one of the outer list (`- a\\n-`) and the table outside both. It
+        stays on the nested bullet line, on one line, as before the lines of such a table were kept."""
+        table = '<table><tr><td colspan="2">T</td></tr><tr><td>z</td><td>b</td></tr></table>'
+        drawn = '<table> <tr><th colspan="2">T</th></tr> <tr><td>z</td><td>b</td></tr> </table>'
+
+        assert convert(f"<ul><li>a<ul><li>{table}</li><li>c</li></ul></li><li>d</li></ul>".encode(), "a.html").text == (
+            f"- a\n  - {drawn}\n  - c\n- d")
+        assert convert(f"<ol><li>a<ol><li>{table}</li></ol></li></ol>".encode(), "a.html").text == f"1. a\n  1. {drawn}"
+
     @pytest.mark.parametrize(("html", "expected"), [
         ("<ul><li><code>&lt;table&gt;</code> starts a table<br>second line</li></ul>", "- <table> starts a table second line"),
         ("<ul><li>&lt;tablet&gt; line one<br>line two</li></ul>", "- <tablet> line one line two"),
