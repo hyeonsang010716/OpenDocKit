@@ -6,7 +6,8 @@ it is not installed, the file is rejected with advice. Nothing else in the libra
 The decisions are in docs/decisions/legacy-office.md.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 from io import BytesIO
 import os
@@ -17,6 +18,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 
 from opendockit.exceptions import (
@@ -255,7 +257,7 @@ def _run_soffice(program: str, data: bytes, extension: str, target: str, output_
     when the temporary directory cannot be made, written or read. Everything happens inside one temporary directory that is
     removed on every path.
     """
-    with tempfile.TemporaryDirectory(prefix="opendockit-", ignore_cleanup_errors=True) as folder:
+    with _scratch_folder() as folder:
         root = Path(folder).resolve()
         source = root / f"{_INPUT_STEM}.{extension}"
         source.write_bytes(data)
@@ -279,6 +281,56 @@ def _run_soffice(program: str, data: bytes, extension: str, target: str, output_
         if size > max_output_bytes:
             raise DocumentTooLargeError(_TOO_LARGE)
         return output.read_bytes()
+
+
+@contextmanager
+def _scratch_folder() -> Iterator[str]:
+    """The private temporary folder of one conversion, removed afterwards on every path.
+
+    On Windows it is removed through its long form (`\\\\?\\C:\\…`) and tried again for a moment. LibreOffice fills its
+    profile with paths of 140 characters and more below the folder, which it writes through the long form itself, so under
+    a temporary folder of a hundred characters (a service account, a nested `TMP`) they passed the 260-character limit of
+    ordinary paths: the removal failed on every conversion and `ignore_cleanup_errors` hid it — a folder left behind per
+    document (Pinned by: test_legacy.py::TestRealLibreOffice::test_no_folder_is_left_under_a_long_temporary_path).
+    """
+    if os.name != "nt":
+        with tempfile.TemporaryDirectory(prefix="opendockit-", ignore_cleanup_errors=True) as folder:
+            yield folder
+        return
+    folder = tempfile.mkdtemp(prefix="opendockit-")
+    try:
+        yield folder
+    finally:
+        _remove_folder(folder, _REMOVE_SECONDS)
+
+
+# How long the removal of a conversion's folder is tried (Windows): LibreOffice has been ended by then (`end_job`), so this
+# only covers a file a scanner opened behind it.
+_REMOVE_SECONDS = 2.0
+# How long the processes of a LibreOffice run may take to end once their job is ended. Ending one is asynchronous, and the
+# folder cannot be removed while one still holds a file of it or has it as its current directory.
+_END_SECONDS = 10.0
+
+
+def _long_path(path: str) -> str:
+    """The form of a Windows path that is not held to 260 characters: `\\\\?\\C:\\…`, `\\\\?\\UNC\\host\\share\\…`."""
+    path = os.path.abspath(path)
+    if path.startswith("\\\\?\\"):
+        return path
+    if path.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + path[2:]
+    return "\\\\?\\" + path
+
+
+def _remove_folder(folder: str, seconds: float) -> None:
+    """Remove a folder and everything in it, through its long form, trying again for up to `seconds` (Windows)."""
+    target = _long_path(folder)
+    deadline = time.monotonic() + seconds
+    while True:
+        shutil.rmtree(target, ignore_errors=True)
+        if not os.path.lexists(target) or time.monotonic() >= deadline:
+            return
+        time.sleep(0.05)
 
 
 def _run(command: list[str], working_folder: Path) -> None:
@@ -317,6 +369,10 @@ def _run(command: list[str], working_folder: Path) -> None:
         if guard is not None:
             _stop_guard(guard)
         if job is not None:
+            # Waited for, not only closed: a `soffice.bin` killed on the time limit was still going down when the folder was
+            # removed, so the removal failed on its files and the folder stayed
+            # (Pinned by: test_legacy.py::TestRealLibreOffice::test_no_folder_is_left_after_the_time_limit).
+            _windows.end_job(job, _END_SECONDS)
             _windows.close_job(job)
 
 
@@ -390,7 +446,8 @@ def _start_windows_guard(folder: Path) -> subprocess.Popen | None:
         return None
     try:
         # CREATE_NO_WINDOW: a bare `python.exe` would flash a console window on every conversion.
-        return subprocess.Popen([program, "-I", "-S", "-c", _WINDOWS_GUARD, str(folder), str(os.getpid()),
+        # The long form of the folder: the profile below it passes 260 characters under a long temporary path.
+        return subprocess.Popen([program, "-I", "-S", "-c", _WINDOWS_GUARD, _long_path(str(folder)), str(os.getpid()),
                                  str(_WINDOWS_GUARD_SECONDS)],
                                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 creationflags=subprocess.CREATE_NO_WINDOW, shell=False)

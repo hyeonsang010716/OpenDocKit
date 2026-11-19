@@ -27,9 +27,11 @@ says that a limit was not applied.
 import ctypes
 from ctypes import wintypes
 from functools import lru_cache
+import time
 import uuid
 
 
+_JobObjectBasicAccountingInformation = 1
 _JobObjectExtendedLimitInformation = 9
 _JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
@@ -54,6 +56,13 @@ class _BasicLimits(ctypes.Structure):
                 ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
                 ("Affinity", ctypes.POINTER(ctypes.c_ulong)), ("PriorityClass", wintypes.DWORD),
                 ("SchedulingClass", wintypes.DWORD)]
+
+
+class _BasicAccounting(ctypes.Structure):
+    _fields_ = [("TotalUserTime", ctypes.c_longlong), ("TotalKernelTime", ctypes.c_longlong),
+                ("ThisPeriodTotalUserTime", ctypes.c_longlong), ("ThisPeriodTotalKernelTime", ctypes.c_longlong),
+                ("TotalPageFaultCount", wintypes.DWORD), ("TotalProcesses", wintypes.DWORD),
+                ("ActiveProcesses", wintypes.DWORD), ("TotalTerminatedProcesses", wintypes.DWORD)]
 
 
 class _ExtendedLimits(ctypes.Structure):
@@ -85,6 +94,11 @@ def _kernel32() -> ctypes.WinDLL:
     library.WaitForSingleObject.restype = wintypes.DWORD
     library.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
     library.CloseHandle.argtypes = [wintypes.HANDLE]
+    library.TerminateJobObject.restype = wintypes.BOOL
+    library.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    library.QueryInformationJobObject.restype = wintypes.BOOL
+    library.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                                  ctypes.POINTER(wintypes.DWORD)]
     return library
 
 
@@ -187,6 +201,33 @@ def add_process(job: int | None, pid: int) -> bool:
             return bool(library.AssignProcessToJobObject(job, handle))
         finally:
             library.CloseHandle(handle)
+    except (OSError, AttributeError, ValueError):
+        return False
+
+
+def end_job(job: int | None, seconds: float) -> bool:
+    """End every process in `job` and wait, up to `seconds`, until none is left. True once the job is empty.
+
+    Ending a process is asynchronous on Windows: `TerminateJobObject` returns while the processes are still being taken
+    down, holding their files and their current directory. Whoever removes their folder next must wait for this, or the
+    removal fails on files that are gone a moment later.
+    """
+    if job is None:
+        return True
+    try:
+        library = _kernel32()
+        library.TerminateJobObject(job, 1)
+        accounting = _BasicAccounting()
+        deadline = time.monotonic() + seconds
+        while True:
+            if not library.QueryInformationJobObject(job, _JobObjectBasicAccountingInformation, ctypes.byref(accounting),
+                                                     ctypes.sizeof(accounting), None):
+                return False
+            if accounting.ActiveProcesses == 0:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.01)
     except (OSError, AttributeError, ValueError):
         return False
 

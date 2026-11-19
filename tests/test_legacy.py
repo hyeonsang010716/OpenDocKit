@@ -879,6 +879,35 @@ class TestRealLibreOffice:
         assert found, "LibreOffice was not found with the environment an MCP client gives its server"
         assert os.path.isfile(found)
 
+    def test_no_folder_is_left_under_a_long_temporary_path(self, real_doc, tmp_path, monkeypatch):
+        """LibreOffice writes paths of 140 characters and more inside its profile, through the long path form. Under a
+        temporary folder of a hundred characters they passed Windows' 260-character limit, the ordinary removal failed on
+        them, and every conversion left its folder behind."""
+        # 114 characters, where it was seen: short enough for the folders this package makes, too long for LibreOffice's.
+        deep = tmp_path / ("d" * max(1, 114 - len(str(tmp_path)) - 1))
+        deep.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(deep))
+
+        result = convert(real_doc, "a.doc")
+
+        assert "본문 첫 문단입니다." in result.text
+        assert len(str(deep)) >= 114
+        assert list(deep.iterdir()) == [], "the conversion's folder stayed on disk"
+
+    def test_no_folder_is_left_after_the_time_limit(self, real_doc, tmp_path, monkeypatch):
+        """Ending LibreOffice on its time limit is asynchronous on Windows: `soffice.bin` was still going down, holding its
+        files, when the folder was removed, so the removal failed and the folder stayed. It is cut off at several points
+        of its run, since where it is when the limit passes differs from machine to machine."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        for limit in (0.3, 0.8, 1.5, 2.5):
+            monkeypatch.setattr(legacy, "CONVERSION_TIMEOUT", limit)
+            try:
+                convert(real_doc, "a.doc")
+            except DocumentTooLargeError:
+                pass
+
+            assert list(tmp_path.iterdir()) == [], f"a folder stayed after a time limit of {limit} s"
+
     def test_word_document_keeps_headings_lists_table_and_korean_text(self, real_doc):
         result = convert(real_doc, "분기 보고서.doc")
 

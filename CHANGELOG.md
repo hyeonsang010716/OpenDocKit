@@ -19,7 +19,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     killed on its time limit no longer leaves it running, and a guard process removes the folder holding the uploaded
     document, as on POSIX. LibreOffice is also found where the environment does not name Program Files — an MCP
     client starts its server without PROGRAMFILES, and every `.doc` and `.ppt` sent to the MCP server failed with
-    'need LibreOffice' — from the registry, which also finds an install outside Program Files.
+    'need LibreOffice' — from the registry, which also finds an install outside Program Files. Its temporary folder
+    is removed under a long temporary path and after the time limit too: both used to leave LibreOffice's profile
+    behind.
   - **HTML, mail and EPUB**: malformed and multi-part pages are read whole. lxml's Windows wheels bundle a libxml2
     without the HTML5 tokenizer, so text after the end of a page, a second concatenated document, the content of
     `<textarea>`/`<xmp>` and the further parts of a mail were lost; html5lib builds the tree there instead. A page over
