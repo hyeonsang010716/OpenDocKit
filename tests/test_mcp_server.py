@@ -43,6 +43,21 @@ def call(tool: str, arguments: dict, **server_options) -> str:
     return text
 
 
+def _workbook(path: Path, sheets: int, *, hidden: int = 0) -> Path:
+    """A workbook of `sheets` visible sheets (one cell each) and `hidden` hidden ones."""
+    import openpyxl
+
+    book = openpyxl.Workbook()
+    book.remove(book.active)
+    for index in range(sheets + hidden):
+        sheet = book.create_sheet(f"Branch ledger {index:04d}")
+        sheet["A1"] = f"value {index}"
+        if index >= sheets:
+            sheet.sheet_state = "hidden"
+    book.save(str(path))
+    return path
+
+
 class TestConvertDocument:
     def test_returns_the_markdown_of_the_file(self, files):
         text = call("convert_document", {"path": str(files["report.docx"])})
@@ -129,6 +144,17 @@ class TestConvertDocument:
             call("convert_document", {"path": str(broken)})
 
 
+    def test_warnings_of_an_answer_are_bounded(self, tmp_path):
+        """Listed whole, a workbook of 400 hidden sheets put 25,000 characters of warnings under a 200-character answer, on
+        every call. Each answer lists 20 warnings and counts the rest; the outline does the same."""
+        path = _workbook(tmp_path / "hidden.xlsx", 1, hidden=30)
+
+        for answer in (call("convert_document", {"path": str(path), "max_chars": 200}),
+                       call("document_outline", {"path": str(path)})):
+            listed = [line for line in answer.splitlines() if line.startswith("- Hidden sheet")]
+            assert len(listed) == 20
+            assert answer.endswith("- … and 10 more warnings.")
+
 class TestDocumentOutline:
     def test_lists_format_size_and_units_without_the_text(self, files):
         outline = call("document_outline", {"path": str(files["paper.pdf"])})
@@ -141,6 +167,21 @@ class TestDocumentOutline:
         outline = call("document_outline", {"path": str(files["book.xlsx"])})
 
         assert 'Sheet 1 "' in outline and "characters" in outline
+
+    def test_outline_of_many_units_stays_within_max_chars(self, tmp_path):
+        """Listed whole, a workbook of 3,000 sheets gave an outline of 173,000 characters whatever the server's `--max-chars`.
+        The sheets are listed as far as that limit and the rest are counted with their numbers, which `sections` still reads."""
+        path = _workbook(tmp_path / "many.xlsx", 120)
+
+        outline = call("document_outline", {"path": str(path)}, default_max_chars=1_000)
+        sheet_lines = [line for line in outline.splitlines() if line.split(" ")[:2][-1].isdigit() and line.startswith("Sheet ")]
+
+        assert 0 < len(sheet_lines) < 120 and sum(len(line) + 1 for line in sheet_lines) <= 1_000
+        listed = len(sheet_lines)
+        assert sheet_lines[-1].startswith(f"Sheet {listed} ")
+        assert (f"… and {120 - listed:,} more sheets ({listed + 1}-120), not listed here: convert_document reads them by "
+                "`sections`.") in outline
+        assert "value 119" in call("convert_document", {"path": str(path), "sections": "120"}, default_max_chars=1_000)
 
     def test_title_cannot_add_lines_to_the_outline(self, files):
         """The title of a document is its author's text. One that contains line breaks and a line shaped like the outline's own
