@@ -918,6 +918,27 @@ class TestHostileInput:
         assert result.warnings == ["A table holds more than 10,000 tables inside it; the tables after that were left out."]
 
     @pytest.mark.timing
+    def test_shapes_nested_past_the_limit_take_linear_time(self):
+        """The text of a shape is a flow of its own whose tables are drawn when it ends and handed to the flow around it, so the
+        text of the innermost of 490 shapes, each in a table cell of the one around it, was drawn as a table again at every level:
+        40,000 paragraphs (243 KB) took 5.4 s. Shapes deeper than 16 are read into the flow of the shape around them."""
+        def document(depth: int) -> bytes:
+            return (rb"{\rtf1\ansi \intbl " + rb"{\shptxt \intbl " * depth + rb"x\par " * 5_000 + b"}" * depth
+                    + rb"\cell\row}")
+
+        shallow, deep = document(30), document(480)
+
+        assert convert(deep, "a.rtf", ConvertOptions(max_chars=None)).text.count("x") == 5_000
+        assert fastest(lambda: convert(deep, "a.rtf", ConvertOptions(max_chars=None))) < 4 * fastest(
+            lambda: convert(shallow, "a.rtf", ConvertOptions(max_chars=None)))
+
+    def test_text_of_shapes_nested_past_the_limit_is_kept_in_order(self):
+        data = (rb"{\rtf1\ansi before\par " + b"".join(rb"{\shp{\*\shpinst{\shptxt level%d\par " % level for level in range(20))
+                + b"}}}" * 20 + rb"after\par}")
+
+        assert convert(data, "a.rtf").text == "\n\n".join(["before", *(f"level{level}" for level in range(20)), "after"])
+
+    @pytest.mark.timing
     def test_double_byte_characters_with_an_escaped_trail_take_linear_time(self):
         """Whether a `\\\\`, `\\{` or `\\}` completes a character is found by feeding the run to a decoder once, a piece at a
         time, not by decoding the whole run again at every symbol."""

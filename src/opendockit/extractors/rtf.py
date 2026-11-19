@@ -52,6 +52,11 @@ _MAGIC = b"{\\rtf"
 # memory, not recursion (Pinned by: test_rtf.py::TestHostileInput::test_groups_nested_past_the_limit_are_skipped_with_a_warning).
 _MAX_GROUP_DEPTH = 500
 _MAX_TABLE_DEPTH = 16
+# Shapes whose text is read as a flow of its own, one inside the other; the text of a shape deeper than that is read into the flow
+# of the shape around it. Each flow draws its tables when it ends and hands them to the flow around it, so the text of the
+# innermost shape of 490 shapes, one in a table cell of the other, was drawn as a table again at every level: 40,000 paragraphs
+# (243 KB) took 5.4 s, 160,000 (946 KB) 35 s (Pinned by: test_rtf.py::TestHostileInput::test_shapes_nested_past_the_limit_take_linear_time).
+_MAX_SHAPE_DEPTH = 16
 _MAX_ROW_CELLS = 4096
 # Cells one table may hold, the cells of the tables inside it included. `\cell` is five bytes and a cell of the grid costs
 # several hundred, text or no text: 4,000 rows of 1,000 empty cells (20 MB) took 13 s and 3.4 GB. The cells past the limit are
@@ -702,6 +707,7 @@ class _Reader:
         self._body = _Flow(self, "body")
         self._flow = self._body
         self._flows: list[_Flow] = [self._body]
+        self._boxes = 0  # flows of shape text among `_flows` (`_MAX_SHAPE_DEPTH`)
         self._headers: dict[str, None] = {}  # texts in order of appearance, each once
         self._footers: dict[str, None] = {}
         self._notes: list[str] = []
@@ -1377,11 +1383,15 @@ class _Reader:
         if kind is None or state.closer is not None:
             state.dest = _SKIP
             return
-        state.closer = "flow"
         state.dest = _BODY
         # The text of a header, footnote or shape starts with plain formatting, whatever the run that anchors it looks like.
         state.bold = state.italic = state.hidden = False
         state.link = None
+        if kind == "box":
+            if self._boxes >= _MAX_SHAPE_DEPTH:
+                return  # read into the flow of the shape around it
+            self._boxes += 1
+        state.closer = "flow"
         self._flow = _Flow(self, kind, self._flow if kind == "box" else None)
         self._flows.append(self._flow)
         if kind in ("header", "footer"):
@@ -1419,6 +1429,7 @@ class _Reader:
                     link = self._stack[-1].link if self._stack else None  # of the text around the footnote group
                     self._flow.add_run(f"[^{len(self._notes)}]", False, False, link, alone=True)
             elif flow.kind == "box":
+                self._boxes -= 1
                 self._flow.add_blocks(blocks)
             else:
                 # The header of the first page and of left/right pages usually repeat the same text: each text once.
