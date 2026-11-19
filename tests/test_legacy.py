@@ -713,6 +713,45 @@ class TestRunner:
         assert not folder.exists(), "the guard gave up after one attempt while the folder was still held"
 
     @pytest.mark.skipif(os.name != "nt", reason="the guard that removes the folder is started only on Windows here")
+    def test_the_windows_guard_leaves_the_folder_when_it_cannot_watch_the_converting_process(self, tmp_path):
+        """A process that cannot be opened is gone only when Windows says there is no such process. Refused for any other
+        reason (another integrity level, a restricted token), the guard removed the folder at once — taking the document
+        away from a conversion still running. The refusal is made certain by running the guard with an `OpenProcess` that
+        fails with "access denied" (5): which real process an account may open differs between machines (an elevated CI
+        runner may open more)."""
+        kept = tmp_path / "kept"
+        kept.mkdir()
+        (kept / "uploaded.doc").write_bytes(_doc())
+        removed = tmp_path / "removed"
+        removed.mkdir()
+        (removed / "uploaded.doc").write_bytes(_doc())
+        refused = ("import ctypes, sys\n"
+                   "real = ctypes.WinDLL\n"
+                   "class Refusing:\n"
+                   "    restype = argtypes = None\n"
+                   "    def __call__(self, *arguments):\n"
+                   "        ctypes.set_last_error(5)\n"
+                   "        return None\n"
+                   "class Kernel:\n"
+                   "    def __init__(self, *arguments, **options):\n"
+                   "        self.__dict__['real'] = real(*arguments, **options)\n"
+                   "        self.__dict__['OpenProcess'] = Refusing()\n"
+                   "    def __getattr__(self, name):\n"
+                   "        return getattr(self.real, name)\n"
+                   "ctypes.WinDLL = Kernel\n"
+                   "sys.argv = sys.argv[1:]\n"
+                   f"exec({legacy._WINDOWS_GUARD!r})\n")
+
+        subprocess.run([sys.executable, "-I", "-S", "-c", refused, "guard", legacy._long_path(str(kept)), str(os.getpid()),
+                        "5"], check=True, timeout=60)
+        # And a process that does not exist: that one is gone, and its folder is removed.
+        subprocess.run([sys.executable, "-I", "-S", "-c", legacy._WINDOWS_GUARD, legacy._long_path(str(removed)),
+                        str(4_000_000_000), "5"], check=True, timeout=60)
+
+        assert (kept / "uploaded.doc").exists(), "the guard removed the folder of a process it could not watch"
+        assert not removed.exists(), "the guard kept the folder of a process that is gone"
+
+    @pytest.mark.skipif(os.name != "nt", reason="the guard that removes the folder is started only on Windows here")
     def test_the_windows_guard_is_started_only_with_a_python_interpreter(self, monkeypatch, tmp_path):
         """As for the POSIX guard: in a frozen application or an embedding host `sys.executable` is the application, not
         Python, and running it with `-c` would start a second copy of it for every conversion."""

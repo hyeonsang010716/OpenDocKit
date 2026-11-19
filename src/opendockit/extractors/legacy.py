@@ -420,6 +420,10 @@ _WINDOWS_GUARD = (
     "handle = library.OpenProcess(0x00100000, False, int(sys.argv[2]))\n"   # SYNCHRONIZE
     "if handle:\n"
     "    library.WaitForSingleObject(handle, 0xFFFFFFFF)\n"
+    # Only "no such process" (87) means the converting process is gone. Any other refusal says nothing about it, and
+    # removing the folder then would take the document away from a conversion that is still running.
+    "elif ctypes.get_last_error() != 87:\n"
+    "    sys.exit(0)\n"
     "deadline = time.monotonic() + float(sys.argv[3])\n"
     "while True:\n"
     "    shutil.rmtree(sys.argv[1], ignore_errors=True)\n"
