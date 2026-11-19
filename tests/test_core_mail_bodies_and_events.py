@@ -129,6 +129,14 @@ class TestInvitationWithoutABody:
 
         assert result.text.endswith("- Description: 안건: 1. 예산 초과 12% 2. 채용 동결")
 
+    def test_mail_with_an_empty_html_part_is_mail(self):
+        """Detection takes an empty HTML part for no HTML body and sends the mail to the text extractor, which took it for one
+        and gave the mail back raw."""
+        result = convert(_invite_without_a_body("DTSTART:20250301T090000Z\r\n" + self._AGENDA, html=""), "a.eml")
+
+        assert result.text == ("Subject: w\nFrom: a@b.c\nTo: d@e.f\n\nEvent:\n\n- Title: 분기 점검\n- Start: 2025-03-01 09:00 UTC\n"
+                               "- Description: 안건:\n  1. 예산 초과 12%\n  2. 채용 동결")
+
     @pytest.mark.parametrize(("event", "expected"), [
         ("DTSTART:20250301T090000Z\r\nDURATION:PT1H30M\r\n", "- Start: 2025-03-01 09:00 UTC\n- End: 2025-03-01 10:30 UTC"),
         ('DTSTART;TZID="Korea Standard Time":20250301T233000\r\nDURATION:PT45M\r\n',
