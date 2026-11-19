@@ -22,7 +22,7 @@ from opendockit.extractors._sheet_format import (
     _shows_date,
     format_cell,
 )
-from opendockit.extractors._sheet_layout import _append_sheet, _collect_rows, _level_marked
+from opendockit.extractors._sheet_layout import _append_sheet, _CellComment, _collect_rows, _comment_block, _level_marked, _SheetRows
 from opendockit.models import ConvertOptions, Extraction
 
 
@@ -54,14 +54,19 @@ def extract_xml_spreadsheet(data: bytes, options: ConvertOptions) -> Extraction:
         table = worksheet.find(f"{{{_SS}}}Table")
         formulas: list[str] = []
         spans: dict[int, list[tuple[int, int, str]]] = {}  # index of the yielded row → horizontal merges (`_fill_across`)
+        comments: list[_CellComment] = []
+        commented: dict[int, list[str]] = {}  # sheet row number → its cells, for the rows that hold a comment
         cells = _xml_sheet_rows(table, formats, options.max_sheet_cols, formulas if unresolved else None, invalid,
-                                indents, spans, not_finite) if table is not None else iter(())
+                                indents, spans, not_finite, comments, commented) if table is not None else iter(())
         rows = _collect_rows(cells, options, name, extraction)
         across = {id(rows[index]): found for index, found in spans.items() if index < len(rows)}
         if formulas:
             extraction.warnings.append(f"Sheet '{name}': {len(formulas):,} formula(s) with no stored result were copied as written "
                                        "(opening and re-saving the file in Excel converts them to values).")
-        _append_sheet(extraction, name, rows, across=across)
+        # Cell comments go after the sheet as in XLSX and XLS; they were dropped without a warning
+        # (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetComments).
+        drawn = [_comment_block(comments, _SheetRows(commented), extraction, options)] if comments and not extraction.exceeded else []
+        _append_sheet(extraction, name, rows, drawn, across=across)
         if extraction.exceeded:
             break
     if not_finite:
@@ -263,7 +268,8 @@ def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None]
                     formulas: list[str] | None = None, invalid: set[str] | None = None,
                     indents: dict[str | None, int] | None = None,
                     across: dict[int, list[tuple[int, int, str]]] | None = None,
-                    not_finite: list[str] | None = None) -> Iterator[tuple[str, ...]]:
+                    not_finite: list[str] | None = None, comments: list[_CellComment] | None = None,
+                    commented: dict[int, list[str]] | None = None) -> Iterator[tuple[str, ...]]:
     """Turn `<Row>`/`<Cell>` into rows. `ss:Index` is a skipped position (1-based); `MergeAcross` is repeated over the spanned cells
     only in rows that have text to the left (a title row keeps it in the first cell only — `_repeat_merge`), and `MergeDown` is
     repeated in the rows below.
@@ -281,6 +287,8 @@ def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None]
     When `indents` (style ID → cell indent) is given, the first text cell of a row gets an indent-level mark (`_level_marked`).
     When `across` is given, the cells spanned by horizontal merges in rows that have text to the left are collected as
     index of the emitted row (0-based) → [(column, end column, value)] (`_repeat_merge`).
+    When `comments` is given, the cell comments (`<Comment ss:Author>`) are collected there with their sheet row and column, and
+    the cells of each row holding one in `commented` (sheet row number → cells), for the comment lines (`_comment_block`).
     """
     invalid = set() if invalid is None else invalid
     column_styles: dict[int, str] = {}
@@ -310,8 +318,13 @@ def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None]
         spans: list[tuple[int, int, str]] = []  # horizontal merges of this row (1-based columns)
         column = 0
 
+        noted = False
         for cell in row.iterfind(f"{{{_SS}}}Cell"):
             column = _ss_int(cell, "Index", column + 1, invalid, minimum=1)
+            note = cell.find(f"{{{_SS}}}Comment") if comments is not None else None
+            if note is not None:
+                comments.append((row_number, column, _ss(note, "Author") or "", "".join(note.itertext()), []))
+                noted = True
             data = cell.find(f"{{{_SS}}}Data")
             style = _ss(cell, "StyleID") or _ss(row, "StyleID") or column_styles.get(column)
             text = _xml_cell_value(data, formats.get(style, formats.get(None)), not_finite) if data is not None else ""
@@ -345,6 +358,8 @@ def _xml_sheet_rows(table: etree._Element, formats: dict[str | None, str | None]
                     spans.append((merged_column + 1, last, text))
         if values and across is not None and spans:
             across[yielded] = [(first - 1, last, text) for first, last, text in spans]  # 0-based columns, end column exclusive
+        if noted and commented is not None:
+            commented[row_number] = [values.get(index, "") for index in range(1, min(max(values, default=0), max_cols) + 1)]
         yield tuple(values.get(index, "") for index in range(1, max(values) + 1)) if values else ()
         yielded += 1
         covered = row_number + _ss_int(row, "Span", 0, invalid)

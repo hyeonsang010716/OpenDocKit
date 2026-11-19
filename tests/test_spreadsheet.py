@@ -1620,6 +1620,25 @@ def _xml_spreadsheet_rows(rows: str) -> bytes:
             "</Worksheet></Workbook>").encode()
 
 
+class TestXmlSpreadsheetComments:
+    """The cell comments of an Excel 2003 XML workbook were dropped without a warning, while XLSX, XLS and ODS write them after
+    the sheet. They are written the same way, the author line Excel puts in front of the text left out, and the row named by
+    its text even after a gap of rows."""
+
+    def test_comments_follow_the_sheet(self):
+        note = ('<Comment ss:Author="Kim"><ss:Data xmlns="http://www.w3.org/TR/REC-html40"><B><Font>Kim:</Font></B>'
+                "<Font>&#10;잠정치, 확정 후 수정</Font></ss:Data></Comment>")
+        rows = ('<Row><Cell><Data ss:Type="String">항목</Data></Cell><Cell><Data ss:Type="String">금액</Data></Cell></Row>'
+                f'<Row><Cell><Data ss:Type="String">매출</Data></Cell><Cell><Data ss:Type="Number">120</Data>{note}</Cell></Row>'
+                '<Row ss:Index="9"><Cell><Data ss:Type="String">비용</Data></Cell><Cell><Data ss:Type="Number">80</Data>'
+                '<Comment ss:Author="Lee"><ss:Data>확정</ss:Data></Comment></Cell></Row>')
+
+        text = convert(_xml_spreadsheet_rows(rows), "a.xml").text
+
+        assert text.endswith('> Comment(Kim, cell B2, on "매출: 120"): 잠정치, 확정 후 수정\n'
+                             '> Comment(Lee, cell B9, on "비용: 80"): 확정')
+
+
 class TestXmlSpreadsheetRowSpan:
     """`<Row ss:Span="n">` stands for n more rows like it, but the span was ignored when numbering the rows after it: an R1C1
     formula below pointed at the wrong cell (`=R[-4]C` stayed as written instead of `=B2`) and a MergeDown reached rows it does not
