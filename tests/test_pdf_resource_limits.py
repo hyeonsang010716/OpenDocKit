@@ -1144,7 +1144,7 @@ class TestContentThatPaintsNothing:
         with pdfplumber.open(BytesIO(_idle_form_pdf(b"q Q\n" * 100 + b" " * 50, 3))) as document:
             drawing = pdf_module._page_drawing(document.pages[1], 1000)
 
-        assert drawing == (1 + 3, len(page) + 3 * 450, _pdf_pdfminer._content_cost(page)[1] + 3 * 200)
+        assert drawing == (1 + 3, len(page) + 3 * 450, _pdf_pdfminer._content_cost(page)[1] + 3 * 200, 0)
 
     def test_page_making_pdfminer_read_too_much_is_read_with_pdfium(self, monkeypatch):
         from opendockit.extractors import pdf as pdf_module
@@ -1204,6 +1204,24 @@ class TestContentThatPaintsNothing:
         result = convert(_idle_form_pdf(path, 3), "a.pdf")
 
         assert read == [1, 2] and "Idle page" in result.text and not result.warnings
+
+    def test_path_pieces_are_counted_by_their_operators(self):
+        assert _pdf_pdfminer._path_segments(b"0 0 m 1 1 l 1 2 3 4 5 6 c 1 2 3 4 v 1 2 3 4 y h 0 0 1 1 re f (l m) Tj /lm Do") == 7
+
+    @pytest.mark.parametrize(("segments", "pdfminer"), [(900, True), (1_100, False)])
+    def test_page_of_too_many_path_pieces_is_read_with_pdfium(self, monkeypatch, segments, pdfminer):
+        """pdfminer keeps every point of a path: one path of 600,000 segments (1.8 million tokens) peaked at 942MB in 6.5 seconds."""
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_PATH_SEGMENTS", 1_000)
+        path = b"72 100 m\n" + b"".join(b"%d %d l\n" % (72 + index % 450, 100 + index % 300) for index in range(segments - 1)) + b"S\n"
+
+        result = convert(_idle_form_pdf(path, 1), "a.pdf")
+
+        assert "Idle page" in result.text
+        assert (read == [1, 2] and not result.warnings) if pdfminer else (
+            read == [1] and any("(2)" in warning and "too many drawing elements" in warning for warning in result.warnings))
 
     def test_page_with_a_large_inline_image_is_read_with_pdfminer(self):
         """5MB of image data without a white-space or delimiter byte (0.3 seconds in pdfminer) is a few tokens."""

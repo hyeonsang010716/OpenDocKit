@@ -353,11 +353,12 @@ def _drawn_objects(page: object, limit: int, painted: dict[int, tuple[object, in
 
 
 def _page_drawing(page: object, limit: int, painted: dict[int, tuple[object, int]] | None = None,
-                  forms: dict[tuple[int, int], tuple[object, ...]] | None = None) -> tuple[int, int, int]:
+                  forms: dict[tuple[int, int], tuple[object, ...]] | None = None) -> tuple[int, int, int, int]:
     """Estimate of the number of drawn objects that drawing the page will create (forms are multiplied by the number of times they
     are drawn; once over `limit` the value where counting stopped), and the bytes of content read to draw them — each content stream
-    as often as `/Contents` lists it, and each form's content as often as it is drawn: all its bytes (`_MAX_OPENED_CONTENT_BYTES`)
-    and the tokens pdfminer reads from them (`_content_cost`, `_MAX_READ_CONTENT_TOKENS`).
+    as often as `/Contents` lists it, and each form's content as often as it is drawn: all its bytes (`_MAX_OPENED_CONTENT_BYTES`),
+    the tokens pdfminer reads from them (`_content_cost`, `_MAX_READ_CONTENT_TOKENS`) and the pieces they add to paths
+    (`_path_segments`, `_MAX_READ_PATH_SEGMENTS`).
 
     Called before pdfium or pdfminer open the page (`_MAX_DRAWN_OBJECTS`). pdfminer decodes the content and form streams anyway
     (the decoded data is cached), so the extra cost is one regex pass. With `painted` handed over from the document (content stream
@@ -376,20 +377,19 @@ def _page_drawing(page: object, limit: int, painted: dict[int, tuple[object, int
                 painted[id(stream)] = (stream, _paint_operators(stream.get_data(), limit))
         paints = sum(painted[id(stream)][1] for stream in streams)
         calls = _page_calls(streams, limit)
-        objects, read, read_tokens = _FormWalk(limit, forms).drawn(calls, resources, 0, paints)
+        objects, read = _FormWalk(limit, forms).drawn(calls, resources, 0, paints)
         parents = _parent_resources(page.page_obj)
         if parents is not None and parents is not resources:
             # pdfium takes inherited resources from `/Parent`, pdfminer from the path through the page tree
-            other = _FormWalk(limit, forms).drawn(calls, parents, 0, paints)
-            objects, read, read_tokens = max(objects, other[0]), max(read, other[1]), max(read_tokens, other[2])
+            other, other_read = _FormWalk(limit, forms).drawn(calls, parents, 0, paints)
+            objects, read = max(objects, other), tuple(max(pair) for pair in zip(read, other_read, strict=True))
         for stream in streams:
-            size, tokens = _content_cost(stream.get_data())
-            read, read_tokens = read + size, read_tokens + tokens
-        return objects, read, read_tokens
+            read = _plus(read, _reading_cost(stream.get_data()))
+        return (objects, *read)
     except DocumentTooLargeError:
         raise
     except Exception:  # noqa: BLE001 — the estimate is a bonus. Page reading meets a broken structure itself and handles it
-        return 0, 0, 0
+        return 0, 0, 0, 0
 
 
 
@@ -471,6 +471,17 @@ def _xobject_calls(data: bytes, limit: int) -> Counter:
 _TOKEN_CLASSES = bytes(32 if byte in b"\x00\t\n\x0c\r " else 100 if byte in b"()<>[]{}/%" else 120 for byte in range(256))
 
 
+_NOTHING_READ = (0, 0, 0)
+
+
+def _plus(cost: tuple[int, ...], more: tuple[int, ...]) -> tuple[int, ...]:
+    return tuple(one + other for one, other in zip(cost, more, strict=True))
+
+
+def _times(cost: tuple[int, ...], times: int) -> tuple[int, ...]:
+    return tuple(one * times for one in cost)
+
+
 def _content_cost(data: bytes) -> tuple[int, int]:
     """Bytes of a content stream and the tokens pdfminer reads from them: runs of bytes that are neither white space nor
     delimiters, and each delimiter (`(`, `<`, `[`, `/` …). Counted on a copy with each byte replaced by its class, at the speed of a
@@ -486,6 +497,21 @@ def _content_cost(data: bytes) -> tuple[int, int]:
     test_pdf_resource_limits.py::TestContentThatPaintsNothing)."""
     classes = data.translate(_TOKEN_CLASSES)
     return len(data), classes.count(b" x") + classes.count(b"d") + (classes[:1] == b"x")
+
+
+# Operators that add a piece to the current path (`m l c v y h re`). The same letters inside strings are counted too (fine for an
+# upper bound).
+_PATH_OPERATOR = re.compile(rb"(?<![^\s\])>])(?:re|[mlcvyh])(?=[\s\[(/<%]|$)")
+
+
+def _reading_cost(data: bytes) -> tuple[int, int, int]:
+    """Bytes, tokens (`_content_cost`) and path pieces (`_path_segments`) of a content stream."""
+    return (*_content_cost(data), _path_segments(data))
+
+
+def _path_segments(data: bytes) -> int:
+    """Pieces added to paths in a content stream (`_MAX_READ_PATH_SEGMENTS` in pdf.py). Only counts."""
+    return sum(1 for _ in _PATH_OPERATOR.finditer(data))
 
 
 def _paint_operators(data: bytes, limit: int) -> int:
@@ -535,20 +561,17 @@ class _FormWalk:
         self.calls: list[int] = []  # how many times the call drawing each form of the chain draws it
         self.loop: int | None = None  # place in the chain of the form an open loop comes back to
 
-    def objects(self, data: bytes, resources: object, depth: int, paints: int | None = None) -> tuple[int, int, int]:
-        """Drawn objects of the content stream `data`, and the bytes and tokens of content read to draw them (`data` and its forms,
-        `_content_cost`)."""
+    def objects(self, data: bytes, resources: object, depth: int, paints: int | None = None) -> tuple[int, tuple[int, int, int]]:
+        """Drawn objects of the content stream `data`, and what reading it and its forms costs (`_reading_cost`)."""
         total = _paint_operators(data, self.limit) if paints is None else paints
-        objects, read, read_tokens = self.drawn(_xobject_calls(data, self.limit), resources, depth, total)
-        size, tokens = _content_cost(data)
-        return objects, size + read, tokens + read_tokens
+        objects, read = self.drawn(_xobject_calls(data, self.limit), resources, depth, total)
+        return objects, _plus(read, _reading_cost(data))
 
-    def drawn(self, calls: Counter, resources: object, depth: int, total: int) -> tuple[int, int, int]:
-        """`total` plus the drawn objects of the XObject calls `calls` (name → times) made with `resources`, and the bytes of form
-        content read to draw them and their tokens (`_content_cost`): each form's content and that of the forms inside
-        it, as often as it is drawn."""
+    def drawn(self, calls: Counter, resources: object, depth: int, total: int) -> tuple[int, tuple[int, int, int]]:
+        """`total` plus the drawn objects of the XObject calls `calls` (name → times) made with `resources`, and what reading the
+        content of the forms costs (`_reading_cost`): each form's content and that of the forms inside it, as often as it is drawn."""
         limit, counted = self.limit, self.counted
-        read = read_tokens = 0
+        read = _NOTHING_READ
         xobjects = resolve1(resources.get("XObject")) if isinstance(resources, dict) and calls else None
 
         for raw, times in calls.items():
@@ -558,40 +581,39 @@ class _FormWalk:
                 total += times  # an image or a missing name is one object
                 continue
             if id(form) in self.outside:
-                return limit + 1, read, read_tokens
+                return limit + 1, read
             if id(form) in self.chain:
                 place = self.chain[id(form)]
                 if times > 1 or self.loop is not None or any(drawn > 1 for drawn in self.calls[place + 1:]):
-                    return limit + 1, read, read_tokens
+                    return limit + 1, read
                 self.loop = place  # its contents are counted again when the form it comes back to is left
                 total += 1
                 continue
             if depth >= _FORM_NESTING_MAX:
-                return limit + 1, read, read_tokens
+                return limit + 1, read
             inherited = resolve1(form.attrs.get("Resources")) or resources
             key = (id(form), 0) if (id(form), 0) in counted else (id(form), id(inherited))
-            inner, inner_read, inner_tokens = (counted[key][-1], *counted[key][-3:-1]) if key in counted else (None, 0, 0)
+            inner, inner_read = (counted[key][-1], counted[key][-2]) if key in counted else (None, _NOTHING_READ)
             if inner is None:
                 place = len(self.calls)
                 self.chain[id(form)] = place
                 self.calls.append(times)
                 form_data = form.get_data()
-                inner, inner_read, inner_tokens = self.objects(form_data, inherited, depth + 1)
+                inner, inner_read = self.objects(form_data, inherited, depth + 1)
                 del self.chain[id(form)]
                 self.calls.pop()
                 if self.loop == place:
                     # pdfium goes round the loop down to its nesting level
-                    inner, inner_read, inner_tokens = inner * _CYCLE_DRAWS, inner_read * _CYCLE_DRAWS, inner_tokens * _CYCLE_DRAWS
-                    self.loop = None
+                    inner, inner_read, self.loop = inner * _CYCLE_DRAWS, _times(inner_read, _CYCLE_DRAWS), None
                 if self.loop is None:  # a loop still open comes back above: the count holds only part of it
                     if not _XOBJECT_CALL.search(form_data):
                         key = (id(form), 0)  # the count of a form that draws no other XObject does not depend on the resources
-                    counted[key] = (form, inherited, inner_read, inner_tokens, inner)
+                    counted[key] = (form, inherited, inner_read, inner)
             total += times * (1 + inner)
-            read, read_tokens = read + times * inner_read, read_tokens + times * inner_tokens
+            read = _plus(read, _times(inner_read, times))
             if total > limit:
                 break
-        return total, read, read_tokens
+        return total, read
 
 
 # Upper bound on expanding font ranges. pdfminer expands the ranges of a CID font's /W and /W2 (`c1 c2 w`) and the bfrange/cidrange

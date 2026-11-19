@@ -167,6 +167,14 @@ _MAX_PAGE_CHARS = 200_000
 # with a 5MB inline image and one with that map path lost their tables. Apart from the hostile form of these tests, the largest page
 # the PDF tests build reads 450,000 tokens (Pinned by: test_pdf_resource_limits.py::TestContentThatPaintsNothing).
 _MAX_READ_CONTENT_TOKENS = 2_000_000
+# A page whose content adds more pieces to paths than this (`m l c v y h re`, `_path_segments`, as often as drawn) is read with
+# pdfium's simple extraction too, with the same warning. pdfminer and pdfplumber keep every point of a path in their objects: one path
+# of 100,000 / 200,000 / 400,000 / 600,000 line segments peaked at 248 / 385 / 653 / 942MB (1.4KB a segment; 1, 2, 4 and 6.5
+# seconds), one of 100,000 / 200,000 curves at 316 / 535MB (2.2KB a curve), 3,000 / 6,000 paths of 25 curves at 301 / 483MB,
+# all under the token bound (600,000 segments are 1.8 million tokens; pdfium reads them in about a second at 290MB). 150,000 pieces
+# keep a page's path objects to about 200-330MB; a map path of 100,000 segments and a chart of 3,000 curved paths stay with pdfminer
+# (Pinned by: test_pdf_resource_limits.py::TestContentThatPaintsNothing::test_page_of_too_many_path_pieces_is_read_with_pdfium).
+_MAX_READ_PATH_SEGMENTS = 150_000
 # A page with more text pieces than this whose lines and shapes (paths) number at least half as many (a ruled table of 1,210 cells)
 # is also read without text-box grouping (`_is_ruled_grid`). Grouping took 3.6 seconds per page, so a 30-page table document went
 # over the time budget from page 18 on and fell back to simple extraction without tables. The cell text moves into the table, so
@@ -302,7 +310,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                     try:
                         _charge_page(page, budget)
                         _annotated_attachments(page.page_obj, attachments)
-                        objects, content, tokens = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
+                        objects, content, tokens, segments = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
                         if objects <= _MAX_DRAWN_OBJECTS and content <= _MAX_OPENED_CONTENT_BYTES:
                             fallback = fallback or _open_pdfium(data)
                             numbering = numbering or _PdfiumPages(pdf.doc.catalog.get("Pages"), fallback, past)
@@ -316,7 +324,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                                pdfium_index=-1))
                             continue
                         late = options.pdf_time_budget is not None and time.perf_counter() - started > options.pdf_time_budget
-                        heavy = tokens > _MAX_READ_CONTENT_TOKENS
+                        heavy = tokens > _MAX_READ_CONTENT_TOKENS or segments > _MAX_READ_PATH_SEGMENTS
                         pieces, line_pieces, paths, crowded_page = ((0, 0, 0, None) if late or heavy or index is None
                                                                     else _survey_page(fallback, index))
                         if heavy and not late:
@@ -763,7 +771,7 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
 
 def _past_bounds(page: object, budget: _InflateBudget) -> bool:
     """Whether drawing `page` is past the bounds by which nobody opens a page (`_MAX_DRAWN_OBJECTS`, `_MAX_OPENED_CONTENT_BYTES`)."""
-    objects, content, _ = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
+    objects, content, *_ = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
     return objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES
 
 
