@@ -125,7 +125,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   format (`001, 002, 003, ...`) keeps its width. A paragraph of invisible characters is empty, in PPTX too.
 - **DOCX / PPTX packages**: a part named in another case than the relationship that points at it is read, as Office
   does; a DOCX lost it to the repair and a PPTX lost a picture or a slide. One relationship without its Id, Type or
-  Target no longer rejects the whole document.
+  Target no longer rejects the whole document, and one without a Type to a styles, numbering or other known part
+  takes that part's type.
 - **HWP / HWPX**: the one-character controls of a paragraph are decoded with the text around them, without the
   control characters they held; the guide text of an unfilled click-here field is left out; an empty numbered
   paragraph takes its number; notes count toward `max_chars` while the body is read, and uncompressed streams toward
@@ -174,13 +175,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (a form of a million `q Q` drawn 16 times: 88 seconds) and a page of very many characters (800,000: 25 seconds and
   2 GB) are read with pdfium's plain text extraction, with the same warning. A page is opened in pdfium at the number
   pdfium gives it, so an odd page tree (a missing or non-page entry in `/Kids`) cannot hand it a page that was
-  refused. The data of an inline image is read in linear time (5 MB: 8.5 seconds).
+  refused. The data of an inline image is read in linear time (5 MB: 8.5 seconds). A page that adds more than 150,000
+  pieces to paths (a detailed map) is read with pdfium too: pdfminer kept about 1.4 KB a segment (600,000: 942 MB).
 - **PDF tables**: a table shaded with grey set as DeviceGray (`0.85 g`) is read as shaded, as one in RGB is; each row
   came out as a table of its own.
 - **Mail**: a Content-Type with many parameters no longer takes quadratic time (an 8 KB mail: 20 seconds), nor does a
   header of many encoded words on one line (1 MB: 13 seconds). An attachment name written in raw 8-bit bytes or in an
   RFC 2231 Korean charset (`ks_c_5601-1987''…`) is read in the warning, not as `���`, and such a name on a part without
-  a usable boundary or on a report part no longer rejects the whole mail.
+  a usable boundary or on a report part no longer rejects the whole mail; nor, on Python 3.12 and 3.13, does a name the
+  standard library cannot read (`filename*=` beside `filename*1=`).
 - **Character limit (spreadsheets and CSV)**: a sheet is drawn only up to `max_chars`, so a merged cell repeated down
   20,000 rows (108 KB: 31 seconds and 3.5 GB), a CSV of short rows under a wide header (1 MB: 19 seconds and 1.4 GB) and
   sparse rows no longer build the whole table first; a cell holding only `>` counts.
