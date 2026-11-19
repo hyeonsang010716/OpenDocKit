@@ -87,7 +87,7 @@ from opendockit.extractors._package import (
 )
 from opendockit.extractors.html import extract_html
 from opendockit.extractors.text import extract_text
-from opendockit.markdown import _INVISIBLE, TableGrid, join_blocks, merged_copy, solid_length
+from opendockit.markdown import TableGrid, clean_characters, join_blocks, merged_copy, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, renumber_image_markers
 
 
@@ -450,10 +450,12 @@ class _DocxRenderer:
             joined.text_chars = 0
         joined.pieces.append(raw)
         joined.visible = joined.visible or self._shows_text(raw)
-        # Empty is decided on the text without the characters cleaning removes (zero-width space, soft hyphen, BOM, direction
-        # marks): `resolve_inline` takes them out of a formatted run, so a list paragraph holding only one in bold had no text left
-        # for its item, and the whole document was rejected; unformatted, it wrote a bare number, or a bare `#` for a heading
-        # (Pinned by: test_inline_formatting.py::TestInvisibleCharacters::test_paragraph_of_invisible_characters_is_empty).
+        # Empty is decided on the text as cleaning leaves it (`clean_characters`: zero-width space, soft hyphen, BOM, direction
+        # marks, private-use and control characters removed): `resolve_inline` takes the invisible ones out of a formatted run, so
+        # a list paragraph holding only one in bold had no text left for its item, and the whole document was rejected;
+        # unformatted, it wrote a bare number, or a bare `#` for a heading. Decided on a list of its own, a private-use character
+        # or a C1 control still wrote them (Pinned by:
+        # test_inline_formatting.py::TestInvisibleCharacters::test_paragraph_of_invisible_characters_is_empty).
         blank = not joined.visible
         # Charts, SmartArt and text boxes go after the paragraph text as separate blocks; those of the paragraphs joined to this
         # one go after the joined paragraph, as each went after its own paragraph before (Pinned by:
@@ -563,8 +565,9 @@ class _DocxRenderer:
     def _shows_text(self, text: str) -> bool:
         """Whether paragraph text as read (`_paragraph_text`) holds a character that cleaning keeps, the temporary link and
         emphasis marks left out."""
-        plain = plain_inline(text) if self.inline is not None else text
-        return bool(_INVISIBLE.sub("", plain).strip())
+        plain = (plain_inline(text) if self.inline is not None else text).strip()
+        # A letter, digit, punctuation mark or symbol is never removed: only text that starts otherwise is cleaned to tell
+        return bool(plain) and (unicodedata.category(plain[0])[0] in "LNPS" or bool(clean_characters(plain).strip()))
 
     def _lower_count(self, text: str) -> int:
         """The characters of a piece of paragraph text as read that are certain to be written (`solid_length` without the

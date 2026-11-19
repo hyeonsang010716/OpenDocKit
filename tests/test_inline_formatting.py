@@ -948,7 +948,7 @@ class TestInvisibleCharacters:
     def test_html(self, html, expected):
         assert convert(f"<html><body>{html}</body></html>".encode(), "a.html").text == expected
 
-    @pytest.mark.parametrize("character", ["\u200b", "\ufeff", "\u00ad", "\u200e"])
+    @pytest.mark.parametrize("character", ["\u200b", "\ufeff", "\u00ad", "\u200e", "\ue000", "\uf8ff", "\x90"])
     @pytest.mark.parametrize("properties", ["", _BOLD, _ITALIC])
     def test_paragraph_of_invisible_characters_is_empty(self, character, properties):
         """Whether a paragraph is empty was decided with these characters still in it, and a formatted run lost them only
