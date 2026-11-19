@@ -122,6 +122,16 @@ class TestItemTextStartingLikeABlock:
     """List item text that starts with `|` or a fence was taken for a table or code block: the bullet was left empty and the
     text moved under it."""
 
+    def test_html_table_in_an_item_keeps_its_lines(self):
+        """A table drawn as HTML (for its merged cells) inside an item was folded onto one line, onto the bullet line when it
+        opened the item; it keeps its lines below the item as a Markdown table does."""
+        table = '<table><tr><th colspan="2">Head</th></tr><tr><td>a</td><td>b</td></tr></table>'
+        drawn = '<table>\n<tr><th colspan="2">Head</th></tr>\n<tr><td>a</td><td>b</td></tr>\n</table>'
+
+        result = convert(f"<ul><li>Item text{table}</li><li>{table}</li><li>last</li></ul>".encode(), "a.html")
+
+        assert result.text == f"- Item text\n\n{drawn}\n\n-\n\n{drawn}\n\n- last"
+
     @pytest.mark.parametrize(("html", "expected"), [
         ("<ul><li>| a | b |</li><li>```js</li></ul>", "- | a | b |\n- \\```js"),
         ("<ul><li>| a | b |<ul><li>n</li></ul></li></ul>", "- | a | b |\n  - n"),

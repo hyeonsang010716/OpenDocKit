@@ -662,8 +662,9 @@ def _is_drawn_block(block: str) -> bool:
     """Is this item block a code block, table or quote block (`_item_blocks`), which takes more than one line, not a line of text
     that starts with a fence or `|`. A quote of several lines on the bullet line kept only its first line in the item: the
     second line (`> second`) started a quote outside the list and split it
-    (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock::test_quote_of_several_lines_at_the_start_of_an_item_goes_below)."""
-    return block.startswith(("```", "|", ">")) and "\n" in block
+    (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock::test_quote_of_several_lines_at_the_start_of_an_item_goes_below).
+    A table drawn as HTML (`<table>`, for merged cells) is one too."""
+    return block.startswith(_DRAWN_BLOCK_STARTS) and "\n" in block
 
 
 def _item_pieces(blocks: list[str], nested_count: int) -> list[str | int]:
@@ -810,10 +811,17 @@ def _line_start(text: str, mark: str, position: int) -> int:
         position = found + 1
 
 
+# The first characters of the item blocks drawn on several lines (`_is_drawn_block`, `_item_blocks`): a code block, a table
+# (Markdown, or HTML for merged cells), a quote block.
+_DRAWN_BLOCK_STARTS = ("```", "|", ">", "<table")
+
+
 def _item_blocks(text: str) -> list[str]:
     """Split a list item's content into blocks. Code blocks, tables and quote blocks (every line starting with `>`) keep their
     line structure; in other paragraphs whitespace is collapsed to single spaces. A quote block in an item was folded onto one
-    line, its nested list and all (`> - b > - c`) (Pinned by: test_core_html.py::TestListInsideAQuoteInsideAnItem)."""
+    line, its nested list and all (`> - b > - c`) (Pinned by: test_core_html.py::TestListInsideAQuoteInsideAnItem). So was a
+    table drawn as HTML, onto the bullet line when it opened the item
+    (Pinned by: test_core_html.py::TestItemTextStartingLikeABlock::test_html_table_in_an_item_keeps_its_lines)."""
     blocks = []
     for position, part in enumerate(_split_at_fenced(text)):
         if position % 2:
@@ -821,7 +829,8 @@ def _item_blocks(text: str) -> list[str]:
             continue
         for paragraph in _BLANK_LINES.split(part):
             if paragraph.strip():
-                kept = paragraph.lstrip().startswith("|") or all(line.lstrip().startswith(">") for line in paragraph.strip().split("\n"))
+                kept = (paragraph.lstrip().startswith(("|", "<table"))
+                        or all(line.lstrip().startswith(">") for line in paragraph.strip().split("\n")))
                 blocks.append(paragraph.strip() if kept else " ".join(paragraph.split()))
     return blocks
 
