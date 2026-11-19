@@ -109,12 +109,14 @@ from opendockit.extractors._pdf_pdfminer import (
     _INFLATE_BUDGET,
     _LAPARAMS,
     _MAX_DRAWN_OBJECTS,
+    _MAX_OPENED_CONTENT_BYTES,
     _REPEATED_FORMS_SKIPPED,
     _TOO_LARGE,
     _charge_page,
-    _drawn_objects,
+    _drawn_objects,  # noqa: F401 — the tests count a page's drawn objects through this module
     _InflateBudget,
     _name,
+    _page_drawing,
 )
 from opendockit.extractors._pdf_pieces import _place_xobject_lines, _rejoined_lines
 from opendockit.extractors._pdf_placed_runs import _repair_placed_runs
@@ -143,6 +145,15 @@ from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 # even on that page and stops at the limit. Over 993 pages of public PDFs the maximum is 12,500
 # (Pinned by: test_pdf.py::TestDrawingArtifacts::test_page_with_huge_number_of_drawing_objects_is_read_with_pdfium).
 _MAX_PAGE_OBJECTS = 50_000
+# A page that makes pdfminer read more content than this (`_page_drawing`: each content stream as often as listed, each form's content
+# as often as drawn, white space left out) is read with pdfium's simple extraction instead, with the warning of pages that have too
+# many drawing elements. Operators that paint nothing make no drawn object, and pdfminer reads them at about 2 seconds per MB: a 4.8KB
+# file drawing a form of a million `q Q` (2MB without spaces) once took 4.4 seconds, 4 times 17 seconds and 16 times 88 seconds inside
+# one page, where the time budget does not look; pdfium reads the 16 times in 1.1 seconds. 4MB is about 9 seconds of such operators,
+# the cost of the slowest pages under the other bounds. A page's content is rarely above a few MB: the largest page the PDF tests
+# build reads 0.85MB without spaces (1.3MB with), and a page of 50,000 drawing objects (`_MAX_PAGE_OBJECTS`) about 1-2MB (Pinned by:
+# test_pdf_resource_limits.py::TestContentThatPaintsNothing).
+_MAX_READ_CONTENT_BYTES = 4 << 20
 # A page with more text pieces than this whose lines and shapes (paths) number at least half as many (a ruled table of 1,210 cells)
 # is also read without text-box grouping (`_is_ruled_grid`). Grouping took 3.6 seconds per page, so a 30-page table document went
 # over the time budget from page 18 on and fell back to simple extraction without tables. The cell text moves into the table, so
@@ -266,14 +277,15 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
             over_budget = 0
             failed = []
             crowded: list[int] = []  # pages not handed to pdfminer because they have too many drawn objects
-            refused: list[int] = []  # pages nobody opened: too many drawn objects or forms nested too deeply (`_drawn_objects`)
+            refused: list[int] = []  # pages nobody opened: too many drawn objects or bytes of content, forms nested too deeply
             tally = _EdgeTally(limit, options.remove_repeated_page_lines)
             try:
                 for page in pdf.pages[:limit]:
                     try:
                         _charge_page(page, budget)
                         _annotated_attachments(page.page_obj, attachments)
-                        if _drawn_objects(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms) > _MAX_DRAWN_OBJECTS:
+                        objects, content, solid = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
+                        if objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES:
                             # Both pdfium and pdfminer use memory per draw merely by opening the page — hand it to neither
                             refused.append(page.page_number)
                             pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
@@ -282,9 +294,18 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                             continue
                         fallback = fallback or _open_pdfium(data)
                         late = options.pdf_time_budget is not None and time.perf_counter() - started > options.pdf_time_budget
-                        pieces, line_pieces, paths, crowded_page = ((0, 0, 0, None) if late
+                        heavy = solid > _MAX_READ_CONTENT_BYTES
+                        pieces, line_pieces, paths, crowded_page = ((0, 0, 0, None) if late or heavy
                                                                     else _survey_page(fallback, page.page_number - 1))
-                        if late:
+                        if heavy and not late:
+                            crowded.append(page.page_number)
+                            try:
+                                pages.append(_pdfium_page(fallback, page.page_number - 1))
+                            except pdfium.PdfiumError:  # a page pdfium cannot open is an empty page (see below)
+                                pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
+                                                   lines=[], tables=[], has_images=False,
+                                                   view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
+                        elif late:
                             over_budget += 1
                             extraction.time_limited = True
                             try:

@@ -289,6 +289,13 @@ def _charge_repeated_contents(page: object, budget: _InflateBudget) -> None:
 # Known accepted gap: a page with more than 500,000 paint operators (a very dense drawing or map) is not read for text either;
 # only a warning is given (Pinned by: test_pdf_resource_limits.py::TestRepeatedFormXObjects, TestManyPaintOperators).
 _MAX_DRAWN_OBJECTS = 500_000
+# Bytes of content a page may make pdfium read (`_page_drawing`: each content stream as often as `/Contents` lists it, each form's
+# content as often as it is drawn). Operators that paint nothing make no object, so a form of a million `q Q` (4.8KB file) drawn n
+# times passed the estimate up to n = 500,000; pdfminer took 4.4 seconds at n = 1, 17 at n = 4 and 88 at n = 16, and pdfium reads
+# such content at about 60MB a second (256MB: 4.4 seconds). Past this bound nobody opens the page. A page's content stream is rarely
+# above a few MB, and a page drawing 128MB is past the drawn-object limit long before (Pinned by:
+# test_pdf_resource_limits.py::TestContentThatPaintsNothing).
+_MAX_OPENED_CONTENT_BYTES = 128 << 20
 # A form chain deeper than this is treated as over the limit without counting how much it multiplies further down. When the deep
 # part was counted as one object, pdfminer (no depth limit) spent more than 12 minutes drawing a 10KB file that multiplies below
 # level 32. The page survey (`_survey_page`) counts down to this depth as well.
@@ -303,8 +310,16 @@ _REPEATED_FORMS_SKIPPED = " were not read because they have too many drawing ele
 
 def _drawn_objects(page: object, limit: int, painted: dict[int, tuple[object, int]] | None = None,
                    forms: dict[tuple[int, int], tuple[object, ...]] | None = None) -> int:
+    """Estimate of the number of drawn objects that drawing the page will create (`_page_drawing`)."""
+    return _page_drawing(page, limit, painted, forms)[0]
+
+
+def _page_drawing(page: object, limit: int, painted: dict[int, tuple[object, int]] | None = None,
+                  forms: dict[tuple[int, int], tuple[object, ...]] | None = None) -> tuple[int, int, int]:
     """Estimate of the number of drawn objects that drawing the page will create (forms are multiplied by the number of times they
-    are drawn; once over `limit` the value where counting stopped).
+    are drawn; once over `limit` the value where counting stopped), and the bytes of content read to draw them — each content stream
+    as often as `/Contents` lists it, and each form's content as often as it is drawn: all of them (`_MAX_OPENED_CONTENT_BYTES`) and
+    those that are not white space (`_content_bytes`, `_MAX_READ_CONTENT_BYTES`).
 
     Called before pdfium or pdfminer open the page (`_MAX_DRAWN_OBJECTS`). pdfminer decodes the content and form streams anyway
     (the decoded data is cached), so the extra cost is one regex pass. With `painted` handed over from the document (content stream
@@ -322,11 +337,15 @@ def _drawn_objects(page: object, limit: int, painted: dict[int, tuple[object, in
             if id(stream) not in painted:
                 painted[id(stream)] = (stream, _paint_operators(stream.get_data(), limit))
         paints = sum(painted[id(stream)][1] for stream in streams)
-        return _FormWalk(limit, forms).drawn(_page_calls(streams, limit), resources, 0, paints)
+        objects, read, dense = _FormWalk(limit, forms).drawn(_page_calls(streams, limit), resources, 0, paints)
+        for stream in streams:
+            size, solid = _content_bytes(stream.get_data())
+            read, dense = read + size, dense + solid
+        return objects, read, dense
     except DocumentTooLargeError:
         raise
     except Exception:  # noqa: BLE001 — the estimate is a bonus. Page reading meets a broken structure itself and handles it
-        return 0
+        return 0, 0, 0
 
 
 def _content_streams(page: object) -> list[PDFStream]:
@@ -378,6 +397,13 @@ def _xobject_calls(data: bytes, limit: int) -> Counter:
     return Counter(match[1] for match in islice(_XOBJECT_CALL.finditer(data), limit + 1))
 
 
+def _content_bytes(data: bytes) -> tuple[int, int]:
+    """Bytes of a content stream: all of them, and those that are not white space. pdfminer reads white space about 150 times
+    faster than operators (200MB of spaces in about a second, the 4MB of a million `q Q` in 4 seconds), so the bound on reading a
+    page with pdfminer counts only the rest: a page padded with spaces is read as before."""
+    return len(data), len(data) - sum(data.count(space) for space in (b" ", b"\n", b"\r", b"\t"))
+
+
 def _paint_operators(data: bytes, limit: int) -> int:
     """Number of paint operators in a content stream (`limit + 1` when over `limit`). Only counts, so that a stream with ten million
     of them does not build a list."""
@@ -396,7 +422,7 @@ def _content_objects(data: bytes, resources: object, limit: int, counted: dict[t
     without resources inherits those of whatever draws it, so if it draws other XObjects it is counted per such resources, otherwise
     once under resource id 0). A form that comes back to itself is counted as pdfium draws it (`_FormWalk`), and a form deeper than
     `_FORM_NESTING_MAX` counts as over the limit. The number of paint operators already counted is passed in as `paints`."""
-    return _FormWalk(limit, counted, active).objects(data, resources, depth, paints)
+    return _FormWalk(limit, counted, active).objects(data, resources, depth, paints)[0]
 
 
 # pdfium draws a form inside a form down to its 40th level, also when the form comes back to itself: a form that draws itself once
@@ -425,14 +451,20 @@ class _FormWalk:
         self.calls: list[int] = []  # how many times the call drawing each form of the chain draws it
         self.loop: int | None = None  # place in the chain of the form an open loop comes back to
 
-    def objects(self, data: bytes, resources: object, depth: int, paints: int | None = None) -> int:
-        """Drawn objects of the content stream `data`."""
+    def objects(self, data: bytes, resources: object, depth: int, paints: int | None = None) -> tuple[int, int, int]:
+        """Drawn objects of the content stream `data` and the bytes of content read to draw them (`data` and its forms), all of
+        them and those that are not white space (`_content_bytes`)."""
         total = _paint_operators(data, self.limit) if paints is None else paints
-        return self.drawn(_xobject_calls(data, self.limit), resources, depth, total)
+        objects, read, dense = self.drawn(_xobject_calls(data, self.limit), resources, depth, total)
+        size, solid = _content_bytes(data)
+        return objects, size + read, solid + dense
 
-    def drawn(self, calls: Counter, resources: object, depth: int, total: int) -> int:
-        """`total` and the drawn objects of the XObject calls `calls` (name → times) made with `resources`."""
+    def drawn(self, calls: Counter, resources: object, depth: int, total: int) -> tuple[int, int, int]:
+        """`total` plus the drawn objects of the XObject calls `calls` (name → times) made with `resources`, and the bytes of form
+        content read to draw them (all of them, those that are not white space): each form's content and that of the forms inside
+        it, as often as it is drawn."""
         limit, counted = self.limit, self.counted
+        read = dense = 0
         xobjects = resolve1(resources.get("XObject")) if isinstance(resources, dict) and calls else None
 
         for raw, times in calls.items():
@@ -442,37 +474,40 @@ class _FormWalk:
                 total += times  # an image or a missing name is one object
                 continue
             if id(form) in self.outside:
-                return limit + 1
+                return limit + 1, read, dense
             if id(form) in self.chain:
                 place = self.chain[id(form)]
                 if times > 1 or self.loop is not None or any(drawn > 1 for drawn in self.calls[place + 1:]):
-                    return limit + 1
+                    return limit + 1, read, dense
                 self.loop = place  # its contents are counted again when the form it comes back to is left
                 total += 1
                 continue
             if depth >= _FORM_NESTING_MAX:
-                return limit + 1
+                return limit + 1, read, dense
             inherited = resolve1(form.attrs.get("Resources")) or resources
             key = (id(form), 0) if (id(form), 0) in counted else (id(form), id(inherited))
-            inner = counted[key][-1] if key in counted else None
+            inner, inner_read, inner_dense = (counted[key][-1], *counted[key][-3:-1]) if key in counted else (None, 0, 0)
             if inner is None:
                 place = len(self.calls)
                 self.chain[id(form)] = place
                 self.calls.append(times)
                 form_data = form.get_data()
-                inner = self.objects(form_data, inherited, depth + 1)
+                inner, inner_read, inner_dense = self.objects(form_data, inherited, depth + 1)
                 del self.chain[id(form)]
                 self.calls.pop()
                 if self.loop == place:
-                    inner, self.loop = inner * _CYCLE_DRAWS, None  # pdfium goes round the loop down to its nesting level
+                    # pdfium goes round the loop down to its nesting level
+                    inner, inner_read, inner_dense = inner * _CYCLE_DRAWS, inner_read * _CYCLE_DRAWS, inner_dense * _CYCLE_DRAWS
+                    self.loop = None
                 if self.loop is None:  # a loop still open comes back above: the count holds only part of it
                     if not _XOBJECT_CALL.search(form_data):
                         key = (id(form), 0)  # the count of a form that draws no other XObject does not depend on the resources
-                    counted[key] = (form, inherited, inner)
+                    counted[key] = (form, inherited, inner_read, inner_dense, inner)
             total += times * (1 + inner)
+            read, dense = read + times * inner_read, dense + times * inner_dense
             if total > limit:
                 break
-        return total
+        return total, read, dense
 
 
 # Upper bound on expanding font ranges. pdfminer expands the ranges of a CID font's /W and /W2 (`c1 c2 w`) and the bfrange/cidrange

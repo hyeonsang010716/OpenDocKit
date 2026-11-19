@@ -960,6 +960,98 @@ class TestContentStreamListedManyTimes:
         assert any("were not read" in warning for warning in result.warnings)
 
 
+def _idle_form_pdf(form: bytes, times: int) -> bytes:
+    """Page 1 is ordinary text; page 2 draws one line of text and form X (`form`, painting nothing) `times` times."""
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
+               2: b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+               3: _PAGE % 4,
+               4: _flate_stream(_padded_text(b"Plain first page", 0)),
+               5: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+               6: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 7 0 R "
+                  b"/Resources << /Font << /F1 5 0 R >> /XObject << /X 8 0 R >> >> >>",
+               7: _flate_stream(_padded_text(b"Idle page", 0) + b"/X Do\n" * times),
+               8: _flate_stream(form, b"/Type /XObject /Subtype /Form /BBox [0 0 595 842]")}
+    return _raw_pdf(objects)
+
+
+class TestContentThatPaintsNothing:
+    """Operators that paint nothing make no drawn object, so a page could make pdfminer read without end: a 4.8KB file drawing a form of a
+    million `q Q` took 4.4 seconds when drawn once, 17 seconds 4 times and 88 seconds 16 times, inside one page, where the time budget does not
+    look — and the drawn-object estimate let it be drawn up to 500,000 times. The tests lower the bounds."""
+
+    @staticmethod
+    def _read_pages(monkeypatch) -> list[int]:
+        from opendockit.extractors import pdf as pdf_module
+
+        read = []
+        original_read = pdf_module._read_page
+        monkeypatch.setattr(pdf_module, "_read_page", lambda page, *args: read.append(page.page_number) or original_read(page, *args))
+        return read
+
+    def test_estimate_counts_the_content_of_each_form_as_often_as_it_is_drawn(self):
+        import pdfplumber
+
+        from opendockit.extractors import pdf as pdf_module
+
+        page = _padded_text(b"Idle page", 0) + b"/X Do\n" * 3
+        with pdfplumber.open(BytesIO(_idle_form_pdf(b"q Q\n" * 100 + b" " * 50, 3))) as document:
+            drawing = pdf_module._page_drawing(document.pages[1], 1000)
+
+        assert drawing == (1 + 3, len(page) + 3 * 450, len(page) - page.count(b" ") - page.count(b"\n") + 3 * 200)
+
+    def test_page_making_pdfminer_read_too_much_is_read_with_pdfium(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_BYTES", 10_000)
+
+        result = convert(_idle_form_pdf(b"q Q\n" * 2_000, 3), "a.pdf")  # 4,000 bytes without white space, read 3 times
+
+        assert read == [1] and "Idle page" in result.text and "Plain first page" in result.text
+        assert any("(2)" in warning and "too many drawing elements and were read with simple extraction" in warning
+                   for warning in result.warnings)
+
+    def test_page_reading_a_little_less_is_read_as_before(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_BYTES", 10_000)
+
+        result = convert(_idle_form_pdf(b"q Q\n" * 2_000, 2), "a.pdf")
+
+        assert read == [1, 2] and "Idle page" in result.text and not result.warnings
+
+    def test_white_space_is_not_counted_for_pdfminer(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_BYTES", 10_000)
+
+        result = convert(_idle_form_pdf(b"q Q\n" * 100 + b" \n\r\t" * 10_000, 3), "a.pdf")
+
+        assert read == [1, 2] and "Idle page" in result.text and not result.warnings
+
+    def test_page_making_pdfium_read_too_much_is_opened_by_nobody(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        surveyed = []
+        original_survey = pdf_module._survey_page
+        monkeypatch.setattr(pdf_module, "_survey_page", lambda document, index: surveyed.append(index + 1) or original_survey(document, index))
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_OPENED_CONTENT_BYTES", 100_000)
+
+        result = convert(_idle_form_pdf(b" " * 40_000, 3), "a.pdf")
+
+        assert surveyed == [1] and read == [1] and "Idle page" not in result.text
+        assert any("(2)" in warning and "were not read" in warning for warning in result.warnings)
+
+    def test_form_of_a_million_operators_drawn_a_few_times_is_read_with_pdfium(self):
+        result = convert(_idle_form_pdf(b"q Q\n" * 1_000_000, 3), "a.pdf")
+
+        assert "Idle page" in result.text
+        assert any("(2)" in warning and "too many drawing elements" in warning for warning in result.warnings)
+
+
 class TestManyCellsOnOnePage:
     """One page of a ruled table with thousands of cells took tens of seconds (68 seconds for 7,500 filled cells). Every character was checked
     against all the cells to see whether it is inside one (`_inside_any`), and for every cell all the fill rectangles were scanned to measure the
