@@ -51,10 +51,14 @@ def _put_math(soup: BeautifulSoup) -> None:
             math.append(f"${latex}$")  # surrounding spacing stays as in the source (so no space appears before a comma)
 
 
-# The classes MathJax 2 gives the element that shows a formula, right before its `<script type="math/tex">` (`_put_tex_scripts`)
-# (as MathJax spells them: a page's own `mathjax` container is not one)
+# The classes MathJax 2 gives the element that shows a formula, or the display block around it, right before its
+# `<script type="math/tex">`, as MathJax spells them (a page's own `mathjax` container is not one): the frames and display blocks
+# of its HTML-CSS, SVG, CommonHTML, PreviewHTML and NativeMML outputs and the preview shown while it typesets. For a frame without
+# the id MathJax gives it (`_mathjax_frame`).
 _MATHJAX_FRAMES = frozenset({"MathJax", "MathJax_Display", "MathJax_SVG", "MathJax_SVG_Display", "MathJax_CHTML",
-                             "MathJax_CHTML_Display", "MathJax_MathML", "MathJax_Preview"})
+                             "MathJax_CHTML_Display", "mjx-chtml", "MJXc-display", "MathJax_PHTML", "MathJax_PHTML_Display",
+                             "MJXp-display", "MathJax_MathML", "MathJax_Preview"})
+
 
 def _put_tex_scripts(soup: BeautifulSoup) -> None:
     """Replaces the TeX of `<script type="math/tex">` (also `; mode=display`) with the same `$LaTeX$` notation, before scripts
@@ -62,12 +66,11 @@ def _put_tex_scripts(soup: BeautifulSoup) -> None:
     page MathJax has not rendered, the formula is nowhere else, and it vanished with the scripts, with no warning
     (Pinned by: test_core_html.py::TestMathMl::test_tex_in_a_mathjax_script_is_the_formula).
 
-    A page saved after MathJax 2 ran has the rendered formula right before the script, in an element whose class is one MathJax
-    gives its frames (`_MATHJAX_FRAMES`). When that element holds MathML (the assistive copy), the formula is read from it and
-    the script is dropped; when it holds only the drawn glyphs, it is replaced by the TeX, which reads better than the glyphs
-    one by one. Only that element: any earlier sibling whose class held the letters 'mathjax' was taken for it, and a
-    container of paragraphs was replaced by the formula (Pinned by: test_core_html.py::TestMathMl::
-    test_only_the_mathjax_frame_right_before_the_script_is_replaced).
+    A page saved after MathJax 2 ran has the rendered formula right before the script (`_mathjax_frame`). When it holds MathML
+    (the assistive copy), it is replaced by that MathML, from which the formula is read; when it holds only the drawn glyphs,
+    it is replaced by the TeX, which reads better than the glyphs one by one. Either way the script is dropped and the formula
+    is read once: the glyphs beside the MathML were read as well unless the page marked them hidden (Pinned by:
+    test_core_html.py::TestMathMl::test_mathjax_frame_is_found_by_its_id).
 
     The scripts of frames are removed together at the end (`_decompose_all`): removed one by one, each looked up its place among
     its siblings, and a paragraph of 20,000 formulas took 14 seconds where 10,000 took 3 (Pinned by:
@@ -78,21 +81,47 @@ def _put_tex_scripts(soup: BeautifulSoup) -> None:
         if not str(script["type"]).strip().lower().startswith("math/tex"):
             continue
         tex = " ".join(_tex_without_comments(script.get_text()).split())
-        frame = script.previous_sibling
-        while isinstance(frame, NavigableString) and (isinstance(frame, Comment) or not frame.strip()):
-            frame = frame.previous_sibling
-        rendered = isinstance(frame, Tag) and any(str(name) in _MATHJAX_FRAMES for name in frame.get("class") or ())
-        if rendered and frame.find("math") is not None:
-            continue  # read from the MathML MathJax put in the page
-        target = frame if rendered else script
-        if rendered:
+        frame = _mathjax_frame(script)
+        math = None
+        if frame is not None:
             framed.append(script)
+            math = frame.find("math")
+            if math is not None:
+                math.extract()  # out of the frame, which then holds it alone
+        target = script if frame is None else frame
         target.clear()
         target.attrs = {}
         target.name = "span"
-        if tex:
+        if math is not None:
+            target.append(math)
+        elif tex:
             target.append(f"${tex}$")
     _decompose_all(framed)
+
+
+def _mathjax_frame(script: Tag) -> Tag | None:
+    """The element MathJax 2 shows the formula of `script` in, or the display block around it, right before the script (white
+    space and comments between); None when there is none. MathJax gives the frame the id of the script followed by `-Frame` and
+    puts a displayed formula in a block of its own, so that element is the frame when it has that id or holds only the element
+    that has it; otherwise when its class is one MathJax gives its frames (`_MATHJAX_FRAMES`). The display block of the
+    CommonHTML output (`mjx-chtml MJXc-display`) was not among those classes, and a displayed formula came out twice, as its
+    MathML and as its TeX (Pinned by: test_core_html.py::TestMathMl::test_mathjax_frame_is_found_by_its_id). Only that element:
+    any earlier sibling whose class held the letters 'mathjax' was taken for the frame, and a container of paragraphs was
+    replaced by the formula (Pinned by: test_core_html.py::TestMathMl::test_only_the_mathjax_frame_right_before_the_script_is_replaced)."""
+    before = script.previous_sibling
+    while isinstance(before, NavigableString) and (isinstance(before, Comment) or not before.strip()):
+        before = before.previous_sibling
+    if not isinstance(before, Tag):
+        return None
+    name = str(script.get("id") or "").strip()
+    if name:
+        frame = f"{name}-Frame"
+        if before.get("id") == frame:
+            return before
+        inside = [child for child in before.contents if isinstance(child, Tag) or (not isinstance(child, Comment) and child.strip())]
+        if len(inside) == 1 and isinstance(inside[0], Tag) and inside[0].get("id") == frame:
+            return before
+    return before if any(str(kind) in _MATHJAX_FRAMES for kind in before.get("class") or ()) else None
 
 
 def _tex_without_comments(tex: str) -> str:

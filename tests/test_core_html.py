@@ -321,6 +321,24 @@ class TestMathMl:
         assert convert(hint.encode(), "a.html").text == "See note. and then $a+b$"
         assert convert(frame.encode(), "a.html").text == "Let $x^2$ be."
 
+    def test_mathjax_frame_is_found_by_its_id(self):
+        """MathJax 2 gives the frame of a formula the id of its script followed by `-Frame`, and puts a displayed one in a block
+        of its own. The CommonHTML display block (`mjx-chtml MJXc-display`) was not among the classes taken for a frame, and the
+        formula came out twice, from its MathML and from its TeX; the frame of the PreviewHTML output kept its glyphs before
+        the TeX. A frame that holds MathML is read from it alone, without the glyphs beside it."""
+        chtml = ('<p>a</p><span class="mjx-chtml MJXc-display" style="text-align: center;"><span id="MathJax-Element-1-Frame" '
+                 'class="mjx-chtml MathJax_CHTML"><span class="mjx-math"><span class="mjx-char">E</span></span><span '
+                 'class="MJX_Assistive_MathML MJX_Assistive_MathML_Block"><math display="block"><mi>E</mi><mo>=</mo><mi>m</mi>'
+                 '</math></span></span></span><script type="math/tex; mode=display" id="MathJax-Element-1">E=m</script><p>b</p>')
+        preview = ('<p>Let <span class="MathJax_PHTML" id="MathJax-Element-2-Frame"><span class="MJXp-mi">x</span></span>'
+                   '<script type="math/tex" id="MathJax-Element-2">x^2</script> be.</p>')
+        other = ('<p>Let <span id="MathJax-Element-3-Frame">x</span><script type="math/tex" id="MathJax-Element-3">x^2</script>'
+                 ' and <span id="note">see</span><script type="math/tex" id="MathJax-Element-4">y</script>.</p>')
+
+        assert convert(chtml.encode(), "a.html").text == "a\n\n$E=m$\n\nb"
+        assert convert(preview.encode(), "a.html").text == "Let $x^2$ be."
+        assert convert(other.encode(), "a.html").text == "Let $x^2$ and see$y$."
+
     def test_comments_in_the_tex_of_a_script_are_left_out(self):
         """kramdown wraps a displayed formula in `% <![CDATA[` and `%]]>`: once the lines were joined, the `%` of the wrapper
         made the whole formula a comment, and a comment inside a formula took the next line along. An escaped `\\%` is a
