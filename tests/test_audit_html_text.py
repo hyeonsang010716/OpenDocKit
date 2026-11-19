@@ -681,7 +681,7 @@ class TestManyListsOrTablesSetAsideWhileTheirParentIsRendered:
 
         seconds, text = _seconds(html.encode(), "a.html")
 
-        assert text == "| " + "a" * 30000 + " | b |\n| --- | --- |\n| c | d |"
+        assert text == "| " + " ".join("a" * 30000) + " | b |\n| --- | --- |\n| c | d |"
         assert seconds < allowed(8)
 
     @pytest.mark.parametrize(("html", "expected"), [

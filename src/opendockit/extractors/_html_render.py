@@ -1097,7 +1097,8 @@ def _visible_text_beside(node: PageElement, cell: Tag, *, backwards: bool) -> st
     """The nearest text of the cell before or after `node` that is not only strikethrough marks (`_html_dom` puts them in the
     tree as text), with those marks taken out; empty at the edge of the cell."""
     while (node := node.find_previous(string=True) if backwards else node.find_next(string=True)) is not None:
-        if cell not in node.parents:
+        # By identity: `in` compares tags by their whole content, which recursed through deeply nested tables
+        if not any(parent is cell for parent in node.parents):
             return ""
         visible = str(node).replace("~~" + STRIKE_KEY, "").replace(STRIKE_KEY + "~~", "")
         if visible:
