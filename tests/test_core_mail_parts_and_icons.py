@@ -188,6 +188,31 @@ class TestEightBitAttachmentName:
 
         assert convert(data, "a.eml").warnings == [_ATTACHMENT_WARNING.format("똠방.pdf")]
 
+    @pytest.mark.parametrize("headers", [
+        b"Content-Type: application/pdf\r\nContent-Disposition: attachment; filename*=utf-8''a; filename*1=b.pdf",
+        b"Content-Type: application/pdf; name*=utf-8''a; name*1=b.pdf",
+    ], ids=["filename", "name"])
+    def test_name_the_standard_library_cannot_read(self, monkeypatch, headers):
+        """Python 3.12 and 3.13 sort the pieces of an RFC 2231 parameter with `None` for the piece without a number, so
+        `filename*=utf-8''a; filename*1=b.pdf` raised a TypeError and the whole mail was rejected for one attachment name.
+        That sort is reproduced here; the attachment is counted as unnamed and the mail is read."""
+        import email.utils
+
+        decode_params = email.utils.decode_params
+
+        def sorting_like_python_3_13(params):
+            names = [name.lower() for name, _ in params[1:]]
+            if any(name.endswith("*") and name.count("*") == 1 and any(other.startswith(name[:-1] + "*1") for other in names)
+                   for name in names):
+                raise TypeError("'<' not supported between instances of 'int' and 'NoneType'")
+            return decode_params(params)
+
+        monkeypatch.setattr(email.utils, "decode_params", sorting_like_python_3_13)
+        result = convert(_mail_with_attachment_headers(headers), "a.eml")
+
+        assert "body" in result.text
+        assert result.warnings == [_ATTACHMENT_WARNING.format("1 unnamed attachment(s)")]
+
     @pytest.mark.parametrize(("parameter", "name"), [
         (b"filename*=iso-8859-1''caf%E9.pdf", "café.pdf"),
         (b"filename*=x-unknown''report.pdf", "report.pdf"),

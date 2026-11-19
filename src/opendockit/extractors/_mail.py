@@ -689,7 +689,7 @@ def _is_attachment(part: Message, message: Message) -> bool:
         # (Pinned by: test_core_mail_parts_and_icons.py::TestNamedInvitationInAnAlternative). A named .ics with
         # `Content-Disposition: attachment` stays an attachment.
         return False
-    return (disposition in (None, "inline") and part.get_filename() is not None and part.get("Content-ID") is None
+    return (disposition in (None, "inline") and _has_filename(part) and part.get("Content-ID") is None
             and part.get("Content-Location") is None)
 
 
@@ -1111,11 +1111,29 @@ def _attachment_name(part: Message) -> str:
         if value is not None:
             headers[header] = _header_text(value) if isinstance(value, Header) else value
     missing = object()
-    value = headers.get_param("filename", missing, "content-disposition")
-    if value is missing:
-        value = headers.get_param("name", missing, "content-type")
+    try:
+        value = headers.get_param("filename", missing, "content-disposition")
+        if value is missing:
+            value = headers.get_param("name", missing, "content-type")
+    except TypeError:  # an RFC 2231 name Python 3.12 and 3.13 cannot read (`_has_filename`): counted as unnamed
+        return ""
     name = "" if value is missing else _parameter_text(value).strip()
     return _decoded_header(name) if name else ""
+
+
+def _has_filename(part: Message) -> bool:
+    """Does the part carry a name (`get_filename`)? On Python 3.12 and 3.13 the standard library sorts the pieces of an RFC 2231
+    parameter with `None` for the piece without a number, so `filename*=utf-8''a; filename*1=b.pdf` raised a TypeError and
+    the whole mail was rejected as corrupted for one attachment name. Such a name is a name that cannot be read: the part
+    stays an attachment, counted as unnamed (`_attachment_name`)
+    (Pinned by: test_core_mail_parts_and_icons.py::TestEightBitAttachmentName::test_name_the_standard_library_cannot_read).
+    """
+    try:
+        return part.get_filename() is not None
+    except TypeError:
+        return any(_PARAMETER_NAME.match(segment).group().strip().lower() == name
+                   for header, name in (("Content-Disposition", "filename"), ("Content-Type", "name"))
+                   for segment in _parseparam(str(part.get(header, "")))[1:])
 
 
 def _parameter_text(value: str | tuple[str | None, str | None, str]) -> str:
