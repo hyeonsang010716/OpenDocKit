@@ -12,7 +12,7 @@ import pytest
 from opendockit import ConvertOptions, CorruptedDocumentError, EncryptedDocumentError, convert
 from opendockit.extractors import odf as odf_module
 from opendockit.extractors.odf import extract_odt
-from opendockit.models import DocumentFormat, SectionKind
+from opendockit.models import DocumentFormat, Extraction, SectionKind
 from tests import builder
 from tests.timing import fastest
 
@@ -1172,6 +1172,26 @@ class TestHostileInput:
                                                 '</table:table-row>'), ConvertOptions(max_chars=None))
         assert result.sections[0].text.count("| 가 | 1 |") == 10_000
         assert "Sheet 'S': a row repeated 1,000,000,000 times was read 10,000 times only." in result.warnings
+
+    def test_a_repeated_warning_is_looked_up_once(self, monkeypatch):
+        """Every cell read fewer times than written looked its sheet's warning up in all the warnings again (after the warnings
+        of 40,000 hidden sheets, once per such cell)."""
+        class Counted(list):
+            lookups = 0
+
+            def __contains__(self, item: object) -> bool:
+                self.lookups += 1
+                return super().__contains__(item)
+
+        warnings = Counted(f"Hidden sheet '{index}' was excluded." for index in range(100))
+        monkeypatch.setattr(odf_module, "Extraction", lambda: Extraction(warnings=warnings))
+        monkeypatch.setattr(odf_module, "_REPEAT_BUDGET", 10)
+        rows = [_row(_cell("zz", 'table:number-columns-repeated="3"')) for _ in range(300)]
+
+        _convert("spreadsheet", _sheet("S", *rows))
+
+        assert warnings.count("Sheet 'S': a repeated cell was read fewer times than written.") == 1
+        assert warnings.lookups == 1
 
     def test_repeated_cell_with_text_stops_at_the_column_limit(self):
         result = _convert("spreadsheet", _sheet("S", _row(_cell("머리", 'table:number-columns-repeated="1000000000"')),

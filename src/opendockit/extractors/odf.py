@@ -633,6 +633,15 @@ class _Renderer:
         self.presentation = False
         self._text_counters: dict[etree._Element, _TextCounters] = {}
         self.frames: list[etree._Element] = []          # frames found in sheet cells (charts, pictures), for after the rows
+        self._warned: set[str] = set()  # the messages `_warn_once` gave, so that a repeated one is not looked up in the warnings
+
+    def _warn_once(self, message: str) -> None:
+        """`_sheet_layout._warn_once`, looking each message up in the warnings only the first time: for every repeated cell read
+        short, a sheet after the warnings of 40,000 hidden sheets went through all of them again
+        (Pinned by: test_odf.py::TestHostileInput::test_a_repeated_warning_is_looked_up_once)."""
+        if message not in self._warned:
+            self._warned.add(message)
+            _warn_once(self._extraction.warnings, message)
 
     # ---- Inline text ---------------------------------------------------------------------------------------------
 
@@ -1047,8 +1056,7 @@ class _Renderer:
             if stopped:
                 break
         if cut:
-            _warn_once(self._extraction.warnings, f"A table row or cell repeated more than {_MAX_REPEAT:,} times "
-                                                  "(or beyond the repeat budget) was cut short.")
+            self._warn_once(f"A table row or cell repeated more than {_MAX_REPEAT:,} times (or beyond the repeat budget) was cut short.")
 
         # A table inside a note is one line; a table inside a table is drawn in place by the outer table (`TableGrid.embed`).
         if context.in_note:
@@ -1245,7 +1253,7 @@ class _Renderer:
                     wanted = min(columns, limit - column)
                     copies = self._copies(wanted, len(text))
                     if copies < wanted:
-                        _warn_once(self._extraction.warnings, f"Sheet '{name}': a repeated cell was read fewer times than written.")
+                        self._warn_once(f"Sheet '{name}': a repeated cell was read fewer times than written.")
                     for copy in range(copies):
                         values[column + copy] = text
                     if copies == 1:
