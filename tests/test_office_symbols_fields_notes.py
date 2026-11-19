@@ -168,6 +168,21 @@ class TestDocxSymbolsOfWord2016:
         assert convert(_docx_with_body(body), "a.docx").text == "Thanks \U0001F60A see you\n\nRating:\n\n\u2605"
 
 
+    def test_symbol_keeps_the_marks_of_its_run(self):
+        """The character takes the bold and strikethrough of its run, as a `w:sym` does: added bare, it split the span of a
+        bold or struck run, `**Great**😊 **job**`."""
+        def run(text: str, properties: str) -> str:
+            return f'<w:r><w:rPr>{properties}</w:rPr><w:t xml:space="preserve">{text}</w:t></w:r>'
+
+        bold, struck = "<w:b/>", "<w:strike/>"
+        symbol = self._symbol("1F60A")
+        body = ("<w:p>" + run("Great", bold) + symbol.replace("<w:r>", f"<w:r><w:rPr>{bold}</w:rPr>") + run(" job", bold)
+                + run(" plain", "") + "</w:p><w:p>" + run("old", struck) + symbol.replace("<w:r>", f"<w:r><w:rPr>{struck}</w:rPr>")
+                + run("price", struck) + run(" new", "") + "</w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "**Great\U0001F60A job** plain\n\n~~old\U0001F60Aprice~~ new"
+
+
 class TestDocxEnclosedCharacters:
     """A Word 'enclosed character' (Home → Enclose Characters) is stored as the EQ field `eq \\o\\ac(○,21)` with no result run. The
     instruction was not read, so '제㉑조' became '제조'. **Checked only with synthetic XML, without a real Word file.**"""

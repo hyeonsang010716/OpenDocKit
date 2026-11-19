@@ -393,7 +393,12 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
             elif tag == f"{{{_M}}}oMath":
                 parts.append(render_omml(child))
             elif tag == _SYMEX:
-                parts.append(_symbol_character(child.get(_SYMEX_CHAR, "")))
+                # The character takes the marks of its run, as `w:sym` does; added bare, an emoji in a bold run split the span
+                # (`**Great**😊 **job**`; Pinned by: test_office_symbols_fields_notes.py::TestDocxSymbolsOfWord2016::
+                # test_symbol_keeps_the_marks_of_its_run). The run is the w:r around its mc:AlternateContent.
+                run = next((above for above in child.iterancestors(_w("r"))), None)
+                character = _symbol_character(child.get(_SYMEX_CHAR, ""))
+                parts.append(with_run_marks(run, character) if run is not None and character else character)
             elif tag in (_w("footnoteReference"), _w("endnoteReference")):
                 custom_marks.update(_custom_mark(child))
                 if notes is None:
@@ -458,6 +463,21 @@ def _is_drop_cap(paragraph: etree._Element) -> bool:
 def _next_is_paragraph(paragraph: etree._Element) -> bool:
     following = paragraph.getnext()
     return following is not None and following.tag == _w("p")
+
+
+# Body-level markers that hold no content and may stand between two paragraphs (`_neighbour_block`)
+_RANGE_MARKERS = frozenset(_w(name) for name in (
+    "bookmarkStart", "bookmarkEnd", "commentRangeStart", "commentRangeEnd", "moveFromRangeStart", "moveFromRangeEnd",
+    "moveToRangeStart", "moveToRangeEnd", "proofErr", "permStart", "permEnd"))
+
+
+def _neighbour_block(element: etree._Element, *, after: bool) -> etree._Element | None:
+    """The block right after (or before) `element`, past the range markers, comments and processing instructions between
+    them: a bookmark or comment range written between two paragraphs is not a block of its own."""
+    neighbour = element.getnext() if after else element.getprevious()
+    while neighbour is not None and (not isinstance(neighbour.tag, str) or neighbour.tag in _RANGE_MARKERS):
+        neighbour = neighbour.getnext() if after else neighbour.getprevious()
+    return neighbour
 
 
 def _custom_mark(reference: etree._Element) -> list[etree._Element]:
