@@ -282,12 +282,37 @@ class TestMathMl:
         ("<msup><msub><mi>a</mi><mi>i</mi></msub><mn>2</mn></msup>", "a_i^2"),
         ("<msup><mrow><mi>x</mi></mrow><mn>2</mn></msup>", "x^2"),
         ("<mmultiscripts><mi>C</mi><none/><none/><mprescripts/><mn>6</mn><mn>14</mn></mmultiscripts>", "{}_{6}^{14}C"),
+        ("<msup><mstyle><mi>a</mi><mo>+</mo><mi>b</mi></mstyle><mn>2</mn></msup>", "{a+b}^2"),
+        ("<msup><semantics><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><annotation>a+b</annotation></semantics><mn>2</mn></msup>",
+         "{a+b}^2"),
+        ("<msup><mpadded><msup><mi>x</mi><mn>2</mn></msup></mpadded><mn>3</mn></msup>", "{x^2}^3"),
+        ("<msup><mrow><mrow><mi>x</mi></mrow></mrow><mn>2</mn></msup>", "x^2"),
+        ("<msub><msup><msub><mi>a</mi><mi>i</mi></msub><mn>2</mn></msup><mi>j</mi></msub>", "{a_i^2}_j"),
+        ("<msub><munder><mo>∑</mo><mi>i</mi></munder><mi>j</mi></msub>", "{∑_{i}}_j"),
+        ("<mi>x</mi><msub><mphantom><mi>y</mi></mphantom><mi>i</mi></msub>", "x{}_i"),
     ])
     def test_script_on_a_scripted_or_grouped_base_keeps_its_group(self, mathml, latex):
         """A script on a base that is itself a script on the same side came out as `x^2^3` (a LaTeX error, confusable with
         `x^{2^3}`), and one on a group of several elements applied to its last one (`a+b^2`): such a base is braced, as in
         Office equations. A superscript on a subscript and a group of one element stay as they are. The pre- and
-        post-scripts of an `mmultiscripts` were joined to the base (`C614`)."""
+        post-scripts of an `mmultiscripts` were joined to the base (`C614`). A group in an element that only styles or spaces
+        it is a group too, a script under a limit or a superscript on a subscript clashed with a script on the same side
+        around it, and a script on an empty base (an `mphantom`) went to what came before it."""
+        assert convert(f"<p><math>{mathml}</math></p>".encode(), "a.html").text == f"${latex}$"
+
+    @pytest.mark.parametrize(("mathml", "latex"), [
+        ("<mmultiscripts><mi>R</mi><mi>i</mi><mi>j</mi><mi>k</mi><none/></mmultiscripts>", "R_{i}^{j}{}_{k}"),
+        ("<msup><mmultiscripts><mi>X</mi><mi>a</mi><mi>b</mi></mmultiscripts><mn>2</mn></msup>", "{X_{a}^{b}}^2"),
+        ("<mmultiscripts><mi>X</mi><mi>a</mi></mmultiscripts>", "X_{a}"),
+        ("<mmultiscripts><mrow><mi>A</mi><mi>B</mi></mrow><mn>1</mn><mn>2</mn></mmultiscripts>", "{AB}_{1}^{2}"),
+        ("<mmultiscripts><msub><mi>x</mi><mi>i</mi></msub><mi>j</mi><none/></mmultiscripts>", "{x_i}_{j}"),
+        ("<mmultiscripts><mi>X</mi><mprescripts/><mi>a</mi><mi>b</mi><mi>c</mi></mmultiscripts>", "{}_{a}^{b}{}_{c}X"),
+        ("<mmultiscripts><mrow><mi>A</mi><mi>B</mi></mrow><mprescripts/><mn>1</mn><none/></mmultiscripts>", "{}_{1}AB"),
+    ])
+    def test_scripts_of_an_mmultiscripts_follow_each_other(self, mathml, latex):
+        """The pairs of scripts of an `mmultiscripts` were put side by side, so a tensor `R_i^j_k` had a double subscript; the
+        last script of an odd count was dropped; and its base was not braced as the base of other scripts is, nor was it braced
+        as a script under another one. The pairs stand on empty groups, as a tensor is written."""
         assert convert(f"<p><math>{mathml}</math></p>".encode(), "a.html").text == f"${latex}$"
 
     def test_tex_in_a_mathjax_script_is_the_formula(self):

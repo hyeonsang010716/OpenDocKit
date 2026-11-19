@@ -940,6 +940,15 @@ class TestObjects:
         text = _odt(self.BODY, parts={"Object 1/content.xml": self.FORMULA.format(namespaces=_NAMESPACES, mathml=mathml).encode()})
         assert text == r"성장률은 ${x^2}^3$ 이다."
 
+    def test_scripts_of_an_mmultiscripts_follow_each_other(self):
+        """The same rules as an HTML equation: the pairs of a tensor stand on empty groups (`R_{i}^{j}{}_{k}`, not a double
+        subscript), and a group in an mstyle is braced as the base of a script."""
+        mathml = ("<math:mrow><math:mmultiscripts><math:mi>R</math:mi><math:mi>i</math:mi><math:mi>j</math:mi><math:mi>k</math:mi>"
+                  "<math:none/></math:mmultiscripts><math:msup><math:mstyle><math:mi>a</math:mi><math:mo>+</math:mo>"
+                  "<math:mi>b</math:mi></math:mstyle><math:mn>2</math:mn></math:msup></math:mrow>")
+        text = _odt(self.BODY, parts={"Object 1/content.xml": self.FORMULA.format(namespaces=_NAMESPACES, mathml=mathml).encode()})
+        assert text == r"성장률은 $R_{i}^{j}{}_{k}{a+b}^2$ 이다."
+
     def test_literal_text_of_a_formula_is_escaped(self):
         """The same escapes as an HTML or Office equation: a `$` in the text ended the math span."""
         mathml = "<math:mrow><math:mtext>$</math:mtext><math:mn>5</math:mn><math:mo>{</math:mo><math:mi>n</math:mi></math:mrow>"

@@ -7,7 +7,7 @@ from bs4.element import PageElement, PreformattedString
 
 from opendockit.extractors._html_base import _BLOCK_TAGS, _HEADINGS
 from opendockit.extractors._html_dom import _decompose_all
-from opendockit.extractors._mathml import MATH_IGNORED, literal, mathml_structure, text_leaf
+from opendockit.extractors._mathml import MATH_IGNORED, base_child, literal, mathml_structure, text_leaf
 
 
 # MathML (`_put_math`): annotation encodings of the LaTeX the document wrote, the opening of Wikipedia's wrapper, script
@@ -246,7 +246,7 @@ def _mathml_latex(node: object, depth: int) -> str:
     if name == "mspace":
         return " "
     fence = (node.get("open", "("), str(node.get("separators", ",")).strip()[:1], node.get("close", ")")) if name == "mfenced" else None
-    elements = [(child.name, [inner.name for inner in child.children if isinstance(inner, Tag)]) for child in children]
+    elements = [base_child(child, _tag_name, _child_tags) for child in children]
     structure = mathml_structure(name, parts, fence, elements)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
     if structure is not None:
         return structure
@@ -259,3 +259,11 @@ def _mathml_latex(node: object, depth: int) -> str:
     # (Pinned by: test_core_round45.py::TestLimitOnBrokenHtml::test_text_beside_elements_inside_math_is_kept).
     tag_parts = iter(parts)
     return "".join(next(tag_parts) if isinstance(child, Tag) else _mathml_latex(child, depth + 1) for child in node.children)
+
+
+def _tag_name(tag: Tag) -> str:
+    return tag.name
+
+
+def _child_tags(tag: Tag) -> list[Tag]:
+    return [child for child in tag.children if isinstance(child, Tag)]

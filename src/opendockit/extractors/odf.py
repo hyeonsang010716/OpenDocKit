@@ -39,7 +39,7 @@ from opendockit.extractors._inline import (
     resolve_strikes,
 )
 from opendockit.extractors._lists import cell_level_mark, format_number, is_placeholder_only, paragraph_head
-from opendockit.extractors._mathml import MATH_IGNORED, literal, mathml_structure, text_leaf
+from opendockit.extractors._mathml import MATH_IGNORED, base_child, literal, mathml_structure, text_leaf
 from opendockit.extractors._notation import TableBudget, chars_left, comment_line, format_dutmal, note_table, omitted_rows_warning
 from opendockit.extractors._package import decimal_int
 
@@ -558,8 +558,7 @@ def _mathml_latex(node: etree._Element, depth: int) -> str:
     if name == "mspace":
         return " "
     fence = (node.get("open", "("), (node.get("separators") or ",").strip()[:1], node.get("close", ")")) if name == "mfenced" else None
-    elements = [(child.tag.rsplit("}", 1)[-1], [inner.tag.rsplit("}", 1)[-1] for inner in child if isinstance(inner.tag, str)])
-                for child in children]
+    elements = [base_child(child, _math_name, _math_elements) for child in children]
     structure = mathml_structure(name, parts, fence, elements)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
     return "".join(parts) if structure is None else structure
 
@@ -1502,3 +1501,11 @@ def _metadata(meta: etree._Element | None) -> dict[str, str]:
                 metadata[key] = text
                 break
     return metadata
+
+
+def _math_name(node: etree._Element) -> str:
+    return node.tag.rsplit("}", 1)[-1]
+
+
+def _math_elements(node: etree._Element) -> list[etree._Element]:
+    return [child for child in node if isinstance(child.tag, str)]
