@@ -315,41 +315,89 @@ def _is_form(obj: object) -> bool:
 
 def _content_objects(data: bytes, resources: object, limit: int, counted: dict[tuple[int, int], tuple[object, ...]],
                      active: set[int], depth: int, paints: int | None = None) -> int:
-    """Estimate of the number of drawn objects one content stream `data` will create (`_drawn_objects`). A form counts as times
-    drawn × (1 form object + the count inside the form) and is counted only once per form (`counted`, (form id, id of the resources
-    it uses) → (form, resources, count) — holding the objects prevents id reuse. A form without resources inherits those of whatever
-    draws it, so if it draws other XObjects it is counted per such resources, otherwise once under resource id 0). A form that comes
-    back to itself (`active`) counts as one object, and a form deeper than `_FORM_NESTING_MAX` counts as over the limit. The number
-    of paint operators already counted is passed in as `paints`."""
-    total = _paint_operators(data, limit) if paints is None else paints
-    # Only the first `limit + 1` calls are looked at: every call is at least one object, so with more the estimate is over the limit
-    # anyway. `findall` listed every name first — a 65MB stream of five million different names held 500MB
-    # (Pinned by: test_audit_pdf_head.py::TestManyDistinctXObjectNames).
-    calls = Counter(match[1] for match in islice(_XOBJECT_CALL.finditer(data), limit + 1))
-    xobjects = resolve1(resources.get("XObject")) if isinstance(resources, dict) and calls else None
+    """Estimate of the number of drawn objects one content stream `data` will create (`_drawn_objects`), drawn inside the forms
+    `active` (normally none). A form counts as times drawn × (1 form object + the count inside the form) and is counted only once per
+    form (`counted`, (form id, id of the resources it uses) → (form, resources, count) — holding the objects prevents id reuse. A form
+    without resources inherits those of whatever draws it, so if it draws other XObjects it is counted per such resources, otherwise
+    once under resource id 0). A form that comes back to itself is counted as pdfium draws it (`_FormWalk`), and a form deeper than
+    `_FORM_NESTING_MAX` counts as over the limit. The number of paint operators already counted is passed in as `paints`."""
+    return _FormWalk(limit, counted, active).objects(data, resources, depth, paints)
 
-    for raw, times in calls.items():
-        name = _NAME_ESCAPE.sub(lambda match: bytes([int(match[1], 16)]), raw)
-        form = resolve1(xobjects.get(name.decode("utf-8", "replace"))) if isinstance(xobjects, dict) else None
-        if not _is_form(form) or id(form) in active:
-            total += times  # an image, a missing name or a form that loops back is one object
-            continue
-        if depth >= _FORM_NESTING_MAX:
-            return limit + 1
-        inherited = resolve1(form.attrs.get("Resources")) or resources
-        key = (id(form), 0) if (id(form), 0) in counted else (id(form), id(inherited))
-        if key not in counted:
-            active.add(id(form))
-            form_data = form.get_data()
-            inner = _content_objects(form_data, inherited, limit, counted, active, depth + 1)
-            active.discard(id(form))
-            if not _XOBJECT_CALL.search(form_data):
-                key = (id(form), 0)  # the count of a form that draws no other XObject does not depend on the resources
-            counted[key] = (form, inherited, inner)
-        total += times * (1 + counted[key][-1])
-        if total > limit:
-            break
-    return total
+
+# pdfium draws a form inside a form down to its 40th level, also when the form comes back to itself: a form that draws itself once
+# is drawn 41 times. pdfminer stops at the form that comes back (`parent_stream_ids`), so it draws fewer.
+_CYCLE_DRAWS = 41
+
+
+class _FormWalk:
+    """The forms drawn from one content stream, followed down to their contents (`_content_objects`).
+
+    A form that comes back to itself was counted as one object, and pdfium follows such a loop down to its nesting level (40): when
+    a form of the loop is drawn twice, every level doubles the forms of the next, so an 800-byte file whose form draws itself twice
+    used 3.9GB in 6 seconds and 10.7GB in 20 seconds merely by pdfium opening the page (the same with two forms drawing each other
+    twice). Such a loop — a call on the way round drawn more than once, or a second loop met while one is still open (two ways round
+    give as many paths as Fibonacci numbers) — is over the limit. A loop whose every call is drawn once is followed by pdfium only as
+    deep as its nesting level, so the form it comes back to counts `_CYCLE_DRAWS` times its contents; the forms between are not
+    remembered (`counted`), as their count holds the loop only partly (Pinned by:
+    test_pdf_resource_limits.py::TestFormsDrawingThemselves)."""
+
+    __slots__ = ("calls", "chain", "counted", "limit", "loop", "outside")
+
+    def __init__(self, limit: int, counted: dict[tuple[int, int], tuple[object, ...]], outside: set[int] | None = None) -> None:
+        self.limit, self.counted = limit, counted
+        self.outside = outside or set()  # forms the stream is drawn inside, an unknown number of times: coming back is over
+        self.chain: dict[int, int] = {}  # form being drawn → its place in the chain of forms being drawn
+        self.calls: list[int] = []  # how many times the call drawing each form of the chain draws it
+        self.loop: int | None = None  # place in the chain of the form an open loop comes back to
+
+    def objects(self, data: bytes, resources: object, depth: int, paints: int | None = None) -> int:
+        """Drawn objects of the content stream `data`."""
+        limit, counted = self.limit, self.counted
+        total = _paint_operators(data, limit) if paints is None else paints
+        # Only the first `limit + 1` calls are looked at: every call is at least one object, so with more the estimate is over the
+        # limit anyway. `findall` listed every name first — a 65MB stream of five million different names held 500MB
+        # (Pinned by: test_audit_pdf_head.py::TestManyDistinctXObjectNames).
+        calls = Counter(match[1] for match in islice(_XOBJECT_CALL.finditer(data), limit + 1))
+        xobjects = resolve1(resources.get("XObject")) if isinstance(resources, dict) and calls else None
+
+        for raw, times in calls.items():
+            name = _NAME_ESCAPE.sub(lambda match: bytes([int(match[1], 16)]), raw)
+            form = resolve1(xobjects.get(name.decode("utf-8", "replace"))) if isinstance(xobjects, dict) else None
+            if not _is_form(form):
+                total += times  # an image or a missing name is one object
+                continue
+            if id(form) in self.outside:
+                return limit + 1
+            if id(form) in self.chain:
+                place = self.chain[id(form)]
+                if times > 1 or self.loop is not None or any(drawn > 1 for drawn in self.calls[place + 1:]):
+                    return limit + 1
+                self.loop = place  # its contents are counted again when the form it comes back to is left
+                total += 1
+                continue
+            if depth >= _FORM_NESTING_MAX:
+                return limit + 1
+            inherited = resolve1(form.attrs.get("Resources")) or resources
+            key = (id(form), 0) if (id(form), 0) in counted else (id(form), id(inherited))
+            inner = counted[key][-1] if key in counted else None
+            if inner is None:
+                place = len(self.calls)
+                self.chain[id(form)] = place
+                self.calls.append(times)
+                form_data = form.get_data()
+                inner = self.objects(form_data, inherited, depth + 1)
+                del self.chain[id(form)]
+                self.calls.pop()
+                if self.loop == place:
+                    inner, self.loop = inner * _CYCLE_DRAWS, None  # pdfium goes round the loop down to its nesting level
+                if self.loop is None:  # a loop still open comes back above: the count holds only part of it
+                    if not _XOBJECT_CALL.search(form_data):
+                        key = (id(form), 0)  # the count of a form that draws no other XObject does not depend on the resources
+                    counted[key] = (form, inherited, inner)
+            total += times * (1 + inner)
+            if total > limit:
+                break
+        return total
 
 
 # Upper bound on expanding font ranges. pdfminer expands the ranges of a CID font's /W and /W2 (`c1 c2 w`) and the bfrange/cidrange

@@ -627,6 +627,95 @@ class TestDeepFormsAreSurveyedToTheBottom:
         assert any("have too many drawing elements and were" in warning and "(2)" in warning for warning in result.warnings)
 
 
+def _looping_forms_pdf(forms: dict[bytes, bytes], page: bytes = b"/A Do") -> bytes:
+    """Page 1 is ordinary text; page 2 draws `page`, with the forms `forms` (name → content) all named in the resources of the page and of
+    every form, so that they can draw each other."""
+    names = sorted(forms)
+    xobjects = b"/XObject << %s >>" % b" ".join(b"/%s %d 0 R" % (name, 8 + index) for index, name in enumerate(names))
+    resources = b"/Resources << /Font << /F1 5 0 R >> %s >>" % xobjects
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
+               2: b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+               3: _PAGE % 4,
+               4: _flate_stream(_padded_text(b"Plain first page", 0)),
+               5: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+               6: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 7 0 R %s >>" % resources,
+               7: _flate_stream(_padded_text(b"Looping page", 0) + page)}
+    for index, name in enumerate(names):
+        objects[8 + index] = _flate_stream(forms[name], b"/Type /XObject /Subtype /Form /BBox [0 0 595 842] " + resources)
+    return _raw_pdf(objects)
+
+
+class TestFormsDrawingThemselves:
+    """A form that comes back to itself was counted as one object. pdfium follows such a loop down to its 40th level of forms, so when a form
+    of the loop is drawn twice the forms double at every level: an 800-byte file whose form draws itself twice used 3.9GB in 6 seconds and 10.7GB
+    in 20 seconds merely by pdfium opening the page, and two forms drawing each other twice did the same. A loop whose forms are each drawn once
+    is drawn 41 times by pdfium, which reads such a page in a few milliseconds."""
+
+    @staticmethod
+    def _estimate(data: bytes, forms: dict | None = None) -> int:
+        import pdfplumber
+
+        from opendockit.extractors import pdf as pdf_module
+
+        with pdfplumber.open(BytesIO(data)) as document:
+            return pdf_module._drawn_objects(document.pages[1], 10**9, None, forms)
+
+    @pytest.mark.parametrize("forms", [{b"A": b"/A Do /A Do"},
+                                       {b"A": b"/B Do /B Do", b"B": b"/A Do /A Do"},
+                                       {b"A": b"/B Do", b"B": b"/A Do /A Do"},
+                                       {b"A": b"/A Do /B Do", b"B": b"/A Do"},  # two ways round: as many paths as Fibonacci numbers
+                                       {b"A": b"/B Do", b"B": b"/B Do /A Do"}])
+    def test_loop_that_multiplies_is_over_the_limit(self, forms):
+        assert self._estimate(_looping_forms_pdf(forms)) > 10**9
+
+    @pytest.mark.parametrize(("forms", "expected"), [
+        ({b"A": b"/A Do"}, 1 + 1 + 41 * 1),  # the text, the form, the loop drawn 41 times
+        ({b"A": b"/B Do", b"B": b"/A Do"}, 1 + 1 + 41 * (1 + 1)),
+        ({b"A": b"0 0 1 1 re f\n" * 20 + b"/A Do"}, 1 + 1 + 41 * (20 + 1)),
+    ])
+    def test_loop_of_forms_drawn_once_counts_its_contents_as_often_as_pdfium_draws_them(self, forms, expected):
+        assert self._estimate(_looping_forms_pdf(forms)) == expected
+
+    def test_forms_inside_a_loop_are_counted_again_from_another_page(self):
+        """Counted inside the loop, B held only part of it (the way back to A as one object); remembered, a page drawing B itself got that
+        part as B's count."""
+        counted: dict = {}
+        forms = {b"A": b"/B Do", b"B": b"0 0 1 1 re f\n" * 20 + b"/A Do"}
+
+        self._estimate(_looping_forms_pdf(forms), counted)
+        from_b = self._estimate(_looping_forms_pdf(forms, page=b"/B Do"), counted)
+
+        assert from_b >= 41 * 20
+
+    def test_page_whose_forms_loop_twice_is_opened_by_neither_pdfium_nor_pdfminer(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        def refuse_page_2(original):
+            def call(document, index):
+                assert index == 0, "pdfium opened the looping page"  # it would take gigabytes
+                return original(document, index)
+            return call
+
+        read = []
+        original_read = pdf_module._read_page
+        monkeypatch.setattr(pdf_module, "_survey_page", refuse_page_2(pdf_module._survey_page))
+        monkeypatch.setattr(pdf_module, "_pdfium_page", refuse_page_2(pdf_module._pdfium_page))
+        monkeypatch.setattr(pdf_module, "_read_page", lambda page, *args: read.append(page.page_number) or original_read(page, *args))
+
+        result = convert(_looping_forms_pdf({b"A": b"/A Do /A Do"}), "a.pdf")
+
+        assert read == [1] and "Plain first page" in result.text and "Looping page" not in result.text
+        assert any("(2)" in warning and "were not read" in warning for warning in result.warnings)
+
+    def test_page_whose_forms_loop_once_is_read(self):
+        content = b"BT /F1 12 Tf 72 600 Td (Inside the loop) Tj ET\n/B Do"
+
+        result = convert(_looping_forms_pdf({b"A": content, b"B": b"/A Do"}), "a.pdf")
+
+        assert "Looping page" in result.text and "Inside the loop" in result.text
+        assert not result.warnings
+
+
 class TestStackedRules:
     """A 2KB PDF that fills a 1pt rectangle 45,000 times on the same spot took 457 seconds. Joining horizontal rules (`_joined_rules`) scanned the
     list of rules ending at the same height and end x from the start for every rule, and since none of the overlapping rules joined, the list grew
