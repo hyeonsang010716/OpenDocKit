@@ -142,7 +142,12 @@ class ParagraphPieces:
         # A paragraph holding only a table or text box has no piece to attach to, so just the number goes on the line before it. Without
         # counting it, '3. 추진 일정' after '2. [table]' on the Hangul screen shifted up to '2.'
         # (Pinned by: test_hwp_object_only_numbers.py).
-        if not self._headed and any(self.blocks):
+        if not self._headed and not any(self.blocks):
+            # An empty numbered paragraph takes its number too, as Hangul draws it, and writes nothing — the rule of DOCX, ODT
+            # and RTF. Not counted, the items after it came one number too low ('1. 하나', '2. 셋' where Hangul shows 3.)
+            # (Pinned by: test_hwp_heads_and_shapes.py::TestEmptyNumberedParagraph).
+            head()
+        elif not self._headed:
             mark, level = head()
             number = paragraph_head(mark, level, in_cell=in_cell, heading=False) if mark != "-" else ""
             if self._bare is not None:

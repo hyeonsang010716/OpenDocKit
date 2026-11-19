@@ -452,3 +452,20 @@ class TestHwpxCheckBullets:
         text = self._convert((1, "안전모 착용 확인"), (2, "소화기 위치 확인"), heads=heads)
 
         assert text == "- 안전모 착용 확인\n- 소화기 위치 확인"
+
+
+class TestEmptyNumberedParagraph:
+    """Hangul draws the number of an empty numbered paragraph, as Word and LibreOffice do, but only a paragraph holding text or
+    an object took its number, so the items after an empty one came one number too low. It takes its number and writes nothing,
+    the rule of DOCX, ODT and RTF."""
+
+    def test_hwp(self, monkeypatch):
+        section = _hwp_paragraph("하나", 1) + _hwp_paragraph("", 1) + _hwp_paragraph("셋", 1)
+        data = _fake_hwp(monkeypatch, sections=[section], docinfo_extra=_HWP_HEADS)
+
+        assert convert(data, "a.hwp").text == "1. 하나\n3. 셋"
+
+    def test_hwpx(self):
+        body = _hwpx_paragraph("하나", 1) + '<hp:p paraPrIDRef="1"><hp:run><hp:t/></hp:run></hp:p>' + _hwpx_paragraph("셋", 1)
+
+        assert convert(builder.hwpx_with_picture(body, header_extra=_HWPX_HEADS), "a.hwpx").text == "1. 하나\n3. 셋"
