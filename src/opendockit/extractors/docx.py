@@ -77,11 +77,13 @@ from opendockit.extractors._notation import (
 )
 from opendockit.extractors._package import (
     core_properties,
+    incomplete_relationships_warning,
     is_strict_package,
     main_document_part,
     open_package,
     parse_part,
     related_part,
+    untyped_relationships,
 )
 from opendockit.extractors.html import extract_html
 from opendockit.extractors.text import extract_text
@@ -1075,6 +1077,12 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
         raise CorruptedDocumentError("The DOCX document structure could not be read.")
 
     document = part.document
+    # A relationship without a Type opens without the repair, and what it points at is not read: the styles behind one were
+    # dropped without a word and the headings were plain text. It gets the warning of the relationships the repair leaves out
+    # (Pinned by: test_office_robustness.py::TestIncompleteRelationship::test_docx_relationship_without_a_type_is_reported).
+    untyped = untyped_relationships(part.package)
+    if untyped:
+        extraction.warnings.append(incomplete_relationships_warning(untyped))
     # A main part whose root is not w:document is not a Word document. A w:document without w:body (optional in the schema) is an
     # empty document, as a deck without a slide list is an empty deck: it is given an empty body in memory. Both raised from
     # inside the body walk (Pinned by: test_audit_office.py::TestDocxMainPartWithoutABody).

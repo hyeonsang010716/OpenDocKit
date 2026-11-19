@@ -2,6 +2,7 @@
 properties (core.xml), an odd slide root, very long numeric attributes. Text boxes and pictures inside footnotes."""
 
 from io import BytesIO
+import re
 
 import pytest
 
@@ -594,6 +595,40 @@ class TestTargetInAnotherCase:
 
         assert (result.text, [image.alt for image in result.images], result.warnings) == (expected.text, ["각주 그래프"], [])
 
+    _CUSTOM_XML = {"customXml/item1.xml": "CustomXml/item1.xml"}  # its relationships and itemProps1.xml stay in `customXml/`
+
+    def test_relationships_carried_to_another_folder_case_keep_their_targets(self):
+        """The relationships of a part found in another folder case are carried to that folder: their relative target
+        `itemProps1.xml` then named `CustomXml/itemProps1.xml`, which is not there, and the whole document was rejected."""
+        expected = convert(builder.docx_bytes(), "a.docx")
+
+        result = convert(_rebuilt(builder.docx_bytes(), rename=self._CUSTOM_XML), "a.docx")
+
+        assert (result.text, result.warnings) == (expected.text, [])
+
+    def test_document_that_fails_with_the_part_found_opens_without_it(self, monkeypatch):
+        """A copy reading the parts found in another case that still fails to open is made again without them: the part is
+        detached with the warning, as it was before parts were found in another case, instead of the document being rejected."""
+        from opendockit.extractors import _package
+
+        repair = _package.repair_package
+
+        def failing(data, *, in_another_case=True):
+            repaired = repair(data, in_another_case=in_another_case)
+            if repaired is None or not in_another_case:
+                return repaired
+            return _rebuilt(repaired[0], edit={"CustomXml/_rels/item1.xml.rels": lambda xml: xml.replace(
+                'Target="/customXml/itemProps1.xml"', 'Target="itemProps1.xml"')}), repaired[1]
+
+        monkeypatch.setattr(_package, "repair_package", failing)
+        expected = convert(builder.docx_bytes(), "a.docx")
+
+        result = convert(_rebuilt(builder.docx_bytes(), rename=self._CUSTOM_XML), "a.docx")
+
+        assert result.text == expected.text
+        assert result.warnings == ["Read after detaching 1 missing or broken part(s) (item1.xml). The contents of those parts "
+                                   "(pictures, numbering, styles, etc.) may be missing."]
+
     def test_two_members_that_differ_only_in_case_are_not_guessed_between(self):
         data = _rebuilt(self._docx(), rename={"word/media/note.png": "word/media/Note.png"},
                         add={"word/media/NOTE.png": builder.png_bytes(10, 10)})
@@ -638,6 +673,18 @@ class TestIncompleteRelationship:
         assert result.text == expected
         assert result.warnings in ([], ["Read after leaving out 1 relationship(s) with no Id, Type or Target. "
                                         "Whatever they pointed at may be missing."])
+
+    def test_docx_relationship_without_a_type_is_reported(self):
+        """python-docx opens a package with a relationship without a Type and keeps it, so the repair never runs: the styles behind
+        one were dropped without a word, and the headings came out as plain text."""
+        data = builder.zip_with(builder.docx_bytes(), edit={"word/_rels/document.xml.rels": lambda xml: re.sub(
+            r'Type="[^"]*/styles"', "", xml)})
+
+        result = convert(data, "a.docx")
+
+        assert result.warnings == ["Read after leaving out 1 relationship(s) with no Id, Type or Target. "
+                                   "Whatever they pointed at may be missing."]
+        assert convert(builder.docx_bytes(), "a.docx").warnings == []
 
 
 class TestPercentEncodedTargets:
