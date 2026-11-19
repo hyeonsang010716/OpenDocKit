@@ -49,6 +49,7 @@ from opendockit.extractors._docx_runs import (
     _is_on,
     _is_read_box,
     _keep_filled_placeholders,
+    _neighbour_block,
     _next_is_paragraph,
     _NoteLabels,
     _paragraph_text,
@@ -421,7 +422,7 @@ class _DocxRenderer:
         # the mark that is left. Written apart, a sentence joined with Track Changes on stayed cut in two
         # (Pinned by: test_office_revisions_and_numbering.py::TestDocxDeletedParagraphMark).
         joined, self._joined = self._joined, None
-        if joined is not None and paragraph.getprevious() is joined[0]:
+        if joined is not None and _neighbour_block(paragraph, after=False) is joined[0]:
             raw = joined[1] + raw
         raw = self._after_drop_cap(paragraph, raw.lstrip())
         marked = raw.strip()
@@ -463,7 +464,10 @@ class _DocxRenderer:
         # test_empty_numbered_paragraph_still_counts, test_numbered_paragraph_moved_away_by_tracked_change_does_not_count).
         style = self._paragraph_style(paragraph)
         deleted_mark = _is_deleted_paragraph(paragraph)
-        joins_next = deleted_mark and not blank and _next_is_paragraph(paragraph)
+        # A bookmark or comment range between the two paragraphs does not keep them apart (Pinned by:
+        # test_office_revisions_and_numbering.py::TestDocxDeletedParagraphMark::test_range_marker_between_does_not_keep_them_apart)
+        following = _neighbour_block(paragraph, after=True)
+        joins_next = deleted_mark and not blank and following is not None and following.tag == _w("p")
         list_prefix = None if (blank and deleted_mark) or joins_next else self._list_prefix(paragraph, style)
         if blank:
             return after

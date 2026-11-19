@@ -182,6 +182,15 @@ class TestDocxDeletedParagraphMark:
 
         assert convert(_docx_with_body(body), "a.docx").text == "The contract amount is 1,200,000 won including tax.\n\nPay within 30 days."
 
+    def test_range_marker_between_does_not_keep_them_apart(self):
+        """A bookmark or comment range written between the two paragraphs holds no content: the sentence stayed cut in two."""
+        body = (f'<w:p>{self._DELETED}<w:r><w:t>The amount is</w:t></w:r></w:p>'
+                '<w:bookmarkStart w:id="0" w:name="amount"/><w:commentRangeStart w:id="1"/>'
+                '<w:p><w:r><w:t xml:space="preserve"> 1,200 won.</w:t></w:r></w:p><w:bookmarkEnd w:id="0"/>'
+                "<w:p><w:r><w:t>Next.</w:t></w:r></w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "The amount is 1,200 won.\n\nNext."
+
     def test_numbered_paragraph_whose_mark_was_deleted_takes_no_number(self):
         numbering = ('<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/>'
                      '<w:lvlText w:val="%1."/></w:lvl></w:abstractNum>' + _number_list(1))
