@@ -276,38 +276,49 @@ def _break_at_separators(lines: list[str], collapse_spaces: bool) -> list[str]:
 
 # The start of a list item (CommonMark): at most three spaces, a bullet or a number, then white space or the end of the line.
 _LIST_ITEM_START = re.compile(r" {0,3}(?:[-*+]|[0-9]{1,9}[.)])(?:[ \t]|$)")
+# An ATX heading (CommonMark): at most three spaces, one to six `#`, then white space or the end of the line.
+_ATX_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 
 
 def _indented_code(lines: list[str], fenced: set[int]) -> set[int]:
     """The lines of TXT and MD that are indented code, as CommonMark reads it: indented by four spaces or a tab (after any
-    quote marks), opened only after a blank line and outside a list (an indented line there is a paragraph of the item, one
-    right after a line of text its lazy continuation), and going on through the indented and blank lines after it. The lines
-    of fenced code blocks (`fenced`) are no part of one. The first line of text opens none, blank lines before it or not: the converter strips the
-    indentation at the start of the text, so taken for code it became prose the next time and the result was not converted
-    again to itself (Pinned by: test_markdown.py::TestCleanText::test_line_separators_of_indented_prose_are_line_breaks)."""
+    quote marks), opened only after a blank line, a fenced block or a heading and outside a list (an indented line there is
+    a paragraph of the item, one right after a line of text its lazy continuation), and going on through the indented and
+    blank lines after it. The lines of fenced code blocks (`fenced`) are no part of one. The first line of text opens none,
+    blank lines before it or not, and is read without its indentation: the converter strips the indentation at the start of
+    the text, so taken for code (or for no list item, `    1. x`) it was read otherwise the next time and the result was not
+    converted again to itself (Pinned by: test_markdown.py::TestCleanText::test_line_separators_of_indented_prose_are_line_breaks).
+    """
     code: set[int] = set()
-    in_code = after_blank = in_list = begun = False
+    in_code = may_open = in_list = begun = False
     for index, line in enumerate(lines):
         if index in fenced:
-            in_code = after_blank = in_list = False
-            begun = True
+            # A fenced block ends at its closing line, so an indented line right after it opens code
+            in_code = in_list = False
+            may_open = begun = True
             continue
         match = _QUOTE_PREFIX.match(line)
         content = line[match.end():] if match else line
         if not content.strip():
-            after_blank = begun  # the blank lines before the first line of text are stripped with its indentation
+            may_open = begun  # the blank lines before the first line of text are stripped with its indentation
             continue
+        if not begun and match is None:
+            content = content.lstrip()  # read as it is read again: the converter strips the indentation of the first line
         begun = True
         indented = content.startswith(("    ", "\t"))
-        if indented and (in_code or (after_blank and not in_list)):
+        if indented and (in_code or (may_open and not in_list)):
             code.add(index)
-            in_code, after_blank = True, False
+            in_code, may_open = True, False
+            continue
+        in_code = False
+        if _ATX_HEADING.match(content):
+            in_list, may_open = False, True  # a heading is one line: an indented line right after it opens code
             continue
         if _LIST_ITEM_START.match(content):
             in_list = True
-        elif not indented and after_blank:
+        elif not indented and may_open:
             in_list = False
-        in_code = after_blank = False
+        may_open = False
     return code
 
 

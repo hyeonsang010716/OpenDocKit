@@ -139,6 +139,9 @@ class TestCleanText:
         ("\u2028\u2029\n    first\u2028line", "a.md", "first\nline"),
         ("Text\n\n    code\u2028kept\n    more", "a.md", "Text\n\n    code\u2028kept\n    more"),
         ("> quote\n>\n>     code\u2028kept", "a.md", "> quote\n>\n>     code\u2028kept"),
+        ("```\nx\n```\n    code\u2028kept", "a.md", "```\nx\n```\n    code\u2028kept"),
+        ("# Title\n    code\u2028kept", "a.md", "# Title\n    code\u2028kept"),
+        (" \n    1. ---\n{    code(){word\n\n     code()\u2028word", "a.md", "1. ---\n{    code(){word\n\n     code()\nword"),
     ])
     def test_line_separators_of_indented_prose_are_line_breaks(self, text, name, expected):
         """Every line indented by four spaces or a tab kept its separators as if it were code, though indented prose, a
