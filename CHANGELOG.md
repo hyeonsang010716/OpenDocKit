@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **CLI**: `opendockit --version`, as the other two commands have, for bug reports.
+
 ### Fixed
 
 - **PDF shaded tables**: in a striped table, the cells beside a cell merged over two rows with its text centred on them
@@ -109,6 +113,50 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   says it is returned whole.
 - **LlamaIndex reader**: `warnings` and `exceeded` stay out of the text LlamaIndex embeds and sends to the LLM with every
   node, and `source` out of the embedded text; a file with many warnings was refused by `SentenceSplitter`.
+- **DOCX**: an emoji or symbol Word 2016 writes as `w16se:symEx` is read; it vanished. A start override of one list
+  (Set numbering value) no longer becomes the start of that level in every list sharing its definition. Two
+  paragraphs joined with Track Changes on are one paragraph, not a sentence cut in two. A zero-padded custom number
+  format (`001, 002, 003, ...`) keeps its width. A paragraph of invisible characters is empty, in PPTX too.
+- **DOCX / PPTX packages**: a part named in another case than the relationship that points at it is read, as Office
+  does; a DOCX lost it to the repair and a PPTX lost a picture or a slide. One relationship without its Id, Type or
+  Target no longer rejects the whole document.
+- **HWP / HWPX**: the one-character controls of a paragraph are decoded with the text around them, without the
+  control characters they held; the guide text of an unfilled click-here field is left out; an empty numbered
+  paragraph takes its number; notes count toward `max_chars` while the body is read, and uncompressed streams toward
+  `max_uncompressed_bytes`. Shape positions past the end of the text are dropped before the shapes are ordered, an atop inside an
+  atop keeps its braces, and HWPX members are looked up in constant time.
+- **RTF**: the older `\pn` numbering starts at its `\pnstart`; a list in a header or footer no longer takes the body's
+  first number; the number of a numbered heading is counted; the ANSI font of the macOS text system reads as CP1252;
+  the Unicode line separator is a line break.
+- **ODP**: the lists of a text box that follow each other count on, as Impress draws them (`1. a) b) 2. 3.`, not
+  `1. a) b) 1. 2.`).
+- **XLSX / XML Spreadsheet**: a negative section that differs from the positive one only by a space keeps its minus;
+  an escaped quote before a quoted literal is a literal in date checks; the cell comments of an Excel 2003 XML
+  workbook come after the sheet.
+- **HTML**: closed dialogs and popovers, the permalink marks of documentation headings and the fallback text of
+  `<video>` / `<audio>` are left out; `white-space: pre-wrap` keeps its line breaks; a line-numbered code block is the
+  code alone; the TeX of a MathJax script is the formula; `<q>` gets its quote marks; a table drawn inside a list item
+  keeps its lines; the buttons of a heading are unwrapped in linear time.
+- **MathML**: a script base that is itself a script or a group is braced (`{x^2}^3`).
+- **Mail**: the parts of a forwarded mail are read like those of the outer mail; delivery and read reports are read;
+  a named meeting invitation beside the text is kept; a header with unclosed encoded words is decoded in linear time,
+  and a picture shared by several references is decoded once.
+- **Outlook `.msg`**: rejected with a message that says how to save the mail instead of as an unknown format.
+- **EPUB**: a member whose name is in another Unicode normalization than its reference is found.
+- **PDF**: a footer of a label and `Page 3 of 4` side by side, and roman page numbers (`i`, `ii`, `iii`), are removed
+  from every page. Prose in three or more columns is prose, not tables, and a data row with a wrapped cell is no
+  longer joined into the header.
+- **Detection**: a DOCTYPE with an internal subset is one DOCTYPE. A note that lists a whole PDF, named as text, is
+  read as that text instead of the PDF it lists.
+- **Markdown**: a literal `<br>` in a one-column table or a title row is kept; the Unicode line and paragraph
+  separators are line breaks; title rows of a long table are lifted in linear time.
+- **Pictures**: a Lab picture is prepared as opaque, and the split pages of a TIFF count toward
+  `max_uncompressed_bytes`.
+- **MCP server**: an answer lists at most 20 warnings, and the outline lists pages, slides or sheets as far as the
+  server's `--max-chars` and counts the rest; with `--root`, a folder that may be passed through but not listed no
+  longer refuses the files under it.
+- **LangChain / LlamaIndex / Open WebUI**: a file of pictures that were not described gives no Document of `[Image]`
+  placeholders, as a scanned PDF gives none of page markers.
 
 ## [0.3.13] - 2026-11-17
 
