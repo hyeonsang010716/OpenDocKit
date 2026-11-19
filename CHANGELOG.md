@@ -17,7 +17,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     thread of the server, which gave up the memory limit, the time limit and the process isolation at once.
   - **Legacy `.doc` and `.ppt`**: LibreOffice is ended with the process that started it, so a conversion whose worker is
     killed on its time limit no longer leaves it running, and a guard process removes the folder holding the uploaded
-    document, as on POSIX.
+    document, as on POSIX. LibreOffice is also found where the environment does not name Program Files — an MCP
+    client starts its server without PROGRAMFILES, and every `.doc` and `.ppt` sent to the MCP server failed with
+    'need LibreOffice' — from the registry, which also finds an install outside Program Files.
   - **HTML, mail and EPUB**: malformed and multi-part pages are read whole. lxml's Windows wheels bundle a libxml2
     without the HTML5 tokenizer, so text after the end of a page, a second concatenated document, the content of
     `<textarea>`/`<xmp>` and the further parts of a mail were lost; html5lib builds the tree there instead. A page over

@@ -136,6 +136,9 @@ class TestLookup:
             on_path: dict[str, str] = {}
             files: set[str] = set()
             searches = 0
+            # What the Windows registry says: the `program` folders the installer recorded, and the Program Files folders.
+            installed: list[str] = []
+            program_folders: list[str] = []
 
         machine = Machine()
 
@@ -145,6 +148,7 @@ class TestLookup:
 
         monkeypatch.setattr(legacy.shutil, "which", which)
         monkeypatch.setattr(legacy.os.path, "isfile", lambda path: path in machine.files)
+        monkeypatch.setattr(legacy, "_windows_registry_folders", lambda: (machine.installed, machine.program_folders))
         for variable in legacy._WINDOWS_FOLDER_VARIABLES:
             monkeypatch.delenv(variable, raising=False)
         return machine
@@ -168,6 +172,33 @@ class TestLookup:
         machine.files = {expected}
 
         assert legacy.find_soffice() == expected
+
+    def test_windows_install_is_found_without_the_program_files_variables(self, machine):
+        """An MCP client starts its server with a short list of variables, and the official SDK's has no PROGRAMFILES: a
+        LibreOffice installed in the default place was "not installed" for the MCP server alone. Windows records the folders
+        in the registry as well, and the registry does not depend on the environment."""
+        expected = os.path.join("C:\\Program Files", "LibreOffice", "program", "soffice.exe")
+        machine.files = {expected}
+        machine.program_folders = ["C:\\Program Files", "C:\\Program Files (x86)"]
+
+        assert legacy.find_soffice() == expected
+
+    def test_windows_install_outside_program_files_is_found_through_the_installer_record(self, machine):
+        """The installer records its own `program` folder, so an install chosen elsewhere (another drive) is found too."""
+        expected = os.path.join("D:\\Apps\\LibreOffice\\program", "soffice.exe")
+        machine.files = {expected}
+        machine.installed = ["D:\\Apps\\LibreOffice\\program"]
+        machine.program_folders = ["C:\\Program Files"]
+
+        assert legacy.find_soffice() == expected
+
+    @pytest.mark.skipif(os.name != "nt", reason="the registry is Windows")
+    def test_the_registry_is_read_for_the_program_files_folders(self):
+        """The reader itself, on the real registry: every Windows records its Program Files folder."""
+        _, folders = legacy._windows_registry_folders()
+
+        assert folders, "no Program Files folder was read from the registry"
+        assert all(os.path.isdir(folder) for folder in folders)
 
     def test_nothing_installed_is_none(self, machine):
         assert legacy.find_soffice() is None
@@ -831,6 +862,22 @@ def _docx_with_linked_picture(url: str) -> bytes:
 class TestRealLibreOffice:
     """End to end with the installed LibreOffice. The .doc / .ppt inputs are made by LibreOffice itself from the in-memory
     DOCX / PPTX of `tests/builder.py`."""
+
+    def test_found_with_the_environment_an_mcp_client_passes(self):
+        """The MCP server is started by its client with only the variables the client chooses to pass. The official SDK's
+        list has no PROGRAMFILES on Windows, and there the installed LibreOffice was not found: every .doc and .ppt the MCP
+        server was asked for failed with "need LibreOffice" while the same call in a terminal worked. The lookup is run in
+        a process started with exactly that environment."""
+        stdio = pytest.importorskip("mcp.client.stdio")
+        environment = stdio.get_default_environment()
+        environment.pop(legacy.SOFFICE_ENVIRONMENT_VARIABLE, None)
+        lookup = "from opendockit.extractors import legacy; print(legacy.find_soffice() or '')"
+
+        found = subprocess.run([sys.executable, "-c", lookup], env=environment, capture_output=True, text=True,
+                               timeout=60, check=True).stdout.strip()
+
+        assert found, "LibreOffice was not found with the environment an MCP client gives its server"
+        assert os.path.isfile(found)
 
     def test_word_document_keeps_headings_lists_table_and_korean_text(self, real_doc):
         result = convert(real_doc, "분기 보고서.doc")

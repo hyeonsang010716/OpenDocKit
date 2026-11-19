@@ -34,8 +34,11 @@ from opendockit.models import ConvertOptions, Extraction
 
 
 if os.name == "nt":
+    import winreg
+
     from opendockit import _windows
 else:
+    winreg = None
     _windows = None
 
 
@@ -64,6 +67,15 @@ _PROGRAM_NAMES = ("soffice", "libreoffice")
 _MACOS_PROGRAM = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
 _LINUX_PROGRAMS = ("/usr/lib/libreoffice/program/soffice", "/usr/lib64/libreoffice/program/soffice", "/opt/libreoffice/program/soffice")
 _WINDOWS_FOLDER_VARIABLES = ("PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432")
+# Where Windows itself records the folders, read when the environment does not name them. A process cannot count on its
+# environment: an MCP client starts its servers with a short list of variables, and the one of the official SDK has no
+# PROGRAMFILES, so a LibreOffice installed in the default place was "not installed" for the MCP server — and only there
+# (Pinned by: test_legacy.py::TestLookup::test_windows_install_is_found_without_the_program_files_variables,
+# TestRealLibreOffice::test_found_with_the_environment_an_mcp_client_passes). The installer records its own `program`
+# folder as the default value of `UNO\InstallPath`, which also finds an install outside Program Files.
+_WINDOWS_INSTALL_KEY = r"SOFTWARE\LibreOffice\UNO\InstallPath"
+_WINDOWS_FOLDERS_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion"
+_WINDOWS_FOLDER_VALUES = ("ProgramFilesDir", "ProgramFilesDir (x86)", "ProgramW6432Dir")
 
 # Neutral names inside the temporary directory. The user's file name never reaches a command line or the file system.
 _INPUT_STEM = "input"
@@ -189,7 +201,39 @@ def _installed_soffice() -> str | None:
         folder = os.environ.get(variable)
         if folder:
             candidates.append(os.path.join(folder, "LibreOffice", "program", "soffice.exe"))
+    installed, program_folders = _windows_registry_folders()
+    candidates += [os.path.join(folder, "soffice.exe") for folder in installed]
+    candidates += [os.path.join(folder, "LibreOffice", "program", "soffice.exe") for folder in program_folders]
     return next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
+
+
+def _windows_registry_folders() -> tuple[list[str], list[str]]:
+    """The `program` folders LibreOffice's installer recorded, and the Program Files folders, from the registry (Windows).
+
+    Both views of the machine key are read, so a 32-bit LibreOffice is found from a 64-bit Python and the other way round,
+    and the user's own key for an install made for one user. Empty elsewhere, and wherever the registry cannot be read.
+    """
+    if winreg is None:
+        return [], []
+    views = (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY)
+    installed = [_registry_text(hive, _WINDOWS_INSTALL_KEY, "", view)
+                 for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER) for view in views]
+    folders = [_registry_text(winreg.HKEY_LOCAL_MACHINE, _WINDOWS_FOLDERS_KEY, name, winreg.KEY_WOW64_64KEY)
+               for name in _WINDOWS_FOLDER_VALUES]
+    return list(dict.fromkeys(filter(None, installed))), list(dict.fromkeys(filter(None, folders)))
+
+
+def _registry_text(hive: int, key: str, name: str, view: int) -> str | None:
+    """A text value of the registry (`""` is a key's default value), with its variables expanded; None without one."""
+    try:
+        with winreg.OpenKey(hive, key, 0, winreg.KEY_READ | view) as opened:
+            value, kind = winreg.QueryValueEx(opened, name)
+    except OSError:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    value = value.strip()
+    return winreg.ExpandEnvironmentStrings(value) if kind == winreg.REG_EXPAND_SZ else value
 
 
 def _soffice_command(program: str, source: Path, profile: Path, out_dir: Path, target: str, output_filter: str) -> list[str]:
