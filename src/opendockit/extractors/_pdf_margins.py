@@ -37,6 +37,8 @@ _ROMAN_PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:(?:[Pp]age|PAGE|[Pp]\.)\s*)?(
 # Token that can be a page number (_page_number_blind): without its digits only punctuation, a page word or a single Latin letter
 # remains ('3', '3/10', '3쪽', 'p.3', '2024-01-05', 'A-1'). A value with a unit ('12건') is not one.
 _PAGE_WORDS = frozenset({"page", "p", "pp", "of", "쪽", "페이지", "면", "頁"})
+# The words a page count is written with besides those ('Page 3 of 10 pages', '총 5쪽 중 3쪽', `_is_page_count`)
+_PAGE_COUNT_WORDS = _PAGE_WORDS | {"pages", "총", "중"}
 # Token that is a value, not a page number: a thousands comma ('3,450,000'), a percent or currency sign, a decimal joining two
 # digit groups with one dot ('6.8'). A date written with dots ('2024.01.05') has three digit groups and is not a decimal.
 _VALUE_TOKEN = re.compile(r"\d,\d{3}(?!\d)|[%‰₩$€£¥]|^\D*\d+\.\d+\D*$")
@@ -83,8 +85,8 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
     fragments of a header row repeated on every page of a borderless table spanning several pages, and the amounts and
     dates of bottom rows differing only in digits. So (1) rows grouped into a borderless table are excluded from the
     candidates, (2) the comparison that ignores digits is applied only to single-fragment margin lines, and for a row
-    of several fragments only the digits of page-number-shaped fragments are ignored and the rest must match character
-    for character (Pinned by: test_pdf.py::TestRepeatedMarginsAndBorderlessTables).
+    of several fragments only the digits of page-number-shaped fragments (and, in the margin, of page counts) are ignored
+    and the rest must match character for character (Pinned by: test_pdf.py::TestRepeatedMarginsAndBorderlessTables).
 
     Kinds of lines that are body text but look repeated are also excluded from the candidates (the pinning tests are
     in the same class).
@@ -233,16 +235,40 @@ def _row_key(row: list[_Line], in_margin: bool, title_size: float) -> str:
     실적') differed only in digits and were removed on every page (Pinned by: test_pdf.py::
     TestRepeatedMarginsAndBorderlessTables::test_large_page_titles_that_differ_only_in_a_number_are_kept).
 
-    A margin row of several fragments follows the single-fragment rule fragment by fragment: with only page-number-shaped
-    fragments masked, 'Company … Page 3 of 6' (the count is not that shape) differed on every page and stayed at the foot of
-    each (Pinned by: test_pdf.py::TestRepeatedMarginsAndBorderlessTables::test_page_count_beside_other_footer_text_is_removed).
+    In a margin row of several fragments a fragment that is a page count (`_is_page_count`: 'Page 3 of 6', '5쪽 중 3쪽') has its
+    page numbers ignored too: with only page-number-shaped fragments masked, 'Company … Page 3 of 6' differed on every page and
+    stayed at the foot of each (Pinned by: test_pdf.py::TestRepeatedMarginsAndBorderlessTables::
+    test_page_count_beside_other_footer_text_is_removed). Any other fragment must match down to the digits. Masking every
+    fragment as a single-fragment line is masked made rows that differ only in a number or a date the same — 'Invoice No. 1001'
+    beside 'Date: 2024-03-10', 'Subtotal 12 items' beside 'Carried forward 340' — and removed them from every page (Pinned by:
+    test_margin_rows_that_differ_only_in_numbers_or_dates_are_kept in the same class). A single-fragment line keeps the wider
+    rule: a running header mixing a date and a page number is one fragment, and the cost is the recorded gap of a body line
+    that differs only in a page-number token.
     """
     if len(row) == 1:
         line = row[0]
         is_title = bool(title_size) and line.size >= title_size and not _is_page_number(line.text)
         return _page_number_blind(line.text) if in_margin and not is_title else line.text
-    return "\t".join(_page_number_blind(line.text) if in_margin and not (title_size and line.size >= title_size)
-                     else _page_number_mask(line.text) if _is_page_number(line.text) else line.text for line in row)
+    return "\t".join(_page_number_mask(line.text) if _is_page_number(line.text)
+                     else _page_number_blind(line.text)
+                     if in_margin and not (title_size and line.size >= title_size) and _is_page_count(line.text)
+                     else line.text for line in row)
+
+
+def _is_page_count(text: str) -> bool:
+    """Is the fragment a page count written out with words ('Page 3 of 10', '3 of 10', '총 5쪽 중 3쪽')? Every token is a
+    page-number token (`_page_number_token`), a page word (`_PAGE_COUNT_WORDS`) or punctuation, and one of them names the page
+    ('page', 'of', '3쪽', 'p.3'). 'Continued on page 2' or 'Question 1 of 20' carries other words and is not one."""
+    named = False
+    for token in text.split():
+        word = _NON_WORD.sub("", token).lower()
+        if word in _PAGE_COUNT_WORDS:
+            named = True
+        elif _page_number_token(token):
+            named = named or _NON_WORD.sub("", _DIGITS.sub("", token)).lower() in _PAGE_COUNT_WORDS
+        elif word:
+            return False
+    return named and _DIGITS.search(text) is not None
 
 
 def _is_page_number(text: str) -> bool:
@@ -280,11 +306,13 @@ def _page_number_blind(text: str) -> str:
     if _is_page_number(text):
         return _page_number_mask(text)
 
-    def blind(match: re.Match) -> str:
-        token = match.group()
-        if not _DIGITS.search(token) or _VALUE_TOKEN.search(token):
-            return token
-        rest = _NON_WORD.sub("", _DIGITS.sub("", token)).lower()
-        return _DIGITS.sub("#", token) if not rest or rest in _PAGE_WORDS or (len(rest) == 1 and rest.isascii()) else token
+    return _TOKEN.sub(lambda match: _DIGITS.sub("#", match.group()) if _page_number_token(match.group()) else match.group(), text)
 
-    return _TOKEN.sub(blind, text)
+
+def _page_number_token(token: str) -> bool:
+    """Can the token be a page number: it has digits, is not a value (`_VALUE_TOKEN`), and without its digits only
+    punctuation, a page word (`_PAGE_WORDS`) or a single ASCII letter remains."""
+    if not _DIGITS.search(token) or _VALUE_TOKEN.search(token):
+        return False
+    rest = _NON_WORD.sub("", _DIGITS.sub("", token)).lower()
+    return not rest or rest in _PAGE_WORDS or (len(rest) == 1 and rest.isascii())

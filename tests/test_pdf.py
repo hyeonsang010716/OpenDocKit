@@ -391,7 +391,7 @@ class TestRepeatedMarginsAndBorderlessTables:
     def test_page_count_beside_other_footer_text_is_removed(self):
         """A footer of two pieces on one row, 'ACME Corp. - Confidential' left and 'Page 3 of 4' right (LibreOffice's footer
         fields): only pieces shaped exactly like a page number had their digits ignored, and 'Page 3 of 4' is not one, so the
-        footer stayed at the foot of every page. Each piece of a margin row follows the rule of a margin line of one piece; a
+        footer stayed at the foot of every page. A piece of a margin row that is a page count has its page numbers ignored too; a
         count with a unit beside a label ('소계 12건') still differs per page and is kept."""
         counts = [12, 7, 19, 4]
 
@@ -407,6 +407,51 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         assert "Confidential" not in result.text and "of 4" not in result.text
         assert all(f"{count}건" in result.text for count in counts)
+
+    @pytest.mark.parametrize("pieces", [
+        lambda page: [f"Page {page} of 6", "ACME Corp. - Confidential"],
+        lambda page: ["ACME Corp.", "Confidential", f"Page {page} of 6"],
+        lambda page: ["사내 한정", f"6쪽 중 {page}쪽"],
+        lambda page: ["주식회사 에이씨엠이", f"총 6쪽 중 {page}쪽"],
+        lambda page: ["Annual Report 2024", f"p. {page}"],
+        lambda page: ["ACME Corp.", f"{page} of 6 pages"],
+    ], ids=["count-first", "three-pieces", "korean-of", "korean-total", "p-dot", "of-pages"])
+    def test_page_counts_of_other_shapes_beside_footer_text_are_removed(self, pieces):
+        """A page count is removed with the text beside it wherever it stands in the row and however it is written."""
+        def draw(pdf, index):
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+            for x, text in zip((72, 250, 430), pieces(index + 1), strict=False):
+                pdf.drawString(x, 40, text)
+
+        result = convert(_korean_pdf(draw, pages=6), "a.pdf")
+
+        assert [text for text in pieces(3) if text in result.text] == []
+        assert "Body line 5 of page 6" in result.text
+
+    @pytest.mark.parametrize(("height", "pieces"), [
+        (790, lambda page: [f"Invoice No. {1000 + page}", f"Date: 2024-03-{9 + page}"]),
+        (790, lambda page: [f"문서번호 {2024000 + page}", f"작성일 2024-03-{9 + page}"]),
+        (790, lambda page: [f"Question {page}", f"({page + 1} points)", f"Unit {page}"]),
+        (50, lambda page: [f"Subtotal {[12, 7, 19, 4, 9, 15][page - 1]} items", f"Carried forward {323 + 17 * page}"]),
+        (50, lambda page: [f"Continued on page {page + 1}", f"Answer key: section {10 + page}"]),
+        (75, lambda page: [f"({page})", f"Clause text of page {page}."]),
+    ], ids=["invoice", "korean-document-number", "question", "subtotal", "continued", "clause"])
+    def test_margin_rows_that_differ_only_in_numbers_or_dates_are_kept(self, height, pieces):
+        """Rows of the top or bottom margin whose pieces differ from page to page only in a number or a date: when every piece
+        of a margin row had its numbers and dates ignored as a margin line of one piece does, these were the same on every page
+        and were removed from all six. Only a piece that is a page number or a page count has its numbers ignored now. A
+        clause number alone ('(3)') is page-number-shaped and still goes, as before, but not the clause beside it."""
+        def draw(pdf, index):
+            for x, text in zip((72, 250, 430), pieces(index + 1), strict=False):
+                pdf.drawString(x, height, text)
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+
+        result = convert(_korean_pdf(draw, pages=6), "a.pdf")
+
+        expected = [text for page in range(1, 7) for text in pieces(page) if not text.startswith("(") or "points" in text]
+        assert [text for text in expected if text not in result.text] == []
 
     def test_roman_page_numbers_are_removed(self):
         """The front matter of a book or a report is numbered 'i', 'ii', 'iii' …: only digits were page-number-shaped, so those
