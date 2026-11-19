@@ -1084,6 +1084,20 @@ class TestRuby:
 
         assert convert(html.encode(), "a.html").text == "a(r)" * 8 + "ararb"
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>水<rt>H<sub>2</sub>O</rt></ruby>を飲む</p>", "水(H_2O)を飲む"),
+        ("<p><ruby>面積<rt>m<sup>2</sup></rt></ruby></p>", "面積(m^2)"),
+        ("<p><ruby>円<rt><math><mi>π</mi><msup><mi>r</mi><mn>2</mn></msup></math></rt></ruby></p>", "円($πr^2$)"),
+        ("<p><ruby>名<rt><textarea>な</textarea></rt></ruby> <ruby>名<rt><select><option selected>な</option></select></rt>"
+         "</ruby></p>", "名(な) 名(な)"),
+        ("<p>a<rt>H<sub>2</sub>O</rt>b</p>", "aH_2Ob"),
+    ])
+    def test_scripts_controls_and_equations_inside_an_annotation_are_read(self, html, expected):
+        """bs4 makes the strings inside an `<rt>` a kind of its own, which the text of any other element leaves out. Scripts,
+        equations and form values are read before rubies, so inside an annotation they read as empty and were lost
+        (`水(HO)`, `円($^{}$)`), an `<rt>` outside a ruby too."""
+        assert convert(html.encode(), "a.html").text == expected
+
     @pytest.mark.timing
     def test_nested_rubies_take_linear_time(self):
         """Each ruby walked up to the root, and every inner ruby was replaced in the tree in turn: 20,000 rubies nested in each

@@ -12,7 +12,7 @@ import itertools
 import re
 
 from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
-from bs4.element import PageElement, PreformattedString
+from bs4.element import CData, PageElement, PreformattedString, RubyTextString
 
 from opendockit.extractors._html_base import (
     _BLOCK_GAP,
@@ -960,6 +960,19 @@ def _is_overlay(tag: Tag) -> bool:
     return str(tag.get("role", "")).strip().lower() in _OVERLAY_ROLES or _OVERLAY_NAME.search(name) is not None
 
 
+# The kinds of strings that are text to the steps run before rubies are read (`_text`). bs4 makes every string inside an `<rt>`
+# a kind of its own, which `get_text` of any element skips, the `<rt>` aside; the strings of an `<rp>` are left out, as `_put_ruby`
+# leaves them.
+_TEXT_STRINGS = (NavigableString, CData, RubyTextString)
+
+
+def _text(node: PageElement) -> str:
+    """The text of `node`, the text of a ruby annotation among it. A script, a form control or an equation inside an `<rt>` read
+    as empty, and was lost: `水<rt>H<sub>2</sub>O</rt>` came out as `水(HO)` (Pinned by: test_text_html.py::TestRuby::
+    test_scripts_controls_and_equations_inside_an_annotation_are_read)."""
+    return node.get_text(types=_TEXT_STRINGS)
+
+
 def _put_form_values(soup: BeautifulSoup) -> None:
     """Replaces form elements with the values that were shown on screen: the value of a text input, the text of a textarea,
     the chosen option of a select, ☒/☐ for checkboxes and radio buttons.
@@ -990,7 +1003,7 @@ def _put_form_values(soup: BeautifulSoup) -> None:
         elif control.name == "select":
             values = _selected_options(control)
         else:
-            values = control.get_text().strip().split("\n")
+            values = _text(control).strip().split("\n")
         values = [" ".join(value.split()) for value in values]
         control.clear()
         control.attrs = {}
@@ -1303,10 +1316,8 @@ def _outside_selects(tag: Tag) -> Iterator[PageElement]:
 
 
 def _option_text(option: Tag) -> str:
-    """The text of `option` as `get_text` gives it, without the text of a select inside it (`_selected_options`)."""
-    kinds = option.interesting_string_types
-    return "".join(node for node in _outside_selects(option)
-                   if isinstance(node, NavigableString) and (type(node) is kinds if isinstance(kinds, type) else type(node) in kinds))
+    """The text of `option` as `_text` gives it, without the text of a select inside it (`_selected_options`)."""
+    return "".join(node for node in _outside_selects(option) if isinstance(node, NavigableString) and type(node) in _TEXT_STRINGS)
 
 
 def _mark_scripts(soup: BeautifulSoup) -> None:
@@ -1324,8 +1335,8 @@ def _mark_scripts(soup: BeautifulSoup) -> None:
             continue  # already replaced together with the outer script, or code
         for script in [*reversed(outer.find_all(["sup", "sub"])), outer]:
             before = script.previous_sibling
-            marked = format_script(script.get_text(), SUPERSCRIPT if script.name == "sup" else SUBSCRIPT,
-                                   before.get_text() if before is not None else "")
+            marked = format_script(_text(script), SUPERSCRIPT if script.name == "sup" else SUBSCRIPT,
+                                   _text(before) if before is not None else "")
             _replace(script, marked, places)
 
 

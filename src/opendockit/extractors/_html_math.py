@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from bs4.element import PageElement, PreformattedString
 
 from opendockit.extractors._html_base import _BLOCK_TAGS, _HEADINGS
-from opendockit.extractors._html_dom import _decompose_all
+from opendockit.extractors._html_dom import _decompose_all, _text
 from opendockit.extractors._mathml import MATH_IGNORED, base_child, literal, mathml_structure, text_leaf
 
 
@@ -193,7 +193,7 @@ def _math_source(math: Tag) -> str | None:
     """The LaTeX of the equation as the document wrote it. None if there is none."""
     for annotation in math.find_all("annotation"):
         if str(annotation.get("encoding", "")).strip().lower() in _TEX_ENCODINGS:
-            text = " ".join(annotation.get_text().split())
+            text = " ".join(_text(annotation).split())
             if text:
                 return _unwrapped(text)
 
@@ -236,7 +236,7 @@ def _mathml_latex(node: object, depth: int) -> str:
     if name in MATH_IGNORED:
         return ""
     if depth >= _MAX_MATH_DEPTH:
-        return literal("".join(node.get_text().split()))
+        return literal("".join(_text(node).split()))
 
     children = [child for child in node.children if isinstance(child, Tag)]
     parts = [_mathml_latex(child, depth + 1) for child in children]
@@ -252,8 +252,8 @@ def _mathml_latex(node: object, depth: int) -> str:
         return structure
     if not children:
         if name == "mtext":
-            return text_leaf(node.get_text())
-        return literal(" ".join(node.get_text().split()))  # mi·mn·mo·ms
+            return text_leaf(_text(node))
+        return literal(" ".join(_text(node).split()))  # mi·mn·mo·ms
     # Unknown elements have their child elements and the text between them joined in order. Joining only the elements lost the
     # `-` of `<math>- <span>…</span></math>`
     # (Pinned by: test_core_round45.py::TestLimitOnBrokenHtml::test_text_beside_elements_inside_math_is_kept).
