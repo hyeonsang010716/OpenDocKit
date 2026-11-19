@@ -315,7 +315,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                             fallback = fallback or _open_pdfium(data)
                             numbering = numbering or _PdfiumPages(pdf.doc.catalog.get("Pages"), fallback, past)
                             index = numbering.index(page.page_obj.pageid, page.page_number - 1)
-                        if objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES or numbering.refuse_all:
+                        if objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES:
                             # Both pdfium and pdfminer use memory per draw merely by opening the page — hand it to neither
                             refused.append(page.page_number)
                             pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),

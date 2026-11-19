@@ -976,16 +976,21 @@ class TestPagesPdfiumNumbersOtherwise:
 
         assert all(result.text.count(f"Page {number} text") == 1 for number in range(1, 13))
 
-    def test_no_page_is_opened_when_the_numbering_cannot_be_matched_and_a_page_is_refused(self, monkeypatch):
+    def test_pages_are_read_by_pdfminer_alone_when_the_numbering_cannot_be_matched_and_a_page_is_refused(self, monkeypatch):
+        """pdfium could open the refused page under any number, so it opens none; the other pages are still read (all of them were
+        left unread before, which on pypdfium2 4.30 — numbering one entry otherwise — lost the text of whole documents)."""
         from opendockit.extractors import _pdf_pdfium_pages
+        from opendockit.extractors import pdf as pdf_module
 
         monkeypatch.setattr(_pdf_pdfium_pages, "_pdfium_slots", lambda root: None)
-        self._guard(monkeypatch, forbidden=6)
+        monkeypatch.setattr(pdf_module, "_survey_page", lambda document, index: pytest.fail("pdfium surveyed a page"))
+        monkeypatch.setattr(pdf_module, "_pdfium_page", lambda document, index: pytest.fail("pdfium opened a page"))
 
         result = convert(_odd_tree_pdf([b"999 0 R"]), "a.pdf")
 
-        assert "Page 1 text" not in result.text
-        assert any("12 PDF page(s)" in warning and "were not read" in warning for warning in result.warnings)
+        assert all(f"Page {number} text" in result.text for number in (1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12))
+        assert "Page 6 text" not in result.text
+        assert any("(6)" in warning and "were not read" in warning for warning in result.warnings)
 
     def test_numbering_that_cannot_be_matched_reads_a_document_without_refused_pages_as_before(self, monkeypatch):
         from opendockit.extractors import _pdf_pdfium_pages
@@ -1028,7 +1033,7 @@ class TestPagesPdfiumNumbersOtherwise:
         try:
             assert _pdf_pdfium_pages._numbers_match(slots, document)
             for index, (number, page, _) in enumerate(slots):
-                if page is not None and number is not None:
+                if page is not None and not _pdf_pdfium_pages._opened_by_some(page):
                     text = document[index].get_textpage().get_text_range()
                     assert text.strip() == (f"P{(number - 10) // 2}" if number in (10, 12, 14) else "")
         finally:

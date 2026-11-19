@@ -50,12 +50,12 @@ def _resolved(value: object) -> object:
 
 def _pdfium_slots(root: object) -> list[tuple[int | None, dict | None, object]] | None:
     """(object number, page dictionary or None, resources inherited along the path) for each page number pdfium gives, worked
-    out as pdfium walks the tree (checked against pypdfium2 1.x on every odd entry the tests build): an entry that is no dictionary
-    takes a number it cannot open; a dictionary with `/Kids` is a node — gone through when they are an array (left out when they
-    are not, or when the node is one of the nodes it lies inside, or deeper than `_PAGE_TREE_LEVELS`), whatever its `/Type`; any
-    other dictionary takes a number, one it cannot open when its `/Type` is `/Pages`; a page listed twice takes two. The numbers
-    are padded with ones it cannot open, or cut, to the root's `/Count` when that is a positive integer. None when the tree has more
-    than `_PAGES_FOLLOWED` entries."""
+    out as pdfium walks the tree (checked against pypdfium2 4.30 and 5.x on every odd entry the tests build): an entry that is no
+    dictionary takes a number it cannot open; a dictionary with `/Kids` is a node — gone through when they are an array (left out
+    when they are not, or when the node is one of the nodes it lies inside, or deeper than `_PAGE_TREE_LEVELS`), whatever its
+    `/Type`; any other dictionary takes a number (one of `/Type /Pages` is opened by pdfium 4.30 as an empty page, not by 5.x —
+    `_opened_by_some`); a page listed twice takes two. The numbers are padded with ones it cannot open, or cut, to the root's
+    `/Count` when that is a positive integer. None when the tree has more than `_PAGES_FOLLOWED` entries."""
     root = _resolved(root)
     if not isinstance(root, dict):
         return []
@@ -82,13 +82,18 @@ def _pdfium_slots(root: object) -> list[tuple[int | None, dict | None, object]] 
                 inside.add(id(kid))
                 stack.append((iter(nested), kid.get("Resources", inherited), id(kid)))
         else:
-            slots.append((number, None if _name(kid.get("Type")) == "Pages" else kid, inherited))
+            slots.append((number, kid, inherited))
     count = _resolved(root.get("Count"))
     if isinstance(count, int) and not isinstance(count, bool) and count > 0:
         if count > _PAGES_FOLLOWED:
             return None
         slots = slots[:count] + [(None, None, None)] * (count - len(slots))
     return slots
+
+
+def _opened_by_some(page: dict | None) -> bool:
+    """Whether pdfium opens the dictionary at its number in some versions only: one of `/Type /Pages` without `/Kids`."""
+    return page is not None and _name(page.get("Type")) == "Pages"
 
 
 def _reachable_pages(root: object) -> list[tuple[dict, object]] | None:
@@ -116,32 +121,34 @@ class _PdfiumPages:
     """pdfium's number for each page pdfminer reads, and whether pdfium may open any page at all.
 
     The numbering worked out (`_pdfium_slots`) is used when it has as many numbers as pdfium has pages and pdfium can open exactly
-    the numbers it gives a dictionary (asked with `FPDF_GetPageSizeByIndexF`, which reads the page dictionary but not its content):
-    a page pdfminer reads is then opened at the first number of its object, and a page pdfium does not number is not opened.
-    Otherwise every page dictionary reachable through `/Kids` is estimated first (`_reachable_pages`): when none is past the
-    bounds, pages are opened at pdfminer's numbers as before; when one is, pdfium could open it under any number, so no page is
-    opened (`refuse_all`)."""
+    the numbers it gives a dictionary (asked with `FPDF_GetPageSizeByIndexF`, which reads the page dictionary but not its content;
+    a dictionary only some versions open is not asked about): a page pdfminer reads is then opened at the first number of its
+    object, and a page pdfium does not number is not opened. Otherwise every page dictionary reachable through `/Kids` is estimated
+    first (`_reachable_pages`): when none is past the bounds, pages are opened at pdfminer's numbers as before; when one is, pdfium
+    could open it under any number, so pdfium opens no page (`closed`): the pages are read by pdfminer alone, within the bounds of
+    the drawn-object estimate, and a document whose page list pdfminer could not build has none read. Pinned by:
+    test_pdf_resource_limits.py::TestPagesPdfiumNumbersOtherwise."""
 
-    __slots__ = ("checked", "numbers", "refuse_all", "slots")
+    __slots__ = ("checked", "closed", "numbers", "slots")
 
     def __init__(self, root: object, document: object, past: Callable[[_TreePage], bool]) -> None:
         """`past`: whether drawing a page is past the bounds (`_page_drawing`)."""
         self.slots = _pdfium_slots(root)
         self.checked = self.slots is not None and _numbers_match(self.slots, document)
-        self.refuse_all = False
+        self.closed = False
         self.numbers: dict[int, int] = {}
         if self.checked:
             for index, (number, page, _) in enumerate(self.slots):
-                if number is not None and page is not None:
+                if number is not None and page is not None and not _opened_by_some(page):
                     self.numbers.setdefault(number, index)
             return
         reachable = _reachable_pages(root)
-        self.refuse_all = reachable is None or any(past(_TreePage(page, _resolved(inherited))) for page, inherited in reachable)
+        self.closed = reachable is None or any(past(_TreePage(page, _resolved(inherited))) for page, inherited in reachable)
 
     def index(self, number: int | None, fallback: int) -> int | None:
         """pdfium's number of the page of object `number` that pdfminer numbers `fallback` (counted from 0); None when pdfium must
         not open it."""
-        if self.refuse_all:
+        if self.closed:
             return None
         if not self.checked:
             return fallback
@@ -149,7 +156,7 @@ class _PdfiumPages:
 
     def refused(self, index: int, past: Callable[[_TreePage], bool]) -> bool:
         """Whether pdfium must not open its page `index` (for a document whose page list pdfminer could not build)."""
-        if self.refuse_all:
+        if self.closed:
             return True
         if not self.checked or index >= len(self.slots):
             return False
@@ -163,5 +170,6 @@ def _numbers_match(slots: list[tuple[int | None, dict | None, object]], document
     with _PDFIUM_LOCK:
         if len(document) != len(slots):
             return False
-        return all(bool(pdfium_c.FPDF_GetPageSizeByIndexF(document.raw, index, ctypes.byref(size))) == (page is not None)
+        return all(_opened_by_some(page)
+                   or bool(pdfium_c.FPDF_GetPageSizeByIndexF(document.raw, index, ctypes.byref(size))) == (page is not None)
                    for index, (_, page, _) in enumerate(slots))
