@@ -7,9 +7,10 @@ import zipfile
 
 import pytest
 
-from opendockit import UnsupportedFormatError, convert
+from opendockit import ConvertOptions, UnsupportedFormatError, convert
 from tests import builder
 from tests.test_office import _docx_with_body, _number_list, _paragraph, _without_parts
+from tests.timing import fastest
 
 
 _WPS_NS = ('xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" '
@@ -198,6 +199,52 @@ class TestDocxDeletedParagraphMark:
         body = first + _paragraph(" second", 1) + _paragraph("third", 1)
 
         assert convert(_docx_with_body(body, numbering=numbering), "a.docx").text == "1. first and second\n2. third"
+
+    def test_text_box_goes_after_the_joined_paragraph(self):
+        """A text box anchored in the paragraph whose mark was deleted came before the joined paragraph."""
+        body = (f'<w:p>{self._DELETED}<w:r><w:t xml:space="preserve">The amount </w:t></w:r><w:r>{_text_box("Box")}</w:r></w:p>'
+                "<w:p><w:r><w:t>is due.</w:t></w:r></w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "The amount is due.\n\nBox"
+
+
+class TestDocxDeletedParagraphMarkChain:
+    """A chain of paragraphs whose mark was deleted was joined again at every link and counted toward `max_chars` only at its end:
+    40,000 of them (160 KB) took 104 s, and the limit did not stop them."""
+
+    @staticmethod
+    def _chain(count: int, deleted: bool = True) -> bytes:
+        mark = TestDocxDeletedParagraphMark._DELETED if deleted else ""
+        body = "".join(f'<w:p>{mark}<w:r><w:t xml:space="preserve">word{index} some text here </w:t></w:r></w:p>'
+                       for index in range(count))
+        return _docx_with_body(body + "<w:p><w:r><w:t>end</w:t></w:r></w:p>")
+
+    def test_chain_is_one_paragraph(self):
+        text = convert(self._chain(300), "a.docx").text
+
+        assert text == " ".join(f"word{index} some text here" for index in range(300)) + " end"
+
+    def test_chain_past_the_limit_stops_reading(self, monkeypatch):
+        from opendockit.extractors import docx
+
+        read = []
+        original = docx._paragraph_text
+        monkeypatch.setattr(docx, "_paragraph_text", lambda paragraph, *rest: read.append(1) or original(paragraph, *rest))
+        full = convert(self._chain(3000), "a.docx").text
+        read.clear()
+
+        result = convert(self._chain(3000), "a.docx", ConvertOptions(max_chars=2_000))
+
+        assert result.exceeded
+        assert len(read) < 200
+        assert full.startswith(result.text)
+
+    @pytest.mark.timing
+    def test_chain_takes_the_time_of_as_many_paragraphs(self):
+        """10,000 links took 7 s against 0.4 s for 10,000 paragraphs."""
+        chain, plain = self._chain(10_000), self._chain(10_000, deleted=False)
+
+        assert fastest(lambda: convert(chain, "a.docx"), runs=2) < fastest(lambda: convert(plain, "a.docx"), runs=2) * 2 + 0.3
 
 
 class TestStrictOpenXmlOfficeDocuments:

@@ -9,6 +9,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 import re
+import unicodedata
 
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.opc.exceptions import PackageNotFoundError
@@ -143,6 +144,20 @@ class _ListItem:
     offset: int  # output level − level counted from ilvl. The next item of the same list inherits it
 
 
+@dataclass(slots=True)
+class _Joined:
+    """The paragraphs whose mark was deleted, read so far and joined to the next paragraph (`_DocxRenderer._render_paragraph`).
+    The text is kept as pieces and joined once, when the chain ends."""
+
+    paragraph: etree._Element  # the last one read; the next paragraph joins only if it is the block right after it
+    pieces: list[str]  # the text of each one as written, with the temporary link and emphasis marks
+    visible: bool  # whether any piece holds a character that cleaning keeps
+    after: list[str]  # their charts, SmartArt and text boxes, written after the joined paragraph
+    # Characters charged to the limit for the pieces and for `after` (`_DocxRenderer.held_chars`)
+    text_chars: int = 0
+    after_chars: int = 0
+
+
 # How far past the character limit everything written since the last count may go, nested tables included, before imported
 # content and SmartArt are no longer written (`_DocxRenderer._far_past_the_limit`). Only a ceiling on work that the cut throws
 # away: well beyond what one block of a real document writes.
@@ -190,8 +205,8 @@ class _DocxRenderer:
         self._direct_pending = 0
         self._nested_written = 0
         self._drop_cap: tuple[etree._Element, str] | None = None  # (drop-cap paragraph, its text). Prepended to the very next paragraph
-        # (paragraph whose mark was deleted, its text as written). Joined to the very next paragraph (`_render_paragraph`)
-        self._joined: tuple[etree._Element, str] | None = None
+        # Paragraphs whose mark was deleted, joined to the very next paragraph (`_render_paragraph`)
+        self._joined: _Joined | None = None
         # Preceding list items not yet closed. Cells, headers and text boxes count separately (`_list_depth`)
         self._list_items: list[_ListItem] = []
         self._list_offsets: dict[str, int] = {}  # list (numId) → the offset the last item of that list used (`_ListItem.offset`)
@@ -421,20 +436,26 @@ class _DocxRenderer:
         # are joined as written, so the space between them stays where it was typed, and the joined one takes the properties of
         # the mark that is left. Written apart, a sentence joined with Track Changes on stayed cut in two
         # (Pinned by: test_office_revisions_and_numbering.py::TestDocxDeletedParagraphMark).
+        # The text of a chain of them is kept as pieces and joined once, at its end, and whether it is empty is decided from each
+        # new piece alone: joined and searched again at every link, a chain of 40,000 such paragraphs (160 KB) took 104 s
+        # (Pinned by: test_office_revisions_and_numbering.py::TestDocxDeletedParagraphMarkChain).
         joined, self._joined = self._joined, None
-        if joined is not None and _neighbour_block(paragraph, after=False) is joined[0]:
-            raw = joined[1] + raw
-        raw = self._after_drop_cap(paragraph, raw.lstrip())
-        marked = raw.strip()
-        # `marked` still holds the temporary link and emphasis marks. Everything that decides what the paragraph is (empty, a
-        # heading, too long for a heading) looks at the text without them, so those decisions are the same with the options off.
-        text = plain_inline(marked).strip() if self.inline is not None else marked
+        if joined is None or _neighbour_block(paragraph, after=False) is not joined.paragraph:
+            joined = _Joined(paragraph, [], False, [])
+        if self._drop_cap is not None:  # joined once per drop cap
+            raw = self._after_drop_cap(paragraph, "".join([*joined.pieces, raw]).lstrip())
+            joined.pieces.clear()
+            joined.text_chars = 0
+        joined.pieces.append(raw)
+        joined.visible = joined.visible or self._shows_text(raw)
         # Empty is decided on the text without the characters cleaning removes (zero-width space, soft hyphen, BOM, direction
         # marks): `resolve_inline` takes them out of a formatted run, so a list paragraph holding only one in bold had no text left
         # for its item, and the whole document was rejected; unformatted, it wrote a bare number, or a bare `#` for a heading
         # (Pinned by: test_inline_formatting.py::TestInvisibleCharacters::test_paragraph_of_invisible_characters_is_empty).
-        blank = not _INVISIBLE.sub("", text).strip()
-        # Charts, SmartArt and text boxes go after the paragraph text as separate blocks.
+        blank = not joined.visible
+        # Charts, SmartArt and text boxes go after the paragraph text as separate blocks; those of the paragraphs joined to this
+        # one go after the joined paragraph, as each went after its own paragraph before (Pinned by:
+        # test_office_revisions_and_numbering.py::TestDocxDeletedParagraphMark::test_text_box_goes_after_the_joined_paragraph).
         after = [block for block in objects if block]
         with self._own_lists():
             after.extend(
@@ -469,11 +490,20 @@ class _DocxRenderer:
         following = _neighbour_block(paragraph, after=True)
         joins_next = deleted_mark and not blank and following is not None and following.tag == _w("p")
         list_prefix = None if (blank and deleted_mark) or joins_next else self._list_prefix(paragraph, style)
+        if joins_next:
+            joined.paragraph = paragraph
+            joined.after.extend(after)
+            joined.text_chars += self._lower_count(raw)
+            joined.after_chars += sum(solid_length(block) for block in after)
+            self._joined = joined
+            return []
+        after[:0] = joined.after
         if blank:
             return after
-        if joins_next:
-            self._joined = (paragraph, raw)
-            return after
+        marked = "".join(joined.pieces).strip()
+        # `marked` still holds the temporary link and emphasis marks. Everything that decides what the paragraph is (empty, a
+        # heading, too long for a heading) looks at the text without them, so those decisions are the same with the options off.
+        text = plain_inline(marked).strip() if self.inline is not None else marked
         if _is_drop_cap(paragraph) and _next_is_paragraph(paragraph):
             self._drop_cap = (paragraph, marked)
             return after
@@ -527,6 +557,44 @@ class _DocxRenderer:
             lines = (line.strip() for line in text.split("\n"))
             text = "\n".join(indent + line if _HAND_TYPED_ITEM.match(line) else line for line in lines)
         return [text, *after]
+
+    def _shows_text(self, text: str) -> bool:
+        """Whether paragraph text as read (`_paragraph_text`) holds a character that cleaning keeps, the temporary link and
+        emphasis marks left out."""
+        plain = plain_inline(text) if self.inline is not None else text
+        return bool(_INVISIBLE.sub("", plain).strip())
+
+    def _lower_count(self, text: str) -> int:
+        """The characters of a piece of paragraph text as read that are certain to be written (`solid_length` without the
+        temporary marks), one less when it starts with a mark or a Hangul vowel or final consonant: that one and the last
+        character of the piece before may become one when the joined text is normalized, and the count must never be larger
+        than the real one (`Extraction.count`)."""
+        plain = plain_inline(text) if self.inline is not None else text
+        first = plain.lstrip()[:1]
+        joins_before = bool(first) and (unicodedata.category(first).startswith("M") or "ᅠ" <= first <= "ᇿ")
+        return max(solid_length(plain) - joins_before, 0)
+
+    def held_chars(self) -> int:
+        """Characters charged to the limit for the paragraphs whose mark was deleted that are held until the paragraph they are
+        joined to is read. The body counts them as they are read, so a chain of them past the limit stops reading the body
+        (`finish_joined`)."""
+        joined = self._joined
+        return 0 if joined is None else joined.text_chars + joined.after_chars
+
+    def finish_joined(self) -> list[str]:
+        """When the body stops at the limit inside a chain of paragraphs whose mark was deleted: the paragraph that ends the chain,
+        with the text held so far joined to it. The links between are passed over without reading their text, which is past the
+        limit already; the paragraph at the end still gives the joined one its heading level and number, so the cut text is the
+        front of the full one."""
+        joined = self._joined
+        if joined is None:
+            return []
+        end = joined.paragraph  # held because the block after it is a paragraph (`_render_paragraph`)
+        while _is_deleted_paragraph(end) and (following := _neighbour_block(end, after=True)) is not None \
+                and following.tag == _w("p"):
+            end = following
+        joined.paragraph = _neighbour_block(end, after=False)
+        return self.render_top_block(end)
 
     def _list_item_lines(self, prefix: str, text: str) -> str:
         """Text of a list-item paragraph. Lines separated by a line break (w:br) are not joined with spaces.
@@ -1020,10 +1088,15 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
     # The body is read paragraph by paragraph and table by table while counting characters. Once the limit is exceeded, the rest of
     # the body is not read.
     body: list[str] = []
+    # Paragraphs whose mark was deleted are held until the paragraph they are joined to is read, and counted as they are read
+    # (`held_chars`): counted only once written, a chain of them past the limit was read to its end (Pinned by:
+    # test_office_revisions_and_numbering.py::TestDocxDeletedParagraphMarkChain::test_chain_past_the_limit_stops_reading).
     for element in _children(document.element.body, *_BLOCK_TAGS):
+        held = renderer.held_chars()
         rendered = renderer.render_top_block(element)
         body.extend(rendered)
-        if extraction.count(sum(solid_length(block) for block in rendered), options):
+        if extraction.count(sum(solid_length(block) for block in rendered) + renderer.held_chars() - held, options):
+            body.extend(renderer.finish_joined())
             break
 
     blocks = []
