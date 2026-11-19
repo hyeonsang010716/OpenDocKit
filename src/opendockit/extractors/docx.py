@@ -1145,7 +1145,7 @@ def _note_parts(document: object, placeholders: dict[str, str]) -> dict[str, tup
     found = {}
     for kind in ("footnote", "endnote"):
         part = next((rel.target_part for rel in document.part.rels.values()
-                     if not rel.is_external and rel.reltype.endswith(f"/{kind}s")), None)
+                     if not rel.is_external and (rel.reltype or "").endswith(f"/{kind}s")), None)
         root = parse_part(part.blob) if part is not None else None
         if root is not None:
             _keep_filled_placeholders(root, placeholders)
@@ -1208,7 +1208,7 @@ def _comments(document: object) -> str:
     related: dict[str, object] = {}
     for rel in document.part.rels.values():
         if not rel.is_external:
-            related.setdefault(rel.reltype.rsplit("/", 1)[-1], rel.target_part)
+            related.setdefault((rel.reltype or "").rsplit("/", 1)[-1], rel.target_part)
     root = parse_part(related["comments"].blob) if "comments" in related else None
     if root is None:
         return ""

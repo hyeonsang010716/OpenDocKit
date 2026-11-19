@@ -563,7 +563,7 @@ def _placeholder_texts(part: Part) -> dict[str, str]:
     """docPart name of the glossary document (glossaryDocument relationship) → its text with whitespace removed. An empty dict if
     there is no glossary document or it is broken."""
     glossary = next((rel.target_part for rel in part.rels.values()
-                     if not rel.is_external and rel.reltype.endswith("/glossaryDocument")), None)
+                     if not rel.is_external and (rel.reltype or "").endswith("/glossaryDocument")), None)
     root = parse_part(glossary.blob) if glossary is not None else None
     if root is None:
         return {}

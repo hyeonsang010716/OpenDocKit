@@ -9,12 +9,14 @@ from dataclasses import dataclass
 from io import BytesIO
 import re
 from urllib.parse import unquote
+import zipfile
 
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.exc import InvalidXmlError, PackageNotFoundError
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.opc.package import PartFactory, _PackageLoader
 from pptx.opc.packuri import PACKAGE_URI, PackURI
+from pptx.oxml import parse_xml
 from pptx.package import Package
 from pptx.parts.presentation import PresentationPart
 from pptx.parts.slide import NotesSlidePart, SlideLayoutPart, SlideMasterPart
@@ -168,21 +170,56 @@ class _DecodingLoader(_PackageLoader):
     without an error, so `_package.repair_package`, which decodes targets for a package that fails to open, was never reached: the
     picture, the notes and the chart of such a relationship were gone with no warning, and a slide was reported as unreadable.
     The rule is that of `repair_package`: the part named as written wins when it exists, otherwise the decoded name is used when
-    that part exists (Pinned by: test_office_robustness.py::TestPercentEncodedTargets)."""
+    that part exists (Pinned by: test_office_robustness.py::TestPercentEncodedTargets). Part names are case-insensitive (OPC), and
+    so a target that names no member but exactly one member when case is ignored reads that member, as `repair_package` does for
+    a DOCX: a slide written `ppt/slides/Slide1.xml` was reported as unreadable, and a picture in another case was gone without a
+    word (Pinned by: test_office_robustness.py::TestTargetInAnotherCase). The relationships of a part found that way are looked
+    for the same way, as the part was renamed and its `.rels` may not have been."""
+
+    _by_case: dict[str, str | None] | None = None  # lower-case member name → `/` + the member, None when two differ only in case
+    _found_in_another_case: frozenset[str] = frozenset()
 
     def _xml_rels_for(self, partname: PackURI) -> object:
-        relationships = super()._xml_rels_for(partname)
+        relationships = None
+        if partname in self._found_in_another_case and partname.rels_uri not in self._package_reader:
+            member = self._member_in_another_case(partname.rels_uri)
+            if member is not None:
+                relationships = parse_xml(self._package_reader[PackURI(member)])
+        if relationships is None:
+            relationships = super()._xml_rels_for(partname)
         base = partname.baseURI
         for relationship in relationships.relationship_lst:
             written = relationship.get("Target") or ""
-            if "%" not in written or relationship.get("TargetMode") == "External":
+            if not written or relationship.get("TargetMode") == "External":
+                continue
+            # `from_rel_ref` only joins and normalizes the path, as it does for every target the library reads
+            target = PackURI.from_rel_ref(base, written)
+            if target in self._package_reader:
                 continue
             decoded = unquote(written)
-            # `from_rel_ref` only joins and normalizes the path, as it does for every target the library reads
-            if (PackURI.from_rel_ref(base, written) not in self._package_reader
-                    and PackURI.from_rel_ref(base, decoded) in self._package_reader):
+            if decoded != written and PackURI.from_rel_ref(base, decoded) in self._package_reader:
                 relationship.set("Target", decoded)
+                continue
+            member = self._member_in_another_case(target)
+            if member is not None:
+                relationship.set("Target", member)
+                self._found_in_another_case |= {member}
         return relationships
+
+    def _member_in_another_case(self, target: str) -> str | None:
+        """`/` + the one member whose name is `target` when case is ignored. The names are read from the archive once, the first
+        time a target is missing."""
+        if self._by_case is None:
+            self._by_case = {}
+            try:
+                with zipfile.ZipFile(self._pkg_file) as archive:
+                    names = archive.namelist()
+            except zipfile.BadZipFile:
+                names = []
+            for name in names:
+                key = "/" + name.lower()
+                self._by_case[key] = None if key in self._by_case else "/" + name
+        return self._by_case.get(target.lower())
 
 
 def _open_presentation(stream: BytesIO) -> Package:

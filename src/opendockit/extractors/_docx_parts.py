@@ -56,7 +56,7 @@ def _raw_part_root(part: object, kind: str) -> etree._Element | None:
 
     Also used when two relationships have the type (python-docx raises ValueError): the first one is read, and a part python-docx
     parsed itself is used as it is (`_package.related_part`. Pinned by: test_audit_office.py::TestRelationshipTypeGivenTwice)."""
-    related = next((rel.target_part for rel in part.rels.values() if not rel.is_external and rel.reltype.endswith(f"/{kind}")), None)
+    related = next((rel.target_part for rel in part.rels.values() if not rel.is_external and (rel.reltype or "").endswith(f"/{kind}")), None)
     element = getattr(related, "element", None)
     if element is not None:
         return element
