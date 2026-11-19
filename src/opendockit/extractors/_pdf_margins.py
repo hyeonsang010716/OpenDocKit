@@ -47,6 +47,8 @@ _ROMAN_VALUES = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100}
 # the page only ('i', 'iii', 'v') count; a run of 3 keeps marks that only alternate ('(i)', '(ii)', '(i)') out
 _ROMAN_PAGE_REACH = 2
 _ROMAN_RUN = 3
+# The brackets a clause marker is written with ('(ii)', '[iv]'): a roman numeral in them is taken on its own only with its row
+_BRACKETS = re.compile(r"[()\[\]]")
 # Token that is a value, not a page number: a thousands comma ('3,450,000'), a percent or currency sign, a decimal joining two
 # digit groups with one dot ('6.8'). A date written with dots ('2024.01.05') has three digit groups and is not a decimal.
 _VALUE_TOKEN = re.compile(r"\d,\d{3}(?!\d)|[%‰₩$€£¥]|^\D*\d+\.\d+\D*$")
@@ -164,12 +166,16 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
             # Page number fragments are also considered on their own. Even if other fragments at the same height (a
             # header differing on odd and even pages, line numbers of a proof) differ from page to page, the page
             # number is removed. The criterion is the same as for a single-fragment line (digits ignored in the
-            # margin, character for character at the edge outside the margin). A roman numeral is not: beside text that differs
-            # from page to page it is as likely a clause marker or a mark ('(ii)' before its clause), so it goes only with a
-            # row that is otherwise the same (Pinned by: test_roman_letters_that_do_not_count_with_the_pages_are_kept).
+            # margin, character for character at the edge outside the margin). So is a roman numeral that counts with the
+            # pages (`numbered`, margin only), unless it is in brackets: front matter has a running head that changes from
+            # section to section beside 'i' … 'viii', and only the row's own repetition kept those at the top of every page
+            # (Pinned by: test_roman_page_numbers_beside_running_heads_that_change_are_removed). A clause marker '(ii)'
+            # before its clause, one per page at the foot and counting with the pages, is just as numbered and stays
+            # (Pinned by: test_roman_letters_that_do_not_count_with_the_pages_are_kept). Known accepted gap: a page number
+            # in brackets ('(iv)') beside a running head that changes stays.
             for line in row:
-                if _PAGE_NUMBER.match(line.text):
-                    keys.setdefault(_row_key([line], in_margin, title_size), []).append(line)
+                if _PAGE_NUMBER.match(line.text) or (in_margin and id(line) in numbered and not _BRACKETS.search(line.text)):
+                    keys.setdefault(_row_key([line], in_margin, title_size, numbered), []).append(line)
         return keys
 
     per_page = [margin_keys(page) if not page.simple else {} for page in pages]

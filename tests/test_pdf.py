@@ -513,6 +513,27 @@ class TestRepeatedMarginsAndBorderlessTables:
         assert "Preface" not in result.text
         assert [line for line in result.text.splitlines() if line in _ROMAN_NUMERALS] == []
 
+    @pytest.mark.parametrize("numbers", [_ROMAN_NUMERALS, [f"- {numeral} -" for numeral in _ROMAN_NUMERALS]],
+                             ids=["bare", "dashes"])
+    def test_roman_page_numbers_beside_running_heads_that_change_are_removed(self, numbers):
+        """Front matter as books set it: the section's running head on one side of the top row and 'i' … 'viii' on the outer
+        side, the head changing from section to section. The numerals count with the pages but were taken only with a row that
+        repeats, so they stayed at the top of every page, where arabic numbers in the same layout are removed."""
+        heads = ["Contents", "Contents", "Preface", "Preface", "Acknowledgements", "Introduction", "Introduction",
+                 "Introduction"]
+
+        def draw(pdf, index):
+            left, right = (heads[index], numbers[index]) if index % 2 == 0 else (numbers[index], heads[index])
+            pdf.drawString(72, 800, left)
+            pdf.drawRightString(523, 800, right)
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+
+        result = convert(_korean_pdf(draw, pages=8), "a.pdf")
+
+        assert [line for line in result.text.splitlines() if line in numbers[:8]] == []
+        assert "Body line 5 of page 8 with ordinary words." in result.text
+
     def test_roman_page_numbers_of_two_pages_are_kept(self):
         def draw(pdf, index):
             pdf.drawString(72, 700, f"Body line of page {index + 1} with ordinary words.")
