@@ -37,6 +37,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   checked only after the path had been looked up: an agent talked into such a path by a document it read sent the
   user's NTLM hash to the host the document named, even though the call was then refused. A share to be read is
   given as `--root \\host\share`; a mapped drive letter is an ordinary folder.
+  The NT form of a path is held to the same rule: `\??\UNC\host\share\…`, which Windows sends to the kernel
+  as it is written, was taken for a local path and, on Python 3.12, looked up.
 
 ### Fixed
 
