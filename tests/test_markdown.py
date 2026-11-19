@@ -5,7 +5,7 @@ import unicodedata
 import pytest
 
 from opendockit import convert, markdown
-from opendockit.markdown import TableGrid, clean_text, join_blocks, render_table, solid_length, span_budget
+from opendockit.markdown import TableGrid, clean_text, join_blocks, render_table, solid_length, span_budget, table_title
 from tests.timing import fastest
 
 
@@ -151,6 +151,20 @@ class TestSolidLength:
 
 class TestRenderTable:
     @pytest.mark.timing
+    def test_literal_br_outside_a_table_is_kept(self):
+        """A cell written outside a table (a one-column box, a title row) had every `<br>` taken for the line break a table cell
+        writes, so the markup of a code box lost its `<br>`; a line break is still a line break, and `\\|` stays as written."""
+        assert render_table([["<p>Hello<br>World</p>"], ["a\nb"], ["x \\| y | z"]]) == "<p>Hello<br>World</p>\n\na\nb\n\nx \\| y | z"
+        assert render_table([["Tags: <br> and <hr>", "", ""], ["tag", "meaning", "since"], ["<br>", "line break", "2.0"]]) == (
+            "Tags: <br> and <hr>\n\n| tag | meaning | since |\n| --- | --- | --- |\n| <br> | line break | 2.0 |")
+        assert table_title(["Markup <br>\nsecond line", "", ""], [["a", "b", "c"]]) == "Markup <br>\nsecond line"
+        grid = TableGrid()
+        grid.place(0, 0, "Code <br> box", col_span=3)
+        for col, text in enumerate(("tag", "meaning", "since")):
+            grid.place(1, col, text)
+        grid.place(2, 0, "<br>", row_span=2)
+        assert grid.render().startswith("Code <br> box\n\n")
+
     def test_many_title_rows_take_linear_time(self):
         """Each one-cell row at the top is lifted as a title, and the rest of the grid was copied after every one of them: a list of
         one-cell rows above a full row took the square of its length (an 800 KB CSV of 200,000 such rows: 59 s)."""

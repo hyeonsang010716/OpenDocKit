@@ -598,7 +598,7 @@ def _render_rows(rows: list[list[str | None]], *, merged_titles_only: bool = Fal
     grid = [[row[col] for col in keep] for row in padded]
 
     if len(keep) == 1:
-        return "\n\n".join(_within((_uncell(row[0]) for row in grid), room))
+        return "\n\n".join(_within((_shown(_raw(row, keep[0]), cell[0]) for row, cell in zip(kept_rows, grid, strict=True)), room))
 
     # A title row at the top of a table (a horizontally merged title, or title + unit) used as the header row would lose the column
     # names, so it is moved into a paragraph above the table. The rows are walked by index and the grid cut once: cut after every
@@ -607,18 +607,20 @@ def _render_rows(rows: list[list[str | None]], *, merged_titles_only: bool = Fal
     titles = []
     while len(keep) >= 2 and len(grid) - len(titles) > 1 and not headless:
         top = grid[len(titles)]
+        shown = [_shown(_raw(kept_rows[len(titles)], col), cell) for col, cell in zip(keep, top, strict=True) if cell]
         title = _title_of([cell for cell in top if cell], len(keep), top,
-                          grid[len(titles) + 1:len(titles) + 2 + _HEADER_PROBE_ROWS])
+                          grid[len(titles) + 1:len(titles) + 2 + _HEADER_PROBE_ROWS], shown=shown)
         if title is None or (merged_titles_only and sum(1 for cell in top if cell) == 1
                              and _has_open_cell(kept_rows[len(titles)], keep)):
             break
-        titles.append(_uncell(title))
+        titles.append(title)
     if titles:
-        grid = grid[len(titles):]
-        keep = [col for col in range(len(grid[0])) if any(row[col] for row in grid)]
-        grid = [[row[col] for col in keep] for row in grid]
+        grid, kept_rows = grid[len(titles):], kept_rows[len(titles):]
+        columns = [col for col in range(len(grid[0])) if any(row[col] for row in grid)]
+        grid, keep = [[row[col] for col in columns] for row in grid], [keep[col] for col in columns]
         if len(keep) == 1:
-            return "\n\n".join(_within(chain(titles, (_uncell(row[0]) for row in grid)), room))
+            return "\n\n".join(_within(chain(titles, (_shown(_raw(row, keep[0]), cell[0])
+                                                        for row, cell in zip(kept_rows, grid, strict=True))), room))
 
     if headless:
         grid = [["" for _ in keep], *grid]
@@ -651,7 +653,7 @@ _HEADER_PROBE_ROWS = 5
 
 
 def _title_of(cells: list[str], width: int, row: list[str] | None = None,
-              below: list[list[str]] | None = None) -> str | None:
+              below: list[list[str]] | None = None, *, shown: list[str] | None = None) -> str | None:
     """If the filled cells of the top row (`cells`) are a table title, the text to put in a paragraph above the table; otherwise None.
     A title is a row with only one filled cell (a horizontally merged title), or, in a table of four or more columns, a row with
     only two filled cells whose second cell is a unit or as-of note ('2024년 매출 현황 | … | (단위: 천원)', i.e. "2024 sales |
@@ -668,13 +670,16 @@ def _title_of(cells: list[str], width: int, row: list[str] | None = None,
     `_looks_like_header`). '부서별 인원 현황 | ' (headcount by department) became the header and '부서 | 인원' (department |
     headcount) dropped down into the data (XLSX merged title, CSV, HTML colspan=2). Known accepted gap: the title row of a
     two-column table with no number cells stays the header row
-    (Pinned by: test_markdown.py::TestTwoColumnTitleRow)."""
+    (Pinned by: test_markdown.py::TestTwoColumnTitleRow).
+
+    The decision is made on the cleaned cells; the title is written from `shown`, the same cells as text (`_shown`), when given."""
+    text = shown if shown is not None else cells
     if width == 2:
-        return cells[0] if len(cells) == 1 and row and row[0] and _heads_numbers(below or []) else None
+        return text[0] if len(cells) == 1 and row and row[0] and _heads_numbers(below or []) else None
     if len(cells) == 1:
-        return cells[0]
+        return text[0]
     if len(cells) == 2 and width >= 4 and _UNIT_NOTE.match(cells[1]):
-        return f"{cells[0]} {cells[1]}"
+        return f"{text[0]} {text[1]}"
     return None
 
 
@@ -685,9 +690,9 @@ def table_title(row: list[str], below: list[list[str]]) -> str | None:
     cells = [_clean_cell(cell or "") for cell in row]
     if len(cells) < 2 or not any(cells):
         return None
-    title = _title_of([cell for cell in cells if cell], len(cells), cells,
-                      [[_clean_cell(cell or "") for cell in other] for other in below])
-    return _uncell(title) if title is not None else None
+    return _title_of([cell for cell in cells if cell], len(cells), cells,
+                     [[_clean_cell(cell or "") for cell in other] for other in below],
+                     shown=[_shown(raw, cell) for raw, cell in zip(row, cells, strict=True) if cell])
 
 
 def _heads_numbers(below: list[list[str]]) -> bool:
@@ -700,6 +705,20 @@ def _heads_numbers(below: list[list[str]]) -> bool:
 
 def _uncell(cell: str) -> str:
     return cell.replace("<br>", "\n").replace("\\|", "|")
+
+
+def _raw(row: list[str | None], col: int) -> str:
+    """The cell of a table row as given, "" past its end or for a covered cell."""
+    return (row[col] or "") if col < len(row) else ""
+
+
+def _shown(raw: str | None, cell: str) -> str:
+    """A cell written outside a table (a one-column box, a title row): its lines as text. `cell` is `_clean_cell(raw)`, whose
+    `<br>` and `\\|` are taken back (`_uncell`) — unless the text has a `<`, where a `<br>` may be its own: written as a line
+    break, the `<br>` of a code box (`<p>Hello<br>World</p>`) or a title (`Tags: <br> and <hr>`) was lost (Pinned by:
+    test_markdown.py::TestRenderTable::test_literal_br_outside_a_table_is_kept). Cleaning only removes characters, so a text
+    with no `<` has none in its cell."""
+    return "\n".join(_cell_lines(raw)) if raw and "<" in raw else _uncell(cell)
 
 
 def merged_copy(text: str) -> str:
@@ -1010,14 +1029,15 @@ class TableGrid:
         while (not inline and not headless and len(kept_cols) >= 2 and len(titles) < len(kept_rows) - 1 and len(titles) not in spanning
                and not any(_EMBED.search(rows[kept_rows[len(titles)]][col]) for col in kept_cols)):
             row = kept_rows[len(titles)]
-            title = _title_of([_clean_cell(rows[row][col]) for col in kept_cols if filled[row][col]], len(kept_cols),
+            filled_cells = [(rows[row][col], _clean_cell(rows[row][col])) for col in kept_cols if filled[row][col]]
+            title = _title_of([cell for _, cell in filled_cells], len(kept_cols),
                               [_clean_cell(rows[row][col]) for col in kept_cols] if len(kept_cols) == 2 else [],
                               [[_clean_cell(rows[below][col]) for col in kept_cols]
                                for below in kept_rows[len(titles) + 1:len(titles) + 2 + _HEADER_PROBE_ROWS]]
-                              if len(kept_cols) == 2 else [])
+                              if len(kept_cols) == 2 else [], shown=[_shown(raw, cell) for raw, cell in filled_cells])
             if title is None:
                 break
-            titles.append(_uncell(title))
+            titles.append(title)
         if titles:
             kept_rows = kept_rows[len(titles):]
             kept_cols = _filled_columns(filled, kept_rows)
