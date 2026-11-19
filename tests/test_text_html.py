@@ -1482,6 +1482,36 @@ class TestPermalinksOfHeadings:
 
         assert convert(html.encode(), "a.html").text == "## See the notes\n\nSection § 2."  # as before
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ('<dl><dt><a href="#a">#</a></dt><dd>number sign</dd></dl>', "#: number sign"),
+        ('<dl><dt><a href="#hash"><code>#</code></a></dt><dd>number sign</dd></dl>', "#: number sign"),
+        ('<h2>C<a href="#x">#</a> guide</h2>', "## C# guide"),
+        ('<h2>Learn C<a href="#x">#</a></h2>', "## Learn C#"),
+        ('<h3>See <a href="#s3">§</a> 3</h3>', "### See § 3"),
+        ('<h2><a href="#top">#</a></h2><p>x</p>', "## #\n\nx"),
+        ('<h2><a href="#s3">§</a> 3 Scope</h2>', "## § 3 Scope"),
+    ])
+    def test_a_mark_that_is_the_text_of_its_heading_or_term_stays(self, html, expected):
+        """Every mark linking to the page inside a heading or term was removed: a term that is the number sign, `C#`, the
+        section sign of `See § 3` and a heading of nothing but `#` lost it, or all of their text."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize("heading", [
+        '<h2 id="x"><a class="header-anchor" href="#x">#</a> Title</h2>',  # VuePress
+        '<h2 id="x">Title <a class="header-anchor" href="#x" aria-label="Permalink to &quot;Title&quot;">#</a></h2>',
+        '<h2 id="x">Title <a class="anchor" href="#x">#</a></h2>',  # Hugo
+        '<h2 id="x">Title <a href="#x">#</a></h2>',
+        '<h2 id="x" class="section-header">Title<a href="#x" class="anchor">§</a></h2>',  # rustdoc
+        '<h2 class="anchor" id="x">Title<a href="#x" class="hash-link" aria-label="Direct link to Title">#</a></h2>',
+        '<h2 id="x">Title<a class="anchorjs-link " aria-label="Anchor" href="#x">#</a></h2>',  # AnchorJS
+        '<h2 id="x"><a class="anchor-link" href="#x">#</a>Title</h2>',
+        '<h2 id="x">Title<a class="zola-anchor" href="#x" aria-label="Anchor link for: x">🔗</a></h2>',  # Zola
+        '<h2 id="x">Title<a href="#x" title="Permalink to this headline">#</a></h2>',
+        '<h2 id="x">Title<br><a href="#x">#</a></h2>',
+    ])
+    def test_permalinks_of_documentation_generators_are_left_out(self, heading):
+        assert convert(f"{heading}<p>x</p>".encode(), "a.html").text == "## Title\n\nx"
+
 
 class TestClosedDialogsAndPopovers:
     """A `<dialog>` without `open` and an element with `popover` are not shown until a script opens them (browsers draw them as

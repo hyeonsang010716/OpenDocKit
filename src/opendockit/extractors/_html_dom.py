@@ -1962,20 +1962,98 @@ def _only_pre(cell: Tag, wrappers: int = 3) -> Tag | None:
 _PERMALINK_MARKS = frozenset({"¶", "#", "§", "\U0001F517", "\u2693", "\U0001F517\ufe0f", "\u2693\ufe0f", "\u2693\ufe0e"})
 
 
+# The classes documentation generators give their permalink anchor (Sphinx and MkDocs `headerlink`, Hugo, rustdoc and GitHub
+# `anchor`, AnchorJS, Docusaurus `hash-link`, VuePress and markdown-it-anchor `header-anchor`, Zola, Jekyll and others), and
+# the words of its title or label ("Permalink to this heading", "Link to this definition", "Direct link to …").
+_PERMALINK_CLASSES = frozenset({"headerlink", "anchor", "anchorjs-link", "anchor-link", "heading-anchor", "heading-link",
+                                "header-anchor", "header-link", "hash-link", "permalink", "zola-anchor", "markdownit-anchor"})
+_PERMALINK_LABEL = re.compile(r"perma(?:nent\s*)?link|link\s+to\s+th(?:is|e)\s+(?:heading|section|definition|header|term)"
+                              r"|direct\s+link|anchor\s+link", re.IGNORECASE)
+_PERMALINK_HOLDERS = frozenset({*_HEADINGS, "dt"})
+
+
 def _drop_permalinks(soup: BeautifulSoup) -> None:
     """Remove the permalink anchors of headings and definition terms: a link to a place on the page (`href="#…"`) whose whole
-    text is a permalink mark (`_PERMALINK_MARKS`), inside h1–h6 or a `<dt>`.
+    text is a permalink mark (`_PERMALINK_MARKS`), the first or the last thing of an h1–h6 or a `<dt>` that holds other text.
 
     A browser shows the mark only when the pointer is over the heading. Sphinx (docs.python.org, Read the Docs) and MkDocs put
     one in every heading and API signature, so they came out as `# Introduction¶` and `foo(*x*)¶: Return x.`, with the links
     option on or off (Pinned by: test_text_html.py::TestPermalinksOfHeadings). Generators that hide their anchor
     (`aria-hidden`, a zero-width space for text) were left out already.
+
+    A mark that is the heading's or term's own text stays (Pinned by: test_text_html.py::TestPermalinksOfHeadings::
+    test_a_mark_that_is_the_text_of_its_heading_or_term_stays): one in the middle (`See § 3`), one that is all the text
+    (`<dt><a href="#a">#</a></dt><dd>number sign</dd>`), and, unless the link is marked as a permalink by its class
+    (`_PERMALINK_CLASSES`) or its title or label (`_PERMALINK_LABEL`), a first mark (`§ 3 Scope`; the generators that put
+    the mark first, VuePress and AnchorJS, give it a class) and a last `#` glued to the word before it (`Learn C#`).
+    Removed wherever it was, the heading `C# guide` became `C guide` and `See § 3` became `See 3`.
+    Each heading or term is looked at once, without the headings or terms inside it, so the work is linear in the page.
     """
     links = [link for link in soup.find_all("a", href=True)
              if str(link["href"]).startswith("#") and link.get_text().strip() in _PERMALINK_MARKS]
-    if links:
-        inside = _lying_inside(links, (*_HEADINGS, "dt"))
-        _decompose_all([link for link in links if id(link) in inside])
+    if not links:
+        return
+    inside = _lying_inside(links, tuple(_PERMALINK_HOLDERS))
+    links = [link for link in links if id(link) in inside]
+    holders: dict[int, Tag] = {}  # element id → the nearest heading or term around it
+    found: dict[int, tuple[Tag, set[int]]] = {}  # heading or term id → (it, the ids of its candidate links)
+    for link in links:
+        chain, node = [], link.parent
+        while node is not None and id(node) not in holders and node.name not in _PERMALINK_HOLDERS:
+            chain.append(node)
+            node = node.parent
+        if node is None:
+            continue
+        holder = holders.get(id(node), node)
+        for element in chain:
+            holders[id(element)] = holder
+        found.setdefault(id(holder), (holder, set()))[1].add(id(link))
+    dropped = [link for holder, candidates in found.values() for link in _permalinks_of(holder, candidates)]
+    _decompose_all(dropped)
+
+
+def _permalinks_of(holder: Tag, candidates: set[int]) -> list[Tag]:
+    """The candidate links (`_drop_permalinks`) of one heading or term that are its permalink anchors."""
+    # The text of the holder in order, as (text, the candidate link it lies in or None); a heading or term inside it is other
+    # content of its own, looked at by itself.
+    pieces: list[tuple[str, Tag | None]] = []
+    stack: list[tuple[PageElement, Tag | None]] = [(child, None) for child in reversed(holder.contents)]
+    while stack:
+        node, owner = stack.pop()
+        if isinstance(node, NavigableString):
+            pieces.append((str(node), owner))
+        elif isinstance(node, Tag):
+            if node.name in _PERMALINK_HOLDERS:
+                pieces.append(("￼", None))
+            elif node.name == "br":
+                pieces.append((" ", owner))
+            else:
+                owner = node if id(node) in candidates else owner
+                stack.extend((child, owner) for child in reversed(node.contents))
+    solid = [index for index, (text, _) in enumerate(pieces) if text.strip()]
+    if not solid:
+        return []
+    dropped = []
+    for index, first in ((solid[0], True), (solid[-1], False)):
+        link = pieces[index][1]
+        if link is None or any(link is done for done in dropped) or all(pieces[other][1] is link for other in solid):
+            continue
+        if not _marked_as_permalink(link):
+            if first:
+                continue
+            own = [position for position, (_, owner) in enumerate(pieces) if owner is link]
+            text = "".join(pieces[position][0] for position in own)
+            before = "".join(piece for piece, _ in pieces[:own[0]])
+            if text.strip() == "#" and not before[-1:].isspace() and not text[0].isspace():
+                continue
+        dropped.append(link)
+    return dropped
+
+
+def _marked_as_permalink(link: Tag) -> bool:
+    classes = {name.lower() for name in link.get_attribute_list("class") if name}
+    return bool(classes & _PERMALINK_CLASSES) or any(
+        _PERMALINK_LABEL.search(str(link.get(name, ""))) for name in ("title", "aria-label"))
 
 
 def _hidden_by_style(tag: Tag) -> bool:
