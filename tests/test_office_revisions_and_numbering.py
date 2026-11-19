@@ -246,6 +246,28 @@ class TestDocxDeletedParagraphMarkChain:
         assert len(read) < 200
         assert full.startswith(result.text)
 
+    def test_text_boxes_of_a_chain_stop_it_past_the_limit(self, monkeypatch):
+        """The text boxes of a chain were not counted at all, so a chain past the limit was read to its end with every box built
+        and held: 30,000 links of `w ` with a text box of 4,000 characters each read 120 million characters (7.4 s, 942 MB). The
+        boxes now stop the chain `_FAR_PAST_THE_LIMIT` past the limit (made small here) once its text is too long for a heading;
+        what is written is still the front of the full text, and the limit is reported."""
+        from opendockit.extractors import docx
+
+        mark = TestDocxDeletedParagraphMark._DELETED
+        link = f'<w:p>{mark}<w:r><w:t xml:space="preserve">w </w:t></w:r><w:r>{_text_box("y" * 2000)}</w:r></w:p>'
+        data = _docx_with_body(_paragraph("Intro") + link * 400 + _paragraph("end"))
+        full = convert(data, "a.docx").text
+        monkeypatch.setattr(docx, "_FAR_PAST_THE_LIMIT", 10_000)
+        built = []
+        render = docx._DocxRenderer.render_container
+        monkeypatch.setattr(docx._DocxRenderer, "render_container", lambda self, box: built.append(1) or render(self, box))
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=1_000))
+
+        assert result.exceeded and result.warnings == ["The conversion was stopped because the text exceeded 1,000 characters."]
+        assert len(built) < 20
+        assert full.startswith(result.text) and result.text.startswith("Intro\n\nw w w")
+
     def test_cut_never_skips_the_links_between(self):
         """Stopped as soon as the text and the text box of the first link passed the limit, the paragraph ending the chain was
         joined straight onto the first: "Do sign the contract" for "Do not sign the contract."; and a joined text short of the
