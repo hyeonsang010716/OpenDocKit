@@ -5,8 +5,9 @@ pid that can be watched so a worker leaves when its server is gone. Here they co
 
 - **The memory limit** is a job object's `ProcessMemoryLimit`. A worker that commits more than the limit gets a
   `MemoryError` — the same shape of failure as `RLIMIT_AS` on Linux. The server creates the job and each worker joins it by
-  name. The name carries a random part: a name that could be guessed would let another process of the same session join the
-  job or end it.
+  name. The name carries a random part so that two converters, or another program, never land in one job. It is not a
+  secret: named objects can be listed by any process of the session. What protects the job is its security, the default
+  one of this user, which only this user's processes and the system may open — and those could end the workers anyway.
 - **Leaving with the server** has two mechanisms, and each was measured to end an idle worker at once when the server was
   killed outright. The job carries `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so the kernel ends its processes as soon as the
   last handle to the job is closed — which the server's death does. `wait_for_process` is the second: the worker holds a
@@ -36,8 +37,8 @@ _JobObjectExtendedLimitInformation = 9
 _JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 # The only right `AssignProcessToJobObject` needs. Asking for the full access mask would take `JOB_OBJECT_TERMINATE` with
-# it, which nothing here uses. It is least privilege for our own workers, not a barrier: anyone who learned the name opens
-# the job with whatever access they ask for. The unguessable name is what stands in their way.
+# it, which nothing here uses. It is least privilege for our own workers, not a barrier: the job's default security is what
+# decides who may open it, and with what (see the module docstring); the random name only keeps jobs apart.
 _JOB_OBJECT_ASSIGN_PROCESS = 0x0001
 _ERROR_INVALID_PARAMETER = 87   # what OpenProcess reports for a pid that does not exist
 _SYNCHRONIZE = 0x00100000
