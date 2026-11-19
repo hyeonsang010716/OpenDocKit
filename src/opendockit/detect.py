@@ -234,9 +234,18 @@ def named_as_text(filename: str | None) -> bool:
 
 
 def code_or_data_text(data: bytes, filename: str | None) -> bool:
-    """Is this text a code, data, config or log file: named with such an extension (`.json`, `.py`, `.yaml` …), or opening as
-    JSON does (`{"`, `[{`, `["`, `[[`)? Its U+2028 and U+2029 are characters of a string, not line breaks."""
-    return extension_of(filename) in _CODE_EXTENSIONS or _JSON_START.match(data.removeprefix(b"\xef\xbb\xbf")) is not None
+    """Is this text a code, data, config or log file: named with such an extension (`.json`, `.py`, `.yaml` …), or JSON as
+    format detection reads it (`_is_json`: the whole text, or its first line for JSON Lines), and at most `_JSON_PARSE_BYTES`
+    so that it is parsed whole? Its U+2028 and U+2029 are characters of a string, not line breaks. Taken by its first
+    characters, prose that opens with `["quoted"] title` or `[["a","b"]] …` kept them (Pinned by: test_markdown.py::
+    TestCleanText::test_line_separators_of_code_and_data_files_stay)."""
+    if extension_of(filename) in _CODE_EXTENSIONS:
+        return True
+    if len(data) > _JSON_PARSE_BYTES:
+        return False
+    wide = unicode_bom_codec(data[:8192]) or utf16_encoding(data)
+    body = data.decode(wide, errors="ignore").encode() if wide else data
+    return _is_json(data, body.removeprefix(b"\xef\xbb\xbf"), wide)
 
 
 def extension_mismatch(detected: DocumentFormat, filename: str | None) -> str | None:

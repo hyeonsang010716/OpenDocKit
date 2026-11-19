@@ -88,7 +88,7 @@ class TestCleanText:
     @pytest.mark.parametrize(("text", "collapse_spaces", "expected"), [
         ("> ```\n> code\u2028more\n> ```\n\nafter", True, "> ```\n> code\u2028more\n> ```\n\nafter"),
         ("```\ncode\u2029more\n```", False, "```\ncode\u2029more\n```"),
-        ("    code\u2028more", False, "    code\u2028more"),
+        ("text\n\n    code\u2028more", False, "text\n\n    code\u2028more"),
         ("> quoted\u2028more\n> > deep\u2029er", True, "> quoted\n> more\n> > deep\n> > er"),
         ("| a\u2028b | c |\n| - | - |", False, "| a b | c |\n| - | - |"),
         ("- item\u2028more", True, "- item\nmore"),
@@ -112,6 +112,30 @@ class TestCleanText:
         assert convert('key: "x\u2028y"\n'.encode(), "a.yaml").text == 'key: "x\u2028y"'
         assert convert("line\u2028two\u2029para".encode(), "a.txt").text == "line\ntwo\npara"
         assert convert("a,b\n\"x\u2028y\",z\n".encode(), "a.csv").text == "| a | b |\n| --- | --- |\n| x<br>y | z |"
+        # Only JSON as a whole (or its first line, JSON Lines) is data; prose that opens like JSON is not
+        assert convert('{"a": "x\u2028y"}\n{"b": 1}'.encode()).text == '{"a": "x\u2028y"}\n{"b": 1}'
+        assert convert('[["a","b"]] rest\u2028line'.encode(), "a.txt").text == '[["a","b"]] rest\nline'
+        assert convert('["quoted"] title\u2028next'.encode()).text == '["quoted"] title\nnext'
+
+    @pytest.mark.parametrize(("text", "name", "expected"), [
+        ("\tFirst paragraph line\u2028second line\n\tNext para\u2028more", "a.txt",
+         "First paragraph line\nsecond line\n\tNext para\nmore"),
+        ("1. Step\n\n    More\u2028second", "a.md", "1. Step\n\n    More\nsecond"),
+        ("Para\n    lazy\u2028x", "a.md", "Para\n    lazy\nx"),
+        ("- item\n\n    para\u2028two", "a.txt", "- item\n\n    para\ntwo"),
+        ("\u2028\u2029\n    first\u2028line", "a.md", "first\nline"),
+        ("Text\n\n    code\u2028kept\n    more", "a.md", "Text\n\n    code\u2028kept\n    more"),
+        ("> quote\n>\n>     code\u2028kept", "a.md", "> quote\n>\n>     code\u2028kept"),
+    ])
+    def test_line_separators_of_indented_prose_are_line_breaks(self, text, name, expected):
+        """Every line indented by four spaces or a tab kept its separators as if it were code, though indented prose, a
+        paragraph of a list item and a lazy continuation are none; and the first line, whose indentation the converter
+        strips, was code the first time and prose the next. Only CommonMark's indented code keeps them, and converting the
+        result again gives the same text."""
+        once = convert(text.encode(), name).text
+
+        assert once == expected
+        assert convert(once.encode(), name).text == once
 
     @pytest.mark.parametrize("collapse_spaces", [True, False])
     def test_page_break_and_vertical_tab_become_line_breaks(self, collapse_spaces):

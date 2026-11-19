@@ -233,7 +233,8 @@ def _break_at_separators(lines: list[str], collapse_spaces: bool) -> list[str]:
     marks, which closed the quote and escaped both fences of the block (`> \\````), a separator in a Markdown table row split
     the row, and one inside a fenced example changed the code (Pinned by: test_markdown.py::TestCleanText::
     test_line_separators_stay_inside_code_and_carry_the_quote_marks). So a line inside a code block keeps them, as does an
-    indented code line of TXT and MD (four spaces or a tab, after any quote marks); in a table row (`| … |`) each is a
+    indented code line of TXT and MD (`_indented_code`; indented prose, a list item's paragraph or a lazy continuation, is
+    no code and breaks); in a table row (`| … |`) each is a
     space; any other line breaks there, each new line starting with the quote marks of the line (a list item goes on as its
     lazy continuation). The code blocks are those of the lines as they are, then as they are once broken: a new line may open
     or close a fence, and a line kept for a block that is then no block is broken too, so that the result is cleaned again
@@ -242,14 +243,17 @@ def _break_at_separators(lines: list[str], collapse_spaces: bool) -> list[str]:
     tildes = not collapse_spaces
     fenced = any("```" in line or (tildes and "~~~" in line) for line in lines)
     for attempt in range(3):
-        inside: set[int] = code_fences(lines, tildes=tildes).inside if fenced else set()
+        blocks = code_fences(lines, tildes=tildes).blocks if fenced else []
+        inside = {index for opening, closing in blocks for index in range(opening + 1, closing)}
+        if not collapse_spaces:
+            inside |= _indented_code(lines, {index for opening, closing in blocks for index in range(opening, closing + 1)})
         broken: list[str] = []
         changed = False
         for index, line in enumerate(lines):
             if not _SEPARATORS.search(line):
                 broken.append(line)
                 continue
-            if attempt < 2 and (index in inside or _keeps_separators(line, collapse_spaces)):
+            if attempt < 2 and index in inside:
                 broken.append(line)
                 continue
             changed = True
@@ -270,13 +274,41 @@ def _break_at_separators(lines: list[str], collapse_spaces: bool) -> list[str]:
     return lines
 
 
-def _keeps_separators(line: str, collapse_spaces: bool) -> bool:
-    """Is this line outside a fenced block one whose separators stay: an indented code line of TXT and MD."""
-    if collapse_spaces:
-        return False
-    match = _QUOTE_PREFIX.match(line)
-    content = line[match.end():] if match else line
-    return content.startswith(("    ", "\t"))
+# The start of a list item (CommonMark): at most three spaces, a bullet or a number, then white space or the end of the line.
+_LIST_ITEM_START = re.compile(r" {0,3}(?:[-*+]|[0-9]{1,9}[.)])(?:[ \t]|$)")
+
+
+def _indented_code(lines: list[str], fenced: set[int]) -> set[int]:
+    """The lines of TXT and MD that are indented code, as CommonMark reads it: indented by four spaces or a tab (after any
+    quote marks), opened only after a blank line and outside a list (an indented line there is a paragraph of the item, one
+    right after a line of text its lazy continuation), and going on through the indented and blank lines after it. The lines
+    of fenced code blocks (`fenced`) are no part of one. The first line of text opens none, blank lines before it or not: the converter strips the
+    indentation at the start of the text, so taken for code it became prose the next time and the result was not converted
+    again to itself (Pinned by: test_markdown.py::TestCleanText::test_line_separators_of_indented_prose_are_line_breaks)."""
+    code: set[int] = set()
+    in_code = after_blank = in_list = begun = False
+    for index, line in enumerate(lines):
+        if index in fenced:
+            in_code = after_blank = in_list = False
+            begun = True
+            continue
+        match = _QUOTE_PREFIX.match(line)
+        content = line[match.end():] if match else line
+        if not content.strip():
+            after_blank = begun  # the blank lines before the first line of text are stripped with its indentation
+            continue
+        begun = True
+        indented = content.startswith(("    ", "\t"))
+        if indented and (in_code or (after_blank and not in_list)):
+            code.add(index)
+            in_code, after_blank = True, False
+            continue
+        if _LIST_ITEM_START.match(content):
+            in_list = True
+        elif not indented and after_blank:
+            in_list = False
+        in_code = after_blank = False
+    return code
 
 
 # What a line is to the code blocks of its text (`clean_text`): a fence line of a code block, a line inside one, or an opening

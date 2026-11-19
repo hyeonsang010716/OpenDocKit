@@ -192,7 +192,9 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
     # In a code or data file the line and paragraph separators are characters of a string (`"x\u2028y"` in JSON) and stay; made
     # line breaks, a JSON string held a raw line break (Pinned by: test_markdown.py::TestCleanText::
     # test_line_separators_of_code_and_data_files_stay).
-    separators = not (document_format is DocumentFormat.TEXT and code_or_data_text(data, filename))
+    separators = not (document_format is DocumentFormat.TEXT and any("\u2028" in section.text or "\u2029" in section.text
+                                                                     for section in extraction.sections)
+                      and code_or_data_text(data, filename))
     sections = []
     for section in extraction.sections:
         template = clean_text(section.text, collapse_spaces=collapse, line_separators=separators)
