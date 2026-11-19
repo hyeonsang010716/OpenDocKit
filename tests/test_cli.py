@@ -212,6 +212,38 @@ class TestArguments:
         assert stderr == ""
         assert code == 1
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="closes file descriptor 1 in the child before it starts")
+    @pytest.mark.parametrize("args", [["short.txt"], ["short.txt", "--count"], ["short.txt", "--json"], ["long.txt"], ["--version"]])
+    def test_closed_standard_output_ends_quietly(self, tmp_path, args):
+        """With file descriptor 1 closed (`opendockit file >&-`, pythonw, a detached service) Python sets sys.stdout to None,
+        and the flush after the output ended in an AttributeError traceback. Nothing can be written: exit code 1, as for a
+        closed pipe."""
+        import os
+        import subprocess
+
+        (tmp_path / "short.txt").write_text("짧은 문서\n", encoding="utf-8")
+        (tmp_path / "long.txt").write_text("가나다라마바사\n" * 100_000, encoding="utf-8")
+        process = subprocess.run([sys.executable, "-m", "opendockit", *args], cwd=tmp_path, stderr=subprocess.PIPE,
+                                 preexec_fn=lambda: os.close(1), timeout=60)
+
+        assert process.stderr.decode() == ""
+        assert process.returncode == 1
+
+    def test_version_to_a_closed_pipe_ends_quietly(self, tmp_path):
+        """argparse's version action exited before the output was flushed, so `opendockit --version | true` ended with
+        'Exception ignored … BrokenPipeError' and exit code 120."""
+        import subprocess
+
+        process = subprocess.Popen([sys.executable, "-m", "opendockit", "--version"], cwd=tmp_path,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        process.stdout.close()  # before the version is printed, which takes longer than starting the process
+        stderr = process.stderr.read().decode()
+        code = process.wait(timeout=30)
+
+        assert stderr == ""
+        assert code == 1
+
     def test_version_is_printed_without_a_file(self, capsys, monkeypatch):
         """The other two commands print their version; this one wanted a file first."""
         from opendockit import __version__, cli

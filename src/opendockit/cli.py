@@ -9,6 +9,7 @@ environment variable, and `--describe` needs the optional extra: `pip install "o
 
 import argparse
 import asyncio
+from collections.abc import Callable
 from dataclasses import asdict
 import json
 import os
@@ -42,7 +43,7 @@ def main() -> int:
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"model to use for --describe (default {DEFAULT_MODEL})")
     # As `opendockit-mcp` and `opendockit-open-webui` have it; the bug report form asks for the version
     # (Pinned by: test_cli.py::TestArguments::test_version_is_printed_without_a_file).
-    parser.add_argument("--version", action="version", version=f"opendockit {__version__}")
+    parser.add_argument("--version", action=_Version, nargs=0, help="show program's version number and exit")
     args = parser.parse_args()
 
     path = Path(args.path)
@@ -66,8 +67,18 @@ def main() -> int:
         print(f"Could not read the file (it may be a directory, or permission may be missing): {path}", file=sys.stderr)
         return 1
 
+    return _write(lambda: _print_result(result, args))
+
+
+def _write(print_output: Callable[[], None]) -> int:
+    """Print the output and flush it; 0, or 1 when it could not reach its reader."""
+    if sys.stdout is None:
+        # Python sets sys.stdout to None when file descriptor 1 is closed (`>&-`, pythonw, a detached service): the flush
+        # below failed with an AttributeError traceback. Nothing can be written, so it ends with exit code 1, as for a
+        # closed pipe (Pinned by: test_cli.py::TestArguments::test_closed_standard_output_ends_quietly).
+        return 1
     try:
-        _print_result(result, args)
+        print_output()
         # Flushed here: output smaller than the buffer reached the closed pipe only at exit, outside this block, and ended
         # with an 'Exception ignored' message and exit code 120
         # (Pinned by: test_cli.py::TestArguments::test_closed_pipe_ends_quietly_after_a_short_output).
@@ -79,6 +90,15 @@ def main() -> int:
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 1
     return 0
+
+
+class _Version(argparse.Action):
+    """`--version` printed through `_write`: argparse's own version action exits before anything is flushed, so
+    `opendockit --version | true` ended with 'Exception ignored … BrokenPipeError' and exit code 120
+    (Pinned by: test_cli.py::TestArguments::test_version_to_a_closed_pipe_ends_quietly)."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser.exit(_write(lambda: print(f"opendockit {__version__}")))
 
 
 def _write_output_as_utf8() -> None:
