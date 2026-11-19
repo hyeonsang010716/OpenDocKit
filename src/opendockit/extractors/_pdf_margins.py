@@ -29,6 +29,11 @@ from opendockit.extractors._pdf_model import (
 # `\s*(?:/…)?\s*(?:쪽|페이지)?\s*`, a digit followed by a long run of white space and then anything else was tried in every way
 # of sharing the white space out (cubic). The texts matched are the same (Pinned by: test_audit_pdf_tail.py::TestPageNumberShape).
 _PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:(?:page|p\.)\s*)?\d{1,4}\s*(?:/\s*\d{1,4}\s*)?(?:(?:쪽|페이지)\s*)?[-–)\]]?$", re.IGNORECASE)
+# A page number in roman numerals, as front matter is numbered ('iii', '- iv -', 'Page xii'): a valid numeral from 1 to 399 in
+# one case (no 'd' or 'm', so that words such as 'mix' or 'dim' are not one), with what `_PAGE_NUMBER` allows around a number
+# (`_is_page_number`)
+_ROMAN_PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:(?:[Pp]age|PAGE|[Pp]\.)\s*)?((?=[ivxlc]+\b)c{0,3}(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})"
+                                r"|(?=[IVXLC]+\b)C{0,3}(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))\s*[-–)\]]?$")
 # Token that can be a page number (_page_number_blind): without its digits only punctuation, a page word or a single Latin letter
 # remains ('3', '3/10', '3쪽', 'p.3', '2024-01-05', 'A-1'). A value with a unit ('12건') is not one.
 _PAGE_WORDS = frozenset({"page", "p", "pp", "of", "쪽", "페이지", "면", "頁"})
@@ -150,7 +155,7 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
             # number is removed. The criterion is the same as for a single-fragment line (digits ignored in the
             # margin, character for character at the edge outside the margin).
             for line in row:
-                if _PAGE_NUMBER.match(line.text):
+                if _is_page_number(line.text):
                     keys.setdefault(_row_key([line], in_margin, title_size), []).append(line)
         return keys
 
@@ -234,10 +239,26 @@ def _row_key(row: list[_Line], in_margin: bool, title_size: float) -> str:
     """
     if len(row) == 1:
         line = row[0]
-        is_title = bool(title_size) and line.size >= title_size and not _PAGE_NUMBER.match(line.text)
+        is_title = bool(title_size) and line.size >= title_size and not _is_page_number(line.text)
         return _page_number_blind(line.text) if in_margin and not is_title else line.text
     return "\t".join(_page_number_blind(line.text) if in_margin and not (title_size and line.size >= title_size)
-                     else _DIGITS.sub("#", line.text) if _PAGE_NUMBER.match(line.text) else line.text for line in row)
+                     else _page_number_mask(line.text) if _is_page_number(line.text) else line.text for line in row)
+
+
+def _is_page_number(text: str) -> bool:
+    """Is the piece shaped like a page number: digits (`_PAGE_NUMBER`) or roman numerals (`_ROMAN_PAGE_NUMBER`)? Only digits
+    were, so the 'i', 'ii', 'iii' of a book's front matter stayed at the foot of every page
+    (Pinned by: test_pdf.py::TestRepeatedMarginsAndBorderlessTables::test_roman_page_numbers_are_removed)."""
+    if _PAGE_NUMBER.match(text):
+        return True
+    roman = _ROMAN_PAGE_NUMBER.match(text)
+    return roman is not None and roman.group(1) != ""
+
+
+def _page_number_mask(text: str) -> str:
+    """A page-number-shaped piece with its number masked: its digits, or its roman numeral."""
+    roman = None if _PAGE_NUMBER.match(text) else _ROMAN_PAGE_NUMBER.match(text)
+    return text[:roman.start(1)] + "#" + text[roman.end(1):] if roman is not None and roman.group(1) else _DIGITS.sub("#", text)
 
 
 def _page_number_blind(text: str) -> str:
@@ -256,8 +277,8 @@ def _page_number_blind(text: str) -> str:
     in the margin of every page were removed as repeated lines (Pinned by:
     test_margin_lines_with_amounts_or_rates_that_differ_per_page_are_kept in the same class).
     """
-    if _PAGE_NUMBER.match(text):
-        return _DIGITS.sub("#", text)
+    if _is_page_number(text):
+        return _page_number_mask(text)
 
     def blind(match: re.Match) -> str:
         token = match.group()

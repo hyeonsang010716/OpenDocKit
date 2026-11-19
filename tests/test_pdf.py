@@ -408,6 +408,22 @@ class TestRepeatedMarginsAndBorderlessTables:
         assert "Confidential" not in result.text and "of 4" not in result.text
         assert all(f"{count}건" in result.text for count in counts)
 
+    def test_roman_page_numbers_are_removed(self):
+        """The front matter of a book or a report is numbered 'i', 'ii', 'iii' …: only digits were page-number-shaped, so those
+        stayed at the foot of every page. A word made of the same letters ('mix', 'civil') is not a numeral here, and a clause
+        marker in the body is not in the margin."""
+        numerals = ["i", "ii", "iii", "iv", "v"]
+
+        def draw(pdf, index):
+            pdf.drawString(72, 700, f"{index + 1}쪽 본문입니다.")
+            pdf.drawString(72, 660, f"({numerals[index]}) 조항 내용입니다.")
+            pdf.drawString(300, 40, numerals[index])
+
+        result = convert(_korean_pdf(draw, pages=5), "a.pdf")
+
+        assert [line for line in result.text.splitlines() if line in numerals] == []
+        assert all(f"({numeral}) 조항 내용입니다." in result.text for numeral in numerals)
+
     def test_margin_lines_with_amounts_or_rates_that_differ_per_page_are_kept(self):
         """'전기이월 잔액: 1,000,000', '실지급액: 3,450,000', '증감률 6.8%' and '소계 1,234' in the top and bottom margins of each page
         leave only punctuation once the digits are removed, so they were taken for page-number tokens and removed on every page. A token
