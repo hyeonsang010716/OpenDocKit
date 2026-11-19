@@ -79,7 +79,8 @@ class TiffPages:
 
     pages: list[bytes]
     # The number of the first page where splitting stopped (from 1) and why. Both False for the page-count limit (`MAX_TIFF_PAGES`),
-    # unreadable for a corrupted or too-large page, too_many_pixels for the total page pixel limit (`_MAX_TIFF_PIXELS`).
+    # unreadable for a corrupted or too-large page, too_many_pixels for the total of the pages: their pixels (`_MAX_TIFF_PIXELS`)
+    # or the bytes of the pages kept (`split_tiff_pages`'s `max_bytes`).
     stopped_at: int | None = None
     unreadable: bool = False
     too_many_pixels: bool = False
@@ -414,7 +415,7 @@ def _open_within_pixel_limit(data: bytes, max_side: int) -> Image.Image:
     return jpeg
 
 
-def split_tiff_pages(data: bytes) -> TiffPages:
+def split_tiff_pages(data: bytes, max_bytes: int | None = None) -> TiffPages:
     """Split a multi-page TIFF (a fax or a bundle of scans) into one single-page TIFF (lossless deflate) per page.
 
     Only the first page was decoded and the other pages vanished without a warning (Pinned by: test_image.py::TestMultiPageTiff).
@@ -422,11 +423,16 @@ def split_tiff_pages(data: bytes) -> TiffPages:
     per page, and on meeting a corrupted or too-large page only the pages before it are returned. The frames of an animated GIF
     are not pages, so they are not split (Deliberate). Pages from the one where the total page pixels go over `_MAX_TIFF_PIXELS`
     are not read (Pinned by: test_core_front_cut_and_tiff_pixels.py::TestMultiPageTiffPixelTotal).
+
+    The pages kept count toward `max_bytes` (the document's `max_uncompressed_bytes`), as decompressed and prepared pictures do:
+    a lossless page of a photographic scan takes many times its JPEG in the file, and a 48 MB TIFF of 28 colour pages held 691 MB
+    of pages (1.7 GB at its peak), past any limit. The pages before the one that goes over are kept
+    (Pinned by: test_image.py::TestMultiPageTiff::test_pages_kept_are_bounded_by_the_uncompressed_limit).
     """
     if not data.startswith(_TIFF_MAGIC):
         return TiffPages([])
     pages: list[bytes] = []
-    pixels = 0
+    pixels = kept = 0
     try:
         # EXIF warnings from a corrupted later page and the like (Pillow's UserWarning). The outcome (the page it stopped at) is
         # reported in the warning text. This used to ignore every warning — the thread-safe `models.quiet_warnings` applies to the
@@ -445,6 +451,9 @@ def split_tiff_pages(data: bytes) -> TiffPages:
                         return TiffPages(pages, len(pages) + 1, too_many_pixels=True)
                     output = BytesIO()
                     ImageOps.exif_transpose(opened).save(output, format="TIFF", compression="tiff_deflate")
+                    kept += output.tell()
+                    if max_bytes is not None and kept > max_bytes and pages:
+                        return TiffPages(pages, len(pages) + 1, too_many_pixels=True)
                     pages.append(output.getvalue())
                 more = _has_frame(opened, MAX_TIFF_PAGES)
     except MemoryError:

@@ -1623,6 +1623,27 @@ class TestMultiPageTiff:
             Image.open(BytesIO(convert(_tiff_pages(color), "a.tif").images[0].data)).getpixel((5, 5))
             for color in ("red", "blue", "green")}
 
+    def test_pages_kept_are_bounded_by_the_uncompressed_limit(self):
+        """Each page is kept as a lossless TIFF of its own, many times its size in a photographic file, and only the pixels of
+        the pages were bounded: a 48 MB TIFF of 28 colour pages held 691 MB of them. The pages count toward
+        `max_uncompressed_bytes`, as decompressed and prepared pictures do; the pages before the one that goes over are read."""
+        import random
+
+        from opendockit.image import split_tiff_pages
+
+        noise = random.Random(5)
+        frames = [Image.frombytes("RGB", (200, 260), bytes(noise.randrange(256) for _ in range(200 * 260 * 3))) for _ in range(4)]
+        buffer = BytesIO()
+        frames[0].save(buffer, format="TIFF", save_all=True, append_images=frames[1:], compression="tiff_jpeg", quality=50)
+        page = len(split_tiff_pages(buffer.getvalue()).pages[0])
+
+        split = split_tiff_pages(buffer.getvalue(), max_bytes=int(page * 2.5))
+        result = convert(buffer.getvalue(), "scan.tif", ConvertOptions(max_uncompressed_bytes=int(page * 2.5)))
+
+        assert (len(split.pages), split.stopped_at, split.too_many_pixels) == (2, 3, True)
+        assert len(split_tiff_pages(buffer.getvalue(), max_bytes=None).pages) == 4
+        assert result.warnings == ["The pages of the TIFF are too large in total, so only the first 2 page(s) were read as images."]
+
     def test_describer_sees_every_page(self):
         describer = FakeDescriber()
 
