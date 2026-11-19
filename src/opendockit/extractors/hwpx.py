@@ -5,7 +5,7 @@ HWPX is XML inside a ZIP. The body in `Contents/section*.xml` is structured as `
 Elements are compared **by local name only**: the namespace URI (2011/2016) differs between Hangul versions.
 """
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -625,7 +625,10 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
         raise CorruptedDocumentError("The HWPX archive structure is corrupted.") from exc
 
     with archive:
-        names = archive.namelist()
+        # The member names in archive order, looked up in constant time: searched in the name list, each picture and chart a
+        # section refers to took time in proportion to the members, 40,000 of each in a 3.7 MB file 5 s
+        # (Pinned by: test_hwp_robustness.py::TestManyMembersAndReferences).
+        names: Collection[str] = dict.fromkeys(archive.namelist())
         if b"encryption-data" in (_read_member(archive, names, "META-INF/manifest.xml") or b""):
             raise EncryptedDocumentError("The HWP document is password-protected. Please remove the password and upload it again.")
 
@@ -793,7 +796,7 @@ def _int(value: str | None, default: int) -> int:
     return decimal_int(value, default)
 
 
-def _content_package(archive: zipfile.ZipFile, names: list[str]) -> etree._Element | None:
+def _content_package(archive: zipfile.ZipFile, names: Collection[str]) -> etree._Element | None:
     """content.hpf (body order and picture list). None if missing or broken — the body then goes in section number order and pictures
     are found by BinData file name.
     A single broken content.hpf used to reject the whole document (Pinned by: test_hwp.py::TestOneOddValueInHangulDocuments::
@@ -802,7 +805,7 @@ def _content_package(archive: zipfile.ZipFile, names: list[str]) -> etree._Eleme
     return parse_part(data) if data is not None else None
 
 
-def _read_member(archive: zipfile.ZipFile, names: list[str], name: str) -> bytes | None:
+def _read_member(archive: zipfile.ZipFile, names: Collection[str], name: str) -> bytes | None:
     """Bytes of a part inside the archive. None if missing or it cannot be decompressed (CRC or compression error)."""
     try:
         return archive.read(name) if name in names else None
@@ -810,7 +813,7 @@ def _read_member(archive: zipfile.ZipFile, names: list[str], name: str) -> bytes
         return None
 
 
-def _parse_member(archive: zipfile.ZipFile, names: list[str], name: str) -> etree._Element | None:
+def _parse_member(archive: zipfile.ZipFile, names: Collection[str], name: str) -> etree._Element | None:
     """A part XML outside the body (header.xml). None if missing, not decompressible, or the XML is broken."""
     data = _read_member(archive, names, name)
     if data is None:
@@ -821,7 +824,7 @@ def _parse_member(archive: zipfile.ZipFile, names: list[str], name: str) -> etre
         return None
 
 
-def _section_order(package: etree._Element | None, names: list[str], warnings: list[str]) -> list[str]:
+def _section_order(package: etree._Element | None, names: Collection[str], warnings: list[str]) -> list[str]:
     """The body order is set by the spine of content.hpf. Section number order if it is missing or broken. A spine cut at the
     cap is reported in `warnings`."""
     # A number of more than 4,300 digits cannot be read by `int()` and sorts after the others: one extra member with such a
@@ -847,7 +850,7 @@ def _section_order(package: etree._Element | None, names: list[str], warnings: l
     return list(ordered) or fallback
 
 
-def _binary_items(package: etree._Element | None, names: list[str]) -> dict[str, str]:
+def _binary_items(package: etree._Element | None, names: Collection[str]) -> dict[str, str]:
     """Manifest item id → path inside the archive (BinData/image1.png). If the manifest is missing or broken, the BinData file name
     (without the extension) is taken as the id
     — in files saved by Hancom Office the two are the same."""

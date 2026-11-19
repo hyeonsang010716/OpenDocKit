@@ -344,6 +344,30 @@ class TestSpansPastTheTable:
         assert result.warnings == []
         assert result.text.count("| B | |") == 3
 
+class TestManyMembersAndReferences:
+    """Each chart and picture a section refers to was looked up in the list of the archive's members: 40,000 references to as many
+    members (3.7 MB) took 5 s. The members are looked up in constant time."""
+
+    @staticmethod
+    def _hwpx(count: int) -> bytes:
+        body = ("<hp:p><hp:run>" + "".join(f'<hp:chart chartIDRef="Chart/c{index}.xml"/>' for index in range(count))
+                + "</hp:run><hp:run><hp:t>끝</hp:t></hp:run></hp:p>")
+        output = BytesIO()
+        with zipfile.ZipFile(BytesIO(builder.hwpx_bytes(body))) as source, zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as target:
+            for name in source.namelist():
+                target.writestr(name, source.read(name))
+            for index in range(count):
+                target.writestr(zipfile.ZipInfo(f"x/{index}"), b"")
+        return output.getvalue()
+
+    @pytest.mark.timing
+    def test_references_to_many_members_take_linear_time(self):
+        small, large = self._hwpx(5_000), self._hwpx(20_000)
+
+        assert fastest(lambda: convert(large, "a.hwpx")) < 8 * fastest(lambda: convert(small, "a.hwpx")) + 0.05
+        assert convert(large, "a.hwpx").text.endswith("끝")
+
+
 class TestCellsOnAnOccupiedAddress:
     """When a cell address pointed at a place taken by an earlier cell (two cells with the same address, or an earlier cell's
     span larger than the table), the later cell's text vanished without a warning. Like a cell that comes without an address
