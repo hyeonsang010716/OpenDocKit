@@ -77,7 +77,7 @@ def _put_tex_scripts(soup: BeautifulSoup) -> None:
     for script in soup.find_all("script", type=True):
         if not str(script["type"]).strip().lower().startswith("math/tex"):
             continue
-        tex = " ".join(script.get_text().split())
+        tex = " ".join(_tex_without_comments(script.get_text()).split())
         frame = script.previous_sibling
         while isinstance(frame, NavigableString) and (isinstance(frame, Comment) or not frame.strip()):
             frame = frame.previous_sibling
@@ -93,6 +93,18 @@ def _put_tex_scripts(soup: BeautifulSoup) -> None:
         if tex:
             target.append(f"${tex}$")
     _decompose_all(framed)
+
+
+def _tex_without_comments(tex: str) -> str:
+    """`tex` without its comments: from a `%` that is not escaped (`\\%` is a percent sign) to the end of its line. kramdown wraps
+    a displayed formula in `% <![CDATA[` and `%]]>`; once the lines of the TeX were joined, the `%` of the wrapper made all of
+    the formula a comment, and a comment inside a formula took the lines after it along (`x % note` and `+ y` as `x % note + y`)
+    (Pinned by: test_core_html.py::TestMathMl::test_comments_in_the_tex_of_a_script_are_left_out)."""
+    # An escaped character (`\%` among them, and the `\\` of a line break) is matched first and kept
+    return _TEX_COMMENT.sub(lambda match: match.group(1) or "", tex) if "%" in tex else tex
+
+
+_TEX_COMMENT = re.compile(r"(\\.)|%[^\n]*", re.DOTALL)
 
 
 def _maths_holding_page_blocks(soup: BeautifulSoup) -> list[Tag]:

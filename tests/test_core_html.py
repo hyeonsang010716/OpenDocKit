@@ -321,6 +321,17 @@ class TestMathMl:
         assert convert(hint.encode(), "a.html").text == "See note. and then $a+b$"
         assert convert(frame.encode(), "a.html").text == "Let $x^2$ be."
 
+    def test_comments_in_the_tex_of_a_script_are_left_out(self):
+        """kramdown wraps a displayed formula in `% <![CDATA[` and `%]]>`: once the lines were joined, the `%` of the wrapper
+        made the whole formula a comment, and a comment inside a formula took the next line along. An escaped `\\%` is a
+        percent sign and stays."""
+        kramdown = ('<p>text</p>\n<script type="math/tex; mode=display">% <![CDATA[\n\\begin{aligned}\na &= b \\\\\n'
+                    'c &< d\n\\end{aligned} %]]></script>\n<p>more</p>')
+        comment = '<p>a <script type="math/tex">x % the first term\n+ y</script> and <script type="math/tex">50\\%</script></p>'
+
+        assert convert(kramdown.encode(), "a.html").text == "text\n\n$\\begin{aligned} a &= b \\\\ c &< d \\end{aligned}$\n\nmore"
+        assert convert(comment.encode(), "a.html").text == "a $x + y$ and $50\\%$"
+
     @pytest.mark.timing
     def test_many_mathjax_formulas_take_linear_time(self):
         """The script of every rendered formula was removed on its own, each looking up its place among its siblings: a
