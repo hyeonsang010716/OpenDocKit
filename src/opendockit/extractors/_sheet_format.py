@@ -377,7 +377,8 @@ def _format_section(value: float, number_format: str) -> tuple[str, float, bool]
     (`"예";"예";"아니요"`) shows text per section, so the zero section is used as is — using the first section would turn 0 into
     "예" (Pinned by: test_spreadsheet.py::TestTextOnlyNumberFormats).
     Deliberate: if the negative section has no literal revealing that the value is negative (no literals, or the same as the
-    positive section — `#,##0;[Red]#,##0`), the negative value is passed in as is so that `-` is attached. Excel signals the
+    positive section — `#,##0;[Red]#,##0`), the negative value is passed in as is so that `-` is attached; a negative section of
+    text alone with no digit places shows its text as Excel does. Excel signals the
     negative with red, but colours are discarded, so emitting only the absolute value would make a loss read as a profit
     (Pinned by: test_spreadsheet.py::TestNegativeSectionWithoutSign). White space in the literals marks nothing: CJK Excel pads its
     sections with `_ ` and `\\ ` (`#,##0_ ;[Red]#,##0\\ `), and the escaped space made the negative section look marked, so
@@ -386,7 +387,10 @@ def _format_section(value: float, number_format: str) -> tuple[str, float, bool]
     sections = [match.group(0) for match in _FORMAT_SECTION.finditer(number_format)]
     if value < 0 and len(sections) > 1 and sections[1].strip():
         positive, negative = ("".join(_section_literals(section).split()) for section in sections[:2])
-        marked = negative not in ("", positive)
+        # A negative section of text alone (`"Yes";"Yes";"No"`, Excel 2003 XML's Yes/No) shows that text and no number, so there
+        # is no amount to read as a profit: Excel shows `Yes` for -1 (VBA's and Access's True), and `-Yes` came out
+        # (Pinned by: test_spreadsheet.py::TestTextOnlyNumberFormats).
+        marked = negative != "" and (negative != positive or not _has_digit_places(sections[1]))
         return sections[1], (-value if marked else value), marked
     if value == 0 and len(sections) > 2 and ("0" in _format_codes(sections[2]) or not _has_digit_places(sections[0])):
         return sections[2], value, False

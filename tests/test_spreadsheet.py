@@ -1422,6 +1422,10 @@ class TestTextOnlyNumberFormats:
         (2, "\\O\\K", "OK"),
         (-5, '"매우 좋음"', "-매우 좋음"),
         (-1, '"흑자";"적자"', "적자"),
+        (-1, '"Yes";"Yes";"No"', "Yes"),  # Excel 2003 XML's Yes/No; -1 is VBA's and Access's True
+        (-1, '"예";"예";"아니요"', "예"),
+        (-2, '[Red]"주의";[Red]"주의"', "주의"),
+        (-5, '0;[Red]', "-5"),  # a negative section of colour alone shows the value, with its sign
         (0, 'General;General;"없음"', "없음"),
     ])
     def test_section_without_digit_places_shows_its_text(self, value, number_format, expected):
