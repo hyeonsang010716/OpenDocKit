@@ -18,7 +18,7 @@ from opendockit import mcp_server
 
 ROOT = Path(__file__).parent.parent
 PLUGIN = ROOT / "claude-plugin"
-pytestmark = pytest.mark.skipif(not PLUGIN.is_dir(), reason="the Claude Code plugin is not part of the source distribution")
+pytestmark = pytest.mark.skipif(not PLUGIN.is_dir(), reason="the claude-plugin folder is not in this copy of the project")
 
 # The rules `claude plugin validate` applies (plugins/manifest-reference and plugins/marketplace-reference)
 _NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")

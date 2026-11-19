@@ -20,7 +20,7 @@ from opendockit import mcp_server
 
 ROOT = Path(__file__).parent.parent
 LAUNCHER = ROOT / "packages" / "opendockit-mcp"
-pytestmark = pytest.mark.skipif(not LAUNCHER.is_dir(), reason="the launcher package is not part of the source distribution")
+pytestmark = pytest.mark.skipif(not LAUNCHER.is_dir(), reason="the packages/opendockit-mcp folder is not in this copy of the project")
 
 _MARKER = re.compile(r"mcp-name: (\S+)")
 _TOOL = re.compile(r"\b((?:convert|document)_[a-z_]+)\b")

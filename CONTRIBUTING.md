@@ -11,8 +11,8 @@ You need [uv](https://docs.astral.sh/uv/) and Python 3.12 or newer.
 git clone https://github.com/hyeonsang010716/OpenDocKit.git
 cd OpenDocKit
 uv sync                      # creates .venv with runtime, vision and development dependencies
-uv run pytest -n auto -m "not timing"   # ~3,300 tests in parallel, about 20 seconds
-uv run pytest -m timing                  # ~130 tests that measure time, one at a time, about 90 seconds
+uv run pytest -n auto -m "not timing"   # the bulk of the tests in parallel, under a minute
+uv run pytest -m timing                  # ~300 tests that measure time, one at a time, about 5 minutes
 uv run ruff check            # lint
 uv run opendockit some.pdf   # try a real document
 ```
@@ -57,11 +57,18 @@ src/opendockit/
 ├── describe.py      vision-model descriptions; the only module that uses the network
 ├── models.py        ConvertOptions, ConversionResult, Section, DocumentImage
 ├── exceptions.py    ConversionError and its subclasses
-├── cli.py           the `opendockit` command
+├── cli.py           the `opendockit` command (`__main__.py`: `python -m opendockit`)
+├── mcp_server.py    the `opendockit-mcp` command: an MCP server with two tools
+├── open_webui.py    the `opendockit-open-webui` command: Open WebUI's external content extraction engine
+├── integrations/    the LangChain loader and the LlamaIndex reader
 └── extractors/      one module per format: (bytes, ConvertOptions) -> Extraction; `_name.py` modules are stages and shared pieces
 tests/               one or more test modules per format; builder.py creates sample documents in memory
 docs/                user documentation
 docs/decisions/      decision records: every deliberate trade-off and the test that pins it
+examples/            sample documents and their conversions (`examples/run_examples.py`)
+benchmarks/          the comparison with other converters and its results
+claude-plugin/, hermes-plugin/, dify-plugin/   plugins that run the MCP server or the converter in those applications
+packages/opendockit-mcp/                       the `opendockit-mcp` launcher package
 ```
 
 Dependency direction: extractors import only `markdown`, `models`, `exceptions` and the shared helpers of
@@ -96,7 +103,8 @@ character limit belong to `converter.py`. The details are in [docs/decisions/cor
   dependencies must be MIT / BSD / Apache-style and should ship wheels for Linux, macOS and Windows. Check what a
   wheel *bundles*, not only its own license: `pillow-heif` is BSD but ships GPL/LGPL codecs, which is why it lives
   behind the optional `heic` extra.
-- **`convert` never touches the network** and is deterministic. Network access lives only in `describe.py`. The
+- **`convert` never touches the network** and is deterministic. Network access lives only in `describe.py` (the servers,
+  `mcp_server.py` and `open_webui.py`, only answer the requests they are sent). The
   one process it starts is LibreOffice for `.doc` / `.ppt` (`extractors/legacy.py`), with network access switched off.
 - **Untrusted input.** Never trust a size, count, span or offset stored in a file. Bound it, and add a test with a
   small crafted file that would otherwise take seconds or gigabytes.
