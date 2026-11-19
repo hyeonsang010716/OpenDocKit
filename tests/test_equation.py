@@ -202,6 +202,25 @@ class TestRepeatedStacks:
         assert fastest(lambda: equation_to_latex(large)) < 8 * fastest(lambda: equation_to_latex(small)) + 0.01
         assert equation_to_latex(large).count(r"\atop") == 1_199
 
+    @pytest.mark.parametrize("script, latex", [
+        ("1 atop1 to 2 atop1 to 2", r"{{1 \atop 1}^{2} \atop 1}^{2}"),
+        ("1 atop 1 over 1 atop 1 over 1", r"\frac{\frac{1 \atop 1}{1} \atop 1}{1}"),
+        ("{a atop b}^2 atop c", r"{{{a \atop b}}^{2} \atop c}"),
+        ("{{a}} over {b}", r"\frac{{a}}{b}"),
+    ])
+    def test_stack_under_a_limit_or_a_fraction(self, script, latex):
+        assert equation_to_latex(script) == latex
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("unit", ["atop1 to 2 ", "atop 1 over 1 "])
+    def test_stacks_under_limits_and_fractions_take_linear_time(self, unit):
+        """An `atop` that takes a limit or becomes the top of an `over` is no longer a stack, and the whole top was scanned again
+        for its braces at every repetition: 0.4 s for one script of 10,000 characters, 9 s for 20 of them in a 202 KB HWPX."""
+        small, large = "1" + unit * 175, "1" + unit * 700  # within the 10,000 characters of a script
+
+        assert equation_to_latex(large) is not None
+        assert fastest(lambda: equation_to_latex(large)) < 8 * fastest(lambda: equation_to_latex(small)) + 0.01
+
 
 class TestFallback:
     """When conversion is impossible the result is None, and the caller leaves the original script as is. One equation must not fail

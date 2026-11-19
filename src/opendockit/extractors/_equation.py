@@ -355,7 +355,7 @@ class _Parser:
             body = _join(self._items())
             if self._next() != "}":
                 raise _Unsupported("unclosed {")
-            return f"{{{body}}}"
+            return _Group(f"{{{body}}}")
         if token.startswith('"'):
             return _text(token.strip('"'))
         if token.isascii() and token.isalpha():
@@ -476,38 +476,42 @@ def _text(text: str) -> str:
     return r"\text{" + text.translate(_TEXT_ESCAPES) + "}"
 
 
-class _Stack(str):
+class _Group(str):
+    """LaTeX that is one brace group as a whole (`{…}`): a group of the script (`_read_piece`) or an `atop`. Every other term is
+    not one, so `_bare` knows without looking at the text."""
+
+    __slots__ = ()
+
+
+class _Stack(_Group):
     """The LaTeX of an `atop` (`{top \\atop bottom}`), told apart from other terms while it is still one."""
 
     __slots__ = ()
 
 
 def _bare(text: str) -> str:
-    """Strip one layer of `{…}` that wraps the whole text, so braces do not double up when it becomes an argument of `\\frac{…}{…}`."""
-    if not (text.startswith("{") and text.endswith("}")):
-        return text
-    depth = 0
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if char == "\\":
-            index += 2
-            continue
-        depth += {"{": 1, "}": -1}.get(char, 0)
-        if depth == 0 and index < len(text) - 1:
-            return text  # the first `{` closes before the end: `{a}+{b}`
-        index += 1
-    return text[1:-1]
+    """Strip one layer of `{…}` that wraps the whole text, so braces do not double up when it becomes an argument of `\\frac{…}{…}`.
+
+    Whether the text is one group is carried by the term (`_Group`), not looked up in it: scanning the text for the brace that
+    closes the first, `1 atop1 to 2 atop1 to 2 …` and `1 atop 1 over 1 atop 1 over 1 …` read their whole top again at every
+    repetition, 0.46 s for one equation of 10,000 characters and 9 s for 20 of them in a 202 KB HWPX (Pinned by:
+    test_equation.py::TestRepeatedStacks::test_stacks_under_limits_and_fractions_take_linear_time). A term made of several pieces
+    is never one group: each piece is balanced, so the first brace closes before the end (`{a}+{b}`)."""
+    return text[1:-1] if isinstance(text, _Group) else text
 
 
 def _join(items: list[str]) -> str:
-    """Join terms with a space. Visible-blank terms that took no script (empty text) are dropped."""
-    return " ".join(item for item in items if item)
+    """Join terms with a space. Visible-blank terms that took no script (empty text) are dropped; a single term is kept as it is
+    (still one group if it is one)."""
+    kept = [item for item in items if item]
+    return kept[0] if len(kept) == 1 else " ".join(kept)
 
 
 def _concat(pieces: list[str]) -> str:
     """Join the pieces inside a term. A space is inserted when a letter follows `\\sin` (`\\sinx` would be a different command).
     Linear, because only the previous piece is looked at."""
+    if sum(1 for piece in pieces if piece) == 1:
+        return next(piece for piece in pieces if piece)  # kept as it is (still one group if it is one)
     parts: list[str] = []
     previous = ""
     for piece in pieces:
