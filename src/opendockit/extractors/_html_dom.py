@@ -1826,7 +1826,10 @@ def _keep_preserved_line_breaks(soup: BeautifulSoup) -> None:
     notification mails show text a person typed: the steps of a ticket, a comment, an address, a note in a table cell ran
     into one line (`Steps to reproduce: 1. Open … 2. Click Save`) (Pinned by: test_text_html.py::TestWhiteSpacePreserved).
     The nearest element that sets `white-space` decides, as the property is inherited; text inside a `<pre>` is left to the code
-    block. Text of white space only at the edge of a block (the indentation of the source between blocks) is left alone.
+    block. Text of white space only at the edge of a block (the indentation of the source between blocks) is left alone, and
+    so is text inside `<math>`: the white space between MathML elements is the indentation of the markup, and a `<br>` put
+    there became a part of the formula (`$x^{}$` for `x²`; Pinned by: test_text_html.py::TestWhiteSpacePreserved::
+    test_mathml_inside_keeps_its_parts).
     Known accepted gaps: the spaces of such text are still collapsed (the indentation under `pre` is lost), and a
     `white-space` set by a style sheet rather than the element is not seen.
     """
@@ -1837,7 +1840,7 @@ def _keep_preserved_line_breaks(soup: BeautifulSoup) -> None:
     def decided(element: Tag | None) -> bool:
         chain = []
         while element is not None and id(element) not in keeps:
-            if element.name in _CODE_BLOCKS:
+            if element.name in _CODE_BLOCKS or element.name == "math" or (element.name or "").endswith(":math"):
                 keeps[id(element)] = False
                 break
             values = _WHITE_SPACE.findall(str(element.get("style", ""))) if element.attrs else []

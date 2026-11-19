@@ -1346,6 +1346,15 @@ class TestWhiteSpacePreserved:
     typed, and its line breaks were collapsed into spaces like those of ordinary text: the steps of a ticket, an address, the
     lines of a note in a table cell ran into one line."""
 
+    def test_mathml_inside_keeps_its_parts(self):
+        """The white space between MathML elements is the indentation of the markup: turned into a `<br>`, it became a part of
+        the formula, `$x^{}$` for x squared and `$\\frac{3}{}$` for three quarters. The text around the formula keeps its line
+        breaks."""
+        html = ('<div style="white-space:pre-wrap">Area <math>\n<msup>\n<mi>x</mi>\n<mn>2</mn>\n</msup>\n</math> here\nnext '
+                '<math>\n<mfrac>\n<mn>3</mn>\n<mn>4</mn>\n</mfrac>\n</math></div>')
+
+        assert convert(html.encode(), "a.html").text == "Area $x^2$ here\nnext $\\frac{3}{4}$"
+
     def test_line_breaks_of_preserved_text_are_kept(self):
         html = ('<h1>Ticket 4812</h1><div style="white-space: pre-wrap">Steps to reproduce:\n1. Open the settings page\n'
                 '2. Click Save\n\nExpected: saved\nActual: error 500</div><p style="white-space:pre-line">홍길동\n서울특별시 중구'
