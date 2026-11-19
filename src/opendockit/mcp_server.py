@@ -113,7 +113,11 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
 
     async def converted(path: str, limit: int | None) -> ConversionResult:
         nonlocal converter
-        file = _checked_path(path, allowed)
+        # In a thread, like the read below. Resolving a path is file-system work and can take as long as the file system
+        # takes: a disconnected network drive, a sleeping disk, or — on Windows, where a path the caller chose may be a UNC
+        # name — contacting a host that never answers. On the event loop that stops the whole server, and with it the
+        # agent's session (Pinned by: test_mcp_server.py::TestWhichFilesMayBeRead::test_a_slow_path_check_does_not_stop_the_server).
+        file = await asyncio.to_thread(_checked_path, path, allowed)
         options = ConvertOptions(max_chars=limit)
         try:
             data, digest = await asyncio.to_thread(_read, file, options.max_file_bytes, allowed)

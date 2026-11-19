@@ -4,8 +4,10 @@ import asyncio
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import threading
+import time
 
 import pytest
 
@@ -267,6 +269,58 @@ class TestWhichFilesMayBeRead:
 
         with pytest.raises(ToolError, match="outside the folders this server may read"):
             call("convert_document", {"path": str(inbox / "link.docx")}, roots=[inbox])
+
+    @pytest.mark.timing
+    def test_a_slow_path_check_does_not_stop_the_server(self, files, monkeypatch):
+        """Resolving a path is file-system work: a disconnected network drive, a sleeping disk, or a UNC name the caller
+        chose can take seconds. Done on the event loop it stopped every other call of the server with it. Measured as the
+        longest the loop ever went without turning while a check sat in the middle of a call."""
+        real = mcp_server._checked_path
+
+        def slow(path, allowed):
+            time.sleep(1.0)
+            return real(path, allowed)
+
+        monkeypatch.setattr(mcp_server, "_checked_path", slow)
+
+        async def scenario() -> float:
+            from mcp.client.client import Client
+
+            gaps: list[float] = []
+            running = True
+
+            async def tick() -> None:
+                last = time.monotonic()
+                while running:
+                    await asyncio.sleep(0.01)
+                    now = time.monotonic()
+                    gaps.append(now - last)
+                    last = now
+
+            ticker = asyncio.create_task(tick())
+            async with Client(mcp_server.create_server()) as client:
+                await client.call_tool("document_outline", {"path": str(files["report.docx"])})
+            running = False
+            await ticker
+            return max(gaps)
+
+        assert asyncio.run(scenario()) < 0.5, "the event loop stood still while the path was being checked"
+
+    @pytest.mark.skipif(os.name != "nt", reason="a directory junction is the Windows link that needs no privilege")
+    def test_directory_junction_inside_a_root_cannot_lead_out_of_it(self, files, tmp_path_factory):
+        """The Windows counterpart of the symbolic-link test above, and the one that matters there: a symbolic link needs a
+        privilege most users do not have, while `mklink /J` makes a directory junction as any user. A junction placed in the
+        allowed folder that points at a folder outside it must not let a file through."""
+        inbox = files["report.docx"].parent
+        outside = tmp_path_factory.mktemp("outside")
+        (outside / "secret.docx").write_bytes(builder.docx_bytes())
+        made = subprocess.run(["cmd", "/c", "mklink", "/J", str(inbox / "out"), str(outside)],
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+        if made.returncode != 0:
+            pytest.skip("this system did not make a directory junction")
+
+        with pytest.raises(ToolError, match="outside the folders this server may read"):
+            call("convert_document", {"path": str(inbox / "out" / "secret.docx")}, roots=[inbox])
 
     @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a file the current user cannot read")
     def test_file_without_read_permission_is_refused_with_a_fixed_message(self, files):
