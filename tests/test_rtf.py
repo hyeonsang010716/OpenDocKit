@@ -543,6 +543,15 @@ class TestLists:
         body = bullet("a") + bullet("b") + number("one") + number("two") + r"\pard Stop\par" + number("again")
         assert _text(body) == "- a\n- b\n1. one\n2. two\n\nStop\n\n1. again"
 
+    def test_start_of_the_older_numbering_is_kept(self):
+        """RichEdit (WordPad, Outlook, RichTextBox) writes a list set to start at 5 as `\\pnstart5`; it was read as 1. Every
+        paragraph of the list repeats it, and the count goes on; after a paragraph outside the list it starts over at it."""
+        def number(text: str, start: int) -> str:
+            return rf"\pard{{\pntext 9.\tab}}{{\*\pn\pnlvlbody\pndec\pnstart{start}{{\pntxta .}}}}" + text + r"\par"
+
+        body = number("five", 5) + number("six", 5) + r"\pard x\par" + number("again", 3) + r"{\pntext 4.\tab}same paragraph\par"
+        assert _text(body) == "5. five\n6. six\n\nx\n\n3. again\n4. same paragraph"
+
     def test_list_bullet_2_style_is_one_level_down(self):
         """Word's 'List Bullet 2' style: `\\ilvl0` of its own list, the level is the digit in the style name (as in DOCX). The
         kind is still read from level 0 of the list."""

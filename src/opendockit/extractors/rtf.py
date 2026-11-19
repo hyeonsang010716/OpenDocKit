@@ -198,7 +198,7 @@ class _State:
 class _Paragraph:
     """Paragraph properties; `\\pard` starts them over."""
 
-    __slots__ = ("style", "outline", "ls", "ilvl", "pn", "pn_level", "intbl", "itap", "indent")
+    __slots__ = ("style", "outline", "ls", "ilvl", "pn", "pn_level", "pn_start", "intbl", "itap", "indent")
 
     def __init__(self) -> None:
         self.style: int | None = None
@@ -207,6 +207,7 @@ class _Paragraph:
         self.ilvl = 0
         self.pn: str | None = None  # the older `\pn` numbering: "-" bullet, "1" numbered
         self.pn_level = 0
+        self.pn_start = 1  # `\pnstartN`: the first number of the older numbering
         self.intbl = False
         self.itap = 0
         self.indent = 0  # `\li`, twips
@@ -1346,6 +1347,8 @@ class _Reader:
             elif word == b"pnlvl":
                 paragraph.pn = paragraph.pn or "1"
                 paragraph.pn_level = min(max((number or 1) - 1, 0), _MAX_LEVEL)
+            elif word == b"pnstart":
+                paragraph.pn_start = number if number is not None and 0 <= number <= 1_000_000 else 1
         elif dest == _SHAPE:
             if word == b"shptxt" or word == b"dptxbxtext":
                 state.dest = _BODY
@@ -1478,7 +1481,9 @@ class _Reader:
             return None
         if paragraph.pn == "-":
             return "-", paragraph.pn_level
-        return self._next_number(self._simple_counters, paragraph.pn_level, 1), paragraph.pn_level
+        # The first number is `\pnstartN` (RichEdit: WordPad, Outlook, RichTextBox write it for a list set to start at 5); read as
+        # 1, such a list was numbered from 1 (Pinned by: test_rtf.py::TestLists::test_start_of_the_older_numbering_is_kept).
+        return self._next_number(self._simple_counters, paragraph.pn_level, paragraph.pn_start), paragraph.pn_level
 
     def _level_start(self, ls: int, level: int, start: int) -> int:
         """The first number of `level` in the list override `\\lsN`: the start-at the override sets for it (Word's 'Set numbering
