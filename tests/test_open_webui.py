@@ -49,8 +49,8 @@ def _put(client, data: bytes, name: str, **headers) -> httpx.Response:
 
 async def _put_async(app, data, name: str) -> httpx.Response:
     """A request to `app` without its lifespan, for what a test client run in one thread cannot do: several requests at once,
-    a body that is read as it comes. A test that converts a file this way sets `os.name` to "nt", so the file goes to a thread
-    and no worker pool is left without the lifespan that closes it."""
+    a body that is read as it comes. A test that converts a file this way replaces `IsolatedConverter.convert`, so no worker
+    pool is left behind without the lifespan that would close it."""
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://loader") as async_client:
         return await async_client.put("/process", content=data, headers=_headers(name))
 
@@ -150,7 +150,6 @@ class TestProcess:
         assert broken.status_code == 422 and broken.text.endswith(".") and "zip" not in broken.text.lower()
         assert (empty.status_code, empty.text) == (422, "The file is empty.")
 
-    @pytest.mark.skipif(os.name != "posix", reason="worker processes are used on POSIX only; elsewhere files go to a thread")
     def test_conversion_runs_in_a_worker_process(self, client, monkeypatch):
         """The loader's own process must not parse the document: a file built to hang or expand would end the server every
         upload goes through."""
@@ -162,7 +161,6 @@ class TestProcess:
             return await convert(self, data, filename, options, **more)
 
         monkeypatch.setattr(open_webui.IsolatedConverter, "convert", spy)
-        monkeypatch.setattr(open_webui, "convert", lambda *_: pytest.fail("converted in the server process"))
 
         assert _put(client, builder.docx_bytes(), "report.docx").status_code == 200
         assert used == ["report.docx"]
@@ -264,15 +262,14 @@ class TestProcess:
         """With one worker and one place in the queue, a third file at once gets 503 without waiting; the two others finish."""
         started = threading.Semaphore(0)
         release = threading.Event()
-        convert = open_webui.convert
+        convert = open_webui.IsolatedConverter.convert
 
-        def slow(data, filename, options):
+        async def slow(self, data, filename, options=None, **more):
             started.release()
-            release.wait(10)
-            return convert(data, filename, options)
+            await asyncio.to_thread(release.wait, 10)
+            return await convert(self, data, filename, options, **more)
 
-        monkeypatch.setattr(open_webui, "convert", slow)
-        monkeypatch.setattr(open_webui.os, "name", "nt")  # files go to a thread, so `slow` is the one called
+        monkeypatch.setattr(open_webui.IsolatedConverter, "convert", slow)
         app = open_webui.create_app(KEY, workers=1, queue=1)
         data = builder.docx_bytes()
 
@@ -290,38 +287,29 @@ class TestProcess:
         assert codes == [200, 200, 503]
 
     def test_an_unexpected_failure_is_a_fixed_sentence_and_logs_nothing_of_the_document(self, monkeypatch, caplog):
-        def failing(*_):
+        async def failing(*_, **__):
             raise ValueError("Quarterly revenue 12,345 for ACME")
 
-        monkeypatch.setattr(open_webui, "convert", failing)
-        monkeypatch.setattr(open_webui.os, "name", "nt")  # files go to a thread, so `failing` is the one called
+        monkeypatch.setattr(open_webui.IsolatedConverter, "convert", failing)
         with caplog.at_level(logging.DEBUG):
             response = asyncio.run(_put_async(open_webui.create_app(KEY), builder.docx_bytes(), "report.docx"))
 
         assert (response.status_code, response.text) == (500, open_webui.FAILED)
         assert "ACME" not in caplog.text and "ValueError" in caplog.text
 
-    @pytest.mark.skipif(os.name != "posix", reason="worker processes are used on POSIX only")
     def test_an_app_mounted_in_another_one_converts_in_a_worker(self, monkeypatch):
         """Starlette does not run the lifespan of a mounted app. The workers were made there, so such an app converted every
         file in the server process, without the worker's time and memory limits."""
         from starlette.applications import Starlette
         from starlette.routing import Mount
 
-        in_server: list[str] = []
         made: list[object] = []
-        convert = open_webui.convert
-
-        def in_this_process(data, filename, options):  # called only for a file converted in the server process
-            in_server.append(filename)
-            return convert(data, filename, options)
 
         class Recorded(open_webui.IsolatedConverter):
             def __init__(self, **arguments):
                 super().__init__(**arguments)
                 made.append(self)
 
-        monkeypatch.setattr(open_webui, "convert", in_this_process)
         monkeypatch.setattr(open_webui, "IsolatedConverter", Recorded)
         parent = Starlette(routes=[Mount("/owui", app=open_webui.create_app(KEY))])
         try:
@@ -333,7 +321,7 @@ class TestProcess:
 
         assert response.status_code == 200
         assert "1장 개요" in response.json()[0]["page_content"]
-        assert (len(made), in_server) == (1, [])
+        assert len(made) == 1, "the mounted app did not convert in a worker"
 
     def test_health_needs_no_key(self, client):
         assert (client.get("/health").status_code, client.get("/health").text) == (200, "ok")

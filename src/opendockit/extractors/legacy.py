@@ -6,7 +6,8 @@ it is not installed, the file is rejected with advice. Nothing else in the libra
 The decisions are in docs/decisions/legacy-office.md.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 from io import BytesIO
 import os
@@ -17,6 +18,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 
 from opendockit.exceptions import (
@@ -31,6 +33,15 @@ from opendockit.extractors._package import uncompressed_size
 from opendockit.extractors.docx import extract_docx
 from opendockit.extractors.pptx import extract_pptx
 from opendockit.models import ConvertOptions, Extraction
+
+
+if os.name == "nt":
+    import winreg
+
+    from opendockit import _windows
+else:
+    winreg = None
+    _windows = None
 
 
 # Path of the LibreOffice program to use. An empty value switches the bridge off (no subprocess is ever started).
@@ -58,6 +69,15 @@ _PROGRAM_NAMES = ("soffice", "libreoffice")
 _MACOS_PROGRAM = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
 _LINUX_PROGRAMS = ("/usr/lib/libreoffice/program/soffice", "/usr/lib64/libreoffice/program/soffice", "/opt/libreoffice/program/soffice")
 _WINDOWS_FOLDER_VARIABLES = ("PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432")
+# Where Windows itself records the folders, read when the environment does not name them. A process cannot count on its
+# environment: an MCP client starts its servers with a short list of variables, and the one of the official SDK has no
+# PROGRAMFILES, so a LibreOffice installed in the default place was "not installed" for the MCP server — and only there
+# (Pinned by: test_legacy.py::TestLookup::test_windows_install_is_found_without_the_program_files_variables,
+# TestRealLibreOffice::test_found_with_the_environment_an_mcp_client_passes). The installer records its own `program`
+# folder as the default value of `UNO\InstallPath`, which also finds an install outside Program Files.
+_WINDOWS_INSTALL_KEY = r"SOFTWARE\LibreOffice\UNO\InstallPath"
+_WINDOWS_FOLDERS_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion"
+_WINDOWS_FOLDER_VALUES = ("ProgramFilesDir", "ProgramFilesDir (x86)", "ProgramW6432Dir")
 
 # Neutral names inside the temporary directory. The user's file name never reaches a command line or the file system.
 _INPUT_STEM = "input"
@@ -183,7 +203,39 @@ def _installed_soffice() -> str | None:
         folder = os.environ.get(variable)
         if folder:
             candidates.append(os.path.join(folder, "LibreOffice", "program", "soffice.exe"))
+    installed, program_folders = _windows_registry_folders()
+    candidates += [os.path.join(folder, "soffice.exe") for folder in installed]
+    candidates += [os.path.join(folder, "LibreOffice", "program", "soffice.exe") for folder in program_folders]
     return next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
+
+
+def _windows_registry_folders() -> tuple[list[str], list[str]]:
+    """The `program` folders LibreOffice's installer recorded, and the Program Files folders, from the registry (Windows).
+
+    Both views of the machine key are read, so a 32-bit LibreOffice is found from a 64-bit Python and the other way round,
+    and the user's own key for an install made for one user. Empty elsewhere, and wherever the registry cannot be read.
+    """
+    if winreg is None:
+        return [], []
+    views = (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY)
+    installed = [_registry_text(hive, _WINDOWS_INSTALL_KEY, "", view)
+                 for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER) for view in views]
+    folders = [_registry_text(winreg.HKEY_LOCAL_MACHINE, _WINDOWS_FOLDERS_KEY, name, winreg.KEY_WOW64_64KEY)
+               for name in _WINDOWS_FOLDER_VALUES]
+    return list(dict.fromkeys(filter(None, installed))), list(dict.fromkeys(filter(None, folders)))
+
+
+def _registry_text(hive: int, key: str, name: str, view: int) -> str | None:
+    """A text value of the registry (`""` is a key's default value), with its variables expanded; None without one."""
+    try:
+        with winreg.OpenKey(hive, key, 0, winreg.KEY_READ | view) as opened:
+            value, kind = winreg.QueryValueEx(opened, name)
+    except OSError:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    value = value.strip()
+    return winreg.ExpandEnvironmentStrings(value) if kind == winreg.REG_EXPAND_SZ else value
 
 
 def _soffice_command(program: str, source: Path, profile: Path, out_dir: Path, target: str, output_filter: str) -> list[str]:
@@ -205,7 +257,7 @@ def _run_soffice(program: str, data: bytes, extension: str, target: str, output_
     when the temporary directory cannot be made, written or read. Everything happens inside one temporary directory that is
     removed on every path.
     """
-    with tempfile.TemporaryDirectory(prefix="opendockit-", ignore_cleanup_errors=True) as folder:
+    with _scratch_folder() as folder:
         root = Path(folder).resolve()
         source = root / f"{_INPUT_STEM}.{extension}"
         source.write_bytes(data)
@@ -231,6 +283,56 @@ def _run_soffice(program: str, data: bytes, extension: str, target: str, output_
         return output.read_bytes()
 
 
+@contextmanager
+def _scratch_folder() -> Iterator[str]:
+    """The private temporary folder of one conversion, removed afterwards on every path.
+
+    On Windows it is removed through its long form (`\\\\?\\C:\\…`) and tried again for a moment. LibreOffice fills its
+    profile with paths of 140 characters and more below the folder, which it writes through the long form itself, so under
+    a temporary folder of a hundred characters (a service account, a nested `TMP`) they passed the 260-character limit of
+    ordinary paths: the removal failed on every conversion and `ignore_cleanup_errors` hid it — a folder left behind per
+    document (Pinned by: test_legacy.py::TestRealLibreOffice::test_no_folder_is_left_under_a_long_temporary_path).
+    """
+    if os.name != "nt":
+        with tempfile.TemporaryDirectory(prefix="opendockit-", ignore_cleanup_errors=True) as folder:
+            yield folder
+        return
+    folder = tempfile.mkdtemp(prefix="opendockit-")
+    try:
+        yield folder
+    finally:
+        _remove_folder(folder, _REMOVE_SECONDS)
+
+
+# How long the removal of a conversion's folder is tried (Windows): LibreOffice has been ended by then (`end_job`), so this
+# only covers a file a scanner opened behind it.
+_REMOVE_SECONDS = 2.0
+# How long the processes of a LibreOffice run may take to end once their job is ended. Ending one is asynchronous, and the
+# folder cannot be removed while one still holds a file of it or has it as its current directory.
+_END_SECONDS = 10.0
+
+
+def _long_path(path: str) -> str:
+    """The form of a Windows path that is not held to 260 characters: `\\\\?\\C:\\…`, `\\\\?\\UNC\\host\\share\\…`."""
+    path = os.path.abspath(path)
+    if path.startswith("\\\\?\\"):
+        return path
+    if path.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + path[2:]
+    return "\\\\?\\" + path
+
+
+def _remove_folder(folder: str, seconds: float) -> None:
+    """Remove a folder and everything in it, through its long form, trying again for up to `seconds` (Windows)."""
+    target = _long_path(folder)
+    deadline = time.monotonic() + seconds
+    while True:
+        shutil.rmtree(target, ignore_errors=True)
+        if not os.path.lexists(target) or time.monotonic() >= deadline:
+            return
+        time.sleep(0.05)
+
+
 def _run(command: list[str], working_folder: Path) -> None:
     """Run the command to its end or to the time limit. Its exit code and output are not used: LibreOffice exits with 0 on a
     file it could not read, so the only signal is whether the output file exists."""
@@ -238,7 +340,12 @@ def _run(command: list[str], working_folder: Path) -> None:
     # real program is a grandchild. On POSIX it gets its own process group, and the whole group is killed on timeout; killing
     # only the launcher left `soffice.bin` running (Pinned by: test_legacy.py::TestRunner::test_timeout_kills_the_whole_process_group).
     own_group = os.name == "posix"
-    guard = _start_guard(working_folder) if own_group else None
+    guard = _start_guard(working_folder) if own_group else _start_windows_guard(working_folder)
+    # On Windows a job object ends LibreOffice in place of the process group: our death closes its handle and the kernel
+    # ends the launcher and the `soffice.bin` it started with us, so a worker killed on its time limit — where no `finally`
+    # of ours runs — leaves no program behind, and the guard above removes the folder
+    # (Pinned by: test_legacy.py::TestRunner::test_killing_the_converting_process_leaves_no_launcher_child_and_no_folder_windows).
+    job = _windows.job_for_children() if _windows is not None else None
     process = None
     try:
         try:
@@ -246,8 +353,12 @@ def _run(command: list[str], working_folder: Path) -> None:
                                        cwd=working_folder, start_new_session=own_group, shell=False)
         except OSError as exc:
             raise ProgramNotStarted from exc
-        if guard is not None:
+        if guard is not None and own_group:   # the Windows guard watches this process, so there is nothing to tell it
             _tell_guard(guard, process.pid)
+        if job is not None:
+            # Known accepted gap: the launcher is put in after it started, so a `soffice.bin` it managed to start in those
+            # microseconds is outside the job. `taskkill /T` below still ends that one on the normal path.
+            _windows.add_process(job, process.pid)
         process.wait(timeout=CONVERSION_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
         raise ConversionTimeout from exc
@@ -257,6 +368,12 @@ def _run(command: list[str], working_folder: Path) -> None:
             _kill(process, own_group)
         if guard is not None:
             _stop_guard(guard)
+        if job is not None:
+            # Waited for, not only closed: a `soffice.bin` killed on the time limit was still going down when the folder was
+            # removed, so the removal failed on its files and the folder stayed
+            # (Pinned by: test_legacy.py::TestRealLibreOffice::test_no_folder_is_left_after_the_time_limit).
+            _windows.end_job(job, _END_SECONDS)
+            _windows.close_job(job)
 
 
 # What the guard process runs. It waits for its standard input to close, which happens when the process that started the
@@ -283,6 +400,63 @@ _GUARD = (
     "shutil.rmtree(sys.argv[1], ignore_errors=True)\n"
 )
 _PYTHON_PROGRAM = re.compile(r"(?:python|pypy)[\w.-]*\Z", re.IGNORECASE)
+
+# What the Windows guard runs. It waits on a handle to the process that started it — no pipe and no polling — and removes
+# the folder once that process is gone. The job object ends LibreOffice itself, so the folder is all this has to remove.
+#
+# The removal is tried again until it works, for `_WINDOWS_GUARD_SECONDS`. Windows refuses to remove a folder that is a
+# running process's current directory, and LibreOffice is started with the folder as its own (`cwd=working_folder`): the
+# kernel ends it when the job's handle closes, but it does so after the process this guard waits on has already gone, so a
+# single attempt removes nothing and `ignore_errors` hides that it removed nothing
+# (Pinned by: test_legacy.py::TestRunner::test_the_windows_guard_removes_a_folder_still_held_as_a_current_directory).
+_WINDOWS_GUARD_SECONDS = 30.0
+_WINDOWS_GUARD = (
+    "import ctypes, os, shutil, sys, time\n"
+    "from ctypes import wintypes\n"
+    "library = ctypes.WinDLL('kernel32', use_last_error=True)\n"
+    "library.OpenProcess.restype = wintypes.HANDLE\n"
+    "library.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]\n"
+    "library.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]\n"
+    "handle = library.OpenProcess(0x00100000, False, int(sys.argv[2]))\n"   # SYNCHRONIZE
+    "if handle:\n"
+    "    library.WaitForSingleObject(handle, 0xFFFFFFFF)\n"
+    # Only "no such process" (87) means the converting process is gone. Any other refusal says nothing about it, and
+    # removing the folder then would take the document away from a conversion that is still running.
+    "elif ctypes.get_last_error() != 87:\n"
+    "    sys.exit(0)\n"
+    "deadline = time.monotonic() + float(sys.argv[3])\n"
+    "while True:\n"
+    "    shutil.rmtree(sys.argv[1], ignore_errors=True)\n"
+    "    if not os.path.exists(sys.argv[1]) or time.monotonic() >= deadline:\n"
+    "        break\n"
+    "    time.sleep(0.1)\n"
+)
+
+
+def _start_windows_guard(folder: Path) -> subprocess.Popen | None:
+    """Start the process that removes the folder if this one is killed outright (Windows).
+
+    The job object ends LibreOffice when this process dies, but nothing removed the folder holding the uploaded document —
+    the user's own file, left on disk. This does what the POSIX guard does, the Windows way: a bare Python process waiting
+    on a handle to this one. It is killed in the `finally` of `_run`, so on the ordinary path it never acts.
+
+    Known accepted gap: the guard is a child of this process and so is in the same job, so a server killed outright ends it
+    together with the worker and the folder stays. It covers what the POSIX guard covers — a worker ended on its time
+    limit, on a cancelled request and at shutdown
+    (Pinned by: test_legacy.py::TestRunner::test_killing_the_converting_process_leaves_no_launcher_child_and_no_folder_windows).
+    """
+    program = sys.executable or ""
+    if getattr(sys, "frozen", False) or not _PYTHON_PROGRAM.match(os.path.basename(program)):
+        return None
+    try:
+        # CREATE_NO_WINDOW: a bare `python.exe` would flash a console window on every conversion.
+        # The long form of the folder: the profile below it passes 260 characters under a long temporary path.
+        return subprocess.Popen([program, "-I", "-S", "-c", _WINDOWS_GUARD, _long_path(str(folder)), str(os.getpid()),
+                                 str(_WINDOWS_GUARD_SECONDS)],
+                                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                creationflags=subprocess.CREATE_NO_WINDOW, shell=False)
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
 def _start_guard(folder: Path) -> subprocess.Popen | None:
@@ -335,10 +509,13 @@ def _kill(process: subprocess.Popen, own_group: bool) -> None:
         except (ProcessLookupError, PermissionError):
             pass
     elif process.poll() is None:
-        # Windows: `taskkill /T` ends the launcher together with the `soffice.bin` it started.
+        # Windows: `taskkill /T` ends the launcher together with the `soffice.bin` it started. CREATE_NO_WINDOW, as for the
+        # guard: started from a process without a console (pythonw, a service, an app's MCP server) a console program
+        # opens a window of its own.
         try:
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], stdin=subprocess.DEVNULL,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.TimeoutExpired):
             pass
     if process.poll() is None:

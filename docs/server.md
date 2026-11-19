@@ -89,12 +89,12 @@ Defaults: upload 50 MB · worker memory 2 GB · conversion 2 minutes.
 | Limit | Value | Basis (measured on Linux) |
 | --- | --- | --- |
 | Upload size | 50 MB (default of `max_file_bytes`) | — |
-| Worker memory (`RLIMIT_AS`) | 2 GB | The heaviest normal documents: a 46 MB scanned PDF used 875 MB resident and 1.19 GB of address space; a 48 MB Korean TXT, 702 MB and 1.03 GB. Ordinary documents are around 0.1 GB and 0.42 GB. `RLIMIT_AS` counts about 300 MB more than actual use, so 1.5 GB leaves too little headroom |
+| Worker memory (`RLIMIT_AS`, or a job object on Windows) | 2 GB | The heaviest normal documents: a 46 MB scanned PDF used 875 MB resident and 1.19 GB of address space; a 48 MB Korean TXT, 702 MB and 1.03 GB. Ordinary documents are around 0.1 GB and 0.42 GB. `RLIMIT_AS` counts about 300 MB more than actual use, so 1.5 GB leaves too little headroom |
 | Conversion time | 2 minutes | The PDF's own time budget (`pdf_time_budget`, 60 s) plus rendering. A 200-page scanned PDF takes 20 s |
 
 `IsolatedConverter` applies these limits as follows (defaults `memory_limit=2 GB`, `timeout=120`).
 
-1. **The memory limit is applied to the worker process only** (`RLIMIT_AS`). It works on Linux only; macOS ignores it, leaving the time limit and process isolation.
+1. **The memory limit is applied to the worker process only.** On Linux it is `RLIMIT_AS`, on Windows the `ProcessMemoryLimit` of a job object the workers join; macOS accepts neither, leaving the time limit and process isolation.
 2. **When the time is exceeded the worker is actually terminated.** `asyncio.wait_for` alone only stops waiting; the worker keeps running. The public API of Python 3.12 cannot stop a running worker, so the process is killed directly (deliberate; uses the private `_processes`). A process that dies on its own (`BrokenProcessPool`) is handled the same way.
 3. **Each worker has its own pool.** With several files in one pool, terminating a worker would fail the other files too.
 4. **The time limit applies to the conversion step only.** Image description is sent separately from the server's event loop.
@@ -102,7 +102,7 @@ Defaults: upload 50 MB · worker memory 2 GB · conversion 2 minutes.
 
 ### Measurements
 
-Pinned by `tests/test_isolated.py` (time limit, worker death, the next file after a cancelled request, a new worker per file; the memory limit on Linux only). In a Linux container (arm64, Python 3.12) the whole suite passed (3,024 tests at 0.1.0, 3,305 at 0.2.0). Feeding a 40 MB CSV to a worker with a 300 MB memory limit ended in 0.6 s with `document_too_large`, the server process stayed at 156 MB, and the next file succeeded immediately. A 40 MB CSV with a 10 s time limit ended at 10.0 s.
+Pinned by `tests/test_isolated.py` (time limit, worker death, the next file after a cancelled request, a new worker per file; the memory limit on Linux and Windows). In a Linux container (arm64, Python 3.12) the whole suite passed (3,024 tests at 0.1.0, 3,305 at 0.2.0). Feeding a 40 MB CSV to a worker with a 300 MB memory limit ended in 0.6 s with `document_too_large`, the server process stayed at 156 MB, and the next file succeeded immediately. A 40 MB CSV with a 10 s time limit ended at 10.0 s.
 
 In a Linux container (8 GB of memory), 5 kinds of normal documents and 23 crafted files were fed one after another through hand-written code using the same scheme (a pool of one worker, 2 GB, 120 s, a new pool after termination). These measurements predate the move to `IsolatedConverter`.
 
@@ -123,7 +123,7 @@ Fixed: **CPU in the image description step.** Each picture judged decorative (SK
 **Legacy `.doc` and `.ppt`.** These start LibreOffice from inside the worker, with its own fixed limit of 60 seconds — below
 the 2-minute default, so the conversion normally ends with its own `document_too_large` error. If you set `timeout` below
 60 seconds the worker is killed first; on Linux and macOS a small guard process then ends LibreOffice and removes its
-temporary folder (on Windows both can be left behind). On Linux, LibreOffice inherits the worker's memory limit. The
-bridge is not a sandbox: see [limitations.md](limitations.md#word-97-2003-doc-and-powerpoint-97-2003-ppt).
+temporary folder, and on Windows a job object ends it and a guard process removes the folder. On Linux, LibreOffice
+inherits the worker's memory limit. The bridge is not a sandbox: see [limitations.md](limitations.md#word-97-2003-doc-and-powerpoint-97-2003-ppt).
 
 One bad file can hold a worker for up to 2 minutes, during which other uploads wait. If that becomes a problem, limit the number of uploads per user.

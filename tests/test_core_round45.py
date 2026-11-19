@@ -161,6 +161,9 @@ class TestLimitOnBrokenHtml:
         assert "after" in result.text
 
     def test_text_beside_elements_inside_math_is_kept(self):
-        result = convert("<p>값</p><math>- <span>a</span> b</math>".encode(), "a.html")
+        # A MathML element, not a `<span>`: `<math>` is foreign content, and HTML5 leaves it at an HTML start tag inside it,
+        # which libxml2's older parser does not. That rule is about foreign content, not about reading math, and real MathML
+        # holds MathML elements, so this is markup both parsers build the same tree for.
+        result = convert("<p>값</p><math>- <mi>a</mi> b</math>".encode(), "a.html")
 
         assert result.text == "값\n\n$-ab$"

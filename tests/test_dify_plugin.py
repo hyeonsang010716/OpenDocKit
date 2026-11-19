@@ -277,7 +277,7 @@ class TestConversion:
         with "asyncio.run() cannot be called from a running event loop"."""
         pytest.importorskip("gevent")
         if os.name != "posix":
-            pytest.skip("the plugin runtime is Linux; IsolatedConverter is verified on Linux and macOS only")
+            pytest.skip("the plugin runtime is Linux, and gevent with multiprocessing is run as it runs there only on POSIX")
         # Run on the Python the plugin runs on: on 3.14 gevent with asyncio and multiprocessing hangs, old code or new.
         if f"{sys.version_info.major}.{sys.version_info.minor}" != _yaml("manifest.yaml")["meta"]["runner"]["version"]:
             pytest.skip("runs on the Python version of the plugin's runner")

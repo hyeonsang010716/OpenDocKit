@@ -34,7 +34,7 @@ from opendockit import (
 )
 from opendockit.extractors import legacy
 from opendockit.isolated import _DEFAULT_TIMEOUT
-from tests import builder
+from tests import builder, wait_until_gone
 
 
 _FAKE_PROGRAM = "/nonexistent/soffice"
@@ -136,6 +136,9 @@ class TestLookup:
             on_path: dict[str, str] = {}
             files: set[str] = set()
             searches = 0
+            # What the Windows registry says: the `program` folders the installer recorded, and the Program Files folders.
+            installed: list[str] = []
+            program_folders: list[str] = []
 
         machine = Machine()
 
@@ -145,6 +148,7 @@ class TestLookup:
 
         monkeypatch.setattr(legacy.shutil, "which", which)
         monkeypatch.setattr(legacy.os.path, "isfile", lambda path: path in machine.files)
+        monkeypatch.setattr(legacy, "_windows_registry_folders", lambda: (machine.installed, machine.program_folders))
         for variable in legacy._WINDOWS_FOLDER_VARIABLES:
             monkeypatch.delenv(variable, raising=False)
         return machine
@@ -168,6 +172,33 @@ class TestLookup:
         machine.files = {expected}
 
         assert legacy.find_soffice() == expected
+
+    def test_windows_install_is_found_without_the_program_files_variables(self, machine):
+        """An MCP client starts its server with a short list of variables, and the official SDK's has no PROGRAMFILES: a
+        LibreOffice installed in the default place was "not installed" for the MCP server alone. Windows records the folders
+        in the registry as well, and the registry does not depend on the environment."""
+        expected = os.path.join("C:\\Program Files", "LibreOffice", "program", "soffice.exe")
+        machine.files = {expected}
+        machine.program_folders = ["C:\\Program Files", "C:\\Program Files (x86)"]
+
+        assert legacy.find_soffice() == expected
+
+    def test_windows_install_outside_program_files_is_found_through_the_installer_record(self, machine):
+        """The installer records its own `program` folder, so an install chosen elsewhere (another drive) is found too."""
+        expected = os.path.join("D:\\Apps\\LibreOffice\\program", "soffice.exe")
+        machine.files = {expected}
+        machine.installed = ["D:\\Apps\\LibreOffice\\program"]
+        machine.program_folders = ["C:\\Program Files"]
+
+        assert legacy.find_soffice() == expected
+
+    @pytest.mark.skipif(os.name != "nt", reason="the registry is Windows")
+    def test_the_registry_is_read_for_the_program_files_folders(self):
+        """The reader itself, on the real registry: every Windows records its Program Files folder."""
+        _, folders = legacy._windows_registry_folders()
+
+        assert folders, "no Program Files folder was read from the registry"
+        assert all(os.path.isdir(folder) for folder in folders)
 
     def test_nothing_installed_is_none(self, machine):
         assert legacy.find_soffice() is None
@@ -610,6 +641,124 @@ class TestRunner:
             time.sleep(0.05)
         assert list(scratch.iterdir()) == []
 
+    @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
+    @pytest.mark.skipif(os.name != "nt", reason="the job object is the Windows mechanism; the stand-in launcher is a .cmd")
+    def test_killing_the_converting_process_leaves_no_launcher_child_and_no_folder_windows(self, scratch, tmp_path):
+        """The same promise the guard process keeps on POSIX, kept by a job object here.
+
+        `IsolatedConverter` ends a worker outright on its time limit, on a cancelled request and on shutdown, so no `finally`
+        of the worker runs and `taskkill /T` is never reached. The launcher is put into a job whose handle the converting
+        process holds, so the kernel ends the launcher and its child when that process dies. The temporary folder is not
+        removed — there is no guard process to do it (docs/decisions/legacy-office.md).
+        """
+        pid_file = tmp_path / "child.pid"
+        launcher = _windows_launcher(tmp_path, pid_file)
+        script = ("import sys, tempfile\n"
+                  "from opendockit import convert\n"
+                  "from opendockit.extractors import legacy\n"
+                  "tempfile.tempdir = sys.argv[1]\n"
+                  "legacy.find_soffice = lambda: sys.argv[2]\n"
+                  "convert(open(sys.argv[3], 'rb').read(), 'a.doc')\n")
+        document = tmp_path / "a.doc"
+        document.write_bytes(_doc())
+        worker = subprocess.Popen([sys.executable, "-c", script, str(scratch), launcher, str(document)])
+        try:
+            deadline = time.monotonic() + 30
+            while not (pid_file.exists() and pid_file.read_text().strip()) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            child = int(pid_file.read_text())
+        finally:
+            worker.kill()
+            worker.wait()
+
+        assert wait_until_gone(child), "the launcher's child survived the death of the converting process"
+        deadline = time.monotonic() + 10   # the guard removes it once it sees this process end
+        while list(scratch.iterdir()) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert list(scratch.iterdir()) == [], "the folder holding the uploaded document stayed on disk"
+
+    @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
+    @pytest.mark.skipif(os.name != "nt", reason="only Windows refuses to remove a folder that is a process's current directory")
+    def test_the_windows_guard_removes_a_folder_still_held_as_a_current_directory(self, tmp_path):
+        """Windows refuses to remove a folder that a running process has as its current directory, and LibreOffice is started
+        with the working folder as its own. The job object ends it only after the converting process has gone, so the guard
+        has to try again rather than once: a single attempt removes nothing, and `ignore_errors` hides that it removed
+        nothing."""
+        folder = tmp_path / "work"
+        folder.mkdir()
+        (folder / "uploaded.doc").write_bytes(_doc())
+        # A process that keeps the folder as its current directory, as LibreOffice does, and outlives the guard's wait.
+        holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], cwd=folder)
+        # The guard watches whoever started it, so it is started from a process that then ends — this one never does.
+        starter = ("import sys\n"
+                   "from opendockit.extractors import legacy\n"
+                   "legacy._start_windows_guard(sys.argv[1])\n")
+        try:
+            subprocess.run([sys.executable, "-c", starter, str(folder)], check=True, timeout=60)
+            deadline = time.monotonic() + 20
+            while folder.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert folder.exists(), "the folder cannot go while a process still has it as its current directory"
+            holder.kill()   # as the job object ends LibreOffice, after the guard's wait is already over
+            holder.wait()
+
+            deadline = time.monotonic() + 20
+            while folder.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+        finally:
+            holder.kill()
+
+        assert not folder.exists(), "the guard gave up after one attempt while the folder was still held"
+
+    @pytest.mark.skipif(os.name != "nt", reason="the guard that removes the folder is started only on Windows here")
+    def test_the_windows_guard_leaves_the_folder_when_it_cannot_watch_the_converting_process(self, tmp_path):
+        """A process that cannot be opened is gone only when Windows says there is no such process. Refused for any other
+        reason (another integrity level, a restricted token), the guard removed the folder at once — taking the document
+        away from a conversion still running. The refusal is made certain by running the guard with an `OpenProcess` that
+        fails with "access denied" (5): which real process an account may open differs between machines (an elevated CI
+        runner may open more)."""
+        kept = tmp_path / "kept"
+        kept.mkdir()
+        (kept / "uploaded.doc").write_bytes(_doc())
+        removed = tmp_path / "removed"
+        removed.mkdir()
+        (removed / "uploaded.doc").write_bytes(_doc())
+        refused = ("import ctypes, sys\n"
+                   "real = ctypes.WinDLL\n"
+                   "class Refusing:\n"
+                   "    restype = argtypes = None\n"
+                   "    def __call__(self, *arguments):\n"
+                   "        ctypes.set_last_error(5)\n"
+                   "        return None\n"
+                   "class Kernel:\n"
+                   "    def __init__(self, *arguments, **options):\n"
+                   "        self.__dict__['real'] = real(*arguments, **options)\n"
+                   "        self.__dict__['OpenProcess'] = Refusing()\n"
+                   "    def __getattr__(self, name):\n"
+                   "        return getattr(self.real, name)\n"
+                   "ctypes.WinDLL = Kernel\n"
+                   "sys.argv = sys.argv[1:]\n"
+                   f"exec({legacy._WINDOWS_GUARD!r})\n")
+
+        subprocess.run([sys.executable, "-I", "-S", "-c", refused, "guard", legacy._long_path(str(kept)), str(os.getpid()),
+                        "5"], check=True, timeout=60)
+        # And a process that does not exist: that one is gone, and its folder is removed.
+        subprocess.run([sys.executable, "-I", "-S", "-c", legacy._WINDOWS_GUARD, legacy._long_path(str(removed)),
+                        str(4_000_000_000), "5"], check=True, timeout=60)
+
+        assert (kept / "uploaded.doc").exists(), "the guard removed the folder of a process it could not watch"
+        assert not removed.exists(), "the guard kept the folder of a process that is gone"
+
+    @pytest.mark.skipif(os.name != "nt", reason="the guard that removes the folder is started only on Windows here")
+    def test_the_windows_guard_is_started_only_with_a_python_interpreter(self, monkeypatch, tmp_path):
+        """As for the POSIX guard: in a frozen application or an embedding host `sys.executable` is the application, not
+        Python, and running it with `-c` would start a second copy of it for every conversion."""
+        monkeypatch.setattr(sys, "executable", r"C:\Program Files\MyApp\MyApp.exe")
+
+        assert legacy._start_windows_guard(tmp_path) is None
+
     @pytest.mark.skipif(os.name != "posix", reason="the guard process is the POSIX mechanism")
     def test_guard_is_started_only_with_a_python_interpreter(self, monkeypatch, tmp_path):
         """In a frozen application or an embedding host (uWSGI) `sys.executable` is the application, not Python: running it
@@ -667,6 +816,18 @@ class TestRunner:
         while list(scratch.iterdir()) and time.monotonic() < deadline:
             time.sleep(0.05)
         assert list(scratch.iterdir()) == []
+
+
+def _windows_launcher(folder: Path, pid_file: Path) -> str:
+    """A `.cmd` standing in for `soffice.exe`, which starts a long-lived child and waits for it, as the real launcher starts
+    `soffice.bin`. The child writes its pid, so a test can ask whether it outlived the conversion."""
+    child = folder / "child.py"
+    child.write_text("import os, sys, time\n"
+                     "open(sys.argv[1], 'w').write(str(os.getpid()))\n"
+                     "time.sleep(60)\n", encoding="utf-8")
+    script = folder / "soffice.cmd"
+    script.write_text(f'@echo off\r\n"{sys.executable}" "{child}" "{pid_file}"\r\n', encoding="utf-8")
+    return str(script)
 
 
 def _launcher(folder: Path, body: str) -> str:
@@ -741,6 +902,51 @@ class TestRealLibreOffice:
     """End to end with the installed LibreOffice. The .doc / .ppt inputs are made by LibreOffice itself from the in-memory
     DOCX / PPTX of `tests/builder.py`."""
 
+    def test_found_with_the_environment_an_mcp_client_passes(self):
+        """The MCP server is started by its client with only the variables the client chooses to pass. The official SDK's
+        list has no PROGRAMFILES on Windows, and there the installed LibreOffice was not found: every .doc and .ppt the MCP
+        server was asked for failed with "need LibreOffice" while the same call in a terminal worked. The lookup is run in
+        a process started with exactly that environment."""
+        stdio = pytest.importorskip("mcp.client.stdio")
+        environment = stdio.get_default_environment()
+        environment.pop(legacy.SOFFICE_ENVIRONMENT_VARIABLE, None)
+        lookup = "from opendockit.extractors import legacy; print(legacy.find_soffice() or '')"
+
+        found = subprocess.run([sys.executable, "-c", lookup], env=environment, capture_output=True, text=True,
+                               timeout=60, check=True).stdout.strip()
+
+        assert found, "LibreOffice was not found with the environment an MCP client gives its server"
+        assert os.path.isfile(found)
+
+    def test_no_folder_is_left_under_a_long_temporary_path(self, real_doc, tmp_path, monkeypatch):
+        """LibreOffice writes paths of 140 characters and more inside its profile, through the long path form. Under a
+        temporary folder of a hundred characters they passed Windows' 260-character limit, the ordinary removal failed on
+        them, and every conversion left its folder behind."""
+        # 114 characters, where it was seen: short enough for the folders this package makes, too long for LibreOffice's.
+        deep = tmp_path / ("d" * max(1, 114 - len(str(tmp_path)) - 1))
+        deep.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(deep))
+
+        result = convert(real_doc, "a.doc")
+
+        assert "본문 첫 문단입니다." in result.text
+        assert len(str(deep)) >= 114
+        assert list(deep.iterdir()) == [], "the conversion's folder stayed on disk"
+
+    def test_no_folder_is_left_after_the_time_limit(self, real_doc, tmp_path, monkeypatch):
+        """Ending LibreOffice on its time limit is asynchronous on Windows: `soffice.bin` was still going down, holding its
+        files, when the folder was removed, so the removal failed and the folder stayed. It is cut off at several points
+        of its run, since where it is when the limit passes differs from machine to machine."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        for limit in (0.3, 0.8, 1.5, 2.5):
+            monkeypatch.setattr(legacy, "CONVERSION_TIMEOUT", limit)
+            try:
+                convert(real_doc, "a.doc")
+            except DocumentTooLargeError:
+                pass
+
+            assert list(tmp_path.iterdir()) == [], f"a folder stayed after a time limit of {limit} s"
+
     def test_word_document_keeps_headings_lists_table_and_korean_text(self, real_doc):
         result = convert(real_doc, "분기 보고서.doc")
 
@@ -784,6 +990,9 @@ class TestRealLibreOffice:
         assert [result.format for result in results] == [DocumentFormat.DOC, DocumentFormat.PPT, DocumentFormat.DOC, DocumentFormat.PPT]
         assert all("과일" in result.text or "서울" in result.text for result in results)
 
+    @pytest.mark.skipif(os.name == "nt",
+                        reason="LibreOffice on Windows does not fetch a linked picture even with a bare profile, so the "
+                               "baseline this test needs cannot be established there")
     def test_linked_picture_is_not_fetched_from_the_network(self):
         """A .doc whose picture is a link to a URL. With LibreOffice's default settings, converting it sends requests to that
         address — an address the uploader chose, reached from inside the server's network. The private profile blocks it: no

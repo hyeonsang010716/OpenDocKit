@@ -548,18 +548,16 @@ class TestLargeHtmlStopsEarly:
 
     @staticmethod
     def _parsed_lengths(monkeypatch):
-        from opendockit.extractors import _html_dom, _html_mail
-        from opendockit.extractors import html as html_extractor
+        from opendockit.extractors import _html_base
 
         lengths = []
-        original = html_extractor.BeautifulSoup
+        original = _html_base.BeautifulSoup
 
         def recording(markup, *args, **kwargs):
             lengths.append(len(markup))
             return original(markup, *args, **kwargs)
 
-        for module in (html_extractor, _html_mail, _html_dom):  # every module that calls the parser
-            monkeypatch.setattr(module, "BeautifulSoup", recording)
+        monkeypatch.setattr(_html_base, "BeautifulSoup", recording)  # `parse_html` is the one place that calls the parser
         return lengths
 
     def test_document_far_over_the_limit_is_parsed_only_at_the_front(self, monkeypatch):
@@ -1074,7 +1072,10 @@ class TestRuby:
                                                          "| 都市 | 人口 |\n| --- | --- |\n| 大阪(おおさか) | 270 |")
 
     def test_rubies_nested_in_each_other_are_read_from_the_inside_out(self):
-        html = "<p><ruby><ruby>漢<rt>かん</rt></ruby>字<rt>outer</rt></ruby>と<ruby>a<pre> b  c </pre><rt>x</rt></ruby></p>"
+        # Not wrapped in a `<p>`: `<pre>` is a block, and HTML5 closes an open paragraph — and the ruby inside it — at its
+        # start tag, which libxml2's older parser does not. That rule is about paragraphs, not about ruby, so the ruby is
+        # pinned here on markup both parsers build the same tree for.
+        html = "<ruby><ruby>漢<rt>かん</rt></ruby>字<rt>outer</rt></ruby>と<ruby>a<pre> b  c </pre><rt>x</rt></ruby>"
 
         assert convert(html.encode(), "a.html").text == "漢(かん)字(outer)とa b c(x)"
 

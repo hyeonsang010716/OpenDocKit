@@ -29,28 +29,34 @@ jobs:
     timeout-minutes: 40
     name: test (py${{ matrix.python }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Windows is not verified yet: its result is reported but does not fail the workflow.
-    # Remove `experimental` (and add the Windows classifier in pyproject.toml) once it is green.
-    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         python: ["3.12", "3.13", "3.14"]
         include:
+          # Windows runs on the oldest and the newest version. Its own code (the job object of `IsolatedConverter`, the
+          # LibreOffice job, html5lib as the tree builder) is the same on each, but the worker pool it drives reaches into
+          # private parts of `concurrent.futures` that a new Python may change; 3.13 in between is left to the other systems.
           - os: windows-latest
             python: "3.12"
-            experimental: true
+          - os: windows-latest
+            python: "3.14"
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
       - run: uv sync --locked --python ${{ matrix.python }}
-      # The .doc / .ppt tests that start a real LibreOffice run only where it is installed: one Linux job is enough.
+      # The .doc / .ppt tests that start a real LibreOffice run only where it is installed: one Linux job, and one Windows
+      # job, whose way of ending LibreOffice (a job object), removing its folder and finding the program (the registry,
+      # for an MCP server started without PROGRAMFILES) is its own and is only proven against the real program.
       - name: Install LibreOffice
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libreoffice-writer libreoffice-impress
+      - name: Install LibreOffice (Windows)
+        if: matrix.os == 'windows-latest' && matrix.python == '3.12'
+        run: choco install libreoffice-fresh --no-progress -y
       - name: Tests (parallel)
         run: uv run pytest -n auto -m "not timing"
       # Tests that assert on wall-clock time run on their own, one at a time, so busy workers cannot fail them.

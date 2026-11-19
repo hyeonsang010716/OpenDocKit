@@ -9,8 +9,7 @@ import pytest
 
 from opendockit import ConvertOptions, convert
 from opendockit.exceptions import CorruptedDocumentError
-from opendockit.extractors import _html_dom, _html_mail
-from opendockit.extractors import html as html_extractor
+from opendockit.extractors import _html_base
 from tests.builder import png_bytes
 from tests.timing import allowed, fastest
 
@@ -774,8 +773,7 @@ class TestFrameCheckOfASavedPageWithoutFrames:
             sizes.append(len(markup))
             return BeautifulSoup(markup, *args, **kwargs)
 
-        for module in (html_extractor, _html_mail, _html_dom):  # every module that calls the parser
-            monkeypatch.setattr(module, "BeautifulSoup", counting)
+        monkeypatch.setattr(_html_base, "BeautifulSoup", counting)  # `parse_html` is the one place that calls the parser
         return sizes
 
     def test_page_without_a_frame_element_is_not_parsed_again(self, parses):
@@ -818,8 +816,7 @@ class TestLargeHtmlMailWithoutAPlainBranch:
             sizes.append(len(markup))
             return BeautifulSoup(markup, *args, **kwargs)
 
-        for module in (html_extractor, _html_mail, _html_dom):  # every module that calls the parser
-            monkeypatch.setattr(module, "BeautifulSoup", counting)
+        monkeypatch.setattr(_html_base, "BeautifulSoup", counting)  # `parse_html` is the one place that calls the parser
         return sizes
 
     def test_html_is_not_parsed_for_text_it_does_not_need(self, parses):

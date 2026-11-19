@@ -1,11 +1,14 @@
 """HTML rendering: content placed outside the body, MathML equations, block elements."""
 
+from email.message import EmailMessage
+import time
 import warnings
 
 from bs4 import BeautifulSoup
 import pytest
 
 from opendockit import ConvertOptions, DocumentFormat, convert
+from opendockit.extractors import _html_base
 from opendockit.extractors._html_tables import _names_values_in_pairs, _table_rows
 from opendockit.extractors.html import extract_html
 from tests import needs_html5_tokenizer
@@ -846,21 +849,133 @@ class TestSymbolFontsInHtml:
         assert "þ" not in result.text
 
 
-class TestOlderHtmlParser:
-    """lxml's Windows wheels bundle libxml2 2.11, without the HTML5 tokenizer the extractor relies on. There, text after
-    `</html>` and further HTML parts of a mail went missing with no sign that anything was wrong."""
+_SHAPE_WARNING = ("This page is too large or too deeply nested to read with the HTML5 parser, and the one bundled with lxml "
+                  "on this platform was used instead, so content of malformed or multi-part HTML and mail (text after the "
+                  "end of the page, further mail parts) may be missing.")
 
-    def test_missing_html5_tokenizer_is_reported_once(self, monkeypatch):
-        monkeypatch.setattr("opendockit.extractors.html.HTML5_TOKENIZER", False)
+
+@pytest.mark.skipif(_html_base.TREE_BUILDER != "html5lib", reason="only where html5lib builds the tree is there a shape to fall back from")
+class TestLargePagesKeepTheOlderParser:
+    """html5lib reads a page like a browser but is Python: the time it spends on the text an unclosed raw-text element
+    swallows grows with the square of that text (1.12 MB took 36.8 s, against 0.14 s for libxml2). Past
+    `_HTML5LIB_MAX_CHARS` the page goes to the older parser, which is what this platform did before html5lib was used at
+    all, and the result says so instead of losing content silently."""
+
+    def _page(self, chars: int) -> bytes:
+        filler = "<p>재고 현황</p>" * (chars // 16)
+        return f"<html><body><textarea name=memo/>{filler}</body></html>".encode()
+
+    def test_a_page_over_the_limit_is_read_by_the_older_parser_and_says_so(self):
+        data = self._page(_html_base._HTML5LIB_MAX_CHARS * 2)
+
+        result = convert(data, "a.html")
+
+        assert len(data) > _html_base._HTML5LIB_MAX_CHARS
+        assert [warning for warning in result.warnings if "to read with the HTML5 parser" in warning] == [_SHAPE_WARNING]
+        assert "재고 현황" in result.text
+
+    def test_a_page_under_the_limit_is_read_whole_without_a_warning(self):
+        result = convert(self._page(1_000), "a.html")
+
+        assert result.warnings == []
+        assert "재고 현황" in result.text
+
+    def test_a_mail_with_a_large_attachment_reads_its_body_with_the_html5_parser(self):
+        """The limit is about the HTML that is parsed, not the file it came in. Decided from the file, an ordinary mail with
+        a 400 KB attachment had a body of a few hundred bytes read by the older parser: the text after its `</html>` was
+        lost — the very content html5lib is used for — and the warning blamed the size of a tiny page."""
+        message = EmailMessage()
+        message["Subject"] = "분기 실적"
+        message["From"] = "a@example.com"
+        message["To"] = "b@example.com"
+        message.set_content("plain body")
+        message.add_alternative("<html><body><p>본문입니다</p></body></html>\n<p>페이지 끝 뒤의 문단</p>", subtype="html")
+        message.add_attachment(bytes(range(256)) * 1600, maintype="application", subtype="octet-stream",
+                               filename="data.bin")
+        data = message.as_bytes()
+
+        result = convert(data, "mail.eml")
+
+        assert len(data) > _html_base._HTML5LIB_MAX_CHARS, "the file must be over the limit for this to test anything"
+        assert "본문입니다" in result.text
+        assert "페이지 끝 뒤의 문단" in result.text
+        assert _SHAPE_WARNING not in result.warnings
+
+    def test_the_limit_counts_characters_not_bytes(self):
+        """html5lib's time grows with the characters it reads. Counted in bytes, a Korean page — three bytes a character in
+        UTF-8 — went to the older parser at a third of the size of an English one."""
+        filler = "<p>재고 현황 보고</p>" * (_html_base._HTML5LIB_MAX_CHARS // 20)   # 15 characters, 27 bytes each
+        data = f"<html><body>{filler}</body></html>\n<p>페이지 끝 뒤의 문단</p>".encode()
+
+        result = convert(data, "a.html")
+
+        assert len(data) > _html_base._HTML5LIB_MAX_CHARS > len(data.decode())
+        assert _SHAPE_WARNING not in result.warnings
+        assert "페이지 끝 뒤의 문단" in result.text
+
+    @pytest.mark.timing
+    def test_a_page_over_the_limit_does_not_take_the_quadratic_path(self):
+        """The point of the limit: the same page took 36 s through html5lib and a third of a second through the older parser."""
+        started = time.perf_counter()
+
+        convert(self._page(_html_base._HTML5LIB_MAX_CHARS * 4), "a.html")
+
+        assert time.perf_counter() - started < 10
+
+
+@pytest.mark.skipif(_html_base.TREE_BUILDER != "html5lib", reason="only where html5lib builds the tree is there a shape to fall back from")
+class TestDeeplyNestedPagesKeepTheOlderParser:
+    """html5lib walks the open elements for every tag, so its time grows with the square of the nesting: 8,000 nested
+    `<div>` (39 KB) took 6.2 s against libxml2's 0.05 s, closed or not. Size does not catch that, so the markup is read once
+    for its depth before a builder is chosen."""
+
+    def test_a_deeply_nested_page_is_read_by_the_older_parser_and_says_so(self):
+        for closing in ("", "</div>" * (_html_base._HTML5LIB_MAX_DEPTH + 10)):
+            data = f"<html><body>{'<div>' * (_html_base._HTML5LIB_MAX_DEPTH + 10)}깊은 본문{closing}</body></html>".encode()
+
+            result = convert(data, "a.html")
+
+            assert len(data) < _html_base._HTML5LIB_MAX_CHARS, "the size limit must not be what caught this"
+            assert [warning for warning in result.warnings if "to read with the HTML5 parser" in warning] == [_SHAPE_WARNING]
+            assert "깊은 본문" in result.text
+
+    def test_a_page_of_unclosed_paragraphs_is_not_taken_for_a_deep_one(self):
+        """`<p>` and its kind are left open as a matter of course and HTML closes them, so they must not count as nesting —
+        malformed markup like this is what the HTML5 parser is here for."""
+        data = ("<html><body>" + "<p>문단" * (_html_base._HTML5LIB_MAX_DEPTH + 10) + "</body></html>").encode()
+
+        result = convert(data, "a.html")
+
+        assert result.warnings == []
+        assert "문단" in result.text
+
+    @pytest.mark.timing
+    def test_the_depth_is_read_quickly(self):
+        """The check is one pass that stops at the limit: it must cost a fraction of a parse, not another one."""
+        markup = "<html><body>" + "<div><span>x</span></div>" * 20_000 + "</body></html>"
+        started = time.perf_counter()
+
+        _html_base.builder_for(markup)
+
+        assert time.perf_counter() - started < 1.0
+
+
+class TestOlderHtmlParser:
+    """Where lxml bundles libxml2 2.11 (its Windows wheels) html5lib builds the tree instead. An install that has neither —
+    an old lxml and no html5lib — still loses text after `</html>` and the further HTML parts of a mail, and says so."""
+
+    def test_an_install_without_any_html5_parser_is_reported_once(self, monkeypatch):
+        monkeypatch.setattr("opendockit.extractors.html.READS_LIKE_A_BROWSER", False)
 
         result = convert("<html><body><p>본문</p></body></html>".encode(), "a.html")
 
         assert [warning for warning in result.warnings if "libxml2 2.14" in warning] == [
-            "The installed lxml bundles an HTML parser older than libxml2 2.14 (as its Windows builds do), so content of "
-            "malformed or multi-part HTML and mail (text after the end of the page, further mail parts) may be missing."]
+            "The installed lxml bundles an HTML parser older than libxml2 2.14 (as its Windows builds do) and html5lib is "
+            "not installed, so content of malformed or multi-part HTML and mail (text after the end of the page, further "
+            "mail parts) may be missing."]
 
-    def test_current_parser_adds_no_warning(self, monkeypatch):
-        monkeypatch.setattr("opendockit.extractors.html.HTML5_TOKENIZER", True)
+    def test_an_html5_parser_adds_no_warning(self, monkeypatch):
+        monkeypatch.setattr("opendockit.extractors.html.READS_LIKE_A_BROWSER", True)
 
         assert convert("<html><body><p>본문</p></body></html>".encode(), "a.html").warnings == []
 

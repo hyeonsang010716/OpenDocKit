@@ -11,7 +11,7 @@ from collections.abc import Callable, Container, Iterator
 import itertools
 import re
 
-from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
+from bs4 import BeautifulSoup, NavigableString, Tag
 from bs4.element import CData, PageElement, PreformattedString, RubyTextString
 
 from opendockit.extractors._html_base import (
@@ -23,7 +23,6 @@ from opendockit.extractors._html_base import (
     _HEADER_PROBE_ROWS,
     _HEADINGS,
     _MAIN_CONTENT_TAGS,
-    _PARSER_CALLERS,
     _UNCHECKED,
     _content_holders,
     _is_main_content,
@@ -31,6 +30,7 @@ from opendockit.extractors._html_base import (
     _Places,
     _replace,
     _solid_length,
+    parse_html,
 )
 from opendockit.extractors._html_tables import (
     STRIKE_KEY,
@@ -51,7 +51,7 @@ from opendockit.extractors._notation import format_dutmal
 from opendockit.extractors._package import decimal_int
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_glyph
 from opendockit.markdown import clean_characters, code_fences
-from opendockit.models import ConvertOptions, Extraction, quiet_warnings
+from opendockit.models import ConvertOptions, Extraction
 
 
 # Inputs whose value is not content: invisible values (hidden/password) and button labels.
@@ -225,6 +225,16 @@ def _keep_svg_labels(soup: BeautifulSoup, cut: frozenset[int] = frozenset()) -> 
             _replace(svg, span, places)
 
 
+def _is_foreign_object(tag: Tag) -> bool:
+    """Whether `tag` is an SVG `<foreignObject>`, however the parser spelled it.
+
+    The name is camel case in the markup, and the two builders keep it differently: libxml2 lowercases it, html5lib leaves
+    it as written. Matching only the lowercase spelling lost every Mermaid and draw.io label on the html5lib builder
+    (Pinned by: test_core_round48.py::TestForeignObjectLabelsInInlineSvg).
+    """
+    return tag.name.lower() == "foreignobject"
+
+
 def _svg_labels(svg: Tag) -> list[Tag]:
     """The label elements of an svg in document order: every `<text>` and `<foreignObject>` that is not inside a foreignObject
     (with a stack, like `_nearest`; a foreignObject is not descended into)."""
@@ -234,9 +244,10 @@ def _svg_labels(svg: Tag) -> list[Tag]:
         child = stack.pop()
         if not isinstance(child, Tag):
             continue
-        if child.name in ("text", "foreignobject"):
+        foreign = _is_foreign_object(child)
+        if child.name == "text" or foreign:
             found.append(child)
-        if child.name != "foreignobject":
+        if not foreign:
             stack.extend(reversed(child.contents))
     return found
 
@@ -565,8 +576,7 @@ def _reopen_raw_text_elements(soup: BeautifulSoup, closed: frozenset[str]) -> No
         cut = text.find("<")
         if reopened < _MAX_REOPENED and cut >= 0 and tag.name not in closed and _reaches_the_end(tag):
             reopened += 1
-            with quiet_warnings((XMLParsedAsHTMLWarning, _PARSER_CALLERS)):
-                rest = BeautifulSoup(text[cut:], "lxml")
+            rest = parse_html(text[cut:])
             container = rest.body or rest
             nodes = list(container.contents)
             _move_after(tag, [node.extract() for node in nodes])
@@ -1074,6 +1084,20 @@ def _put_form_values(soup: BeautifulSoup) -> None:
     last descendant of every child it takes out): 8,000 questions with a select each left open (607 KB) took 20 seconds
     (Pinned by: TestFormValues::test_selects_left_open_take_linear_time).
     """
+    # An <option> outside every <select> is not drawn by a browser, and is emptied here rather than rendered as text. An
+    # HTML5 parser leaves such options behind: a `<select>` start tag inside a select ends the one before it, so the options
+    # of the inner select become siblings of the outer one. libxml2 nests the second select inside the first instead, so
+    # there are none there (Pinned by:
+    # test_text_html.py::TestFormValues::test_a_select_left_open_shows_its_own_option_not_one_of_the_select_inside_it).
+    # Emptied in place, like the controls below: detaching each one searches its parent's child list.
+    options = soup.find_all(["option", "optgroup"])
+    in_a_select = _lying_inside(options, {"select"})
+    for option in options:
+        if id(option) not in in_a_select:
+            option.clear()
+            option.attrs = {}
+            option.name = "span"
+
     controls = soup.find_all(["input", "select", "textarea"])
     held = _lying_inside(controls, {"select", "textarea"})
     for control in controls:

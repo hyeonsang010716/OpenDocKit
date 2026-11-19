@@ -23,8 +23,13 @@ from typing import TYPE_CHECKING
 
 try:
     import resource
-except ImportError:  # not available on Windows. Only the time limit applies, without a memory limit
+except ImportError:  # not available on Windows, where a job object carries the limit instead (`opendockit._windows`)
     resource = None
+
+if os.name == "nt":
+    from opendockit import _windows
+else:
+    _windows = None
 
 from opendockit.converter import TOO_COMPLEX_MESSAGE, _check_arguments, _content_bytes, _ran_out_of_memory, check_size, convert
 from opendockit.exceptions import ConversionError, DocumentTooLargeError
@@ -48,7 +53,8 @@ class IsolatedConverter:
 
     - `workers`: number of files converted at the same time. Each worker has its own pool — so killing a worker that ran over
       time does not cut off other files. Plan for up to `workers × memory_limit` of memory.
-    - `memory_limit`: address-space limit of one worker (bytes, `RLIMIT_AS`). Enforced on Linux only (macOS does not accept it).
+    - `memory_limit`: memory limit of one worker (bytes). On Linux it is the address-space limit (`RLIMIT_AS`), on Windows the
+      job object's `ProcessMemoryLimit`; macOS accepts neither, so there only the time limit and process isolation remain.
       None means no limit.
     - `timeout`: time limit of one conversion (seconds). When it is exceeded the worker is actually terminated. Image description
       (`describer`) is network waiting, so it is not counted in this time.
@@ -58,6 +64,12 @@ class IsolatedConverter:
     new worker per file takes only a few ms (around 0.2 s without preloading). A new worker per file also means no memory is
     left behind after a large document. Known accepted gap: the forkserver preload list is one per process, so this overwrites
     a list set by other code in the same process (it does not apply to a forkserver that is already running).
+
+    On Windows there is no forkserver and no preloading, so every file pays a full interpreter start and `import opendockit`
+    (measured on Windows 11: 0.7 s per file on Python 3.12 and 1.0 s on 3.14, against a few ms where the forkserver is
+    preloaded). It is the price of a fresh worker per file there, and `timeout` counts it. For the same reason a program
+    that builds an `IsolatedConverter` on a spawn platform must do so under `if __name__ == "__main__":`, or the child
+    process re-runs the module and builds converters without end.
     """
 
     def __init__(self, *, workers: int = 1, memory_limit: int | None = _DEFAULT_MEMORY_LIMIT,
@@ -73,6 +85,7 @@ class IsolatedConverter:
         self._timeout = float(timeout)
         self._context = _worker_context()
         self._server = os.getpid()  # the process the pools were built in, and the one their workers watch
+        self._job_name, self._job = _new_job(memory_limit)
         self._pools = [self._new_pool() for _ in range(workers)]
         self._free: asyncio.Queue[int] = asyncio.Queue()
         for slot in range(workers):
@@ -106,7 +119,11 @@ class IsolatedConverter:
             # The process was forked after this converter was built (gunicorn --preload). The pools carry the pid their
             # workers watch (`_leave_with`), and that was the master's: a server killed outright left its idle worker behind
             # for as long as the master lived. They are built again for this process (Pinned by:
-            # test_audit_runtime.py::TestConverterBuiltBeforeAFork).
+            # test_audit_runtime.py::TestConverterBuiltBeforeAFork). The job is built again with them: the one made before
+            # the fork belongs to the master, and its workers would be ended when the master ends, not when this process does.
+            if _windows is not None:
+                _windows.close_job(self._job)   # the inherited handle, or this process would hold it to its own end
+            self._job_name, self._job = _new_job(self._memory_limit)
             self._pools = [self._new_pool() for _ in self._pools]
             self._server = os.getpid()
 
@@ -122,7 +139,14 @@ class IsolatedConverter:
         """Terminate every worker. Files being converted are cut off (call this at application shutdown): they, and the files
         still waiting for a worker, end with the same `RuntimeError` a closed converter raises for a new file."""
         self._closed = True
-        await asyncio.gather(*(_stop(pool) for pool in self._pools))
+        try:
+            await asyncio.gather(*(_stop(pool) for pool in self._pools))
+        finally:
+            # Last: closing the job ends anything of ours the pools did not (Windows). Before them it would end workers the
+            # pool's manager thread is still waiting for.
+            if _windows is not None:
+                _windows.close_job(self._job)
+                self._job = None
 
     async def __aenter__(self) -> "IsolatedConverter":
         return self
@@ -184,8 +208,20 @@ class IsolatedConverter:
         self._pools[slot] = self._new_pool()
 
     def _new_pool(self) -> ProcessPoolExecutor:
-        return ProcessPoolExecutor(max_workers=1, mp_context=self._context, initializer=_start_worker,
-                                   initargs=(self._memory_limit, os.getpid()), max_tasks_per_child=1)
+        pool = ProcessPoolExecutor(max_workers=1, mp_context=self._context, initializer=_start_worker,
+                                   initargs=(self._memory_limit, os.getpid(), self._job_name), max_tasks_per_child=1)
+        # The queue the files are sent on must never be waited for. A worker that dies before it has read its file leaves
+        # the queue's feeder thread blocked writing to a pipe nobody drains, and the pool's manager thread joins that feeder
+        # while breaking the pool: `aclose()` then never returned. Windows loses this race where Linux usually wins it,
+        # because a worker there is ready in milliseconds and a spawned one takes 0.66 s — long enough for a large file to
+        # still be on its way. Cancelled here rather than when stopping: by then the manager thread is already in the join.
+        # The feeder is a daemon thread and the file it was carrying is one we are giving up on anyway
+        # (Pinned by: test_isolated.py::TestIsolatedConverter::test_worker_that_dies_before_it_reads_its_file_does_not_hang_the_close).
+        try:
+            pool._call_queue.cancel_join_thread()
+        except (AttributeError, OSError):   # a Python whose pool does not have this queue: the hang is the old behavior
+            pass
+        return pool
 
 
 def _worker_context() -> BaseContext:
@@ -245,11 +281,38 @@ def _shut_down(pool: ProcessPoolExecutor, processes: dict | None) -> None:
         finished.set()
 
 
-def _start_worker(limit: int | None, server: int) -> None:
+def _new_job(memory_limit: int | None) -> "tuple[str | None, int | None]":
+    """The job this converter's workers join, and its name to hand them. `(None, None)` anywhere but Windows."""
+    if _windows is None:
+        return None, None
+    name = _windows.new_job_name()
+    job = _windows.open_job(name, memory_limit)
+    return (name, job) if job is not None else (None, None)   # no job, no name to join: the workers simply have no limit
+
+
+def _start_worker(limit: int | None, server: int, job_name: str | None) -> None:
     """Runs when a worker starts."""
+    if _windows is not None:
+        if job_name is not None:
+            _windows.join_job(job_name)   # the memory limit, in place of RLIMIT_AS
+        threading.Thread(target=_leave_with_windows, args=(server,), daemon=True, name="opendockit-server-watch").start()
+        return
     _limit_memory(limit)
     if os.name == "posix":   # elsewhere `os.kill(pid, 0)` is not a harmless question
         threading.Thread(target=_leave_with, args=(server,), daemon=True, name="opendockit-server-watch").start()
+
+
+def _leave_with_windows(server: int) -> None:
+    """Ends this worker once the server process is gone (Windows).
+
+    What `_leave_with` does on POSIX, without its two weaknesses: the server's handle is taken once and held, so the answer
+    can never be about a pid that has since been given to another program, and the wait is a wait rather than a question
+    asked once a second. The job object the worker is in ends it as well, and either alone was measured to do so at once;
+    this one is what works where no job could be made
+    (Pinned by: test_isolated.py::TestIsolatedConverter::test_worker_does_not_outlive_a_server_that_was_killed_windows).
+    """
+    if _windows.wait_for_process(server):
+        os._exit(0)
 
 
 def _leave_with(server: int) -> None:
