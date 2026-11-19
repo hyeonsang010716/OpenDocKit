@@ -402,13 +402,19 @@ class TestMathMl:
         opened with a formula lost it, where with a `<body>` written it was read. After a title or a meta element the head is
         the page's own and its scripts stay there."""
         display = '<script type="math/tex; mode=display">E=mc^2</script>\n<p>is famous</p>'
-        inline = '<script type="math/tex">E</script> <script type="math/tex">m</script> are letters.'
         titled = '<title>T</title><script type="math/tex">x</script><p>body</p>'
 
         assert convert(display.encode(), "a.html").text == "$E=mc^2$\n\nis famous"
-        assert convert(inline.encode(), "a.html").text == "$E$ $m$ are letters."
         assert convert(b'<script type="math/tex">E</script>', "a.html").text == "$E$"
         assert convert(titled.encode(), "a.html").text == "# T\n\nbody"
+
+    @needs_html5_tokenizer
+    def test_formulas_that_open_a_fragment_stay_in_the_line_after_them(self):
+        """The text after them stays on their line. The older parser of libxml2 (Windows) puts that text in a paragraph of its
+        own, so it comes after a blank line there."""
+        inline = '<script type="math/tex">E</script> <script type="math/tex">m</script> are letters.'
+
+        assert convert(inline.encode(), "a.html").text == "$E$ $m$ are letters."
 
     def test_comments_in_the_tex_of_a_script_are_left_out(self):
         """kramdown wraps a displayed formula in `% <![CDATA[` and `%]]>`: once the lines were joined, the `%` of the wrapper
