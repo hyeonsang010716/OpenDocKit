@@ -18,14 +18,14 @@ import openpyxl
 from openpyxl.cell.rich_text import CellRichText
 from openpyxl.cell.text import Text
 from openpyxl.chartsheet import Chartsheet
-from openpyxl.formula.tokenizer import TokenizerError
-from openpyxl.formula.translate import TranslatorError
+from openpyxl.formula.tokenizer import Token, TokenizerError
+from openpyxl.formula.translate import Translator, TranslatorError
 from openpyxl.packaging.relationship import RelationshipList
 from openpyxl.reader import excel as _openpyxl_excel_reader
 from openpyxl.reader import workbook as _openpyxl_workbook_reader
 from openpyxl.styles.cell_style import CellStyleList
 from openpyxl.styles.numbers import BUILTIN_FORMATS, BUILTIN_FORMATS_MAX_SIZE
-from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
+from openpyxl.utils.cell import column_index_from_string, coordinate_to_tuple, range_boundaries
 from openpyxl.utils.datetime import from_excel, from_ISO8601
 from openpyxl.worksheet import _reader as _openpyxl_sheet_reader
 from openpyxl.worksheet._read_only import ReadOnlyWorksheet
@@ -361,6 +361,126 @@ def _skipped_while_reading(original: Callable[..., object]) -> Callable[..., obj
     return skipped
 
 
+class MovedFormula:
+    """A shared formula moved to one of the cells that point at it (`<f t="shared" si="0"/>`), written out only when the cell is
+    read (`text`). openpyxl moves it for every such cell while loading and `_unresolved_formulas` did so for every cell up front,
+    each time in time proportional to the formula: 8,000 cells pointing at one 8,000-character formula (88 KB) took 12 s (46 s
+    when values were read), while the output reached the character limit after 60 rows
+    (Pinned by: test_audit_spreadsheet.py::TestLongSharedFormulas). Whether the formula can be moved to the cell at all is known
+    from its references (`SharedFormula.moves_off_the_sheet`), so a cell it cannot be moved to is still blank from the start."""
+
+    __slots__ = ("_moved", "_reference", "_shared")
+
+    def __init__(self, shared: "SharedFormula", reference: str | None) -> None:
+        self._shared, self._reference = shared, reference
+        self._moved: str | None = None
+
+    def text(self) -> str | None:
+        """The formula moved to the cell (`=A2+B2`), or None when it cannot be moved after all. Moved once."""
+        if self._moved is None:
+            try:
+                self._moved = self._shared.translator.translate_formula(self._reference)
+            except (TranslatorError, ValueError, TypeError, IndexError):
+                return None
+        return self._moved
+
+
+class SharedFormula:
+    """One shared formula (`si`) and the bounds of its relative references, read once from its tokens: the smallest row, and the
+    smallest and largest column, that moving it shifts. openpyxl's `Translator` fails a move that takes a row to 0 or less or a
+    column outside A–ZZZ; the same test is made here without moving anything."""
+
+    __slots__ = ("translator", "_rows", "_columns", "_broken", "_empty")
+
+    def __init__(self, translator: Translator) -> None:
+        self.translator = translator
+        self._rows: list[int] = []
+        self._columns: list[int] = []
+        self._broken = False
+        self._empty: bool | None = None
+        tokens = translator.get_tokens()
+        if tokens and tokens[0].type != Token.LITERAL:
+            for token in tokens:
+                if token.type == Token.OPERAND and token.subtype == Token.RANGE:
+                    self._note_range(token.value)
+        self._rows = [min(self._rows)] if self._rows else []
+        self._columns = [min(self._columns), max(self._columns)] if self._columns else []
+
+    def _note_range(self, text: str) -> None:
+        """`Translator.translate_range`, noting the parts it would move instead of moving them."""
+        _, text = Translator.strip_ws_name(text)
+        match = Translator.ROW_RANGE_RE.match(text)
+        if match is not None:
+            self._note_row(match.group(1))
+            self._note_row(match.group(2))
+            return
+        match = Translator.COL_RANGE_RE.match(text)
+        if match is not None:
+            self._note_column(match.group(1))
+            self._note_column(match.group(2))
+            return
+        if ":" in text:
+            for piece in text.split(":"):
+                self._note_range(piece)
+            return
+        match = Translator.CELL_REF_RE.match(text)
+        if match is not None:
+            self._note_column(match.group(1))
+            self._note_row(match.group(2))
+
+    def _note_row(self, text: str) -> None:
+        if not text.startswith("$"):
+            self._rows.append(int(text))
+
+    def _note_column(self, text: str) -> None:
+        if not text.startswith("$"):
+            try:
+                self._columns.append(column_index_from_string(text))
+            except ValueError:
+                self._broken = True
+
+    def moves_to_nothing(self) -> bool:
+        """Whether the formula, wherever it is moved, is only its `=` (a formula with no tokens). Worked out once."""
+        if self._empty is None:
+            self._empty = not self.translator.translate_formula()[1:]
+        return self._empty
+
+    def moves_off_the_sheet(self, reference: str | None) -> bool:
+        """Whether moving the formula to the cell at `reference` fails (`Translator.translate_formula` raises TranslatorError).
+        No reference moves nothing, as in `translate_formula`."""
+        row_shift = column_shift = 0
+        if reference:
+            row, column = coordinate_to_tuple(reference)
+            row_shift, column_shift = row - self.translator.row, column - self.translator.col
+        if self._rows and self._rows[0] + row_shift <= 0:
+            return True
+        if self._columns and not (1 <= self._columns[0] + column_shift and self._columns[1] + column_shift <= _LAST_COLUMN):
+            return True
+        return self._broken
+
+
+_LAST_COLUMN = 18_278  # ZZZ, the last column `get_column_letter` writes
+
+
+def _parse_formula_moving_later(parser: object, element: object) -> object:
+    """`WorkSheetParser.parse_formula`, which gives a cell pointing at a shared formula its `MovedFormula` instead of moving the
+    formula there (while this module is reading). A move that would fail raises TranslatorError here, as openpyxl's does."""
+    formula = element.find(_openpyxl_sheet_reader.FORMULA_TAG)
+    if _READING.get() is None or formula.get("t") != "shared" or formula.get("si") not in parser.shared_formulae:
+        return _parse_formula(parser, element)
+    translator = parser.shared_formulae[formula.get("si")]
+    known = parser.__dict__.setdefault("_opendockit_shared", {})  # translator id → its SharedFormula, for this sheet
+    shared = known.get(id(translator))
+    if shared is None:
+        shared = known[id(translator)] = SharedFormula(translator)
+    reference = element.get("r")
+    if shared.moves_off_the_sheet(reference):
+        raise TranslatorError("Formula out of range")
+    return MovedFormula(shared, reference)
+
+
+_parse_formula = _openpyxl_sheet_reader.WorkSheetParser.parse_formula
+_openpyxl_sheet_reader.WorkSheetParser.parse_formula = _parse_formula_moving_later
 _openpyxl_sheet_reader.WorkSheetParser.parse_cell = _tolerant_parse_cell
 _openpyxl_sheet_reader.WorkSheetParser.parse_row = _tolerant_parse_row
 _openpyxl_sheet_reader.WorkSheetParser.parse_column_dimensions = _skipped_while_reading(

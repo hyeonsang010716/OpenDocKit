@@ -1292,3 +1292,64 @@ class TestUnclosedBracketsInANumberFormat:
 
         assert "\n1000" in convert(brackets, "a.xlsx").text
         assert fastest(lambda: convert(brackets, "a.xlsx")) < 10 * fastest(lambda: convert(plain, "a.xlsx"))
+
+
+def _shared_formula_sheet(cells: int, *, with_result: bool) -> bytes:
+    formula = "+".join(["A1"] * 100)
+    rows = [f'<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f t="shared" ref="B1:B{cells}" si="0">{formula}</f></c></row>']
+    rows += [f'<row r="{row}"><c r="A{row}"><v>{row}</v></c><c r="B{row}"><f t="shared" si="0"/></c></row>'
+             for row in range(2, cells + 1)]
+    if with_result:
+        rows.append(f'<row r="{cells + 1}"><c r="C{cells + 1}"><f>1+1</f><v>2</v></c></row>')
+    return _with_sheet_xml(_sheet_xml("".join(rows)))
+
+
+class TestLongSharedFormulas:
+    """A shared formula was moved to every cell pointing at it before a row was read, each move in time proportional to the
+    formula: 8,000 cells pointing at one 8,000-character formula (88 KB) took 12 s, or 46 s when one other formula had a result,
+    while the text reached the character limit after 60 rows. A cell is now moved when its row is read."""
+
+    @pytest.fixture
+    def moves(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        from openpyxl.formula.translate import Translator
+
+        moved: list[str] = []
+        translate = Translator.translate_formula
+
+        def counting(self: Translator, dest: str | None = None, row_delta: int = 0, col_delta: int = 0) -> str:
+            moved.append(dest or "")
+            return translate(self, dest, row_delta, col_delta)
+
+        monkeypatch.setattr(Translator, "translate_formula", counting)
+        return moved
+
+    @pytest.mark.parametrize("with_result", [False, True], ids=["formulas read", "values read"])
+    def test_cells_past_the_limit_are_not_moved(self, with_result, moves):
+        result = convert(_shared_formula_sheet(2_000, with_result=with_result), "a.xlsx", ConvertOptions(max_chars=_LIMIT))
+
+        assert result.exceeded
+        assert "| 2 | =" + "+".join(["A2"] * 100) + " |" in result.text
+        assert len(moves) < 200
+        if with_result:
+            assert result.warnings[0] == ("Sheet 'Sheet': 2,000 formula(s) with no stored result were copied as written "
+                                          "(opening and re-saving the file in Excel converts them to values).")
+
+    @pytest.mark.parametrize("with_result", [False, True], ids=["formulas read", "values read"])
+    def test_moved_formulas_are_as_before(self, with_result):
+        result = convert(_shared_formula_sheet(30, with_result=with_result), "a.xlsx", ConvertOptions(max_chars=None))
+
+        assert "| 30 | =" + "+".join(["A30"] * 100) + " |" in result.text
+
+    def test_cell_the_formula_cannot_be_moved_to_is_blank(self):
+        """Pins: whether a move fails is known from the references, so the count of the warning leaves such a cell out (A3,
+        where B1 would move left of column A)."""
+        rows = (_text_row(1, "a", "b", "c", "d") + '<row r="2"><c r="C2"><f t="shared" ref="A2:D9" si="0">B1+$A$1+C:C+2:2</f></c></row>'
+                '<row r="3"><c r="A3"><f t="shared" si="0"/></c><c r="B3"><f t="shared" si="0"/></c>'
+                '<c r="D3"><f t="shared" si="0"/></c></row>'
+                '<row r="4"><c r="A4"><f>1+1</f><v>2</v></c></row>')
+
+        result = convert(_with_sheet_xml(_sheet_xml(rows)), "a.xlsx")
+
+        assert "| | =A2+$A$1+B:B+3:3 | | =C2+$A$1+D:D+3:3 |" in result.text
+        assert result.warnings == ["Sheet 'Sheet': 3 formula(s) with no stored result were copied as written "
+                                   "(opening and re-saving the file in Excel converts them to values)."]
