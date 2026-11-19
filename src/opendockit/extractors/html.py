@@ -484,9 +484,9 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _put_math(soup)
     _put_symbol_fonts(soup)
     _put_form_values(soup)
+    _put_quotes(soup)  # before the scripts and rubies, which are turned into text with a `<q>` inside them
     _mark_scripts(soup)
     _put_ruby(soup)
-    _put_quotes(soup)
     _mark_struck_text(soup, links=options.keep_links, emphasis=options.keep_emphasis)
 
     _flatten_nested_headings(soup)

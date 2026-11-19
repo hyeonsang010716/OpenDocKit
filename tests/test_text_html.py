@@ -1409,6 +1409,13 @@ class TestMediaFallbackAndQuotes:
 
         assert convert(html.encode(), "a.html").text == "He said \u201cwe will \u2018not\u2019 raise the rate\u201d on Monday."
 
+    def test_quotation_marks_of_q_inside_a_script_or_ruby_are_drawn(self):
+        """Superscripts, subscripts and rubies are turned into text before the marks were put in, so a `<q>` inside one lost
+        them."""
+        html = "<p>a<sup><q>x</q></sup>, <q>x<sup>2</sup></q> and <ruby>\u6f22<rt><q>\u304b\u3093</q></rt></ruby></p>"
+
+        assert convert(html.encode(), "a.html").text == "a\u201cx\u201d, \u201cx^2\u201d and \u6f22(\u201c\u304b\u3093\u201d)"
+
 
 class TestPermalinksOfHeadings:
     """Sphinx (docs.python.org, Read the Docs) and MkDocs put a permalink anchor in every heading and API signature, which a

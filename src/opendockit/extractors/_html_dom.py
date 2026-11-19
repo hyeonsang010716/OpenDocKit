@@ -1011,7 +1011,9 @@ def _put_form_values(soup: BeautifulSoup) -> None:
 def _put_quotes(soup: BeautifulSoup) -> None:
     """Put the quotation marks a browser draws around `<q>` into the text: “…”, and ‘…’ for one inside another. Without them
     `The minister said <q>we will not raise the rate</q>` read as if the words were the writer's own
-    (Pinned by: test_text_html.py::TestMediaFallbackAndQuotes)."""
+    (Pinned by: test_text_html.py::TestMediaFallbackAndQuotes). Run before superscripts, subscripts and rubies are turned into
+    text, which took a `<q>` inside them along without its marks (Pinned by:
+    test_text_html.py::TestMediaFallbackAndQuotes::test_quotation_marks_of_q_inside_a_script_or_ruby_are_drawn)."""
     quotes = soup.find_all("q")
     if not quotes:
         return
