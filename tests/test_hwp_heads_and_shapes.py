@@ -1,7 +1,7 @@
 """HWP/HWPX paragraph heads (numbers, outline headings) in paragraphs mixed with pictures, tables and text boxes; lower-level
 numbers; a chart inside a cell; a shape filled with a picture.
 
-HWP record streams are built with the fake OLE container (`_fake_hwp`) and record helpers of `test_hwp.py`.
+HWP record streams are put into the OLE container of `_fake_hwp` and record helpers of `test_hwp.py`.
 """
 
 import struct
@@ -469,3 +469,23 @@ class TestEmptyNumberedParagraph:
         body = _hwpx_paragraph("하나", 1) + '<hp:p paraPrIDRef="1"><hp:run><hp:t/></hp:run></hp:p>' + _hwpx_paragraph("셋", 1)
 
         assert convert(builder.hwpx_with_picture(body, header_extra=_HWPX_HEADS), "a.hwpx").text == "1. 하나\n3. 셋"
+
+    def test_hwpx_in_a_passed_over_switch_branch(self):
+        """An hp:switch branch that gives no text is passed over for the next one, and the numbers it took are given back: an
+        empty numbered paragraph in a table of both branches was counted twice, and '둘' came out as `4.`."""
+        table = ('<hp:tbl rowCnt="1" colCnt="1"><hp:tr><hp:tc><hp:subList><hp:p paraPrIDRef="1"><hp:run><hp:t/></hp:run></hp:p>'
+                 '</hp:subList><hp:cellAddr colAddr="0" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc></hp:tr></hp:tbl>')
+        switch = f"<hp:p><hp:run><hp:switch><hp:case>{table}</hp:case><hp:default>{table}</hp:default></hp:switch></hp:run></hp:p>"
+        body = _hwpx_paragraph("하나", 1) + switch + _hwpx_paragraph("둘", 1)
+
+        assert convert(builder.hwpx_with_picture(body, header_extra=_HWPX_HEADS), "a.hwpx").text == "1. 하나\n3. 둘"
+
+    def test_hwpx_numbers_of_a_kept_switch_branch_stay_counted(self):
+        """Only a branch passed over gives its numbers back: the numbered paragraphs of the branch that is read count."""
+        cell = '<hp:p paraPrIDRef="1"><hp:run><hp:t>칸</hp:t></hp:run></hp:p>'
+        table = (f'<hp:tbl rowCnt="1" colCnt="1"><hp:tr><hp:tc><hp:subList>{cell}</hp:subList><hp:cellAddr colAddr="0" rowAddr="0"/>'
+                 '<hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc></hp:tr></hp:tbl>')
+        switch = f"<hp:p><hp:run><hp:switch><hp:case>{table}</hp:case><hp:default>{table}</hp:default></hp:switch></hp:run></hp:p>"
+        body = _hwpx_paragraph("하나", 1) + switch + _hwpx_paragraph("셋", 1)
+
+        assert convert(builder.hwpx_with_picture(body, header_extra=_HWPX_HEADS), "a.hwpx").text.endswith("3. 셋")

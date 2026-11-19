@@ -145,6 +145,9 @@ class HwpxRenderer:
         # Number counters: (kind, numbering id). Outline numbers and paragraph numbers are counted separately. The outline numbering id
         # is set by the section properties (secPr).
         self._numberings: dict[tuple[str, str], Numbering] = {}
+        # While the branches of an hp:switch are read, innermost last: the counters of each numbering as they were before the branch
+        # first advanced it (None: not counted yet), to be put back when the branch is passed over (`_render_switch`)
+        self._numbering_undo: list[dict[tuple[str, str], dict[int, int] | None]] = []
         self._outline_numbering = "1"
         self._options = options
         self._extraction = extraction
@@ -284,8 +287,11 @@ class HwpxRenderer:
         test_comment_opened_only_in_a_passed_over_switch_branch_is_kept).
 
         The notes of a passed-over branch (a note needs a reference in the text, so these are notes inside its comments) are
-        taken back with their numbers when every comment of the branch is. Known accepted gap: when only some of its comments are
-        repeated later, the notes of the ones taken back stay as definitions without a reference.
+        taken back with their numbers when every comment of the branch is. So are the paragraph numbers it took: an empty numbered
+        paragraph in a table of both branches was counted twice, and the next item came one number too high (Pinned by:
+        test_hwp_heads_and_shapes.py::TestEmptyNumberedParagraph::test_hwpx_in_a_passed_over_switch_branch).
+        Known accepted gap: when only some of its comments are repeated later, the notes of the ones taken back stay as definitions
+        without a reference.
 
         A text-box or table in the branch flushes the paragraph text before the switch into a block of its own; that block is not the
         branch's, so `flush` is wrapped to tell the two apart."""
@@ -301,10 +307,22 @@ class HwpxRenderer:
                 flush()
                 start, own = 0, len(blocks)
 
-            for child in branch:
-                self._render_object(child, buffer, blocks, branch_flush)
+            self._numbering_undo.append({})
+            try:
+                for child in branch:
+                    self._render_object(child, buffer, blocks, branch_flush)
+            finally:
+                undo = self._numbering_undo.pop()
             if index == len(branches) - 1 or produced or has_text(buffer[start:]) or any(block.strip() for block in blocks[own:]):
+                if self._numbering_undo:   # kept, inside a branch of an outer switch: the outer branch may still be passed over
+                    for key, counters in undo.items():
+                        self._numbering_undo[-1].setdefault(key, counters)
                 return
+            for key, counters in undo.items():
+                if counters is None:
+                    del self._numberings[key]
+                else:
+                    self._numberings[key].counters = counters
             del buffer[start:], blocks[own:]
             later = {field.get("id", "") for other in branches[index + 1:] for field in other.iter()
                      if _local(field) == "fieldBegin" and field.get("type") == "MEMO"}
@@ -385,6 +403,8 @@ class HwpxRenderer:
         if numbering_id not in self._heads.numberings:
             return "", 0
         key = (head_type, numbering_id)
+        if self._numbering_undo and key not in self._numbering_undo[-1]:
+            self._numbering_undo[-1][key] = dict(self._numberings[key].counters) if key in self._numberings else None
         if key not in self._numberings:
             self._numberings[key] = Numbering(self._heads.numberings[numbering_id])
         return self._numberings[key].advance(level), level
@@ -481,10 +501,11 @@ class HwpxRenderer:
         """Paragraph numbers of a header, footer, note or comment counted on their own: a numbered paragraph there advanced the
         body's counters, so the body's next item skipped a number (Pinned by: test_hwp.py::TestNumberingOutsideTheBody)."""
         saved, self._numberings = self._numberings, {}
+        undo, self._numbering_undo = self._numbering_undo, []
         try:
             yield
         finally:
-            self._numberings = saved
+            self._numberings, self._numbering_undo = saved, undo
 
     def _open_memo(self, field: etree._Element) -> None:
         """Record one comment and start gathering its range. The author is the Author parameter; the text is the subList paragraphs on one line.
