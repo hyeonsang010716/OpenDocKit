@@ -502,11 +502,11 @@ class TestAdjacentStruckRuns:
 
     @pytest.mark.parametrize(("inner", "expected"), [
         # a table holding a code block is marked cell by cell (`TestNoMarksInsideCode`): its last cell met the text after it
-        ("<del>x<table><tr><td><pre>in1</pre></td><td>in2</td></tr></table>y</del>", "~~x~~in1 ~~in2~~ ~~y~~"),
-        ("<del>x<table><tr><td>in2</td><td><pre>in1</pre></td></tr></table>y</del>", "~~x~~ ~~in2~~ in1~~y~~"),
-        ("앞<table><tr><td>10</td><td><del>20</del></td></tr></table><del>끝</del>", "앞10 ~~20~~ ~~끝~~"),
+        ("<del>x<table><tr><td><pre>in1</pre></td><td>in2</td></tr></table>y</del>", "~~x~~ in1 ~~in2~~ ~~y~~"),
+        ("<del>x<table><tr><td>in2</td><td><pre>in1</pre></td></tr></table>y</del>", "~~x~~ ~~in2~~ in1 ~~y~~"),
+        ("앞<table><tr><td>10</td><td><del>20</del></td></tr></table><del>끝</del>", "앞 10 ~~20~~ ~~끝~~"),
         # grouped with its strikethrough as a whole: unchanged
-        ("<del>x<table><tr><td>in1</td><td>in2</td></tr></table>y</del>", "~~xin1 in2y~~"),
+        ("<del>x<table><tr><td>in1</td><td>in2</td></tr></table>y</del>", "~~x in1 in2 y~~"),
     ])
     def test_run_inside_a_table_flattened_into_a_cell_is_kept_apart_from_the_run_next_to_the_table(self, inner, expected):
         html = f"<table><tr><td>{inner}</td><td>z</td></tr></table>"
@@ -624,8 +624,8 @@ class TestStrikethroughAroundBlocks:
         plain = convert(html.format(f"old{inner}").encode(), "a.html").text
         struck = convert(html.format(f"<s>old{inner}</s>").encode(), "a.html").text
 
-        assert plain == "| k | v |\n| --- | --- |\n| x | old1 2 3 4 |\n| y | z |"
-        assert struck == "| k | v |\n| --- | --- |\n| x | ~~old1 2 3 4~~ |\n| y | z |"
+        assert plain == "| k | v |\n| --- | --- |\n| x | old 1 2 3 4 |\n| y | z |"
+        assert struck == "| k | v |\n| --- | --- |\n| x | ~~old 1 2 3 4~~ |\n| y | z |"
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<s>a<h2></h2>b</s>", "~~ab~~"),

@@ -6,7 +6,7 @@ from contextvars import ContextVar
 import re
 import secrets
 
-from bs4 import NavigableString, Tag
+from bs4 import NavigableString, PageElement, Tag
 
 from opendockit.extractors._html_base import (
     _BLOCK_GAP,
@@ -1056,7 +1056,7 @@ def _cell_text(cell: Tag, *, embed_into: TableGrid | None = None) -> str:
     for nested in _nearest(cell, wanted={"table"}, stop=set()):
         grid = _embedded_grid(nested) if embed_into is not None and len(_table_rows(nested)) > 1 else None
         placeholder = embed_into.embed(grid) if embed_into is not None and grid is not None else ""
-        stand_in = NavigableString(placeholder or _flat_table_text(nested))
+        stand_in = NavigableString(placeholder or _apart_from_the_text_beside(_flat_table_text(nested), nested, cell))
         _replace(nested, stand_in, places)
         stand_ins.append((stand_in, nested))
     token = _in_cell.set(True)
@@ -1066,6 +1066,35 @@ def _cell_text(cell: Tag, *, embed_into: TableGrid | None = None) -> str:
         _in_cell.reset(token)
         for stand_in, nested in stand_ins:
             _replace(stand_in, nested, places)
+
+
+def _apart_from_the_text_beside(text: str, table: Tag, cell: Tag) -> str:
+    """The one line of a flattened table with a space where text of the cell runs up to the table (a table flattened before it
+    included): the line ran into it, `Total:<table>…in1…` → `Total:in1`, `<table>…</table>units` → `in2units`. Only where that text
+    is not already apart — a space at the end of the cell or of a strikethrough would be left inside the mark
+    (Pinned by: test_core_html_layout_cells.py::TestNestedTableFlattenedIntoACell::test_text_beside_the_table_stays_apart)."""
+    if not text:
+        return text
+    inside = table.find_all(string=True)
+    before = _visible_text_beside(table, cell, backwards=True)
+    after = _visible_text_beside(inside[-1] if inside else table, cell, backwards=False)
+    if before[-1:].strip() and text[:1].strip():
+        text = " " + text
+    if after[:1].strip() and text[-1:].strip():
+        text += " "
+    return text
+
+
+def _visible_text_beside(node: PageElement, cell: Tag, *, backwards: bool) -> str:
+    """The nearest text of the cell before or after `node` that is not only strikethrough marks (`_html_dom` puts them in the
+    tree as text), with those marks taken out; empty at the edge of the cell."""
+    while (node := node.find_previous(string=True) if backwards else node.find_next(string=True)) is not None:
+        if cell not in node.parents:
+            return ""
+        visible = str(node).replace("~~" + STRIKE_KEY, "").replace(STRIKE_KEY + "~~", "")
+        if visible:
+            return visible
+    return ""
 
 
 def _flat_table_text(table: Tag) -> str:
