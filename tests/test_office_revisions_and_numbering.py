@@ -208,6 +208,11 @@ class TestDocxDeletedParagraphMark:
         assert convert(_docx_with_body(body), "a.docx").text == "The amount is due.\n\nBox"
 
 
+def _deleted(text: str) -> str:
+    """A paragraph whose mark was deleted by tracked changes."""
+    return _paragraph(text).replace("</w:pPr>", '<w:rPr><w:del w:id="1" w:author="a"/></w:rPr></w:pPr>', 1)
+
+
 class TestDocxDeletedParagraphMarkChain:
     """A chain of paragraphs whose mark was deleted was joined again at every link and counted toward `max_chars` only at its end:
     40,000 of them (160 KB) took 104 s, and the limit did not stop them."""
@@ -225,11 +230,13 @@ class TestDocxDeletedParagraphMarkChain:
         assert text == " ".join(f"word{index} some text here" for index in range(300)) + " end"
 
     def test_chain_past_the_limit_stops_reading(self, monkeypatch):
+        """Read on past the limit to the end of the chain, it stops `_FAR_PAST_THE_LIMIT` further (made small here)."""
         from opendockit.extractors import docx
 
         read = []
         original = docx._paragraph_text
         monkeypatch.setattr(docx, "_paragraph_text", lambda paragraph, *rest: read.append(1) or original(paragraph, *rest))
+        monkeypatch.setattr(docx, "_FAR_PAST_THE_LIMIT", 1_000)
         full = convert(self._chain(3000), "a.docx").text
         read.clear()
 
@@ -238,6 +245,54 @@ class TestDocxDeletedParagraphMarkChain:
         assert result.exceeded
         assert len(read) < 200
         assert full.startswith(result.text)
+
+    def test_cut_never_skips_the_links_between(self):
+        """Stopped as soon as the text and the text box of the first link passed the limit, the paragraph ending the chain was
+        joined straight onto the first: "Do sign the contract" for "Do not sign the contract."; and a joined text short of the
+        heading length became a heading the whole one is not."""
+        mark = TestDocxDeletedParagraphMark._DELETED
+        first = f'<w:p>{mark}<w:r><w:t xml:space="preserve">Do </w:t></w:r><w:r>{_text_box("Figure 1: signature box")}</w:r></w:p>'
+        contract = _docx_with_body(first + _deleted("not ") + _paragraph("sign the contract."))
+        long_box = (f'<w:p>{mark}<w:r><w:t xml:space="preserve">{"x" * 60} </w:t></w:r>'
+                    f'<w:r>{_text_box("box" * 10)}</w:r></w:p>')
+        heading = _docx_with_body(long_box + _deleted("y" * 80 + " ") + _paragraph("end", style="Heading1"))
+
+        assert convert(contract, "a.docx").text == "Do not sign the contract.\n\nFigure 1: signature box"
+        assert convert(contract, "a.docx", ConvertOptions(max_chars=20)).text == "Do not sign the cont"
+        assert convert(heading, "a.docx", ConvertOptions(max_chars=70)).text == "x" * 60 + " " + "y" * 9
+
+    @pytest.mark.parametrize("far", [None, 130])
+    def test_cut_text_is_the_front_of_the_full_text_at_every_limit(self, monkeypatch, far):
+        """Random chains of paragraphs whose mark was deleted, with headings, numbers, text boxes and empty links, cut at many
+        limits: the cut text is always the front of the full one. With `_FAR_PAST_THE_LIMIT` made small the body stops
+        inside the chains too (`finish_joined`); bold is left out there, whole-paragraph emphasis being the gap it records."""
+        import random
+
+        from opendockit.extractors import docx
+
+        if far is not None:
+            monkeypatch.setattr(docx, "_FAR_PAST_THE_LIMIT", far)
+        numbering = ('<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/>'
+                     '<w:lvlText w:val="%1."/></w:lvl></w:abstractNum>' + _number_list(1))
+        words = ["alpha ", "beta", " gamma ", "한글 ", "가", "x" * 40 + " ", "​", "", " ", "#", "1."]
+        rng = random.Random(7)
+        for _ in range(20):
+            body = ""
+            for index in range(rng.randint(2, 14)):
+                text = "".join(rng.choice(words) for _ in range(rng.randint(0, 4)))
+                paragraph = _paragraph(text, 1 if rng.random() < 0.3 else None, style=rng.choice([None, None, "Heading1"]))
+                if rng.random() < 0.15:
+                    paragraph = paragraph.replace("</w:p>", f"<w:r>{_text_box(f'box{index}')}</w:r></w:p>")
+                if far is None and rng.random() < 0.15:
+                    paragraph = paragraph.replace("<w:r>", "<w:r><w:rPr><w:b/></w:rPr>", 1)
+                if rng.random() < 0.6:
+                    paragraph = paragraph.replace("</w:pPr>", '<w:rPr><w:del w:id="1" w:author="a"/></w:rPr></w:pPr>', 1)
+                body += paragraph
+            data = _docx_with_body(body, numbering=numbering)
+            full = convert(data, "a.docx")
+            for limit in sorted({*range(1, 40, 4), *range(40, full.char_count + 2, max(full.char_count // 6, 1))}):
+                cut = convert(data, "a.docx", ConvertOptions(max_chars=limit)).text
+                assert full.text.startswith(cut.rstrip()), (body, limit, cut)
 
     @pytest.mark.timing
     def test_chain_takes_the_time_of_as_many_paragraphs(self):

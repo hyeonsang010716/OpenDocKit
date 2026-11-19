@@ -153,9 +153,7 @@ class _Joined:
     pieces: list[str]  # the text of each one as written, with the temporary link and emphasis marks
     visible: bool  # whether any piece holds a character that cleaning keeps
     after: list[str]  # their charts, SmartArt and text boxes, written after the joined paragraph
-    # Characters charged to the limit for the pieces and for `after` (`_DocxRenderer.held_chars`)
-    text_chars: int = 0
-    after_chars: int = 0
+    text_chars: int = 0  # characters of the pieces charged to the limit (`_DocxRenderer.held_chars`)
 
 
 # How far past the character limit everything written since the last count may go, nested tables included, before imported
@@ -496,7 +494,6 @@ class _DocxRenderer:
             joined.paragraph = paragraph
             joined.after.extend(after)
             joined.text_chars += self._lower_count(raw)
-            joined.after_chars += sum(solid_length(block) for block in after)
             self._joined = joined
             return []
         after[:0] = joined.after
@@ -578,17 +575,20 @@ class _DocxRenderer:
         return max(solid_length(plain) - joins_before, 0)
 
     def held_chars(self) -> int:
-        """Characters charged to the limit for the paragraphs whose mark was deleted that are held until the paragraph they are
-        joined to is read. The body counts them as they are read, so a chain of them past the limit stops reading the body
-        (`finish_joined`)."""
+        """Characters charged to the limit for the text of the paragraphs whose mark was deleted that are held until the
+        paragraph they are joined to is read. The body counts them as they are read, so a chain of them far past the limit
+        stops reading the body (`finish_joined`). Their text boxes, charts and SmartArt are not charged until the chain ends:
+        they are written after the whole joined paragraph, so they never bring the cut into its text."""
         joined = self._joined
-        return 0 if joined is None else joined.text_chars + joined.after_chars
+        return 0 if joined is None else joined.text_chars
 
     def finish_joined(self) -> list[str]:
-        """When the body stops at the limit inside a chain of paragraphs whose mark was deleted: the paragraph that ends the chain,
-        with the text held so far joined to it. The links between are passed over without reading their text, which is past the
-        limit already; the paragraph at the end still gives the joined one its heading level and number, so the cut text is the
-        front of the full one."""
+        """When the body stops inside a chain of paragraphs whose mark was deleted, its held text `_FAR_PAST_THE_LIMIT` past the
+        limit: the paragraph that ends the chain, with the text held so far joined to it. The links between are passed over
+        without reading their text, all of it past the cut; the paragraph at the end still gives the joined one its heading
+        level and number, and the joined text is far too long for a heading, as the whole one is, so the cut text is the
+        front of the full one. Known accepted gap: whether bold or italic covers the whole paragraph, which then is left
+        unmarked, is decided without the links passed over."""
         joined = self._joined
         if joined is None:
             return []
@@ -1091,14 +1091,21 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
     # The body is read paragraph by paragraph and table by table while counting characters. Once the limit is exceeded, the rest of
     # the body is not read.
     body: list[str] = []
-    # Paragraphs whose mark was deleted are held until the paragraph they are joined to is read, and counted as they are read
-    # (`held_chars`): counted only once written, a chain of them past the limit was read to its end (Pinned by:
+    # Paragraphs whose mark was deleted are held until the paragraph they are joined to is read, and their text is counted as
+    # it is read (`held_chars`): counted only once written, a chain of them past the limit was read to its end (Pinned by:
     # test_office_revisions_and_numbering.py::TestDocxDeletedParagraphMarkChain::test_chain_past_the_limit_stops_reading).
+    # Past the limit the chain is still read to its end, and stops only `_FAR_PAST_THE_LIMIT` further (`finish_joined`):
+    # stopped at the limit, the paragraph ending the chain was joined straight onto the text read, so the cut text skipped the
+    # links between ("Do sign the contract" for "Do not sign the contract.") and a joined text short of the heading length
+    # became a heading the whole one is not (Pinned by: test_office_revisions_and_numbering.py::TestDocxDeletedParagraphMarkChain::
+    # test_cut_text_is_the_front_of_the_full_text_at_every_limit).
     for element in _children(document.element.body, *_BLOCK_TAGS):
         held = renderer.held_chars()
         rendered = renderer.render_top_block(element)
         body.extend(rendered)
         if extraction.count(sum(solid_length(block) for block in rendered) + renderer.held_chars() - held, options):
+            if renderer.held_chars() and extraction.chars <= options.max_chars + _FAR_PAST_THE_LIMIT:
+                continue
             body.extend(renderer.finish_joined())
             break
 
