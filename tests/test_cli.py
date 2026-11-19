@@ -246,10 +246,12 @@ class TestArguments:
         assert code == 1
 
     @pytest.mark.skipif(sys.platform == "win32", reason="closes file descriptor 2 in the child before it starts")
-    @pytest.mark.parametrize(("args", "code"), [(["missing.txt"], 1), (["a.png", "--count"], 0)], ids=["error", "warning"])
+    @pytest.mark.parametrize(("args", "code"), [(["missing.txt"], 1), (["a.png", "--count"], 0), (["--bogus", "a.png"], 2), ([], 2),
+                                                (["a.png", "--count", "--json"], 2)],
+                             ids=["error", "warning", "unknown option", "no path", "conflicting options"])
     def test_messages_go_nowhere_when_standard_error_is_closed(self, tmp_path, args, code):
-        """With file descriptor 2 closed sys.stderr is None, and `print(file=None)` writes to standard output: 'File not
-        found' and the warnings went into the output."""
+        """With file descriptor 2 closed sys.stderr is None, and `print(file=None)` writes to standard output, as argparse's
+        usage errors do: 'File not found', the warnings and `usage: …` went into the output. Usage errors keep exit code 2."""
         import os
         import subprocess
 

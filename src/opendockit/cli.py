@@ -28,6 +28,11 @@ from opendockit.describe import DEFAULT_MODEL
 
 
 def main() -> int:
+    if sys.stderr is None:
+        # File descriptor 2 is closed (`2>&-`): `print(file=None)` and argparse's usage errors wrote to standard output, so
+        # 'File not found', the warnings and `usage: …` went into the output. Every message, a traceback too, now goes nowhere
+        # (Pinned by: test_cli.py::TestArguments::test_messages_go_nowhere_when_standard_error_is_closed).
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")  # open for the life of the process
     _write_output_as_utf8()
     parser = argparse.ArgumentParser(description="Convert a document to Markdown ready for LLM input.", add_help=False)
     parser.add_argument("-h", "--help", action=_Help, nargs=0, help="show this help message and exit")
@@ -94,11 +99,8 @@ def _write(print_output: Callable[[], None]) -> int:
 
 
 def _error(message: str) -> None:
-    """A message or warning on standard error, or nowhere when it is closed: `print(file=None)` writes to standard output, so
-    with `2>&-` 'File not found' and the warnings went into the output
-    (Pinned by: test_cli.py::TestArguments::test_messages_go_nowhere_when_standard_error_is_closed)."""
-    if sys.stderr is not None:
-        print(message, file=sys.stderr)
+    """A message or warning on standard error (a null device when it is closed, `main`)."""
+    print(message, file=sys.stderr)
 
 
 class _Help(argparse.Action):
