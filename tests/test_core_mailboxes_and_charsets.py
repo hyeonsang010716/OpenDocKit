@@ -430,6 +430,15 @@ class TestUnclosedEncodedWords:
 
         assert fastest(lambda: convert(large, "a.eml")) < 8 * fastest(lambda: convert(small, "a.eml")) + 0.05
 
+    @pytest.mark.timing
+    @pytest.mark.parametrize("separator", ["\x0c", "\x1c"])
+    def test_unclosed_words_before_a_line_break(self, separator):
+        """`decode_header` splits at every `str.splitlines` break: starts that are never closed, then a form feed and a `?=`,
+        took the square of their length although the last `?=` of the whole text came after every start (156 KB in 10 s)."""
+        small, large = (_forwarded_with_subject("=?a?q?x " * count + separator + "?=") for count in (5_000, 20_000))
+
+        assert fastest(lambda: convert(large, "a.eml")) < 8 * fastest(lambda: convert(small, "a.eml")) + 0.05
+
     @pytest.mark.parametrize(("subject", "expected"), [
         ("=?utf-8?q?Hello?= =?a?q?x=?a?q?x", "Hello =?a?q?x=?a?q?x"),
         # a start at the `=` of the last `?=`: that `?=` still closes the word before it

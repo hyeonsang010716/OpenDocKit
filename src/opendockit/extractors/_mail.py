@@ -846,12 +846,17 @@ def _decoded_words(text: str) -> str:
     # (`…?=?a?q?x`). A header of several lines is split into lines by `decode_header`, so that one is left to the word by word
     # decoding of `_decoded_header`
     # (Pinned by: test_core_mailboxes_and_charsets.py::TestUnclosedEncodedWords).
-    last_end = unfolded.rfind("?=")
-    unclosed = _WORD_START.search(unfolded, last_end + 2 if last_end >= 0 else 0)
-    if unclosed is not None:
-        if _LINE_BREAK.search(unfolded):
+    # That holds line by line: `decode_header` splits at every `str.splitlines` break, so a line of unclosed starts followed
+    # by a `\x0c` and a `?=` was scanned as slowly though the last `?=` of the whole text came after every start
+    # (Pinned by: test_core_mailboxes_and_charsets.py::TestUnclosedEncodedWords::test_unclosed_words_before_a_line_break).
+    if _LINE_BREAK.search(unfolded):
+        if any(_WORD_START.search(line, line.rfind("?=") + 2 if "?=" in line else 0) for line in unfolded.splitlines()):
             return text
-        unfolded, rest = unfolded[:unclosed.start()], unfolded[unclosed.start():]
+    else:
+        last_end = unfolded.rfind("?=")
+        unclosed = _WORD_START.search(unfolded, last_end + 2 if last_end >= 0 else 0)
+        if unclosed is not None:
+            unfolded, rest = unfolded[:unclosed.start()], unfolded[unclosed.start():]
     # A word whose base64 is broken (`=?utf-8?b?A?=`) raises HeaderParseError, which is not a ValueError: one subject or
     # attachment name rejected the whole mail
     # (Pinned by: test_audit_html_text.py::TestEncodedWordThatCannotBeDecoded).
