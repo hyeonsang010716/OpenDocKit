@@ -1,18 +1,6 @@
 import pytest
 
 
-@pytest.fixture(autouse=True)
-def _no_old_parser_warning(monkeypatch):
-    """Keep the "HTML parser older than libxml2 2.14" warning out of results during tests.
-
-    On a platform whose lxml bundles the older parser (Windows), the extractor adds that warning to every HTML result, which
-    would fail the many tests that compare `result.warnings` exactly. The tests whose content really depends on the newer
-    parser are skipped there by `tests.needs_html5_tokenizer`; the warning itself is pinned by
-    test_core_html.py::TestOlderHtmlParser, which switches it back on.
-    """
-    monkeypatch.setattr("opendockit.extractors.html.HTML5_TOKENIZER", True)
-
-
 # A failed timing test is run up to twice more, a second apart, and passes if one of the runs does: a stall of the shared CI runner
 # fails one run, code that became slow fails all three. Only a timing test, and not one marked `no_rerun` (it starts processes
 # or threads and checks how they end): elsewhere a second chance would hide a real bug that shows up only sometimes. At most 10

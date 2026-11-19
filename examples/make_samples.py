@@ -402,11 +402,14 @@ def convert_with_libreoffice() -> None:
 
     Needs LibreOffice (`soffice` on PATH). Without it these samples are left as they are in the repository.
     """
-    import shutil
     import subprocess
     import tempfile
 
-    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    from opendockit.extractors.legacy import find_soffice
+
+    # The library's own search, so this script finds LibreOffice wherever a conversion would: `shutil.which` alone misses
+    # the Windows install, which is not on PATH.
+    soffice = find_soffice()
     if soffice is None:
         print("LibreOffice not found: the .odt/.ods/.odp/.rtf/.doc/.ppt samples were not rebuilt")
         return
@@ -415,7 +418,10 @@ def convert_with_libreoffice() -> None:
             ("launch-plan.pptx", "odp", "launch-plan.odp"), ("launch-plan.pptx", "ppt", "launch-plan.ppt")]
     with tempfile.TemporaryDirectory() as folder:
         for source, target, name in jobs:
-            subprocess.run([soffice, "--headless", "--norestore", f"-env:UserInstallation=file://{folder}/profile", "--convert-to", target,
+            # `as_uri`, not "file://" and the path: on Windows that gives `file://C:\...`, which LibreOffice refuses
+            # (the same construction as `legacy.py`).
+            profile = (Path(folder) / "profile").as_uri()
+            subprocess.run([soffice, "--headless", "--norestore", f"-env:UserInstallation={profile}", "--convert-to", target,
                             "--outdir", folder, str(SAMPLES / source)], check=True, capture_output=True, timeout=120)
             data = (Path(folder) / f"{Path(source).stem}.{target}").read_bytes()
             (SAMPLES / name).write_bytes(data)

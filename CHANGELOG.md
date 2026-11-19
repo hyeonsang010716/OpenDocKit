@@ -6,6 +6,46 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Windows is a supported platform.** The suite runs there for every change, and the sample outputs are identical to
+  the ones Linux and macOS write.
+  - `IsolatedConverter` keeps the memory limit it is given (the `ProcessMemoryLimit` of a job object, as `RLIMIT_AS` is
+    on Linux); it used to be accepted, validated and then ignored, so a server ran every conversion without it. A worker
+    also leaves with a server that was killed outright, as it does on POSIX.
+  - **MCP server** and **Open WebUI loader**: a file is converted in a worker process there too. Both fell back to a
+    thread of the server, which gave up the memory limit, the time limit and the process isolation at once.
+  - **Legacy `.doc` and `.ppt`**: LibreOffice is ended with the process that started it, so a conversion whose worker is
+    killed on its time limit no longer leaves it running, and a guard process removes the folder holding the uploaded
+    document, as on POSIX. LibreOffice is also found where the environment does not name Program Files — an MCP
+    client starts its server without PROGRAMFILES, and every `.doc` and `.ppt` sent to the MCP server failed with
+    'need LibreOffice' — from the registry, which also finds an install outside Program Files. Its temporary folder
+    is removed under a long temporary path and after the time limit too: both used to leave LibreOffice's profile
+    behind.
+  - **HTML, mail and EPUB**: malformed and multi-part pages are read whole. lxml's Windows wheels bundle a libxml2
+    without the HTML5 tokenizer, so text after the end of a page, a second concatenated document, the content of
+    `<textarea>`/`<xmp>` and the further parts of a mail were lost; html5lib builds the tree there instead. A page — or
+    one body of a mail, whose attachments do not count — over 256 K characters, nested deeper than 1,000 elements, or
+    leaving more than 16 raw-text elements open is still read by the older parser — html5lib is quadratic on those —
+    and the result says so.
+
+### Security
+
+- **MCP server on Windows**: a path on a network share (`\\host\share\…`) is refused before anything is looked up,
+  unless that share is given as a `--root` — with other roots and without any — and a device path (`\\.\…`) always.
+  Looking a share up connects to its host and signs in with the user's Windows credentials, and the roots were
+  checked only after the path had been looked up: an agent talked into such a path by a document it read sent the
+  user's NTLM hash to the host the document named, even though the call was then refused. A share to be read is
+  given as `--root \\host\share`; a mapped drive letter is an ordinary folder.
+
+### Fixed
+
+- **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if
+  that worker died first. The queue the file travels on is no longer waited for.
+- **MCP server**: the path of a call is resolved in a thread, as its content already was. A path the file system is slow
+  to answer for — a disconnected network drive, a sleeping disk, a UNC name on Windows — stopped the whole server, and
+  with it the agent's session, until it answered.
+
 ## [0.3.14] - 2026-11-19
 
 Fixes from five audit rounds, most of them small files that cost a lot of time or memory, and content that was lost.

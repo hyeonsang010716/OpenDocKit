@@ -11,20 +11,23 @@ from collections.abc import Callable
 from email.message import Message
 import re
 
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+from bs4 import BeautifulSoup
 from bs4.element import PreformattedString
-from lxml import etree
 
 from opendockit.extractors._encoding import decode_text, decoding_warning, decoding_warnings
 from opendockit.extractors._html_base import (
     _DROP_TAGS,
-    _PARSER_CALLERS,
+    READS_LIKE_A_BROWSER,
+    TREE_BUILDER,
     _Inline,
     _inline,
     _omitted_rows,
     _Places,
     _replace,
     _table_room,
+    builder_for,
+    builder_for_document,
+    parse_html,
 )
 from opendockit.extractors._html_dom import (
     _closed_after,
@@ -83,7 +86,7 @@ from opendockit.extractors._mail import (
 )
 from opendockit.extractors._notation import omitted_rows_warning
 from opendockit.markdown import restore_spans, solid_length, spans_left
-from opendockit.models import ConvertOptions, Extraction, RawImage, Section, SectionKind, quiet_warnings
+from opendockit.models import ConvertOptions, Extraction, RawImage, Section, SectionKind
 
 
 # Elements whose `<title>` is not the document title: SVG (a tooltip) and MathML.
@@ -128,20 +131,50 @@ _LINK_ADDRESS = re.compile(r"\]\((?:https?://|mailto:)[^()\s]*\)", re.IGNORECASE
 _LINK_BRACKETS = re.compile(r"[\[\]]")
 
 
-# The HTML5 tokenizer arrived in libxml2 2.14. Reading malformed pages "like a browser" below (content after `</html>`, a
-# second concatenated document, raw-text elements such as <textarea>/<xmp>) depends on it.
-# lxml's wheels for Linux and macOS bundle 2.14 from lxml 6.0 on, but its Windows wheels still bundle 2.11, where those
-# inputs silently lose content. The result cannot be repaired here, so it is reported
-# (Pinned by: test_core_html.py::TestOlderHtmlParser; tests that need the tokenizer are skipped via `tests.needs_html5_tokenizer`).
-HTML5_TOKENIZER = etree.LIBXML_VERSION >= (2, 14)
-_OLD_PARSER_WARNING = ("The installed lxml bundles an HTML parser older than libxml2 2.14 (as its Windows builds do), so content of "
-                       "malformed or multi-part HTML and mail (text after the end of the page, further mail parts) may be missing.")
+# Reading malformed pages "like a browser" below (content after `</html>`, a second concatenated document, raw-text elements
+# such as <textarea>/<xmp>, the later parts of a mail) needs an HTML5 parser. Which one builds the tree is decided in
+# `_html_base`: libxml2's own tokenizer from 2.14, or html5lib where lxml bundles an older libxml2 (its Windows wheels).
+# The warning is for the one case where neither is there — html5lib not installed on such a platform — because the content
+# is then lost and cannot be repaired here
+# (Pinned by: test_core_html.py::TestOlderHtmlParser).
+_OLD_PARSER_WARNING = ("The installed lxml bundles an HTML parser older than libxml2 2.14 (as its Windows builds do) and html5lib "
+                       "is not installed, so content of malformed or multi-part HTML and mail (text after the end of the page, "
+                       "further mail parts) may be missing.")
+# The same loss, for the pages handed to the older parser because the HTML5 one reads their shape too slowly — very large
+# or very deeply nested (`_html_base._HTML5LIB_MAX_CHARS`, `_HTML5LIB_MAX_DEPTH`). Its own sentence, so that it is clear
+# which of the two happened.
+_LARGE_PAGE_WARNING = ("This page is too large or too deeply nested to read with the HTML5 parser, and the one bundled with "
+                       "lxml on this platform was used instead, so content of malformed or multi-part HTML and mail (text "
+                       "after the end of the page, further mail parts) may be missing.")
 
 
 def extract_html(data: bytes, options: ConvertOptions) -> Extraction:
     extraction = _extract_html(data, options)
-    if not HTML5_TOKENIZER and _OLD_PARSER_WARNING not in extraction.warnings:
+    if not READS_LIKE_A_BROWSER and _OLD_PARSER_WARNING not in extraction.warnings:
         extraction.warnings.append(_OLD_PARSER_WARNING)
+    return extraction
+
+
+def _read_one_document(text: str, read: Callable[[], Extraction]) -> Extraction:
+    """`read()` — the front-part check and the whole parse of one HTML document — with one tree builder for all of it.
+
+    The builder is decided from the document itself: the decoded page, or one body of a mail. Decided from the file, a mail
+    with an ordinary attachment was over html5lib's size limit on its base64 alone, so its HTML body — a few hundred bytes —
+    went to the older parser and lost the later parts html5lib is there to keep, with a warning that blamed the size of a
+    page that was tiny (Pinned by: test_core_html.py::TestLargePagesKeepTheOlderParser::
+    test_a_mail_with_a_large_attachment_reads_its_body_with_the_html5_parser). Counted in characters of the decoded text,
+    which is what html5lib's time grows with, so a Korean page is not sent to the older parser at a third of the size of an
+    English one. One document is still read by one builder from the front check to the end
+    (Pinned by: test_core_html_raw_text_and_removal.py::TestUnclosedRawTextElementInALargePage).
+    """
+    builder = builder_for(text)
+    token = builder_for_document.set(builder)
+    try:
+        extraction = read()
+    finally:
+        builder_for_document.reset(token)
+    if builder != TREE_BUILDER and _LARGE_PAGE_WARNING not in extraction.warnings:
+        extraction.warnings.append(_LARGE_PAGE_WARNING)
     return extraction
 
 
@@ -178,9 +211,8 @@ def _extract_html(data: bytes, options: ConvertOptions) -> Extraction:
 
     text, encoding = decode_text(data, declared, markup=True)
     text = _with_table_around_bare_rows(text)
-    extraction = _extract_front(text, encoding, options, saved_picture)
-    if extraction is None:
-        extraction = _extract(text, encoding, options, saved_picture)
+    extraction = _read_one_document(text, lambda: _extract_front(text, encoding, options, saved_picture)
+                                    or _extract(text, encoding, options, saved_picture))
 
     section = extraction.sections[0]
     section.text = _with_title_heading(section.text, extraction.metadata.get("title"))
@@ -254,8 +286,9 @@ def _extract_documents(documents: list[str], encoding: str, options: ConvertOpti
 
     for document in documents:
         read += 1
-        piece = (_extract_front(document, encoding, options, saved_picture, combined.images, omitted, combined.chars, front)
-                 or _extract(document, encoding, options, saved_picture, images=combined.images, omitted=omitted))
+        piece = _read_one_document(document, lambda: (
+            _extract_front(document, encoding, options, saved_picture, combined.images, omitted, combined.chars, front)
+            or _extract(document, encoding, options, saved_picture, images=combined.images, omitted=omitted)))
         combined.images = piece.images
         if "title" in piece.metadata and "title" not in combined.metadata:
             combined.metadata["title"] = piece.metadata["title"]
@@ -319,8 +352,7 @@ def _unread_title(documents: list[str], read: int = 0) -> str:
             if not closings:
                 break
             looked = looked[:closings[-1].end()]
-        with quiet_warnings((XMLParsedAsHTMLWarning, _PARSER_CALLERS)):
-            title = _document_title(BeautifulSoup(looked, "lxml"))
+        title = _document_title(parse_html(looked))
         if title:
             return title
         if end < len(document):
@@ -445,8 +477,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     # For an HTML fragment starting with an XML declaration (`<?xml …?><TABLE>`), bs4 emitted XMLParsedAsHTMLWarning to the
     # caller. This is a document already decided to be read with this parser — XML data goes to text at detection
     # (Pinned by: test_core_html.py::TestXmlDataWithHtmlElementNames).
-    with quiet_warnings((XMLParsedAsHTMLWarning, _PARSER_CALLERS)):
-        soup = BeautifulSoup(text, "lxml")
+    soup = parse_html(text)
 
     metadata = {"encoding": encoding}
     title = _document_title(soup)

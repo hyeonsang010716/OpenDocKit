@@ -629,7 +629,9 @@ class TestStrikethroughAroundBlocks:
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<s>a<h2></h2>b</s>", "~~ab~~"),
-        ("<p><del>Old price<h4> </h4>10,000</del></p>", "~~Old price10,000~~"),
+        # Not inside a `<p>`, like the cases around it: a heading is a block, and HTML5 closes an open paragraph — and the
+        # `<del>` in it — at its start tag, which libxml2's older parser does not. The pair is what is pinned here.
+        ("<del>Old price<h4> </h4>10,000</del>", "~~Old price10,000~~"),
         ('<del>Old<h2><img src="x.png"></h2>price</del>', "~~Oldprice~~"),
         ("<ul><li><del>a<h2></h2>b</del></li></ul>", "- ~~ab~~"),
         ("<ol><del>x<h3>y</h3>z</del></ol>", "- ~~xyz~~"),
