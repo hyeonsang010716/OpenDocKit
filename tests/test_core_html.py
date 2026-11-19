@@ -410,6 +410,20 @@ class TestMathMl:
         assert convert(kramdown.encode(), "a.html").text == "text\n\n$\\begin{aligned} a &= b \\\\ c &< d \\end{aligned}$\n\nmore"
         assert convert(comment.encode(), "a.html").text == "a $x + y$ and $50\\%$"
 
+    @pytest.mark.parametrize(("tex", "latex"), [
+        ("\\text{Growth 5%} + y", "\\text{Growth 5%} + y"),
+        ("\\href{a%20b}{x} % link\n+ 1", "\\href{a%20b}{x} + 1"),
+        ("\\frac{a}{b} % \\{ is a brace\n+ \\{c\\}", "\\frac{a}{b} + \\{c\\}"),
+        ("\\verb|%| + x", "\\verb|%| + x"),
+        ("\\url{a%b}{\\text{%}} % end\n+ z", "\\url{a%b}{\\text{%}} + z"),
+    ])
+    def test_a_percent_sign_inside_braces_is_no_comment(self, tex, latex):
+        """MathJax reads the argument of a command in braces as it is written, so only a `%` outside braces starts a comment:
+        `\\text{Growth 5%}` was cut in the middle of its group, `$\\text{Growth 5$`, and the rest of the formula was lost."""
+        html = f'<p>a <script type="math/tex">{tex}</script> b</p>'
+
+        assert convert(html.encode(), "a.html").text == f"a ${latex}$ b"
+
     @pytest.mark.timing
     def test_many_mathjax_formulas_take_linear_time(self):
         """The script of every rendered formula was removed on its own, each looking up its place among its siblings: a

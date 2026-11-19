@@ -164,12 +164,38 @@ def _tex_without_comments(tex: str) -> str:
     """`tex` without its comments: from a `%` that is not escaped (`\\%` is a percent sign) to the end of its line. kramdown wraps
     a displayed formula in `% <![CDATA[` and `%]]>`; once the lines of the TeX were joined, the `%` of the wrapper made all of
     the formula a comment, and a comment inside a formula took the lines after it along (`x % note` and `+ y` as `x % note + y`)
-    (Pinned by: test_core_html.py::TestMathMl::test_comments_in_the_tex_of_a_script_are_left_out)."""
-    # An escaped character (`\%` among them, and the `\\` of a line break) is matched first and kept
-    return _TEX_COMMENT.sub(lambda match: match.group(1) or "", tex) if "%" in tex else tex
+    (Pinned by: test_core_html.py::TestMathMl::test_comments_in_the_tex_of_a_script_are_left_out).
+
+    Only a `%` outside braces starts a comment: MathJax reads the argument of a command in braces as it is written, so
+    `\\text{Growth 5%}` shows `5%` and `\\href{a%20b}{…}` links to `a%20b`. Taken for comments, they cut the formula in the
+    middle of a group, `$\\text{Growth 5$`, its braces left open (Pinned by: test_core_html.py::TestMathMl::
+    test_a_percent_sign_inside_braces_is_no_comment). The braces are counted over the whole script; an escaped character
+    (`\\{`, `\\}`, `\\%`, `\\\\`) and the text of a `\\verb` count for nothing."""
+    if "%" not in tex:
+        return tex
+    kept: list[str] = []
+    depth = 0
+    start = index = 0
+    while (special := _TEX_SPECIAL.search(tex, index)) is not None:
+        index = special.start()
+        character = tex[index]
+        if character == "\\":
+            verb = _TEX_VERB.match(tex, index)
+            index = verb.end() if verb is not None else index + 2
+        elif character == "%" and not depth:
+            line_end = tex.find("\n", index)
+            kept.append(tex[start:index])
+            start = index = len(tex) if line_end < 0 else line_end
+        else:
+            depth = depth + 1 if character == "{" else max(depth - 1, 0) if character == "}" else depth
+            index += 1
+    kept.append(tex[start:])
+    return "".join(kept)
 
 
-_TEX_COMMENT = re.compile(r"(\\.)|%[^\n]*", re.DOTALL)
+# What `_tex_without_comments` looks at, and a `\verb` with the text between its two delimiters.
+_TEX_SPECIAL = re.compile(r"[\\{}%]")
+_TEX_VERB = re.compile(r"\\verb\*?([^\sA-Za-z*])[^\n]*?\1")
 
 
 def _maths_holding_page_blocks(soup: BeautifulSoup) -> list[Tag]:
