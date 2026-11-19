@@ -649,6 +649,75 @@ class TestTargetInAnotherCase:
         assert (result.text, len(result.images), result.warnings) == (expected.text, 1, [])
 
 
+    @pytest.mark.parametrize(("make", "name", "rename"), [
+        pytest.param(builder.docx_bytes, "a.docx", {"word/document.xml": "word/Document.xml"}, id="docx"),
+        pytest.param(builder.docx_bytes, "a.docx", {"word/document.xml": "word/Document.xml",
+                                                    "word/_rels/document.xml.rels": "word/_rels/Document.xml.rels"},
+                     id="docx with its relationships"),
+        pytest.param(builder.pptx_bytes, "a.pptx", {"ppt/presentation.xml": "ppt/Presentation.xml"}, id="pptx"),
+        pytest.param(builder.xlsx_bytes, "a.xlsx", {"xl/workbook.xml": "xl/Workbook.xml"}, id="xlsx"),
+        pytest.param(builder.xlsx_bytes, "a.xlsx", {"xl/workbook.xml": "xl/Workbook.xml",
+                                                    "xl/_rels/workbook.xml.rels": "xl/_rels/Workbook.xml.rels"},
+                     id="xlsx with its relationships"),
+    ])
+    def test_main_part_in_another_case(self, make, name, rename):
+        """Detection rejected the archive as unsupported, and past it the DOCX repair did not look at the main part."""
+        expected = convert(make(), name)
+
+        result = convert(_rebuilt(make(), rename=rename), name)
+
+        assert (result.text, result.warnings) == (expected.text, expected.warnings)
+
+    @pytest.mark.parametrize("rename", [
+        pytest.param({"xl/worksheets/sheet1.xml": "xl/worksheets/Sheet1.xml"}, id="sheet"),
+        pytest.param({"xl/worksheets/sheet1.xml": "xl/Worksheets/SHEET1.xml"}, id="sheet in a folder of another case"),
+        pytest.param({"xl/styles.xml": "xl/Styles.xml"}, id="styles"),
+        pytest.param({"xl/workbook.xml": "xl/Workbook.xml", "xl/worksheets/sheet1.xml": "xl/worksheets/Sheet1.xml",
+                      "xl/styles.xml": "xl/STYLES.xml"}, id="several parts"),
+    ])
+    def test_xlsx_parts_in_another_case(self, rename):
+        """openpyxl passed over a sheet it did not find under the target's name without a word, and read the styles only under
+        `xl/styles.xml`: the dates came out as serial numbers."""
+        expected = convert(builder.xlsx_bytes(), "a.xlsx")
+        assert "2026-01-31" in expected.text
+
+        result = convert(_rebuilt(builder.xlsx_bytes(), rename=rename), "a.xlsx")
+
+        assert (result.text, result.warnings) == (expected.text, expected.warnings)
+
+    def test_xlsx_target_written_in_another_case(self):
+        data = builder.zip_with(builder.xlsx_bytes(), edit={"xl/_rels/workbook.xml.rels": lambda xml: xml.replace(
+            "worksheets/sheet1.xml", "Worksheets/Sheet1.XML")})
+        expected = convert(builder.xlsx_bytes(), "a.xlsx")
+
+        result = convert(data, "a.xlsx")
+
+        assert (result.text, result.warnings) == (expected.text, expected.warnings)
+
+    def test_xlsx_picture_of_a_sheet_in_another_case(self):
+        expected = convert(builder.xlsx_with_image(), "a.xlsx")
+        assert len(expected.images) == 1
+
+        result = convert(_rebuilt(builder.xlsx_with_image(), rename={"xl/media/image1.png": "xl/Media/Image1.PNG",
+                                                                     "xl/drawings/drawing1.xml": "xl/Drawings/Drawing1.xml"}),
+                         "a.xlsx")
+
+        assert (result.text, len(result.images), result.warnings) == (expected.text, 1, [])
+
+    def test_xlsx_two_members_that_differ_only_in_case_are_not_guessed_between(self):
+        import zipfile
+
+        with zipfile.ZipFile(BytesIO(builder.xlsx_bytes())) as archive:
+            xml = archive.read("xl/worksheets/sheet1.xml")
+        data = _rebuilt(builder.xlsx_bytes(), rename={"xl/worksheets/sheet1.xml": "xl/worksheets/Sheet1.xml"},
+                        add={"xl/worksheets/SHEET1.xml": xml})
+
+        result = convert(data, "a.xlsx")
+
+        assert "## Sheet: 매출" not in result.text
+        assert "Sheet '매출' was left out because its part is missing from the file." in result.warnings
+
+
 class TestIncompleteRelationship:
     """One relationship without its Id, Type or Target, in any `.rels` (even one nothing uses), rejected the whole document: the
     libraries fail on it with a TypeError, an AttributeError or an InvalidXmlError, which the repair did not take. Nothing tells

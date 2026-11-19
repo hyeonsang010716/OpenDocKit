@@ -237,6 +237,11 @@ def repair_package(data: bytes, *, in_another_case: bool = True) -> tuple[bytes,
         main_part = _main_part(archive, names)
         if content_type_of is None or main_part is None:
             return None
+        if main_part not in names and in_another_case:
+            # The main part in another case (`word/Document.xml`) is the main part too, and its relationship is written back
+            # as that member's name below like any other: detection accepts it, and the library raised KeyError for it
+            # (Pinned by: test_office_robustness.py::TestTargetInAnotherCase::test_main_part_in_another_case).
+            main_part = by_case.get(main_part.lower()) or main_part
 
         # Check the target of every relationship and remove relationships whose target cannot be read. Each XML part is parsed only once
         readable: dict[str, bool] = {}
@@ -355,6 +360,92 @@ def repair_package(data: bytes, *, in_another_case: bool = True) -> tuple[bytes,
     detached = (f"Read after detaching {len(dropped)} missing or broken part(s){f' ({shown})' if shown else ''}. "
                 "The contents of those parts (pictures, numbering, styles, etc.) may be missing.")
     return buffer.getvalue(), f"{detached} {left_out}" if left_out else detached
+
+
+def members_named_as_referenced(data: bytes) -> bytes | None:
+    """A copy of the package in which a member that a content-type override or a relationship target names only in another case
+    is stored under the name it is referenced by, and its relationships beside it under the name that goes with it. None when no
+    member is renamed.
+
+    For readers that look parts up by the name a reference gives (openpyxl): part names are case-insensitive (OPC), but a sheet
+    stored as `xl/worksheets/Sheet2.xml` behind the target `worksheets/sheet2.xml` was left out of the workbook without a word,
+    and a workbook part or styles part in another case rejected the document or lost every display format
+    (Pinned by: test_office_robustness.py::TestTargetInAnotherCase::test_xlsx_parts_in_another_case). A member is renamed only
+    when it is the one member of that name ignoring case and every reference names it in the same case; nothing is guessed
+    between two. The relationships of a renamed part are read again under its new name, as their relative targets are resolved
+    against its folder. A percent-encoded target is looked up decoded as well (`named_part`).
+    """
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        names = set(archive.namelist())
+        by_case: dict[str, str | None] = {}  # lower-case name → the member of that name, None when two differ only in case
+        for name in names:
+            by_case[name.lower()] = None if name.lower() in by_case else name
+        renamed: dict[str, str] = {}  # member → the name it is referenced by
+        ambiguous: set[str] = set()
+
+        def note(reference: str) -> str | None:
+            """Note the member `reference` names in another case; the member's name as it will be stored, or None."""
+            candidates = (reference, posixpath.normpath(unquote(reference))) if "%" in reference else (reference,)
+            for candidate in candidates:
+                if candidate in names:
+                    return None
+                member = by_case.get(candidate.lower())
+                if member is None:
+                    continue
+                if renamed.get(member, candidate) != candidate:
+                    ambiguous.add(member)
+                    return None
+                renamed[member] = candidate
+                return candidate
+            return None
+
+        types = _parse_member(archive, "[Content_Types].xml") if "[Content_Types].xml" in names else None
+        if types is not None:
+            for override in types.iter(f"{{{_CONTENT_TYPES}}}Override"):
+                note(override.get("PartName", "").lstrip("/"))
+        # relationships to read: (member, the name it is read under). A renamed part's relationships follow it
+        pending = [(name, name) for name in sorted(names) if _is_relationships(name)]
+        read: set[tuple[str, str]] = set()
+        while pending:
+            member, name = pending.pop()
+            if (member, name) in read:
+                continue
+            read.add((member, name))
+            root = _parse_member(archive, member)
+            if root is None:
+                continue
+            base = name[: name.rindex("_rels/")]
+            for relationship in root.iter(f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship"):
+                if relationship.get("TargetMode") == "External" or not relationship.get("Target"):
+                    continue
+                stored = note(_resolve_target(base, relationship.get("Target", "")))
+                if stored is None:
+                    continue
+                relationships = _relationships_of(stored)
+                if relationships in names:
+                    continue
+                relationships_member = by_case.get(relationships.lower())
+                if relationships_member is not None and note(relationships) == relationships:
+                    pending.append((relationships_member, relationships))
+        for member in ambiguous:
+            renamed.pop(member, None)
+        if not renamed:
+            return None
+
+        # Copied as in `repair_package` (with duplicate names, the last one, as when reading). A member that does not read through
+        # leaves the package as it is, for the reader to judge as before
+        members = {info.filename: info for info in archive.infolist()}
+        buffer = BytesIO()
+        try:
+            with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as copy:
+                for info in members.values():
+                    entry = zipfile.ZipInfo(renamed.get(info.filename, info.filename), date_time=info.date_time)
+                    entry.compress_type = zipfile.ZIP_DEFLATED
+                    with archive.open(info) as source, copy.open(entry, "w") as sink:
+                        shutil.copyfileobj(source, sink)
+        except ZIP_MEMBER_ERRORS:
+            return None
+    return buffer.getvalue()
 
 
 def incomplete_relationships_warning(count: int) -> str:

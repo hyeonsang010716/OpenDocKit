@@ -192,6 +192,38 @@ class TestRenamedMainPart:
         assert "# 1장 개요" in result.text
         assert "본문 첫 문단입니다." in result.text
 
+    @pytest.mark.parametrize(
+        ("make", "main_part", "expected"),
+        [
+            (builder.docx_bytes, "word/document.xml", DocumentFormat.DOCX),
+            (builder.pptx_bytes, "ppt/presentation.xml", DocumentFormat.PPTX),
+            (builder.xlsx_bytes, "xl/workbook.xml", DocumentFormat.XLSX),
+        ],
+    )
+    def test_main_part_in_another_case(self, make, main_part, expected):
+        """Part names are case-insensitive (OPC): `word/Document.xml` behind the target `word/document.xml` was rejected with
+        'This archive file format is not supported.'"""
+        folder, name = main_part.split("/")
+        data = _renamed_main_part(make(), folder, name, name.capitalize())
+        data = builder.zip_with(data, edit={"_rels/.rels": lambda xml: xml.replace(f"{folder}/{name.capitalize()}", main_part)})
+
+        assert detect_format(data, "a.zip") is expected
+
+    def test_main_part_in_two_cases_is_not_guessed_between(self):
+        import zipfile
+
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("_rels/.rels", (
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" '
+                'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+                'Target="word/main.xml"/></Relationships>'))
+            archive.writestr("word/Main.xml", "<a/>")
+            archive.writestr("word/MAIN.xml", "<a/>")
+
+        with pytest.raises(UnsupportedFormatError):
+            detect_format(buffer.getvalue(), "a.zip")
+
     def test_zip_without_office_relationships_is_still_unsupported(self):
         import zipfile
 

@@ -347,11 +347,21 @@ def _office_main_part(archive: zipfile.ZipFile, names: set[str]) -> DocumentForm
     if "_rels/.rels" not in names:
         return None
     relationships = _read_prefix(archive, "_rels/.rels", 65_536)
+    by_case: dict[str, str | None] | None = None  # lower-case name → the member of that name, None when two differ only in case
     for relationship in _RELATIONSHIP.finditer(relationships):
         target = _TARGET.search(relationship.group(0)) if _OFFICE_DOCUMENT.search(relationship.group(0)) else None
         if target is None:
             continue
         path = target.group(1).decode("utf-8", errors="replace").removeprefix("./")
+        if path not in names:
+            # Part names are case-insensitive (OPC): a main part stored as `word/Document.xml` behind the target
+            # `word/document.xml` is that part when no other member has the same name in another case; the archive was
+            # rejected as unsupported (Pinned by: test_detect.py::TestRenamedMainPart::test_main_part_in_another_case).
+            if by_case is None:
+                by_case = {}
+                for name in names:
+                    by_case[name.lower()] = None if name.lower() in by_case else name
+            path = by_case.get(path.lower()) or path
         folder = path.split("/", 1)[0]
         if path in names and folder == "xl" and path.lower().endswith(".bin"):
             # Excel binary workbook. Handed over as XLSX it is rejected as a "corrupted document"

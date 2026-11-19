@@ -2890,6 +2890,32 @@ class TestMissingPartRelationships:
                            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
                            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">')
 
+    def test_sheet_whose_part_is_missing_is_named(self):
+        """openpyxl passes over a sheet whose part is not in the file: the whole sheet was gone without a word. A hidden sheet is
+        left out anyway, so only one that would be read is named."""
+        workbook = openpyxl.Workbook()
+        workbook.active.title = "Summary"
+        workbook.active.append(["total", 10])
+        workbook.create_sheet("Detail").append(["item", "amount"])
+        workbook.create_sheet("Secret").append(["x"])
+        workbook["Secret"].sheet_state = "hidden"
+        buffer = BytesIO()
+        workbook.save(buffer)
+        dropped = BytesIO()
+        with zipfile.ZipFile(buffer) as source, zipfile.ZipFile(dropped, "w") as target:
+            for name in source.namelist():
+                if name not in ("xl/worksheets/sheet2.xml", "xl/worksheets/sheet3.xml"):
+                    target.writestr(name, source.read(name))
+        data = dropped.getvalue()
+
+        result = convert(data, "a.xlsx")
+        everything = convert(data, "a.xlsx", ConvertOptions(include_hidden_sheets=True))
+
+        assert result.text == "## Sheet: Summary\n\n| total | 10 |\n| --- | --- |"
+        assert result.warnings == ["Sheet 'Detail' was left out because its part is missing from the file."]
+        assert everything.warnings == ["Sheet 'Detail' was left out because its part is missing from the file.",
+                                       "Sheet 'Secret' was left out because its part is missing from the file."]
+
     def test_picture_without_a_relationship_is_dropped_and_the_table_is_kept(self):
         data = builder.zip_with(builder.xlsx_with_image(),
                                 edit={"xl/drawings/_rels/drawing1.xml.rels": lambda xml: xml.replace('Id="rId1"', 'Id="rId9"')})

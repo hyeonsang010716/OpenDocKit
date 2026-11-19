@@ -90,6 +90,7 @@ class _CellReading:
     part_results: dict[tuple[str, ...], object] = field(default_factory=dict)  # what a part gave, kept for this workbook (`_once_per_part`)
     sheet_parts: dict[int, str] = field(default_factory=dict)  # `id` of a sheet object → path of its part (`_sheets_noting_parts`)
     streamed: bool = False  # the workbook is read by streaming, which has no use for merges (`_parse_cells_and_merges`)
+    unread_sheets: list[tuple[str, str]] = field(default_factory=list)  # (name, state) of sheets openpyxl passed over (`_sheets_noting_parts`)
 
 
 # Deliberate: the cell interpretation of openpyxl's sheet parser (`WorkSheetParser.parse_cell`) and the place that knows the number
@@ -681,13 +682,17 @@ def _sheets_noting_parts(parser: _openpyxl_workbook_reader.WorkbookParser) -> It
     A fully loaded sheet does not know its part, so it was looked up by its name in workbook.xml. openpyxl renames a sheet whose
     name repeats another one (case ignored: `Data`, `data` → `Data`, `data1`), so the renamed sheet found no part (no pictures,
     charts or comments) or the part of another sheet, and the hidden state of one went to both
-    (Pinned by: test_audit_spreadsheet.py::TestSheetsWithTheSameName)."""
+    (Pinned by: test_audit_spreadsheet.py::TestSheetsWithTheSameName). An entry that adds no sheet is one whose part openpyxl did
+    not find; it is noted with its state (`_CellReading.unread_sheets`) so that the sheet is not gone without a word
+    (Pinned by: test_spreadsheet.py::TestMissingPartRelationships::test_sheet_whose_part_is_missing_is_named)."""
     reading = _READING.get()
     for sheet, rel in _find_sheets(parser):
         count = len(parser.wb._sheets)
         yield sheet, rel
         if reading is not None and len(parser.wb._sheets) > count:
             reading.sheet_parts[id(parser.wb._sheets[-1])] = str(rel.target)
+        elif reading is not None:
+            reading.unread_sheets.append((str(sheet.name), str(sheet.state or "visible")))
 
 
 _find_sheets = _openpyxl_workbook_reader.WorkbookParser.find_sheets
