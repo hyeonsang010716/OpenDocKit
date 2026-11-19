@@ -1095,6 +1095,11 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
                 noted = len(renderer.notes)
                 rendered = renderer.render([record])
                 blocks.extend(rendered)
+                # Without a limit nothing is counted: the count is only ever compared with the limit, and measuring every note made
+                # a document of 60,000 notes 30% slower (Pinned by: test_hwp_robustness.py::TestNotesCountTowardTheLimit::
+                # test_notes_are_not_measured_without_a_limit)
+                if options.max_chars is None:
+                    continue
                 added = sum(solid_length(block) for block in rendered) + sum(solid_length(note) for note in renderer.notes[noted:])
                 if extraction.count(added, options):
                     break

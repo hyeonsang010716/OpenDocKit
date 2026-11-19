@@ -377,6 +377,31 @@ class TestNotesCountTowardTheLimit:
         assert result.exceeded
         assert result.text.count("[^") < 2 * 40
 
+    def test_notes_are_not_measured_without_a_limit(self, monkeypatch):
+        """Measuring every note made a document of 60,000 notes 30% slower; without a limit nothing is compared, so nothing is
+        measured."""
+        from opendockit.extractors import hwp, hwpx
+
+        record = builder.hwp_record
+        paragraph = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("a", (17, "fn  "))),
+            record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("fn  ")),
+            record(TAG_LIST_HEADER, 2, b"\x01\x00" + b"\x00" * 6),
+            _paragraph(self._NOTE, 2),
+        ])
+        hwp_data = _fake_hwp(monkeypatch, sections=[paragraph * 20])
+        hwpx_data = builder.hwpx_bytes(('<hp:p><hp:run><hp:t>a</hp:t><hp:ctrl><hp:footNote><hp:subList><hp:p><hp:run><hp:t>'
+                                        + self._NOTE + "</hp:t></hp:run></hp:p></hp:subList></hp:footNote></hp:ctrl></hp:run></hp:p>") * 20)
+        expected = {name: convert(data, name, ConvertOptions(max_chars=None)).text for name, data in (("a.hwp", hwp_data), ("a.hwpx", hwpx_data))}
+        measured = []
+        for module in (hwp, hwpx):
+            monkeypatch.setattr(module, "solid_length", lambda text: measured.append(text) or len(text))
+
+        for name, data in (("a.hwp", hwp_data), ("a.hwpx", hwpx_data)):
+            assert convert(data, name, ConvertOptions(max_chars=None)).text == expected[name]
+        assert measured == []
+
 
 class TestManyMembersAndReferences:
     """Each chart and picture a section refers to was looked up in the list of the archive's members: 40,000 references to as many
