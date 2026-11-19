@@ -686,10 +686,15 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
                 continue
 
             # Read per top-level paragraph and count characters. Once the limit is exceeded, the remaining paragraphs and sections are not read.
+            # The notes the paragraph added and kept count too (a branch of a switch that gives nothing takes its notes back while
+            # the paragraph is rendered): they were not counted while reading, so a document of footnotes was read to its end
+            # (Pinned by: test_hwp_robustness.py::TestNotesCountTowardTheLimit).
             for paragraph in _children(section, "p"):
+                noted = len(renderer.notes)
                 rendered = renderer.render_paragraph(paragraph)
                 blocks.extend(rendered)
-                if extraction.count(sum(solid_length(block) for block in rendered), options):
+                added = sum(solid_length(block) for block in rendered) + sum(solid_length(note) for note in renderer.notes[noted:])
+                if extraction.count(added, options):
                     break
             if extraction.exceeded:
                 break

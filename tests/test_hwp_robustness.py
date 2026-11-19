@@ -11,7 +11,7 @@ import zlib
 
 import pytest
 
-from opendockit import CorruptedDocumentError, convert
+from opendockit import ConvertOptions, CorruptedDocumentError, convert
 from tests import builder
 from tests.test_hwp import (
     TAG_BIN_DATA,
@@ -343,6 +343,39 @@ class TestSpansPastTheTable:
         assert seconds < allowed(1.0)
         assert result.warnings == []
         assert result.text.count("| B | |") == 3
+
+class TestNotesCountTowardTheLimit:
+    """Footnotes are written after the body, and their text was not counted while the body was read: a document whose text is
+    in its notes was read to its end whatever `max_chars` said (9.6 million characters of notes took 3.7 s, the same text in
+    the body 0.2 s). The notes a paragraph adds count with it."""
+
+    _NOTE = "각주 내용 " * 20  # 80 characters that count
+
+    def test_hwpx_stops_reading_at_the_limit(self):
+        paragraph = ('<hp:p><hp:run><hp:t>a</hp:t><hp:ctrl><hp:footNote><hp:subList><hp:p><hp:run><hp:t>' + self._NOTE
+                     + "</hp:t></hp:run></hp:p></hp:subList></hp:footNote></hp:ctrl></hp:run></hp:p>")
+
+        result = convert(builder.hwpx_bytes(paragraph * 200), "a.hwpx", ConvertOptions(max_chars=2_000))
+
+        assert result.exceeded
+        assert result.text.count("[^") < 2 * 40  # the references and definitions of about 25 notes, not of 200
+
+    def test_hwp_stops_reading_at_the_limit(self, monkeypatch):
+        record = builder.hwp_record
+        paragraph = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("a", (17, "fn  "))),
+            record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("fn  ")),
+            record(TAG_LIST_HEADER, 2, b"\x01\x00" + b"\x00" * 6),
+            _paragraph(self._NOTE, 2),
+        ])
+        data = _fake_hwp(monkeypatch, sections=[paragraph * 200])
+
+        result = convert(data, "a.hwp", ConvertOptions(max_chars=2_000))
+
+        assert result.exceeded
+        assert result.text.count("[^") < 2 * 40
+
 
 class TestManyMembersAndReferences:
     """Each chart and picture a section refers to was looked up in the list of the archive's members: 40,000 references to as many

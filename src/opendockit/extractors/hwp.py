@@ -1025,11 +1025,15 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
                 extraction.warnings.append(f"Section {number}: the stream is truncated, so only the part that could be read was converted.")
 
             # Read per top-level record (paragraph) and count characters. Once the limit is exceeded, the remaining paragraphs and
-            # sections are not read.
+            # sections are not read. The notes the paragraph added count too: written after the body, they were not counted while
+            # reading, so a document of footnotes was read to its end (9.6 million characters: 3.7 s against 0.2 s in the body)
+            # (Pinned by: test_hwp_robustness.py::TestNotesCountTowardTheLimit).
             for record in iter_records(stream, records):
+                noted = len(renderer.notes)
                 rendered = renderer.render([record])
                 blocks.extend(rendered)
-                if extraction.count(sum(solid_length(block) for block in rendered), options):
+                added = sum(solid_length(block) for block in rendered) + sum(solid_length(note) for note in renderer.notes[noted:])
+                if extraction.count(added, options):
                     break
             if extraction.exceeded:
                 break
