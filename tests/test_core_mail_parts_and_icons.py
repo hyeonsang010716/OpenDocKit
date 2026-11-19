@@ -156,6 +156,74 @@ class TestEncodedAttachmentName:
         assert result.warnings == [_ATTACHMENT_WARNING.format("견적서.xlsx")]
 
 
+def _mail_with_attachment_headers(headers: bytes) -> bytes:
+    return (b"From: a@example.com\r\nTo: b@example.com\r\nSubject: quote\r\nMIME-Version: 1.0\r\n"
+            b"Content-Type: multipart/mixed; boundary=M\r\n\r\n--M\r\nContent-Type: text/plain\r\n\r\nbody\r\n--M\r\n"
+            + headers + b"\r\n\r\nAAAA\r\n--M--\r\n")
+
+
+class TestEightBitAttachmentName:
+    """An attachment name written as raw 8-bit bytes (groupware, old mail programs) came out as one replacement character a
+    byte, `���������.pdf`, though the subject of the same mail was read: the standard library reads a parameter from the text
+    of its header, where the bytes are already gone."""
+
+    @pytest.mark.parametrize("codec", ["utf-8", "cp949"])
+    @pytest.mark.parametrize("headers", [
+        b'Content-Type: application/pdf\r\nContent-Disposition: attachment; filename="{}"',
+        b"Content-Type: application/pdf\r\nContent-Disposition: attachment; filename={}; size=10",
+        b'Content-Type: application/pdf; name="{}"\r\nContent-Disposition: attachment',
+    ], ids=["filename", "unquoted filename", "name"])
+    def test_raw_name_is_decoded(self, headers, codec):
+        data = _mail_with_attachment_headers(headers.replace(b"{}", "견적서.pdf".encode(codec)))
+
+        assert convert(data, "a.eml").warnings == [_ATTACHMENT_WARNING.format("견적서.pdf")]
+
+    @pytest.mark.parametrize("parameter", [b"filename*=ks_c_5601-1987''%8C%63%B9%E6.pdf", b"name*=euc-kr''%8C%63%B9%E6.pdf",
+                                           b"filename*=''%EB%98%A0%EB%B0%A9.pdf"])
+    def test_rfc_2231_name_in_a_korean_charset(self, parameter):
+        """The standard library decodes `ks_c_5601-1987` (an EUC-KR label) strictly, so the extended Hangul 똠 became
+        `�c방.pdf`; the superset codec reads it, as in an RFC 2047 word. Bytes without a charset are detected."""
+        where = b"Content-Type: application/pdf\r\nContent-Disposition: attachment; " if parameter.startswith(b"filename") else b"Content-Type: application/pdf; "
+        data = _mail_with_attachment_headers(where + parameter + (b"\r\nContent-Disposition: attachment" if parameter.startswith(b"name") else b""))
+
+        assert convert(data, "a.eml").warnings == [_ATTACHMENT_WARNING.format("똠방.pdf")]
+
+    @pytest.mark.parametrize("headers", [
+        b"Content-Type: application/pdf\r\nContent-Disposition: attachment; filename*=utf-8''a; filename*1=b.pdf",
+        b"Content-Type: application/pdf; name*=utf-8''a; name*1=b.pdf",
+    ], ids=["filename", "name"])
+    def test_name_the_standard_library_cannot_read(self, monkeypatch, headers):
+        """Python 3.12 and 3.13 sort the pieces of an RFC 2231 parameter with `None` for the piece without a number, so
+        `filename*=utf-8''a; filename*1=b.pdf` raised a TypeError and the whole mail was rejected for one attachment name.
+        That sort is reproduced here; the attachment is counted as unnamed and the mail is read."""
+        import email.utils
+
+        decode_params = email.utils.decode_params
+
+        def sorting_like_python_3_13(params):
+            names = [name.lower() for name, _ in params[1:]]
+            if any(name.endswith("*") and name.count("*") == 1 and any(other.startswith(name[:-1] + "*1") for other in names)
+                   for name in names):
+                raise TypeError("'<' not supported between instances of 'int' and 'NoneType'")
+            return decode_params(params)
+
+        monkeypatch.setattr(email.utils, "decode_params", sorting_like_python_3_13)
+        result = convert(_mail_with_attachment_headers(headers), "a.eml")
+
+        assert "body" in result.text
+        assert result.warnings == [_ATTACHMENT_WARNING.format("1 unnamed attachment(s)")]
+
+    @pytest.mark.parametrize(("parameter", "name"), [
+        (b"filename*=iso-8859-1''caf%E9.pdf", "café.pdf"),
+        (b"filename*=x-unknown''report.pdf", "report.pdf"),
+        (b'filename="report.pdf"', "report.pdf"),
+    ])
+    def test_other_names_read_as_before(self, parameter, name):
+        data = _mail_with_attachment_headers(b"Content-Type: application/pdf\r\nContent-Disposition: attachment; " + parameter)
+
+        assert convert(data, "a.eml").warnings == [_ATTACHMENT_WARNING.format(name)]
+
+
 def _mbox_message(number: int, *, html: bool) -> str:
     if html:
         content = (f'Content-Type: multipart/alternative; boundary="b{number}"\n\n--b{number}\nContent-Type: text/plain; '
@@ -620,6 +688,21 @@ class TestMeetingInvitation:
     method=REQUEST) vanished without a warning. The title, start, end (time zone as is), location, organizer and attendees of the
     text/calendar part are placed after the body as an `Event:` block."""
 
+    def test_invitation_in_two_parts_is_one_event(self):
+        """The same invitation as the branch of an alternative and as a named part of its own (`invite.ics` without a
+        Content-Disposition) is one event; both were written."""
+        ics = ("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nSUMMARY:Weekly sync\r\nDTSTART:20261120T090000Z\r\n"
+               "LOCATION:Room 4\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+        mail = ("From: a@example.com\r\nTo: b@example.com\r\nSubject: Invite\r\nMIME-Version: 1.0\r\n"
+                "Content-Type: multipart/mixed; boundary=OUT\r\n\r\n--OUT\r\nContent-Type: multipart/alternative; boundary=ALT"
+                "\r\n\r\n--ALT\r\nContent-Type: text/plain\r\n\r\nPlease join.\r\n--ALT\r\nContent-Type: text/calendar; "
+                "charset=utf-8; method=REQUEST\r\n\r\n" + ics + "--ALT--\r\n--OUT\r\nContent-Type: text/calendar; charset=utf-8; "
+                'method=REQUEST; name="invite.ics"\r\n\r\n' + ics + "--OUT--\r\n")
+
+        text = convert(mail.encode(), "a.eml").text
+
+        assert text.count("Event:") == 1 and text.endswith("- Title: Weekly sync\n- Start: 2026-11-20 09:00 UTC\n- Location: Room 4")
+
     @pytest.mark.parametrize("html", [True, False])
     @needs_html5_tokenizer
     def test_invitation_details_follow_the_body(self, html):
@@ -672,6 +755,21 @@ class TestMeetingInvitation:
         assert "Event:" not in result.text
         assert result.warnings == ["1 mail attachment(s) (invite.ics) were not read. Convert attachments separately."]
 
+
+
+class TestNamedInvitationInAnAlternative:
+    """An invitation whose text/calendar branch carries a name (`name=meeting.ics`) but no disposition was taken for an
+    attachment: its event was not read, and the invitation was reported as an unread file. A text/calendar part with an iTIP
+    `method` is the invitation itself; one with `Content-Disposition: attachment` stays an attachment (the test above)."""
+
+    @needs_html5_tokenizer
+    def test_named_invitation_is_read(self):
+        data = _invite(_INVITE_CALENDAR, calendar_head='text/calendar; method=REQUEST; charset="utf-8"; name="meeting.ics"')
+
+        result = convert(data, "invite.eml")
+
+        assert result.text.endswith("예산 검토 회의입니다.\n\n" + _INVITE_BLOCK)
+        assert result.warnings == []
 
 def _signed_mail(signature_type: str, name: str, *, html: bool = False, extra: str = "") -> bytes:
     body = "<p>서명된 본문입니다.</p>" if html else "서명된 본문입니다."

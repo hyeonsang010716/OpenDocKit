@@ -25,7 +25,7 @@ from tests import builder
 yaml = pytest.importorskip("yaml")
 
 PLUGIN = Path(__file__).parent.parent / "dify-plugin"
-pytestmark = pytest.mark.skipif(not PLUGIN.is_dir(), reason="the Dify plugin is not part of the source distribution")
+pytestmark = pytest.mark.skipif(not PLUGIN.is_dir(), reason="the dify-plugin folder is not in this copy of the project")
 
 # From the Marketplace curation policy (langgenius/dify-plugins, docs/marketplace-curation-policy.md): CI refuses any other tag.
 _TAGS = {"agent", "business", "design", "education", "entertainment", "finance", "image", "news", "other", "productivity", "rag",

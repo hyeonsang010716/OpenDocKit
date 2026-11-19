@@ -8,6 +8,7 @@ import pytest
 from opendockit import DocumentFormat, EncryptedDocumentError, convert
 from opendockit.extractors._encoding import decode_text
 from tests import needs_html5_tokenizer
+from tests.timing import fastest
 
 
 def _b64(value: str) -> str:
@@ -400,3 +401,76 @@ class TestEncodedWordNextToText:
         result = convert(data, "a.eml")
 
         assert "견적서.xlsx" in result.warnings[0]
+
+
+def _forwarded_with_subject(subject: str) -> bytes:
+    return ("From: a@example.com\r\nTo: b@example.com\r\nSubject: fw\r\nMIME-Version: 1.0\r\n"
+            "Content-Type: multipart/mixed; boundary=B\r\n\r\n--B\r\nContent-Type: text/plain\r\n\r\nsee below\r\n"
+            "--B\r\nContent-Type: message/rfc822\r\n\r\nFrom: c@example.com\r\nSubject: " + subject
+            + "\r\n\r\ninner body\r\n--B--\r\n").encode()
+
+
+def _with_attachment_named(name: str) -> bytes:
+    return ("From: a@example.com\r\nTo: b@example.com\r\nSubject: at\r\nMIME-Version: 1.0\r\n"
+            "Content-Type: multipart/mixed; boundary=B\r\n\r\n--B\r\nContent-Type: text/plain\r\n\r\nsee below\r\n"
+            "--B\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"" + name
+            + "\"\r\n\r\nAAAA\r\n--B--\r\n").encode()
+
+
+class TestUnclosedEncodedWords:
+    """`decode_header` looks for the `?=` closing a word from every word start to the end of the line, so a header of word
+    starts that are never closed took the square of its length: 137 KB in 9 s, and the subject of a forwarded mail or an
+    attachment name, which the 256 KB header range does not bound, 274 KB in 39 s. Only the text before the starts that cannot
+    be closed is given to the pattern; the rest is left as written, as `decode_header` leaves it. The steps of `decode_header`
+    after that take the pieces of a line off the front of a list, which took the square of the number of words too."""
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("build", [_forwarded_with_subject, _with_attachment_named], ids=["forwarded subject", "attachment"])
+    def test_word_starts_that_are_never_closed_take_linear_time(self, build):
+        small, large = build("=?a?q?x" * 5_000), build("=?a?q?x" * 20_000)
+
+        assert fastest(lambda: convert(large, "a.eml")) < 8 * fastest(lambda: convert(small, "a.eml")) + 0.05
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("separator", ["\x0c", "\x1c"])
+    def test_unclosed_words_before_a_line_break(self, separator):
+        """`decode_header` splits at every `str.splitlines` break: starts that are never closed, then a form feed and a `?=`,
+        took the square of their length although the last `?=` of the whole text came after every start (156 KB in 10 s)."""
+        small, large = (_forwarded_with_subject("=?a?q?x " * count + separator + "?=") for count in (5_000, 20_000))
+
+        assert fastest(lambda: convert(large, "a.eml")) < 8 * fastest(lambda: convert(small, "a.eml")) + 0.05
+
+    @pytest.mark.timing
+    def test_words_before_a_line_break_and_an_unclosed_start_take_linear_time(self):
+        """A header holding a line break and a start never closed was given back undecoded, so the word-by-word decoding
+        joined its words onto one line for `decode_header`: 300 KB in 0.45 s, 1.2 MB in 7.4 s (0.04 s before that check)."""
+        small, large = (_forwarded_with_subject("=?utf-8?q?ab?=\x0c" * count + "=?utf-8?q?x") for count in (5_000, 20_000))
+
+        assert fastest(lambda: convert(large, "a.eml")) < 8 * fastest(lambda: convert(small, "a.eml")) + 0.05
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("build", [_forwarded_with_subject, _with_attachment_named], ids=["forwarded subject", "attachment"])
+    def test_well_formed_words_take_linear_time(self, build):
+        """`decode_header` takes the pieces of a line off the front of a list one by one: a forwarded subject or an attachment
+        name of `=?a?q?x?= ` repeated took 0.7 s for 250 KB, 2.8 s for 500 KB and 11.3 s for 1 MB."""
+        small, large = build("=?a?q?x?= " * 5_000), build("=?a?q?x?= " * 20_000)
+
+        assert fastest(lambda: convert(large, "a.eml")) < 8 * fastest(lambda: convert(small, "a.eml")) + 0.05
+
+    @pytest.mark.parametrize(("subject", "expected"), [
+        # decoded line by line, as `decode_header` reads a header with a line break that does not fold it
+        ("=?utf-8?q?Hello?=\x0c=?a?q?x", "Hello=?a?q?x"),
+        ("=?a?b?\x1e=??Q?=41?=", "=?a?b?A"),
+        ("=?utf-8?b?7JWI?=\x0c=?utf-8?b?64WV?= =?a?q?x", "안녕 =?a?q?x"),
+        ("=?utf-8?q?Hello?= =?a?q?x=?a?q?x", "Hello =?a?q?x=?a?q?x"),
+        # a start at the `=` of the last `?=`: that `?=` still closes the word before it
+        ("=?utf-8?q?a?=?b?q?x", "a?b?q?x"),
+        ("plain =?a?q?x", "plain =?a?q?x"),
+    ])
+    def test_the_words_before_them_are_decoded_as_before(self, subject, expected):
+        assert f"Subject: {expected}\n" in convert(_forwarded_with_subject(subject), "a.eml").text
+
+    def test_attachment_name_before_them_is_decoded(self):
+        result = convert(_with_attachment_named("=?utf-8?b?6rKs7KCB7ISc?=.pdf =?a?q?x"), "a.eml")
+
+        assert result.warnings == ["1 mail attachment(s) (견적서.pdf =?a?q?x) were not read. Convert attachments separately."]

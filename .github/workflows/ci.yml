@@ -25,7 +25,8 @@ jobs:
       - run: uv run ruff check
 
   test:
-    timeout-minutes: 20
+    # The timing tests run one at a time and take most of the job; 20 minutes was nearly used up (about 15 in November 2026)
+    timeout-minutes: 40
     name: test (py${{ matrix.python }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # Windows is not verified yet: its result is reported but does not fail the workflow.
@@ -58,7 +59,7 @@ jobs:
         run: uv run pytest -m timing --durations=15
 
   minimum-dependencies:
-    timeout-minutes: 20
+    timeout-minutes: 40
     # Runs the suite against the oldest versions allowed by pyproject.toml, so the declared lower bounds stay true.
     runs-on: ubuntu-latest
     steps:

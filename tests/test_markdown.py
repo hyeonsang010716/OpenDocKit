@@ -1,5 +1,6 @@
 """Shared normalization and table rendering."""
 
+import json
 import unicodedata
 
 import pytest
@@ -75,6 +76,83 @@ class TestCleanText:
 
         assert result == "첫 줄\n\n둘째 줄"
 
+    def test_unicode_line_and_paragraph_separators_are_line_breaks(self):
+        """U+2028 and U+2029 were kept as they were, though form feed and U+0085 become line breaks: one stayed inside a table
+        cell, split `str.splitlines` in the middle of a table row, and let a quoted fence escape the first cleaning, so that
+        cleaning the result again changed it. The Ogham space mark U+1680, the one other Unicode space left, is a space."""
+        assert clean_text("first line\u2028second line\u2029next\u1680word") == "first line\nsecond line\nnext word"
+        assert render_table([["name", "note"], ["kim", "line 1\u2028line 2"]]) == ("| name | note |\n| --- | --- |\n"
+                                                                                  "| kim | line 1<br>line 2 |")
+        once = clean_text("\u2028> ```")
+        assert clean_text(once) == once
+
+    @pytest.mark.parametrize(("text", "collapse_spaces", "expected"), [
+        ("> ```\n> code\u2028more\n> ```\n\nafter", True, "> ```\n> code\u2028more\n> ```\n\nafter"),
+        ("```\ncode\u2029more\n```", False, "```\ncode\u2029more\n```"),
+        ("text\n\n    code\u2028more", False, "text\n\n    code\u2028more"),
+        ("> quoted\u2028more\n> > deep\u2029er", True, "> quoted\n> more\n> > deep\n> > er"),
+        ("| a\u2028b | c |\n| - | - |", False, "| a b | c |\n| - | - |"),
+        ("- item\u2028more", True, "- item\nmore"),
+        ("> a\u2028\u2029\nb\u2028", True, "> a\nb"),
+        ("text\u2028```\ncode\n```", True, "text\n```\ncode\n```"),
+    ])
+    def test_line_separators_stay_inside_code_and_carry_the_quote_marks(self, text, collapse_spaces, expected):
+        """Made line breaks before the lines were looked at, a separator in a quoted code block began a line without `> `, which
+        closed the quote and escaped both fences (`> \\````); one in a Markdown table row split the row, and one in a fenced
+        example changed the code. Inside code they stay, in a table row they are a space, and a new line in a quote keeps
+        the quote marks. Cleaning the result again changes nothing."""
+        result = clean_text(text, collapse_spaces=collapse_spaces)
+
+        assert result == expected
+        assert clean_text(result, collapse_spaces=collapse_spaces) == result
+
+    def test_line_separators_of_code_and_data_files_stay(self):
+        """A `.json` file holding `"x\\u2028y"` came out with a raw line break inside the string. Prose keeps the line breaks."""
+        assert convert('{"a": "x\u2028y"}'.encode(), "a.json").text == '{"a": "x\u2028y"}'
+        assert convert('{"a": "x\u2028y"}'.encode()).text == '{"a": "x\u2028y"}'
+        assert convert('key: "x\u2028y"\n'.encode(), "a.yaml").text == 'key: "x\u2028y"'
+        assert convert("line\u2028two\u2029para".encode(), "a.txt").text == "line\ntwo\npara"
+        assert convert("a,b\n\"x\u2028y\",z\n".encode(), "a.csv").text == "| a | b |\n| --- | --- |\n| x<br>y | z |"
+        # Only JSON as a whole (or its first line, JSON Lines) is data; prose that opens like JSON is not
+        assert convert('{"a": "x\u2028y"}\n{"b": 1}'.encode()).text == '{"a": "x\u2028y"}\n{"b": 1}'
+        assert convert('[["a","b"]] rest\u2028line'.encode(), "a.txt").text == '[["a","b"]] rest\nline'
+        assert convert('["quoted"] title\u2028next'.encode()).text == '["quoted"] title\nnext'
+
+    def test_line_separators_of_a_large_json_text_stay(self):
+        """A JSON text over the size that is parsed whole was taken for prose when unnamed or named `.txt`, and its strings
+        got raw line breaks. Its opening is read for JSON tokens instead; large prose that opens like JSON still breaks."""
+        data = json.dumps([{"k": f"line {index}\u2028more", "n": index} for index in range(40_000)], ensure_ascii=False)
+        assert len(data.encode()) > 1024 * 1024
+
+        for name in (None, "a.txt"):
+            text = convert(data.encode(), name).text
+            assert "line 0\u2028more" in text and "\nmore" not in text
+        prose = '["quoted"] title\u2028next\n' + "words " * 200_000
+        assert convert(prose.encode(), "a.txt").text.startswith('["quoted"] title\nnext')
+
+    @pytest.mark.parametrize(("text", "name", "expected"), [
+        ("\tFirst paragraph line\u2028second line\n\tNext para\u2028more", "a.txt",
+         "First paragraph line\nsecond line\n\tNext para\nmore"),
+        ("1. Step\n\n    More\u2028second", "a.md", "1. Step\n\n    More\nsecond"),
+        ("Para\n    lazy\u2028x", "a.md", "Para\n    lazy\nx"),
+        ("- item\n\n    para\u2028two", "a.txt", "- item\n\n    para\ntwo"),
+        ("\u2028\u2029\n    first\u2028line", "a.md", "first\nline"),
+        ("Text\n\n    code\u2028kept\n    more", "a.md", "Text\n\n    code\u2028kept\n    more"),
+        ("> quote\n>\n>     code\u2028kept", "a.md", "> quote\n>\n>     code\u2028kept"),
+        ("```\nx\n```\n    code\u2028kept", "a.md", "```\nx\n```\n    code\u2028kept"),
+        ("# Title\n    code\u2028kept", "a.md", "# Title\n    code\u2028kept"),
+        (" \n    1. ---\n{    code(){word\n\n     code()\u2028word", "a.md", "1. ---\n{    code(){word\n\n     code()\nword"),
+    ])
+    def test_line_separators_of_indented_prose_are_line_breaks(self, text, name, expected):
+        """Every line indented by four spaces or a tab kept its separators as if it were code, though indented prose, a
+        paragraph of a list item and a lazy continuation are none; and the first line, whose indentation the converter
+        strips, was code the first time and prose the next. Only CommonMark's indented code keeps them, and converting the
+        result again gives the same text."""
+        once = convert(text.encode(), name).text
+
+        assert once == expected
+        assert convert(once.encode(), name).text == once
+
     @pytest.mark.parametrize("collapse_spaces", [True, False])
     def test_page_break_and_vertical_tab_become_line_breaks(self, collapse_spaces):
         """Form feed (\\f) and vertical tab (\\v) were removed without a space like other control characters, so `합계 100\\f200 이월`
@@ -117,6 +195,20 @@ class TestCleanText:
 
 
 class TestSolidLength:
+    @pytest.mark.parametrize("text", [
+        "id12,12,이름12", "| a | b |\n| --- | --- |", "plain\ttext\r\n", "x\x0by\x0cz", "a\xa0b　c", "> quote", "a\n>\nb",
+        "é", "각", "x\x01y", "a​b", " item", "1", "⟦IMG:ab:3⟧ pic", "\x1cx\x1f",
+        "ÅÅ", "😀 ok", "̸>"])
+    def test_plain_text_is_counted_as_by_the_full_steps(self, text):
+        """Pins: text with none of the characters the steps remove or change, already in NFC, is counted by its length without
+        white space; anything else goes through every step."""
+        steps = markdown._EMBED.sub("", markdown.IMAGE_MARKER.sub("", text))
+        steps = markdown._PRIVATE_USE.sub("", markdown._CONTROL.sub("", markdown._INVISIBLE.sub("", steps))
+                                          .translate(markdown._SYMBOL_FONT_GLYPHS))
+        for quote_lines in (True, False):
+            kept = markdown._BARE_QUOTE_LINE.sub("", steps) if quote_lines else steps
+            assert solid_length(text, quote_lines=quote_lines) == len("".join(unicodedata.normalize("NFC", kept).split()))
+
     def test_nested_table_placeholder_is_not_counted(self):
         """The estimate used for the character limit must never be larger than what is written. A nested-table placeholder is
         replaced by its table (counted when drawn), and text that only has its shape — 80 digits between the two private-use
@@ -140,6 +232,27 @@ class TestSolidLength:
         assert solid_length("> 가나\n> > b ⟦IMG:1⟧") == solid_length(">가나>>b")
 
 class TestRenderTable:
+    def test_br_in_cell_text_is_a_line_break_outside_a_table(self):
+        """The PDF table builders join the wrapped lines of a cell with `<br>` (`_pdf_wrapped_cells`, `_pdf_aligned_tables`), so a
+        `<br>` in cell text is a line break when the cell is written outside a table, as a one-column box or a title row; kept
+        as written, '장소<br>회의실' came out with the tag. Known accepted gap: a `<br>` an author typed in such a cell is a line
+        break too."""
+        assert render_table([["Item"], ["장소<br>회의실"]]) == "Item\n\n장소\n회의실"
+        assert render_table([["2024 Sales<br>Report", "", ""], ["Name", "Q1", "Q2"], ["A", "1", "2"]]).startswith(
+            "2024 Sales\nReport\n\n| Name | Q1 | Q2 |")
+
+    @pytest.mark.timing
+    def test_many_title_rows_take_linear_time(self):
+        """Each one-cell row at the top is lifted as a title, and the rest of the grid was copied after every one of them: a list of
+        one-cell rows above a full row took the square of its length (an 800 KB CSV of 200,000 such rows: 59 s)."""
+        def rows(count):
+            return [["a", "", ""]] * count + [["total", "1", "2"]]
+
+        small, large = rows(10_000), rows(40_000)
+
+        assert fastest(lambda: render_table(large)) < 8 * fastest(lambda: render_table(small)) + 0.05
+        assert render_table(rows(3)) == "a\n\na\n\na\n\n| total | 1 | 2 |\n| --- | --- | --- |"
+
     def test_renders_gfm_table_with_header_row(self):
         rows = [["이름", "값"], ["a", "1"]]
 

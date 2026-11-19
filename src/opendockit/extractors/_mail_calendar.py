@@ -69,8 +69,13 @@ def mail_calendar_events(message: Message) -> list[tuple[str, list[tuple[str, st
         # that kept the cancelled event published it as an ordinary `Event:` (Pinned by:
         # test_core_mail_bodies_and_events.py::TestCancelledEvent).
         cancelled = str(part.get_param("method") or "").upper() == "CANCEL" or "\nMETHOD:CANCEL" in text.upper()
-        events += [("Event (cancelled)" if cancelled or own_status == _CANCELLED else "Event", fields)
-                   for fields, own_status in _calendar_events(text)][:_MAX_CALENDAR_EVENTS - len(events)]
+        for fields, own_status in _calendar_events(text):
+            event = ("Event (cancelled)" if cancelled or own_status == _CANCELLED else "Event", fields)
+            # The same invitation sent twice, as the branch of an alternative and as a named part of its own, is one event:
+            # both were written (Pinned by: test_core_mail_parts_and_icons.py::TestMeetingInvitation::
+            # test_invitation_in_two_parts_is_one_event)
+            if event not in events and len(events) < _MAX_CALENDAR_EVENTS:
+                events.append(event)
     return events
 
 

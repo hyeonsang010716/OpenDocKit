@@ -32,6 +32,7 @@ from opendockit.extractors._html_dom import (
     _decompose_all,
     _document_nodes,
     _drop_hidden,
+    _drop_permalinks,
     _drop_sidebars,
     _drop_unsettled_cut_table,
     _flatten_nested_headings,
@@ -39,6 +40,7 @@ from opendockit.extractors._html_dom import (
     _foster_parent_table_content,
     _image_placeholder,
     _keep_expander_buttons,
+    _keep_preserved_line_breaks,
     _keep_svg_labels,
     _mark_scripts,
     _mark_struck_text,
@@ -46,9 +48,11 @@ from opendockit.extractors._html_dom import (
     _nest_word_lists,
     _open_at_the_end,
     _put_form_values,
+    _put_quotes,
     _put_ruby,
     _put_symbol_fonts,
     _reopen_raw_text_elements,
+    _unwrap_line_numbered_code,
     _with_table_around_bare_rows,
     _with_title_heading,
 )
@@ -65,7 +69,7 @@ from opendockit.extractors._html_mail import (
     is_mhtml,
     mail_reads_as_html,
 )
-from opendockit.extractors._html_math import _put_math
+from opendockit.extractors._html_math import _put_math, _put_tex_scripts
 from opendockit.extractors._html_render import _render_nodes, _settle_fences
 from opendockit.extractors._mail import (
     FORWARDED_MAIL_TITLE,
@@ -455,12 +459,16 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     folded = _folded_answers(soup, cut, openers)
     _keep_expander_buttons(soup, openers)
     _keep_svg_labels(soup, cut)
+    _put_tex_scripts(soup)
     _decompose_all(soup.find_all(_DROP_TAGS))
     _drop_sidebars(soup)
     # Not only comments: a DOCTYPE in the middle of the body is a node of its own too, and its name came out as the paragraph
     # `html` (Pinned by: test_audit_html_text.py::TestDoctypeInsideTheBody)
     _decompose_all(soup.find_all(string=lambda node: isinstance(node, PreformattedString)))
     _drop_hidden(soup, kept=folded, whole=whole)
+    _drop_permalinks(soup)
+    _keep_preserved_line_breaks(soup)
+    _unwrap_line_numbered_code(soup)
 
     extraction = Extraction(metadata=metadata, images=list(images or ()))
     warning = decoding_warning(encoding)
@@ -476,6 +484,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _put_math(soup)
     _put_symbol_fonts(soup)
     _put_form_values(soup)
+    _put_quotes(soup)  # before the scripts and rubies, which are turned into text with a `<q>` inside them
     _mark_scripts(soup)
     _put_ruby(soup)
     _mark_struck_text(soup, links=options.keep_links, emphasis=options.keep_emphasis)

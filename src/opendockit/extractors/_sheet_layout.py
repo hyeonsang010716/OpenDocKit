@@ -6,6 +6,7 @@ header rows, and the comments of the cells.
 from bisect import bisect_left, bisect_right
 from collections.abc import Iterator
 from dataclasses import dataclass
+from itertools import islice, zip_longest
 import re
 
 from openpyxl.utils.cell import get_column_letter
@@ -14,7 +15,7 @@ from opendockit.extractors._lists import cell_level_mark
 from opendockit.extractors._notation import comment_line
 from opendockit.extractors._sheet_format import _format_value
 from opendockit.markdown import join_blocks, render_table, solid_length
-from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
+from opendockit.models import IMAGE_MARKER, ConvertOptions, Extraction, Section, SectionKind
 
 
 # Upper bound on the number of cells covered by merge ranges in a full load (same as the merged-cell total limit of
@@ -72,22 +73,58 @@ def _collect_rows(rows: object, options: ConvertOptions, sheet_name: str, extrac
     rows are not read to the end.
 
     Deliberate: rows are not cut by row count. The only size limit is the character count (a 2,390-row sheet hit a 2,000-row limit
-    and lost 390 rows). Merge filling maps by row number, so empty rows keep their place too.
+    and lost 390 rows). Merge filling maps by row number, so empty rows keep their place too. The tables, columns and title rows
+    of a sheet cut here are decided on the rows collected, so its cut text can lay out otherwise than the front of its full text
+    (Pinned by: test_audit_spreadsheet.py::TestSheetDrawingStopsAtTheLimit::test_cut_sheet_lays_out_on_the_rows_read).
     """
     width = options.max_sheet_cols
     collected: list[list[str]] = []
+    # Warned once per sheet: looked up in the warnings for every row past the column limit, 120,000 such rows after the warnings
+    # of 40,000 hidden sheets took 42 s (Pinned by: test_audit_spreadsheet.py::TestWarningsLookedUpOncePerSheet)
+    warned = False
     for raw in rows:
-        values = [_format_value(value) for value in raw]
+        # Pinned by: test_audit_spreadsheet.py::TestSheetDrawingStopsAtTheLimit::test_sparse_rows_cost_their_cells
+        values = ["" if value is None or value == "" else _format_value(value) for value in raw]
         if not any(values):
             collected.append([])
             continue
 
-        if any(values[width:]):
+        if not warned and any(values[width:]):
             _warn_once(extraction.warnings, f"Sheet '{sheet_name}': columns beyond column {width} were excluded.")
+            warned = True
         collected.append(values[:width])
-        if extraction.count(sum(solid_length(value) for value in values[:width]), options):
+        if extraction.count(sum(_cell_length(value) for value in values[:width] if value), options):
             break
     return collected
+
+
+def _cell_length(value: str) -> int:
+    """`solid_length` of the text of a cell. A line of nothing but quote marks counts: a cell is written in a table row or as a
+    paragraph of its own, and neither drops such a line. Not counted, a CSV of 200,000 rows of `>` under a wide header was read
+    to the end and every row drawn, 4.2 s and 856 MB, growing with the rows (Pinned by:
+    test_audit_spreadsheet.py::TestSheetDrawingStopsAtTheLimit::test_quote_mark_rows_count_toward_the_limit). A cell holding a
+    picture keeps the rule: its line is dropped when the picture is.
+    """
+    return solid_length(value, quote_lines=">" in value and IMAGE_MARKER.search(value) is not None)
+
+
+class _Budget:
+    """What the drawing of one sheet may still write before the output is certain to be over the character limit (None: no
+    limit): the limit minus the characters counted before the sheet's rows were read (`_notation.chars_left`). The blocks of the
+    sheet are charged with their `solid_length` in output order, and each table is drawn with what is left
+    (`render_table(room=...)`); once it is used up nothing more of the sheet is written."""
+
+    __slots__ = ("left",)
+
+    def __init__(self, left: int | None) -> None:
+        self.left = left
+
+    def spend(self, block: str) -> bool:
+        """Charge `block`, written at this point of the sheet. True once the budget is used up."""
+        if self.left is None:
+            return False
+        self.left -= solid_length(block)
+        return self.left < 0
 
 
 def _until_long_empty_gap(rows: Iterator[tuple[int, tuple[str, ...]]], sheet_name: str,
@@ -111,10 +148,18 @@ def _until_long_empty_gap(rows: Iterator[tuple[int, tuple[str, ...]]], sheet_nam
 
 
 def _append_sheet(extraction: Extraction, name: str, rows: list[list[str]], drawn: list[str] | None = None,
-                  across: _Across | None = None) -> None:
+                  across: _Across | None = None, room: int | None = None, options: ConvertOptions | None = None) -> None:
+    """Add the section of one sheet. `room` is `_notation.chars_left` taken before the sheet's rows were read (`_Budget`); the
+    sheet's drawing is then counted as well, so that a later sheet has only what is left of the limit: the rows were counted by
+    their cell text, but a vertically merged value is written on every row it covers. Counted by the cells alone, every sheet of
+    a workbook could draw up to the whole limit."""
     index = len(extraction.sections) + 1
-    text = join_blocks([_sheet_text(rows, across), *(drawn or [])])
+    budget = _Budget(room)
+    text = join_blocks([_sheet_text(rows, across, budget), *(drawn or [])])
     extraction.sections.append(Section(SectionKind.SHEET, index, text, title=name))
+    if room is not None and options is not None and options.max_chars is not None and budget.left is not None:
+        # The characters before the sheet (the limit minus `room`) and what its drawing wrote, when that is more than counted
+        extraction.count(max(options.max_chars - budget.left - extraction.chars, 0), options)
 
 
 # Cell text that looks like a number: sign, currency, thousands separators, decimals, percent, parenthesised negatives, a quantity
@@ -134,7 +179,7 @@ _YEAR = re.compile(r"(?:19|20)\d{2}")
 _HEADER_PROBE_ROWS = 5
 
 
-def _sheet_text(rows: list[list[str]], across: _Across | None = None) -> str:
+def _sheet_text(rows: list[list[str]], across: _Across | None = None, budget: _Budget | None = None) -> str:
     """Turn the rows of a sheet (or CSV) into Markdown. When a block separated by empty rows is a new table the tables are split,
     and one-cell text blocks between or after tables (titles, notes) are kept as paragraphs (`_sheet_segments`). If there is
     nowhere to split, the whole sheet is one table as before.
@@ -143,32 +188,46 @@ def _sheet_text(rows: list[list[str]], across: _Across | None = None) -> str:
     common. In a report layout, the '2. 인원' table below the '1. 매출' table became data rows of the first table, so the header
     '부서 | 정원 | 현원' ended up in the columns '사업부 | 1월 | …'
     (Pinned by: test_spreadsheet.py::TestSeveralTablesInOneSheet). `across` holds the horizontal merges to fill into the data rows
-    of each table (`_fill_across`).
+    of each table (`_fill_across`). With a `budget` the blocks stop once it is used up (`_Budget`): which blocks and tables the
+    sheet has is still decided on all its rows, so what is written is the front of the sheet drawn to the end.
     """
+    budget = budget or _Budget(None)
     left = min((next(column for column, value in enumerate(row) if value) for row in rows if any(row)), default=0)
     segments = _sheet_segments(rows, left)
     if segments is None:
         _fill_across(rows, across)
-        return join_blocks(_table_blocks(rows, across))
+        return join_blocks(_table_blocks(rows, across, budget))
 
     parts = []
 
     for is_table, segment in segments:
         lead = _leading_note_rows(segment, left) if is_table else len(segment)
-        parts.extend(_note_text(row) for row in segment[:lead])
+        for row in segment[:lead]:
+            parts.append(_note_text(row))
+            if budget.spend(parts[-1]):
+                return join_blocks(parts)
         if lead < len(segment):
             _fill_across(segment[lead:], across)
-            parts.extend(_table_blocks(segment[lead:], across))
+            parts.extend(_table_blocks(segment[lead:], across, budget))
+            if budget.left is not None and budget.left < 0:
+                break
     return join_blocks(parts)
 
 
-def _table_blocks(rows: list[list[str]], across: _Across | None) -> list[str]:
+def _table_blocks(rows: list[list[str]], across: _Across | None, budget: _Budget) -> list[str]:
     """Render one table (a block separated by empty rows). Summary cells to the right of the header row become a paragraph above
     the table (`_header_summary`), and side-by-side tables whose every row is separated by empty columns are rendered separately
-    (`_side_by_side`)."""
+    (`_side_by_side`). The blocks stop once `budget` is used up; each table is drawn with what is left of it."""
     summary, rows = _header_summary(rows)
-    tables = [render_table(_header_without_level_mark(table)) for table in _side_by_side(rows, across)]
-    return [summary, *tables] if summary else tables
+    blocks = [summary] if summary else []
+    if blocks and budget.spend(summary):
+        return blocks
+    # Pinned by: test_audit_spreadsheet.py::TestSheetDrawingStopsAtTheLimit
+    for table in _side_by_side(rows, across):
+        blocks.append(render_table(_header_without_level_mark(table), room=budget.left))
+        if budget.spend(blocks[-1]):
+            break
+    return blocks
 
 
 def _header_row(rows: list[list[str]]) -> int | None:
@@ -220,7 +279,10 @@ def _side_by_side(rows: list[list[str]], across: _Across | None) -> list[list[li
     filled = [row for row in rows if any(row)]
     width = _width(filled)
     covered = {column for row in filled for first, end, _ in (across or {}).get(id(row), []) for column in range(first, end)}
-    used = [column in covered or any(column < len(row) and row[column] for row in filled) for column in range(width)]
+    # Column by column (`zip_longest`): looked up row by row for every column, a sheet of 100,000 rows with one cell in column CV
+    # took 2.6 s here
+    columns = islice(zip_longest(*filled, fillvalue=""), width)
+    used = [column in covered or any(values) for column, values in enumerate(columns)]
     groups: list[tuple[int, int]] = []
 
     for column, is_used in enumerate(used):

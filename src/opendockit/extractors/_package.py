@@ -14,6 +14,7 @@ import zipfile
 import zlib
 
 from lxml import etree
+from pptx.exc import InvalidXmlError
 
 
 _XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True)
@@ -24,6 +25,10 @@ _XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True)
 # skips only itself (Pinned by: test_office_robustness.py::TestDamagedZipMember).
 ZIP_MEMBER_ERRORS: tuple[type[Exception], ...] = (zipfile.BadZipFile, zlib.error, lzma.LZMAError, EOFError, OSError, RuntimeError,
                                                   NotImplementedError, ValueError)
+# What the libraries raise when a package does not open because of a part or relationship the repair can take out
+# (`open_package`): a missing part, a part that is not XML, a relationship without its Id, Type or Target, a member that does not read
+_OPEN_ERRORS: tuple[type[Exception], ...] = (KeyError, etree.XMLSyntaxError, TypeError, AttributeError, InvalidXmlError,
+                                             *ZIP_MEMBER_ERRORS)
 # Chunk size for reading a member through to check it (`_member_reads`)
 _CHECK_CHUNK = 1 << 20
 
@@ -98,19 +103,35 @@ def open_package[T](opener: Callable[[BytesIO], T], data: bytes, warnings: list[
     one picture or one numbering definition was missing or docProps was not XML. No copy is made for a healthy document — inspection
     and rebuilding happen only when opening fails, so performance and output are unchanged
     (Pinned by: test_office.py::TestOneBrokenPartDoesNotRejectTheDocument).
+
+    A relationship without its Id, Type or Target fails inside the libraries as a TypeError or AttributeError (python-docx) or an
+    InvalidXmlError (python-pptx), in any `.rels`, even one nothing uses. Those are repaired too: when nothing is found to repair,
+    the original error stands. python-docx keeps a relationship with no Type, its `reltype` None, so the DOCX readers that pick a
+    part by type read it as no type (Pinned by: test_office_robustness.py::TestIncompleteRelationship).
     """
     try:
         return opener(BytesIO(data))
-    except (KeyError, etree.XMLSyntaxError, *ZIP_MEMBER_ERRORS):
+    except _OPEN_ERRORS:
         try:
             repaired = repair_package(data)
         except ZIP_MEMBER_ERRORS:  # the archive itself cannot be read: the original error stands
             repaired = None
         if repaired is None:
             raise
-        if repaired[1] is not None:
-            warnings.append(repaired[1])
-        return opener(BytesIO(repaired[0]))
+    try:
+        opened = opener(BytesIO(repaired[0]))
+    except _OPEN_ERRORS:
+        # Deliberate: a copy that reads parts found in another case and still does not open is made again without them, which
+        # detaches those parts as missing, with the warning, as before parts were found in another case: a part found that way
+        # whose relationships still failed rejected a document that opened with that part detached (Pinned by:
+        # test_office_robustness.py::TestTargetInAnotherCase::test_document_that_fails_with_the_part_found_opens_without_it).
+        repaired = repair_package(data, in_another_case=False)
+        if repaired is None:
+            raise
+        opened = opener(BytesIO(repaired[0]))
+    if repaired[1] is not None:
+        warnings.append(repaired[1])
+    return opened
 
 
 def is_strict_package(data: bytes) -> bool:
@@ -191,7 +212,7 @@ def core_properties(package: object) -> dict[str, str]:
 _PART_LABEL = re.compile(r"[A-Za-z]{1,24}[0-9]{0,6}\.[A-Za-z0-9]{1,5}")
 
 
-def repair_package(data: bytes) -> tuple[bytes, str | None] | None:
+def repair_package(data: bytes, *, in_another_case: bool = True) -> tuple[bytes, str | None] | None:
     """A copy of the package with the relationships that point to missing parts or non-XML XML parts removed and those parts left
     out, plus the warning text (None when only percent-encoded targets were decoded). None if there is nothing to repair.
 
@@ -199,9 +220,19 @@ def repair_package(data: bytes) -> tuple[bytes, str | None] | None:
     outside the package is a missing part). A part with no content type also makes the library raise KeyError, so it counts as
     missing. A broken main part (officeDocument) is not repaired — that is real corruption. The copy stream-copies the parts (large
     pictures and videos are not loaded whole into memory) and recompresses them.
+
+    Part names are case-insensitive in a package (OPC), and Word opens a picture written `word/Media/image1.png` behind the target
+    `media/image1.png`; the libraries read the archive by the name as written, so the picture was detached as missing. A target
+    that names no member but exactly one member when case is ignored is written back as that member's name (Pinned by:
+    test_office_robustness.py::TestTargetInAnotherCase). A relationship without its Id, Type or Target is left out: nothing can
+    tell what it points at. The relationships of a part found that way are carried over under the name the libraries look for, as
+    the part was renamed and its `.rels` may not have been. With `in_another_case` off, targets are looked up as written only.
     """
     with zipfile.ZipFile(BytesIO(data)) as archive:
         names = set(archive.namelist())
+        by_case: dict[str, str | None] = {}  # lower-case name → the member of that name, None when two differ only in case
+        for name in names:
+            by_case[name.lower()] = None if name.lower() in by_case else name
         content_type_of = _content_type_lookup(archive, names)
         main_part = _main_part(archive, names)
         if content_type_of is None or main_part is None:
@@ -212,7 +243,8 @@ def repair_package(data: bytes) -> tuple[bytes, str | None] | None:
         rewritten: dict[str, bytes] = {}
         dropped: set[str] = set()
         broken_relationships: set[str] = set()
-        decoded_targets = 0
+        rewritten_targets = incomplete = 0
+        found_in_another_case: set[str] = set()
         for rels_name in sorted(name for name in names if _is_relationships(name)):
             root = _parse_member(archive, rels_name)
             if root is None:
@@ -228,7 +260,14 @@ def repair_package(data: bytes) -> tuple[bytes, str | None] | None:
             base = rels_name[: rels_name.rindex("_rels/")]
             changed = False
             for relationship in list(root):
-                if relationship.tag != f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship" or relationship.get("TargetMode") == "External":
+                if relationship.tag != f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship":
+                    continue
+                if any(relationship.get(attribute) is None for attribute in ("Id", "Type", "Target")):
+                    root.remove(relationship)
+                    incomplete += 1
+                    changed = True
+                    continue
+                if relationship.get("TargetMode") == "External":
                     continue
                 written = relationship.get("Target", "")
                 target = _resolve_target(base, written)
@@ -240,10 +279,17 @@ def repair_package(data: bytes) -> tuple[bytes, str | None] | None:
                 if (decoded != written and target not in names
                         and _is_readable(archive, names, content_type_of, readable, _resolve_target(base, decoded))):
                     relationship.set("Target", decoded)
-                    decoded_targets += 1
+                    rewritten_targets += 1
                     changed = True
                     continue
                 if target == main_part or _is_readable(archive, names, content_type_of, readable, target):
+                    continue
+                member = by_case.get(target.lower()) if in_another_case and target not in names else None
+                if member is not None and _is_readable(archive, names, content_type_of, readable, member):
+                    relationship.set("Target", "/" + member)
+                    found_in_another_case.add(member)
+                    rewritten_targets += 1
+                    changed = True
                     continue
                 root.remove(relationship)
                 dropped.add(target)
@@ -253,8 +299,27 @@ def repair_package(data: bytes) -> tuple[bytes, str | None] | None:
         if "_rels/.rels" in broken_relationships:
             rewritten["_rels/.rels"] = _package_relationships(main_part)
         dropped |= broken_relationships
-        if not dropped and not decoded_targets:
+        if not dropped and not rewritten_targets and not incomplete:
             return None
+        # copied name → the name it is written under: the relationships of a part found in another case, in their own case
+        renamed = {by_case[_relationships_of(member).lower()]: _relationships_of(member) for member in found_in_another_case
+                   if _relationships_of(member) not in names and by_case.get(_relationships_of(member).lower())}
+        # Their targets were checked against the folder they are in, and a relative one would point into the folder of the new
+        # name, where a part beside it is not: they are written as the absolute names they were checked as. Carried over as
+        # written, `itemProps1.xml` beside `customXml/item1.xml` was looked for as `CustomXml/itemProps1.xml` and the whole
+        # document was rejected (Pinned by: test_office_robustness.py::TestTargetInAnotherCase::
+        # test_relationships_carried_to_another_folder_case_keep_their_targets).
+        for old_name in renamed:
+            root = (etree.fromstring(rewritten[old_name], parser=_XML_PARSER) if old_name in rewritten
+                    else _parse_member(archive, old_name))
+            if root is None:
+                continue
+            old_base = old_name[: old_name.rindex("_rels/")]
+            for relationship in root.iter(f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship"):
+                written = relationship.get("Target", "")
+                if relationship.get("TargetMode") != "External" and not written.startswith("/"):
+                    relationship.set("Target", "/" + _resolve_target(old_base, written))
+            rewritten[old_name] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
         # Broken parts are left out of the copy together with their .rels; the rest is carried over as is (with duplicate names, the
         # last one, as when reading)
@@ -271,23 +336,30 @@ def repair_package(data: bytes) -> tuple[bytes, str | None] | None:
                 if info.filename in excluded:
                     continue
                 if info.filename in rewritten:
-                    target_archive.writestr(info.filename, rewritten[info.filename])
+                    target_archive.writestr(renamed.get(info.filename, info.filename), rewritten[info.filename])
                     continue
-                entry = zipfile.ZipInfo(info.filename, date_time=info.date_time)
+                entry = zipfile.ZipInfo(renamed.get(info.filename, info.filename), date_time=info.date_time)
                 entry.compress_type = zipfile.ZIP_DEFLATED
                 with archive.open(info) as source, target_archive.open(entry, "w") as sink:
                     shutil.copyfileobj(source, sink)
 
-    if not dropped:  # only targets were decoded: nothing is missing
-        return buffer.getvalue(), None
+    left_out = incomplete_relationships_warning(incomplete) if incomplete else None
+    if not dropped:  # only targets were decoded or relationships without a target left out: no part is missing
+        return buffer.getvalue(), left_out
     # Deliberate: a part is named only when its name has the plain shape of a part name (`_PART_LABEL`); the others are only
     # counted. The names come from relationship targets, which the document's author writes: a sentence of any length put there
     # appeared word for word in the warning (Pinned by: test_audit_core.py::TestDetachedPartNamesInTheWarning).
     labels = sorted({posixpath.basename(name) or name for name in dropped})
     named = [label for label in labels if _PART_LABEL.fullmatch(label)][:4]
     shown = ", ".join(named) + (f" and {len(labels) - len(named)} more" if named and len(labels) > len(named) else "")
-    return buffer.getvalue(), (f"Read after detaching {len(dropped)} missing or broken part(s){f' ({shown})' if shown else ''}. "
-                               "The contents of those parts (pictures, numbering, styles, etc.) may be missing.")
+    detached = (f"Read after detaching {len(dropped)} missing or broken part(s){f' ({shown})' if shown else ''}. "
+                "The contents of those parts (pictures, numbering, styles, etc.) may be missing.")
+    return buffer.getvalue(), f"{detached} {left_out}" if left_out else detached
+
+
+def incomplete_relationships_warning(count: int) -> str:
+    """The warning for relationships left out because they have no Id, Type or Target (`repair_package`)."""
+    return f"Read after leaving out {count} relationship(s) with no Id, Type or Target. Whatever they pointed at may be missing."
 
 
 def _is_relationships(name: str) -> bool:

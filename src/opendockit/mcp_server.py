@@ -63,6 +63,8 @@ _UNUSED_METHODS = ("prompts/list", "prompts/get", "resources/list", "resources/r
 _CACHE_ENTRIES = 4
 _CACHE_MAX_CHARS = 4_000_000
 _UNIT = {SectionKind.PAGE: "Page", SectionKind.SLIDE: "Slide", SectionKind.SHEET: "Sheet", SectionKind.DOCUMENT: "Document"}
+# The most warnings an answer lists (`_warning_lines`); the rest are counted
+_MAX_WARNINGS = 20
 
 
 def _serve_tools_only(server: MCPServer) -> None:
@@ -184,10 +186,10 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
             else:
                 note = ("The document is longer than max_chars and was cut. It is not divided into pages, slides or sheets: "
                         "raise max_chars to read more.")
-        warnings = [_one_line(warning) for warning in result.warnings if not warning.startswith("The conversion was stopped")]
+        warnings = _warning_lines([warning for warning in result.warnings if not warning.startswith("The conversion was stopped")])
         tail = [f"[{note}]"] if note else []
         if warnings:
-            tail.append("Warnings:\n" + "\n".join(f"- {warning}" for warning in warnings))
+            tail.append("Warnings:\n" + "\n".join(warnings))
         if not text.strip() and not tail:
             tail.append("[No text was extracted.]")
         return "\n\n".join(part for part in (text, *tail) if part)
@@ -205,7 +207,7 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
         units = _units(result)
         if units:
             lines.append("")
-            lines += [_outline_line(section) for section in units]
+            lines += _outline_lines(units, default_max_chars)
         elif len(result.text) > default_max_chars:
             # Not 'returns it whole': a call without max_chars stops at the default (Pinned by: test_mcp_server.py::
             # TestDocumentOutline::test_document_without_units_longer_than_max_chars_is_not_said_to_be_returned_whole).
@@ -216,7 +218,7 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
         else:
             lines.append("No text was extracted.")
         if result.warnings:
-            lines += ["", "Warnings:", *(f"- {_one_line(warning)}" for warning in result.warnings)]
+            lines += ["", "Warnings:", *_warning_lines(result.warnings)]
         return "\n".join(lines)
 
     return server
@@ -227,8 +229,15 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
 # the open, on what was opened. Where a flag does not exist (Windows) it is 0, and binary mode is asked for there.
 _OPEN_FLAGS = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
                | getattr(os, "O_BINARY", 0))
-# How the folders on the way to it are opened (`_opened_under_a_root`): as folders, and never through a link either.
-_FOLDER_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+# How the folders on the way to it are opened (`_opened_under_a_root`): as folders, and never through a link either. For
+# searching only where the system can (`O_SEARCH` on macOS, `O_PATH` on Linux): opened for reading, a folder that may be
+# passed through but not listed (`chmod 711`, a shared home folder) refused every file under it, which its name reads
+# (Pinned by: test_mcp_server.py::TestWhichFilesMayBeRead::test_file_under_a_folder_that_cannot_be_listed_is_read).
+# Where Python offers neither flag (a Python 3.12 built without `O_SEARCH` on macOS) a folder is opened for reading, and one that
+# may only be passed through still refuses the files under it, as before.
+_SEARCH_ONLY = getattr(os, "O_SEARCH", 0) or getattr(os, "O_PATH", 0)
+_FOLDER_FLAGS = ((_SEARCH_ONLY or os.O_RDONLY) | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                 | getattr(os, "O_CLOEXEC", 0))
 # Whether a name can be opened relative to an open folder (`openat`): Linux and macOS, not Windows.
 _OPENS_FROM_FOLDER = os.open in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY")
 # What opening a symbolic link without following it fails with: ELOOP, or ENOTDIR when a folder was asked for (Linux).
@@ -425,6 +434,37 @@ def _section_text(section: Section) -> str:
 def _outline_line(section: Section) -> str:
     title = f' "{_one_line(section.title, 120)}"' if section.title else ""
     return f"{_UNIT[section.kind]} {section.index}{title}: {len(section.text):,} characters"
+
+
+def _outline_lines(units: list[Section], room: int) -> list[str]:
+    """A line per page, slide or sheet, as many as fit in `room` characters (the server's `--max-chars`); the units past it are
+    counted on one line with their numbers. Listed whole, a workbook of 3,000 sheets gave an outline of 173,000 characters
+    whatever the server's limit (Pinned by: test_mcp_server.py::TestDocumentOutline::test_outline_of_many_units_stays_within_max_chars)."""
+    lines: list[str] = []
+    used = 0
+    for count, section in enumerate(units):
+        line = _outline_line(section)
+        used += len(line) + 1
+        if used > room and lines:
+            rest = units[count:]
+            # "1 more sheets" when one was left (Pinned by: test_mcp_server.py::TestDocumentOutline::test_one_unit_left_is_named_singular)
+            kind = _UNIT[rest[0].kind].lower() + ("s" if len(rest) > 1 else "")
+            lines.append(f"… and {len(rest):,} more {kind} ({_numbers([unit.index for unit in rest])}), "
+                         f"not listed here: convert_document reads {'them' if len(rest) > 1 else 'it'} by `sections`.")
+            break
+        lines.append(line)
+    return lines
+
+
+def _warning_lines(warnings: list[str]) -> list[str]:
+    """`- warning` lines, at most `_MAX_WARNINGS`, the rest counted on one line. Listed whole, a workbook of 400 hidden sheets
+    put 25,000 characters of warnings under a 200-character answer, on every call
+    (Pinned by: test_mcp_server.py::TestConvertDocument::test_warnings_of_an_answer_are_bounded)."""
+    lines = [f"- {_one_line(warning)}" for warning in warnings[:_MAX_WARNINGS]]
+    if len(warnings) > _MAX_WARNINGS:
+        left = len(warnings) - _MAX_WARNINGS
+        lines.append(f"- … and {left:,} more warning{'s' if left > 1 else ''}.")
+    return lines
 
 
 def main(argv: list[str] | None = None) -> None:

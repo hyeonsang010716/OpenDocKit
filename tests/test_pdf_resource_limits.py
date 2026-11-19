@@ -627,6 +627,113 @@ class TestDeepFormsAreSurveyedToTheBottom:
         assert any("have too many drawing elements and were" in warning and "(2)" in warning for warning in result.warnings)
 
 
+def _looping_forms_pdf(forms: dict[bytes, bytes], page: bytes = b"/A Do", attributes: bytes = b"") -> bytes:
+    """Page 1 is ordinary text; page 2 draws `page`, with the forms `forms` (name → content) all named in the resources of the page and of
+    every form, so that they can draw each other (`attributes` are added to page 2)."""
+    names = sorted(forms)
+    xobjects = b"/XObject << %s >>" % b" ".join(b"/%s %d 0 R" % (name, 8 + index) for index, name in enumerate(names))
+    resources = b"/Resources << /Font << /F1 5 0 R >> %s >>" % xobjects
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
+               2: b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+               3: _PAGE % 4,
+               4: _flate_stream(_padded_text(b"Plain first page", 0)),
+               5: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+               6: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 7 0 R %s %s >>" % (resources, attributes),
+               7: _flate_stream(_padded_text(b"Looping page", 0) + page)}
+    for index, name in enumerate(names):
+        objects[8 + index] = _flate_stream(forms[name], b"/Type /XObject /Subtype /Form /BBox [0 0 595 842] " + resources)
+    return _raw_pdf(objects)
+
+
+class TestFormsDrawingThemselves:
+    """A form that comes back to itself was counted as one object. pdfium follows such a loop down to its 40th level of forms, so when a form
+    of the loop is drawn twice the forms double at every level: an 800-byte file whose form draws itself twice used 3.9GB in 6 seconds and 10.7GB
+    in 20 seconds merely by pdfium opening the page, and two forms drawing each other twice did the same. A loop whose forms are each drawn once
+    is drawn 41 times by pdfium, which reads such a page in a few milliseconds."""
+
+    @staticmethod
+    def _estimate(data: bytes, forms: dict | None = None) -> int:
+        import pdfplumber
+
+        from opendockit.extractors import pdf as pdf_module
+
+        with pdfplumber.open(BytesIO(data)) as document:
+            return pdf_module._drawn_objects(document.pages[1], 10**9, None, forms)
+
+    @pytest.mark.parametrize("forms", [{b"A": b"/A Do /A Do"},
+                                       {b"A": b"/B Do /B Do", b"B": b"/A Do /A Do"},
+                                       {b"A": b"/B Do", b"B": b"/A Do /A Do"},
+                                       {b"A": b"/A Do /B Do", b"B": b"/A Do"},  # two ways round: as many paths as Fibonacci numbers
+                                       {b"A": b"/B Do", b"B": b"/B Do /A Do"}])
+    def test_loop_that_multiplies_is_over_the_limit(self, forms):
+        assert self._estimate(_looping_forms_pdf(forms)) > 10**9
+
+    @pytest.mark.parametrize(("forms", "expected"), [
+        ({b"A": b"/A Do"}, 1 + 1 + 41 * 1),  # the text, the form, the loop drawn 41 times
+        ({b"A": b"/B Do", b"B": b"/A Do"}, 1 + 1 + 41 * (1 + 1)),
+        ({b"A": b"0 0 1 1 re f\n" * 20 + b"/A Do"}, 1 + 1 + 41 * (20 + 1)),
+    ])
+    def test_loop_of_forms_drawn_once_counts_its_contents_as_often_as_pdfium_draws_them(self, forms, expected):
+        assert self._estimate(_looping_forms_pdf(forms)) == expected
+
+    def test_forms_inside_a_loop_are_counted_again_from_another_page(self):
+        """Counted inside the loop, B held only part of it (the way back to A as one object); remembered, a page drawing B itself got that
+        part as B's count."""
+        counted: dict = {}
+        forms = {b"A": b"/B Do", b"B": b"0 0 1 1 re f\n" * 20 + b"/A Do"}
+
+        self._estimate(_looping_forms_pdf(forms), counted)
+        from_b = self._estimate(_looping_forms_pdf(forms, page=b"/B Do"), counted)
+
+        assert from_b >= 41 * 20
+
+    def test_page_whose_forms_loop_twice_is_opened_by_neither_pdfium_nor_pdfminer(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        def refuse_page_2(original):
+            def call(document, index):
+                assert index == 0, "pdfium opened the looping page"  # it would take gigabytes
+                return original(document, index)
+            return call
+
+        read = []
+        original_read = pdf_module._read_page
+        monkeypatch.setattr(pdf_module, "_survey_page", refuse_page_2(pdf_module._survey_page))
+        monkeypatch.setattr(pdf_module, "_pdfium_page", refuse_page_2(pdf_module._pdfium_page))
+        monkeypatch.setattr(pdf_module, "_read_page", lambda page, *args: read.append(page.page_number) or original_read(page, *args))
+
+        result = convert(_looping_forms_pdf({b"A": b"/A Do /A Do"}), "a.pdf")
+
+        assert read == [1] and "Plain first page" in result.text and "Looping page" not in result.text
+        assert any("(2)" in warning and "were not read" in warning for warning in result.warnings)
+
+    def test_looping_page_of_a_document_pdfminer_cannot_open_is_not_opened(self, monkeypatch):
+        """`/Rotate /Foo` keeps pdfminer from building the page list, so the document is read with pdfium alone."""
+        from opendockit.extractors import pdf as pdf_module
+
+        original = pdf_module._pdfium_page
+
+        def opened(document, index):
+            assert index == 0, "pdfium opened the looping page"  # it would take gigabytes
+            return original(document, index)
+
+        monkeypatch.setattr(pdf_module, "_pdfium_page", opened)
+
+        result = convert(_looping_forms_pdf({b"A": b"/A Do /A Do"}, attributes=b"/Rotate /Foo"), "a.pdf")
+
+        assert "Plain first page" in result.text and "Looping page" not in result.text
+        assert any("(2)" in warning and "were not read" in warning for warning in result.warnings)
+        assert any("(1)" in warning and "Structure analysis failed" in warning for warning in result.warnings)
+
+    def test_page_whose_forms_loop_once_is_read(self):
+        content = b"BT /F1 12 Tf 72 600 Td (Inside the loop) Tj ET\n/B Do"
+
+        result = convert(_looping_forms_pdf({b"A": content, b"B": b"/A Do"}), "a.pdf")
+
+        assert "Looping page" in result.text and "Inside the loop" in result.text
+        assert not result.warnings
+
+
 class TestStackedRules:
     """A 2KB PDF that fills a 1pt rectangle 45,000 times on the same spot took 457 seconds. Joining horizontal rules (`_joined_rules`) scanned the
     list of rules ending at the same height and end x from the start for every rule, and since none of the overlapping rules joined, the list grew
@@ -797,6 +904,464 @@ class TestFormSharedByPages:
         assert "Page 3 text" not in result.text
         assert any("(1, 2, 3)" in warning and "were not read" in warning for warning in result.warnings)
 
+
+
+_TREE_FONT = b"/Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >>"
+
+
+def _odd_tree_pdf(first: list[bytes], looping: int | None = 5, through_parent: bool = False, attributes: bytes = b"",
+                  extra: dict | None = None, count: int | None = None) -> bytes:
+    """Twelve pages (objects 10, 12, …), each drawing 'Page N text', listed in the root's `/Kids` after the entries `first`. Page
+    `looping` (counted from 0) also draws form A, which draws itself twice; with `through_parent` it has no resources of its own and
+    its `/Parent` is node 7, which lists no page but holds A. `attributes` are added to page 2."""
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
+               5: _flate_stream(b"/A Do /A Do", b"/Type /XObject /Subtype /Form /BBox [0 0 595 842] /Resources << /XObject << /A 5 0 R >> >>"),
+               7: b"<< /Type /Pages /Kids [] /Count 0 /Resources << %s /XObject << /A 5 0 R >> >> >>" % _TREE_FONT}
+    kids = list(first)
+    for index in range(12):
+        body = _padded_text(b"Page %d text" % (index + 1), 0) + (b"/A Do" if index == looping else b"")
+        resources = b"/Resources << %s /XObject << /A 5 0 R >> >>" % _TREE_FONT
+        parent = b"2 0 R"
+        if through_parent and index == looping:
+            resources, parent = b"", b"7 0 R"
+        objects[10 + index * 2] = (b"<< /Type /Page /Parent %s /MediaBox [0 0 595 842] /Contents %d 0 R %s %s >>"
+                                   % (parent, 11 + index * 2, resources, attributes if index == 1 else b""))
+        objects[11 + index * 2] = _flate_stream(body)
+        kids.append(b"%d 0 R" % (10 + index * 2))
+    objects[2] = b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(kids), len(kids) if count is None else count)
+    objects.update(extra or {})
+    return _raw_pdf(objects)
+
+
+class TestPagesPdfiumNumbersOtherwise:
+    """pdfminer leaves out a `/Kids` entry that is no page and lists a page once; pdfium keeps a number for every entry, lists a page as
+    often as it is listed and takes inherited resources through `/Parent`. With a missing object first in `/Kids`, every pdfium number was one
+    off: the page after the refused one was refused and the refused one opened under the next number, so a form drawing itself twice on page 6
+    of 12 took 3GB in 3.7 seconds (on the normal path through the page survey, and on the path for a document pdfminer cannot list)."""
+
+    @staticmethod
+    def _guard(monkeypatch, forbidden: int) -> None:
+        from opendockit.extractors import pdf as pdf_module
+
+        def refusing(original):
+            def call(document, index):
+                assert index != forbidden, "pdfium opened the looping page"  # it would take gigabytes
+                return original(document, index)
+            return call
+
+        monkeypatch.setattr(pdf_module, "_survey_page", refusing(pdf_module._survey_page))
+        monkeypatch.setattr(pdf_module, "_pdfium_page", refusing(pdf_module._pdfium_page))
+
+    @pytest.mark.parametrize(("first", "extra"), [([b"999 0 R"], None), ([b"6 0 R"], {6: b"<< /Foo 1 >>"}),
+                                                   ([b"6 0 R"], {6: b"[1 2 3]"}), ([b"6 0 R"], {6: b"<< /Type /Pages /Count 0 >>"})])
+    @pytest.mark.parametrize("attributes", [b"", b"/Rotate /Foo"])
+    def test_looping_page_is_not_opened_under_another_number(self, monkeypatch, first, extra, attributes):
+        self._guard(monkeypatch, forbidden=6)
+
+        result = convert(_odd_tree_pdf(first, attributes=attributes, extra=extra), "a.pdf")
+
+        assert "Page 5 text" in result.text and "Page 7 text" in result.text and "Page 6 text" not in result.text
+        assert any("were not read" in warning for warning in result.warnings)
+
+    def test_resources_inherited_through_parent_are_estimated(self, monkeypatch):
+        self._guard(monkeypatch, forbidden=5)
+
+        result = convert(_odd_tree_pdf([], through_parent=True), "a.pdf")
+
+        assert "Page 5 text" in result.text and "Page 6 text" not in result.text
+        assert any("(6)" in warning and "were not read" in warning for warning in result.warnings)
+
+    def test_pages_are_read_from_the_numbers_pdfium_gives_them(self):
+        result = convert(_odd_tree_pdf([b"999 0 R", b"10 0 R"], looping=None), "a.pdf")
+
+        assert all(result.text.count(f"Page {number} text") == 1 for number in range(1, 13))
+
+    def test_pages_are_read_by_pdfminer_alone_when_the_numbering_cannot_be_matched_and_a_page_is_refused(self, monkeypatch):
+        """pdfium could open the refused page under any number, so it opens none; the other pages are still read (all of them were
+        left unread before, which on pypdfium2 4.30 — numbering one entry otherwise — lost the text of whole documents)."""
+        from opendockit.extractors import _pdf_pdfium_pages
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(_pdf_pdfium_pages, "_pdfium_slots", lambda root: None)
+        monkeypatch.setattr(pdf_module, "_survey_page", lambda document, index: pytest.fail("pdfium surveyed a page"))
+        monkeypatch.setattr(pdf_module, "_pdfium_page", lambda document, index: pytest.fail("pdfium opened a page"))
+
+        result = convert(_odd_tree_pdf([b"999 0 R"]), "a.pdf")
+
+        assert all(f"Page {number} text" in result.text for number in (1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12))
+        assert "Page 6 text" not in result.text
+        assert any("(6)" in warning and "were not read" in warning for warning in result.warnings)
+
+    def test_numbering_that_cannot_be_matched_reads_a_document_without_refused_pages_as_before(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfium_pages
+
+        expected = convert(_odd_tree_pdf([], looping=None), "a.pdf")
+        monkeypatch.setattr(_pdf_pdfium_pages, "_pdfium_slots", lambda root: None)
+
+        assert convert(_odd_tree_pdf([], looping=None), "a.pdf").text == expected.text
+
+    @pytest.mark.parametrize(("kids", "count", "extra"), [
+        (b"999 0 R 10 0 R 12 0 R 14 0 R", 4, None), (b"999 0 R 10 0 R 12 0 R 14 0 R", 3, None), (b"10 0 R 999 0 R 12 0 R", 3, None),
+        (b"null 10 0 R 12 0 R", 3, None), (b"5 10 0 R 12 0 R", 3, None), (b"6 0 R 10 0 R 12 0 R", 3, {6: b"<< /Foo 1 >>"}),
+        (b"6 0 R 10 0 R 12 0 R", 3, {6: b"[1 2 3]"}), (b"10 0 R 10 0 R 12 0 R", 3, None), (b"10 0 R 12 0 R 14 0 R", 6, None),
+        (b"10 0 R 12 0 R 14 0 R", 0, None), (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Pages /Kids [10 0 R 12 0 R] /Count 7 >>"}),
+        (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Pages /Kids [999 0 R 10 0 R 12 0 R] /Count 3 >>"}),
+        (b"6 0 R 14 0 R", 3, {6: b"<< /Kids [10 0 R 12 0 R] >>"}), (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Page /Kids [10 0 R 12 0 R] >>"}),
+        (b"6 0 R 6 0 R 14 0 R", 5, {6: b"<< /Type /Pages /Kids [10 0 R 12 0 R] /Count 2 >>"}),
+        (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Pages /Kids [10 0 R 6 0 R 12 0 R] /Count 2 >>"}), (b"10 0 R 2 0 R 12 0 R", 2, None),
+        (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Pages /Kids 10 0 R /Count 1 >>"}),
+        (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Pages /Kids 7 0 R /Count 2 >>", 7: b"[10 0 R 12 0 R]"}),
+        (b"6 0 R 10 0 R 12 0 R", 3, {6: b"<< /Type /Pages /Count 0 >>"}), (b"10 0 R 12 0 R 999 0 R", 3, None),
+    ])
+    def test_numbering_is_the_one_pdfium_gives(self, kids, count, extra):
+        """Each pdfium number holds the page worked out for it (its text), and pdfium opens exactly the numbers given a page."""
+        import pypdfium2 as pdfium
+
+        from opendockit.extractors import _pdf_pdfium_pages
+        from opendockit.extractors import pdf as pdf_module
+
+        objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [%s] /Count %d >>" % (kids, count)}
+        for index in range(3):
+            objects[10 + index * 2] = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents %d 0 R << %s >> >>"
+                                       % (11 + index * 2, _TREE_FONT)).replace(b"<< /Font", b"/Resources << /Font")
+            objects[11 + index * 2] = _flate_stream(_padded_text(b"P%d" % index, 0))
+        objects.update(extra or {})
+        data = _raw_pdf(objects)
+
+        slots = _pdf_pdfium_pages._pdfium_slots(pdf_module._page_tree_root(data))
+        document = pdfium.PdfDocument(data)
+        try:
+            assert _pdf_pdfium_pages._numbers_match(slots, document)
+            for index, (number, page, _) in enumerate(slots):
+                if page is not None and not _pdf_pdfium_pages._opened_by_some(page):
+                    text = document[index].get_textpage().get_text_range()
+                    assert text.strip() == (f"P{(number - 10) // 2}" if number in (10, 12, 14) else "")
+        finally:
+            document.close()
+
+def _listed_contents_pdf(streams: list[bytes], listing: list[int]) -> bytes:
+    """One page whose `/Contents` lists the streams `streams` in the order `listing` (indexes, a stream may be listed several times), with
+    form X (one line of text) in its resources."""
+    contents = b"[%s]" % b" ".join(b"%d 0 R" % (10 + index) for index in listing)
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
+               2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+               3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents %s /Resources << /Font << /F1 4 0 R >> "
+                  b"/XObject << /X 5 0 R >> >> >>" % contents,
+               4: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+               5: _flate_stream(_padded_text(b"Form text", 0),
+                                b"/Type /XObject /Subtype /Form /BBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >>")}
+    for index, stream in enumerate(streams):
+        objects[10 + index] = _flate_stream(stream)
+    return _raw_pdf(objects)
+
+
+class TestContentStreamListedManyTimes:
+    """A stream listed several times in a page's `/Contents` was measured once but held as often as listed: the drawn-object estimate joined the
+    streams into one, and pdfium joins them again to read them. A 21KB file listing one stream of 20MB of spaces 80 times used 3.5GB in 10.5
+    seconds under the decompression limit of 500MB."""
+
+    def test_each_listing_counts_towards_the_decompression_limit(self):
+        data = _listed_contents_pdf([_padded_text(b"Listed text", 2_000_000)], [0] * 6)
+
+        with pytest.raises(DocumentTooLargeError):
+            convert(data, "a.pdf", ConvertOptions(max_uncompressed_bytes=10_000_000))
+        assert "Listed text" in convert(data, "a.pdf", ConvertOptions(max_uncompressed_bytes=14_000_000)).text
+
+    def test_streams_listed_many_times_are_not_joined(self):
+        import tracemalloc
+
+        import pdfplumber
+
+        from opendockit.extractors import pdf as pdf_module
+
+        data = _listed_contents_pdf([_padded_text(b"Listed text", 1_000_000)], [0] * 40)
+        with pdfplumber.open(BytesIO(data)) as document:
+            page = document.pages[0]
+            pdf_module._drawn_objects(page, 1000)  # the stream is decoded and kept by pdfminer
+            tracemalloc.start()
+            try:
+                assert pdf_module._drawn_objects(page, 1000) == 40
+                peak = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+
+        assert peak < 5_000_000  # the streams joined are 40MB
+
+    def test_calls_are_those_of_the_streams_joined(self):
+        """A call's name may end one stream and its `Do` start a later one, with streams of white space between."""
+        import random
+
+        from pdfminer.pdftypes import PDFStream
+
+        pieces = [b"/X", b"Do", b" ", b"\n", b"/X Do", b"/Y Do /X", b"0 0 1 1 re f", b"Do /Y", b"/Y", b"Dox", b"q", b"/X  ", b""]
+        generator = random.Random(7)
+        for _ in range(3000):
+            streams = [PDFStream({}, b" ".join(generator.choices(pieces, k=generator.randint(0, 3)))) for _ in range(generator.randint(1, 4))]
+            listing = [generator.choice(streams) for _ in range(generator.randint(1, 6))]
+            joined = b"\n".join(stream.get_data() for stream in listing)
+
+            assert _pdf_pdfminer._page_calls(listing, 1000) == _pdf_pdfminer._xobject_calls(joined, 1000), joined
+
+    def test_call_split_between_two_streams_draws_its_form(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_MAX_DRAWN_OBJECTS", 5)
+
+        assert "Form text" in convert(_listed_contents_pdf([b"/X", b"Do"], [0, 1] * 2), "a.pdf").text
+        result = convert(_listed_contents_pdf([b"/X", b" ", b"Do"], [0, 1, 2] * 3), "a.pdf")
+        assert any("were not read" in warning for warning in result.warnings)
+
+
+def _idle_form_pdf(form: bytes, times: int) -> bytes:
+    """Page 1 is ordinary text; page 2 draws one line of text and form X (`form`, painting nothing) `times` times."""
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
+               2: b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+               3: _PAGE % 4,
+               4: _flate_stream(_padded_text(b"Plain first page", 0)),
+               5: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+               6: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 7 0 R "
+                  b"/Resources << /Font << /F1 5 0 R >> /XObject << /X 8 0 R >> >> >>",
+               7: _flate_stream(_padded_text(b"Idle page", 0) + b"/X Do\n" * times),
+               8: _flate_stream(form, b"/Type /XObject /Subtype /Form /BBox [0 0 595 842]")}
+    return _raw_pdf(objects)
+
+
+class TestContentThatPaintsNothing:
+    """Operators that paint nothing make no drawn object, so a page could make pdfminer read without end: a 4.8KB file drawing a form of a
+    million `q Q` took 4.4 seconds when drawn once, 17 seconds 4 times and 88 seconds 16 times, inside one page, where the time budget does not
+    look — and the drawn-object estimate let it be drawn up to 500,000 times. The tests lower the bounds."""
+
+    @staticmethod
+    def _read_pages(monkeypatch) -> list[int]:
+        from opendockit.extractors import pdf as pdf_module
+
+        read = []
+        original_read = pdf_module._read_page
+        monkeypatch.setattr(pdf_module, "_read_page", lambda page, *args: read.append(page.page_number) or original_read(page, *args))
+        return read
+
+    def test_estimate_counts_the_content_of_each_form_as_often_as_it_is_drawn(self):
+        import pdfplumber
+
+        from opendockit.extractors import pdf as pdf_module
+
+        page = _padded_text(b"Idle page", 0) + b"/X Do\n" * 3
+        with pdfplumber.open(BytesIO(_idle_form_pdf(b"q Q\n" * 100 + b" " * 50, 3))) as document:
+            drawing = pdf_module._page_drawing(document.pages[1], 1000)
+
+        assert drawing == (1 + 3, len(page) + 3 * 450, _pdf_pdfminer._content_cost(page)[1] + 3 * 200, 0)
+
+    def test_page_making_pdfminer_read_too_much_is_read_with_pdfium(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 10_000)
+
+        result = convert(_idle_form_pdf(b"q Q\n" * 2_000, 3), "a.pdf")  # 4,000 tokens, read 3 times
+
+        assert read == [1] and "Idle page" in result.text and "Plain first page" in result.text
+        assert any("(2)" in warning and "too many drawing elements and were read with simple extraction" in warning
+                   for warning in result.warnings)
+
+    def test_page_reading_a_little_less_is_read_as_before(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 10_000)
+
+        result = convert(_idle_form_pdf(b"q Q\n" * 2_000, 2), "a.pdf")
+
+        assert read == [1, 2] and "Idle page" in result.text and not result.warnings
+
+    def test_white_space_is_not_counted_for_pdfminer(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 10_000)
+
+        result = convert(_idle_form_pdf(b"q Q\n" * 100 + b" \n\r\t" * 10_000, 3), "a.pdf")
+
+        assert read == [1, 2] and "Idle page" in result.text and not result.warnings
+
+    def test_tokens_are_runs_of_bytes_and_delimiters(self):
+        assert _pdf_pdfminer._content_cost(b"q Q\n") == (4, 2)
+        assert _pdf_pdfminer._content_cost(b"  [1 2]<</A/B 3>>(a b)Tj") == (24, 13)  # 10 delimiters, 3 runs after white space
+        assert _pdf_pdfminer._content_cost(b"") == (0, 0)
+
+    def test_delimiters_count_as_tokens(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 10_000)
+
+        result = convert(_idle_form_pdf(b"[]" * 2_000, 3), "a.pdf")  # no white space, 4,000 tokens
+
+        assert read == [1] and any("(2)" in warning and "too many drawing elements" in warning for warning in result.warnings)
+
+    def test_a_long_path_counts_its_tokens_not_its_bytes(self, monkeypatch):
+        """3,000 tokens in 13,000 bytes without white space."""
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 10_000)
+        path = b"72 100 m\n" + b"".join(b"%.2f %.2f l\n" % (72 + index % 450, 100 + index % 300) for index in range(1_000)) + b"S\n"
+
+        result = convert(_idle_form_pdf(path, 3), "a.pdf")
+
+        assert read == [1, 2] and "Idle page" in result.text and not result.warnings
+
+    def test_path_pieces_are_counted_by_their_operators(self):
+        assert _pdf_pdfminer._path_segments(b"0 0 m 1 1 l 1 2 3 4 5 6 c 1 2 3 4 v 1 2 3 4 y h 0 0 1 1 re f (l m) Tj /lm Do") == 7
+
+    @pytest.mark.parametrize(("segments", "pdfminer"), [(900, True), (1_100, False)])
+    def test_page_of_too_many_path_pieces_is_read_with_pdfium(self, monkeypatch, segments, pdfminer):
+        """pdfminer keeps every point of a path: one path of 600,000 segments (1.8 million tokens) peaked at 942MB in 6.5 seconds."""
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_PATH_SEGMENTS", 1_000)
+        path = b"72 100 m\n" + b"".join(b"%d %d l\n" % (72 + index % 450, 100 + index % 300) for index in range(segments - 1)) + b"S\n"
+
+        result = convert(_idle_form_pdf(path, 1), "a.pdf")
+
+        assert "Idle page" in result.text
+        assert (read == [1, 2] and not result.warnings) if pdfminer else (
+            read == [1] and any("(2)" in warning and "too many drawing elements" in warning for warning in result.warnings))
+
+    def test_page_with_a_large_inline_image_is_read_with_pdfminer(self):
+        """5MB of image data without a white-space or delimiter byte (0.3 seconds in pdfminer) is a few tokens."""
+        import random
+
+        data = random.Random(6).randbytes(5_000_000).translate(bytes(byte | 0x80 for byte in range(256)))
+        image = b"q 300 0 0 200 72 100 cm BI /W 1000 /H 5000 /CS /G /BPC 8 ID " + data + b" EI Q\n"
+
+        result = convert(_pages_pdf(_padded_text(b"Text beside the picture", 0) + image), "a.pdf")
+
+        assert "Text beside the picture" in result.text and not result.warnings
+
+    def test_page_making_pdfium_read_too_much_is_opened_by_nobody(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        surveyed = []
+        original_survey = pdf_module._survey_page
+        monkeypatch.setattr(pdf_module, "_survey_page", lambda document, index: surveyed.append(index + 1) or original_survey(document, index))
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_OPENED_CONTENT_BYTES", 100_000)
+
+        result = convert(_idle_form_pdf(b" " * 40_000, 3), "a.pdf")
+
+        assert surveyed == [1] and read == [1] and "Idle page" not in result.text
+        assert any("(2)" in warning and "were not read" in warning for warning in result.warnings)
+
+    def test_form_of_a_million_operators_drawn_a_few_times_is_read_with_pdfium(self):
+        result = convert(_idle_form_pdf(b"q Q\n" * 1_000_000, 3), "a.pdf")
+
+        assert "Idle page" in result.text
+        assert any("(2)" in warning and "too many drawing elements" in warning for warning in result.warnings)
+
+
+
+
+class TestLargeInlineImages:
+    """pdfminer added every piece of an inline image's data to the data read so far, a piece per buffer and two at every `E`, so reading it
+    cost its size times its pieces: 5MB of compressed image data took 8.5 seconds inside one page."""
+
+    @staticmethod
+    def _read(reader, streams: list[bytes], pos: int) -> object:
+        from pdfminer.pdftypes import PDFStream
+        from pdfminer.psexceptions import PSEOF
+
+        parser = _pdf_pdfminer.PDFContentParser([PDFStream({}, data) for data in streams])
+        try:
+            return reader(parser, pos)
+        except PSEOF:
+            return "end"
+
+    def test_inline_data_is_that_of_pdfminer(self):
+        import random
+
+        generator = random.Random(3)
+        pieces = [b"E", b"I", b"EI", b"EI ", b"EI\n", b"\r\n", b" ", b"x", b"~>", b"E\r", bytes(range(256))]
+        for _ in range(600):
+            streams = [b"".join(generator.choices(pieces, k=generator.randint(0, 40))) * generator.choice((1, 1, 300))
+                       for _ in range(generator.randint(1, 3))]
+            pos = generator.randint(0, max(0, len(streams[0]) - 1))
+            for target in (b"EI", b"~>"):
+                old, new = (self._read(lambda parser, at, function=function: function(parser, at, target), streams, pos)
+                            for function in (_pdf_pdfminer._inline_data_unbounded, _pdf_pdfminer._inline_data_in_linear_time))
+                assert old == new
+
+    @pytest.mark.timing
+    def test_inline_data_is_read_in_linear_time(self):
+        import random
+
+        from tests.timing import fastest
+
+        data = random.Random(4).randbytes(4_000_000).replace(b"EI", b"E!")
+        small, large = (fastest(lambda part=data[:size]: self._read(_pdf_pdfminer._inline_data_in_linear_time, [part + b" EI "], 0))
+                        for size in (1_000_000, 4_000_000))
+
+        assert large < small * 8  # 4 times as much data; about 14 times as long when it was added to piece by piece
+
+    def test_page_with_a_large_inline_image_keeps_its_text(self):
+        import random
+
+        data = random.Random(5).randbytes(2_000_000).replace(b"EI", b"E!")
+        image = b"q 300 0 0 200 72 100 cm BI /W 1000 /H 2000 /CS /G /BPC 8 ID " + data + b" EI Q\n"
+
+        result = convert(_pages_pdf(_padded_text(b"Text beside the picture", 0) + image), "a.pdf")
+
+        assert "Text beside the picture" in result.text and not result.warnings
+
+def _long_rows_pdf(rows: int, size: float = 0.5) -> bytes:
+    """Page 1 is ordinary text; page 2 has `rows` rows of 200 letters, each drawn by one operator, `size` points high and 0.6pt apart."""
+    body = b"BT /F1 %g Tf\n" % size + b"".join(b"1 0 0 1 10 %.2f Tm (%s) Tj\n" % (830 - row * 0.6, b"abcdefghij" * 20)
+                                               for row in range(rows)) + b"ET"
+    return _pages_pdf(_padded_text(b"Plain first page", 0), body)
+
+
+class TestPageOfVeryManyCharacters:
+    """pdfminer and pdfplumber keep about 2.5KB per character while reading a page, and one operator can draw hundreds of characters, so neither
+    bound on drawn objects saw a page of long rows of tiny text: 200,000 characters (3.5KB) took 9.6 seconds and 647MB, 800,000 (12.8KB) 24.6
+    seconds and 2GB, where pdfium reads the page in 0.17 seconds."""
+
+    def test_page_past_the_bound_is_read_with_pdfium(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        read = []
+        original_read = pdf_module._read_page
+        monkeypatch.setattr(pdf_module, "_read_page", lambda page, *args: read.append(page.page_number) or original_read(page, *args))
+        monkeypatch.setattr(pdf_module, "_MAX_PAGE_CHARS", 500)
+
+        result = convert(_long_rows_pdf(3), "a.pdf")
+
+        assert read == [1] and "Plain first page" in result.text and "abcdefghij" * 20 in result.text
+        assert any("(2)" in warning and "too many drawing elements and were read with simple extraction" in warning
+                   for warning in result.warnings)
+
+    def test_page_within_the_bound_is_read_as_before(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_MAX_PAGE_CHARS", 500)
+
+        result = convert(_long_rows_pdf(2), "a.pdf")
+
+        assert "abcdefghij" * 20 in result.text and not result.warnings
+
+    def test_page_of_220_000_characters_is_not_read_with_pdfminer(self):
+        result = convert(_long_rows_pdf(1_100), "a.pdf")
+
+        assert any("(2)" in warning and "too many drawing elements" in warning for warning in result.warnings)
+
+    def test_dense_page_of_small_text_is_read_with_pdfminer(self):
+        """Two columns of 110 rows of 6pt text (20,900 characters)."""
+        line = (b"lorem ipsum dolor sit amet consecte " * 3)[:95]
+        body = b"BT /F1 6 Tf\n" + b"".join(b"1 0 0 1 %d %.1f Tm (%s) Tj\n" % (x, 800 - row * 7, line)
+                                         for x in (40, 310) for row in range(110)) + b"ET"
+
+        result = convert(_pages_pdf(body), "a.pdf")
+
+        assert result.text.count("lorem ipsum") >= 220 and not result.warnings
 
 class TestManyCellsOnOnePage:
     """One page of a ruled table with thousands of cells took tens of seconds (68 seconds for 7,500 filled cells). Every character was checked

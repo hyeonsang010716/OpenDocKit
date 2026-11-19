@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from io import BytesIO
 import posixpath
 import re
+import unicodedata
 from urllib.parse import unquote, urlsplit
 import zipfile
 import zlib
@@ -88,6 +89,11 @@ class _Book:
     def __init__(self, archive: zipfile.ZipFile, options: ConvertOptions) -> None:
         self._archive = archive
         self._names = frozenset(archive.namelist())
+        # The members by their NFC spelling (the first of the archive for each), for an href written in another normalization
+        # (`_existing`)
+        self._by_nfc: dict[str, str] = {}
+        for name in archive.namelist():
+            self._by_nfc.setdefault(unicodedata.normalize("NFC", name), name)
         self._options = options
         self._extraction = Extraction()
         self._manifest: dict[str, _Item] = {}
@@ -216,13 +222,19 @@ class _Book:
 
     def _existing(self, base: str, href: str | None) -> str | None:
         """The archive member a href (relative to the folder `base`, percent-encoded) names. A name that exists only in its
-        undecoded spelling is accepted too. When neither exists, the decoded name is returned (the part is then reported as
-        missing); None when the href leaves the package or is not a path."""
+        undecoded spelling is accepted too, and so is a member whose name is the same text in another Unicode normalization
+        (`_by_nfc`): macOS stores the Hangul of a file name decomposed (NFD) and `zip` keeps it, while the package document is
+        typed composed (NFC), and the book was rejected as having no readable chapter
+        (Pinned by: test_epub.py::TestBrokenPackages::test_member_names_in_another_normalization_are_found). When none exists,
+        the decoded name is returned (the part is then reported as missing); None when the href leaves the package or is not a
+        path."""
         path = _member_name(base, href)
         if path is None or path in self._names:
             return path
         raw = _member_name(base, href, decode=False)
-        return raw if raw in self._names else path
+        if raw in self._names:
+            return raw
+        return self._by_nfc.get(unicodedata.normalize("NFC", path)) or path
 
     def _encrypted_names(self) -> frozenset[str]:
         """Names listed in META-INF/encryption.xml (`CipherReference URI`, relative to the root of the archive). An
@@ -232,7 +244,7 @@ class _Book:
         if encryption is None:
             return frozenset()
         names = (_member_name("", node.get("URI")) for node in encryption.iter(etree.Element) if _local(node) == "CipherReference")
-        return frozenset(name for name in names if name)
+        return frozenset(self._by_nfc.get(unicodedata.normalize("NFC", name), name) for name in names if name)
 
     def _reading_order(self, package: etree._Element) -> tuple[list[str], int, int]:
         """(chapters to read in order, spine entries that name nothing readable, pages that are not XHTML).

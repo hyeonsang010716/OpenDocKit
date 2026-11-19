@@ -12,7 +12,7 @@ import itertools
 import re
 
 from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
-from bs4.element import PageElement, PreformattedString
+from bs4.element import CData, PageElement, PreformattedString, RubyTextString
 
 from opendockit.extractors._html_base import (
     _BLOCK_GAP,
@@ -697,10 +697,12 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
         closed = False  # a table was met outside the cells: a browser has closed this table there
         wrappers: list[Tag] = []
         holding: set[int] | None = None  # the elements of the table holding a row or cell (`_holding_cells`), once asked for
-        stack = [(child, False) for child in reversed(_rows_for_loose_cells(soup, table))]
+        open_rows: dict[int, Tag] = {}  # the rows that hold a row or row group (`_lift_rows_out_of_rows`), in document order
+        # (a node, the row it lies in or None)
+        stack: list[tuple[PageElement, Tag | None]] = [(child, None) for child in reversed(_rows_for_loose_cells(soup, table))]
 
         while stack:
-            child, in_row = stack.pop()
+            child, row = stack.pop()
             if isinstance(child, NavigableString):
                 if str(child).strip():
                     (after if closed else before).append(child)
@@ -710,17 +712,96 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
                 after.append(child)
                 closed = True
             elif child.name in _TABLE_PARTS or id(child) in (holding := _holding_cells(table) if holding is None else holding):
-                if in_row and child.name not in _TABLE_PARTS:
-                    wrappers.append(child)
-                in_row = in_row or child.name == "tr"
-                contents = child.contents if in_row else _rows_for_loose_cells(soup, child)
-                stack.extend((node, in_row) for node in reversed(contents))
+                if row is not None:
+                    if child.name in _TABLE_PARTS:
+                        open_rows.setdefault(id(row), row)
+                    else:
+                        wrappers.append(child)
+                if child.name == "tr":
+                    row = child
+                elif child.name in _TABLE_PARTS:
+                    row = None  # a row group inside a row is lifted out of it, and its loose cells put in rows of its own
+                contents = child.contents if row is not None else _rows_for_loose_cells(soup, child)
+                stack.extend((node, row) for node in reversed(contents))
             else:
                 (after if closed else before).append(child)
 
         _flatten_wrappers(wrappers)
+        if open_rows:
+            _lift_rows_out_of_rows(soup, list(open_rows.values()))
         if before or after:
             _move_beside(table, before, after)
+
+
+def _lift_rows_out_of_rows(soup: BeautifulSoup, rows: list[Tag]) -> None:
+    """Move the rows and row groups that lie right under a row (`rows`, in document order, their wrappers already flattened)
+    to right after it, as a browser closes an open row at the next `<tr>`, `<thead>`, `<tbody>` or `<tfoot>`: the cells
+    before the first of them stay in the row, and each run of cells after one goes into a row of its own.
+
+    lxml keeps a row that opens inside an element left in an open row (`<tr><td>Name</td><form><tr><td>City</td>`) inside that
+    element, and once the element was unwrapped the row lay inside the other; the rows are read only from right under a
+    table or row group, and their cells only from right under a row, so the rows of the form were lost without a warning, and
+    so was the text of a row group inside a row (Pinned by: test_text_html.py::TestContentOutsideTableCells::
+    test_rows_inside_an_element_left_in_an_open_row_are_read).
+
+    The children of every parent of such rows are laid out anew once, rows lifted out of lifted rows in turn, and every node
+    is detached from the back of its parent, innermost first, and appended once, as `_unwrap_all` does: linear in the rows.
+    """
+    chosen = {id(row) for row in rows}
+    parents = {id(row.parent): row.parent for row in rows if id(row.parent) not in chosen and row.parent is not None}
+    for parent in parents.values():
+        laid_out: list[PageElement | list[PageElement]] = []  # a list is a run of cells that goes into a new row
+        emptied: list[tuple[Tag, int]] = [(parent, 0)]  # (an element, where the children detached from it start)
+        stack = [iter(parent.contents[:])]
+        while stack:
+            child = next(stack[-1], None)
+            if child is None:
+                stack.pop()
+                continue
+            laid_out.append(child)
+            if id(child) not in chosen:
+                continue
+            contents = child.contents[:]
+            first = next((index for index, node in enumerate(contents) if isinstance(node, Tag) and node.name in _TABLE_PARTS),
+                         None)
+            if first is None:
+                continue
+            emptied.append((child, first))
+            pieces: list[PageElement | list[PageElement]] = []
+            for node in contents[first:]:
+                if isinstance(node, Tag) and node.name in _TABLE_PARTS:
+                    pieces.append(node)
+                elif isinstance(node, Tag) and node.name in ("td", "th"):
+                    if not pieces or not isinstance(pieces[-1], list):
+                        pieces.append([])
+                    pieces[-1].append(node)
+                elif pieces and isinstance(pieces[-1], list):
+                    pieces[-1].append(node)
+                else:
+                    pieces.append(node)
+            # The pieces are laid out after the row, a row among them with what it lifts out in turn
+            stack.append(_lifted(iter(pieces), laid_out))
+        for holder, first in reversed(emptied):
+            children = holder.contents
+            for position in range(len(children) - 1, first - 1, -1):
+                children[position].extract(_self_index=position)
+        for item in laid_out:
+            if isinstance(item, list):
+                row = soup.new_tag("tr")
+                parent.append(row)
+                row.extend(item)
+            else:
+                parent.append(item)
+
+
+def _lifted(pieces: Iterator[PageElement | list[PageElement]],
+            laid_out: list[PageElement | list[PageElement]]) -> Iterator[PageElement]:
+    """The rows and other nodes of `pieces` (`_lift_rows_out_of_rows`), each run of cells put straight into `laid_out`."""
+    for piece in pieces:
+        if isinstance(piece, list):
+            laid_out.append(piece)
+        else:
+            yield piece
 
 
 def _holding_cells(table: Tag) -> set[int]:
@@ -867,28 +948,40 @@ def _keep_expander_buttons(soup: BeautifulSoup, openers: Container[int] = frozen
 
 def _unwrap_all(tags: list[Tag]) -> None:
     """`unwrap()` for each of `tags`, collected in document order: the element is taken out and its children stay in its place.
-    It goes from the back and measures the child positions once per parent, like `_decompose_all` — unwrapping a later sibling
-    leaves the position of an earlier one unchanged, and the children of an element are done before the element itself.
+    The children of every parent that holds one of them are laid out anew once: each of `tags` is replaced by its children, and
+    those that are themselves among `tags` by theirs in turn, which is the tree unwrapping them one by one leaves. Every node is
+    detached from the back of its parent and appended once.
 
     bs4's `unwrap` looks up the position of the element among its siblings from the start: 40,000 buttons in one heading
-    (703KB) took 11 seconds (Pinned by: test_audit_html_text.py::TestManyButtonsInsideOneHeading).
+    (703KB) took 11 seconds. Unwrapped one by one from the innermost out, elements nested in each other (buttons left open inside
+    a heading, which lxml nests each in the one before) moved all their children again at every level: 8,000 of them (70 KB)
+    took 43 s (Pinned by: test_audit_html_text.py::TestManyButtonsInsideOneHeading). Detaching every child of a parent from the
+    back keeps a row whose 10,000 cells one element wraps linear too
+    (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly).
     """
-    places: dict[int, dict[int, int]] = {}  # parent id → (child id → position)
-
-    for tag in reversed(tags):
-        parent = tag.parent
-        if id(parent) not in places:
-            places[id(parent)] = {id(child): index for index, child in enumerate(parent.contents)}
-        index = places[id(parent)][id(tag)]
-        tag.extract(_self_index=index)
-        # The children are detached from the back with their positions known too: `insert` would look each one up among the
-        # siblings it still has, and a row whose 10,000 cells one element wraps took time quadratic in them
-        # (Pinned by: test_text_html.py::TestContentOutsideTableCells::test_thousands_of_wrapped_cells_and_cells_outside_rows_are_read_quickly).
-        children = tag.contents[:]
-        for position in range(len(children) - 1, -1, -1):
-            children[position].extract(_self_index=position)
-        for child in reversed(children):
-            parent.insert(index, child)
+    chosen = {id(tag) for tag in tags}
+    parents = {id(tag.parent): tag.parent for tag in tags if id(tag.parent) not in chosen}
+    for parent in parents.values():
+        laid_out: list[PageElement] = []
+        emptied: list[Tag] = [parent]
+        stack = [iter(parent.contents[:])]
+        while stack:
+            child = next(stack[-1], None)
+            if child is None:
+                stack.pop()
+            elif id(child) in chosen:
+                emptied.append(child)
+                stack.append(iter(child.contents[:]))
+            else:
+                laid_out.append(child)
+        # The innermost first: bs4 walks down to the last descendant of whatever it detaches, so a chain detached from the top
+        # was walked again from every level
+        for holder in reversed(emptied):
+            children = holder.contents
+            for position in range(len(children) - 1, -1, -1):
+                children[position].extract(_self_index=position)
+        for child in laid_out:
+            parent.append(child)
 
 
 def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset(), openers: set[int] | None = None) -> set[int]:
@@ -948,6 +1041,19 @@ def _is_overlay(tag: Tag) -> bool:
     return str(tag.get("role", "")).strip().lower() in _OVERLAY_ROLES or _OVERLAY_NAME.search(name) is not None
 
 
+# The kinds of strings that are text to the steps run before rubies are read (`_text`). bs4 makes every string inside an `<rt>`
+# a kind of its own, which `get_text` of any element skips, the `<rt>` aside; the strings of an `<rp>` are left out, as `_put_ruby`
+# leaves them.
+_TEXT_STRINGS = (NavigableString, CData, RubyTextString)
+
+
+def _text(node: PageElement) -> str:
+    """The text of `node`, the text of a ruby annotation among it. A script, a form control or an equation inside an `<rt>` read
+    as empty, and was lost: `水<rt>H<sub>2</sub>O</rt>` came out as `水(HO)` (Pinned by: test_text_html.py::TestRuby::
+    test_scripts_controls_and_equations_inside_an_annotation_are_read)."""
+    return node.get_text(types=_TEXT_STRINGS)
+
+
 def _put_form_values(soup: BeautifulSoup) -> None:
     """Replaces form elements with the values that were shown on screen: the value of a text input, the text of a textarea,
     the chosen option of a select, ☒/☐ for checkboxes and radio buttons.
@@ -978,7 +1084,7 @@ def _put_form_values(soup: BeautifulSoup) -> None:
         elif control.name == "select":
             values = _selected_options(control)
         else:
-            values = control.get_text().strip().split("\n")
+            values = _text(control).strip().split("\n")
         values = [" ".join(value.split()) for value in values]
         control.clear()
         control.attrs = {}
@@ -994,6 +1100,22 @@ def _put_form_values(soup: BeautifulSoup) -> None:
                 control.append(soup.new_tag("br"))
             control.append(value)
         control.append(" ")
+
+
+def _put_quotes(soup: BeautifulSoup) -> None:
+    """Put the quotation marks a browser draws around `<q>` into the text: “…”, and ‘…’ for one inside another. Without them
+    `The minister said <q>we will not raise the rate</q>` read as if the words were the writer's own
+    (Pinned by: test_text_html.py::TestMediaFallbackAndQuotes). Run before superscripts, subscripts and rubies are turned into
+    text, which took a `<q>` inside them along without its marks (Pinned by:
+    test_text_html.py::TestMediaFallbackAndQuotes::test_quotation_marks_of_q_inside_a_script_or_ruby_are_drawn)."""
+    quotes = soup.find_all("q")
+    if not quotes:
+        return
+    nested = _lying_inside(quotes, ("q",))
+    for quote in quotes:
+        opening, closing = ("\u2018", "\u2019") if id(quote) in nested else ("\u201c", "\u201d")
+        quote.insert(0, opening)
+        quote.append(closing)
 
 
 def _put_ruby(soup: BeautifulSoup) -> None:
@@ -1275,10 +1397,8 @@ def _outside_selects(tag: Tag) -> Iterator[PageElement]:
 
 
 def _option_text(option: Tag) -> str:
-    """The text of `option` as `get_text` gives it, without the text of a select inside it (`_selected_options`)."""
-    kinds = option.interesting_string_types
-    return "".join(node for node in _outside_selects(option)
-                   if isinstance(node, NavigableString) and (type(node) is kinds if isinstance(kinds, type) else type(node) in kinds))
+    """The text of `option` as `_text` gives it, without the text of a select inside it (`_selected_options`)."""
+    return "".join(node for node in _outside_selects(option) if isinstance(node, NavigableString) and type(node) in _TEXT_STRINGS)
 
 
 def _mark_scripts(soup: BeautifulSoup) -> None:
@@ -1296,8 +1416,8 @@ def _mark_scripts(soup: BeautifulSoup) -> None:
             continue  # already replaced together with the outer script, or code
         for script in [*reversed(outer.find_all(["sup", "sub"])), outer]:
             before = script.previous_sibling
-            marked = format_script(script.get_text(), SUPERSCRIPT if script.name == "sup" else SUBSCRIPT,
-                                   before.get_text() if before is not None else "")
+            marked = format_script(_text(script), SUPERSCRIPT if script.name == "sup" else SUBSCRIPT,
+                                   _text(before) if before is not None else "")
             _replace(script, marked, places)
 
 
@@ -1788,16 +1908,336 @@ def _is_spacer(data: bytes) -> bool:
     return width <= _SPACER_SIDE and height <= _SPACER_SIDE
 
 
+# The `white-space` declarations of an inline style (the last one written wins), and the values that keep the line breaks of the
+# text. A declaration starts the style or follows a `;`, and its value ends it or comes before one (`!important` allowed), once
+# the comments of the style are gone: found anywhere, `background:url(white-space:pre)` and `/* white-space:pre */` kept the
+# line breaks of text that a browser joins (Pinned by: test_text_html.py::TestWhiteSpacePreserved::
+# test_white_space_must_be_a_declaration_of_the_style).
+_WHITE_SPACE = re.compile(r"(?:^|;)\s*white-space\s*:\s*([a-z-]+)\s*(?:!\s*important\s*)?(?=;|$)", re.IGNORECASE)
+_CSS_COMMENT = re.compile(r"/\*.*?(?:\*/|$)", re.DOTALL)
+_KEEPS_LINE_BREAKS = frozenset({"pre", "pre-wrap", "pre-line", "break-spaces"})
+# The form controls whose text `_put_form_values` reads as their value (the lines of a textarea, the chosen option): their line
+# breaks are its to keep or join, as the text of a `<pre>` is the code block's.
+_FORM_TEXT = frozenset({"textarea", "select", "option", "optgroup"})
+
+
+def _white_space_values(style: str) -> list[str]:
+    """The values of the `white-space` declarations of an inline style, in order."""
+    if "/*" in style:
+        style = _CSS_COMMENT.sub("", style)
+    return _WHITE_SPACE.findall(style)
+
+
+def _keep_preserved_line_breaks(soup: BeautifulSoup) -> None:
+    """Turn the line breaks of text under an inline `white-space: pre`, `pre-wrap`, `pre-line` or `break-spaces` into `<br>`.
+
+    Rendering collapses white space as a browser does for ordinary text, and that style is how web applications and
+    notification mails show text a person typed: the steps of a ticket, a comment, an address, a note in a table cell ran
+    into one line (`Steps to reproduce: 1. Open … 2. Click Save`) (Pinned by: test_text_html.py::TestWhiteSpacePreserved).
+    The nearest element that sets `white-space` decides, as the property is inherited; text inside a `<pre>` is left to the code
+    block. Text of white space only at the edge of a block (the indentation of the source between blocks) is left alone, and
+    so is text inside `<math>`: the white space between MathML elements is the indentation of the markup, and a `<br>` put
+    there became a part of the formula (`$x^{}$` for `x²`; Pinned by: test_text_html.py::TestWhiteSpacePreserved::
+    test_mathml_inside_keeps_its_parts).
+    The text of a textarea, a select and its options is left to `_put_form_values`, which reads the lines of a textarea and
+    joins those of an option: split into `<br>` here, the lines of a ticket's textarea ran into one (`Steps:1. Open2. Save`)
+    (Pinned by: test_text_html.py::TestWhiteSpacePreserved::test_form_controls_keep_their_values).
+    Known accepted gaps: the spaces of such text are still collapsed (the indentation under `pre` is lost), and a
+    `white-space` set by a style sheet rather than the element is not seen.
+    """
+    if not any(_white_space_values(str(tag["style"])) for tag in soup.find_all(style=True)):
+        return
+    keeps: dict[int, bool] = {}  # element id → whether its text keeps its line breaks
+
+    def decided(element: Tag | None) -> bool:
+        chain = []
+        while element is not None and id(element) not in keeps:
+            if element.name in _FORM_TEXT:
+                keeps[id(element)] = False
+                break
+            if element.name in _CODE_BLOCKS or element.name == "math" or (element.name or "").endswith(":math"):
+                keeps[id(element)] = False
+                break
+            values = _white_space_values(str(element.get("style", ""))) if element.attrs else []
+            if values:
+                keeps[id(element)] = values[-1].lower() in _KEEPS_LINE_BREAKS
+                break
+            chain.append(element)
+            element = element.parent
+        answer = keeps.get(id(element), False) if element is not None else False
+        for link in chain:
+            keeps[id(link)] = answer
+        return answer
+
+    places: _Places = {}
+    for text in soup.find_all(string=lambda node: "\n" in node and not isinstance(node, PreformattedString)):
+        if not decided(text.parent):
+            continue
+        if not text.strip():
+            before, after = text.previous_sibling, text.next_sibling
+            if (before is None or after is None or (isinstance(before, Tag) and before.name in _BETWEEN_RUNS)
+                    or (isinstance(after, Tag) and after.name in _BETWEEN_RUNS)):
+                continue
+        holder = soup.new_tag("span")
+        for index, line in enumerate(str(text).split("\n")):
+            if index:
+                holder.append(soup.new_tag("br"))
+            if line:
+                holder.append(line)
+        _replace(text, holder, places)
+
+
+# The classes the generators of line-numbered code blocks give the table, its cells and the `<pre>` of the numbers (Pygments
+# `highlighttable`, `linenos`, `linenodiv`; Rouge `rouge-table`, `gutter`, `lineno`; Hugo's Chroma `lntable`, `lntd`).
+_LINE_NUMBER_CLASSES = frozenset({"highlighttable", "linenos", "linenodiv", "rouge-table", "rouge-gutter", "gutter", "lineno",
+                                  "linenumber", "line-numbers", "lntable", "lntd"})
+# Something other than digits and white space: the code beside the numbers is no column of numbers itself (`1` beside `2023`).
+_LINE_OF_TEXT = re.compile(r"[^\d\s]")
+
+
+def _unwrap_line_numbered_code(soup: BeautifulSoup) -> None:
+    """Replace a code block shown with its line numbers beside it by the code block alone.
+
+    Pygments (`linenos="table"`, Sphinx, MkDocs Material), Hugo and Rouge (Jekyll) write a numbered code block as a table of one
+    row and two cells, each holding one `<pre>`: the line numbers and the code. It came out as a Markdown table of `<br>`-joined
+    lines, the numbers in a column of their own, and the pipes of the code escaped
+    (Pinned by: test_text_html.py::TestLineNumberedCodeBlocks). Only that shape is taken: one row, two cells with nothing but
+    one `<pre>` each, the first of them the line numbers of the second (`_numbers_line_by_line`), the second more than
+    numbers (as before, `1` beside `2023` stays a table), and no table inside.
+
+    The numbers count up by one, one to a line (a line left empty by Pygments' `linenostep` counts), as many as the code has
+    lines or one more or fewer, and start at 1 unless a class of the generators (`_LINE_NUMBER_CLASSES`) says what the table
+    is: a table of two `<pre>` cells holding years beside lines of text (`2023` / `Revenue up`) lost its years. A caption,
+    and a row of one cell above the numbered row (the file name MkDocs Material writes in a `<th class="filename">`), stay as
+    paragraphs above the code; they were lost with the table (Pinned by: test_text_html.py::TestLineNumberedCodeBlocks::
+    test_only_numbers_counting_the_lines_of_the_code_are_left_out).
+    """
+    places: _Places = {}
+    for table in soup.find_all("table"):
+        # Only the table's own rows and cells, and only `<div>` wrappers down to the `<pre>`, are looked at: searching each
+        # table's whole subtree took the square of the depth of tables nested in each other
+        # (Pinned by: test_text_html.py::TestDeepNesting::test_deeply_nested_tables_are_read_quickly).
+        rows = [row for part in [table, *_element_children(table, ("thead", "tbody", "tfoot"))]
+                for row in _element_children(part, ("tr",))]
+        titles = []
+        if len(rows) == 2:
+            title = _element_children(rows[0], ("td", "th"))
+            if len(title) != 1 or title[0].find(["pre", "table"]) is not None:
+                continue
+            titles = title
+        elif len(rows) != 1:
+            continue
+        cells = _element_children(rows[-1], ("td", "th"))
+        pres = [pre for pre in (_only_pre(cell) for cell in cells) if pre is not None]
+        if len(cells) != 2 or len(pres) != 2:
+            continue
+        numbers, lines = pres[0].get_text(), pres[1].get_text()
+        start = _numbers_line_by_line(numbers, lines)
+        if start is None or not _LINE_OF_TEXT.search(lines) or (
+                start != 1 and not _has_line_number_class([table, *cells, *pres, *(pre.parent for pre in pres)])):
+            continue
+        code = pres[1].extract()
+        above = [*_element_children(table, ("caption",)), *titles]
+        if not above:
+            _replace(table, code, places)
+            continue
+        holder = soup.new_tag("div")
+        for element in above:
+            element = element.extract()
+            element.name, element.attrs = "p", {}
+            holder.append(element)
+        holder.append(code)
+        _replace(table, holder, places)
+
+
+def _numbers_line_by_line(numbers: str, code: str) -> int | None:
+    """The number of the first line, when `numbers` holds the line numbers of `code`: at most one number to a line, each the
+    number of its line counting up by one (Pygments' `linenostep` leaves the lines between empty), at least one number, as
+    many lines as the code or one more or fewer; otherwise None."""
+    lines = numbers.strip("\n").split("\n")
+    code_lines = len(code.strip("\n").split("\n"))
+    if abs(len(lines) - code_lines) > 1:
+        return None
+    start = None
+    for index, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+        if not (line.isascii() and line.isdigit() and len(line) <= 9):
+            return None
+        if start is None:
+            start = int(line) - index
+        elif int(line) != start + index:
+            return None
+    return start
+
+
+def _has_line_number_class(elements: list[Tag]) -> bool:
+    return any(name.lower() in _LINE_NUMBER_CLASSES for element in elements for name in element.get_attribute_list("class"))
+
+
+def _element_children(tag: Tag, names: tuple[str, ...]) -> list[Tag]:
+    return [child for child in tag.children if isinstance(child, Tag) and child.name in names]
+
+
+def _only_pre(cell: Tag, wrappers: int = 3) -> Tag | None:
+    """The `<pre>` that is all a table cell holds, inside at most `wrappers` `<div>`s (Pygments puts its code in
+    `<div class="highlight">`), or None."""
+    node = cell
+    for _ in range(wrappers + 1):
+        content = [child for child in node.children if isinstance(child, Tag) or str(child).strip()]
+        if len(content) != 1 or not isinstance(content[0], Tag):
+            return None
+        node = content[0]
+        if node.name == "pre":
+            return node
+        if node.name != "div":
+            return None
+    return None
+
+
+# The mark of the permalink anchor documentation generators put in every heading and API signature (Sphinx and MkDocs `¶`,
+# others `#`, `§`, a link or an anchor sign), with or without a variation selector.
+_PERMALINK_MARKS = frozenset({"¶", "#", "§", "\U0001F517", "\u2693", "\U0001F517\ufe0f", "\u2693\ufe0f", "\u2693\ufe0e"})
+
+
+# The classes documentation generators give their permalink anchor (Sphinx and MkDocs `headerlink`, Hugo, rustdoc and GitHub
+# `anchor`, AnchorJS, Docusaurus `hash-link`, VuePress and markdown-it-anchor `header-anchor`, Zola, Jekyll and others), and
+# the words of its title or label ("Permalink to this heading", "Link to this definition", "Direct link to …").
+_PERMALINK_CLASSES = frozenset({"headerlink", "anchor", "anchorjs-link", "anchor-link", "heading-anchor", "heading-link",
+                                "header-anchor", "header-link", "hash-link", "permalink", "zola-anchor", "markdownit-anchor"})
+_PERMALINK_LABEL = re.compile(r"perma(?:nent\s*)?link|link\s+to\s+th(?:is|e)\s+(?:heading|section|definition|header|term)"
+                              r"|direct\s+link|anchor\s+link", re.IGNORECASE)
+_PERMALINK_HOLDERS = frozenset({*_HEADINGS, "dt"})
+# Where a permalink anchor marked by its class or label is left out wherever it stands: headings and terms, and the captions
+# Sphinx gives one too (a table `<caption>`, a `<figcaption>`, `<div class="code-block-caption">`, `<p class="caption">`).
+_MARKED_PERMALINK_HOLDERS = frozenset({*_PERMALINK_HOLDERS, "caption", "figcaption"})
+_CAPTION_CLASSES = frozenset({"caption", "code-block-caption"})
+
+
+def _drop_permalinks(soup: BeautifulSoup) -> None:
+    """Remove the permalink anchors of headings, definition terms and captions: a link to a place on the page (`href="#…"`)
+    whose whole text is a permalink mark (`_PERMALINK_MARKS`).
+
+    A browser shows the mark only when the pointer is over the heading. Sphinx (docs.python.org, Read the Docs) and MkDocs put
+    one in every heading and API signature, so they came out as `# Introduction¶` and `foo(*x*)¶: Return x.`, with the links
+    option on or off (Pinned by: test_text_html.py::TestPermalinksOfHeadings). Generators that hide their anchor
+    (`aria-hidden`, a zero-width space for text) were left out already.
+
+    A link marked as a permalink by its class (`_PERMALINK_CLASSES`) or its title or label (`_PERMALINK_LABEL`) is never
+    content: it is left out wherever it stands in a heading, a term or a caption (`_MARKED_PERMALINK_HOLDERS`,
+    `_CAPTION_CLASSES`). Kept when it was not the last thing, `Title¶new` stayed before a badge and `f()¶[source]` before
+    Sphinx's source link, and Sphinx's code-block, table and figure captions kept theirs (`file.py¶`, `Table 1 Data¶`)
+    (Pinned by: test_text_html.py::TestPermalinksOfHeadings::test_a_marked_permalink_is_left_out_wherever_it_stands).
+
+    An unmarked mark is left out only as the last thing of a heading or term that holds other text, and a `#` glued to the
+    word before it stays (`Learn C#`). So the heading's or term's own mark stays (Pinned by: test_text_html.py::
+    TestPermalinksOfHeadings::test_a_mark_that_is_the_text_of_its_heading_or_term_stays): one in the middle (`See § 3`),
+    one that is all the text (`<dt><a href="#a">#</a></dt><dd>number sign</dd>`), a first one (`§ 3 Scope`; the
+    generators that put the mark first, VuePress and AnchorJS, give it a class). Removed wherever it was, the heading
+    `C# guide` became `C guide` and `See § 3` became `See 3`.
+
+    One walk upwards from the links, each element visited once; only the headings and terms holding an unmarked mark are
+    read, each once without the headings or terms inside it, so the work is linear in the page.
+    """
+    links = [link for link in soup.find_all("a", href=True)
+             if str(link["href"]).startswith("#") and link.get_text().strip() in _PERMALINK_MARKS]
+    if not links:
+        return
+    holders: dict[int, Tag | None] = {}  # element id → the nearest heading, term or caption around it, or None
+    marked: list[Tag] = []
+    found: dict[int, tuple[Tag, set[int]]] = {}  # heading or term id → (it, the ids of its unmarked candidate links)
+    for link in links:
+        holder = _permalink_holder(link, holders)
+        if holder is None:
+            continue
+        if _marked_as_permalink(link):
+            marked.append(link)
+        elif holder.name in _PERMALINK_HOLDERS:
+            found.setdefault(id(holder), (holder, set()))[1].add(id(link))
+    gone = {id(link) for link in marked}
+    dropped = marked + [link for holder, candidates in found.values() for link in _permalinks_of(holder, candidates, gone)]
+    _decompose_all(dropped)
+
+
+def _permalink_holder(link: Tag, holders: dict[int, Tag | None]) -> Tag | None:
+    """The nearest heading, term or caption around `link` (`_MARKED_PERMALINK_HOLDERS`, `_CAPTION_CLASSES`), or None; what is
+    learned on the way up is kept in `holders` for the next link."""
+    chain, node = [], link.parent
+    while node is not None and id(node) not in holders and not _holds_permalinks(node):
+        chain.append(node)
+        node = node.parent
+    holder = None if node is None else holders.get(id(node), node)
+    for element in chain:
+        holders[id(element)] = holder
+    return holder
+
+
+def _holds_permalinks(node: Tag) -> bool:
+    return node.name in _MARKED_PERMALINK_HOLDERS or (node.attrs is not None and "class" in node.attrs and any(
+        name in _CAPTION_CLASSES for name in node.get_attribute_list("class")))
+
+
+def _permalinks_of(holder: Tag, candidates: set[int], gone: set[int]) -> list[Tag]:
+    """The unmarked candidate links (`_drop_permalinks`) of one heading or term that are its permalink anchors: the last thing
+    of it, other text left, a `#` not glued to the word before it. The marked links being left out (`gone`) count for
+    nothing."""
+    # The text of the holder in order, as (text, the candidate link it lies in or None); a heading or term inside it is other
+    # content of its own, looked at by itself.
+    pieces: list[tuple[str, Tag | None]] = []
+    stack: list[tuple[PageElement, Tag | None]] = [(child, None) for child in reversed(holder.contents)]
+    while stack:
+        node, owner = stack.pop()
+        if isinstance(node, NavigableString):
+            pieces.append((str(node), owner))
+        elif isinstance(node, Tag):
+            if node.name in _PERMALINK_HOLDERS:
+                pieces.append(("￼", None))
+            elif node.name == "br":
+                pieces.append((" ", owner))
+            elif id(node) not in gone:
+                owner = node if id(node) in candidates else owner
+                stack.extend((child, owner) for child in reversed(node.contents))
+    solid = [index for index, (text, _) in enumerate(pieces) if text.strip()]
+    if not solid:
+        return []
+    link = pieces[solid[-1]][1]
+    if link is None or all(pieces[other][1] is link for other in solid):
+        return []
+    own = [position for position, (_, owner) in enumerate(pieces) if owner is link]
+    text = "".join(pieces[position][0] for position in own)
+    before = "".join(piece for piece, _ in pieces[:own[0]])
+    if text.strip() == "#" and not before[-1:].isspace() and not text[0].isspace():
+        return []
+    return [link]
+
+
+def _marked_as_permalink(link: Tag) -> bool:
+    classes = {name.lower() for name in link.get_attribute_list("class") if name}
+    return bool(classes & _PERMALINK_CLASSES) or any(
+        _PERMALINK_LABEL.search(str(link.get(name, ""))) for name in ("title", "aria-label"))
+
+
 def _hidden_by_style(tag: Tag) -> bool:
     return tag.attrs is not None and (_has_hidden(tag) or bool(_HIDDEN_STYLE.search(str(tag.get("style", "")))))
 
 
 def _has_hidden(tag: Tag) -> bool:
-    """Whether the `hidden` attribute hides `tag`. `hidden="until-found"` does not: it folds content that a browser still
-    searches and opens when it is found or linked to — the standard way to fold the answers of an FAQ or the sections of an
-    accordion, as `<details>` does, whose folded content is read too. Other hiding on the element (`display:none`) still
-    counts (Pinned by: test_text_html.py::TestCollapsedQuestionsAndAnswers::test_content_hidden_until_found_is_kept)."""
-    return tag.has_attr("hidden") and str(tag["hidden"]).lower() != "until-found"
+    """Whether the markup of `tag` itself hides it: the `hidden` attribute, a `<dialog>` that is not open, or a `popover`.
+
+    `hidden="until-found"` does not: it folds content that a browser still searches and opens when it is found or linked to —
+    the standard way to fold the answers of an FAQ or the sections of an accordion, as `<details>` does, whose folded content
+    is read too. Other hiding on the element (`display:none`) still counts
+    (Pinned by: test_text_html.py::TestCollapsedQuestionsAndAnswers::test_content_hidden_until_found_is_kept).
+
+    Every browser draws a `<dialog>` without `open` and an element with `popover` as `display: none` until a script opens it,
+    and a page saved after opening a dialog keeps its `open`. Read as body text, the closed feedback and cookie dialogs of a
+    page were appended to it, a heading of one in front of the title (Pinned by: test_text_html.py::TestClosedDialogsAndPopovers).
+    A `role="dialog"` element is an ordinary element: modal libraries show and hide it with their own classes.
+    """
+    if tag.has_attr("hidden") and str(tag["hidden"]).lower() != "until-found":
+        return True
+    return (tag.name == "dialog" and not tag.has_attr("open")) or tag.has_attr("popover")
 
 
 def _drop_hidden(soup: BeautifulSoup, kept: set[int] = frozenset(), whole: bool = True) -> None:

@@ -12,7 +12,6 @@ import unicodedata
 import weakref
 import zlib
 
-import olefile
 from PIL import Image
 import pytest
 
@@ -36,7 +35,6 @@ from opendockit.extractors.hwp import (
 )
 from opendockit.image import ImageSkipped, ImageUnreadable, prepare_image
 from tests import builder
-from tests.test_hwp import _OLE_MAGIC
 from tests.timing import Fastest, fastest
 
 
@@ -351,9 +349,7 @@ class TestOtherFormats:
             "BodyText/Section0": section,
             "BinData/BIN0001.png": builder.png_bytes(),
         }
-        _patch_ole(monkeypatch, streams)
-
-        result = described(_OLE_MAGIC + b"\x00" * 504, "a.hwp")
+        result = described(_hwp_container(streams), "a.hwp")
 
         assert result.text == "앞 글\n\n> [Image] 설명 1\n> 세부 1"
 
@@ -371,13 +367,12 @@ class TestHwpRepeatedAndBrokenPictures:
         ])
         bin_data = struct.pack("<HHH", 0x1, 1, 3) + "bmp".encode("utf-16-le")
         deflate = lambda data: zlib.compress(data)[2:-4]  # noqa: E731
-        _patch_ole(monkeypatch, {
+        return _hwp_container({
             "FileHeader": builder.hwp_file_header(1),
             "DocInfo": deflate(record(TAG_BIN_DATA, 0, bin_data)),
             "BodyText/Section0": deflate(paragraph * references),
             "BinData/BIN0001.bmp": picture_stream,
         })
-        return _OLE_MAGIC + b"\x00" * 504
 
     def test_picture_referenced_many_times_is_read_and_counted_once(self, monkeypatch):
         """The same picture was read and inflated again for every reference, so a document with 16,384 references to one picture
@@ -389,6 +384,25 @@ class TestHwpRepeatedAndBrokenPictures:
         result = convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=len(bitmap) * 3))
 
         assert result.text.count("앞 글") == 10
+
+    def test_picture_stream_named_by_many_binitems_is_read_and_counted_once(self, monkeypatch):
+        """Read once per BinItem, 8,000 BinItems naming one stream of 2 MB (a short deflate stream and then zeros) took 16.6 s, and
+        a compressed stream counts as stored toward the limit. The stream is read once, however many BinItems name it."""
+        record = builder.hwp_record
+        count = 50
+        paragraphs = b"".join(
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("앞 글", (11, "gso ")))
+            + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("gso "))
+            + record(TAG_SHAPE_PICTURE, 2, b"\x00" * 71 + struct.pack("<H", item) + b"\x00" * 18) for item in range(1, count + 1))
+        bin_data = record(TAG_BIN_DATA, 0, struct.pack("<HHH", 0x1, 1, 3) + "bmp".encode("utf-16-le"))
+        deflate = lambda data: zlib.compress(data)[2:-4]  # noqa: E731
+        bitmap = builder.png_bytes(40, 30, image_format="BMP")
+        data = _hwp_container({"FileHeader": builder.hwp_file_header(1), "DocInfo": deflate(bin_data * count),
+                               "BodyText/Section0": deflate(paragraphs), "BinData/BIN0001.bmp": deflate(bitmap) + bytes(1_000_000)})
+
+        result = convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=5_000_000))
+
+        assert result.text.count("앞 글") == count
 
     def test_picture_that_cannot_be_inflated_is_skipped(self, monkeypatch):
         """A broken compression stream in one picture does not reject the whole document. Only that picture is skipped."""
@@ -946,28 +960,9 @@ def _docx_with_pictures(count: int) -> bytes:
     return buffer.getvalue()
 
 
-def _patch_ole(monkeypatch, streams):
-    class FakeOle:
-        def __init__(self, _source):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_):
-            return False
-
-        def listdir(self, streams=True, storages=False):
-            return [name.split("/") for name in streams_map] + ([["BodyText"]] if storages else [])
-
-        def exists(self, name):
-            return name in streams_map
-
-        def openstream(self, name):
-            return BytesIO(streams_map[name])
-
-    streams_map = streams
-    monkeypatch.setattr(olefile, "OleFileIO", FakeOle)
+def _hwp_container(streams):
+    """A real OLE container holding the streams of an HWP document."""
+    return builder.ole_file(streams)
 
 
 def test_openai_describer_uses_separate_http_client_per_event_loop(monkeypatch):
@@ -1622,6 +1617,27 @@ class TestMultiPageTiff:
         assert {Image.open(BytesIO(image.data)).getpixel((5, 5)) for image in result.images} == {
             Image.open(BytesIO(convert(_tiff_pages(color), "a.tif").images[0].data)).getpixel((5, 5))
             for color in ("red", "blue", "green")}
+
+    def test_pages_kept_are_bounded_by_the_uncompressed_limit(self):
+        """Each page is kept as a lossless TIFF of its own, many times its size in a photographic file, and only the pixels of
+        the pages were bounded: a 48 MB TIFF of 28 colour pages held 691 MB of them. The pages count toward
+        `max_uncompressed_bytes`, as decompressed and prepared pictures do; the pages before the one that goes over are read."""
+        import random
+
+        from opendockit.image import split_tiff_pages
+
+        noise = random.Random(5)
+        frames = [Image.frombytes("RGB", (200, 260), bytes(noise.randrange(256) for _ in range(200 * 260 * 3))) for _ in range(4)]
+        buffer = BytesIO()
+        frames[0].save(buffer, format="TIFF", save_all=True, append_images=frames[1:], compression="tiff_jpeg", quality=50)
+        page = len(split_tiff_pages(buffer.getvalue()).pages[0])
+
+        split = split_tiff_pages(buffer.getvalue(), max_bytes=int(page * 2.5))
+        result = convert(buffer.getvalue(), "scan.tif", ConvertOptions(max_uncompressed_bytes=int(page * 2.5)))
+
+        assert (len(split.pages), split.stopped_at, split.too_many_pixels) == (2, 3, True)
+        assert len(split_tiff_pages(buffer.getvalue(), max_bytes=None).pages) == 4
+        assert result.warnings == ["The pages of the TIFF are too large in total, so only the first 2 page(s) were read as images."]
 
     def test_describer_sees_every_page(self):
         describer = FakeDescriber()
@@ -2375,6 +2391,19 @@ class TestTransparencyOfEveryMode:
         assert result.mime_type == "image/png"
         assert decoded.getpixel((2, 2))[3] == 0
         assert decoded.getpixel((150, 60))[3] == 255
+
+    def test_lab_picture_is_opaque(self):
+        """The bands of a Lab picture are L, A and B: its `A` is a colour axis, and the photo came out as a PNG several times
+        the size of its JPEG. Its colours are kept."""
+        picture = Image.new("RGB", (300, 200), (254, 0, 0)).convert("LAB")
+        buffer = BytesIO()
+        picture.save(buffer, format="TIFF")
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/jpeg"
+        red, green, blue = Image.open(BytesIO(result.data)).convert("RGB").getpixel((150, 100))
+        assert red > 200 and green < 60 and blue < 60
 
     def test_grey_png_with_a_transparent_level_stays_transparent(self):
         picture = Image.new("L", (300, 120), 0)

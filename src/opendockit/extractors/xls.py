@@ -13,12 +13,20 @@ import sys
 import zlib
 
 import olefile
-from openpyxl.styles.numbers import is_date_format
 import xlrd
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
-from opendockit.extractors._sheet_format import _format_within_length, _is_elapsed_format, _is_weekday_only, _shows_date, format_cell
+from opendockit.extractors._notation import chars_left
+from opendockit.extractors._ole import OleFile, OleStreams
+from opendockit.extractors._sheet_format import (
+    _format_within_length,
+    _is_date_number_format,
+    _is_elapsed_format,
+    _is_weekday_only,
+    _shows_date,
+    format_cell,
+)
 from opendockit.extractors._sheet_layout import (
     _CHECKED,
     _MAX_MERGED_CELLS,
@@ -84,6 +92,7 @@ def extract_xls(data: bytes, options: ConvertOptions) -> Extraction:
         blank = placeholder_zeros.get(sheet_index, set())  # formula cells whose 0 in the result slot cannot be trusted
 
         offset = _xls_first_used_column(sheet)  # the column limit counts from the first used column (`_first_used_column`)
+        room = chars_left(extraction, options)
         rows = _collect_rows((_xls_row(book, sheet, row_index, blank, options.max_sheet_cols, offset, not_finite)
                               for row_index in range(sheet.nrows)), options, sheet.name, extraction)
         across = _fill_xls_merges(sheet, rows, extraction.warnings, options.max_sheet_cols, offset)
@@ -94,7 +103,7 @@ def extract_xls(data: bytes, options: ConvertOptions) -> Extraction:
                      for (row, column), note in sheet.cell_note_map.items()]
             row_at = _SheetRows(dict(enumerate(rows, start=1)), offset)
             drawn.append(_comment_block(notes, row_at, extraction, options))
-        _append_sheet(extraction, sheet.name, rows, drawn, across)
+        _append_sheet(extraction, sheet.name, rows, drawn, across, room, options)
         if extraction.exceeded:
             break
     if not_finite:
@@ -469,9 +478,10 @@ def _xls_workbook_stream(data: bytes) -> bytes:
         return data  # a BIFF stream not wrapped in OLE. xlrd reads it as is, too
 
     try:
-        with olefile.OleFileIO(BytesIO(data)) as ole:
+        with OleFile(BytesIO(data)) as ole:
+            streams = OleStreams(ole, len(data))  # a stream is read no further than the size of the file
             for name in ("Workbook", "Book"):
-                if ole.exists(name) and (stream := ole.openstream(name).read()):
+                if streams.exists(name) and (stream := streams.read(name)):
                     return stream  # xlrd rejects an empty stream as 'no file name', so it is sent on below
     except (OSError, ValueError, struct.error) as exc:  # olefile: OSError (OleFileError) for structural damage, ValueError for bad header values
         raise CorruptedDocumentError("The XLS document structure could not be read.") from exc
@@ -766,7 +776,7 @@ def _xls_value(cell: xlrd.sheet.Cell, datemode: int, number_format: str | None) 
         return cell.value
     elapsed = _is_elapsed_format(number_format)
     if cell.ctype == xlrd.XL_CELL_DATE or weekday_only or cell.ctype == xlrd.XL_CELL_NUMBER and (
-            elapsed and is_date_format(number_format)):
+            elapsed and _is_date_number_format(number_format)):
         try:
             # A value that does not fit in a duration (a billion days or more) raises OverflowError. The whole document was rejected
             # as 'corrupted'. The original value is shown

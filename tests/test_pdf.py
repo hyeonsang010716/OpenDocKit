@@ -1,5 +1,7 @@
 """PDF conversion: reading order, tables, paragraphs, headings, removal of repeated header lines."""
 
+from collections import Counter
+
 import pytest
 
 from opendockit import ConversionError, ConvertOptions, SectionKind, convert
@@ -290,6 +292,7 @@ def _korean_pdf(draw, pages: int = 1, encrypt: object = None) -> bytes:
 
 
 _FONT = "HYSMyeongJo-Medium"
+_ROMAN_NUMERALS = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"]
 
 
 class TestRepeatedMarginsAndBorderlessTables:
@@ -387,6 +390,216 @@ class TestRepeatedMarginsAndBorderlessTables:
         assert all(f"소계 {count}건" in result.text for count in counts)
         assert "보고서" not in result.text
         assert "- 1 -" not in result.text and "- 2 -" not in result.text
+
+    def test_page_count_beside_other_footer_text_is_removed(self):
+        """A footer of two pieces on one row, 'ACME Corp. - Confidential' left and 'Page 3 of 4' right (LibreOffice's footer
+        fields): only pieces shaped exactly like a page number had their digits ignored, and 'Page 3 of 4' is not one, so the
+        footer stayed at the foot of every page. A piece of a margin row that is a page count has its page numbers ignored too; a
+        count with a unit beside a label ('소계 12건') still differs per page and is kept."""
+        counts = [12, 7, 19, 4]
+
+        def draw(pdf, index):
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"{index + 1}쪽 본문 {line + 1}번째 줄입니다.")
+            pdf.drawString(72, 90, "소계")
+            pdf.drawString(400, 90, f"{counts[index]}건")
+            pdf.drawString(72, 40, "ACME Corp. - Confidential")
+            pdf.drawString(450, 40, f"Page {index + 1} of 4")
+
+        result = convert(_korean_pdf(draw, pages=4), "a.pdf")
+
+        assert "Confidential" not in result.text and "of 4" not in result.text
+        assert all(f"{count}건" in result.text for count in counts)
+
+    @pytest.mark.parametrize("pieces", [
+        lambda page: [f"Page {page} of 6", "ACME Corp. - Confidential"],
+        lambda page: ["ACME Corp.", "Confidential", f"Page {page} of 6"],
+        lambda page: ["사내 한정", f"6쪽 중 {page}쪽"],
+        lambda page: ["주식회사 에이씨엠이", f"총 6쪽 중 {page}쪽"],
+        lambda page: ["Annual Report 2024", f"p. {page}"],
+        lambda page: ["ACME Corp.", f"{page} of 6 pages"],
+    ], ids=["count-first", "three-pieces", "korean-of", "korean-total", "p-dot", "of-pages"])
+    def test_page_counts_of_other_shapes_beside_footer_text_are_removed(self, pieces):
+        """A page count is removed with the text beside it wherever it stands in the row and however it is written."""
+        def draw(pdf, index):
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+            for x, text in zip((72, 250, 430), pieces(index + 1), strict=False):
+                pdf.drawString(x, 40, text)
+
+        result = convert(_korean_pdf(draw, pages=6), "a.pdf")
+
+        assert [text for text in pieces(3) if text in result.text] == []
+        assert "Body line 5 of page 6" in result.text
+
+    @pytest.mark.parametrize(("height", "pieces"), [
+        (790, lambda page: [f"Invoice No. {1000 + page}", f"Date: 2024-03-{9 + page}"]),
+        (790, lambda page: [f"문서번호 {2024000 + page}", f"작성일 2024-03-{9 + page}"]),
+        (790, lambda page: [f"Question {page}", f"({page + 1} points)", f"Unit {page}"]),
+        (50, lambda page: [f"Subtotal {[12, 7, 19, 4, 9, 15][page - 1]} items", f"Carried forward {323 + 17 * page}"]),
+        (50, lambda page: [f"Continued on page {page + 1}", f"Answer key: section {10 + page}"]),
+        (75, lambda page: [f"({page})", f"Clause text of page {page}."]),
+    ], ids=["invoice", "korean-document-number", "question", "subtotal", "continued", "clause"])
+    def test_margin_rows_that_differ_only_in_numbers_or_dates_are_kept(self, height, pieces):
+        """Rows of the top or bottom margin whose pieces differ from page to page only in a number or a date: when every piece
+        of a margin row had its numbers and dates ignored as a margin line of one piece does, these were the same on every page
+        and were removed from all six. Only a piece that is a page number or a page count has its numbers ignored now. A
+        clause number alone ('(3)') is page-number-shaped and still goes, as before, but not the clause beside it."""
+        def draw(pdf, index):
+            for x, text in zip((72, 250, 430), pieces(index + 1), strict=False):
+                pdf.drawString(x, height, text)
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+
+        result = convert(_korean_pdf(draw, pages=6), "a.pdf")
+
+        expected = [text for page in range(1, 7) for text in pieces(page) if not text.startswith("(") or "points" in text]
+        assert [text for text in expected if text not in result.text] == []
+
+    def test_roman_page_numbers_are_removed(self):
+        """The front matter of a book or a report is numbered 'i', 'ii', 'iii' …: only digits were page-number-shaped, so those
+        stayed at the foot of every page. A word made of the same letters ('mix', 'civil') is not a numeral here, and a clause
+        marker in the body is not in the margin."""
+        numerals = ["i", "ii", "iii", "iv", "v"]
+
+        def draw(pdf, index):
+            pdf.drawString(72, 700, f"{index + 1}쪽 본문입니다.")
+            pdf.drawString(72, 660, f"({numerals[index]}) 조항 내용입니다.")
+            pdf.drawString(300, 40, numerals[index])
+
+        result = convert(_korean_pdf(draw, pages=5), "a.pdf")
+
+        assert [line for line in result.text.splitlines() if line in numerals] == []
+        assert all(f"({numeral}) 조항 내용입니다." in result.text for numeral in numerals)
+
+    @pytest.mark.parametrize(("pages", "number"), [
+        (6, lambda index: [(295, _ROMAN_NUMERALS[index])]),
+        (6, lambda index: [(520 if index % 2 == 0 else 72, _ROMAN_NUMERALS[index])]),
+        (6, lambda index: [(295, _ROMAN_NUMERALS[index].upper())]),
+        (6, lambda index: [(290, f"- {_ROMAN_NUMERALS[index]} -")]),
+        (6, lambda index: [(290, f"Page {_ROMAN_NUMERALS[index]}")]),
+        (6, lambda index: [(295, _ROMAN_NUMERALS[index + 4])]),
+        (6, lambda index: [(520, _ROMAN_NUMERALS[index])] if index % 2 == 0 else []),
+        (3, lambda index: [(295, _ROMAN_NUMERALS[index])]),
+        (10, lambda index: [(520 if index % 2 == 0 else 72, _ROMAN_NUMERALS[index] if index < 4 else str(index - 3))]),
+        (10, lambda index: [(295, _ROMAN_NUMERALS[index] if index < 4 else str(index - 3))] if index else []),
+    ], ids=["centre", "outer-edge", "upper-case", "dashes", "page-word", "from-v", "one-side", "three-pages", "front-matter",
+            "front-matter-unnumbered-title"])
+    def test_roman_page_numbers_that_count_with_the_pages_are_removed(self, pages, number):
+        """Roman page numbers at the centre or the outer edge, in either case, with dashes or 'Page', starting past 'i', on one
+        side of the page only, in a document of three pages, and as the front matter before page 1 (with or without a number
+        on the title page) count on with the pages and are removed."""
+        def draw(pdf, index):
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+            for x, text in number(index):
+                pdf.drawString(x, 40, text)
+
+        result = convert(_korean_pdf(draw, pages=pages), "a.pdf")
+
+        printed = {text for index in range(pages) for _, text in number(index)}
+        assert [line for line in result.text.splitlines() if line in printed] == []
+        assert "Body line 5 of page 3 with ordinary words." in result.text
+
+    def test_roman_page_number_beside_a_running_header_is_removed_with_it(self):
+        def draw(pdf, index):
+            pdf.drawString(72, 800, "Preface")
+            pdf.drawString(500, 800, _ROMAN_NUMERALS[index])
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+
+        result = convert(_korean_pdf(draw, pages=6), "a.pdf")
+
+        assert "Preface" not in result.text
+        assert [line for line in result.text.splitlines() if line in _ROMAN_NUMERALS] == []
+
+    @pytest.mark.parametrize("numbers", [_ROMAN_NUMERALS, [f"- {numeral} -" for numeral in _ROMAN_NUMERALS],
+                                         [f"({numeral})" for numeral in _ROMAN_NUMERALS]], ids=["bare", "dashes", "brackets"])
+    def test_roman_page_numbers_beside_running_heads_that_change_are_removed(self, numbers):
+        """Front matter as books set it: the section's running head on one side of the top row and 'i' … 'viii' on the outer
+        side, the head changing from section to section. The numerals count with the pages but were taken only with a row that
+        repeats, so they stayed at the top of every page, where arabic numbers in the same layout are removed."""
+        heads = ["Contents", "Contents", "Preface", "Preface", "Acknowledgements", "Introduction", "Introduction",
+                 "Introduction"]
+
+        def draw(pdf, index):
+            left, right = (heads[index], numbers[index]) if index % 2 == 0 else (numbers[index], heads[index])
+            pdf.drawString(72, 800, left)
+            pdf.drawRightString(523, 800, right)
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+
+        result = convert(_korean_pdf(draw, pages=8), "a.pdf")
+
+        assert [line for line in result.text.splitlines() if line in numbers[:8]] == []
+        assert "Body line 5 of page 8 with ordinary words." in result.text
+
+    @pytest.mark.parametrize(("height", "marker", "text_x"), [
+        (60, "{}", 110), (805, "{}", 100), (60, "({})", 144), (60, "{}", 180),
+    ], ids=["clause-at-the-foot", "question-at-the-top", "bracketed-clause-after-a-tab", "clause-after-a-wide-tab"])
+    def test_roman_clause_numbers_right_before_their_text_are_kept(self, height, marker, text_x):
+        """A clause or question numbered 'i' … 'viii', one per page in the margin, counts with the pages just as front matter
+        does. Taken on its own beside other text as a page number is, every one of them went, where a page number stands at the
+        outer edge or the centre away from its running head and a list number stands right before its text."""
+        def draw(pdf, index):
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+            pdf.drawString(72, height, marker.format(_ROMAN_NUMERALS[index]))
+            pdf.drawString(text_x, height, f"The lessee shall keep the terms of clause {index + 1} in force.")
+
+        result = convert(_korean_pdf(draw, pages=8), "a.pdf")
+
+        first_words = [line.split()[0] for line in result.text.splitlines() if line.strip()]
+        assert [marker.format(numeral) for numeral in _ROMAN_NUMERALS[:8] if marker.format(numeral) not in first_words] == []
+        assert all(f"clause {page} in force." in result.text for page in range(1, 9))
+
+    def test_roman_page_numbers_of_two_pages_are_kept(self):
+        def draw(pdf, index):
+            pdf.drawString(72, 700, f"Body line of page {index + 1} with ordinary words.")
+            pdf.drawString(295, 40, _ROMAN_NUMERALS[index])
+
+        result = convert(_korean_pdf(draw, pages=2), "a.pdf")
+
+        assert [line for line in result.text.splitlines() if line in _ROMAN_NUMERALS] == ["i", "ii"]
+
+    @pytest.mark.parametrize(("size", "draw_row", "kept"), [
+        (10, lambda pdf, index, row, y: pdf.drawString(420, y, "XV"[row == 7]) if row in (0, 7) else None, ["X", "V"] * 6),
+        (10, lambda pdf, index, row, y: row == 0 and (pdf.drawString(72, 60, f"Result for candidate {'ABCDEF'[index]}"),
+                                                       pdf.drawString(300, 60, "CXVLIC"[index]),
+                                                       pdf.drawString(400, 60, f"Reviewer {'PQRSTU'[index]}")),
+         list("CXVLIC")),
+        (10, lambda pdf, index, row, y: row == 0 and (pdf.drawString(72, 50, "Size"),
+                                                       pdf.drawString(300, 50, ["S", "M", "L", "XL", "L", "M"][index])),
+         ["L", "XL", "L"]),
+        (10, lambda pdf, index, row, y: row == 0 and (pdf.drawString(72, 75, f"({['i', 'ii', 'iii', 'iv', 'v', 'vi'][index]})"),
+                                                       pdf.drawString(150, 75, f"The party shall comply with term {index + 1}.")),
+         ["(i)", "(ii)", "(iii)", "(iv)", "(v)", "(vi)"]),
+        (10, lambda pdf, index, row, y: row == 0 and pdf.drawString(72, 75, f"({['iii', 'i', 'iv', 'ii', 'v', 'iii'][index]})"),
+         ["(iii)", "(i)", "(iv)", "(ii)", "(v)", "(iii)"]),
+        (14, lambda pdf, index, row, y: row == 0 and pdf.drawString(72, 800, ["I", "II", "III", "IV", "V", "VI"][index]),
+         ["I", "II", "III", "IV", "V", "VI"]),
+        (24, lambda pdf, index, row, y: row == 0 and pdf.drawString(72, 800, ["I", "II", "III", "IV", "V", "VI"][index]),
+         ["I", "II", "III", "IV", "V", "VI"]),
+    ], ids=["marks", "middle-of-row", "size", "clause-markers", "clause-markers-alone", "sections-14pt", "sections-24pt"])
+    def test_roman_letters_that_do_not_count_with_the_pages_are_kept(self, size, draw_row, kept):
+        """Letters that are valid roman numerals are marks, grades, sizes and clause markers far more often than bare digits are:
+        taken for page numbers by their shape alone, 'X' and 'V' marks beside the top and bottom statements of a page, a 'C' in
+        the middle of a result row, the 'L' of 'Size' beside 'L', clause markers '(i)' to '(vi)' beside their clauses or alone,
+        and section labels 'I' to 'VI' in a large font in the top margin were removed. A roman numeral is a page number only in
+        the margin, below title size, where numerals of one shape count on with the pages, and beside other text only when the
+        rest of its row repeats."""
+        def draw(pdf, index):
+            for row in range(8):
+                y = 700 - row * 30
+                pdf.drawString(72, y, f"Statement {row + 1} on page {index + 1} is reviewed.")
+                pdf.setFont(_FONT, size)
+                draw_row(pdf, index, row, y)
+                pdf.setFont(_FONT, 10)
+
+        result = convert(_korean_pdf(draw, pages=6), "a.pdf")
+
+        lines = [line.lstrip("# ") for line in result.text.splitlines()]
+        assert Counter(line for line in lines if line in kept) == Counter(kept)
 
     def test_margin_lines_with_amounts_or_rates_that_differ_per_page_are_kept(self):
         """'전기이월 잔액: 1,000,000', '실지급액: 3,450,000', '증감률 6.8%' and '소계 1,234' in the top and bottom margins of each page
@@ -851,6 +1064,262 @@ class TestBorderlessTableEnd:
         assert result.text.count("|\n| --- ") == 2
         assert f"| {between}" not in result.text and between in result.text
         assert "| 부서 | 1분기 | 2분기 | 3분기 |\n| --- |" in result.text
+
+
+_PROSE = ("It is a truth universally acknowledged that a single man in possession of a good fortune must be in want of a "
+          "wife. However little known the feelings or views of such a man may be on his first entering a neighbourhood, this "
+          "truth is so well fixed in the minds of the surrounding families that he is considered the rightful property of "
+          "some one or other of their daughters.",
+          "Call me Ishmael. Some years ago, never mind how long precisely, having little or no money in my purse, and nothing "
+          "particular to interest me on shore, I thought I would sail about a little and see the watery part of the world. It "
+          "is a way I have of driving off the spleen and regulating the circulation.",
+          "Happy families are all alike; every unhappy family is unhappy in its own way. Everything was in confusion in the "
+          "household of the Oblonskys. The wife had discovered that the husband was carrying on an intrigue with a French "
+          "girl, who had been a governess in their family.",
+          "It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was "
+          "the epoch of belief, it was the epoch of incredulity, it was the season of light, it was the season of darkness, it "
+          "was the spring of hope, it was the winter of despair.")
+
+
+def _prose_columns(columns: int, width: float, gap: float = 18, pitch: float = 14) -> bytes:
+    """An A4 page of `columns` columns of left-aligned prose, `width` pt each, a different text in each (`_PROSE`), lines
+    `pitch` pt apart at the same heights in every column."""
+    from reportlab.lib.utils import simpleSplit
+
+    def draw(pdf, index):
+        pdf.setFont("Helvetica", 10)
+        for column in range(columns):
+            left = 72 + column * (width + gap)
+            for number, line in enumerate(simpleSplit(_PROSE[column], "Helvetica", 10, width)):
+                pdf.drawString(left, 770 - number * pitch, line)
+
+    return _korean_pdf(draw)
+
+
+def _phrase_table(rows: list[tuple[str, ...]], lefts: tuple[float, ...], pitch: float = 16, font: str = "Helvetica") -> bytes:
+    """A borderless table whose cells are drawn row by row from the left edges `lefts`, rows `pitch` pt apart."""
+    def draw(pdf, index):
+        pdf.setFont(font, 10)
+        for number, row in enumerate(rows):
+            for left, cell in zip(lefts, row, strict=True):
+                pdf.drawString(left, 770 - number * pitch, cell)
+
+    return _korean_pdf(draw)
+
+
+class TestProseInThreeColumns:
+    """A column of a newsletter or a three-column paper is narrower than a table cell may be, and its lines stand beside those
+    of the other columns at the same heights, so every row held three short pieces on the same left edges and the page was
+    read as borderless tables, across the columns. Columns of prose are as wide as each other and pdfminer reads each of them
+    as one box; dropped as a table, their lines are no longer joined row by row (`_table_like_rows`), which merged them line
+    by line ('It is a truth universally Call me Ishmael. Some years')."""
+
+    @pytest.mark.parametrize("columns", [3, 4])
+    def test_columns_of_prose_are_read_column_by_column(self, columns):
+        text = convert(_prose_columns(columns, 138 if columns == 3 else 100), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        flowed = " ".join(text.split())
+        assert "| --- |" not in text
+        assert all(prose in flowed for prose in _PROSE[:columns])
+        if columns == 3:  # pdfminer puts the first of four columns last; the order of three or more columns is its own
+            assert flowed.index(_PROSE[0]) < flowed.index(_PROSE[1]) < flowed.index(_PROSE[2])
+
+    @pytest.mark.parametrize("columns", [3, 4])
+    def test_columns_of_prose_read_row_by_row_stay_a_table(self, columns):
+        """Lines set further apart are read by pdfminer row by row: dropped as a table, the columns would come out merged line
+        by line. The table at least keeps them apart."""
+        text = convert(_prose_columns(columns, 138 if columns == 3 else 100, pitch=18), "a.pdf",
+                       ConvertOptions(page_markers=False)).text
+
+        assert text.startswith("| It is a truth universally | Call me Ishmael.")
+
+    def test_paragraphs_ending_at_the_same_height_in_every_column_are_still_prose(self):
+        """Paragraphs set 6 pt apart: those of all three columns end after the fourth line, where every column breaks as the
+        rows of a table do. Unlike a table's, the columns go on below the lines that line up (`_reads_as_prose_columns`)."""
+        from reportlab.lib.utils import simpleSplit
+
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 10)
+            for column, lengths in enumerate([(4, 9, 6), (4, 5, 10), (4, 8, 7)]):
+                lines = simpleSplit(" ".join(_PROSE[:3] * 2), "Helvetica", 10, 138)[column * 25:]
+                top = 770.0
+                for length in lengths:
+                    for line in lines[:length]:
+                        pdf.drawString(72 + column * 156, top, line)
+                        top -= 12
+                    lines = lines[length:]
+                    top -= 6
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| --- |" not in text
+
+    def test_many_lines_of_prose_columns_start_no_label_value_rows(self):
+        """Every row of three prose lines paired its two right lines down to the end of the columns before the group was turned
+        down for its wide values (`_label_value_rows`): time with the square of the rows once the rows were no table."""
+        from opendockit.extractors._pdf_label_values import _label_value_rows
+        from opendockit.extractors._pdf_model import _Line, _visual_rows
+
+        def rows(count: int) -> list[list[_Line]]:
+            return _visual_rows([_Line(top=20.0 + number * 14, bottom=30.0 + number * 14, x0=left, x1=left + 120 + number % 3 * 8,
+                                       text="a line of prose in a column", size=10.0)
+                                 for number in range(count) for left in (72.0, 228.0, 384.0)])
+
+        small, large = rows(500), rows(2000)
+        assert _label_value_rows(large, 595.0, {id(line) for row in large for line in row}) == []
+        assert _label_value_rows(small, 595.0) == []  # the same rows reach no group without being marked as prose either
+
+
+@pytest.mark.timing
+def test_prose_columns_take_linear_time_in_label_value_rows():
+    """`TestProseInThreeColumns::test_many_lines_of_prose_columns_start_no_label_value_rows`, timed: four times the rows take
+    about four times as long (sixteen times before)."""
+    from opendockit.extractors._pdf_label_values import _label_value_rows
+    from opendockit.extractors._pdf_model import _Line, _visual_rows
+    from tests.timing import fastest
+
+    def rows(count: int) -> list[list[_Line]]:
+        return _visual_rows([_Line(top=20.0 + number * 14, bottom=30.0 + number * 14, x0=left, x1=left + 120 + number % 3 * 8,
+                                   text="a line of prose in a column", size=10.0)
+                             for number in range(count) for left in (72.0, 228.0, 384.0)])
+
+    small, large = rows(2000), rows(8000)
+    small_prose, large_prose = ({id(line) for row in lines for line in row} for lines in (small, large))
+
+    ratio = fastest(lambda: _label_value_rows(large, 595.0, large_prose)) / fastest(lambda: _label_value_rows(small, 595.0, small_prose))
+
+    assert ratio < 8
+
+
+class TestBorderlessTableOfPhrases:
+    """A borderless table whose every cell is a phrase of three words or more passed the prose check of three columns and
+    became plain lines. Its columns are as wide as their cells, not as each other, and drawn row by row they are read row by
+    row (`_reads_as_prose_columns`)."""
+
+    _ROWS = [("When", "Session", "Where"),
+             ("Monday morning early", "Opening remarks by the chair", "Main hall upstairs"),
+             ("Monday before lunch", "Keynote on the future of rail", "Main hall upstairs"),
+             ("Tuesday morning early", "Workshop on ticketing systems", "Room B downstairs"),
+             ("Tuesday after lunch", "Panel on night trains", "Room C on the left"),
+             ("Wednesday at noon", "Closing words by the host", "Main hall upstairs")]
+
+    @pytest.mark.parametrize(("rows", "lefts", "pitch"), [
+        (_ROWS[1:4], (72, 220, 420), 16), (_ROWS, (72, 220, 420), 16), (_ROWS, (72, 220, 420), 24),
+        (_ROWS, (72, 220, 420), 14), (_ROWS, (72, 230, 388), 14),
+    ], ids=["without-header", "with-header", "24pt-rows", "14pt-rows", "14pt-rows-even-pitch"])
+    def test_table_of_phrases_stays_a_table(self, rows, lefts, pitch):
+        text = convert(_phrase_table(rows, lefts, pitch), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| Monday before lunch | Keynote on the future of rail | Main hall upstairs |\n"
+                "| Tuesday morning early | Workshop on ticketing systems | Room B downstairs |") in text
+
+    @pytest.mark.parametrize("pitch", [14, 16])
+    def test_korean_table_of_phrases_stays_a_table(self, pitch):
+        rows = [("추진 과제 이름", "주요 추진 내용 요약", "담당 부서 및 협조"),
+                ("디지털 행정 서비스 확대", "민원 서류 온라인 발급 확대", "행정 지원 과 협조"),
+                ("청년 일자리 지원 강화", "지역 기업 연계 채용 박람회", "일자리 정책 과 주관"),
+                ("노후 시설 안전 점검", "교량 및 터널 정밀 안전 진단", "안전 관리 과 주관")]
+
+        text = convert(_phrase_table(rows, (72, 230, 400), pitch, _FONT), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| 추진 과제 이름 | 주요 추진 내용 요약 | 담당 부서 및 협조 |\n| --- | --- | --- |\n"
+                "| 디지털 행정 서비스 확대 | 민원 서류 온라인 발급 확대 | 행정 지원 과 협조 |") in text
+
+    def test_table_of_phrases_over_three_pages_stays_a_table(self):
+        tasks = [("Task name and scope", "Person who owns it", "Current state of play")] + [
+            (f"Review chapter {number} draft", f"Editor number {number % 4 + 1} here",
+             ("Waiting on the author", "Ready for the printer", "Sent back for edits")[number % 3]) for number in range(1, 30)]
+
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 10)
+            for number, row in enumerate(tasks[index * 10:(index + 1) * 10]):
+                for left, cell in zip((72, 220, 400), row, strict=True):
+                    pdf.drawString(left, 770 - number * 16, cell)
+
+        text = convert(_korean_pdf(draw, pages=3), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| Review chapter 25 draft | Editor number 2 here | Ready for the printer |" in text
+        assert text.count("| Review chapter") == 29
+
+    _RISKS = [("Key supplier fails to deliver the steel frames on the date agreed in the contract signed last year",
+               "The building work stops for up to six weeks and the crews have to be moved to other sites at our cost",
+               "Order the frames from a second supplier as a reserve and pay the deposit before the end of the month"),
+              ("Heavy rain in the autumn floods the lower part of the site where the foundations are being poured",
+               "The concrete cannot be poured and the pumps must run day and night to keep the trench dry enough",
+               "Move the pour forward to the summer and hire two extra pumps to keep on site from September onward"),
+              ("The planning office asks for changes to the design of the roof after the first inspection visit",
+               "Drawings must be redone and the roof work slips by about a month while the changes are approved",
+               "Meet the planning office early with the drawings and agree the roof design before the inspection")]
+
+    @pytest.mark.parametrize(("header", "gap"), [(True, 16), (False, 22)], ids=["with-header", "without-header"])
+    def test_table_of_wrapped_sentences_stays_a_table(self, header, gap):
+        """A risk register of equally wide columns whose cells are sentences wrapped over three or four lines: pdfminer reads
+        it row by row, yet inside a cell the next line of the column follows, so it passed for prose read column by column
+        and every cell became a paragraph of its own. At a gap between its rows every column breaks and goes on at the top of
+        the next row; a break between two paragraphs of prose is one column's own."""
+        from reportlab.lib.utils import simpleSplit
+
+        rows = [("Risk", "Likely effect on the project", "What we will do about it")] * header + self._RISKS
+
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 10)
+            top = 770.0
+            for row in rows:
+                cells = [simpleSplit(cell, "Helvetica", 10, 145) for cell in row]
+                for left, lines in zip((72, 230, 388), cells, strict=True):
+                    for number, line in enumerate(lines):
+                        pdf.drawString(left, top - number * 12, line)
+                top -= (max(len(lines) for lines in cells) - 1) * 12 + gap
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| Key supplier fails to deliver the | The building work stops for up to | Order the frames from a second |"
+                in text)
+        assert "| steel frames on the date agreed | six weeks and the crews have to | supplier as a reserve and pay |" in text
+
+    def test_table_of_wrapped_sentences_found_row_by_row_stays_a_table(self):
+        """A reportlab Table of four equal columns of sentences, its rows set apart by the cell padding: below its first rows
+        the table is found one row to a run, and a run of one row has no break inside it, so it passed for prose and every
+        cell of the last rows became a paragraph. The breaks between the run and the rows above and below it, in every column
+        at once, count as well (`_reads_as_prose_columns`)."""
+        from io import BytesIO
+
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
+
+        rows = [
+            ["Option", "Benefit", "Drawback", "Cost note"],
+            ["Team contract plan a quality.", "Quality update supplier contract the quality quality report review supplier.", "A schedule report meeting update review team schedule quality schedule.", "The scope the meeting supplier risk change will."],
+            ["Meeting quality change a report.", "Update cost team delivery cost risk plan quality schedule review scope risk report review.", "The project update report team schedule a budget.", "Will budget schedule delivery will team project project report project report cost."],
+            ["Change update delivery the cost.", "A team change meeting scope meeting review supplier schedule.", "Report delivery project will cost customer cost report quality project update scope change schedule budget review.", "Quality will cost customer budget report supplier."],
+            ["Change meeting scope schedule the.", "Team review update review contract plan review team will budget a project supplier cost contract project.", "Change a delivery review contract contract update delivery quality the a.", "Update risk change supplier delivery cost team customer the will will quality supplier."],
+            ["Risk project project customer report quality update scope team.", "Plan risk scope customer plan will schedule meeting quality project scope a delivery scope budget.", "The risk review team budget plan customer the project a.", "A will customer project the plan update update project plan schedule team review."],
+            ["The update supplier update supplier budget will delivery project.", "Schedule meeting schedule team plan schedule plan team update team contract contract report customer review schedule scope.", "Cost update budget budget project schedule quality delivery project update plan project will will customer cost will.", "A budget budget customer will team scope contract quality meeting scope schedule meeting."],
+            ["The quality supplier will delivery.", "Team meeting project quality project delivery contract change delivery.", "Plan budget supplier review change schedule plan quality a scope meeting will schedule risk meeting risk.", "Quality report update schedule customer supplier a schedule cost supplier cost team the."],
+        ]
+        style = ParagraphStyle("cell", parent=getSampleStyleSheet()["BodyText"], fontSize=9, leading=11)
+        buffer = BytesIO()
+        document = SimpleDocTemplate(buffer, pagesize=A4)
+        table = Table([[Paragraph(cell, style) for cell in row] for row in rows], colWidths=[document.width / 4] * 4)
+        table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOTTOMPADDING", (0, 0), (-1, -1), 10)]))
+        document.build([Paragraph("Risk register for the project", getSampleStyleSheet()["Heading2"]), table])
+
+        text = convert(buffer.getvalue(), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        # The table comes out in parts where a row of one line piece cuts it, as before; every row stays in a table
+        rows_of_tables = [line for line in text.splitlines() if line.startswith("| ") and "---" not in line]
+        assert len(rows_of_tables) == 29
+        assert any(line.startswith("| The quality supplier will | Team meeting project |") for line in rows_of_tables)
+        assert "\n\nQuality report update\n" not in text
+
+    def test_borderless_table_with_a_column_of_sentences_is_still_a_table(self):
+        rows = [("Step", "What is done", "Owner"), ("Plan", "Agree on the scope and the budget", "Board"),
+                ("Build", "Write the code and the tests for it", "Team"), ("Ship", "Release it and watch the errors", "Ops")]
+
+        text = convert(_phrase_table(rows, (72, 160, 420)), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| Build | Write the code and the tests for it | Team |" in text
 
 
 class TestBorderlessTableInOneColumn:
@@ -3931,6 +4400,36 @@ class TestCellsMarkedOnlyByFill:
 
         assert ("| 추진 내용 | 1월 | 2월 | 3월 | 4월 | 5월 | 6월 |\n| --- | --- | --- | --- | --- | --- | --- |\n"
                 "| 요구사항 분석 | ■ | ■ | | | | |\n| 시스템 설계 | | ■ | ■ | | | |\n"
+                "| 개발 및 시험 | | | ■ | ■ | ■ | |\n| 시범 운영 | | | | | | ■ |") in result.text
+
+    def test_empty_cells_filled_in_device_grey_are_marked(self):
+        """pdfminer gives a DeviceGray fill ('0.3 g') as a bare number, not a tuple, and such a bar was no mark."""
+        widths = [120] + [55] * 6
+        edges = [50.0]
+        for width in widths:
+            edges.append(edges[-1] + width)
+        bars = {1: (1, 2), 2: (2, 3), 3: (3, 5), 4: (6, 6)}
+
+        def draw(pdf, index):
+            top, height = 760.0, 18.0
+            pdf.setFillGray(0.3)
+            for row, (first, last) in bars.items():
+                pdf.rect(edges[first], top - (row + 1) * height, edges[last + 1] - edges[first], height, stroke=0, fill=1)
+            pdf.setFillGray(0)
+            pdf.setLineWidth(0.5)
+            for row in range(len(self._ROWS) + 1):
+                pdf.line(edges[0], top - row * height, edges[-1], top - row * height)
+            for edge in edges:
+                pdf.line(edge, top, edge, top - len(self._ROWS) * height)
+            pdf.setFont(_FONT, 10)
+            for row, cells in enumerate(self._ROWS):
+                for edge, cell in zip(edges, cells, strict=False):
+                    if cell:
+                        pdf.drawString(edge + 4, top - row * height - 13, cell)
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert ("| 요구사항 분석 | ■ | ■ | | | | |\n| 시스템 설계 | | ■ | ■ | | | |\n"
                 "| 개발 및 시험 | | | ■ | ■ | ■ | |\n| 시범 운영 | | | | | | ■ |") in result.text
 
     @pytest.mark.parametrize("kind", ["header", "zebra", "whole-table", "first-column", "white", "light-grey",

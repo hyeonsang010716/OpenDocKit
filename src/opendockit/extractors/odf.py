@@ -39,7 +39,7 @@ from opendockit.extractors._inline import (
     resolve_strikes,
 )
 from opendockit.extractors._lists import cell_level_mark, format_number, is_placeholder_only, paragraph_head
-from opendockit.extractors._mathml import MATH_IGNORED, literal, mathml_structure, text_leaf
+from opendockit.extractors._mathml import MATH_IGNORED, base_child, literal, mathml_structure, text_leaf
 from opendockit.extractors._notation import TableBudget, chars_left, comment_line, format_dutmal, note_table, omitted_rows_warning
 from opendockit.extractors._package import decimal_int
 
@@ -547,7 +547,8 @@ def _mathml_latex(node: etree._Element, depth: int) -> str:
         return ""
     if depth >= _MAX_DEPTH:
         return literal("".join("".join(node.itertext()).split()))
-    parts = [_mathml_latex(child, depth + 1) for child in node if isinstance(child.tag, str)]
+    children = [child for child in node if isinstance(child.tag, str)]
+    parts = [_mathml_latex(child, depth + 1) for child in children]
     if not parts:
         if name == "mtext":
             return text_leaf(node.text or "")
@@ -557,7 +558,8 @@ def _mathml_latex(node: etree._Element, depth: int) -> str:
     if name == "mspace":
         return " "
     fence = (node.get("open", "("), (node.get("separators") or ",").strip()[:1], node.get("close", ")")) if name == "mfenced" else None
-    structure = mathml_structure(name, parts, fence)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
+    elements = [base_child(child, _math_name, _math_elements) for child in children]
+    structure = mathml_structure(name, parts, fence, elements)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
     return "".join(parts) if structure is None else structure
 
 
@@ -626,7 +628,20 @@ class _Renderer:
         # `text:continue-numbering`, and by `xml:id` for `text:continue-list` (`_list_counters`).
         self._counters: dict[str, dict[int, int]] = {}
         self._list_ids: dict[str, tuple[dict[int, int], str | None]] = {}
+        # A presentation numbers the paragraphs of each text as Impress does (`_list_counters`): the counters of each text
+        # (text box, shape, table cell), by the element that holds its lists
+        self.presentation = False
+        self._text_counters: dict[etree._Element, _TextCounters] = {}
         self.frames: list[etree._Element] = []          # frames found in sheet cells (charts, pictures), for after the rows
+        self._warned: set[str] = set()  # the messages `_warn_once` gave, so that a repeated one is not looked up in the warnings
+
+    def _warn_once(self, message: str) -> None:
+        """`_sheet_layout._warn_once`, looking each message up in the warnings only the first time: for every repeated cell read
+        short, a sheet after the warnings of 40,000 hidden sheets went through all of them again
+        (Pinned by: test_odf.py::TestHostileInput::test_a_repeated_warning_is_looked_up_once)."""
+        if message not in self._warned:
+            self._warned.add(message)
+            _warn_once(self._extraction.warnings, message)
 
     # ---- Inline text ---------------------------------------------------------------------------------------------
 
@@ -915,7 +930,22 @@ class _Renderer:
         `text:continue-list` names the list it continues by its `xml:id` (and lends it its style when it names none), and
         `text:continue-numbering` continues the last list of the same style. A `text:continue-list` naming no list read earlier
         continues the last list of the same style, as before (Pinned by:
-        test_odf.py::TestTextDocument::test_continue_list_continues_the_list_it_names)."""
+        test_odf.py::TestTextDocument::test_continue_list_continues_the_list_it_names).
+
+        A presentation numbers the paragraphs of each text (text box, shape, table cell) as Impress draws them, whatever
+        `text:list` they are in: Impress counts the paragraphs of a text box, as PowerPoint does, and writes a new `text:list`
+        wherever the level changes, so `1. a) b) 2. 3.` was read as `1. a) b) 1. 2.`. A paragraph counts on from the one
+        before it at its level when both show the same kind of number with the same prefix and suffix and the one before
+        does not start lower; otherwise it takes the start of its own level. A paragraph outside any list and a deeper one are
+        passed over, a shallower one or one at its level with a bullet, no label or another number restarts it, and only
+        `text:continue-numbering="false"` restarts a list on its own: another text never continues it. Each rule is what
+        LibreOffice Impress 26.2 draws for the same file (`_item_head`. Pinned by:
+        test_odf.py::TestPresentation::test_lists_of_a_text_are_numbered_as_impress_draws_them)."""
+        if self.presentation:
+            counters = self._text_counters.setdefault(node.getparent(), _TextCounters())
+            if node.get(f"{{{_TEXT}}}continue-numbering") == "false":
+                counters.restart(_first_level(node))
+            return counters, style
         continued = self._list_ids.get(node.get(f"{{{_TEXT}}}continue-list") or "")
         if continued is not None:
             counters, style = continued[0], style or continued[1]
@@ -939,12 +969,25 @@ class _Renderer:
         shown = self.styles.shown_depth(style, level)
         if context.quote and not heading:
             return cell_level_mark(shown)
+        text = counters if isinstance(counters, _TextCounters) else None   # a text of a presentation (`_list_counters`)
+        shown_before = text.shown.pop(level, None) if text is not None else None
+        if text is not None and spec.kind != "number":
+            text.pop(level, None)   # a bullet or a level without a label ends the numbers at its level
         if spec.kind == "none" or (heading and spec.kind == "bullet"):
             return ""
         if spec.kind == "bullet":
             return paragraph_head("-", shown, in_cell=context.in_cell, heading=False)
-        value = min(start, _FAR) if start is not None else counters.get(level, spec.start - 1) + 1
+        if start is not None:
+            value = min(start, _FAR)
+        elif text is not None:
+            counts_on = (level in text and shown_before is not None and shown_before.start >= spec.start
+                         and (shown_before.shape, shown_before.prefix, shown_before.suffix) == (spec.shape, spec.prefix, spec.suffix))
+            value = text[level] + 1 if counts_on else spec.start
+        else:
+            value = counters.get(level, spec.start - 1) + 1
         counters[level] = value
+        if text is not None:
+            text.shown[level] = spec
         # Arabic numbers are always written '1.' so that Markdown reads an ordered list; other shapes keep the file's prefix and suffix.
         number = f"{value}." if spec.shape == "DIGIT" else _label_text(f"{spec.prefix}{format_number(value, spec.shape)}{spec.suffix}")
         return number if heading else paragraph_head(number, shown, in_cell=context.in_cell, heading=False)
@@ -1013,8 +1056,7 @@ class _Renderer:
             if stopped:
                 break
         if cut:
-            _warn_once(self._extraction.warnings, f"A table row or cell repeated more than {_MAX_REPEAT:,} times "
-                                                  "(or beyond the repeat budget) was cut short.")
+            self._warn_once(f"A table row or cell repeated more than {_MAX_REPEAT:,} times (or beyond the repeat budget) was cut short.")
 
         # A table inside a note is one line; a table inside a table is drawn in place by the outer table (`TableGrid.embed`).
         if context.in_note:
@@ -1211,7 +1253,7 @@ class _Renderer:
                     wanted = min(columns, limit - column)
                     copies = self._copies(wanted, len(text))
                     if copies < wanted:
-                        _warn_once(self._extraction.warnings, f"Sheet '{name}': a repeated cell was read fewer times than written.")
+                        self._warn_once(f"Sheet '{name}': a repeated cell was read fewer times than written.")
                     for copy in range(copies):
                         values[column + copy] = text
                     if copies == 1:
@@ -1336,6 +1378,33 @@ class _Renderer:
         return "> Speaker notes: " + "\n> ".join(lines) if lines else ""
 
 
+class _TextCounters(dict[int, int]):
+    """The number counters of a text of a presentation (level → last number given, `_Renderer._list_counters`), with how
+    the paragraph that gave each one shows its number."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.shown: dict[int, _ListLevel] = {}
+
+    def restart(self, level: int) -> None:
+        """The numbers of `level` and the levels below it start again."""
+        for key in [key for key in self if key >= level]:
+            del self[key]
+
+
+def _first_level(node: etree._Element) -> int:
+    """The level, in its list, of the first paragraph of a `text:list` (0: an item of the list itself), past the items
+    that hold only a nested list."""
+    level = 0
+    while level < _MAX_DEPTH:
+        item = next((child for child in node if child.tag in (_LIST_ITEM, _LIST_HEADER)), None)
+        first = next((child for child in item if isinstance(child.tag, str)), None) if item is not None else None
+        if first is None or first.tag != _LIST:
+            break
+        node, level = first, level + 1
+    return level
+
+
 def _marked(run: _Run, emphasis: bool) -> str:
     """The text of a run inside the temporary marks of `_inline`: script innermost, then strikethrough, emphasis outermost
     (`**~~1,000~~**`, `**H_2O**`), the order docx.py uses."""
@@ -1446,16 +1515,18 @@ def _extract_sheets(renderer: _Renderer, body: etree._Element, extraction: Extra
             extraction.warnings.append(f"Hidden sheet '{name}' was excluded.")
             continue
         spans: dict[int, list[tuple[int, int, str]]] = {}
+        room = chars_left(extraction, options)
         rows = _collect_rows(renderer.sheet_rows(table, name, spans), options, name, extraction)
         across = {id(rows[row]): found for row, found in spans.items() if row < len(rows)}
         drawn = renderer.sheet_objects(table)
-        _append_sheet(extraction, name, rows, [] if extraction.exceeded else drawn, across)
+        _append_sheet(extraction, name, rows, [] if extraction.exceeded else drawn, across, room, options)
         if extraction.exceeded:
             break
     extraction.metadata["sheet_count"] = str(len(extraction.sections))
 
 
 def _extract_slides(renderer: _Renderer, body: etree._Element, extraction: Extraction, options: ConvertOptions) -> None:
+    renderer.presentation = True
     for index, page in enumerate(body.iterchildren(_PAGE), start=1):
         title, text = renderer.slide(page)
         extraction.sections.append(Section(SectionKind.SLIDE, index, text, title=title))
@@ -1478,3 +1549,11 @@ def _metadata(meta: etree._Element | None) -> dict[str, str]:
                 metadata[key] = text
                 break
     return metadata
+
+
+def _math_name(node: etree._Element) -> str:
+    return node.tag.rsplit("}", 1)[-1]
+
+
+def _math_elements(node: etree._Element) -> list[etree._Element]:
+    return [child for child in node if isinstance(child.tag, str)]

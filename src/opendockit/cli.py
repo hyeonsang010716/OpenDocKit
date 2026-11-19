@@ -1,6 +1,7 @@
 """Command-line entry point for trying a conversion.
 
     opendockit <file> [--count | --json] [--describe [--model NAME]]
+    opendockit --version
 
 `--describe` has an OpenAI vision model describe the images (this costs money). The key is read from the `OPENAI_API_KEY`
 environment variable, and `--describe` needs the optional extra: `pip install "opendockit[openai]"`.
@@ -8,7 +9,9 @@ environment variable, and `--describe` needs the optional extra: `pip install "o
 
 import argparse
 import asyncio
+from collections.abc import Callable
 from dataclasses import asdict
+import errno
 import json
 import os
 from pathlib import Path
@@ -18,6 +21,7 @@ from opendockit import (
     ConversionError,
     ConversionResult,
     OpenAIImageDescriber,
+    __version__,
     convert_file,
     describe_images,
 )
@@ -25,8 +29,14 @@ from opendockit.describe import DEFAULT_MODEL
 
 
 def main() -> int:
+    if sys.stderr is None:
+        # File descriptor 2 is closed (`2>&-`): `print(file=None)` and argparse's usage errors wrote to standard output, so
+        # 'File not found', the warnings and `usage: …` went into the output. Every message, a traceback too, now goes nowhere
+        # (Pinned by: test_cli.py::TestArguments::test_messages_go_nowhere_when_standard_error_is_closed).
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")  # open for the life of the process
     _write_output_as_utf8()
-    parser = argparse.ArgumentParser(description="Convert a document to Markdown ready for LLM input.")
+    parser = argparse.ArgumentParser(description="Convert a document to Markdown ready for LLM input.", add_help=False)
+    parser.add_argument("-h", "--help", action=_Help, nargs=0, help="show this help message and exit")
     parser.add_argument("path")
     # Given both, only --count was honored and --json was silently ignored
     # (Pinned by: test_cli.py::TestArguments::test_count_and_json_cannot_be_used_together).
@@ -38,6 +48,9 @@ def main() -> int:
     parser.add_argument("--describe", action="store_true",
                         help="describe the images with an OpenAI vision model and fill the descriptions into the text")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"model to use for --describe (default {DEFAULT_MODEL})")
+    # As `opendockit-mcp` and `opendockit-open-webui` have it; the bug report form asks for the version
+    # (Pinned by: test_cli.py::TestArguments::test_version_is_printed_without_a_file).
+    parser.add_argument("--version", action=_Version, nargs=0, help="show program's version number and exit")
     args = parser.parse_args()
 
     path = Path(args.path)
@@ -49,27 +62,68 @@ def main() -> int:
         if describer is not None and result.images:
             result = asyncio.run(_describe(result, describer))
     except ConversionError as exc:
-        print(f"[{exc.code}] {exc}", file=sys.stderr)
+        _error(f"[{exc.code}] {exc}")
         return 1
     except _DescriberUnavailable as exc:
-        print(f"Cannot use --describe: {exc}", file=sys.stderr)
+        _error(f"Cannot use --describe: {exc}")
         return 1
     except FileNotFoundError:
-        print(f"File not found: {path}", file=sys.stderr)
+        _error(f"File not found: {path}")
         return 1
     except OSError:
-        print(f"Could not read the file (it may be a directory, or permission may be missing): {path}", file=sys.stderr)
+        _error(f"Could not read the file (it may be a directory, or permission may be missing): {path}")
         return 1
 
+    return _write(lambda: _print_result(result, args))
+
+
+def _write(print_output: Callable[[], None]) -> int:
+    """Print the output and flush it; 0, or 1 when it could not reach its reader."""
+    if sys.stdout is None:
+        # Python sets sys.stdout to None when file descriptor 1 is closed (`>&-`, pythonw, a detached service): the flush
+        # below failed with an AttributeError traceback. Nothing can be written, so it ends with exit code 1, as for a
+        # closed pipe (Pinned by: test_cli.py::TestArguments::test_closed_standard_output_ends_quietly).
+        return 1
     try:
-        _print_result(result, args)
-    except BrokenPipeError:
+        print_output()
+        # Flushed here: output smaller than the buffer reached the closed pipe only at exit, outside this block, and ended
+        # with an 'Exception ignored' message and exit code 120
+        # (Pinned by: test_cli.py::TestArguments::test_closed_pipe_ends_quietly_after_a_short_output).
+        sys.stdout.flush()
+    except OSError as error:
         # The reader closed first, as with `| head`. Finish without dumping a traceback. Point standard output at /dev/null so
         # the error does not fire again at exit while flushing the remaining output buffer
         # (the SIGPIPE advice in the Python docs, Pinned by: test_cli.py::TestArguments::test_closed_pipe_ends_quietly).
+        # Windows reports a closed pipe as EINVAL, not as a BrokenPipeError: a short output there ended in an OSError
+        # traceback (Pinned by: test_cli.py::TestArguments::test_closed_pipe_ends_quietly_after_a_short_output).
+        if not (isinstance(error, BrokenPipeError) or (sys.platform == "win32" and error.errno == errno.EINVAL)):
+            raise
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 1
     return 0
+
+
+def _error(message: str) -> None:
+    """A message or warning on standard error (a null device when it is closed, `main`)."""
+    print(message, file=sys.stderr)
+
+
+class _Help(argparse.Action):
+    """`--help` printed through `_write`, as `--version` is: argparse's own help action exits before anything is flushed, so
+    `opendockit --help | true` ended with 'Exception ignored … BrokenPipeError' and exit code 120
+    (Pinned by: test_cli.py::TestArguments::test_version_and_help_to_a_closed_pipe_end_quietly)."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser.exit(_write(parser.print_help))
+
+
+class _Version(argparse.Action):
+    """`--version` printed through `_write`: argparse's own version action exits before anything is flushed, so
+    `opendockit --version | true` ended with 'Exception ignored … BrokenPipeError' and exit code 120
+    (Pinned by: test_cli.py::TestArguments::test_version_and_help_to_a_closed_pipe_end_quietly)."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser.exit(_write(lambda: print(f"opendockit {__version__}")))
 
 
 def _write_output_as_utf8() -> None:
@@ -90,9 +144,9 @@ def _print_result(result: ConversionResult, args: argparse.Namespace) -> None:
     if args.count:
         print(f"{result.char_count}{' exceeded' if result.exceeded else ''}")
         if result.images and not args.describe:
-            print(f"[warning] The text in {len(result.images)} picture(s) was not counted. Add --describe to include it.", file=sys.stderr)
+            _error(f"[warning] The text in {len(result.images)} picture(s) was not counted. Add --describe to include it.")
         for warning in result.warnings:
-            print(f"[warning] {warning}", file=sys.stderr)
+            _error(f"[warning] {warning}")
     elif args.json:
         payload = asdict(result)
         for key in ("base_warnings", "options", "fallbacks", "counted", "marker_key", "time_limited", "reached_sections"):
@@ -109,7 +163,7 @@ def _print_result(result: ConversionResult, args: argparse.Namespace) -> None:
     else:
         print(result.text)
         for warning in result.warnings:
-            print(f"[warning] {warning}", file=sys.stderr)
+            _error(f"[warning] {warning}")
 
 
 class _DescriberUnavailable(Exception):

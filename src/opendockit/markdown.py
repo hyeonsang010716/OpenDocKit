@@ -28,7 +28,15 @@ _INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u
 # left only by a latin-1 decode or a numeric reference, and is never text (Pinned by:
 # test_markdown.py::TestInvisibleAndControlCharacters::test_removes_c1_controls_and_breaks_lines_at_next_line).
 _CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f]")
-_LINE_BREAK_CONTROLS = str.maketrans({"\x0b": "\n", "\x0c": "\n", "\x85": "\n"})
+# The Unicode line and paragraph separators (U+2028, U+2029) are line breaks too: the macOS text system writes U+2028 for a line
+# break (TextEdit, Pages, Mail RTF), and kept, it stayed inside a table cell, split `str.splitlines` in the middle of a table row,
+# and let a quoted fence escape the first cleaning, so cleaning twice gave another text
+# (Pinned by: test_markdown.py::TestCleanText::test_unicode_line_and_paragraph_separators_are_line_breaks). In a cell and a
+# one-line value they are made line breaks with the others (`_LINE_BREAK_CONTROLS`); in a text they are left to `clean_text`,
+# which breaks the line there only outside a code block, with the quote marks of the line (`_SEPARATORS`).
+_LINE_BREAK_CONTROLS = str.maketrans({"\x0b": "\n", "\x0c": "\n", "\x85": "\n", "\u2028": "\n", "\u2029": "\n"})
+_TEXT_LINE_BREAKS = str.maketrans({"\x0b": "\n", "\x0c": "\n", "\x85": "\n"})
+_SEPARATORS = re.compile("[\u2028\u2029]")
 # The private use areas (BMP and supplementary planes 15 and 16). Symbols of fonts specific to Hangul (HWP) and Office are mapped
 # here and become meaningless characters in any other environment. Hancom fonts use the supplementary areas too (U+F02B1 etc.)
 # (Pinned by: test_markdown.py::TestCleanText::test_removes_supplementary_private_use_characters).
@@ -49,7 +57,7 @@ _SYMBOL_FONT_GLYPHS = str.maketrans({
     # (Pinned by: test_markdown.py::TestCleanText::test_expands_latin_ligatures_but_keeps_other_compatibility_characters).
     "\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi", "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st",
 })
-_SPACE_LIKE = re.compile("[  -   　]")
+_SPACE_LIKE = re.compile("[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]")  # the Unicode spaces, the Ogham space mark too
 # The characters cleaning can leave a backtick for: the backtick, and the Greek varia U+1FEF, which NFC turns into one.
 _BACKTICK_SOURCES = ("`", "\u1fef")
 _INNER_SPACES = re.compile(r"[ \t]+")
@@ -135,14 +143,18 @@ def restore_spans(value: tuple[int, ...] | None) -> None:
         left[:] = value
 
 
-def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
+def clean_text(text: str, *, collapse_spaces: bool = True, line_separators: bool = True) -> str:
     """Unicode normalization (NFC) and whitespace cleanup.
 
     NFC is required: files made on macOS and HWP files sometimes store Hangul in decomposed jamo (NFD), and left as is,
     the same characters become a different string for search and embedding.
     `collapse_spaces=False` is for TXT and MD, where the original whitespace carries meaning (code indentation is preserved).
+    `line_separators=False` leaves U+2028 and U+2029 as they are (code and data files, where they are characters of a string);
+    otherwise they are line breaks outside a code block (`_break_at_separators`).
     """
     text = clean_characters(text)
+    if line_separators and _SEPARATORS.search(text):
+        text = "\n".join(_break_at_separators(text.split("\n"), collapse_spaces))
 
     # In documents that are not Markdown the only real code blocks are the ones the extractors write, with backtick fences. A
     # backtick line that opens a fence which is never closed is neutralized with a backslash: when a paragraph of a DOCX had a
@@ -201,15 +213,113 @@ def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
 def clean_characters(text: str) -> str:
     """The part of `clean_text` that works on characters, before any line is looked at: line breaks made `\\n` (form feed,
     vertical tab and next line too), invisible, control and private-use characters removed, the glyphs of symbol fonts and
-    the ligatures replaced, space-like characters made spaces, NFC. Cleaning the result again changes nothing."""
+    the ligatures replaced, space-like characters made spaces, NFC. Cleaning the result again changes nothing. The line and
+    paragraph separators are left to `clean_text`, so the lines are those of the text for every caller that counts them
+    (`text._fenced_spans`)."""
     # Remove first, then normalize. In the other order, the characters on either side of a removed one become newly combinable
     # and the result is no longer NFC.
-    text = text.replace("\r\n", "\n").replace("\r", "\n").translate(_LINE_BREAK_CONTROLS)
+    text = text.replace("\r\n", "\n").replace("\r", "\n").translate(_TEXT_LINE_BREAKS)
     text = _INVISIBLE.sub("", text)
     text = _CONTROL.sub("", text)
     text = _PRIVATE_USE.sub("", text.translate(_SYMBOL_FONT_GLYPHS))
     text = _SPACE_LIKE.sub(" ", text)
     return unicodedata.normalize("NFC", text)
+
+
+def _break_at_separators(lines: list[str], collapse_spaces: bool) -> list[str]:
+    """`lines` with each line broken at its U+2028 and U+2029 (`clean_text`), outside the code blocks of the text.
+
+    Made line breaks before the lines were looked at, a separator inside a quoted code block began a line without the quote
+    marks, which closed the quote and escaped both fences of the block (`> \\````), a separator in a Markdown table row split
+    the row, and one inside a fenced example changed the code (Pinned by: test_markdown.py::TestCleanText::
+    test_line_separators_stay_inside_code_and_carry_the_quote_marks). So a line inside a code block keeps them, as does an
+    indented code line of TXT and MD (`_indented_code`; indented prose, a list item's paragraph or a lazy continuation, is
+    no code and breaks); in a table row (`| … |`) each is a
+    space; any other line breaks there, each new line starting with the quote marks of the line (a list item goes on as its
+    lazy continuation). The code blocks are those of the lines as they are, then as they are once broken: a new line may open
+    or close a fence, and a line kept for a block that is then no block is broken too, so that the result is cleaned again
+    to itself; past that, every separator left breaks its line. Linear: at most three pairings of the fences.
+    """
+    tildes = not collapse_spaces
+    fenced = any("```" in line or (tildes and "~~~" in line) for line in lines)
+    for attempt in range(3):
+        blocks = code_fences(lines, tildes=tildes).blocks if fenced else []
+        inside = {index for opening, closing in blocks for index in range(opening + 1, closing)}
+        if not collapse_spaces:
+            inside |= _indented_code(lines, {index for opening, closing in blocks for index in range(opening, closing + 1)})
+        broken: list[str] = []
+        changed = False
+        for index, line in enumerate(lines):
+            if not _SEPARATORS.search(line):
+                broken.append(line)
+                continue
+            if attempt < 2 and index in inside:
+                broken.append(line)
+                continue
+            changed = True
+            match = _QUOTE_PREFIX.match(line)
+            content = line[match.end():] if match else line
+            if content.strip().startswith("|") and content.strip().endswith("|"):
+                broken.append(_SEPARATORS.sub(" ", line))
+                continue
+            prefix = line[:match.end()] if match else ""
+            first, *rest = _SEPARATORS.split(line)
+            while rest and not rest[-1].strip():
+                rest.pop()  # a separator at the end of a line ends nothing: the line ends there anyway
+            broken.append(first)
+            broken.extend(prefix + piece for piece in rest)
+        lines = broken
+        if not changed:
+            break
+    return lines
+
+
+# The start of a list item (CommonMark): at most three spaces, a bullet or a number, then white space or the end of the line.
+_LIST_ITEM_START = re.compile(r" {0,3}(?:[-*+]|[0-9]{1,9}[.)])(?:[ \t]|$)")
+# An ATX heading (CommonMark): at most three spaces, one to six `#`, then white space or the end of the line.
+_ATX_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
+
+
+def _indented_code(lines: list[str], fenced: set[int]) -> set[int]:
+    """The lines of TXT and MD that are indented code, as CommonMark reads it: indented by four spaces or a tab (after any
+    quote marks), opened only after a blank line, a fenced block or a heading and outside a list (an indented line there is
+    a paragraph of the item, one right after a line of text its lazy continuation), and going on through the indented and
+    blank lines after it. The lines of fenced code blocks (`fenced`) are no part of one. The first line of text opens none,
+    blank lines before it or not, and is read without its indentation: the converter strips the indentation at the start of
+    the text, so taken for code (or for no list item, `    1. x`) it was read otherwise the next time and the result was not
+    converted again to itself (Pinned by: test_markdown.py::TestCleanText::test_line_separators_of_indented_prose_are_line_breaks).
+    """
+    code: set[int] = set()
+    in_code = may_open = in_list = begun = False
+    for index, line in enumerate(lines):
+        if index in fenced:
+            # A fenced block ends at its closing line, so an indented line right after it opens code
+            in_code = in_list = False
+            may_open = begun = True
+            continue
+        match = _QUOTE_PREFIX.match(line)
+        content = line[match.end():] if match else line
+        if not content.strip():
+            may_open = begun  # the blank lines before the first line of text are stripped with its indentation
+            continue
+        if not begun and match is None:
+            content = content.lstrip()  # read as it is read again: the converter strips the indentation of the first line
+        begun = True
+        indented = content.startswith(("    ", "\t"))
+        if indented and (in_code or (may_open and not in_list)):
+            code.add(index)
+            in_code, may_open = True, False
+            continue
+        in_code = False
+        if _ATX_HEADING.match(content):
+            in_list, may_open = False, True  # a heading is one line: an indented line right after it opens code
+            continue
+        if _LIST_ITEM_START.match(content):
+            in_list = True
+        elif not indented and may_open:
+            in_list = False
+        may_open = False
+    return code
 
 
 # What a line is to the code blocks of its text (`clean_text`): a fence line of a code block, a line inside one, or an opening
@@ -439,13 +549,29 @@ def clean_line(text: str) -> str:
     return " ".join(unicodedata.normalize("NFC", text).split())
 
 
-def solid_length(text: str) -> int:
+# Every character `solid_length` removes or changes besides white space: invisible, control and private-use characters (the
+# private use areas hold the nested-table placeholders), the characters `_SYMBOL_FONT_GLYPHS` replaces (the Latin ligatures
+# among them) and the first character of an image placeholder.
+_SOLID_AS_WRITTEN = re.compile("[" + "".join(pattern.pattern[1:-1] for pattern in (_INVISIBLE, _CONTROL, _PRIVATE_USE))
+                               + "".join(re.escape(chr(code)) for code in _SYMBOL_FONT_GLYPHS) + "⟦]")
+
+
+def solid_length(text: str, *, quote_lines: bool = True) -> int:
     """The number of characters certain to remain after cleaning (`clean_text`) and rendering. Used to decide the character limit midway.
 
     Counted in NFC without whitespace, image placeholders, and invisible, control and private-use characters. Hangul in
     decomposed jamo shrinks to 1/3 when normalized, and a placeholder disappears entirely if its picture is filtered out, so
-    counting the raw length comes out larger than the real one.
+    counting the raw length comes out larger than the real one. With `quote_lines` False the marks of a line that holds only
+    quote marks count too: text that is known to hold no picture (a sheet cell, `_sheet_layout._cell_length`).
     """
+    if not text:
+        return 0
+    # Text with none of the characters the steps below remove or change (and already in NFC) is its length without white
+    # space. Most cells and table rows are such text: with the steps, a 1 MB CSV at the default limit took 0.29 s, without 0.22 s
+    # (Pinned by: test_markdown.py::TestSolidLength::test_plain_text_is_counted_as_by_the_full_steps).
+    if (_SOLID_AS_WRITTEN.search(text) is None and (not quote_lines or ">" not in text)
+            and unicodedata.is_normalized("NFC", text)):
+        return len("".join(text.split()))
     # A nested-table placeholder goes too, with its number: the table it stands for is counted when it is drawn, and text of
     # the document that only has the shape of one is dropped by the table that holds it. Counted, 80 digits between the two
     # private-use characters stopped a table that was within the limit, and the document came back cut without `exceeded`
@@ -457,7 +583,7 @@ def solid_length(text: str) -> int:
     # (`converter._settle_quote_gaps`). Counted, a 12-character quote with five erased pictures was reported over a limit of
     # 12 to 15 and skipped decoding the real picture beside it
     # (Pinned by: test_converter.py::TestPicturesInsideAQuote::test_erased_pictures_in_a_quote_do_not_count_toward_the_limit).
-    if ">" in text:
+    if quote_lines and ">" in text:
         text = _BARE_QUOTE_LINE.sub("", text)
     return len("".join(unicodedata.normalize("NFC", text).split()))
 
@@ -581,44 +707,63 @@ def _render_rows(rows: list[list[str | None]], *, merged_titles_only: bool = Fal
                  room: _Room | None = None) -> str:
     """`render_table` that stops writing rows once `room` is used up (`TableGrid.render`). Which rows, columns and title the table
     has is decided on all the rows first, so the rows written are exactly the front of the table drawn to the end."""
+    # Only the filled cells of a row are kept ({column: cleaned text}), and a row of the grid is built from them when it is
+    # written: padded to the widest row up front, a sheet of 200,000 rows with one cell in column CV cost rows × width before a
+    # single row was written, and every row was written before the character limit cut the text
+    # (Pinned by: test_audit_spreadsheet.py::TestSheetDrawingStopsAtTheLimit).
     clean = _once_per_text(_clean_cell)
-
-    kept_rows = [row for row in rows if any(clean(cell or "") for cell in row)]
-    cleaned = [[clean(cell or "") for cell in row] for row in kept_rows]
-    if not cleaned:
+    kept_rows: list[list[str | None]] = []
+    filled_rows: list[dict[int, str]] = []
+    used: dict[int, int] = {}  # column → number of kept rows with text in it
+    for row in rows:
+        filled = {col: text for col, cell in enumerate(row) if cell and (text := clean(cell))}
+        if filled:
+            kept_rows.append(row)
+            filled_rows.append(filled)
+            for col in filled:
+                used[col] = used.get(col, 0) + 1
+    if not filled_rows:
         return ""
+    keep = sorted(used)
 
-    width = max(len(row) for row in cleaned)
-    padded = [row + [""] * (width - len(row)) for row in cleaned]
-    keep = [col for col in range(width) if any(row[col] for row in padded)]
-    grid = [[row[col] for col in keep] for row in padded]
+    def grid(index: int) -> list[str]:
+        filled = filled_rows[index]
+        return [filled.get(col, "") for col in keep]
 
     if len(keep) == 1:
-        return "\n\n".join(_within((_uncell(row[0]) for row in grid), room))
+        return "\n\n".join(_within((_uncell(grid(index)[0]) for index in range(len(filled_rows))), room))
 
     # A title row at the top of a table (a horizontally merged title, or title + unit) used as the header row would lose the column
-    # names, so it is moved into a paragraph above the table.
-    titles = []
-    while len(keep) >= 2 and len(grid) > 1 and not headless:
-        title = _title_of([cell for cell in grid[0] if cell], len(keep), grid[0], grid[1:2 + _HEADER_PROBE_ROWS])
-        if title is None or (merged_titles_only and sum(1 for cell in grid[0] if cell) == 1
+    # names, so it is moved into a paragraph above the table. The rows are walked by index and the grid cut once: cut after every
+    # title row, a list of 200,000 one-cell rows above a full row (an 800 KB CSV) took 59 s
+    # (Pinned by: test_markdown.py::TestRenderTable::test_many_title_rows_take_linear_time).
+    titles: list[str] = []
+    probed: dict[int, list[str]] = {}  # the rows below the current top row, built once each
+    while len(keep) >= 2 and len(filled_rows) - len(titles) > 1 and not headless:
+        top = probed.pop(len(titles), None) or grid(len(titles))
+        below = [probed.setdefault(index, grid(index))
+                 for index in range(len(titles) + 1, min(len(titles) + 2 + _HEADER_PROBE_ROWS, len(filled_rows)))]
+        title = _title_of([cell for cell in top if cell], len(keep), top, below)
+        if title is None or (merged_titles_only and sum(1 for cell in top if cell) == 1
                              and _has_open_cell(kept_rows[len(titles)], keep)):
             break
         titles.append(_uncell(title))
-        grid = grid[1:]
     if titles:
-        keep = [col for col in range(len(grid[0])) if any(row[col] for row in grid)]
-        grid = [[row[col] for col in keep] for row in grid]
+        for filled in filled_rows[:len(titles)]:
+            for col in filled:
+                used[col] -= 1
+        keep = [col for col in keep if used[col]]
         if len(keep) == 1:
-            return "\n\n".join(_within(chain(titles, (_uncell(row[0]) for row in grid)), room))
+            return "\n\n".join(_within(chain(titles, (_uncell(grid(index)[0])
+                                                      for index in range(len(titles), len(filled_rows)))), room))
 
-    if headless:
-        grid = [["" for _ in keep], *grid]
+    body = range(len(titles), len(filled_rows))
+    header = ["" for _ in keep] if headless else grid(body[0])
     lines = [
-        "| " + " | ".join(grid[0]) + " |",
+        "| " + " | ".join(header) + " |",
         "| " + " | ".join("---" for _ in keep) + " |",
     ]
-    parts = _within(chain(titles, lines, ("| " + " | ".join(row) + " |" for row in grid[1:])), room)
+    parts = _within(chain(titles, lines, ("| " + " | ".join(grid(index)) + " |" for index in body[0 if headless else 1:])), room)
     return "\n\n".join(part for part in [*parts[:len(titles)], "\n".join(parts[len(titles):])] if part)
 
 

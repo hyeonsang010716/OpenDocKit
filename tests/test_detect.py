@@ -236,6 +236,30 @@ def test_svg_is_reported_as_unsupported_instead_of_passing_as_text(data, filenam
         convert(data, filename)
 
 
+class TestDoctypeWithAnInternalSubset:
+    """A DOCTYPE may hold an internal subset of declarations, whose `>` ended it before. Adobe Illustrator writes one into
+    every SVG it exports, so such an SVG passed as text with its path coordinates as the body, and XML data with one was read
+    as HTML, its text run together after a stray `]>`."""
+
+    _SUBSET = ('<!DOCTYPE {root} PUBLIC "-//W3C//DTD SVG 1.1//EN" "x.dtd" [\n\t<!ENTITY ns_svg "http://www.w3.org/2000/svg">\n'
+               '\t<!ENTITY ns_xlink "http://www.w3.org/1999/xlink">\n]>\n')
+
+    @pytest.mark.parametrize("filename", ["logo.svg", None])
+    def test_illustrator_svg_is_reported_as_unsupported(self, filename):
+        data = ('<?xml version="1.0" encoding="utf-8"?>\n<!-- Generator: Adobe Illustrator 16.0.0, SVG Export Plug-In -->\n'
+                + self._SUBSET.format(root="svg") + '<svg version="1.1" xmlns="&ns_svg;"><path d="M306.5,120.3c-45.2,0"/></svg>')
+
+        with pytest.raises(UnsupportedFormatError, match="SVG"):
+            convert(data.encode(), filename)
+
+    def test_xml_data_after_one_is_xml_data(self):
+        data = '<?xml version="1.0"?>\n' + self._SUBSET.format(root="note") + "<note><to>Kim</to><body>Hello</body></note>"
+
+        result = convert(data.encode(), None)
+
+        assert result.format == DocumentFormat.TEXT
+
+
 @pytest.mark.parametrize("data, filename, expected", [
     (b"{\\rtf1\\ansi\\ansicpg949 \\'c7\\'d1\\'b1\\'db\\par}", "a.rtf", "한글"),
     (b"{\\rtf1\\ansi text\\par}", "a.doc", "text"),
@@ -432,6 +456,38 @@ class TestTextThatLooksLikeAPdf:
 
         assert result.format is expected
         assert "%PDF-" in result.text
+
+    @staticmethod
+    def _listing() -> str:
+        """A complete one-page PDF as a tutorial lists it (ASCII, offsets of the PDF alone: parsers rebuild the table)."""
+        objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                   "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+                   "<< /Length 44 >>\nstream\nBT /F1 18 Tf 20 100 Td (Hello World) Tj ET\nendstream",
+                   "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+        body, offsets = "%PDF-1.4\n", []
+        for number, value in enumerate(objects, start=1):
+            offsets.append(len(body))
+            body += f"{number} 0 obj\n{value}\nendobj\n"
+        return (body + "xref\n0 6\n0000000000 65535 f \n" + "".join(f"{offset:010d} 00000 n \n" for offset in offsets)
+                + f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{len(body)}\n%%EOF\n")
+
+    @pytest.mark.parametrize(("filename", "expected"), [("pdf-notes.md", DocumentFormat.MARKDOWN), ("pdf-notes.txt", DocumentFormat.TEXT)])
+    def test_note_listing_a_readable_pdf_is_read_as_its_name_says(self, filename, expected):
+        """A note that lists a whole PDF reads as that PDF, so the note was lost and only 'Hello World' came back. Named as
+        text, with text before the header and UTF-8 throughout, it is text. Known accepted gap: without a name it is the PDF."""
+        note = "# How a PDF file is built\n\nThe smallest file that shows one line:\n\n```\n" + self._listing() + "```\n\nThe end.\n"
+
+        result = convert(note.encode(), filename)
+
+        assert result.format is expected and result.warnings == []
+        assert result.text.startswith("# How a PDF file is built") and "startxref" in result.text and result.text.endswith("The end.")
+        assert convert(note.encode()).format is DocumentFormat.PDF
+
+    def test_pdf_named_as_text_is_still_a_pdf(self):
+        """A PDF that starts with its header, or has bytes in front and binary content, is a PDF whatever its name."""
+        for data in (self._listing().encode(), b"\r\n<!-- gateway -->\r\n" + builder.pdf_bytes(pages=1)):
+            result = convert(data, "a.txt")
+            assert result.format is DocumentFormat.PDF
 
     def test_pdf_with_leading_junk_is_still_converted_as_a_pdf(self):
         data = b"\r\n<!-- gateway -->\r\n" + builder.pdf_bytes(pages=1)
@@ -647,6 +703,16 @@ class TestExtensionMismatchClaims:
 
         assert result.format is DocumentFormat.PDF
         assert result.warnings[0].startswith("The file extension (.csv)")
+
+
+def test_outlook_message_is_reported_with_the_formats_to_save_it_in():
+    """An Outlook message (.msg, what Outlook saves by default) got the generic 'This OLE document format is not supported.',
+    which gave no way on; Outlook also saves a mail as MHT, HTML or text, which are read."""
+    data = builder.ole_container({"__properties_version1.0": b"\x00" * 32, "__substg1.0_0037001F": "회의 일정".encode("utf-16-le"),
+                                  "__substg1.0_1000001F": "본문".encode("utf-16-le")})
+
+    with pytest.raises(UnsupportedFormatError, match=r"Outlook messages \(\.msg\) are not supported"):
+        convert(data, "mail.msg")
 
 
 class TestXlsStreamNameCase:

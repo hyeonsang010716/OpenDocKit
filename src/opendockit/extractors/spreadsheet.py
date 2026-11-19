@@ -25,7 +25,16 @@ from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
-from opendockit.extractors._openpyxl_reading import _RAW_OUT_OF_RANGE_SERIALS, _READING, _CellPicture, _CellReading, _is_number
+from opendockit.extractors._notation import chars_left
+from opendockit.extractors._openpyxl_reading import (
+    _RAW_OUT_OF_RANGE_SERIALS,
+    _READING,
+    MovedFormula,
+    SharedFormula,
+    _CellPicture,
+    _CellReading,
+    _is_number,
+)
 from opendockit.extractors._package import _XML_PARSER, ZIP_MEMBER_ERRORS, named_part
 from opendockit.extractors._sheet_format import (
     _ELAPSED_FORMAT,
@@ -253,6 +262,7 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
                     cells = _with_formulas(cells, formulas, sheet.title, extraction.warnings)
                 if read_only:
                     cells = _until_long_empty_gap(cells, sheet.title, extraction.warnings)
+                room = chars_left(extraction, options)
                 numbers: list[int] = []  # which row of the sheet each row in rows is (for filling merges)
                 rows = _collect_rows(_noting_numbers(cells, numbers), options, sheet.title, extraction)
                 across: _Across = {}
@@ -270,7 +280,7 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
                         extraction.warnings.append(
                             f"The cell comment part of sheet '{sheet.title}' is corrupted, so its comments could not be read.")
                     drawn.append(_comment_block(comments, row_at, extraction, options))
-                _append_sheet(extraction, sheet.title, rows, drawn, across)
+                _append_sheet(extraction, sheet.title, rows, drawn, across, room, options)
                 if extraction.exceeded:
                     break
     finally:
@@ -739,12 +749,15 @@ def _unresolved_formulas(xml: bytes, max_cols: int) -> dict[int, dict[int, str]]
     (Pinned by: test_spreadsheet.py::TestFormulasPartlyWithoutResults).
     """
     shared: dict[str | None, tuple[str, str]] = {}  # shared formula index (si) → (formula, address of the first cell)
-    formulas: dict[int, dict[int, str]] = {}
+    # A shared formula read once for all the cells pointing at it (None: it cannot be read), each cell moved only when its row is
+    # read (`MovedFormula`, Pinned by: test_audit_spreadsheet.py::TestLongSharedFormulas)
+    readers: dict[str | None, SharedFormula | None] = {}
+    formulas: dict[int, dict[int, str | MovedFormula]] = {}
 
     for cell in _sheet_cells(BytesIO(xml)):
         formula, value, reference = cell.find("{*}f"), cell.find("{*}v"), cell.get("r", "")
         if formula is not None and reference:
-            text = formula.text or ""
+            text: str | MovedFormula = formula.text or ""
             try:
                 if formula.get("t") == "dataTable":
                     # Shown as when formulas are read as written (`_data_table_formula`)
@@ -752,9 +765,9 @@ def _unresolved_formulas(xml: bytes, max_cols: int) -> dict[int, dict[int, str]]
                     text = _data_table_formula(dict(formula.attrib))[1:]
                 elif formula.get("t") == "shared" and text:
                     shared[formula.get("si")] = (text, reference)
+                    readers.pop(formula.get("si"), None)
                 elif formula.get("t") == "shared" and formula.get("si") in shared:
-                    first, origin = shared[formula.get("si")]
-                    text = Translator(f"={first}", origin=origin).translate_formula(reference)[1:]
+                    text = _moved_formula(shared, readers, formula.get("si"), reference)
                 row, column = coordinate_to_tuple(reference)
             except (ValueError, TypeError, IndexError, TranslatorError, TokenizerError):
                 # The cell address or the formula cannot be read, or a shared formula cannot be moved to this cell (a reference
@@ -763,11 +776,27 @@ def _unresolved_formulas(xml: bytes, max_cols: int) -> dict[int, dict[int, str]]
                 text = ""
             computed = cell.get("t") == "str" or (value is not None and value.text)
             if text and not computed and column <= max_cols:
-                formulas.setdefault(row, {})[column] = f"={text}"
+                formulas.setdefault(row, {})[column] = text if isinstance(text, MovedFormula) else f"={text}"
     return formulas
 
 
-def _with_formulas(rows: Iterator[tuple[int, tuple[str, ...]]], formulas: dict[int, dict[int, str]], sheet_name: str,
+def _moved_formula(shared: dict[str | None, tuple[str, str]], readers: dict[str | None, SharedFormula | None], index: str | None,
+                   reference: str) -> MovedFormula | str:
+    """The shared formula `index` moved to the cell at `reference`, to be written when its row is read; "" when it cannot be read
+    or moved there. Raises what `Translator` raises for a formula or address it cannot read."""
+    if index not in readers:
+        first, origin = shared[index]
+        try:
+            readers[index] = SharedFormula(Translator(f"={first}", origin=origin))
+        except (ValueError, TypeError, IndexError, TokenizerError):
+            readers[index] = None
+    reader = readers[index]
+    if reader is None or reader.moves_off_the_sheet(reference) or reader.moves_to_nothing():
+        return ""
+    return MovedFormula(reader, reference)
+
+
+def _with_formulas(rows: Iterator[tuple[int, tuple[str, ...]]], formulas: dict[int, dict[int, str | MovedFormula]], sheet_name: str,
                    warnings: list[str]) -> Iterator[tuple[int, tuple[str, ...]]]:
     """Fill the blanks of (row number, row) that are formula cells without a result with the formula text, and warn. Formulas of a
     row that did not arrive because it has no cells are inserted as a row at that position."""
@@ -789,10 +818,10 @@ def _with_formulas(rows: Iterator[tuple[int, tuple[str, ...]]], formulas: dict[i
         yield missing, _filled_with_formulas((), formulas[missing])
 
 
-def _filled_with_formulas(row: tuple[str, ...], columns: dict[int, str]) -> tuple[str, ...]:
+def _filled_with_formulas(row: tuple[str, ...], columns: dict[int, str | MovedFormula]) -> tuple[str, ...]:
     values = [*row, *[""] * (max(columns) - len(row))]
     for column, formula in columns.items():
-        values[column - 1] = values[column - 1] or formula
+        values[column - 1] = values[column - 1] or (formula.text() or "" if isinstance(formula, MovedFormula) else formula)
     return tuple(values)
 
 
@@ -852,10 +881,15 @@ def _loaded_rows(sheet: object, max_cols: int, offset: int = 0) -> Iterator[tupl
     # 50 sheets (28KB) each with one cell on the very last row (1,048,576) created empty rows one by one and took 28s. Only rows
     # that exist are yielded
     # (Pinned by: test_spreadsheet.py::TestXlsxRowsFarApart).
+    # The row is filled in from the cells it has: built position by position, one cell in column CV made 100 calls per row
     for row in sorted(by_row):
         cells = by_row[row]
-        ordered = [cells.get(column) for column in range(1, max(cells) + 1)]
-        yield row, _with_xlsx_level_mark(ordered, [_cell_text(cell) for cell in ordered])
+        ordered: list[object] = [None] * max(cells)
+        texts = [""] * len(ordered)
+        for column in sorted(cells):
+            ordered[column - 1] = cells[column]
+            texts[column - 1] = _cell_text(cells[column])
+        yield row, _with_xlsx_level_mark(ordered, texts)
 
 
 def _streamed_rows(sheet: object, max_cols: int) -> Iterator[tuple[int, tuple[str, ...]]]:
@@ -1031,6 +1065,8 @@ def _plain_value(value: object) -> object:
     (Pinned by: test_spreadsheet.py::TestSuperscriptInCells)."""
     if isinstance(value, CellRichText):
         return resolve_scripts("".join(_rich_piece(piece) for piece in value))
+    if isinstance(value, MovedFormula):
+        value = value.text()
     if isinstance(value, str):
         return _unescape_xstring(value)
     if isinstance(value, DataTableFormula):

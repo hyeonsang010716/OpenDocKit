@@ -36,6 +36,8 @@ No setup or credentials are needed.
 
 - **No OCR.** Scanned pages and images have no text to extract; the tool fails with "No text could be extracted from
   this file". A picture inside a document keeps the alt text its author gave it, as `[Image: …]`.
+- **Size.** A file of up to 50 MB is read. A document longer than 500,000 characters is cut there: `text` ends at
+  the cut, and `warnings` says so.
 - **Legacy `.doc` and `.ppt`** are not read: they need LibreOffice, which the plugin runtime does not have.
 - **Knowledge base uploads:** Dify does not accept `.hwp` or `.hwpx` files there yet, so use the tool in Workflows and
   Chatflows.

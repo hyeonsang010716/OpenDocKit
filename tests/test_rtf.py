@@ -140,6 +140,26 @@ class TestCharacters:
         fonts = r"{\fonttbl{\f0\fcharset0 Gulim;}}"
         assert _text(fonts + r"\f0 " + _cp949("안녕") + r"\par caf\'e9 au lait\par", head=r"\ansi\ansicpg949") == "안녕\n\ncafé au lait"
 
+    @pytest.mark.parametrize("page", [949, 932, 936, 950])
+    def test_ansi_font_written_by_the_macos_text_system_is_western(self, page):
+        """TextEdit, Pages, Mail and `textutil` write `\\cocoartf`, declare every font `\\fcharset0`, follow the system language
+        in `\\ansicpg`, write each character outside CP1252 as `\\uN` and only CP1252 ones as bytes. On a Korean, Japanese or
+        Chinese Mac a smart apostrophe or a no-break space before a letter is a valid pair in that code page, so "It's" came out
+        as 'It뭩' and "5 kg" as '5쟪g'. In such a file the font's bytes are CP1252; elsewhere they are tried with the document's
+        code page first, as before (the test above)."""
+        head = rf"\ansi\ansicpg{page}\cocoartf2870" + "\n" + r"\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\froman\fcharset0 Times-Roman;}"
+        body = (r"\pard\pardeftab720\sa240\partightenfactor0" + "\n\n" + r"\f0\fs24 \cf0 It\'92s done. Total\'a0sum: 5\'a0kg\par "
+                r"\uc0\u54924 \u51032 \u47197 : It\'92s 3\'a0pm, caf\'e9 \'93q\'94\par ")
+
+        assert _text(body, head=head) == "It’s done. Total sum: 5 kg\n\n회의록: It’s 3 pm, café “q”"
+
+    def test_line_separator_of_the_macos_text_system_is_a_line_break(self):
+        """TextEdit, Pages and Mail write a line break (`<br>`, Shift+Return) as U+2028 (`\\uc0\\u8232`), not as `\\line`. A
+        line is joined at its white space, which U+2028 is, so the two lines ran into one, and so did the lines of a cell."""
+        cell = r"\trowd\cellx2000\cellx4000 a\uc0\u8232 b\cell c\cell\row"
+        assert _text(r"Line one\uc0\u8232 Line two\par\pard " + cell + r"\pard x\uc0\u8233 y\par") == (
+            "Line one\nLine two\n\n| a<br>b | c |\n| --- | --- |\n\nx\ny")
+
     def test_fallback_counted_in_characters_drops_the_whole_double_byte_character(self):
         """`\\uc1` followed by a two-byte CP949 fallback (writers that count `\\ucN` in characters): the byte that completes the
         dropped lead byte is dropped too — it came out as '가�'. A fallback counted in bytes (`\\uc2`), a one-byte fallback
@@ -492,6 +512,17 @@ class TestLists:
                 r"\pard\ls2{\v x}\par\pard\ls2 " + box + r"four\par\pard\ls2 five\par")
         assert _text(body) == "1. one\n4. boxed\n5. four\n6. five"
 
+    def test_numbered_heading_takes_its_number_and_restarts_the_levels_under_it(self):
+        """A heading of a list (Word's numbered chapter headings, a contract's clauses) did not take its number: the items under
+        the second chapter went on from those under the first ('3. b1') and an item of the chapters' level after them did not
+        count the chapters. The heading's number is counted, still not written (the gap of the headings row); an empty
+        numbered heading takes its number too, as an empty list paragraph does."""
+        heading, item = r"\pard\outlinelevel0\ls2\ilvl0 ", r"\pard\ls2\ilvl1 "
+        body = (_LISTS + heading + r"Chapter A\par" + item + r"a1\par" + item + r"a2\par" + heading + r"Chapter B\par"
+                + item + r"b1\par" + item + r"b2\par" + r"\pard\outlinelevel0\ls2\ilvl0\par" + r"\pard\ls2\ilvl0 item\par")
+
+        assert _text(body) == "# Chapter A\n\n  1. a1\n  2. a2\n\n# Chapter B\n\n  1. b1\n  2. b2\n4. item"
+
     def test_list_without_a_definition_is_a_bullet_list(self):
         """`\\ls7` with no list table entry: the numbering type cannot be told."""
         assert _text(r"\pard\ls7 one\par\pard\ls7\ilvl1 two\par") == "- one\n  - two"
@@ -511,6 +542,29 @@ class TestLists:
 
         body = bullet("a") + bullet("b") + number("one") + number("two") + r"\pard Stop\par" + number("again")
         assert _text(body) == "- a\n- b\n1. one\n2. two\n\nStop\n\n1. again"
+
+    def test_list_in_a_header_does_not_take_the_numbers_of_the_body(self):
+        """A header comes before the body in the file but is not part of its reading order: a numbered item there took the body's
+        first number, and the body began at 2. A header and a footer count their lists on their own, the body counts on after
+        them, and so does the older `\\pn` numbering."""
+        def pn(text: str) -> str:
+            return r"\pard{\*\pn\pnlvlbody\pndec{\pntxta .}}" + text + r"\par"
+
+        body = (_LISTS + r"\pard\ls2 one\par" + r"{\header\pard\ls2 header item\par" + pn("header pn") + "}"
+                + r"\pard\ls2 two\par{\footer\pard\ls2 footer item\par}\pard\ls2 three\par\pard x\par" + pn("pn one")
+                + r"{\header\pard " + pn("other header pn") + "}" + pn("pn two"))
+        assert _text(body, ConvertOptions(include_headers_footers=True)) == (
+            "1. header item\n1. header pn\n1. other header pn\n1. one\n2. two\n3. three\n\nx\n\n1. pn one\n2. pn two\n"
+            "1. footer item")
+
+    def test_start_of_the_older_numbering_is_kept(self):
+        """RichEdit (WordPad, Outlook, RichTextBox) writes a list set to start at 5 as `\\pnstart5`; it was read as 1. Every
+        paragraph of the list repeats it, and the count goes on; after a paragraph outside the list it starts over at it."""
+        def number(text: str, start: int) -> str:
+            return rf"\pard{{\pntext 9.\tab}}{{\*\pn\pnlvlbody\pndec\pnstart{start}{{\pntxta .}}}}" + text + r"\par"
+
+        body = number("five", 5) + number("six", 5) + r"\pard x\par" + number("again", 3) + r"{\pntext 4.\tab}same paragraph\par"
+        assert _text(body) == "5. five\n6. six\n\nx\n\n3. again\n4. same paragraph"
 
     def test_list_bullet_2_style_is_one_level_down(self):
         """Word's 'List Bullet 2' style: `\\ilvl0` of its own list, the level is the digit in the style name (as in DOCX). The
@@ -862,6 +916,27 @@ class TestHostileInput:
         result = convert(data, "a.rtf")
         assert time.perf_counter() - started < 5
         assert result.warnings == ["A table holds more than 10,000 tables inside it; the tables after that were left out."]
+
+    @pytest.mark.timing
+    def test_shapes_nested_past_the_limit_take_linear_time(self):
+        """The text of a shape is a flow of its own whose tables are drawn when it ends and handed to the flow around it, so the
+        text of the innermost of 490 shapes, each in a table cell of the one around it, was drawn as a table again at every level:
+        40,000 paragraphs (243 KB) took 5.4 s. Shapes deeper than 16 are read into the flow of the shape around them."""
+        def document(depth: int) -> bytes:
+            return (rb"{\rtf1\ansi \intbl " + rb"{\shptxt \intbl " * depth + rb"x\par " * 5_000 + b"}" * depth
+                    + rb"\cell\row}")
+
+        shallow, deep = document(30), document(480)
+
+        assert convert(deep, "a.rtf", ConvertOptions(max_chars=None)).text.count("x") == 5_000
+        assert fastest(lambda: convert(deep, "a.rtf", ConvertOptions(max_chars=None))) < 4 * fastest(
+            lambda: convert(shallow, "a.rtf", ConvertOptions(max_chars=None)))
+
+    def test_text_of_shapes_nested_past_the_limit_is_kept_in_order(self):
+        data = (rb"{\rtf1\ansi before\par " + b"".join(rb"{\shp{\*\shpinst{\shptxt level%d\par " % level for level in range(20))
+                + b"}}}" * 20 + rb"after\par}")
+
+        assert convert(data, "a.rtf").text == "\n\n".join(["before", *(f"level{level}" for level in range(20)), "after"])
 
     @pytest.mark.timing
     def test_double_byte_characters_with_an_escaped_trail_take_linear_time(self):

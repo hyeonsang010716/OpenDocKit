@@ -149,6 +149,40 @@ def _eq_field(*instructions: str, result: str = "") -> str:
     return f'<w:r><w:fldChar w:fldCharType="begin"/></w:r>{runs}{separate}<w:r><w:fldChar w:fldCharType="end"/></w:r>'
 
 
+class TestDocxSymbolsOfWord2016:
+    """Word 2016 and later write an emoji or symbol inserted from the symbol dialog (or made by AutoCorrect from `:)`) as
+    `w16se:symEx` in `mc:Choice`, the character itself only in the compatibility copy (`mc:Fallback`), which is never read: the
+    emoji vanished, and a paragraph of only one with it. The character is read from `w16se:char`."""
+
+    @staticmethod
+    def _symbol(code: str) -> str:
+        return ('<w:r><mc:AlternateContent><mc:Choice Requires="w16se" '
+                'xmlns:w16se="http://schemas.microsoft.com/office/word/2015/wordml/symex">'
+                f'<w16se:symEx w16se:font="Segoe UI Emoji" w16se:char="{code}"/></mc:Choice>'
+                "<mc:Fallback><w:t>?</w:t></mc:Fallback></mc:AlternateContent></w:r>")
+
+    def test_emoji_of_a_symbol_element_is_read(self):
+        body = ("<w:p>" + _run("Thanks ") + self._symbol("1F60A") + _run(" see you") + "</w:p><w:p>" + _run("Rating:")
+                + "</w:p><w:p>" + self._symbol("2605") + self._symbol("D800") + self._symbol("xyz") + "</w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "Thanks \U0001F60A see you\n\nRating:\n\n\u2605"
+
+
+    def test_symbol_keeps_the_marks_of_its_run(self):
+        """The character takes the bold and strikethrough of its run, as a `w:sym` does: added bare, it split the span of a
+        bold or struck run, `**Great**😊 **job**`."""
+        def run(text: str, properties: str) -> str:
+            return f'<w:r><w:rPr>{properties}</w:rPr><w:t xml:space="preserve">{text}</w:t></w:r>'
+
+        bold, struck = "<w:b/>", "<w:strike/>"
+        symbol = self._symbol("1F60A")
+        body = ("<w:p>" + run("Great", bold) + symbol.replace("<w:r>", f"<w:r><w:rPr>{bold}</w:rPr>") + run(" job", bold)
+                + run(" plain", "") + "</w:p><w:p>" + run("old", struck) + symbol.replace("<w:r>", f"<w:r><w:rPr>{struck}</w:rPr>")
+                + run("price", struck) + run(" new", "") + "</w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "**Great\U0001F60A job** plain\n\n~~old\U0001F60Aprice~~ new"
+
+
 class TestDocxEnclosedCharacters:
     """A Word 'enclosed character' (Home → Enclose Characters) is stored as the EQ field `eq \\o\\ac(○,21)` with no result run. The
     instruction was not read, so '제㉑조' became '제조'. **Checked only with synthetic XML, without a real Word file.**"""

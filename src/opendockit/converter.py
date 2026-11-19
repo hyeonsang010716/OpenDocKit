@@ -12,7 +12,7 @@ import stat
 from typing import TYPE_CHECKING, BinaryIO
 import zipfile
 
-from opendockit.detect import detect_format, extension_mismatch, pdf_lookalike_text_format
+from opendockit.detect import code_or_data_text, detect_format, extension_mismatch, named_as_text, pdf_lookalike_text_format
 from opendockit.exceptions import (
     ConversionError,
     CorruptedDocumentError,
@@ -189,9 +189,15 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
         warnings.insert(0, mismatch)
 
     collapse = document_format not in _KEEP_SPACES
+    # In a code or data file the line and paragraph separators are characters of a string (`"x\u2028y"` in JSON) and stay; made
+    # line breaks, a JSON string held a raw line break (Pinned by: test_markdown.py::TestCleanText::
+    # test_line_separators_of_code_and_data_files_stay).
+    separators = not (document_format is DocumentFormat.TEXT and any("\u2028" in section.text or "\u2029" in section.text
+                                                                     for section in extraction.sections)
+                      and code_or_data_text(data, filename))
     sections = []
     for section in extraction.sections:
-        template = clean_text(section.text, collapse_spaces=collapse)
+        template = clean_text(section.text, collapse_spaces=collapse, line_separators=separators)
         # Section headings (sheet and slide titles) are cleaned like the body. With a title in decomposed jamo, the result was not NFC
         # (Pinned by: test_converter.py::TestAssembly::test_sheet_and_slide_titles_are_normalized_to_nfc).
         # As one line (`clean_line`), not as a text of its own: a title is written after `## Slide 1: `, where no fence can
@@ -307,6 +313,14 @@ def _extract(document_format: DocumentFormat, data: bytes, filename: str | None,
     # for (`ConvertOptions.decode_images`; Pinned by: test_converter.py::TestPlaceholdersWithoutDecoding).
     if not options.decode_images and document_format in (DocumentFormat.PDF, DocumentFormat.IMAGE):
         options = replace(options, extract_images=False)
+    # A note that lists a whole PDF (a tutorial on the format) reads as that PDF, so trying it says nothing: the note was lost and
+    # only the listing's 'Hello World' came back. Named as text, with other text before the header and UTF-8 throughout, it is
+    # text; a real PDF named so would need bytes in front of its header and no binary byte anywhere
+    # (Pinned by: test_detect.py::TestTextThatLooksLikeAPdf::test_note_listing_a_readable_pdf_is_read_as_its_name_says).
+    if document_format is DocumentFormat.PDF and named_as_text(filename):
+        fallback = pdf_lookalike_text_format(data, filename)
+        if fallback is not None:
+            return fallback, EXTRACTORS[fallback](data, options)
     try:
         return document_format, EXTRACTORS[document_format](data, options)
     except Exception as exc:

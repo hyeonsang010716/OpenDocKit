@@ -3,6 +3,7 @@ definitions with the number format, start and indent of each level.
 """
 
 from dataclasses import dataclass
+import re
 
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.parts.styles import StylesPart
@@ -55,7 +56,7 @@ def _raw_part_root(part: object, kind: str) -> etree._Element | None:
 
     Also used when two relationships have the type (python-docx raises ValueError): the first one is read, and a part python-docx
     parsed itself is used as it is (`_package.related_part`. Pinned by: test_audit_office.py::TestRelationshipTypeGivenTwice)."""
-    related = next((rel.target_part for rel in part.rels.values() if not rel.is_external and rel.reltype.endswith(f"/{kind}")), None)
+    related = next((rel.target_part for rel in part.rels.values() if not rel.is_external and (rel.reltype or "").endswith(f"/{kind}")), None)
     element = getattr(related, "element", None)
     if element is not None:
         return element
@@ -188,13 +189,39 @@ def _level_definition(level: etree._Element, index: int) -> _LevelDefinition:
     chapters was '제1조' in every chapter. The value is the deepest higher level that restarts the count (from 1); 0 means never
     restart. A missing or unreadable value is the default (the level right above)
     (Pinned by: test_office_revisions_and_numbering.py::TestDocxLevelRestart)."""
-    number_format, text, restart = level.find(_w("numFmt")), level.find(_w("lvlText")), level.find(_w("lvlRestart"))
+    text, restart = level.find(_w("lvlText")), level.find(_w("lvlRestart"))
     restart_after = _int_attr(restart, -1) if restart is not None else -1
-    return (number_format.get(_w("val"), "decimal") if number_format is not None else "decimal",
+    return (_level_format(level),
             text.get(_w("val"), "") if text is not None else f"%{index + 1}.",
             start_number(_int_attr(level.find(_w("start")), 1)),
             _is_on(level.find(_w("isLgl"))),
             restart_after if 0 <= restart_after <= index else None)
+
+
+_MC_CHOICE = "{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent/" \
+             "{http://schemas.openxmlformats.org/markup-compatibility/2006}Choice"
+_MC_FALLBACK = _MC_CHOICE.replace("}Choice", "}Fallback")
+# A custom number format of zero-padded digits (`001, 002, 003, ...`), and the shape it is written in (`_number_levels`).
+_ZERO_PADDED_SAMPLE = re.compile(r"\s*(0+1)\s*(?:,|$)")
+_CUSTOM_ZERO_PADDED = "custom:zero-padded:"
+
+
+def _level_format(level: etree._Element) -> str:
+    """The number format of a w:lvl. Word 2010 and later write the formats Word 2007 lacks (`001, 002, 003, ...`) as
+    `w:numFmt w:val="custom" w:format="…"` in `mc:Choice`, beside a plain one in `mc:Fallback`; looked for only right under
+    w:lvl, such a level was `1. 2.` (Pinned by: test_office.py::TestDocxNumbering::test_zero_padded_custom_format_keeps_its_width).
+    A custom format of zero-padded digits gives that width; any other custom format is the fallback's."""
+    direct = level.find(_w("numFmt"))
+    if direct is not None:
+        return direct.get(_w("val"), "decimal")
+    choice, fallback = level.find(f"{_MC_CHOICE}/{_w('numFmt')}"), level.find(f"{_MC_FALLBACK}/{_w('numFmt')}")
+    if choice is not None and choice.get(_w("val")) == "custom":
+        sample = _ZERO_PADDED_SAMPLE.match(choice.get(_w("format"), ""))
+        if sample is not None and len(sample.group(1)) <= 9:
+            return f"{_CUSTOM_ZERO_PADDED}{len(sample.group(1))}"
+    elif choice is not None:
+        return choice.get(_w("val"), "decimal")
+    return fallback.get(_w("val"), "decimal") if fallback is not None else "decimal"
 
 
 def _indent_values(indent: etree._Element | None) -> dict[str, int]:
@@ -216,5 +243,12 @@ def _number_levels(levels: dict[int, _LevelDefinition]) -> list[NumberLevel]:
     """Number definitions of levels 0–8. A missing level is "%n." in Arabic digits. An unknown number format is written in Arabic
     digits too."""
     defined = (levels.get(index, ("decimal", f"%{index + 1}.", 1, False, None)) for index in range(9))
-    return [NumberLevel(text, DOCX_NUMBER_SHAPES.get(number_format, "DIGIT"), start, legal, restart_after)
+    return [NumberLevel(text, _number_shape(number_format), start, legal, restart_after)
             for number_format, text, start, legal, restart_after in defined]
+
+
+def _number_shape(number_format: str) -> str:
+    """The number shape of a level's number format: `DOCX_NUMBER_SHAPES`, a zero-padded width of a custom format, else digits."""
+    if number_format.startswith(_CUSTOM_ZERO_PADDED):
+        return f"ZERO_PADDED_DIGIT_{number_format[len(_CUSTOM_ZERO_PADDED):]}"
+    return DOCX_NUMBER_SHAPES.get(number_format, "DIGIT")

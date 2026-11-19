@@ -201,6 +201,8 @@ def format_number(value: int, shape: str) -> str:
         return "".join(_HANGUL_DIGIT_LETTERS[int(digit)] for digit in _arabic(value))
     if shape == "ZERO_PADDED_DIGIT":
         return _arabic(value).zfill(2)
+    if shape.startswith("ZERO_PADDED_DIGIT_") and shape[18:].isdigit():  # a custom DOCX format of that width (`001`)
+        return _arabic(value).zfill(int(shape[18:]))
     if shape == "FULLWIDTH_DIGIT":
         return _arabic(value).translate(_FULLWIDTH_DIGITS)
     return _arabic(value)

@@ -7,8 +7,8 @@ and [docs/](docs/); contribution rules are in [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ```bash
 uv sync                          # install everything
-uv run pytest -n auto -m "not timing"   # the bulk of the suite in parallel (about 20 seconds)
-uv run pytest -m timing                  # tests that measure time, serially (about 90 seconds)
+uv run pytest -n auto -m "not timing"   # the bulk of the suite in parallel (under a minute)
+uv run pytest -m timing                  # tests that measure time, serially (about 5 minutes)
 uv run pytest tests/test_pdf.py  # one module
 uv run ruff check                # lint
 uv run python examples/run_examples.py   # reconvert the sample documents (needs LibreOffice for the .doc / .ppt samples); `git diff examples/output` shows what moved

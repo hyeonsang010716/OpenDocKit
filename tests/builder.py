@@ -395,6 +395,118 @@ def ole_container(streams: dict[str, bytes]) -> bytes:
     return header + fat_bytes + directory + mini_fat_bytes + pad(mini_stream, sector) + b"".join(big.values())
 
 
+def ole_file(streams: dict[str, bytes], *, storages: tuple[str, ...] = (), shared: dict[str, str] | None = None,
+             sizes: dict[str, int] | None = None, loops: tuple[str, ...] = ()) -> bytes:
+    """OLE2 (CFB v4, 4,096-byte sectors) container holding `streams`, whose names may have storages (`BodyText/Section0`), as
+    HWP files do (`storages` adds empty top-level storages). Unlike `ole_container` it holds streams of any size up to about 450 MB and any number of entries (siblings are
+    a balanced tree, so olefile's recursive walk stays shallow).
+
+    Streams under 4,096 bytes go into the mini stream, larger ones into regular sectors. For crafted containers: `shared` maps
+    the name of an extra entry to the stream whose sector chain it points at (with that stream's size); `sizes` sets the size
+    an entry declares (`Root Entry` the size of the mini stream); `loops` names regular streams (or `Root Entry`, the mini
+    stream) whose first sector is chained to itself.
+    """
+    sector, per_sector = 4096, 1024
+    shared, sizes = shared or {}, sizes or {}
+
+    def pad(body: bytes, unit: int) -> bytes:
+        return body + b"\x00" * (-len(body) % unit)
+
+    # Directory tree: storage path → its children (names in order); every stream and shared entry is a leaf.
+    children: dict[tuple[str, ...], list[str]] = {(): [*storages]} | {(name,): [] for name in storages}
+    for path in [*streams, *shared]:
+        parts = tuple(path.split("/"))
+        for depth in range(1, len(parts) + 1):
+            parent, key = parts[:depth - 1], parts[:depth]
+            if key not in children and depth < len(parts):
+                children[key] = []
+                children[parent].append(parts[depth - 1])
+            elif depth == len(parts):
+                children[parent].append(parts[-1])
+
+    mini_chunks: list[bytes] = []
+    mini_fat: list[int] = []
+    mini_starts: dict[str, int] = {}
+    for name, body in streams.items():
+        if len(body) < 4096:
+            start = sum(len(chunk) for chunk in mini_chunks) // 64
+            padded = pad(body, 64)
+            if padded:
+                mini_starts[name] = start
+                mini_fat += [*range(start + 1, start + len(padded) // 64), _OLE_END_OF_CHAIN]
+                mini_chunks.append(padded)
+            else:
+                mini_starts[name] = _OLE_END_OF_CHAIN
+    mini_stream = b"".join(mini_chunks)
+    big = {name: pad(body, sector) for name, body in streams.items() if len(body) >= 4096}
+
+    entry_count = 1 + sum(len(names) for names in children.values())
+    directory_sectors = -(-entry_count * 128 // sector)
+    mini_fat_sectors = -(-len(mini_fat) * 4 // sector)
+    mini_stream_sectors = len(pad(mini_stream, sector)) // sector
+    data_sectors = directory_sectors + mini_fat_sectors + mini_stream_sectors + sum(len(body) // sector for body in big.values())
+    fat_sectors = 1
+    while fat_sectors * per_sector < data_sectors + fat_sectors:
+        fat_sectors += 1
+    assert fat_sectors <= 109, "only sizes whose FAT fits in the header's 109 entries are supported"
+    fat: list[int] = [_OLE_FAT_SECTOR] * fat_sectors
+
+    def chain(count: int) -> int:
+        start = len(fat)
+        fat.extend([*range(start + 1, start + count), _OLE_END_OF_CHAIN] if count else [])
+        return start if count else _OLE_END_OF_CHAIN
+
+    directory_start = chain(directory_sectors)
+    mini_fat_start = chain(mini_fat_sectors)
+    mini_stream_start = chain(mini_stream_sectors)
+    starts = {name: chain(len(body) // sector) for name, body in big.items()} | mini_starts
+    for name in loops:
+        first = mini_stream_start if name == "Root Entry" else starts[name]
+        fat[first] = first
+    fat += [_OLE_FREE] * (fat_sectors * per_sector - len(fat))
+
+    # Directory entries: the root, then each storage's children as a balanced tree of left / right siblings.
+    entries: list[list] = [["Root Entry", 5, _OLE_NO_STREAM, _OLE_NO_STREAM, _OLE_NO_STREAM, mini_stream_start,
+                            sizes.get("Root Entry", len(mini_stream))]]
+
+    def add_children(path: tuple[str, ...], owner: int) -> None:
+        ids = []
+        for name in children[path]:
+            full = "/".join((*path, name))
+            ids.append(len(entries))
+            if (*path, name) in children:
+                entries.append([name, 1, _OLE_NO_STREAM, _OLE_NO_STREAM, _OLE_NO_STREAM, _OLE_END_OF_CHAIN, 0])
+            else:
+                source = shared.get(full, full)
+                entries.append([name, 2, _OLE_NO_STREAM, _OLE_NO_STREAM, _OLE_NO_STREAM, starts[source],
+                                sizes.get(full, len(streams[source]))])
+
+        def link(low: int, high: int) -> int:
+            if low >= high:
+                return _OLE_NO_STREAM
+            middle = (low + high) // 2
+            entries[ids[middle]][2], entries[ids[middle]][3] = link(low, middle), link(middle + 1, high)
+            return ids[middle]
+
+        entries[owner][4] = link(0, len(ids))
+        for sid, name in zip(ids, children[path], strict=True):
+            if (*path, name) in children:
+                add_children((*path, name), sid)
+
+    add_children((), 0)
+    directory = b"".join(
+        (name.encode("utf-16-le") + b"\x00\x00").ljust(64, b"\x00")
+        + struct.pack("<HBBIII", 2 * len(name) + 2, kind, 1, left, right, child) + bytes(36) + struct.pack("<IQ", start, size)
+        for name, kind, left, right, child, start, size in entries)
+
+    header = (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + bytes(16)
+              + struct.pack("<HHHHH6xIIIIIIIII", 0x3E, 4, 0xFFFE, 12, 6, directory_sectors, fat_sectors, directory_start, 0, 4096,
+                            mini_fat_start, mini_fat_sectors, _OLE_END_OF_CHAIN, 0)
+              + struct.pack(f"<{fat_sectors}I", *range(fat_sectors)) + struct.pack("<I", _OLE_FREE) * (109 - fat_sectors))
+    return b"".join([pad(header, sector), struct.pack(f"<{len(fat)}I", *fat), pad(directory, sector),
+                     pad(struct.pack(f"<{len(mini_fat)}I", *mini_fat), sector), pad(mini_stream, sector), *big.values()])
+
+
 def escher_record(record_type: int, payload: bytes = b"", *, version: int = 0, instance: int = 0) -> bytes:
     """One Office drawing (Escher) record. Container records have version 0xF."""
     return struct.pack("<HHI", version | (instance << 4), record_type, len(payload)) + payload

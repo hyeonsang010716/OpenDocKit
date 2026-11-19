@@ -12,7 +12,7 @@ import pytest
 from opendockit import ConvertOptions, CorruptedDocumentError, EncryptedDocumentError, convert
 from opendockit.extractors import odf as odf_module
 from opendockit.extractors.odf import extract_odt
-from opendockit.models import DocumentFormat, SectionKind
+from opendockit.models import DocumentFormat, Extraction, SectionKind
 from tests import builder
 from tests.timing import fastest
 
@@ -833,6 +833,64 @@ class TestPresentation:
         result = _convert("presentation", _slide(_text_frame(box)), automatic=automatic)
         assert result.sections[0].text == "일정 안내\n\n- 3월 기능 동결"
 
+    _STEPS = ('<text:list-style style:name="L2"><text:list-level-style-number text:level="1" style:num-format="1" '
+              'style:num-suffix="."/><text:list-level-style-bullet text:level="2" text:bullet-char="●"/></text:list-style>'
+              '<text:list-style style:name="L3"><text:list-level-style-number text:level="1" style:num-format="1" '
+              'style:num-suffix="."/><text:list-level-style-number text:level="2" style:num-format="a" style:num-suffix=")"/>'
+              '</text:list-style><text:list-style style:name="B1"><text:list-level-style-bullet text:level="1" '
+              'text:bullet-char="●"/></text:list-style>'
+              '<text:list-style style:name="P1"><text:list-level-style-number text:level="1" style:num-format="1" '
+              'style:num-suffix=")"/></text:list-style><text:list-style style:name="S5"><text:list-level-style-number '
+              'text:level="1" style:num-format="1" style:num-suffix="." text:start-value="5"/></text:list-style>'
+              '<text:list-style style:name="S3"><text:list-level-style-number text:level="1" style:num-format="1" '
+              'style:num-suffix="." text:start-value="3"/></text:list-style>')
+
+    @staticmethod
+    def _items(style: str, *texts: str, nested: bool = False, attributes: str = "") -> str:
+        items = "".join(f"<text:list-item><text:p>{text}</text:p></text:list-item>" for text in texts)
+        if nested:
+            items = f"<text:list-item><text:list>{items}</text:list></text:list-item>"
+        return f'<text:list text:style-name="{style}" {attributes}>{items}</text:list>'
+
+    def _slide_text(self, *boxes: str) -> str:
+        return _convert("presentation", _slide(*map(_text_frame, boxes)), automatic=self._STEPS).sections[0].text
+
+    def test_lists_of_a_text_are_numbered_as_impress_draws_them(self):
+        """Impress counts the paragraphs of a text box, as PowerPoint does, and writes a new `text:list` wherever the level
+        changes: every new list started at 1 again where its PDF shows `1. a) b) 2. 3.`. Each expected text is what LibreOffice
+        Impress 26.2 draws for the same slide. A paragraph outside the lists and a deeper one are passed over; a bullet, a
+        number with another suffix and another text box start over."""
+        box = (self._items("L2", "Prepare") + self._items("L3", "Collect", "Clean", nested=True) + self._items("L3", "Execute")
+               + self._items("L2", "Review") + "<text:p>Plain</text:p><text:p/>" + self._items("L2", "Again")
+               + self._items("B1", "Bullet") + self._items("L2", "After the bullet")
+               + self._items("P1", "Other suffix", "Counts") + self._items("L2", "Back"))
+
+        assert self._slide_text(box, self._items("L2", "Other box")) == (
+            "1. Prepare\n  - a) Collect\n  - b) Clean\n2. Execute\n3. Review\n\nPlain\n\n4. Again\n- Bullet\n1. After the bullet\n"
+            "1. Other suffix\n2. Counts\n1. Back\n1. Other box")
+
+    def test_a_level_that_starts_higher_counts_from_its_start(self):
+        """Impress counts on from a paragraph whose level starts as high or higher, and else starts at its own start."""
+        assert self._slide_text(self._items("L2", "a", "b") + self._items("S5", "c", "d")) == "1. a\n2. b\n5. c\n6. d"
+        assert self._slide_text(self._items("S5", "a", "b") + self._items("L2", "c") + self._items("S3", "d")) == (
+            "5. a\n6. b\n7. c\n3. d")
+
+    def test_only_continue_numbering_false_restarts_a_list_of_a_text(self):
+        """Impress restarts at `text:continue-numbering="false"` (at the level of the list's first paragraph) and draws every
+        other list of the text box by its paragraphs: a `text:continue-list` does not reach past a bullet."""
+        restarted = self._items("L2", "a") + self._items("L2", "b", attributes='text:continue-numbering="false"')
+        nested = self._items("L3", "a") + self._items("L3", "x", nested=True, attributes='text:continue-numbering="false"')
+        continued = (self._items("L2", "a", attributes='xml:id="first"') + self._items("B1", "bullet")
+                     + self._items("L2", "b", attributes='text:continue-list="first"'))
+
+        assert self._slide_text(restarted) == "1. a\n1. b"
+        assert self._slide_text(nested + self._items("L3", "b")) == "1. a\n  - a) x\n2. b"
+        assert self._slide_text(continued) == "1. a\n- bullet\n1. b"
+
+    def test_text_documents_keep_one_counter_per_list(self):
+        text = _odt(self._items("L2", "one") + self._items("L2", "two"), automatic=self._STEPS)
+        assert text == "1. one\n1. two"
+
     def test_table_and_picture_on_a_slide(self):
         """A table frame that also carries a preview picture (alternative content: only the table is used) and a picture
         frame."""
@@ -903,6 +961,21 @@ class TestObjects:
                   '</math:msqrt></math:mfrac></math:mrow>')
         text = _odt(self.BODY, parts={"Object 1/content.xml": self.FORMULA.format(namespaces=_NAMESPACES, mathml=mathml).encode()})
         assert text == r"성장률은 $g=\frac{R_t-R_{t-1}}{\sqrt{n}}$ 이다."
+
+    def test_script_on_a_scripted_base_keeps_its_group(self):
+        """The same rules as an HTML equation: a superscript on a superscript is braced (`{x^2}^3`, not `x^2^3`)."""
+        mathml = ("<math:msup><math:msup><math:mi>x</math:mi><math:mn>2</math:mn></math:msup><math:mn>3</math:mn></math:msup>")
+        text = _odt(self.BODY, parts={"Object 1/content.xml": self.FORMULA.format(namespaces=_NAMESPACES, mathml=mathml).encode()})
+        assert text == r"성장률은 ${x^2}^3$ 이다."
+
+    def test_scripts_of_an_mmultiscripts_follow_each_other(self):
+        """The same rules as an HTML equation: the pairs of a tensor stand on empty groups (`R_{i}^{j}{}_{k}`, not a double
+        subscript), and a group in an mstyle is braced as the base of a script."""
+        mathml = ("<math:mrow><math:mmultiscripts><math:mi>R</math:mi><math:mi>i</math:mi><math:mi>j</math:mi><math:mi>k</math:mi>"
+                  "<math:none/></math:mmultiscripts><math:msup><math:mstyle><math:mi>a</math:mi><math:mo>+</math:mo>"
+                  "<math:mi>b</math:mi></math:mstyle><math:mn>2</math:mn></math:msup></math:mrow>")
+        text = _odt(self.BODY, parts={"Object 1/content.xml": self.FORMULA.format(namespaces=_NAMESPACES, mathml=mathml).encode()})
+        assert text == r"성장률은 $R_{i}^{j}{}_{k}{a+b}^2$ 이다."
 
     def test_literal_text_of_a_formula_is_escaped(self):
         """The same escapes as an HTML or Office equation: a `$` in the text ended the math span."""
@@ -1099,6 +1172,26 @@ class TestHostileInput:
                                                 '</table:table-row>'), ConvertOptions(max_chars=None))
         assert result.sections[0].text.count("| 가 | 1 |") == 10_000
         assert "Sheet 'S': a row repeated 1,000,000,000 times was read 10,000 times only." in result.warnings
+
+    def test_a_repeated_warning_is_looked_up_once(self, monkeypatch):
+        """Every cell read fewer times than written looked its sheet's warning up in all the warnings again (after the warnings
+        of 40,000 hidden sheets, once per such cell)."""
+        class Counted(list):
+            lookups = 0
+
+            def __contains__(self, item: object) -> bool:
+                self.lookups += 1
+                return super().__contains__(item)
+
+        warnings = Counted(f"Hidden sheet '{index}' was excluded." for index in range(100))
+        monkeypatch.setattr(odf_module, "Extraction", lambda: Extraction(warnings=warnings))
+        monkeypatch.setattr(odf_module, "_REPEAT_BUDGET", 10)
+        rows = [_row(_cell("zz", 'table:number-columns-repeated="3"')) for _ in range(300)]
+
+        _convert("spreadsheet", _sheet("S", *rows))
+
+        assert warnings.count("Sheet 'S': a repeated cell was read fewer times than written.") == 1
+        assert warnings.lookups == 1
 
     def test_repeated_cell_with_text_stops_at_the_column_limit(self):
         result = _convert("spreadsheet", _sheet("S", _row(_cell("머리", 'table:number-columns-repeated="1000000000"')),

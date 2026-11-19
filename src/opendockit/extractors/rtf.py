@@ -52,6 +52,11 @@ _MAGIC = b"{\\rtf"
 # memory, not recursion (Pinned by: test_rtf.py::TestHostileInput::test_groups_nested_past_the_limit_are_skipped_with_a_warning).
 _MAX_GROUP_DEPTH = 500
 _MAX_TABLE_DEPTH = 16
+# Shapes whose text is read as a flow of its own, one inside the other; the text of a shape deeper than that is read into the flow
+# of the shape around it. Each flow draws its tables when it ends and hands them to the flow around it, so the text of the
+# innermost shape of 490 shapes, one in a table cell of the other, was drawn as a table again at every level: 40,000 paragraphs
+# (243 KB) took 5.4 s, 160,000 (946 KB) 35 s (Pinned by: test_rtf.py::TestHostileInput::test_shapes_nested_past_the_limit_take_linear_time).
+_MAX_SHAPE_DEPTH = 16
 _MAX_ROW_CELLS = 4096
 # Cells one table may hold, the cells of the tables inside it included. `\cell` is five bytes and a cell of the grid costs
 # several hundred, text or no text: 4,000 rows of 1,000 empty cells (20 MB) took 13 s and 3.4 GB. The cells past the limit are
@@ -128,6 +133,7 @@ _PAGE_CODECS = {932: "cp932", 936: "gbk", 949: "cp949", 950: "cp950", 1361: "joh
                 10003: "euc_kr", 10008: "gb2312", 20127: "ascii", 28591: "latin-1", 65001: "utf-8"}
 _DOUBLE_BYTE = frozenset(("cp932", "gbk", "cp949", "cp950", "johab"))
 _ANSI = ""  # a font with `\fcharset0`
+_LINE_SEPARATORS = frozenset("\u2028\u2029")  # a line break wherever they stand (`_Reader._unicode`)
 
 _H_FIRST, _H_CONTINUES, _V_FIRST, _V_CONTINUES = 1, 2, 4, 8
 _MERGE_FLAGS = {b"clmgf": _H_FIRST, b"clmrg": _H_CONTINUES, b"clvmgf": _V_FIRST, b"clvmrg": _V_CONTINUES}
@@ -197,7 +203,7 @@ class _State:
 class _Paragraph:
     """Paragraph properties; `\\pard` starts them over."""
 
-    __slots__ = ("style", "outline", "ls", "ilvl", "pn", "pn_level", "intbl", "itap", "indent")
+    __slots__ = ("style", "outline", "ls", "ilvl", "pn", "pn_level", "pn_start", "intbl", "itap", "indent")
 
     def __init__(self) -> None:
         self.style: int | None = None
@@ -206,6 +212,7 @@ class _Paragraph:
         self.ilvl = 0
         self.pn: str | None = None  # the older `\pn` numbering: "-" bullet, "1" numbered
         self.pn_level = 0
+        self.pn_start = 1  # `\pnstartN`: the first number of the older numbering
         self.intbl = False
         self.itap = 0
         self.indent = 0  # `\li`, twips
@@ -581,7 +588,7 @@ class _Flow:
         paragraph, reader = self.paragraph, self.reader
         if self.kind == "note" or (paragraph.ls is None and paragraph.pn is None) or reader.mark_hidden():
             return
-        if in_cell or not reader.heading_level(paragraph):
+        if in_cell or not reader.heading_level(paragraph) or paragraph.ls is not None:
             reader.list_mark(paragraph)
 
     def _paragraph_text(self, *, in_cell: bool, kept: bool = True, marked: bool = False) -> str:
@@ -606,6 +613,12 @@ class _Flow:
                 level = reader.heading_level(paragraph)
             if level:
                 reader.end_simple_numbering()
+                if paragraph.ls is not None:
+                    # A heading of a list takes its number, which is not written (rtf.md): not counted, the numbers under it
+                    # went on from those under the heading before (`# Chapter B` then `3.`, `4.` where Word shows 1, 2), and an
+                    # item of the heading's level after them did not count the headings (Pinned by:
+                    # test_rtf.py::TestLists::test_numbered_heading_takes_its_number_and_restarts_the_levels_under_it).
+                    reader.list_mark(paragraph)
             else:
                 mark = reader.list_mark(paragraph)
                 start = plain.lstrip()
@@ -666,6 +679,7 @@ class _Reader:
         self._high = 0  # a high surrogate waiting for its low half
 
         self._document_codec = "cp1252"
+        self._cocoa = False  # written by the macOS text system (`\cocoartf`: TextEdit, Pages, Mail, `textutil`)
         self._default_font: int | None = None
         self._fonts: dict[int, str | None] = {}
         self._font: int | None = None  # font table entry being read
@@ -682,6 +696,7 @@ class _Reader:
         self._override_levels: list[list] = []  # those of the override being read
         self._counters: dict[int, list[int | None]] = {}
         self._simple_counters: list[int | None] = [None] * (_MAX_LEVEL + 1)
+        self._set_aside: list[tuple[dict[int, list[int | None]], list[int | None]]] = []  # counters of the flows a header is in
         self._info_key = ""
         self._info: list[str] = []
         self._fields: list[list] = []  # open fields: [instruction parts, instruction length, length when resolved, link target]
@@ -692,6 +707,7 @@ class _Reader:
         self._body = _Flow(self, "body")
         self._flow = self._body
         self._flows: list[_Flow] = [self._body]
+        self._boxes = 0  # flows of shape text among `_flows` (`_MAX_SHAPE_DEPTH`)
         self._headers: dict[str, None] = {}  # texts in order of appearance, each once
         self._footers: dict[str, None] = {}
         self._notes: list[str] = []
@@ -929,7 +945,7 @@ class _Reader:
         if not font:
             if len(dropped) == 1 and dropped.decode("cp1252", "replace") == escaped:
                 return False
-            codec = self._document_codec if font is None or self._document_codec in _DOUBLE_BYTE else "cp1252"  # as `_codec`
+            codec = self._document_codec if font is None else self._ansi_codec()  # as `_codec`
         else:
             codec = font
         try:
@@ -1063,8 +1079,21 @@ class _Reader:
         """The code page the bytes of the current run are read with first (`_decode`)."""
         codec = self._font_codec()
         if codec == _ANSI:
-            return self._document_codec if self._document_codec in _DOUBLE_BYTE else "cp1252"
+            return self._ansi_codec()
         return codec or self._document_codec
+
+    def _ansi_codec(self) -> str:
+        """The code page a font with `\\fcharset0` is read with first: the document's when it is double-byte (writers that
+        declare every font as ANSI store Hangul in it), otherwise CP1252.
+
+        The macOS text system declares every font as ANSI too, but writes each character outside CP1252 as `\\uN` and only
+        CP1252 ones as bytes. Its `\\ansicpg` follows the system language, so on a Korean, Japanese or Chinese Mac a smart
+        apostrophe or a no-break space before a letter is a valid pair in the document's code page: "It\\'92s" came out as
+        'It뭩' and "5\\'a0kg" as '5쟪g'. In its files the font's bytes are CP1252
+        (Pinned by: test_rtf.py::TestCharacters::test_ansi_font_written_by_the_macos_text_system_is_western)."""
+        if self._cocoa or self._document_codec not in _DOUBLE_BYTE:
+            return "cp1252"
+        return self._document_codec
 
     def _deliver(self, text: str) -> None:
         self._high = 0
@@ -1099,7 +1128,10 @@ class _Reader:
         elif code:
             escaped = chr(code)
         if escaped:
-            self._deliver(escaped)
+            # The line and paragraph separators are line breaks, as `\line`: the macOS text system writes `\uc0\u8232` for every
+            # line break (TextEdit, Pages, Mail), and a line is joined at its white space, so 'Line one' and 'Line two' ran into one
+            # line (Pinned by: test_rtf.py::TestCharacters::test_line_separator_of_the_macos_text_system_is_a_line_break).
+            self._deliver("\n" if escaped in _LINE_SEPARATORS else escaped)
         self._skip, self._dropped, self._lead, self._escaped = skip, [], None, escaped
 
     def _symbol(self, symbol: bytes) -> None:
@@ -1228,6 +1260,8 @@ class _Reader:
             state.dest = _LISTOVERRIDE
         elif word == b"ansicpg":
             self._document_codec = _page_codec(number or 0) or self._document_codec
+        elif word == b"cocoartf":
+            self._cocoa = True
         elif word == b"mac":
             self._document_codec = "mac_roman"
         elif word == b"pc":
@@ -1320,6 +1354,8 @@ class _Reader:
             elif word == b"pnlvl":
                 paragraph.pn = paragraph.pn or "1"
                 paragraph.pn_level = min(max((number or 1) - 1, 0), _MAX_LEVEL)
+            elif word == b"pnstart":
+                paragraph.pn_start = number if number is not None and 0 <= number <= 1_000_000 else 1
         elif dest == _SHAPE:
             if word == b"shptxt" or word == b"dptxbxtext":
                 state.dest = _BODY
@@ -1347,13 +1383,23 @@ class _Reader:
         if kind is None or state.closer is not None:
             state.dest = _SKIP
             return
-        state.closer = "flow"
         state.dest = _BODY
         # The text of a header, footnote or shape starts with plain formatting, whatever the run that anchors it looks like.
         state.bold = state.italic = state.hidden = False
         state.link = None
+        if kind == "box":
+            if self._boxes >= _MAX_SHAPE_DEPTH:
+                return  # read into the flow of the shape around it
+            self._boxes += 1
+        state.closer = "flow"
         self._flow = _Flow(self, kind, self._flow if kind == "box" else None)
         self._flows.append(self._flow)
+        if kind in ("header", "footer"):
+            # A header or footer counts its lists on its own: it comes before the body in the file but is not part of its
+            # reading order, and a numbered item there took the body's first number, so the body began at 2.
+            # (Pinned by: test_rtf.py::TestLists::test_list_in_a_header_does_not_take_the_numbers_of_the_body).
+            self._set_aside.append((self._counters, self._simple_counters))
+            self._counters, self._simple_counters = {}, [None] * (_MAX_LEVEL + 1)
 
     def _finish(self, closer: str) -> None:
         if closer == "picture":
@@ -1372,6 +1418,8 @@ class _Reader:
             flow = self._flows.pop()
             self._flow = self._flows[-1]
             blocks = flow.finish()
+            if flow.kind in ("header", "footer"):
+                self._counters, self._simple_counters = self._set_aside.pop()
             if flow.kind == "note":
                 # The reference goes where the footnote group is; numbers follow the order of reference. A footnote without text
                 # leaves no dangling `[^n]`.
@@ -1381,6 +1429,7 @@ class _Reader:
                     link = self._stack[-1].link if self._stack else None  # of the text around the footnote group
                     self._flow.add_run(f"[^{len(self._notes)}]", False, False, link, alone=True)
             elif flow.kind == "box":
+                self._boxes -= 1
                 self._flow.add_blocks(blocks)
             else:
                 # The header of the first page and of left/right pages usually repeat the same text: each text once.
@@ -1452,7 +1501,9 @@ class _Reader:
             return None
         if paragraph.pn == "-":
             return "-", paragraph.pn_level
-        return self._next_number(self._simple_counters, paragraph.pn_level, 1), paragraph.pn_level
+        # The first number is `\pnstartN` (RichEdit: WordPad, Outlook, RichTextBox write it for a list set to start at 5); read as
+        # 1, such a list was numbered from 1 (Pinned by: test_rtf.py::TestLists::test_start_of_the_older_numbering_is_kept).
+        return self._next_number(self._simple_counters, paragraph.pn_level, paragraph.pn_start), paragraph.pn_level
 
     def _level_start(self, ls: int, level: int, start: int) -> int:
         """The first number of `level` in the list override `\\lsN`: the start-at the override sets for it (Word's 'Set numbering

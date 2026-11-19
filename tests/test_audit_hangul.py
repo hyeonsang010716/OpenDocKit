@@ -1,7 +1,7 @@
 """Audited defects of the Hangul extractors (HWPX, HWP, equation script): a part or section referenced many times, odd values
 that failed or slowed down the whole document.
 
-HWP record streams are built with the fake OLE container (`_fake_hwp`) of `test_hwp.py`.
+HWP record streams are put into the OLE container of `_fake_hwp` of `test_hwp.py`.
 """
 
 import time

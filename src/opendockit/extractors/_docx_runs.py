@@ -35,6 +35,11 @@ from opendockit.extractors._symbols import SYMBOL_FONTS, SYMBOL_GLYPHS, symbol_f
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 _M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+# Word 2016 and later write an emoji or symbol inserted from the symbol dialog (or made by AutoCorrect) as `w16se:symEx` in
+# `mc:Choice`, the character itself only in the `mc:Fallback` that is never read: the emoji vanished, and a paragraph of only one
+# with it (Pinned by: test_office_symbols_fields_notes.py::TestDocxSymbolsOfWord2016).
+_SYMEX = "{http://schemas.microsoft.com/office/word/2015/wordml/symex}symEx"
+_SYMEX_CHAR = "{http://schemas.microsoft.com/office/word/2015/wordml/symex}char"
 _A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 
@@ -387,6 +392,13 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                 forget_from(start)
             elif tag == f"{{{_M}}}oMath":
                 parts.append(render_omml(child))
+            elif tag == _SYMEX:
+                # The character takes the marks of its run, as `w:sym` does; added bare, an emoji in a bold run split the span
+                # (`**Great**😊 **job**`; Pinned by: test_office_symbols_fields_notes.py::TestDocxSymbolsOfWord2016::
+                # test_symbol_keeps_the_marks_of_its_run). The run is the w:r around its mc:AlternateContent.
+                run = next((above for above in child.iterancestors(_w("r"))), None)
+                character = _symbol_character(child.get(_SYMEX_CHAR, ""))
+                parts.append(with_run_marks(run, character) if run is not None and character else character)
             elif tag in (_w("footnoteReference"), _w("endnoteReference")):
                 custom_marks.update(_custom_mark(child))
                 if notes is None:
@@ -453,6 +465,21 @@ def _next_is_paragraph(paragraph: etree._Element) -> bool:
     return following is not None and following.tag == _w("p")
 
 
+# Body-level markers that hold no content and may stand between two paragraphs (`_neighbour_block`)
+_RANGE_MARKERS = frozenset(_w(name) for name in (
+    "bookmarkStart", "bookmarkEnd", "commentRangeStart", "commentRangeEnd", "moveFromRangeStart", "moveFromRangeEnd",
+    "moveToRangeStart", "moveToRangeEnd", "proofErr", "permStart", "permEnd"))
+
+
+def _neighbour_block(element: etree._Element, *, after: bool) -> etree._Element | None:
+    """The block right after (or before) `element`, past the range markers, comments and processing instructions between
+    them: a bookmark or comment range written between two paragraphs is not a block of its own."""
+    neighbour = element.getnext() if after else element.getprevious()
+    while neighbour is not None and (not isinstance(neighbour.tag, str) or neighbour.tag in _RANGE_MARKERS):
+        neighbour = neighbour.getnext() if after else neighbour.getprevious()
+    return neighbour
+
+
 def _custom_mark(reference: etree._Element) -> list[etree._Element]:
     """The characters (w:t, w:sym) right after a footnote / endnote reference in its run that Word's Insert Footnote > Custom mark
     put there as the mark (`w:customMarkFollows` on), or nothing. The mark was written next to the generated label, which stands
@@ -465,6 +492,12 @@ def _custom_mark(reference: etree._Element) -> list[etree._Element]:
             break
         pieces.append(sibling)
     return pieces
+
+
+def _symbol_character(code: str) -> str:
+    """The character of a `w16se:symEx` from its `w16se:char` (hexadecimal code point), empty when it names none."""
+    value = int(code, 16) if 0 < len(code) <= 6 and all(digit in "0123456789abcdefABCDEF" for digit in code) else 0
+    return chr(value) if 0x20 <= value <= 0x10FFFF and not 0xD800 <= value <= 0xDFFF else ""
 
 
 def _is_on(element: etree._Element | None) -> bool:
@@ -550,7 +583,7 @@ def _placeholder_texts(part: Part) -> dict[str, str]:
     """docPart name of the glossary document (glossaryDocument relationship) → its text with whitespace removed. An empty dict if
     there is no glossary document or it is broken."""
     glossary = next((rel.target_part for rel in part.rels.values()
-                     if not rel.is_external and rel.reltype.endswith("/glossaryDocument")), None)
+                     if not rel.is_external and (rel.reltype or "").endswith("/glossaryDocument")), None)
     root = parse_part(glossary.blob) if glossary is not None else None
     if root is None:
         return {}

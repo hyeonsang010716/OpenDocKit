@@ -9,7 +9,7 @@ footnotes and outline headings are read directly.
 """
 
 from array import array
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -22,10 +22,20 @@ import olefile
 
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
 from opendockit.extractors._equation import render_equation
-from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, command_link, decorated_text, link_end, link_start
+from opendockit.extractors._hangul import (
+    PREVIEW_CELL_MARKS,
+    ParagraphPieces,
+    click_here_guide,
+    command_link,
+    decorated_text,
+    drop_unfilled_guide,
+    link_end,
+    link_start,
+)
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import TableBudget, format_dutmal, note_table, omitted_rows_warning
+from opendockit.extractors._ole import OleFile, OleStreams
 from opendockit.markdown import TableGrid, join_blocks, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -195,9 +205,19 @@ def iter_records(stream: bytes, budget: _RecordBudget | None = None) -> Iterator
         yield root
 
 
-# The two bytes of one character (UTF-16 unit) that is a control character (0-31). A match at an odd byte is made of bytes spanning two
-# characters (the '00 00' in 'A' 41 00 + '가' 00 AC), so it is text (`decode_para_text` skips it).
-_CONTROL_UNIT = re.compile(rb"[\x00-\x1f]\x00")
+# The characters (UTF-16 units, two bytes each) from an even byte up to the first control character of 8 WCHARs (inline or
+# extended: 1-9, 11, 12, 14-23). It goes two bytes at a time, so bytes spanning two characters (the '01 00' in 'Ā' 00 01 +
+# '가' 00 AC) are never taken for a control, and possessively, so it keeps no backtracking state however long the text is. The
+# char controls of one WCHAR stay in the text and are replaced after decoding (`_CHAR_CONTROLS`).
+_UP_TO_WIDE_CONTROL = re.compile(rb"(?:[^\x01-\x09\x0b\x0c\x0e-\x17].|.[^\x00])*+", re.DOTALL)
+# What the char controls (one WCHAR: 0, 10, 13 and 24-31) become in the text: a hyphen, a space, or nothing (a line break stays
+# itself). Replaced with `str.replace`, one control at a time and only when the text holds one: `str.translate` goes character by
+# character on Hangul text, 40 times slower.
+_CHAR_CONTROLS = tuple((chr(unit), _CHAR_REPLACEMENTS.get(unit, "")) for unit in range(32)
+                       if unit not in _EXTENDED_CONTROLS and unit not in _INLINE_CONTROLS and unit != 10)
+_CHAR_CONTROL_TEXT = re.compile("[" + "".join(control for control, _ in _CHAR_CONTROLS) + "]")
+# Characters that are nothing but char controls that are dropped (0, 13, 25-29).
+_DROPPED_CONTROLS_ONLY = re.compile(rb"(?:[\x00\x0d\x19-\x1d]\x00)*+")
 # Character shape runs of a paragraph: (start character position, (super/subscript mark, struck through or not)). Ascending by position,
 # and neighboring runs have different values.
 ShapeRuns = list[tuple[int, tuple[str | None, bool]]]
@@ -212,6 +232,10 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
     Text between control characters is gathered as bytes and decoded at once. Making a Python integer per character (tuple or list), one
     paragraph of 24 million characters used 1.9GB
     (Pinned by: test_hwp_robustness.py::TestHugeParagraphText). Text with the same mark is decoded as one piece even across control characters.
+    The char controls of one WCHAR (line break, hyphen, fixed-width space, paragraph end …) are decoded with the text around them and
+    replaced in the decoded text (`_CHAR_CONTROLS`): taken one at a time, a paragraph of line breaks made a bytes object per character
+    again, and one of dropped controls a loop round per character (60 MB of line breaks in a 57 KB file: 13 s and 4.6 GB)
+    (Pinned by: test_hwp_robustness.py::TestHugeParagraphText::test_paragraph_of_char_controls_is_decoded_in_one_go).
     """
     count = len(payload) // 2
     view = memoryview(payload)
@@ -225,9 +249,14 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
         if pieces:
             script, struck = shape
             decoded = b"".join(pieces).decode("utf-16-le", errors="replace")
-            decoded = mark_script(decoded, script) if script else decoded
-            parts.append(mark_strike(decoded) if struck else decoded)
             pieces.clear()
+            if _CHAR_CONTROL_TEXT.search(decoded):
+                for control, replacement in _CHAR_CONTROLS:
+                    if control in decoded:
+                        decoded = decoded.replace(control, replacement)
+            if decoded:  # nothing but controls that are dropped
+                decoded = mark_script(decoded, script) if script else decoded
+                parts.append(mark_strike(decoded) if struck else decoded)
 
     def add(start: int, stop: int, piece: bytes | None = None) -> None:
         """Gather the text at character positions [start, stop) (that one character if `piece` is given), split per run mark."""
@@ -237,18 +266,19 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
                 run += 1
             wanted = runs[run][1] if run >= 0 else (None, False)
             end = min(stop, runs[run + 1][0]) if run + 1 < len(runs) else stop
+            span = piece if piece is not None else view[2 * start:2 * end]
             if wanted != shape:
+                if _DROPPED_CONTROLS_ONLY.fullmatch(span):  # leaves no text, so it does not split the run around it
+                    start = end
+                    continue
                 flush()
                 shape = wanted
-            pieces.append(piece if piece is not None else view[2 * start:2 * end])
+            pieces.append(span)
             start = end
 
     index = 0
     while index < count:
-        match = _CONTROL_UNIT.search(payload, 2 * index, 2 * count)
-        while match is not None and match.start() % 2:
-            match = _CONTROL_UNIT.search(payload, match.start() + 1, 2 * count)
-        control = match.start() // 2 if match is not None else count
+        control = _UP_TO_WIDE_CONTROL.match(payload, 2 * index, 2 * count).end() // 2
         add(index, control)
         if control == count:
             break
@@ -257,19 +287,12 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
         if unit in _EXTENDED_CONTROLS:
             flush()
             parts.append(unit)
-            index = control + 8
-        elif unit in _INLINE_CONTROLS:
-            if unit == 9:
-                add(control, control + 1, "\t".encode("utf-16-le"))
-            elif unit == FIELD_END:
-                flush()
-                parts.append(unit)
-            index = control + 8
-        else:
-            replacement = _CHAR_REPLACEMENTS.get(unit)
-            if replacement:
-                add(control, control + 1, replacement.encode("utf-16-le"))
-            index = control + 1
+        elif unit == 9:
+            add(control, control + 1, "\t".encode("utf-16-le"))
+        elif unit == FIELD_END:
+            flush()
+            parts.append(unit)
+        index = control + 8
     flush()
     return parts
 
@@ -288,6 +311,17 @@ class ParagraphHeads:
     margins: list[int] = field(default_factory=list)
     numberings: list[list[NumberLevel]] = field(default_factory=list)
     bullet_count: int = 0
+
+
+@dataclass(slots=True)
+class _ClickHere:
+    """A click-here field opened in a paragraph: the pieces it was opened in, where its text starts there, its guide text, and how
+    many click-here fields had been opened when it was (`HwpRenderer._clicks_opened`)."""
+
+    pieces: list[str]
+    start: int
+    guide: str | None
+    serial: int
 
 
 class HwpRenderer:
@@ -329,8 +363,10 @@ class HwpRenderer:
         # it, as in DOCX and ODT (Pinned by: test_hwp.py::TestHeaderAndFooterPlacement).
         self.headers: dict[str, None] = {}
         self.footers: dict[str, None] = {}
-        # The fields opened and not yet ended, innermost last: the address of a hyperlink that is kept, else None (`_start_field`)
-        self._fields: list[str | None] = []
+        # The fields opened and not yet ended, innermost last: the address of a hyperlink that is kept, a click-here field
+        # (`_ClickHere`), else None (`_start_field`)
+        self._fields: list[str | _ClickHere | None] = []
+        self._clicks_opened = 0  # click-here fields opened so far: one opened inside another is not its guide (`_start_field`)
 
     def render(self, records: list[Record]) -> list[str]:
         """Find paragraphs (PARA_HEADER) and render them. A record that is not a paragraph is descended to find inner paragraphs — with a
@@ -380,9 +416,12 @@ class HwpRenderer:
                 buffer.append(part)
                 continue
             if part == FIELD_END:
-                url = self._fields.pop() if self._fields else None
-                if url is not None:
-                    buffer.append(link_end(url))
+                field = self._fields.pop() if self._fields else None
+                if isinstance(field, _ClickHere):
+                    if field.pieces is buffer and field.serial == self._clicks_opened:
+                        drop_unfilled_guide(buffer, field.start, field.guide)
+                elif field is not None:
+                    buffer.append(link_end(field))
                 continue
             control = next(controls, None)
             if control is None:
@@ -449,10 +488,22 @@ class HwpRenderer:
         if not any(shape_id in self._scripts or shape_id in self._struck for shape_id in shape_ids):
             return None
 
-        # If the positions always increase, use them as is; otherwise sort by (position, ID) — at the same position the later one (larger ID) wins.
+        # If the positions always increase, use them as is; otherwise by position — at the same position the larger ID wins, as it
+        # did sorted by (position, ID). Only positions inside the text are kept before ordering them: sorted as tuples, 10 million
+        # pairs in a 114 KB section past a one-character text took 3 s and 1 GB
+        # (Pinned by: test_hwp_robustness.py::TestHugeParagraphText::test_unordered_shape_positions_past_the_text_are_not_sorted).
         increasing = all(before < after for before, after in zip(starts, starts[1:], strict=False))
+        pairs: Iterable[tuple[int, int]]
+        if increasing:
+            pairs = zip(starts, shape_ids, strict=True)
+        else:
+            last: dict[int, int] = {}
+            for start, shape_id in zip(starts, shape_ids, strict=True):
+                if start < length and shape_id > last.get(start, -1):
+                    last[start] = shape_id
+            pairs = sorted(last.items())
         runs: ShapeRuns = []
-        for start, shape_id in zip(starts, shape_ids, strict=True) if increasing else sorted(zip(starts, shape_ids, strict=True)):
+        for start, shape_id in pairs:
             if start >= length:
                 break
             if runs and runs[-1][0] == start:
@@ -491,10 +542,21 @@ class HwpRenderer:
         is only remembered, so that its end closes it and not a link (Pinned by: test_hwp.py::TestHyperlinks)."""
         url = None
         payload = control.payload
-        if kind == "%hlk" and self._options.keep_links and len(payload) >= _FIELD_COMMAND_OFFSET + 2:
+        command = ""
+        if len(payload) >= _FIELD_COMMAND_OFFSET + 2:
             (length,) = struct.unpack_from("<H", payload, _FIELD_COMMAND_OFFSET)
             start = _FIELD_COMMAND_OFFSET + 2
-            url = command_link(payload[start:start + 2 * length].decode("utf-16-le", errors="replace"))
+            command = payload[start:start + 2 * length].decode("utf-16-le", errors="replace")
+        if kind == "%clk":
+            # A click-here field (누름틀): its text is dropped at its end when it is still the guide (`drop_unfilled_guide`), unless
+            # another click-here field was opened inside it. Checked at every end, 40,000 fields opened in one paragraph and then
+            # ended joined the text from each start again: 19 s (Pinned by: test_hwp.py::TestClickHereFields::
+            # test_fields_opened_inside_each_other_take_linear_time)
+            self._clicks_opened += 1
+            self._fields.append(_ClickHere(buffer, len(buffer), click_here_guide(command), self._clicks_opened))
+            return
+        if kind == "%hlk" and self._options.keep_links and command:
+            url = command_link(command)
         self._fields.append(url)
         if url is not None:
             buffer.append(link_start())
@@ -670,7 +732,10 @@ def _equation_script(control: Record) -> str:
         return ""
     (length,) = struct.unpack_from("<H", record.payload, 4)
     script = record.payload[6:6 + length * 2].decode("utf-16-le", errors="replace")
-    return " ".join(script.split())
+    # Without the control characters that are not white space: U+0002-U+0006 are the temporary script and strike marks, and a
+    # crafted script `\x05a+b\x06 c` wrote `$~~a+b~~ c$` (Pinned by: test_hwp.py::TestEquations::
+    # test_hwp_equation_script_cannot_forge_strike_or_script_marks). White space separates terms, as before.
+    return " ".join(script.translate(_SCRIPT_CONTROLS).split())
 
 
 def _auto_number(control: Record) -> str:
@@ -687,7 +752,9 @@ def _auto_number(control: Record) -> str:
     text = format_number(number, NUMBER_SHAPES[shape] if shape < len(NUMBER_SHAPES) else "DIGIT")
     # Half of a surrogate pair (0xD800-0xDFFF) is dropped: it is not a character, and the result could not be encoded as UTF-8
     # (same as RTF `\uN`. Pinned by: test_audit_hangul.py::TestHwpAutoNumberDecoration).
-    prefix, suffix = (chr(code) if code and not 0xD800 <= code <= 0xDFFF else "" for code in (prefix, suffix))
+    # A control character (below U+0020) is no prefix or suffix: U+0002-U+0006 are the temporary script and strike marks, and
+    # a crafted one wrote `~~3~~` (Pinned by: test_hwp.py::TestHyperlinks::test_hwp_control_text_cannot_forge_strike_or_script_marks).
+    prefix, suffix = (chr(code) if code >= 0x20 and not 0xD800 <= code <= 0xDFFF else "" for code in (prefix, suffix))
     return f"{prefix}{text}{suffix}"
 
 
@@ -709,9 +776,19 @@ def _control_strings(control: Record, count: int) -> list[str]:
         if offset + 2 > len(control.payload):
             break
         (length,) = struct.unpack_from("<H", control.payload, offset)
-        texts.append(control.payload[offset + 2:offset + 2 + length * 2].decode("utf-16-le", errors="replace").strip())
+        # Without control characters: what a ruby or composed character shows has none, and U+0002-U+0006 are the temporary
+        # script and strike marks, so a crafted control wrote `~~본말~~` (the link marks were stripped already). A tab or line
+        # break is a space, as it was before: deleted, it joined the words around it (Pinned by: test_hwp.py::TestHyperlinks::
+        # test_hwp_control_text_cannot_forge_strike_or_script_marks, TestDutmal::test_tab_or_line_break_in_ruby_text_is_a_space).
+        text = control.payload[offset + 2:offset + 2 + length * 2].decode("utf-16-le", errors="replace")
+        texts.append(text.translate(_CONTROL_TEXT).strip())
         offset += 2 + length * 2
     return texts
+
+
+_CONTROL_TEXT = dict.fromkeys(range(32)) | dict.fromkeys(range(0x09, 0x0E), " ")
+# The control characters of an equation script that `str.split` does not take for white space
+_SCRIPT_CONTROLS = {code: None for code in range(0x20) if not chr(code).isspace()}
 
 
 def parse_styles(doc_info: list[Record]) -> list[str]:
@@ -887,15 +964,29 @@ class _InflateBudget:
     remaining: int
 
 
-def _read_stream(ole: olefile.OleFileIO, name: str, compressed: bool, budget: _InflateBudget) -> bytes:
-    return _read_stream_to_end(ole, name, compressed, budget)[0]
+def _read_stream(streams: OleStreams, name: str, compressed: bool, budget: _InflateBudget) -> bytes:
+    return _read_stream_to_end(streams, name, compressed, budget)[0]
 
 
-def _read_stream_to_end(ole: olefile.OleFileIO, name: str, compressed: bool,
+def _read_stream_to_end(streams: OleStreams, name: str, compressed: bool,
                         budget: _InflateBudget) -> tuple[bytes, bool]:
-    """Stream bytes and whether it was read to the end. zlib.error if the compression is broken."""
-    raw = ole.openstream(name).read()
+    """Stream bytes and whether it was read to the end. zlib.error if the compression is broken.
+
+    The stream as stored counts toward the limit, whether or not it is compressed, as a stored ZIP member does, and is not read
+    when it is larger than what is left: the directory entries of an OLE file can all point at one sector chain, so a 4 MB file
+    with 300 picture entries on one 4 MB stream read 1.2 GB, and 100 section entries on one 1 MB stream took 12 s, past any
+    `max_uncompressed_bytes`. Counting only what a compressed stream inflates to, 1,000 section entries on one 4 MB stream that
+    holds an empty deflate block and then zeros read 4 GB under a limit of 10 MB, without an error. A compressed stream counts
+    the larger of its stored and its decompressed size. The streams of a real file add up to no more than the file, and Hangul's
+    compressed streams to less than they decompress to (Pinned by: test_hwp.py::
+    test_uncompressed_streams_are_bounded_by_uncompressed_limit, test_hwp_robustness.py::TestStreamsLargerThanTheFile)."""
+    if streams.size(name) > budget.remaining:
+        raise DocumentTooLargeError("The document becomes too large when decompressed.")
+    raw = streams.read(name)
     if not compressed:
+        budget.remaining -= len(raw)
+        if budget.remaining < 0:
+            raise DocumentTooLargeError("The document becomes too large when decompressed.")
         return raw, True
 
     # decompressobj raises no exception on a stream with a truncated end, which salvages what was read (eof is false if the end marker
@@ -904,7 +995,7 @@ def _read_stream_to_end(ole: olefile.OleFileIO, name: str, compressed: bool,
     # zlib takes the length as a C ssize_t: a limit of sys.maxsize or more ("no limit") raised OverflowError, and every
     # compressed HWP was reported corrupted (Pinned by: test_converter.py::TestHugeLimits)
     data = inflater.decompress(raw, min(budget.remaining + 1, sys.maxsize))
-    budget.remaining -= len(data)
+    budget.remaining -= max(len(raw), len(data))
     if budget.remaining < 0:
         raise DocumentTooLargeError("The document becomes too large when decompressed.")
     return data, inflater.eof
@@ -918,12 +1009,13 @@ def _section_streams(ole: olefile.OleFileIO) -> list[str]:
 
 def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
     try:
-        ole = olefile.OleFileIO(BytesIO(data))
+        ole = OleFile(BytesIO(data))
     except OSError as exc:
         raise CorruptedDocumentError("The HWP document structure could not be read.") from exc
 
     with ole:
-        header = ole.openstream("FileHeader").read()
+        streams = OleStreams(ole, len(data))
+        header = streams.read("FileHeader")
         if len(header) < 40 or not header.startswith(b"HWP Document File"):
             raise CorruptedDocumentError("The HWP file header is invalid.")
         (flags,) = struct.unpack_from("<I", header, 36)
@@ -931,8 +1023,8 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
             raise EncryptedDocumentError("The HWP document is password-protected. Please remove the password and upload it again.")
 
         compressed = bool(flags & _FLAG_COMPRESSED)
-        preview = _preview_text(ole)
-        metadata = _summary_metadata(ole)
+        preview = _preview_text(streams)
+        metadata = _summary_metadata(streams)
         if flags & _FLAG_DISTRIBUTION:
             return _distribution_fallback(preview, metadata)
         if flags & _FLAG_PROTECTED:
@@ -946,7 +1038,7 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
         # body is read without them, with a warning — one broken DocInfo rejected documents whose sections were fine (the
         # same rule as HWPX header.xml. Pinned by: test_hwp_robustness.py::TestBrokenDocInfo).
         try:
-            doc_info_stream = _read_stream(ole, "DocInfo", compressed, budget) if ole.exists("DocInfo") else b""
+            doc_info_stream = _read_stream(streams, "DocInfo", compressed, budget) if streams.exists("DocInfo") else b""
         except zlib.error:
             doc_info_stream = b""
             extraction.warnings.append("The document style information (DocInfo) could not be read, so the document was converted "
@@ -954,22 +1046,25 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
         doc_info = _flatten(parse_records(doc_info_stream, records))
         bin_items = parse_bin_items(doc_info)
 
-        loaded: dict[int, bytes | None] = {}
+        loaded: dict[tuple[str, bool], bytes | None] = {}
 
         def load_bin(item_id: int) -> bytes | None:
-            """A picture stream is read only once. Reading and decompressing the same picture again per reference took 150 seconds for a
-            document with 16,384 references to one picture, and the decompression limit was also cut per reference. A picture whose
-            compression is broken skips just that picture (exceeding the limit is a problem of the whole document, so it is raised as is)
+            """A picture stream is read only once, however many BinItems name it. Reading and decompressing the same picture again
+            per reference took 150 seconds for a document with 16,384 references to one picture, and the decompression limit was
+            also cut per reference; kept per BinItem, 8,000 BinItems naming one 2 MB stream took 16.6 s. A picture whose compression
+            is broken skips just that picture (exceeding the limit is a problem of the whole document, so it is raised as is)
             (Pinned by: test_image.py::TestHwpRepeatedAndBrokenPictures)."""
-            if item_id not in loaded:
-                # A BinItem ID is the 1-based index of the DocInfo BIN_DATA records.
-                name, compress = bin_items[item_id - 1] if 1 <= item_id <= len(bin_items) else (None, None)
+            # A BinItem ID is the 1-based index of the DocInfo BIN_DATA records.
+            name, compress = bin_items[item_id - 1] if 1 <= item_id <= len(bin_items) else (None, None)
+            if not name or not streams.exists(name):
+                return None
+            key = (name.lower(), compressed if compress is None else compress)
+            if key not in loaded:
                 try:
-                    loaded[item_id] = (_read_stream(ole, name, compressed if compress is None else compress, budget)
-                                       if name and ole.exists(name) else None)
+                    loaded[key] = _read_stream(streams, name, key[1], budget)
                 except zlib.error:
-                    loaded[item_id] = None
-            return loaded[item_id]
+                    loaded[key] = None
+            return loaded[key]
 
         renderer = HwpRenderer(parse_styles(doc_info), options, extraction, load_bin, parse_paragraph_heads(doc_info),
                                parse_char_scripts(doc_info), parse_struck_shapes(doc_info))
@@ -984,7 +1079,7 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
             # the stream name: up to 24 digits chosen by the document reached the warning
             # (Pinned by: test_audit_hangul.py::TestHwpSectionWarningNumber).
             try:
-                stream, complete = _read_stream_to_end(ole, name, compressed, budget)
+                stream, complete = _read_stream_to_end(streams, name, compressed, budget)
             except zlib.error as exc:
                 broken.append(exc)
                 extraction.warnings.append(f"Section {number}: the compressed data is broken and could not be read.")
@@ -993,11 +1088,20 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
                 extraction.warnings.append(f"Section {number}: the stream is truncated, so only the part that could be read was converted.")
 
             # Read per top-level record (paragraph) and count characters. Once the limit is exceeded, the remaining paragraphs and
-            # sections are not read.
+            # sections are not read. The notes the paragraph added count too: written after the body, they were not counted while
+            # reading, so a document of footnotes was read to its end (9.6 million characters: 3.7 s against 0.2 s in the body)
+            # (Pinned by: test_hwp_robustness.py::TestNotesCountTowardTheLimit).
             for record in iter_records(stream, records):
+                noted = len(renderer.notes)
                 rendered = renderer.render([record])
                 blocks.extend(rendered)
-                if extraction.count(sum(solid_length(block) for block in rendered), options):
+                # Without a limit nothing is counted: the count is only ever compared with the limit, and measuring every note made
+                # a document of 60,000 notes 30% slower (Pinned by: test_hwp_robustness.py::TestNotesCountTowardTheLimit::
+                # test_notes_are_not_measured_without_a_limit)
+                if options.max_chars is None:
+                    continue
+                added = sum(solid_length(block) for block in rendered) + sum(solid_length(note) for note in renderer.notes[noted:])
+                if extraction.count(added, options):
                     break
             if extraction.exceeded:
                 break
@@ -1035,17 +1139,17 @@ def _distribution_fallback(preview: str, metadata: dict[str, str]) -> Extraction
     )
 
 
-def _preview_text(ole: olefile.OleFileIO) -> str:
+def _preview_text(streams: OleStreams) -> str:
     """The preview text saved by Hancom Office. It writes table cells as `<cell text>`, so if no text remains after removing the cell marks
     (`<`, `>`) the preview is considered absent. Used as is, a document without text emitted `<>` noise as its body
     (Pinned by: test_hwp.py::TestPreviewFallback)."""
-    if not ole.exists("PrvText"):
+    if not streams.exists("PrvText"):
         return ""
-    text = ole.openstream("PrvText").read().decode("utf-16-le", errors="replace").strip()
+    text = streams.read("PrvText").decode("utf-16-le", errors="replace").strip()
     return text if text.translate(PREVIEW_CELL_MARKS).strip() else ""
 
 
-def _summary_metadata(ole: olefile.OleFileIO) -> dict[str, str]:
+def _summary_metadata(streams: OleStreams) -> dict[str, str]:
     """HWP keeps summary information not in the standard SummaryInformation but in a property set with its own name (ID 2 title, 4 author).
 
     olefile's `getproperties` is not used. It trusts the value count as is, and a 21KB file with 8 bytes changed to FF hung looping
@@ -1054,10 +1158,10 @@ def _summary_metadata(ole: olefile.OleFileIO) -> dict[str, str]:
     anything out of range is dropped.
     """
     name = "\x05HwpSummaryInformation"
-    if not ole.exists(name):
+    if not streams.exists(name):
         return {}
     try:
-        stream = ole.openstream(name).read(_SUMMARY_MAX_BYTES)
+        stream = streams.read(name)[:_SUMMARY_MAX_BYTES]
     except OSError:
         return {}  # summary information is supplementary. Even if broken it must not block converting the body
 

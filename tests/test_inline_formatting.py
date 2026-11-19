@@ -35,6 +35,7 @@ from tests.timing import fastest
 
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 _PLAIN = ConvertOptions(keep_links=False, keep_emphasis=False)
 
 
@@ -946,3 +947,28 @@ class TestInvisibleCharacters:
     ])
     def test_html(self, html, expected):
         assert convert(f"<html><body>{html}</body></html>".encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize("character", ["\u200b", "\ufeff", "\u00ad", "\u200e", "\ue000", "\uf8ff", "\x90"])
+    @pytest.mark.parametrize("properties", ["", _BOLD, _ITALIC])
+    def test_paragraph_of_invisible_characters_is_empty(self, character, properties):
+        """Whether a paragraph is empty was decided with these characters still in it, and a formatted run lost them only
+        afterwards: a list paragraph holding only one in bold had no text for its item, and the whole document was rejected
+        as corrupted. Unformatted it wrote a bare number, or a bare `#` for a heading. It is an empty paragraph now: a DOCX one
+        keeps its number and writes nothing, a heading writes nothing, and a PPTX one is skipped, as empty ones are."""
+        item = _paragraph(_run(character, properties), style="ListNumber")
+        numbered = _paragraph(_run("first"), style="ListNumber") + item + _paragraph(_run("third"), style="ListNumber")
+        heading = _paragraph(_run("before")) + _paragraph(_run(character, properties), style="Heading1") + _paragraph(_run("after"))
+
+        assert _docx_text(numbered) == "1. first\n3. third"
+        assert _docx_text(_table([item, _paragraph(_run("x"))])) == "x"
+        assert _docx_text(heading) == "before\n\nafter"
+
+        def build(slide):
+            frame = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(6), Inches(1)).text_frame
+            look = {"bold": True} if properties == self._BOLD else {"italic": True} if properties == self._ITALIC else {}
+            for number, text in enumerate(["one", character, "three"]):
+                paragraph = frame.paragraphs[0] if number == 0 else frame.add_paragraph()
+                etree.SubElement(paragraph._p.get_or_add_pPr(), f"{{{_A}}}buAutoNum", type="arabicPeriod")
+                _add_runs(paragraph, ((text, look),))
+
+        assert convert(_deck(build), "a.pptx").text.endswith("1. one\n2. three")

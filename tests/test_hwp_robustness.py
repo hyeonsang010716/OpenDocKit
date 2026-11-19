@@ -1,17 +1,18 @@
 """An odd part of an HWP/HWPX document does not get the whole document rejected: deep record chains, a broken section stream,
 parts outside the body (header.xml, content.hpf, manifest, preview), very long numeric attributes, spans past the table.
 
-HWP record streams are built with the fake OLE container (`_fake_hwp`) of `test_hwp.py`.
+HWP record streams are put into the OLE container of `_fake_hwp` of `test_hwp.py`.
 """
 
 from io import BytesIO
 import struct
+import tracemalloc
 import zipfile
 import zlib
 
 import pytest
 
-from opendockit import CorruptedDocumentError, convert
+from opendockit import ConvertOptions, CorruptedDocumentError, DocumentTooLargeError, convert
 from tests import builder
 from tests.test_hwp import (
     TAG_BIN_DATA,
@@ -344,6 +345,88 @@ class TestSpansPastTheTable:
         assert result.warnings == []
         assert result.text.count("| B | |") == 3
 
+class TestNotesCountTowardTheLimit:
+    """Footnotes are written after the body, and their text was not counted while the body was read: a document whose text is
+    in its notes was read to its end whatever `max_chars` said (9.6 million characters of notes took 3.7 s, the same text in
+    the body 0.2 s). The notes a paragraph adds count with it."""
+
+    _NOTE = "각주 내용 " * 20  # 80 characters that count
+
+    def test_hwpx_stops_reading_at_the_limit(self):
+        paragraph = ('<hp:p><hp:run><hp:t>a</hp:t><hp:ctrl><hp:footNote><hp:subList><hp:p><hp:run><hp:t>' + self._NOTE
+                     + "</hp:t></hp:run></hp:p></hp:subList></hp:footNote></hp:ctrl></hp:run></hp:p>")
+
+        result = convert(builder.hwpx_bytes(paragraph * 200), "a.hwpx", ConvertOptions(max_chars=2_000))
+
+        assert result.exceeded
+        assert result.text.count("[^") < 2 * 40  # the references and definitions of about 25 notes, not of 200
+
+    def test_hwp_stops_reading_at_the_limit(self, monkeypatch):
+        record = builder.hwp_record
+        paragraph = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("a", (17, "fn  "))),
+            record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("fn  ")),
+            record(TAG_LIST_HEADER, 2, b"\x01\x00" + b"\x00" * 6),
+            _paragraph(self._NOTE, 2),
+        ])
+        data = _fake_hwp(monkeypatch, sections=[paragraph * 200])
+
+        result = convert(data, "a.hwp", ConvertOptions(max_chars=2_000))
+
+        assert result.exceeded
+        assert result.text.count("[^") < 2 * 40
+
+    def test_notes_are_not_measured_without_a_limit(self, monkeypatch):
+        """Measuring every note made a document of 60,000 notes 30% slower; without a limit nothing is compared, so nothing is
+        measured."""
+        from opendockit.extractors import hwp, hwpx
+
+        record = builder.hwp_record
+        paragraph = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("a", (17, "fn  "))),
+            record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("fn  ")),
+            record(TAG_LIST_HEADER, 2, b"\x01\x00" + b"\x00" * 6),
+            _paragraph(self._NOTE, 2),
+        ])
+        hwp_data = _fake_hwp(monkeypatch, sections=[paragraph * 20])
+        hwpx_data = builder.hwpx_bytes(('<hp:p><hp:run><hp:t>a</hp:t><hp:ctrl><hp:footNote><hp:subList><hp:p><hp:run><hp:t>'
+                                        + self._NOTE + "</hp:t></hp:run></hp:p></hp:subList></hp:footNote></hp:ctrl></hp:run></hp:p>") * 20)
+        expected = {name: convert(data, name, ConvertOptions(max_chars=None)).text for name, data in (("a.hwp", hwp_data), ("a.hwpx", hwpx_data))}
+        measured = []
+        for module in (hwp, hwpx):
+            monkeypatch.setattr(module, "solid_length", lambda text: measured.append(text) or len(text))
+
+        for name, data in (("a.hwp", hwp_data), ("a.hwpx", hwpx_data)):
+            assert convert(data, name, ConvertOptions(max_chars=None)).text == expected[name]
+        assert measured == []
+
+
+class TestManyMembersAndReferences:
+    """Each chart and picture a section refers to was looked up in the list of the archive's members: 40,000 references to as many
+    members (3.7 MB) took 5 s. The members are looked up in constant time."""
+
+    @staticmethod
+    def _hwpx(count: int) -> bytes:
+        body = ("<hp:p><hp:run>" + "".join(f'<hp:chart chartIDRef="Chart/c{index}.xml"/>' for index in range(count))
+                + "</hp:run><hp:run><hp:t>끝</hp:t></hp:run></hp:p>")
+        output = BytesIO()
+        with zipfile.ZipFile(BytesIO(builder.hwpx_bytes(body))) as source, zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as target:
+            for name in source.namelist():
+                target.writestr(name, source.read(name))
+            for index in range(count):
+                target.writestr(zipfile.ZipInfo(f"x/{index}"), b"")
+        return output.getvalue()
+
+    @pytest.mark.timing
+    def test_references_to_many_members_take_linear_time(self):
+        small, large = self._hwpx(5_000), self._hwpx(20_000)
+
+        assert fastest(lambda: convert(large, "a.hwpx")) < 8 * fastest(lambda: convert(small, "a.hwpx")) + 0.05
+        assert convert(large, "a.hwpx").text.endswith("끝")
+
+
 class TestCellsOnAnOccupiedAddress:
     """When a cell address pointed at a place taken by an earlier cell (two cells with the same address, or an earlier cell's
     span larger than the table), the later cell's text vanished without a warning. Like a cell that comes without an address
@@ -462,6 +545,80 @@ class TestHugeParagraphText:
         assert parts == ["가" * 2_000_000]
         assert peak < 4 * len(payload)  # an integer per character would take more than 20 times
 
+    @pytest.mark.parametrize(("unit", "text"), [(10, "\n"), (24, "-"), (30, " "), (31, " ")])
+    def test_paragraph_of_char_controls_is_decoded_in_one_go(self, unit, text):
+        """A char control of one WCHAR that stands for a character (line break, hyphen, fixed-width space) was taken one at a time,
+        making a bytes object per character again: 63 times the paragraph, and 60 MB of line breaks in a 57 KB file took 13 s
+        and 4.6 GB. They are decoded with the text around them."""
+        import tracemalloc
+
+        from opendockit.extractors.hwp import decode_para_text
+
+        payload = struct.pack("<H", unit) * 2_000_000
+        tracemalloc.start()
+
+        try:
+            parts = decode_para_text(payload)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+        assert parts == [text * 2_000_000]
+        assert peak < 4 * len(payload)
+
+    def test_char_controls_read_the_same_inside_text(self):
+        """Replaced in the decoded text, the char controls give what they gave one at a time: a hyphen, a space, a line break,
+        or nothing (paragraph end, null, reserved), and a dropped one between two parts of a marked run does not split the run."""
+        from opendockit.extractors.hwp import decode_para_text
+
+        def units(*values):
+            return b"".join(value.encode("utf-16-le") if isinstance(value, str) else struct.pack("<H", value) for value in values)
+
+        superscript = ("^", False)
+
+        assert decode_para_text(units("a", 24, "b", 30, "c", 31, "d", 10, "e", 0, 13, 25, 29, "f", 13)) == ["a-b c d\nef"]
+        assert decode_para_text(units(13)) == []
+        assert (decode_para_text(units("ab", 0, "cd"), [(0, superscript), (2, (None, False)), (3, superscript)])
+                == decode_para_text(units("abcd"), [(0, superscript)]))
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("payload", [struct.pack("<H", 13) * 2_000_000, "Ā".encode("utf-16-le") * 2_000_000],
+                             ids=["dropped controls", "bytes like a control across two characters"])
+    def test_paragraph_without_text_or_with_control_like_bytes_takes_as_long_as_text(self, payload):
+        """A paragraph of char controls that are dropped (paragraph end, null) went round the loop once per character: 4 MB took
+        0.44 s, a 190 KB file of 200 MB took 24 s, and nothing of it counts toward the character limit. Text whose bytes look
+        like a control across two characters ('Ā' is 00 01, so 'ĀĀ' holds 01 00 at an odd byte) did the same, 4.5 s for
+        4 MB. Both take as long as ordinary text now."""
+        from opendockit.extractors.hwp import decode_para_text
+
+        text = "가".encode("utf-16-le") * 2_000_000
+        assert fastest(lambda: decode_para_text(payload)) < 5 * fastest(lambda: decode_para_text(text)) + 0.01
+
+    def test_unordered_shape_positions_past_the_text_are_not_sorted(self):
+        """Character shape positions that do not increase were sorted as tuples before those past the text were dropped: 10
+        million pairs in a 114 KB section past a one-character text took 3 s and 1 GB. Only positions inside the text are kept
+        before ordering; at one position the larger shape ID still wins."""
+        import tracemalloc
+
+        from opendockit import ConvertOptions
+        from opendockit.extractors.hwp import TAG_PARA_CHAR_SHAPE, HwpRenderer, Record
+
+        payload = b"".join(struct.pack("<II", position, 1) for position in range(1_000_000, 0, -1))
+        paragraph = Record(TAG_PARA_HEADER, 0, b"", [Record(TAG_PARA_CHAR_SHAPE, 1, payload)])
+        renderer = HwpRenderer([], ConvertOptions(), scripts={1: "^"})
+        tracemalloc.start()
+
+        try:
+            runs = renderer._shape_runs(paragraph, 1)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+        assert runs == []
+        assert peak < 4 * len(payload)  # the record read as an array and split in two; sorted tuples took 13 times
+        unordered = Record(TAG_PARA_HEADER, 0, b"", [Record(TAG_PARA_CHAR_SHAPE, 1, struct.pack("<6I", 2, 0, 0, 0, 0, 1))])
+        assert HwpRenderer([], ConvertOptions(), scripts={1: "^"})._shape_runs(unordered, 5) == [(0, ("^", False)), (2, (None, False))]
+
     def test_bytes_that_look_like_a_control_across_two_characters_are_text(self):
         """Bytes spanning two characters, such as 'A' (41 00) followed by '가' (00 AC), may look like a control character (1f or
         below + 00), but they are text unless they sit on a character boundary."""
@@ -547,3 +704,83 @@ class TestHwpxUnreadableMembers:
         result = convert(data, "a.hwpx")
 
         assert result.text.count("[Image") == 1
+
+
+def _deflate(data: bytes) -> bytes:
+    return zlib.compress(data)[2:-4]
+
+
+def _peak_memory(action) -> int:
+    tracemalloc.start()
+    try:
+        action()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+class TestStreamsLargerThanTheFile:
+    """olefile reads a stream whole when it is opened, as many sectors as its directory entry declares, and only notes a defect
+    when the sector chain loops: a 26.5 KB HWP whose Section0 chain pointed at itself with a declared size of 2 GB made 5.4 GB in
+    memory and converted 'successfully'. A stream cannot hold more than the file, so it is read no further than that."""
+
+    _STREAMS = {"FileHeader": builder.hwp_file_header(1), "DocInfo": _deflate(b""), "PrvText": "미리보기".encode("utf-16-le"),
+                "\x05HwpSummaryInformation": b"", "BodyText/Section0": _deflate(_paragraph("본문"))}
+
+    @pytest.mark.parametrize("looped", ["FileHeader", "DocInfo", "PrvText", "\x05HwpSummaryInformation", "BodyText/Section0"])
+    def test_stream_that_loops_on_itself_is_read_no_further_than_the_file(self, looped):
+        # every stream takes regular sectors (4,096 bytes or more), the only ones whose declared size olefile reads in full
+        streams = {name: body.ljust(4096, b"\x00") for name, body in self._STREAMS.items()}
+        data = builder.ole_file(streams, loops=(looped,), sizes={looped: 200_000_000})
+        results = []
+
+        peak = _peak_memory(lambda: results.append(convert(data, "a.hwp")))
+
+        assert results[0].text == "본문"
+        assert peak < 20_000_000
+
+    def test_mini_stream_that_loops_on_itself_is_read_no_further_than_the_file(self):
+        """The streams under 4,096 bytes are read from the mini stream, which olefile reads first, as large as the root entry
+        says."""
+        data = builder.ole_file(self._STREAMS, loops=("Root Entry",), sizes={"Root Entry": 200_000_000})
+        results = []
+
+        peak = _peak_memory(lambda: results.append(convert(data, "a.hwp")))
+
+        assert results[0].text == "본문"
+        assert peak < 20_000_000
+
+    def test_compressed_stream_counts_as_stored_toward_the_limit(self):
+        """Only what a compressed stream inflates to was counted: 1,000 section entries on one 4 MB stream holding a short deflate
+        stream and then zeros read 4 GB in 5 s under a limit of 10 MB, without an error."""
+        streams = {"FileHeader": builder.hwp_file_header(1), "DocInfo": _deflate(b""),
+                   "BodyText/Section0": _deflate(_paragraph("본문")) + bytes(1_000_000)}
+        shared = {f"BodyText/Section{index}": "BodyText/Section0" for index in range(1, 20)}
+        data = builder.ole_file(streams, shared=shared)
+
+        with pytest.raises(DocumentTooLargeError):
+            convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=5_000_000))
+        assert convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=25_000_000)).text == "\n\n".join(["본문"] * 20)
+
+
+class TestManyDirectoryEntries:
+    """olefile finds a stream by walking the children of each storage, so opening each of n sections took the square of n
+    (8,000 sections: 3.4 s, 16,000: 27 s). The names are looked up once, in any case as olefile does."""
+
+    @staticmethod
+    def _document(count: int) -> bytes:
+        streams = {"FileHeader": builder.hwp_file_header(1), "DocInfo": _deflate(b"")}
+        return builder.ole_file(streams | {f"BodyText/Section{index}": _deflate(_paragraph("가")) for index in range(count)})
+
+    def test_stream_names_are_found_in_any_case(self):
+        streams = {"FileHeader": builder.hwp_file_header(1), "DOCINFO": _deflate(builder.hwp_record(TAG_STYLE, 0, builder.hwp_style("개요 1"))),
+                   "BodyText/Section0": _deflate(_paragraph("본문"))}
+
+        assert convert(builder.ole_file(streams), "a.hwp").text == "# 본문"  # its first style, read from DocInfo, is an outline
+
+    @pytest.mark.timing
+    def test_many_sections_take_linear_time(self):
+        small, large = self._document(2_000), self._document(8_000)
+
+        assert convert(large, "a.hwp").text.count("가") == 8_000
+        assert fastest(lambda: convert(large, "a.hwp")) < 8 * fastest(lambda: convert(small, "a.hwp"))

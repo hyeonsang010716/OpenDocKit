@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from opendockit import ConvertOptions, CorruptedDocumentError, DocumentTooLargeError
+from opendockit import ConvertOptions, CorruptedDocumentError, DocumentTooLargeError, convert_file
 from tests import builder
 from tests.test_converter import WritingPipe
 
@@ -98,6 +98,64 @@ class TestLangChainLoader:
             assert langchain.OpenDocKitLoader(scan, mode=mode).load() == []
         messages = [record.getMessage() for record in caplog.records]
         assert len(messages) == 1 and str(scan) in messages[0] and "image description (OCR)" in messages[0]
+
+    @pytest.mark.parametrize("mode", ["single", "sections"])
+    def test_pictures_without_a_description_give_no_document(self, tmp_path, caplog, mode):
+        """A picture file, or a multi-page TIFF, read without a describer is nothing but `[Image]` placeholders: a Document of
+        them is no more content than one of page markers. A placeholder with alt text says something and is kept, and so is a
+        page with text around its picture."""
+        from io import BytesIO
+
+        from PIL import Image
+
+        frames = [Image.new("RGB", (60, 40), color) for color in ("red", "green")]
+        buffer = BytesIO()
+        frames[0].save(buffer, "TIFF", save_all=True, append_images=frames[1:])
+        (tmp_path / "pic.png").write_bytes(builder.png_bytes())
+        (tmp_path / "scan.tiff").write_bytes(buffer.getvalue())
+        (tmp_path / "pics.pdf").write_bytes(builder.pdf_with_images())
+        (tmp_path / "alt.docx").write_bytes(builder.docx_with_images())
+
+        with caplog.at_level("WARNING", logger="opendockit.integrations"):
+            for name in ("pic.png", "scan.tiff"):
+                assert langchain.OpenDocKitLoader(tmp_path / name, mode=mode).load() == []
+        messages = [record.getMessage() for record in caplog.records]
+        assert len(messages) == 2 and all(message.endswith("It holds only pictures, and they were not described.")
+                                          for message in messages)
+        assert "[Image]" in langchain.OpenDocKitLoader(tmp_path / "pics.pdf", mode=mode).load()[0].page_content
+        assert "[Image: " in langchain.OpenDocKitLoader(tmp_path / "alt.docx", mode=mode).load()[0].page_content
+
+    @pytest.mark.parametrize("mode", ["single", "sections"])
+    def test_sheet_of_pictures_gives_no_document(self, tmp_path, caplog, mode):
+        """On a sheet with two or more pictures each is preceded by its cell, `(cell C2)`, which says no more than the
+        `[Image]` after it: a sheet of pictures only was handed on as `## Sheet: …` + those lines."""
+        import re
+
+        from tests.test_spreadsheet import _picture, _xlsx_with_drawing
+
+        media = {"image1.png": builder.png_bytes(seed=3), "image2.png": builder.png_bytes(seed=4)}
+        data = builder.zip_with(_xlsx_with_drawing(_picture(1, "rId1") + _picture(4, "rId2"), media),
+                                edit={"xl/worksheets/sheet1.xml": lambda xml: re.sub("<sheetData>.*</sheetData>", "<sheetData/>", xml)})
+        (tmp_path / "photos.xlsx").write_bytes(data)
+        assert "(cell D2)" in convert_file(tmp_path / "photos.xlsx").text
+
+        with caplog.at_level("WARNING", logger="opendockit.integrations"):
+            assert langchain.OpenDocKitLoader(tmp_path / "photos.xlsx", mode=mode).load() == []
+        assert caplog.records[-1].getMessage().endswith("It holds only pictures, and they were not described.")
+
+    @pytest.mark.parametrize(("text", "says_something"), [
+        ("(cell C2)\n\n[Image]\n\n(cell C5)\n\n[Image]", False),
+        ("[Chart]\n\n[Video]\n\n[OLE object]\n\n<!-- Page 2 -->", False),
+        ("(cell C2: 제품A)\n\n[Image]", True),
+        ("[Chart] 매출\n\n[Image]", True),
+        ("[Image: 조직도]", True),
+    ])
+    def test_what_says_nothing_on_its_own(self, text, says_something):
+        """A placeholder for content that was not read, a picture's bare cell and a page marker say nothing; a cell with the
+        text of its row, a chart with its title and a picture with alt text do."""
+        from opendockit.integrations._documents import _says_something
+
+        assert _says_something(text) is says_something
 
     def test_slide_that_is_only_a_title_is_kept(self, tmp_path):
         """A deck of divider slides: titles and nothing else. The title lives in the slide's heading, not in its text, so the

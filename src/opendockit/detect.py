@@ -13,12 +13,11 @@ import re
 import struct
 import zipfile
 
-import olefile
-
 from opendockit.exceptions import ConversionError, CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._encoding import decode_text, is_cp949_text, is_utf8_text, unicode_bom_codec, utf16_encoding
 from opendockit.extractors._html_mail import is_mhtml, mail_reads_as_html, mhtml_html_part
 from opendockit.extractors._mail import is_encrypted_mail, mail_box
+from opendockit.extractors._ole import OleFile
 from opendockit.image import is_image_file
 from opendockit.models import DocumentFormat
 
@@ -28,8 +27,11 @@ _ZIP_MAGIC = b"PK\x03\x04"
 _HWP3_MAGIC = b"HWP Document File V3"
 _PDF_MAGIC = b"%PDF-"
 _RTF_MAGIC = b"{\\rtf"
-# SVG image: the top element (after a DOCTYPE) is <svg>. Passed through as text, the path coordinates become the body.
-_SVG_ROOT = re.compile(rb"(?:<!doctype\s+svg\b[^>]*>\s*)?<svg[\s>]", re.IGNORECASE)
+# SVG image: the top element (after a DOCTYPE) is <svg>. Passed through as text, the path coordinates become the body. A DOCTYPE
+# may hold an internal subset of declarations (`[ <!ENTITY ns_svg "…"> ]`, written by Adobe Illustrator into every SVG it
+# exports), whose `>` ended it before: such an SVG passed as text (Pinned by: test_detect.py::TestDoctypeWithAnInternalSubset).
+_DOCTYPE = rb"<!doctype\b[^>\[]*(?:\[[^\]]*\])?\s*>"
+_SVG_ROOT = re.compile(rb"(?:" + _DOCTYPE.replace(rb"\b", rb"\s+svg\b", 1) + rb"\s*)?<svg[\s>]", re.IGNORECASE)
 # Found only in a PDF body: the cross-reference table position (startxref) or an object header (`12 0 obj`).
 # An object header is looked for only from the first digit of a number (`(?<!\d)`): started again at every digit of a run, the search
 # took 5 seconds for 40,000 digits after a late header, in the first check every upload goes through. The same files match
@@ -52,7 +54,7 @@ _LEADING_MARKUP_NOISE = re.compile(rb"(?:\s+|<!--.*?-->|<\?xml[^>]*\?>)*", re.DO
 # Range searched for HTML signals. Export files that start with a long <style> or comment had no signal within 2KB.
 _HTML_SNIFF_BYTES = 64 * 1024
 # XML prolog (whitespace, comments, processing instructions, DOCTYPE). What follows them is the top element.
-_XML_PROLOG = re.compile(rb"(?:\s+|<!--.*?-->|<\?[^>]*\?>|<!doctype[^>]*>)*", re.DOTALL | re.IGNORECASE)
+_XML_PROLOG = re.compile(rb"(?:\s+|<!--.*?-->|<\?[^>]*\?>|" + _DOCTYPE + rb")*", re.DOTALL | re.IGNORECASE)
 # Top element name of a document that starts with an XML declaration. Unless it is an HTML element (`_HTML_ROOT_NAMES`) the document is
 # XML data (`_is_xml_data`).
 _XML_DECLARATION = re.compile(rb"<\?xml[\s?]")
@@ -225,6 +227,44 @@ def pdf_lookalike_text_format(data: bytes, filename: str | None) -> DocumentForm
         return None
 
 
+def named_as_text(filename: str | None) -> bool:
+    """Does the file name give a text or code extension (`.txt`, `.md`, `.html`, `.json`, `.log` …)?"""
+    extension = extension_of(filename)
+    return extension in _TEXT_EXTENSIONS or extension in _CODE_EXTENSIONS
+
+
+def code_or_data_text(data: bytes, filename: str | None) -> bool:
+    """Is this text a code, data, config or log file: named with such an extension (`.json`, `.py`, `.yaml` …), or JSON as
+    format detection reads it (`_is_json`: the whole text, or its first line for JSON Lines; over `_JSON_PARSE_BYTES`, an
+    opening of JSON tokens alone, `_only_json_tokens`)? Its U+2028 and U+2029 are characters of a string, not line breaks.
+    Taken by its first characters, prose that opens with `["quoted"] title` or `[["a","b"]] …` kept them
+    (Pinned by: test_markdown.py::TestCleanText::test_line_separators_of_code_and_data_files_stay)."""
+    if extension_of(filename) in _CODE_EXTENSIONS:
+        return True
+    wide = unicode_bom_codec(data[:8192]) or utf16_encoding(data)
+    if len(data) > _JSON_PARSE_BYTES:
+        # Not parsed whole (`_is_json`): its first `_JSON_TOKENS_BYTES` must be JSON tokens and nothing else, the last of them
+        # perhaps cut short. Turned down unread, a 1.3 MB JSON array named `.txt` or unnamed got raw line breaks inside its
+        # strings (Pinned by: test_markdown.py::TestCleanText::test_line_separators_of_a_large_json_text_stay)
+        head = data[:_JSON_TOKENS_BYTES * 4].decode(wide or "utf-8", errors="ignore").lstrip("\ufeff")[:_JSON_TOKENS_BYTES]
+        return _JSON_START.match(head.encode()) is not None and _only_json_tokens(head)
+    body = data.decode(wide, errors="ignore").encode() if wide else data
+    return _is_json(data, body.removeprefix(b"\xef\xbb\xbf"), wide)
+
+
+# The part of a large text looked at for JSON tokens (`code_or_data_text`), and the tokens: strings, numbers, literals and
+# punctuation, with white space between; what is left after them may only be a string, number or literal cut short.
+_JSON_TOKENS_BYTES = 64 * 1024
+_JSON_TOKENS = re.compile(r'(?:\s*+(?:"(?:[^"\\\x00-\x1f]|\\.)*+"|-?[0-9]++(?:\.[0-9]++)?+(?:[eE][+-]?+[0-9]++)?+'
+                          r"|true|false|null|[\[\]{},:]))*+\s*+")
+_JSON_CUT_SHORT = re.compile(r'"(?:[^"\\\x00-\x1f]|\\.)*+\\?|-?[0-9.eE+-]*|[a-z]{1,4}')
+
+
+def _only_json_tokens(head: str) -> bool:
+    end = _JSON_TOKENS.match(head).end()
+    return _JSON_CUT_SHORT.fullmatch(head, end) is not None
+
+
 def extension_mismatch(detected: DocumentFormat, filename: str | None) -> str | None:
     """Return the warning text if the format claimed by the extension differs from the actual format."""
     extension = extension_of(filename)
@@ -324,7 +364,7 @@ def _office_main_part(archive: zipfile.ZipFile, names: set[str]) -> DocumentForm
 
 def _detect_ole(data: bytes) -> DocumentFormat:
     try:
-        with olefile.OleFileIO(BytesIO(data)) as ole:
+        with OleFile(BytesIO(data)) as ole:
             streams = {"/".join(entry) for entry in ole.listdir(streams=True, storages=True)}
     except OSError as exc:
         raise CorruptedDocumentError("The OLE structure of the document is corrupted.") from exc
@@ -346,6 +386,12 @@ def _detect_ole(data: bytes) -> DocumentFormat:
         return DocumentFormat.DOC
     if "powerpoint document" in streams:
         return DocumentFormat.PPT
+    if "__properties_version1.0" in streams and any(name.startswith("__substg1.0_") for name in streams):
+        # An Outlook message (.msg, what Outlook saves by default): its property streams. Outlook saves a mail as MHT, HTML or
+        # text too, which are read; the generic notice gave no way on
+        # (Pinned by: test_detect.py::test_outlook_message_is_reported_with_the_formats_to_save_it_in).
+        raise UnsupportedFormatError("Outlook messages (.msg) are not supported. Please save the mail in Outlook as MHT, HTML or "
+                                     "text and upload it again.")
     raise UnsupportedFormatError("This OLE document format is not supported.")
 
 

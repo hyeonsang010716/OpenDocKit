@@ -2,11 +2,12 @@
 
 import re
 
-from bs4 import BeautifulSoup, NavigableString, Tag
-from bs4.element import PreformattedString
+from bs4 import BeautifulSoup, Comment, NavigableString, Tag
+from bs4.element import PageElement, PreformattedString
 
 from opendockit.extractors._html_base import _BLOCK_TAGS, _HEADINGS
-from opendockit.extractors._mathml import MATH_IGNORED, literal, mathml_structure, text_leaf
+from opendockit.extractors._html_dom import _decompose_all, _text
+from opendockit.extractors._mathml import MATH_IGNORED, base_child, literal, mathml_structure, text_leaf
 
 
 # MathML (`_put_math`): annotation encodings of the LaTeX the document wrote, the opening of Wikipedia's wrapper, script
@@ -50,6 +51,196 @@ def _put_math(soup: BeautifulSoup) -> None:
             math.append(f"${latex}$")  # surrounding spacing stays as in the source (so no space appears before a comma)
 
 
+# The classes MathJax 2 gives the element that shows a formula, or the display block around it, right before its
+# `<script type="math/tex">`, as MathJax spells them (a page's own `mathjax` container is not one): the frames and display blocks
+# of its HTML-CSS, SVG, CommonHTML, PreviewHTML and NativeMML outputs and the preview shown while it typesets. For a frame without
+# the id MathJax gives it (`_mathjax_frame`).
+_MATHJAX_FRAMES = frozenset({"MathJax", "MathJax_Display", "MathJax_SVG", "MathJax_SVG_Display", "MathJax_CHTML",
+                             "MathJax_CHTML_Display", "mjx-chtml", "MJXc-display", "MathJax_PHTML", "MathJax_PHTML_Display",
+                             "MJXp-display", "MathJax_MathML", "MathJax_Preview"})
+
+
+def _put_tex_scripts(soup: BeautifulSoup) -> None:
+    """Replaces the TeX of `<script type="math/tex">` (also `; mode=display`) with the same `$LaTeX$` notation, before scripts
+    are removed. It is the input form of MathJax 2 and what kramdown (Jekyll, GitHub Pages) writes for `$…$` and `$$…$$`: in a
+    page MathJax has not rendered, the formula is nowhere else, and it vanished with the scripts, with no warning
+    (Pinned by: test_core_html.py::TestMathMl::test_tex_in_a_mathjax_script_is_the_formula). A formula that opens a fragment
+    is taken out of the head the parser put it in (`_formulas_out_of_the_head`).
+
+    A page saved after MathJax 2 ran has the rendered formula right before the script (`_mathjax_frame`). When it holds MathML
+    (the assistive copy), it is replaced by that MathML, from which the formula is read; when it holds only the drawn glyphs,
+    it is replaced by the TeX, which reads better than the glyphs one by one. Either way the script is dropped and the formula
+    is read once: the glyphs beside the MathML were read as well unless the page marked them hidden (Pinned by:
+    test_core_html.py::TestMathMl::test_mathjax_frame_is_found_by_its_id).
+
+    The scripts of frames are removed together at the end (`_decompose_all`): removed one by one, each looked up its place among
+    its siblings, and a paragraph of 20,000 formulas took 14 seconds where 10,000 took 3 (Pinned by:
+    test_core_html.py::TestMathMl::test_many_mathjax_formulas_take_linear_time).
+    """
+    scripts = [script for script in soup.find_all("script", type=True)
+               if str(script["type"]).strip().lower().startswith("math/tex")]
+    _formulas_out_of_the_head(soup, scripts)
+    framed: list[Tag] = []
+    for script in scripts:
+        tex = " ".join(_tex_without_comments(script.get_text()).split())
+        frame = _mathjax_frame(script)
+        math = None
+        if frame is not None:
+            framed.append(script)
+            math = frame.find("math")
+            if math is not None:
+                math.extract()  # out of the frame, which then holds it alone
+        target = script if frame is None else frame
+        target.clear()
+        target.attrs = {}
+        # A display block MathJax writes as a `<div>` stays a block: as a span its formula ran into the text after it (Pinned
+        # by: test_core_html.py::TestMathMl::test_mathjax_display_block_stays_a_block)
+        target.name = "div" if target.name == "div" else "span"
+        if math is not None:
+            target.append(math)
+        elif tex:
+            target.append(f"${tex}$")
+    _decompose_all(framed)
+
+
+# What stands only in the head of a page (`_formulas_out_of_the_head`).
+_HEAD_ONLY = frozenset({"title", "meta", "link", "base", "style"})
+
+
+def _formulas_out_of_the_head(soup: BeautifulSoup, scripts: list[Tag]) -> None:
+    """Moves the formula scripts among `scripts` that the parser put in the head to the start of the body. A fragment that opens
+    with a `<script type="math/tex">` has it put in the head, as everything before the first text or block, and the head is
+    removed: the formula was lost, where with a `<body>` written it was read (Pinned by:
+    test_core_html.py::TestMathMl::test_a_formula_that_opens_a_fragment_is_kept). Only the scripts that come after nothing
+    that stands only in a head (`_HEAD_ONLY`): after a title or a meta element the head is the page's own."""
+    head = soup.head
+    if head is None or not scripts:
+        return
+    formulas = {id(script) for script in scripts}
+    moved: list[PageElement] = []
+    for child in head.contents:
+        if isinstance(child, Tag) and child.name in _HEAD_ONLY:
+            break
+        # with the white space after a formula, which keeps it apart from the text after it (`$E$ is`, not `$E$is`)
+        if id(child) in formulas or (moved and type(child) is NavigableString and not child.strip()):
+            moved.append(child)
+    if not moved:
+        return
+    body = soup.body
+    if body is None:
+        body = soup.new_tag("body")
+        head.insert_after(body)
+    _decompose_all(moved, detach_only=True)
+    for node in reversed(moved):
+        body.insert(0, node)
+
+
+def _mathjax_frame(script: Tag) -> Tag | None:
+    """The element MathJax 2 shows the formula of `script` in, or the display block around it, right before the script (white
+    space and comments between); None when there is none. MathJax gives the frame the id of the script followed by `-Frame` and
+    puts a displayed formula in a block of its own, so that element is the frame when it has that id or holds only the element
+    that has it; otherwise when its class is one MathJax gives its frames (`_MATHJAX_FRAMES`). The display block of the
+    CommonHTML output (`mjx-chtml MJXc-display`) was not among those classes, and a displayed formula came out twice, as its
+    MathML and as its TeX (Pinned by: test_core_html.py::TestMathMl::test_mathjax_frame_is_found_by_its_id). Only that element:
+    any earlier sibling whose class held the letters 'mathjax' was taken for the frame, and a container of paragraphs was
+    replaced by the formula (Pinned by: test_core_html.py::TestMathMl::test_only_the_mathjax_frame_right_before_the_script_is_replaced)."""
+    before = script.previous_sibling
+    while isinstance(before, NavigableString) and (isinstance(before, Comment) or not before.strip()):
+        before = before.previous_sibling
+    if not isinstance(before, Tag):
+        return None
+    name = str(script.get("id") or "").strip()
+    if name:
+        frame = f"{name}-Frame"
+        if before.get("id") == frame:
+            return before
+        inside = [child for child in before.contents if isinstance(child, Tag) or (not isinstance(child, Comment) and child.strip())]
+        if len(inside) == 1 and isinstance(inside[0], Tag) and inside[0].get("id") == frame:
+            return before
+    return before if any(str(kind) in _MATHJAX_FRAMES for kind in before.get("class") or ()) else None
+
+
+def _tex_without_comments(tex: str) -> str:
+    """`tex` without its comments: from a `%` that is not escaped (`\\%` is a percent sign) to the end of its line. kramdown wraps
+    a displayed formula in `% <![CDATA[` and `%]]>`; once the lines of the TeX were joined, the `%` of the wrapper made all of
+    the formula a comment, and a comment inside a formula took the lines after it along (`x % note` and `+ y` as `x % note + y`)
+    (Pinned by: test_core_html.py::TestMathMl::test_comments_in_the_tex_of_a_script_are_left_out).
+
+    A `%` in the argument of a command that takes text (`\\text{Growth 5%}`, the address of `\\href{a%20b}{…}`, `\\url`,
+    `_TEX_TEXT_COMMANDS`) is no comment: MathJax reads that argument as it is written. Taken for one, it cut the formula in the
+    middle of the group, `$\\text{Growth 5$` (Pinned by: test_core_html.py::TestMathMl::
+    test_a_percent_sign_inside_braces_is_no_comment). Anywhere else a `%` is a comment, inside braces too, since MathJax
+    reads the argument of `\\frac` or of a group as TeX again: kept, `\\frac{a % numerator` and `+ 1}{b}` joined into one line
+    made the rest a comment (Pinned by: test_core_html.py::TestMathMl::test_a_comment_inside_braces_is_left_out). A comment
+    inside braces ends at the end of its line or at the brace that closes the group, as the argument MathJax reads again
+    ends there, so the braces stay paired. Escaped characters (`\\{`, `\\}`, `\\%`, `\\\\`) and the text of a `\\verb` count
+    for nothing."""
+    if "%" not in tex:
+        return tex
+    kept: list[str] = []
+    groups: list[bool] = []  # the groups open at this point: True for the argument of a command that takes text
+    text_brace = -1  # where the argument of a command that takes text opens
+    start = index = 0
+    while (special := _TEX_SPECIAL.search(tex, index)) is not None:
+        index = special.start()
+        character = tex[index]
+        if character == "\\":
+            verb = _TEX_VERB.match(tex, index)
+            command = _TEX_COMMAND.match(tex, index) if verb is None else None
+            if verb is not None:
+                index = verb.end()
+            elif command is not None:
+                if command.group(1) in _TEX_TEXT_COMMANDS and command.group(2):
+                    text_brace = command.start(2)
+                index = command.end(1)
+            else:
+                index += 2
+        elif character == "{":
+            groups.append(index == text_brace or bool(groups and groups[-1]))
+            index += 1
+        elif character == "}":
+            if groups:
+                groups.pop()
+            index += 1
+        elif groups and groups[-1]:
+            index += 1  # a percent sign of text
+        else:
+            kept.append(tex[start:index])
+            start = index = _comment_end(tex, index, inside=bool(groups))
+    kept.append(tex[start:])
+    return "".join(kept)
+
+
+def _comment_end(tex: str, index: int, *, inside: bool) -> int:
+    """Where the comment that starts at `index` ends: at the end of its line, or, `inside` braces, at the brace that closes the
+    group, if that comes first (`_tex_without_comments`)."""
+    depth = 0
+    while (special := _TEX_COMMENT_END.search(tex, index)) is not None:
+        index = special.start()
+        character = tex[index]
+        if character == "\n":
+            return index
+        if character == "\\":
+            index += 2
+            continue
+        if character == "}" and inside and not depth:
+            return index
+        depth += 1 if character == "{" else -1 if depth else 0
+        index += 1
+    return len(tex)
+
+
+# What `_tex_without_comments` looks at, a command, a `\verb` with the text between its two delimiters, what ends a comment,
+# and the commands whose argument in braces MathJax reads as text, not as TeX (`\href` the first only, which the second
+# brace does not follow directly).
+_TEX_SPECIAL = re.compile(r"[\\{}%]")
+_TEX_COMMAND = re.compile(r"\\([A-Za-z]+)\s*(\{)?")
+_TEX_VERB = re.compile(r"\\verb\*?([^\sA-Za-z*])[^\n]*?\1")
+_TEX_COMMENT_END = re.compile(r"[\\{}\n]")
+_TEX_TEXT_COMMANDS = frozenset(("text", "textrm", "textbf", "textit", "textsf", "texttt", "textup", "textnormal", "textmd",
+                                "textsl", "textsc", "mbox", "hbox", "href", "url"))
+
+
 def _maths_holding_page_blocks(soup: BeautifulSoup) -> list[Tag]:
     """`<math>` elements holding page blocks such as paragraphs, tables and lists (except inside annotation-xml). That is the
     body after an unclosed `<math>` having landed inside it, not an equation — it is unwrapped and read as ordinary text.
@@ -73,7 +264,7 @@ def _math_source(math: Tag) -> str | None:
     """The LaTeX of the equation as the document wrote it. None if there is none."""
     for annotation in math.find_all("annotation"):
         if str(annotation.get("encoding", "")).strip().lower() in _TEX_ENCODINGS:
-            text = " ".join(annotation.get_text().split())
+            text = " ".join(_text(annotation).split())
             if text:
                 return _unwrapped(text)
 
@@ -116,7 +307,7 @@ def _mathml_latex(node: object, depth: int) -> str:
     if name in MATH_IGNORED:
         return ""
     if depth >= _MAX_MATH_DEPTH:
-        return literal("".join(node.get_text().split()))
+        return literal("".join(_text(node).split()))
 
     children = [child for child in node.children if isinstance(child, Tag)]
     parts = [_mathml_latex(child, depth + 1) for child in children]
@@ -126,15 +317,24 @@ def _mathml_latex(node: object, depth: int) -> str:
     if name == "mspace":
         return " "
     fence = (node.get("open", "("), str(node.get("separators", ",")).strip()[:1], node.get("close", ")")) if name == "mfenced" else None
-    structure = mathml_structure(name, parts, fence)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
+    elements = [base_child(child, _tag_name, _child_tags) for child in children]
+    structure = mathml_structure(name, parts, fence, elements)  # scripts, fractions, radicals, fences, matrices (`_mathml`)
     if structure is not None:
         return structure
     if not children:
         if name == "mtext":
-            return text_leaf(node.get_text())
-        return literal(" ".join(node.get_text().split()))  # mi·mn·mo·ms
+            return text_leaf(_text(node))
+        return literal(" ".join(_text(node).split()))  # mi·mn·mo·ms
     # Unknown elements have their child elements and the text between them joined in order. Joining only the elements lost the
     # `-` of `<math>- <span>…</span></math>`
     # (Pinned by: test_core_round45.py::TestLimitOnBrokenHtml::test_text_beside_elements_inside_math_is_kept).
     tag_parts = iter(parts)
     return "".join(next(tag_parts) if isinstance(child, Tag) else _mathml_latex(child, depth + 1) for child in node.children)
+
+
+def _tag_name(tag: Tag) -> str:
+    return tag.name
+
+
+def _child_tags(tag: Tag) -> list[Tag]:
+    return [child for child in tag.children if isinstance(child, Tag)]

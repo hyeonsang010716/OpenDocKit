@@ -17,7 +17,7 @@ from opendockit import mcp_server
 
 
 PLUGIN = Path(__file__).parent.parent / "hermes-plugin"
-pytestmark = pytest.mark.skipif(not PLUGIN.is_dir(), reason="the Hermes plugin is not part of the source distribution")
+pytestmark = pytest.mark.skipif(not PLUGIN.is_dir(), reason="the hermes-plugin folder is not in this copy of the project")
 
 # Agent Plugins v1.0.0, as Hermes checks it when a package is loaded.
 _PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"

@@ -9,6 +9,7 @@ from opendockit import ConvertOptions, DocumentFormat, convert
 from opendockit.extractors._html_tables import _names_values_in_pairs, _table_rows
 from opendockit.extractors.html import extract_html
 from tests import needs_html5_tokenizer
+from tests.timing import fastest
 
 
 class TestContentOutsideTheBody:
@@ -121,6 +122,41 @@ class TestListInsideAQuoteInsideAnItem:
 class TestItemTextStartingLikeABlock:
     """List item text that starts with `|` or a fence was taken for a table or code block: the bullet was left empty and the
     text moved under it."""
+
+    def test_html_table_in_an_item_keeps_its_lines(self):
+        """A table drawn as HTML (for its merged cells) inside an item was folded onto one line, onto the bullet line when it
+        opened the item; it keeps its lines below the item as a Markdown table does."""
+        table = '<table><tr><th colspan="2">Head</th></tr><tr><td>a</td><td>b</td></tr></table>'
+        drawn = '<table>\n<tr><th colspan="2">Head</th></tr>\n<tr><td>a</td><td>b</td></tr>\n</table>'
+
+        result = convert(f"<ul><li>Item text{table}</li><li>{table}</li><li>last</li></ul>".encode(), "a.html")
+
+        assert result.text == f"- Item text\n\n{drawn}\n\n-\n\n{drawn}\n\n- last"
+
+    def test_html_table_opening_a_nested_item_stays_in_it(self):
+        """A nested item holding only a table drawn as HTML was left as an empty bullet, which cleaning strips of its
+        indentation as a bare marker: the item came out as one of the outer list (`- a\\n-`) and the table outside both. It
+        stays on the nested bullet line, on one line, as before the lines of such a table were kept."""
+        table = '<table><tr><td colspan="2">T</td></tr><tr><td>z</td><td>b</td></tr></table>'
+        drawn = '<table> <tr><th colspan="2">T</th></tr> <tr><td>z</td><td>b</td></tr> </table>'
+
+        assert convert(f"<ul><li>a<ul><li>{table}</li><li>c</li></ul></li><li>d</li></ul>".encode(), "a.html").text == (
+            f"- a\n  - {drawn}\n  - c\n- d")
+        assert convert(f"<ol><li>a<ol><li>{table}</li></ol></li></ol>".encode(), "a.html").text == f"1. a\n  1. {drawn}"
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<ul><li><code>&lt;table&gt;</code> starts a table<br>second line</li></ul>", "- <table> starts a table second line"),
+        ("<ul><li>&lt;tablet&gt; line one<br>line two</li></ul>", "- <tablet> line one line two"),
+        ("<ol><li>&lt;table&gt;<br>opens</li><li>&lt;tr&gt;<br>row</li></ol>", "1. <table> opens\n2. <tr> row"),
+        ("<ul><li>&lt;table&gt;<br>&lt;tr&gt;&lt;td&gt;x&lt;/td&gt;&lt;/tr&gt;<br>&lt;/table&gt; typed</li></ul>",
+         "- <table> <tr><td>x</td></tr> </table> typed"),
+        ('<table><tr><td><ul><li>&lt;table&gt; - d<br>c</li></ul></td><td>x</td></tr><tr><td colspan="2">m</td></tr>'
+         '</table>', '<table>\n<tr><th>- &lt;table> - d c</th><th>x</th></tr>\n<tr><td colspan="2">m</td></tr>\n</table>'),
+    ])
+    def test_item_text_that_starts_with_a_table_tag_stays_on_the_bullet_line(self, html, expected):
+        """Item text that starts with the words `<table>` or `<tablet>` was taken for a table drawn as HTML: the bullet was left
+        empty and the text moved under it with its lines kept, inside a table cell too."""
+        assert convert(html.encode(), "a.html").text == expected
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<ul><li>| a | b |</li><li>```js</li></ul>", "- | a | b |\n- \\```js"),
@@ -262,6 +298,175 @@ class TestMathMl:
 
         assert result.text == ("면적 $r^2π$, 비율 $\\frac{3}{4}$, 근 $\\sqrt{2}$, 첨자 $a_{10}$, 세제곱근 $\\sqrt[3]{x}$, "
                                "합 $∑_{i=1}^{n}i$")
+
+    @pytest.mark.parametrize(("mathml", "latex"), [
+        ("<msup><msup><mi>x</mi><mn>2</mn></msup><mn>3</mn></msup>", "{x^2}^3"),
+        ("<msup><msup><mi>f</mi><mo>&#x2032;</mo></msup><mn>2</mn></msup>", "{f^′}^2"),
+        ("<msub><msub><mi>a</mi><mi>i</mi></msub><mi>j</mi></msub>", "{a_i}_j"),
+        ("<msup><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><mn>2</mn></msup>", "{a+b}^2"),
+        ("<msup><msub><mi>a</mi><mi>i</mi></msub><mn>2</mn></msup>", "a_i^2"),
+        ("<msup><mrow><mi>x</mi></mrow><mn>2</mn></msup>", "x^2"),
+        ("<mmultiscripts><mi>C</mi><none/><none/><mprescripts/><mn>6</mn><mn>14</mn></mmultiscripts>", "{}_{6}^{14}C"),
+        ("<msup><mstyle><mi>a</mi><mo>+</mo><mi>b</mi></mstyle><mn>2</mn></msup>", "{a+b}^2"),
+        ("<msup><semantics><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><annotation>a+b</annotation></semantics><mn>2</mn></msup>",
+         "{a+b}^2"),
+        ("<msup><mpadded><msup><mi>x</mi><mn>2</mn></msup></mpadded><mn>3</mn></msup>", "{x^2}^3"),
+        ("<msup><mrow><mrow><mi>x</mi></mrow></mrow><mn>2</mn></msup>", "x^2"),
+        ("<msub><msup><msub><mi>a</mi><mi>i</mi></msub><mn>2</mn></msup><mi>j</mi></msub>", "{a_i^2}_j"),
+        ("<msub><munder><mo>∑</mo><mi>i</mi></munder><mi>j</mi></msub>", "{∑_{i}}_j"),
+        ("<mi>x</mi><msub><mphantom><mi>y</mi></mphantom><mi>i</mi></msub>", "x{}_i"),
+    ])
+    def test_script_on_a_scripted_or_grouped_base_keeps_its_group(self, mathml, latex):
+        """A script on a base that is itself a script on the same side came out as `x^2^3` (a LaTeX error, confusable with
+        `x^{2^3}`), and one on a group of several elements applied to its last one (`a+b^2`): such a base is braced, as in
+        Office equations. A superscript on a subscript and a group of one element stay as they are. The pre- and
+        post-scripts of an `mmultiscripts` were joined to the base (`C614`). A group in an element that only styles or spaces
+        it is a group too, a script under a limit or a superscript on a subscript clashed with a script on the same side
+        around it, and a script on an empty base (an `mphantom`) went to what came before it."""
+        assert convert(f"<p><math>{mathml}</math></p>".encode(), "a.html").text == f"${latex}$"
+
+    @pytest.mark.parametrize(("mathml", "latex"), [
+        ("<mmultiscripts><mi>R</mi><mi>i</mi><mi>j</mi><mi>k</mi><none/></mmultiscripts>", "R_{i}^{j}{}_{k}"),
+        ("<msup><mmultiscripts><mi>X</mi><mi>a</mi><mi>b</mi></mmultiscripts><mn>2</mn></msup>", "{X_{a}^{b}}^2"),
+        ("<mmultiscripts><mi>X</mi><mi>a</mi></mmultiscripts>", "X_{a}"),
+        ("<mmultiscripts><mrow><mi>A</mi><mi>B</mi></mrow><mn>1</mn><mn>2</mn></mmultiscripts>", "{AB}_{1}^{2}"),
+        ("<mmultiscripts><msub><mi>x</mi><mi>i</mi></msub><mi>j</mi><none/></mmultiscripts>", "{x_i}_{j}"),
+        ("<mmultiscripts><mi>X</mi><mprescripts/><mi>a</mi><mi>b</mi><mi>c</mi></mmultiscripts>", "{}_{a}^{b}{}_{c}X"),
+        ("<mmultiscripts><mrow><mi>A</mi><mi>B</mi></mrow><mprescripts/><mn>1</mn><none/></mmultiscripts>", "{}_{1}AB"),
+    ])
+    def test_scripts_of_an_mmultiscripts_follow_each_other(self, mathml, latex):
+        """The pairs of scripts of an `mmultiscripts` were put side by side, so a tensor `R_i^j_k` had a double subscript; the
+        last script of an odd count was dropped; and its base was not braced as the base of other scripts is, nor was it braced
+        as a script under another one. The pairs stand on empty groups, as a tensor is written."""
+        assert convert(f"<p><math>{mathml}</math></p>".encode(), "a.html").text == f"${latex}$"
+
+    def test_tex_in_a_mathjax_script_is_the_formula(self):
+        """`<script type="math/tex">` is the input of MathJax 2 and what kramdown (Jekyll, GitHub Pages) writes for `$…$` and
+        `$$…$$`; in a page MathJax has not rendered the formula is nowhere else, and it vanished with the scripts. In a page saved
+        after MathJax ran, the formula is read once: from the MathML MathJax put before the script, or from the TeX when the
+        rendered formula is only drawn glyphs."""
+        kramdown = ('<p>By the theorem <script type="math/tex">a^2+b^2=c^2</script> holds.</p>'
+                    '<script type="math/tex; mode=display">\\sum_{i=1}^{n} i</script><p>Hence.</p>')
+        frame = '<span class="MathJax" id="MathJax-Element-1-Frame">{inside}</span><script type="math/tex">E=mc^2</script>'
+        with_mathml = frame.format(inside='<span class="MJX_Assistive_MathML"><math><mi>E</mi><mo>=</mo><mi>m</mi>'
+                                          "<msup><mi>c</mi><mn>2</mn></msup></math></span>")
+        glyphs_only = frame.format(inside="<span>E</span><span>=</span><span>m</span><span>c</span><span>2</span>")
+
+        assert convert(kramdown.encode(), "a.html").text == "By the theorem $a^2+b^2=c^2$ holds.\n\n$\\sum_{i=1}^{n} i$\n\nHence."
+        assert convert(f"<p>Energy {with_mathml} holds.</p>".encode(), "a.html").text == "Energy $E=mc^2$ holds."
+        assert convert(f"<p>Energy {glyphs_only} holds.</p>".encode(), "a.html").text == "Energy $E=mc^2$ holds."
+        assert convert(b'<p>x</p><script type="text/javascript">var a = "math/tex";</script>', "a.html").text == "x"
+
+    def test_only_the_mathjax_frame_right_before_the_script_is_replaced(self):
+        """Any earlier sibling whose class held the letters 'mathjax' was taken for MathJax's frame and replaced by the formula:
+        a container of paragraphs, or a hint span before other text, was lost. Only the element right before the script (white
+        space and comments between) with a class MathJax gives its frames is the frame."""
+        container = ('<div class="mathjax"><p>Paragraph one.</p><p>Paragraph two.</p></div>'
+                     '<script type="math/tex; mode=display">x^2</script><p>end</p>')
+        hint = '<p><span class="mathjax-hint">See note.</span> and then <script type="math/tex">a+b</script></p>'
+        frame = ('<p>Let <span class="MathJax_Preview"></span><span class="MathJax" id="MathJax-Element-1-Frame"><span>x</span>'
+                 '</span> <!-- c --> <script type="math/tex" id="MathJax-Element-1">x^2</script> be.</p>')
+
+        assert convert(container.encode(), "a.html").text == "Paragraph one.\n\nParagraph two.\n\n$x^2$\n\nend"
+        assert convert(hint.encode(), "a.html").text == "See note. and then $a+b$"
+        assert convert(frame.encode(), "a.html").text == "Let $x^2$ be."
+
+    def test_mathjax_frame_is_found_by_its_id(self):
+        """MathJax 2 gives the frame of a formula the id of its script followed by `-Frame`, and puts a displayed one in a block
+        of its own. The CommonHTML display block (`mjx-chtml MJXc-display`) was not among the classes taken for a frame, and the
+        formula came out twice, from its MathML and from its TeX; the frame of the PreviewHTML output kept its glyphs before
+        the TeX. A frame that holds MathML is read from it alone, without the glyphs beside it."""
+        chtml = ('<p>a</p><span class="mjx-chtml MJXc-display" style="text-align: center;"><span id="MathJax-Element-1-Frame" '
+                 'class="mjx-chtml MathJax_CHTML"><span class="mjx-math"><span class="mjx-char">E</span></span><span '
+                 'class="MJX_Assistive_MathML MJX_Assistive_MathML_Block"><math display="block"><mi>E</mi><mo>=</mo><mi>m</mi>'
+                 '</math></span></span></span><script type="math/tex; mode=display" id="MathJax-Element-1">E=m</script><p>b</p>')
+        preview = ('<p>Let <span class="MathJax_PHTML" id="MathJax-Element-2-Frame"><span class="MJXp-mi">x</span></span>'
+                   '<script type="math/tex" id="MathJax-Element-2">x^2</script> be.</p>')
+        other = ('<p>Let <span id="MathJax-Element-3-Frame">x</span><script type="math/tex" id="MathJax-Element-3">x^2</script>'
+                 ' and <span id="note">see</span><script type="math/tex" id="MathJax-Element-4">y</script>.</p>')
+
+        assert convert(chtml.encode(), "a.html").text == "a\n\n$E=m$\n\nb"
+        assert convert(preview.encode(), "a.html").text == "Let $x^2$ be."
+        assert convert(other.encode(), "a.html").text == "Let $x^2$ and see$y$."
+
+    def test_mathjax_display_block_stays_a_block(self):
+        """The display block of a formula, a `<div>`, was turned into a span with its formula, which then ran into the text
+        around it."""
+        html = ('<div>We have<div class="MathJax_Display"><span class="MathJax" id="MathJax-Element-5-Frame"><nobr>y</nobr>'
+                '</span></div><script type="math/tex; mode=display" id="MathJax-Element-5">y^2</script>and so on.</div>')
+
+        assert convert(html.encode(), "a.html").text == "We have\n\n$y^2$\n\nand so on."
+
+    def test_a_formula_that_opens_a_fragment_is_kept(self):
+        """The parser puts a script before the first text or block of a fragment in the head, which is removed: a fragment that
+        opened with a formula lost it, where with a `<body>` written it was read. After a title or a meta element the head is
+        the page's own and its scripts stay there."""
+        display = '<script type="math/tex; mode=display">E=mc^2</script>\n<p>is famous</p>'
+        titled = '<title>T</title><script type="math/tex">x</script><p>body</p>'
+
+        assert convert(display.encode(), "a.html").text == "$E=mc^2$\n\nis famous"
+        assert convert(b'<script type="math/tex">E</script>', "a.html").text == "$E$"
+        assert convert(titled.encode(), "a.html").text == "# T\n\nbody"
+
+    @needs_html5_tokenizer
+    def test_formulas_that_open_a_fragment_stay_in_the_line_after_them(self):
+        """The text after them stays on their line. The older parser of libxml2 (Windows) puts that text in a paragraph of its
+        own, so it comes after a blank line there."""
+        inline = '<script type="math/tex">E</script> <script type="math/tex">m</script> are letters.'
+
+        assert convert(inline.encode(), "a.html").text == "$E$ $m$ are letters."
+
+    def test_comments_in_the_tex_of_a_script_are_left_out(self):
+        """kramdown wraps a displayed formula in `% <![CDATA[` and `%]]>`: once the lines were joined, the `%` of the wrapper
+        made the whole formula a comment, and a comment inside a formula took the next line along. An escaped `\\%` is a
+        percent sign and stays."""
+        kramdown = ('<p>text</p>\n<script type="math/tex; mode=display">% <![CDATA[\n\\begin{aligned}\na &= b \\\\\n'
+                    'c &< d\n\\end{aligned} %]]></script>\n<p>more</p>')
+        comment = '<p>a <script type="math/tex">x % the first term\n+ y</script> and <script type="math/tex">50\\%</script></p>'
+
+        assert convert(kramdown.encode(), "a.html").text == "text\n\n$\\begin{aligned} a &= b \\\\ c &< d \\end{aligned}$\n\nmore"
+        assert convert(comment.encode(), "a.html").text == "a $x + y$ and $50\\%$"
+
+    @pytest.mark.parametrize(("tex", "latex"), [
+        ("\\text{Growth 5%} + y", "\\text{Growth 5%} + y"),
+        ("\\href{a%20b}{x} % link\n+ 1", "\\href{a%20b}{x} + 1"),
+        ("\\frac{a}{b} % \\{ is a brace\n+ \\{c\\}", "\\frac{a}{b} + \\{c\\}"),
+        ("\\verb|%| + x", "\\verb|%| + x"),
+        ("\\url{a%b}{\\text{%}} % end\n+ z", "\\url{a%b}{\\text{%}} + z"),
+    ])
+    def test_a_percent_sign_inside_braces_is_no_comment(self, tex, latex):
+        """MathJax reads the argument of a command that takes text as it is written, so a `%` there is no comment:
+        `\\text{Growth 5%}` was cut in the middle of its group, `$\\text{Growth 5$`, and the rest of the formula was lost."""
+        html = f'<p>a <script type="math/tex">{tex}</script> b</p>'
+
+        assert convert(html.encode(), "a.html").text == f"a ${latex}$ b"
+
+    @pytest.mark.parametrize(("tex", "latex"), [
+        ("\\frac{a % numerator\n + 1}{b} + c", "\\frac{a + 1}{b} + c"),
+        ("f(x) = {\n a + b % first term\n + c % second\n}", "f(x) = { a + b + c }"),
+        ("x^{2 % one line} + 1", "x^{2 } + 1"),
+        ("\\href{a%20b}{x % the label\n+ 1}", "\\href{a%20b}{x + 1}"),
+    ])
+    def test_a_comment_inside_braces_is_left_out(self, tex, latex):
+        """MathJax reads the argument of `\\frac`, of a script or of a group as TeX again, where a `%` is a comment: kept, it
+        turned the rest of the formula into a comment once the lines were joined (`\\frac{a % numerator + 1}{b} + c`). A
+        comment inside braces ends at the end of its line or at the brace that closes the group, so the braces stay paired."""
+        html = f'<p>a <script type="math/tex">{tex}</script> b</p>'
+
+        assert convert(html.encode(), "a.html").text == f"a ${latex}$ b"
+
+    @pytest.mark.timing
+    def test_many_mathjax_formulas_take_linear_time(self):
+        """The script of every rendered formula was removed on its own, each looking up its place among its siblings: a
+        paragraph of 20,000 formulas took 14 seconds where 10,000 took 3."""
+        def seconds(count: int) -> float:
+            data = ("<p>" + "<span class='MathJax'><nobr>x</nobr></span><script type='math/tex'>x_i</script> and " * count
+                    + "</p>").encode()
+            return fastest(lambda: convert(data, "a.html"))
+
+        small, large = seconds(2_000), seconds(16_000)
+
+        assert large < 16 * small + 0.5
 
     def test_literal_text_is_escaped(self):
         """A `$` in the text of an equation ended the math span (`$$5×n$` opened display math), and braces typed in an `<mo>` or

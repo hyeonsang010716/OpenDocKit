@@ -115,6 +115,7 @@ def _drawing_blocks(archive: zipfile.ZipFile, names: set[str], sheet_path: str, 
     placed = Counter(media[embed] for position, text, embed, media in items
                      if not text and not embed.startswith(_CHART_REFERENCE) and media.get(embed) in names)
     blocks: list[str] = []
+    detached = False  # whether the warning below is given: looked up in the warnings once, not for every such picture
     for position, text, embed, media in sorted(items, key=lambda item: item[0] or (0, 0)):
         target = embed
         if embed.startswith(_CHART_REFERENCE):
@@ -126,8 +127,10 @@ def _drawing_blocks(archive: zipfile.ZipFile, names: set[str], sheet_path: str, 
 
         # Pictures and charts whose target part is missing are left out and reported. openpyxl does not follow drawing
         # relationships while reading (`_RELATIONS_LEFT_UNREAD`, Pinned by: test_spreadsheet.py::TestMissingPartRelationships)
-        if target and not text and media.get(target) not in names and _DETACHED_PARTS_WARNING not in extraction.warnings:
-            extraction.warnings.append(_DETACHED_PARTS_WARNING)
+        if target and not text and not detached and media.get(target) not in names:
+            if _DETACHED_PARTS_WARNING not in extraction.warnings:
+                extraction.warnings.append(_DETACHED_PARTS_WARNING)
+            detached = True
 
         if text:
             blocks.append(text)

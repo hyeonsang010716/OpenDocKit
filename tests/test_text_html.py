@@ -1084,6 +1084,20 @@ class TestRuby:
 
         assert convert(html.encode(), "a.html").text == "a(r)" * 8 + "ararb"
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<p><ruby>水<rt>H<sub>2</sub>O</rt></ruby>を飲む</p>", "水(H_2O)を飲む"),
+        ("<p><ruby>面積<rt>m<sup>2</sup></rt></ruby></p>", "面積(m^2)"),
+        ("<p><ruby>円<rt><math><mi>π</mi><msup><mi>r</mi><mn>2</mn></msup></math></rt></ruby></p>", "円($πr^2$)"),
+        ("<p><ruby>名<rt><textarea>な</textarea></rt></ruby> <ruby>名<rt><select><option selected>な</option></select></rt>"
+         "</ruby></p>", "名(な) 名(な)"),
+        ("<p>a<rt>H<sub>2</sub>O</rt>b</p>", "aH_2Ob"),
+    ])
+    def test_scripts_controls_and_equations_inside_an_annotation_are_read(self, html, expected):
+        """bs4 makes the strings inside an `<rt>` a kind of its own, which the text of any other element leaves out. Scripts,
+        equations and form values are read before rubies, so inside an annotation they read as empty and were lost
+        (`水(HO)`, `円($^{}$)`), an `<rt>` outside a ruby too."""
+        assert convert(html.encode(), "a.html").text == expected
+
     @pytest.mark.timing
     def test_nested_rubies_take_linear_time(self):
         """Each ruby walked up to the root, and every inner ruby was replaced in the tree in turn: 20,000 rubies nested in each
@@ -1282,6 +1296,38 @@ class TestMhtml:
 
         assert [image.alt for image in result.images] == ["Quarterly sales"]
 
+    def test_picture_referred_to_many_times_is_decoded_once(self, monkeypatch):
+        """Each `<img>` decoded its picture part again into bytes of its own: a 4.7 MB logo referred to 400 times in a 6.6 MB
+        mail took 2.9 GB. The part is decoded once and the same bytes go to every reference."""
+        import base64
+
+        from opendockit.extractors import _html_mail
+        from tests import builder
+
+        decoded = []
+        part_content = _html_mail.part_content
+
+        def counting(part):
+            if part.get_content_maintype() == "image":
+                decoded.append(part)
+            return part_content(part)
+
+        monkeypatch.setattr(_html_mail, "part_content", counting)
+        picture = base64.encodebytes(builder.png_bytes(seed=1)).decode().replace("\n", "\r\n")
+        html = "<html><body><p>본문</p>" + '<p><img src="cid:logo@x"> 행</p>' * 50 + "</body></html>"
+        data = (
+            'MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary="B"\r\n\r\n'
+            f"--B\r\nContent-Type: text/html; charset=\"utf-8\"\r\n\r\n{html}\r\n"
+            f"--B\r\nContent-Type: image/png\r\nContent-Transfer-Encoding: base64\r\nContent-ID: <logo@x>\r\n\r\n{picture}"
+            "--B--\r\n"
+        ).encode()
+
+        result = convert(data, "page.mht")
+
+        assert len(decoded) == 1
+        assert result.text == "본문\n\n" + "\n\n".join(["행"] * 50)  # a picture repeated this often is erased as a logo, as before
+        assert result.images == []
+
     def test_picture_saved_with_the_page_is_extracted(self):
         """The picture parts saved with the page (`cid:`, Content-Location) were not extracted, so only the alt text of MHTML pictures
         remained. External addresses are not fetched."""
@@ -1307,6 +1353,235 @@ class TestMhtml:
         assert len(result.images) == 2
         assert [image.alt for image in result.images] == [None, "차트"]
         assert "[Image: 외부]" in result.text
+
+
+class TestWhiteSpacePreserved:
+    """`white-space: pre-wrap` or `pre-line` on an element is how web applications and notification mails show text a person
+    typed, and its line breaks were collapsed into spaces like those of ordinary text: the steps of a ticket, an address, the
+    lines of a note in a table cell ran into one line."""
+
+    def test_mathml_inside_keeps_its_parts(self):
+        """The white space between MathML elements is the indentation of the markup: turned into a `<br>`, it became a part of
+        the formula, `$x^{}$` for x squared and `$\\frac{3}{}$` for three quarters. The text around the formula keeps its line
+        breaks."""
+        html = ('<div style="white-space:pre-wrap">Area <math>\n<msup>\n<mi>x</mi>\n<mn>2</mn>\n</msup>\n</math> here\nnext '
+                '<math>\n<mfrac>\n<mn>3</mn>\n<mn>4</mn>\n</mfrac>\n</math></div>')
+
+        assert convert(html.encode(), "a.html").text == "Area $x^2$ here\nnext $\\frac{3}{4}$"
+
+    def test_line_breaks_of_preserved_text_are_kept(self):
+        html = ('<h1>Ticket 4812</h1><div style="white-space: pre-wrap">Steps to reproduce:\n1. Open the settings page\n'
+                '2. Click Save\n\nExpected: saved\nActual: error 500</div><p style="white-space:pre-line">홍길동\n서울특별시 중구'
+                '</p><table><tr><th>항목</th><th>내용</th></tr><tr><td>비고</td><td style="white-space:pre-wrap">1차: 3월 2일\n'
+                '2차: 3월 9일</td></tr></table>')
+
+        assert convert(html.encode(), "a.html").text == (
+            "# Ticket 4812\n\nSteps to reproduce:\n1. Open the settings page\n2. Click Save\n\nExpected: saved\n"
+            "Actual: error 500\n\n홍길동\n서울특별시 중구\n\n| 항목 | 내용 |\n| --- | --- |\n| 비고 | 1차: 3월 2일<br>2차: 3월 9일 |")
+
+    def test_the_nearest_white_space_decides_and_source_indentation_adds_nothing(self):
+        html = ('<div style="white-space:pre-wrap">\n  <p>first\nline</p>\n  <p style="color:red; white-space: normal">joined\n'
+                'words</p>\n</div><p>plain\ntext</p><pre>code\n  kept</pre>')
+
+        assert convert(html.encode(), "a.html").text == (
+            "first\nline\n\njoined words\n\nplain text\n\n```\ncode\n  kept\n```")
+
+    def test_form_controls_keep_their_values(self):
+        """The lines of a textarea and of a chosen option were split into `<br>` before the form values were read, and the lines
+        of a ticket's textarea ran into one (`Steps:1. Open2. Save`). A textarea keeps its lines and an option is one line,
+        whether the style is on the control or on an element around it."""
+        ticket = ('<p>Ticket:</p><textarea readonly style="white-space:pre-wrap;width:100%">Steps:\n1. Open\n2. Save'
+                  '</textarea>')
+        inherited = '<div style="white-space:pre-wrap">Note:\n<textarea>line1\nline2</textarea></div>'
+        select = ('<select style="white-space:pre"><option selected>a\nb</option></select>'
+                  '<div style="white-space:pre-line"><select><optgroup label="g"><option selected>c\nd</option></optgroup>'
+                  '</select></div>')
+
+        assert convert(ticket.encode(), "a.html").text == "Ticket:\n\nSteps:\n1. Open\n2. Save"
+        assert convert(inherited.encode(), "a.html").text == "Note:\nline1\nline2"
+        assert convert(select.encode(), "a.html").text == "a b\n\nc d"
+
+    @pytest.mark.parametrize("style", [
+        "background:url(white-space:pre)", "/* white-space:pre */ color:red", "color:red /* ; white-space:pre-wrap */",
+        "x-white-space:pre", "white-space:pre-wrapped", "white-space:pre-wrap; white-space:normal"])
+    def test_white_space_must_be_a_declaration_of_the_style(self, style):
+        """`white-space` was found anywhere in the style: inside a `url()` or a comment it kept line breaks a browser joins."""
+        html = f'<div style="{style}">a\nb</div>'
+
+        assert convert(html.encode(), "a.html").text == "a b"
+
+    @pytest.mark.parametrize("style", [
+        "color:red;white-space:pre-wrap", "WHITE-SPACE : PRE-LINE !important", "white-space:pre /* kept */",
+        "/* first */ white-space:break-spaces; color:red"])
+    def test_a_declaration_after_others_or_comments_is_seen(self, style):
+        html = f'<div style="{style}">a\nb</div>'
+
+        assert convert(html.encode(), "a.html").text == "a\nb"
+
+
+class TestLineNumberedCodeBlocks:
+    """Pygments (`linenos="table"`), Hugo and Rouge write a code block shown with line numbers as a table of one row and two
+    cells, each holding one `<pre>`: it came out as a Markdown table of `<br>`-joined lines, the pipes of the code escaped."""
+
+    def test_line_numbers_beside_a_code_block_are_left_out(self):
+        pygments = ('<table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span>1</span>\n'
+                    '<span>2</span></pre></div></td><td class="code"><div class="highlight"><pre><span></span>def f(x):\n'
+                    '    return x | 1\n</pre></div></td></tr></table>')
+        rouge = ('<table class="rouge-table"><tbody><tr><td class="gutter gl"><pre class="lineno">1\n2\n</pre></td>'
+                 '<td class="code"><pre>a = 1\nb = 2\n</pre></td></tr></tbody></table>')
+
+        assert convert(f"<p>Example:</p>{pygments}{rouge}".encode(), "a.html").text == (
+            "Example:\n\n```\ndef f(x):\n    return x | 1\n```\n\n```\na = 1\nb = 2\n```")
+
+    def test_a_table_of_two_code_cells_without_line_numbers_stays_a_table(self):
+        html = "<table><tr><td><pre>before</pre></td><td><pre>after</pre></td></tr></table>"
+
+        assert "| before | after |" in convert(html.encode(), "a.html").text
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<table><tr><td><pre>2023\n2024</pre></td><td><pre>Revenue up\nRevenue down</pre></td></tr></table>",
+         "| 2023<br>2024 | Revenue up<br>Revenue down |\n| --- | --- |"),
+        ("<table><tr><td><pre>a\nb</pre></td><td><pre>1\n2</pre></td></tr></table>", "| a<br>b | 1<br>2 |\n| --- | --- |"),
+        ("<table><tr><td><pre>1\n3</pre></td><td><pre>a\nb</pre></td></tr></table>", "| 1<br>3 | a<br>b |\n| --- | --- |"),
+        ("<table><tr><td><pre>1</pre></td><td><pre>2023</pre></td></tr></table>", "| 1 | 2023 |\n| --- | --- |"),
+        ("<table><tr><td><pre>1\n2\n3\n4</pre></td><td><pre>a\nb</pre></td></tr></table>",
+         "| 1<br>2<br>3<br>4 | a<br>b |\n| --- | --- |"),
+        ("<table><caption>Listing 1: hello</caption><tr><td><pre>1\n2</pre></td><td><pre>a\nb</pre></td></tr></table>",
+         "Listing 1: hello\n\n```\na\nb\n```"),
+        ('<table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre>10\n11\n12</pre></div></td>'
+         '<td class="code"><div class="highlight"><pre>a\nb\nc\n</pre></div></td></tr></table>', "```\na\nb\nc\n```"),
+        ('<table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre> \n2\n \n4</pre></div></td>'
+         '<td class="code"><div class="highlight"><pre>a\nb\nc\nd\n</pre></div></td></tr></table>', "```\na\nb\nc\nd\n```"),
+        ('<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">'
+         'bubble_sort.py</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">'
+         '<a href="#__codelineno-0-1">1</a></span>\n<span class="normal"><a href="#__codelineno-0-2">2</a></span></pre></div>'
+         '</td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1"></a>def bubble():\n'
+         '<a id="__codelineno-0-2"></a>    pass\n</code></pre></div></td></tr></table></div>',
+         "bubble_sort.py\n\n```\ndef bubble():\n    pass\n```"),
+    ])
+    def test_only_numbers_counting_the_lines_of_the_code_are_left_out(self, html, expected):
+        """Any table of two `<pre>` cells, one of them only numbers, was taken for a numbered code block: years beside lines
+        of text were lost, and so was a caption. The numbers must come first, count the lines of the code up by one, and
+        start at 1 unless a class of the generators says what the table is; a caption and the file name MkDocs Material
+        writes above the code stay above it."""
+        assert convert(html.encode(), "a.html").text == expected
+
+
+class TestMediaFallbackAndQuotes:
+    """What `<video>` and `<audio>` hold is for browsers that cannot play them, and it came out as paragraphs of the page; the
+    quotation marks a browser draws around `<q>` were missing, so quoted words read as the writer's own."""
+
+    def test_media_fallback_is_left_out(self):
+        html = ('<p>Watch the demo:</p><video controls src="demo.mp4"><track kind="captions" src="demo.vtt">'
+                'Your browser does not support the video tag.</video><audio src="a.mp3">Your browser does not support the audio '
+                'element.</audio><p>Next paragraph.</p>')
+
+        assert convert(html.encode(), "a.html").text == "Watch the demo:\n\nNext paragraph."
+
+    def test_quotation_marks_of_q_are_drawn(self):
+        html = "<p>He said <q>we will <q>not</q> raise the rate</q> on Monday.</p>"
+
+        assert convert(html.encode(), "a.html").text == "He said \u201cwe will \u2018not\u2019 raise the rate\u201d on Monday."
+
+    def test_quotation_marks_of_q_inside_a_script_or_ruby_are_drawn(self):
+        """Superscripts, subscripts and rubies are turned into text before the marks were put in, so a `<q>` inside one lost
+        them."""
+        html = "<p>a<sup><q>x</q></sup>, <q>x<sup>2</sup></q> and <ruby>\u6f22<rt><q>\u304b\u3093</q></rt></ruby></p>"
+
+        assert convert(html.encode(), "a.html").text == "a\u201cx\u201d, \u201cx^2\u201d and \u6f22(\u201c\u304b\u3093\u201d)"
+
+
+class TestPermalinksOfHeadings:
+    """Sphinx (docs.python.org, Read the Docs) and MkDocs put a permalink anchor in every heading and API signature, which a
+    browser shows only when the pointer is over it: they came out as `# Introduction¶` and `foo(*x*)¶: Return x.`."""
+
+    def test_permalink_marks_of_headings_and_signatures_are_left_out(self):
+        html = ('<div role="main"><h1>Introduction<a class="headerlink" href="#intro" title="Link to this heading">¶</a></h1>'
+                '<p>Text.</p><dl><dt id="foo"><span>foo</span>(<em>x</em>)<a class="headerlink" href="#foo">¶</a></dt>'
+                '<dd><p>Return x.</p></dd></dl><h2 id="usage">Usage<a href="#usage">&para;</a></h2><p>x</p>'
+                '<h3 id="s">Setup <a href="#s">#</a></h3><p>y</p></div>')
+
+        expected = "# Introduction\n\nText.\n\nfoo(*x*): Return x.\n\n## Usage\n\nx\n\n### Setup\n\ny"
+        assert convert(html.encode(), "a.html").text == expected
+        assert convert(html.encode(), "a.html", ConvertOptions(keep_links=False)).text == expected
+
+    def test_a_link_with_words_in_a_heading_and_a_mark_outside_one_stay(self):
+        html = '<h2>See <a href="#notes">the notes</a></h2><p>Section <a href="#s2">§</a> 2.</p>'
+
+        assert convert(html.encode(), "a.html").text == "## See the notes\n\nSection § 2."  # as before
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ('<dl><dt><a href="#a">#</a></dt><dd>number sign</dd></dl>', "#: number sign"),
+        ('<dl><dt><a href="#hash"><code>#</code></a></dt><dd>number sign</dd></dl>', "#: number sign"),
+        ('<h2>C<a href="#x">#</a> guide</h2>', "## C# guide"),
+        ('<h2>Learn C<a href="#x">#</a></h2>', "## Learn C#"),
+        ('<h3>See <a href="#s3">§</a> 3</h3>', "### See § 3"),
+        ('<h2><a href="#top">#</a></h2><p>x</p>', "## #\n\nx"),
+        ('<h2><a href="#s3">§</a> 3 Scope</h2>', "## § 3 Scope"),
+    ])
+    def test_a_mark_that_is_the_text_of_its_heading_or_term_stays(self, html, expected):
+        """Every mark linking to the page inside a heading or term was removed: a term that is the number sign, `C#`, the
+        section sign of `See § 3` and a heading of nothing but `#` lost it, or all of their text."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.parametrize("heading", [
+        '<h2 id="x"><a class="header-anchor" href="#x">#</a> Title</h2>',  # VuePress
+        '<h2 id="x">Title <a class="header-anchor" href="#x" aria-label="Permalink to &quot;Title&quot;">#</a></h2>',
+        '<h2 id="x">Title <a class="anchor" href="#x">#</a></h2>',  # Hugo
+        '<h2 id="x">Title <a href="#x">#</a></h2>',
+        '<h2 id="x" class="section-header">Title<a href="#x" class="anchor">§</a></h2>',  # rustdoc
+        '<h2 class="anchor" id="x">Title<a href="#x" class="hash-link" aria-label="Direct link to Title">#</a></h2>',
+        '<h2 id="x">Title<a class="anchorjs-link " aria-label="Anchor" href="#x">#</a></h2>',  # AnchorJS
+        '<h2 id="x"><a class="anchor-link" href="#x">#</a>Title</h2>',
+        '<h2 id="x">Title<a class="zola-anchor" href="#x" aria-label="Anchor link for: x">🔗</a></h2>',  # Zola
+        '<h2 id="x">Title<a href="#x" title="Permalink to this headline">#</a></h2>',
+        '<h2 id="x">Title<br><a href="#x">#</a></h2>',
+    ])
+    def test_permalinks_of_documentation_generators_are_left_out(self, heading):
+        assert convert(f"{heading}<p>x</p>".encode(), "a.html").text == "## Title\n\nx"
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ('<h2 id="a">Title<a class="headerlink" href="#a">¶</a><span class="badge">new</span></h2>', "## Titlenew"),
+        ('<dl><dt id="f"><span>f</span>()<a class="headerlink" href="#f" title="Link to this definition">¶</a>'
+         '<a class="reference internal" href="_modules/m.html#f"><span class="viewcode-link">[source]</span></a></dt>'
+         "<dd>Return.</dd></dl>", "f()[source]: Return."),
+        ('<div class="literal-block-wrapper"><div class="code-block-caption"><span class="caption-text">file.py</span>'
+         '<a class="headerlink" href="#id1" title="Link to this code">¶</a></div><div class="highlight"><pre>x = 1</pre>'
+         "</div></div>", "file.py\n\n```\nx = 1\n```"),
+        ('<table><caption><span class="caption-number">Table 1 </span><span class="caption-text">Data</span>'
+         '<a class="headerlink" href="#id2">¶</a></caption><tr><th>a</th><th>b</th></tr><tr><td>1</td><td>2</td></tr></table>',
+         "Table 1 Data\n\n| a | b |\n| --- | --- |\n| 1 | 2 |"),
+        ('<figure><img alt="Plot" src="p.png"><figcaption><p><span class="caption-text">Plot</span>'
+         '<a class="headerlink" href="#id3">¶</a></p></figcaption></figure>', "[Image: Plot]\n\nPlot"),
+        ('<p class="caption" role="heading"><span class="caption-text">Contents</span><a class="headerlink" href="#c">¶</a></p>',
+         "Contents"),
+        ('<p>See the <a class="anchor" href="#x">#</a> sign.</p>', "See the # sign."),
+    ])
+    def test_a_marked_permalink_is_left_out_wherever_it_stands(self, html, expected):
+        """A link marked as a permalink by its class or label stayed when something came after it in the heading (a badge,
+        Sphinx's `[source]` link), and Sphinx's captions of code blocks, tables and figures kept theirs. Outside headings,
+        terms and captions the mark stays."""
+        assert convert(html.encode(), "a.html").text == expected
+
+
+class TestClosedDialogsAndPopovers:
+    """A `<dialog>` without `open` and an element with `popover` are not shown until a script opens them (browsers draw them as
+    `display: none`), and they were read as body text: the closed feedback and cookie dialogs of a page came after its body,
+    a heading of one in front of the title. An open dialog is shown and read; a `role="dialog"` element is an ordinary one."""
+
+    def test_closed_dialog_and_popover_are_not_read(self):
+        html = ("<html><head><title>Report</title></head><body><h1>Report</h1><p>Revenue doubled.</p>"
+                '<dialog id="feedback"><h2>Provide feedback</h2><p>We read every piece of feedback.</p></dialog>'
+                '<dialog aria-modal="true"><p>We use cookies. Accept all?</p></dialog>'
+                "<div popover>Tooltip text that is not on screen.</div><div popover=manual>Manual popover.</div></body></html>")
+
+        assert convert(html.encode(), "a.html").text == "# Report\n\nRevenue doubled."
+
+    def test_open_dialog_and_role_dialog_are_read(self):
+        html = ('<html><body><p>Body</p><dialog open><p>Session expired.</p></dialog>'
+                '<div role="dialog"><p>Sign in to continue.</p></div></body></html>')
+
+        assert convert(html.encode(), "a.html").text == "Body\n\nSession expired.\n\nSign in to continue."
 
 
 class TestCollapsedQuestionsAndAnswers:
@@ -1908,6 +2183,42 @@ class TestContentOutsideTableCells:
         result = convert(html.encode(), "a.html")
 
         assert result.text == expected
+
+    @pytest.mark.parametrize(("html", "expected"), [
+        ('<table><tr><td>Name</td><td>Value</td><form action="/save"><tr><td>City</td><td>Seoul</td></tr><tr><td>Zip</td>'
+         "<td>04524</td></tr></form></table>", "| Name | Value |\n| --- | --- |\n| City | Seoul |\n| Zip | 04524 |"),
+        ("<table><tr><td>Name</td><td>Value</td><font><tr><td>City</td><td>Seoul</td></tr></font></table>",
+         "| Name | Value |\n| --- | --- |\n| City | Seoul |"),
+        ("<table><tr><td>Name</td><td>Value</td><div><tr><td>City</td><td>Seoul</td></tr></div></table>",
+         "| Name | Value |\n| --- | --- |\n| City | Seoul |"),
+        ("<table><tr><form><td>A</td><td>B</td><tr><td>C</td><td>D</td></tr></form></table>",
+         "| A | B |\n| --- | --- |\n| C | D |"),
+        ("<table><tr><td>a</td><td>1</td><span><tr><td>b</td><td>2</td><span><tr><td>c</td><td>3</td></tr></span></tr>"
+         "</span></table>", "| a | 1 |\n| --- | --- |\n| b | 2 |\n| c | 3 |"),
+        ("<table><tr><td>A</td><td>B</td><form><tr><td>C</td><td>D</td></tr><td>E</td><td>F</td></form></table>",
+         "| A | B |\n| --- | --- |\n| C | D |\n| E | F |"),
+        ("<table><tr><thead><td>T</td></thead></tr><tr><td>x</td></tr></table>", "T\n\nx"),
+    ], ids=["form", "font", "div", "form-around-cells", "nested", "cells-after-a-row", "row-group"])
+    def test_rows_inside_an_element_left_in_an_open_row_are_read(self, html, expected):
+        """lxml keeps a row that opens inside an element left in an open row inside it, and once the element was unwrapped
+        the row lay inside the other: every row of the form was lost without a warning (`| Name | Value |` alone), and so
+        was the text of a row group inside a row. A browser closes the open row at the next row."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("build", [
+        lambda count: "<table><tr><td>a</td><td>b</td><form>" + "<tr><td>v</td><td>w</td></tr>" * count + "</form></table>",
+        lambda count: ("<table><tr><td>a</td><td>b</td><form>" + "<tr><td>v</td><td>w</td></tr><td>c</td><td>d</td>" * count
+                       + "</form></table>"),
+    ], ids=["rows", "rows-and-cells"])
+    def test_thousands_of_rows_inside_an_open_row_are_read_quickly(self, build):
+        def seconds(count):
+            data = build(count).encode()
+            return fastest(lambda: convert(data, "a.html", ConvertOptions(max_chars=None)))
+
+        small, large = seconds(1_000), seconds(8_000)
+
+        assert large < 8 * small * 2 + 0.5
 
     @pytest.mark.timing
     @pytest.mark.parametrize("build", [

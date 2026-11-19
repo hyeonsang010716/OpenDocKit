@@ -4,12 +4,10 @@ No Python library can build an OLE compound document, so for HWP only the OLE co
 inside it are built in the real format. Results checked against real Hangul (HWP) files are in docs/design.md.
 """
 
-from io import BytesIO
 import struct
 import time
 import zlib
 
-import olefile
 import pytest
 
 from opendockit import (
@@ -246,29 +244,9 @@ def _fake_hwp(monkeypatch, *, flags=0, sections=None, preview=None, extra=None, 
     if preview is not None:
         streams["PrvText"] = preview.encode("utf-16-le")
     streams.update(extra or {})
-
-    class FakeOle:
-        def __init__(self, _source):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_):
-            return False
-
-        def listdir(self, streams=True, storages=False):
-            return [name.split("/") for name in streams_map] + ([["BodyText"]] if storages else [])
-
-        def exists(self, name):
-            return name in streams_map
-
-        def openstream(self, name):
-            return BytesIO(streams_map[name])
-
-    streams_map = streams
-    monkeypatch.setattr(olefile, "OleFileIO", FakeOle)
-    return _OLE_MAGIC + b"\x00" * 504
+    # A real OLE container, so that the reading of its streams is the one of a real file. `monkeypatch` is no longer used
+    storages = () if any(name.startswith("BodyText/") for name in streams) else ("BodyText",)
+    return builder.ole_file(streams, storages=storages)
 
 
 def _sample_section():
@@ -319,6 +297,18 @@ class TestHwp:
 
         with pytest.raises(DocumentTooLargeError):
             convert(data, "bomb.hwp", ConvertOptions(max_uncompressed_bytes=1_000_000))
+
+    def test_uncompressed_streams_are_bounded_by_uncompressed_limit(self, monkeypatch):
+        """Streams stored without compression were never counted. The directory entries of an OLE file can all point at one
+        sector chain, so 300 picture entries on one 4 MB stream read 1.2 GB from a 4 MB file and 100 section entries on one
+        1 MB stream took 12 s, past any limit. They count as a stored ZIP member does."""
+        record = builder.hwp_record
+        section = record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, "가".encode("utf-16-le") * 50_000)
+        data = _fake_hwp(monkeypatch, flags=0, sections=[section] * 20)  # 20 sections of 100 KB, as if aliased to one stream
+
+        with pytest.raises(DocumentTooLargeError):
+            convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=1_000_000, max_chars=None))
+        assert convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=3_000_000, max_chars=None)).text.count("가") == 1_000_000
 
     def test_password_document_raises(self, monkeypatch):
         data = _fake_hwp(monkeypatch, flags=0b10, sections=[_sample_section()])
@@ -560,6 +550,22 @@ class TestDutmal:
         result = convert(data, "a.hwp")
 
         assert result.text == "앞가나다라(이것은 덧말이다.)뒤"
+
+    def test_tab_or_line_break_in_ruby_text_is_a_space(self, monkeypatch):
+        """The control characters of the text a control holds are dropped, but a tab or a line break there separates words:
+        dropped too, '본\t말' became '본말'. It is a space, as before."""
+        record = builder.hwp_record
+        ruby = "tdut"[::-1].encode("latin-1") + b"".join(
+            struct.pack("<H", len(text)) + text.encode("utf-16-le") for text in ("본\t말", "덧\r\n말")) + b"\x00" * 10
+        composed = "tcps"[::-1].encode("latin-1") + struct.pack("<H", 3) + "가\n나".encode("utf-16-le") + b"\x00" * 10
+        section = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("앞 ", (23, "tdut"), " ", (23, "tcps"), " 뒤")),
+            record(TAG_CTRL_HEADER, 1, ruby),
+            record(TAG_CTRL_HEADER, 1, composed),
+        ])
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "앞 본 말(덧 말) 가 나 뒤"
 
     def test_hwpx_main_text_and_its_annotation_are_kept(self):
         body = ('<hp:p><hp:run><hp:t>앞</hp:t><hp:dutmal posType="TOP"><hp:mainText>가나다라</hp:mainText>'
@@ -1169,6 +1175,75 @@ def _hwp_field(control: str, command: str = "") -> bytes:
             + struct.pack("<I", 7))
 
 
+def _hwpx_click_here(field_id: int, guide: str, text: str) -> str:
+    """A click-here field (누름틀) of HWPX holding `text`, its guide in the Command parameter as Hangul writes it."""
+    command = f"Clickhere:set:44:Direction:wstring:{len(guide)}:{guide} HelpState:wstring:0:  "
+    return (f'<hp:ctrl><hp:fieldBegin id="{field_id}" type="CLICK_HERE" name="{guide}" editable="1" dirty="0"><hp:parameters cnt="2">'
+            f'<hp:integerParam name="Prop">9</hp:integerParam><hp:stringParam name="Command">{command}</hp:stringParam>'
+            f'</hp:parameters></hp:fieldBegin></hp:ctrl><hp:t>{text}</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="{field_id}"/></hp:ctrl>')
+
+
+class TestClickHereFields:
+    """Hangul shows the guide of a click-here field (누름틀) that was not filled in (`이곳을 마우스로 누르고 내용을 입력하세요`, or a
+    word such as `날짜`) in its place on screen and does not print it, and it was read as the content of the form. The text of a
+    field is left out when it is its guide; what a person typed stays."""
+
+    def test_hwpx_unfilled_guide_is_left_out(self):
+        guide = "이곳을 마우스로 누르고 내용을 입력하세요."
+        body = (f"<hp:p><hp:run><hp:t>성명: </hp:t>{_hwpx_click_here(1, guide, guide)}</hp:run></hp:p>"
+                f"<hp:p><hp:run><hp:t>소속: </hp:t>{_hwpx_click_here(2, guide, '총무과')}</hp:run></hp:p>"
+                f"<hp:p><hp:run>{_hwpx_click_here(3, '날짜', '날짜')}</hp:run></hp:p><hp:p><hp:run><hp:t>끝</hp:t></hp:run></hp:p>")
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "성명:\n\n소속: 총무과\n\n끝"
+
+    def test_hwp_unfilled_guide_is_left_out(self, monkeypatch):
+        guide = "이곳을 마우스로 누르고 내용을 입력하세요."
+        command = f"Clickhere:set:44:Direction:wstring:{len(guide)}:{guide} HelpState:wstring:0:  "
+        record = builder.hwp_record
+        section = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("성명: ", (3, "%clk"), guide, (4, "%clk"), " 소속: ", (3, "%clk"), "총무과",
+                                                      (4, "%clk"))),
+            record(TAG_CTRL_HEADER, 1, _hwp_field("%clk", command)),
+            record(TAG_CTRL_HEADER, 1, _hwp_field("%clk", command)),
+        ])
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "성명: 소속: 총무과"
+
+    @staticmethod
+    def _nested_hwpx(count: int, guide: str = "g") -> bytes:
+        command = f"Clickhere:set:1:Direction:wstring:{len(guide)}:{guide} "
+        begins = "".join(f'<hp:ctrl><hp:fieldBegin id="{index}" type="CLICK_HERE"><hp:parameters><hp:stringParam name="Command">'
+                         f"{command}</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl><hp:t>x</hp:t>" for index in range(count))
+        ends = "".join(f'<hp:ctrl><hp:fieldEnd beginIDRef="{index}"/></hp:ctrl>' for index in reversed(range(count)))
+        return builder.hwpx_bytes(f"<hp:p><hp:run>{begins}{ends}</hp:run></hp:p>")
+
+    @staticmethod
+    def _nested_hwp(monkeypatch, count: int, guide: str = "g") -> bytes:
+        command = f"Clickhere:set:1:Direction:wstring:{len(guide)}:{guide} "
+        record = builder.hwp_record
+        text = builder.hwp_text(*[piece for _ in range(count) for piece in ((3, "%clk"), "x")], *[(4, "%clk")] * count)
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, text)
+                   + record(TAG_CTRL_HEADER, 1, _hwp_field("%clk", command)) * count)
+        return _fake_hwp(monkeypatch, sections=[section])
+
+    def test_field_with_another_click_here_field_inside_it_keeps_its_text(self, monkeypatch):
+        """Only the innermost of click-here fields opened inside each other is compared with its guide: the outer one holds the
+        text of the inner one, which is not a guide of its own."""
+        assert convert(self._nested_hwpx(2, "x"), "a.hwpx").text == "x"
+        assert convert(self._nested_hwp(monkeypatch, 2, "x"), "a.hwp").text == "x"
+
+    @pytest.mark.timing
+    def test_fields_opened_inside_each_other_take_linear_time(self, monkeypatch):
+        """Every field end joined the text from its start to compare it with the guide, so n fields opened in one paragraph and
+        then ended took the square of n (40,000 fields: 19 s in HWP and HWPX alike). Four times the fields must take less than
+        eight times as long."""
+        for build, name in ((self._nested_hwpx, "a.hwpx"), (lambda count: self._nested_hwp(monkeypatch, count), "a.hwp")):
+            small, large = build(2_500), build(10_000)
+            assert convert(large, name).text == "x" * 10_000
+            assert fastest(lambda: convert(large, name)) < 8 * fastest(lambda: convert(small, name))
+
+
 class TestHyperlinks:
     """Hyperlinks of HWPX (`hp:fieldBegin type="HYPERLINK"`) and HWP (the `%hlk` field) were plain text. Under `keep_links` they
     are `[text](address)` through the shared rules, with the address from the field command (`http\\://a.example;1;0;0;`) and
@@ -1260,6 +1335,23 @@ class TestHyperlinks:
 
         assert text == "[링크](https://example.com) xjavascript:alert(1)(덧말)"
 
+    def test_hwp_control_text_cannot_forge_strike_or_script_marks(self, monkeypatch):
+        """The script and strike marks (U+0002-U+0006) in the text of a ruby or in the prefix and suffix of an auto number wrote
+        `~~본말~~(^x)` and `~~3~~` around text that is neither struck nor raised. Text read from a control has no control
+        characters."""
+        record = builder.hwp_record
+        ruby = "tdut"[::-1].encode("latin-1") + b"".join(
+            struct.pack("<H", len(text)) + text.encode("utf-16-le") for text in ("\x05본말\x06", "\x02x\x03")) + b"\x00" * 10
+        number = "atno"[::-1].encode("latin-1") + struct.pack("<IHHHH", 4, 3, 0, 5, 6)  # kind 4: a table number
+        section = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("가 ", (23, "tdut"), " 나 ", (18, "atno"), " 끝")),
+            record(TAG_CTRL_HEADER, 1, ruby),
+            record(TAG_CTRL_HEADER, 1, number),
+        ])
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "가 본말(x) 나 3 끝"
+
 
 class TestEquations:
     """Hangul equations were emitted only as the raw script (`[Equation: {1} over {n}]`). They are converted to LaTeX, and the raw
@@ -1279,6 +1371,24 @@ class TestEquations:
         result = convert(data, "a.hwp")
 
         assert result.text == "평균 차이 $\\frac{1}{n} \\sum_{i = 1}^{n} (B_{i} -A_{i} )$ 를 구한다"
+
+    def test_hwp_equation_script_cannot_forge_strike_or_script_marks(self, monkeypatch):
+        """The script is read raw from the equation record, so the temporary strike and script marks (U+0002-U+0006) in it wrote
+        `$~~a+b~~ c$` and `$^x$`. The control characters of a script are dropped; white space still separates its terms."""
+        record = builder.hwp_record
+
+        def converted(script: str) -> str:
+            section = b"".join([
+                record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+                record(TAG_PARA_TEXT, 1, builder.hwp_text("식 ", (11, "eqed"), " 끝")),
+                record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("eqed")),
+                record(TAG_EQEDIT, 2, struct.pack("<IH", 0, len(script)) + script.encode("utf-16-le")),
+            ])
+            return convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text
+
+        assert converted("\x05a+b\x06 c") == "식 $a+b c$ 끝"
+        assert converted("\x02x\x03") == "식 $x$ 끝"
+        assert converted("a\nover\tb") == "식 $\\frac{a}{b}$ 끝"
 
     @pytest.mark.parametrize(("direction", "expected"), [(3, "$\\frac{a}{b}$ 수식 1 넓이"), (2, "수식 1 넓이 $\\frac{a}{b}$")])
     def test_hwp_equation_caption_is_kept_on_its_side(self, monkeypatch, direction, expected):

@@ -7,9 +7,10 @@ import zipfile
 
 import pytest
 
-from opendockit import UnsupportedFormatError, convert
+from opendockit import ConvertOptions, UnsupportedFormatError, convert
 from tests import builder
 from tests.test_office import _docx_with_body, _number_list, _paragraph, _without_parts
+from tests.timing import fastest
 
 
 _WPS_NS = ('xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" '
@@ -164,6 +165,163 @@ class TestDocxBoxesOutsideTheFinalVersion:
         result = convert(_docx_with_body(body), "a.docx")
 
         assert result.text == "본문\n\n보이는 상자"
+
+
+class TestDocxDeletedParagraphMark:
+    """Two paragraphs joined with Track Changes on keep both paragraphs, the mark of the first one deleted (`w:pPr/w:rPr/w:del`).
+    Its text is one paragraph with the next one in the final version, and it was written as a paragraph of its own, the sentence
+    cut in two. The two are joined as written, and the joined one takes the properties of the mark that is left."""
+
+    _DELETED = '<w:pPr><w:rPr><w:del w:id="1" w:author="a" w:date="2026-01-01T00:00:00Z"/></w:rPr></w:pPr>'
+
+    def test_paragraph_whose_mark_was_deleted_is_joined_to_the_next(self):
+        body = (f'<w:p>{self._DELETED}<w:r><w:t>The contract amount is</w:t></w:r></w:p>'
+                '<w:p><w:r><w:t xml:space="preserve"> 1,200,000 won including tax.</w:t></w:r></w:p>'
+                f'<w:p>{self._DELETED}<w:r><w:t xml:space="preserve">Pay </w:t></w:r></w:p>'
+                f'<w:p>{self._DELETED}<w:r><w:t xml:space="preserve">within </w:t></w:r></w:p>'
+                "<w:p><w:r><w:t>30 days.</w:t></w:r></w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "The contract amount is 1,200,000 won including tax.\n\nPay within 30 days."
+
+    def test_range_marker_between_does_not_keep_them_apart(self):
+        """A bookmark or comment range written between the two paragraphs holds no content: the sentence stayed cut in two."""
+        body = (f'<w:p>{self._DELETED}<w:r><w:t>The amount is</w:t></w:r></w:p>'
+                '<w:bookmarkStart w:id="0" w:name="amount"/><w:commentRangeStart w:id="1"/>'
+                '<w:p><w:r><w:t xml:space="preserve"> 1,200 won.</w:t></w:r></w:p><w:bookmarkEnd w:id="0"/>'
+                "<w:p><w:r><w:t>Next.</w:t></w:r></w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "The amount is 1,200 won.\n\nNext."
+
+    def test_numbered_paragraph_whose_mark_was_deleted_takes_no_number(self):
+        numbering = ('<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/>'
+                     '<w:lvlText w:val="%1."/></w:lvl></w:abstractNum>' + _number_list(1))
+        first = _paragraph("first and", 1).replace("</w:pPr>", '<w:rPr><w:del w:id="1" w:author="a"/></w:rPr></w:pPr>', 1)
+        body = first + _paragraph(" second", 1) + _paragraph("third", 1)
+
+        assert convert(_docx_with_body(body, numbering=numbering), "a.docx").text == "1. first and second\n2. third"
+
+    def test_text_box_goes_after_the_joined_paragraph(self):
+        """A text box anchored in the paragraph whose mark was deleted came before the joined paragraph."""
+        body = (f'<w:p>{self._DELETED}<w:r><w:t xml:space="preserve">The amount </w:t></w:r><w:r>{_text_box("Box")}</w:r></w:p>'
+                "<w:p><w:r><w:t>is due.</w:t></w:r></w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "The amount is due.\n\nBox"
+
+
+def _deleted(text: str) -> str:
+    """A paragraph whose mark was deleted by tracked changes."""
+    return _paragraph(text).replace("</w:pPr>", '<w:rPr><w:del w:id="1" w:author="a"/></w:rPr></w:pPr>', 1)
+
+
+class TestDocxDeletedParagraphMarkChain:
+    """A chain of paragraphs whose mark was deleted was joined again at every link and counted toward `max_chars` only at its end:
+    40,000 of them (160 KB) took 104 s, and the limit did not stop them."""
+
+    @staticmethod
+    def _chain(count: int, deleted: bool = True) -> bytes:
+        mark = TestDocxDeletedParagraphMark._DELETED if deleted else ""
+        body = "".join(f'<w:p>{mark}<w:r><w:t xml:space="preserve">word{index} some text here </w:t></w:r></w:p>'
+                       for index in range(count))
+        return _docx_with_body(body + "<w:p><w:r><w:t>end</w:t></w:r></w:p>")
+
+    def test_chain_is_one_paragraph(self):
+        text = convert(self._chain(300), "a.docx").text
+
+        assert text == " ".join(f"word{index} some text here" for index in range(300)) + " end"
+
+    def test_chain_past_the_limit_stops_reading(self, monkeypatch):
+        """Read on past the limit to the end of the chain, it stops `_FAR_PAST_THE_LIMIT` further (made small here)."""
+        from opendockit.extractors import docx
+
+        read = []
+        original = docx._paragraph_text
+        monkeypatch.setattr(docx, "_paragraph_text", lambda paragraph, *rest: read.append(1) or original(paragraph, *rest))
+        monkeypatch.setattr(docx, "_FAR_PAST_THE_LIMIT", 1_000)
+        full = convert(self._chain(3000), "a.docx").text
+        read.clear()
+
+        result = convert(self._chain(3000), "a.docx", ConvertOptions(max_chars=2_000))
+
+        assert result.exceeded
+        assert len(read) < 200
+        assert full.startswith(result.text)
+
+    def test_text_boxes_of_a_chain_stop_it_past_the_limit(self, monkeypatch):
+        """The text boxes of a chain were not counted at all, so a chain past the limit was read to its end with every box built
+        and held: 30,000 links of `w ` with a text box of 4,000 characters each read 120 million characters (7.4 s, 942 MB). The
+        boxes now stop the chain `_FAR_PAST_THE_LIMIT` past the limit (made small here) once its text is too long for a heading;
+        what is written is still the front of the full text, and the limit is reported."""
+        from opendockit.extractors import docx
+
+        mark = TestDocxDeletedParagraphMark._DELETED
+        link = f'<w:p>{mark}<w:r><w:t xml:space="preserve">w </w:t></w:r><w:r>{_text_box("y" * 2000)}</w:r></w:p>'
+        data = _docx_with_body(_paragraph("Intro") + link * 400 + _paragraph("end"))
+        full = convert(data, "a.docx").text
+        monkeypatch.setattr(docx, "_FAR_PAST_THE_LIMIT", 10_000)
+        built = []
+        render = docx._DocxRenderer.render_container
+        monkeypatch.setattr(docx._DocxRenderer, "render_container", lambda self, box: built.append(1) or render(self, box))
+
+        result = convert(data, "a.docx", ConvertOptions(max_chars=1_000))
+
+        assert result.exceeded and result.warnings == ["The conversion was stopped because the text exceeded 1,000 characters."]
+        assert len(built) < 20
+        assert full.startswith(result.text) and result.text.startswith("Intro\n\nw w w")
+
+    def test_cut_never_skips_the_links_between(self):
+        """Stopped as soon as the text and the text box of the first link passed the limit, the paragraph ending the chain was
+        joined straight onto the first: "Do sign the contract" for "Do not sign the contract."; and a joined text short of the
+        heading length became a heading the whole one is not."""
+        mark = TestDocxDeletedParagraphMark._DELETED
+        first = f'<w:p>{mark}<w:r><w:t xml:space="preserve">Do </w:t></w:r><w:r>{_text_box("Figure 1: signature box")}</w:r></w:p>'
+        contract = _docx_with_body(first + _deleted("not ") + _paragraph("sign the contract."))
+        long_box = (f'<w:p>{mark}<w:r><w:t xml:space="preserve">{"x" * 60} </w:t></w:r>'
+                    f'<w:r>{_text_box("box" * 10)}</w:r></w:p>')
+        heading = _docx_with_body(long_box + _deleted("y" * 80 + " ") + _paragraph("end", style="Heading1"))
+
+        assert convert(contract, "a.docx").text == "Do not sign the contract.\n\nFigure 1: signature box"
+        assert convert(contract, "a.docx", ConvertOptions(max_chars=20)).text == "Do not sign the cont"
+        assert convert(heading, "a.docx", ConvertOptions(max_chars=70)).text == "x" * 60 + " " + "y" * 9
+
+    @pytest.mark.parametrize("far", [None, 130])
+    def test_cut_text_is_the_front_of_the_full_text_at_every_limit(self, monkeypatch, far):
+        """Random chains of paragraphs whose mark was deleted, with headings, numbers, text boxes and empty links, cut at many
+        limits: the cut text is always the front of the full one. With `_FAR_PAST_THE_LIMIT` made small the body stops
+        inside the chains too (`finish_joined`); bold is left out there, whole-paragraph emphasis being the gap it records."""
+        import random
+
+        from opendockit.extractors import docx
+
+        if far is not None:
+            monkeypatch.setattr(docx, "_FAR_PAST_THE_LIMIT", far)
+        numbering = ('<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/>'
+                     '<w:lvlText w:val="%1."/></w:lvl></w:abstractNum>' + _number_list(1))
+        words = ["alpha ", "beta", " gamma ", "한글 ", "가", "x" * 40 + " ", "​", "", " ", "#", "1."]
+        rng = random.Random(7)
+        for _ in range(20):
+            body = ""
+            for index in range(rng.randint(2, 14)):
+                text = "".join(rng.choice(words) for _ in range(rng.randint(0, 4)))
+                paragraph = _paragraph(text, 1 if rng.random() < 0.3 else None, style=rng.choice([None, None, "Heading1"]))
+                if rng.random() < 0.15:
+                    paragraph = paragraph.replace("</w:p>", f"<w:r>{_text_box(f'box{index}')}</w:r></w:p>")
+                if far is None and rng.random() < 0.15:
+                    paragraph = paragraph.replace("<w:r>", "<w:r><w:rPr><w:b/></w:rPr>", 1)
+                if rng.random() < 0.6:
+                    paragraph = paragraph.replace("</w:pPr>", '<w:rPr><w:del w:id="1" w:author="a"/></w:rPr></w:pPr>', 1)
+                body += paragraph
+            data = _docx_with_body(body, numbering=numbering)
+            full = convert(data, "a.docx")
+            for limit in sorted({*range(1, 40, 4), *range(40, full.char_count + 2, max(full.char_count // 6, 1))}):
+                cut = convert(data, "a.docx", ConvertOptions(max_chars=limit)).text
+                assert full.text.startswith(cut.rstrip()), (body, limit, cut)
+
+    @pytest.mark.timing
+    def test_chain_takes_the_time_of_as_many_paragraphs(self):
+        """10,000 links took 7 s against 0.4 s for 10,000 paragraphs."""
+        chain, plain = self._chain(10_000), self._chain(10_000, deleted=False)
+
+        assert fastest(lambda: convert(chain, "a.docx"), runs=2) < fastest(lambda: convert(plain, "a.docx"), runs=2) * 2 + 0.3
 
 
 class TestStrictOpenXmlOfficeDocuments:

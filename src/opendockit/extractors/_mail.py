@@ -3,12 +3,18 @@ nesting limits, its body parts in document order, forwarded mails, decoded heade
 """
 
 import base64
+import binascii
+import bisect
 import codecs
 import email
+import email.base64mime
 from email.errors import HeaderParseError, InvalidBase64LengthDefect
+import email.header
 from email.header import Header, decode_header
-from email.message import Message
+from email.message import Message, _parseparam
 from email.parser import BytesHeaderParser
+import email.quoprimime
+import email.utils
 import quopri
 import re
 
@@ -387,18 +393,78 @@ def _readable_parts(message: Message) -> None:
 
     Neither is caught on the path that finds body parts (text/plain, text/html), so the body or the failure cause vanished
     without a warning and only the headers remained
-    (Pinned by: test_core_malformed_mail_and_html.py::TestMultipartWithoutUsableBoundary).
+    (Pinned by: test_core_malformed_mail_and_html.py::TestMultipartWithoutUsableBoundary). The mails forwarded inside the mail
+    are walked too: a bounce forwarded to the IT desk as an attachment lost its delivery report, and a forwarded mail without a
+    usable boundary its body, while the same mails on their own read whole
+    (Pinned by: test_core_malformed_mail_and_html.py::TestReadablePartsOfForwardedMails). The nesting is bounded before the mail
+    is parsed (`_mime_nesting_exceeds`).
     """
-    for part in _mail_parts(message):
-        if part.get_content_type() == "message/delivery-status" and part.is_multipart():
+    stack = [message]
+    while stack:
+        part = stack.pop()
+        kind = part.get_content_type()
+        if kind in _REPORT_TYPES and part.is_multipart():
             fields = ["\n".join(f"{name}: {' '.join(str(value).split())}" for name, value in block.items())
                       for block in part.get_payload() if isinstance(block, Message)]
-            del part["Content-Transfer-Encoding"]
-            part.set_payload("\n\n".join(field for field in fields if field).encode())
-            part.set_type("text/plain")
-            part.set_param("charset", "utf-8")
+            _as_text(part, "\n\n".join(field for field in fields if field))
+        elif kind == "text/rfc822-headers" and not part.is_multipart():
+            # The headers of the mail a bounce returns (Postfix, Exchange): which mail it was. Only the headers written before a
+            # body are kept; the rest are routing and signatures. Unread, the part vanished without a warning
+            # (Pinned by: test_core_malformed_mail_and_html.py::TestReadablePartsOfForwardedMails::test_parts_of_a_report_are_read).
+            _as_text(part, mail_head_text(BytesHeaderParser().parsebytes(part_content(part) or b"")))
         elif part.get_content_maintype() == "multipart" and not part.is_multipart():
-            part.set_type("text/plain")
+            _set_plain_type(part)
+        if part.is_multipart():
+            stack.extend(reversed([child for child in part.get_payload() if isinstance(child, Message)]))
+
+
+# The machine-readable part of a delivery report and of a read receipt: header blocks the parser reads as parts, written as
+# `name: value` lines (`_readable_parts`). A read receipt (`Disposition: …; displayed`) vanished without a warning.
+_REPORT_TYPES = frozenset({"message/delivery-status", "message/disposition-notification"})
+
+
+def _as_text(part: Message, text: str) -> None:
+    """Make `part` a UTF-8 text/plain part holding `text`."""
+    del part["Content-Transfer-Encoding"]
+    part.set_payload(text.encode())
+    _set_plain_type(part, charset="utf-8")
+
+
+# The Content-Type parameters read from a part once it is text/plain: its charset, the flowed format (`plain_part_text`) and
+# the name `get_filename` falls back on (`_is_attachment`, `_attachment_name`).
+_PLAIN_TEXT_PARAMETERS = frozenset({"charset", "format", "delsp", "name"})
+# The name of a parameter segment without its RFC 2231 marks (`name*`, `name*0*`)
+_PARAMETER_NAME = re.compile(r"[^=*]*")
+
+
+def _set_plain_type(part: Message, charset: str | None = None) -> None:
+    """Make the type of `part` text/plain, as `Message.set_type` does, keeping the parameters read from a text/plain part
+    (`_PLAIN_TEXT_PARAMETERS`) as they are written, so `get_param` reads the values it read from the original header; with
+    `charset`, that charset instead of the part's own.
+
+    `set_type` adds the parameters back one by one with `set_param`, which parses the whole header again each time, so a
+    Content-Type of many parameters took the square of their number: `multipart/mixed` followed by `;x` 4,000 times, an 8 KB
+    mail, took 20 s, and a delivery report with 1,000 distinct parameters 22 s
+    (Pinned by: test_core_malformed_mail_and_html.py::TestMultipartWithoutUsableBoundary::test_many_parameters_take_linear_time).
+    The segments are kept as written, not decoded and written out again: an RFC 2231 value (`name*=euc-kr''%C7%D1.txt`) is
+    encoded back with its own charset, which failed for every Korean or unknown charset and rejected the whole mail, and
+    raw 8-bit bytes are kept as bytes, so the attachment name still reads them (`_attachment_name`)
+    (Pinned by: test_core_malformed_mail_and_html.py::TestMultipartWithoutUsableBoundary::test_parameters_are_kept_as_written).
+    """
+    value = part.get("Content-Type")
+    if isinstance(value, Header):  # raw 8-bit bytes, kept as the parser keeps them
+        value = b"".join(chunk for chunk, _ in decode_header(value)).decode("ascii", "surrogateescape")
+    kept = []
+    for segment in _parseparam(value)[1:] if value is not None else []:
+        name = _PARAMETER_NAME.match(segment).group().strip().lower()
+        if name in _PLAIN_TEXT_PARAMETERS and not (charset and name == "charset"):
+            kept.append(segment)
+    if charset:
+        kept.append(f"charset={charset}")
+    del part["MIME-Version"]
+    part["MIME-Version"] = "1.0"
+    del part["Content-Type"]
+    part["Content-Type"] = "; ".join(["text/plain", *kept])
 
 
 def _mail_without_mime_version(headers: bytes) -> bool:
@@ -603,8 +669,10 @@ def _is_attachment(part: Message, message: Message) -> bool:
     The top-level part of a single-part mail is an attachment when it is not a type read as a body (`_TOP_LEVEL_BODY_TYPES`):
     the PDF of a scan-to-email mail gave only the headers, without a warning
     (Pinned by: test_core_mail_and_detect.py::TestSinglePartMailThatIsNotPlainText).
-    Known accepted gap: a text part (text/*) with `inline; filename=…` is read as body (text a mail program shows unfolded in
-    the body).
+    Known accepted gap: a text/plain or text/html part with `inline; filename=…` is read as body (text a mail program shows
+    unfolded in the body). Any other text part with a name is an attachment, inline or not: a `git format-patch --inline` patch
+    or an inline CSV is neither body nor calendar, and it vanished without a warning
+    (Pinned by: test_core_text_and_mail.py::TestNamedMailPartWithoutDisposition::test_named_inline_text_that_is_not_a_body_is_an_attachment).
     """
     if part.is_multipart():
         return False
@@ -613,10 +681,20 @@ def _is_attachment(part: Message, message: Message) -> bool:
     disposition = part.get_content_disposition()
     if disposition == "attachment":
         return True
-    if disposition == "inline" and part.get_content_maintype() == "text":
+    if disposition == "inline" and part.get_content_type() in _INLINE_TEXT_TYPES:
         return False
-    return (disposition in (None, "inline") and part.get_filename() is not None and part.get("Content-ID") is None
+    if part.get_content_type() == "text/calendar" and part.get_param("method") is not None:
+        # The invitation itself (iTIP `method=REQUEST`, `CANCEL` …), the branch of an alternative beside its text, even with a
+        # `name=`: taken for an attachment, its event was not read and the invitation was reported as an unread file
+        # (Pinned by: test_core_mail_parts_and_icons.py::TestNamedInvitationInAnAlternative). A named .ics with
+        # `Content-Disposition: attachment` stays an attachment.
+        return False
+    return (disposition in (None, "inline") and _has_filename(part) and part.get("Content-ID") is None
             and part.get("Content-Location") is None)
+
+
+# Text parts read where they stand even when they carry a name: the body types, and a meeting invitation (`_mail_calendar`).
+_INLINE_TEXT_TYPES = frozenset({"text/plain", "text/html", "text/calendar"})
 
 
 def _mail_name(message: Message) -> str:
@@ -722,9 +800,7 @@ def _decoded_header(value: object) -> str:
     became `������` (Pinned by: test_core_text_and_mail.py::TestRawEightBitMailHeaders). It is turned back into the original
     bytes and decoded, and then any RFC 2047 words that may be mixed in are decoded.
     """
-    if isinstance(value, Header):
-        value = "".join(_header_chunk_text(chunk, charset) for chunk, charset in decode_header(value))
-    text = str(value)
+    text = _header_text(value) if isinstance(value, Header) else str(value)
     # A pure-ASCII header is tried whole first, as the mail parser reads it: that takes a word the pattern below does not (one
     # without a charset, `=??q?Re:_plain?=`) and drops the whitespace between adjacent words
     # (Pinned by: test_core_mailboxes_and_charsets.py::TestAsciiHeaderIsDecodedWhole).
@@ -753,6 +829,12 @@ def _decoded_header(value: object) -> str:
                 run, gaps = [], []
             pieces.append(part)
     return "".join(pieces)
+
+
+def _header_text(value: Header) -> str:
+    """The text of a header the parser wrapped in an `unknown-8bit` `Header`: its original bytes, decoded like a body
+    (`decode_text`)."""
+    return "".join(_header_chunk_text(chunk, charset) for chunk, charset in decode_header(value))
 
 
 def _decoded_run(words: list[str], gaps: list[str]) -> str:
@@ -786,6 +868,11 @@ def _decoded_run(words: list[str], gaps: list[str]) -> str:
 
 # A line break that folds a header: one followed by a space or tab (RFC 5322 §2.2.3)
 _FOLD = re.compile(r"\r?\n(?=[ \t])")
+# The pattern `decode_header` reads an RFC 2047 word with, the start of such a word (that pattern up to the encoded text) and,
+# for `_word_across_lines`, every such start with where it ends.
+_DECODE_HEADER_WORD = email.header.ecre
+_WORD_START = re.compile(r"=\?[^?]*\?[qQbB]\?")
+_WORD_STARTS = re.compile(r"(?=(=\?[^?]*\?[qQbB]\?))")
 
 
 def _decoded_words(text: str) -> str:
@@ -801,7 +888,7 @@ def _decoded_words(text: str) -> str:
     # attachment name rejected the whole mail
     # (Pinned by: test_audit_html_text.py::TestEncodedWordThatCannotBeDecoded).
     try:
-        pieces = decode_header(_FOLD.sub("", text))
+        pieces = _decode_header(_FOLD.sub("", text))
     except (LookupError, UnicodeError, ValueError, HeaderParseError):
         return text
     # In a word labeled Windows-1252/ISO-8859-1 nearly every byte decodes strictly, so a CP949 subject was garbled into `[°øÁö]`.
@@ -816,6 +903,88 @@ def _decoded_words(text: str) -> str:
     # space starting each line, so `=?…?=\r\n <a@b>` became `홍길동<a@b>` and `Hello world\r\n =?utf-8?q?x?=` `Hello worldx`
     # (Pinned by: test_core_mailboxes_and_charsets.py::TestEncodedWordNextToText).
     return "".join(_header_chunk_text(chunk, charset) for chunk, charset in pieces)
+
+
+def _decode_header(header: str) -> list[tuple[bytes | str, str | None]]:
+    """`email.header.decode_header` of a text, piece for piece, in time linear in its length.
+
+    `decode_header` looks for the `?=` closing a word from every word start to the end of the line, so a header of word starts
+    that are never closed took the square of its length (`=?a?q?x` repeated: 137 KB in 9 s; a forwarded mail's subject or an
+    attachment name is not bounded by the 256 KB header range), and it takes the pieces of a line off the front of a list one by
+    one, so a line of well-formed words did too (`=?a?q?x?= ` repeated: 1 MB in 13 s). Only a start after the last `?=` of a
+    line (it splits the header at every `str.splitlines` break) can fail that way, and no word is complete from there on: that
+    rest is not given to the pattern and is kept as the end of the line's last piece of plain text, which is what the pattern
+    makes of it. The rest starts after the last `?=`, which may close a word even when a start begins at its `=` (`…?=?a?q?x`)
+    (Pinned by: test_core_mailboxes_and_charsets.py::TestUnclosedEncodedWords). The steps after the split are the same as
+    `decode_header`'s, made with lists
+    (Pinned by: test_core_mailboxes_and_charsets.py::TestUnclosedEncodedWords::test_well_formed_words_take_linear_time).
+    """
+    lines = []
+    for line in header.splitlines():
+        last_end = line.rfind("?=")
+        unclosed = _WORD_START.search(line, last_end + 2 if last_end >= 0 else 0)
+        if unclosed is None:
+            parts = _DECODE_HEADER_WORD.split(line)
+        else:
+            parts = _DECODE_HEADER_WORD.split(line[:unclosed.start()])
+            parts[-1] += line[unclosed.start():]
+        lines.append(parts)
+    if all(len(parts) == 1 for parts in lines) and not _word_across_lines(header):
+        return [(header, None)]
+    # (plain text or None, encoding, charset) for the plain text and the words of every line, the first plain text of a line
+    # without its leading whitespace
+    words: list[tuple[str, str | None, str | None]] = []
+    for parts in lines:
+        for index in range(0, len(parts), 4):
+            unencoded = parts[index].lstrip() if index == 0 else parts[index]
+            if unencoded:
+                words.append((unencoded, None, None))
+            if index + 1 < len(parts):
+                words.append((parts[index + 3], parts[index + 2].lower(), parts[index + 1].lower()))
+    # The whitespace between two encoded words is dropped (RFC 2047)
+    dropped = {index - 1 for index in range(2, len(words))
+               if words[index][1] and words[index - 2][1] and words[index - 1][0].isspace()}
+    decoded: list[tuple[bytes | str, str | None]] = []
+    for index, (encoded, encoding, charset) in enumerate(words):
+        if index in dropped:
+            continue
+        if encoding is None:
+            decoded.append((encoded, charset))
+        elif encoding == "q":
+            decoded.append((email.quoprimime.header_decode(encoded), charset))
+        else:
+            if len(encoded) % 4:
+                encoded += "==="[:4 - len(encoded) % 4]
+            try:
+                decoded.append((email.base64mime.decode(encoded), charset))
+            except binascii.Error:
+                raise HeaderParseError("Base64 decoding error") from None
+    # Adjacent pieces of the same charset are joined, plain text with a space between
+    collapsed: list[tuple[bytes | str, str | None]] = []
+    run: list[bytes] = []
+    for index, (word, charset) in enumerate(decoded):
+        run.append(word if isinstance(word, bytes) else bytes(word, "raw-unicode-escape"))
+        if index + 1 == len(decoded) or decoded[index + 1][1] != charset:
+            collapsed.append(((b" " if charset is None else b"").join(run), charset))
+            run = []
+    return collapsed
+
+
+def _word_across_lines(header: str) -> bool:
+    """Whether the pattern of `decode_header` finds a word in the whole header, where it can run over a line break other than
+    `\n` (`=?a?q?x\x0cy?=`) though no line holds one; `decode_header` then gives the lines' text as bytes. A start is followed
+    by a word when a `?=` comes after it before the next `\n`; looked up with bisection, so the many starts never closed stay
+    linear."""
+    closes = [match.start() for match in re.finditer(r"\?=", header)]
+    breaks = [match.start() for match in re.finditer("\n", header)]
+    for match in _WORD_STARTS.finditer(header):
+        end = match.start() + len(match.group(1))
+        close = bisect.bisect_left(closes, end)
+        if close < len(closes):
+            line_break = bisect.bisect_left(breaks, end)
+            if line_break == len(breaks) or closes[close] < breaks[line_break]:
+                return True
+    return False
 
 
 def _latin_labeled_text(chunk: bytes, charset: str | None) -> str:
@@ -929,9 +1098,61 @@ def _one_line(name: str) -> str:
 def _attachment_name(part: Message) -> str:
     """The attachment file name, or empty text if there is none (`_attachment_list` counts those separately). A name written as
     RFC 2047 words (`filename="=?UTF-8?B?…?="`) instead of RFC 2231, as Gmail does, is decoded too — it appeared in the warning
-    as encoded words (Pinned by: test_core_mail_parts_and_icons.py::TestEncodedAttachmentName)."""
-    name = part.get_filename()
+    as encoded words (Pinned by: test_core_mail_parts_and_icons.py::TestEncodedAttachmentName).
+
+    The name is read as `get_filename` reads it (`filename` of Content-Disposition, else `name` of Content-Type), from headers
+    whose raw 8-bit bytes are decoded like a body first (`_header_text`), as the subject is: `get_filename` reads them as one
+    replacement character a byte, so `filename="견적서.pdf"` written in UTF-8 or CP949 came out as `���������.pdf`
+    (Pinned by: test_core_mail_parts_and_icons.py::TestEightBitAttachmentName).
+    """
+    headers = Message()
+    for header in ("Content-Disposition", "Content-Type"):
+        value = part.get(header)
+        if value is not None:
+            headers[header] = _header_text(value) if isinstance(value, Header) else value
+    missing = object()
+    try:
+        value = headers.get_param("filename", missing, "content-disposition")
+        if value is missing:
+            value = headers.get_param("name", missing, "content-type")
+    except TypeError:  # an RFC 2231 name Python 3.12 and 3.13 cannot read (`_has_filename`): counted as unnamed
+        return ""
+    name = "" if value is missing else _parameter_text(value).strip()
     return _decoded_header(name) if name else ""
+
+
+def _has_filename(part: Message) -> bool:
+    """Does the part carry a name (`get_filename`)? On Python 3.12 and 3.13 the standard library sorts the pieces of an RFC 2231
+    parameter with `None` for the piece without a number, so `filename*=utf-8''a; filename*1=b.pdf` raised a TypeError and
+    the whole mail was rejected as corrupted for one attachment name. Such a name is a name that cannot be read: the part
+    stays an attachment, counted as unnamed (`_attachment_name`)
+    (Pinned by: test_core_mail_parts_and_icons.py::TestEightBitAttachmentName::test_name_the_standard_library_cannot_read).
+    """
+    try:
+        return part.get_filename() is not None
+    except TypeError:
+        return any(_PARAMETER_NAME.match(segment).group().strip().lower() == name
+                   for header, name in (("Content-Disposition", "filename"), ("Content-Type", "name"))
+                   for segment in _parseparam(str(part.get(header, "")))[1:])
+
+
+def _parameter_text(value: str | tuple[str | None, str | None, str]) -> str:
+    """A parameter value as text, as `email.utils.collapse_rfc2231_value` gives it, except that the bytes of an RFC 2231 value
+    (`filename*=charset''%XX`) its charset does not decode strictly, or of an unknown charset, are decoded as those of an RFC
+    2047 word are (`_header_chunk_text`: the superset codec, EUC-KR → CP949, then `decode_text`): the standard library decodes
+    them with replacement characters, so `ks_c_5601-1987''%8C%63%B9%E6.pdf` (똠방.pdf) came out as `�c방.pdf`
+    (Pinned by: test_core_mail_parts_and_icons.py::TestEightBitAttachmentName::test_rfc_2231_name_in_a_korean_charset)."""
+    text = email.utils.collapse_rfc2231_value(value)
+    if not isinstance(value, tuple) or len(value) != 3 or max(value[2], default="\0") > "\xff":
+        return text
+    charset, raw = value[0], bytes(value[2], "latin-1")
+    if raw.isascii():
+        return text
+    try:
+        raw.decode(charset or "us-ascii")
+    except (LookupError, UnicodeError):
+        return _header_chunk_text(raw, charset or None)
+    return text
 
 
 def mail_plain_body(message: Message, parts: list[Message] | None = None) -> tuple[str, list[str]] | None:

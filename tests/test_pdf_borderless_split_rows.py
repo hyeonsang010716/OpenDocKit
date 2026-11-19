@@ -461,6 +461,17 @@ class TestNoCellTextInTwoTables:
             shared = _cells_in_two_tables(section.text)
             assert not {cell for cell in shared if any(word in cell.split() for word in words)}
 
+    def test_rows_with_wrapped_cells_between_rules_stay_in_their_table(self):
+        """Seed 20 draws a table ruled under every row, without column rules, whose rows have cells wrapped onto two lines.
+        Kept out of the header joining, the rows with two wrapped cells were split in two and one with a wrapped value broke
+        the table in two, its other cells scattered below it."""
+        data, _ = _random_ruled_tables(20)
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| | 61512 | w31 | | w32<br>38537 |\n| | 27128 | w35<br>47149 | w37 | w38<br>60147 |\n"
+                "| | 44126 | w41 | 15460 | w44 |") in text
+
     @pytest.mark.parametrize(("before", "after", "merged"), [(3, 3, ()), (3, 5, (4,)), (4, 5, (6,)), (6, 6, ())])
     def test_borderless_tables_split_at_merged_rows(self, before, after, merged):
         text = convert(_regions_pdf(before, after, merged), "a.pdf", ConvertOptions(page_markers=False)).text

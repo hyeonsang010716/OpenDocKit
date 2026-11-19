@@ -482,8 +482,11 @@ def _render_bitmap(page: object, scale: float, crop: tuple[float, float, float, 
 def _page_images(page: _Page, renderer: _PageRenderer, extraction: Extraction) -> list[tuple[tuple[float, ...], str]]:
     """List of ((top, x0, x1, bottom), placeholder). For an image page without text the whole page is registered, otherwise the
     picture areas are cropped and registered."""
+    index = page.number - 1 if page.pdfium_index is None else page.pdfium_index
+    if index < 0:
+        return []  # pdfium must not open it (`_PdfiumPages`)
     if _is_scanned(page):
-        data = renderer.render(page.number - 1)
+        data = renderer.render(index)
         return [((0.0, 0.0, page.width, page.height), extraction.add_image(data, kind=ImageKind.PAGE))] if data else []
 
     images = []
@@ -493,7 +496,7 @@ def _page_images(page: _Page, renderer: _PageRenderer, extraction: Extraction) -
             continue
         # The origin of a rendered picture is the top-left of the visible area (_view_box).
         shown = (box[0] - left, box[1] - top, box[2] - left, box[3] - top)
-        data = renderer.render(page.number - 1, shown, native_scale)
+        data = renderer.render(index, shown, native_scale)
         if data:
             images.append(((box[1], box[0], box[2], box[3]), extraction.add_image(data)))
     return images

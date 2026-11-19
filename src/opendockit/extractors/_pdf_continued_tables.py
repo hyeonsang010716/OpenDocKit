@@ -2,6 +2,8 @@
 cells left open at a page break, and columns regridded so both parts stand in the same columns.
 """
 
+from dataclasses import replace
+from itertools import pairwise
 import math
 import re
 import statistics
@@ -26,6 +28,16 @@ from opendockit.extractors._pdf_paragraphs import _table_text
 # Year and date cells common in header rows ('2024', '2024년', 'FY2024', '2024.12.31', '2024-12'). When deciding on the header row to
 # repeat they are not treated as numeric value cells (`_has_value_text`).
 _YEAR_OR_DATE = re.compile(r"^(?:FY\s?)?(?:19|20)\d{2}(?:년도?|[.\-/]\s?\d{1,2}(?:[.\-/]\s?\d{1,2})?\.?)?$")
+# A column number under a period name in a header ('1분기 / (1)'), not a value (`_is_value_piece`).
+_COLUMN_NUMBER = re.compile(r"^\(\d{1,2}\)$")
+
+
+def _is_value_piece(text: str) -> bool:
+    """Whether a line piece is numeric values only (`_NUMBER_CELL` for every word: '8,400', and '12 4,800' that pdfminer
+    merged from two cells), none of them a year, a date or a column number."""
+    words = text.split()
+    return bool(words) and all(_NUMBER_CELL.match(word) and not _YEAR_OR_DATE.match(word) and not _COLUMN_NUMBER.match(word)
+                               for word in words)
 
 
 def _join_ruled_header_lines(page: _Page) -> None:
@@ -38,7 +50,8 @@ def _join_ruled_header_lines(page: _Page) -> None:
     test_pdf_table_columns.py::TestTwoLineHeaderBetweenRules). Joined only when the band is at most 4.5 lines high, every line
     in the band is short, the cells formed by grouping horizontally overlapping lines number three or more (one of them
     multi-line), and the row right under the lower rule has three or more pieces — and not when the band is two or more
-    rows of values (`_holds_data_rows`).
+    rows of values (`_holds_data_rows`). A band that is one data row with wrapped cells, in a table ruled under every row, is
+    joined as a data row (`_is_data_row`).
 
     In a two-level header ('2023년' spanning the two columns '남성·여성') the upper cell does not overlap the lower cells
     horizontally, so it was not joined per cell. The upper cell is prefixed to each cell below it
@@ -50,7 +63,7 @@ def _join_ruled_header_lines(page: _Page) -> None:
     if page.simple or len(page.rules) < 2:
         return
     max_cell = page.width * _TABLE_CELL_MAX_RATIO
-    for (upper, left, right), (lower, lower_left, lower_right) in zip(page.rules, page.rules[1:], strict=False):
+    for index, ((upper, left, right), (lower, lower_left, lower_right)) in enumerate(pairwise(page.rules)):
         if (lower_left < left - 2 or lower_right > right + 2 or (lower_right - lower_left) * 2 < right - left
                 or (abs(right - lower_right) > 2 and abs(left - lower_left) > 2) or lower - upper < _SHADE_MIN_SIDE * 3):
             continue
@@ -60,7 +73,7 @@ def _join_ruled_header_lines(page: _Page) -> None:
                 or lower - upper > statistics.median(line.height for line in inside) * 4.5 or _holds_data_rows(inside)):
             continue
         grouped = _grouped_columns(inside)
-        if grouped is None:
+        if grouped is None or (grouped and _under_a_full_row(page, index)):
             continue
         grouped_ids = {id(line) for column in grouped for line in column}
         columns = sorted([*_stacked_columns([line for line in inside if id(line) not in grouped_ids]), *grouped],
@@ -73,15 +86,58 @@ def _join_ruled_header_lines(page: _Page) -> None:
             continue
 
         top = min(line.top for line in inside)
-        joined = [_Line(top=top, bottom=max(line.bottom for line in column), x0=column[-1].x0 if grouped_cell else
-                        min(line.x0 for line in column), x1=column[-1].x1 if grouped_cell else max(line.x1 for line in column),
-                        text=" ".join(line.text for line in column), size=statistics.median(line.size for line in column))
-                  for column in columns for grouped_cell in [any(column is cell for cell in grouped)]]
+        if not grouped and _is_data_row(inside, columns, page, index):
+            # A data row of a table ruled under every row with wrapped cells: one row whose wrapped cells keep their lines
+            # ('<br>', as the rows of a table write them), and whose other cells keep the places pdfminer split them at
+            # ('12 4,800') (Pinned by: test_pdf_table_columns.py::TestDataRowsBetweenRulesWithAWrappedCell).
+            joined = [replace(column[0], top=top) if len(column) == 1 else
+                      _Line(top=top, bottom=max(line.bottom for line in column), x0=min(line.x0 for line in column),
+                            x1=max(line.x1 for line in column), text="<br>".join(line.text for line in column),
+                            size=statistics.median(line.size for line in column)) for column in columns]
+        else:
+            joined = [_Line(top=top, bottom=max(line.bottom for line in column), x0=column[-1].x0 if grouped_cell else
+                            min(line.x0 for line in column), x1=column[-1].x1 if grouped_cell else max(line.x1 for line in column),
+                            text=" ".join(line.text for line in column), size=statistics.median(line.size for line in column))
+                      for column in columns for grouped_cell in [any(column is cell for cell in grouped)]]
         taken = {id(line) for line in inside}
         # placed where the first header line was in reading order
-        first = next(index for index, line in enumerate(page.lines) if id(line) in taken)
+        first = next(position for position, line in enumerate(page.lines) if id(line) in taken)
         rest = [line for line in page.lines if id(line) not in taken]
         page.lines = [*rest[:first], *joined, *rest[first:]]
+
+
+def _is_data_row(lines: list[_Line], columns: list[list[_Line]], page: _Page, index: int) -> bool:
+    """Whether the band under `page.rules[index]` (`lines`, joined into `columns`) is a data row with wrapped cells, not a
+    stacked header: its top visual row has `_TABLE_MIN_COLUMNS` pieces or more and a piece of numeric values only
+    (`_is_value_piece`), and it lies under a full row of its table (`_under_a_full_row`) or has a single wrapped cell.
+
+    A stacked header whose first line is numbers ('3 | 6 | 12' over 'months', '100% / 지분') has a top row of values too,
+    but stands first in its table with several cells stacked; a data row at the top of a page or of a table without a
+    header usually has one wrapped cell (Pinned by: test_pdf_table_columns.py::TestStackedHeaderOfNumbersBetweenRules)."""
+    rows = _visual_rows(lines)
+    if len(rows[0]) < _TABLE_MIN_COLUMNS or not any(_is_value_piece(line.text) for line in rows[0]):
+        return False
+    return sum(len(column) > 1 for column in columns) == 1 or _under_a_full_row(page, index)
+
+
+def _under_a_full_row(page: _Page, index: int) -> bool:
+    """Whether the band under the rule `page.rules[index]` lies right under a band of the same table that holds a full row:
+    the rule above it has the same ends (within 2pt) and the lines between the two rules make a row of `_TABLE_MIN_COLUMNS`
+    pieces or more.
+
+    A two-level header is the top band of its table. A band under a full row is a data row of a table ruled under every row,
+    and an upper line in it is the first line of a wrapped cell whose other cells sit on its last line (Excel's bottom
+    alignment): a centred wrapped cell outside the label column was put in front of every value of its row
+    ('| Hydraulic pump with 9 |') (Pinned by: test_pdf_table_columns.py::TestDataRowsBetweenRulesWithAWrappedCell::
+    test_centred_wrapped_cell_of_a_bottom_aligned_row_stays_in_its_cell)."""
+    if index == 0:
+        return False
+    (above, above_left, above_right), (upper, left, right) = page.rules[index - 1], page.rules[index]
+    if abs(above_left - left) > 2 or abs(above_right - right) > 2:
+        return False
+    between = [line for line in page.lines if line.top >= above - 1 and line.bottom <= upper + 1
+               and line.x0 >= left - 2 and line.x1 <= right + 2]
+    return any(len(row) >= _TABLE_MIN_COLUMNS for row in _visual_rows(between))
 
 
 def _holds_data_rows(lines: list[_Line]) -> bool:
@@ -113,18 +169,45 @@ def _grouped_columns(lines: list[_Line]) -> list[list[_Line]] | None:
         return (line.x0 + line.x1) / 2
 
     upper = [line for line in lines if any(other.top >= line.bottom - 1 for other in lines)]
+    leftmost = min(line.x0 for line in lines)
     below: dict[int, list[_Line]] = {id(line): [] for line in upper}
     for line in lines:
         above = [other for other in upper if other is not line and other.bottom <= line.top + 1]
         if above and not any(line is other for other in upper):
             below[id(min(above, key=lambda other: abs(centre(other) - centre(line))))].append(line)
 
+    def on_edge(line: _Line, cells: list[_Line]) -> bool:
+        return any(abs(cell.x0 - line.x0) <= _TABLE_ROW_TOLERANCE or abs(cell.x1 - line.x1) <= _TABLE_ROW_TOLERANCE
+                   for cell in cells)
+
+    # A line with a single line under it on its own edge is a wrapped cell. Beside one, a line whose first (or last) lower line
+    # shares its edge, and that stands over values or over the label column, is the first line of another wrapped cell, not
+    # an upper cell aligned to the side of its span: at the top of a table without a header, a bottom-aligned row with a
+    # wrapped label and a wrapped remark had the remark's first line put in front of every value ('| late, supplier 12 |').
+    # Such a band has no upper cell and is joined as stacked cells (Pinned by: test_pdf_table_columns.py::
+    # TestDataRowsBetweenRulesWithAWrappedCell::test_row_of_two_wrapped_cells_at_the_top_of_a_table_is_no_header). The
+    # upper cells of a header beside a stacked label ('Item / name') stand over labels of their own columns ('Sales 2023' over
+    # 'Q1 | Q2', aligned to the left as Excel aligns text) and stay upper cells (Pinned by:
+    # test_pdf_table_columns.py::TestGroupedHeaderBetweenRules::test_left_aligned_upper_cells_beside_a_stacked_label).
+    wrapped = any(len(below[id(line)]) == 1 and on_edge(line, below[id(line)]) for line in upper)
     columns: list[list[_Line]] = []
     for line in upper:
         cells = sorted(below[id(line)], key=lambda cell: cell.x0)
         if len(cells) < 2:
             continue
-        if not centre(cells[0]) < centre(line) < centre(cells[-1]):
+        if wrapped and on_edge(line, cells) and any(_is_value_piece(cell.text) or cell.x0 - leftmost <= _TABLE_ROW_TOLERANCE
+                                                    for cell in cells):
+            return []
+        # The upper cell of a two-level header stands right of the first (label) column, and no line under it shares its left
+        # edge but the first nor its right edge but the last (a cell aligned to the left or the right of its span). The first
+        # line of a wrapped cell of a data row whose cells sit on its last line (Excel's bottom alignment) stands in the label
+        # column or over its own second line, on the same edge, and was put in front of every value of its row
+        # ('| Research and development 8,400 |') (Pinned by: test_pdf_table_columns.py::TestDataRowsBetweenRulesWithAWrappedCell).
+        # What the lower cells say is not looked at: numbers under an upper cell ('10 | 20', '5% | 10%', '1 | 2') name its
+        # columns (Pinned by: test_pdf_table_columns.py::TestGroupedHeaderBetweenRules::test_upper_cell_over_column_numbers).
+        if (not centre(cells[0]) < centre(line) < centre(cells[-1]) or line.x0 - leftmost <= _TABLE_ROW_TOLERANCE
+                or any(abs(cell.x0 - line.x0) <= _TABLE_ROW_TOLERANCE for cell in cells[1:])
+                or any(abs(cell.x1 - line.x1) <= _TABLE_ROW_TOLERANCE for cell in cells[:-1])):
             return None
         columns += [[line, cell] for cell in cells]
     return columns

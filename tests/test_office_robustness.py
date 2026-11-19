@@ -568,6 +568,128 @@ def _xlsx_with_parts() -> bytes:
     return buffer.getvalue()
 
 
+class TestTargetInAnotherCase:
+    """Part names are case-insensitive in a package (OPC), and Office opens a part whose name differs in case from the target that
+    points at it. The libraries read the archive by the name as written: a DOCX lost the part to the repair as missing, with a
+    warning, and a PPTX lost a picture without a word and reported a slide as unreadable. A renamed part keeps its relationships
+    when they kept the old case."""
+
+    _NOTE = "<w:p>" + _run("출처 그림:") + _PICTURE + "</w:p>"
+
+    def _docx(self) -> bytes:
+        return _docx_with_footnote(self._NOTE, note_relationships=_NOTE_PICTURE_RELATIONSHIP,
+                                   add={"word/media/note.png": builder.png_bytes(300, 200, seed=3)})
+
+    @pytest.mark.parametrize("rename", [
+        pytest.param({"word/media/note.png": "word/Media/Note.png"}, id="picture"),
+        pytest.param({"word/footnotes.xml": "word/Footnotes.xml"}, id="part with relationships of the old case"),
+        pytest.param({"word/footnotes.xml": "word/Footnotes.xml", "word/_rels/footnotes.xml.rels": "word/_rels/FOOTNOTES.xml.rels"},
+                     id="part and relationships each in another case"),
+    ])
+    def test_docx_part_in_another_case_is_read(self, rename):
+        expected = convert(self._docx(), "a.docx")
+        assert [image.alt for image in expected.images] == ["각주 그래프"]
+
+        result = convert(_rebuilt(self._docx(), rename=rename), "a.docx")
+
+        assert (result.text, [image.alt for image in result.images], result.warnings) == (expected.text, ["각주 그래프"], [])
+
+    _CUSTOM_XML = {"customXml/item1.xml": "CustomXml/item1.xml"}  # its relationships and itemProps1.xml stay in `customXml/`
+
+    def test_relationships_carried_to_another_folder_case_keep_their_targets(self):
+        """The relationships of a part found in another folder case are carried to that folder: their relative target
+        `itemProps1.xml` then named `CustomXml/itemProps1.xml`, which is not there, and the whole document was rejected."""
+        expected = convert(builder.docx_bytes(), "a.docx")
+
+        result = convert(_rebuilt(builder.docx_bytes(), rename=self._CUSTOM_XML), "a.docx")
+
+        assert (result.text, result.warnings) == (expected.text, [])
+
+    def test_document_that_fails_with_the_part_found_opens_without_it(self, monkeypatch):
+        """A copy reading the parts found in another case that still fails to open is made again without them: the part is
+        detached with the warning, as it was before parts were found in another case, instead of the document being rejected."""
+        from opendockit.extractors import _package
+
+        repair = _package.repair_package
+
+        def failing(data, *, in_another_case=True):
+            repaired = repair(data, in_another_case=in_another_case)
+            if repaired is None or not in_another_case:
+                return repaired
+            return _rebuilt(repaired[0], edit={"CustomXml/_rels/item1.xml.rels": lambda xml: xml.replace(
+                'Target="/customXml/itemProps1.xml"', 'Target="itemProps1.xml"')}), repaired[1]
+
+        monkeypatch.setattr(_package, "repair_package", failing)
+        expected = convert(builder.docx_bytes(), "a.docx")
+
+        result = convert(_rebuilt(builder.docx_bytes(), rename=self._CUSTOM_XML), "a.docx")
+
+        assert result.text == expected.text
+        assert result.warnings == ["Read after detaching 1 missing or broken part(s) (item1.xml). The contents of those parts "
+                                   "(pictures, numbering, styles, etc.) may be missing."]
+
+    def test_two_members_that_differ_only_in_case_are_not_guessed_between(self):
+        data = _rebuilt(self._docx(), rename={"word/media/note.png": "word/media/Note.png"},
+                        add={"word/media/NOTE.png": builder.png_bytes(10, 10)})
+
+        result = convert(data, "a.docx")
+
+        assert result.images == [] and "detaching 1 missing or broken part(s) (note.png)" in result.warnings[0]
+
+    @pytest.mark.parametrize("rename", [
+        pytest.param({"ppt/media/image1.png": "ppt/Media/Image1.png"}, id="picture"),
+        pytest.param({"ppt/slides/slide1.xml": "ppt/slides/Slide1.xml"}, id="slide with relationships of the old case"),
+    ])
+    def test_pptx_part_in_another_case_is_read(self, rename):
+        expected = convert(builder.pptx_with_image(), "a.pptx")
+        assert len(expected.images) == 1
+
+        result = convert(_rebuilt(builder.pptx_with_image(), rename=rename), "a.pptx")
+
+        assert (result.text, len(result.images), result.warnings) == (expected.text, 1, [])
+
+
+class TestIncompleteRelationship:
+    """One relationship without its Id, Type or Target, in any `.rels` (even one nothing uses), rejected the whole document: the
+    libraries fail on it with a TypeError, an AttributeError or an InvalidXmlError, which the repair did not take. Nothing tells
+    what such a relationship points at; it is left out, with a warning when the library could not open the package."""
+
+    @pytest.mark.parametrize("missing", ["Id", "Type", "Target"])
+    @pytest.mark.parametrize(("data", "name", "relationships", "target"), [
+        pytest.param(builder.docx_bytes(), "a.docx", "word/_rels/document.xml.rels", "styles.xml", id="docx"),
+        pytest.param(builder.pptx_bytes(), "a.pptx", "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+                     "../slideMasters/slideMaster1.xml", id="pptx"),
+    ])
+    def test_document_is_read(self, data, name, relationships, target, missing):
+        attributes = {"Id": "rId99", "Type": f"{_RELATIONSHIPS_NS}/customXml", "Target": target}
+        del attributes[missing]
+        extra = "<Relationship " + " ".join(f'{key}="{value}"' for key, value in attributes.items()) + "/>"
+        expected = convert(data, name).text
+
+        result = convert(builder.zip_with(data, edit={relationships: lambda xml: xml.replace("</Relationships>",
+                                                                                           extra + "</Relationships>")}), name)
+
+        assert result.text == expected
+        assert result.warnings in ([], ["Read after leaving out 1 relationship(s) with no Id, Type or Target. "
+                                        "Whatever they pointed at may be missing."])
+
+    @pytest.mark.parametrize("kind", ["numbering", "styles"])
+    def test_docx_relationship_without_a_type_takes_the_type_of_its_part(self, kind):
+        """python-docx opens a package with a relationship without a Type and keeps it, so the repair never runs, and a part
+        looked up by type was not found behind it: the list items lost `- ` and `1.` (numbering), the headings their `#`
+        (styles), without a word. It takes the type of the part it points at, and the document reads as it is."""
+        import re
+
+        data = builder.zip_with(builder.docx_bytes(), edit={"word/_rels/document.xml.rels": lambda xml: re.sub(
+            f'Type="[^"]*/{kind}"', "", xml)})
+        expected = convert(builder.docx_bytes(), "a.docx")
+
+        result = convert(data, "a.docx")
+
+        assert (result.text, result.warnings) == (expected.text, [])
+        assert "1. 첫째" in result.text and "# 1장 개요" in result.text
+
+
 class TestPercentEncodedTargets:
     """A relationship target is a URI: `im%61ge1.png` names the part `image1.png` (OPC). Only a package that failed to open had
     its targets decoded (`_package.repair_package`), and that is a DOCX: python-pptx and openpyxl leave out a part they do not

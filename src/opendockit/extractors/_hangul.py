@@ -51,6 +51,34 @@ def link_end(url: str) -> str:
     return _LinkMark(link_close(url))
 
 
+# The guide of a click-here field (누름틀) in its command: `Clickhere:set:44:Direction:wstring:2:날짜 HelpState:…`, the length
+# of the text in characters before it.
+_CLICK_HERE_GUIDE = re.compile(r"Direction:wstring:(\d{1,5}):")
+
+
+def click_here_guide(command: str) -> str | None:
+    """The guide text of a click-here field from its command (HWP the `%clk` field control, HWPX the `Command` parameter of
+    `hp:fieldBegin type="CLICK_HERE"`), or None when there is none."""
+    found = _CLICK_HERE_GUIDE.search(command)
+    if found is None:
+        return None
+    guide = command[found.end():found.end() + int(found.group(1))]
+    return guide.strip() or None
+
+
+def drop_unfilled_guide(pieces: list[str], start: int, guide: str | None) -> None:
+    """Remove the pieces from `start` on when they are nothing but the guide text of a click-here field that was not filled in.
+
+    Hangul shows the guide of an empty field (`이곳을 마우스로 누르고 내용을 입력하세요`, or a word such as `날짜`) in its place
+    on screen and does not print it, and it was read as the content of the form (Pinned by:
+    test_hwp.py::TestClickHereFields). What a person typed into the field stays, as does a field that ends in another paragraph.
+    """
+    if guide is None or not 0 <= start <= len(pieces):
+        return
+    if "".join(piece for piece in pieces[start:] if type(piece) is not _LinkMark).strip() == guide:
+        del pieces[start:]
+
+
 def has_text(pieces: list[str]) -> bool:
     """Whether the text pieces hold anything but whitespace and link marks."""
     return any(type(piece) is not _LinkMark and piece.strip() for piece in pieces)
@@ -142,7 +170,12 @@ class ParagraphPieces:
         # A paragraph holding only a table or text box has no piece to attach to, so just the number goes on the line before it. Without
         # counting it, '3. 추진 일정' after '2. [table]' on the Hangul screen shifted up to '2.'
         # (Pinned by: test_hwp_object_only_numbers.py).
-        if not self._headed and any(self.blocks):
+        if not self._headed and not any(self.blocks):
+            # An empty numbered paragraph takes its number too, as Hangul draws it, and writes nothing — the rule of DOCX, ODT
+            # and RTF. Not counted, the items after it came one number too low ('1. 하나', '2. 셋' where Hangul shows 3.)
+            # (Pinned by: test_hwp_heads_and_shapes.py::TestEmptyNumberedParagraph).
+            head()
+        elif not self._headed:
             mark, level = head()
             number = paragraph_head(mark, level, in_cell=in_cell, heading=False) if mark != "-" else ""
             if self._bare is not None:

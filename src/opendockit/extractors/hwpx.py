@@ -5,7 +5,7 @@ HWPX is XML inside a ZIP. The body in `Contents/section*.xml` is structured as `
 Elements are compared **by local name only**: the namespace URI (2011/2016) differs between Hangul versions.
 """
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -18,7 +18,17 @@ from lxml import etree
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._charts import embedded_table, package_loader, render_chart
 from opendockit.extractors._equation import render_equation
-from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, command_link, decorated_text, has_text, link_end, link_start
+from opendockit.extractors._hangul import (
+    PREVIEW_CELL_MARKS,
+    ParagraphPieces,
+    click_here_guide,
+    command_link,
+    decorated_text,
+    drop_unfilled_guide,
+    has_text,
+    link_end,
+    link_start,
+)
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import (
@@ -135,6 +145,9 @@ class HwpxRenderer:
         # Number counters: (kind, numbering id). Outline numbers and paragraph numbers are counted separately. The outline numbering id
         # is set by the section properties (secPr).
         self._numberings: dict[tuple[str, str], Numbering] = {}
+        # While the branches of an hp:switch are read, innermost last: the counters of each numbering as they were before the branch
+        # first advanced it (None: not counted yet), to be put back when the branch is passed over (`_render_switch`)
+        self._numbering_undo: list[dict[tuple[str, str], dict[int, int] | None]] = []
         self._outline_numbering = "1"
         self._options = options
         self._extraction = extraction
@@ -160,6 +173,10 @@ class HwpxRenderer:
         self._unspaced_memos: dict[str, None] = {}  # comments above with a non-empty range not ending in whitespace (get a space between paragraphs)
         self._memo_depth = 0  # 1 or more while comment text is rendered. That text is not the range of another comment
         self._open_links: dict[str, str] = {}  # hyperlink field id not yet closed by fieldEnd → its address (`_open_link`)
+        # click-here field id not yet closed → (the pieces it was opened in, where its text starts there, its guide text, how many
+        # click-here fields had been opened when it was)
+        self._open_clicks: dict[str, tuple[list[str], int, str | None, int]] = {}
+        self._clicks_opened = 0
         self.omitted_rows = 0  # rows dropped by the table grid cell limit (`TableGrid.omitted_rows`). Reported as a warning
 
     def render_paragraphs(self, container: etree._Element) -> list[str]:
@@ -270,8 +287,11 @@ class HwpxRenderer:
         test_comment_opened_only_in_a_passed_over_switch_branch_is_kept).
 
         The notes of a passed-over branch (a note needs a reference in the text, so these are notes inside its comments) are
-        taken back with their numbers when every comment of the branch is. Known accepted gap: when only some of its comments are
-        repeated later, the notes of the ones taken back stay as definitions without a reference.
+        taken back with their numbers when every comment of the branch is. So are the paragraph numbers it took: an empty numbered
+        paragraph in a table of both branches was counted twice, and the next item came one number too high (Pinned by:
+        test_hwp_heads_and_shapes.py::TestEmptyNumberedParagraph::test_hwpx_in_a_passed_over_switch_branch).
+        Known accepted gap: when only some of its comments are repeated later, the notes of the ones taken back stay as definitions
+        without a reference.
 
         A text-box or table in the branch flushes the paragraph text before the switch into a block of its own; that block is not the
         branch's, so `flush` is wrapped to tell the two apart."""
@@ -287,10 +307,22 @@ class HwpxRenderer:
                 flush()
                 start, own = 0, len(blocks)
 
-            for child in branch:
-                self._render_object(child, buffer, blocks, branch_flush)
+            self._numbering_undo.append({})
+            try:
+                for child in branch:
+                    self._render_object(child, buffer, blocks, branch_flush)
+            finally:
+                undo = self._numbering_undo.pop()
             if index == len(branches) - 1 or produced or has_text(buffer[start:]) or any(block.strip() for block in blocks[own:]):
+                if self._numbering_undo:   # kept, inside a branch of an outer switch: the outer branch may still be passed over
+                    for key, counters in undo.items():
+                        self._numbering_undo[-1].setdefault(key, counters)
                 return
+            for key, counters in undo.items():
+                if counters is None:
+                    del self._numberings[key]
+                else:
+                    self._numberings[key].counters = counters
             del buffer[start:], blocks[own:]
             later = {field.get("id", "") for other in branches[index + 1:] for field in other.iter()
                      if _local(field) == "fieldBegin" and field.get("type") == "MEMO"}
@@ -371,6 +403,8 @@ class HwpxRenderer:
         if numbering_id not in self._heads.numberings:
             return "", 0
         key = (head_type, numbering_id)
+        if self._numbering_undo and key not in self._numbering_undo[-1]:
+            self._numbering_undo[-1][key] = dict(self._numberings[key].counters) if key in self._numberings else None
         if key not in self._numberings:
             self._numberings[key] = Numbering(self._heads.numberings[numbering_id])
         return self._numberings[key].advance(level), level
@@ -410,8 +444,17 @@ class HwpxRenderer:
                 self._open_memo(node)
             elif name == "fieldBegin" and node.get("type") == "HYPERLINK":
                 self._open_link(node, buffer)
+            elif name == "fieldBegin" and node.get("type") == "CLICK_HERE":
+                # Its guide is dropped at its end only when no other click-here field was opened inside it: checked at every end, 40,000
+                # fields opened in one paragraph and then ended joined the text from each start again, 19 s (Pinned by:
+                # test_hwp.py::TestClickHereFields::test_fields_opened_inside_each_other_take_linear_time)
+                self._clicks_opened += 1
+                self._open_clicks[node.get("id", "")] = (buffer, len(buffer), click_here_guide(_field_command(node)), self._clicks_opened)
             elif name == "fieldEnd":
                 self._close_memo(node.get("beginIDRef", ""))
+                opened = self._open_clicks.pop(node.get("beginIDRef", ""), None)
+                if opened is not None and opened[0] is buffer and opened[3] == self._clicks_opened:
+                    drop_unfilled_guide(buffer, opened[1], opened[2])
                 url = self._open_links.pop(node.get("beginIDRef", ""), None)
                 if url is not None:
                     buffer.append(link_end(url))
@@ -458,10 +501,11 @@ class HwpxRenderer:
         """Paragraph numbers of a header, footer, note or comment counted on their own: a numbered paragraph there advanced the
         body's counters, so the body's next item skipped a number (Pinned by: test_hwp.py::TestNumberingOutsideTheBody)."""
         saved, self._numberings = self._numberings, {}
+        undo, self._numbering_undo = self._numbering_undo, []
         try:
             yield
         finally:
-            self._numberings = saved
+            self._numberings, self._numbering_undo = saved, undo
 
     def _open_memo(self, field: etree._Element) -> None:
         """Record one comment and start gathering its range. The author is the Author parameter; the text is the subList paragraphs on one line.
@@ -494,10 +538,7 @@ class HwpxRenderer:
         as in DOCX (Pinned by: test_hwp.py::TestHyperlinks)."""
         if not self._options.keep_links or self._memo_depth:
             return
-        parameters = _child(field, "parameters")
-        command = next((param.text or "" for param in _children(parameters, "stringParam") if param.get("name") == "Command"), "") \
-            if parameters is not None else ""
-        url = command_link(command)
+        url = command_link(_field_command(field))
         if url is not None:
             self._open_links[field.get("id", "")] = url
             buffer.append(link_start())
@@ -625,7 +666,10 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
         raise CorruptedDocumentError("The HWPX archive structure is corrupted.") from exc
 
     with archive:
-        names = archive.namelist()
+        # The member names in archive order, looked up in constant time: searched in the name list, each picture and chart a
+        # section refers to took time in proportion to the members, 40,000 of each in a 3.7 MB file 5 s
+        # (Pinned by: test_hwp_robustness.py::TestManyMembersAndReferences).
+        names: Collection[str] = dict.fromkeys(archive.namelist())
         if b"encryption-data" in (_read_member(archive, names, "META-INF/manifest.xml") or b""):
             raise EncryptedDocumentError("The HWP document is password-protected. Please remove the password and upload it again.")
 
@@ -683,10 +727,20 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
                 continue
 
             # Read per top-level paragraph and count characters. Once the limit is exceeded, the remaining paragraphs and sections are not read.
+            # The notes the paragraph added and kept count too (a branch of a switch that gives nothing takes its notes back while
+            # the paragraph is rendered): they were not counted while reading, so a document of footnotes was read to its end
+            # (Pinned by: test_hwp_robustness.py::TestNotesCountTowardTheLimit).
             for paragraph in _children(section, "p"):
+                noted = len(renderer.notes)
                 rendered = renderer.render_paragraph(paragraph)
                 blocks.extend(rendered)
-                if extraction.count(sum(solid_length(block) for block in rendered), options):
+                # Without a limit nothing is counted: the count is only ever compared with the limit, and measuring every note made
+                # a document of 60,000 notes 30% slower (Pinned by: test_hwp_robustness.py::TestNotesCountTowardTheLimit::
+                # test_notes_are_not_measured_without_a_limit)
+                if options.max_chars is None:
+                    continue
+                added = sum(solid_length(block) for block in rendered) + sum(solid_length(note) for note in renderer.notes[noted:])
+                if extraction.count(added, options):
                     break
             if extraction.exceeded:
                 break
@@ -793,7 +847,14 @@ def _int(value: str | None, default: int) -> int:
     return decimal_int(value, default)
 
 
-def _content_package(archive: zipfile.ZipFile, names: list[str]) -> etree._Element | None:
+def _field_command(field: etree._Element) -> str:
+    """The `Command` parameter of an `hp:fieldBegin` (empty when there is none)."""
+    parameters = _child(field, "parameters")
+    return next((param.text or "" for param in _children(parameters, "stringParam") if param.get("name") == "Command"), "") \
+        if parameters is not None else ""
+
+
+def _content_package(archive: zipfile.ZipFile, names: Collection[str]) -> etree._Element | None:
     """content.hpf (body order and picture list). None if missing or broken — the body then goes in section number order and pictures
     are found by BinData file name.
     A single broken content.hpf used to reject the whole document (Pinned by: test_hwp.py::TestOneOddValueInHangulDocuments::
@@ -802,7 +863,7 @@ def _content_package(archive: zipfile.ZipFile, names: list[str]) -> etree._Eleme
     return parse_part(data) if data is not None else None
 
 
-def _read_member(archive: zipfile.ZipFile, names: list[str], name: str) -> bytes | None:
+def _read_member(archive: zipfile.ZipFile, names: Collection[str], name: str) -> bytes | None:
     """Bytes of a part inside the archive. None if missing or it cannot be decompressed (CRC or compression error)."""
     try:
         return archive.read(name) if name in names else None
@@ -810,7 +871,7 @@ def _read_member(archive: zipfile.ZipFile, names: list[str], name: str) -> bytes
         return None
 
 
-def _parse_member(archive: zipfile.ZipFile, names: list[str], name: str) -> etree._Element | None:
+def _parse_member(archive: zipfile.ZipFile, names: Collection[str], name: str) -> etree._Element | None:
     """A part XML outside the body (header.xml). None if missing, not decompressible, or the XML is broken."""
     data = _read_member(archive, names, name)
     if data is None:
@@ -821,7 +882,7 @@ def _parse_member(archive: zipfile.ZipFile, names: list[str], name: str) -> etre
         return None
 
 
-def _section_order(package: etree._Element | None, names: list[str], warnings: list[str]) -> list[str]:
+def _section_order(package: etree._Element | None, names: Collection[str], warnings: list[str]) -> list[str]:
     """The body order is set by the spine of content.hpf. Section number order if it is missing or broken. A spine cut at the
     cap is reported in `warnings`."""
     # A number of more than 4,300 digits cannot be read by `int()` and sorts after the others: one extra member with such a
@@ -847,7 +908,7 @@ def _section_order(package: etree._Element | None, names: list[str], warnings: l
     return list(ordered) or fallback
 
 
-def _binary_items(package: etree._Element | None, names: list[str]) -> dict[str, str]:
+def _binary_items(package: etree._Element | None, names: Collection[str]) -> dict[str, str]:
     """Manifest item id → path inside the archive (BinData/image1.png). If the manifest is missing or broken, the BinData file name
     (without the extension) is taken as the id
     — in files saved by Hancom Office the two are the same."""

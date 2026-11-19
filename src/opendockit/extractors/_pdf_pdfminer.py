@@ -21,7 +21,7 @@ from pdfminer.ascii85 import ascii85decode, asciihexdecode
 from pdfminer.cmapdb import CMap, CMapParser, FileUnicodeMap
 from pdfminer.encodingdb import EncodingDB
 from pdfminer.layout import LTChar, LTFigure, LTLayoutContainer, LTTextBoxHorizontal, LTTextBoxVertical, LTTextLineHorizontal
-from pdfminer.pdfinterp import PDFGraphicState, PDFPageInterpreter
+from pdfminer.pdfinterp import PDFContentParser, PDFGraphicState, PDFPageInterpreter
 from pdfminer.pdftypes import (
     LITERALS_ASCII85_DECODE,
     LITERALS_ASCIIHEX_DECODE,
@@ -156,6 +156,44 @@ def _decode_within_budget(stream: PDFStream) -> None:
 PDFStream.decode = _decode_within_budget  # outside a conversion (no budget) it behaves as before
 
 
+def _inline_data_in_linear_time(self: PDFContentParser, pos: int, target: bytes = b"EI") -> tuple[int, bytes]:
+    """`PDFContentParser.get_inline_data` with the data gathered in a list and joined once.
+
+    pdfminer adds every piece it reads to the data read so far (`data += …`): a piece per buffer of the stream and two at every
+    `E`, so reading an inline image costs its size times its pieces — 5MB of compressed image data (an `E` every 256 bytes) took 8.5
+    seconds inside one page, and 20MB would take over two minutes. The steps are pdfminer's, so the data, the position and the
+    errors are the same; only the joining is done once. Deliberate exception to not copying pdfminer's functions: the cost is in
+    the body of the function, so no wrapper can avoid it (Pinned by: test_pdf_resource_limits.py::TestLargeInlineImages)."""
+    self.seek(pos)
+    i = 0
+    parts = []
+    while i <= len(target):
+        self.fillbuf()
+        if i:
+            c = bytes((self.buf[self.charpos],))
+            parts.append(c)
+            self.charpos += 1
+            if (len(target) <= i and c.isspace()) or (i < len(target) and c == bytes((target[i],))):
+                i += 1
+            else:
+                i = 0
+        else:
+            try:
+                j = self.buf.index(target[0], self.charpos)
+                parts.append(self.buf[self.charpos:j + 1])
+                self.charpos = j + 1
+                i = 1
+            except ValueError:
+                parts.append(self.buf[self.charpos:])
+                self.charpos = len(self.buf)
+    data = b"".join(parts)[:-(len(target) + 1)]  # strip the last part
+    return pos, re.sub(rb"(\x0d\x0a|[\x0d\x0a])$", b"", data)
+
+
+_inline_data_unbounded = PDFContentParser.get_inline_data
+PDFContentParser.get_inline_data = _inline_data_in_linear_time
+
+
 def _charge(stream: PDFStream, budget: _InflateBudget) -> None:
     """Charges the size the stream's Flate stages will inflate to against the limit. Raises DocumentTooLargeError when exceeded.
     Other filters and broken streams are not measured (pdfminer decodes them as before — ASCII filters shrink the data, image
@@ -247,6 +285,35 @@ def _charge_page(page: object, budget: _InflateBudget) -> None:
             pending.extend(value for key, value in obj.items() if key != "Parent")
         else:
             pending.extend(obj)
+    _charge_repeated_contents(page, budget)
+
+
+def _charge_repeated_contents(page: object, budget: _InflateBudget) -> None:
+    """Charges a content stream listed several times in the page's `/Contents` once more for every further listing: pdfium joins
+    the page's streams into one before reading them, so it holds such a stream as often as it is listed, as if each listing were a
+    stream of its own. Measured once, a 21KB file listing one stream of 20MB 80 times used 3.5GB in 10.5 seconds under a limit of
+    500MB (Pinned by: test_pdf_resource_limits.py::TestContentStreamListedManyTimes)."""
+    try:
+        streams = _content_streams(page)
+    except DocumentTooLargeError:
+        raise
+    except Exception:  # noqa: BLE001 — page reading meets a broken reference itself and handles it
+        return
+    listed = Counter(id(stream) for stream in streams)
+    if len(listed) == len(streams):
+        return
+    for stream in {id(stream): stream for stream in streams}.values():
+        if listed[id(stream)] > 1:
+            try:
+                size = len(stream.get_data())
+            except DocumentTooLargeError:
+                raise
+            except Exception:  # noqa: BLE001 — a stream that cannot be decoded is met by page reading as before
+                continue
+            budget.remaining -= size * (listed[id(stream)] - 1)
+    if budget.remaining < 0:
+        budget.exceeded = True
+        raise DocumentTooLargeError(_TOO_LARGE)
 
 
 # Estimated upper bound on the number of objects a page will draw (`_drawn_objects`). When opening a page pdfium creates one object
@@ -260,6 +327,13 @@ def _charge_page(page: object, budget: _InflateBudget) -> None:
 # Known accepted gap: a page with more than 500,000 paint operators (a very dense drawing or map) is not read for text either;
 # only a warning is given (Pinned by: test_pdf_resource_limits.py::TestRepeatedFormXObjects, TestManyPaintOperators).
 _MAX_DRAWN_OBJECTS = 500_000
+# Bytes of content a page may make pdfium read (`_page_drawing`: each content stream as often as `/Contents` lists it, each form's
+# content as often as it is drawn). Operators that paint nothing make no object, so a form of a million `q Q` (4.8KB file) drawn n
+# times passed the estimate up to n = 500,000; pdfminer took 4.4 seconds at n = 1, 17 at n = 4 and 88 at n = 16, and pdfium reads
+# such content at about 60MB a second (256MB: 4.4 seconds). Past this bound nobody opens the page. A page's content stream is rarely
+# above a few MB, and a page drawing 128MB is past the drawn-object limit long before (Pinned by:
+# test_pdf_resource_limits.py::TestContentThatPaintsNothing).
+_MAX_OPENED_CONTENT_BYTES = 128 << 20
 # A form chain deeper than this is treated as over the limit without counting how much it multiplies further down. When the deep
 # part was counted as one object, pdfminer (no depth limit) spent more than 12 minutes drawing a 10KB file that multiplies below
 # level 32. The page survey (`_survey_page`) counts down to this depth as well.
@@ -274,8 +348,17 @@ _REPEATED_FORMS_SKIPPED = " were not read because they have too many drawing ele
 
 def _drawn_objects(page: object, limit: int, painted: dict[int, tuple[object, int]] | None = None,
                    forms: dict[tuple[int, int], tuple[object, ...]] | None = None) -> int:
+    """Estimate of the number of drawn objects that drawing the page will create (`_page_drawing`)."""
+    return _page_drawing(page, limit, painted, forms)[0]
+
+
+def _page_drawing(page: object, limit: int, painted: dict[int, tuple[object, int]] | None = None,
+                  forms: dict[tuple[int, int], tuple[object, ...]] | None = None) -> tuple[int, int, int, int]:
     """Estimate of the number of drawn objects that drawing the page will create (forms are multiplied by the number of times they
-    are drawn; once over `limit` the value where counting stopped).
+    are drawn; once over `limit` the value where counting stopped), and the bytes of content read to draw them — each content stream
+    as often as `/Contents` lists it, and each form's content as often as it is drawn: all its bytes (`_MAX_OPENED_CONTENT_BYTES`),
+    the tokens pdfminer reads from them (`_content_cost`, `_MAX_READ_CONTENT_TOKENS`) and the pieces they add to paths
+    (`_path_segments`, `_MAX_READ_PATH_SEGMENTS`).
 
     Called before pdfium or pdfminer open the page (`_MAX_DRAWN_OBJECTS`). pdfminer decodes the content and form streams anyway
     (the decoded data is cached), so the extra cost is one regex pass. With `painted` handed over from the document (content stream
@@ -288,19 +371,147 @@ def _drawn_objects(page: object, limit: int, painted: dict[int, tuple[object, in
     forms = {} if forms is None else forms
     try:
         resources = resolve1(page.page_obj.resources)
-        contents = resolve1(page.page_obj.attrs.get("Contents"))
-        streams = [resolve1(part) for part in contents] if isinstance(contents, list) else [contents]
-        streams = [stream for stream in streams if isinstance(stream, PDFStream)]
+        streams = _content_streams(page)
         for stream in streams:
             if id(stream) not in painted:
                 painted[id(stream)] = (stream, _paint_operators(stream.get_data(), limit))
         paints = sum(painted[id(stream)][1] for stream in streams)
-        data = b"\n".join(stream.get_data() for stream in streams)
-        return _content_objects(data, resources, limit, forms, set(), 0, paints)
+        calls = _page_calls(streams, limit)
+        objects, read = _FormWalk(limit, forms).drawn(calls, resources, 0, paints)
+        parents = _parent_resources(page.page_obj)
+        if parents is not None and parents is not resources:
+            # pdfium takes inherited resources from `/Parent`, pdfminer from the path through the page tree
+            other, other_read = _FormWalk(limit, forms).drawn(calls, parents, 0, paints)
+            objects, read = max(objects, other), tuple(max(pair) for pair in zip(read, other_read, strict=True))
+        for stream in streams:
+            read = _plus(read, _reading_cost(stream.get_data()))
+        return (objects, *read)
     except DocumentTooLargeError:
         raise
     except Exception:  # noqa: BLE001 — the estimate is a bonus. Page reading meets a broken structure itself and handles it
-        return 0
+        return 0, 0, 0, 0
+
+
+
+_PAGE_TREE_LEVELS = 1024  # levels of the page tree pdfium follows, through `/Kids` and through `/Parent` (its kMaxPageLevel)
+
+
+def _parent_resources(page_obj: object) -> object:
+    """The resources pdfium gives a page without `/Resources` of its own: those of the nearest node up its `/Parent` chain. None
+    when the page has its own (or none is found).
+
+    pdfminer passes inherited attributes down the path through the page tree, pdfium looks them up through `/Parent`, so a page
+    whose `/Parent` is not the node listing it drew, in pdfium, the forms of other resources than the drawn-object estimate looked
+    at — a form drawing itself twice there took gigabytes (Pinned by:
+    test_pdf_resource_limits.py::TestPagesPdfiumNumbersOtherwise::test_resources_inherited_through_parent_are_estimated)."""
+    raw = getattr(page_obj, "raw", None)
+    if raw is None:
+        doc, pageid = getattr(page_obj, "doc", None), getattr(page_obj, "pageid", None)
+        raw = resolve1(doc.getobj(pageid)) if doc is not None and isinstance(pageid, int) else None
+    if not isinstance(raw, dict) or "Resources" in raw:
+        return None
+    node, seen = resolve1(raw.get("Parent")), set()
+    while isinstance(node, dict) and id(node) not in seen and len(seen) < _PAGE_TREE_LEVELS:
+        if "Resources" in node:
+            return resolve1(node["Resources"])
+        seen.add(id(node))
+        node = resolve1(node.get("Parent"))
+    return None
+
+def _content_streams(page: object) -> list[PDFStream]:
+    """The content streams of the page in the order drawn, a stream listed several times in `/Contents` as often as listed."""
+    contents = resolve1(page.page_obj.attrs.get("Contents"))
+    streams = [resolve1(part) for part in contents] if isinstance(contents, list) else [contents]
+    return [stream for stream in streams if isinstance(stream, PDFStream)]
+
+
+_CALL_AT_START = re.compile(rb"\s*Do(?=[\s\[(/<%]|$)")  # the `Do` of a call whose name ends the stream before
+_NAME_CHARACTERS = re.compile(rb"[^\s/\[\]()<>{}%]+")
+
+
+def _page_calls(streams: list[PDFStream], limit: int) -> Counter:
+    """XObject calls (name → times) of the page's content streams drawn one after the other: the calls of each stream are looked for
+    once, and taken as often as the stream is listed, so that the result is that of looking through the streams joined by line
+    breaks (pdfminer and pdfium draw them as one stream) — also for a call whose name ends one stream and whose `Do` starts a later
+    one. Joining them first held the page's contents again: one stream of 20MB listed 80 times held 1.6GB (Pinned by:
+    test_pdf_resource_limits.py::TestContentStreamListedManyTimes)."""
+    seen: dict[int, tuple[Counter, bool, bool, bytes | None]] = {}
+    for stream in streams:
+        if id(stream) not in seen:
+            data = stream.get_data()
+            ending = data.rstrip()
+            slash = ending.rfind(b"/")
+            name = ending[slash + 1:] if slash >= 0 else b""
+            last = name if name and _NAME_CHARACTERS.fullmatch(name) else None
+            seen[id(stream)] = (_xobject_calls(data, limit), not ending, bool(_CALL_AT_START.match(data)), last)
+    listed = Counter(id(stream) for stream in streams)
+    calls: Counter = Counter()
+    for key, times in listed.items():
+        for name, drawn in seen[key][0].items():
+            calls[name] += drawn * times
+    pending = None  # the name ending the streams so far, waiting for its `Do`
+    for stream in streams:
+        _, blank, starts_with_do, last = seen[id(stream)]
+        if blank:
+            continue
+        if pending is not None and starts_with_do:
+            calls[pending] += 1
+        pending = last
+    return calls
+
+
+def _xobject_calls(data: bytes, limit: int) -> Counter:
+    """XObject calls (name → times) of a content stream. Only the first `limit + 1` calls are looked at: every call is at least one
+    object, so with more the estimate is over the limit anyway. `findall` listed every name first — a 65MB stream of five million
+    different names held 500MB (Pinned by: test_audit_pdf_head.py::TestManyDistinctXObjectNames)."""
+    return Counter(match[1] for match in islice(_XOBJECT_CALL.finditer(data), limit + 1))
+
+
+# Classes of content bytes for counting tokens (`_content_cost`): white space, delimiters, the rest.
+_TOKEN_CLASSES = bytes(32 if byte in b"\x00\t\n\x0c\r " else 100 if byte in b"()<>[]{}/%" else 120 for byte in range(256))
+
+
+_NOTHING_READ = (0, 0, 0)
+
+
+def _plus(cost: tuple[int, ...], more: tuple[int, ...]) -> tuple[int, ...]:
+    return tuple(one + other for one, other in zip(cost, more, strict=True))
+
+
+def _times(cost: tuple[int, ...], times: int) -> tuple[int, ...]:
+    return tuple(one * times for one in cost)
+
+
+def _content_cost(data: bytes) -> tuple[int, int]:
+    """Bytes of a content stream and the tokens pdfminer reads from them: runs of bytes that are neither white space nor
+    delimiters, and each delimiter (`(`, `<`, `[`, `/` …). Counted on a copy with each byte replaced by its class, at the speed of a
+    byte copy.
+
+    pdfminer's time goes with the tokens it reads, not with the bytes: per MB without white space a million `q Q` took 3.1 seconds
+    (2 million tokens), segments of a long path (`x y l`) 1.1, colours 0.8, curves 0.6, numbers 0.3, white space next to nothing;
+    per token they are all within 2 to 5 microseconds. Counted by bytes, a page with a 5MB inline image (0.3 seconds) and one with a
+    single map path of 400,000 segments (4.3 seconds) were sent to pdfium's simple extraction and lost their tables. Inline image
+    data is not left out by finding `ID … EI` — those letters can stand inside a string, which would hide the operators after it —
+    but image data holds few tokens: compressed data about one per 16 bytes (20MB: 1.25 million, read in 0.7 seconds with
+    `_inline_data_in_linear_time`), data without a white-space or delimiter byte one (Pinned by:
+    test_pdf_resource_limits.py::TestContentThatPaintsNothing)."""
+    classes = data.translate(_TOKEN_CLASSES)
+    return len(data), classes.count(b" x") + classes.count(b"d") + (classes[:1] == b"x")
+
+
+# Operators that add a piece to the current path (`m l c v y h re`). The same letters inside strings are counted too (fine for an
+# upper bound).
+_PATH_OPERATOR = re.compile(rb"(?<![^\s\])>])(?:re|[mlcvyh])(?=[\s\[(/<%]|$)")
+
+
+def _reading_cost(data: bytes) -> tuple[int, int, int]:
+    """Bytes, tokens (`_content_cost`) and path pieces (`_path_segments`) of a content stream."""
+    return (*_content_cost(data), _path_segments(data))
+
+
+def _path_segments(data: bytes) -> int:
+    """Pieces added to paths in a content stream (`_MAX_READ_PATH_SEGMENTS` in pdf.py). Only counts."""
+    return sum(1 for _ in _PATH_OPERATOR.finditer(data))
 
 
 def _paint_operators(data: bytes, limit: int) -> int:
@@ -315,41 +526,94 @@ def _is_form(obj: object) -> bool:
 
 def _content_objects(data: bytes, resources: object, limit: int, counted: dict[tuple[int, int], tuple[object, ...]],
                      active: set[int], depth: int, paints: int | None = None) -> int:
-    """Estimate of the number of drawn objects one content stream `data` will create (`_drawn_objects`). A form counts as times
-    drawn × (1 form object + the count inside the form) and is counted only once per form (`counted`, (form id, id of the resources
-    it uses) → (form, resources, count) — holding the objects prevents id reuse. A form without resources inherits those of whatever
-    draws it, so if it draws other XObjects it is counted per such resources, otherwise once under resource id 0). A form that comes
-    back to itself (`active`) counts as one object, and a form deeper than `_FORM_NESTING_MAX` counts as over the limit. The number
-    of paint operators already counted is passed in as `paints`."""
-    total = _paint_operators(data, limit) if paints is None else paints
-    # Only the first `limit + 1` calls are looked at: every call is at least one object, so with more the estimate is over the limit
-    # anyway. `findall` listed every name first — a 65MB stream of five million different names held 500MB
-    # (Pinned by: test_audit_pdf_head.py::TestManyDistinctXObjectNames).
-    calls = Counter(match[1] for match in islice(_XOBJECT_CALL.finditer(data), limit + 1))
-    xobjects = resolve1(resources.get("XObject")) if isinstance(resources, dict) and calls else None
+    """Estimate of the number of drawn objects one content stream `data` will create (`_drawn_objects`), drawn inside the forms
+    `active` (normally none). A form counts as times drawn × (1 form object + the count inside the form) and is counted only once per
+    form (`counted`, (form id, id of the resources it uses) → (form, resources, count) — holding the objects prevents id reuse. A form
+    without resources inherits those of whatever draws it, so if it draws other XObjects it is counted per such resources, otherwise
+    once under resource id 0). A form that comes back to itself is counted as pdfium draws it (`_FormWalk`), and a form deeper than
+    `_FORM_NESTING_MAX` counts as over the limit. The number of paint operators already counted is passed in as `paints`."""
+    return _FormWalk(limit, counted, active).objects(data, resources, depth, paints)[0]
 
-    for raw, times in calls.items():
-        name = _NAME_ESCAPE.sub(lambda match: bytes([int(match[1], 16)]), raw)
-        form = resolve1(xobjects.get(name.decode("utf-8", "replace"))) if isinstance(xobjects, dict) else None
-        if not _is_form(form) or id(form) in active:
-            total += times  # an image, a missing name or a form that loops back is one object
-            continue
-        if depth >= _FORM_NESTING_MAX:
-            return limit + 1
-        inherited = resolve1(form.attrs.get("Resources")) or resources
-        key = (id(form), 0) if (id(form), 0) in counted else (id(form), id(inherited))
-        if key not in counted:
-            active.add(id(form))
-            form_data = form.get_data()
-            inner = _content_objects(form_data, inherited, limit, counted, active, depth + 1)
-            active.discard(id(form))
-            if not _XOBJECT_CALL.search(form_data):
-                key = (id(form), 0)  # the count of a form that draws no other XObject does not depend on the resources
-            counted[key] = (form, inherited, inner)
-        total += times * (1 + counted[key][-1])
-        if total > limit:
-            break
-    return total
+
+# pdfium draws a form inside a form down to its 40th level, also when the form comes back to itself: a form that draws itself once
+# is drawn 41 times. pdfminer stops at the form that comes back (`parent_stream_ids`), so it draws fewer.
+_CYCLE_DRAWS = 41
+
+
+class _FormWalk:
+    """The forms drawn from one content stream, followed down to their contents (`_content_objects`).
+
+    A form that comes back to itself was counted as one object, and pdfium follows such a loop down to its nesting level (40): when
+    a form of the loop is drawn twice, every level doubles the forms of the next, so an 800-byte file whose form draws itself twice
+    used 3.9GB in 6 seconds and 10.7GB in 20 seconds merely by pdfium opening the page (the same with two forms drawing each other
+    twice). Such a loop — a call on the way round drawn more than once, or a second loop met while one is still open (two ways round
+    give as many paths as Fibonacci numbers) — is over the limit. A loop whose every call is drawn once is followed by pdfium only as
+    deep as its nesting level, so the form it comes back to counts `_CYCLE_DRAWS` times its contents; the forms between are not
+    remembered (`counted`), as their count holds the loop only partly (Pinned by:
+    test_pdf_resource_limits.py::TestFormsDrawingThemselves)."""
+
+    __slots__ = ("calls", "chain", "counted", "limit", "loop", "outside")
+
+    def __init__(self, limit: int, counted: dict[tuple[int, int], tuple[object, ...]], outside: set[int] | None = None) -> None:
+        self.limit, self.counted = limit, counted
+        self.outside = outside or set()  # forms the stream is drawn inside, an unknown number of times: coming back is over
+        self.chain: dict[int, int] = {}  # form being drawn → its place in the chain of forms being drawn
+        self.calls: list[int] = []  # how many times the call drawing each form of the chain draws it
+        self.loop: int | None = None  # place in the chain of the form an open loop comes back to
+
+    def objects(self, data: bytes, resources: object, depth: int, paints: int | None = None) -> tuple[int, tuple[int, int, int]]:
+        """Drawn objects of the content stream `data`, and what reading it and its forms costs (`_reading_cost`)."""
+        total = _paint_operators(data, self.limit) if paints is None else paints
+        objects, read = self.drawn(_xobject_calls(data, self.limit), resources, depth, total)
+        return objects, _plus(read, _reading_cost(data))
+
+    def drawn(self, calls: Counter, resources: object, depth: int, total: int) -> tuple[int, tuple[int, int, int]]:
+        """`total` plus the drawn objects of the XObject calls `calls` (name → times) made with `resources`, and what reading the
+        content of the forms costs (`_reading_cost`): each form's content and that of the forms inside it, as often as it is drawn."""
+        limit, counted = self.limit, self.counted
+        read = _NOTHING_READ
+        xobjects = resolve1(resources.get("XObject")) if isinstance(resources, dict) and calls else None
+
+        for raw, times in calls.items():
+            name = _NAME_ESCAPE.sub(lambda match: bytes([int(match[1], 16)]), raw)
+            form = resolve1(xobjects.get(name.decode("utf-8", "replace"))) if isinstance(xobjects, dict) else None
+            if not _is_form(form):
+                total += times  # an image or a missing name is one object
+                continue
+            if id(form) in self.outside:
+                return limit + 1, read
+            if id(form) in self.chain:
+                place = self.chain[id(form)]
+                if times > 1 or self.loop is not None or any(drawn > 1 for drawn in self.calls[place + 1:]):
+                    return limit + 1, read
+                self.loop = place  # its contents are counted again when the form it comes back to is left
+                total += 1
+                continue
+            if depth >= _FORM_NESTING_MAX:
+                return limit + 1, read
+            inherited = resolve1(form.attrs.get("Resources")) or resources
+            key = (id(form), 0) if (id(form), 0) in counted else (id(form), id(inherited))
+            inner, inner_read = (counted[key][-1], counted[key][-2]) if key in counted else (None, _NOTHING_READ)
+            if inner is None:
+                place = len(self.calls)
+                self.chain[id(form)] = place
+                self.calls.append(times)
+                form_data = form.get_data()
+                inner, inner_read = self.objects(form_data, inherited, depth + 1)
+                del self.chain[id(form)]
+                self.calls.pop()
+                if self.loop == place:
+                    # pdfium goes round the loop down to its nesting level
+                    inner, inner_read, self.loop = inner * _CYCLE_DRAWS, _times(inner_read, _CYCLE_DRAWS), None
+                if self.loop is None:  # a loop still open comes back above: the count holds only part of it
+                    if not _XOBJECT_CALL.search(form_data):
+                        key = (id(form), 0)  # the count of a form that draws no other XObject does not depend on the resources
+                    counted[key] = (form, inherited, inner_read, inner)
+            total += times * (1 + inner)
+            read = _plus(read, _times(inner_read, times))
+            if total > limit:
+                break
+        return total, read
 
 
 # Upper bound on expanding font ranges. pdfminer expands the ranges of a CID font's /W and /W2 (`c1 c2 w`) and the bfrange/cidrange

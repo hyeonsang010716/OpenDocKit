@@ -201,6 +201,19 @@ class TestNamedMailPartWithoutDisposition:
     the first text/html part pushed out the plain body, with no warning. A part that is not the top one, has only a name and has no
     Content-ID or Content-Location is treated as an attachment."""
 
+    @pytest.mark.parametrize(("content_type", "name"), [("text/x-patch", "0001-fix-overflow.patch"), ("text/csv", "report.csv")])
+    def test_named_inline_text_that_is_not_a_body_is_an_attachment(self, content_type, name):
+        """An inline text part is read where it stands, but only plain text, HTML and a calendar are: a patch sent with
+        `git format-patch --inline` or an inline CSV was neither read nor named in the warning."""
+        data = ("From: dev@example.com\nTo: list@example.com\nSubject: review\nMIME-Version: 1.0\n"
+                "Content-Type: multipart/mixed; boundary=BB\n\n--BB\nContent-Type: text/plain\n\nPlease review.\n--BB\n"
+                f"Content-Type: {content_type}\nContent-Disposition: inline; filename=\"{name}\"\n\nsome content\n--BB--\n").encode()
+
+        result = convert(data, "mail.eml")
+
+        assert result.text.endswith("Please review.")
+        assert result.warnings == [f"1 mail attachment(s) ({name}) were not read. Convert attachments separately."]
+
     def test_named_html_part_is_an_attachment_not_the_body(self):
         data = ("From: c@example.com\nTo: d@example.com\nSubject: report\nMIME-Version: 1.0\n"
                 "Content-Type: multipart/mixed; boundary=BB\n\n--BB\nContent-Type: text/plain; charset=utf-8\n\n"

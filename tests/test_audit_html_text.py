@@ -12,7 +12,7 @@ from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors import _html_dom, _html_mail
 from opendockit.extractors import html as html_extractor
 from tests.builder import png_bytes
-from tests.timing import allowed
+from tests.timing import allowed, fastest
 
 
 _MAIL_HEAD = "From: a@b.c\r\nTo: d@e.f\r\nMIME-Version: 1.0\r\n"
@@ -608,6 +608,18 @@ class TestListItemWithManyUnpairedFenceLines:
         assert text.startswith("-")
         assert seconds < allowed(6)
 
+    @pytest.mark.timing
+    def test_many_code_blocks_take_linear_time(self):
+        """With no fence line of text left to find, the next one was looked for again after every code block, to the end of
+        the item: one item of 40,000 `<pre>` blocks (507 KB) took 21 s."""
+        def html(count):
+            return ("<ul><li>" + "<pre>x</pre>t" * count + "</li></ul>").encode()
+
+        small, large = html(5_000), html(20_000)
+
+        assert fastest(lambda: convert(large, "a.html")) < 8 * fastest(lambda: convert(small, "a.html")) + 0.05
+        assert convert(html(2), "a.html").text == "-\n\n```\nx\n```\n\nt\n\n```\nx\n```\n\nt"
+
     @pytest.mark.parametrize(("item", "expected"), [
         ("first<pre>a  b\n\n\nc</pre>then<pre>d</pre>last", "- first\n\n```\na  b\n\n\nc\n```\n\nthen\n\n```\nd\n```\n\nlast"),
         ("<pre></pre>after", "-\n\n```\n\n```\n\nafter"),
@@ -693,6 +705,18 @@ class TestManyButtonsInsideOneHeading:
 
         assert text == "# " + "ab" * 40000
         assert seconds < allowed(4)
+
+    @pytest.mark.timing
+    def test_buttons_left_open_are_unwrapped_in_linear_time(self):
+        """lxml nests each button left open in the one before, and unwrapping them from the innermost out moved all their
+        children again at every level: 8,000 of them (70 KB) took 43 s."""
+        def html(count):
+            return ("<h2>" + "<button>b" * count).encode()
+
+        small, large = html(4_000), html(16_000)
+
+        assert fastest(lambda: convert(large, "a.html")) < 8 * fastest(lambda: convert(small, "a.html")) + 0.05
+        assert convert(html(3), "a.html").text == "## bbb"
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<h2>A<button>B <i>C</i></button>D<button></button><button>E</button></h2><p>p</p>", "## AB CDE\n\np"),

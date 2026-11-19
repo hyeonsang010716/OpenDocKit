@@ -592,6 +592,15 @@ class TestNegativeSectionWithoutSign:
 
         assert result == expected
 
+    @pytest.mark.parametrize(("number_format", "expected"), [
+        ("#,##0_ ;[Red]#,##0\\ ", "-1,235"),  # CJK Excel's padding, as written when its \- is taken out
+        ("0.00_ ;[Red]0.00\\ ", "-1234.50"),
+        ('#,##0;[Red]#,##0" "', "-1,235"),
+    ])
+    def test_space_literal_marks_nothing(self, number_format, expected):
+        """A space written as `\\ ` or `" "` in the negative section made it look marked, so the loss read as a profit."""
+        assert format_cell(-1234.5, number_format) == expected
+
     @pytest.mark.parametrize(
         ("number_format", "expected"),
         [
@@ -1611,6 +1620,25 @@ def _xml_spreadsheet_rows(rows: str) -> bytes:
             "</Worksheet></Workbook>").encode()
 
 
+class TestXmlSpreadsheetComments:
+    """The cell comments of an Excel 2003 XML workbook were dropped without a warning, while XLSX, XLS and ODS write them after
+    the sheet. They are written the same way, the author line Excel puts in front of the text left out, and the row named by
+    its text even after a gap of rows."""
+
+    def test_comments_follow_the_sheet(self):
+        note = ('<Comment ss:Author="Kim"><ss:Data xmlns="http://www.w3.org/TR/REC-html40"><B><Font>Kim:</Font></B>'
+                "<Font>&#10;잠정치, 확정 후 수정</Font></ss:Data></Comment>")
+        rows = ('<Row><Cell><Data ss:Type="String">항목</Data></Cell><Cell><Data ss:Type="String">금액</Data></Cell></Row>'
+                f'<Row><Cell><Data ss:Type="String">매출</Data></Cell><Cell><Data ss:Type="Number">120</Data>{note}</Cell></Row>'
+                '<Row ss:Index="9"><Cell><Data ss:Type="String">비용</Data></Cell><Cell><Data ss:Type="Number">80</Data>'
+                '<Comment ss:Author="Lee"><ss:Data>확정</ss:Data></Comment></Cell></Row>')
+
+        text = convert(_xml_spreadsheet_rows(rows), "a.xml").text
+
+        assert text.endswith('> Comment(Kim, cell B2, on "매출: 120"): 잠정치, 확정 후 수정\n'
+                             '> Comment(Lee, cell B9, on "비용: 80"): 확정')
+
+
 class TestXmlSpreadsheetRowSpan:
     """`<Row ss:Span="n">` stands for n more rows like it, but the span was ignored when numbering the rows after it: an R1C1
     formula below pointed at the wrong cell (`=R[-4]C` stayed as written instead of `=B2`) and a MergeDown reached rows it does not
@@ -2505,6 +2533,45 @@ class TestBracketsInsideFormatLiterals:
         assert "| 가 | Lv.[3] |" in result.text
 
 
+class TestEscapedQuoteBeforeAQuotedLiteral:
+    """openpyxl decides whether a format is a date with quoted text stripped by a lazy `".*?"`, which pairs a backslash-escaped
+    quote with the opening quote of the next literal: in `0\\"" screen"` (a screen size in inches) it is left with ` screen"` and
+    takes its `s` for seconds. 27 came out as `1900-01-27` and a negative size as `-648:00:00`. The format is read in one pass
+    from the left, as for its literals, in XLSX (full load and streaming), Excel 2003 XML and for a negative value."""
+
+    _CASES = [
+        (27, '0\\"" screen"', '27" screen'),
+        (31.5, '0\\"" screen"', '32" screen'),
+        (7.5, '0.0\\"" (inch)"', '7.5" (inch)'),
+        (12.25, '0.0\\" "thick"', '12.3" thick'),
+    ]
+
+    @pytest.mark.parametrize("streamed", [False, True], ids=["full-load", "streamed"])
+    @pytest.mark.parametrize(("value", "number_format", "expected"), _CASES)
+    def test_xlsx(self, monkeypatch, streamed, value, number_format, expected):
+        from opendockit.extractors import spreadsheet
+
+        if streamed:
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+        data = _xlsx([["항목", "값"], ["가", value]], {"B2": number_format})
+
+        assert f"| 가 | {expected} |" in convert(data, "a.xlsx").text
+
+    @pytest.mark.parametrize(("value", "number_format", "expected"), _CASES)
+    def test_excel_2003_xml(self, value, number_format, expected):
+        data = _xml_spreadsheet(number_format, "Number", str(value))
+
+        assert f"| 가 | {expected} |" in convert(data, "a.xml").text
+
+    def test_negative_value(self):
+        assert format_cell(-27, '0\\"" screen"') == '-27" screen'
+
+    def test_a_date_with_a_quoted_letter_is_still_a_date(self):
+        data = _xlsx([["항목", "값"], ["가", 45352.25]], {"B2": 'yyyy-mm-dd" s"'})
+
+        assert "| 가 | 2024-03-01 |" in convert(data, "a.xlsx").text
+
+
 class TestElapsedSectionsInsideFormatLiterals:
     """Whether a cell is elapsed time was decided by searching the raw format, so the literal `" [h]"` of `yyyy-mm-dd" [h]"`
     turned a date into a duration and it came out as `yyyy-00-dd [h]`. Only an elapsed section outside quotes and backslash
@@ -2641,6 +2708,24 @@ class TestXlsOleContainer:
             convert(data, "a.xls")
 
         assert clock.perf_counter() - started < 1
+
+    def test_workbook_stream_that_loops_on_itself_is_read_no_further_than_the_file(self):
+        """olefile reads a stream whole, as many sectors as its entry declares, following a chain that may point at itself: a
+        16 KB workbook declaring a 500 MB `Workbook` stream made 1.7 GB and took 54 s. It is read no further than the file."""
+        import tracemalloc
+
+        stream = builder.xls_bytes([("견적", _XLS_ROWS, b"")])
+        data = builder.ole_file({"Workbook": stream.ljust(4096, b"\x00")}, loops=("Workbook",), sizes={"Workbook": 50_000_000})
+
+        tracemalloc.start()
+        try:
+            result = convert(data, "a.xls")
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+        assert result.text == f"## Sheet: 견적\n\n{_XLS_TABLE}"
+        assert peak < 20_000_000
 
     def test_workbook_in_a_container_reads_the_same_as_the_bare_stream(self):
         stream = builder.xls_bytes([("견적", _XLS_ROWS, builder.xls_text_box("※ 부가세 별도")), ("둘째", [["나", "다"]], b"")])

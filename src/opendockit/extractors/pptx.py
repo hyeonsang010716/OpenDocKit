@@ -9,12 +9,14 @@ from dataclasses import dataclass
 from io import BytesIO
 import re
 from urllib.parse import unquote
+import zipfile
 
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.exc import InvalidXmlError, PackageNotFoundError
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.opc.package import PartFactory, _PackageLoader
 from pptx.opc.packuri import PACKAGE_URI, PackURI
+from pptx.oxml import parse_xml
 from pptx.package import Package
 from pptx.parts.presentation import PresentationPart
 from pptx.parts.slide import NotesSlidePart, SlideLayoutPart, SlideMasterPart
@@ -58,7 +60,7 @@ from opendockit.extractors._package import (
     related_part,
 )
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_font_text
-from opendockit.markdown import TableGrid, solid_length
+from opendockit.markdown import TableGrid, clean_characters, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
@@ -168,21 +170,56 @@ class _DecodingLoader(_PackageLoader):
     without an error, so `_package.repair_package`, which decodes targets for a package that fails to open, was never reached: the
     picture, the notes and the chart of such a relationship were gone with no warning, and a slide was reported as unreadable.
     The rule is that of `repair_package`: the part named as written wins when it exists, otherwise the decoded name is used when
-    that part exists (Pinned by: test_office_robustness.py::TestPercentEncodedTargets)."""
+    that part exists (Pinned by: test_office_robustness.py::TestPercentEncodedTargets). Part names are case-insensitive (OPC), and
+    so a target that names no member but exactly one member when case is ignored reads that member, as `repair_package` does for
+    a DOCX: a slide written `ppt/slides/Slide1.xml` was reported as unreadable, and a picture in another case was gone without a
+    word (Pinned by: test_office_robustness.py::TestTargetInAnotherCase). The relationships of a part found that way are looked
+    for the same way, as the part was renamed and its `.rels` may not have been."""
+
+    _by_case: dict[str, str | None] | None = None  # lower-case member name → `/` + the member, None when two differ only in case
+    _found_in_another_case: frozenset[str] = frozenset()
 
     def _xml_rels_for(self, partname: PackURI) -> object:
-        relationships = super()._xml_rels_for(partname)
+        relationships = None
+        if partname in self._found_in_another_case and partname.rels_uri not in self._package_reader:
+            member = self._member_in_another_case(partname.rels_uri)
+            if member is not None:
+                relationships = parse_xml(self._package_reader[PackURI(member)])
+        if relationships is None:
+            relationships = super()._xml_rels_for(partname)
         base = partname.baseURI
         for relationship in relationships.relationship_lst:
             written = relationship.get("Target") or ""
-            if "%" not in written or relationship.get("TargetMode") == "External":
+            if not written or relationship.get("TargetMode") == "External":
+                continue
+            # `from_rel_ref` only joins and normalizes the path, as it does for every target the library reads
+            target = PackURI.from_rel_ref(base, written)
+            if target in self._package_reader:
                 continue
             decoded = unquote(written)
-            # `from_rel_ref` only joins and normalizes the path, as it does for every target the library reads
-            if (PackURI.from_rel_ref(base, written) not in self._package_reader
-                    and PackURI.from_rel_ref(base, decoded) in self._package_reader):
+            if decoded != written and PackURI.from_rel_ref(base, decoded) in self._package_reader:
                 relationship.set("Target", decoded)
+                continue
+            member = self._member_in_another_case(target)
+            if member is not None:
+                relationship.set("Target", member)
+                self._found_in_another_case |= {member}
         return relationships
+
+    def _member_in_another_case(self, target: str) -> str | None:
+        """`/` + the one member whose name is `target` when case is ignored. The names are read from the archive once, the first
+        time a target is missing."""
+        if self._by_case is None:
+            self._by_case = {}
+            try:
+                with zipfile.ZipFile(self._pkg_file) as archive:
+                    names = archive.namelist()
+            except zipfile.BadZipFile:
+                names = []
+            for name in names:
+                key = "/" + name.lower()
+                self._by_case[key] = None if key in self._by_case else "/" + name
+        return self._by_case.get(target.lower())
 
 
 def _open_presentation(stream: BytesIO) -> Package:
@@ -894,7 +931,11 @@ def _render_text_frame(text_frame: object, as_bullets: bool, list_styles: list[o
     counters: dict[int, tuple[str, int, int]] = {}  # level → (number scheme, start number of the run, last number)
     for paragraph in text_frame.paragraphs:
         lines = [" ".join(line.split()) for line in _paragraph_text(paragraph, inline).split("\n")]
-        lines = [line for line in lines if line]
+        # A line of nothing but characters cleaning removes (`clean_characters`: zero-width space, soft hyphen, private-use and
+        # control characters …) is empty: formatted, their run was taken out already and the paragraph skipped, unformatted it
+        # wrote a bare number
+        # (Pinned by: test_inline_formatting.py::TestInvisibleCharacters::test_paragraph_of_invisible_characters_is_empty).
+        lines = [line for line in lines if clean_characters(line).strip()]
         level = _paragraph_level(paragraph)
         bullet = _bullet(paragraph._p, level, list_styles)
         is_numbered = bullet is not None and bullet.tag == f"{{{_DRAWING}}}buAutoNum"

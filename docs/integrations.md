@@ -77,7 +77,7 @@ Both take `options=ConvertOptions(...)` ([options.md](options.md)) — `max_char
 and the rest work as they do for `convert`. A file that cannot be converted raises the same `ConversionError` subclasses
 `convert_file` raises; the adapters skip nothing silently. (`SimpleDirectoryReader` itself prints and skips a file that
 fails unless you pass `raise_on_error=True`.) A file that converts but has no text to hand on — a scanned PDF, an empty
-workbook — gives no document, and a warning naming the file is logged on the `opendockit.integrations` logger. Conversion is offline: pictures stay `[Image]` placeholders. To have
+workbook, a picture file, a sheet of pictures only — gives no document, and a warning naming the file is logged on the `opendockit.integrations` logger. Conversion is offline: pictures stay `[Image]` placeholders. To have
 them described by a vision model, convert with `aconvert(..., describer=...)` yourself and build the documents from the
 result ([images.md](images.md)).
 
@@ -107,7 +107,7 @@ is listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io
 | Tool | What it returns |
 | --- | --- |
 | `convert_document(path, sections=None, max_chars=100000)` | The Markdown of the file, or of some of its pages / slides / sheets: `sections="3"` or `"2-5"`, the numbers `document_outline` shows. Warnings follow the text |
-| `document_outline(path)` | Format, title, size, and the list of pages / slides / sheets with their titles and lengths — no text |
+| `document_outline(path)` | Format, title, size, and the list of pages / slides / sheets with their titles and lengths — no text. The list stops at the server's `--max-chars` and counts the rest with their numbers |
 
 - **The answer is bounded.** One call returns at most `max_chars` characters of the document (100,000 unless the agent
   asks for more or the server is started with `--max-chars`), followed by a short note and the converter's warnings when

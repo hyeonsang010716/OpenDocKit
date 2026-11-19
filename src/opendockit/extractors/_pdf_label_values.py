@@ -2,7 +2,7 @@
 right-aligned numbers, and the visual rows of a line.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Container
 from itertools import islice
 import math
 import re
@@ -34,9 +34,13 @@ _TOC_INDENT_RATIO = 4.0
 _LINE_NUMBER_LABEL = re.compile(r"^\s*\d+\s*$")  # label taken as a line number (`_sectioned_values`)
 
 
-def _label_value_rows(rows: list[list[_Line]], page_width: float) -> list[list[_Line]]:
+def _label_value_rows(rows: list[list[_Line]], page_width: float, prose: Container[int] = frozenset()) -> list[list[_Line]]:
     """The rows to treat as a 'label  value' two-column layout (conditions in `_join_row_fragments`). Wrapped value
-    lines are returned attached to the row above them.
+    lines are returned attached to the row above them. A row of lines of columns of prose (ids in `prose`,
+    `_reads_as_prose_columns`) starts no group: every such row of a page of three aligned prose columns paired its two
+    right lines down to the end of the columns before the group was turned down for its wide values, which took time with
+    the square of the rows (8,000 lines: 25 seconds against 12 when the rows were a table) (Pinned by:
+    test_pdf.py::test_prose_columns_take_linear_time_in_label_value_rows).
 
     Where the pairs break off, the rows are checked once more without the lines of another column that ends to the
     left of the label column (`_without_left_block`) — the company information block on the left of an invoice head
@@ -55,6 +59,9 @@ def _label_value_rows(rows: list[list[_Line]], page_width: float) -> list[list[_
         places = None
 
     while index < len(rows):
+        if prose and all(id(line) in prose for line in rows[index]):
+            index += 1
+            continue
         centered, taken = _centered_label_rows(rows, index, max_label, reach)
         if centered:
             found.extend(centered)

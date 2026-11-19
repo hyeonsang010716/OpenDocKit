@@ -20,7 +20,7 @@ def extract_image(data: bytes, options: ConvertOptions) -> Extraction:
         option = "image extraction (extract_images)" if options.decode_images else "image decoding (decode_images)"
         extraction.warnings.append(f"This is an image file, but {option} is turned off, so its content was not read.")
         return extraction
-    split = split_tiff_pages(data)
+    split = split_tiff_pages(data, options.max_uncompressed_bytes)
     if not split.pages:
         marker = extraction.add_image(data, kind=ImageKind.STANDALONE)
         extraction.sections.append(Section(SectionKind.DOCUMENT, 1, marker))
