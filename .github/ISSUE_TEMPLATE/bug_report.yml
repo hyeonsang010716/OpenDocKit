@@ -32,6 +32,6 @@ body:
     attributes:
       label: Versions
       description: OpenDocKit, Python and operating system.
-      placeholder: opendockit 0.3.13 (opendockit --version), Python 3.12.5, Ubuntu 24.04
+      placeholder: opendockit 0.3.14 (opendockit --version), Python 3.12.5, Ubuntu 24.04
     validations:
       required: true
