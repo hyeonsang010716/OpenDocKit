@@ -35,6 +35,11 @@ from opendockit.extractors._symbols import SYMBOL_FONTS, SYMBOL_GLYPHS, symbol_f
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 _M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+# Word 2016 and later write an emoji or symbol inserted from the symbol dialog (or made by AutoCorrect) as `w16se:symEx` in
+# `mc:Choice`, the character itself only in the `mc:Fallback` that is never read: the emoji vanished, and a paragraph of only one
+# with it (Pinned by: test_office_symbols_fields_notes.py::TestDocxSymbolsOfWord2016).
+_SYMEX = "{http://schemas.microsoft.com/office/word/2015/wordml/symex}symEx"
+_SYMEX_CHAR = "{http://schemas.microsoft.com/office/word/2015/wordml/symex}char"
 _A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 
@@ -387,6 +392,8 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                 forget_from(start)
             elif tag == f"{{{_M}}}oMath":
                 parts.append(render_omml(child))
+            elif tag == _SYMEX:
+                parts.append(_symbol_character(child.get(_SYMEX_CHAR, "")))
             elif tag in (_w("footnoteReference"), _w("endnoteReference")):
                 custom_marks.update(_custom_mark(child))
                 if notes is None:
@@ -465,6 +472,12 @@ def _custom_mark(reference: etree._Element) -> list[etree._Element]:
             break
         pieces.append(sibling)
     return pieces
+
+
+def _symbol_character(code: str) -> str:
+    """The character of a `w16se:symEx` from its `w16se:char` (hexadecimal code point), empty when it names none."""
+    value = int(code, 16) if 0 < len(code) <= 6 and all(digit in "0123456789abcdefABCDEF" for digit in code) else 0
+    return chr(value) if 0x20 <= value <= 0x10FFFF and not 0xD800 <= value <= 0xDFFF else ""
 
 
 def _is_on(element: etree._Element | None) -> bool:
