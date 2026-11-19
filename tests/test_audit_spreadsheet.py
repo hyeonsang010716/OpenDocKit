@@ -1266,3 +1266,29 @@ class TestSheetDrawingStopsAtTheLimit:
         sparse, narrow = workbook(100), workbook(1)
 
         assert fastest(lambda: convert(sparse, "a.xlsx")) < 4 * fastest(lambda: convert(narrow, "a.xlsx"))
+
+
+class TestUnclosedBracketsInANumberFormat:
+    """At every `[` with no `]` after it the number-format tokens looked for a `]` to the end of the format, three times for
+    every cell: 1,024 `[` on 10,000 cells (57 KB XLSX) took 83 s."""
+
+    @staticmethod
+    def _xlsx(number_format: str, cells: int) -> bytes:
+        workbook = openpyxl.Workbook()
+        for row in range(1, cells + 1):
+            workbook.active.cell(row, 1, row).number_format = number_format
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    @pytest.mark.parametrize(("number_format", "expected"), [
+        ("[" * 1_024, "1"), ("0.0[[", "1.0[["), ('"["0"]"[', "[1]["), ("[Red]0.00[", "1.00["), ("[" * 30 + "]0", "1")])
+    def test_value_under_an_unclosed_bracket(self, number_format, expected):
+        assert format_cell(1, number_format) == expected
+
+    @pytest.mark.timing
+    def test_format_of_unclosed_brackets_costs_about_as_much_as_a_plain_one(self):
+        brackets, plain = self._xlsx("[" * 1_024, 1_000), self._xlsx("0", 1_000)
+
+        assert "\n1000" in convert(brackets, "a.xlsx").text
+        assert fastest(lambda: convert(brackets, "a.xlsx")) < 10 * fastest(lambda: convert(plain, "a.xlsx"))
