@@ -85,6 +85,34 @@ class TestCleanText:
         once = clean_text("\u2028> ```")
         assert clean_text(once) == once
 
+    @pytest.mark.parametrize(("text", "collapse_spaces", "expected"), [
+        ("> ```\n> code\u2028more\n> ```\n\nafter", True, "> ```\n> code\u2028more\n> ```\n\nafter"),
+        ("```\ncode\u2029more\n```", False, "```\ncode\u2029more\n```"),
+        ("    code\u2028more", False, "    code\u2028more"),
+        ("> quoted\u2028more\n> > deep\u2029er", True, "> quoted\n> more\n> > deep\n> > er"),
+        ("| a\u2028b | c |\n| - | - |", False, "| a b | c |\n| - | - |"),
+        ("- item\u2028more", True, "- item\nmore"),
+        ("> a\u2028\u2029\nb\u2028", True, "> a\nb"),
+        ("text\u2028```\ncode\n```", True, "text\n```\ncode\n```"),
+    ])
+    def test_line_separators_stay_inside_code_and_carry_the_quote_marks(self, text, collapse_spaces, expected):
+        """Made line breaks before the lines were looked at, a separator in a quoted code block began a line without `> `, which
+        closed the quote and escaped both fences (`> \\````); one in a Markdown table row split the row, and one in a fenced
+        example changed the code. Inside code they stay, in a table row they are a space, and a new line in a quote keeps
+        the quote marks. Cleaning the result again changes nothing."""
+        result = clean_text(text, collapse_spaces=collapse_spaces)
+
+        assert result == expected
+        assert clean_text(result, collapse_spaces=collapse_spaces) == result
+
+    def test_line_separators_of_code_and_data_files_stay(self):
+        """A `.json` file holding `"x\\u2028y"` came out with a raw line break inside the string. Prose keeps the line breaks."""
+        assert convert('{"a": "x\u2028y"}'.encode(), "a.json").text == '{"a": "x\u2028y"}'
+        assert convert('{"a": "x\u2028y"}'.encode()).text == '{"a": "x\u2028y"}'
+        assert convert('key: "x\u2028y"\n'.encode(), "a.yaml").text == 'key: "x\u2028y"'
+        assert convert("line\u2028two\u2029para".encode(), "a.txt").text == "line\ntwo\npara"
+        assert convert("a,b\n\"x\u2028y\",z\n".encode(), "a.csv").text == "| a | b |\n| --- | --- |\n| x<br>y | z |"
+
     @pytest.mark.parametrize("collapse_spaces", [True, False])
     def test_page_break_and_vertical_tab_become_line_breaks(self, collapse_spaces):
         """Form feed (\\f) and vertical tab (\\v) were removed without a space like other control characters, so `합계 100\\f200 이월`

@@ -12,7 +12,7 @@ import stat
 from typing import TYPE_CHECKING, BinaryIO
 import zipfile
 
-from opendockit.detect import detect_format, extension_mismatch, named_as_text, pdf_lookalike_text_format
+from opendockit.detect import code_or_data_text, detect_format, extension_mismatch, named_as_text, pdf_lookalike_text_format
 from opendockit.exceptions import (
     ConversionError,
     CorruptedDocumentError,
@@ -189,9 +189,13 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
         warnings.insert(0, mismatch)
 
     collapse = document_format not in _KEEP_SPACES
+    # In a code or data file the line and paragraph separators are characters of a string (`"x\u2028y"` in JSON) and stay; made
+    # line breaks, a JSON string held a raw line break (Pinned by: test_markdown.py::TestCleanText::
+    # test_line_separators_of_code_and_data_files_stay).
+    separators = not (document_format is DocumentFormat.TEXT and code_or_data_text(data, filename))
     sections = []
     for section in extraction.sections:
-        template = clean_text(section.text, collapse_spaces=collapse)
+        template = clean_text(section.text, collapse_spaces=collapse, line_separators=separators)
         # Section headings (sheet and slide titles) are cleaned like the body. With a title in decomposed jamo, the result was not NFC
         # (Pinned by: test_converter.py::TestAssembly::test_sheet_and_slide_titles_are_normalized_to_nfc).
         # As one line (`clean_line`), not as a text of its own: a title is written after `## Slide 1: `, where no fence can

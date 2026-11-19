@@ -234,6 +234,12 @@ def named_as_text(filename: str | None) -> bool:
     return extension in _TEXT_EXTENSIONS or extension in _CODE_EXTENSIONS
 
 
+def code_or_data_text(data: bytes, filename: str | None) -> bool:
+    """Is this text a code, data, config or log file: named with such an extension (`.json`, `.py`, `.yaml` …), or opening as
+    JSON does (`{"`, `[{`, `["`, `[[`)? Its U+2028 and U+2029 are characters of a string, not line breaks."""
+    return extension_of(filename) in _CODE_EXTENSIONS or _JSON_START.match(data.removeprefix(b"\xef\xbb\xbf")) is not None
+
+
 def extension_mismatch(detected: DocumentFormat, filename: str | None) -> str | None:
     """Return the warning text if the format claimed by the extension differs from the actual format."""
     extension = extension_of(filename)

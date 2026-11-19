@@ -31,8 +31,12 @@ _CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f]")
 # The Unicode line and paragraph separators (U+2028, U+2029) are line breaks too: the macOS text system writes U+2028 for a line
 # break (TextEdit, Pages, Mail RTF), and kept, it stayed inside a table cell, split `str.splitlines` in the middle of a table row,
 # and let a quoted fence escape the first cleaning, so cleaning twice gave another text
-# (Pinned by: test_markdown.py::TestCleanText::test_unicode_line_and_paragraph_separators_are_line_breaks).
+# (Pinned by: test_markdown.py::TestCleanText::test_unicode_line_and_paragraph_separators_are_line_breaks). In a cell and a
+# one-line value they are made line breaks with the others (`_LINE_BREAK_CONTROLS`); in a text they are left to `clean_text`,
+# which breaks the line there only outside a code block, with the quote marks of the line (`_SEPARATORS`).
 _LINE_BREAK_CONTROLS = str.maketrans({"\x0b": "\n", "\x0c": "\n", "\x85": "\n", "\u2028": "\n", "\u2029": "\n"})
+_TEXT_LINE_BREAKS = str.maketrans({"\x0b": "\n", "\x0c": "\n", "\x85": "\n"})
+_SEPARATORS = re.compile("[\u2028\u2029]")
 # The private use areas (BMP and supplementary planes 15 and 16). Symbols of fonts specific to Hangul (HWP) and Office are mapped
 # here and become meaningless characters in any other environment. Hancom fonts use the supplementary areas too (U+F02B1 etc.)
 # (Pinned by: test_markdown.py::TestCleanText::test_removes_supplementary_private_use_characters).
@@ -139,14 +143,18 @@ def restore_spans(value: tuple[int, ...] | None) -> None:
         left[:] = value
 
 
-def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
+def clean_text(text: str, *, collapse_spaces: bool = True, line_separators: bool = True) -> str:
     """Unicode normalization (NFC) and whitespace cleanup.
 
     NFC is required: files made on macOS and HWP files sometimes store Hangul in decomposed jamo (NFD), and left as is,
     the same characters become a different string for search and embedding.
     `collapse_spaces=False` is for TXT and MD, where the original whitespace carries meaning (code indentation is preserved).
+    `line_separators=False` leaves U+2028 and U+2029 as they are (code and data files, where they are characters of a string);
+    otherwise they are line breaks outside a code block (`_break_at_separators`).
     """
     text = clean_characters(text)
+    if line_separators and _SEPARATORS.search(text):
+        text = "\n".join(_break_at_separators(text.split("\n"), collapse_spaces))
 
     # In documents that are not Markdown the only real code blocks are the ones the extractors write, with backtick fences. A
     # backtick line that opens a fence which is never closed is neutralized with a backslash: when a paragraph of a DOCX had a
@@ -205,15 +213,70 @@ def clean_text(text: str, *, collapse_spaces: bool = True) -> str:
 def clean_characters(text: str) -> str:
     """The part of `clean_text` that works on characters, before any line is looked at: line breaks made `\\n` (form feed,
     vertical tab and next line too), invisible, control and private-use characters removed, the glyphs of symbol fonts and
-    the ligatures replaced, space-like characters made spaces, NFC. Cleaning the result again changes nothing."""
+    the ligatures replaced, space-like characters made spaces, NFC. Cleaning the result again changes nothing. The line and
+    paragraph separators are left to `clean_text`, so the lines are those of the text for every caller that counts them
+    (`text._fenced_spans`)."""
     # Remove first, then normalize. In the other order, the characters on either side of a removed one become newly combinable
     # and the result is no longer NFC.
-    text = text.replace("\r\n", "\n").replace("\r", "\n").translate(_LINE_BREAK_CONTROLS)
+    text = text.replace("\r\n", "\n").replace("\r", "\n").translate(_TEXT_LINE_BREAKS)
     text = _INVISIBLE.sub("", text)
     text = _CONTROL.sub("", text)
     text = _PRIVATE_USE.sub("", text.translate(_SYMBOL_FONT_GLYPHS))
     text = _SPACE_LIKE.sub(" ", text)
     return unicodedata.normalize("NFC", text)
+
+
+def _break_at_separators(lines: list[str], collapse_spaces: bool) -> list[str]:
+    """`lines` with each line broken at its U+2028 and U+2029 (`clean_text`), outside the code blocks of the text.
+
+    Made line breaks before the lines were looked at, a separator inside a quoted code block began a line without the quote
+    marks, which closed the quote and escaped both fences of the block (`> \\````), a separator in a Markdown table row split
+    the row, and one inside a fenced example changed the code (Pinned by: test_markdown.py::TestCleanText::
+    test_line_separators_stay_inside_code_and_carry_the_quote_marks). So a line inside a code block keeps them, as does an
+    indented code line of TXT and MD (four spaces or a tab, after any quote marks); in a table row (`| … |`) each is a
+    space; any other line breaks there, each new line starting with the quote marks of the line (a list item goes on as its
+    lazy continuation). The code blocks are those of the lines as they are, then as they are once broken: a new line may open
+    or close a fence, and a line kept for a block that is then no block is broken too, so that the result is cleaned again
+    to itself; past that, every separator left breaks its line. Linear: at most three pairings of the fences.
+    """
+    tildes = not collapse_spaces
+    fenced = any("```" in line or (tildes and "~~~" in line) for line in lines)
+    for attempt in range(3):
+        inside: set[int] = code_fences(lines, tildes=tildes).inside if fenced else set()
+        broken: list[str] = []
+        changed = False
+        for index, line in enumerate(lines):
+            if not _SEPARATORS.search(line):
+                broken.append(line)
+                continue
+            if attempt < 2 and (index in inside or _keeps_separators(line, collapse_spaces)):
+                broken.append(line)
+                continue
+            changed = True
+            match = _QUOTE_PREFIX.match(line)
+            content = line[match.end():] if match else line
+            if content.strip().startswith("|") and content.strip().endswith("|"):
+                broken.append(_SEPARATORS.sub(" ", line))
+                continue
+            prefix = line[:match.end()] if match else ""
+            first, *rest = _SEPARATORS.split(line)
+            while rest and not rest[-1].strip():
+                rest.pop()  # a separator at the end of a line ends nothing: the line ends there anyway
+            broken.append(first)
+            broken.extend(prefix + piece for piece in rest)
+        lines = broken
+        if not changed:
+            break
+    return lines
+
+
+def _keeps_separators(line: str, collapse_spaces: bool) -> bool:
+    """Is this line outside a fenced block one whose separators stay: an indented code line of TXT and MD."""
+    if collapse_spaces:
+        return False
+    match = _QUOTE_PREFIX.match(line)
+    content = line[match.end():] if match else line
+    return content.startswith(("    ", "\t"))
 
 
 # What a line is to the code blocks of its text (`clean_text`): a fence line of a code block, a line inside one, or an opening
