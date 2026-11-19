@@ -6,6 +6,7 @@ way and name things the same.
 
 from collections.abc import Iterator
 import logging
+import re
 from typing import Literal
 
 from opendockit.converter import section_heading
@@ -15,6 +16,8 @@ from opendockit.models import ConversionResult, SectionKind
 type Mode = Literal["single", "sections"]
 MODES: tuple[str, ...] = ("single", "sections")
 _LOG = logging.getLogger("opendockit.integrations")
+# What says nothing on its own: a picture placeholder with no alt text or description, and a page marker (`_says_something`)
+_NOTHING_SAID = re.compile(r"\[Image\]|<!-- Page \d+ -->")
 
 
 def check_mode(mode: str) -> None:
@@ -46,11 +49,15 @@ def pieces(result: ConversionResult, source: str | None, mode: Mode) -> Iterator
     # and looks like a slide that is only a title, so a 20-slide deck cut after slide 16 gave pieces for slides 17-20
     # (Pinned by: test_integrations.py::TestLangChainLoader::test_sections_past_the_character_limit_give_no_piece).
     reached = result.sections if result.reached_sections is None else result.sections[:result.reached_sections]
-    kept = [section for section in reached if section.text.strip() or (section.kind is SectionKind.SLIDE and section.title)]
+    # A piece of nothing but bare picture placeholders says as little: a picture file, or a scan, with no describer gave a
+    # Document of `[Image]` (Pinned by: test_integrations.py::TestLangChainLoader::
+    # test_pictures_without_a_description_give_no_document). A placeholder with alt text or a description is kept.
+    kept = [section for section in reached
+            if _says_something(section.text) or (section.kind is SectionKind.SLIDE and section.title)]
     count = 0
     if mode == "single" or all(section.kind is SectionKind.DOCUMENT for section in result.sections):
         # A document without physical units is one piece either way.
-        if kept and result.text.strip():
+        if kept and _says_something(result.text):
             count = 1
             yield result.text, base
     else:
@@ -66,4 +73,10 @@ def pieces(result: ConversionResult, source: str | None, mode: Mode) -> Iterator
         # page, an empty workbook. The warnings have nowhere to travel, so they are logged
         # (Pinned by: test_integrations.py::TestLangChainLoader::test_file_without_any_text_gives_no_document_and_a_logged_warning).
         _LOG.warning("%s gave no text and was left out: %s", source or "A document",
-                     " ".join(result.warnings) or "No text was extracted.")
+                     " ".join(result.warnings) or ("It holds only pictures, and they were not described."
+                                                   if _NOTHING_SAID.search(result.text) else "No text was extracted."))
+
+
+def _says_something(text: str) -> bool:
+    """Is there text besides bare picture placeholders and page markers?"""
+    return bool(_NOTHING_SAID.sub("", text).strip())

@@ -99,6 +99,32 @@ class TestLangChainLoader:
         messages = [record.getMessage() for record in caplog.records]
         assert len(messages) == 1 and str(scan) in messages[0] and "image description (OCR)" in messages[0]
 
+    @pytest.mark.parametrize("mode", ["single", "sections"])
+    def test_pictures_without_a_description_give_no_document(self, tmp_path, caplog, mode):
+        """A picture file, or a multi-page TIFF, read without a describer is nothing but `[Image]` placeholders: a Document of
+        them is no more content than one of page markers. A placeholder with alt text says something and is kept, and so is a
+        page with text around its picture."""
+        from io import BytesIO
+
+        from PIL import Image
+
+        frames = [Image.new("RGB", (60, 40), color) for color in ("red", "green")]
+        buffer = BytesIO()
+        frames[0].save(buffer, "TIFF", save_all=True, append_images=frames[1:])
+        (tmp_path / "pic.png").write_bytes(builder.png_bytes())
+        (tmp_path / "scan.tiff").write_bytes(buffer.getvalue())
+        (tmp_path / "pics.pdf").write_bytes(builder.pdf_with_images())
+        (tmp_path / "alt.docx").write_bytes(builder.docx_with_images())
+
+        with caplog.at_level("WARNING", logger="opendockit.integrations"):
+            for name in ("pic.png", "scan.tiff"):
+                assert langchain.OpenDocKitLoader(tmp_path / name, mode=mode).load() == []
+        messages = [record.getMessage() for record in caplog.records]
+        assert len(messages) == 2 and all(message.endswith("It holds only pictures, and they were not described.")
+                                          for message in messages)
+        assert "[Image]" in langchain.OpenDocKitLoader(tmp_path / "pics.pdf", mode=mode).load()[0].page_content
+        assert "[Image: " in langchain.OpenDocKitLoader(tmp_path / "alt.docx", mode=mode).load()[0].page_content
+
     def test_slide_that_is_only_a_title_is_kept(self, tmp_path):
         """A deck of divider slides: titles and nothing else. The title lives in the slide's heading, not in its text, so the
         slides used to vanish in `sections` mode (and the log said no text was extracted). A titled slide is a piece; a slide
