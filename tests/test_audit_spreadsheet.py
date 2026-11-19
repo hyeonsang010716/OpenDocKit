@@ -1241,6 +1241,19 @@ class TestSheetDrawingStopsAtTheLimit:
         assert _drawn(odf.extract_ods(data, ConvertOptions(max_chars=_LIMIT)).sections) < 3 * _LIMIT
         _cut_as_unlimited(data, "a.ods")
 
+    def test_cut_sheet_lays_out_on_the_rows_read(self):
+        """Pins (deliberate): the columns of a cut sheet are decided on the rows read before the limit, so a column used only by
+        a row after the stop is not in its cut text; at exactly its own length the sheet is whole and not cut."""
+        data = b"h,v\n" + b"a,>\n" * 300 + b"x,y,z\n"
+        whole = convert(data, "a.csv", ConvertOptions(max_chars=None))
+
+        cut = convert(data, "a.csv", ConvertOptions(max_chars=200))
+        exact = convert(data, "a.csv", ConvertOptions(max_chars=len(whole.text)))
+
+        assert whole.text.startswith("| h | v | |\n| --- | --- | --- |\n| a | > | |\n")
+        assert cut.exceeded and cut.text.startswith("| h | v |\n| --- | --- |\n| a | > |\n")
+        assert not exact.exceeded and exact.text == whole.text
+
     def test_sheet_within_the_limit_is_drawn_whole(self):
         data = _merged_down_xlsx("k" * 300, 20)
 

@@ -73,7 +73,9 @@ def _collect_rows(rows: object, options: ConvertOptions, sheet_name: str, extrac
     rows are not read to the end.
 
     Deliberate: rows are not cut by row count. The only size limit is the character count (a 2,390-row sheet hit a 2,000-row limit
-    and lost 390 rows). Merge filling maps by row number, so empty rows keep their place too.
+    and lost 390 rows). Merge filling maps by row number, so empty rows keep their place too. The tables, columns and title rows
+    of a sheet cut here are decided on the rows collected, so its cut text can lay out otherwise than the front of its full text
+    (Pinned by: test_audit_spreadsheet.py::TestSheetDrawingStopsAtTheLimit::test_cut_sheet_lays_out_on_the_rows_read).
     """
     width = options.max_sheet_cols
     collected: list[list[str]] = []
