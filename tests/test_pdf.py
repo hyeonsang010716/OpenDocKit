@@ -4155,6 +4155,36 @@ class TestCellsMarkedOnlyByFill:
                 "| 요구사항 분석 | ■ | ■ | | | | |\n| 시스템 설계 | | ■ | ■ | | | |\n"
                 "| 개발 및 시험 | | | ■ | ■ | ■ | |\n| 시범 운영 | | | | | | ■ |") in result.text
 
+    def test_empty_cells_filled_in_device_grey_are_marked(self):
+        """pdfminer gives a DeviceGray fill ('0.3 g') as a bare number, not a tuple, and such a bar was no mark."""
+        widths = [120] + [55] * 6
+        edges = [50.0]
+        for width in widths:
+            edges.append(edges[-1] + width)
+        bars = {1: (1, 2), 2: (2, 3), 3: (3, 5), 4: (6, 6)}
+
+        def draw(pdf, index):
+            top, height = 760.0, 18.0
+            pdf.setFillGray(0.3)
+            for row, (first, last) in bars.items():
+                pdf.rect(edges[first], top - (row + 1) * height, edges[last + 1] - edges[first], height, stroke=0, fill=1)
+            pdf.setFillGray(0)
+            pdf.setLineWidth(0.5)
+            for row in range(len(self._ROWS) + 1):
+                pdf.line(edges[0], top - row * height, edges[-1], top - row * height)
+            for edge in edges:
+                pdf.line(edge, top, edge, top - len(self._ROWS) * height)
+            pdf.setFont(_FONT, 10)
+            for row, cells in enumerate(self._ROWS):
+                for edge, cell in zip(edges, cells, strict=False):
+                    if cell:
+                        pdf.drawString(edge + 4, top - row * height - 13, cell)
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert ("| 요구사항 분석 | ■ | ■ | | | | |\n| 시스템 설계 | | ■ | ■ | | | |\n"
+                "| 개발 및 시험 | | | ■ | ■ | ■ | |\n| 시범 운영 | | | | | | ■ |") in result.text
+
     @pytest.mark.parametrize("kind", ["header", "zebra", "whole-table", "first-column", "white", "light-grey",
                                       "scattered"])
     def test_shading_that_is_not_a_mark_leaves_empty_cells_empty(self, kind):

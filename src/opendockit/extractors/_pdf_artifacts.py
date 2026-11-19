@@ -14,7 +14,7 @@ from pdfminer.pdftypes import (
 )
 
 from opendockit.extractors._pdf_chars import _text_from_chars
-from opendockit.extractors._pdf_model import _inside_any
+from opendockit.extractors._pdf_model import _fill_colour, _inside_any
 from opendockit.extractors._pdf_pdfminer import _LAPARAMS
 
 
@@ -383,13 +383,9 @@ def _faint_watermark(chars: list[dict], min_size: float) -> set[int]:
         # test_audit_pdf_text.py::TestCharactersAtNonFinitePositions::test_a_faint_character_of_infinite_size_is_no_watermark)
         if (char["text"].strip() and char["size"] >= min_size and not _is_tilted(char)
                 and math.isfinite(char["top"]) and math.isfinite(char["size"])):
-            colour = char.get("non_stroking_color")
-            colour = (colour,) if isinstance(colour, (int, float)) else colour
-            if len(colour or ()) == 4:  # CMYK
-                colour = tuple((1 - value) * (1 - colour[3]) for value in colour[:3])
-            if (isinstance(colour, (tuple, list)) and colour and all(isinstance(value, (int, float)) for value in colour)
-                    and min(colour) >= _WATERMARK_LIGHT_MIN):
-                groups.setdefault((round(char["top"]), round(char["size"]), tuple(colour)), []).append(char)
+            colour = _fill_colour(char.get("non_stroking_color"))
+            if colour is not None and min(colour) >= _WATERMARK_LIGHT_MIN:
+                groups.setdefault((round(char["top"]), round(char["size"]), colour), []).append(char)
 
     faint: set[int] = set()
     nearby = _CharGrid([char for char in chars if char["text"].strip()]) if groups else None

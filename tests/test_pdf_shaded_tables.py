@@ -23,7 +23,7 @@ def _shaded_pdf(rows=_ROWS, fills=(), rules=(), verticals=(), header_rule_cells=
     """Table whose shading is drawn with a separately filled rectangle per cell (no border), as in PDFs printed from a
     browser or Word.
 
-    `fills` is {row number: colour}, `rules` the row boundary numbers at which a table-wide horizontal line is drawn
+    `fills` is {row number: colour}, a hex string or a grey level (a float), `rules` the row boundary numbers at which a table-wide horizontal line is drawn
     (0 = top of the table), `verticals` vertical lines as (column boundary number, first row, last row + 1). With
     `header_rule_cells` a thin filled rectangle (0.7pt) of the cell width is drawn per cell at every row boundary (Chrome
     border-bottom). With `right_aligned` the cells from the second column on below the header row are right-aligned and
@@ -44,7 +44,10 @@ def _shaded_pdf(rows=_ROWS, fills=(), rules=(), verticals=(), header_rule_cells=
             y = top - row_index * row_height  # top of the row (PDF coordinates)
             colour = dict(fills).get(row_index)
             if colour:
-                pdf.setFillColor(colors.HexColor(colour))
+                if isinstance(colour, float):
+                    pdf.setFillGray(colour)  # DeviceGray ('0.85 g'), which pdfminer gives as a bare number
+                else:
+                    pdf.setFillColor(colors.HexColor(colour))
                 for x0, x1 in zip(edges, edges[1:], strict=False):
                     pdf.rect(x0, y - row_height, x1 - x0, row_height, stroke=0, fill=1)
             if header_rule_cells and row_index > 0:
@@ -80,6 +83,15 @@ class TestShadedTables:
 
         assert _TABLE in result.text
         assert result.text.index(_TABLE) < result.text.index("전 지점 목표")
+
+    def test_zebra_rows_shaded_in_device_grey_stay_one_table(self):
+        """pdfminer gives a DeviceGray fill ('0.85 g') as a bare number, not a tuple, and such a fill was not seen as shading:
+        each shaded row became a table of its own and the other rows fell apart into one paragraph per cell."""
+        data = _shaded_pdf(fills={0: 0.25, 1: 0.85, 3: 0.85, 5: 0.85})
+
+        result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
+
+        assert _TABLE in result.text
 
     def test_banded_rows_between_top_and_bottom_rules_stay_one_table(self):
         """Word 'Light Shading' style: only horizontal lines at the top of the table, under the header row and at the bottom,

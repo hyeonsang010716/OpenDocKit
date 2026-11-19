@@ -262,12 +262,26 @@ class _Paragraph:
         return self.lines[0].top
 
 
+def _fill_colour(colour: object) -> tuple[float, ...] | None:
+    """A numeric fill colour as grey or RGB components (0–1; CMYK converted to RGB), or None for an unknown colour such as a
+    pattern. pdfminer gives a DeviceGray colour ('0.85 g', '/DeviceGray cs 0.85 sc') as a bare number, the others as tuples:
+    a grey fill tested as a tuple only was no shading, and a zebra table filled in grey fell apart into one table per shaded
+    row (Pinned by: test_pdf_shaded_tables.py::TestShadedTables::test_zebra_rows_shaded_in_device_grey_stay_one_table)."""
+    if isinstance(colour, (int, float)):
+        colour = (colour,)
+    if not isinstance(colour, (tuple, list)) or not colour or not all(isinstance(value, (int, float)) for value in colour):
+        return None
+    if len(colour) == 4:
+        cyan, magenta, yellow, black = colour
+        return tuple((1 - value) * (1 - black) for value in (cyan, magenta, yellow))
+    return tuple(colour)
+
+
 def _is_white(colour: object) -> bool:
-    """Whether the fill colour is white (a numeric colour that is not `_is_shade`). A single grey value (0) is a numeric colour
-    too. An unknown colour such as a pattern is not white."""
-    colour = (colour,) if isinstance(colour, (int, float)) else colour
-    numeric = isinstance(colour, (tuple, list)) and bool(colour) and all(isinstance(value, (int, float)) for value in colour)
-    return numeric and not _is_shade(colour)
+    """Whether the fill colour is white (a numeric colour, `_fill_colour`, that is not `_is_shade`). An unknown colour such as
+    a pattern is not white."""
+    components = _fill_colour(colour)
+    return components is not None and min(components) >= _FILL_WHITE_MIN
 
 
 def _bbox(obj: dict) -> tuple[float, float, float, float]:
@@ -275,13 +289,10 @@ def _bbox(obj: dict) -> tuple[float, float, float, float]:
 
 
 def _is_shade(colour: object) -> bool:
-    """Whether a fill colour counts as cell shading: a numeric grey, RGB or CMYK colour that is not white (`_FILL_WHITE_MIN`)."""
-    if not isinstance(colour, (tuple, list)) or not colour or not all(isinstance(value, (int, float)) for value in colour):
-        return False
-    if len(colour) == 4:
-        cyan, magenta, yellow, black = colour
-        colour = tuple((1 - value) * (1 - black) for value in (cyan, magenta, yellow))
-    return min(colour) < _FILL_WHITE_MIN
+    """Whether a fill colour counts as cell shading: a numeric grey, RGB or CMYK colour (`_fill_colour`) that is not white
+    (`_FILL_WHITE_MIN`)."""
+    components = _fill_colour(colour)
+    return components is not None and min(components) < _FILL_WHITE_MIN
 
 
 def _box_area(box: tuple[float, float, float, float]) -> float:

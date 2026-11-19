@@ -16,6 +16,7 @@ from opendockit.extractors._pdf_model import (
     _TABLE_SETTINGS,
     _cropped,
     _encloses,
+    _fill_colour,
     _is_shade,
     _page_index,
     _region_on_page,
@@ -88,21 +89,17 @@ def _mark_filled_cells(table: object, rows: list[list[str | None]], header_rows:
 
 def _is_mark_fill(colour: object) -> bool:
     """Whether a fill colour counts as a cell mark: a chromatic colour (RGB components differ by at least `_FILL_HUE_MIN`, colours
-    close to white excluded) or a colour as dark as `_FILL_GREY_MAX` or darker. Only numeric grey, RGB and CMYK colours are
+    close to white excluded) or a colour as dark as `_FILL_GREY_MAX` or darker. Only numeric grey, RGB and CMYK colours (`_fill_colour`) are
     considered (unknown colour spaces and patterns are False).
 
     Light grey is not considered (deliberate): forms commonly paint 'do not fill in' cells light grey, and ■ would read as a
     'selected cell' (pinned by: test_pdf.py::TestCellsMarkedOnlyByFill::test_shading_that_is_not_a_mark_leaves_empty_cells_empty,
     the light-grey case).
     """
-    if not isinstance(colour, (tuple, list)) or not colour or not all(isinstance(value, (int, float)) for value in colour):
+    components = _fill_colour(colour)
+    if components is None or min(components) >= _FILL_WHITE_MIN:
         return False
-    if len(colour) == 4:
-        cyan, magenta, yellow, black = colour
-        colour = tuple((1 - value) * (1 - black) for value in (cyan, magenta, yellow))
-    if min(colour) >= _FILL_WHITE_MIN:
-        return False
-    return max(colour) - min(colour) >= _FILL_HUE_MIN or max(colour) <= _FILL_GREY_MAX
+    return max(components) - min(components) >= _FILL_HUE_MIN or max(components) <= _FILL_GREY_MAX
 
 
 def _fills_by_row(rows: list[object], fills: list[dict]) -> list[list[dict]]:
