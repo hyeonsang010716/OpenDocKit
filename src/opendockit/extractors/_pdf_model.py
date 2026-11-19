@@ -236,6 +236,8 @@ class _Page:
     unmeasured: bool = False
     # Page with no text, pictures or vectors at all that has a content stream which failed to decode (_has_undecodable_contents).
     undecodable: bool = False
+    # pdfium's number of the page (`_PdfiumPages`): None for pdfminer's number less one, -1 when pdfium must not open the page.
+    pdfium_index: int | None = None
     # ids of the lines of columns of prose that were found as a borderless table and dropped (`_reads_as_prose_columns`). They
     # are not joined into one line per row as table-like rows (`_table_like_rows`), which would merge the columns line by line.
     prose_lines: set[int] = field(default_factory=set)

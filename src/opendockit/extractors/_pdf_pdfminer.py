@@ -337,7 +337,13 @@ def _page_drawing(page: object, limit: int, painted: dict[int, tuple[object, int
             if id(stream) not in painted:
                 painted[id(stream)] = (stream, _paint_operators(stream.get_data(), limit))
         paints = sum(painted[id(stream)][1] for stream in streams)
-        objects, read, dense = _FormWalk(limit, forms).drawn(_page_calls(streams, limit), resources, 0, paints)
+        calls = _page_calls(streams, limit)
+        objects, read, dense = _FormWalk(limit, forms).drawn(calls, resources, 0, paints)
+        parents = _parent_resources(page.page_obj)
+        if parents is not None and parents is not resources:
+            # pdfium takes inherited resources from `/Parent`, pdfminer from the path through the page tree
+            other = _FormWalk(limit, forms).drawn(calls, parents, 0, paints)
+            objects, read, dense = max(objects, other[0]), max(read, other[1]), max(dense, other[2])
         for stream in streams:
             size, solid = _content_bytes(stream.get_data())
             read, dense = read + size, dense + solid
@@ -349,62 +355,30 @@ def _page_drawing(page: object, limit: int, painted: dict[int, tuple[object, int
 
 
 
-# Pages of the page tree followed when the page list cannot be built (`_tree_page_drawings`). pdfium stops on its own long
-# before a real document has this many pages (`_MAX_UNOPENED_PAGES` in pdf.py ends a run of pages it cannot open).
-_TREE_PAGES = 100_000
+_PAGE_TREE_LEVELS = 1024  # levels of the page tree pdfium follows, through `/Kids` and through `/Parent` (its kMaxPageLevel)
 
 
-class _TreePage:
-    """A leaf of the page tree as `_page_drawing` reads a page (`page_obj.attrs`, `page_obj.resources`)."""
+def _parent_resources(page_obj: object) -> object:
+    """The resources pdfium gives a page without `/Resources` of its own: those of the nearest node up its `/Parent` chain. None
+    when the page has its own (or none is found).
 
-    __slots__ = ("attrs", "resources")
-
-    def __init__(self, attrs: dict, resources: object) -> None:
-        self.attrs, self.resources = attrs, resources
-
-    @property
-    def page_obj(self) -> "_TreePage":
-        return self
-
-
-def _tree_page_drawings(data: bytes, limit: int, forms: dict[tuple[int, int], tuple[object, ...]]) -> list[tuple[int, int, int]] | None:
-    """`_page_drawing` of the pages of the document's page tree, in the order pdfium numbers them (the leaves of `/Kids` from
-    left to right, `/Resources` inherited), for a document whose page list pdfminer could not build (`_read_with_pdfium` in
-    pdf.py). None when pdfminer cannot read the page tree either.
-
-    That path handed every page straight to pdfium, so a form drawing itself twice still took gigabytes there (a `/Rotate /Foo`
-    beside it is enough to send the document that way) (Pinned by:
-    test_pdf_resource_limits.py::TestFormsDrawingThemselves::test_looping_page_of_a_document_pdfminer_cannot_open_is_not_opened)."""
-    from pdfminer.pdfdocument import PDFDocument
-    from pdfminer.pdfparser import PDFParser
-
-    try:
-        root = resolve1(PDFDocument(PDFParser(BytesIO(data))).catalog.get("Pages"))
-    except DocumentTooLargeError:
-        raise
-    except Exception:  # noqa: BLE001 — pdfium reads the document as before
+    pdfminer passes inherited attributes down the path through the page tree, pdfium looks them up through `/Parent`, so a page
+    whose `/Parent` is not the node listing it drew, in pdfium, the forms of other resources than the drawn-object estimate looked
+    at — a form drawing itself twice there took gigabytes (Pinned by:
+    test_pdf_resource_limits.py::TestPagesPdfiumNumbersOtherwise::test_resources_inherited_through_parent_are_estimated)."""
+    raw = getattr(page_obj, "raw", None)
+    if raw is None:
+        doc, pageid = getattr(page_obj, "doc", None), getattr(page_obj, "pageid", None)
+        raw = resolve1(doc.getobj(pageid)) if doc is not None and isinstance(pageid, int) else None
+    if not isinstance(raw, dict) or "Resources" in raw:
         return None
-    drawings: list[tuple[int, int, int]] = []
-    painted: dict[int, tuple[object, int]] = {}
-    pending, seen = [(root, None)], set()
-    while pending and len(drawings) < _TREE_PAGES:
-        node, inherited = pending.pop()
-        try:
-            node = resolve1(node)
-        except DocumentTooLargeError:
-            raise
-        except Exception:  # noqa: BLE001 — a broken node is left to pdfium
-            continue
-        if not isinstance(node, dict) or id(node) in seen:
-            continue
+    node, seen = resolve1(raw.get("Parent")), set()
+    while isinstance(node, dict) and id(node) not in seen and len(seen) < _PAGE_TREE_LEVELS:
+        if "Resources" in node:
+            return resolve1(node["Resources"])
         seen.add(id(node))
-        resources = node.get("Resources", inherited)
-        kids = resolve1(node.get("Kids"))
-        if isinstance(kids, list) and _name(node.get("Type")) != "Page":
-            pending.extend((kid, resources) for kid in reversed(kids))
-        else:
-            drawings.append(_page_drawing(_TreePage(node, resolve1(resources)), limit, painted, forms))
-    return drawings
+        node = resolve1(node.get("Parent"))
+    return None
 
 def _content_streams(page: object) -> list[PDFStream]:
     """The content streams of the page in the order drawn, a stream listed several times in `/Contents` as often as listed."""

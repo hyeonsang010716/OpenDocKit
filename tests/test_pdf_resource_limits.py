@@ -905,6 +905,135 @@ class TestFormSharedByPages:
         assert any("(1, 2, 3)" in warning and "were not read" in warning for warning in result.warnings)
 
 
+
+_TREE_FONT = b"/Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >>"
+
+
+def _odd_tree_pdf(first: list[bytes], looping: int | None = 5, through_parent: bool = False, attributes: bytes = b"",
+                  extra: dict | None = None, count: int | None = None) -> bytes:
+    """Twelve pages (objects 10, 12, …), each drawing 'Page N text', listed in the root's `/Kids` after the entries `first`. Page
+    `looping` (counted from 0) also draws form A, which draws itself twice; with `through_parent` it has no resources of its own and
+    its `/Parent` is node 7, which lists no page but holds A. `attributes` are added to page 2."""
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
+               5: _flate_stream(b"/A Do /A Do", b"/Type /XObject /Subtype /Form /BBox [0 0 595 842] /Resources << /XObject << /A 5 0 R >> >>"),
+               7: b"<< /Type /Pages /Kids [] /Count 0 /Resources << %s /XObject << /A 5 0 R >> >> >>" % _TREE_FONT}
+    kids = list(first)
+    for index in range(12):
+        body = _padded_text(b"Page %d text" % (index + 1), 0) + (b"/A Do" if index == looping else b"")
+        resources = b"/Resources << %s /XObject << /A 5 0 R >> >>" % _TREE_FONT
+        parent = b"2 0 R"
+        if through_parent and index == looping:
+            resources, parent = b"", b"7 0 R"
+        objects[10 + index * 2] = (b"<< /Type /Page /Parent %s /MediaBox [0 0 595 842] /Contents %d 0 R %s %s >>"
+                                   % (parent, 11 + index * 2, resources, attributes if index == 1 else b""))
+        objects[11 + index * 2] = _flate_stream(body)
+        kids.append(b"%d 0 R" % (10 + index * 2))
+    objects[2] = b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(kids), len(kids) if count is None else count)
+    objects.update(extra or {})
+    return _raw_pdf(objects)
+
+
+class TestPagesPdfiumNumbersOtherwise:
+    """pdfminer leaves out a `/Kids` entry that is no page and lists a page once; pdfium keeps a number for every entry, lists a page as
+    often as it is listed and takes inherited resources through `/Parent`. With a missing object first in `/Kids`, every pdfium number was one
+    off: the page after the refused one was refused and the refused one opened under the next number, so a form drawing itself twice on page 6
+    of 12 took 3GB in 3.7 seconds (on the normal path through the page survey, and on the path for a document pdfminer cannot list)."""
+
+    @staticmethod
+    def _guard(monkeypatch, forbidden: int) -> None:
+        from opendockit.extractors import pdf as pdf_module
+
+        def refusing(original):
+            def call(document, index):
+                assert index != forbidden, "pdfium opened the looping page"  # it would take gigabytes
+                return original(document, index)
+            return call
+
+        monkeypatch.setattr(pdf_module, "_survey_page", refusing(pdf_module._survey_page))
+        monkeypatch.setattr(pdf_module, "_pdfium_page", refusing(pdf_module._pdfium_page))
+
+    @pytest.mark.parametrize(("first", "extra"), [([b"999 0 R"], None), ([b"6 0 R"], {6: b"<< /Foo 1 >>"}),
+                                                   ([b"6 0 R"], {6: b"[1 2 3]"}), ([b"6 0 R"], {6: b"<< /Type /Pages /Count 0 >>"})])
+    @pytest.mark.parametrize("attributes", [b"", b"/Rotate /Foo"])
+    def test_looping_page_is_not_opened_under_another_number(self, monkeypatch, first, extra, attributes):
+        self._guard(monkeypatch, forbidden=6)
+
+        result = convert(_odd_tree_pdf(first, attributes=attributes, extra=extra), "a.pdf")
+
+        assert "Page 5 text" in result.text and "Page 7 text" in result.text and "Page 6 text" not in result.text
+        assert any("were not read" in warning for warning in result.warnings)
+
+    def test_resources_inherited_through_parent_are_estimated(self, monkeypatch):
+        self._guard(monkeypatch, forbidden=5)
+
+        result = convert(_odd_tree_pdf([], through_parent=True), "a.pdf")
+
+        assert "Page 5 text" in result.text and "Page 6 text" not in result.text
+        assert any("(6)" in warning and "were not read" in warning for warning in result.warnings)
+
+    def test_pages_are_read_from_the_numbers_pdfium_gives_them(self):
+        result = convert(_odd_tree_pdf([b"999 0 R", b"10 0 R"], looping=None), "a.pdf")
+
+        assert all(result.text.count(f"Page {number} text") == 1 for number in range(1, 13))
+
+    def test_no_page_is_opened_when_the_numbering_cannot_be_matched_and_a_page_is_refused(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfium_pages
+
+        monkeypatch.setattr(_pdf_pdfium_pages, "_pdfium_slots", lambda root: None)
+        self._guard(monkeypatch, forbidden=6)
+
+        result = convert(_odd_tree_pdf([b"999 0 R"]), "a.pdf")
+
+        assert "Page 1 text" not in result.text
+        assert any("12 PDF page(s)" in warning and "were not read" in warning for warning in result.warnings)
+
+    def test_numbering_that_cannot_be_matched_reads_a_document_without_refused_pages_as_before(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfium_pages
+
+        expected = convert(_odd_tree_pdf([], looping=None), "a.pdf")
+        monkeypatch.setattr(_pdf_pdfium_pages, "_pdfium_slots", lambda root: None)
+
+        assert convert(_odd_tree_pdf([], looping=None), "a.pdf").text == expected.text
+
+    @pytest.mark.parametrize(("kids", "count", "extra"), [
+        (b"999 0 R 10 0 R 12 0 R 14 0 R", 4, None), (b"999 0 R 10 0 R 12 0 R 14 0 R", 3, None), (b"10 0 R 999 0 R 12 0 R", 3, None),
+        (b"null 10 0 R 12 0 R", 3, None), (b"5 10 0 R 12 0 R", 3, None), (b"6 0 R 10 0 R 12 0 R", 3, {6: b"<< /Foo 1 >>"}),
+        (b"6 0 R 10 0 R 12 0 R", 3, {6: b"[1 2 3]"}), (b"10 0 R 10 0 R 12 0 R", 3, None), (b"10 0 R 12 0 R 14 0 R", 6, None),
+        (b"10 0 R 12 0 R 14 0 R", 0, None), (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Pages /Kids [10 0 R 12 0 R] /Count 7 >>"}),
+        (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Pages /Kids [999 0 R 10 0 R 12 0 R] /Count 3 >>"}),
+        (b"6 0 R 14 0 R", 3, {6: b"<< /Kids [10 0 R 12 0 R] >>"}), (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Page /Kids [10 0 R 12 0 R] >>"}),
+        (b"6 0 R 6 0 R 14 0 R", 5, {6: b"<< /Type /Pages /Kids [10 0 R 12 0 R] /Count 2 >>"}),
+        (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Pages /Kids [10 0 R 6 0 R 12 0 R] /Count 2 >>"}), (b"10 0 R 2 0 R 12 0 R", 2, None),
+        (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Pages /Kids 10 0 R /Count 1 >>"}),
+        (b"6 0 R 14 0 R", 3, {6: b"<< /Type /Pages /Kids 7 0 R /Count 2 >>", 7: b"[10 0 R 12 0 R]"}),
+        (b"6 0 R 10 0 R 12 0 R", 3, {6: b"<< /Type /Pages /Count 0 >>"}), (b"10 0 R 12 0 R 999 0 R", 3, None),
+    ])
+    def test_numbering_is_the_one_pdfium_gives(self, kids, count, extra):
+        """Each pdfium number holds the page worked out for it (its text), and pdfium opens exactly the numbers given a page."""
+        import pypdfium2 as pdfium
+
+        from opendockit.extractors import _pdf_pdfium_pages
+        from opendockit.extractors import pdf as pdf_module
+
+        objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [%s] /Count %d >>" % (kids, count)}
+        for index in range(3):
+            objects[10 + index * 2] = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents %d 0 R << %s >> >>"
+                                       % (11 + index * 2, _TREE_FONT)).replace(b"<< /Font", b"/Resources << /Font")
+            objects[11 + index * 2] = _flate_stream(_padded_text(b"P%d" % index, 0))
+        objects.update(extra or {})
+        data = _raw_pdf(objects)
+
+        slots = _pdf_pdfium_pages._pdfium_slots(pdf_module._page_tree_root(data))
+        document = pdfium.PdfDocument(data)
+        try:
+            assert _pdf_pdfium_pages._numbers_match(slots, document)
+            for index, (number, page, _) in enumerate(slots):
+                if page is not None and number is not None:
+                    text = document[index].get_textpage().get_text_range()
+                    assert text.strip() == (f"P{(number - 10) // 2}" if number in (10, 12, 14) else "")
+        finally:
+            document.close()
+
 def _listed_contents_pdf(streams: list[bytes], listing: list[int]) -> bytes:
     """One page whose `/Contents` lists the streams `streams` in the order `listing` (indexes, a stream may be listed several times), with
     form X (one line of text) in its resources."""

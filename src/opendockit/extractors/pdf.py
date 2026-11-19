@@ -42,6 +42,8 @@ import statistics
 import threading
 import time
 
+from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdfparser import PDFParser
 from pdfminer.pdftypes import (
     resolve1,
 )
@@ -102,6 +104,7 @@ from opendockit.extractors._pdf_model import (
     _visual_rows,
 )
 from opendockit.extractors._pdf_paragraphs import _heading_levels, _render_page
+from opendockit.extractors._pdf_pdfium_pages import _PdfiumPages
 from opendockit.extractors._pdf_pdfminer import (
     _DOCUMENT_FONT_RANGE_ENTRIES,
     _FONT_RANGES_CUT,
@@ -117,7 +120,6 @@ from opendockit.extractors._pdf_pdfminer import (
     _InflateBudget,
     _name,
     _page_drawing,
-    _tree_page_drawings,
 )
 from opendockit.extractors._pdf_pieces import _place_xobject_lines, _rejoined_lines
 from opendockit.extractors._pdf_placed_runs import _repair_placed_runs
@@ -288,28 +290,38 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
             crowded: list[int] = []  # pages not handed to pdfminer because they have too many drawn objects
             refused: list[int] = []  # pages nobody opened: too many drawn objects or bytes of content, forms nested too deeply
             tally = _EdgeTally(limit, options.remove_repeated_page_lines)
+            numbering: _PdfiumPages | None = None  # pdfium's number of each page (`_PdfiumPages`), made when pdfium is opened
+
+            def past(page: object) -> bool:
+                return _past_bounds(page, budget)
+
             try:
                 for page in pdf.pages[:limit]:
+                    index: int | None = None  # pdfium's number of the page; None: pdfium must not open it
                     try:
                         _charge_page(page, budget)
                         _annotated_attachments(page.page_obj, attachments)
                         objects, content, solid = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
-                        if objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES:
+                        if objects <= _MAX_DRAWN_OBJECTS and content <= _MAX_OPENED_CONTENT_BYTES:
+                            fallback = fallback or _open_pdfium(data)
+                            numbering = numbering or _PdfiumPages(pdf.doc.catalog.get("Pages"), fallback, past)
+                            index = numbering.index(page.page_obj.pageid, page.page_number - 1)
+                        if objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES or numbering.refuse_all:
                             # Both pdfium and pdfminer use memory per draw merely by opening the page — hand it to neither
                             refused.append(page.page_number)
                             pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
                                                lines=[], tables=[], has_images=False,
-                                               view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
+                                               view=(0.0, 0.0, float(page.width), float(page.height)), simple=True,
+                                               pdfium_index=-1))
                             continue
-                        fallback = fallback or _open_pdfium(data)
                         late = options.pdf_time_budget is not None and time.perf_counter() - started > options.pdf_time_budget
                         heavy = solid > _MAX_READ_CONTENT_BYTES
-                        pieces, line_pieces, paths, crowded_page = ((0, 0, 0, None) if late or heavy
-                                                                    else _survey_page(fallback, page.page_number - 1))
+                        pieces, line_pieces, paths, crowded_page = ((0, 0, 0, None) if late or heavy or index is None
+                                                                    else _survey_page(fallback, index))
                         if heavy and not late:
                             crowded.append(page.page_number)
                             try:
-                                pages.append(_pdfium_page(fallback, page.page_number - 1))
+                                pages.append(_numbered(_pdfium_page_at(fallback, index), page.page_number))
                             except pdfium.PdfiumError:  # a page pdfium cannot open is an empty page (see below)
                                 pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
                                                    lines=[], tables=[], has_images=False,
@@ -318,7 +330,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                             over_budget += 1
                             extraction.time_limited = True
                             try:
-                                pages.append(_pdfium_page(fallback, page.page_number - 1))
+                                pages.append(_numbered(_pdfium_page_at(fallback, index), page.page_number))
                             except pdfium.PdfiumError:
                                 # A page pdfium cannot open (pdfminer follows `/Kids`, pdfium trusts `/Count`) is an empty page,
                                 # not a corrupted document — the pages already read are kept
@@ -328,7 +340,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                                    view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
                         elif crowded_page is not None:
                             crowded.append(page.page_number)
-                            pages.append(crowded_page)
+                            pages.append(_numbered(crowded_page, page.page_number))
                         else:
                             if line_pieces > _MAX_GROUPED_TEXT_PIECES:
                                 dense.add(page.page_number)
@@ -360,7 +372,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 # Pinned by: test_pdf_round48.py::TestEmbeddedEncodingCMap).
                                 fallback = fallback or _open_pdfium(data)
                                 try:
-                                    simple = _pdfium_page(fallback, page.page_number - 1)
+                                    simple = _numbered(_pdfium_page_at(fallback, index), page.page_number)
                                 except pdfium.PdfiumError:
                                     simple = read  # pdfium cannot open the page: the pdfminer result stays (see above)
                                 floor = (_read_chars(read) * _UNDECODED_TEXT_RATIO + _UNDECODED_MIN_CHARS if undecoded
@@ -388,8 +400,10 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                             link = link.__context__ or link.__cause__ or (link.args[0] if link.args else None)
                         _check_budget(budget)
                         fallback = fallback or _open_pdfium(data)
+                        numbering = numbering or _PdfiumPages(pdf.doc.catalog.get("Pages"), fallback, past)
+                        index = numbering.index(page.page_obj.pageid, page.page_number - 1)
                         try:
-                            pages.append(_pdfium_page(fallback, page.page_number - 1))
+                            pages.append(_numbered(_pdfium_page_at(fallback, index), page.page_number))
                         except pdfium.PdfiumError:  # neither library reads the page: an empty page (see above)
                             pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
                                                lines=[], tables=[], has_images=False,
@@ -397,6 +411,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                         failed.append(page.page_number)
                     finally:
                         page.close()
+                    pages[-1].pdfium_index = -1 if index is None else index  # the page the renderer draws
                     _check_budget(budget)  # an exceeded limit swallowed by broad exception handling (font repair, form reading)
                     # Page analysis is the slowest part of this extractor. Once the character limit is exceeded, the remaining
                     # pages are not read.
@@ -424,6 +439,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                     budget.new_page()
                     try:
                         pages[index] = _read_page(page, placement_fit)
+                        pages[index].pdfium_index = read.pdfium_index
                     except PdfminerException:
                         pass
                     finally:
@@ -691,8 +707,9 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
     (Pinned by: test_pdf.py::TestPdfiumFallback::
     test_document_pdfminer_cannot_open_stops_reading_pages_once_the_character_limit_is_exceeded). The time budget is not checked —
     the point of the budget is to switch to simple extraction when it is exceeded, and this path is simple extraction from the
-    start. The drawn-object and content estimate (`_page_drawing`) is taken from the page tree as pdfminer reads it
-    (`_tree_page_drawings`), and a page past it is opened by nobody, as on the normal path (the last item: those pages). Known
+    start. The drawn-object and content estimate (`_page_drawing`) is taken from the page tree as pdfminer's parser reads it, for
+    the page pdfium opens at each number (`_PdfiumPages`), and a page past it is opened by nobody, as on the normal path (the last
+    item: those pages). Known
     accepted gap: when pdfminer cannot read the page tree either, every page goes to pdfium, and the decompression limit is applied
     only to the streams the estimate decodes."""
     try:
@@ -705,15 +722,16 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
     try:
         total = len(document)
         limit = total if options.max_pages is None else min(total, options.max_pages)
-        drawings = _tree_page_drawings(data, _MAX_DRAWN_OBJECTS, {}) or []
+        root = _page_tree_root(data)
+        numbering = None if root is None else _PdfiumPages(root, document, lambda page: _past_bounds(page, _INFLATE_BUDGET.get()))
         pages = []
         refused = []
         unopened = 0
         for index in range(limit):
-            if index < len(drawings) and (drawings[index][0] > _MAX_DRAWN_OBJECTS or drawings[index][1] > _MAX_OPENED_CONTENT_BYTES):
+            if numbering is not None and numbering.refused(index, lambda page: _past_bounds(page, _INFLATE_BUDGET.get())):
                 refused.append(index + 1)
                 pages.append(_Page(number=index + 1, width=0.0, height=0.0, lines=[], tables=[], has_images=False,
-                                   view=(0.0, 0.0, 0.0, 0.0), simple=True))
+                                   view=(0.0, 0.0, 0.0, 0.0), simple=True, pdfium_index=-1))
                 unopened = 0
                 continue
             try:
@@ -740,6 +758,36 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
     finally:
         with _PDFIUM_LOCK:
             document.close()
+
+
+def _past_bounds(page: object, budget: _InflateBudget) -> bool:
+    """Whether drawing `page` is past the bounds by which nobody opens a page (`_MAX_DRAWN_OBJECTS`, `_MAX_OPENED_CONTENT_BYTES`)."""
+    objects, content, _ = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
+    return objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES
+
+
+def _page_tree_root(data: bytes) -> object:
+    """The root of the page tree as pdfminer's parser reads it, for a document whose page list it could not build; None when it
+    cannot read that either."""
+    try:
+        return PDFDocument(PDFParser(BytesIO(data))).catalog.get("Pages")
+    except DocumentTooLargeError:
+        raise
+    except Exception:  # noqa: BLE001 — pdfium reads the document as before
+        return None
+
+
+def _pdfium_page_at(document: pdfium.PdfDocument, index: int | None) -> _Page:
+    """`_pdfium_page`, or PdfiumError when pdfium must not open the page (`_PdfiumPages.index` gave None)."""
+    if index is None:
+        raise pdfium.PdfiumError("The page is not opened.")
+    return _pdfium_page(document, index)
+
+
+def _numbered(page: _Page, number: int) -> _Page:
+    """`page` (read by pdfium, numbered after pdfium's page number) under pdfminer's page number `number`."""
+    page.number = number
+    return page
 
 
 def _pdfium_page(document: pdfium.PdfDocument, index: int) -> _Page:
