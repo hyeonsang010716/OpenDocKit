@@ -76,8 +76,8 @@ pip install "opendockit[mcp]"         # + 供智能体使用的 MCP 服务器
 pip install "opendockit[open-webui]"  # + Open WebUI 文档加载器
 ```
 
-需要 Python 3.12 或更高版本，运行在 Linux、macOS 或 Windows 上。在 Windows 上，超过 256 KB 或嵌套极深的格式错误 HTML 或邮件
-页面会由较旧的解析器读取，可能丢失内容，并附带警告
+需要 Python 3.12 或更高版本，运行在 Linux、macOS 或 Windows 上。在 Windows 上，超过 256 K 个字符或嵌套极深的格式错误 HTML 页面
+或邮件正文会由较旧的解析器读取，可能丢失内容，并附带警告
 （[原因](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md#platforms)）。
 
 可选：如需读取旧版 `.doc` 和 `.ppt` 文件，请安装 [LibreOffice](https://www.libreoffice.org/)

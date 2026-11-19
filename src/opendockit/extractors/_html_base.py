@@ -50,8 +50,9 @@ READS_LIKE_A_BROWSER = HTML5_TOKENIZER or _html5lib is not None
 # (Pinned by: test_core_html.py::TestLargePagesKeepTheOlderParser).
 _HTML5LIB_MAX_CHARS = 256 * 1024
 
-# The builder for the document being read, set by `extract_html` from its size. One document is read by one builder from
-# beginning to end: the front check of a large page parses a slice of it (`_extract_front`), and a slice small enough for
+# The builder for the document being read — the page, or one body of a mail — set by `html._read_one_document` from that
+# document's own text, never from the file it came in (a mail's attachments are not HTML). One document is read by one
+# builder from beginning to end: the front check of a large page parses a slice of it (`_extract_front`), and a slice small enough for
 # html5lib while the whole page was not gave the two readings different text, so a limit met by the whole conversion was
 # reported as exceeded (Pinned by:
 # test_core_html_raw_text_and_removal.py::TestUnclosedRawTextElementInALargePage::test_textarea_closed_after_the_front_is_not_read_as_html).

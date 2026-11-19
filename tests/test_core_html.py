@@ -1,5 +1,6 @@
 """HTML rendering: content placed outside the body, MathML equations, block elements."""
 
+from email.message import EmailMessage
 import time
 import warnings
 
@@ -860,6 +861,39 @@ class TestLargePagesKeepTheOlderParser:
 
         assert result.warnings == []
         assert "재고 현황" in result.text
+
+    def test_a_mail_with_a_large_attachment_reads_its_body_with_the_html5_parser(self):
+        """The limit is about the HTML that is parsed, not the file it came in. Decided from the file, an ordinary mail with
+        a 400 KB attachment had a body of a few hundred bytes read by the older parser: the text after its `</html>` was
+        lost — the very content html5lib is used for — and the warning blamed the size of a tiny page."""
+        message = EmailMessage()
+        message["Subject"] = "분기 실적"
+        message["From"] = "a@example.com"
+        message["To"] = "b@example.com"
+        message.set_content("plain body")
+        message.add_alternative("<html><body><p>본문입니다</p></body></html>\n<p>페이지 끝 뒤의 문단</p>", subtype="html")
+        message.add_attachment(bytes(range(256)) * 1600, maintype="application", subtype="octet-stream",
+                               filename="data.bin")
+        data = message.as_bytes()
+
+        result = convert(data, "mail.eml")
+
+        assert len(data) > _html_base._HTML5LIB_MAX_CHARS, "the file must be over the limit for this to test anything"
+        assert "본문입니다" in result.text
+        assert "페이지 끝 뒤의 문단" in result.text
+        assert _SHAPE_WARNING not in result.warnings
+
+    def test_the_limit_counts_characters_not_bytes(self):
+        """html5lib's time grows with the characters it reads. Counted in bytes, a Korean page — three bytes a character in
+        UTF-8 — went to the older parser at a third of the size of an English one."""
+        filler = "<p>재고 현황 보고</p>" * (_html_base._HTML5LIB_MAX_CHARS // 20)   # 15 characters, 27 bytes each
+        data = f"<html><body>{filler}</body></html>\n<p>페이지 끝 뒤의 문단</p>".encode()
+
+        result = convert(data, "a.html")
+
+        assert len(data) > _html_base._HTML5LIB_MAX_CHARS > len(data.decode())
+        assert _SHAPE_WARNING not in result.warnings
+        assert "페이지 끝 뒤의 문단" in result.text
 
     @pytest.mark.timing
     def test_a_page_over_the_limit_does_not_take_the_quadratic_path(self):

@@ -8,8 +8,8 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **A large malformed page on Windows is still read by the older parser.** Reading malformed HTML the way a browser does
   needs an HTML5 parser. lxml bundles one (libxml2 2.14) on Linux and macOS, but its Windows wheels bundle libxml2 2.11, so
   there html5lib builds the tree instead. html5lib is written in Python and is quadratic on three shapes — the text an
-  unclosed `<textarea>`/`<xmp>`/`<plaintext>` swallows, how many of them are left open, and nesting — so a page over
-  256 KB, nested deeper than 1,000 elements, or leaving more than 16 raw-text elements open, goes to the older parser
+  unclosed `<textarea>`/`<xmp>`/`<plaintext>` swallows, how many of them are left open, and nesting — so a page — or one body of a mail — over
+  256 K characters, nested deeper than 1,000 elements, or leaving more than 16 raw-text elements open, goes to the older parser
   after all. For those pages — and only those — text after the end of the page, a
   second concatenated document, the content of raw-text elements and further parts of a mail can go missing, and the
   result carries a warning saying so. EPUB chapters, and HTML chunks imported into a DOCX, are read by the same code.

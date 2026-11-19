@@ -78,8 +78,8 @@ pip install "opendockit[mcp]"         # + 에이전트용 MCP 서버
 pip install "opendockit[open-webui]"  # + Open WebUI용 문서 로더
 ```
 
-Linux, macOS 또는 Windows에서 Python 3.12 이상이 필요합니다. Windows에서는 256 KB를 넘거나 아주 깊게 중첩된 잘못된 형식의
-HTML·메일 페이지가 구버전 파서로 읽히며 내용이 일부 누락될 수 있고, 그때는 경고가 함께 나옵니다
+Linux, macOS 또는 Windows에서 Python 3.12 이상이 필요합니다. Windows에서는 256 K자를 넘거나 아주 깊게 중첩된 잘못된 형식의
+HTML 페이지·메일 본문이 구버전 파서로 읽히며 내용이 일부 누락될 수 있고, 그때는 경고가 함께 나옵니다
 ([이유](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md#platforms)).
 
 선택 사항: 구형 `.doc`, `.ppt` 파일을 읽으려면 [LibreOffice](https://www.libreoffice.org/)를 설치하세요

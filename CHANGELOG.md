@@ -24,9 +24,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     behind.
   - **HTML, mail and EPUB**: malformed and multi-part pages are read whole. lxml's Windows wheels bundle a libxml2
     without the HTML5 tokenizer, so text after the end of a page, a second concatenated document, the content of
-    `<textarea>`/`<xmp>` and the further parts of a mail were lost; html5lib builds the tree there instead. A page over
-    256 KB, nested deeper than 1,000 elements, or leaving more than 16 raw-text elements open is still read by the older
-    parser — html5lib is quadratic on those — and the result says so.
+    `<textarea>`/`<xmp>` and the further parts of a mail were lost; html5lib builds the tree there instead. A page — or
+    one body of a mail, whose attachments do not count — over 256 K characters, nested deeper than 1,000 elements, or
+    leaving more than 16 raw-text elements open is still read by the older parser — html5lib is quadratic on those —
+    and the result says so.
 
 ### Fixed
 

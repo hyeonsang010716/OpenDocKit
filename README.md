@@ -77,8 +77,8 @@ pip install "opendockit[mcp]"         # + MCP server for agents
 pip install "opendockit[open-webui]"  # + document loader for Open WebUI
 ```
 
-Requires Python 3.12 or newer on Linux, macOS or Windows. On Windows a malformed HTML or mail page over 256 KB, or one
-nested very deeply, is read by an older parser and may lose content, with a warning
+Requires Python 3.12 or newer on Linux, macOS or Windows. On Windows a malformed HTML page or mail body over 256 K
+characters, or one nested very deeply, is read by an older parser and may lose content, with a warning
 ([why](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md#platforms)).
 
 Optional: install [LibreOffice](https://www.libreoffice.org/) (`brew install --cask libreoffice`, `apt install libreoffice`)

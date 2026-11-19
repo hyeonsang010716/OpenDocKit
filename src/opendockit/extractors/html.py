@@ -149,22 +149,32 @@ _LARGE_PAGE_WARNING = ("This page is too large or too deeply nested to read with
 
 
 def extract_html(data: bytes, options: ConvertOptions) -> Extraction:
-    # Decided once, from the whole file, and held for every parse this document needs. The size is counted in bytes against
-    # a limit in characters: for text that is not ASCII that errs towards the older parser, which is the safe way round.
-    builder = builder_for(data)
+    extraction = _extract_html(data, options)
+    if not READS_LIKE_A_BROWSER and _OLD_PARSER_WARNING not in extraction.warnings:
+        extraction.warnings.append(_OLD_PARSER_WARNING)
+    return extraction
+
+
+def _read_one_document(text: str, read: Callable[[], Extraction]) -> Extraction:
+    """`read()` — the front-part check and the whole parse of one HTML document — with one tree builder for all of it.
+
+    The builder is decided from the document itself: the decoded page, or one body of a mail. Decided from the file, a mail
+    with an ordinary attachment was over html5lib's size limit on its base64 alone, so its HTML body — a few hundred bytes —
+    went to the older parser and lost the later parts html5lib is there to keep, with a warning that blamed the size of a
+    page that was tiny (Pinned by: test_core_html.py::TestLargePagesKeepTheOlderParser::
+    test_a_mail_with_a_large_attachment_reads_its_body_with_the_html5_parser). Counted in characters of the decoded text,
+    which is what html5lib's time grows with, so a Korean page is not sent to the older parser at a third of the size of an
+    English one. One document is still read by one builder from the front check to the end
+    (Pinned by: test_core_html_raw_text_and_removal.py::TestUnclosedRawTextElementInALargePage).
+    """
+    builder = builder_for(text)
     token = builder_for_document.set(builder)
     try:
-        extraction = _extract_html(data, options)
+        extraction = read()
     finally:
         builder_for_document.reset(token)
-    if not READS_LIKE_A_BROWSER:
-        warning = _OLD_PARSER_WARNING
-    elif builder != TREE_BUILDER:
-        warning = _LARGE_PAGE_WARNING
-    else:
-        return extraction
-    if warning not in extraction.warnings:
-        extraction.warnings.append(warning)
+    if builder != TREE_BUILDER and _LARGE_PAGE_WARNING not in extraction.warnings:
+        extraction.warnings.append(_LARGE_PAGE_WARNING)
     return extraction
 
 
@@ -201,9 +211,8 @@ def _extract_html(data: bytes, options: ConvertOptions) -> Extraction:
 
     text, encoding = decode_text(data, declared, markup=True)
     text = _with_table_around_bare_rows(text)
-    extraction = _extract_front(text, encoding, options, saved_picture)
-    if extraction is None:
-        extraction = _extract(text, encoding, options, saved_picture)
+    extraction = _read_one_document(text, lambda: _extract_front(text, encoding, options, saved_picture)
+                                    or _extract(text, encoding, options, saved_picture))
 
     section = extraction.sections[0]
     section.text = _with_title_heading(section.text, extraction.metadata.get("title"))
@@ -277,8 +286,9 @@ def _extract_documents(documents: list[str], encoding: str, options: ConvertOpti
 
     for document in documents:
         read += 1
-        piece = (_extract_front(document, encoding, options, saved_picture, combined.images, omitted, combined.chars, front)
-                 or _extract(document, encoding, options, saved_picture, images=combined.images, omitted=omitted))
+        piece = _read_one_document(document, lambda: (
+            _extract_front(document, encoding, options, saved_picture, combined.images, omitted, combined.chars, front)
+            or _extract(document, encoding, options, saved_picture, images=combined.images, omitted=omitted)))
         combined.images = piece.images
         if "title" in piece.metadata and "title" not in combined.metadata:
             combined.metadata["title"] = piece.metadata["title"]
