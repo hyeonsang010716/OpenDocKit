@@ -1688,6 +1688,25 @@ class TestDocxNumbering:
 
         assert result.text == "1. 첫째\n2. 둘째\n\n일반 문단\n\n3. 셋째\n  - 3.1. 하위\n4. 넷째\n1. 새 목록\n2. 새 목록 둘째\n3. 이어서"
 
+    @pytest.mark.parametrize(("choice", "fallback", "expected"), [
+        ('<w:numFmt w:val="custom" w:format="001, 002, 003, ..."/>', "decimal", ["001. a", "002. b"]),
+        ('<w:numFmt w:val="custom" w:format="01, 02, 03, ..."/>', "decimal", ["01. a", "02. b"]),
+        ('<w:numFmt w:val="custom" w:format="一, 二, 三, ..."/>', "decimal", ["1. a", "2. b"]),
+        ('<w:numFmt w:val="upperRoman"/>', "decimal", ["I. a", "II. b"]),
+    ])
+    def test_zero_padded_custom_format_keeps_its_width(self, choice, fallback, expected):
+        """Word 2010 and later write the formats Word 2007 lacks (`001, 002, 003, ...`) as a custom w:numFmt in mc:Choice, a plain
+        one in mc:Fallback. Looked for only right under w:lvl, the level was decimal: `1. a`. A custom format of zero-padded digits
+        keeps its width; any other custom format is the fallback's."""
+        level = (f'<w:lvl w:ilvl="0"><w:start w:val="1"/><mc:AlternateContent><mc:Choice Requires="w14">{choice}</mc:Choice>'
+                 f'<mc:Fallback><w:numFmt w:val="{fallback}"/></mc:Fallback></mc:AlternateContent><w:lvlText w:val="%1."/></w:lvl>')
+        numbering = f'<w:abstractNum w:abstractNumId="0">{level}</w:abstractNum>' + _number_list(1)
+
+        lines = [line for line in convert(_docx_with_body(_paragraph("a", 1) + _paragraph("b", 1), numbering=numbering),
+                                          "a.docx").text.splitlines() if line]
+
+        assert lines == expected
+
     def test_start_override_of_one_list_is_not_the_start_of_another(self):
         """A start override (`Set numbering value`) of a sub-level in one list was kept in the shared numbering definition, so
         every list after it began that level at the override: the sub-items under the first list's later items began at `1.3.`.
