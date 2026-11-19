@@ -10,6 +10,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **CLI**: `opendockit --version`, as the other two commands have, for bug reports.
 
+### Changed
+
+- **CLI**: output to a closed pipe or a closed standard output, `--help` and `--version` included, ends quietly with
+  exit code 1; a short output to a closed pipe ended with `Exception ignored … BrokenPipeError` and exit code 120. With
+  standard error closed, messages are no longer written into the output.
+
 ### Fixed
 
 - **PDF shaded tables**: in a striped table, the cells beside a cell merged over two rows with its text centred on them
@@ -128,34 +134,70 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **RTF**: the older `\pn` numbering starts at its `\pnstart`; a list in a header or footer no longer takes the body's
   first number; the number of a numbered heading is counted; the ANSI font of the macOS text system reads as CP1252;
   the Unicode line separator is a line break.
-- **ODP**: the lists of a text box that follow each other count on, as Impress draws them (`1. a) b) 2. 3.`, not
-  `1. a) b) 1. 2.`).
+- **ODP**: the paragraphs of a text box are numbered as Impress draws them: lists that follow each other count on
+  (`1. a) b) 2. 3.`, not `1. a) b) 1. 2.`), also across a plain paragraph, and a list of another number format or
+  start restarts.
 - **XLSX / XML Spreadsheet**: a negative section that differs from the positive one only by a space keeps its minus;
   an escaped quote before a quoted literal is a literal in date checks; the cell comments of an Excel 2003 XML
   workbook come after the sheet.
 - **HTML**: closed dialogs and popovers, the permalink marks of documentation headings and the fallback text of
   `<video>` / `<audio>` are left out; `white-space: pre-wrap` keeps its line breaks; a line-numbered code block is the
   code alone; the TeX of a MathJax script is the formula; `<q>` gets its quote marks; a table drawn inside a list item
-  keeps its lines; the buttons of a heading are unwrapped in linear time.
-- **MathML**: a script base that is itself a script or a group is braced (`{x^2}^3`).
-- **Mail**: the parts of a forwarded mail are read like those of the outer mail; delivery and read reports are read;
+  keeps its lines; the buttons of a heading are unwrapped in linear time, and a list item with very many code blocks
+  is split in linear time (40,000 `<pre>` blocks: 21 seconds).
+- **MathML**: a script base that is itself a script or a group is braced (`{x^2}^3`), also in ODF, and the pairs of
+  an `<mmultiscripts>` are written without double scripts (`R_{i}^{j}{}_{k}`, `{}_{6}^{14}C`).
+- **Mail**: the parts of a forwarded mail are read like those of the outer mail; delivery and read reports, and the
+  returned headers of a bounce, are read; named inline text files (a patch, a CSV) are listed in the attachment warning;
   a named meeting invitation beside the text is kept, and written once when it is sent in two parts; a header with unclosed encoded words is decoded in linear time,
   and a picture shared by several references is decoded once.
 - **Outlook `.msg`**: rejected with a message that says how to save the mail instead of as an unknown format.
 - **EPUB**: a member whose name is in another Unicode normalization than its reference is found.
-- **PDF**: a footer of a label and `Page 3 of 4` side by side, and roman page numbers (`i`, `ii`, `iii`), are removed
-  from every page. Prose in three or more columns is prose, not tables, and a data row with a wrapped cell is no
-  longer joined into the header.
+- **PDF**: a footer of a label and `Page 3 of 4` side by side, and roman page numbers (`i`, `ii`, `iii`) that count
+  with the pages, are removed from every page. Prose in three or more columns that pdfminer reads column by column is
+  prose, not tables, and a data row with a wrapped cell is no longer joined into the header.
 - **Detection**: a DOCTYPE with an internal subset is one DOCTYPE. A note that lists a whole PDF, named as text, is
   read as that text instead of the PDF it lists.
-- **Markdown**: the Unicode line and paragraph separators are line breaks; title rows of a long table are lifted in linear time.
+- **Markdown**: the Unicode line and paragraph separators are line breaks outside code blocks (kept in code and data
+  files such as JSON); title rows of a long table are lifted in linear time.
 - **Pictures**: a Lab picture is prepared as opaque, and the split pages of a TIFF count toward
   `max_uncompressed_bytes`.
 - **MCP server**: an answer lists at most 20 warnings, and the outline lists pages, slides or sheets as far as the
   server's `--max-chars` and counts the rest; with `--root`, a folder that may be passed through but not listed no
   longer refuses the files under it.
 - **LangChain / LlamaIndex / Open WebUI**: a file of pictures that were not described gives no Document of `[Image]`
-  placeholders, as a scanned PDF gives none of page markers.
+  placeholders, as a scanned PDF gives none of page markers; nor does a sheet of pictures with their bare cells, or a
+  bare `[Chart]`, `[Video]` or `[OLE object]`.
+- **PDF limits**: a Form XObject that draws itself more than once no longer makes pdfium expand it (an 800-byte file
+  grew past 10 GB); the page is left out with the drawing-elements warning. A content stream listed many times in
+  `/Contents` is charged to `max_uncompressed_bytes` every time, a page whose content would take minutes to interpret
+  (a form of a million `q Q` drawn 16 times: 88 seconds) and a page of very many characters (800,000: 25 seconds and
+  2 GB) are read with pdfium's plain text extraction, with the same warning. A page is opened in pdfium at the number
+  pdfium gives it, so an odd page tree (a missing or non-page entry in `/Kids`) cannot hand it a page that was
+  refused. The data of an inline image is read in linear time (5 MB: 8.5 seconds).
+- **PDF tables**: a table shaded with grey set as DeviceGray (`0.85 g`) is read as shaded, as one in RGB is; each row
+  came out as a table of its own.
+- **Mail**: a Content-Type with many parameters no longer takes quadratic time (an 8 KB mail: 20 seconds), nor does a
+  header of many encoded words on one line (1 MB: 13 seconds). An attachment name written in raw 8-bit bytes or in an
+  RFC 2231 Korean charset (`ks_c_5601-1987''…`) is read in the warning, not as `���`, and such a name on a part without
+  a usable boundary or on a report part no longer rejects the whole mail.
+- **Character limit (spreadsheets and CSV)**: a sheet is drawn only up to `max_chars`, so a merged cell repeated down
+  20,000 rows (108 KB: 31 seconds and 3.5 GB), a CSV of short rows under a wide header (1 MB: 19 seconds and 1.4 GB) and
+  sparse rows no longer build the whole table first; a cell holding only `>` counts.
+- **XLSX / XLS / Excel 2003 XML**: a number format of unclosed brackets no longer costs milliseconds per cell (10,000
+  cells: 93 seconds); one long shared formula is moved to a cell only when its row is read (8,000 cells: up to 74
+  seconds); the column-limit warning is looked up once per sheet.
+- **HWP / XLS / DOC**: an OLE stream is read no further than the file, so a chain that loops with a huge declared size
+  no longer builds gigabytes (a 26 KB HWP: 5.4 GB); a compressed HWP stream counts its stored bytes too, a picture
+  stream named by many items is read once, and a file of very many streams opens in linear time (16,000 sections:
+  27 seconds).
+- **HWP / HWPX**: control characters are kept out of an equation script (`\x05a+b\x06` read as struck text), and
+  long `atop` chains with limits or `over` no longer take quadratic time (20 equations: 9 seconds).
+- **RTF**: shapes nested hundreds deep inside a table cell no longer redraw the cell at every level (35 seconds for
+  946 KB).
+- **HTML**: sub- and superscripts, formulas and form values inside a ruby annotation are read (`水(H_2O)`). Rows that
+  open inside an element left in an open row (a `<form>` between rows) are read; they vanished with no warning. A
+  `<q>` inside a superscript, subscript or ruby gets its quote marks too.
 
 ## [0.3.13] - 2026-11-17
 
