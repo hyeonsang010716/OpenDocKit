@@ -97,6 +97,58 @@ class TestAllDayAndRecurringEvents:
         assert result.text.endswith("- Start: 2024-03-05 09:00 UTC\n- End: 2024-03-05 10:00 UTC")
 
 
+def _invite_without_a_body(event: str, *, html: str | None = None) -> bytes:
+    calendar = f"BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nSUMMARY:분기 점검\r\n{event}END:VEVENT\r\nEND:VCALENDAR\r\n"
+    head = "From: a@b.c\nTo: d@e.f\nSubject: w\nMIME-Version: 1.0\n"
+    if html is None:
+        return f"{head}Content-Type: text/calendar; charset=utf-8; method=REQUEST\n\n{calendar}".encode()
+    return (f"{head}Content-Type: multipart/alternative; boundary=\"b\"\n\n--b\nContent-Type: text/html; charset=utf-8\n\n{html}\n"
+            f"--b\nContent-Type: text/calendar; charset=utf-8; method=REQUEST\n\n{calendar}\n--b--\n").encode()
+
+
+class TestInvitationWithoutABody:
+    """The description of an event is the text of the body, so it is not read; an invitation sent as a text/calendar part alone
+    has no body, and its agenda was gone without a word. An event timed with DURATION instead of DTEND (RFC 5545) had no end."""
+
+    _AGENDA = "DESCRIPTION:안건:\\n1. 예산 초과 12%\\n\\n2. 채용 동결\r\n"
+
+    def test_description_of_a_mail_without_a_body_is_read(self):
+        result = convert(_invite_without_a_body("DTSTART:20250301T090000Z\r\n" + self._AGENDA), "a.eml")
+
+        assert result.text.endswith("- Title: 분기 점검\n- Start: 2025-03-01 09:00 UTC\n"
+                                    "- Description: 안건:\n  1. 예산 초과 12%\n  2. 채용 동결")
+
+    def test_description_beside_a_body_with_text_is_not_read(self):
+        result = convert(_invite("DTSTART:20250301T090000Z\r\n" + self._AGENDA), "a.eml")
+
+        assert "Description" not in result.text and "예산" not in result.text
+
+    def test_description_beside_an_html_body_of_white_space_is_read(self):
+        """An HTML mail writes the lines of a list item on one line, as it does for every `<li>`."""
+        result = convert(_invite_without_a_body("DTSTART:20250301T090000Z\r\n" + self._AGENDA, html=" "), "a.eml")
+
+        assert result.text.endswith("- Description: 안건: 1. 예산 초과 12% 2. 채용 동결")
+
+    @pytest.mark.parametrize(("event", "expected"), [
+        ("DTSTART:20250301T090000Z\r\nDURATION:PT1H30M\r\n", "- Start: 2025-03-01 09:00 UTC\n- End: 2025-03-01 10:30 UTC"),
+        ('DTSTART;TZID="Korea Standard Time":20250301T233000\r\nDURATION:PT45M\r\n',
+         "- Start: 2025-03-01 23:30 (Korea Standard Time)\n- End: 2025-03-02 00:15 (Korea Standard Time)"),
+        ("DTSTART:20250301T090000Z\r\nDURATION:P1DT2H\r\n", "- Start: 2025-03-01 09:00 UTC\n- End: 2025-03-02 11:00 UTC"),
+        ("DTSTART;VALUE=DATE:20250301\r\nDURATION:P1D\r\n", "- Start: 2025-03-01"),
+        ("DTSTART;VALUE=DATE:20250301\r\nDURATION:P1W\r\n", "- Start: 2025-03-01\n- End: 2025-03-07"),
+        ("DTSTART:20250301T090000Z\r\nDTEND:20250301T100000Z\r\nDURATION:PT5H\r\n",
+         "- Start: 2025-03-01 09:00 UTC\n- End: 2025-03-01 10:00 UTC"),
+        ("DTSTART:20250301T090000Z\r\nDURATION:-PT1H\r\n", "- Start: 2025-03-01 09:00 UTC"),
+        ("DTSTART:20250301T090000Z\r\nDURATION:P\r\n", "- Start: 2025-03-01 09:00 UTC"),
+        ("DTSTART;VALUE=DATE:20250301\r\nDURATION:PT3H\r\n", "- Start: 2025-03-01"),
+        ("DTSTART:99991231T230000Z\r\nDURATION:P2D\r\n", "- Start: 9999-12-31 23:00 UTC"),
+    ])
+    def test_end_from_the_duration(self, event, expected):
+        result = convert(_invite(event), "a.eml")
+
+        assert result.text.endswith(expected)
+
+
 class TestCancelledEvent:
     """An event with its own STATUS:CANCELLED in an ordinary invitation (METHOD:REQUEST or PUBLISH) was written as an ordinary
     `Event:`, as if the meeting would take place."""
