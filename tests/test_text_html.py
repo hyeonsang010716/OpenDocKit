@@ -1540,6 +1540,29 @@ class TestPermalinksOfHeadings:
     def test_permalinks_of_documentation_generators_are_left_out(self, heading):
         assert convert(f"{heading}<p>x</p>".encode(), "a.html").text == "## Title\n\nx"
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ('<h2 id="a">Title<a class="headerlink" href="#a">¶</a><span class="badge">new</span></h2>', "## Titlenew"),
+        ('<dl><dt id="f"><span>f</span>()<a class="headerlink" href="#f" title="Link to this definition">¶</a>'
+         '<a class="reference internal" href="_modules/m.html#f"><span class="viewcode-link">[source]</span></a></dt>'
+         "<dd>Return.</dd></dl>", "f()[source]: Return."),
+        ('<div class="literal-block-wrapper"><div class="code-block-caption"><span class="caption-text">file.py</span>'
+         '<a class="headerlink" href="#id1" title="Link to this code">¶</a></div><div class="highlight"><pre>x = 1</pre>'
+         "</div></div>", "file.py\n\n```\nx = 1\n```"),
+        ('<table><caption><span class="caption-number">Table 1 </span><span class="caption-text">Data</span>'
+         '<a class="headerlink" href="#id2">¶</a></caption><tr><th>a</th><th>b</th></tr><tr><td>1</td><td>2</td></tr></table>',
+         "Table 1 Data\n\n| a | b |\n| --- | --- |\n| 1 | 2 |"),
+        ('<figure><img alt="Plot" src="p.png"><figcaption><p><span class="caption-text">Plot</span>'
+         '<a class="headerlink" href="#id3">¶</a></p></figcaption></figure>', "[Image: Plot]\n\nPlot"),
+        ('<p class="caption" role="heading"><span class="caption-text">Contents</span><a class="headerlink" href="#c">¶</a></p>',
+         "Contents"),
+        ('<p>See the <a class="anchor" href="#x">#</a> sign.</p>', "See the # sign."),
+    ])
+    def test_a_marked_permalink_is_left_out_wherever_it_stands(self, html, expected):
+        """A link marked as a permalink by its class or label stayed when something came after it in the heading (a badge,
+        Sphinx's `[source]` link), and Sphinx's captions of code blocks, tables and figures kept theirs. Outside headings,
+        terms and captions the mark stays."""
+        assert convert(html.encode(), "a.html").text == expected
+
 
 class TestClosedDialogsAndPopovers:
     """A `<dialog>` without `open` and an element with `popover` are not shown until a script opens them (browsers draw them as
