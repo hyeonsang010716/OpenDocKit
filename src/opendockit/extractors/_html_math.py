@@ -93,7 +93,9 @@ def _put_tex_scripts(soup: BeautifulSoup) -> None:
         target = script if frame is None else frame
         target.clear()
         target.attrs = {}
-        target.name = "span"
+        # A display block MathJax writes as a `<div>` stays a block: as a span its formula ran into the text after it (Pinned
+        # by: test_core_html.py::TestMathMl::test_mathjax_display_block_stays_a_block)
+        target.name = "div" if target.name == "div" else "span"
         if math is not None:
             target.append(math)
         elif tex:

@@ -364,6 +364,14 @@ class TestMathMl:
         assert convert(preview.encode(), "a.html").text == "Let $x^2$ be."
         assert convert(other.encode(), "a.html").text == "Let $x^2$ and see$y$."
 
+    def test_mathjax_display_block_stays_a_block(self):
+        """The display block of a formula, a `<div>`, was turned into a span with its formula, which then ran into the text
+        around it."""
+        html = ('<div>We have<div class="MathJax_Display"><span class="MathJax" id="MathJax-Element-5-Frame"><nobr>y</nobr>'
+                '</span></div><script type="math/tex; mode=display" id="MathJax-Element-5">y^2</script>and so on.</div>')
+
+        assert convert(html.encode(), "a.html").text == "We have\n\n$y^2$\n\nand so on."
+
     def test_a_formula_that_opens_a_fragment_is_kept(self):
         """The parser puts a script before the first text or block of a fragment in the head, which is removed: a fragment that
         opened with a formula lost it, where with a `<body>` written it was read. After a title or a meta element the head is
