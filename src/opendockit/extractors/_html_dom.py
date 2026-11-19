@@ -1827,9 +1827,24 @@ def _is_spacer(data: bytes) -> bool:
     return width <= _SPACER_SIDE and height <= _SPACER_SIDE
 
 
-# The `white-space` of an inline style (the last one written wins), and the values that keep the line breaks of the text.
-_WHITE_SPACE = re.compile(r"(?<![\w-])white-space\s*:\s*([a-z-]+)", re.IGNORECASE)
+# The `white-space` declarations of an inline style (the last one written wins), and the values that keep the line breaks of the
+# text. A declaration starts the style or follows a `;`, and its value ends it or comes before one (`!important` allowed), once
+# the comments of the style are gone: found anywhere, `background:url(white-space:pre)` and `/* white-space:pre */` kept the
+# line breaks of text that a browser joins (Pinned by: test_text_html.py::TestWhiteSpacePreserved::
+# test_white_space_must_be_a_declaration_of_the_style).
+_WHITE_SPACE = re.compile(r"(?:^|;)\s*white-space\s*:\s*([a-z-]+)\s*(?:!\s*important\s*)?(?=;|$)", re.IGNORECASE)
+_CSS_COMMENT = re.compile(r"/\*.*?(?:\*/|$)", re.DOTALL)
 _KEEPS_LINE_BREAKS = frozenset({"pre", "pre-wrap", "pre-line", "break-spaces"})
+# The form controls whose text `_put_form_values` reads as their value (the lines of a textarea, the chosen option): their line
+# breaks are its to keep or join, as the text of a `<pre>` is the code block's.
+_FORM_TEXT = frozenset({"textarea", "select", "option", "optgroup"})
+
+
+def _white_space_values(style: str) -> list[str]:
+    """The values of the `white-space` declarations of an inline style, in order."""
+    if "/*" in style:
+        style = _CSS_COMMENT.sub("", style)
+    return _WHITE_SPACE.findall(style)
 
 
 def _keep_preserved_line_breaks(soup: BeautifulSoup) -> None:
@@ -1843,20 +1858,26 @@ def _keep_preserved_line_breaks(soup: BeautifulSoup) -> None:
     so is text inside `<math>`: the white space between MathML elements is the indentation of the markup, and a `<br>` put
     there became a part of the formula (`$x^{}$` for `x²`; Pinned by: test_text_html.py::TestWhiteSpacePreserved::
     test_mathml_inside_keeps_its_parts).
+    The text of a textarea, a select and its options is left to `_put_form_values`, which reads the lines of a textarea and
+    joins those of an option: split into `<br>` here, the lines of a ticket's textarea ran into one (`Steps:1. Open2. Save`)
+    (Pinned by: test_text_html.py::TestWhiteSpacePreserved::test_form_controls_keep_their_values).
     Known accepted gaps: the spaces of such text are still collapsed (the indentation under `pre` is lost), and a
     `white-space` set by a style sheet rather than the element is not seen.
     """
-    if not any(_WHITE_SPACE.search(str(tag["style"])) for tag in soup.find_all(style=True)):
+    if not any(_white_space_values(str(tag["style"])) for tag in soup.find_all(style=True)):
         return
     keeps: dict[int, bool] = {}  # element id → whether its text keeps its line breaks
 
     def decided(element: Tag | None) -> bool:
         chain = []
         while element is not None and id(element) not in keeps:
+            if element.name in _FORM_TEXT:
+                keeps[id(element)] = False
+                break
             if element.name in _CODE_BLOCKS or element.name == "math" or (element.name or "").endswith(":math"):
                 keeps[id(element)] = False
                 break
-            values = _WHITE_SPACE.findall(str(element.get("style", ""))) if element.attrs else []
+            values = _white_space_values(str(element.get("style", ""))) if element.attrs else []
             if values:
                 keeps[id(element)] = values[-1].lower() in _KEEPS_LINE_BREAKS
                 break

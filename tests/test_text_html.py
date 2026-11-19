@@ -1386,6 +1386,38 @@ class TestWhiteSpacePreserved:
         assert convert(html.encode(), "a.html").text == (
             "first\nline\n\njoined words\n\nplain text\n\n```\ncode\n  kept\n```")
 
+    def test_form_controls_keep_their_values(self):
+        """The lines of a textarea and of a chosen option were split into `<br>` before the form values were read, and the lines
+        of a ticket's textarea ran into one (`Steps:1. Open2. Save`). A textarea keeps its lines and an option is one line,
+        whether the style is on the control or on an element around it."""
+        ticket = ('<p>Ticket:</p><textarea readonly style="white-space:pre-wrap;width:100%">Steps:\n1. Open\n2. Save'
+                  '</textarea>')
+        inherited = '<div style="white-space:pre-wrap">Note:\n<textarea>line1\nline2</textarea></div>'
+        select = ('<select style="white-space:pre"><option selected>a\nb</option></select>'
+                  '<div style="white-space:pre-line"><select><optgroup label="g"><option selected>c\nd</option></optgroup>'
+                  '</select></div>')
+
+        assert convert(ticket.encode(), "a.html").text == "Ticket:\n\nSteps:\n1. Open\n2. Save"
+        assert convert(inherited.encode(), "a.html").text == "Note:\nline1\nline2"
+        assert convert(select.encode(), "a.html").text == "a b\n\nc d"
+
+    @pytest.mark.parametrize("style", [
+        "background:url(white-space:pre)", "/* white-space:pre */ color:red", "color:red /* ; white-space:pre-wrap */",
+        "x-white-space:pre", "white-space:pre-wrapped", "white-space:pre-wrap; white-space:normal"])
+    def test_white_space_must_be_a_declaration_of_the_style(self, style):
+        """`white-space` was found anywhere in the style: inside a `url()` or a comment it kept line breaks a browser joins."""
+        html = f'<div style="{style}">a\nb</div>'
+
+        assert convert(html.encode(), "a.html").text == "a b"
+
+    @pytest.mark.parametrize("style", [
+        "color:red;white-space:pre-wrap", "WHITE-SPACE : PRE-LINE !important", "white-space:pre /* kept */",
+        "/* first */ white-space:break-spaces; color:red"])
+    def test_a_declaration_after_others_or_comments_is_seen(self, style):
+        html = f'<div style="{style}">a\nb</div>'
+
+        assert convert(html.encode(), "a.html").text == "a\nb"
+
 
 class TestLineNumberedCodeBlocks:
     """Pygments (`linenos="table"`), Hugo and Rouge write a code block shown with line numbers as a table of one row and two
