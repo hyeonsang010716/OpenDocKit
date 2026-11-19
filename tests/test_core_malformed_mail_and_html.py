@@ -42,6 +42,42 @@ class TestCharsetWithANulByte:
         assert "본문 글" in result.text
 
 
+_BOUNCE = ("From: MAILER-DAEMON@mx.example.com\r\nTo: kim@example.com\r\nSubject: Undelivered Mail Returned to Sender\r\n"
+           "MIME-Version: 1.0\r\nContent-Type: multipart/report; report-type=delivery-status; boundary=\"R\"\r\n\r\n"
+           "--R\r\nContent-Type: text/plain\r\n\r\nYour message could not be delivered.\r\n"
+           "--R\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; mx.example.com\r\n\r\n"
+           "Final-Recipient: rfc822; lee@example.org\r\nAction: failed\r\nStatus: 5.1.1\r\n--R--\r\n")
+_WITHOUT_BOUNDARY = ("From: old@example.com\r\nTo: kim@example.com\r\nSubject: quote\r\nMIME-Version: 1.0\r\n"
+                     "Content-Type: multipart/mixed\r\n\r\nThe quotation is 1,200,000 won.\r\n")
+
+
+def _forwarding(inner: str) -> bytes:
+    return ("From: kim@example.com\r\nTo: it@example.com\r\nSubject: Fwd: check\r\nMIME-Version: 1.0\r\n"
+            "Content-Type: multipart/mixed; boundary=\"OUT\"\r\n\r\n--OUT\r\nContent-Type: text/plain\r\n\r\n"
+            "Please check the attached mail.\r\n--OUT\r\nContent-Type: message/rfc822\r\nContent-Disposition: attachment\r\n\r\n"
+            + inner + "\r\n--OUT--\r\n").encode()
+
+
+class TestReadablePartsOfForwardedMails:
+    """The delivery report of a bounce and the body of a multipart without a usable boundary are made readable before the
+    body is looked for, and that was done for the outer mail only: a bounce forwarded to the IT desk as an attachment lost its
+    report, and a forwarded mail without a usable boundary its body (with a warning of an unnamed attachment), while the same
+    mails on their own read whole."""
+
+    @pytest.mark.parametrize(("inner", "expected"), [
+        (_BOUNCE, "Your message could not be delivered.\n\nReporting-MTA: dns; mx.example.com\n\n"
+                  "Final-Recipient: rfc822; lee@example.org\nAction: failed\nStatus: 5.1.1"),
+        (_WITHOUT_BOUNDARY, "The quotation is 1,200,000 won."),
+    ], ids=["bounce", "multipart without a boundary"])
+    def test_forwarded_mail_reads_as_it_does_on_its_own(self, inner, expected):
+        alone = convert(inner.encode(), "a.eml")
+        result = convert(_forwarding(inner), "a.eml")
+
+        assert alone.text.endswith(expected)
+        assert result.text.endswith(expected)
+        assert result.warnings == []
+
+
 class TestMultipartWithoutUsableBoundary:
     """A multipart whose boundary is missing or never appears in the body has no parts, so the body vanished without a warning and
     only the headers were left."""

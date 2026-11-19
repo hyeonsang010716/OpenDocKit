@@ -387,9 +387,15 @@ def _readable_parts(message: Message) -> None:
 
     Neither is caught on the path that finds body parts (text/plain, text/html), so the body or the failure cause vanished
     without a warning and only the headers remained
-    (Pinned by: test_core_malformed_mail_and_html.py::TestMultipartWithoutUsableBoundary).
+    (Pinned by: test_core_malformed_mail_and_html.py::TestMultipartWithoutUsableBoundary). The mails forwarded inside the mail
+    are walked too: a bounce forwarded to the IT desk as an attachment lost its delivery report, and a forwarded mail without a
+    usable boundary its body, while the same mails on their own read whole
+    (Pinned by: test_core_malformed_mail_and_html.py::TestReadablePartsOfForwardedMails). The nesting is bounded before the mail
+    is parsed (`_mime_nesting_exceeds`).
     """
-    for part in _mail_parts(message):
+    stack = [message]
+    while stack:
+        part = stack.pop()
         if part.get_content_type() == "message/delivery-status" and part.is_multipart():
             fields = ["\n".join(f"{name}: {' '.join(str(value).split())}" for name, value in block.items())
                       for block in part.get_payload() if isinstance(block, Message)]
@@ -399,6 +405,8 @@ def _readable_parts(message: Message) -> None:
             part.set_param("charset", "utf-8")
         elif part.get_content_maintype() == "multipart" and not part.is_multipart():
             part.set_type("text/plain")
+        if part.is_multipart():
+            stack.extend(reversed([child for child in part.get_payload() if isinstance(child, Message)]))
 
 
 def _mail_without_mime_version(headers: bytes) -> bool:
