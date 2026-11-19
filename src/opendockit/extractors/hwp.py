@@ -22,7 +22,16 @@ import olefile
 
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
 from opendockit.extractors._equation import render_equation
-from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, command_link, decorated_text, link_end, link_start
+from opendockit.extractors._hangul import (
+    PREVIEW_CELL_MARKS,
+    ParagraphPieces,
+    click_here_guide,
+    command_link,
+    decorated_text,
+    drop_unfilled_guide,
+    link_end,
+    link_start,
+)
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import TableBudget, format_dutmal, note_table, omitted_rows_warning
@@ -303,6 +312,15 @@ class ParagraphHeads:
     bullet_count: int = 0
 
 
+@dataclass(slots=True)
+class _ClickHere:
+    """A click-here field opened in a paragraph: the pieces it was opened in, where its text starts there, and its guide text."""
+
+    pieces: list[str]
+    start: int
+    guide: str | None
+
+
 class HwpRenderer:
     def __init__(self, styles: list[str], options: ConvertOptions, extraction: Extraction | None = None,
                  load_bin: Callable[[int], bytes | None] | None = None, heads: ParagraphHeads | None = None,
@@ -342,8 +360,9 @@ class HwpRenderer:
         # it, as in DOCX and ODT (Pinned by: test_hwp.py::TestHeaderAndFooterPlacement).
         self.headers: dict[str, None] = {}
         self.footers: dict[str, None] = {}
-        # The fields opened and not yet ended, innermost last: the address of a hyperlink that is kept, else None (`_start_field`)
-        self._fields: list[str | None] = []
+        # The fields opened and not yet ended, innermost last: the address of a hyperlink that is kept, a click-here field
+        # (`_ClickHere`), else None (`_start_field`)
+        self._fields: list[str | _ClickHere | None] = []
 
     def render(self, records: list[Record]) -> list[str]:
         """Find paragraphs (PARA_HEADER) and render them. A record that is not a paragraph is descended to find inner paragraphs — with a
@@ -393,9 +412,12 @@ class HwpRenderer:
                 buffer.append(part)
                 continue
             if part == FIELD_END:
-                url = self._fields.pop() if self._fields else None
-                if url is not None:
-                    buffer.append(link_end(url))
+                field = self._fields.pop() if self._fields else None
+                if isinstance(field, _ClickHere):
+                    if field.pieces is buffer:
+                        drop_unfilled_guide(buffer, field.start, field.guide)
+                elif field is not None:
+                    buffer.append(link_end(field))
                 continue
             control = next(controls, None)
             if control is None:
@@ -516,10 +538,17 @@ class HwpRenderer:
         is only remembered, so that its end closes it and not a link (Pinned by: test_hwp.py::TestHyperlinks)."""
         url = None
         payload = control.payload
-        if kind == "%hlk" and self._options.keep_links and len(payload) >= _FIELD_COMMAND_OFFSET + 2:
+        command = ""
+        if len(payload) >= _FIELD_COMMAND_OFFSET + 2:
             (length,) = struct.unpack_from("<H", payload, _FIELD_COMMAND_OFFSET)
             start = _FIELD_COMMAND_OFFSET + 2
-            url = command_link(payload[start:start + 2 * length].decode("utf-16-le", errors="replace"))
+            command = payload[start:start + 2 * length].decode("utf-16-le", errors="replace")
+        if kind == "%clk":
+            # A click-here field (누름틀): its text is dropped at its end when it is still the guide (`drop_unfilled_guide`)
+            self._fields.append(_ClickHere(buffer, len(buffer), click_here_guide(command)))
+            return
+        if kind == "%hlk" and self._options.keep_links and command:
+            url = command_link(command)
         self._fields.append(url)
         if url is not None:
             buffer.append(link_start())

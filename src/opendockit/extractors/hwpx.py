@@ -18,7 +18,17 @@ from lxml import etree
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._charts import embedded_table, package_loader, render_chart
 from opendockit.extractors._equation import render_equation
-from opendockit.extractors._hangul import PREVIEW_CELL_MARKS, ParagraphPieces, command_link, decorated_text, has_text, link_end, link_start
+from opendockit.extractors._hangul import (
+    PREVIEW_CELL_MARKS,
+    ParagraphPieces,
+    click_here_guide,
+    command_link,
+    decorated_text,
+    drop_unfilled_guide,
+    has_text,
+    link_end,
+    link_start,
+)
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import (
@@ -160,6 +170,8 @@ class HwpxRenderer:
         self._unspaced_memos: dict[str, None] = {}  # comments above with a non-empty range not ending in whitespace (get a space between paragraphs)
         self._memo_depth = 0  # 1 or more while comment text is rendered. That text is not the range of another comment
         self._open_links: dict[str, str] = {}  # hyperlink field id not yet closed by fieldEnd → its address (`_open_link`)
+        # click-here field id not yet closed → (the pieces it was opened in, where its text starts there, its guide text)
+        self._open_clicks: dict[str, tuple[list[str], int, str | None]] = {}
         self.omitted_rows = 0  # rows dropped by the table grid cell limit (`TableGrid.omitted_rows`). Reported as a warning
 
     def render_paragraphs(self, container: etree._Element) -> list[str]:
@@ -410,8 +422,13 @@ class HwpxRenderer:
                 self._open_memo(node)
             elif name == "fieldBegin" and node.get("type") == "HYPERLINK":
                 self._open_link(node, buffer)
+            elif name == "fieldBegin" and node.get("type") == "CLICK_HERE":
+                self._open_clicks[node.get("id", "")] = (buffer, len(buffer), click_here_guide(_field_command(node)))
             elif name == "fieldEnd":
                 self._close_memo(node.get("beginIDRef", ""))
+                opened = self._open_clicks.pop(node.get("beginIDRef", ""), None)
+                if opened is not None and opened[0] is buffer:
+                    drop_unfilled_guide(buffer, opened[1], opened[2])
                 url = self._open_links.pop(node.get("beginIDRef", ""), None)
                 if url is not None:
                     buffer.append(link_end(url))
@@ -494,10 +511,7 @@ class HwpxRenderer:
         as in DOCX (Pinned by: test_hwp.py::TestHyperlinks)."""
         if not self._options.keep_links or self._memo_depth:
             return
-        parameters = _child(field, "parameters")
-        command = next((param.text or "" for param in _children(parameters, "stringParam") if param.get("name") == "Command"), "") \
-            if parameters is not None else ""
-        url = command_link(command)
+        url = command_link(_field_command(field))
         if url is not None:
             self._open_links[field.get("id", "")] = url
             buffer.append(link_start())
@@ -799,6 +813,13 @@ def _int(value: str | None, default: int) -> int:
     test_hwp.py::TestOneOddValueInHangulDocuments,
     test_hwp_robustness.py::TestHugeNumbersInHangulDocuments)."""
     return decimal_int(value, default)
+
+
+def _field_command(field: etree._Element) -> str:
+    """The `Command` parameter of an `hp:fieldBegin` (empty when there is none)."""
+    parameters = _child(field, "parameters")
+    return next((param.text or "" for param in _children(parameters, "stringParam") if param.get("name") == "Command"), "") \
+        if parameters is not None else ""
 
 
 def _content_package(archive: zipfile.ZipFile, names: Collection[str]) -> etree._Element | None:

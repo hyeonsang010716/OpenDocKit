@@ -1181,6 +1181,42 @@ def _hwp_field(control: str, command: str = "") -> bytes:
             + struct.pack("<I", 7))
 
 
+def _hwpx_click_here(field_id: int, guide: str, text: str) -> str:
+    """A click-here field (누름틀) of HWPX holding `text`, its guide in the Command parameter as Hangul writes it."""
+    command = f"Clickhere:set:44:Direction:wstring:{len(guide)}:{guide} HelpState:wstring:0:  "
+    return (f'<hp:ctrl><hp:fieldBegin id="{field_id}" type="CLICK_HERE" name="{guide}" editable="1" dirty="0"><hp:parameters cnt="2">'
+            f'<hp:integerParam name="Prop">9</hp:integerParam><hp:stringParam name="Command">{command}</hp:stringParam>'
+            f'</hp:parameters></hp:fieldBegin></hp:ctrl><hp:t>{text}</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="{field_id}"/></hp:ctrl>')
+
+
+class TestClickHereFields:
+    """Hangul shows the guide of a click-here field (누름틀) that was not filled in (`이곳을 마우스로 누르고 내용을 입력하세요`, or a
+    word such as `날짜`) in its place on screen and does not print it, and it was read as the content of the form. The text of a
+    field is left out when it is its guide; what a person typed stays."""
+
+    def test_hwpx_unfilled_guide_is_left_out(self):
+        guide = "이곳을 마우스로 누르고 내용을 입력하세요."
+        body = (f"<hp:p><hp:run><hp:t>성명: </hp:t>{_hwpx_click_here(1, guide, guide)}</hp:run></hp:p>"
+                f"<hp:p><hp:run><hp:t>소속: </hp:t>{_hwpx_click_here(2, guide, '총무과')}</hp:run></hp:p>"
+                f"<hp:p><hp:run>{_hwpx_click_here(3, '날짜', '날짜')}</hp:run></hp:p><hp:p><hp:run><hp:t>끝</hp:t></hp:run></hp:p>")
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "성명:\n\n소속: 총무과\n\n끝"
+
+    def test_hwp_unfilled_guide_is_left_out(self, monkeypatch):
+        guide = "이곳을 마우스로 누르고 내용을 입력하세요."
+        command = f"Clickhere:set:44:Direction:wstring:{len(guide)}:{guide} HelpState:wstring:0:  "
+        record = builder.hwp_record
+        section = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("성명: ", (3, "%clk"), guide, (4, "%clk"), " 소속: ", (3, "%clk"), "총무과",
+                                                      (4, "%clk"))),
+            record(TAG_CTRL_HEADER, 1, _hwp_field("%clk", command)),
+            record(TAG_CTRL_HEADER, 1, _hwp_field("%clk", command)),
+        ])
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "성명: 소속: 총무과"
+
+
 class TestHyperlinks:
     """Hyperlinks of HWPX (`hp:fieldBegin type="HYPERLINK"`) and HWP (the `%hlk` field) were plain text. Under `keep_links` they
     are `[text](address)` through the shared rules, with the address from the field command (`http\\://a.example;1;0;0;`) and
