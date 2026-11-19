@@ -139,7 +139,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   keeps its lines; the buttons of a heading are unwrapped in linear time.
 - **MathML**: a script base that is itself a script or a group is braced (`{x^2}^3`).
 - **Mail**: the parts of a forwarded mail are read like those of the outer mail; delivery and read reports are read;
-  a named meeting invitation beside the text is kept; a header with unclosed encoded words is decoded in linear time,
+  a named meeting invitation beside the text is kept, and written once when it is sent in two parts; a header with unclosed encoded words is decoded in linear time,
   and a picture shared by several references is decoded once.
 - **Outlook `.msg`**: rejected with a message that says how to save the mail instead of as an unknown format.
 - **EPUB**: a member whose name is in another Unicode normalization than its reference is found.
