@@ -628,9 +628,10 @@ class _Renderer:
         # `text:continue-numbering`, and by `xml:id` for `text:continue-list` (`_list_counters`).
         self._counters: dict[str, dict[int, int]] = {}
         self._list_ids: dict[str, tuple[dict[int, int], str | None]] = {}
-        # A presentation (`_list_counters`): the last outermost list read, its counters and its style
+        # A presentation numbers the paragraphs of each text as Impress does (`_list_counters`): the counters of each text
+        # (text box, shape, table cell), by the element that holds its lists
         self.presentation = False
-        self._last_list: tuple[etree._Element, dict[int, int], str | None] | None = None
+        self._text_counters: dict[etree._Element, _TextCounters] = {}
         self.frames: list[etree._Element] = []          # frames found in sheet cells (charts, pictures), for after the rows
 
     # ---- Inline text ---------------------------------------------------------------------------------------------
@@ -922,27 +923,31 @@ class _Renderer:
         continues the last list of the same style, as before (Pinned by:
         test_odf.py::TestTextDocument::test_continue_list_continues_the_list_it_names).
 
-        In a presentation, a list right after a list in the same text (nothing between them) continues its counters when the
-        first level of both is the same kind and shape: Impress counts the paragraphs of a text box, as PowerPoint does, and
-        writes a new `text:list` wherever the level changes, so `1. a) b) 2. 3.` was read as `1. a) b) 1. 2.`. A paragraph
-        between them restarts, as in PPTX (Pinned by: test_odf.py::TestPresentation::test_lists_next_to_each_other_count_on)."""
-        last, self._last_list = self._last_list, None
+        A presentation numbers the paragraphs of each text (text box, shape, table cell) as Impress draws them, whatever
+        `text:list` they are in: Impress counts the paragraphs of a text box, as PowerPoint does, and writes a new `text:list`
+        wherever the level changes, so `1. a) b) 2. 3.` was read as `1. a) b) 1. 2.`. A paragraph counts on from the one
+        before it at its level when both show the same kind of number with the same prefix and suffix and the one before
+        does not start lower; otherwise it takes the start of its own level. A paragraph outside any list and a deeper one are
+        passed over, a shallower one or one at its level with a bullet, no label or another number restarts it, and only
+        `text:continue-numbering="false"` restarts a list on its own: another text never continues it. Each rule is what
+        LibreOffice Impress 26.2 draws for the same file (`_item_head`. Pinned by:
+        test_odf.py::TestPresentation::test_lists_of_a_text_are_numbered_as_impress_draws_them)."""
+        if self.presentation:
+            counters = self._text_counters.setdefault(node.getparent(), _TextCounters())
+            if node.get(f"{{{_TEXT}}}continue-numbering") == "false":
+                counters.restart(_first_level(node))
+            return counters, style
         continued = self._list_ids.get(node.get(f"{{{_TEXT}}}continue-list") or "")
         if continued is not None:
             counters, style = continued[0], style or continued[1]
         elif node.get(f"{{{_TEXT}}}continue-numbering") == "true" or node.get(f"{{{_TEXT}}}continue-list") is not None:
             counters = self._counters.setdefault(style or "", {})
-        elif self.presentation and last is not None and node.getprevious() is last[0] and _same_first_level(
-                self.styles.list_level(last[2], 0), self.styles.list_level(style, 0)):
-            counters = last[1]
         else:
             counters = {}
         self._counters[style or ""] = counters
         list_id = node.get(_XML_ID)
         if list_id:
             self._list_ids[list_id] = (counters, style)
-        if self.presentation:
-            self._last_list = (node, counters, style)
         return counters, style
 
     def _item_head(self, style: str | None, level: int, counters: dict[int, int], start: int | None, context: _Context, *,
@@ -955,12 +960,25 @@ class _Renderer:
         shown = self.styles.shown_depth(style, level)
         if context.quote and not heading:
             return cell_level_mark(shown)
+        text = counters if isinstance(counters, _TextCounters) else None   # a text of a presentation (`_list_counters`)
+        shown_before = text.shown.pop(level, None) if text is not None else None
+        if text is not None and spec.kind != "number":
+            text.pop(level, None)   # a bullet or a level without a label ends the numbers at its level
         if spec.kind == "none" or (heading and spec.kind == "bullet"):
             return ""
         if spec.kind == "bullet":
             return paragraph_head("-", shown, in_cell=context.in_cell, heading=False)
-        value = min(start, _FAR) if start is not None else counters.get(level, spec.start - 1) + 1
+        if start is not None:
+            value = min(start, _FAR)
+        elif text is not None:
+            counts_on = (level in text and shown_before is not None and shown_before.start >= spec.start
+                         and (shown_before.shape, shown_before.prefix, shown_before.suffix) == (spec.shape, spec.prefix, spec.suffix))
+            value = text[level] + 1 if counts_on else spec.start
+        else:
+            value = counters.get(level, spec.start - 1) + 1
         counters[level] = value
+        if text is not None:
+            text.shown[level] = spec
         # Arabic numbers are always written '1.' so that Markdown reads an ordered list; other shapes keep the file's prefix and suffix.
         number = f"{value}." if spec.shape == "DIGIT" else _label_text(f"{spec.prefix}{format_number(value, spec.shape)}{spec.suffix}")
         return number if heading else paragraph_head(number, shown, in_cell=context.in_cell, heading=False)
@@ -1352,10 +1370,31 @@ class _Renderer:
         return "> Speaker notes: " + "\n> ".join(lines) if lines else ""
 
 
-def _same_first_level(before: _ListLevel, now: _ListLevel) -> bool:
-    """Do two lists show their first level alike (kind and number shape), so that one counts on from the other
-    (`_Renderer._list_counters`)?"""
-    return (before.kind, before.shape) == (now.kind, now.shape)
+class _TextCounters(dict[int, int]):
+    """The number counters of a text of a presentation (level → last number given, `_Renderer._list_counters`), with how
+    the paragraph that gave each one shows its number."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.shown: dict[int, _ListLevel] = {}
+
+    def restart(self, level: int) -> None:
+        """The numbers of `level` and the levels below it start again."""
+        for key in [key for key in self if key >= level]:
+            del self[key]
+
+
+def _first_level(node: etree._Element) -> int:
+    """The level, in its list, of the first paragraph of a `text:list` (0: an item of the list itself), past the items
+    that hold only a nested list."""
+    level = 0
+    while level < _MAX_DEPTH:
+        item = next((child for child in node if child.tag in (_LIST_ITEM, _LIST_HEADER)), None)
+        first = next((child for child in item if isinstance(child.tag, str)), None) if item is not None else None
+        if first is None or first.tag != _LIST:
+            break
+        node, level = first, level + 1
+    return level
 
 
 def _marked(run: _Run, emphasis: bool) -> str:

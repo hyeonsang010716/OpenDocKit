@@ -838,28 +838,56 @@ class TestPresentation:
               '<text:list-style style:name="L3"><text:list-level-style-number text:level="1" style:num-format="1" '
               'style:num-suffix="."/><text:list-level-style-number text:level="2" style:num-format="a" style:num-suffix=")"/>'
               '</text:list-style><text:list-style style:name="B1"><text:list-level-style-bullet text:level="1" '
-              'text:bullet-char="●"/></text:list-style>')
+              'text:bullet-char="●"/></text:list-style>'
+              '<text:list-style style:name="P1"><text:list-level-style-number text:level="1" style:num-format="1" '
+              'style:num-suffix=")"/></text:list-style><text:list-style style:name="S5"><text:list-level-style-number '
+              'text:level="1" style:num-format="1" style:num-suffix="." text:start-value="5"/></text:list-style>'
+              '<text:list-style style:name="S3"><text:list-level-style-number text:level="1" style:num-format="1" '
+              'style:num-suffix="." text:start-value="3"/></text:list-style>')
 
     @staticmethod
-    def _items(style: str, *texts: str, nested: bool = False) -> str:
+    def _items(style: str, *texts: str, nested: bool = False, attributes: str = "") -> str:
         items = "".join(f"<text:list-item><text:p>{text}</text:p></text:list-item>" for text in texts)
         if nested:
             items = f"<text:list-item><text:list>{items}</text:list></text:list-item>"
-        return f'<text:list text:style-name="{style}">{items}</text:list>'
+        return f'<text:list text:style-name="{style}" {attributes}>{items}</text:list>'
 
-    def test_lists_next_to_each_other_count_on(self):
+    def _slide_text(self, *boxes: str) -> str:
+        return _convert("presentation", _slide(*map(_text_frame, boxes)), automatic=self._STEPS).sections[0].text
+
+    def test_lists_of_a_text_are_numbered_as_impress_draws_them(self):
         """Impress counts the paragraphs of a text box, as PowerPoint does, and writes a new `text:list` wherever the level
-        changes (its PDF of such a slide shows `1. a) b) 2. 3.`): every new list started at 1 again. A list right after a list
-        whose first level is shown alike counts on; a paragraph between them, a first level of another kind or another text
-        box starts over. A text document keeps one counter per `text:list`."""
+        changes: every new list started at 1 again where its PDF shows `1. a) b) 2. 3.`. Each expected text is what LibreOffice
+        Impress 26.2 draws for the same slide. A paragraph outside the lists and a deeper one are passed over; a bullet, a
+        number with another suffix and another text box start over."""
         box = (self._items("L2", "Prepare") + self._items("L3", "Collect", "Clean", nested=True) + self._items("L3", "Execute")
-               + self._items("L2", "Review") + "<text:p>Plain</text:p>" + self._items("L2", "Again")
-               + self._items("B1", "Bullet") + self._items("L2", "After the bullet"))
-        result = _convert("presentation", _slide(_text_frame(box), _text_frame(self._items("L2", "Other box"))),
-                          automatic=self._STEPS)
+               + self._items("L2", "Review") + "<text:p>Plain</text:p><text:p/>" + self._items("L2", "Again")
+               + self._items("B1", "Bullet") + self._items("L2", "After the bullet")
+               + self._items("P1", "Other suffix", "Counts") + self._items("L2", "Back"))
 
-        assert result.sections[0].text == ("1. Prepare\n  - a) Collect\n  - b) Clean\n2. Execute\n3. Review\n\nPlain\n\n"
-                                           "1. Again\n- Bullet\n1. After the bullet\n1. Other box")
+        assert self._slide_text(box, self._items("L2", "Other box")) == (
+            "1. Prepare\n  - a) Collect\n  - b) Clean\n2. Execute\n3. Review\n\nPlain\n\n4. Again\n- Bullet\n1. After the bullet\n"
+            "1. Other suffix\n2. Counts\n1. Back\n1. Other box")
+
+    def test_a_level_that_starts_higher_counts_from_its_start(self):
+        """Impress counts on from a paragraph whose level starts as high or higher, and else starts at its own start."""
+        assert self._slide_text(self._items("L2", "a", "b") + self._items("S5", "c", "d")) == "1. a\n2. b\n5. c\n6. d"
+        assert self._slide_text(self._items("S5", "a", "b") + self._items("L2", "c") + self._items("S3", "d")) == (
+            "5. a\n6. b\n7. c\n3. d")
+
+    def test_only_continue_numbering_false_restarts_a_list_of_a_text(self):
+        """Impress restarts at `text:continue-numbering="false"` (at the level of the list's first paragraph) and draws every
+        other list of the text box by its paragraphs: a `text:continue-list` does not reach past a bullet."""
+        restarted = self._items("L2", "a") + self._items("L2", "b", attributes='text:continue-numbering="false"')
+        nested = self._items("L3", "a") + self._items("L3", "x", nested=True, attributes='text:continue-numbering="false"')
+        continued = (self._items("L2", "a", attributes='xml:id="first"') + self._items("B1", "bullet")
+                     + self._items("L2", "b", attributes='text:continue-list="first"'))
+
+        assert self._slide_text(restarted) == "1. a\n1. b"
+        assert self._slide_text(nested + self._items("L3", "b")) == "1. a\n  - a) x\n2. b"
+        assert self._slide_text(continued) == "1. a\n- bullet\n1. b"
+
+    def test_text_documents_keep_one_counter_per_list(self):
         text = _odt(self._items("L2", "one") + self._items("L2", "two"), automatic=self._STEPS)
         assert text == "1. one\n1. two"
 
