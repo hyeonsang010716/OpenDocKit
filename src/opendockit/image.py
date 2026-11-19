@@ -151,8 +151,11 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
         # Any alpha band (RGBA, LA, PA, premultiplied RGBa as a HEIF may hold it) or a transparent palette entry
         # (`transparency`) keeps the picture transparent; the transparent grey level or colour of an L or RGB PNG is an alpha
         # band by now. Only RGBA, LA and P were looked at, so a PA TIFF became a JPEG with its transparent background turned
-        # black (Pinned by: test_image.py::TestTransparencyOfEveryMode).
-        has_alpha = "A" in image.getbands() or "a" in image.getbands() or "transparency" in image.info
+        # black (Pinned by: test_image.py::TestTransparencyOfEveryMode). The `A` of a Lab picture (bands L, A, B) is a colour
+        # axis, not alpha: a Lab photo came out as a PNG several times the size of its JPEG
+        # (Pinned by: test_image.py::TestTransparencyOfEveryMode::test_lab_picture_is_opaque).
+        bands = image.getbands()
+        has_alpha = (("A" in bands and image.mode != "LAB") or "a" in bands) or "transparency" in image.info
         tiles = tuple(_encoded(image.crop(box), max_side, has_alpha)[0] for box in _tile_boxes(*image.size, max_side))
         data, mime_type, (shrunk_width, shrunk_height) = _encoded(image, max_side, has_alpha)
     except MemoryError:

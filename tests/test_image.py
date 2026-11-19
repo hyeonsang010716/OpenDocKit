@@ -2376,6 +2376,19 @@ class TestTransparencyOfEveryMode:
         assert decoded.getpixel((2, 2))[3] == 0
         assert decoded.getpixel((150, 60))[3] == 255
 
+    def test_lab_picture_is_opaque(self):
+        """The bands of a Lab picture are L, A and B: its `A` is a colour axis, and the photo came out as a PNG several times
+        the size of its JPEG. Its colours are kept."""
+        picture = Image.new("RGB", (300, 200), (254, 0, 0)).convert("LAB")
+        buffer = BytesIO()
+        picture.save(buffer, format="TIFF")
+
+        result = prepare_image(buffer.getvalue(), min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/jpeg"
+        red, green, blue = Image.open(BytesIO(result.data)).convert("RGB").getpixel((150, 100))
+        assert red > 200 and green < 60 and blue < 60
+
     def test_grey_png_with_a_transparent_level_stays_transparent(self):
         picture = Image.new("L", (300, 120), 0)
         picture.paste(255, (20, 20, 280, 100))
