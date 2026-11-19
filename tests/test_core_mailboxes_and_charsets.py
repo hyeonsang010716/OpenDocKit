@@ -112,6 +112,22 @@ class TestMailWithoutMimeVersion:
         assert result.format is DocumentFormat.HTML
         assert result.text == "Subject: 결재 요청\nFrom: 홍길동 <kim@a.com>\nTo: lee@a.com\n\nHTML 본문"
 
+    @pytest.mark.parametrize(("body", "expected"), [
+        ("Content-Type: text/calendar; charset=utf-8; method=REQUEST\r\n\r\nBEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\n"
+         "SUMMARY:주간 회의\r\nDTSTART:20250101T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+         "\n\nEvent:\n\n- Title: 주간 회의\n- Start: 2025-01-01 10:00 UTC"),
+        ("Content-Type: message/rfc822\r\n\r\nFrom: a@b.c\r\nSubject: 원본\r\n\r\n전달된 본문\r\n", "전달된 본문"),
+        ("Content-Type: application/pdf; name=scan.pdf\r\nContent-Disposition: attachment; filename=scan.pdf\r\n\r\n%PDF-1.4\r\n",
+         "lee@a.com"),
+    ])
+    def test_single_part_of_another_mail_type(self, body, expected):
+        """With MIME-Version these are mail (`TestSinglePartMailThatIsNotPlainText`); without it they stayed text, the encoded
+        subject undecoded."""
+        result = convert((_ENCODED_HEAD + body).encode(), "a.eml")
+
+        assert result.text.startswith("Subject: 결재 요청\nFrom: 홍길동 <kim@a.com>\nTo: lee@a.com")
+        assert result.text.endswith(expected)
+
     @pytest.mark.parametrize("note", [
         "From: 김팀장\nTo: 이대리\nSubject: 회의 메모\n\n내일 10시 회의입니다.\n",
         "Subject: 메모\nContent-Type: text/plain\n\n보낸 사람이 없는 글\n",
