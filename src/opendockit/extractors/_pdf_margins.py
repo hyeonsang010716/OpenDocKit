@@ -30,8 +30,9 @@ from opendockit.extractors._pdf_model import (
 # of sharing the white space out (cubic). The texts matched are the same (Pinned by: test_audit_pdf_tail.py::TestPageNumberShape).
 _PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:(?:page|p\.)\s*)?\d{1,4}\s*(?:/\s*\d{1,4}\s*)?(?:(?:쪽|페이지)\s*)?[-–)\]]?$", re.IGNORECASE)
 # A page number in roman numerals, as front matter is numbered ('iii', '- iv -', 'Page xii'): a valid numeral from 1 to 399 in
-# one case (no 'd' or 'm', so that words such as 'mix' or 'dim' are not one), with what `_PAGE_NUMBER` allows around a number
-# (`_is_page_number`)
+# one case (no 'd' or 'm', so that words such as 'mix' or 'dim' are not one), with what `_PAGE_NUMBER` allows around a number.
+# The shape alone is no evidence: 'X', 'V', 'L', '(i)' are marks, grades, sizes and clause markers far more often than bare digits
+# are, so a piece of this shape is a page number only where it counts on with the pages (`_counting_roman_numerals`)
 _ROMAN_PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:(?:[Pp]age|PAGE|[Pp]\.)\s*)?((?=[ivxlc]+\b)c{0,3}(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})"
                                 r"|(?=[IVXLC]+\b)C{0,3}(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))\s*[-–)\]]?$")
 # Token that can be a page number (_page_number_blind): without its digits only punctuation, a page word or a single Latin letter
@@ -39,6 +40,13 @@ _ROMAN_PAGE_NUMBER = re.compile(r"^[-–(\[]?\s*(?:(?:[Pp]age|PAGE|[Pp]\.)\s*)?(
 _PAGE_WORDS = frozenset({"page", "p", "pp", "of", "쪽", "페이지", "면", "頁"})
 # The words a page count is written with besides those ('Page 3 of 10 pages', '총 5쪽 중 3쪽', `_is_page_count`)
 _PAGE_COUNT_WORDS = _PAGE_WORDS | {"pages", "총", "중"}
+# The values of the roman numeral letters (`_roman_value`)
+_ROMAN_VALUES = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100}
+# Roman numerals count on with the pages when at least `_ROMAN_RUN` of one shape, each at most `_ROMAN_PAGE_REACH` pages from
+# the next, are their page number plus one offset (`_counting_roman_numerals`). A reach of 2 lets numbers printed on one side of
+# the page only ('i', 'iii', 'v') count; a run of 3 keeps marks that only alternate ('(i)', '(ii)', '(i)') out
+_ROMAN_PAGE_REACH = 2
+_ROMAN_RUN = 3
 # Token that is a value, not a page number: a thousands comma ('3,450,000'), a percent or currency sign, a decimal joining two
 # digit groups with one dot ('6.8'). A date written with dots ('2024.01.05') has three digit groups and is not a decimal.
 _VALUE_TOKEN = re.compile(r"\d,\d{3}(?!\d)|[%‰₩$€£¥]|^\D*\d+\.\d+\D*$")
@@ -115,6 +123,7 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
     if len(pages) < 3:
         return
     title_size = _body_font_size(pages) * _HEADING_MIN_RATIO
+    numbered = _counting_roman_numerals(pages, title_size)
 
     def margin_keys(page: _Page) -> dict[str, list[_Line]]:
         # Rows in the margin area + the top and bottom two rows of the page. Slide-style PDFs have the header outside the margin.
@@ -150,14 +159,16 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
             # test_only_margin_and_edge_rows_are_compared_with_the_body_column)
             if _is_column_value(row, body.get(_row_shape(row), ())):
                 continue
-            keys.setdefault(_row_key(row, in_margin, title_size), []).extend(row)
+            keys.setdefault(_row_key(row, in_margin, title_size, numbered), []).extend(row)
 
             # Page number fragments are also considered on their own. Even if other fragments at the same height (a
             # header differing on odd and even pages, line numbers of a proof) differ from page to page, the page
             # number is removed. The criterion is the same as for a single-fragment line (digits ignored in the
-            # margin, character for character at the edge outside the margin).
+            # margin, character for character at the edge outside the margin). A roman numeral is not: beside text that differs
+            # from page to page it is as likely a clause marker or a mark ('(ii)' before its clause), so it goes only with a
+            # row that is otherwise the same (Pinned by: test_roman_letters_that_do_not_count_with_the_pages_are_kept).
             for line in row:
-                if _is_page_number(line.text):
+                if _PAGE_NUMBER.match(line.text):
                     keys.setdefault(_row_key([line], in_margin, title_size), []).append(line)
         return keys
 
@@ -225,7 +236,7 @@ def _edge_rows(rows: list[list[_Line]]) -> list[list[_Line]]:
     return rows[:2] + rows[max(len(rows) - 2, 2):]
 
 
-def _row_key(row: list[_Line], in_margin: bool, title_size: float) -> str:
+def _row_key(row: list[_Line], in_margin: bool, title_size: float, numbered: set[int] | frozenset = frozenset()) -> str:
     """The text of a row used for the repetition check. A single-fragment margin line ignores digits, and an edge line
     outside the margin must match down to the digits — so that chapter titles like "제1장", "제2장" are not removed.
     With several fragments, only the digits of page-number-shaped fragments are ignored.
@@ -244,12 +255,17 @@ def _row_key(row: list[_Line], in_margin: bool, title_size: float) -> str:
     test_margin_rows_that_differ_only_in_numbers_or_dates_are_kept in the same class). A single-fragment line keeps the wider
     rule: a running header mixing a date and a page number is one fragment, and the cost is the recorded gap of a body line
     that differs only in a page-number token.
+
+    A roman numeral is masked only in the margin and only when it is one of `numbered` (`_counting_roman_numerals`).
     """
+    numbered = numbered if in_margin else frozenset()
     if len(row) == 1:
         line = row[0]
-        is_title = bool(title_size) and line.size >= title_size and not _is_page_number(line.text)
-        return _page_number_blind(line.text) if in_margin and not is_title else line.text
-    return "\t".join(_page_number_mask(line.text) if _is_page_number(line.text)
+        is_title = bool(title_size) and line.size >= title_size and not _is_page_number(line, numbered)
+        if not in_margin or is_title:
+            return line.text
+        return _page_number_mask(line.text) if _is_page_number(line, numbered) else _page_number_blind(line.text)
+    return "\t".join(_page_number_mask(line.text) if _is_page_number(line, numbered)
                      else _page_number_blind(line.text)
                      if in_margin and not (title_size and line.size >= title_size) and _is_page_count(line.text)
                      else line.text for line in row)
@@ -271,14 +287,53 @@ def _is_page_count(text: str) -> bool:
     return named and _DIGITS.search(text) is not None
 
 
-def _is_page_number(text: str) -> bool:
-    """Is the piece shaped like a page number: digits (`_PAGE_NUMBER`) or roman numerals (`_ROMAN_PAGE_NUMBER`)? Only digits
-    were, so the 'i', 'ii', 'iii' of a book's front matter stayed at the foot of every page
-    (Pinned by: test_pdf.py::TestRepeatedMarginsAndBorderlessTables::test_roman_page_numbers_are_removed)."""
-    if _PAGE_NUMBER.match(text):
-        return True
-    roman = _ROMAN_PAGE_NUMBER.match(text)
-    return roman is not None and roman.group(1) != ""
+def _is_page_number(line: _Line, numbered: set[int] | frozenset) -> bool:
+    """Is the piece a page number: shaped like one in digits (`_PAGE_NUMBER`), or a roman numeral among `numbered`?"""
+    return bool(_PAGE_NUMBER.match(line.text)) or id(line) in numbered
+
+
+def _counting_roman_numerals(pages: list[_Page], title_size: float) -> set[int]:
+    """The ids of the margin lines below title size that are roman page numbers (`_ROMAN_PAGE_NUMBER`): numerals of one shape
+    (case and what is around it) that count on with the pages, as page numbers do — at least `_ROMAN_RUN` of them, each at
+    most `_ROMAN_PAGE_REACH` pages from the next, whose value minus their page number is the same ('ii', 'iii', 'iv' on pages
+    4, 5 and 6).
+
+    Only digits were page-number-shaped, so the 'i', 'ii', 'iii' of a book's front matter stayed at the foot of every page
+    (Pinned by: test_pdf.py::TestRepeatedMarginsAndBorderlessTables::test_roman_page_numbers_are_removed). Taking every piece of
+    that shape for a page number removed marks, sizes, grades and clause markers repeated in the margin ('X' and 'V' marks
+    beside the top and bottom statements of a page, 'Size' beside 'L' or 'XL', a 'C' in the middle of a result row, '(ii)'
+    beside its clause) and section labels 'I' to 'VI' in a large font
+    (Pinned by: test_roman_letters_that_do_not_count_with_the_pages_are_kept in the same class). Known accepted gaps: section
+    labels below title size alone in the margin, one per page counting with the pages, cannot be told from upper-case page
+    numbers and are removed; front matter of only two numbered pages ('i', 'ii', then '1') keeps its numbers.
+    """
+    runs: dict[tuple[tuple[str, str, bool], int], dict[int, list[_Line]]] = {}  # (shape, value − page) → page → its lines
+    for page in pages:
+        if page.simple:
+            continue
+        for line in page.lines:
+            roman = _ROMAN_PAGE_NUMBER.match(line.text)
+            if roman is not None and roman.group(1) and not (title_size and line.size >= title_size) and _in_margin(line, page):
+                shape = (line.text[:roman.start(1)], line.text[roman.end(1):], roman.group(1).islower())
+                offset = _roman_value(roman.group(1)) - page.number
+                runs.setdefault((shape, offset), {}).setdefault(page.number, []).append(line)
+    numbered: set[int] = set()
+    for by_page in runs.values():
+        run: list[int] = []
+        for number in [*sorted(by_page), None]:
+            if run and (number is None or number - run[-1] > _ROMAN_PAGE_REACH):
+                if len(run) >= _ROMAN_RUN:
+                    numbered.update(id(line) for page_number in run for line in by_page[page_number])
+                run = []
+            if number is not None:
+                run.append(number)
+    return numbered
+
+
+def _roman_value(numeral: str) -> int:
+    """The value of a valid roman numeral ('xiv' → 14)."""
+    values = [_ROMAN_VALUES[letter] for letter in numeral.lower()]
+    return sum(-value if value < after else value for value, after in zip(values, [*values[1:], 0], strict=True))
 
 
 def _page_number_mask(text: str) -> str:
@@ -303,8 +358,8 @@ def _page_number_blind(text: str) -> str:
     in the margin of every page were removed as repeated lines (Pinned by:
     test_margin_lines_with_amounts_or_rates_that_differ_per_page_are_kept in the same class).
     """
-    if _is_page_number(text):
-        return _page_number_mask(text)
+    if _PAGE_NUMBER.match(text):
+        return _DIGITS.sub("#", text)
 
     return _TOKEN.sub(lambda match: _DIGITS.sub("#", match.group()) if _page_number_token(match.group()) else match.group(), text)
 

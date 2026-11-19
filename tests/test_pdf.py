@@ -1,5 +1,7 @@
 """PDF conversion: reading order, tables, paragraphs, headings, removal of repeated header lines."""
 
+from collections import Counter
+
 import pytest
 
 from opendockit import ConversionError, ConvertOptions, SectionKind, convert
@@ -290,6 +292,7 @@ def _korean_pdf(draw, pages: int = 1, encrypt: object = None) -> bytes:
 
 
 _FONT = "HYSMyeongJo-Medium"
+_ROMAN_NUMERALS = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"]
 
 
 class TestRepeatedMarginsAndBorderlessTables:
@@ -468,6 +471,95 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         assert [line for line in result.text.splitlines() if line in numerals] == []
         assert all(f"({numeral}) 조항 내용입니다." in result.text for numeral in numerals)
+
+    @pytest.mark.parametrize(("pages", "number"), [
+        (6, lambda index: [(295, _ROMAN_NUMERALS[index])]),
+        (6, lambda index: [(520 if index % 2 == 0 else 72, _ROMAN_NUMERALS[index])]),
+        (6, lambda index: [(295, _ROMAN_NUMERALS[index].upper())]),
+        (6, lambda index: [(290, f"- {_ROMAN_NUMERALS[index]} -")]),
+        (6, lambda index: [(290, f"Page {_ROMAN_NUMERALS[index]}")]),
+        (6, lambda index: [(295, _ROMAN_NUMERALS[index + 4])]),
+        (6, lambda index: [(520, _ROMAN_NUMERALS[index])] if index % 2 == 0 else []),
+        (3, lambda index: [(295, _ROMAN_NUMERALS[index])]),
+        (10, lambda index: [(520 if index % 2 == 0 else 72, _ROMAN_NUMERALS[index] if index < 4 else str(index - 3))]),
+        (10, lambda index: [(295, _ROMAN_NUMERALS[index] if index < 4 else str(index - 3))] if index else []),
+    ], ids=["centre", "outer-edge", "upper-case", "dashes", "page-word", "from-v", "one-side", "three-pages", "front-matter",
+            "front-matter-unnumbered-title"])
+    def test_roman_page_numbers_that_count_with_the_pages_are_removed(self, pages, number):
+        """Roman page numbers at the centre or the outer edge, in either case, with dashes or 'Page', starting past 'i', on one
+        side of the page only, in a document of three pages, and as the front matter before page 1 (with or without a number
+        on the title page) count on with the pages and are removed."""
+        def draw(pdf, index):
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+            for x, text in number(index):
+                pdf.drawString(x, 40, text)
+
+        result = convert(_korean_pdf(draw, pages=pages), "a.pdf")
+
+        printed = {text for index in range(pages) for _, text in number(index)}
+        assert [line for line in result.text.splitlines() if line in printed] == []
+        assert "Body line 5 of page 3 with ordinary words." in result.text
+
+    def test_roman_page_number_beside_a_running_header_is_removed_with_it(self):
+        def draw(pdf, index):
+            pdf.drawString(72, 800, "Preface")
+            pdf.drawString(500, 800, _ROMAN_NUMERALS[index])
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+
+        result = convert(_korean_pdf(draw, pages=6), "a.pdf")
+
+        assert "Preface" not in result.text
+        assert [line for line in result.text.splitlines() if line in _ROMAN_NUMERALS] == []
+
+    def test_roman_page_numbers_of_two_pages_are_kept(self):
+        def draw(pdf, index):
+            pdf.drawString(72, 700, f"Body line of page {index + 1} with ordinary words.")
+            pdf.drawString(295, 40, _ROMAN_NUMERALS[index])
+
+        result = convert(_korean_pdf(draw, pages=2), "a.pdf")
+
+        assert [line for line in result.text.splitlines() if line in _ROMAN_NUMERALS] == ["i", "ii"]
+
+    @pytest.mark.parametrize(("size", "draw_row", "kept"), [
+        (10, lambda pdf, index, row, y: pdf.drawString(420, y, "XV"[row == 7]) if row in (0, 7) else None, ["X", "V"] * 6),
+        (10, lambda pdf, index, row, y: row == 0 and (pdf.drawString(72, 60, f"Result for candidate {'ABCDEF'[index]}"),
+                                                       pdf.drawString(300, 60, "CXVLIC"[index]),
+                                                       pdf.drawString(400, 60, f"Reviewer {'PQRSTU'[index]}")),
+         list("CXVLIC")),
+        (10, lambda pdf, index, row, y: row == 0 and (pdf.drawString(72, 50, "Size"),
+                                                       pdf.drawString(300, 50, ["S", "M", "L", "XL", "L", "M"][index])),
+         ["L", "XL", "L"]),
+        (10, lambda pdf, index, row, y: row == 0 and (pdf.drawString(72, 75, f"({['i', 'ii', 'iii', 'iv', 'v', 'vi'][index]})"),
+                                                       pdf.drawString(150, 75, f"The party shall comply with term {index + 1}.")),
+         ["(i)", "(ii)", "(iii)", "(iv)", "(v)", "(vi)"]),
+        (10, lambda pdf, index, row, y: row == 0 and pdf.drawString(72, 75, f"({['iii', 'i', 'iv', 'ii', 'v', 'iii'][index]})"),
+         ["(iii)", "(i)", "(iv)", "(ii)", "(v)", "(iii)"]),
+        (14, lambda pdf, index, row, y: row == 0 and pdf.drawString(72, 800, ["I", "II", "III", "IV", "V", "VI"][index]),
+         ["I", "II", "III", "IV", "V", "VI"]),
+        (24, lambda pdf, index, row, y: row == 0 and pdf.drawString(72, 800, ["I", "II", "III", "IV", "V", "VI"][index]),
+         ["I", "II", "III", "IV", "V", "VI"]),
+    ], ids=["marks", "middle-of-row", "size", "clause-markers", "clause-markers-alone", "sections-14pt", "sections-24pt"])
+    def test_roman_letters_that_do_not_count_with_the_pages_are_kept(self, size, draw_row, kept):
+        """Letters that are valid roman numerals are marks, grades, sizes and clause markers far more often than bare digits are:
+        taken for page numbers by their shape alone, 'X' and 'V' marks beside the top and bottom statements of a page, a 'C' in
+        the middle of a result row, the 'L' of 'Size' beside 'L', clause markers '(i)' to '(vi)' beside their clauses or alone,
+        and section labels 'I' to 'VI' in a large font in the top margin were removed. A roman numeral is a page number only in
+        the margin, below title size, where numerals of one shape count on with the pages, and beside other text only when the
+        rest of its row repeats."""
+        def draw(pdf, index):
+            for row in range(8):
+                y = 700 - row * 30
+                pdf.drawString(72, y, f"Statement {row + 1} on page {index + 1} is reviewed.")
+                pdf.setFont(_FONT, size)
+                draw_row(pdf, index, row, y)
+                pdf.setFont(_FONT, 10)
+
+        result = convert(_korean_pdf(draw, pages=6), "a.pdf")
+
+        lines = [line.lstrip("# ") for line in result.text.splitlines()]
+        assert Counter(line for line in lines if line in kept) == Counter(kept)
 
     def test_margin_lines_with_amounts_or_rates_that_differ_per_page_are_kept(self):
         """'전기이월 잔액: 1,000,000', '실지급액: 3,450,000', '증감률 6.8%' and '소계 1,234' in the top and bottom margins of each page
