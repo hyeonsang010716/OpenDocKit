@@ -231,6 +231,7 @@ class TestWhichFilesMayBeRead:
                 call("document_outline", {"path": str(path)})
 
     @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs folder permissions that apply to this user")
+    @pytest.mark.skipif(not mcp_server._SEARCH_ONLY, reason="this Python opens folders only for reading (no O_SEARCH or O_PATH)")
     def test_file_under_a_folder_that_cannot_be_listed_is_read(self, tmp_path):
         """A folder that may be passed through but not listed (`chmod 711`, as shared home folders are) was opened for reading
         on the way down from the root, so every file under it was refused although its name reads it."""
