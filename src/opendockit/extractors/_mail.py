@@ -3,12 +3,17 @@ nesting limits, its body parts in document order, forwarded mails, decoded heade
 """
 
 import base64
+import binascii
+import bisect
 import codecs
 import email
+import email.base64mime
 from email.errors import HeaderParseError, InvalidBase64LengthDefect
+import email.header
 from email.header import Header, decode_header
 from email.message import Message
 from email.parser import BytesHeaderParser
+import email.quoprimime
 import quopri
 import re
 
@@ -822,10 +827,11 @@ def _decoded_run(words: list[str], gaps: list[str]) -> str:
 
 # A line break that folds a header: one followed by a space or tab (RFC 5322 §2.2.3)
 _FOLD = re.compile(r"\r?\n(?=[ \t])")
-# The start of an RFC 2047 word as `decode_header` reads one (its pattern up to the encoded text), and the characters
-# `str.splitlines` breaks a line at, as `decode_header` splits the header with it.
+# The pattern `decode_header` reads an RFC 2047 word with, the start of such a word (that pattern up to the encoded text) and,
+# for `_word_across_lines`, every such start with where it ends.
+_DECODE_HEADER_WORD = email.header.ecre
 _WORD_START = re.compile(r"=\?[^?]*\?[qQbB]\?")
-_LINE_BREAK = re.compile("[\n\r\x0b\x0c\x1c-\x1e\x85\u2028\u2029]")
+_WORD_STARTS = re.compile(r"(?=(=\?[^?]*\?[qQbB]\?))")
 
 
 def _decoded_words(text: str) -> str:
@@ -837,31 +843,11 @@ def _decoded_words(text: str) -> str:
     (Pinned by: test_core_mail_parts_and_icons.py::TestKoreanEncodedWordsWithExtendedHangul). Words that still do not decode are
     decoded piece by piece with `decode_text`.
     """
-    unfolded, rest = _FOLD.sub("", text), ""
-    # `decode_header` looks for the `?=` closing a word from every word start to the end of the line, so a header of word starts
-    # that are never closed took the square of its length (`=?a?q?x` repeated: 137 KB in 9 s; a forwarded mail's subject or an
-    # attachment name is not bounded by the 256 KB header range). Only a start after the last `?=` can fail that way, and no word
-    # is complete from there on: that rest is left as written, which is what `decode_header` makes of it, and only the text
-    # before it is decoded. The rest starts after the last `?=`, which may close a word even when a start begins at its `=`
-    # (`…?=?a?q?x`). A header of several lines is split into lines by `decode_header`, so that one is left to the word by word
-    # decoding of `_decoded_header`
-    # (Pinned by: test_core_mailboxes_and_charsets.py::TestUnclosedEncodedWords).
-    # That holds line by line: `decode_header` splits at every `str.splitlines` break, so a line of unclosed starts followed
-    # by a `\x0c` and a `?=` was scanned as slowly though the last `?=` of the whole text came after every start
-    # (Pinned by: test_core_mailboxes_and_charsets.py::TestUnclosedEncodedWords::test_unclosed_words_before_a_line_break).
-    if _LINE_BREAK.search(unfolded):
-        if any(_WORD_START.search(line, line.rfind("?=") + 2 if "?=" in line else 0) for line in unfolded.splitlines()):
-            return text
-    else:
-        last_end = unfolded.rfind("?=")
-        unclosed = _WORD_START.search(unfolded, last_end + 2 if last_end >= 0 else 0)
-        if unclosed is not None:
-            unfolded, rest = unfolded[:unclosed.start()], unfolded[unclosed.start():]
     # A word whose base64 is broken (`=?utf-8?b?A?=`) raises HeaderParseError, which is not a ValueError: one subject or
     # attachment name rejected the whole mail
     # (Pinned by: test_audit_html_text.py::TestEncodedWordThatCannotBeDecoded).
     try:
-        pieces = decode_header(unfolded)
+        pieces = _decode_header(_FOLD.sub("", text))
     except (LookupError, UnicodeError, ValueError, HeaderParseError):
         return text
     # In a word labeled Windows-1252/ISO-8859-1 nearly every byte decodes strictly, so a CP949 subject was garbled into `[°øÁö]`.
@@ -875,7 +861,89 @@ def _decoded_words(text: str) -> str:
     # header is unfolded first (RFC 5322: the line break goes, the space after it stays, `_FOLD`): `decode_header` strips the
     # space starting each line, so `=?…?=\r\n <a@b>` became `홍길동<a@b>` and `Hello world\r\n =?utf-8?q?x?=` `Hello worldx`
     # (Pinned by: test_core_mailboxes_and_charsets.py::TestEncodedWordNextToText).
-    return "".join(_header_chunk_text(chunk, charset) for chunk, charset in pieces) + rest
+    return "".join(_header_chunk_text(chunk, charset) for chunk, charset in pieces)
+
+
+def _decode_header(header: str) -> list[tuple[bytes | str, str | None]]:
+    """`email.header.decode_header` of a text, piece for piece, in time linear in its length.
+
+    `decode_header` looks for the `?=` closing a word from every word start to the end of the line, so a header of word starts
+    that are never closed took the square of its length (`=?a?q?x` repeated: 137 KB in 9 s; a forwarded mail's subject or an
+    attachment name is not bounded by the 256 KB header range), and it takes the pieces of a line off the front of a list one by
+    one, so a line of well-formed words did too (`=?a?q?x?= ` repeated: 1 MB in 13 s). Only a start after the last `?=` of a
+    line (it splits the header at every `str.splitlines` break) can fail that way, and no word is complete from there on: that
+    rest is not given to the pattern and is kept as the end of the line's last piece of plain text, which is what the pattern
+    makes of it. The rest starts after the last `?=`, which may close a word even when a start begins at its `=` (`…?=?a?q?x`)
+    (Pinned by: test_core_mailboxes_and_charsets.py::TestUnclosedEncodedWords). The steps after the split are the same as
+    `decode_header`'s, made with lists
+    (Pinned by: test_core_mailboxes_and_charsets.py::TestUnclosedEncodedWords::test_well_formed_words_take_linear_time).
+    """
+    lines = []
+    for line in header.splitlines():
+        last_end = line.rfind("?=")
+        unclosed = _WORD_START.search(line, last_end + 2 if last_end >= 0 else 0)
+        if unclosed is None:
+            parts = _DECODE_HEADER_WORD.split(line)
+        else:
+            parts = _DECODE_HEADER_WORD.split(line[:unclosed.start()])
+            parts[-1] += line[unclosed.start():]
+        lines.append(parts)
+    if all(len(parts) == 1 for parts in lines) and not _word_across_lines(header):
+        return [(header, None)]
+    # (plain text or None, encoding, charset) for the plain text and the words of every line, the first plain text of a line
+    # without its leading whitespace
+    words: list[tuple[str, str | None, str | None]] = []
+    for parts in lines:
+        for index in range(0, len(parts), 4):
+            unencoded = parts[index].lstrip() if index == 0 else parts[index]
+            if unencoded:
+                words.append((unencoded, None, None))
+            if index + 1 < len(parts):
+                words.append((parts[index + 3], parts[index + 2].lower(), parts[index + 1].lower()))
+    # The whitespace between two encoded words is dropped (RFC 2047)
+    dropped = {index - 1 for index in range(2, len(words))
+               if words[index][1] and words[index - 2][1] and words[index - 1][0].isspace()}
+    decoded: list[tuple[bytes | str, str | None]] = []
+    for index, (encoded, encoding, charset) in enumerate(words):
+        if index in dropped:
+            continue
+        if encoding is None:
+            decoded.append((encoded, charset))
+        elif encoding == "q":
+            decoded.append((email.quoprimime.header_decode(encoded), charset))
+        else:
+            if len(encoded) % 4:
+                encoded += "==="[:4 - len(encoded) % 4]
+            try:
+                decoded.append((email.base64mime.decode(encoded), charset))
+            except binascii.Error:
+                raise HeaderParseError("Base64 decoding error") from None
+    # Adjacent pieces of the same charset are joined, plain text with a space between
+    collapsed: list[tuple[bytes | str, str | None]] = []
+    run: list[bytes] = []
+    for index, (word, charset) in enumerate(decoded):
+        run.append(word if isinstance(word, bytes) else bytes(word, "raw-unicode-escape"))
+        if index + 1 == len(decoded) or decoded[index + 1][1] != charset:
+            collapsed.append(((b" " if charset is None else b"").join(run), charset))
+            run = []
+    return collapsed
+
+
+def _word_across_lines(header: str) -> bool:
+    """Whether the pattern of `decode_header` finds a word in the whole header, where it can run over a line break other than
+    `\n` (`=?a?q?x\x0cy?=`) though no line holds one; `decode_header` then gives the lines' text as bytes. A start is followed
+    by a word when a `?=` comes after it before the next `\n`; looked up with bisection, so the many starts never closed stay
+    linear."""
+    closes = [match.start() for match in re.finditer(r"\?=", header)]
+    breaks = [match.start() for match in re.finditer("\n", header)]
+    for match in _WORD_STARTS.finditer(header):
+        end = match.start() + len(match.group(1))
+        close = bisect.bisect_left(closes, end)
+        if close < len(closes):
+            line_break = bisect.bisect_left(breaks, end)
+            if line_break == len(breaks) or closes[close] < breaks[line_break]:
+                return True
+    return False
 
 
 def _latin_labeled_text(chunk: bytes, charset: str | None) -> str:
