@@ -259,6 +259,61 @@ class TestWhichFilesMayBeRead:
             with pytest.raises(ToolError, match="outside the folders this server may read"):
                 call("document_outline", {"path": path}, roots=[inbox])
 
+    @pytest.mark.skipif(os.name != "nt", reason="a UNC name is a connection to a host only on Windows")
+    def test_a_network_path_is_refused_before_the_host_is_contacted(self, files, monkeypatch):
+        """Looking up `\\\\host\\share\\file` connects to the host, and Windows signs in to it with the user's credentials
+        (NTLM) whatever is decided afterwards. The roots were checked only after the path had been resolved, so an agent
+        talked into such a path by a document it read sent the user's hash to the host while the call was refused. Nothing
+        may touch the file system for such a path — with roots and without them."""
+        looked_up: list[str] = []
+        monkeypatch.setattr(mcp_server, "_checked_path", lambda path, allowed: looked_up.append(path))
+        inbox = files["report.docx"].parent
+        for path in (r"\\attacker.example\share\report.pdf", "//attacker.example/share/report.pdf",
+                     r"\\?\UNC\attacker.example\share\report.pdf", r"\\attacker.example@SSL@443\DavWWWRoot\report.pdf"):
+            for roots in ([inbox], None):
+                with pytest.raises(ToolError, match="network share are read only when the share is given as a root"):
+                    call("document_outline", {"path": path}, roots=roots)
+
+        assert looked_up == [], "the path was looked up before it was refused"
+
+    @pytest.mark.skipif(os.name != "nt", reason="the device namespace is Windows")
+    def test_a_device_path_is_refused_before_it_is_opened(self, monkeypatch):
+        """`\\\\.\\pipe\\…`, `\\\\.\\PhysicalDrive0` and `\\\\?\\GLOBALROOT\\…` name devices, never a document."""
+        looked_up: list[str] = []
+        monkeypatch.setattr(mcp_server, "_checked_path", lambda path, allowed: looked_up.append(path))
+        for path in (r"\\.\pipe\some-pipe", r"\\.\PhysicalDrive0", r"\\?\GLOBALROOT\Device\HarddiskVolume1\a.pdf",
+                     r"\\.\C:\a.pdf"):
+            with pytest.raises(ToolError, match="path must name a file"):
+                call("document_outline", {"path": path})
+
+        assert looked_up == []
+
+    @pytest.mark.skipif(os.name != "nt", reason="the long form of a path is Windows")
+    def test_a_local_path_in_its_long_form_is_still_read(self, files):
+        """`\\\\?\\C:\\…` is a local path written past the 260-character limit, not a device: it is read as before."""
+        path = "\\\\?\\" + str(files["report.docx"])
+
+        assert call("document_outline", {"path": path}, roots=[files["report.docx"].parent]).startswith("Format: docx")
+
+    @pytest.mark.skipif(os.name != "nt", reason="UNC names are Windows")
+    def test_a_share_given_as_a_root_is_let_through_to_the_root_check(self):
+        """The share a path is on is read from its text alone, however it is spelled; a path on a share that is a root
+        goes on to the ordinary root check, which then decides by what the folder is."""
+        shares = frozenset({mcp_server._network_share(r"\\FileServer\Team\Documents")})
+
+        assert shares == {r"\\fileserver\team"}
+        for path in (r"\\fileserver\team\Documents\a.pdf", "//FILESERVER/Team/other/a.pdf",
+                     r"\\?\UNC\FileServer\TEAM\a.pdf"):
+            mcp_server._refuse_unchosen_network_path(path, shares)   # not refused here
+        with pytest.raises(ToolError, match="network share"):
+            mcp_server._refuse_unchosen_network_path(r"\\fileserver\other\a.pdf", shares)
+        for local in (r"C:\docs\a.pdf", r"docs\a.pdf", r"\\?\C:\docs\a.pdf", r"\docs\a.pdf"):
+            assert mcp_server._network_share(local) is None
+
+    @pytest.mark.skipif(os.name != "posix", reason="on POSIX `//host` is a local name")
+    def test_a_double_slash_is_an_ordinary_path_on_posix(self):
+        assert mcp_server._network_share("//host/share/a.pdf") is None
+
     @pytest.mark.skipif(os.name != "posix", reason="creating a symbolic link needs no privilege only on POSIX")
     def test_symbolic_link_inside_a_root_cannot_lead_out_of_it(self, files, tmp_path_factory):
         """A link placed in the allowed folder that points at a file outside it: the real file decides."""

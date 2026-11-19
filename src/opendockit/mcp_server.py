@@ -95,6 +95,7 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
     allowed = [_identity(root) if root.is_dir() else None for root in resolved]
     if None in allowed:
         raise ValueError("Every root must be an existing folder.")
+    shares = frozenset(share for root in resolved if (share := _network_share(str(root))))
     converter: IsolatedConverter | None = None
 
     @asynccontextmanager
@@ -113,6 +114,7 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
 
     async def converted(path: str, limit: int | None) -> ConversionResult:
         nonlocal converter
+        _refuse_unchosen_network_path(path, shares)   # before anything touches the file system: see the function
         # In a thread, like the read below. Resolving a path is file-system work and can take as long as the file system
         # takes: a disconnected network drive, a sleeping disk, or — on Windows, where a path the caller chose may be a UNC
         # name — contacting a host that never answers. On the event loop that stops the whole server, and with it the
@@ -338,6 +340,48 @@ def _identity(folder: Path) -> tuple[int, int] | None:
     except OSError:
         return None
     return status.st_dev, status.st_ino
+
+
+# What a Windows path names when it is not an ordinary local path, read from its text alone (`_network_share`).
+_LOCAL_LONG_PATH = re.compile(r"\\\\\?\\[a-zA-Z]:\Z")      # `\\?\C:`: a local path written past the 260-character limit
+_LONG_UNC_PREFIX = re.compile(r"\\\\\?\\UNC\\", re.IGNORECASE)   # `\\?\UNC\host\share`: a share written the long way
+_DEVICE_PREFIX = re.compile(r"\\\\[.?]\\")                  # `\\.\pipe`, `\\.\C:`, `\\?\GLOBALROOT`: the device namespace
+_DEVICE = "device"
+
+
+def _network_share(path: str) -> str | None:
+    """On Windows, the share a path is on (`\\\\host\\share`, lowercase), `_DEVICE` for a device path, and None for a local
+    one. Read from the text only — nothing is looked up. Always None elsewhere: on POSIX `//host` is a local name."""
+    if os.name != "nt":
+        return None
+    drive = os.path.splitdrive(path.replace("/", "\\"))[0]
+    if not drive.startswith("\\\\") or _LOCAL_LONG_PATH.match(drive):
+        return None
+    if _LONG_UNC_PREFIX.match(drive):
+        drive = "\\\\" + drive[len("\\\\?\\UNC\\"):]
+    elif _DEVICE_PREFIX.match(drive):
+        return _DEVICE
+    return drive.lower()
+
+
+def _refuse_unchosen_network_path(path: str, shares: frozenset[str]) -> None:
+    """Refuse a path on a network share no root is on, and any device path, before anything is looked up (Windows).
+
+    Looking up `\\\\host\\share\\file` is a connection to that host, and Windows signs in to it with the user's credentials
+    (NTLM) — whatever the answer and whatever this server decides afterwards. The roots were checked only after the path had
+    been resolved, so a path an agent was talked into by a document it read sent the user's hash to the host it named while
+    being refused as "outside the folders" (Pinned by:
+    test_mcp_server.py::TestWhichFilesMayBeRead::test_a_network_path_is_refused_before_the_host_is_contacted). So a share is
+    read only when the operator named it as a root, and without roots too: "any file the user can read" means this machine's
+    files; a share to be read is given as `--root \\\\host\\share`. A device path (`\\\\.\\`, `\\\\?\\GLOBALROOT`) names no
+    document at all. Known accepted gap: a symbolic link inside a root that points at a share is followed when the path is
+    resolved — making one takes a privilege, and write access to the root.
+    """
+    share = _network_share(path)
+    if share == _DEVICE:
+        raise ToolError("path must name a file.")
+    if share is not None and share not in shares:
+        raise ToolError("Files on a network share are read only when the share is given as a root (--root).")
 
 
 def _checked_path(path: str, allowed: list[tuple[int, int] | None]) -> Path:

@@ -29,6 +29,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     leaving more than 16 raw-text elements open is still read by the older parser — html5lib is quadratic on those —
     and the result says so.
 
+### Security
+
+- **MCP server on Windows**: a path on a network share (`\\host\share\…`) is refused before anything is looked up,
+  unless that share is given as a `--root` — with other roots and without any — and a device path (`\\.\…`) always.
+  Looking a share up connects to its host and signs in with the user's Windows credentials, and the roots were
+  checked only after the path had been looked up: an agent talked into such a path by a document it read sent the
+  user's NTLM hash to the host the document named, even though the call was then refused. A share to be read is
+  given as `--root \\host\share`; a mapped drive letter is an ordinary folder.
+
 ### Fixed
 
 - **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if

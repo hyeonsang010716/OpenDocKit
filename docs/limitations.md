@@ -30,7 +30,8 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   described, convert with a describer yourself ([integrations.md](integrations.md)).
 - **The MCP server** speaks stdio only. Without `--root` it reads any file its user can read, and where `--root` is given,
   the folder is checked again as the file is opened on POSIX but only around the open on Windows, which narrows the moment
-  a folder could be swapped without closing it. In `sections` mode a page, sheet or slide without text is left out, so
+  a folder could be swapped without closing it. On Windows a network share is read only when it is given as a `--root`,
+  with or without other roots. In `sections` mode a page, sheet or slide without text is left out, so
   section numbers can have gaps.
 
 ## General

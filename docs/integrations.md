@@ -116,6 +116,10 @@ is listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io
 - **Which files it may read.** Without `--root`, any file the user running the server can read. With `--root DIR`
   (repeatable; or the `OPENDOCKIT_MCP_ROOTS` environment variable, separated like `PATH`) only files under those
   folders; symbolic links are followed before the check, and an empty value is an error rather than "everything". Give it the folders the agent is meant to see.
+  On Windows a file on a network share (`\\server\share\…`) is read only when that share, or a folder on it, is a
+  `--root` — with other roots and without any — and a device path (`\\.\…`) never: looking a share up signs in to
+  its host with your Windows credentials, so a path an agent was talked into must not reach it. A mapped drive letter
+  is an ordinary folder.
 - **One file cannot take the server down.** Every conversion runs in a disposable worker process that is ended after
   2 minutes, and on Linux and Windows also when it passes 2 GB of memory (macOS accepts no memory limit).
 - **Read-only.** Both tools are marked read-only for the client, and neither writes anything.
