@@ -620,6 +620,21 @@ class TestMeetingInvitation:
     method=REQUEST) vanished without a warning. The title, start, end (time zone as is), location, organizer and attendees of the
     text/calendar part are placed after the body as an `Event:` block."""
 
+    def test_invitation_in_two_parts_is_one_event(self):
+        """The same invitation as the branch of an alternative and as a named part of its own (`invite.ics` without a
+        Content-Disposition) is one event; both were written."""
+        ics = ("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nSUMMARY:Weekly sync\r\nDTSTART:20261120T090000Z\r\n"
+               "LOCATION:Room 4\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+        mail = ("From: a@example.com\r\nTo: b@example.com\r\nSubject: Invite\r\nMIME-Version: 1.0\r\n"
+                "Content-Type: multipart/mixed; boundary=OUT\r\n\r\n--OUT\r\nContent-Type: multipart/alternative; boundary=ALT"
+                "\r\n\r\n--ALT\r\nContent-Type: text/plain\r\n\r\nPlease join.\r\n--ALT\r\nContent-Type: text/calendar; "
+                "charset=utf-8; method=REQUEST\r\n\r\n" + ics + "--ALT--\r\n--OUT\r\nContent-Type: text/calendar; charset=utf-8; "
+                'method=REQUEST; name="invite.ics"\r\n\r\n' + ics + "--OUT--\r\n")
+
+        text = convert(mail.encode(), "a.eml").text
+
+        assert text.count("Event:") == 1 and text.endswith("- Title: Weekly sync\n- Start: 2026-11-20 09:00 UTC\n- Location: Room 4")
+
     @pytest.mark.parametrize("html", [True, False])
     @needs_html5_tokenizer
     def test_invitation_details_follow_the_body(self, html):
