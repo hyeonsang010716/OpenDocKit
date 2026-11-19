@@ -388,6 +388,26 @@ class TestRepeatedMarginsAndBorderlessTables:
         assert "보고서" not in result.text
         assert "- 1 -" not in result.text and "- 2 -" not in result.text
 
+    def test_page_count_beside_other_footer_text_is_removed(self):
+        """A footer of two pieces on one row, 'ACME Corp. - Confidential' left and 'Page 3 of 4' right (LibreOffice's footer
+        fields): only pieces shaped exactly like a page number had their digits ignored, and 'Page 3 of 4' is not one, so the
+        footer stayed at the foot of every page. Each piece of a margin row follows the rule of a margin line of one piece; a
+        count with a unit beside a label ('소계 12건') still differs per page and is kept."""
+        counts = [12, 7, 19, 4]
+
+        def draw(pdf, index):
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"{index + 1}쪽 본문 {line + 1}번째 줄입니다.")
+            pdf.drawString(72, 90, "소계")
+            pdf.drawString(400, 90, f"{counts[index]}건")
+            pdf.drawString(72, 40, "ACME Corp. - Confidential")
+            pdf.drawString(450, 40, f"Page {index + 1} of 4")
+
+        result = convert(_korean_pdf(draw, pages=4), "a.pdf")
+
+        assert "Confidential" not in result.text and "of 4" not in result.text
+        assert all(f"{count}건" in result.text for count in counts)
+
     def test_margin_lines_with_amounts_or_rates_that_differ_per_page_are_kept(self):
         """'전기이월 잔액: 1,000,000', '실지급액: 3,450,000', '증감률 6.8%' and '소계 1,234' in the top and bottom margins of each page
         leave only punctuation once the digits are removed, so they were taken for page-number tokens and removed on every page. A token

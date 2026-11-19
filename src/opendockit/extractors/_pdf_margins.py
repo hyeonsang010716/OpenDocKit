@@ -227,12 +227,17 @@ def _row_key(row: list[_Line], in_margin: bool, title_size: float) -> str:
     `_HEADING_MIN_RATIO`) and not page-number-shaped. Page titles placed in the top margin band ('2025년 3월 영업
     실적') differed only in digits and were removed on every page (Pinned by: test_pdf.py::
     TestRepeatedMarginsAndBorderlessTables::test_large_page_titles_that_differ_only_in_a_number_are_kept).
+
+    A margin row of several fragments follows the single-fragment rule fragment by fragment: with only page-number-shaped
+    fragments masked, 'Company … Page 3 of 6' (the count is not that shape) differed on every page and stayed at the foot of
+    each (Pinned by: test_pdf.py::TestRepeatedMarginsAndBorderlessTables::test_page_count_beside_other_footer_text_is_removed).
     """
     if len(row) == 1:
         line = row[0]
         is_title = bool(title_size) and line.size >= title_size and not _PAGE_NUMBER.match(line.text)
         return _page_number_blind(line.text) if in_margin and not is_title else line.text
-    return "\t".join(_DIGITS.sub("#", line.text) if _PAGE_NUMBER.match(line.text) else line.text for line in row)
+    return "\t".join(_page_number_blind(line.text) if in_margin and not (title_size and line.size >= title_size)
+                     else _DIGITS.sub("#", line.text) if _PAGE_NUMBER.match(line.text) else line.text for line in row)
 
 
 def _page_number_blind(text: str) -> str:
