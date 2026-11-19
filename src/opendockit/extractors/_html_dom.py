@@ -1906,8 +1906,12 @@ def _keep_preserved_line_breaks(soup: BeautifulSoup) -> None:
         _replace(text, holder, places)
 
 
-# The text of the line-number cell of a code block: numbers separated by white space.
-_LINE_NUMBERS = re.compile(r"\s*\d+(?:\s+\d+)*\s*")
+# The classes the generators of line-numbered code blocks give the table, its cells and the `<pre>` of the numbers (Pygments
+# `highlighttable`, `linenos`, `linenodiv`; Rouge `rouge-table`, `gutter`, `lineno`; Hugo's Chroma `lntable`, `lntd`).
+_LINE_NUMBER_CLASSES = frozenset({"highlighttable", "linenos", "linenodiv", "rouge-table", "rouge-gutter", "gutter", "lineno",
+                                  "linenumber", "line-numbers", "lntable", "lntd"})
+# Something other than digits and white space: the code beside the numbers is no column of numbers itself (`1` beside `2023`).
+_LINE_OF_TEXT = re.compile(r"[^\d\s]")
 
 
 def _unwrap_line_numbered_code(soup: BeautifulSoup) -> None:
@@ -1917,7 +1921,15 @@ def _unwrap_line_numbered_code(soup: BeautifulSoup) -> None:
     row and two cells, each holding one `<pre>`: the line numbers and the code. It came out as a Markdown table of `<br>`-joined
     lines, the numbers in a column of their own, and the pipes of the code escaped
     (Pinned by: test_text_html.py::TestLineNumberedCodeBlocks). Only that shape is taken: one row, two cells with nothing but
-    one `<pre>` each, exactly one of them nothing but numbers, and no table inside.
+    one `<pre>` each, the first of them the line numbers of the second (`_numbers_line_by_line`), the second more than
+    numbers (as before, `1` beside `2023` stays a table), and no table inside.
+
+    The numbers count up by one, one to a line (a line left empty by Pygments' `linenostep` counts), as many as the code has
+    lines or one more or fewer, and start at 1 unless a class of the generators (`_LINE_NUMBER_CLASSES`) says what the table
+    is: a table of two `<pre>` cells holding years beside lines of text (`2023` / `Revenue up`) lost its years. A caption,
+    and a row of one cell above the numbered row (the file name MkDocs Material writes in a `<th class="filename">`), stay as
+    paragraphs above the code; they were lost with the table (Pinned by: test_text_html.py::TestLineNumberedCodeBlocks::
+    test_only_numbers_counting_the_lines_of_the_code_are_left_out).
     """
     places: _Places = {}
     for table in soup.find_all("table"):
@@ -1926,15 +1938,61 @@ def _unwrap_line_numbered_code(soup: BeautifulSoup) -> None:
         # (Pinned by: test_text_html.py::TestDeepNesting::test_deeply_nested_tables_are_read_quickly).
         rows = [row for part in [table, *_element_children(table, ("thead", "tbody", "tfoot"))]
                 for row in _element_children(part, ("tr",))]
-        cells = _element_children(rows[0], ("td", "th")) if len(rows) == 1 else []
+        titles = []
+        if len(rows) == 2:
+            title = _element_children(rows[0], ("td", "th"))
+            if len(title) != 1 or title[0].find(["pre", "table"]) is not None:
+                continue
+            titles = title
+        elif len(rows) != 1:
+            continue
+        cells = _element_children(rows[-1], ("td", "th"))
         pres = [pre for pre in (_only_pre(cell) for cell in cells) if pre is not None]
         if len(cells) != 2 or len(pres) != 2:
             continue
-        numbered = [index for index, pre in enumerate(pres) if _LINE_NUMBERS.fullmatch(pre.get_text())]
-        if len(numbered) != 1:
+        numbers, lines = pres[0].get_text(), pres[1].get_text()
+        start = _numbers_line_by_line(numbers, lines)
+        if start is None or not _LINE_OF_TEXT.search(lines) or (
+                start != 1 and not _has_line_number_class([table, *cells, *pres, *(pre.parent for pre in pres)])):
             continue
-        code = pres[1 - numbered[0]].extract()
-        _replace(table, code, places)
+        code = pres[1].extract()
+        above = [*_element_children(table, ("caption",)), *titles]
+        if not above:
+            _replace(table, code, places)
+            continue
+        holder = soup.new_tag("div")
+        for element in above:
+            element = element.extract()
+            element.name, element.attrs = "p", {}
+            holder.append(element)
+        holder.append(code)
+        _replace(table, holder, places)
+
+
+def _numbers_line_by_line(numbers: str, code: str) -> int | None:
+    """The number of the first line, when `numbers` holds the line numbers of `code`: at most one number to a line, each the
+    number of its line counting up by one (Pygments' `linenostep` leaves the lines between empty), at least one number, as
+    many lines as the code or one more or fewer; otherwise None."""
+    lines = numbers.strip("\n").split("\n")
+    code_lines = len(code.strip("\n").split("\n"))
+    if abs(len(lines) - code_lines) > 1:
+        return None
+    start = None
+    for index, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+        if not (line.isascii() and line.isdigit() and len(line) <= 9):
+            return None
+        if start is None:
+            start = int(line) - index
+        elif int(line) != start + index:
+            return None
+    return start
+
+
+def _has_line_number_class(elements: list[Tag]) -> bool:
+    return any(name.lower() in _LINE_NUMBER_CLASSES for element in elements for name in element.get_attribute_list("class"))
 
 
 def _element_children(tag: Tag, names: tuple[str, ...]) -> list[Tag]:

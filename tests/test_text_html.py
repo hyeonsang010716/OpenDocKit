@@ -1438,6 +1438,34 @@ class TestLineNumberedCodeBlocks:
 
         assert "| before | after |" in convert(html.encode(), "a.html").text
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ("<table><tr><td><pre>2023\n2024</pre></td><td><pre>Revenue up\nRevenue down</pre></td></tr></table>",
+         "| 2023<br>2024 | Revenue up<br>Revenue down |\n| --- | --- |"),
+        ("<table><tr><td><pre>a\nb</pre></td><td><pre>1\n2</pre></td></tr></table>", "| a<br>b | 1<br>2 |\n| --- | --- |"),
+        ("<table><tr><td><pre>1\n3</pre></td><td><pre>a\nb</pre></td></tr></table>", "| 1<br>3 | a<br>b |\n| --- | --- |"),
+        ("<table><tr><td><pre>1</pre></td><td><pre>2023</pre></td></tr></table>", "| 1 | 2023 |\n| --- | --- |"),
+        ("<table><tr><td><pre>1\n2\n3\n4</pre></td><td><pre>a\nb</pre></td></tr></table>",
+         "| 1<br>2<br>3<br>4 | a<br>b |\n| --- | --- |"),
+        ("<table><caption>Listing 1: hello</caption><tr><td><pre>1\n2</pre></td><td><pre>a\nb</pre></td></tr></table>",
+         "Listing 1: hello\n\n```\na\nb\n```"),
+        ('<table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre>10\n11\n12</pre></div></td>'
+         '<td class="code"><div class="highlight"><pre>a\nb\nc\n</pre></div></td></tr></table>', "```\na\nb\nc\n```"),
+        ('<table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre> \n2\n \n4</pre></div></td>'
+         '<td class="code"><div class="highlight"><pre>a\nb\nc\nd\n</pre></div></td></tr></table>', "```\na\nb\nc\nd\n```"),
+        ('<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">'
+         'bubble_sort.py</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">'
+         '<a href="#__codelineno-0-1">1</a></span>\n<span class="normal"><a href="#__codelineno-0-2">2</a></span></pre></div>'
+         '</td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1"></a>def bubble():\n'
+         '<a id="__codelineno-0-2"></a>    pass\n</code></pre></div></td></tr></table></div>',
+         "bubble_sort.py\n\n```\ndef bubble():\n    pass\n```"),
+    ])
+    def test_only_numbers_counting_the_lines_of_the_code_are_left_out(self, html, expected):
+        """Any table of two `<pre>` cells, one of them only numbers, was taken for a numbered code block: years beside lines
+        of text were lost, and so was a caption. The numbers must come first, count the lines of the code up by one, and
+        start at 1 unless a class of the generators says what the table is; a caption and the file name MkDocs Material
+        writes above the code stay above it."""
+        assert convert(html.encode(), "a.html").text == expected
+
 
 class TestMediaFallbackAndQuotes:
     """What `<video>` and `<audio>` hold is for browsers that cannot play them, and it came out as paragraphs of the page; the
