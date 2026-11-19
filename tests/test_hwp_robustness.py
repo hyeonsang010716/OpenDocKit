@@ -511,6 +511,31 @@ class TestHugeParagraphText:
         text = "가".encode("utf-16-le") * 2_000_000
         assert fastest(lambda: decode_para_text(payload)) < 5 * fastest(lambda: decode_para_text(text)) + 0.01
 
+    def test_unordered_shape_positions_past_the_text_are_not_sorted(self):
+        """Character shape positions that do not increase were sorted as tuples before those past the text were dropped: 10
+        million pairs in a 114 KB section past a one-character text took 3 s and 1 GB. Only positions inside the text are kept
+        before ordering; at one position the larger shape ID still wins."""
+        import tracemalloc
+
+        from opendockit import ConvertOptions
+        from opendockit.extractors.hwp import TAG_PARA_CHAR_SHAPE, HwpRenderer, Record
+
+        payload = b"".join(struct.pack("<II", position, 1) for position in range(1_000_000, 0, -1))
+        paragraph = Record(TAG_PARA_HEADER, 0, b"", [Record(TAG_PARA_CHAR_SHAPE, 1, payload)])
+        renderer = HwpRenderer([], ConvertOptions(), scripts={1: "^"})
+        tracemalloc.start()
+
+        try:
+            runs = renderer._shape_runs(paragraph, 1)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+        assert runs == []
+        assert peak < 4 * len(payload)  # the record read as an array and split in two; sorted tuples took 13 times
+        unordered = Record(TAG_PARA_HEADER, 0, b"", [Record(TAG_PARA_CHAR_SHAPE, 1, struct.pack("<6I", 2, 0, 0, 0, 0, 1))])
+        assert HwpRenderer([], ConvertOptions(), scripts={1: "^"})._shape_runs(unordered, 5) == [(0, ("^", False)), (2, (None, False))]
+
     def test_bytes_that_look_like_a_control_across_two_characters_are_text(self):
         """Bytes spanning two characters, such as 'A' (41 00) followed by '가' (00 AC), may look like a control character (1f or
         below + 00), but they are text unless they sit on a character boundary."""

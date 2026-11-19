@@ -9,7 +9,7 @@ footnotes and outline headings are read directly.
 """
 
 from array import array
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -462,10 +462,22 @@ class HwpRenderer:
         if not any(shape_id in self._scripts or shape_id in self._struck for shape_id in shape_ids):
             return None
 
-        # If the positions always increase, use them as is; otherwise sort by (position, ID) — at the same position the later one (larger ID) wins.
+        # If the positions always increase, use them as is; otherwise by position — at the same position the larger ID wins, as it
+        # did sorted by (position, ID). Only positions inside the text are kept before ordering them: sorted as tuples, 10 million
+        # pairs in a 114 KB section past a one-character text took 3 s and 1 GB
+        # (Pinned by: test_hwp_robustness.py::TestHugeParagraphText::test_unordered_shape_positions_past_the_text_are_not_sorted).
         increasing = all(before < after for before, after in zip(starts, starts[1:], strict=False))
+        pairs: Iterable[tuple[int, int]]
+        if increasing:
+            pairs = zip(starts, shape_ids, strict=True)
+        else:
+            last: dict[int, int] = {}
+            for start, shape_id in zip(starts, shape_ids, strict=True):
+                if start < length and shape_id > last.get(start, -1):
+                    last[start] = shape_id
+            pairs = sorted(last.items())
         runs: ShapeRuns = []
-        for start, shape_id in zip(starts, shape_ids, strict=True) if increasing else sorted(zip(starts, shape_ids, strict=True)):
+        for start, shape_id in pairs:
             if start >= length:
                 break
             if runs and runs[-1][0] == start:
