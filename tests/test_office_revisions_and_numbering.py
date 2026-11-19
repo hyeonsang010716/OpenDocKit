@@ -166,6 +166,31 @@ class TestDocxBoxesOutsideTheFinalVersion:
         assert result.text == "본문\n\n보이는 상자"
 
 
+class TestDocxDeletedParagraphMark:
+    """Two paragraphs joined with Track Changes on keep both paragraphs, the mark of the first one deleted (`w:pPr/w:rPr/w:del`).
+    Its text is one paragraph with the next one in the final version, and it was written as a paragraph of its own, the sentence
+    cut in two. The two are joined as written, and the joined one takes the properties of the mark that is left."""
+
+    _DELETED = '<w:pPr><w:rPr><w:del w:id="1" w:author="a" w:date="2026-01-01T00:00:00Z"/></w:rPr></w:pPr>'
+
+    def test_paragraph_whose_mark_was_deleted_is_joined_to_the_next(self):
+        body = (f'<w:p>{self._DELETED}<w:r><w:t>The contract amount is</w:t></w:r></w:p>'
+                '<w:p><w:r><w:t xml:space="preserve"> 1,200,000 won including tax.</w:t></w:r></w:p>'
+                f'<w:p>{self._DELETED}<w:r><w:t xml:space="preserve">Pay </w:t></w:r></w:p>'
+                f'<w:p>{self._DELETED}<w:r><w:t xml:space="preserve">within </w:t></w:r></w:p>'
+                "<w:p><w:r><w:t>30 days.</w:t></w:r></w:p>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "The contract amount is 1,200,000 won including tax.\n\nPay within 30 days."
+
+    def test_numbered_paragraph_whose_mark_was_deleted_takes_no_number(self):
+        numbering = ('<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/>'
+                     '<w:lvlText w:val="%1."/></w:lvl></w:abstractNum>' + _number_list(1))
+        first = _paragraph("first and", 1).replace("</w:pPr>", '<w:rPr><w:del w:id="1" w:author="a"/></w:rPr></w:pPr>', 1)
+        body = first + _paragraph(" second", 1) + _paragraph("third", 1)
+
+        assert convert(_docx_with_body(body, numbering=numbering), "a.docx").text == "1. first and second\n2. third"
+
+
 class TestStrictOpenXmlOfficeDocuments:
     """A DOCX/PPTX saved as a 'Strict Open XML document' differs in every relationship type and namespace, so the main part was
     not found and it was rejected as 'document structure could not be read' (corrupted). It is not corruption but an unsupported

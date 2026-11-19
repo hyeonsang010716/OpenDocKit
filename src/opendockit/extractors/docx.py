@@ -189,6 +189,8 @@ class _DocxRenderer:
         self._direct_pending = 0
         self._nested_written = 0
         self._drop_cap: tuple[etree._Element, str] | None = None  # (drop-cap paragraph, its text). Prepended to the very next paragraph
+        # (paragraph whose mark was deleted, its text as written). Joined to the very next paragraph (`_render_paragraph`)
+        self._joined: tuple[etree._Element, str] | None = None
         # Preceding list items not yet closed. Cells, headers and text boxes count separately (`_list_depth`)
         self._list_items: list[_ListItem] = []
         self._list_offsets: dict[str, int] = {}  # list (numId) → the offset the last item of that list used (`_ListItem.offset`)
@@ -413,8 +415,16 @@ class _DocxRenderer:
         # point at — HWP/HWPX leave them out too (Pinned by:
         # test_office.py::TestOfficeReadingOrderAndListMarks::test_note_marks_are_left_out_when_footnotes_are_not_included).
         notes = self.notes if self._options.include_footnotes else None
-        marked = _paragraph_text(paragraph, notes, self.image_marker, add_object, self._paragraph_size(paragraph), self.inline).strip()
-        marked = self._after_drop_cap(paragraph, marked)
+        raw = _paragraph_text(paragraph, notes, self.image_marker, add_object, self._paragraph_size(paragraph), self.inline)
+        # A paragraph whose mark was deleted by tracked changes is one with the paragraph after it in the final version: the two
+        # are joined as written, so the space between them stays where it was typed, and the joined one takes the properties of
+        # the mark that is left. Written apart, a sentence joined with Track Changes on stayed cut in two
+        # (Pinned by: test_office_revisions_and_numbering.py::TestDocxDeletedParagraphMark).
+        joined, self._joined = self._joined, None
+        if joined is not None and paragraph.getprevious() is joined[0]:
+            raw = joined[1] + raw
+        raw = self._after_drop_cap(paragraph, raw.lstrip())
+        marked = raw.strip()
         # `marked` still holds the temporary link and emphasis marks. Everything that decides what the paragraph is (empty, a
         # heading, too long for a heading) looks at the text without them, so those decisions are the same with the options off.
         text = plain_inline(marked).strip() if self.inline is not None else marked
@@ -452,8 +462,13 @@ class _DocxRenderer:
         # final version and are not counted (Pinned by: test_office.py::TestDocxNumbering::
         # test_empty_numbered_paragraph_still_counts, test_numbered_paragraph_moved_away_by_tracked_change_does_not_count).
         style = self._paragraph_style(paragraph)
-        list_prefix = None if blank and _is_deleted_paragraph(paragraph) else self._list_prefix(paragraph, style)
+        deleted_mark = _is_deleted_paragraph(paragraph)
+        joins_next = deleted_mark and not blank and _next_is_paragraph(paragraph)
+        list_prefix = None if (blank and deleted_mark) or joins_next else self._list_prefix(paragraph, style)
         if blank:
+            return after
+        if joins_next:
+            self._joined = (paragraph, raw)
             return after
         if _is_drop_cap(paragraph) and _next_is_paragraph(paragraph):
             self._drop_cap = (paragraph, marked)
