@@ -14,6 +14,7 @@ from email.header import Header, decode_header
 from email.message import Message, _formatparam
 from email.parser import BytesHeaderParser
 import email.quoprimime
+import email.utils
 import quopri
 import re
 
@@ -784,9 +785,7 @@ def _decoded_header(value: object) -> str:
     became `������` (Pinned by: test_core_text_and_mail.py::TestRawEightBitMailHeaders). It is turned back into the original
     bytes and decoded, and then any RFC 2047 words that may be mixed in are decoded.
     """
-    if isinstance(value, Header):
-        value = "".join(_header_chunk_text(chunk, charset) for chunk, charset in decode_header(value))
-    text = str(value)
+    text = _header_text(value) if isinstance(value, Header) else str(value)
     # A pure-ASCII header is tried whole first, as the mail parser reads it: that takes a word the pattern below does not (one
     # without a charset, `=??q?Re:_plain?=`) and drops the whitespace between adjacent words
     # (Pinned by: test_core_mailboxes_and_charsets.py::TestAsciiHeaderIsDecodedWhole).
@@ -815,6 +814,12 @@ def _decoded_header(value: object) -> str:
                 run, gaps = [], []
             pieces.append(part)
     return "".join(pieces)
+
+
+def _header_text(value: Header) -> str:
+    """The text of a header the parser wrapped in an `unknown-8bit` `Header`: its original bytes, decoded like a body
+    (`decode_text`)."""
+    return "".join(_header_chunk_text(chunk, charset) for chunk, charset in decode_header(value))
 
 
 def _decoded_run(words: list[str], gaps: list[str]) -> str:
@@ -1078,9 +1083,43 @@ def _one_line(name: str) -> str:
 def _attachment_name(part: Message) -> str:
     """The attachment file name, or empty text if there is none (`_attachment_list` counts those separately). A name written as
     RFC 2047 words (`filename="=?UTF-8?B?…?="`) instead of RFC 2231, as Gmail does, is decoded too — it appeared in the warning
-    as encoded words (Pinned by: test_core_mail_parts_and_icons.py::TestEncodedAttachmentName)."""
-    name = part.get_filename()
+    as encoded words (Pinned by: test_core_mail_parts_and_icons.py::TestEncodedAttachmentName).
+
+    The name is read as `get_filename` reads it (`filename` of Content-Disposition, else `name` of Content-Type), from headers
+    whose raw 8-bit bytes are decoded like a body first (`_header_text`), as the subject is: `get_filename` reads them as one
+    replacement character a byte, so `filename="견적서.pdf"` written in UTF-8 or CP949 came out as `���������.pdf`
+    (Pinned by: test_core_mail_parts_and_icons.py::TestEightBitAttachmentName).
+    """
+    headers = Message()
+    for header in ("Content-Disposition", "Content-Type"):
+        value = part.get(header)
+        if value is not None:
+            headers[header] = _header_text(value) if isinstance(value, Header) else value
+    missing = object()
+    value = headers.get_param("filename", missing, "content-disposition")
+    if value is missing:
+        value = headers.get_param("name", missing, "content-type")
+    name = "" if value is missing else _parameter_text(value).strip()
     return _decoded_header(name) if name else ""
+
+
+def _parameter_text(value: str | tuple[str | None, str | None, str]) -> str:
+    """A parameter value as text, as `email.utils.collapse_rfc2231_value` gives it, except that the bytes of an RFC 2231 value
+    (`filename*=charset''%XX`) its charset does not decode strictly, or of an unknown charset, are decoded as those of an RFC
+    2047 word are (`_header_chunk_text`: the superset codec, EUC-KR → CP949, then `decode_text`): the standard library decodes
+    them with replacement characters, so `ks_c_5601-1987''%8C%63%B9%E6.pdf` (똠방.pdf) came out as `�c방.pdf`
+    (Pinned by: test_core_mail_parts_and_icons.py::TestEightBitAttachmentName::test_rfc_2231_name_in_a_korean_charset)."""
+    text = email.utils.collapse_rfc2231_value(value)
+    if not isinstance(value, tuple) or len(value) != 3 or max(value[2], default="\0") > "\xff":
+        return text
+    charset, raw = value[0], bytes(value[2], "latin-1")
+    if raw.isascii():
+        return text
+    try:
+        raw.decode(charset or "us-ascii")
+    except (LookupError, UnicodeError):
+        return _header_chunk_text(raw, charset or None)
+    return text
 
 
 def mail_plain_body(message: Message, parts: list[Message] | None = None) -> tuple[str, list[str]] | None:

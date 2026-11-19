@@ -156,6 +156,49 @@ class TestEncodedAttachmentName:
         assert result.warnings == [_ATTACHMENT_WARNING.format("견적서.xlsx")]
 
 
+def _mail_with_attachment_headers(headers: bytes) -> bytes:
+    return (b"From: a@example.com\r\nTo: b@example.com\r\nSubject: quote\r\nMIME-Version: 1.0\r\n"
+            b"Content-Type: multipart/mixed; boundary=M\r\n\r\n--M\r\nContent-Type: text/plain\r\n\r\nbody\r\n--M\r\n"
+            + headers + b"\r\n\r\nAAAA\r\n--M--\r\n")
+
+
+class TestEightBitAttachmentName:
+    """An attachment name written as raw 8-bit bytes (groupware, old mail programs) came out as one replacement character a
+    byte, `���������.pdf`, though the subject of the same mail was read: the standard library reads a parameter from the text
+    of its header, where the bytes are already gone."""
+
+    @pytest.mark.parametrize("codec", ["utf-8", "cp949"])
+    @pytest.mark.parametrize("headers", [
+        b'Content-Type: application/pdf\r\nContent-Disposition: attachment; filename="{}"',
+        b"Content-Type: application/pdf\r\nContent-Disposition: attachment; filename={}; size=10",
+        b'Content-Type: application/pdf; name="{}"\r\nContent-Disposition: attachment',
+    ], ids=["filename", "unquoted filename", "name"])
+    def test_raw_name_is_decoded(self, headers, codec):
+        data = _mail_with_attachment_headers(headers.replace(b"{}", "견적서.pdf".encode(codec)))
+
+        assert convert(data, "a.eml").warnings == [_ATTACHMENT_WARNING.format("견적서.pdf")]
+
+    @pytest.mark.parametrize("parameter", [b"filename*=ks_c_5601-1987''%8C%63%B9%E6.pdf", b"name*=euc-kr''%8C%63%B9%E6.pdf",
+                                           b"filename*=''%EB%98%A0%EB%B0%A9.pdf"])
+    def test_rfc_2231_name_in_a_korean_charset(self, parameter):
+        """The standard library decodes `ks_c_5601-1987` (an EUC-KR label) strictly, so the extended Hangul 똠 became
+        `�c방.pdf`; the superset codec reads it, as in an RFC 2047 word. Bytes without a charset are detected."""
+        where = b"Content-Type: application/pdf\r\nContent-Disposition: attachment; " if parameter.startswith(b"filename") else b"Content-Type: application/pdf; "
+        data = _mail_with_attachment_headers(where + parameter + (b"\r\nContent-Disposition: attachment" if parameter.startswith(b"name") else b""))
+
+        assert convert(data, "a.eml").warnings == [_ATTACHMENT_WARNING.format("똠방.pdf")]
+
+    @pytest.mark.parametrize(("parameter", "name"), [
+        (b"filename*=iso-8859-1''caf%E9.pdf", "café.pdf"),
+        (b"filename*=x-unknown''report.pdf", "report.pdf"),
+        (b'filename="report.pdf"', "report.pdf"),
+    ])
+    def test_other_names_read_as_before(self, parameter, name):
+        data = _mail_with_attachment_headers(b"Content-Type: application/pdf\r\nContent-Disposition: attachment; " + parameter)
+
+        assert convert(data, "a.eml").warnings == [_ATTACHMENT_WARNING.format(name)]
+
+
 def _mbox_message(number: int, *, html: bool) -> str:
     if html:
         content = (f'Content-Type: multipart/alternative; boundary="b{number}"\n\n--b{number}\nContent-Type: text/plain; '
