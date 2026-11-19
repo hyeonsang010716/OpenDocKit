@@ -906,7 +906,8 @@ class TestTwoLineHeaderBetweenRules:
                 "| Ⅰ. 매출액 | 23 | 152,340 | 138,920 | 13,420 |") in result.text
 
 
-def _grouped_header_statement(group_texts: tuple[str, str] = ("2023년", "2024년"), full_middle_rule: bool = True) -> bytes:
+def _grouped_header_statement(group_texts: tuple[str, str] = ("2023년", "2024년"), full_middle_rule: bool = True,
+                              lower: tuple[str, ...] = ("남성", "여성", "남성", "여성")) -> bytes:
     """A three-rule table (rules at the top, below the header and at the bottom) with a two-tier header: beside '구분' (centred over the height of two
     lines), '2023년' and '2024년' each span the two columns '남성·여성'. Without `full_middle_rule` the rule below the header skips the '구분' column
     (Chrome's border for a rowspan cell)."""
@@ -926,7 +927,7 @@ def _grouped_header_statement(group_texts: tuple[str, str] = ("2023년", "2024�
         pdf.drawCentredString(centre(0), top - 23, "구분")
         pdf.drawCentredString(edges[2], top - 13, group_texts[0])
         pdf.drawCentredString(edges[4], top - 13, group_texts[1])
-        for column, text in zip(range(1, 5), ("남성", "여성", "남성", "여성"), strict=True):
+        for column, text in zip(range(1, 5), lower, strict=True):
             pdf.drawCentredString(centre(column), top - 32, text)
         y = top - 52
         for row in rows:
@@ -962,6 +963,18 @@ class TestGroupedHeaderBetweenRules:
                        ConvertOptions(page_markers=False)).text
 
         assert "| 구분 | 2023년 남녀 이용률 남성 | 2023년 남녀 이용률 여성 | 2024년 남녀 이용률 남성 | 2024년 남녀 이용률 여성 |" in text
+
+    @pytest.mark.parametrize(("groups", "lower", "header"), [
+        (("1학기", "2학기"), ("1", "2", "1", "2"), "| 구분 | 1학기 1 | 1학기 2 | 2학기 1 | 2학기 2 |"),
+        (("Week", "Month"), ("1", "2", "3", "4"), "| 구분 | Week 1 | Week 2 | Month 3 | Month 4 |"),
+    ])
+    def test_upper_cell_over_column_numbers(self, groups, lower, header):
+        """An upper cell does not group numeric values (a data row with a wrapped label), but numbers counting up by one under
+        it are the numbers of its columns: the header fell apart into '구분' above the table, `| | 1 | 2 | 1 | 2 |` and the
+        group names after it."""
+        text = convert(_grouped_header_statement(groups, lower=lower), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert header in text and "| 20대 | 45.2 | 51.0 | 47.8 | 53.3 |" in text
 
 
 def _rules_between_row_groups(groups: list[list[tuple[str, ...]]]) -> bytes:

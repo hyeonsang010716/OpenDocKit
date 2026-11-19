@@ -2,6 +2,7 @@
 cells left open at a page break, and columns regridded so both parts stand in the same columns.
 """
 
+from itertools import pairwise
 import math
 import re
 import statistics
@@ -36,6 +37,15 @@ def _is_value_piece(text: str) -> bool:
     words = text.split()
     return bool(words) and all(_NUMBER_CELL.match(word) and not _YEAR_OR_DATE.match(word) and not _COLUMN_NUMBER.match(word)
                                for word in words)
+
+
+def _column_numbers(cells: list[_Line]) -> bool:
+    """Are the cells under an upper header cell numbers of at most three digits counting up by one, left to right?"""
+    texts = [cell.text.strip() for cell in cells]
+    if not all(text.isascii() and text.isdigit() and len(text) <= 3 for text in texts):
+        return False
+    numbers = [int(text) for text in texts]
+    return all(after == before + 1 for before, after in pairwise(numbers))
 
 
 def _join_ruled_header_lines(page: _Page) -> None:
@@ -143,7 +153,10 @@ def _grouped_columns(lines: list[_Line]) -> list[list[_Line]] | None:
         # data row whose cells sit on its last line (Excel's bottom alignment) is above the values of that row, and was put in
         # front of every one of them ('| Research and development 8,400 |')
         # (Pinned by: test_pdf_table_columns.py::TestDataRowsBetweenRulesWithAWrappedCell).
-        if not centre(cells[0]) < centre(line) < centre(cells[-1]) or any(_is_value_piece(cell.text) for cell in cells):
+        # Numbers that count up by one under it ('1학기' over '1 2', 'Week' over '1 2 3 4') are the numbers of its columns, not
+        # values (Pinned by: test_pdf_table_columns.py::TestGroupedHeaderBetweenRules::test_upper_cell_over_column_numbers)
+        if not centre(cells[0]) < centre(line) < centre(cells[-1]) or (
+                any(_is_value_piece(cell.text) for cell in cells) and not _column_numbers(cells)):
             return None
         columns += [[line, cell] for cell in cells]
     return columns
