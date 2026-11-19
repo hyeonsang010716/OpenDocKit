@@ -12,6 +12,7 @@ from openpyxl.utils.datetime import from_excel
 from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors._encoding import decode_text, decoding_warning
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
+from opendockit.extractors._notation import chars_left
 from opendockit.extractors._package import _XML_PARSER, decimal_int
 from opendockit.extractors._sheet_format import (
     _MAX_FORMAT_LENGTH,
@@ -58,6 +59,7 @@ def extract_xml_spreadsheet(data: bytes, options: ConvertOptions) -> Extraction:
         commented: dict[int, list[str]] = {}  # sheet row number → its cells, for the rows that hold a comment
         cells = _xml_sheet_rows(table, formats, options.max_sheet_cols, formulas if unresolved else None, invalid,
                                 indents, spans, not_finite, comments, commented) if table is not None else iter(())
+        room = chars_left(extraction, options)
         rows = _collect_rows(cells, options, name, extraction)
         across = {id(rows[index]): found for index, found in spans.items() if index < len(rows)}
         if formulas:
@@ -66,7 +68,7 @@ def extract_xml_spreadsheet(data: bytes, options: ConvertOptions) -> Extraction:
         # Cell comments go after the sheet as in XLSX and XLS; they were dropped without a warning
         # (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetComments).
         drawn = [_comment_block(comments, _SheetRows(commented), extraction, options)] if comments and not extraction.exceeded else []
-        _append_sheet(extraction, name, rows, drawn, across=across)
+        _append_sheet(extraction, name, rows, drawn, across, room, options)
         if extraction.exceeded:
             break
     if not_finite:

@@ -506,13 +506,16 @@ def clean_line(text: str) -> str:
     return " ".join(unicodedata.normalize("NFC", text).split())
 
 
-def solid_length(text: str) -> int:
+def solid_length(text: str, *, quote_lines: bool = True) -> int:
     """The number of characters certain to remain after cleaning (`clean_text`) and rendering. Used to decide the character limit midway.
 
     Counted in NFC without whitespace, image placeholders, and invisible, control and private-use characters. Hangul in
     decomposed jamo shrinks to 1/3 when normalized, and a placeholder disappears entirely if its picture is filtered out, so
-    counting the raw length comes out larger than the real one.
+    counting the raw length comes out larger than the real one. With `quote_lines` False the marks of a line that holds only
+    quote marks count too: text that is known to hold no picture (a sheet cell, `_sheet_layout._cell_length`).
     """
+    if not text:
+        return 0
     # A nested-table placeholder goes too, with its number: the table it stands for is counted when it is drawn, and text of
     # the document that only has the shape of one is dropped by the table that holds it. Counted, 80 digits between the two
     # private-use characters stopped a table that was within the limit, and the document came back cut without `exceeded`
@@ -524,7 +527,7 @@ def solid_length(text: str) -> int:
     # (`converter._settle_quote_gaps`). Counted, a 12-character quote with five erased pictures was reported over a limit of
     # 12 to 15 and skipped decoding the real picture beside it
     # (Pinned by: test_converter.py::TestPicturesInsideAQuote::test_erased_pictures_in_a_quote_do_not_count_toward_the_limit).
-    if ">" in text:
+    if quote_lines and ">" in text:
         text = _BARE_QUOTE_LINE.sub("", text)
     return len("".join(unicodedata.normalize("NFC", text).split()))
 
@@ -648,48 +651,63 @@ def _render_rows(rows: list[list[str | None]], *, merged_titles_only: bool = Fal
                  room: _Room | None = None) -> str:
     """`render_table` that stops writing rows once `room` is used up (`TableGrid.render`). Which rows, columns and title the table
     has is decided on all the rows first, so the rows written are exactly the front of the table drawn to the end."""
+    # Only the filled cells of a row are kept ({column: cleaned text}), and a row of the grid is built from them when it is
+    # written: padded to the widest row up front, a sheet of 200,000 rows with one cell in column CV cost rows × width before a
+    # single row was written, and every row was written before the character limit cut the text
+    # (Pinned by: test_audit_spreadsheet.py::TestSheetDrawingStopsAtTheLimit).
     clean = _once_per_text(_clean_cell)
-
-    kept_rows = [row for row in rows if any(clean(cell or "") for cell in row)]
-    cleaned = [[clean(cell or "") for cell in row] for row in kept_rows]
-    if not cleaned:
+    kept_rows: list[list[str | None]] = []
+    filled_rows: list[dict[int, str]] = []
+    used: dict[int, int] = {}  # column → number of kept rows with text in it
+    for row in rows:
+        filled = {col: text for col, cell in enumerate(row) if cell and (text := clean(cell))}
+        if filled:
+            kept_rows.append(row)
+            filled_rows.append(filled)
+            for col in filled:
+                used[col] = used.get(col, 0) + 1
+    if not filled_rows:
         return ""
+    keep = sorted(used)
 
-    width = max(len(row) for row in cleaned)
-    padded = [row + [""] * (width - len(row)) for row in cleaned]
-    keep = [col for col in range(width) if any(row[col] for row in padded)]
-    grid = [[row[col] for col in keep] for row in padded]
+    def grid(index: int) -> list[str]:
+        filled = filled_rows[index]
+        return [filled.get(col, "") for col in keep]
 
     if len(keep) == 1:
-        return "\n\n".join(_within((_uncell(row[0]) for row in grid), room))
+        return "\n\n".join(_within((_uncell(grid(index)[0]) for index in range(len(filled_rows))), room))
 
     # A title row at the top of a table (a horizontally merged title, or title + unit) used as the header row would lose the column
     # names, so it is moved into a paragraph above the table. The rows are walked by index and the grid cut once: cut after every
     # title row, a list of 200,000 one-cell rows above a full row (an 800 KB CSV) took 59 s
     # (Pinned by: test_markdown.py::TestRenderTable::test_many_title_rows_take_linear_time).
-    titles = []
-    while len(keep) >= 2 and len(grid) - len(titles) > 1 and not headless:
-        top = grid[len(titles)]
-        title = _title_of([cell for cell in top if cell], len(keep), top,
-                          grid[len(titles) + 1:len(titles) + 2 + _HEADER_PROBE_ROWS])
+    titles: list[str] = []
+    probed: dict[int, list[str]] = {}  # the rows below the current top row, built once each
+    while len(keep) >= 2 and len(filled_rows) - len(titles) > 1 and not headless:
+        top = probed.pop(len(titles), None) or grid(len(titles))
+        below = [probed.setdefault(index, grid(index))
+                 for index in range(len(titles) + 1, min(len(titles) + 2 + _HEADER_PROBE_ROWS, len(filled_rows)))]
+        title = _title_of([cell for cell in top if cell], len(keep), top, below)
         if title is None or (merged_titles_only and sum(1 for cell in top if cell) == 1
                              and _has_open_cell(kept_rows[len(titles)], keep)):
             break
         titles.append(_uncell(title))
     if titles:
-        grid = grid[len(titles):]
-        keep = [col for col in range(len(grid[0])) if any(row[col] for row in grid)]
-        grid = [[row[col] for col in keep] for row in grid]
+        for filled in filled_rows[:len(titles)]:
+            for col in filled:
+                used[col] -= 1
+        keep = [col for col in keep if used[col]]
         if len(keep) == 1:
-            return "\n\n".join(_within(chain(titles, (_uncell(row[0]) for row in grid)), room))
+            return "\n\n".join(_within(chain(titles, (_uncell(grid(index)[0])
+                                                      for index in range(len(titles), len(filled_rows)))), room))
 
-    if headless:
-        grid = [["" for _ in keep], *grid]
+    body = range(len(titles), len(filled_rows))
+    header = ["" for _ in keep] if headless else grid(body[0])
     lines = [
-        "| " + " | ".join(grid[0]) + " |",
+        "| " + " | ".join(header) + " |",
         "| " + " | ".join("---" for _ in keep) + " |",
     ]
-    parts = _within(chain(titles, lines, ("| " + " | ".join(row) + " |" for row in grid[1:])), room)
+    parts = _within(chain(titles, lines, ("| " + " | ".join(grid(index)) + " |" for index in body[0 if headless else 1:])), room)
     return "\n\n".join(part for part in [*parts[:len(titles)], "\n".join(parts[len(titles):])] if part)
 
 

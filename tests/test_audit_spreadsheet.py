@@ -15,7 +15,7 @@ import pytest
 
 from opendockit import convert
 from opendockit.exceptions import CorruptedDocumentError
-from opendockit.extractors import _sheet_layout, _xlsx_parts, spreadsheet, xls, xml_spreadsheet
+from opendockit.extractors import _sheet_layout, _xlsx_parts, csv_text, spreadsheet, xls, xml_spreadsheet
 from opendockit.extractors._sheet_format import format_cell
 from opendockit.markdown import render_table
 from opendockit.models import ConvertOptions
@@ -26,7 +26,7 @@ from tests.test_spreadsheet_cell_values_and_controls import (
     _vml_control,
     _workbook_with_controls,
 )
-from tests.timing import allowed
+from tests.timing import allowed, fastest
 
 
 _MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -65,9 +65,9 @@ class TestStreamedRowsFarApart:
         counts: list[int] = []
         sheet_text = _sheet_layout._sheet_text
 
-        def counting(rows: list[list[str]], across: object = None) -> str:
+        def counting(rows: list[list[str]], across: object = None, budget: object = None) -> str:
             counts.append(len(rows))
-            return sheet_text(rows, across)
+            return sheet_text(rows, across, budget)
 
         monkeypatch.setattr(_sheet_layout, "_sheet_text", counting)
         return counts
@@ -1144,3 +1144,116 @@ class TestSheetsWithTheSameName:
         result = convert(_two_sheets("Data", "hidden"), "a.xlsx", ConvertOptions(include_hidden_sheets=True))
 
         assert "note on the second sheet" in result.text.split("## Sheet: Data1")[1]
+
+
+_LIMIT = 20_000
+
+
+def _drawn(sections: list) -> int:
+    """Characters of the sections an extractor handed over."""
+    return sum(len(section.text) for section in sections)
+
+
+def _cut_as_unlimited(data: bytes, filename: str) -> None:
+    """The text at `_LIMIT` is the unlimited text cut there, and it is reported as cut."""
+    limited = convert(data, filename, ConvertOptions(max_chars=_LIMIT))
+    whole = convert(data, filename, ConvertOptions(max_chars=None))
+    assert limited.exceeded
+    assert limited.text == whole.text[:_LIMIT].rstrip()
+    assert limited.warnings[-1] == f"The conversion was stopped because the text exceeded {_LIMIT:,} characters."
+
+
+def _merged_down_xlsx(text: str, rows: int, sheets: int = 1) -> bytes:
+    """Sheets whose A1 holds `text`, merged down over `rows` rows, with a number in column B of every row below."""
+    workbook = openpyxl.Workbook()
+    for index in range(sheets):
+        sheet = workbook.active if index == 0 else workbook.create_sheet(f"s{index}")
+        sheet["A1"] = text
+        for row in range(2, rows + 1):
+            sheet.cell(row, 2, row)
+        sheet.merge_cells(f"A1:A{rows}")
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+class TestSheetDrawingStopsAtTheLimit:
+    """The rows of a sheet were counted by their cell text, but the table was drawn to the end before the text was cut: every
+    row is written as wide as the widest row, a `>` cell counted nothing (the bare-quote rule), and a vertically merged value is
+    written on every row it covers. A CSV of 200,000 `>` rows under a 100-column header took 4.2 s and 856 MB; a 30,000-character
+    cell merged over 20,000 rows (108 KB XLSX) 20 s and 3.8 GB; a 4,000-character XLS cell over 40,000 rows gave 160 million
+    characters. The drawing of a sheet now stops at the characters left when its rows were read, and a `>` cell counts."""
+
+    def test_quote_mark_rows_count_toward_the_limit(self):
+        data = b"h" + b",x" * 99 + b"\n" + b">\n" * 30_000
+
+        extraction = csv_text.extract_csv(data, ConvertOptions(max_chars=_LIMIT))
+
+        assert extraction.exceeded
+        assert _drawn(extraction.sections) < 3 * _LIMIT
+        _cut_as_unlimited(data, "a.csv")
+
+    def test_wide_csv_of_short_rows_is_drawn_only_to_the_limit(self):
+        data = b"h" + b",x" * 99 + b"\n" + b"a\n" * 30_000
+
+        assert _drawn(csv_text.extract_csv(data, ConvertOptions(max_chars=_LIMIT)).sections) < 3 * _LIMIT
+        _cut_as_unlimited(data, "a.csv")
+
+    def test_xlsx_vertical_merge_is_drawn_only_to_the_limit(self):
+        data = _merged_down_xlsx("k" * 3_000, 400)
+
+        assert _drawn(spreadsheet.extract_xlsx(data, ConvertOptions(max_chars=_LIMIT)).sections) < 3 * _LIMIT
+        _cut_as_unlimited(data, "a.xlsx")
+
+    def test_a_later_sheet_draws_only_what_is_left(self):
+        """Pins: the drawing of a sheet is counted, so the next sheet does not get the whole limit again."""
+        data = _merged_down_xlsx("k" * 3_000, 20, sheets=12)
+
+        extraction = spreadsheet.extract_xlsx(data, ConvertOptions(max_chars=_LIMIT))
+
+        assert extraction.exceeded
+        assert _drawn(extraction.sections) < 3 * _LIMIT
+        _cut_as_unlimited(data, "a.xlsx")
+
+    def test_xls_vertical_merge_is_drawn_only_to_the_limit(self):
+        rows = [["k" * 3_000, ""]] + [["", "1"] for _ in range(399)]
+        merge = builder.xls_record(0x00E5, struct.pack("<HHHHH", 1, 0, 399, 0, 0))
+
+        extraction = xls.extract_xls(builder.xls_bytes([("Sheet1", rows, merge)]), ConvertOptions(max_chars=_LIMIT))
+
+        assert extraction.exceeded
+        assert _drawn(extraction.sections) < 3 * _LIMIT
+
+    def test_xml_spreadsheet_wide_sheet_of_quote_marks_is_drawn_only_to_the_limit(self):
+        table = ("<Row>" + "".join(_xml_cell(f"h{index}") for index in range(100)) + "</Row>"
+                 + ("<Row>" + _xml_cell("&gt;") + "</Row>") * 30_000)
+        data = _xml_workbook(table)
+
+        assert _drawn(xml_spreadsheet.extract_xml_spreadsheet(data, ConvertOptions(max_chars=_LIMIT)).sections) < 3 * _LIMIT
+        _cut_as_unlimited(data, "a.xml")
+
+    def test_sheet_within_the_limit_is_drawn_whole(self):
+        data = _merged_down_xlsx("k" * 300, 20)
+
+        result = convert(data, "a.xlsx", ConvertOptions(max_chars=6_300))
+
+        assert not result.exceeded
+        assert result.text == convert(data, "a.xlsx", ConvertOptions(max_chars=None)).text
+        assert result.text.count("k" * 300) == 20
+
+    @pytest.mark.timing
+    def test_sparse_rows_cost_their_cells(self):
+        """Pins: a row with one cell far to the right costs about as much as a row of one cell. Each row was built and searched
+        position by position up to that cell: 20,000 rows took 3.2 s against 0.3 s."""
+        def workbook(column: int) -> bytes:
+            book = openpyxl.Workbook()
+            book.active["A1"] = "h"
+            for row in range(1, 10_001):
+                book.active.cell(row, column, row)
+            buffer = BytesIO()
+            book.save(buffer)
+            return buffer.getvalue()
+
+        sparse, narrow = workbook(100), workbook(1)
+
+        assert fastest(lambda: convert(sparse, "a.xlsx")) < 4 * fastest(lambda: convert(narrow, "a.xlsx"))

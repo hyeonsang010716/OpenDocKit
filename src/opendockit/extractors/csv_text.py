@@ -7,7 +7,8 @@ from io import StringIO
 import re
 
 from opendockit.extractors._encoding import decode_text, decoding_warning
-from opendockit.extractors._sheet_layout import _collect_rows, _sheet_text
+from opendockit.extractors._notation import chars_left
+from opendockit.extractors._sheet_layout import _Budget, _collect_rows, _sheet_text
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
@@ -45,8 +46,9 @@ def extract_csv(data: bytes, options: ConvertOptions) -> Extraction:
     warning = decoding_warning(encoding)
     if warning:
         extraction.warnings.append(warning)
+    room = chars_left(extraction, options)
     rows = _collect_rows(_csv_rows(text, style, extraction.warnings, options.max_sheet_cols), options, "CSV", extraction)
-    extraction.sections.append(Section(SectionKind.DOCUMENT, 1, _sheet_text(rows)))
+    extraction.sections.append(Section(SectionKind.DOCUMENT, 1, _sheet_text(rows, budget=_Budget(room))))
     return extraction
 
 

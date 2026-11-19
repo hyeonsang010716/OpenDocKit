@@ -25,6 +25,7 @@ from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
+from opendockit.extractors._notation import chars_left
 from opendockit.extractors._openpyxl_reading import _RAW_OUT_OF_RANGE_SERIALS, _READING, _CellPicture, _CellReading, _is_number
 from opendockit.extractors._package import _XML_PARSER, ZIP_MEMBER_ERRORS, named_part
 from opendockit.extractors._sheet_format import (
@@ -253,6 +254,7 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
                     cells = _with_formulas(cells, formulas, sheet.title, extraction.warnings)
                 if read_only:
                     cells = _until_long_empty_gap(cells, sheet.title, extraction.warnings)
+                room = chars_left(extraction, options)
                 numbers: list[int] = []  # which row of the sheet each row in rows is (for filling merges)
                 rows = _collect_rows(_noting_numbers(cells, numbers), options, sheet.title, extraction)
                 across: _Across = {}
@@ -270,7 +272,7 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
                         extraction.warnings.append(
                             f"The cell comment part of sheet '{sheet.title}' is corrupted, so its comments could not be read.")
                     drawn.append(_comment_block(comments, row_at, extraction, options))
-                _append_sheet(extraction, sheet.title, rows, drawn, across)
+                _append_sheet(extraction, sheet.title, rows, drawn, across, room, options)
                 if extraction.exceeded:
                     break
     finally:
@@ -852,10 +854,15 @@ def _loaded_rows(sheet: object, max_cols: int, offset: int = 0) -> Iterator[tupl
     # 50 sheets (28KB) each with one cell on the very last row (1,048,576) created empty rows one by one and took 28s. Only rows
     # that exist are yielded
     # (Pinned by: test_spreadsheet.py::TestXlsxRowsFarApart).
+    # The row is filled in from the cells it has: built position by position, one cell in column CV made 100 calls per row
     for row in sorted(by_row):
         cells = by_row[row]
-        ordered = [cells.get(column) for column in range(1, max(cells) + 1)]
-        yield row, _with_xlsx_level_mark(ordered, [_cell_text(cell) for cell in ordered])
+        ordered: list[object] = [None] * max(cells)
+        texts = [""] * len(ordered)
+        for column in sorted(cells):
+            ordered[column - 1] = cells[column]
+            texts[column - 1] = _cell_text(cells[column])
+        yield row, _with_xlsx_level_mark(ordered, texts)
 
 
 def _streamed_rows(sheet: object, max_cols: int) -> Iterator[tuple[int, tuple[str, ...]]]:

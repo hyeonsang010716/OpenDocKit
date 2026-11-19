@@ -17,6 +17,7 @@ import xlrd
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
+from opendockit.extractors._notation import chars_left
 from opendockit.extractors._sheet_format import (
     _format_within_length,
     _is_date_number_format,
@@ -90,6 +91,7 @@ def extract_xls(data: bytes, options: ConvertOptions) -> Extraction:
         blank = placeholder_zeros.get(sheet_index, set())  # formula cells whose 0 in the result slot cannot be trusted
 
         offset = _xls_first_used_column(sheet)  # the column limit counts from the first used column (`_first_used_column`)
+        room = chars_left(extraction, options)
         rows = _collect_rows((_xls_row(book, sheet, row_index, blank, options.max_sheet_cols, offset, not_finite)
                               for row_index in range(sheet.nrows)), options, sheet.name, extraction)
         across = _fill_xls_merges(sheet, rows, extraction.warnings, options.max_sheet_cols, offset)
@@ -100,7 +102,7 @@ def extract_xls(data: bytes, options: ConvertOptions) -> Extraction:
                      for (row, column), note in sheet.cell_note_map.items()]
             row_at = _SheetRows(dict(enumerate(rows, start=1)), offset)
             drawn.append(_comment_block(notes, row_at, extraction, options))
-        _append_sheet(extraction, sheet.name, rows, drawn, across)
+        _append_sheet(extraction, sheet.name, rows, drawn, across, room, options)
         if extraction.exceeded:
             break
     if not_finite:
