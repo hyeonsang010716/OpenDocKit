@@ -686,8 +686,9 @@ class TestTargetInAnotherCase:
         assert (result.text, result.warnings) == (expected.text, expected.warnings)
 
     def test_xlsx_target_written_in_another_case(self):
-        data = builder.zip_with(builder.xlsx_bytes(), edit={"xl/_rels/workbook.xml.rels": lambda xml: xml.replace(
-            "worksheets/sheet1.xml", "Worksheets/Sheet1.XML")})
+        data = builder.zip_with(builder.xlsx_bytes(), edit={
+            "xl/_rels/workbook.xml.rels": lambda xml: xml.replace("worksheets/sheet1.xml", "Worksheets/Sheet1.XML"),
+            "[Content_Types].xml": lambda xml: xml.replace("/xl/worksheets/sheet1.xml", "/xl/Worksheets/Sheet1.XML")})
         expected = convert(builder.xlsx_bytes(), "a.xlsx")
 
         result = convert(data, "a.xlsx")
@@ -703,6 +704,17 @@ class TestTargetInAnotherCase:
                          "a.xlsx")
 
         assert (result.text, len(result.images), result.warnings) == (expected.text, 1, [])
+
+    def test_xlsx_member_also_named_as_it_is_keeps_its_name(self):
+        """A content-type override in another case than the member and its relationship: renamed after the override, the
+        sheet would no longer be found behind the relationship."""
+        data = builder.zip_with(builder.xlsx_bytes(), edit={"[Content_Types].xml": lambda xml: xml.replace(
+            "/xl/worksheets/sheet1.xml", "/xl/worksheets/Sheet1.xml")})
+        expected = convert(builder.xlsx_bytes(), "a.xlsx")
+
+        result = convert(data, "a.xlsx")
+
+        assert (result.text, result.warnings) == (expected.text, expected.warnings)
 
     def test_xlsx_two_members_that_differ_only_in_case_are_not_guessed_between(self):
         import zipfile

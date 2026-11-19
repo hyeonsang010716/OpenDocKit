@@ -371,9 +371,10 @@ def members_named_as_referenced(data: bytes) -> bytes | None:
     stored as `xl/worksheets/Sheet2.xml` behind the target `worksheets/sheet2.xml` was left out of the workbook without a word,
     and a workbook part or styles part in another case rejected the document or lost every display format
     (Pinned by: test_office_robustness.py::TestTargetInAnotherCase::test_xlsx_parts_in_another_case). A member is renamed only
-    when it is the one member of that name ignoring case and every reference names it in the same case; nothing is guessed
-    between two. The relationships of a renamed part are read again under its new name, as their relative targets are resolved
-    against its folder. A percent-encoded target is looked up decoded as well (`named_part`).
+    when it is the one member of that name ignoring case, every reference names it in the same case and none names it as it is,
+    so a renamed member is never one a reference found before; nothing is guessed between two. The relationships of a renamed
+    part are read again under its new name, as their relative targets are resolved against its folder. A percent-encoded target
+    is looked up decoded as well (`named_part`).
     """
     with zipfile.ZipFile(BytesIO(data)) as archive:
         names = set(archive.namelist())
@@ -381,13 +382,14 @@ def members_named_as_referenced(data: bytes) -> bytes | None:
         for name in names:
             by_case[name.lower()] = None if name.lower() in by_case else name
         renamed: dict[str, str] = {}  # member → the name it is referenced by
-        ambiguous: set[str] = set()
+        ambiguous: set[str] = set()  # members referenced in two cases, and members some reference names as they are
 
         def note(reference: str) -> str | None:
             """Note the member `reference` names in another case; the member's name as it will be stored, or None."""
             candidates = (reference, posixpath.normpath(unquote(reference))) if "%" in reference else (reference,)
             for candidate in candidates:
                 if candidate in names:
+                    ambiguous.add(candidate)
                     return None
                 member = by_case.get(candidate.lower())
                 if member is None:
