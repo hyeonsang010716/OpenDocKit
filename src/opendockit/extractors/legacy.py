@@ -509,10 +509,13 @@ def _kill(process: subprocess.Popen, own_group: bool) -> None:
         except (ProcessLookupError, PermissionError):
             pass
     elif process.poll() is None:
-        # Windows: `taskkill /T` ends the launcher together with the `soffice.bin` it started.
+        # Windows: `taskkill /T` ends the launcher together with the `soffice.bin` it started. CREATE_NO_WINDOW, as for the
+        # guard: started from a process without a console (pythonw, a service, an app's MCP server) a console program
+        # opens a window of its own.
         try:
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], stdin=subprocess.DEVNULL,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.TimeoutExpired):
             pass
     if process.poll() is None:
