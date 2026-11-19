@@ -967,11 +967,17 @@ class TestGroupedHeaderBetweenRules:
     @pytest.mark.parametrize(("groups", "lower", "header"), [
         (("1학기", "2학기"), ("1", "2", "1", "2"), "| 구분 | 1학기 1 | 1학기 2 | 2학기 1 | 2학기 2 |"),
         (("Week", "Month"), ("1", "2", "3", "4"), "| 구분 | Week 1 | Week 2 | Month 3 | Month 4 |"),
+        (("남성", "여성"), ("10", "20", "10", "20"), "| 구분 | 남성 10 | 남성 20 | 여성 10 | 여성 20 |"),
+        (("남성", "여성"), ("5%", "10%", "5%", "10%"), "| 구분 | 남성 5% | 남성 10% | 여성 5% | 여성 10% |"),
+        (("남성", "여성"), ("95", "100", "28", "30"), "| 구분 | 남성 95 | 남성 100 | 여성 28 | 여성 30 |"),
+        (("남성", "여성"), ("0.5", "1.0", "0.5", "1.0"), "| 구분 | 남성 0.5 | 남성 1.0 | 여성 0.5 | 여성 1.0 |"),
+        (("남성", "여성"), ("계", "1", "계", "1"), "| 구분 | 남성 계 | 남성 1 | 여성 계 | 여성 1 |"),
     ])
     def test_upper_cell_over_column_numbers(self, groups, lower, header):
-        """An upper cell does not group numeric values (a data row with a wrapped label), but numbers counting up by one under
-        it are the numbers of its columns: the header fell apart into '구분' above the table, `| | 1 | 2 | 1 | 2 |` and the
-        group names after it."""
+        """Numbers under an upper cell name its columns (ages, shares, column numbers): the header fell apart into '구분'
+        above the table, `| | 10 | 20 | 10 | 20 |` and the group names after it while the upper cell did not group numeric
+        values. What tells the first line of a wrapped data cell from an upper cell is where it stands
+        (`_grouped_columns`, `_under_a_full_row`), not what the lines under it say."""
         text = convert(_grouped_header_statement(groups, lower=lower), "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert header in text and "| 20대 | 45.2 | 51.0 | 47.8 | 53.3 |" in text
@@ -1038,10 +1044,10 @@ class TestTwoDataRowsBetweenRules:
 
 
 def _ruled_under_every_row(rows: list[tuple[list[str], ...]], lefts: list[float], *, bottom_aligned: bool,
-                           rights: frozenset[int] = frozenset()) -> bytes:
+                           rights: frozenset[int] = frozenset(), centred: frozenset[int] = frozenset()) -> bytes:
     """A table ruled under every row, without column rules (Excel's default borders): each cell is a list of lines, drawn from
-    its left edge in `lefts` (up to it for the columns in `rights`), the rows top-aligned or bottom-aligned (Excel's default
-    alignment)."""
+    its left edge in `lefts` (up to it for the columns in `rights`, centred on it for those in `centred`), the rows top-aligned
+    or bottom-aligned (Excel's default alignment)."""
     def draw(pdf, index):
         pdf.setFont("Helvetica", 10)
         pdf.drawString(60, 800, "Expenses by department for the first quarter of the year.")
@@ -1053,7 +1059,9 @@ def _ruled_under_every_row(rows: list[tuple[list[str], ...]], lefts: list[float]
             for column, (left, cell) in enumerate(zip(lefts, row, strict=True)):
                 first = y - height + 5 + (len(cell) - 1) * 12 if bottom_aligned else y - 13
                 for number, line in enumerate(cell):
-                    (pdf.drawRightString if column in rights else pdf.drawString)(left, first - number * 12, line)
+                    draw_line = (pdf.drawRightString if column in rights else pdf.drawCentredString if column in centred
+                                 else pdf.drawString)
+                    draw_line(left, first - number * 12, line)
             y -= height
             pdf.line(60, y, 540, y)
         pdf.drawString(60, y - 30, "Amounts are in thousands of won.")
@@ -1088,6 +1096,78 @@ class TestDataRowsBetweenRulesWithAWrappedCell:
                        "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert "| B-300 | Hydraulic pump with<br>mounting bracket | 12 | 4,800 | late |" in text
+
+    @pytest.mark.parametrize(("row", "lefts", "expected"), [
+        ((["B-300"], ["Hydraulic pump with", "mounting bracket"], ["12"], ["4,800"], ["late, supplier", "was told"]),
+         [64, 130, 330, 390, 470], "| B-300 | Hydraulic pump with<br>mounting bracket | 12 | 4,800 | late, supplier<br>was told |"),
+        ((["Research and development", "(incl. licences)"], ["8,400", "(estimate)"], ["8,150"], ["9,020"], ["ok"]),
+         [64, 230, 320, 410, 470], "| Research and development<br>(incl. licences) | 8,400<br>(estimate) | 8,150 | 9,020 | ok |"),
+    ], ids=["two-wrapped-cells", "wrapped-label-and-value"])
+    def test_row_with_two_wrapped_cells_stays_one_row(self, row, lefts, expected):
+        """Top-aligned, with two lines under the full row of values: kept out of the joining, the row was split in two, as
+        the rows of a table take a single line under a row into its cell but two for a row of their own
+        ('| | mounting bracket | | | was told |'). The band is joined as a data row (`_is_data_row`)."""
+        rows = [(["Code"], ["Description"], ["Qty"], ["Price"], ["Note"]), (["A-100"], ["Steel bolt"], ["40"], ["1,200"], ["ok"]),
+                row, (["C-500"], ["Control panel"], ["3"], ["9,900"], ["ok"])]
+
+        text = convert(_ruled_under_every_row(rows, lefts, bottom_aligned=False), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert expected in text and "| C-500 | Control panel | 3 | 9,900 | ok |" in text
+
+    def test_centred_wrapped_cell_of_a_bottom_aligned_row_stays_in_its_cell(self):
+        """A centred wrapped cell outside the label column shares no edge with its second line, but its band lies under a full
+        row of the same table (`_under_a_full_row`), where no two-level header is: its first line was put in front of every
+        value of its row."""
+        rows = [(["Code"], ["Description"], ["Qty"], ["Price"], ["Note"]), (["A-100"], ["Steel bolt"], ["40"], ["1,200"], ["ok"]),
+                (["B-300"], ["Hydraulic pump with", "mounting bracket"], ["12"], ["4,800"], ["late"]),
+                (["C-500"], ["Control panel"], ["3"], ["9,900"], ["ok"])]
+
+        text = convert(_ruled_under_every_row(rows, [64, 225, 330, 390, 470], bottom_aligned=True, centred=frozenset({1})),
+                       "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| B-300 | Hydraulic pump with<br>mounting bracket | 12 | 4,800 | late |" in text
+
+    def test_wrapped_label_of_the_first_row_under_the_top_rule_is_no_upper_header_cell(self):
+        """A table without a header row whose first row has a wrapped label, bottom-aligned: the first line of the label stands
+        in the label column, where no upper header cell is (`_grouped_columns`)."""
+        rows = [(["Research and development", "(incl. licences)"], ["8,400"], ["8,150"], ["9,020"]),
+                (["Sales"], ["1,200"], ["1,350"], ["1,100"]), (["Marketing"], ["2,100"], ["2,300"], ["1,950"]),
+                (["Total"], ["11,700"], ["11,800"], ["12,070"])]
+
+        text = convert(_ruled_under_every_row(rows, [64, 230, 320, 410], bottom_aligned=True), "a.pdf",
+                       ConvertOptions(page_markers=False)).text
+
+        assert "| Research and development<br>(incl. licences) | 8,400 | 8,150 | 9,020 |" in text
+
+
+class TestStackedHeaderOfNumbersBetweenRules:
+    """A header stacked in two lines whose first line is bare numbers ('3 | 6 | 12' over 'months'): its top row is a full row
+    with value pieces, as a data row with a wrapped cell is, but it stands first in its table with several cells stacked,
+    so it is joined as a header
+    (`_is_data_row`). It was left as '| Term | 3 | 6 | 12 |' with a row '| | months | months | months |' under it, and
+    in a three-rule statement as a separate table of three columns."""
+
+    def test_header_ruled_under_every_row(self):
+        rows = [(["Term"], ["3", "months"], ["6", "months"], ["12", "months"]), (["Fixed deposit"], ["2.10"], ["2.35"], ["2.80"]),
+                (["Savings plan"], ["1.90"], ["2.05"], ["2.40"]), (["Young saver"], ["3.00"], ["3.20"], ["3.50"])]
+
+        text = convert(_ruled_under_every_row(rows, [64, 230, 320, 410], bottom_aligned=False), "a.pdf",
+                       ConvertOptions(page_markers=False)).text
+
+        assert "| Term | 3 months | 6 months | 12 months |\n| --- | --- | --- | --- |\n| Fixed deposit | 2.10 | 2.35 | 2.80 |" in text
+
+    @pytest.mark.parametrize(("first", "second", "header"), [
+        (("3", "6", "12"), ("개월", "개월", "개월"), "| 과목 | 주석 | 3 개월 | 6 개월 | 12 개월 |"),
+        (("100%", "50%", "30%"), ("지분", "지분", "지분"), "| 과목 | 주석 | 100% 지분 | 50% 지분 | 30% 지분 |"),
+        (("12", "11", "10"), ("(2025년)", "(2024년)", "(2023년)"), "| 과목 | 주석 | 12 (2025년) | 11 (2024년) | 10 (2023년) |"),
+    ], ids=["months", "shares", "terms"])
+    def test_header_of_a_three_rule_statement(self, first, second, header):
+        data = _three_rule_statement([(12, list(zip((330, 415, 490), first, strict=True))), (18, [(153, "과목"), (260, "주석")]),
+                                      (24, list(zip((330, 415, 490), second, strict=True)))])
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert f"{header}\n| --- | --- | --- | --- | --- |\n| Ⅰ. 매출액 | 23 | 152,340 | 138,920 | 13,420 |" in text
 
 
 def _gapped_table(gap: float, rows: list[tuple[str, ...]]) -> str:
