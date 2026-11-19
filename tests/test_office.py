@@ -1688,6 +1688,19 @@ class TestDocxNumbering:
 
         assert result.text == "1. 첫째\n2. 둘째\n\n일반 문단\n\n3. 셋째\n  - 3.1. 하위\n4. 넷째\n1. 새 목록\n2. 새 목록 둘째\n3. 이어서"
 
+    def test_start_override_of_one_list_is_not_the_start_of_another(self):
+        """A start override (`Set numbering value`) of a sub-level in one list was kept in the shared numbering definition, so
+        every list after it began that level at the override: the sub-items under the first list's later items began at `1.3.`.
+        The override is that list's own; the first list starts its sub-level from the definition's start."""
+        override = '<w:lvlOverride w:ilvl="1"><w:startOverride w:val="3"/></w:lvlOverride>'
+        body = "".join([_paragraph("A", 1), _paragraph("x", 1, 1), _paragraph("B", 1), _paragraph("continues", 2, 1),
+                        _paragraph("C", 1), _paragraph("again", 1, 1)])
+        data = _docx_with_body(body, numbering=self._ABSTRACT + _number_list(1) + _number_list(2, 0, override))
+
+        lines = [line.strip() for line in convert(data, "a.docx").text.splitlines() if line]
+
+        assert lines == ["1. A", "- 1.1. x", "2. B", "- 2.3. continues", "3. C", "- 3.1. again"]
+
     def test_style_numbering_is_inherited_through_based_on(self):
         """Style numbering (numPr) was not looked up in the inherited style (basedOn), so the number was dropped and later numbers
         shifted. The level of a style's numbering is the numbering level that points to that style (w:lvl/w:pStyle)."""

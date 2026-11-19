@@ -167,6 +167,7 @@ class _DocxRenderer:
         self._number_lists = _load_numbering(document)
         # There is one counter per number definition (abstractNum). Numbered lists (numId) already seen in the body are noted separately.
         self._numberings: dict[str, Numbering] = {}
+        self._base_starts: dict[str, list[int]] = {}  # abstractNum id → the start of each level as its counter began
         self._started_lists: set[str] = set()
         # Footnote / endnote parts (kind → (part, root)) and the references seen in the body with their labels. Only notes with
         # something to write take a label (`_written_notes`)
@@ -832,16 +833,21 @@ class _DocxRenderer:
         definition wholesale (w:lvlOverride/w:lvl) shares only the counter and keeps its own look. The start number is left at the
         value already reflected in the counter
         (Pinned by: test_office.py::TestDocxNumbering::test_level_override_with_its_own_definition_replaces_the_level).
+        The start of a level with a start override is that list's own: kept in the shared definition, it became the start of that
+        level for every list after it, so the sub-items of the first list under a later item began at `c)`, the override of
+        another list (Pinned by: test_office.py::TestDocxNumbering::test_start_override_of_one_list_is_not_the_start_of_another).
         """
-        if number_list.abstract_id not in self._numberings:
-            self._numberings[number_list.abstract_id] = Numbering(_number_levels(number_list.levels), mark="%")
-        numbering = self._numberings[number_list.abstract_id]
-        numbering.levels = [replace(own, start=current.start)
-                            for own, current in zip(_number_levels(number_list.levels), numbering.levels, strict=True)]
+        abstract_id = number_list.abstract_id
+        if abstract_id not in self._numberings:
+            self._numberings[abstract_id] = Numbering(_number_levels(number_list.levels), mark="%")
+            self._base_starts[abstract_id] = [level.start for level in self._numberings[abstract_id].levels]
+        numbering = self._numberings[abstract_id]
+        numbering.levels = [replace(own, start=number_list.restarts.get(index, base))
+                            for index, (own, base) in enumerate(zip(_number_levels(number_list.levels),
+                                                                    self._base_starts[abstract_id], strict=True))]
         if num_id not in self._started_lists:
             self._started_lists.add(num_id)
-            for level, start in number_list.restarts.items():
-                numbering.levels[level] = replace(numbering.levels[level], start=start)
+            for level in number_list.restarts:
                 for restarted in [key for key in numbering.counters if key >= level]:
                     del numbering.counters[restarted]
         return numbering
