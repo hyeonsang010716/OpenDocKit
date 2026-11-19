@@ -1308,6 +1308,23 @@ class TestHyperlinks:
 
         assert text == "[링크](https://example.com) xjavascript:alert(1)(덧말)"
 
+    def test_hwp_control_text_cannot_forge_strike_or_script_marks(self, monkeypatch):
+        """The script and strike marks (U+0002-U+0006) in the text of a ruby or in the prefix and suffix of an auto number wrote
+        `~~본말~~(^x)` and `~~3~~` around text that is neither struck nor raised. Text read from a control has no control
+        characters."""
+        record = builder.hwp_record
+        ruby = "tdut"[::-1].encode("latin-1") + b"".join(
+            struct.pack("<H", len(text)) + text.encode("utf-16-le") for text in ("\x05본말\x06", "\x02x\x03")) + b"\x00" * 10
+        number = "atno"[::-1].encode("latin-1") + struct.pack("<IHHHH", 4, 3, 0, 5, 6)  # kind 4: a table number
+        section = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("가 ", (23, "tdut"), " 나 ", (18, "atno"), " 끝")),
+            record(TAG_CTRL_HEADER, 1, ruby),
+            record(TAG_CTRL_HEADER, 1, number),
+        ])
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "가 본말(x) 나 3 끝"
+
 
 class TestEquations:
     """Hangul equations were emitted only as the raw script (`[Equation: {1} over {n}]`). They are converted to LaTeX, and the raw

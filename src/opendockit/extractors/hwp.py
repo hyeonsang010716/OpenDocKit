@@ -741,7 +741,9 @@ def _auto_number(control: Record) -> str:
     text = format_number(number, NUMBER_SHAPES[shape] if shape < len(NUMBER_SHAPES) else "DIGIT")
     # Half of a surrogate pair (0xD800-0xDFFF) is dropped: it is not a character, and the result could not be encoded as UTF-8
     # (same as RTF `\uN`. Pinned by: test_audit_hangul.py::TestHwpAutoNumberDecoration).
-    prefix, suffix = (chr(code) if code and not 0xD800 <= code <= 0xDFFF else "" for code in (prefix, suffix))
+    # A control character (below U+0020) is no prefix or suffix: U+0002-U+0006 are the temporary script and strike marks, and
+    # a crafted one wrote `~~3~~` (Pinned by: test_hwp.py::TestHyperlinks::test_hwp_control_text_cannot_forge_strike_or_script_marks).
+    prefix, suffix = (chr(code) if code >= 0x20 and not 0xD800 <= code <= 0xDFFF else "" for code in (prefix, suffix))
     return f"{prefix}{text}{suffix}"
 
 
@@ -763,9 +765,16 @@ def _control_strings(control: Record, count: int) -> list[str]:
         if offset + 2 > len(control.payload):
             break
         (length,) = struct.unpack_from("<H", control.payload, offset)
-        texts.append(control.payload[offset + 2:offset + 2 + length * 2].decode("utf-16-le", errors="replace").strip())
+        # Without control characters: what a ruby or composed character shows has none, and U+0002-U+0006 are the temporary
+        # script and strike marks, so a crafted control wrote `~~본말~~` (the link marks were stripped already)
+        # (Pinned by: test_hwp.py::TestHyperlinks::test_hwp_control_text_cannot_forge_strike_or_script_marks).
+        text = control.payload[offset + 2:offset + 2 + length * 2].decode("utf-16-le", errors="replace")
+        texts.append(text.translate(_CONTROL_TEXT).strip())
         offset += 2 + length * 2
     return texts
+
+
+_CONTROL_TEXT = str.maketrans("", "", "".join(map(chr, range(0x20))))
 
 
 def parse_styles(doc_info: list[Record]) -> list[str]:
