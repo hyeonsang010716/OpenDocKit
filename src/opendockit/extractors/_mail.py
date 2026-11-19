@@ -11,7 +11,7 @@ import email.base64mime
 from email.errors import HeaderParseError, InvalidBase64LengthDefect
 import email.header
 from email.header import Header, decode_header
-from email.message import Message, _formatparam
+from email.message import Message, _parseparam
 from email.parser import BytesHeaderParser
 import email.quoprimime
 import email.utils
@@ -427,29 +427,44 @@ def _as_text(part: Message, text: str) -> None:
     """Make `part` a UTF-8 text/plain part holding `text`."""
     del part["Content-Transfer-Encoding"]
     part.set_payload(text.encode())
-    _set_plain_type(part)
-    part.set_param("charset", "utf-8")
+    _set_plain_type(part, charset="utf-8")
 
 
 # The Content-Type parameters read from a part once it is text/plain: its charset, the flowed format (`plain_part_text`) and
 # the name `get_filename` falls back on (`_is_attachment`, `_attachment_name`).
-_PLAIN_TEXT_PARAMETERS = ("charset", "format", "delsp", "name")
+_PLAIN_TEXT_PARAMETERS = frozenset({"charset", "format", "delsp", "name"})
+# The name of a parameter segment without its RFC 2231 marks (`name*`, `name*0*`)
+_PARAMETER_NAME = re.compile(r"[^=*]*")
 
 
-def _set_plain_type(part: Message) -> None:
+def _set_plain_type(part: Message, charset: str | None = None) -> None:
     """Make the type of `part` text/plain, as `Message.set_type` does, keeping the parameters read from a text/plain part
-    (`_PLAIN_TEXT_PARAMETERS`) with the values `get_param` gives.
+    (`_PLAIN_TEXT_PARAMETERS`) as they are written, so `get_param` reads the values it read from the original header; with
+    `charset`, that charset instead of the part's own.
 
     `set_type` adds the parameters back one by one with `set_param`, which parses the whole header again each time, so a
     Content-Type of many parameters took the square of their number: `multipart/mixed` followed by `;x` 4,000 times, an 8 KB
     mail, took 20 s, and a delivery report with 1,000 distinct parameters 22 s
     (Pinned by: test_core_malformed_mail_and_html.py::TestMultipartWithoutUsableBoundary::test_many_parameters_take_linear_time).
+    The segments are kept as written, not decoded and written out again: an RFC 2231 value (`name*=euc-kr''%C7%D1.txt`) is
+    encoded back with its own charset, which failed for every Korean or unknown charset and rejected the whole mail, and
+    raw 8-bit bytes are kept as bytes, so the attachment name still reads them (`_attachment_name`)
+    (Pinned by: test_core_malformed_mail_and_html.py::TestMultipartWithoutUsableBoundary::test_parameters_are_kept_as_written).
     """
-    kept = [(name, part.get_param(name)) for name in _PLAIN_TEXT_PARAMETERS]
+    value = part.get("Content-Type")
+    if isinstance(value, Header):  # raw 8-bit bytes, kept as the parser keeps them
+        value = b"".join(chunk for chunk, _ in decode_header(value)).decode("ascii", "surrogateescape")
+    kept = []
+    for segment in _parseparam(value)[1:] if value is not None else []:
+        name = _PARAMETER_NAME.match(segment).group().strip().lower()
+        if name in _PLAIN_TEXT_PARAMETERS and not (charset and name == "charset"):
+            kept.append(segment)
+    if charset:
+        kept.append(f"charset={charset}")
     del part["MIME-Version"]
     part["MIME-Version"] = "1.0"
     del part["Content-Type"]
-    part["Content-Type"] = "; ".join(["text/plain", *(_formatparam(name, value) for name, value in kept if value is not None)])
+    part["Content-Type"] = "; ".join(["text/plain", *kept])
 
 
 def _mail_without_mime_version(headers: bytes) -> bool:

@@ -150,6 +150,27 @@ class TestMultipartWithoutUsableBoundary:
 
         assert expected in convert(data, "a.eml").text
 
+    @pytest.mark.parametrize("kind", ["multipart/mixed", "message/delivery-status", "text/rfc822-headers"])
+    @pytest.mark.parametrize("parameter", [
+        b"name*=euc-kr''%C7%D1.txt", b"name*=ks_c_5601-1987''%C7%D1.txt", b"name*=x-unknown''%C7%D1.txt",
+        b"name*=utf-8''%ED%95%9C.txt", b"name*0*=utf-8''%ED%95%9C; name*1=.txt",
+        b'name="' + "한.txt".encode("cp949") + b'"', b'name="' + "한.txt".encode() + b'"',
+    ], ids=["euc-kr", "ks_c_5601-1987", "unknown charset", "utf-8", "continued", "raw cp949", "raw utf-8"])
+    def test_parameters_are_kept_as_written(self, kind, parameter):
+        """Decoded and written out again, an RFC 2231 name was encoded back with its own charset: a Korean or unknown charset
+        failed and the whole mail was rejected as corrupted, UTF-8 was encoded twice (`í .txt`), and raw 8-bit bytes became
+        replacement characters (`��.txt`)."""
+        data = (_HEAD.encode() + b'Content-Type: multipart/mixed; boundary="B"\r\n\r\n--B\r\nContent-Type: text/plain\r\n\r\nbody\r\n'
+                b"--B\r\nContent-Type: " + kind.encode() + b"; " + parameter + b"\r\n\r\nStatus: 5.0.0\r\n--B--\r\n")
+
+        assert convert(data, "a.eml").warnings == ["1 mail attachment(s) (한.txt) were not read. Convert attachments separately."]
+
+    @pytest.mark.parametrize("parameters", ["; charset*=x-unknown''%C7%D1", "; charset*=euc-kr''euc-kr; format*=euc-kr''%C7%D1"])
+    def test_a_charset_that_cannot_be_written_back_does_not_reject_the_mail(self, parameters):
+        data = (_HEAD + f"Content-Type: multipart/mixed{parameters}\r\n\r\n").encode() + "본문 글\r\n".encode("euc-kr")
+
+        assert "본문 글" in convert(data, "a.eml").text
+
     def test_a_name_makes_it_an_attachment_as_before(self):
         data = (_HEAD + 'Content-Type: multipart/mixed; boundary="B"\r\n\r\n--B\r\nContent-Type: text/plain\r\n\r\nbody\r\n'
                 '--B\r\nContent-Type: multipart/mixed; name="notes.txt"; x=1\r\n\r\nnotes\r\n--B--\r\n').encode()
