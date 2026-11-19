@@ -229,12 +229,13 @@ class TestArguments:
         assert process.stderr.decode() == ""
         assert process.returncode == 1
 
-    def test_version_to_a_closed_pipe_ends_quietly(self, tmp_path):
-        """argparse's version action exited before the output was flushed, so `opendockit --version | true` ended with
-        'Exception ignored … BrokenPipeError' and exit code 120."""
+    @pytest.mark.parametrize("flag", ["--version", "--help", "-h"])
+    def test_version_and_help_to_a_closed_pipe_end_quietly(self, tmp_path, flag):
+        """argparse's version and help actions exited before the output was flushed, so `opendockit --version | true` and
+        `opendockit --help | true` ended with 'Exception ignored … BrokenPipeError' and exit code 120."""
         import subprocess
 
-        process = subprocess.Popen([sys.executable, "-m", "opendockit", "--version"], cwd=tmp_path,
+        process = subprocess.Popen([sys.executable, "-m", "opendockit", flag], cwd=tmp_path,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         process.stdout.close()  # before the version is printed, which takes longer than starting the process
@@ -243,6 +244,33 @@ class TestArguments:
 
         assert stderr == ""
         assert code == 1
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="closes file descriptor 2 in the child before it starts")
+    @pytest.mark.parametrize(("args", "code"), [(["missing.txt"], 1), (["a.png", "--count"], 0)], ids=["error", "warning"])
+    def test_messages_go_nowhere_when_standard_error_is_closed(self, tmp_path, args, code):
+        """With file descriptor 2 closed sys.stderr is None, and `print(file=None)` writes to standard output: 'File not
+        found' and the warnings went into the output."""
+        import os
+        import subprocess
+
+        (tmp_path / "a.png").write_bytes(builder.png_bytes())
+        process = subprocess.run([sys.executable, "-m", "opendockit", *args], cwd=tmp_path, stdout=subprocess.PIPE,
+                                 preexec_fn=lambda: os.close(2), timeout=60)
+
+        output = process.stdout.decode()
+        assert (output == "") if code else output.strip().isdigit()
+        assert process.returncode == code
+
+    def test_help_is_printed_as_before(self, capsys, monkeypatch):
+        from opendockit import cli
+
+        monkeypatch.setattr("sys.argv", ["opendockit", "--help"])
+        with pytest.raises(SystemExit) as exit_info:
+            cli.main()
+
+        assert exit_info.value.code == 0
+        out = capsys.readouterr().out
+        assert out.startswith("usage: opendockit [-h] [--json | --count]") and "  -h, --help  " in out
 
     def test_version_is_printed_without_a_file(self, capsys, monkeypatch):
         """The other two commands print their version; this one wanted a file first."""

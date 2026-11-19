@@ -29,7 +29,8 @@ from opendockit.describe import DEFAULT_MODEL
 
 def main() -> int:
     _write_output_as_utf8()
-    parser = argparse.ArgumentParser(description="Convert a document to Markdown ready for LLM input.")
+    parser = argparse.ArgumentParser(description="Convert a document to Markdown ready for LLM input.", add_help=False)
+    parser.add_argument("-h", "--help", action=_Help, nargs=0, help="show this help message and exit")
     parser.add_argument("path")
     # Given both, only --count was honored and --json was silently ignored
     # (Pinned by: test_cli.py::TestArguments::test_count_and_json_cannot_be_used_together).
@@ -55,16 +56,16 @@ def main() -> int:
         if describer is not None and result.images:
             result = asyncio.run(_describe(result, describer))
     except ConversionError as exc:
-        print(f"[{exc.code}] {exc}", file=sys.stderr)
+        _error(f"[{exc.code}] {exc}")
         return 1
     except _DescriberUnavailable as exc:
-        print(f"Cannot use --describe: {exc}", file=sys.stderr)
+        _error(f"Cannot use --describe: {exc}")
         return 1
     except FileNotFoundError:
-        print(f"File not found: {path}", file=sys.stderr)
+        _error(f"File not found: {path}")
         return 1
     except OSError:
-        print(f"Could not read the file (it may be a directory, or permission may be missing): {path}", file=sys.stderr)
+        _error(f"Could not read the file (it may be a directory, or permission may be missing): {path}")
         return 1
 
     return _write(lambda: _print_result(result, args))
@@ -92,10 +93,27 @@ def _write(print_output: Callable[[], None]) -> int:
     return 0
 
 
+def _error(message: str) -> None:
+    """A message or warning on standard error, or nowhere when it is closed: `print(file=None)` writes to standard output, so
+    with `2>&-` 'File not found' and the warnings went into the output
+    (Pinned by: test_cli.py::TestArguments::test_messages_go_nowhere_when_standard_error_is_closed)."""
+    if sys.stderr is not None:
+        print(message, file=sys.stderr)
+
+
+class _Help(argparse.Action):
+    """`--help` printed through `_write`, as `--version` is: argparse's own help action exits before anything is flushed, so
+    `opendockit --help | true` ended with 'Exception ignored … BrokenPipeError' and exit code 120
+    (Pinned by: test_cli.py::TestArguments::test_version_and_help_to_a_closed_pipe_end_quietly)."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser.exit(_write(parser.print_help))
+
+
 class _Version(argparse.Action):
     """`--version` printed through `_write`: argparse's own version action exits before anything is flushed, so
     `opendockit --version | true` ended with 'Exception ignored … BrokenPipeError' and exit code 120
-    (Pinned by: test_cli.py::TestArguments::test_version_to_a_closed_pipe_ends_quietly)."""
+    (Pinned by: test_cli.py::TestArguments::test_version_and_help_to_a_closed_pipe_end_quietly)."""
 
     def __call__(self, parser, namespace, values, option_string=None):
         parser.exit(_write(lambda: print(f"opendockit {__version__}")))
@@ -119,9 +137,9 @@ def _print_result(result: ConversionResult, args: argparse.Namespace) -> None:
     if args.count:
         print(f"{result.char_count}{' exceeded' if result.exceeded else ''}")
         if result.images and not args.describe:
-            print(f"[warning] The text in {len(result.images)} picture(s) was not counted. Add --describe to include it.", file=sys.stderr)
+            _error(f"[warning] The text in {len(result.images)} picture(s) was not counted. Add --describe to include it.")
         for warning in result.warnings:
-            print(f"[warning] {warning}", file=sys.stderr)
+            _error(f"[warning] {warning}")
     elif args.json:
         payload = asdict(result)
         for key in ("base_warnings", "options", "fallbacks", "counted", "marker_key", "time_limited", "reached_sections"):
@@ -138,7 +156,7 @@ def _print_result(result: ConversionResult, args: argparse.Namespace) -> None:
     else:
         print(result.text)
         for warning in result.warnings:
-            print(f"[warning] {warning}", file=sys.stderr)
+            _error(f"[warning] {warning}")
 
 
 class _DescriberUnavailable(Exception):
