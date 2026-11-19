@@ -429,8 +429,22 @@ class TestMathMl:
         ("\\url{a%b}{\\text{%}} % end\n+ z", "\\url{a%b}{\\text{%}} + z"),
     ])
     def test_a_percent_sign_inside_braces_is_no_comment(self, tex, latex):
-        """MathJax reads the argument of a command in braces as it is written, so only a `%` outside braces starts a comment:
+        """MathJax reads the argument of a command that takes text as it is written, so a `%` there is no comment:
         `\\text{Growth 5%}` was cut in the middle of its group, `$\\text{Growth 5$`, and the rest of the formula was lost."""
+        html = f'<p>a <script type="math/tex">{tex}</script> b</p>'
+
+        assert convert(html.encode(), "a.html").text == f"a ${latex}$ b"
+
+    @pytest.mark.parametrize(("tex", "latex"), [
+        ("\\frac{a % numerator\n + 1}{b} + c", "\\frac{a + 1}{b} + c"),
+        ("f(x) = {\n a + b % first term\n + c % second\n}", "f(x) = { a + b + c }"),
+        ("x^{2 % one line} + 1", "x^{2 } + 1"),
+        ("\\href{a%20b}{x % the label\n+ 1}", "\\href{a%20b}{x + 1}"),
+    ])
+    def test_a_comment_inside_braces_is_left_out(self, tex, latex):
+        """MathJax reads the argument of `\\frac`, of a script or of a group as TeX again, where a `%` is a comment: kept, it
+        turned the rest of the formula into a comment once the lines were joined (`\\frac{a % numerator + 1}{b} + c`). A
+        comment inside braces ends at the end of its line or at the brace that closes the group, so the braces stay paired."""
         html = f'<p>a <script type="math/tex">{tex}</script> b</p>'
 
         assert convert(html.encode(), "a.html").text == f"a ${latex}$ b"

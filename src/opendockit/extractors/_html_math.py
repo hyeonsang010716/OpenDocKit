@@ -166,36 +166,79 @@ def _tex_without_comments(tex: str) -> str:
     the formula a comment, and a comment inside a formula took the lines after it along (`x % note` and `+ y` as `x % note + y`)
     (Pinned by: test_core_html.py::TestMathMl::test_comments_in_the_tex_of_a_script_are_left_out).
 
-    Only a `%` outside braces starts a comment: MathJax reads the argument of a command in braces as it is written, so
-    `\\text{Growth 5%}` shows `5%` and `\\href{a%20b}{…}` links to `a%20b`. Taken for comments, they cut the formula in the
-    middle of a group, `$\\text{Growth 5$`, its braces left open (Pinned by: test_core_html.py::TestMathMl::
-    test_a_percent_sign_inside_braces_is_no_comment). The braces are counted over the whole script; an escaped character
-    (`\\{`, `\\}`, `\\%`, `\\\\`) and the text of a `\\verb` count for nothing."""
+    A `%` in the argument of a command that takes text (`\\text{Growth 5%}`, the address of `\\href{a%20b}{…}`, `\\url`,
+    `_TEX_TEXT_COMMANDS`) is no comment: MathJax reads that argument as it is written. Taken for one, it cut the formula in the
+    middle of the group, `$\\text{Growth 5$` (Pinned by: test_core_html.py::TestMathMl::
+    test_a_percent_sign_inside_braces_is_no_comment). Anywhere else a `%` is a comment, inside braces too, since MathJax
+    reads the argument of `\\frac` or of a group as TeX again: kept, `\\frac{a % numerator` and `+ 1}{b}` joined into one line
+    made the rest a comment (Pinned by: test_core_html.py::TestMathMl::test_a_comment_inside_braces_is_left_out). A comment
+    inside braces ends at the end of its line or at the brace that closes the group, as the argument MathJax reads again
+    ends there, so the braces stay paired. Escaped characters (`\\{`, `\\}`, `\\%`, `\\\\`) and the text of a `\\verb` count
+    for nothing."""
     if "%" not in tex:
         return tex
     kept: list[str] = []
-    depth = 0
+    groups: list[bool] = []  # the groups open at this point: True for the argument of a command that takes text
+    text_brace = -1  # where the argument of a command that takes text opens
     start = index = 0
     while (special := _TEX_SPECIAL.search(tex, index)) is not None:
         index = special.start()
         character = tex[index]
         if character == "\\":
             verb = _TEX_VERB.match(tex, index)
-            index = verb.end() if verb is not None else index + 2
-        elif character == "%" and not depth:
-            line_end = tex.find("\n", index)
-            kept.append(tex[start:index])
-            start = index = len(tex) if line_end < 0 else line_end
-        else:
-            depth = depth + 1 if character == "{" else max(depth - 1, 0) if character == "}" else depth
+            command = _TEX_COMMAND.match(tex, index) if verb is None else None
+            if verb is not None:
+                index = verb.end()
+            elif command is not None:
+                if command.group(1) in _TEX_TEXT_COMMANDS and command.group(2):
+                    text_brace = command.start(2)
+                index = command.end(1)
+            else:
+                index += 2
+        elif character == "{":
+            groups.append(index == text_brace or bool(groups and groups[-1]))
             index += 1
+        elif character == "}":
+            if groups:
+                groups.pop()
+            index += 1
+        elif groups and groups[-1]:
+            index += 1  # a percent sign of text
+        else:
+            kept.append(tex[start:index])
+            start = index = _comment_end(tex, index, inside=bool(groups))
     kept.append(tex[start:])
     return "".join(kept)
 
 
-# What `_tex_without_comments` looks at, and a `\verb` with the text between its two delimiters.
+def _comment_end(tex: str, index: int, *, inside: bool) -> int:
+    """Where the comment that starts at `index` ends: at the end of its line, or, `inside` braces, at the brace that closes the
+    group, if that comes first (`_tex_without_comments`)."""
+    depth = 0
+    while (special := _TEX_COMMENT_END.search(tex, index)) is not None:
+        index = special.start()
+        character = tex[index]
+        if character == "\n":
+            return index
+        if character == "\\":
+            index += 2
+            continue
+        if character == "}" and inside and not depth:
+            return index
+        depth += 1 if character == "{" else -1 if depth else 0
+        index += 1
+    return len(tex)
+
+
+# What `_tex_without_comments` looks at, a command, a `\verb` with the text between its two delimiters, what ends a comment,
+# and the commands whose argument in braces MathJax reads as text, not as TeX (`\href` the first only, which the second
+# brace does not follow directly).
 _TEX_SPECIAL = re.compile(r"[\\{}%]")
+_TEX_COMMAND = re.compile(r"\\([A-Za-z]+)\s*(\{)?")
 _TEX_VERB = re.compile(r"\\verb\*?([^\sA-Za-z*])[^\n]*?\1")
+_TEX_COMMENT_END = re.compile(r"[\\{}\n]")
+_TEX_TEXT_COMMANDS = frozenset(("text", "textrm", "textbf", "textit", "textsf", "texttt", "textup", "textnormal", "textmd",
+                                "textsl", "textsc", "mbox", "hbox", "href", "url"))
 
 
 def _maths_holding_page_blocks(soup: BeautifulSoup) -> list[Tag]:
