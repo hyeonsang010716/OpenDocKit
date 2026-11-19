@@ -62,6 +62,12 @@ class TestUploadName:
     def test_a_name_without_the_file_id_is_kept(self):
         assert open_webui.upload_name("report_final.docx", None) == "report_final.docx"
 
+    def test_an_id_inside_the_name_is_part_of_the_name(self):
+        """Only the id Open WebUI puts in front is taken off, not one the name itself holds."""
+        assert open_webui.upload_name(f"contract_{FILE_ID}_v2.pdf", None) == f"contract_{FILE_ID}_v2.pdf"
+        assert open_webui.upload_name(f"0{FILE_ID}_v2.pdf", None) == f"0{FILE_ID}_v2.pdf"
+        assert open_webui.upload_name(quote(f"{FILE_ID}_scan_{FILE_ID}_1.pdf"), None) == f"scan_{FILE_ID}_1.pdf"
+
     def test_folders_in_the_name_are_dropped(self):
         assert open_webui.upload_name(quote("../../etc/report.pdf"), None) == "report.pdf"
         assert open_webui.upload_name(quote("C:\\Users\\me\\report.pdf"), None) == "report.pdf"
