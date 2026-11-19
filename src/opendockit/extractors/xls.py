@@ -18,6 +18,7 @@ import xlrd
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._notation import chars_left
+from opendockit.extractors._ole import OleFile, OleStreams
 from opendockit.extractors._sheet_format import (
     _format_within_length,
     _is_date_number_format,
@@ -477,9 +478,10 @@ def _xls_workbook_stream(data: bytes) -> bytes:
         return data  # a BIFF stream not wrapped in OLE. xlrd reads it as is, too
 
     try:
-        with olefile.OleFileIO(BytesIO(data)) as ole:
+        with OleFile(BytesIO(data)) as ole:
+            streams = OleStreams(ole, len(data))  # a stream is read no further than the size of the file
             for name in ("Workbook", "Book"):
-                if ole.exists(name) and (stream := ole.openstream(name).read()):
+                if streams.exists(name) and (stream := streams.read(name)):
                     return stream  # xlrd rejects an empty stream as 'no file name', so it is sent on below
     except (OSError, ValueError, struct.error) as exc:  # olefile: OSError (OleFileError) for structural damage, ValueError for bad header values
         raise CorruptedDocumentError("The XLS document structure could not be read.") from exc

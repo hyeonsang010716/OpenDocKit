@@ -2709,6 +2709,24 @@ class TestXlsOleContainer:
 
         assert clock.perf_counter() - started < 1
 
+    def test_workbook_stream_that_loops_on_itself_is_read_no_further_than_the_file(self):
+        """olefile reads a stream whole, as many sectors as its entry declares, following a chain that may point at itself: a
+        16 KB workbook declaring a 500 MB `Workbook` stream made 1.7 GB and took 54 s. It is read no further than the file."""
+        import tracemalloc
+
+        stream = builder.xls_bytes([("견적", _XLS_ROWS, b"")])
+        data = builder.ole_file({"Workbook": stream.ljust(4096, b"\x00")}, loops=("Workbook",), sizes={"Workbook": 50_000_000})
+
+        tracemalloc.start()
+        try:
+            result = convert(data, "a.xls")
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+        assert result.text == f"## Sheet: 견적\n\n{_XLS_TABLE}"
+        assert peak < 20_000_000
+
     def test_workbook_in_a_container_reads_the_same_as_the_bare_stream(self):
         stream = builder.xls_bytes([("견적", _XLS_ROWS, builder.xls_text_box("※ 부가세 별도")), ("둘째", [["나", "다"]], b"")])
 

@@ -19,8 +19,6 @@ import sys
 import tempfile
 import zipfile
 
-import olefile
-
 from opendockit.exceptions import (
     ConversionError,
     CorruptedDocumentError,
@@ -28,6 +26,7 @@ from opendockit.exceptions import (
     EncryptedDocumentError,
     UnsupportedFormatError,
 )
+from opendockit.extractors._ole import OleFile, OleStreams
 from opendockit.extractors._package import uncompressed_size
 from opendockit.extractors.docx import extract_docx
 from opendockit.extractors.pptx import extract_pptx
@@ -365,11 +364,11 @@ def _guard_converted_zip(data: bytes, options: ConvertOptions) -> None:
 def _stream_head(data: bytes, wanted: str, size: int) -> bytes | None:
     """The first `size` bytes of the OLE stream with that name (case-insensitive, as in detection), or None without one."""
     try:
-        with olefile.OleFileIO(BytesIO(data)) as ole:
+        with OleFile(BytesIO(data)) as ole:
+            streams = OleStreams(ole, len(data))  # a stream is read no further than the size of the file
             for entry in ole.listdir(streams=True, storages=False):
                 if "/".join(entry).lower() == wanted:
-                    with ole.openstream(entry) as stream:
-                        return stream.read(size)
+                    return streams.read("/".join(entry))[:size]
     except Exception:  # noqa: BLE001 - a damaged container is not "encrypted"; LibreOffice decides whether it can be read
         return None
     return None

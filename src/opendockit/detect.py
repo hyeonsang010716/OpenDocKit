@@ -13,12 +13,11 @@ import re
 import struct
 import zipfile
 
-import olefile
-
 from opendockit.exceptions import ConversionError, CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._encoding import decode_text, is_cp949_text, is_utf8_text, unicode_bom_codec, utf16_encoding
 from opendockit.extractors._html_mail import is_mhtml, mail_reads_as_html, mhtml_html_part
 from opendockit.extractors._mail import is_encrypted_mail, mail_box
+from opendockit.extractors._ole import OleFile
 from opendockit.image import is_image_file
 from opendockit.models import DocumentFormat
 
@@ -339,7 +338,7 @@ def _office_main_part(archive: zipfile.ZipFile, names: set[str]) -> DocumentForm
 
 def _detect_ole(data: bytes) -> DocumentFormat:
     try:
-        with olefile.OleFileIO(BytesIO(data)) as ole:
+        with OleFile(BytesIO(data)) as ole:
             streams = {"/".join(entry) for entry in ole.listdir(streams=True, storages=True)}
     except OSError as exc:
         raise CorruptedDocumentError("The OLE structure of the document is corrupted.") from exc

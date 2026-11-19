@@ -1,17 +1,18 @@
 """An odd part of an HWP/HWPX document does not get the whole document rejected: deep record chains, a broken section stream,
 parts outside the body (header.xml, content.hpf, manifest, preview), very long numeric attributes, spans past the table.
 
-HWP record streams are built with the fake OLE container (`_fake_hwp`) of `test_hwp.py`.
+HWP record streams are put into the OLE container of `_fake_hwp` of `test_hwp.py`.
 """
 
 from io import BytesIO
 import struct
+import tracemalloc
 import zipfile
 import zlib
 
 import pytest
 
-from opendockit import ConvertOptions, CorruptedDocumentError, convert
+from opendockit import ConvertOptions, CorruptedDocumentError, DocumentTooLargeError, convert
 from tests import builder
 from tests.test_hwp import (
     TAG_BIN_DATA,
@@ -678,3 +679,83 @@ class TestHwpxUnreadableMembers:
         result = convert(data, "a.hwpx")
 
         assert result.text.count("[Image") == 1
+
+
+def _deflate(data: bytes) -> bytes:
+    return zlib.compress(data)[2:-4]
+
+
+def _peak_memory(action) -> int:
+    tracemalloc.start()
+    try:
+        action()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+class TestStreamsLargerThanTheFile:
+    """olefile reads a stream whole when it is opened, as many sectors as its directory entry declares, and only notes a defect
+    when the sector chain loops: a 26.5 KB HWP whose Section0 chain pointed at itself with a declared size of 2 GB made 5.4 GB in
+    memory and converted 'successfully'. A stream cannot hold more than the file, so it is read no further than that."""
+
+    _STREAMS = {"FileHeader": builder.hwp_file_header(1), "DocInfo": _deflate(b""), "PrvText": "미리보기".encode("utf-16-le"),
+                "\x05HwpSummaryInformation": b"", "BodyText/Section0": _deflate(_paragraph("본문"))}
+
+    @pytest.mark.parametrize("looped", ["FileHeader", "DocInfo", "PrvText", "\x05HwpSummaryInformation", "BodyText/Section0"])
+    def test_stream_that_loops_on_itself_is_read_no_further_than_the_file(self, looped):
+        # every stream takes regular sectors (4,096 bytes or more), the only ones whose declared size olefile reads in full
+        streams = {name: body.ljust(4096, b"\x00") for name, body in self._STREAMS.items()}
+        data = builder.ole_file(streams, loops=(looped,), sizes={looped: 200_000_000})
+        results = []
+
+        peak = _peak_memory(lambda: results.append(convert(data, "a.hwp")))
+
+        assert results[0].text == "본문"
+        assert peak < 20_000_000
+
+    def test_mini_stream_that_loops_on_itself_is_read_no_further_than_the_file(self):
+        """The streams under 4,096 bytes are read from the mini stream, which olefile reads first, as large as the root entry
+        says."""
+        data = builder.ole_file(self._STREAMS, loops=("Root Entry",), sizes={"Root Entry": 200_000_000})
+        results = []
+
+        peak = _peak_memory(lambda: results.append(convert(data, "a.hwp")))
+
+        assert results[0].text == "본문"
+        assert peak < 20_000_000
+
+    def test_compressed_stream_counts_as_stored_toward_the_limit(self):
+        """Only what a compressed stream inflates to was counted: 1,000 section entries on one 4 MB stream holding a short deflate
+        stream and then zeros read 4 GB in 5 s under a limit of 10 MB, without an error."""
+        streams = {"FileHeader": builder.hwp_file_header(1), "DocInfo": _deflate(b""),
+                   "BodyText/Section0": _deflate(_paragraph("본문")) + bytes(1_000_000)}
+        shared = {f"BodyText/Section{index}": "BodyText/Section0" for index in range(1, 20)}
+        data = builder.ole_file(streams, shared=shared)
+
+        with pytest.raises(DocumentTooLargeError):
+            convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=5_000_000))
+        assert convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=25_000_000)).text == "\n\n".join(["본문"] * 20)
+
+
+class TestManyDirectoryEntries:
+    """olefile finds a stream by walking the children of each storage, so opening each of n sections took the square of n
+    (8,000 sections: 3.4 s, 16,000: 27 s). The names are looked up once, in any case as olefile does."""
+
+    @staticmethod
+    def _document(count: int) -> bytes:
+        streams = {"FileHeader": builder.hwp_file_header(1), "DocInfo": _deflate(b"")}
+        return builder.ole_file(streams | {f"BodyText/Section{index}": _deflate(_paragraph("가")) for index in range(count)})
+
+    def test_stream_names_are_found_in_any_case(self):
+        streams = {"FileHeader": builder.hwp_file_header(1), "DOCINFO": _deflate(builder.hwp_record(TAG_STYLE, 0, builder.hwp_style("개요 1"))),
+                   "BodyText/Section0": _deflate(_paragraph("본문"))}
+
+        assert convert(builder.ole_file(streams), "a.hwp").text == "# 본문"  # its first style, read from DocInfo, is an outline
+
+    @pytest.mark.timing
+    def test_many_sections_take_linear_time(self):
+        small, large = self._document(2_000), self._document(8_000)
+
+        assert convert(large, "a.hwp").text.count("가") == 8_000
+        assert fastest(lambda: convert(large, "a.hwp")) < 8 * fastest(lambda: convert(small, "a.hwp"))

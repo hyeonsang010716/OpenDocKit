@@ -35,6 +35,7 @@ from opendockit.extractors._hangul import (
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import TableBudget, format_dutmal, note_table, omitted_rows_warning
+from opendockit.extractors._ole import OleFile, OleStreams
 from opendockit.markdown import TableGrid, join_blocks, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -957,19 +958,26 @@ class _InflateBudget:
     remaining: int
 
 
-def _read_stream(ole: olefile.OleFileIO, name: str, compressed: bool, budget: _InflateBudget) -> bytes:
-    return _read_stream_to_end(ole, name, compressed, budget)[0]
+def _read_stream(streams: OleStreams, name: str, compressed: bool, budget: _InflateBudget) -> bytes:
+    return _read_stream_to_end(streams, name, compressed, budget)[0]
 
 
-def _read_stream_to_end(ole: olefile.OleFileIO, name: str, compressed: bool,
+def _read_stream_to_end(streams: OleStreams, name: str, compressed: bool,
                         budget: _InflateBudget) -> tuple[bytes, bool]:
-    """Stream bytes and whether it was read to the end. zlib.error if the compression is broken."""
-    raw = ole.openstream(name).read()
+    """Stream bytes and whether it was read to the end. zlib.error if the compression is broken.
+
+    The stream as stored counts toward the limit, whether or not it is compressed, as a stored ZIP member does, and is not read
+    when it is larger than what is left: the directory entries of an OLE file can all point at one sector chain, so a 4 MB file
+    with 300 picture entries on one 4 MB stream read 1.2 GB, and 100 section entries on one 1 MB stream took 12 s, past any
+    `max_uncompressed_bytes`. Counting only what a compressed stream inflates to, 1,000 section entries on one 4 MB stream that
+    holds an empty deflate block and then zeros read 4 GB under a limit of 10 MB, without an error. A compressed stream counts
+    the larger of its stored and its decompressed size. The streams of a real file add up to no more than the file, and Hangul's
+    compressed streams to less than they decompress to (Pinned by: test_hwp.py::
+    test_uncompressed_streams_are_bounded_by_uncompressed_limit, test_hwp_robustness.py::TestStreamsLargerThanTheFile)."""
+    if streams.size(name) > budget.remaining:
+        raise DocumentTooLargeError("The document becomes too large when decompressed.")
+    raw = streams.read(name)
     if not compressed:
-        # A stream stored without compression counts toward the limit too, as a stored ZIP member does: the directory entries of an
-        # OLE file can all point at one sector chain, so a 4 MB file with 300 picture entries on one 4 MB stream read 1.2 GB, and
-        # 100 section entries on one 1 MB stream took 12 s, past any `max_uncompressed_bytes`. The streams of a real file add up to
-        # no more than the file (Pinned by: test_hwp.py::test_uncompressed_streams_are_bounded_by_uncompressed_limit).
         budget.remaining -= len(raw)
         if budget.remaining < 0:
             raise DocumentTooLargeError("The document becomes too large when decompressed.")
@@ -981,7 +989,7 @@ def _read_stream_to_end(ole: olefile.OleFileIO, name: str, compressed: bool,
     # zlib takes the length as a C ssize_t: a limit of sys.maxsize or more ("no limit") raised OverflowError, and every
     # compressed HWP was reported corrupted (Pinned by: test_converter.py::TestHugeLimits)
     data = inflater.decompress(raw, min(budget.remaining + 1, sys.maxsize))
-    budget.remaining -= len(data)
+    budget.remaining -= max(len(raw), len(data))
     if budget.remaining < 0:
         raise DocumentTooLargeError("The document becomes too large when decompressed.")
     return data, inflater.eof
@@ -995,12 +1003,13 @@ def _section_streams(ole: olefile.OleFileIO) -> list[str]:
 
 def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
     try:
-        ole = olefile.OleFileIO(BytesIO(data))
+        ole = OleFile(BytesIO(data))
     except OSError as exc:
         raise CorruptedDocumentError("The HWP document structure could not be read.") from exc
 
     with ole:
-        header = ole.openstream("FileHeader").read()
+        streams = OleStreams(ole, len(data))
+        header = streams.read("FileHeader")
         if len(header) < 40 or not header.startswith(b"HWP Document File"):
             raise CorruptedDocumentError("The HWP file header is invalid.")
         (flags,) = struct.unpack_from("<I", header, 36)
@@ -1008,8 +1017,8 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
             raise EncryptedDocumentError("The HWP document is password-protected. Please remove the password and upload it again.")
 
         compressed = bool(flags & _FLAG_COMPRESSED)
-        preview = _preview_text(ole)
-        metadata = _summary_metadata(ole)
+        preview = _preview_text(streams)
+        metadata = _summary_metadata(streams)
         if flags & _FLAG_DISTRIBUTION:
             return _distribution_fallback(preview, metadata)
         if flags & _FLAG_PROTECTED:
@@ -1023,7 +1032,7 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
         # body is read without them, with a warning — one broken DocInfo rejected documents whose sections were fine (the
         # same rule as HWPX header.xml. Pinned by: test_hwp_robustness.py::TestBrokenDocInfo).
         try:
-            doc_info_stream = _read_stream(ole, "DocInfo", compressed, budget) if ole.exists("DocInfo") else b""
+            doc_info_stream = _read_stream(streams, "DocInfo", compressed, budget) if streams.exists("DocInfo") else b""
         except zlib.error:
             doc_info_stream = b""
             extraction.warnings.append("The document style information (DocInfo) could not be read, so the document was converted "
@@ -1031,22 +1040,25 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
         doc_info = _flatten(parse_records(doc_info_stream, records))
         bin_items = parse_bin_items(doc_info)
 
-        loaded: dict[int, bytes | None] = {}
+        loaded: dict[tuple[str, bool], bytes | None] = {}
 
         def load_bin(item_id: int) -> bytes | None:
-            """A picture stream is read only once. Reading and decompressing the same picture again per reference took 150 seconds for a
-            document with 16,384 references to one picture, and the decompression limit was also cut per reference. A picture whose
-            compression is broken skips just that picture (exceeding the limit is a problem of the whole document, so it is raised as is)
+            """A picture stream is read only once, however many BinItems name it. Reading and decompressing the same picture again
+            per reference took 150 seconds for a document with 16,384 references to one picture, and the decompression limit was
+            also cut per reference; kept per BinItem, 8,000 BinItems naming one 2 MB stream took 16.6 s. A picture whose compression
+            is broken skips just that picture (exceeding the limit is a problem of the whole document, so it is raised as is)
             (Pinned by: test_image.py::TestHwpRepeatedAndBrokenPictures)."""
-            if item_id not in loaded:
-                # A BinItem ID is the 1-based index of the DocInfo BIN_DATA records.
-                name, compress = bin_items[item_id - 1] if 1 <= item_id <= len(bin_items) else (None, None)
+            # A BinItem ID is the 1-based index of the DocInfo BIN_DATA records.
+            name, compress = bin_items[item_id - 1] if 1 <= item_id <= len(bin_items) else (None, None)
+            if not name or not streams.exists(name):
+                return None
+            key = (name.lower(), compressed if compress is None else compress)
+            if key not in loaded:
                 try:
-                    loaded[item_id] = (_read_stream(ole, name, compressed if compress is None else compress, budget)
-                                       if name and ole.exists(name) else None)
+                    loaded[key] = _read_stream(streams, name, key[1], budget)
                 except zlib.error:
-                    loaded[item_id] = None
-            return loaded[item_id]
+                    loaded[key] = None
+            return loaded[key]
 
         renderer = HwpRenderer(parse_styles(doc_info), options, extraction, load_bin, parse_paragraph_heads(doc_info),
                                parse_char_scripts(doc_info), parse_struck_shapes(doc_info))
@@ -1061,7 +1073,7 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
             # the stream name: up to 24 digits chosen by the document reached the warning
             # (Pinned by: test_audit_hangul.py::TestHwpSectionWarningNumber).
             try:
-                stream, complete = _read_stream_to_end(ole, name, compressed, budget)
+                stream, complete = _read_stream_to_end(streams, name, compressed, budget)
             except zlib.error as exc:
                 broken.append(exc)
                 extraction.warnings.append(f"Section {number}: the compressed data is broken and could not be read.")
@@ -1116,17 +1128,17 @@ def _distribution_fallback(preview: str, metadata: dict[str, str]) -> Extraction
     )
 
 
-def _preview_text(ole: olefile.OleFileIO) -> str:
+def _preview_text(streams: OleStreams) -> str:
     """The preview text saved by Hancom Office. It writes table cells as `<cell text>`, so if no text remains after removing the cell marks
     (`<`, `>`) the preview is considered absent. Used as is, a document without text emitted `<>` noise as its body
     (Pinned by: test_hwp.py::TestPreviewFallback)."""
-    if not ole.exists("PrvText"):
+    if not streams.exists("PrvText"):
         return ""
-    text = ole.openstream("PrvText").read().decode("utf-16-le", errors="replace").strip()
+    text = streams.read("PrvText").decode("utf-16-le", errors="replace").strip()
     return text if text.translate(PREVIEW_CELL_MARKS).strip() else ""
 
 
-def _summary_metadata(ole: olefile.OleFileIO) -> dict[str, str]:
+def _summary_metadata(streams: OleStreams) -> dict[str, str]:
     """HWP keeps summary information not in the standard SummaryInformation but in a property set with its own name (ID 2 title, 4 author).
 
     olefile's `getproperties` is not used. It trusts the value count as is, and a 21KB file with 8 bytes changed to FF hung looping
@@ -1135,10 +1147,10 @@ def _summary_metadata(ole: olefile.OleFileIO) -> dict[str, str]:
     anything out of range is dropped.
     """
     name = "\x05HwpSummaryInformation"
-    if not ole.exists(name):
+    if not streams.exists(name):
         return {}
     try:
-        stream = ole.openstream(name).read(_SUMMARY_MAX_BYTES)
+        stream = streams.read(name)[:_SUMMARY_MAX_BYTES]
     except OSError:
         return {}  # summary information is supplementary. Even if broken it must not block converting the body
 

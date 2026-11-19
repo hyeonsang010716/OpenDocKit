@@ -17,6 +17,7 @@ import sys
 import tempfile
 import threading
 import time
+import tracemalloc
 import zipfile
 
 import pytest
@@ -332,6 +333,23 @@ class TestEncryption:
             convert(_doc(0x0100, size=4), "a.doc")
 
         assert len(runner.calls) == 1
+
+    def test_stream_that_loops_on_itself_is_read_no_further_than_the_file(self, runner):
+        """olefile reads a stream whole, as many sectors as its entry declares, following a chain that may point at itself: a
+        5.5 KB `.doc` declaring a 2 GB `WordDocument` made 2.5 GB in the encryption check. It is read no further than the file."""
+        fib = b"\xec\xa5\xc1\x00" + b"\x00" * 6 + (0x0100).to_bytes(2, "little")
+        data = builder.ole_file({"WordDocument": fib.ljust(4096, b"\x00")}, loops=("WordDocument",), sizes={"WordDocument": 200_000_000})
+
+        tracemalloc.start()
+        try:
+            with pytest.raises(EncryptedDocumentError):
+                convert(data, "a.doc")
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+        assert peak < 20_000_000
+        assert runner.calls == []
 
     def test_presentation_with_the_encrypted_header_token_is_reported_as_encrypted(self, runner):
         with pytest.raises(EncryptedDocumentError, match="password-protected"):

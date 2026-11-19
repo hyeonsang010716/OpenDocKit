@@ -4,12 +4,10 @@ No Python library can build an OLE compound document, so for HWP only the OLE co
 inside it are built in the real format. Results checked against real Hangul (HWP) files are in docs/design.md.
 """
 
-from io import BytesIO
 import struct
 import time
 import zlib
 
-import olefile
 import pytest
 
 from opendockit import (
@@ -246,29 +244,9 @@ def _fake_hwp(monkeypatch, *, flags=0, sections=None, preview=None, extra=None, 
     if preview is not None:
         streams["PrvText"] = preview.encode("utf-16-le")
     streams.update(extra or {})
-
-    class FakeOle:
-        def __init__(self, _source):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_):
-            return False
-
-        def listdir(self, streams=True, storages=False):
-            return [name.split("/") for name in streams_map] + ([["BodyText"]] if storages else [])
-
-        def exists(self, name):
-            return name in streams_map
-
-        def openstream(self, name):
-            return BytesIO(streams_map[name])
-
-    streams_map = streams
-    monkeypatch.setattr(olefile, "OleFileIO", FakeOle)
-    return _OLE_MAGIC + b"\x00" * 504
+    # A real OLE container, so that the reading of its streams is the one of a real file. `monkeypatch` is no longer used
+    storages = () if any(name.startswith("BodyText/") for name in streams) else ("BodyText",)
+    return builder.ole_file(streams, storages=storages)
 
 
 def _sample_section():
