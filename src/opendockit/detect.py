@@ -228,6 +228,12 @@ def pdf_lookalike_text_format(data: bytes, filename: str | None) -> DocumentForm
         return None
 
 
+def named_as_text(filename: str | None) -> bool:
+    """Does the file name give a text or code extension (`.txt`, `.md`, `.html`, `.json`, `.log` …)?"""
+    extension = extension_of(filename)
+    return extension in _TEXT_EXTENSIONS or extension in _CODE_EXTENSIONS
+
+
 def extension_mismatch(detected: DocumentFormat, filename: str | None) -> str | None:
     """Return the warning text if the format claimed by the extension differs from the actual format."""
     extension = extension_of(filename)

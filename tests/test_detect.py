@@ -457,6 +457,38 @@ class TestTextThatLooksLikeAPdf:
         assert result.format is expected
         assert "%PDF-" in result.text
 
+    @staticmethod
+    def _listing() -> str:
+        """A complete one-page PDF as a tutorial lists it (ASCII, offsets of the PDF alone: parsers rebuild the table)."""
+        objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                   "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+                   "<< /Length 44 >>\nstream\nBT /F1 18 Tf 20 100 Td (Hello World) Tj ET\nendstream",
+                   "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+        body, offsets = "%PDF-1.4\n", []
+        for number, value in enumerate(objects, start=1):
+            offsets.append(len(body))
+            body += f"{number} 0 obj\n{value}\nendobj\n"
+        return (body + "xref\n0 6\n0000000000 65535 f \n" + "".join(f"{offset:010d} 00000 n \n" for offset in offsets)
+                + f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{len(body)}\n%%EOF\n")
+
+    @pytest.mark.parametrize(("filename", "expected"), [("pdf-notes.md", DocumentFormat.MARKDOWN), ("pdf-notes.txt", DocumentFormat.TEXT)])
+    def test_note_listing_a_readable_pdf_is_read_as_its_name_says(self, filename, expected):
+        """A note that lists a whole PDF reads as that PDF, so the note was lost and only 'Hello World' came back. Named as
+        text, with text before the header and UTF-8 throughout, it is text. Known accepted gap: without a name it is the PDF."""
+        note = "# How a PDF file is built\n\nThe smallest file that shows one line:\n\n```\n" + self._listing() + "```\n\nThe end.\n"
+
+        result = convert(note.encode(), filename)
+
+        assert result.format is expected and result.warnings == []
+        assert result.text.startswith("# How a PDF file is built") and "startxref" in result.text and result.text.endswith("The end.")
+        assert convert(note.encode()).format is DocumentFormat.PDF
+
+    def test_pdf_named_as_text_is_still_a_pdf(self):
+        """A PDF that starts with its header, or has bytes in front and binary content, is a PDF whatever its name."""
+        for data in (self._listing().encode(), b"\r\n<!-- gateway -->\r\n" + builder.pdf_bytes(pages=1)):
+            result = convert(data, "a.txt")
+            assert result.format is DocumentFormat.PDF
+
     def test_pdf_with_leading_junk_is_still_converted_as_a_pdf(self):
         data = b"\r\n<!-- gateway -->\r\n" + builder.pdf_bytes(pages=1)
 

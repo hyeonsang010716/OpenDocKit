@@ -12,7 +12,7 @@ import stat
 from typing import TYPE_CHECKING, BinaryIO
 import zipfile
 
-from opendockit.detect import detect_format, extension_mismatch, pdf_lookalike_text_format
+from opendockit.detect import detect_format, extension_mismatch, named_as_text, pdf_lookalike_text_format
 from opendockit.exceptions import (
     ConversionError,
     CorruptedDocumentError,
@@ -307,6 +307,14 @@ def _extract(document_format: DocumentFormat, data: bytes, filename: str | None,
     # for (`ConvertOptions.decode_images`; Pinned by: test_converter.py::TestPlaceholdersWithoutDecoding).
     if not options.decode_images and document_format in (DocumentFormat.PDF, DocumentFormat.IMAGE):
         options = replace(options, extract_images=False)
+    # A note that lists a whole PDF (a tutorial on the format) reads as that PDF, so trying it says nothing: the note was lost and
+    # only the listing's 'Hello World' came back. Named as text, with other text before the header and UTF-8 throughout, it is
+    # text; a real PDF named so would need bytes in front of its header and no binary byte anywhere
+    # (Pinned by: test_detect.py::TestTextThatLooksLikeAPdf::test_note_listing_a_readable_pdf_is_read_as_its_name_says).
+    if document_format is DocumentFormat.PDF and named_as_text(filename):
+        fallback = pdf_lookalike_text_format(data, filename)
+        if fallback is not None:
+            return fallback, EXTRACTORS[fallback](data, options)
     try:
         return document_format, EXTRACTORS[document_format](data, options)
     except Exception as exc:
