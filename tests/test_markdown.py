@@ -1,5 +1,6 @@
 """Shared normalization and table rendering."""
 
+import json
 import unicodedata
 
 import pytest
@@ -116,6 +117,18 @@ class TestCleanText:
         assert convert('{"a": "x\u2028y"}\n{"b": 1}'.encode()).text == '{"a": "x\u2028y"}\n{"b": 1}'
         assert convert('[["a","b"]] rest\u2028line'.encode(), "a.txt").text == '[["a","b"]] rest\nline'
         assert convert('["quoted"] title\u2028next'.encode()).text == '["quoted"] title\nnext'
+
+    def test_line_separators_of_a_large_json_text_stay(self):
+        """A JSON text over the size that is parsed whole was taken for prose when unnamed or named `.txt`, and its strings
+        got raw line breaks. Its opening is read for JSON tokens instead; large prose that opens like JSON still breaks."""
+        data = json.dumps([{"k": f"line {index}\u2028more", "n": index} for index in range(40_000)], ensure_ascii=False)
+        assert len(data.encode()) > 1024 * 1024
+
+        for name in (None, "a.txt"):
+            text = convert(data.encode(), name).text
+            assert "line 0\u2028more" in text and "\nmore" not in text
+        prose = '["quoted"] title\u2028next\n' + "words " * 200_000
+        assert convert(prose.encode(), "a.txt").text.startswith('["quoted"] title\nnext')
 
     @pytest.mark.parametrize(("text", "name", "expected"), [
         ("\tFirst paragraph line\u2028second line\n\tNext para\u2028more", "a.txt",

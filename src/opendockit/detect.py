@@ -235,17 +235,34 @@ def named_as_text(filename: str | None) -> bool:
 
 def code_or_data_text(data: bytes, filename: str | None) -> bool:
     """Is this text a code, data, config or log file: named with such an extension (`.json`, `.py`, `.yaml` …), or JSON as
-    format detection reads it (`_is_json`: the whole text, or its first line for JSON Lines), and at most `_JSON_PARSE_BYTES`
-    so that it is parsed whole? Its U+2028 and U+2029 are characters of a string, not line breaks. Taken by its first
-    characters, prose that opens with `["quoted"] title` or `[["a","b"]] …` kept them (Pinned by: test_markdown.py::
-    TestCleanText::test_line_separators_of_code_and_data_files_stay)."""
+    format detection reads it (`_is_json`: the whole text, or its first line for JSON Lines; over `_JSON_PARSE_BYTES`, an
+    opening of JSON tokens alone, `_only_json_tokens`)? Its U+2028 and U+2029 are characters of a string, not line breaks.
+    Taken by its first characters, prose that opens with `["quoted"] title` or `[["a","b"]] …` kept them
+    (Pinned by: test_markdown.py::TestCleanText::test_line_separators_of_code_and_data_files_stay)."""
     if extension_of(filename) in _CODE_EXTENSIONS:
         return True
-    if len(data) > _JSON_PARSE_BYTES:
-        return False
     wide = unicode_bom_codec(data[:8192]) or utf16_encoding(data)
+    if len(data) > _JSON_PARSE_BYTES:
+        # Not parsed whole (`_is_json`): its first `_JSON_TOKENS_BYTES` must be JSON tokens and nothing else, the last of them
+        # perhaps cut short. Turned down unread, a 1.3 MB JSON array named `.txt` or unnamed got raw line breaks inside its
+        # strings (Pinned by: test_markdown.py::TestCleanText::test_line_separators_of_a_large_json_text_stay)
+        head = data[:_JSON_TOKENS_BYTES * 4].decode(wide or "utf-8", errors="ignore").lstrip("\ufeff")[:_JSON_TOKENS_BYTES]
+        return _JSON_START.match(head.encode()) is not None and _only_json_tokens(head)
     body = data.decode(wide, errors="ignore").encode() if wide else data
     return _is_json(data, body.removeprefix(b"\xef\xbb\xbf"), wide)
+
+
+# The part of a large text looked at for JSON tokens (`code_or_data_text`), and the tokens: strings, numbers, literals and
+# punctuation, with white space between; what is left after them may only be a string, number or literal cut short.
+_JSON_TOKENS_BYTES = 64 * 1024
+_JSON_TOKENS = re.compile(r'(?:\s*+(?:"(?:[^"\\\x00-\x1f]|\\.)*+"|-?[0-9]++(?:\.[0-9]++)?+(?:[eE][+-]?+[0-9]++)?+'
+                          r"|true|false|null|[\[\]{},:]))*+\s*+")
+_JSON_CUT_SHORT = re.compile(r'"(?:[^"\\\x00-\x1f]|\\.)*+\\?|-?[0-9.eE+-]*|[a-z]{1,4}')
+
+
+def _only_json_tokens(head: str) -> bool:
+    end = _JSON_TOKENS.match(head).end()
+    return _JSON_CUT_SHORT.fullmatch(head, end) is not None
 
 
 def extension_mismatch(detected: DocumentFormat, filename: str | None) -> str | None:
