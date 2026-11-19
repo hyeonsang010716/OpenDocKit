@@ -8,6 +8,7 @@ import pytest
 
 from opendockit import convert
 from opendockit.exceptions import CorruptedDocumentError
+from tests.timing import fastest
 
 
 _HEAD = "From: a@b.c\r\nTo: d@e.f\r\nSubject: test\r\nMIME-Version: 1.0\r\n"
@@ -122,6 +123,38 @@ class TestMultipartWithoutUsableBoundary:
         assert "Delivery failed." in result.text
         assert "Final-Recipient: rfc822; kim@example.com" in result.text
         assert "550 5.1.1 user unknown" in result.text
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("build", [
+        lambda count: _HEAD + "Content-Type: multipart/mixed" + ";x" * count + "\r\n\r\nbody\r\n",
+        lambda count: _HEAD + "Content-Type: multipart/mixed" + "".join(f";x{index}=y" for index in range(count)) + "\r\n\r\nbody\r\n",
+        lambda count: (_HEAD + 'Content-Type: multipart/report; boundary="R"\r\n\r\n--R\r\nContent-Type: text/plain\r\n\r\nfailed\r\n'
+                       "--R\r\nContent-Type: message/delivery-status" + "".join(f";x{index}=y" for index in range(count))
+                       + "\r\n\r\nReporting-MTA: dns; x\r\n\r\nFinal-Recipient: rfc822; a@b\r\n--R--\r\n"),
+    ], ids=["bare", "distinct", "delivery report"])
+    def test_many_parameters_take_linear_time(self, build):
+        """Turned into text/plain with `Message.set_type`, which adds every parameter back with `set_param` and parses the whole
+        header again each time: `;x` 4,000 times, an 8 KB mail, took 18.6 s, and 1,000 distinct ones 2.1 s."""
+        small, large = build(250).encode(), build(1_000).encode()
+
+        assert fastest(lambda: convert(large, "a.eml")) < 8 * fastest(lambda: convert(small, "a.eml")) + 0.05
+
+    @pytest.mark.parametrize(("parameters", "expected"), [
+        ("; charset=euc-kr", "본문 글"),
+        ('; charset="euc-kr"; format=flowed', "본문 글 이어지는 줄"),
+        ("; charset*=euc-kr''", "본문 글"),
+    ])
+    def test_the_parameters_read_from_a_text_part_are_kept(self, parameters, expected):
+        """Only the charset, the flowed format and the name are read from a part once it is text/plain."""
+        data = (_HEAD + f"Content-Type: multipart/mixed{parameters}; x=1\r\n\r\n").encode() + "본문 글 \r\n이어지는 줄\r\n".encode("euc-kr")
+
+        assert expected in convert(data, "a.eml").text
+
+    def test_a_name_makes_it_an_attachment_as_before(self):
+        data = (_HEAD + 'Content-Type: multipart/mixed; boundary="B"\r\n\r\n--B\r\nContent-Type: text/plain\r\n\r\nbody\r\n'
+                '--B\r\nContent-Type: multipart/mixed; name="notes.txt"; x=1\r\n\r\nnotes\r\n--B--\r\n').encode()
+
+        assert convert(data, "a.eml").warnings == ["1 mail attachment(s) (notes.txt) were not read. Convert attachments separately."]
 
 
 _HUGE = "1" * 5000

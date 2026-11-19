@@ -11,7 +11,7 @@ import email.base64mime
 from email.errors import HeaderParseError, InvalidBase64LengthDefect
 import email.header
 from email.header import Header, decode_header
-from email.message import Message
+from email.message import Message, _formatparam
 from email.parser import BytesHeaderParser
 import email.quoprimime
 import quopri
@@ -412,7 +412,7 @@ def _readable_parts(message: Message) -> None:
             # (Pinned by: test_core_malformed_mail_and_html.py::TestReadablePartsOfForwardedMails::test_parts_of_a_report_are_read).
             _as_text(part, mail_head_text(BytesHeaderParser().parsebytes(part_content(part) or b"")))
         elif part.get_content_maintype() == "multipart" and not part.is_multipart():
-            part.set_type("text/plain")
+            _set_plain_type(part)
         if part.is_multipart():
             stack.extend(reversed([child for child in part.get_payload() if isinstance(child, Message)]))
 
@@ -426,8 +426,29 @@ def _as_text(part: Message, text: str) -> None:
     """Make `part` a UTF-8 text/plain part holding `text`."""
     del part["Content-Transfer-Encoding"]
     part.set_payload(text.encode())
-    part.set_type("text/plain")
+    _set_plain_type(part)
     part.set_param("charset", "utf-8")
+
+
+# The Content-Type parameters read from a part once it is text/plain: its charset, the flowed format (`plain_part_text`) and
+# the name `get_filename` falls back on (`_is_attachment`, `_attachment_name`).
+_PLAIN_TEXT_PARAMETERS = ("charset", "format", "delsp", "name")
+
+
+def _set_plain_type(part: Message) -> None:
+    """Make the type of `part` text/plain, as `Message.set_type` does, keeping the parameters read from a text/plain part
+    (`_PLAIN_TEXT_PARAMETERS`) with the values `get_param` gives.
+
+    `set_type` adds the parameters back one by one with `set_param`, which parses the whole header again each time, so a
+    Content-Type of many parameters took the square of their number: `multipart/mixed` followed by `;x` 4,000 times, an 8 KB
+    mail, took 20 s, and a delivery report with 1,000 distinct parameters 22 s
+    (Pinned by: test_core_malformed_mail_and_html.py::TestMultipartWithoutUsableBoundary::test_many_parameters_take_linear_time).
+    """
+    kept = [(name, part.get_param(name)) for name in _PLAIN_TEXT_PARAMETERS]
+    del part["MIME-Version"]
+    part["MIME-Version"] = "1.0"
+    del part["Content-Type"]
+    part["Content-Type"] = "; ".join(["text/plain", *(_formatparam(name, value) for name, value in kept if value is not None)])
 
 
 def _mail_without_mime_version(headers: bytes) -> bool:
