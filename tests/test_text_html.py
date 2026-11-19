@@ -2161,6 +2161,42 @@ class TestContentOutsideTableCells:
 
         assert result.text == expected
 
+    @pytest.mark.parametrize(("html", "expected"), [
+        ('<table><tr><td>Name</td><td>Value</td><form action="/save"><tr><td>City</td><td>Seoul</td></tr><tr><td>Zip</td>'
+         "<td>04524</td></tr></form></table>", "| Name | Value |\n| --- | --- |\n| City | Seoul |\n| Zip | 04524 |"),
+        ("<table><tr><td>Name</td><td>Value</td><font><tr><td>City</td><td>Seoul</td></tr></font></table>",
+         "| Name | Value |\n| --- | --- |\n| City | Seoul |"),
+        ("<table><tr><td>Name</td><td>Value</td><div><tr><td>City</td><td>Seoul</td></tr></div></table>",
+         "| Name | Value |\n| --- | --- |\n| City | Seoul |"),
+        ("<table><tr><form><td>A</td><td>B</td><tr><td>C</td><td>D</td></tr></form></table>",
+         "| A | B |\n| --- | --- |\n| C | D |"),
+        ("<table><tr><td>a</td><td>1</td><span><tr><td>b</td><td>2</td><span><tr><td>c</td><td>3</td></tr></span></tr>"
+         "</span></table>", "| a | 1 |\n| --- | --- |\n| b | 2 |\n| c | 3 |"),
+        ("<table><tr><td>A</td><td>B</td><form><tr><td>C</td><td>D</td></tr><td>E</td><td>F</td></form></table>",
+         "| A | B |\n| --- | --- |\n| C | D |\n| E | F |"),
+        ("<table><tr><thead><td>T</td></thead></tr><tr><td>x</td></tr></table>", "T\n\nx"),
+    ], ids=["form", "font", "div", "form-around-cells", "nested", "cells-after-a-row", "row-group"])
+    def test_rows_inside_an_element_left_in_an_open_row_are_read(self, html, expected):
+        """lxml keeps a row that opens inside an element left in an open row inside it, and once the element was unwrapped
+        the row lay inside the other: every row of the form was lost without a warning (`| Name | Value |` alone), and so
+        was the text of a row group inside a row. A browser closes the open row at the next row."""
+        assert convert(html.encode(), "a.html").text == expected
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("build", [
+        lambda count: "<table><tr><td>a</td><td>b</td><form>" + "<tr><td>v</td><td>w</td></tr>" * count + "</form></table>",
+        lambda count: ("<table><tr><td>a</td><td>b</td><form>" + "<tr><td>v</td><td>w</td></tr><td>c</td><td>d</td>" * count
+                       + "</form></table>"),
+    ], ids=["rows", "rows-and-cells"])
+    def test_thousands_of_rows_inside_an_open_row_are_read_quickly(self, build):
+        def seconds(count):
+            data = build(count).encode()
+            return fastest(lambda: convert(data, "a.html", ConvertOptions(max_chars=None)))
+
+        small, large = seconds(1_000), seconds(8_000)
+
+        assert large < 8 * small * 2 + 0.5
+
     @pytest.mark.timing
     @pytest.mark.parametrize("build", [
         lambda count: "<table><tr><th>a</th><th>b</th></tr><tr><form>" + "<td>v</td>" * count + "</form></tr></table>",

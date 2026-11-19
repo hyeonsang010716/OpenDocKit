@@ -697,10 +697,12 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
         closed = False  # a table was met outside the cells: a browser has closed this table there
         wrappers: list[Tag] = []
         holding: set[int] | None = None  # the elements of the table holding a row or cell (`_holding_cells`), once asked for
-        stack = [(child, False) for child in reversed(_rows_for_loose_cells(soup, table))]
+        open_rows: dict[int, Tag] = {}  # the rows that hold a row or row group (`_lift_rows_out_of_rows`), in document order
+        # (a node, the row it lies in or None)
+        stack: list[tuple[PageElement, Tag | None]] = [(child, None) for child in reversed(_rows_for_loose_cells(soup, table))]
 
         while stack:
-            child, in_row = stack.pop()
+            child, row = stack.pop()
             if isinstance(child, NavigableString):
                 if str(child).strip():
                     (after if closed else before).append(child)
@@ -710,17 +712,96 @@ def _foster_parent_table_content(soup: BeautifulSoup) -> None:
                 after.append(child)
                 closed = True
             elif child.name in _TABLE_PARTS or id(child) in (holding := _holding_cells(table) if holding is None else holding):
-                if in_row and child.name not in _TABLE_PARTS:
-                    wrappers.append(child)
-                in_row = in_row or child.name == "tr"
-                contents = child.contents if in_row else _rows_for_loose_cells(soup, child)
-                stack.extend((node, in_row) for node in reversed(contents))
+                if row is not None:
+                    if child.name in _TABLE_PARTS:
+                        open_rows.setdefault(id(row), row)
+                    else:
+                        wrappers.append(child)
+                if child.name == "tr":
+                    row = child
+                elif child.name in _TABLE_PARTS:
+                    row = None  # a row group inside a row is lifted out of it, and its loose cells put in rows of its own
+                contents = child.contents if row is not None else _rows_for_loose_cells(soup, child)
+                stack.extend((node, row) for node in reversed(contents))
             else:
                 (after if closed else before).append(child)
 
         _flatten_wrappers(wrappers)
+        if open_rows:
+            _lift_rows_out_of_rows(soup, list(open_rows.values()))
         if before or after:
             _move_beside(table, before, after)
+
+
+def _lift_rows_out_of_rows(soup: BeautifulSoup, rows: list[Tag]) -> None:
+    """Move the rows and row groups that lie right under a row (`rows`, in document order, their wrappers already flattened)
+    to right after it, as a browser closes an open row at the next `<tr>`, `<thead>`, `<tbody>` or `<tfoot>`: the cells
+    before the first of them stay in the row, and each run of cells after one goes into a row of its own.
+
+    lxml keeps a row that opens inside an element left in an open row (`<tr><td>Name</td><form><tr><td>City</td>`) inside that
+    element, and once the element was unwrapped the row lay inside the other; the rows are read only from right under a
+    table or row group, and their cells only from right under a row, so the rows of the form were lost without a warning, and
+    so was the text of a row group inside a row (Pinned by: test_text_html.py::TestContentOutsideTableCells::
+    test_rows_inside_an_element_left_in_an_open_row_are_read).
+
+    The children of every parent of such rows are laid out anew once, rows lifted out of lifted rows in turn, and every node
+    is detached from the back of its parent, innermost first, and appended once, as `_unwrap_all` does: linear in the rows.
+    """
+    chosen = {id(row) for row in rows}
+    parents = {id(row.parent): row.parent for row in rows if id(row.parent) not in chosen and row.parent is not None}
+    for parent in parents.values():
+        laid_out: list[PageElement | list[PageElement]] = []  # a list is a run of cells that goes into a new row
+        emptied: list[tuple[Tag, int]] = [(parent, 0)]  # (an element, where the children detached from it start)
+        stack = [iter(parent.contents[:])]
+        while stack:
+            child = next(stack[-1], None)
+            if child is None:
+                stack.pop()
+                continue
+            laid_out.append(child)
+            if id(child) not in chosen:
+                continue
+            contents = child.contents[:]
+            first = next((index for index, node in enumerate(contents) if isinstance(node, Tag) and node.name in _TABLE_PARTS),
+                         None)
+            if first is None:
+                continue
+            emptied.append((child, first))
+            pieces: list[PageElement | list[PageElement]] = []
+            for node in contents[first:]:
+                if isinstance(node, Tag) and node.name in _TABLE_PARTS:
+                    pieces.append(node)
+                elif isinstance(node, Tag) and node.name in ("td", "th"):
+                    if not pieces or not isinstance(pieces[-1], list):
+                        pieces.append([])
+                    pieces[-1].append(node)
+                elif pieces and isinstance(pieces[-1], list):
+                    pieces[-1].append(node)
+                else:
+                    pieces.append(node)
+            # The pieces are laid out after the row, a row among them with what it lifts out in turn
+            stack.append(_lifted(iter(pieces), laid_out))
+        for holder, first in reversed(emptied):
+            children = holder.contents
+            for position in range(len(children) - 1, first - 1, -1):
+                children[position].extract(_self_index=position)
+        for item in laid_out:
+            if isinstance(item, list):
+                row = soup.new_tag("tr")
+                parent.append(row)
+                row.extend(item)
+            else:
+                parent.append(item)
+
+
+def _lifted(pieces: Iterator[PageElement | list[PageElement]],
+            laid_out: list[PageElement | list[PageElement]]) -> Iterator[PageElement]:
+    """The rows and other nodes of `pieces` (`_lift_rows_out_of_rows`), each run of cells put straight into `laid_out`."""
+    for piece in pieces:
+        if isinstance(piece, list):
+            laid_out.append(piece)
+        else:
+            yield piece
 
 
 def _holding_cells(table: Tag) -> set[int]:
