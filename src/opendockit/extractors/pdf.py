@@ -117,6 +117,7 @@ from opendockit.extractors._pdf_pdfminer import (
     _InflateBudget,
     _name,
     _page_drawing,
+    _tree_page_drawings,
 )
 from opendockit.extractors._pdf_pieces import _place_xobject_lines, _rejoined_lines
 from opendockit.extractors._pdf_placed_runs import _repair_placed_runs
@@ -265,11 +266,10 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
         cause = exc.args[0] if exc.args else exc
         if "password" in type(cause).__name__.lower():
             raise EncryptedDocumentError("The PDF is password-protected. Remove the password and upload it again.") from exc
-        pages, total, limit = _read_with_pdfium(data, options, exc, extraction)
-        failed = [page.number for page in pages]
+        pages, total, limit, refused = _read_with_pdfium(data, options, exc, extraction)
+        failed = [page.number for page in pages if page.number not in refused]
         dense: set[int] = set()
         crowded = []
-        refused = []
     else:
         with pdf:
             total = len(pdf.pages)
@@ -682,7 +682,7 @@ _MAX_UNOPENED_PAGES = 64
 
 
 def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
-                      extraction: Extraction) -> tuple[list[_Page], int, int]:
+                      extraction: Extraction) -> tuple[list[_Page], int, int, list[int]]:
     """When pdfminer cannot open the document at all, reads only the page text with pdfium. If pdfium cannot open it either, the
     document is corrupted.
 
@@ -691,8 +691,10 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
     (Pinned by: test_pdf.py::TestPdfiumFallback::
     test_document_pdfminer_cannot_open_stops_reading_pages_once_the_character_limit_is_exceeded). The time budget is not checked —
     the point of the budget is to switch to simple extraction when it is exceeded, and this path is simple extraction from the
-    start. Known accepted gap: pdfminer cannot interpret the pages, so neither the decompression limit before opening a page
-    (`_charge_page`) nor the drawn-object estimate (`_drawn_objects`) can be applied."""
+    start. The drawn-object and content estimate (`_page_drawing`) is taken from the page tree as pdfminer reads it
+    (`_tree_page_drawings`), and a page past it is opened by nobody, as on the normal path (the last item: those pages). Known
+    accepted gap: when pdfminer cannot read the page tree either, every page goes to pdfium, and the decompression limit is applied
+    only to the streams the estimate decodes."""
     try:
         document = _open_pdfium(data)
     except pdfium.PdfiumError as exc:
@@ -703,9 +705,17 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
     try:
         total = len(document)
         limit = total if options.max_pages is None else min(total, options.max_pages)
+        drawings = _tree_page_drawings(data, _MAX_DRAWN_OBJECTS, {}) or []
         pages = []
+        refused = []
         unopened = 0
         for index in range(limit):
+            if index < len(drawings) and (drawings[index][0] > _MAX_DRAWN_OBJECTS or drawings[index][1] > _MAX_OPENED_CONTENT_BYTES):
+                refused.append(index + 1)
+                pages.append(_Page(number=index + 1, width=0.0, height=0.0, lines=[], tables=[], has_images=False,
+                                   view=(0.0, 0.0, 0.0, 0.0), simple=True))
+                unopened = 0
+                continue
             try:
                 pages.append(_pdfium_page(document, index))
                 unopened = 0
@@ -726,7 +736,7 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
                     break
             if extraction.count(_countable_chars(pages[-1]), options):
                 break
-        return pages, total, limit
+        return pages, total, limit, refused
     finally:
         with _PDFIUM_LOCK:
             document.close()

@@ -348,6 +348,64 @@ def _page_drawing(page: object, limit: int, painted: dict[int, tuple[object, int
         return 0, 0, 0
 
 
+
+# Pages of the page tree followed when the page list cannot be built (`_tree_page_drawings`). pdfium stops on its own long
+# before a real document has this many pages (`_MAX_UNOPENED_PAGES` in pdf.py ends a run of pages it cannot open).
+_TREE_PAGES = 100_000
+
+
+class _TreePage:
+    """A leaf of the page tree as `_page_drawing` reads a page (`page_obj.attrs`, `page_obj.resources`)."""
+
+    __slots__ = ("attrs", "resources")
+
+    def __init__(self, attrs: dict, resources: object) -> None:
+        self.attrs, self.resources = attrs, resources
+
+    @property
+    def page_obj(self) -> "_TreePage":
+        return self
+
+
+def _tree_page_drawings(data: bytes, limit: int, forms: dict[tuple[int, int], tuple[object, ...]]) -> list[tuple[int, int, int]] | None:
+    """`_page_drawing` of the pages of the document's page tree, in the order pdfium numbers them (the leaves of `/Kids` from
+    left to right, `/Resources` inherited), for a document whose page list pdfminer could not build (`_read_with_pdfium` in
+    pdf.py). None when pdfminer cannot read the page tree either.
+
+    That path handed every page straight to pdfium, so a form drawing itself twice still took gigabytes there (a `/Rotate /Foo`
+    beside it is enough to send the document that way) (Pinned by:
+    test_pdf_resource_limits.py::TestFormsDrawingThemselves::test_looping_page_of_a_document_pdfminer_cannot_open_is_not_opened)."""
+    from pdfminer.pdfdocument import PDFDocument
+    from pdfminer.pdfparser import PDFParser
+
+    try:
+        root = resolve1(PDFDocument(PDFParser(BytesIO(data))).catalog.get("Pages"))
+    except DocumentTooLargeError:
+        raise
+    except Exception:  # noqa: BLE001 — pdfium reads the document as before
+        return None
+    drawings: list[tuple[int, int, int]] = []
+    painted: dict[int, tuple[object, int]] = {}
+    pending, seen = [(root, None)], set()
+    while pending and len(drawings) < _TREE_PAGES:
+        node, inherited = pending.pop()
+        try:
+            node = resolve1(node)
+        except DocumentTooLargeError:
+            raise
+        except Exception:  # noqa: BLE001 — a broken node is left to pdfium
+            continue
+        if not isinstance(node, dict) or id(node) in seen:
+            continue
+        seen.add(id(node))
+        resources = node.get("Resources", inherited)
+        kids = resolve1(node.get("Kids"))
+        if isinstance(kids, list) and _name(node.get("Type")) != "Page":
+            pending.extend((kid, resources) for kid in reversed(kids))
+        else:
+            drawings.append(_page_drawing(_TreePage(node, resolve1(resources)), limit, painted, forms))
+    return drawings
+
 def _content_streams(page: object) -> list[PDFStream]:
     """The content streams of the page in the order drawn, a stream listed several times in `/Contents` as often as listed."""
     contents = resolve1(page.page_obj.attrs.get("Contents"))

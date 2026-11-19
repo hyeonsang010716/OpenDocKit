@@ -627,9 +627,9 @@ class TestDeepFormsAreSurveyedToTheBottom:
         assert any("have too many drawing elements and were" in warning and "(2)" in warning for warning in result.warnings)
 
 
-def _looping_forms_pdf(forms: dict[bytes, bytes], page: bytes = b"/A Do") -> bytes:
+def _looping_forms_pdf(forms: dict[bytes, bytes], page: bytes = b"/A Do", attributes: bytes = b"") -> bytes:
     """Page 1 is ordinary text; page 2 draws `page`, with the forms `forms` (name → content) all named in the resources of the page and of
-    every form, so that they can draw each other."""
+    every form, so that they can draw each other (`attributes` are added to page 2)."""
     names = sorted(forms)
     xobjects = b"/XObject << %s >>" % b" ".join(b"/%s %d 0 R" % (name, 8 + index) for index, name in enumerate(names))
     resources = b"/Resources << /Font << /F1 5 0 R >> %s >>" % xobjects
@@ -638,7 +638,7 @@ def _looping_forms_pdf(forms: dict[bytes, bytes], page: bytes = b"/A Do") -> byt
                3: _PAGE % 4,
                4: _flate_stream(_padded_text(b"Plain first page", 0)),
                5: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-               6: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 7 0 R %s >>" % resources,
+               6: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 7 0 R %s %s >>" % (resources, attributes),
                7: _flate_stream(_padded_text(b"Looping page", 0) + page)}
     for index, name in enumerate(names):
         objects[8 + index] = _flate_stream(forms[name], b"/Type /XObject /Subtype /Form /BBox [0 0 595 842] " + resources)
@@ -706,6 +706,24 @@ class TestFormsDrawingThemselves:
 
         assert read == [1] and "Plain first page" in result.text and "Looping page" not in result.text
         assert any("(2)" in warning and "were not read" in warning for warning in result.warnings)
+
+    def test_looping_page_of_a_document_pdfminer_cannot_open_is_not_opened(self, monkeypatch):
+        """`/Rotate /Foo` keeps pdfminer from building the page list, so the document is read with pdfium alone."""
+        from opendockit.extractors import pdf as pdf_module
+
+        original = pdf_module._pdfium_page
+
+        def opened(document, index):
+            assert index == 0, "pdfium opened the looping page"  # it would take gigabytes
+            return original(document, index)
+
+        monkeypatch.setattr(pdf_module, "_pdfium_page", opened)
+
+        result = convert(_looping_forms_pdf({b"A": b"/A Do /A Do"}, attributes=b"/Rotate /Foo"), "a.pdf")
+
+        assert "Plain first page" in result.text and "Looping page" not in result.text
+        assert any("(2)" in warning and "were not read" in warning for warning in result.warnings)
+        assert any("(1)" in warning and "Structure analysis failed" in warning for warning in result.warnings)
 
     def test_page_whose_forms_loop_once_is_read(self):
         content = b"BT /F1 12 Tf 72 600 Td (Inside the loop) Tj ET\n/B Do"
