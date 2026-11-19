@@ -740,18 +740,28 @@ def _reads_as_prose_columns(run: list[list[_Line]], order: dict[int, int], lines
     # test_table_of_wrapped_sentences_stays_a_table).
     spans = [(left - _PROSE_COLUMN_EDGE, left + width) for left, width in zip(lefts, widths, strict=True)]
     tops = [sorted(line.top for line in lines if x0 <= line.x0 <= x1) for x0, x1 in spans]
+    ordered = [sorted(line.top for line in column) for column in columns]
+    # the line pitch: the closest two lines of a column (inside a cell of a table, inside a paragraph of prose)
+    pitch = min((lower - upper for column_tops in ordered for upper, lower in pairwise(column_tops)
+                 if lower - upper > _TABLE_ROW_TOLERANCE), default=0.0)
     ends: list[list[float]] = []  # the top of the line after each break of a column
-    beyond = 0  # columns whose lines go on right above or below the run
-    for number, column in enumerate(columns):
-        ordered = sorted(column, key=lambda line: line.top)
-        pitch = statistics.median(lower.top - upper.top for upper, lower in pairwise(ordered))
+    beyond = 0  # columns whose lines go on at their pitch right above or below the run
+    for column_tops, page_tops in zip(ordered, tops, strict=True):
+        # the lines of the column on the page right above and right below the run: a table found row by row in runs of its
+        # own has its other rows there, beyond a break of every column
+        above = bisect_left(page_tops, column_tops[0] - _TABLE_ROW_TOLERANCE)
+        below = bisect_right(page_tops, column_tops[-1] + _TABLE_ROW_TOLERANCE)
+        steps = list(pairwise(column_tops))
+        if above:
+            steps.append((page_tops[above - 1], column_tops[0]))
+        if below < len(page_tops):
+            steps.append((column_tops[-1], page_tops[below]))
         # a gap the column fills with lines left out of the run (set off by the space after a paragraph) is no break
-        ends.append([lower.top for upper, lower in pairwise(ordered) if lower.top - upper.top > pitch * _PROSE_BREAK_RATIO
-                     and bisect_right(tops[number], upper.top + _TABLE_ROW_TOLERANCE)
-                     >= bisect_left(tops[number], lower.top - _TABLE_ROW_TOLERANCE)])
-        first, last = ordered[0].top, ordered[-1].top
-        beyond += (bisect_left(tops[number], first - _TABLE_ROW_TOLERANCE) > bisect_left(tops[number], first - 2 * pitch)
-                   or bisect_right(tops[number], last + 2 * pitch) > bisect_right(tops[number], last + _TABLE_ROW_TOLERANCE))
+        ends.append(sorted(lower for upper, lower in steps if lower - upper > pitch * _PROSE_BREAK_RATIO
+                           and bisect_right(page_tops, upper + _TABLE_ROW_TOLERANCE)
+                           >= bisect_left(page_tops, lower - _TABLE_ROW_TOLERANCE)))
+        beyond += ((above and column_tops[0] - page_tops[above - 1] <= pitch * _PROSE_BREAK_RATIO)
+                   or (below < len(page_tops) and page_tops[below] - column_tops[-1] <= pitch * _PROSE_BREAK_RATIO))
     breaks = sum(len(column_ends) for column_ends in ends)
     rows = sum(all(bisect_left(other_ends, end - _TABLE_ROW_TOLERANCE) < bisect_right(other_ends, end + _TABLE_ROW_TOLERANCE)
                    for other_ends in ends) for column_ends in ends for end in column_ends)

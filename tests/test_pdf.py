@@ -1258,6 +1258,42 @@ class TestBorderlessTableOfPhrases:
                 in text)
         assert "| steel frames on the date agreed | six weeks and the crews have to | supplier as a reserve and pay |" in text
 
+    def test_table_of_wrapped_sentences_found_row_by_row_stays_a_table(self):
+        """A reportlab Table of four equal columns of sentences, its rows set apart by the cell padding: below its first rows
+        the table is found one row to a run, and a run of one row has no break inside it, so it passed for prose and every
+        cell of the last rows became a paragraph. The breaks between the run and the rows above and below it, in every column
+        at once, count as well (`_reads_as_prose_columns`)."""
+        from io import BytesIO
+
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
+
+        rows = [
+            ["Option", "Benefit", "Drawback", "Cost note"],
+            ["Team contract plan a quality.", "Quality update supplier contract the quality quality report review supplier.", "A schedule report meeting update review team schedule quality schedule.", "The scope the meeting supplier risk change will."],
+            ["Meeting quality change a report.", "Update cost team delivery cost risk plan quality schedule review scope risk report review.", "The project update report team schedule a budget.", "Will budget schedule delivery will team project project report project report cost."],
+            ["Change update delivery the cost.", "A team change meeting scope meeting review supplier schedule.", "Report delivery project will cost customer cost report quality project update scope change schedule budget review.", "Quality will cost customer budget report supplier."],
+            ["Change meeting scope schedule the.", "Team review update review contract plan review team will budget a project supplier cost contract project.", "Change a delivery review contract contract update delivery quality the a.", "Update risk change supplier delivery cost team customer the will will quality supplier."],
+            ["Risk project project customer report quality update scope team.", "Plan risk scope customer plan will schedule meeting quality project scope a delivery scope budget.", "The risk review team budget plan customer the project a.", "A will customer project the plan update update project plan schedule team review."],
+            ["The update supplier update supplier budget will delivery project.", "Schedule meeting schedule team plan schedule plan team update team contract contract report customer review schedule scope.", "Cost update budget budget project schedule quality delivery project update plan project will will customer cost will.", "A budget budget customer will team scope contract quality meeting scope schedule meeting."],
+            ["The quality supplier will delivery.", "Team meeting project quality project delivery contract change delivery.", "Plan budget supplier review change schedule plan quality a scope meeting will schedule risk meeting risk.", "Quality report update schedule customer supplier a schedule cost supplier cost team the."],
+        ]
+        style = ParagraphStyle("cell", parent=getSampleStyleSheet()["BodyText"], fontSize=9, leading=11)
+        buffer = BytesIO()
+        document = SimpleDocTemplate(buffer, pagesize=A4)
+        table = Table([[Paragraph(cell, style) for cell in row] for row in rows], colWidths=[document.width / 4] * 4)
+        table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOTTOMPADDING", (0, 0), (-1, -1), 10)]))
+        document.build([Paragraph("Risk register for the project", getSampleStyleSheet()["Heading2"]), table])
+
+        text = convert(buffer.getvalue(), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        # The table comes out in parts where a row of one line piece cuts it, as before; every row stays in a table
+        rows_of_tables = [line for line in text.splitlines() if line.startswith("| ") and "---" not in line]
+        assert len(rows_of_tables) == 29
+        assert any(line.startswith("| The quality supplier will | Team meeting project |") for line in rows_of_tables)
+        assert "\n\nQuality report update\n" not in text
+
     def test_borderless_table_with_a_column_of_sentences_is_still_a_table(self):
         rows = [("Step", "What is done", "Owner"), ("Plan", "Agree on the scope and the budget", "Board"),
                 ("Build", "Write the code and the tests for it", "Team"), ("Ship", "Release it and watch the errors", "Ops")]
