@@ -170,8 +170,10 @@ class HwpxRenderer:
         self._unspaced_memos: dict[str, None] = {}  # comments above with a non-empty range not ending in whitespace (get a space between paragraphs)
         self._memo_depth = 0  # 1 or more while comment text is rendered. That text is not the range of another comment
         self._open_links: dict[str, str] = {}  # hyperlink field id not yet closed by fieldEnd → its address (`_open_link`)
-        # click-here field id not yet closed → (the pieces it was opened in, where its text starts there, its guide text)
-        self._open_clicks: dict[str, tuple[list[str], int, str | None]] = {}
+        # click-here field id not yet closed → (the pieces it was opened in, where its text starts there, its guide text, how many
+        # click-here fields had been opened when it was)
+        self._open_clicks: dict[str, tuple[list[str], int, str | None, int]] = {}
+        self._clicks_opened = 0
         self.omitted_rows = 0  # rows dropped by the table grid cell limit (`TableGrid.omitted_rows`). Reported as a warning
 
     def render_paragraphs(self, container: etree._Element) -> list[str]:
@@ -423,11 +425,15 @@ class HwpxRenderer:
             elif name == "fieldBegin" and node.get("type") == "HYPERLINK":
                 self._open_link(node, buffer)
             elif name == "fieldBegin" and node.get("type") == "CLICK_HERE":
-                self._open_clicks[node.get("id", "")] = (buffer, len(buffer), click_here_guide(_field_command(node)))
+                # Its guide is dropped at its end only when no other click-here field was opened inside it: checked at every end, 40,000
+                # fields opened in one paragraph and then ended joined the text from each start again, 19 s (Pinned by:
+                # test_hwp.py::TestClickHereFields::test_fields_opened_inside_each_other_take_linear_time)
+                self._clicks_opened += 1
+                self._open_clicks[node.get("id", "")] = (buffer, len(buffer), click_here_guide(_field_command(node)), self._clicks_opened)
             elif name == "fieldEnd":
                 self._close_memo(node.get("beginIDRef", ""))
                 opened = self._open_clicks.pop(node.get("beginIDRef", ""), None)
-                if opened is not None and opened[0] is buffer:
+                if opened is not None and opened[0] is buffer and opened[3] == self._clicks_opened:
                     drop_unfilled_guide(buffer, opened[1], opened[2])
                 url = self._open_links.pop(node.get("beginIDRef", ""), None)
                 if url is not None:

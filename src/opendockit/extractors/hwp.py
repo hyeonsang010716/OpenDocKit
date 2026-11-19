@@ -314,11 +314,13 @@ class ParagraphHeads:
 
 @dataclass(slots=True)
 class _ClickHere:
-    """A click-here field opened in a paragraph: the pieces it was opened in, where its text starts there, and its guide text."""
+    """A click-here field opened in a paragraph: the pieces it was opened in, where its text starts there, its guide text, and how
+    many click-here fields had been opened when it was (`HwpRenderer._clicks_opened`)."""
 
     pieces: list[str]
     start: int
     guide: str | None
+    serial: int
 
 
 class HwpRenderer:
@@ -363,6 +365,7 @@ class HwpRenderer:
         # The fields opened and not yet ended, innermost last: the address of a hyperlink that is kept, a click-here field
         # (`_ClickHere`), else None (`_start_field`)
         self._fields: list[str | _ClickHere | None] = []
+        self._clicks_opened = 0  # click-here fields opened so far: one opened inside another is not its guide (`_start_field`)
 
     def render(self, records: list[Record]) -> list[str]:
         """Find paragraphs (PARA_HEADER) and render them. A record that is not a paragraph is descended to find inner paragraphs — with a
@@ -414,7 +417,7 @@ class HwpRenderer:
             if part == FIELD_END:
                 field = self._fields.pop() if self._fields else None
                 if isinstance(field, _ClickHere):
-                    if field.pieces is buffer:
+                    if field.pieces is buffer and field.serial == self._clicks_opened:
                         drop_unfilled_guide(buffer, field.start, field.guide)
                 elif field is not None:
                     buffer.append(link_end(field))
@@ -544,8 +547,12 @@ class HwpRenderer:
             start = _FIELD_COMMAND_OFFSET + 2
             command = payload[start:start + 2 * length].decode("utf-16-le", errors="replace")
         if kind == "%clk":
-            # A click-here field (누름틀): its text is dropped at its end when it is still the guide (`drop_unfilled_guide`)
-            self._fields.append(_ClickHere(buffer, len(buffer), click_here_guide(command)))
+            # A click-here field (누름틀): its text is dropped at its end when it is still the guide (`drop_unfilled_guide`), unless
+            # another click-here field was opened inside it. Checked at every end, 40,000 fields opened in one paragraph and then
+            # ended joined the text from each start again: 19 s (Pinned by: test_hwp.py::TestClickHereFields::
+            # test_fields_opened_inside_each_other_take_linear_time)
+            self._clicks_opened += 1
+            self._fields.append(_ClickHere(buffer, len(buffer), click_here_guide(command), self._clicks_opened))
             return
         if kind == "%hlk" and self._options.keep_links and command:
             url = command_link(command)

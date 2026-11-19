@@ -1216,6 +1216,39 @@ class TestClickHereFields:
 
         assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "성명: 소속: 총무과"
 
+    @staticmethod
+    def _nested_hwpx(count: int, guide: str = "g") -> bytes:
+        command = f"Clickhere:set:1:Direction:wstring:{len(guide)}:{guide} "
+        begins = "".join(f'<hp:ctrl><hp:fieldBegin id="{index}" type="CLICK_HERE"><hp:parameters><hp:stringParam name="Command">'
+                         f"{command}</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl><hp:t>x</hp:t>" for index in range(count))
+        ends = "".join(f'<hp:ctrl><hp:fieldEnd beginIDRef="{index}"/></hp:ctrl>' for index in reversed(range(count)))
+        return builder.hwpx_bytes(f"<hp:p><hp:run>{begins}{ends}</hp:run></hp:p>")
+
+    @staticmethod
+    def _nested_hwp(monkeypatch, count: int, guide: str = "g") -> bytes:
+        command = f"Clickhere:set:1:Direction:wstring:{len(guide)}:{guide} "
+        record = builder.hwp_record
+        text = builder.hwp_text(*[piece for _ in range(count) for piece in ((3, "%clk"), "x")], *[(4, "%clk")] * count)
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, text)
+                   + record(TAG_CTRL_HEADER, 1, _hwp_field("%clk", command)) * count)
+        return _fake_hwp(monkeypatch, sections=[section])
+
+    def test_field_with_another_click_here_field_inside_it_keeps_its_text(self, monkeypatch):
+        """Only the innermost of click-here fields opened inside each other is compared with its guide: the outer one holds the
+        text of the inner one, which is not a guide of its own."""
+        assert convert(self._nested_hwpx(2, "x"), "a.hwpx").text == "x"
+        assert convert(self._nested_hwp(monkeypatch, 2, "x"), "a.hwp").text == "x"
+
+    @pytest.mark.timing
+    def test_fields_opened_inside_each_other_take_linear_time(self, monkeypatch):
+        """Every field end joined the text from its start to compare it with the guide, so n fields opened in one paragraph and
+        then ended took the square of n (40,000 fields: 19 s in HWP and HWPX alike). Four times the fields must take less than
+        eight times as long."""
+        for build, name in ((self._nested_hwpx, "a.hwpx"), (lambda count: self._nested_hwp(monkeypatch, count), "a.hwp")):
+            small, large = build(2_500), build(10_000)
+            assert convert(large, name).text == "x" * 10_000
+            assert fastest(lambda: convert(large, name)) < 8 * fastest(lambda: convert(small, name))
+
 
 class TestHyperlinks:
     """Hyperlinks of HWPX (`hp:fieldBegin type="HYPERLINK"`) and HWP (the `%hlk` field) were plain text. Under `keep_links` they
