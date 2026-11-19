@@ -64,10 +64,10 @@ or sheets has nothing to ask for, and its note says to raise `max_chars` instead
 
 ## What it does on your machine
 
-- **Runs a local process.** `uvx --python ">=3.12" --exclude-newer 2026-11-17T07:03:00Z --from "opendockit[mcp]==0.3.13" opendockit-mcp`,
+- **Runs a local process.** `uvx --python ">=3.12" --exclude-newer 2026-11-19T07:46:00Z --from "opendockit[mcp]==0.3.14" opendockit-mcp`,
   over stdio, for as long as the session lasts. Each file is converted in a worker process that is ended after 2
   minutes, or on Linux at 2 GB.
-- **Downloads once.** The first start fetches `opendockit` 0.3.13 and its dependencies from PyPI into uv's cache, and
+- **Downloads once.** The first start fetches `opendockit` 0.3.14 and its dependencies from PyPI into uv's cache, and
   Python 3.12 or newer if the machine has none. After that it starts from the cache. It needs
   [uv](https://docs.astral.sh/uv/) on the `PATH`.
 - **Reads, never writes.** The tools only read the file they are given. No network access during conversion and no
@@ -82,7 +82,7 @@ or sheets has nothing to ask for, and its note says to raise `max_chars` instead
 
 ## Version pinning
 
-`.mcp.json` pins `opendockit[mcp]==0.3.13` and resolves its dependencies as of 2026-11-17, so the plugin installs the
+`.mcp.json` pins `opendockit[mcp]==0.3.14` and resolves its dependencies as of 2026-11-19, so the plugin installs the
 same code until this file changes. The plugin's version is the OpenDocKit release it starts.
 
 ## Limits
