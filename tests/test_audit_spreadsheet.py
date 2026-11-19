@@ -15,7 +15,7 @@ import pytest
 
 from opendockit import convert
 from opendockit.exceptions import CorruptedDocumentError
-from opendockit.extractors import _sheet_layout, _xlsx_parts, csv_text, spreadsheet, xls, xml_spreadsheet
+from opendockit.extractors import _sheet_layout, _xlsx_parts, csv_text, odf, spreadsheet, xls, xml_spreadsheet
 from opendockit.extractors._sheet_format import format_cell
 from opendockit.markdown import render_table
 from opendockit.models import ConvertOptions
@@ -1231,6 +1231,15 @@ class TestSheetDrawingStopsAtTheLimit:
 
         assert _drawn(xml_spreadsheet.extract_xml_spreadsheet(data, ConvertOptions(max_chars=_LIMIT)).sections) < 3 * _LIMIT
         _cut_as_unlimited(data, "a.xml")
+
+    def test_ods_wide_sheet_of_quote_marks_is_drawn_only_to_the_limit(self):
+        from tests.test_odf import _cell, _package, _row, _sheet
+
+        header = _row(*[_cell(f"h{index}") for index in range(100)])
+        data = _package("spreadsheet", _sheet("S", header, *[_row(_cell("&gt;")) for _ in range(30_000)]))
+
+        assert _drawn(odf.extract_ods(data, ConvertOptions(max_chars=_LIMIT)).sections) < 3 * _LIMIT
+        _cut_as_unlimited(data, "a.ods")
 
     def test_sheet_within_the_limit_is_drawn_whole(self):
         data = _merged_down_xlsx("k" * 300, 20)

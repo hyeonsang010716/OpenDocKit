@@ -1507,10 +1507,11 @@ def _extract_sheets(renderer: _Renderer, body: etree._Element, extraction: Extra
             extraction.warnings.append(f"Hidden sheet '{name}' was excluded.")
             continue
         spans: dict[int, list[tuple[int, int, str]]] = {}
+        room = chars_left(extraction, options)
         rows = _collect_rows(renderer.sheet_rows(table, name, spans), options, name, extraction)
         across = {id(rows[row]): found for row, found in spans.items() if row < len(rows)}
         drawn = renderer.sheet_objects(table)
-        _append_sheet(extraction, name, rows, [] if extraction.exceeded else drawn, across)
+        _append_sheet(extraction, name, rows, [] if extraction.exceeded else drawn, across, room, options)
         if extraction.exceeded:
             break
     extraction.metadata["sheet_count"] = str(len(extraction.sections))
