@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 import re
 import unicodedata
 
+from docx.opc.constants import CONTENT_TYPE as CT
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.opc.exceptions import PackageNotFoundError
 from docx.oxml.exceptions import InvalidXmlError
@@ -1118,6 +1119,12 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
         _reject_strict(data)
         raise CorruptedDocumentError("The DOCX document structure could not be read.")
 
+    # A relationship without a Type is kept by python-docx, which opens the package as it is, and the parts looked up by type
+    # were not found behind it: the styles or the numbering were dropped without a word, and the headings and list items came
+    # out as plain text. One whose target has the content type of such a part takes that part's type, unless another
+    # relationship of the same part has it already (Pinned by: test_office_robustness.py::TestIncompleteRelationship::
+    # test_docx_relationship_without_a_type_takes_the_type_of_its_part).
+    _type_untyped_relationships(part.package)
     document = part.document
     # A main part whose root is not w:document is not a Word document. A w:document without w:body (optional in the schema) is an
     # empty document, as a deck without a slide list is an empty deck: it is given an empty body in memory. Both raised from
@@ -1268,6 +1275,36 @@ def _notes(document: object, renderer: _DocxRenderer) -> str:
                                 for block in _children(note, _w("p"), _w("tbl")))
                 texts[kind, note.get(_w("id"), "")] = body.strip()
     return "\n".join(f"[^{label}]: {texts[ref]}" for ref, label in renderer.notes.labels.items() if texts.get(ref))
+
+
+# Content type of a part that is looked up by its relationship type → that type (`_type_untyped_relationships`)
+_TYPE_OF_CONTENT = {
+    CT.WML_STYLES: RT.STYLES, CT.WML_NUMBERING: RT.NUMBERING, CT.WML_FOOTNOTES: RT.FOOTNOTES, CT.WML_ENDNOTES: RT.ENDNOTES,
+    CT.WML_COMMENTS: RT.COMMENTS, CT.WML_SETTINGS: RT.SETTINGS, CT.WML_FONT_TABLE: RT.FONT_TABLE, CT.OFC_THEME: RT.THEME,
+    CT.WML_WEB_SETTINGS: RT.WEB_SETTINGS,
+}
+
+
+def _type_untyped_relationships(package: object) -> None:
+    """Give a relationship without a Type the type of the part it points at, when that part is one looked up by type
+    (`_TYPE_OF_CONTENT`) and no other relationship of the same part has that type. Any other relationship without a Type
+    (a picture, a header, found by its Id) is left as it is. Each part is visited once."""
+    seen: set[int] = set()
+    sources = [package]
+    while sources:
+        relationships = sources.pop().rels.values()
+        types = {relationship.reltype for relationship in relationships}
+        for relationship in relationships:
+            if relationship.is_external:
+                continue
+            target = relationship.target_part
+            missing = _TYPE_OF_CONTENT.get(target.content_type) if not relationship.reltype else None
+            if missing is not None and missing not in types:
+                relationship._reltype = missing
+                types.add(missing)
+            if id(target) not in seen:
+                seen.add(id(target))
+                sources.append(target)
 
 
 def _note_parts(document: object, placeholders: dict[str, str]) -> dict[str, tuple[object, etree._Element]]:

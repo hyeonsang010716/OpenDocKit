@@ -673,6 +673,22 @@ class TestIncompleteRelationship:
         assert result.warnings in ([], ["Read after leaving out 1 relationship(s) with no Id, Type or Target. "
                                         "Whatever they pointed at may be missing."])
 
+    @pytest.mark.parametrize("kind", ["numbering", "styles"])
+    def test_docx_relationship_without_a_type_takes_the_type_of_its_part(self, kind):
+        """python-docx opens a package with a relationship without a Type and keeps it, so the repair never runs, and a part
+        looked up by type was not found behind it: the list items lost `- ` and `1.` (numbering), the headings their `#`
+        (styles), without a word. It takes the type of the part it points at, and the document reads as it is."""
+        import re
+
+        data = builder.zip_with(builder.docx_bytes(), edit={"word/_rels/document.xml.rels": lambda xml: re.sub(
+            f'Type="[^"]*/{kind}"', "", xml)})
+        expected = convert(builder.docx_bytes(), "a.docx")
+
+        result = convert(data, "a.docx")
+
+        assert (result.text, result.warnings) == (expected.text, [])
+        assert "1. 첫째" in result.text and "# 1장 개요" in result.text
+
 
 class TestPercentEncodedTargets:
     """A relationship target is a URI: `im%61ge1.png` names the part `image1.png` (OPC). Only a package that failed to open had
