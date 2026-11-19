@@ -197,7 +197,7 @@ def _aligned_table_runs(page: _Page) -> list[list[list[_Line]]]:
         runs = [run for run in runs if not _mixes_two_columns(run, *columns)]
         runs += _column_table_runs(page, runs, columns, max_cell)
     order = {id(line): index for index, line in enumerate(page.lines)}
-    prose = [run for run in runs if _reads_as_prose_columns(run, order)]
+    prose = [run for run in runs if _reads_as_prose_columns(run, order, page.lines)]
     if prose:
         runs = [run for run in runs if not any(run is other for other in prose)]
         page.prose_lines.update(id(original) for run in prose for row in run for line in row
@@ -674,16 +674,20 @@ _PROSE_COLUMN_EDGE = 4.0  # pieces whose left edges are this close start the sam
 # Columns of prose are set as one layout: their left edges lie at the same pitch (within `_PROSE_COLUMN_EDGE`) and their
 # widest lines differ by at most this share of the widest.
 _PROSE_WIDTH_SPREAD = 0.15
+# A gap in a column wider than this many times its median line pitch is a break: between two rows or two paragraphs.
+_PROSE_BREAK_RATIO = 1.25
 
 
-def _reads_as_prose_columns(run: list[list[_Line]], order: dict[int, int]) -> bool:
+def _reads_as_prose_columns(run: list[list[_Line]], order: dict[int, int], lines: list[_Line]) -> bool:
     """Whether a borderless table found across the page (`run`) is the lines of three or more columns of prose read side by
     side, which the body flow reads column by column once the table is dropped: no piece is a value (`_is_value_piece`); in
     every column (pieces whose left edges lie within `_PROSE_COLUMN_EDGE` of each other, two pieces or more) most pieces hold
     three words or more and fill most of the width of the column's widest piece; the columns stand at the same pitch and are
     as wide as each other (`_PROSE_WIDTH_SPREAD`); and in the reading order of the page (`order`, the position of each line in
     `page.lines`) at least half of the pieces are followed by the next piece of their own column, as pdfminer reads the lines
-    of a column of text as one box.
+    of a column of text as one box; and the run does not break in rows: fewer than half of the breaks of its columns (gaps
+    wider than `_PROSE_BREAK_RATIO` times the line pitch with no line of the page, `lines`, in the column) end at a row where
+    every column breaks, unless the columns go on above or below the run.
 
     A column of a newsletter, a brochure or a three-column paper is 138–153 pt wide on A4 or Letter, within the width of a
     table cell, and its lines stand side by side at the same heights, so every row held three short pieces on the same left
@@ -696,8 +700,11 @@ def _reads_as_prose_columns(run: list[list[_Line]], order: dict[int, int]) -> bo
     as each other, and pdfminer reads it row by row when its rows are set apart. Without them such tables became plain lines.
     Where pdfminer reads prose lines row by row, the dropped table would leave the columns merged line by line ('It is a
     truth universally Call me Ishmael. Some years'), worse than the table that at least keeps them apart; such a run stays a
-    table (Pinned by: test_pdf.py::TestProseInThreeColumns, TestBorderlessTableOfPhrases). Known accepted gap: a table of
-    equally wide columns whose every cell is wrapped sentences filling the column, read column by column, is read as prose.
+    table (Pinned by: test_pdf.py::TestProseInThreeColumns, TestBorderlessTableOfPhrases). A table of equally wide columns
+    whose cells are sentences wrapped over a few lines (a risk register) is read row by row, but inside a cell the next line
+    of the column follows too, and it passed for prose: every cell became a paragraph of its own; its rows break in every
+    column at once. Known accepted gap: such a table read column by column, or one whose rows are one line each, is read as
+    prose.
     """
     pieces = [line for row in run for line in row]
     if len(run) < _TABLE_MIN_ROWS or any(_is_value_piece(line.text) for line in pieces):
@@ -723,8 +730,34 @@ def _reads_as_prose_columns(run: list[list[_Line]], order: dict[int, int]) -> bo
     if max(pitches) - min(pitches) > _PROSE_COLUMN_EDGE or max(widths) - min(widths) > _PROSE_WIDTH_SPREAD * max(widths):
         return False
     column_of = {id(line): number for number, column in enumerate(columns) for line in column}
-    read = [column_of[id(line)] for line in sorted(pieces, key=lambda line: order.get(id(line), -1)) if id(line) in column_of]
-    return sum(before == after for before, after in pairwise(read)) * 2 >= len(read) - 1
+    in_order = [line for line in sorted(pieces, key=lambda line: order.get(id(line), -1)) if id(line) in column_of]
+    if sum(column_of[id(before)] == column_of[id(after)] for before, after in pairwise(in_order)) * 2 < len(in_order) - 1:
+        return False
+    # A table whose cells wrap over a few lines is read row by row, yet inside a cell the next line of the column follows too.
+    # Its rows tell it: every column breaks (a gap wider than its line pitch, with no line of the page in the column) and goes
+    # on at the top of the next row, while a break between two paragraphs of prose is the column's own, the other columns
+    # going on at their pitch beside it (Pinned by: test_pdf.py::TestBorderlessTableOfPhrases::
+    # test_table_of_wrapped_sentences_stays_a_table).
+    spans = [(left - _PROSE_COLUMN_EDGE, left + width) for left, width in zip(lefts, widths, strict=True)]
+    tops = [sorted(line.top for line in lines if x0 <= line.x0 <= x1) for x0, x1 in spans]
+    ends: list[list[float]] = []  # the top of the line after each break of a column
+    beyond = 0  # columns whose lines go on right above or below the run
+    for number, column in enumerate(columns):
+        ordered = sorted(column, key=lambda line: line.top)
+        pitch = statistics.median(lower.top - upper.top for upper, lower in pairwise(ordered))
+        # a gap the column fills with lines left out of the run (set off by the space after a paragraph) is no break
+        ends.append([lower.top for upper, lower in pairwise(ordered) if lower.top - upper.top > pitch * _PROSE_BREAK_RATIO
+                     and bisect_right(tops[number], upper.top + _TABLE_ROW_TOLERANCE)
+                     >= bisect_left(tops[number], lower.top - _TABLE_ROW_TOLERANCE)])
+        first, last = ordered[0].top, ordered[-1].top
+        beyond += (bisect_left(tops[number], first - _TABLE_ROW_TOLERANCE) > bisect_left(tops[number], first - 2 * pitch)
+                   or bisect_right(tops[number], last + 2 * pitch) > bisect_right(tops[number], last + _TABLE_ROW_TOLERANCE))
+    breaks = sum(len(column_ends) for column_ends in ends)
+    rows = sum(all(bisect_left(other_ends, end - _TABLE_ROW_TOLERANCE) < bisect_right(other_ends, end + _TABLE_ROW_TOLERANCE)
+                   for other_ends in ends) for column_ends in ends for end in column_ends)
+    # The columns of prose also go on above or below the lines that line up, where paragraphs of two or more columns ended
+    # at the same height by chance; a table ends where its rows do.
+    return rows * 2 < breaks or not breaks or beyond >= _TABLE_MIN_COLUMNS - 1
 
 
 def _table_columns(page: _Page) -> tuple[float, float] | None:

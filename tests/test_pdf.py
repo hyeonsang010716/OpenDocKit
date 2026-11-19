@@ -1114,6 +1114,27 @@ class TestProseInThreeColumns:
 
         assert text.startswith("| It is a truth universally | Call me Ishmael.")
 
+    def test_paragraphs_ending_at_the_same_height_in_every_column_are_still_prose(self):
+        """Paragraphs set 6 pt apart: those of all three columns end after the fourth line, where every column breaks as the
+        rows of a table do. Unlike a table's, the columns go on below the lines that line up (`_reads_as_prose_columns`)."""
+        from reportlab.lib.utils import simpleSplit
+
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 10)
+            for column, lengths in enumerate([(4, 9, 6), (4, 5, 10), (4, 8, 7)]):
+                lines = simpleSplit(" ".join(_PROSE[:3] * 2), "Helvetica", 10, 138)[column * 25:]
+                top = 770.0
+                for length in lengths:
+                    for line in lines[:length]:
+                        pdf.drawString(72 + column * 156, top, line)
+                        top -= 12
+                    lines = lines[length:]
+                    top -= 6
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| --- |" not in text
+
     def test_many_lines_of_prose_columns_start_no_label_value_rows(self):
         """Every row of three prose lines paired its two right lines down to the end of the columns before the group was turned
         down for its wide values (`_label_value_rows`): time with the square of the rows once the rows were no table."""
@@ -1200,6 +1221,42 @@ class TestBorderlessTableOfPhrases:
 
         assert "| Review chapter 25 draft | Editor number 2 here | Ready for the printer |" in text
         assert text.count("| Review chapter") == 29
+
+    _RISKS = [("Key supplier fails to deliver the steel frames on the date agreed in the contract signed last year",
+               "The building work stops for up to six weeks and the crews have to be moved to other sites at our cost",
+               "Order the frames from a second supplier as a reserve and pay the deposit before the end of the month"),
+              ("Heavy rain in the autumn floods the lower part of the site where the foundations are being poured",
+               "The concrete cannot be poured and the pumps must run day and night to keep the trench dry enough",
+               "Move the pour forward to the summer and hire two extra pumps to keep on site from September onward"),
+              ("The planning office asks for changes to the design of the roof after the first inspection visit",
+               "Drawings must be redone and the roof work slips by about a month while the changes are approved",
+               "Meet the planning office early with the drawings and agree the roof design before the inspection")]
+
+    @pytest.mark.parametrize(("header", "gap"), [(True, 16), (False, 22)], ids=["with-header", "without-header"])
+    def test_table_of_wrapped_sentences_stays_a_table(self, header, gap):
+        """A risk register of equally wide columns whose cells are sentences wrapped over three or four lines: pdfminer reads
+        it row by row, yet inside a cell the next line of the column follows, so it passed for prose read column by column
+        and every cell became a paragraph of its own. At a gap between its rows every column breaks and goes on at the top of
+        the next row; a break between two paragraphs of prose is one column's own."""
+        from reportlab.lib.utils import simpleSplit
+
+        rows = [("Risk", "Likely effect on the project", "What we will do about it")] * header + self._RISKS
+
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 10)
+            top = 770.0
+            for row in rows:
+                cells = [simpleSplit(cell, "Helvetica", 10, 145) for cell in row]
+                for left, lines in zip((72, 230, 388), cells, strict=True):
+                    for number, line in enumerate(lines):
+                        pdf.drawString(left, top - number * 12, line)
+                top -= (max(len(lines) for lines in cells) - 1) * 12 + gap
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| Key supplier fails to deliver the | The building work stops for up to | Order the frames from a second |"
+                in text)
+        assert "| steel frames on the date agreed | six weeks and the crews have to | supplier as a reserve and pay |" in text
 
     def test_borderless_table_with_a_column_of_sentences_is_still_a_table(self):
         rows = [("Step", "What is done", "Owner"), ("Plan", "Agree on the scope and the budget", "Board"),
