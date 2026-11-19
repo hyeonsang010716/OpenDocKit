@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from bs4.element import PreformattedString
 
 from opendockit.extractors._html_base import _BLOCK_TAGS, _HEADINGS
+from opendockit.extractors._html_dom import _decompose_all
 from opendockit.extractors._mathml import MATH_IGNORED, literal, mathml_structure, text_leaf
 
 
@@ -67,7 +68,12 @@ def _put_tex_scripts(soup: BeautifulSoup) -> None:
     one by one. Only that element: any earlier sibling whose class held the letters 'mathjax' was taken for it, and a
     container of paragraphs was replaced by the formula (Pinned by: test_core_html.py::TestMathMl::
     test_only_the_mathjax_frame_right_before_the_script_is_replaced).
+
+    The scripts of frames are removed together at the end (`_decompose_all`): removed one by one, each looked up its place among
+    its siblings, and a paragraph of 20,000 formulas took 14 seconds where 10,000 took 3 (Pinned by:
+    test_core_html.py::TestMathMl::test_many_mathjax_formulas_take_linear_time).
     """
+    framed: list[Tag] = []
     for script in soup.find_all("script", type=True):
         if not str(script["type"]).strip().lower().startswith("math/tex"):
             continue
@@ -80,12 +86,13 @@ def _put_tex_scripts(soup: BeautifulSoup) -> None:
             continue  # read from the MathML MathJax put in the page
         target = frame if rendered else script
         if rendered:
-            script.decompose()
+            framed.append(script)
         target.clear()
         target.attrs = {}
         target.name = "span"
         if tex:
             target.append(f"${tex}$")
+    _decompose_all(framed)
 
 
 def _maths_holding_page_blocks(soup: BeautifulSoup) -> list[Tag]:

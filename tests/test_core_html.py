@@ -9,6 +9,7 @@ from opendockit import ConvertOptions, DocumentFormat, convert
 from opendockit.extractors._html_tables import _names_values_in_pairs, _table_rows
 from opendockit.extractors.html import extract_html
 from tests import needs_html5_tokenizer
+from tests.timing import fastest
 
 
 class TestContentOutsideTheBody:
@@ -319,6 +320,19 @@ class TestMathMl:
         assert convert(container.encode(), "a.html").text == "Paragraph one.\n\nParagraph two.\n\n$x^2$\n\nend"
         assert convert(hint.encode(), "a.html").text == "See note. and then $a+b$"
         assert convert(frame.encode(), "a.html").text == "Let $x^2$ be."
+
+    @pytest.mark.timing
+    def test_many_mathjax_formulas_take_linear_time(self):
+        """The script of every rendered formula was removed on its own, each looking up its place among its siblings: a
+        paragraph of 20,000 formulas took 14 seconds where 10,000 took 3."""
+        def seconds(count: int) -> float:
+            data = ("<p>" + "<span class='MathJax'><nobr>x</nobr></span><script type='math/tex'>x_i</script> and " * count
+                    + "</p>").encode()
+            return fastest(lambda: convert(data, "a.html"))
+
+        small, large = seconds(2_000), seconds(16_000)
+
+        assert large < 16 * small + 0.5
 
     def test_literal_text_is_escaped(self):
         """A `$` in the text of an equation ended the math span (`$$5×n$` opened display math), and braces typed in an `<mo>` or
