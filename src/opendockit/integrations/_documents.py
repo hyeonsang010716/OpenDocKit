@@ -16,8 +16,13 @@ from opendockit.models import ConversionResult, SectionKind
 type Mode = Literal["single", "sections"]
 MODES: tuple[str, ...] = ("single", "sections")
 _LOG = logging.getLogger("opendockit.integrations")
-# What says nothing on its own: a picture placeholder with no alt text or description, and a page marker (`_says_something`)
-_NOTHING_SAID = re.compile(r"\[Image\]|<!-- Page \d+ -->")
+# What says nothing on its own (`_says_something`): a placeholder for content that was not read — a picture with no alt text or
+# description, a chart, video or OLE object the converter could not read —, the bare cell of a sheet picture (`(cell C2)`; with
+# the text of its row, `(cell C2: 제품A)`, it says something), and a page marker. A sheet of pictures only gave a Document of
+# `(cell C2)` and `[Image]` lines (Pinned by: test_integrations.py::TestLangChainLoader::
+# test_pictures_without_a_description_give_no_document).
+_NOTHING_SAID = re.compile(r"\[(?:Image|Chart|Video|OLE object)\]|\(cell [A-Z]+\d+\)|<!-- Page \d+ -->")
+_BARE_PICTURE = re.compile(r"\[Image\]")
 
 
 def check_mode(mode: str) -> None:
@@ -74,9 +79,9 @@ def pieces(result: ConversionResult, source: str | None, mode: Mode) -> Iterator
         # (Pinned by: test_integrations.py::TestLangChainLoader::test_file_without_any_text_gives_no_document_and_a_logged_warning).
         _LOG.warning("%s gave no text and was left out: %s", source or "A document",
                      " ".join(result.warnings) or ("It holds only pictures, and they were not described."
-                                                   if _NOTHING_SAID.search(result.text) else "No text was extracted."))
+                                                   if _BARE_PICTURE.search(result.text) else "No text was extracted."))
 
 
 def _says_something(text: str) -> bool:
-    """Is there text besides bare picture placeholders and page markers?"""
+    """Is there text besides bare placeholders, picture cells and page markers (`_NOTHING_SAID`)?"""
     return bool(_NOTHING_SAID.sub("", text).strip())

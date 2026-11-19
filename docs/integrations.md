@@ -77,7 +77,7 @@ Both take `options=ConvertOptions(...)` ([options.md](options.md)) — `max_char
 and the rest work as they do for `convert`. A file that cannot be converted raises the same `ConversionError` subclasses
 `convert_file` raises; the adapters skip nothing silently. (`SimpleDirectoryReader` itself prints and skips a file that
 fails unless you pass `raise_on_error=True`.) A file that converts but has no text to hand on — a scanned PDF, an empty
-workbook, a picture file — gives no document, and a warning naming the file is logged on the `opendockit.integrations` logger. Conversion is offline: pictures stay `[Image]` placeholders. To have
+workbook, a picture file, a sheet of pictures only — gives no document, and a warning naming the file is logged on the `opendockit.integrations` logger. Conversion is offline: pictures stay `[Image]` placeholders. To have
 them described by a vision model, convert with `aconvert(..., describer=...)` yourself and build the documents from the
 result ([images.md](images.md)).
 
