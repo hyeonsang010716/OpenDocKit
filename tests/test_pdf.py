@@ -513,8 +513,8 @@ class TestRepeatedMarginsAndBorderlessTables:
         assert "Preface" not in result.text
         assert [line for line in result.text.splitlines() if line in _ROMAN_NUMERALS] == []
 
-    @pytest.mark.parametrize("numbers", [_ROMAN_NUMERALS, [f"- {numeral} -" for numeral in _ROMAN_NUMERALS]],
-                             ids=["bare", "dashes"])
+    @pytest.mark.parametrize("numbers", [_ROMAN_NUMERALS, [f"- {numeral} -" for numeral in _ROMAN_NUMERALS],
+                                         [f"({numeral})" for numeral in _ROMAN_NUMERALS]], ids=["bare", "dashes", "brackets"])
     def test_roman_page_numbers_beside_running_heads_that_change_are_removed(self, numbers):
         """Front matter as books set it: the section's running head on one side of the top row and 'i' … 'viii' on the outer
         side, the head changing from section to section. The numerals count with the pages but were taken only with a row that
@@ -533,6 +533,25 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         assert [line for line in result.text.splitlines() if line in numbers[:8]] == []
         assert "Body line 5 of page 8 with ordinary words." in result.text
+
+    @pytest.mark.parametrize(("height", "marker", "text_x"), [
+        (60, "{}", 110), (805, "{}", 100), (60, "({})", 144), (60, "{}", 180),
+    ], ids=["clause-at-the-foot", "question-at-the-top", "bracketed-clause-after-a-tab", "clause-after-a-wide-tab"])
+    def test_roman_clause_numbers_right_before_their_text_are_kept(self, height, marker, text_x):
+        """A clause or question numbered 'i' … 'viii', one per page in the margin, counts with the pages just as front matter
+        does. Taken on its own beside other text as a page number is, every one of them went, where a page number stands at the
+        outer edge or the centre away from its running head and a list number stands right before its text."""
+        def draw(pdf, index):
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Body line {line + 1} of page {index + 1} with ordinary words.")
+            pdf.drawString(72, height, marker.format(_ROMAN_NUMERALS[index]))
+            pdf.drawString(text_x, height, f"The lessee shall keep the terms of clause {index + 1} in force.")
+
+        result = convert(_korean_pdf(draw, pages=8), "a.pdf")
+
+        first_words = [line.split()[0] for line in result.text.splitlines() if line.strip()]
+        assert [marker.format(numeral) for numeral in _ROMAN_NUMERALS[:8] if marker.format(numeral) not in first_words] == []
+        assert all(f"clause {page} in force." in result.text for page in range(1, 9))
 
     def test_roman_page_numbers_of_two_pages_are_kept(self):
         def draw(pdf, index):
