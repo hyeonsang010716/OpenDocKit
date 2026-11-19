@@ -1029,22 +1029,40 @@ class TestBorderlessTableEnd:
 _PROSE = ("It is a truth universally acknowledged that a single man in possession of a good fortune must be in want of a "
           "wife. However little known the feelings or views of such a man may be on his first entering a neighbourhood, this "
           "truth is so well fixed in the minds of the surrounding families that he is considered the rightful property of "
-          "some one or other of their daughters. My dear, said his lady to him one day, have you heard that the park is let "
-          "at last? He replied that he had not. But it is, returned she, for the neighbour has just been here and told me "
-          "all about it.")
+          "some one or other of their daughters.",
+          "Call me Ishmael. Some years ago, never mind how long precisely, having little or no money in my purse, and nothing "
+          "particular to interest me on shore, I thought I would sail about a little and see the watery part of the world. It "
+          "is a way I have of driving off the spleen and regulating the circulation.",
+          "Happy families are all alike; every unhappy family is unhappy in its own way. Everything was in confusion in the "
+          "household of the Oblonskys. The wife had discovered that the husband was carrying on an intrigue with a French "
+          "girl, who had been a governess in their family.",
+          "It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was "
+          "the epoch of belief, it was the epoch of incredulity, it was the season of light, it was the season of darkness, it "
+          "was the spring of hope, it was the winter of despair.")
 
 
-def _prose_columns(columns: int, width: float, gap: float = 18) -> bytes:
-    """An A4 page of `columns` columns of left-aligned prose, `width` pt each, lines at the same heights in every column."""
+def _prose_columns(columns: int, width: float, gap: float = 18, pitch: float = 14) -> bytes:
+    """An A4 page of `columns` columns of left-aligned prose, `width` pt each, a different text in each (`_PROSE`), lines
+    `pitch` pt apart at the same heights in every column."""
     from reportlab.lib.utils import simpleSplit
 
     def draw(pdf, index):
         pdf.setFont("Helvetica", 10)
-        lines = simpleSplit(_PROSE, "Helvetica", 10, width)
         for column in range(columns):
             left = 72 + column * (width + gap)
-            for number, line in enumerate(lines):
-                pdf.drawString(left, 770 - number * 14, line)
+            for number, line in enumerate(simpleSplit(_PROSE[column], "Helvetica", 10, width)):
+                pdf.drawString(left, 770 - number * pitch, line)
+
+    return _korean_pdf(draw)
+
+
+def _phrase_table(rows: list[tuple[str, ...]], lefts: tuple[float, ...], pitch: float = 16, font: str = "Helvetica") -> bytes:
+    """A borderless table whose cells are drawn row by row from the left edges `lefts`, rows `pitch` pt apart."""
+    def draw(pdf, index):
+        pdf.setFont(font, 10)
+        for number, row in enumerate(rows):
+            for left, cell in zip(lefts, row, strict=True):
+                pdf.drawString(left, 770 - number * pitch, cell)
 
     return _korean_pdf(draw)
 
@@ -1052,25 +1070,121 @@ def _prose_columns(columns: int, width: float, gap: float = 18) -> bytes:
 class TestProseInThreeColumns:
     """A column of a newsletter or a three-column paper is narrower than a table cell may be, and its lines stand beside those
     of the other columns at the same heights, so every row held three short pieces on the same left edges and the page was
-    read as borderless tables, across the columns. A table has a column that is not prose: labels, numbers, short cells."""
+    read as borderless tables, across the columns. Columns of prose are as wide as each other and pdfminer reads each of them
+    as one box; dropped as a table, their lines are no longer joined row by row (`_table_like_rows`), which merged them line
+    by line ('It is a truth universally Call me Ishmael. Some years')."""
 
     @pytest.mark.parametrize("columns", [3, 4])
-    def test_columns_of_prose_are_not_a_table(self, columns):
+    def test_columns_of_prose_are_read_column_by_column(self, columns):
         text = convert(_prose_columns(columns, 138 if columns == 3 else 100), "a.pdf", ConvertOptions(page_markers=False)).text
 
+        flowed = " ".join(text.split())
         assert "| --- |" not in text
-        assert sorted(text.split()) == sorted(_PROSE.split() * columns)
+        assert all(prose in flowed for prose in _PROSE[:columns])
+        if columns == 3:  # pdfminer puts the first of four columns last; the order of three or more columns is its own
+            assert flowed.index(_PROSE[0]) < flowed.index(_PROSE[1]) < flowed.index(_PROSE[2])
 
-    def test_borderless_table_with_a_column_of_sentences_is_still_a_table(self):
+    @pytest.mark.parametrize("columns", [3, 4])
+    def test_columns_of_prose_read_row_by_row_stay_a_table(self, columns):
+        """Lines set further apart are read by pdfminer row by row: dropped as a table, the columns would come out merged line
+        by line. The table at least keeps them apart."""
+        text = convert(_prose_columns(columns, 138 if columns == 3 else 100, pitch=18), "a.pdf",
+                       ConvertOptions(page_markers=False)).text
+
+        assert text.startswith("| It is a truth universally | Call me Ishmael.")
+
+    def test_many_lines_of_prose_columns_start_no_label_value_rows(self):
+        """Every row of three prose lines paired its two right lines down to the end of the columns before the group was turned
+        down for its wide values (`_label_value_rows`): time with the square of the rows once the rows were no table."""
+        from opendockit.extractors._pdf_label_values import _label_value_rows
+        from opendockit.extractors._pdf_model import _Line, _visual_rows
+
+        def rows(count: int) -> list[list[_Line]]:
+            return _visual_rows([_Line(top=20.0 + number * 14, bottom=30.0 + number * 14, x0=left, x1=left + 120 + number % 3 * 8,
+                                       text="a line of prose in a column", size=10.0)
+                                 for number in range(count) for left in (72.0, 228.0, 384.0)])
+
+        small, large = rows(500), rows(2000)
+        assert _label_value_rows(large, 595.0, {id(line) for row in large for line in row}) == []
+        assert _label_value_rows(small, 595.0) == []  # the same rows reach no group without being marked as prose either
+
+
+@pytest.mark.timing
+def test_prose_columns_take_linear_time_in_label_value_rows():
+    """`TestProseInThreeColumns::test_many_lines_of_prose_columns_start_no_label_value_rows`, timed: four times the rows take
+    about four times as long (sixteen times before)."""
+    from opendockit.extractors._pdf_label_values import _label_value_rows
+    from opendockit.extractors._pdf_model import _Line, _visual_rows
+    from tests.timing import fastest
+
+    def rows(count: int) -> list[list[_Line]]:
+        return _visual_rows([_Line(top=20.0 + number * 14, bottom=30.0 + number * 14, x0=left, x1=left + 120 + number % 3 * 8,
+                                   text="a line of prose in a column", size=10.0)
+                             for number in range(count) for left in (72.0, 228.0, 384.0)])
+
+    small, large = rows(2000), rows(8000)
+    small_prose, large_prose = ({id(line) for row in lines for line in row} for lines in (small, large))
+
+    ratio = fastest(lambda: _label_value_rows(large, 595.0, large_prose)) / fastest(lambda: _label_value_rows(small, 595.0, small_prose))
+
+    assert ratio < 8
+
+
+class TestBorderlessTableOfPhrases:
+    """A borderless table whose every cell is a phrase of three words or more passed the prose check of three columns and
+    became plain lines. Its columns are as wide as their cells, not as each other, and drawn row by row they are read row by
+    row (`_reads_as_prose_columns`)."""
+
+    _ROWS = [("When", "Session", "Where"),
+             ("Monday morning early", "Opening remarks by the chair", "Main hall upstairs"),
+             ("Monday before lunch", "Keynote on the future of rail", "Main hall upstairs"),
+             ("Tuesday morning early", "Workshop on ticketing systems", "Room B downstairs"),
+             ("Tuesday after lunch", "Panel on night trains", "Room C on the left"),
+             ("Wednesday at noon", "Closing words by the host", "Main hall upstairs")]
+
+    @pytest.mark.parametrize(("rows", "lefts", "pitch"), [
+        (_ROWS[1:4], (72, 220, 420), 16), (_ROWS, (72, 220, 420), 16), (_ROWS, (72, 220, 420), 24),
+        (_ROWS, (72, 220, 420), 14), (_ROWS, (72, 230, 388), 14),
+    ], ids=["without-header", "with-header", "24pt-rows", "14pt-rows", "14pt-rows-even-pitch"])
+    def test_table_of_phrases_stays_a_table(self, rows, lefts, pitch):
+        text = convert(_phrase_table(rows, lefts, pitch), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| Monday before lunch | Keynote on the future of rail | Main hall upstairs |\n"
+                "| Tuesday morning early | Workshop on ticketing systems | Room B downstairs |") in text
+
+    @pytest.mark.parametrize("pitch", [14, 16])
+    def test_korean_table_of_phrases_stays_a_table(self, pitch):
+        rows = [("추진 과제 이름", "주요 추진 내용 요약", "담당 부서 및 협조"),
+                ("디지털 행정 서비스 확대", "민원 서류 온라인 발급 확대", "행정 지원 과 협조"),
+                ("청년 일자리 지원 강화", "지역 기업 연계 채용 박람회", "일자리 정책 과 주관"),
+                ("노후 시설 안전 점검", "교량 및 터널 정밀 안전 진단", "안전 관리 과 주관")]
+
+        text = convert(_phrase_table(rows, (72, 230, 400), pitch, _FONT), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| 추진 과제 이름 | 주요 추진 내용 요약 | 담당 부서 및 협조 |\n| --- | --- | --- |\n"
+                "| 디지털 행정 서비스 확대 | 민원 서류 온라인 발급 확대 | 행정 지원 과 협조 |") in text
+
+    def test_table_of_phrases_over_three_pages_stays_a_table(self):
+        tasks = [("Task name and scope", "Person who owns it", "Current state of play")] + [
+            (f"Review chapter {number} draft", f"Editor number {number % 4 + 1} here",
+             ("Waiting on the author", "Ready for the printer", "Sent back for edits")[number % 3]) for number in range(1, 30)]
+
         def draw(pdf, index):
             pdf.setFont("Helvetica", 10)
-            rows = [("Step", "What is done", "Owner"), ("Plan", "Agree on the scope and the budget", "Board"),
-                    ("Build", "Write the code and the tests for it", "Team"), ("Ship", "Release it and watch the errors", "Ops")]
-            for number, row in enumerate(rows):
-                for left, cell in zip((72, 160, 420), row, strict=True):
+            for number, row in enumerate(tasks[index * 10:(index + 1) * 10]):
+                for left, cell in zip((72, 220, 400), row, strict=True):
                     pdf.drawString(left, 770 - number * 16, cell)
 
-        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+        text = convert(_korean_pdf(draw, pages=3), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| Review chapter 25 draft | Editor number 2 here | Ready for the printer |" in text
+        assert text.count("| Review chapter") == 29
+
+    def test_borderless_table_with_a_column_of_sentences_is_still_a_table(self):
+        rows = [("Step", "What is done", "Owner"), ("Plan", "Agree on the scope and the budget", "Board"),
+                ("Build", "Write the code and the tests for it", "Team"), ("Ship", "Release it and watch the errors", "Ops")]
+
+        text = convert(_phrase_table(rows, (72, 160, 420)), "a.pdf", ConvertOptions(page_markers=False)).text
 
         assert "| Build | Write the code and the tests for it | Team |" in text
 

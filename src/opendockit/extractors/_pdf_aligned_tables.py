@@ -196,7 +196,12 @@ def _aligned_table_runs(page: _Page) -> list[list[list[_Line]]]:
     if columns is not None:
         runs = [run for run in runs if not _mixes_two_columns(run, *columns)]
         runs += _column_table_runs(page, runs, columns, max_cell)
-    runs = [run for run in runs if not _reads_as_prose_columns(run)]
+    order = {id(line): index for index, line in enumerate(page.lines)}
+    prose = [run for run in runs if _reads_as_prose_columns(run, order)]
+    if prose:
+        runs = [run for run in runs if not any(run is other for other in prose)]
+        page.prose_lines.update(id(original) for run in prose for row in run for line in row
+                                for original in _original_lines_of(line))
     rows = _visual_rows(page.lines)
     runs = [_cut_at_closing_rule(run, page.rules) for run in runs]
 
@@ -666,22 +671,33 @@ _PROSE_SHARE = 0.5
 _PROSE_FILL = 0.75
 _PROSE_WORDS = 3
 _PROSE_COLUMN_EDGE = 4.0  # pieces whose left edges are this close start the same column
+# Columns of prose are set as one layout: their left edges lie at the same pitch (within `_PROSE_COLUMN_EDGE`) and their
+# widest lines differ by at most this share of the widest.
+_PROSE_WIDTH_SPREAD = 0.15
 
 
-def _reads_as_prose_columns(run: list[list[_Line]]) -> bool:
+def _reads_as_prose_columns(run: list[list[_Line]], order: dict[int, int]) -> bool:
     """Whether a borderless table found across the page (`run`) is the lines of three or more columns of prose read side by
-    side: no piece is a value (`_is_value_piece`), and in every column (pieces whose left edges lie within
-    `_PROSE_COLUMN_EDGE` of each other, two pieces or more) most pieces hold three words or more and fill most of the width of
-    the column's widest piece.
+    side, which the body flow reads column by column once the table is dropped: no piece is a value (`_is_value_piece`); in
+    every column (pieces whose left edges lie within `_PROSE_COLUMN_EDGE` of each other, two pieces or more) most pieces hold
+    three words or more and fill most of the width of the column's widest piece; the columns stand at the same pitch and are
+    as wide as each other (`_PROSE_WIDTH_SPREAD`); and in the reading order of the page (`order`, the position of each line in
+    `page.lines`) at least half of the pieces are followed by the next piece of their own column, as pdfminer reads the lines
+    of a column of text as one box.
 
     A column of a newsletter, a brochure or a three-column paper is 138–153 pt wide on A4 or Letter, within the width of a
     table cell, and its lines stand side by side at the same heights, so every row held three short pieces on the same left
     edges: prose became tables that read across the columns (LibreOffice, Chrome `column-count: 3`: 330 to 1,202 of 1,419
     words out of place), and their first row was carried to the next page as a header (Pinned by: test_pdf.py::
-    TestProseInThreeColumns). The two-column check (`_table_columns`) knows two columns only. A table has a column that is
-    not prose — labels, numbers, short cells — and none of the borderless tables of the test documents has a column with a
-    single piece of three words. Known accepted gap: a borderless table whose every column is wrapped sentences filling the
-    column (no label column, no number) is read as prose.
+    TestProseInThreeColumns). The two-column check (`_table_columns`) knows two columns only.
+
+    The layout and the reading order are what tell prose from a table whose cells are short phrases of three words or more
+    ('Monday morning early | Opening remarks by the chair | Main hall upstairs'): its columns are as wide as their cells, not
+    as each other, and pdfminer reads it row by row when its rows are set apart. Without them such tables became plain lines.
+    Where pdfminer reads prose lines row by row, the dropped table would leave the columns merged line by line ('It is a
+    truth universally Call me Ishmael. Some years'), worse than the table that at least keeps them apart; such a run stays a
+    table (Pinned by: test_pdf.py::TestProseInThreeColumns, TestBorderlessTableOfPhrases). Known accepted gap: a table of
+    equally wide columns whose every cell is wrapped sentences filling the column, read column by column, is read as prose.
     """
     pieces = [line for row in run for line in row]
     if len(run) < _TABLE_MIN_ROWS or any(_is_value_piece(line.text) for line in pieces):
@@ -701,7 +717,14 @@ def _reads_as_prose_columns(run: list[list[_Line]]) -> bool:
         filled = sum(line.x1 - line.x0 >= _PROSE_FILL * widest for line in column)
         if min(wordy, filled) < _PROSE_SHARE * len(column):
             return False
-    return True
+    lefts = [min(line.x0 for line in column) for column in columns]
+    pitches = [right - left for left, right in pairwise(lefts)]
+    widths = [max(line.x1 for line in column) - left for left, column in zip(lefts, columns, strict=True)]
+    if max(pitches) - min(pitches) > _PROSE_COLUMN_EDGE or max(widths) - min(widths) > _PROSE_WIDTH_SPREAD * max(widths):
+        return False
+    column_of = {id(line): number for number, column in enumerate(columns) for line in column}
+    read = [column_of[id(line)] for line in sorted(pieces, key=lambda line: order.get(id(line), -1)) if id(line) in column_of]
+    return sum(before == after for before, after in pairwise(read)) * 2 >= len(read) - 1
 
 
 def _table_columns(page: _Page) -> tuple[float, float] | None:

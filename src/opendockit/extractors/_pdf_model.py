@@ -236,6 +236,9 @@ class _Page:
     unmeasured: bool = False
     # Page with no text, pictures or vectors at all that has a content stream which failed to decode (_has_undecodable_contents).
     undecodable: bool = False
+    # ids of the lines of columns of prose that were found as a borderless table and dropped (`_reads_as_prose_columns`). They
+    # are not joined into one line per row as table-like rows (`_table_like_rows`), which would merge the columns line by line.
+    prose_lines: set[int] = field(default_factory=set)
     # Thin horizontal ruling lines of the page (height, left end, right end; top → bottom, `_thin_rules`). Used to join the
     # multi-line header of a three-line table (`_join_ruled_header_lines`) and to cut a borderless table at its bottom border
     # (`_cut_at_closing_rule`).

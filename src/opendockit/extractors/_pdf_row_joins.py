@@ -76,7 +76,7 @@ def _join_row_fragments(page: _Page) -> None:
         return
     rows = _visual_rows(page.lines)
     joined: list[list[_Line]] = [row for row in rows if _is_letter_spaced(row)]
-    joined += _label_value_rows(rows, page.width)
+    joined += _label_value_rows(rows, page.width, page.prose_lines)
     joined += _equation_number_rows(rows, {id(line) for row in joined for line in row})
     joined += _leader_rows(rows, {id(line) for row in joined for line in row})
     order = {id(line): index for index, line in enumerate(page.lines)}
@@ -85,7 +85,9 @@ def _join_row_fragments(page: _Page) -> None:
     # top-to-bottom row order.
     places = [min(order[id(line)] for line in row) for row in joined]
     cells: set[int] = set()  # Fragments of table-like rows
-    for run in _table_like_rows(rows, page.width, {id(line) for row in joined for line in row}):
+    # Not the lines of columns of prose dropped as a table: joined row by row, the columns came out merged line by line
+    # (Pinned by: test_pdf.py::TestProseInThreeColumns::test_columns_of_prose_are_read_column_by_column)
+    for run in _table_like_rows(rows, page.width, {id(line) for row in joined for line in row} | page.prose_lines):
         joined += run
         places += sorted(min(order[id(line)] for line in row) for row in run)
         cells.update(id(line) for row in run for line in row)
