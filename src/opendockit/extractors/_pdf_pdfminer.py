@@ -247,6 +247,35 @@ def _charge_page(page: object, budget: _InflateBudget) -> None:
             pending.extend(value for key, value in obj.items() if key != "Parent")
         else:
             pending.extend(obj)
+    _charge_repeated_contents(page, budget)
+
+
+def _charge_repeated_contents(page: object, budget: _InflateBudget) -> None:
+    """Charges a content stream listed several times in the page's `/Contents` once more for every further listing: pdfium joins
+    the page's streams into one before reading them, so it holds such a stream as often as it is listed, as if each listing were a
+    stream of its own. Measured once, a 21KB file listing one stream of 20MB 80 times used 3.5GB in 10.5 seconds under a limit of
+    500MB (Pinned by: test_pdf_resource_limits.py::TestContentStreamListedManyTimes)."""
+    try:
+        streams = _content_streams(page)
+    except DocumentTooLargeError:
+        raise
+    except Exception:  # noqa: BLE001 — page reading meets a broken reference itself and handles it
+        return
+    listed = Counter(id(stream) for stream in streams)
+    if len(listed) == len(streams):
+        return
+    for stream in {id(stream): stream for stream in streams}.values():
+        if listed[id(stream)] > 1:
+            try:
+                size = len(stream.get_data())
+            except DocumentTooLargeError:
+                raise
+            except Exception:  # noqa: BLE001 — a stream that cannot be decoded is met by page reading as before
+                continue
+            budget.remaining -= size * (listed[id(stream)] - 1)
+    if budget.remaining < 0:
+        budget.exceeded = True
+        raise DocumentTooLargeError(_TOO_LARGE)
 
 
 # Estimated upper bound on the number of objects a page will draw (`_drawn_objects`). When opening a page pdfium creates one object
@@ -288,19 +317,65 @@ def _drawn_objects(page: object, limit: int, painted: dict[int, tuple[object, in
     forms = {} if forms is None else forms
     try:
         resources = resolve1(page.page_obj.resources)
-        contents = resolve1(page.page_obj.attrs.get("Contents"))
-        streams = [resolve1(part) for part in contents] if isinstance(contents, list) else [contents]
-        streams = [stream for stream in streams if isinstance(stream, PDFStream)]
+        streams = _content_streams(page)
         for stream in streams:
             if id(stream) not in painted:
                 painted[id(stream)] = (stream, _paint_operators(stream.get_data(), limit))
         paints = sum(painted[id(stream)][1] for stream in streams)
-        data = b"\n".join(stream.get_data() for stream in streams)
-        return _content_objects(data, resources, limit, forms, set(), 0, paints)
+        return _FormWalk(limit, forms).drawn(_page_calls(streams, limit), resources, 0, paints)
     except DocumentTooLargeError:
         raise
     except Exception:  # noqa: BLE001 — the estimate is a bonus. Page reading meets a broken structure itself and handles it
         return 0
+
+
+def _content_streams(page: object) -> list[PDFStream]:
+    """The content streams of the page in the order drawn, a stream listed several times in `/Contents` as often as listed."""
+    contents = resolve1(page.page_obj.attrs.get("Contents"))
+    streams = [resolve1(part) for part in contents] if isinstance(contents, list) else [contents]
+    return [stream for stream in streams if isinstance(stream, PDFStream)]
+
+
+_CALL_AT_START = re.compile(rb"\s*Do(?=[\s\[(/<%]|$)")  # the `Do` of a call whose name ends the stream before
+_NAME_CHARACTERS = re.compile(rb"[^\s/\[\]()<>{}%]+")
+
+
+def _page_calls(streams: list[PDFStream], limit: int) -> Counter:
+    """XObject calls (name → times) of the page's content streams drawn one after the other: the calls of each stream are looked for
+    once, and taken as often as the stream is listed, so that the result is that of looking through the streams joined by line
+    breaks (pdfminer and pdfium draw them as one stream) — also for a call whose name ends one stream and whose `Do` starts a later
+    one. Joining them first held the page's contents again: one stream of 20MB listed 80 times held 1.6GB (Pinned by:
+    test_pdf_resource_limits.py::TestContentStreamListedManyTimes)."""
+    seen: dict[int, tuple[Counter, bool, bool, bytes | None]] = {}
+    for stream in streams:
+        if id(stream) not in seen:
+            data = stream.get_data()
+            ending = data.rstrip()
+            slash = ending.rfind(b"/")
+            name = ending[slash + 1:] if slash >= 0 else b""
+            last = name if name and _NAME_CHARACTERS.fullmatch(name) else None
+            seen[id(stream)] = (_xobject_calls(data, limit), not ending, bool(_CALL_AT_START.match(data)), last)
+    listed = Counter(id(stream) for stream in streams)
+    calls: Counter = Counter()
+    for key, times in listed.items():
+        for name, drawn in seen[key][0].items():
+            calls[name] += drawn * times
+    pending = None  # the name ending the streams so far, waiting for its `Do`
+    for stream in streams:
+        _, blank, starts_with_do, last = seen[id(stream)]
+        if blank:
+            continue
+        if pending is not None and starts_with_do:
+            calls[pending] += 1
+        pending = last
+    return calls
+
+
+def _xobject_calls(data: bytes, limit: int) -> Counter:
+    """XObject calls (name → times) of a content stream. Only the first `limit + 1` calls are looked at: every call is at least one
+    object, so with more the estimate is over the limit anyway. `findall` listed every name first — a 65MB stream of five million
+    different names held 500MB (Pinned by: test_audit_pdf_head.py::TestManyDistinctXObjectNames)."""
+    return Counter(match[1] for match in islice(_XOBJECT_CALL.finditer(data), limit + 1))
 
 
 def _paint_operators(data: bytes, limit: int) -> int:
@@ -352,12 +427,12 @@ class _FormWalk:
 
     def objects(self, data: bytes, resources: object, depth: int, paints: int | None = None) -> int:
         """Drawn objects of the content stream `data`."""
+        total = _paint_operators(data, self.limit) if paints is None else paints
+        return self.drawn(_xobject_calls(data, self.limit), resources, depth, total)
+
+    def drawn(self, calls: Counter, resources: object, depth: int, total: int) -> int:
+        """`total` and the drawn objects of the XObject calls `calls` (name → times) made with `resources`."""
         limit, counted = self.limit, self.counted
-        total = _paint_operators(data, limit) if paints is None else paints
-        # Only the first `limit + 1` calls are looked at: every call is at least one object, so with more the estimate is over the
-        # limit anyway. `findall` listed every name first — a 65MB stream of five million different names held 500MB
-        # (Pinned by: test_audit_pdf_head.py::TestManyDistinctXObjectNames).
-        calls = Counter(match[1] for match in islice(_XOBJECT_CALL.finditer(data), limit + 1))
         xobjects = resolve1(resources.get("XObject")) if isinstance(resources, dict) and calls else None
 
         for raw, times in calls.items():

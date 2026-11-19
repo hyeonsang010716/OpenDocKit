@@ -887,6 +887,79 @@ class TestFormSharedByPages:
         assert any("(1, 2, 3)" in warning and "were not read" in warning for warning in result.warnings)
 
 
+def _listed_contents_pdf(streams: list[bytes], listing: list[int]) -> bytes:
+    """One page whose `/Contents` lists the streams `streams` in the order `listing` (indexes, a stream may be listed several times), with
+    form X (one line of text) in its resources."""
+    contents = b"[%s]" % b" ".join(b"%d 0 R" % (10 + index) for index in listing)
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
+               2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+               3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents %s /Resources << /Font << /F1 4 0 R >> "
+                  b"/XObject << /X 5 0 R >> >> >>" % contents,
+               4: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+               5: _flate_stream(_padded_text(b"Form text", 0),
+                                b"/Type /XObject /Subtype /Form /BBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >>")}
+    for index, stream in enumerate(streams):
+        objects[10 + index] = _flate_stream(stream)
+    return _raw_pdf(objects)
+
+
+class TestContentStreamListedManyTimes:
+    """A stream listed several times in a page's `/Contents` was measured once but held as often as listed: the drawn-object estimate joined the
+    streams into one, and pdfium joins them again to read them. A 21KB file listing one stream of 20MB of spaces 80 times used 3.5GB in 10.5
+    seconds under the decompression limit of 500MB."""
+
+    def test_each_listing_counts_towards_the_decompression_limit(self):
+        data = _listed_contents_pdf([_padded_text(b"Listed text", 2_000_000)], [0] * 6)
+
+        with pytest.raises(DocumentTooLargeError):
+            convert(data, "a.pdf", ConvertOptions(max_uncompressed_bytes=10_000_000))
+        assert "Listed text" in convert(data, "a.pdf", ConvertOptions(max_uncompressed_bytes=14_000_000)).text
+
+    def test_streams_listed_many_times_are_not_joined(self):
+        import tracemalloc
+
+        import pdfplumber
+
+        from opendockit.extractors import pdf as pdf_module
+
+        data = _listed_contents_pdf([_padded_text(b"Listed text", 1_000_000)], [0] * 40)
+        with pdfplumber.open(BytesIO(data)) as document:
+            page = document.pages[0]
+            pdf_module._drawn_objects(page, 1000)  # the stream is decoded and kept by pdfminer
+            tracemalloc.start()
+            try:
+                assert pdf_module._drawn_objects(page, 1000) == 40
+                peak = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+
+        assert peak < 5_000_000  # the streams joined are 40MB
+
+    def test_calls_are_those_of_the_streams_joined(self):
+        """A call's name may end one stream and its `Do` start a later one, with streams of white space between."""
+        import random
+
+        from pdfminer.pdftypes import PDFStream
+
+        pieces = [b"/X", b"Do", b" ", b"\n", b"/X Do", b"/Y Do /X", b"0 0 1 1 re f", b"Do /Y", b"/Y", b"Dox", b"q", b"/X  ", b""]
+        generator = random.Random(7)
+        for _ in range(3000):
+            streams = [PDFStream({}, b" ".join(generator.choices(pieces, k=generator.randint(0, 3)))) for _ in range(generator.randint(1, 4))]
+            listing = [generator.choice(streams) for _ in range(generator.randint(1, 6))]
+            joined = b"\n".join(stream.get_data() for stream in listing)
+
+            assert _pdf_pdfminer._page_calls(listing, 1000) == _pdf_pdfminer._xobject_calls(joined, 1000), joined
+
+    def test_call_split_between_two_streams_draws_its_form(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_MAX_DRAWN_OBJECTS", 5)
+
+        assert "Form text" in convert(_listed_contents_pdf([b"/X", b"Do"], [0, 1] * 2), "a.pdf").text
+        result = convert(_listed_contents_pdf([b"/X", b" ", b"Do"], [0, 1, 2] * 3), "a.pdf")
+        assert any("were not read" in warning for warning in result.warnings)
+
+
 class TestManyCellsOnOnePage:
     """One page of a ruled table with thousands of cells took tens of seconds (68 seconds for 7,500 filled cells). Every character was checked
     against all the cells to see whether it is inside one (`_inside_any`), and for every cell all the fill rectangles were scanned to measure the
