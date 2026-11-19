@@ -229,8 +229,12 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
 # the open, on what was opened. Where a flag does not exist (Windows) it is 0, and binary mode is asked for there.
 _OPEN_FLAGS = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
                | getattr(os, "O_BINARY", 0))
-# How the folders on the way to it are opened (`_opened_under_a_root`): as folders, and never through a link either.
-_FOLDER_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+# How the folders on the way to it are opened (`_opened_under_a_root`): as folders, and never through a link either. For
+# searching only where the system can (`O_SEARCH` on macOS, `O_PATH` on Linux): opened for reading, a folder that may be
+# passed through but not listed (`chmod 711`, a shared home folder) refused every file under it, which its name reads
+# (Pinned by: test_mcp_server.py::TestWhichFilesMayBeRead::test_file_under_a_folder_that_cannot_be_listed_is_read).
+_FOLDER_FLAGS = ((getattr(os, "O_SEARCH", 0) or getattr(os, "O_PATH", 0) or os.O_RDONLY) | getattr(os, "O_DIRECTORY", 0)
+                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
 # Whether a name can be opened relative to an open folder (`openat`): Linux and macOS, not Windows.
 _OPENS_FROM_FOLDER = os.open in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY")
 # What opening a symbolic link without following it fails with: ELOOP, or ENOTDIR when a folder was asked for (Linux).

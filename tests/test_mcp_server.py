@@ -220,6 +220,21 @@ class TestWhichFilesMayBeRead:
             with pytest.raises(ToolError, match="No file at that path"):
                 call("document_outline", {"path": str(path)})
 
+    @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs folder permissions that apply to this user")
+    def test_file_under_a_folder_that_cannot_be_listed_is_read(self, tmp_path):
+        """A folder that may be passed through but not listed (`chmod 711`, as shared home folders are) was opened for reading
+        on the way down from the root, so every file under it was refused although its name reads it."""
+        folder = tmp_path / "docs" / "team"
+        folder.mkdir(parents=True)
+        (folder / "report.docx").write_bytes(builder.docx_bytes())
+        folder.chmod(0o311)
+        try:
+            text = call("convert_document", {"path": str(folder / "report.docx")}, roots=[tmp_path / "docs"])
+        finally:
+            folder.chmod(0o755)
+
+        assert "본문 첫 문단입니다." in text
+
     def test_with_roots_only_files_under_them_are_read(self, files, tmp_path_factory):
         """The server was started with `--root inbox`. A file in another folder is refused — also when reached with `..`."""
         inbox = files["report.docx"].parent
