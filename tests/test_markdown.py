@@ -5,7 +5,7 @@ import unicodedata
 import pytest
 
 from opendockit import convert, markdown
-from opendockit.markdown import TableGrid, clean_text, join_blocks, render_table, solid_length, span_budget, table_title
+from opendockit.markdown import TableGrid, clean_text, join_blocks, render_table, solid_length, span_budget
 from tests.timing import fastest
 
 
@@ -150,21 +150,16 @@ class TestSolidLength:
         assert solid_length("> 가나\n> > b ⟦IMG:1⟧") == solid_length(">가나>>b")
 
 class TestRenderTable:
-    @pytest.mark.timing
-    def test_literal_br_outside_a_table_is_kept(self):
-        """A cell written outside a table (a one-column box, a title row) had every `<br>` taken for the line break a table cell
-        writes, so the markup of a code box lost its `<br>`; a line break is still a line break, and `\\|` stays as written."""
-        assert render_table([["<p>Hello<br>World</p>"], ["a\nb"], ["x \\| y | z"]]) == "<p>Hello<br>World</p>\n\na\nb\n\nx \\| y | z"
-        assert render_table([["Tags: <br> and <hr>", "", ""], ["tag", "meaning", "since"], ["<br>", "line break", "2.0"]]) == (
-            "Tags: <br> and <hr>\n\n| tag | meaning | since |\n| --- | --- | --- |\n| <br> | line break | 2.0 |")
-        assert table_title(["Markup <br>\nsecond line", "", ""], [["a", "b", "c"]]) == "Markup <br>\nsecond line"
-        grid = TableGrid()
-        grid.place(0, 0, "Code <br> box", col_span=3)
-        for col, text in enumerate(("tag", "meaning", "since")):
-            grid.place(1, col, text)
-        grid.place(2, 0, "<br>", row_span=2)
-        assert grid.render().startswith("Code <br> box\n\n")
+    def test_br_in_cell_text_is_a_line_break_outside_a_table(self):
+        """The PDF table builders join the wrapped lines of a cell with `<br>` (`_pdf_wrapped_cells`, `_pdf_aligned_tables`), so a
+        `<br>` in cell text is a line break when the cell is written outside a table, as a one-column box or a title row; kept
+        as written, '장소<br>회의실' came out with the tag. Known accepted gap: a `<br>` an author typed in such a cell is a line
+        break too."""
+        assert render_table([["Item"], ["장소<br>회의실"]]) == "Item\n\n장소\n회의실"
+        assert render_table([["2024 Sales<br>Report", "", ""], ["Name", "Q1", "Q2"], ["A", "1", "2"]]).startswith(
+            "2024 Sales\nReport\n\n| Name | Q1 | Q2 |")
 
+    @pytest.mark.timing
     def test_many_title_rows_take_linear_time(self):
         """Each one-cell row at the top is lifted as a title, and the rest of the grid was copied after every one of them: a list of
         one-cell rows above a full row took the square of its length (an 800 KB CSV of 200,000 such rows: 59 s)."""

@@ -148,8 +148,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   longer joined into the header.
 - **Detection**: a DOCTYPE with an internal subset is one DOCTYPE. A note that lists a whole PDF, named as text, is
   read as that text instead of the PDF it lists.
-- **Markdown**: a literal `<br>` in a one-column table or a title row is kept; the Unicode line and paragraph
-  separators are line breaks; title rows of a long table are lifted in linear time.
+- **Markdown**: the Unicode line and paragraph separators are line breaks; title rows of a long table are lifted in linear time.
 - **Pictures**: a Lab picture is prepared as opaque, and the split pages of a TIFF count toward
   `max_uncompressed_bytes`.
 - **MCP server**: an answer lists at most 20 warnings, and the outline lists pages, slides or sheets as far as the
