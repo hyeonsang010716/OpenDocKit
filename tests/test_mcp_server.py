@@ -183,6 +183,16 @@ class TestDocumentOutline:
                 "`sections`.") in outline
         assert "value 119" in call("convert_document", {"path": str(path), "sections": "120"}, default_max_chars=1_000)
 
+    def test_one_unit_left_is_named_singular(self, tmp_path):
+        """With exactly one sheet past the limit the line read "… and 1 more sheets (2)", and one warning past the twenty
+        "… and 1 more warnings."."""
+        path = _workbook(tmp_path / "two.xlsx", 2, hidden=21)
+
+        outline = call("document_outline", {"path": str(path)}, default_max_chars=60)
+
+        assert "… and 1 more sheet (2), not listed here: convert_document reads it by `sections`." in outline
+        assert outline.endswith("- … and 1 more warning.")
+
     def test_title_cannot_add_lines_to_the_outline(self, files):
         """The title of a document is its author's text. One that contains line breaks and a line shaped like the outline's own
         ("Warnings:", a list item) must stay one line of the outline."""

@@ -444,8 +444,10 @@ def _outline_lines(units: list[Section], room: int) -> list[str]:
         used += len(line) + 1
         if used > room and lines:
             rest = units[count:]
-            lines.append(f"… and {len(rest):,} more {_UNIT[rest[0].kind].lower()}s ({_numbers([unit.index for unit in rest])}), "
-                         "not listed here: convert_document reads them by `sections`.")
+            # "1 more sheets" when one was left (Pinned by: test_mcp_server.py::TestDocumentOutline::test_one_unit_left_is_named_singular)
+            kind = _UNIT[rest[0].kind].lower() + ("s" if len(rest) > 1 else "")
+            lines.append(f"… and {len(rest):,} more {kind} ({_numbers([unit.index for unit in rest])}), "
+                         f"not listed here: convert_document reads {'them' if len(rest) > 1 else 'it'} by `sections`.")
             break
         lines.append(line)
     return lines
@@ -457,7 +459,8 @@ def _warning_lines(warnings: list[str]) -> list[str]:
     (Pinned by: test_mcp_server.py::TestConvertDocument::test_warnings_of_an_answer_are_bounded)."""
     lines = [f"- {_one_line(warning)}" for warning in warnings[:_MAX_WARNINGS]]
     if len(warnings) > _MAX_WARNINGS:
-        lines.append(f"- … and {len(warnings) - _MAX_WARNINGS:,} more warnings.")
+        left = len(warnings) - _MAX_WARNINGS
+        lines.append(f"- … and {left:,} more warning{'s' if left > 1 else ''}.")
     return lines
 
 
