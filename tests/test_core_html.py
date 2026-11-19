@@ -582,8 +582,26 @@ class TestNestedListInsideATableCell:
 
         result = convert(html.encode(), "a.html")
 
-        assert "1. 장비 교체<br>- 노트북 5대<br>- 모니터 3대<br>2. 신규 지급" in result.text
+        assert "1. 장비 교체<br>└ - 노트북 5대<br>└ - 모니터 3대<br>2. 신규 지급" in result.text
         assert "<td>노트북</td><td>5</td>" in result.text
+
+    def test_levels_of_a_list_in_a_cell_are_marked(self):
+        """Leading spaces of a line in a cell are removed, so every level of a list in a cell came out as one:
+        `1. 설계<br>1. 스키마 검토<br>2. API 초안<br>2. 구현`. They are marked as DOCX and HWP mark them."""
+        items = ("<ol><li>설계<ol><li>스키마 검토</li><li>API 초안</li></ol></li>"
+                 "<li>구현<ul><li>백엔드<ul><li>인증</li></ul></li></ul></li></ol>")
+        rows = "".join(f"<tr><td>{number}분기</td><td>계획 {number}</td></tr>" for number in range(2, 6))
+        html = f"<table><tr><th>분기</th><th>계획</th></tr><tr><td>1분기</td><td>{items}</td></tr>{rows}</table>"
+
+        result = convert(html.encode(), "a.html")
+
+        assert result.text.splitlines()[2] == ("| 1분기 | 1. 설계<br>└ 1. 스키마 검토<br>└ 2. API 초안<br>2. 구현<br>└ - 백엔드<br>"
+                                               "└─ - 인증 |")
+
+    def test_list_outside_a_cell_keeps_its_indentation(self):
+        result = convert("<ol><li>설계<ol><li>스키마 검토</li></ol></li></ol>".encode(), "a.html")
+
+        assert result.text == "1. 설계\n  1. 스키마 검토"
 
 
 _DATASET_XML = ('<?xml version="1.0" standalone="yes"?>\n<NewDataSet>\n  <Table>\n    <EMP_NO>1001</EMP_NO>\n'

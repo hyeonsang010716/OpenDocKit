@@ -576,12 +576,20 @@ def _render_list(node: Tag, list_depth: int) -> str:
     # drawn by the quote at the item's own depth, and `<ul><li>a<blockquote>` repeated 800 times (unclosed) hit the recursion
     # limit (Pinned by: test_core_html.py::TestListInsideAQuoteInsideAnItem::test_deeply_nested_quotes_and_lists_stay_bounded).
     if list_depth >= _MAX_LIST_DEPTH or _list_nesting.get() >= _MAX_LIST_DEPTH:
-        return f"{'  ' * list_depth}- {' '.join(node.get_text(' ').split())}"
+        return f"{_list_indent(list_depth)}- {' '.join(node.get_text(' ').split())}"
     token = _list_nesting.set(_list_nesting.get() + 1)
     try:
         return _render_list_items(node, list_depth)
     finally:
         _list_nesting.reset(token)
+
+
+def _list_indent(list_depth: int) -> str:
+    """What stands before the marker of a list line: two spaces per level, and inside a table cell, whose leading spaces are
+    removed, the level mark DOCX, PPTX, HWP/HWPX and ODF write there (`_lists.cell_level_mark`, `└ `): the levels of a list in a
+    cell were all one, `1. Design<br>1. Schema review<br>2. API draft<br>2. Build`
+    (Pinned by: test_core_html.py::TestNestedListInsideATableCell::test_levels_of_a_list_in_a_cell_are_marked)."""
+    return cell_level_mark(list_depth) if _in_cell.get() else "  " * list_depth
 
 
 def _render_list_items(node: Tag, list_depth: int) -> str:
@@ -603,7 +611,7 @@ def _render_list_items(node: Tag, list_depth: int) -> str:
     to_do_list = "to-do-list" in classes
     for item in entries:
         if isinstance(item, str):
-            lines.append(f"{'  ' * list_depth}- {item}")  # text outside the items. No number is written
+            lines.append(f"{_list_indent(list_depth)}- {item}")  # text outside the items. No number is written
             continue
         if item.name in {"ul", "ol"}:
             lines.append(_render_list(item, list_depth + 1))
@@ -659,7 +667,7 @@ def _render_list_items(node: Tag, list_depth: int) -> str:
             marker += f" {_CHECKED if 'checked' in item.get_attribute_list('class') else _UNCHECKED}"
         elif to_do_list and (box := item.find(class_=["checkbox-on", "checkbox-off"], recursive=False)) is not None:
             marker += f" {_CHECKED if 'checkbox-on' in box.get_attribute_list('class') else _UNCHECKED}"
-        lines.append(_item_text(f"{'  ' * list_depth}{marker} {first}".rstrip(), pieces, nested, list_depth))
+        lines.append(_item_text(f"{_list_indent(list_depth)}{marker} {first}".rstrip(), pieces, nested, list_depth))
         number += step
     return "\n".join(line for line in lines if line.strip()).rstrip("\n")  # leading whitespace is the indentation of nested lists
 
