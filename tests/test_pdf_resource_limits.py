@@ -1144,15 +1144,15 @@ class TestContentThatPaintsNothing:
         with pdfplumber.open(BytesIO(_idle_form_pdf(b"q Q\n" * 100 + b" " * 50, 3))) as document:
             drawing = pdf_module._page_drawing(document.pages[1], 1000)
 
-        assert drawing == (1 + 3, len(page) + 3 * 450, len(page) - page.count(b" ") - page.count(b"\n") + 3 * 200)
+        assert drawing == (1 + 3, len(page) + 3 * 450, _pdf_pdfminer._content_cost(page)[1] + 3 * 200)
 
     def test_page_making_pdfminer_read_too_much_is_read_with_pdfium(self, monkeypatch):
         from opendockit.extractors import pdf as pdf_module
 
         read = self._read_pages(monkeypatch)
-        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_BYTES", 10_000)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 10_000)
 
-        result = convert(_idle_form_pdf(b"q Q\n" * 2_000, 3), "a.pdf")  # 4,000 bytes without white space, read 3 times
+        result = convert(_idle_form_pdf(b"q Q\n" * 2_000, 3), "a.pdf")  # 4,000 tokens, read 3 times
 
         assert read == [1] and "Idle page" in result.text and "Plain first page" in result.text
         assert any("(2)" in warning and "too many drawing elements and were read with simple extraction" in warning
@@ -1162,7 +1162,7 @@ class TestContentThatPaintsNothing:
         from opendockit.extractors import pdf as pdf_module
 
         read = self._read_pages(monkeypatch)
-        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_BYTES", 10_000)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 10_000)
 
         result = convert(_idle_form_pdf(b"q Q\n" * 2_000, 2), "a.pdf")
 
@@ -1172,11 +1172,49 @@ class TestContentThatPaintsNothing:
         from opendockit.extractors import pdf as pdf_module
 
         read = self._read_pages(monkeypatch)
-        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_BYTES", 10_000)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 10_000)
 
         result = convert(_idle_form_pdf(b"q Q\n" * 100 + b" \n\r\t" * 10_000, 3), "a.pdf")
 
         assert read == [1, 2] and "Idle page" in result.text and not result.warnings
+
+    def test_tokens_are_runs_of_bytes_and_delimiters(self):
+        assert _pdf_pdfminer._content_cost(b"q Q\n") == (4, 2)
+        assert _pdf_pdfminer._content_cost(b"  [1 2]<</A/B 3>>(a b)Tj") == (24, 13)  # 10 delimiters, 3 runs after white space
+        assert _pdf_pdfminer._content_cost(b"") == (0, 0)
+
+    def test_delimiters_count_as_tokens(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 10_000)
+
+        result = convert(_idle_form_pdf(b"[]" * 2_000, 3), "a.pdf")  # no white space, 4,000 tokens
+
+        assert read == [1] and any("(2)" in warning and "too many drawing elements" in warning for warning in result.warnings)
+
+    def test_a_long_path_counts_its_tokens_not_its_bytes(self, monkeypatch):
+        """3,000 tokens in 13,000 bytes without white space."""
+        from opendockit.extractors import pdf as pdf_module
+
+        read = self._read_pages(monkeypatch)
+        monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 10_000)
+        path = b"72 100 m\n" + b"".join(b"%.2f %.2f l\n" % (72 + index % 450, 100 + index % 300) for index in range(1_000)) + b"S\n"
+
+        result = convert(_idle_form_pdf(path, 3), "a.pdf")
+
+        assert read == [1, 2] and "Idle page" in result.text and not result.warnings
+
+    def test_page_with_a_large_inline_image_is_read_with_pdfminer(self):
+        """5MB of image data without a white-space or delimiter byte (0.3 seconds in pdfminer) is a few tokens."""
+        import random
+
+        data = random.Random(6).randbytes(5_000_000).translate(bytes(byte | 0x80 for byte in range(256)))
+        image = b"q 300 0 0 200 72 100 cm BI /W 1000 /H 5000 /CS /G /BPC 8 ID " + data + b" EI Q\n"
+
+        result = convert(_pages_pdf(_padded_text(b"Text beside the picture", 0) + image), "a.pdf")
+
+        assert "Text beside the picture" in result.text and not result.warnings
 
     def test_page_making_pdfium_read_too_much_is_opened_by_nobody(self, monkeypatch):
         from opendockit.extractors import pdf as pdf_module

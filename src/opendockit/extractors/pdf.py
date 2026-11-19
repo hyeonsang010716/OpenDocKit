@@ -157,15 +157,16 @@ _MAX_PAGE_OBJECTS = 50_000
 # rows of 'label value' pairs, 18,200pt, a test of the label search) 150,000, which pdfminer reads in about 9 seconds and 400MB
 # (Pinned by: test_pdf_resource_limits.py::TestPageOfVeryManyCharacters).
 _MAX_PAGE_CHARS = 200_000
-# A page that makes pdfminer read more content than this (`_page_drawing`: each content stream as often as listed, each form's content
-# as often as drawn, white space left out) is read with pdfium's simple extraction instead, with the warning of pages that have too
-# many drawing elements. Operators that paint nothing make no drawn object, and pdfminer reads them at about 2 seconds per MB: a 4.8KB
-# file drawing a form of a million `q Q` (2MB without spaces) once took 4.4 seconds, 4 times 17 seconds and 16 times 88 seconds inside
-# one page, where the time budget does not look; pdfium reads the 16 times in 1.1 seconds. 4MB is about 9 seconds of such operators,
-# the cost of the slowest pages under the other bounds. A page's content is rarely above a few MB: the largest page the PDF tests
-# build reads 0.85MB without spaces (1.3MB with), and a page of 50,000 drawing objects (`_MAX_PAGE_OBJECTS`) about 1-2MB (Pinned by:
-# test_pdf_resource_limits.py::TestContentThatPaintsNothing).
-_MAX_READ_CONTENT_BYTES = 4 << 20
+# A page that makes pdfminer read more tokens of content than this (`_page_drawing`: each content stream as often as listed, each
+# form's content as often as drawn, `_content_cost`) is read with pdfium's simple extraction instead, with the warning of pages that
+# have too many drawing elements. Operators that paint nothing make no drawn object, and pdfminer takes 2 to 5 microseconds a token:
+# a 4.8KB file drawing a form of a million `q Q` (2 million tokens) once took 4.4 seconds, 4 times 17 seconds and 16 times 88 seconds
+# inside one page, where the time budget does not look; pdfium reads the 16 times in 1.1 seconds. 2 million tokens are 4 to 9
+# seconds, the cost of the slowest pages under the other bounds; a map path of 400,000 segments is 1.2 million (4.3 seconds). Bytes
+# were counted first, without white space, but they cost from 0.3 seconds a MB (numbers, inline image data) to 3 (`q Q`), so a page
+# with a 5MB inline image and one with that map path lost their tables. Apart from the hostile form of these tests, the largest page
+# the PDF tests build reads 450,000 tokens (Pinned by: test_pdf_resource_limits.py::TestContentThatPaintsNothing).
+_MAX_READ_CONTENT_TOKENS = 2_000_000
 # A page with more text pieces than this whose lines and shapes (paths) number at least half as many (a ruled table of 1,210 cells)
 # is also read without text-box grouping (`_is_ruled_grid`). Grouping took 3.6 seconds per page, so a 30-page table document went
 # over the time budget from page 18 on and fell back to simple extraction without tables. The cell text moves into the table, so
@@ -301,7 +302,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                     try:
                         _charge_page(page, budget)
                         _annotated_attachments(page.page_obj, attachments)
-                        objects, content, solid = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
+                        objects, content, tokens = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
                         if objects <= _MAX_DRAWN_OBJECTS and content <= _MAX_OPENED_CONTENT_BYTES:
                             fallback = fallback or _open_pdfium(data)
                             numbering = numbering or _PdfiumPages(pdf.doc.catalog.get("Pages"), fallback, past)
@@ -315,7 +316,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                                pdfium_index=-1))
                             continue
                         late = options.pdf_time_budget is not None and time.perf_counter() - started > options.pdf_time_budget
-                        heavy = solid > _MAX_READ_CONTENT_BYTES
+                        heavy = tokens > _MAX_READ_CONTENT_TOKENS
                         pieces, line_pieces, paths, crowded_page = ((0, 0, 0, None) if late or heavy or index is None
                                                                     else _survey_page(fallback, index))
                         if heavy and not late:
