@@ -982,6 +982,39 @@ class TestGroupedHeaderBetweenRules:
 
         assert header in text and "| 20대 | 45.2 | 51.0 | 47.8 | 53.3 |" in text
 
+    @pytest.mark.parametrize("right_values", [True, False], ids=["right-aligned-values", "left-aligned-values"])
+    def test_left_aligned_upper_cells_beside_a_stacked_label(self, right_values):
+        """A three-rule table whose header has a stacked label ('Item / name') and upper cells aligned to the left of their span,
+        as Excel aligns text: the first lower line of each upper cell shares its left edge, as the second line of a wrapped
+        data cell does beside a wrapped label. The lines under it are the labels of its columns, not values, and it stays an
+        upper cell ('| Sales 2023 Q1 | Q2 |' lost the group name of every second column)."""
+        lefts = [64, 200, 270, 340, 410]
+
+        def draw(pdf, index):
+            pdf.setFont("Helvetica", 10)
+            pdf.drawString(64, 800, "Table 3. Sales by item and quarter (units)")
+            top = 785
+            pdf.setLineWidth(0.5)
+            pdf.line(60, top, 480, top)
+            pdf.drawString(lefts[0], top - 13, "Item")
+            pdf.drawString(lefts[1], top - 13, "Sales 2023")
+            pdf.drawString(lefts[3], top - 13, "Sales 2024")
+            for left, text in zip(lefts, ["name", "Q1", "Q2", "Q1", "Q2"], strict=True):
+                pdf.drawString(left, top - 26, text)
+            pdf.line(60, top - 31, 480, top - 31)
+            y = top - 45
+            for row in [("Pump", "120", "135", "150", "160"), ("Valve", "80", "95", "70", "90"), ("Hose", "30", "28", "41", "39")]:
+                for column, (left, value) in enumerate(zip(lefts, row, strict=True)):
+                    (pdf.drawRightString(left + 40, y, value) if column and right_values else pdf.drawString(left, y, value))
+                y -= 16
+            pdf.line(60, y + 10, 480, y + 10)
+            pdf.drawString(64, y - 10, "Source: internal sales records.")
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| Item name | Sales 2023 Q1 | Sales 2023 Q2 | Sales 2024 Q1 | Sales 2024 Q2 |\n| --- | --- | --- | --- | --- |\n"
+                "| Pump | 120 | 135 | 150 | 160 |") in text
+
 
 def _rules_between_row_groups(groups: list[list[tuple[str, ...]]]) -> bytes:
     """A borderless table with a horizontal rule above it and under each group of rows (the first group is the header): the

@@ -181,18 +181,22 @@ def _grouped_columns(lines: list[_Line]) -> list[list[_Line]] | None:
                    for cell in cells)
 
     # A line with a single line under it on its own edge is a wrapped cell. Beside one, a line whose first (or last) lower line
-    # shares its edge is the first line of another wrapped cell, not an upper cell aligned to the side of its span: at the top
-    # of a table without a header, a bottom-aligned row with a wrapped label and a wrapped remark had the remark's first line
-    # put in front of every value ('| late, supplier 12 |'). Such a band has no upper cell and is joined as stacked cells
-    # (Pinned by: test_pdf_table_columns.py::TestDataRowsBetweenRulesWithAWrappedCell::
-    # test_row_of_two_wrapped_cells_at_the_top_of_a_table_is_no_header).
+    # shares its edge, and that stands over values or over the label column, is the first line of another wrapped cell, not
+    # an upper cell aligned to the side of its span: at the top of a table without a header, a bottom-aligned row with a
+    # wrapped label and a wrapped remark had the remark's first line put in front of every value ('| late, supplier 12 |').
+    # Such a band has no upper cell and is joined as stacked cells (Pinned by: test_pdf_table_columns.py::
+    # TestDataRowsBetweenRulesWithAWrappedCell::test_row_of_two_wrapped_cells_at_the_top_of_a_table_is_no_header). The
+    # upper cells of a header beside a stacked label ('Item / name') stand over labels of their own columns ('Sales 2023' over
+    # 'Q1 | Q2', aligned to the left as Excel aligns text) and stay upper cells (Pinned by:
+    # test_pdf_table_columns.py::TestGroupedHeaderBetweenRules::test_left_aligned_upper_cells_beside_a_stacked_label).
     wrapped = any(len(below[id(line)]) == 1 and on_edge(line, below[id(line)]) for line in upper)
     columns: list[list[_Line]] = []
     for line in upper:
         cells = sorted(below[id(line)], key=lambda cell: cell.x0)
         if len(cells) < 2:
             continue
-        if wrapped and on_edge(line, cells):
+        if wrapped and on_edge(line, cells) and any(_is_value_piece(cell.text) or cell.x0 - leftmost <= _TABLE_ROW_TOLERANCE
+                                                    for cell in cells):
             return []
         # The upper cell of a two-level header stands right of the first (label) column, and no line under it shares its left
         # edge but the first nor its right edge but the last (a cell aligned to the left or the right of its span). The first
