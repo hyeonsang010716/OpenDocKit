@@ -1127,6 +1127,31 @@ class TestDataRowsBetweenRulesWithAWrappedCell:
 
         assert "| B-300 | Hydraulic pump with<br>mounting bracket | 12 | 4,800 | late |" in text
 
+    def test_row_of_two_wrapped_cells_at_the_top_of_a_table_is_no_header(self):
+        """Bottom-aligned, at the top of a table without a header row: the first line of the wrapped remark shares its left
+        edge with its second line, the first line under it, which an upper header cell aligned to the left of its span does
+        too; beside the wrapped label (one line under its first line, on the same edge) it is no upper cell. It was put in
+        front of every value ('| late, supplier 12 |'); the band is joined as stacked cells."""
+        rows = [(["Hydraulic pump with", "mounting bracket"], ["late, supplier", "was told"], ["12"], ["40"], ["480"]),
+                (["Valve"], ["on time"], ["5"], ["12"], ["60"]), (["Hose"], ["on time"], ["8"], ["3"], ["24"])]
+
+        text = convert(_ruled_under_every_row(rows, [64, 200, 330, 420, 490], bottom_aligned=True, rights=frozenset({2, 3, 4})),
+                       "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert ("| Hydraulic pump with mounting bracket | late, supplier was told | 12 | 40 | 480 |\n| --- | --- | --- | --- | --- |\n"
+                "| Valve | on time | 5 | 12 | 60 |") in text
+
+    def test_bottom_aligned_header_with_stacked_cells_is_one_row(self):
+        """A header ruled under every row, bottom-aligned: 'Term' sits beside the second lines of '3 / months'. It was taken
+        for a two-level header ('| 3 Term | 3 months |') or left as two rows ('| | 3 | 6 | 12 |')."""
+        rows = [(["Term"], ["3", "months"], ["6", "months"], ["12", "months"]), (["Fixed deposit"], ["2.10"], ["2.35"], ["2.80"]),
+                (["Savings plan"], ["1.90"], ["2.05"], ["2.40"]), (["Young saver"], ["3.00"], ["3.20"], ["3.50"])]
+
+        text = convert(_ruled_under_every_row(rows, [64, 230, 320, 410], bottom_aligned=True), "a.pdf",
+                       ConvertOptions(page_markers=False)).text
+
+        assert "| Term | 3 months | 6 months | 12 months |\n| --- | --- | --- | --- |\n| Fixed deposit | 2.10 | 2.35 | 2.80 |" in text
+
     def test_wrapped_label_of_the_first_row_under_the_top_rule_is_no_upper_header_cell(self):
         """A table without a header row whose first row has a wrapped label, bottom-aligned: the first line of the label stands
         in the label column, where no upper header cell is (`_grouped_columns`)."""
