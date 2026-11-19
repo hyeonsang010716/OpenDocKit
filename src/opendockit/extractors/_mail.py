@@ -396,17 +396,33 @@ def _readable_parts(message: Message) -> None:
     stack = [message]
     while stack:
         part = stack.pop()
-        if part.get_content_type() == "message/delivery-status" and part.is_multipart():
+        kind = part.get_content_type()
+        if kind in _REPORT_TYPES and part.is_multipart():
             fields = ["\n".join(f"{name}: {' '.join(str(value).split())}" for name, value in block.items())
                       for block in part.get_payload() if isinstance(block, Message)]
-            del part["Content-Transfer-Encoding"]
-            part.set_payload("\n\n".join(field for field in fields if field).encode())
-            part.set_type("text/plain")
-            part.set_param("charset", "utf-8")
+            _as_text(part, "\n\n".join(field for field in fields if field))
+        elif kind == "text/rfc822-headers" and not part.is_multipart():
+            # The headers of the mail a bounce returns (Postfix, Exchange): which mail it was. Only the headers written before a
+            # body are kept; the rest are routing and signatures. Unread, the part vanished without a warning
+            # (Pinned by: test_core_malformed_mail_and_html.py::TestReadablePartsOfForwardedMails::test_parts_of_a_report_are_read).
+            _as_text(part, mail_head_text(BytesHeaderParser().parsebytes(part_content(part) or b"")))
         elif part.get_content_maintype() == "multipart" and not part.is_multipart():
             part.set_type("text/plain")
         if part.is_multipart():
             stack.extend(reversed([child for child in part.get_payload() if isinstance(child, Message)]))
+
+
+# The machine-readable part of a delivery report and of a read receipt: header blocks the parser reads as parts, written as
+# `name: value` lines (`_readable_parts`). A read receipt (`Disposition: …; displayed`) vanished without a warning.
+_REPORT_TYPES = frozenset({"message/delivery-status", "message/disposition-notification"})
+
+
+def _as_text(part: Message, text: str) -> None:
+    """Make `part` a UTF-8 text/plain part holding `text`."""
+    del part["Content-Transfer-Encoding"]
+    part.set_payload(text.encode())
+    part.set_type("text/plain")
+    part.set_param("charset", "utf-8")
 
 
 def _mail_without_mime_version(headers: bytes) -> bool:
@@ -611,8 +627,10 @@ def _is_attachment(part: Message, message: Message) -> bool:
     The top-level part of a single-part mail is an attachment when it is not a type read as a body (`_TOP_LEVEL_BODY_TYPES`):
     the PDF of a scan-to-email mail gave only the headers, without a warning
     (Pinned by: test_core_mail_and_detect.py::TestSinglePartMailThatIsNotPlainText).
-    Known accepted gap: a text part (text/*) with `inline; filename=…` is read as body (text a mail program shows unfolded in
-    the body).
+    Known accepted gap: a text/plain or text/html part with `inline; filename=…` is read as body (text a mail program shows
+    unfolded in the body). Any other text part with a name is an attachment, inline or not: a `git format-patch --inline` patch
+    or an inline CSV is neither body nor calendar, and it vanished without a warning
+    (Pinned by: test_core_text_and_mail.py::TestNamedMailPartWithoutDisposition::test_named_inline_text_that_is_not_a_body_is_an_attachment).
     """
     if part.is_multipart():
         return False
@@ -621,10 +639,14 @@ def _is_attachment(part: Message, message: Message) -> bool:
     disposition = part.get_content_disposition()
     if disposition == "attachment":
         return True
-    if disposition == "inline" and part.get_content_maintype() == "text":
+    if disposition == "inline" and part.get_content_type() in _INLINE_TEXT_TYPES:
         return False
     return (disposition in (None, "inline") and part.get_filename() is not None and part.get("Content-ID") is None
             and part.get("Content-Location") is None)
+
+
+# Text parts read where they stand even when they carry a name: the body types, and a meeting invitation (`_mail_calendar`).
+_INLINE_TEXT_TYPES = frozenset({"text/plain", "text/html", "text/calendar"})
 
 
 def _mail_name(message: Message) -> str:

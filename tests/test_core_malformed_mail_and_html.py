@@ -64,6 +64,24 @@ class TestReadablePartsOfForwardedMails:
     report, and a forwarded mail without a usable boundary its body (with a warning of an unnamed attachment), while the same
     mails on their own read whole."""
 
+    def test_parts_of_a_report_are_read(self):
+        """A read receipt's `message/disposition-notification` and a bounce's `text/rfc822-headers` (the headers of the mail
+        that bounced) vanished without a warning. The receipt is `name: value` lines, as a delivery report is; of the
+        returned headers only those written before a body are kept, the rest being routing and signatures."""
+        data = ("From: lee@example.org\r\nTo: kim@example.com\r\nSubject: Read: Q3\r\nMIME-Version: 1.0\r\n"
+                "Content-Type: multipart/report; report-type=disposition-notification; boundary=B\r\n\r\n"
+                "--B\r\nContent-Type: text/plain\r\n\r\nYour message was displayed.\r\n"
+                "--B\r\nContent-Type: message/disposition-notification\r\n\r\nFinal-Recipient: rfc822; lee@example.org\r\n"
+                "Disposition: manual-action/MDN-sent-manually; displayed\r\n\r\n--B\r\nContent-Type: text/rfc822-headers\r\n\r\n"
+                "Received: from a by b\r\nSubject: Q3 contract\r\nFrom: kim@example.com\r\nDKIM-Signature: v=1; a=rsa\r\n--B--\r\n")
+
+        result = convert(data.encode(), "a.eml")
+
+        assert result.text.endswith("Your message was displayed.\n\nFinal-Recipient: rfc822; lee@example.org\n"
+                                    "Disposition: manual-action/MDN-sent-manually; displayed\n\nSubject: Q3 contract\n"
+                                    "From: kim@example.com")
+        assert result.warnings == []
+
     @pytest.mark.parametrize(("inner", "expected"), [
         (_BOUNCE, "Your message could not be delivered.\n\nReporting-MTA: dns; mx.example.com\n\n"
                   "Final-Recipient: rfc822; lee@example.org\nAction: failed\nStatus: 5.1.1"),
