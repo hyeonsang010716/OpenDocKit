@@ -629,6 +629,9 @@ class _Renderer:
         # `text:continue-numbering`, and by `xml:id` for `text:continue-list` (`_list_counters`).
         self._counters: dict[str, dict[int, int]] = {}
         self._list_ids: dict[str, tuple[dict[int, int], str | None]] = {}
+        # A presentation (`_list_counters`): the last outermost list read, its counters and its style
+        self.presentation = False
+        self._last_list: tuple[etree._Element, dict[int, int], str | None] | None = None
         self.frames: list[etree._Element] = []          # frames found in sheet cells (charts, pictures), for after the rows
 
     # ---- Inline text ---------------------------------------------------------------------------------------------
@@ -918,18 +921,29 @@ class _Renderer:
         `text:continue-list` names the list it continues by its `xml:id` (and lends it its style when it names none), and
         `text:continue-numbering` continues the last list of the same style. A `text:continue-list` naming no list read earlier
         continues the last list of the same style, as before (Pinned by:
-        test_odf.py::TestTextDocument::test_continue_list_continues_the_list_it_names)."""
+        test_odf.py::TestTextDocument::test_continue_list_continues_the_list_it_names).
+
+        In a presentation, a list right after a list in the same text (nothing between them) continues its counters when the
+        first level of both is the same kind and shape: Impress counts the paragraphs of a text box, as PowerPoint does, and
+        writes a new `text:list` wherever the level changes, so `1. a) b) 2. 3.` was read as `1. a) b) 1. 2.`. A paragraph
+        between them restarts, as in PPTX (Pinned by: test_odf.py::TestPresentation::test_lists_next_to_each_other_count_on)."""
+        last, self._last_list = self._last_list, None
         continued = self._list_ids.get(node.get(f"{{{_TEXT}}}continue-list") or "")
         if continued is not None:
             counters, style = continued[0], style or continued[1]
         elif node.get(f"{{{_TEXT}}}continue-numbering") == "true" or node.get(f"{{{_TEXT}}}continue-list") is not None:
             counters = self._counters.setdefault(style or "", {})
+        elif self.presentation and last is not None and node.getprevious() is last[0] and _same_first_level(
+                self.styles.list_level(last[2], 0), self.styles.list_level(style, 0)):
+            counters = last[1]
         else:
             counters = {}
         self._counters[style or ""] = counters
         list_id = node.get(_XML_ID)
         if list_id:
             self._list_ids[list_id] = (counters, style)
+        if self.presentation:
+            self._last_list = (node, counters, style)
         return counters, style
 
     def _item_head(self, style: str | None, level: int, counters: dict[int, int], start: int | None, context: _Context, *,
@@ -1339,6 +1353,12 @@ class _Renderer:
         return "> Speaker notes: " + "\n> ".join(lines) if lines else ""
 
 
+def _same_first_level(before: _ListLevel, now: _ListLevel) -> bool:
+    """Do two lists show their first level alike (kind and number shape), so that one counts on from the other
+    (`_Renderer._list_counters`)?"""
+    return (before.kind, before.shape) == (now.kind, now.shape)
+
+
 def _marked(run: _Run, emphasis: bool) -> str:
     """The text of a run inside the temporary marks of `_inline`: script innermost, then strikethrough, emphasis outermost
     (`**~~1,000~~**`, `**H_2O**`), the order docx.py uses."""
@@ -1459,6 +1479,7 @@ def _extract_sheets(renderer: _Renderer, body: etree._Element, extraction: Extra
 
 
 def _extract_slides(renderer: _Renderer, body: etree._Element, extraction: Extraction, options: ConvertOptions) -> None:
+    renderer.presentation = True
     for index, page in enumerate(body.iterchildren(_PAGE), start=1):
         title, text = renderer.slide(page)
         extraction.sections.append(Section(SectionKind.SLIDE, index, text, title=title))

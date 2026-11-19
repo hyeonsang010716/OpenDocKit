@@ -833,6 +833,36 @@ class TestPresentation:
         result = _convert("presentation", _slide(_text_frame(box)), automatic=automatic)
         assert result.sections[0].text == "일정 안내\n\n- 3월 기능 동결"
 
+    _STEPS = ('<text:list-style style:name="L2"><text:list-level-style-number text:level="1" style:num-format="1" '
+              'style:num-suffix="."/><text:list-level-style-bullet text:level="2" text:bullet-char="●"/></text:list-style>'
+              '<text:list-style style:name="L3"><text:list-level-style-number text:level="1" style:num-format="1" '
+              'style:num-suffix="."/><text:list-level-style-number text:level="2" style:num-format="a" style:num-suffix=")"/>'
+              '</text:list-style><text:list-style style:name="B1"><text:list-level-style-bullet text:level="1" '
+              'text:bullet-char="●"/></text:list-style>')
+
+    @staticmethod
+    def _items(style: str, *texts: str, nested: bool = False) -> str:
+        items = "".join(f"<text:list-item><text:p>{text}</text:p></text:list-item>" for text in texts)
+        if nested:
+            items = f"<text:list-item><text:list>{items}</text:list></text:list-item>"
+        return f'<text:list text:style-name="{style}">{items}</text:list>'
+
+    def test_lists_next_to_each_other_count_on(self):
+        """Impress counts the paragraphs of a text box, as PowerPoint does, and writes a new `text:list` wherever the level
+        changes (its PDF of such a slide shows `1. a) b) 2. 3.`): every new list started at 1 again. A list right after a list
+        whose first level is shown alike counts on; a paragraph between them, a first level of another kind or another text
+        box starts over. A text document keeps one counter per `text:list`."""
+        box = (self._items("L2", "Prepare") + self._items("L3", "Collect", "Clean", nested=True) + self._items("L3", "Execute")
+               + self._items("L2", "Review") + "<text:p>Plain</text:p>" + self._items("L2", "Again")
+               + self._items("B1", "Bullet") + self._items("L2", "After the bullet"))
+        result = _convert("presentation", _slide(_text_frame(box), _text_frame(self._items("L2", "Other box"))),
+                          automatic=self._STEPS)
+
+        assert result.sections[0].text == ("1. Prepare\n  - a) Collect\n  - b) Clean\n2. Execute\n3. Review\n\nPlain\n\n"
+                                           "1. Again\n- Bullet\n1. After the bullet\n1. Other box")
+        text = _odt(self._items("L2", "one") + self._items("L2", "two"), automatic=self._STEPS)
+        assert text == "1. one\n1. two"
+
     def test_table_and_picture_on_a_slide(self):
         """A table frame that also carries a preview picture (alternative content: only the table is used) and a picture
         frame."""
