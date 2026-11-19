@@ -93,7 +93,7 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 - Merged cells: a vertical merge repeats the value on every row below; a horizontal merge in a data row is repeated in every named column it spans, and in a title or header row, or with nothing to its left, it stays in the first cell.
 - Formulas: the **calculated result** stored by Excel is used.
 - A text-only format (value 5 shown as `"매우 좋음"`) gives the text that was shown on screen.
-- Pictures attached to a sheet and text of text boxes and shapes: placed after the table in their order on the sheet (top to bottom). Which cell they were next to is not kept.
+- Pictures attached to a sheet and text of text boxes and shapes: placed after the table in their order on the sheet (top to bottom). On an XLSX sheet with two or more pictures, each picture is preceded by its cell and the first text of that row (`(cell C2: 제품A)`); XLS pictures and text boxes have no cell indication.
 - A chart placed on a sheet → data table. A chart sheet becomes `[Chart] title` and its data table. Charts in `.xls` are not converted (warning).
 - "Excel download" files named `.xls` (really an HTML table, Excel 2003 XML, or BIFF without OLE — PHP style, Korean read as CP949) are read too.
 
