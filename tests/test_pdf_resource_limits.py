@@ -1200,6 +1200,58 @@ class TestContentThatPaintsNothing:
 
 
 
+
+class TestLargeInlineImages:
+    """pdfminer added every piece of an inline image's data to the data read so far, a piece per buffer and two at every `E`, so reading it
+    cost its size times its pieces: 5MB of compressed image data took 8.5 seconds inside one page."""
+
+    @staticmethod
+    def _read(reader, streams: list[bytes], pos: int) -> object:
+        from pdfminer.pdftypes import PDFStream
+        from pdfminer.psexceptions import PSEOF
+
+        parser = _pdf_pdfminer.PDFContentParser([PDFStream({}, data) for data in streams])
+        try:
+            return reader(parser, pos)
+        except PSEOF:
+            return "end"
+
+    def test_inline_data_is_that_of_pdfminer(self):
+        import random
+
+        generator = random.Random(3)
+        pieces = [b"E", b"I", b"EI", b"EI ", b"EI\n", b"\r\n", b" ", b"x", b"~>", b"E\r", bytes(range(256))]
+        for _ in range(600):
+            streams = [b"".join(generator.choices(pieces, k=generator.randint(0, 40))) * generator.choice((1, 1, 300))
+                       for _ in range(generator.randint(1, 3))]
+            pos = generator.randint(0, max(0, len(streams[0]) - 1))
+            for target in (b"EI", b"~>"):
+                old, new = (self._read(lambda parser, at, function=function: function(parser, at, target), streams, pos)
+                            for function in (_pdf_pdfminer._inline_data_unbounded, _pdf_pdfminer._inline_data_in_linear_time))
+                assert old == new
+
+    @pytest.mark.timing
+    def test_inline_data_is_read_in_linear_time(self):
+        import random
+
+        from tests.timing import fastest
+
+        data = random.Random(4).randbytes(4_000_000).replace(b"EI", b"E!")
+        small, large = (fastest(lambda part=data[:size]: self._read(_pdf_pdfminer._inline_data_in_linear_time, [part + b" EI "], 0))
+                        for size in (1_000_000, 4_000_000))
+
+        assert large < small * 8  # 4 times as much data; about 14 times as long when it was added to piece by piece
+
+    def test_page_with_a_large_inline_image_keeps_its_text(self):
+        import random
+
+        data = random.Random(5).randbytes(2_000_000).replace(b"EI", b"E!")
+        image = b"q 300 0 0 200 72 100 cm BI /W 1000 /H 2000 /CS /G /BPC 8 ID " + data + b" EI Q\n"
+
+        result = convert(_pages_pdf(_padded_text(b"Text beside the picture", 0) + image), "a.pdf")
+
+        assert "Text beside the picture" in result.text and not result.warnings
+
 def _long_rows_pdf(rows: int, size: float = 0.5) -> bytes:
     """Page 1 is ordinary text; page 2 has `rows` rows of 200 letters, each drawn by one operator, `size` points high and 0.6pt apart."""
     body = b"BT /F1 %g Tf\n" % size + b"".join(b"1 0 0 1 10 %.2f Tm (%s) Tj\n" % (830 - row * 0.6, b"abcdefghij" * 20)

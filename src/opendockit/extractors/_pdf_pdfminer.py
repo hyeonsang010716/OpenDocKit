@@ -21,7 +21,7 @@ from pdfminer.ascii85 import ascii85decode, asciihexdecode
 from pdfminer.cmapdb import CMap, CMapParser, FileUnicodeMap
 from pdfminer.encodingdb import EncodingDB
 from pdfminer.layout import LTChar, LTFigure, LTLayoutContainer, LTTextBoxHorizontal, LTTextBoxVertical, LTTextLineHorizontal
-from pdfminer.pdfinterp import PDFGraphicState, PDFPageInterpreter
+from pdfminer.pdfinterp import PDFContentParser, PDFGraphicState, PDFPageInterpreter
 from pdfminer.pdftypes import (
     LITERALS_ASCII85_DECODE,
     LITERALS_ASCIIHEX_DECODE,
@@ -154,6 +154,44 @@ def _decode_within_budget(stream: PDFStream) -> None:
 
 
 PDFStream.decode = _decode_within_budget  # outside a conversion (no budget) it behaves as before
+
+
+def _inline_data_in_linear_time(self: PDFContentParser, pos: int, target: bytes = b"EI") -> tuple[int, bytes]:
+    """`PDFContentParser.get_inline_data` with the data gathered in a list and joined once.
+
+    pdfminer adds every piece it reads to the data read so far (`data += …`): a piece per buffer of the stream and two at every
+    `E`, so reading an inline image costs its size times its pieces — 5MB of compressed image data (an `E` every 256 bytes) took 8.5
+    seconds inside one page, and 20MB would take over two minutes. The steps are pdfminer's, so the data, the position and the
+    errors are the same; only the joining is done once. Deliberate exception to not copying pdfminer's functions: the cost is in
+    the body of the function, so no wrapper can avoid it (Pinned by: test_pdf_resource_limits.py::TestLargeInlineImages)."""
+    self.seek(pos)
+    i = 0
+    parts = []
+    while i <= len(target):
+        self.fillbuf()
+        if i:
+            c = bytes((self.buf[self.charpos],))
+            parts.append(c)
+            self.charpos += 1
+            if (len(target) <= i and c.isspace()) or (i < len(target) and c == bytes((target[i],))):
+                i += 1
+            else:
+                i = 0
+        else:
+            try:
+                j = self.buf.index(target[0], self.charpos)
+                parts.append(self.buf[self.charpos:j + 1])
+                self.charpos = j + 1
+                i = 1
+            except ValueError:
+                parts.append(self.buf[self.charpos:])
+                self.charpos = len(self.buf)
+    data = b"".join(parts)[:-(len(target) + 1)]  # strip the last part
+    return pos, re.sub(rb"(\x0d\x0a|[\x0d\x0a])$", b"", data)
+
+
+_inline_data_unbounded = PDFContentParser.get_inline_data
+PDFContentParser.get_inline_data = _inline_data_in_linear_time
 
 
 def _charge(stream: PDFStream, budget: _InflateBudget) -> None:
