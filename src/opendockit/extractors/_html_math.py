@@ -2,7 +2,7 @@
 
 import re
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from bs4.element import PreformattedString
 
 from opendockit.extractors._html_base import _BLOCK_TAGS, _HEADINGS
@@ -50,22 +50,32 @@ def _put_math(soup: BeautifulSoup) -> None:
             math.append(f"${latex}$")  # surrounding spacing stays as in the source (so no space appears before a comma)
 
 
+# The classes MathJax 2 gives the element that shows a formula, right before its `<script type="math/tex">` (`_put_tex_scripts`)
+# (as MathJax spells them: a page's own `mathjax` container is not one)
+_MATHJAX_FRAMES = frozenset({"MathJax", "MathJax_Display", "MathJax_SVG", "MathJax_SVG_Display", "MathJax_CHTML",
+                             "MathJax_CHTML_Display", "MathJax_MathML", "MathJax_Preview"})
+
 def _put_tex_scripts(soup: BeautifulSoup) -> None:
     """Replaces the TeX of `<script type="math/tex">` (also `; mode=display`) with the same `$LaTeX$` notation, before scripts
     are removed. It is the input form of MathJax 2 and what kramdown (Jekyll, GitHub Pages) writes for `$…$` and `$$…$$`: in a
     page MathJax has not rendered, the formula is nowhere else, and it vanished with the scripts, with no warning
     (Pinned by: test_core_html.py::TestMathMl::test_tex_in_a_mathjax_script_is_the_formula).
 
-    A page saved after MathJax 2 ran has the rendered formula right before the script, in an element whose class names MathJax.
-    When that element holds MathML (the assistive copy), the formula is read from it and the script is dropped; when it holds
-    only the drawn glyphs, it is replaced by the TeX, which reads better than the glyphs one by one.
+    A page saved after MathJax 2 ran has the rendered formula right before the script, in an element whose class is one MathJax
+    gives its frames (`_MATHJAX_FRAMES`). When that element holds MathML (the assistive copy), the formula is read from it and
+    the script is dropped; when it holds only the drawn glyphs, it is replaced by the TeX, which reads better than the glyphs
+    one by one. Only that element: any earlier sibling whose class held the letters 'mathjax' was taken for it, and a
+    container of paragraphs was replaced by the formula (Pinned by: test_core_html.py::TestMathMl::
+    test_only_the_mathjax_frame_right_before_the_script_is_replaced).
     """
     for script in soup.find_all("script", type=True):
         if not str(script["type"]).strip().lower().startswith("math/tex"):
             continue
         tex = " ".join(script.get_text().split())
-        frame = script.find_previous_sibling(True)
-        rendered = frame is not None and "mathjax" in " ".join(frame.get("class") or ()).lower()
+        frame = script.previous_sibling
+        while isinstance(frame, NavigableString) and (isinstance(frame, Comment) or not frame.strip()):
+            frame = frame.previous_sibling
+        rendered = isinstance(frame, Tag) and any(str(name) in _MATHJAX_FRAMES for name in frame.get("class") or ())
         if rendered and frame.find("math") is not None:
             continue  # read from the MathML MathJax put in the page
         target = frame if rendered else script

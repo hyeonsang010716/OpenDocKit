@@ -306,6 +306,20 @@ class TestMathMl:
         assert convert(f"<p>Energy {glyphs_only} holds.</p>".encode(), "a.html").text == "Energy $E=mc^2$ holds."
         assert convert(b'<p>x</p><script type="text/javascript">var a = "math/tex";</script>', "a.html").text == "x"
 
+    def test_only_the_mathjax_frame_right_before_the_script_is_replaced(self):
+        """Any earlier sibling whose class held the letters 'mathjax' was taken for MathJax's frame and replaced by the formula:
+        a container of paragraphs, or a hint span before other text, was lost. Only the element right before the script (white
+        space and comments between) with a class MathJax gives its frames is the frame."""
+        container = ('<div class="mathjax"><p>Paragraph one.</p><p>Paragraph two.</p></div>'
+                     '<script type="math/tex; mode=display">x^2</script><p>end</p>')
+        hint = '<p><span class="mathjax-hint">See note.</span> and then <script type="math/tex">a+b</script></p>'
+        frame = ('<p>Let <span class="MathJax_Preview"></span><span class="MathJax" id="MathJax-Element-1-Frame"><span>x</span>'
+                 '</span> <!-- c --> <script type="math/tex" id="MathJax-Element-1">x^2</script> be.</p>')
+
+        assert convert(container.encode(), "a.html").text == "Paragraph one.\n\nParagraph two.\n\n$x^2$\n\nend"
+        assert convert(hint.encode(), "a.html").text == "See note. and then $a+b$"
+        assert convert(frame.encode(), "a.html").text == "Let $x^2$ be."
+
     def test_literal_text_is_escaped(self):
         """A `$` in the text of an equation ended the math span (`$$5×n$` opened display math), and braces typed in an `<mo>` or
         as fences vanished as LaTeX grouping. They are escaped as in Office equations; the LaTeX the converter writes is not."""
