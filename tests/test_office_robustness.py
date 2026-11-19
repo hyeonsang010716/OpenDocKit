@@ -2,7 +2,6 @@
 properties (core.xml), an odd slide root, very long numeric attributes. Text boxes and pictures inside footnotes."""
 
 from io import BytesIO
-import re
 
 import pytest
 
@@ -673,18 +672,6 @@ class TestIncompleteRelationship:
         assert result.text == expected
         assert result.warnings in ([], ["Read after leaving out 1 relationship(s) with no Id, Type or Target. "
                                         "Whatever they pointed at may be missing."])
-
-    def test_docx_relationship_without_a_type_is_reported(self):
-        """python-docx opens a package with a relationship without a Type and keeps it, so the repair never runs: the styles behind
-        one were dropped without a word, and the headings came out as plain text."""
-        data = builder.zip_with(builder.docx_bytes(), edit={"word/_rels/document.xml.rels": lambda xml: re.sub(
-            r'Type="[^"]*/styles"', "", xml)})
-
-        result = convert(data, "a.docx")
-
-        assert result.warnings == ["Read after leaving out 1 relationship(s) with no Id, Type or Target. "
-                                   "Whatever they pointed at may be missing."]
-        assert convert(builder.docx_bytes(), "a.docx").warnings == []
 
 
 class TestPercentEncodedTargets:

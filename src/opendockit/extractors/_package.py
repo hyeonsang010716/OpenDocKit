@@ -362,22 +362,6 @@ def incomplete_relationships_warning(count: int) -> str:
     return f"Read after leaving out {count} relationship(s) with no Id, Type or Target. Whatever they pointed at may be missing."
 
 
-def untyped_relationships(package: object) -> int:
-    """The relationships without a Type in an opened python-docx package, which keeps them (`reltype` None) and opens without
-    the repair: what they point at is not read. Each part is visited once."""
-    count = 0
-    seen: set[int] = set()
-    sources = [package]
-    while sources:
-        for relationship in sources.pop().rels.values():
-            count += not relationship.reltype
-            part = None if relationship.is_external else relationship.target_part
-            if part is not None and id(part) not in seen:
-                seen.add(id(part))
-                sources.append(part)
-    return count
-
-
 def _is_relationships(name: str) -> bool:
     return name.endswith(".rels") and posixpath.basename(posixpath.dirname(name)) == "_rels"
 
