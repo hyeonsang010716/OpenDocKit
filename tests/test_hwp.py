@@ -551,6 +551,22 @@ class TestDutmal:
 
         assert result.text == "앞가나다라(이것은 덧말이다.)뒤"
 
+    def test_tab_or_line_break_in_ruby_text_is_a_space(self, monkeypatch):
+        """The control characters of the text a control holds are dropped, but a tab or a line break there separates words:
+        dropped too, '본\t말' became '본말'. It is a space, as before."""
+        record = builder.hwp_record
+        ruby = "tdut"[::-1].encode("latin-1") + b"".join(
+            struct.pack("<H", len(text)) + text.encode("utf-16-le") for text in ("본\t말", "덧\r\n말")) + b"\x00" * 10
+        composed = "tcps"[::-1].encode("latin-1") + struct.pack("<H", 3) + "가\n나".encode("utf-16-le") + b"\x00" * 10
+        section = b"".join([
+            record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+            record(TAG_PARA_TEXT, 1, builder.hwp_text("앞 ", (23, "tdut"), " ", (23, "tcps"), " 뒤")),
+            record(TAG_CTRL_HEADER, 1, ruby),
+            record(TAG_CTRL_HEADER, 1, composed),
+        ])
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "앞 본 말(덧 말) 가 나 뒤"
+
     def test_hwpx_main_text_and_its_annotation_are_kept(self):
         body = ('<hp:p><hp:run><hp:t>앞</hp:t><hp:dutmal posType="TOP"><hp:mainText>가나다라</hp:mainText>'
                 "<hp:subText>이것은 덧말이다.</hp:subText></hp:dutmal><hp:t>뒤</hp:t></hp:run></hp:p>")
@@ -1355,6 +1371,24 @@ class TestEquations:
         result = convert(data, "a.hwp")
 
         assert result.text == "평균 차이 $\\frac{1}{n} \\sum_{i = 1}^{n} (B_{i} -A_{i} )$ 를 구한다"
+
+    def test_hwp_equation_script_cannot_forge_strike_or_script_marks(self, monkeypatch):
+        """The script is read raw from the equation record, so the temporary strike and script marks (U+0002-U+0006) in it wrote
+        `$~~a+b~~ c$` and `$^x$`. The control characters of a script are dropped; white space still separates its terms."""
+        record = builder.hwp_record
+
+        def converted(script: str) -> str:
+            section = b"".join([
+                record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+                record(TAG_PARA_TEXT, 1, builder.hwp_text("식 ", (11, "eqed"), " 끝")),
+                record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("eqed")),
+                record(TAG_EQEDIT, 2, struct.pack("<IH", 0, len(script)) + script.encode("utf-16-le")),
+            ])
+            return convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text
+
+        assert converted("\x05a+b\x06 c") == "식 $a+b c$ 끝"
+        assert converted("\x02x\x03") == "식 $x$ 끝"
+        assert converted("a\nover\tb") == "식 $\\frac{a}{b}$ 끝"
 
     @pytest.mark.parametrize(("direction", "expected"), [(3, "$\\frac{a}{b}$ 수식 1 넓이"), (2, "수식 1 넓이 $\\frac{a}{b}$")])
     def test_hwp_equation_caption_is_kept_on_its_side(self, monkeypatch, direction, expected):

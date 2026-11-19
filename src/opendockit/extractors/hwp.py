@@ -732,7 +732,10 @@ def _equation_script(control: Record) -> str:
         return ""
     (length,) = struct.unpack_from("<H", record.payload, 4)
     script = record.payload[6:6 + length * 2].decode("utf-16-le", errors="replace")
-    return " ".join(script.split())
+    # Without the control characters that are not white space: U+0002-U+0006 are the temporary script and strike marks, and a
+    # crafted script `\x05a+b\x06 c` wrote `$~~a+b~~ c$` (Pinned by: test_hwp.py::TestEquations::
+    # test_hwp_equation_script_cannot_forge_strike_or_script_marks). White space separates terms, as before.
+    return " ".join(script.translate(_SCRIPT_CONTROLS).split())
 
 
 def _auto_number(control: Record) -> str:
@@ -774,15 +777,18 @@ def _control_strings(control: Record, count: int) -> list[str]:
             break
         (length,) = struct.unpack_from("<H", control.payload, offset)
         # Without control characters: what a ruby or composed character shows has none, and U+0002-U+0006 are the temporary
-        # script and strike marks, so a crafted control wrote `~~본말~~` (the link marks were stripped already)
-        # (Pinned by: test_hwp.py::TestHyperlinks::test_hwp_control_text_cannot_forge_strike_or_script_marks).
+        # script and strike marks, so a crafted control wrote `~~본말~~` (the link marks were stripped already). A tab or line
+        # break is a space, as it was before: deleted, it joined the words around it (Pinned by: test_hwp.py::TestHyperlinks::
+        # test_hwp_control_text_cannot_forge_strike_or_script_marks, TestDutmal::test_tab_or_line_break_in_ruby_text_is_a_space).
         text = control.payload[offset + 2:offset + 2 + length * 2].decode("utf-16-le", errors="replace")
         texts.append(text.translate(_CONTROL_TEXT).strip())
         offset += 2 + length * 2
     return texts
 
 
-_CONTROL_TEXT = str.maketrans("", "", "".join(map(chr, range(0x20))))
+_CONTROL_TEXT = dict.fromkeys(range(32)) | dict.fromkeys(range(0x09, 0x0E), " ")
+# The control characters of an equation script that `str.split` does not take for white space
+_SCRIPT_CONTROLS = {code: None for code in range(0x20) if not chr(code).isspace()}
 
 
 def parse_styles(doc_info: list[Record]) -> list[str]:
