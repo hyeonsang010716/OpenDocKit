@@ -543,6 +543,20 @@ class TestLists:
         body = bullet("a") + bullet("b") + number("one") + number("two") + r"\pard Stop\par" + number("again")
         assert _text(body) == "- a\n- b\n1. one\n2. two\n\nStop\n\n1. again"
 
+    def test_list_in_a_header_does_not_take_the_numbers_of_the_body(self):
+        """A header comes before the body in the file but is not part of its reading order: a numbered item there took the body's
+        first number, and the body began at 2. A header and a footer count their lists on their own, the body counts on after
+        them, and so does the older `\\pn` numbering."""
+        def pn(text: str) -> str:
+            return r"\pard{\*\pn\pnlvlbody\pndec{\pntxta .}}" + text + r"\par"
+
+        body = (_LISTS + r"\pard\ls2 one\par" + r"{\header\pard\ls2 header item\par" + pn("header pn") + "}"
+                + r"\pard\ls2 two\par{\footer\pard\ls2 footer item\par}\pard\ls2 three\par\pard x\par" + pn("pn one")
+                + r"{\header\pard " + pn("other header pn") + "}" + pn("pn two"))
+        assert _text(body, ConvertOptions(include_headers_footers=True)) == (
+            "1. header item\n1. header pn\n1. other header pn\n1. one\n2. two\n3. three\n\nx\n\n1. pn one\n2. pn two\n"
+            "1. footer item")
+
     def test_start_of_the_older_numbering_is_kept(self):
         """RichEdit (WordPad, Outlook, RichTextBox) writes a list set to start at 5 as `\\pnstart5`; it was read as 1. Every
         paragraph of the list repeats it, and the count goes on; after a paragraph outside the list it starts over at it."""

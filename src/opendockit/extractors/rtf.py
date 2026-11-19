@@ -691,6 +691,7 @@ class _Reader:
         self._override_levels: list[list] = []  # those of the override being read
         self._counters: dict[int, list[int | None]] = {}
         self._simple_counters: list[int | None] = [None] * (_MAX_LEVEL + 1)
+        self._set_aside: list[tuple[dict[int, list[int | None]], list[int | None]]] = []  # counters of the flows a header is in
         self._info_key = ""
         self._info: list[str] = []
         self._fields: list[list] = []  # open fields: [instruction parts, instruction length, length when resolved, link target]
@@ -1383,6 +1384,12 @@ class _Reader:
         state.link = None
         self._flow = _Flow(self, kind, self._flow if kind == "box" else None)
         self._flows.append(self._flow)
+        if kind in ("header", "footer"):
+            # A header or footer counts its lists on its own: it comes before the body in the file but is not part of its
+            # reading order, and a numbered item there took the body's first number, so the body began at 2.
+            # (Pinned by: test_rtf.py::TestLists::test_list_in_a_header_does_not_take_the_numbers_of_the_body).
+            self._set_aside.append((self._counters, self._simple_counters))
+            self._counters, self._simple_counters = {}, [None] * (_MAX_LEVEL + 1)
 
     def _finish(self, closer: str) -> None:
         if closer == "picture":
@@ -1401,6 +1408,8 @@ class _Reader:
             flow = self._flows.pop()
             self._flow = self._flows[-1]
             blocks = flow.finish()
+            if flow.kind in ("header", "footer"):
+                self._counters, self._simple_counters = self._set_aside.pop()
             if flow.kind == "note":
                 # The reference goes where the footnote group is; numbers follow the order of reference. A footnote without text
                 # leaves no dangling `[^n]`.
