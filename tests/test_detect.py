@@ -673,6 +673,16 @@ class TestExtensionMismatchClaims:
         assert result.warnings[0].startswith("The file extension (.csv)")
 
 
+def test_outlook_message_is_reported_with_the_formats_to_save_it_in():
+    """An Outlook message (.msg, what Outlook saves by default) got the generic 'This OLE document format is not supported.',
+    which gave no way on; Outlook also saves a mail as MHT, HTML or text, which are read."""
+    data = builder.ole_container({"__properties_version1.0": b"\x00" * 32, "__substg1.0_0037001F": "회의 일정".encode("utf-16-le"),
+                                  "__substg1.0_1000001F": "본문".encode("utf-16-le")})
+
+    with pytest.raises(UnsupportedFormatError, match=r"Outlook messages \(\.msg\) are not supported"):
+        convert(data, "mail.msg")
+
+
 class TestXlsStreamNameCase:
     """OLE stream names are case-insensitive (xlrd and olefile read `WORKBOOK` and `book` too). Only `Workbook` and `Book` were
     looked for, so an XLS saved in upper case was rejected with 'This OLE document format is not supported.'"""

@@ -349,6 +349,12 @@ def _detect_ole(data: bytes) -> DocumentFormat:
         return DocumentFormat.DOC
     if "powerpoint document" in streams:
         return DocumentFormat.PPT
+    if "__properties_version1.0" in streams and any(name.startswith("__substg1.0_") for name in streams):
+        # An Outlook message (.msg, what Outlook saves by default): its property streams. Outlook saves a mail as MHT, HTML or
+        # text too, which are read; the generic notice gave no way on
+        # (Pinned by: test_detect.py::test_outlook_message_is_reported_with_the_formats_to_save_it_in).
+        raise UnsupportedFormatError("Outlook messages (.msg) are not supported. Please save the mail in Outlook as MHT, HTML or "
+                                     "text and upload it again.")
     raise UnsupportedFormatError("This OLE document format is not supported.")
 
 
