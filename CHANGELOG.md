@@ -27,6 +27,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Open WebUI**: a UUID inside the uploaded file's own name is kept; only Open WebUI's leading file id is taken off.
 - **PDF reading order**: on the last page of a two-column article whose right column holds only a few closing lines at
   its top, the rest of a ragged-right left column below them is no longer moved after the right column.
+- **PDF text**: a justified line whose word gaps are 1.1 em or wider (a narrow column with long words) is read as one
+  line; its words came out one by one, shuffled and scattered through the paragraph.
 
 ## [0.3.14] - 2026-11-19
 
