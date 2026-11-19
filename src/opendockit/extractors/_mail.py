@@ -641,6 +641,12 @@ def _is_attachment(part: Message, message: Message) -> bool:
         return True
     if disposition == "inline" and part.get_content_type() in _INLINE_TEXT_TYPES:
         return False
+    if part.get_content_type() == "text/calendar" and part.get_param("method") is not None:
+        # The invitation itself (iTIP `method=REQUEST`, `CANCEL` …), the branch of an alternative beside its text, even with a
+        # `name=`: taken for an attachment, its event was not read and the invitation was reported as an unread file
+        # (Pinned by: test_core_mail_parts_and_icons.py::TestNamedInvitationInAnAlternative). A named .ics with
+        # `Content-Disposition: attachment` stays an attachment.
+        return False
     return (disposition in (None, "inline") and part.get_filename() is not None and part.get("Content-ID") is None
             and part.get("Content-Location") is None)
 

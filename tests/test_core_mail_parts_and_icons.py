@@ -673,6 +673,21 @@ class TestMeetingInvitation:
         assert result.warnings == ["1 mail attachment(s) (invite.ics) were not read. Convert attachments separately."]
 
 
+
+class TestNamedInvitationInAnAlternative:
+    """An invitation whose text/calendar branch carries a name (`name=meeting.ics`) but no disposition was taken for an
+    attachment: its event was not read, and the invitation was reported as an unread file. A text/calendar part with an iTIP
+    `method` is the invitation itself; one with `Content-Disposition: attachment` stays an attachment (the test above)."""
+
+    @needs_html5_tokenizer
+    def test_named_invitation_is_read(self):
+        data = _invite(_INVITE_CALENDAR, calendar_head='text/calendar; method=REQUEST; charset="utf-8"; name="meeting.ics"')
+
+        result = convert(data, "invite.eml")
+
+        assert result.text.endswith("예산 검토 회의입니다.\n\n" + _INVITE_BLOCK)
+        assert result.warnings == []
+
 def _signed_mail(signature_type: str, name: str, *, html: bool = False, extra: str = "") -> bytes:
     body = "<p>서명된 본문입니다.</p>" if html else "서명된 본문입니다."
     return (f'From: a@b.com\r\nTo: c@d.com\r\nSubject: signed\r\nMIME-Version: 1.0\r\n'
