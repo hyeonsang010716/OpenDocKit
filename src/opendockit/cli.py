@@ -11,6 +11,7 @@ import argparse
 import asyncio
 from collections.abc import Callable
 from dataclasses import asdict
+import errno
 import json
 import os
 from pathlib import Path
@@ -89,10 +90,14 @@ def _write(print_output: Callable[[], None]) -> int:
         # with an 'Exception ignored' message and exit code 120
         # (Pinned by: test_cli.py::TestArguments::test_closed_pipe_ends_quietly_after_a_short_output).
         sys.stdout.flush()
-    except BrokenPipeError:
+    except OSError as error:
         # The reader closed first, as with `| head`. Finish without dumping a traceback. Point standard output at /dev/null so
         # the error does not fire again at exit while flushing the remaining output buffer
         # (the SIGPIPE advice in the Python docs, Pinned by: test_cli.py::TestArguments::test_closed_pipe_ends_quietly).
+        # Windows reports a closed pipe as EINVAL, not as a BrokenPipeError: a short output there ended in an OSError
+        # traceback (Pinned by: test_cli.py::TestArguments::test_closed_pipe_ends_quietly_after_a_short_output).
+        if not (isinstance(error, BrokenPipeError) or (sys.platform == "win32" and error.errno == errno.EINVAL)):
+            raise
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 1
     return 0
