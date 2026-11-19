@@ -538,6 +538,13 @@ def clean_line(text: str) -> str:
     return " ".join(unicodedata.normalize("NFC", text).split())
 
 
+# Every character `solid_length` removes or changes besides white space: invisible, control and private-use characters (the
+# private use areas hold the nested-table placeholders), the characters `_SYMBOL_FONT_GLYPHS` replaces (the Latin ligatures
+# among them) and the first character of an image placeholder.
+_SOLID_AS_WRITTEN = re.compile("[" + "".join(pattern.pattern[1:-1] for pattern in (_INVISIBLE, _CONTROL, _PRIVATE_USE))
+                               + "".join(re.escape(chr(code)) for code in _SYMBOL_FONT_GLYPHS) + "⟦]")
+
+
 def solid_length(text: str, *, quote_lines: bool = True) -> int:
     """The number of characters certain to remain after cleaning (`clean_text`) and rendering. Used to decide the character limit midway.
 
@@ -548,6 +555,12 @@ def solid_length(text: str, *, quote_lines: bool = True) -> int:
     """
     if not text:
         return 0
+    # Text with none of the characters the steps below remove or change (and already in NFC) is its length without white
+    # space. Most cells and table rows are such text: with the steps, a 1 MB CSV at the default limit took 0.29 s, without 0.22 s
+    # (Pinned by: test_markdown.py::TestSolidLength::test_plain_text_is_counted_as_by_the_full_steps).
+    if (_SOLID_AS_WRITTEN.search(text) is None and (not quote_lines or ">" not in text)
+            and unicodedata.is_normalized("NFC", text)):
+        return len("".join(text.split()))
     # A nested-table placeholder goes too, with its number: the table it stands for is counted when it is drawn, and text of
     # the document that only has the shape of one is dropped by the table that holds it. Counted, 80 digits between the two
     # private-use characters stopped a table that was within the limit, and the document came back cut without `exceeded`

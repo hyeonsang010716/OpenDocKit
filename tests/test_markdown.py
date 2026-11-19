@@ -179,6 +179,20 @@ class TestCleanText:
 
 
 class TestSolidLength:
+    @pytest.mark.parametrize("text", [
+        "id12,12,이름12", "| a | b |\n| --- | --- |", "plain\ttext\r\n", "x\x0by\x0cz", "a\xa0b　c", "> quote", "a\n>\nb",
+        "é", "각", "x\x01y", "a​b", " item", "1", "⟦IMG:ab:3⟧ pic", "\x1cx\x1f",
+        "ÅÅ", "😀 ok", "̸>"])
+    def test_plain_text_is_counted_as_by_the_full_steps(self, text):
+        """Pins: text with none of the characters the steps remove or change, already in NFC, is counted by its length without
+        white space; anything else goes through every step."""
+        steps = markdown._EMBED.sub("", markdown.IMAGE_MARKER.sub("", text))
+        steps = markdown._PRIVATE_USE.sub("", markdown._CONTROL.sub("", markdown._INVISIBLE.sub("", steps))
+                                          .translate(markdown._SYMBOL_FONT_GLYPHS))
+        for quote_lines in (True, False):
+            kept = markdown._BARE_QUOTE_LINE.sub("", steps) if quote_lines else steps
+            assert solid_length(text, quote_lines=quote_lines) == len("".join(unicodedata.normalize("NFC", kept).split()))
+
     def test_nested_table_placeholder_is_not_counted(self):
         """The estimate used for the character limit must never be larger than what is written. A nested-table placeholder is
         replaced by its table (counted when drawn), and text that only has its shape — 80 digits between the two private-use
