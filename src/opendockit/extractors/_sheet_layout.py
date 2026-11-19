@@ -77,6 +77,9 @@ def _collect_rows(rows: object, options: ConvertOptions, sheet_name: str, extrac
     """
     width = options.max_sheet_cols
     collected: list[list[str]] = []
+    # Warned once per sheet: looked up in the warnings for every row past the column limit, 120,000 such rows after the warnings
+    # of 40,000 hidden sheets took 42 s (Pinned by: test_audit_spreadsheet.py::TestWarningsLookedUpOncePerSheet)
+    warned = False
     for raw in rows:
         # Pinned by: test_audit_spreadsheet.py::TestSheetDrawingStopsAtTheLimit::test_sparse_rows_cost_their_cells
         values = ["" if value is None or value == "" else _format_value(value) for value in raw]
@@ -84,8 +87,9 @@ def _collect_rows(rows: object, options: ConvertOptions, sheet_name: str, extrac
             collected.append([])
             continue
 
-        if any(values[width:]):
+        if not warned and any(values[width:]):
             _warn_once(extraction.warnings, f"Sheet '{sheet_name}': columns beyond column {width} were excluded.")
+            warned = True
         collected.append(values[:width])
         if extraction.count(sum(_cell_length(value) for value in values[:width] if value), options):
             break

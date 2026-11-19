@@ -18,7 +18,7 @@ from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors import _sheet_layout, _xlsx_parts, csv_text, odf, spreadsheet, xls, xml_spreadsheet
 from opendockit.extractors._sheet_format import format_cell
 from opendockit.markdown import render_table
-from opendockit.models import ConvertOptions
+from opendockit.models import ConvertOptions, Extraction
 from tests import builder
 from tests.test_spreadsheet_cell_values_and_controls import (
     _LOCAL_IMAGE,
@@ -1353,3 +1353,27 @@ class TestLongSharedFormulas:
         assert "| | =A2+$A$1+B:B+3:3 | | =C2+$A$1+D:D+3:3 |" in result.text
         assert result.warnings == ["Sheet 'Sheet': 3 formula(s) with no stored result were copied as written "
                                    "(opening and re-saving the file in Excel converts them to values)."]
+
+
+class _CountedLookups(list):
+    """A warnings list that counts how often a message is looked up in it."""
+
+    lookups = 0
+
+    def __contains__(self, item: object) -> bool:
+        self.lookups += 1
+        return super().__contains__(item)
+
+
+class TestWarningsLookedUpOncePerSheet:
+    """Every row past the column limit looked the sheet's warning up in all the warnings: 120,000 such rows after the warnings
+    of 40,000 hidden sheets (Excel 2003 XML) took 42 s."""
+
+    def test_rows_past_the_column_limit(self):
+        extraction = Extraction(warnings=_CountedLookups(f"Hidden sheet '{index}' was excluded." for index in range(100)))
+        rows = (("a", *[""] * 120, "b") for _ in range(1_000))
+
+        _sheet_layout._collect_rows(rows, ConvertOptions(), "S", extraction)
+
+        assert extraction.warnings.lookups == 1
+        assert extraction.warnings[-1] == "Sheet 'S': columns beyond column 100 were excluded."
