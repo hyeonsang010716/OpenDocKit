@@ -145,6 +145,15 @@ from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 # even on that page and stops at the limit. Over 993 pages of public PDFs the maximum is 12,500
 # (Pinned by: test_pdf.py::TestDrawingArtifacts::test_page_with_huge_number_of_drawing_objects_is_read_with_pdfium).
 _MAX_PAGE_OBJECTS = 50_000
+# A page with more characters than this (pdfium's count in the page survey, `_survey_page`) is read with pdfium's simple extraction too,
+# with the same warning. pdfminer and pdfplumber keep about 2.5KB per character while reading a page, and a page can draw hundreds of
+# characters with one operator, so neither the drawn-object estimate nor `_MAX_PAGE_OBJECTS` saw it: rows of 200 characters at 0.5pt
+# took 9.6 seconds and 647MB at 200,000 characters (3.5KB file), 24.6 seconds and 2GB at 800,000 (12.8KB), while pdfium reads the
+# latter in 0.17 seconds; the character limit is checked only after a page is read. A dense page of 6pt text in two columns has
+# about 21,000 characters, A4 filled edge to edge with 4pt text about 57,000, and a long document printed as one tall page (1,500
+# rows of 'label value' pairs, 18,200pt, a test of the label search) 150,000, which pdfminer reads in about 9 seconds and 400MB
+# (Pinned by: test_pdf_resource_limits.py::TestPageOfVeryManyCharacters).
+_MAX_PAGE_CHARS = 200_000
 # A page that makes pdfminer read more content than this (`_page_drawing`: each content stream as often as listed, each form's content
 # as often as drawn, white space left out) is read with pdfium's simple extraction instead, with the warning of pages that have too
 # many drawing elements. Operators that paint nothing make no drawn object, and pdfminer reads them at about 2 seconds per MB: a 4.8KB
@@ -775,7 +784,8 @@ def _survey_page(document: pdfium.PdfDocument, index: int) -> tuple[int, int, in
     places every character separately the pieces are almost as many as the characters (13% of the characters for LibreOffice, 71%
     for Chrome Hangul), so the text-box grouping limit is measured in line pieces. Drawn objects are counted down into Form
     XObjects (`_FORM_NESTING_MAX` levels — with pypdfium2's default of 15 levels, 160,000 objects below that went uncounted and on
-    to pdfminer) and counting stops the moment `_MAX_PAGE_OBJECTS` is exceeded. Such a page is read right away from the page
+    to pdfminer) and counting stops the moment `_MAX_PAGE_OBJECTS` is exceeded. Such a page, and one with more than
+    `_MAX_PAGE_CHARS` characters, is read right away from the page
     already open — pdfium too spends time and memory per object to open a page (1.7 seconds for a page of 240,000 forms), so it is
     not opened again. The number of lines/shapes (paths) is used to tell ruled grid pages apart (`_is_ruled_grid`).
     """
@@ -790,15 +800,17 @@ def _survey_page(document: pdfium.PdfDocument, index: int) -> tuple[int, int, in
                 try:
                     pieces = text_page.count_rects()
                     line_pieces = _text_line_pieces([text_page.get_rect(number) for number in range(pieces)])
+                    chars = text_page.count_chars()
                 finally:
                     text_page.close()
             except pdfium.PdfiumError:
-                pieces = line_pieces = 0
+                pieces = line_pieces = chars = 0
             paths = objects = 0
             for obj in islice(page.get_objects(max_depth=_FORM_NESTING_MAX), _MAX_PAGE_OBJECTS + 1):
                 objects += 1
                 paths += obj.type == pdfium_c.FPDF_PAGEOBJ_PATH
-            return pieces, line_pieces, paths, _simple_page(page, index) if objects > _MAX_PAGE_OBJECTS else None
+            crowded = objects > _MAX_PAGE_OBJECTS or chars > _MAX_PAGE_CHARS
+            return pieces, line_pieces, paths, _simple_page(page, index) if crowded else None
         except pdfium.PdfiumError:
             return 0, 0, 0, None
         finally:

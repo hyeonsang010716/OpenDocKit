@@ -1052,6 +1052,57 @@ class TestContentThatPaintsNothing:
         assert any("(2)" in warning and "too many drawing elements" in warning for warning in result.warnings)
 
 
+
+def _long_rows_pdf(rows: int, size: float = 0.5) -> bytes:
+    """Page 1 is ordinary text; page 2 has `rows` rows of 200 letters, each drawn by one operator, `size` points high and 0.6pt apart."""
+    body = b"BT /F1 %g Tf\n" % size + b"".join(b"1 0 0 1 10 %.2f Tm (%s) Tj\n" % (830 - row * 0.6, b"abcdefghij" * 20)
+                                               for row in range(rows)) + b"ET"
+    return _pages_pdf(_padded_text(b"Plain first page", 0), body)
+
+
+class TestPageOfVeryManyCharacters:
+    """pdfminer and pdfplumber keep about 2.5KB per character while reading a page, and one operator can draw hundreds of characters, so neither
+    bound on drawn objects saw a page of long rows of tiny text: 200,000 characters (3.5KB) took 9.6 seconds and 647MB, 800,000 (12.8KB) 24.6
+    seconds and 2GB, where pdfium reads the page in 0.17 seconds."""
+
+    def test_page_past_the_bound_is_read_with_pdfium(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        read = []
+        original_read = pdf_module._read_page
+        monkeypatch.setattr(pdf_module, "_read_page", lambda page, *args: read.append(page.page_number) or original_read(page, *args))
+        monkeypatch.setattr(pdf_module, "_MAX_PAGE_CHARS", 500)
+
+        result = convert(_long_rows_pdf(3), "a.pdf")
+
+        assert read == [1] and "Plain first page" in result.text and "abcdefghij" * 20 in result.text
+        assert any("(2)" in warning and "too many drawing elements and were read with simple extraction" in warning
+                   for warning in result.warnings)
+
+    def test_page_within_the_bound_is_read_as_before(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_MAX_PAGE_CHARS", 500)
+
+        result = convert(_long_rows_pdf(2), "a.pdf")
+
+        assert "abcdefghij" * 20 in result.text and not result.warnings
+
+    def test_page_of_220_000_characters_is_not_read_with_pdfminer(self):
+        result = convert(_long_rows_pdf(1_100), "a.pdf")
+
+        assert any("(2)" in warning and "too many drawing elements" in warning for warning in result.warnings)
+
+    def test_dense_page_of_small_text_is_read_with_pdfminer(self):
+        """Two columns of 110 rows of 6pt text (20,900 characters)."""
+        line = (b"lorem ipsum dolor sit amet consecte " * 3)[:95]
+        body = b"BT /F1 6 Tf\n" + b"".join(b"1 0 0 1 %d %.1f Tm (%s) Tj\n" % (x, 800 - row * 7, line)
+                                         for x in (40, 310) for row in range(110)) + b"ET"
+
+        result = convert(_pages_pdf(body), "a.pdf")
+
+        assert result.text.count("lorem ipsum") >= 220 and not result.warnings
+
 class TestManyCellsOnOnePage:
     """One page of a ruled table with thousands of cells took tens of seconds (68 seconds for 7,500 filled cells). Every character was checked
     against all the cells to see whether it is inside one (`_inside_any`), and for every cell all the fill rectangles were scanned to measure the
