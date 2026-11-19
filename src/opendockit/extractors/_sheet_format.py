@@ -348,11 +348,14 @@ def _format_section(value: float, number_format: str) -> tuple[str, float, bool]
     Deliberate: if the negative section has no literal revealing that the value is negative (no literals, or the same as the
     positive section — `#,##0;[Red]#,##0`), the negative value is passed in as is so that `-` is attached. Excel signals the
     negative with red, but colours are discarded, so emitting only the absolute value would make a loss read as a profit
-    (Pinned by: test_spreadsheet.py::TestNegativeSectionWithoutSign).
+    (Pinned by: test_spreadsheet.py::TestNegativeSectionWithoutSign). White space in the literals marks nothing: CJK Excel pads its
+    sections with `_ ` and `\\ ` (`#,##0_ ;[Red]#,##0\\ `), and the escaped space made the negative section look marked, so
+    -1234.5 came out as `1,235` (Pinned by: test_spreadsheet.py::TestNegativeSectionWithoutSign::test_space_literal_marks_nothing).
     """
     sections = [match.group(0) for match in _FORMAT_SECTION.finditer(number_format)]
     if value < 0 and len(sections) > 1 and sections[1].strip():
-        marked = _section_literals(sections[1]) not in ("", _section_literals(sections[0]))
+        positive, negative = ("".join(_section_literals(section).split()) for section in sections[:2])
+        marked = negative not in ("", positive)
         return sections[1], (-value if marked else value), marked
     if value == 0 and len(sections) > 2 and ("0" in _format_codes(sections[2]) or not _has_digit_places(sections[0])):
         return sections[2], value, False

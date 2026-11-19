@@ -592,6 +592,15 @@ class TestNegativeSectionWithoutSign:
 
         assert result == expected
 
+    @pytest.mark.parametrize(("number_format", "expected"), [
+        ("#,##0_ ;[Red]#,##0\\ ", "-1,235"),  # CJK Excel's padding, as written when its \- is taken out
+        ("0.00_ ;[Red]0.00\\ ", "-1234.50"),
+        ('#,##0;[Red]#,##0" "', "-1,235"),
+    ])
+    def test_space_literal_marks_nothing(self, number_format, expected):
+        """A space written as `\\ ` or `" "` in the negative section made it look marked, so the loss read as a profit."""
+        assert format_cell(-1234.5, number_format) == expected
+
     @pytest.mark.parametrize(
         ("number_format", "expected"),
         [
