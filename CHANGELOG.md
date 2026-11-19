@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+
+- **XLSX**: a sheet stored in another case than the workbook names it (`Sheet2.xml` behind `sheet2.xml`) is read; it
+  was left out without a word. So is a workbook part in another case, which rejected the file, and a styles part in
+  another case, which turned every date into its serial number. A sheet whose part is missing from the file is named in
+  a warning instead of vanishing.
+- **DOCX / PPTX / XLSX**: a main part stored in another case (`word/Document.xml`) is read; the file was rejected as an
+  unsupported archive.
+- **XLSX / XLS / Excel 2003 XML**: a negative number under a negative section of text alone (Yes/No, True/False,
+  On/Off, `"예";"예";"아니요"`) shows that text, as Excel does, not `-Yes`.
+- **HTML**: the line of a table flattened into a cell stays apart from the text beside it (`Total: in1 in2`, not
+  `Total:in1 in2`). The lower levels of a list inside a table cell are marked `└ `, as in DOCX and HWP; every level came
+  out as one.
+- **Mail**: an invitation sent as a text/calendar part alone keeps its description (the agenda), and an event timed with
+  `DURATION` gets its end. A mail without MIME-Version whose only part is an invitation, a forwarded mail or an
+  attachment is read as mail, not as raw text. A mail with an empty HTML part read under a text name is read as mail.
+- **Server use**: `IsolatedConverter.convert` reports running out of memory while copying the content as too large,
+  as `convert` does, instead of letting a raw `MemoryError` out.
+- **Open WebUI**: a UUID inside the uploaded file's own name is kept; only Open WebUI's leading file id is taken off.
+
 ## [0.3.14] - 2026-11-19
 
 Fixes from five audit rounds, most of them small files that cost a lot of time or memory, and content that was lost.
