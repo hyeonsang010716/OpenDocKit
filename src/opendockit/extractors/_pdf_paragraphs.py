@@ -624,7 +624,8 @@ def _korean_notice_end(text: str) -> bool:
       제출함`, `외부 회의 참여함`); not the nouns `교수 정년퇴임` or `핵 잠수함`, nor a compound ending in a noun of
       `_KOREAN_NOUN_ENDS` (`재난 대응 골든타임`, `미 해군 항공모함`);
     - `…할 것` (not `알아야 할 것`, `해야 할 것`: the things to know or do, a title);
-    - `바람` asked for (`기한 내 제출 바람`, `협조하기 바람`; not the wind, `변화의 바람`, `한류 바람`, `_requested`);
+    - `바람` after the noun of a request (`협조 바람`, `기한 내 회신 바람`, `협조하기 바람`; not the wind, `변화의 바람`,
+      `한류 바람`, `_requested`);
     - the polite request `…세요` and `…하십시오` / `…시오` (not a greeting, `안녕하세요`, `어서 오세요`), the plain
       command `…하라` after two words or more (not `사하라`), and `…는다` after two words or more (`결과를 얻는다`).
 
@@ -652,19 +653,16 @@ def _korean_notice_end(text: str) -> bool:
     if (_KOREAN_NOMINAL_END.fullmatch(last) and not last.endswith(_KOREAN_NOUN_ENDS)
             and (len(words) >= 3 or any(word[-1] in _KOREAN_PARTICLES for word in words[:-1]))):
         return True
-    if last == "바람" and _requested(words[-2], len(words)):
+    if last == "바람" and _requested(words[-2]):
         return True
     return last.endswith("는다")
 
 
-def _requested(word: str, count: int) -> bool:
-    """Whether `word` before a closing `바람` asks for something (`제출하기 바람`, `협조 바람`), not names the wind (`변화의
-    바람`, `교육계에 부는 바람`, `한류 바람`): it ends in 기, or the line has three words or more and it is no word ending in
-    의 or in a syllable that makes it say what the next word is (ㄴ or 는: `부는`, `따뜻한`)."""
-    final = (ord(word[-1]) - 0xAC00) % 28 if "가" <= word[-1] <= "힣" else -1
-    if word.endswith("기"):
-        return True
-    return count >= 3 and not word.endswith(("의", "는")) and final != _FINAL_N
+def _requested(word: str) -> bool:
+    """Whether `word` before a closing `바람` names what is asked for (`협조 바람`, `내용 확인 바람`, `기한 내 회신 바람`,
+    `제출하기 바람`): a noun of a request of `_REQUEST_NOUNS` or a word ending in 기. Any other word makes the line a title
+    about the wind (`한류 바람`, `변화의 바람`, `따뜻한 바람`, `세계를 움직이는 바람`, `새로운 변화 바람`)."""
+    return word.endswith(_REQUEST_NOUNS) or word.endswith("기")
 
 
 # The longest heading by a size 1.15 to 1.2 times the body (`_slightly_larger_text`)
@@ -716,8 +714,9 @@ _KOREAN_NOUN_ENDS = ("모임", "책임", "선임", "퇴임", "취임", "연임",
 _KOREAN_PARTICLES = frozenset("은는이가을를")
 # The final consonant ㄹ (종성 index) of `할` in `…할 것`
 _FINAL_L = 8
-# The final consonant ㄴ of an adnominal word before `바람` (`따뜻한 바람`)
-_FINAL_N = 4
+# The nouns of a request before a closing `바람` in an official letter (`_requested`)
+_REQUEST_NOUNS = ("협조", "확인", "참석", "참고", "회신", "제출", "숙지", "준수", "엄수", "양지", "협력", "참여", "검토", "조치", "실천", "개선",
+                  "확산", "동참", "신청", "회람", "공유", "전달", "협의", "응모", "이행", "활용", "보고", "주의", "유의", "작성", "점검")
 # A '!' or '?' after a word with more text after it: two sentences on the line ('Questions? Call 1-800-555-0100')
 _INNER_SENTENCE_END = re.compile(r"[^\W\d_][!?]\s+\S")
 # An amount: a currency sign or code by a number ('$110.00', 'USD 1,234.00', '1,000원', '30 EUR') or digits grouped in thousands

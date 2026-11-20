@@ -362,7 +362,9 @@ class TestBoldSentenceEnds:
         assert "#" not in text and line in text
 
     @pytest.mark.parametrize("line", ["서류는 기한 내 제출함", "본 계약은 무효임", "위와 같이 신청함", "다음과 같음", "제출 서류는 다음과 같음:", "외부 회의 참여함", "사업 계획 수립됨",
-                                      "반드시 원본을 제출할 것", "기한 내 제출 바람", "협조하기 바람", "확인해 주세요", "서명하십시오",
+                                      "반드시 원본을 제출할 것", "기한 내 제출 바람", "협조하기 바람", "협조 바람", "확인 바람",
+                                      "참석 바람", "내용 확인 바람", "업무 개선 바람", "청렴 실천 바람", "기한 내 회신 바람",
+                                      "청렴 문화 확산 바람", "관련 부서의 협조 바람", "확인해 주세요", "서명하십시오",
                                       "반드시 확인하라", "결과를 얻는다", "제출하였음"])
     def test_a_korean_notice_is_no_heading(self, line):
         text = _named_font_pdf([*_named_body(80), (72, 140, line, 10, "Batang-Bold"), *_named_body(156)])
@@ -377,7 +379,8 @@ class TestBoldSentenceEnds:
 
         assert f"# {title}\n\n본 계약은" in text
 
-    @pytest.mark.parametrize("title", ["변화의 바람", "교육계에 부는 변화의 바람", "따뜻한 봄바람", "한류 바람"])
+    @pytest.mark.parametrize("title", ["변화의 바람", "교육계에 부는 변화의 바람", "따뜻한 봄바람", "한류 바람", "따뜻한 바람", "부는 바람",
+                                       "세계를 움직이는 바람", "새로운 변화 바람"])
     def test_a_korean_title_about_the_wind_is_a_heading(self, title):
         text = _named_font_pdf([*_named_body(80), (72, 140, title, 10, "Batang-Bold"), *_named_body(156)])
 
