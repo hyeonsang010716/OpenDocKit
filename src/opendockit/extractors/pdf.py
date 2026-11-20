@@ -167,6 +167,12 @@ _MAX_PAGE_CHARS = 200_000
 # with a 5MB inline image and one with that map path lost their tables. Apart from the hostile form of these tests, the largest page
 # the PDF tests build reads 450,000 tokens (Pinned by: test_pdf_resource_limits.py::TestContentThatPaintsNothing).
 _MAX_READ_CONTENT_TOKENS = 2_000_000
+# The annotations walked for the form values of the pages read with simple extraction (`_SimpleFormValues`), over the whole
+# document. Those pages are read that way to bound the time a document takes — past the time budget above all — and every
+# annotation is a few microseconds of resolving its field: 2,000 pages sharing one array of 20,000 widgets took 127 seconds past a
+# time budget of 0 (6 before their values were read there). A form of 1,000 pages of 100 fields is within it
+# (Pinned by: test_pdf_form_fields.py::TestFormValuesOnSimpleExtraction::test_values_past_the_annotation_bound_are_not_read).
+_MAX_SIMPLE_FORM_ANNOTATIONS = 100_000
 # A page whose content adds more pieces to paths than this (`m l c v y h re`, `_path_segments`, as often as drawn) is read with
 # pdfium's simple extraction too, with the same warning. pdfminer and pdfplumber keep every point of a path in their objects: one path
 # of 100,000 / 200,000 / 400,000 / 600,000 line segments peaked at 248 / 385 / 653 / 942MB (1.4KB a segment; 1, 2, 4 and 6.5
@@ -268,8 +274,32 @@ def _check_budget(budget: _InflateBudget) -> None:
         raise DocumentTooLargeError(_TOO_LARGE)
 
 
+class _SimpleFormValues:
+    """The form values of the pages read with simple extraction (`_form_values` without lines), while the annotations walked
+    for them stay within `_MAX_SIMPLE_FORM_ANNOTATIONS`; past it a page's values are not read and the page is named in a
+    warning (`skipped`)."""
+
+    def __init__(self) -> None:
+        self._left = _MAX_SIMPLE_FORM_ANNOTATIONS
+        self.skipped: list[int] = []
+
+    def __call__(self, page: object) -> list[str]:
+        try:
+            annotations = resolve1(page.page_obj.annots)
+            count = len(annotations) if isinstance(annotations, list) else 0
+        except Exception:  # noqa: BLE001 — unreadable annotations: `_form_values` reads nothing either
+            count = 0
+        if count > self._left:
+            self._left = 0
+            self.skipped.append(page.page_number)
+            return []
+        self._left -= count
+        return _form_values(page, [])
+
+
 def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -> Extraction:
     extraction = Extraction()
+    simple_form_values = _SimpleFormValues()
     try:
         pdf = _open_pdfplumber(data)
     except PdfminerException as exc:
@@ -335,7 +365,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
                                                    lines=[], tables=[], has_images=False,
                                                    view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
-                            pages[-1].form_values = _form_values(page, [])  # (see `late` below)
+                            pages[-1].form_values = simple_form_values(page)  # (see `late` below)
                         elif late:
                             over_budget += 1
                             extraction.time_limited = True
@@ -353,13 +383,13 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                             # path kept them, so past the time budget, on a crowded page and on a page pdfminer failed, the
                             # entered values were dropped without a warning — and the XFA warning below took an AcroForm with
                             # values for one without. Reading the annotations does not lay out the page (the cost the budget
-                            # avoids); without lines a FreeText annotation has no label
-                            # (Pinned by: test_pdf_form_fields.py::TestFormValuesOnSimpleExtraction).
-                            pages[-1].form_values = _form_values(page, [])
+                            # avoids), and how many are walked is bounded (`_MAX_SIMPLE_FORM_ANNOTATIONS`); without lines a
+                            # FreeText annotation has no label (Pinned by: test_pdf_form_fields.py::TestFormValuesOnSimpleExtraction).
+                            pages[-1].form_values = simple_form_values(page)
                         elif crowded_page is not None:
                             crowded.append(page.page_number)
                             pages.append(_numbered(crowded_page, page.page_number))
-                            pages[-1].form_values = _form_values(page, [])  # (see `late` above)
+                            pages[-1].form_values = simple_form_values(page)  # (see `late` above)
                         else:
                             if line_pieces > _MAX_GROUPED_TEXT_PIECES:
                                 dense.add(page.page_number)
@@ -427,7 +457,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                             pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
                                                lines=[], tables=[], has_images=False,
                                                view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
-                        pages[-1].form_values = _form_values(page, [])  # (see `late` above)
+                        pages[-1].form_values = simple_form_values(page)  # (see `late` above)
                         failed.append(page.page_number)
                     finally:
                         page.close()
@@ -509,6 +539,10 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
     if failed:
         extraction.warnings.append(f"Structure analysis failed for {len(failed)} PDF page(s) ({_page_list(failed)}), so they were "
                                    "read with simple extraction (no tables or headings).")
+    if simple_form_values.skipped:
+        skipped = simple_form_values.skipped
+        extraction.warnings.append(f"The form field values of {len(skipped)} PDF page(s) ({_page_list(skipped)}) read with simple "
+                                   "extraction were not read, as the document has too many annotations.")
     undecodable = [page.number for page in pages if page.undecodable]
     if undecodable:
         extraction.warnings.append(f"The content of {len(undecodable)} PDF page(s) ({_page_list(undecodable)}) could not be decoded "

@@ -235,3 +235,17 @@ class TestFormValuesOnSimpleExtraction:
         assert result.warnings, "the page was not read with simple extraction"
         for section in result.sections:
             assert section.text.endswith("Applicant name: Jane Doe\nAgree: ☑")
+
+    def test_values_past_the_annotation_bound_are_not_read(self, monkeypatch):
+        """Every annotation walked is time the time budget does not bound: 2,000 pages sharing one array of 20,000 widgets took
+        127 seconds past a budget of 0. Past the bound on the annotations of such pages, a page's values are left out and the
+        page is named."""
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_MAX_SIMPLE_FORM_ANNOTATIONS", 3)   # the two fields of the first page fit, not the next
+        result = convert(_korean_pdf(_filled_form, pages=2), "a.pdf", ConvertOptions(pdf_time_budget=0.0))
+
+        assert result.sections[0].text.endswith("Applicant name: Jane Doe\nAgree: ☑")
+        assert "Jane Doe" not in result.sections[1].text
+        assert ("The form field values of 1 PDF page(s) (2) read with simple extraction were not read, as the document has "
+                "too many annotations.") in result.warnings
