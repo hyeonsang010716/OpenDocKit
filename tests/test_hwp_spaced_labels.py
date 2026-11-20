@@ -82,6 +82,10 @@ class TestSpacedLabels:
         ("대   표   이   사", "대표이사"),
         ("수  및  양", "수  및  양"),            # a conjunction: words of a sentence spaced wide
         ("검   토   결   과", "검토결과"),
+        ("수   정   일", "수정일"),
+        ("예   정   일", "예정일"),
+        ("이   름   을", "이   름   을"),         # a phrase ending in a case particle
+        ("주   소   는", "주   소   는"),
         ("상   중   하", "상   중   하"),          # the choices of a scale
         ("월   화   수   목   금", "월   화   수   목   금"),
     ])

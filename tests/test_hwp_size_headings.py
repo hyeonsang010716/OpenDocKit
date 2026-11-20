@@ -223,6 +223,19 @@ class TestSizeHeadings:
 
         assert text.split("\n\n")[:3] == ["## 회의 결과 보고", "수신 각 부서", "참조 기획팀"]
 
+    def test_title_beside_a_shorter_line_keeps_its_heading(self):
+        """A form's title with a short line in another size on top (`(앞쪽)`, `[별지 제1호서식]`) over its tables: the title's
+        size was the most frequent at the top level and so the body size, and the title was lost."""
+        def cell(row: int, col: int, text: str) -> str:
+            return (f"<hp:tc><hp:subList>{_hwpx_paragraph(text, (0, text))}</hp:subList>"
+                    f'<hp:cellAddr colAddr="{col}" rowAddr="{row}"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>')
+        rows = "".join(f"<hp:tr>{cell(row, 0, f'항목 {row}')}{cell(row, 1, _BODY)}</hp:tr>" for row in range(6))
+        table = f'<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run><hp:tbl rowCnt="6" colCnt="2">{rows}</hp:tbl></hp:run></hp:p>'
+        for line in ("(앞쪽)", "[별지 제1호서식]", "처리기간 7일"):
+            data = _hwpx(_hwpx_paragraph(line, (4, line)), _hwpx_paragraph("개인정보 수집 동의서", (2, "개인정보 수집 동의서")), table)
+
+            assert "# 개인정보 수집 동의서" in convert(data, "a.hwpx").text.split("\n\n"), line
+
     def test_hwp_and_hwpx_count_the_same_characters(self):
         """HWP counted the 8 WCHARs of a tab and the paragraph end with the text: twenty short 13 pt lines with a tab outweighed
         a 10 pt body as HWP and not as HWPX, so the same document lost its heading as HWP."""
@@ -319,7 +332,8 @@ class TestOutlineHeads:
 
     # Clause endings without a full stop: the ㄴ다 of the plain style after any syllable, and the stems of `…하다`, `…같다`
     _CLAUSES = ("그 밖의 사항은 관계 법령에 따른다", "기한 내 제출하지 아니한 경우 포기한 것으로 본다", "을은 비밀 유지 의무를 진다",
-                "다만, 천재지변의 경우에는 그러하지 아니하다", "지원 대상은 다음과 같다", "필요한 사항은 따로 정할 수 있다")
+                "다만, 천재지변의 경우에는 그러하지 아니하다", "지원 대상은 다음과 같다", "필요한 사항은 따로 정할 수 있다",
+                "위원회가 이를 의결했다", "제도가 개선됐다", "다음 각 호의 사항을 포함한다:")
 
     def test_titles_with_outline_heads_stay_headings(self):
         """An outline head is the author's title whatever it says; only the sentence of a numbered clause is left a numbered
@@ -330,7 +344,8 @@ class TestOutlineHeads:
                 '<hh:paraProperties itemCnt="2"><hh:paraPr id="0"><hh:heading type="NONE" idRef="0" level="0"/></hh:paraPr>'
                 '<hh:paraPr id="1"><hh:heading type="OUTLINE" idRef="0" level="0"/></hh:paraPr></hh:paraProperties>')
         titles = ["캐나다", "플로리다", "총칙(개정 2024. 1. 1.)", "2024년 12월", "Introduction", "왜 바다인가?",
-                  "Ⅳ. 사례: 미국, 영국, 캐나다"]
+                  "Ⅳ. 사례: 미국, 영국, 캐나다", "우간다", "동아프리카 르완다", "미래가 온다", "Appendix A.", "조직도 ...",
+                  "아름답다"]
         body = ('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run><hp:secPr outlineShapeIDRef="1"/><hp:t>보고서</hp:t></hp:run></hp:p>'
                 + "".join(_hwpx_paragraph(title, shape=1) for title in titles) + _hwpx_paragraph(_BODY))
 

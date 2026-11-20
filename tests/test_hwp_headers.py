@@ -47,7 +47,8 @@ class TestHeadersByDefault:
             control = f"<hp:ctrl><hp:header><hp:subList>{_hwpx_p(header)}</hp:subList></hp:header></hp:ctrl>"
             assert convert(_hwpx(control), "a.hwpx").text == "본문", header
 
-    @pytest.mark.parametrize("words", ["Civil Mix", "MIX", "CV", "DC", "MD", "XL", "I", "No", "No. 1", "II 단계", "Vol. II"])
+    @pytest.mark.parametrize("words", ["Civil Mix", "MIX", "CV", "DC", "MD", "XL", "I", "No", "No. 1", "II 단계", "Vol. II",
+                                       "v1.0", "(C) 2024", "mm", "cm", "mix"])
     def test_header_of_words_that_look_like_page_words_is_written(self, words):
         """Only page words, or one Roman numeral set between dashes or brackets as front-matter pages are, make a page number:
         a header that spells a Roman numeral (`MIX`, `CV`) or reads `No. 1` was dropped as one."""
