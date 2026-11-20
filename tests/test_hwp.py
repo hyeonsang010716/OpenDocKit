@@ -649,6 +649,77 @@ class TestHwpxFormObjects:
         assert result.text == "동의: ☒ 개인정보 수집 ☐ 마케팅 수신\n\n성별: ☐ 남 ☒ 여\n\n부서: 인사팀 사번: 1234"
 
 
+def _form_properties(caption: str = "", value: int | None = None, text: str | None = None) -> str:
+    """The properties string of an HWP form object, as Hangul writes it (`name:type:value` items, sets and wstrings by length)."""
+    common = "Name:wstring:8:CheckBox ForeColor:int:0 GroupName:wstring:0: TabOrder:int:2 Enabled:bool:1 "
+    items = f"CommonSet:set:{len(common)}:{common} "
+    if text is not None:
+        edit = f"Text:wstring:{len(text)}:{text} MultiLine:bool:0 AlignText:int:0 "
+        items += f"EditSet:set:{len(edit)}:{edit} "
+    else:
+        button = f"Caption:wstring:{len(caption)}:{caption} " + (f"Value:int:{value} " if value is not None else "")
+        items += f"ButtonSet:set:{len(button)}:{button} "
+    return items
+
+
+def _hwp_form(level: int, kind: bytes, properties: str) -> bytes:
+    """The `form` CTRL_HEADER of a paragraph at `level - 1` and its FORM_OBJECT record (kind twice, UINT32, WORD length, WCHARs)."""
+    from opendockit.extractors.hwp import TAG_FORM_OBJECT
+    body = kind * 2 + struct.pack("<I", len(properties)) + struct.pack("<H", len(properties)) + properties.encode("utf-16-le")
+    return builder.hwp_record(TAG_CTRL_HEADER, level, builder.hwp_ctrl("form")) + builder.hwp_record(TAG_FORM_OBJECT, level + 1, body)
+
+
+class TestHwpFormObjects:
+    """HWP form objects keep their value in the properties string of the FORM_OBJECT record, and were not read: a form of nothing
+    but form objects gave only its preview text. They are read as in HWPX (`TestHwpxFormObjects`); the kinds and values were
+    matched against the HWPX save of the same Hangul document (check box `Value:int:1` is value="CHECKED")."""
+
+    def _paragraph(self, text: str, *forms: tuple[bytes, str]) -> bytes:
+        record = builder.hwp_record
+        return (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                + record(TAG_PARA_TEXT, 1, builder.hwp_text(text, *[(11, "form")] * len(forms)))
+                + b"".join(_hwp_form(1, kind, properties) for kind, properties in forms))
+
+    def test_check_boxes_radio_buttons_and_values_are_kept(self, monkeypatch):
+        section = (self._paragraph("동의:", (b"tbc+", _form_properties("개인정보 수집", 1)), (b"tbc+", _form_properties("마케팅 수신", 0)))
+                   + self._paragraph("성별:", (b"tbr+", _form_properties("남", 0)), (b"tbr+", _form_properties("여", 1)),
+                                     (b"tbp+", _form_properties("제출")))
+                   + self._paragraph("사번:", (b"tde+", _form_properties(text="1234: 가나 다")), (b"boc+", _form_properties(text=""))))
+
+        result = convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp")
+
+        assert result.text == "동의: ☒ 개인정보 수집 ☐ 마케팅 수신\n\n성별: ☐ 남 ☒ 여\n\n사번: 1234: 가나 다"
+
+    def test_double_ampersand_of_a_caption_is_one(self, monkeypatch):
+        """Hancom's PDF of a real form shows the caption `R&&D 자율성트랙(일반)` as `R&D 자율성트랙(일반)`, in HWP and HWPX alike."""
+        section = self._paragraph("트랙:", (b"tbc+", _form_properties("R&&D 자율성트랙(일반)", 1)))
+        hwpx = builder.hwpx_bytes('<hp:p><hp:run><hp:t>트랙:</hp:t><hp:checkBtn caption="R&amp;&amp;D 자율성트랙(일반)" '
+                                  'value="CHECKED" name="x"/></hp:run></hp:p>')
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "트랙: ☒ R&D 자율성트랙(일반)"
+        assert convert(hwpx, "a.hwpx").text == "트랙: ☒ R&D 자율성트랙(일반)"
+
+    def test_text_is_taken_by_its_length_and_names_are_whole(self):
+        """A wstring value may hold spaces and colons; `AlignText` is not `Text`."""
+        from opendockit.extractors.hwp import _form_properties as properties
+
+        assert properties("EditSet:set:41:Text:wstring:10:a b:c Text AlignText:int:3 ") == {"Text": "a b:c Text", "AlignText": "3"}
+
+    @pytest.mark.parametrize("broken", ["", "Caption", "Caption:wstring", "Caption:wstring:x:abc", "Caption:wstring:99:short",
+                                        "a:set:-1:b:int:2", ":::"])
+    def test_broken_properties_do_not_fail(self, broken):
+        from opendockit.extractors.hwp import _form_properties as properties
+
+        assert isinstance(properties(broken), dict)
+
+    def test_broken_form_record_gives_nothing(self, monkeypatch):
+        record = builder.hwp_record
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("앞", (11, "form")))
+                   + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("form")) + record(0x10 + 75, 2, b"tbc+tb"))
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "앞"
+
+
 class TestHwpxTrackChanges:
     """Text deleted under change tracking (hp:deleteBegin ~ hp:deleteEnd) stayed as plain text, so '월 100,000원80,000원' read as
     two values. Only the spans whose pair is inside the same hp:t are left out (same direction as DOCX w:del), and inserted text is

@@ -32,6 +32,14 @@ PREVIEW_CELL_MARKS = str.maketrans("", "", "<>")
 _WORD_CHARACTER = re.compile(r"[^\W_]")
 
 
+def form_caption(caption: str) -> str:
+    """The caption of a Hangul check box or radio button as Hangul shows it: `&&` is one `&` (the Windows convention for a label
+    with a mnemonic), so `R&&D 자율성트랙` reads `R&D 자율성트랙` in Hancom's PDF of the form (Pinned by:
+    test_hwp.py::TestHwpFormObjects::test_double_ampersand_of_a_caption_is_one). A caption with a single `&` was not found in
+    public Hangul files, so what Hangul does with one is not known and it is kept."""
+    return caption.replace("&&", "&")
+
+
 def preview_has_words(preview: str) -> bool:
     """Whether the preview text holds a letter or digit outside its cell marks. A preview of nothing but marks, punctuation and
     blanks is a document without text: empty tables with a `.` in a text box gave `<.<><><>` as the body (Pinned by:

@@ -26,6 +26,7 @@ from opendockit.extractors._hangul import (
     decorated_text,
     drop_unfilled_guide,
     emphasis_pieces,
+    form_caption,
     has_text,
     header_by_default,
     link_end,
@@ -847,7 +848,7 @@ def _form_value(node: etree._Element) -> str:
     name = _local(node)
     if name in ("checkBtn", "radioBtn"):
         mark = _CHECKED if node.get("value") == "CHECKED" else _UNCHECKED
-        return f"{mark} {node.get('caption', '')}".strip()
+        return f"{mark} {form_caption(node.get('caption', ''))}".strip()
     if name in ("comboBox", "listBox"):
         return node.get("selectedValue", "").strip()
     if name == "edit":

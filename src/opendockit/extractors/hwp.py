@@ -30,6 +30,7 @@ from opendockit.extractors._hangul import (
     decorated_text,
     drop_unfilled_guide,
     emphasis_pieces,
+    form_caption,
     header_by_default,
     link_end,
     link_start,
@@ -39,6 +40,7 @@ from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, m
 from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import TableBudget, format_dutmal, note_table, omitted_rows_warning
 from opendockit.extractors._ole import OleFile, OleStreams
+from opendockit.extractors._package import decimal_int
 from opendockit.markdown import TableGrid, join_blocks, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -92,6 +94,12 @@ _PICTURE_BIN_ID_OFFSET = 71
 # (hwplib ForControlTextArt).
 # Line breaks are written as CR/LF or, as in HWPX, as control picture symbols (␍␊).
 TAG_SHAPE_TEXTART = _HWPTAG_BEGIN + 74
+# Form object (`form` control: check box, radio button, combo box, edit box, push button). Its kind is 4 characters (`tbc+`)
+# written twice, then a UINT32 and the properties as a string (WORD length + WCHARs) of `name:type:value` items: `set:N:` opens
+# a group of the next N characters, `wstring:N:` is followed by N characters of text, `int:`/`bool:` by a value up to the next
+# space (`_form_properties`)
+TAG_FORM_OBJECT = _HWPTAG_BEGIN + 75
+_FORM_PROPERTIES_OFFSET = 12
 _TEXTART_TEXT_OFFSET = 32
 _TEXTART_BREAKS = re.compile("\r\n|\r|\n|␍␊|␍|␊")
 
@@ -475,6 +483,11 @@ class HwpRenderer:
                 buffer.extend(_control_strings(control, 1))
             elif kind == "atno":
                 buffer.append(_auto_number(control))
+            elif kind == "form":
+                # Form objects: the value is in the properties of the FORM_OBJECT record and was dropped, and a form of nothing
+                # but form objects gave only its preview text (Pinned by: test_hwp.py::TestHwpFormObjects)
+                value = _form_value(control)
+                buffer.append(f" {value} " if value else "")
             elif kind.startswith("%"):
                 self._start_field(kind, control, buffer)
         return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
@@ -877,6 +890,62 @@ def _auto_number(control: Record) -> str:
     # a crafted one wrote `~~3~~` (Pinned by: test_hwp.py::TestHyperlinks::test_hwp_control_text_cannot_forge_strike_or_script_marks).
     prefix, suffix = (chr(code) if code >= 0x20 and not 0xD800 <= code <= 0xDFFF else "" for code in (prefix, suffix))
     return f"{prefix}{text}{suffix}"
+
+
+# Form object kinds → what they show: check boxes and radio buttons the check state and caption, combo boxes and edit boxes
+# their text, push buttons nothing (as HWPX checkBtn, radioBtn, comboBox, edit and btn, `hwpx._form_value`)
+_FORM_CHECKS = {b"tbc+", b"tbr+"}
+_FORM_TEXTS = {b"boc+", b"tde+"}
+
+
+def _form_value(control: Record) -> str:
+    """The value a form object (`form`) showed: `☒ caption` / `☐ caption` for a check box or radio button (Value 1 is checked,
+    as HWPX value="CHECKED" for the same object), the Text of a combo box or edit box. A push button, an unknown kind and a broken
+    record give an empty string."""
+    record = next((child for child in control.children if child.tag == TAG_FORM_OBJECT), None)
+    if record is None or len(record.payload) < _FORM_PROPERTIES_OFFSET + 2:
+        return ""
+    kind = record.payload[:4]
+    if kind not in _FORM_CHECKS and kind not in _FORM_TEXTS:
+        return ""
+    (length,) = struct.unpack_from("<H", record.payload, _FORM_PROPERTIES_OFFSET)
+    start = _FORM_PROPERTIES_OFFSET + 2
+    properties = _form_properties(record.payload[start:start + 2 * length].decode("utf-16-le", errors="replace"))
+    if kind in _FORM_CHECKS:
+        mark = "☒" if properties.get("Value") == "1" else "☐"
+        return f"{mark} {form_caption(properties.get('Caption', ''))}".translate(_CONTROL_TEXT).strip()
+    return properties.get("Text", "").translate(_CONTROL_TEXT).strip()
+
+
+def _form_properties(text: str) -> dict[str, str]:
+    """The `name:type:value` items of a form object's properties, the first value of each name. The items of a `set` are read as
+    if they stood outside it; a `wstring` value is taken by its length, so it may hold spaces and colons. Each item moves on past
+    its value, so a broken string ends the reading instead of repeating it."""
+    properties: dict[str, str] = {}
+    position, end = 0, len(text)
+    while position < end:
+        while position < end and text[position] == " ":
+            position += 1
+        name_end = text.find(":", position)
+        kind_end = text.find(":", name_end + 1) if name_end >= 0 else -1
+        if kind_end < 0:
+            break
+        name, kind = text[position:name_end], text[name_end + 1:kind_end]
+        if kind in ("set", "wstring"):
+            length_end = text.find(":", kind_end + 1)
+            length = decimal_int(text[kind_end + 1:length_end], None) if length_end >= 0 else None
+            if length is None:
+                break
+            if kind == "set":
+                position = length_end + 1
+                continue
+            value, position = text[length_end + 1:length_end + 1 + length], length_end + 1 + length
+        else:
+            value_end = text.find(" ", kind_end + 1)
+            value_end = end if value_end < 0 else value_end
+            value, position = text[kind_end + 1:value_end], value_end
+        properties.setdefault(name, value)
+    return properties
 
 
 def _dutmal_text(control: Record) -> str:
