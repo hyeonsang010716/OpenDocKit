@@ -743,10 +743,10 @@ _PROSE_LINE_MIN_WORDS = 3
 _LABEL_VALUE_MAX_WORDS = 4
 # The most words of a form label stacked over another ('Name', 'Date of birth') (`_stacked_labels`)
 _LABEL_MAX_WORDS = 3
-# The largest size of a form value relative to its label (`_stacked_labels`): an 11pt value filled in beside a 10pt label
-_LABEL_VALUE_MAX_SIZE_RATIO = 1.2
-# A line of this many words or more is a line of prose when telling the left edge of a column of text (`_stacked_labels`)
+# A line of this many words or more is a line of prose under the headings of two columns (`_heads_prose_columns`)
 _PROSE_MIN_WORDS = 5
+# How far under two headings side by side, in line heights, the prose of their columns starts (`_heads_prose_columns`)
+_PROSE_COLUMN_REACH = 4
 # A year or a span of years alone ('2023', '1990–1999', '2023-24'): a heading of a timeline by its size (`_heading_shaped`)
 _YEAR = re.compile(r"(?:1[5-9]|20)\d{2}(?:\s*[-–—~]\s*(?:(?:1[5-9]|20)\d{2}|\d{2}))?")
 # A check box drawn or typed on the line (`_mark_checkboxes`).
@@ -784,39 +784,58 @@ def _side_by_side_lines(lines: list[_Line], paragraphs: list[_Paragraph], body_s
 def _stacked_labels(lines: list[_Line], paragraphs: list[_Paragraph], body_size: float) -> frozenset[int]:
     """ids of the lines of a paragraph of two lines or more where every line is a label with a value on its right on its
     row: the labels of a form stacked in one column ('Name' over 'Phone', each with its value beside it), not a heading
-    wrapped over two lines. A label is a bold line under `_HEADING_SIZE_RATIO` times the body size (a heading by its size
-    is no form label) of `_LABEL_MAX_WORDS` words at most; its value is the next line on its right, at most
-    `_LABEL_VALUE_MAX_SIZE_RATIO` times the label's size, of `_LABEL_VALUE_MAX_WORDS` words at most, and not at the left
-    edge of a column of text (two lines of prose or more, `_PROSE_MIN_WORDS` words, start within `_TABLE_ROW_TOLERANCE`
-    of it: the heading of the next column, set at the same rows). A value may be bold or a little larger ('Kim Minsu' set
-    in bold as filled in); the values of stacked labels are no heading either.
+    wrapped over two lines; and of their values. A label is a bold line under `_HEADING_SIZE_RATIO` times the body size (a
+    heading by its size is no form label) of `_LABEL_MAX_WORDS` words at most; its value is the next line on its right,
+    bold or not, of `_LABEL_VALUE_MAX_WORDS` words at most and under `_HEADING_SIZE_RATIO` times the body size as well. A
+    column of values set in bold is no column of labels of the next column on its right (`Author` / `Date` with `Kim` /
+    `May 2024` beside a title). Labels and values are a heading and the heading of the next column all the same when each
+    of the two heads a column of prose of its own (`_heads_prose_columns`).
 
     Deliberate: two bold labels at the usual line gap were joined into one heading, and their line break was lost ('# Name
     Phone'). Taken for labels whatever their size and whatever stood on their right, a heading wrapped over two lines beside
     a short line was lost: a cover title beside 'Draft' / 'May 2024', the left one of two headings of two columns on the
-    same rows, a heading beside a list of facts or beside 'Page 3' / 'Draft' in the margin; told from that heading by
-    the weight and size of the value alone, labels with bold or 11pt values were joined into one heading again (Pinned
-    by: test_pdf_headings.py::TestStackedLabels)."""
-    prose_lefts = sorted(line.x0 for line in lines if len(line.text.split()) >= _PROSE_MIN_WORDS)
-
-    def column_edge(x: float) -> bool:
-        return (bisect_right(prose_lefts, x + _TABLE_ROW_TOLERANCE) - bisect_left(prose_lefts, x - _TABLE_ROW_TOLERANCE)) >= 2
-
+    same rows, a heading beside a list of facts. Told from the next column's heading by where that column's prose starts,
+    labels whose values line up with the prose of the page ('Email' / 'Phone' in the margin of a resume) became a heading
+    again and both headings of two columns were lost when the right one stood off its prose (indented, centred, numbered)
+    (Pinned by: test_pdf_headings.py::TestStackedLabels)."""
     values: dict[int, _Line] = {}  # id of a label → its value
     for row in _rows(lines):
         ordered = sorted(row, key=lambda line: line.x0)
         for line, after in pairwise(ordered):
             if (line.bold and after.x0 >= line.x1 and line.size < body_size * _HEADING_SIZE_RATIO
-                    and after.size <= line.size * _LABEL_VALUE_MAX_SIZE_RATIO and len(line.text.split()) <= _LABEL_MAX_WORDS
-                    and len(after.text.split()) <= _LABEL_VALUE_MAX_WORDS and not column_edge(after.x0)):
+                    and after.size < body_size * _HEADING_SIZE_RATIO and len(line.text.split()) <= _LABEL_MAX_WORDS
+                    and len(after.text.split()) <= _LABEL_VALUE_MAX_WORDS):
                 values[id(line)] = after
+    stacked = [paragraph for paragraph in paragraphs
+               if len(paragraph.lines) >= 2 and all(id(line) in values for line in paragraph.lines)]
+    value_ids = {id(values[id(line)]) for paragraph in stacked for line in paragraph.lines}
+    prose = sorted((line for line in lines if len(line.text.split()) >= _PROSE_MIN_WORDS), key=lambda line: line.top)
+    prose_tops = [line.top for line in prose]
     found: set[int] = set()
-    for paragraph in paragraphs:
-        if len(paragraph.lines) >= 2 and all(id(line) in values for line in paragraph.lines):
-            # the labels, and their values: bold values stacked beside them are no heading either
-            found.update(id(line) for line in paragraph.lines)
-            found.update(id(values[id(line)]) for line in paragraph.lines)
+    for paragraph in stacked:
+        beside = [values[id(line)] for line in paragraph.lines]
+        if all(id(line) in value_ids for line in paragraph.lines) or _heads_prose_columns(paragraph.lines, beside, prose, prose_tops):
+            continue  # a column of values (of the labels on its left), or two headings of two columns of prose
+        found.update(id(line) for line in paragraph.lines)
+        found.update(id(line) for line in beside)  # bold values stacked beside the labels are no heading either
     return frozenset(found)
+
+
+def _heads_prose_columns(left: list[_Line], right: list[_Line], prose: list[_Line], prose_tops: list[float]) -> bool:
+    """Whether the lines `left` and the lines `right` beside them each head a column of prose of their own: within
+    `_PROSE_COLUMN_REACH` line heights under them a line of `_PROSE_MIN_WORDS` words or more overlaps the left lines and
+    ends before the right ones start, and another overlaps the right lines and starts after the left ones end. The
+    headings of two columns do; labels and their values in a form do not (the prose under them, if any, runs under both,
+    or under the values only)."""
+    left_x0, left_x1 = min(line.x0 for line in left), max(line.x1 for line in left)
+    right_x0, right_x1 = min(line.x0 for line in right), max(line.x1 for line in right)
+    bottom = max(line.bottom for line in left + right)
+    reach = bottom + _PROSE_COLUMN_REACH * max(line.height for line in left + right)
+    under_left = under_right = False
+    for line in prose[bisect_left(prose_tops, bottom):bisect_right(prose_tops, reach)]:
+        under_left = under_left or (line.x0 < left_x1 and line.x1 > left_x0 and line.x1 <= right_x0)
+        under_right = under_right or (line.x0 < right_x1 and line.x1 > right_x0 and line.x0 >= left_x1)
+    return under_left and under_right
 
 
 def _header_cells(lines: list[_Line], body_size: float) -> frozenset[int]:

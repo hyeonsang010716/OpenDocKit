@@ -312,8 +312,8 @@ _KOREAN_BODY = [
 
 def _named_font_pdf(items: list[tuple[float, float, str, float, str]]) -> str:
     """The text of a one-page PDF drawing each (x, y from the top, text, size, font name) in a font of exactly that name (not
-    embedded, Identity-H, a character's code is its code point, 500 units wide), so a Korean line can be set in a bold font
-    name ('Batang-Bold') as Korean PDFs do."""
+    embedded, Identity-H, a character's code is its code point, 500 units wide below U+3000 and 1000 above), so a Korean
+    line can be set in a bold font name ('Batang-Bold') as Korean PDFs do."""
     names = list(dict.fromkeys(item[4] for item in items))
     highs = sorted({ord(char) >> 8 for item in items for char in item[2]})
     cmap = ("/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /U def 1 begincodespacerange <0000> <FFFF>"
@@ -331,7 +331,8 @@ def _named_font_pdf(items: list[tuple[float, float, str, float, str]]) -> str:
         objects[base] = (b"<< /Type /Font /Subtype /Type0 /BaseFont /%s /Encoding /Identity-H /DescendantFonts [%d 0 R]"
                          b" /ToUnicode 5 0 R >>" % (name.encode(), base + 1))
         objects[base + 1] = (b"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /%s /CIDSystemInfo << /Registry (Adobe)"
-                             b" /Ordering (Identity) /Supplement 0 >> /FontDescriptor %d 0 R /DW 500 /CIDToGIDMap /Identity >>"
+                             b" /Ordering (Identity) /Supplement 0 >> /FontDescriptor %d 0 R /DW 1000 /W [0 12287 500]"
+                             b" /CIDToGIDMap /Identity >>"
                              % (name.encode(), base + 2))
         objects[base + 2] = (b"<< /Type /FontDescriptor /FontName /%s /Flags 32 /FontBBox [0 -200 1000 900] /ItalicAngle 0"
                              b" /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>" % name.encode())
@@ -472,6 +473,62 @@ class TestStackedLabels:
 
         assert "#" not in text
         assert all(label in text and value in text for label, value in zip(labels, values, strict=True))
+
+    @pytest.mark.parametrize(("labels", "values", "font", "body_font", "lines"), [
+        (["Email", "Phone"], ["kim@example.com", "+82 10 1234 5678"], "Times-Bold", "Times-Roman", [line[:55] for line in _BODY]),
+        (["성명", "연락처"], ["김민수", "010-1234-5678"], "Batang-Bold", "Batang", [line[:30] for line in _KOREAN_BODY]),
+    ], ids=["english", "korean"])
+    def test_margin_labels_whose_values_line_up_with_the_prose_are_no_heading(self, labels, values, font, body_font, lines):
+        """A resume: bold labels in the left margin, their values at the left edge of the prose column."""
+        items = [(200, 40 + 12.5 * index, line, 10, body_font) for index, line in enumerate(lines)]
+        for row, (label, value) in enumerate(zip(labels, values, strict=True)):
+            items += [(72, 110 + 12.5 * row, label, 10, font), (200, 110 + 12.5 * row, value, 10, body_font)]
+        items += [(200, 150 + 12.5 * index, line, 10, body_font) for index, line in enumerate(lines)]
+        text = _named_font_pdf(items)
+
+        assert "#" not in text
+        assert f"{labels[0]}\n{labels[1]}" in text
+
+    _COLUMN = ["The study covers twelve regions and all", "of the people who took part in the survey",
+               "were asked the same questions in the same", "order over a period of three months."]
+
+    @pytest.mark.parametrize(("right_x", "body_x", "right", "size"), [
+        (320, 332, ("Market", "Outlook"), 10), (360, 320, ("Market", "Outlook"), 10), (308, 320, ("2. Market", "Outlook"), 10),
+        (320, 332, ("Market", "Outlook"), 11)], ids=["indented-body", "centred", "hanging-number", "larger"])
+    def test_two_line_headings_of_two_columns_off_their_prose_stay_headings(self, right_x, body_x, right, size):
+        column = [(x, 135 + 12.5 * index, line, 10, "Times-Roman") for x in (72, body_x) for index, line in enumerate(self._COLUMN)]
+        text = _named_font_pdf([*_named_body(60, "Times-Roman", _BODY[:2]), (72, 100, "Annual", 10, "Times-Bold"),
+                                (72, 112.5, "Results", 10, "Times-Bold"), (right_x, 100, right[0], size, "Times-Bold"),
+                                (right_x, 112.5, right[1], size, "Times-Bold"), *column])
+
+        assert "# Annual Results" in text and f"# {right[0]} {right[1]}" in text
+
+    def test_two_line_korean_headings_of_two_columns_over_indented_prose_stay_headings(self):
+        prose = ["본 사업은 지역 주민의 삶의 질을 높이기 위하여", "추진되었으며 그 결과 참여율이 크게 높아졌다",
+                 "향후 예산을 확대하여 더 많은 주민이 참여할", "수 있도록 할 계획이다"]
+        items = [(x, 135 + 12.5 * index, line, 10, "Batang") for x in (84, 332) for index, line in enumerate(prose)]
+        items += [(72, 100, "1. 추진", 10, "Batang-Bold"), (72, 112.5, "배경", 10, "Batang-Bold"), (320, 100, "2. 추진", 10, "Batang-Bold"),
+                  (320, 112.5, "성과", 10, "Batang-Bold")]
+        text = _named_font_pdf(items)
+
+        assert "# 1. 추진 배경" in text and "# 2. 추진 성과" in text
+
+    def test_a_title_beside_bold_metadata_stays_a_heading(self):
+        """'Author' / 'Date' with their values in bold, and the title of the page on their right on the same rows."""
+        text = _named_font_pdf([(72, 60, "Author", 10, "Times-Bold"), (130, 60, "Kim", 10, "Times-Bold"),
+                                (72, 72.5, "Date", 10, "Times-Bold"), (130, 72.5, "May 2024", 10, "Times-Bold"),
+                                (300, 60, "Quarterly", 10, "Times-Bold"), (300, 72.5, "Review", 10, "Times-Bold"),
+                                *_named_body(110, "Times-Roman", _BODY)])
+
+        assert "# Quarterly Review" in text and "# Author" not in text
+
+    def test_a_title_beside_larger_bold_lines_stays_a_heading(self):
+        """The lines on the right of a slide's title are a heading by their size, not its values."""
+        text = _named_font_pdf([(72, 100, "Our Growth", 10, "Times-Bold"), (72, 112.5, "Strategy", 10, "Times-Bold"),
+                                (300, 100, "Grow sales", 11.5, "Times-Bold"), (300, 112.5, "Cut costs", 11.5, "Times-Bold"),
+                                *_named_body(160, "Times-Roman", _BODY)])
+
+        assert "# Our Growth Strategy" in text
 
     def test_a_bold_heading_over_two_lines_stays_one_heading(self):
         text = _named_font_pdf([*_named_body(80, "Times-Roman", _BODY),
