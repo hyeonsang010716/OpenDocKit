@@ -133,25 +133,57 @@ class TestBodyTextMarks:
 
 class TestHeaderRows:
     @staticmethod
-    def _row_page(titles: list[str]) -> str:
-        """Body text, then the bold titles side by side on one row at 1.4 times the body size, each with a line under it,
-        then body text again."""
-        lines = [(y, text, size, font, 72.0) for y, text, size, font in [*_body(80), *_body(190)]]
+    def _row_page(titles: list[str], under: list[list[str]] | None = None, size: float = 14, pitch: float = 120) -> str:
+        """Body text, then the bold titles side by side on one row `pitch` apart (1.4 times the body size by default), each
+        with the lines of `under` (one row of them every 13pt; by default one line of text), then body text again."""
+        under = under or [[f"text under {title.lower()}" for title in titles]]
+        lines = [(y, text, size_, font, 72.0) for y, text, size_, font in [*_body(80), *_body(175 + 13 * len(under))]]
         for column, title in enumerate(titles):
-            x = 72.0 + column * 120
-            lines += [(140, title, 14, "Times-Bold", x), (158, f"text under {title.lower()}", 10, "Times-Roman", x)]
+            x = 72.0 + column * pitch
+            lines.append((140, title, size, "Times-Bold", x))
+            lines += [(158 + 13 * row, cells[column], 10, "Times-Roman", x) for row, cells in enumerate(under) if cells[column]]
         return convert(_pdf_at(lines), "a.pdf").sections[0].text
 
     def test_the_header_row_of_a_table_is_not_four_headings(self):
-        text = self._row_page(["Service Stage", "Function", "Explanation", "Benefit"])
+        """The header row of a table with rows of cells under it. (The cells were one line of text under each title until
+        the panels of a slide, a line of text under each heading, were told from a table by the rows of cells under it.)"""
+        text = self._row_page(["Service Stage", "Function", "Explanation", "Benefit"],
+                              [["Intake", "Register", "Checks", "Faster"], ["Review", "Score", "", "Fairer"],
+                               ["Payment", "Transfer", "Pays out", "Sooner"]])
 
         assert "#" not in text
         assert "Service Stage" in text and "Benefit" in text
+
+    @pytest.mark.parametrize("size", [10, 12])
+    def test_the_header_row_of_a_table_of_two_columns_is_no_heading(self, size):
+        text = self._row_page(["Name", "Description"], [["alpha", "first letter"], ["beta", "second letter"]], size, 228)
+
+        assert "#" not in text
+        assert "Description" in text and "second letter" in text
 
     def test_three_panels_side_by_side_keep_their_headings(self):
         text = self._row_page(["Our Purpose", "Our Mission", "What We Do"])
 
         assert "# Our Purpose" in text and "# What We Do" in text
+
+    def test_four_panels_of_a_slide_keep_their_headings(self):
+        text = self._row_page(["Plan", "Build", "Test", "Ship"], [["Set goals", "Write code", "Check it", "Release"]])
+
+        assert all(f"# {title}" in text for title in ["Plan", "Build", "Test", "Ship"])
+
+    @pytest.mark.parametrize(("width", "header"), [(200, False), (60, True)], ids=["prose", "cells"])
+    def test_lines_filling_their_column_under_headings_are_prose_not_cells(self, width, header):
+        """Two headings of two columns on one row with the lines of their columns under them stay headings; with lines
+        narrower than half the column under them they are the header of a table."""
+        from opendockit.extractors._pdf_model import _Line
+        from opendockit.extractors._pdf_paragraphs import _header_cells
+
+        heads = [_Line(top=100, bottom=110, x0=x, x1=x + 40, text=text, size=10, bold=True)
+                 for x, text in [(72, "Methods"), (300, "Results")]]
+        under = [_Line(top=113 + 13 * row, bottom=123 + 13 * row, x0=x, x1=x + width, text="the text of the column", size=10)
+                 for row in range(3) for x in (72, 300)]
+
+        assert (_header_cells(heads + under, 10.0) == {id(line) for line in heads}) is header
 
 
 def _pdf_at(lines: list[tuple[float, str, float, str, float]]) -> bytes:

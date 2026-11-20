@@ -3,6 +3,7 @@ the columns a paragraph belongs to.
 """
 
 from bisect import bisect_left
+from collections.abc import Callable
 from itertools import accumulate, pairwise
 import math
 import re
@@ -601,9 +602,9 @@ _DATE_LINE = re.compile(rf"(?:[A-Z][a-z]{{2,8}},?\s+)?(?:{_MONTH}\s+\d{{1,2}}(?:
                         r"|\d{4}\s*[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2}\.?|\d{1,2}\s*[-./]\s*\d{1,2}\s*[-./]\s*\d{2,4}")
 # A letter of a word (not a number or a symbol): a bold '2024' or '12.5%' alone is a value, not a heading.
 _HEADING_LETTER = re.compile(r"[A-Za-z\u00c0-\u024f가-힣一-鿿]")
-# Heading-like lines side by side on one row that make it the header row of a table (`_header_cells`): three panels of a slide
-# have a heading each, a table header has more cells
-_HEADER_ROW_CELLS = 4
+# The rows of cells under heading-like lines side by side that make them the header row of a table (`_header_cells`): the
+# panels of a slide have a line or two of text under their headings
+_HEADER_DATA_ROWS = 2
 # The most words of a value beside a form label on its row ('Kim', 'Acme Corporation', '010-1234-5678') (`_stacked_labels`)
 _LABEL_VALUE_MAX_WORDS = 4
 # A check box drawn or typed on the line (`_mark_checkboxes`).
@@ -657,14 +658,15 @@ def _stacked_labels(lines: list[_Line], paragraphs: list[_Paragraph]) -> frozens
 
 def _header_cells(lines: list[_Line], body_size: float) -> frozenset[int]:
     """ids of the heading-like lines (short, and bold or at least `_HEADING_SIZE_RATIO` times the body) that stand on one
-    row (overlapping by half the lower height vertically, apart horizontally) with other heading-like lines, `_HEADER_ROW_CELLS`
-    or more of them. They are the header cells of a table the page did not find
-    ('Service Stage', 'Function Name', 'Explanation', 'Expected Benefit'), not headings. The headings of three panels of a
-    slide side by side ('Our Purpose', 'Our Mission', 'What We Do') and two bold headings of two columns of a page on one row
-    stay headings.
+    row (overlapping by half the lower height vertically, apart horizontally) with other heading-like lines and have rows
+    of cells under them (`_cell_rows_under`): the header cells of a table the page did not find ('Item | Qty | Price',
+    'Service Stage | Function | Explanation | Benefit'), not headings. Headings side by side with prose under them, or one
+    line each (the panels of a slide: 'Plan', 'Build', 'Test', 'Ship', each over a line of text), and the headings of two
+    columns of a page on one row stay headings, however many stand on the row.
 
-    Deliberate: with the size rule alone, the 7pt bold header row of a table over a 5pt body came out as four headings
-    (Pinned by: test_pdf_headings.py::TestHeaderRows)."""
+    Deliberate: with the size rule alone, the 7pt bold header row of a table over a 5pt body came out as four headings, and
+    the bold header of a table of two or three columns came out as a heading ('# Description'); counting four heading-like
+    lines on a row instead dropped the four panel headings of a slide (Pinned by: test_pdf_headings.py::TestHeaderRows)."""
     if not body_size:
         return frozenset()
 
@@ -673,18 +675,48 @@ def _header_cells(lines: list[_Line], body_size: float) -> frozenset[int]:
                 and (line.bold or line.size >= body_size * _HEADING_SIZE_RATIO))
 
     found: set[int] = set()
-    for row in _rows(lines):
+    rows = _rows(lines)
+    for index, row in enumerate(rows):
         alike = [line for line in row if heading_like(line)]
-        if len(alike) < _HEADER_ROW_CELLS:
+        if len(alike) < 2:
             continue
         apart, end = [], -math.inf  # heading-like lines side by side, left to right, not overlapping each other
         for line in sorted(alike, key=lambda line: line.x0):
             if line.x0 >= end:
                 apart.append(line)
                 end = line.x1
-        if len(apart) >= _HEADER_ROW_CELLS:
+        if len(apart) >= 2 and _cell_rows_under(apart, rows[index + 1:index + 1 + _HEADER_DATA_ROWS], heading_like):
             found.update(id(line) for line in alike)
     return frozenset(found)
+
+
+def _cell_rows_under(header: list[_Line], below: list[list[_Line]], heading_like: Callable[[_Line], bool]) -> bool:
+    """Whether the `_HEADER_DATA_ROWS` rows right under a row of heading-like lines (`header`, left to right) are rows of
+    the cells of a table under them: each row follows the one above within twice its height, holds no heading-like line,
+    has a line in two columns of the header or more (a column runs from a header line's left edge, less its height, to the
+    next one's) and none left of the first, and has a line narrower than half the pitch of its column (a cell, where the
+    lines of prose under side-by-side headings fill their column)."""
+    if len(below) < _HEADER_DATA_ROWS:
+        return False
+    lefts = [line.x0 - line.height for line in header]
+    pitches = [after - left for left, after in pairwise(lefts)]
+    pitches.append(pitches[-1])
+    above = header
+    for row in below:
+        if min(line.top for line in row) - max(line.bottom for line in above) > 2 * max(line.height for line in above):
+            return False
+        columns = set()
+        narrow = False
+        for line in row:
+            column = bisect_left(lefts, line.x0 + 1e-9) - 1
+            if column < 0 or heading_like(line):
+                return False
+            columns.add(column)
+            narrow = narrow or line.x1 - line.x0 < pitches[column] * 0.5
+        if len(columns) < 2 or not narrow:
+            return False
+        above = row
+    return True
 
 
 def _bold_body(pages: list[_Page]) -> bool:
