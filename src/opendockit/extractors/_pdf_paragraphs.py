@@ -611,7 +611,26 @@ def _ends_like_a_sentence(text: str) -> bool:
         words = _SECTION_LEAD.sub("", text).split()
         if len(words) >= _LEAD_IN_MIN_WORDS and not _title_case(words):
             return True
+    if text.endswith(":") and _korean_lead_in(text[:-1].split()):
+        return True
     return korean_sentence_end(text) or _korean_notice_end(text)
+
+
+def _korean_lead_in(words: list[str]) -> bool:
+    """Whether the words of a Korean line ending in ':' are the clause of a lead-in, not a title: a word joined to the next
+    by `…하여` (`첨부하여`), or the object of what the line asks for (a word in the object particle 을 / 를 before the
+    last word: `다음 각 호의 서류를 첨부하여 제출:`, `신청자는 다음 서류를 제출:`). '추진 현황 및 향후 계획:' and '신청 방법 및 절차
+    안내:' are titles (Pinned by: test_pdf_headings.py::TestBoldSentenceEnds::test_a_korean_notice_is_no_heading)."""
+    return any(word.endswith("하여") for word in words) or any(_object_word(word) for word in words[:-1])
+
+
+def _object_word(word: str) -> bool:
+    """Whether a Korean word ends in the object particle: 를 after a syllable without a final consonant (`서류를`), 을 after
+    one with it (`사항을`); not the 을 of a noun after an open syllable (`마을`)."""
+    if len(word) < 2 or not "가" <= word[-2] <= "힣":
+        return False
+    closed = (ord(word[-2]) - 0xAC00) % 28 != 0
+    return (word[-1] == "를" and not closed) or (word[-1] == "을" and closed)
 
 
 def _korean_notice_end(text: str) -> bool:
