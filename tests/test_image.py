@@ -3132,6 +3132,96 @@ class TestPngPassedOnAsItIs:
             assert result.data == data, size
             assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
 
+    @staticmethod
+    def _generated_pngs():
+        """(name, file) of RGBA PNGs as writers make them and with each anomaly a file can hold."""
+        from PIL import PngImagePlugin
+
+        profile = b"ICC Profile\0\0" + zlib.compress(b"PROFILE")
+        text = PngImagePlugin.PngInfo()
+        text.add_text("Comment", "a note")
+        text.add_itxt("Title", "a title", zip=True)
+        for size in ((600, 400), (257, 129)):
+            picture = _photo(*size)
+            yield f"pillow {size}", _png_file(picture)
+            yield f"pillow level 9 {size}", _png_file(picture, compress_level=9)
+            yield f"pillow text {size}", _png_file(picture, pnginfo=text)
+            yield f"pillow profile {size}", _png_file(picture, icc_profile=b"PROFILE")
+            for interlaced in (False, True):
+                name = f"{size} {'adam7' if interlaced else 'rows'}"
+
+                def png(interlaced=interlaced, picture=picture, **parts):
+                    return _rgba_png(picture, interlaced=interlaced, **parts)
+                plain = png()
+                chunks = _chunks(plain)
+                yield f"plain {name}", plain
+                body = chunks[1][1]
+                split = b"".join(_png_chunk(b"IDAT", body[i:i + 997]) for i in range(0, len(body), 997))
+                yield f"split data {name}", plain.replace(_png_chunk(b"IDAT", body), split)
+                yield f"split by a chunk {name}", plain.replace(
+                    _png_chunk(b"IDAT", body), _png_chunk(b"IDAT", body[:500]) + _png_chunk(b"tEXt", b"a\0b")
+                    + _png_chunk(b"IDAT", body[500:]))
+                yield f"colour chunks {name}", png(before=_png_chunk(b"gAMA", struct.pack(">I", 45455))
+                                                   + _png_chunk(b"sRGB", b"\0") + _png_chunk(b"pHYs", bytes(9))
+                                                   + _png_chunk(b"PLTE", bytes(30)))
+                yield f"profile {name}", png(before=_png_chunk(b"iCCP", profile))
+                yield f"profile named {name}", png(before=_png_chunk(b"iCCP", b"HIDDEN\0\0" + zlib.compress(b"PROFILE")))
+                yield f"profile tail {name}", png(before=_png_chunk(b"iCCP", profile + b"HIDDEN"))
+                yield f"profile not zlib {name}", png(before=_png_chunk(b"iCCP", b"x\0\0HIDDEN"))
+                yield f"two profiles {name}", png(before=_png_chunk(b"iCCP", b"x\0\0" + zlib.compress(b"HIDDEN"))
+                                                  + _png_chunk(b"iCCP", profile))
+                yield f"profile after the data {name}", png(after=_png_chunk(b"iCCP", profile))
+                yield f"end payload {name}", png(end=b"HIDDEN")
+                yield f"after the rows {name}", png(after_rows=b"HIDDEN" * 50)
+                yield f"zeros after the rows {name}", png(after_rows=bytes(1 << 22))
+                yield f"after the stream {name}", plain.replace(_png_chunk(b"IDAT", body), _png_chunk(b"IDAT", body + b"HIDDEN"))
+                yield f"after the end {name}", plain + b"HIDDEN"
+                yield f"text after the data {name}", png(after=_png_chunk(b"tEXt", b"Comment\0HIDDEN"))
+                yield f"private chunk {name}", png(before=_png_chunk(b"prVt", b"HIDDEN"))
+
+    def test_handed_on_file_means_what_the_rewrite_means(self, monkeypatch):
+        """Differential: whatever is handed on carries the pixels and the chunks (type, order and content, the picture data
+        aside) of the rewrite, inflates to exactly its rows and holds nothing after IEND; otherwise it is the rewrite."""
+        import opendockit.image as image_module
+
+        handed_on = set()
+        for name, data in self._generated_pngs():
+            try:
+                result = prepare_image(data, min_side=1, max_side=2048)
+            except ImageUnreadable:
+                assert name.startswith("split by a chunk"), name   # Pillow refuses picture data chunks apart itself
+                continue
+            with monkeypatch.context() as patched:
+                patched.setattr(image_module, "_png_as_it_is", lambda *args: None)
+                rewrite = prepare_image(data, min_side=1, max_side=2048)
+            if result.data == rewrite.data:
+                continue
+            handed_on.add(name)
+            ours, theirs = _chunks(result.data), _chunks(rewrite.data)
+            assert all(right for _, _, right in ours), name
+            def described(chunks):   # the interlacing of the rows is how they are stored, not what they mean
+                return [(kind, body[:12] if kind == b"IHDR" else body) for kind, body, _ in chunks if kind != b"IDAT"]
+            assert described(ours) == described(theirs), name
+            kinds = [kind for kind, _, _ in ours]
+            assert kinds[0] == b"IHDR" and kinds[-1] == b"IEND" and kinds.count(b"IDAT") >= 1, name
+            first = kinds.index(b"IDAT")
+            assert set(kinds[first:-1]) == {b"IDAT"} and b"IDAT" not in kinds[:first], name   # the data together, nothing after
+            assert result.data.endswith(_png_chunk(b"IEND", b"")), name
+            width, height = result.width, result.height
+            passes = ((0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)) \
+                if ours[0][1][12] == 1 else ((0, 0, 1, 1),)
+            expected = sum(len(range(y0, height, dy)) * (1 + 4 * len(range(x0, width, dx)))
+                           for x0, y0, dx, dy in passes if x0 < width and y0 < height)
+            stream = zlib.decompressobj()
+            assert len(stream.decompress(b"".join(body for kind, body, _ in ours if kind == b"IDAT"))) == expected, name
+            assert stream.eof and not stream.unused_data, name
+            shown, written = Image.open(BytesIO(result.data)), Image.open(BytesIO(rewrite.data))
+            assert shown.tobytes() == written.tobytes() and shown.info.get("icc_profile") == written.info.get("icc_profile"), name
+        # The pass-through is still taken for what writers make
+        assert {"pillow level 9 (600, 400)", "plain (600, 400) rows",
+                "plain (600, 400) adam7", "split data (600, 400) rows", "colour chunks (600, 400) rows",
+                "profile (600, 400) rows", "profile named (600, 400) rows", "after the end (600, 400) rows"} <= handed_on
+
     def test_pictures_that_need_a_change_are_still_rewritten(self):
         """A palette picture with a transparent entry, a grey one with alpha: made RGBA and written as before."""
         palette = _photo().convert("RGB").convert("P", palette=Image.Palette.ADAPTIVE)
