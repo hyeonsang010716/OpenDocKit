@@ -532,6 +532,20 @@ class TestEmphasisAgainstPunctuation:
         assert _docx_text(_paragraph(_run("비율 "), _bold("67%"), _run(separator + "다음 줄"))) == "비율 **67%**\n다음 줄"
         assert _docx_text(_paragraph(_run("비율 "), _bold("67%"), _run("\x85다음 줄"))) == "비율 **67%**\n다음 줄"
 
+    def test_each_piece_of_a_span_is_judged_as_it_is_written(self):
+        """A span is written apart at every link group, and each piece is judged on its own with what is written next to it:
+        a bad piece took a good one's marks with it (`추진[word](url)`), an edge at a link bracket was never looked at
+        (`[** 추진**](url)`), a space before a private-use bullet stayed inside the marks (`** 추진 배경**`), and a neighbour
+        that cleaning removes hid the word beyond it (`**67%**` + italic U+E000 + `으로`)."""
+        bullet, links = chr(0xF081), {"u": "https://a.example/x"}
+
+        assert (_docx_text(_paragraph(_run("앞 "), _bold(bullet + " 추진"), _link("u", _bold("word")), _run(" 뒤")), links=links)
+                == "앞 추진[**word**](https://a.example/x) 뒤")
+        assert (_docx_text(_paragraph(_run("앞 "), _bold("word"), _link("u", _bold(bullet + " 추진")), _run(" 뒤")), links=links)
+                == "앞 **word**[ 추진](https://a.example/x) 뒤")
+        assert _docx_text(_paragraph(_run("항목"), _bold(f" {bullet} 추진 배경"), _run(" 다음"))) == "항목 추진 배경 다음"
+        assert _docx_text(_paragraph(_run("비율 "), _bold("67%"), _italic(chr(0xE000)), _run("으로"))) == "비율 67%으로"
+
     def test_hangul_span_of_private_use_bullets_leaves_no_marks(self):
         from tests.test_hwp_emphasis import _hwpx, _runs
 

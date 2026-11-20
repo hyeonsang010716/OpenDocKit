@@ -557,29 +557,58 @@ def _drop_emphasis_inside_words(atoms: list[_Atom]) -> None:
             end = index
             while end < count and getattr(atoms[end], name):
                 end += 1
-            first, last = atoms[index].text, atoms[end - 1].text
-            before = atoms[index - 1].text[-1:] if index else ""
-            after = atoms[end].text[:1] if end < count else ""
-            starts_inside = before.isalnum() and first[:1].isalnum()
-            is_glued_character = (end - index == 1 and len(first.strip()) == 1 and last[-1:].isalnum() and after.isalnum())
-            # What is written next to the span (`_written_link_edges`): the brackets of a link it fills or reaches the edge of from
-            # inside, `[**67%**](url)으로`, or that starts right after it or ends right before it, `**67%**[으로](url)` — all
-            # punctuation (Pinned by: test_inline_formatting.py::TestEmphasisAgainstPunctuation::test_span_at_the_edge_of_a_link_is_marked)
-            written_before = (link_edges.get(("[", index)) or link_edges.get((")", index - 1))
-                              or (_cleaned_edge(atoms[index - 1].text, last=True) if index else ""))
-            written_after = (link_edges.get(("]", end - 1)) or link_edges.get(("[", end))
-                             or (_cleaned_edge(atoms[end].text, last=False) if end < count else ""))
-            # The span as it is written once cleaned (`_as_written`): a run of private-use bullets cleaned away left `****`, and
-            # one in front of a space `** 추진 배경**`, where the space cannot go outside the marks; a symbol-font glyph or a
-            # private-use character at the span's own edge is what the mark meets (Pinned by:
-            # test_inline_formatting.py::TestEmphasisAgainstPunctuation::test_span_judged_as_it_is_written_once_cleaned)
-            written = "".join(_as_written(atoms[position].text) for position in range(index, end))
-            exposed = (written[:1].isspace() and not first[:1].isspace()) or (written[-1:].isspace() and not last[-1:].isspace())
-            if (starts_inside or is_glued_character or not written.strip() or exposed
-                    or _unflanked(written_before, written, written, written_after)):
-                for position in range(index, end):
-                    setattr(atoms[position], name, False)
+            # Judged piece by piece as the writer writes them: a span is written apart at every link group
+            # (`_write_atoms`), so a bad piece took the marks of a good one with it, and an edge inside the span at a link
+            # bracket was never looked at (Pinned by:
+            # test_inline_formatting.py::TestEmphasisAgainstPunctuation::test_each_piece_of_a_span_is_judged_as_it_is_written)
+            piece = index
+            while piece < end:
+                stop = piece + 1
+                while stop < end and atoms[stop].url == atoms[piece].url:
+                    stop += 1
+                if _unmarkable(atoms, piece, stop, link_edges):
+                    for position in range(piece, stop):
+                        setattr(atoms[position], name, False)
+                piece = stop
             index = end
+
+
+def _unmarkable(atoms: list[_Atom], start: int, stop: int, link_edges: dict[tuple[str, int], str]) -> bool:
+    """Whether the marks of the emphasized atoms `start:stop`, written together, would not stress words or would not close.
+
+    Judged on the text as cleaning writes it (`_as_written`) and the characters actually written next to the marks: the
+    brackets of a link it fills, reaches the edge of from inside, or stands right before or after (`_written_link_edges`:
+    `[**67%**](url)으로`, `**67%**[으로](url)`, both closed), else the nearest neighbour that cleaning leaves (`_neighbour`),
+    whitespace at the edge of the piece going outside the marks. A piece of private-use bullets only, which cleaning removes,
+    left `****`; one with a space behind its bullet `** 추진 배경**`, the space no longer at the edge the writer moves it from; a
+    neighbour cleaned away hid the word beyond it (Pinned by:
+    test_inline_formatting.py::TestEmphasisAgainstPunctuation::test_span_judged_as_it_is_written_once_cleaned,
+    test_span_at_the_edge_of_a_link_is_marked)."""
+    raw = "".join(atoms[position].text for position in range(start, stop))
+    written = _as_written(raw.strip())
+    if not written.strip() or written[:1].isspace() or written[-1:].isspace():
+        return True
+    before = " " if raw[:1].isspace() else (link_edges.get(("[", start)) or link_edges.get((")", start - 1))
+                                             or _neighbour(atoms, start - 1, -1, link_edges))
+    after = " " if raw[-1:].isspace() else (link_edges.get(("]", stop - 1)) or link_edges.get(("[", stop))
+                                            or _neighbour(atoms, stop, 1, link_edges))
+    starts_inside = before[-1:].isalnum() and written[:1].isalnum()
+    is_glued_character = stop - start == 1 and len(written) == 1 and written.isalnum() and after[:1].isalnum()
+    return starts_inside or is_glued_character or _unflanked(before, written, written, after)
+
+
+def _neighbour(atoms: list[_Atom], position: int, step: int, link_edges: dict[tuple[str, int], str]) -> str:
+    """The character written next to an emphasis piece on the side `step` (-1 before, 1 after), from the atom at `position`
+    on: the first one cleaning leaves (`_as_written`), past atoms that clean to nothing, up to a link bracket."""
+    while 0 <= position < len(atoms):
+        bracket = link_edges.get((")", position) if step < 0 else ("[", position))
+        if bracket:
+            return bracket
+        cleaned = _as_written(atoms[position].text)
+        if cleaned:
+            return cleaned[-1:] if step < 0 else cleaned[:1]
+        position += step
+    return ""
 
 
 def _written_link_edges(atoms: list[_Atom]) -> dict[tuple[str, int], str]:
@@ -601,17 +630,6 @@ def _written_link_edges(atoms: list[_Atom]) -> dict[tuple[str, int], str]:
                 edges[(")", end - 1)] = ")"
         index = end
     return edges
-
-
-def _cleaned_edge(text: str, *, last: bool) -> str:
-    """The last (or first) character of `text` as it is written once the text is cleaned (`_as_written`). Read as it is, the
-    character removed from `%<U+E000> 뒤` counted as a word against `**%**`, and a line separator (U+2028, NEL), which cleaning
-    writes as a line break, kept `**67%**` from closing before the next line."""
-    edge = text[-1:] if last else text[:1]
-    if not edge or (unicodedata.category(edge) not in ("Co", "Cc", "Zl", "Zp")):
-        return edge
-    cleaned = _as_written(text)
-    return cleaned[-1:] if last else cleaned[:1]
 
 
 # What cleaning makes of the characters at the edge of a span (`markdown.clean_characters`): line separators become line breaks,
