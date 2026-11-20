@@ -1371,6 +1371,21 @@ class TestExtractorsImportedOnFirstUse:
                                        timeout=120)
             assert json.loads(completed.stdout.strip().splitlines()[-1]) == []
 
+    def test_importing_them_all_goes_through_the_lock(self, monkeypatch):
+        """`opendockit.extractors.all` imported its modules around the lock of the imports on first use: a thread importing it
+        while others converted their first documents could import the same libraries as they did, at once."""
+        from importlib import import_module
+
+        from opendockit import extractors
+
+        loaded: list[str] = []
+        monkeypatch.delitem(sys.modules, "opendockit.extractors.all", raising=False)
+        monkeypatch.setattr(extractors, "load", lambda module: loaded.append(module) or import_module(module))
+
+        import_module("opendockit.extractors.all")
+
+        assert sorted(loaded) == sorted({f"opendockit.extractors.{module}" for module, _ in extractors.EXTRACTOR_MODULES.values()})
+
     def test_forkserver_preloads_every_extractor(self, monkeypatch):
         import multiprocessing
 
