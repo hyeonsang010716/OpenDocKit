@@ -496,3 +496,91 @@ class TestShadingInsideShadedCells:
             inner = [rect for rect in kept.rects if rect["x0"] > 420 - 116 and rect["height"] < 14]
 
         assert len(inner) == 4
+
+
+def _bar_chart(values: list[int], *, hanging: bool = False, label: str | None = None) -> bytes:
+    """A bar chart drawn as vector shapes: an axis with a gridline every 30pt, one filled bar per value standing on it (or
+    hanging from it), the value above (below) each bar, and the category under the axis; with `label`, a caption in a ruled box under the chart whose
+    first cell holds the figure label."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    base = 500.0
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(72, 760, "The chart below shows the number of visitors in each quarter of the year.")
+    pdf.line(90, base, 90 + 60 * len(values), base)
+    pdf.setStrokeColorRGB(0.8, 0.8, 0.8)
+    for step in range(1, 6):
+        pdf.line(90, base - 30 * step if hanging else base + 30 * step, 90 + 60 * len(values), base - 30 * step if hanging else base + 30 * step)
+    pdf.setStrokeColorRGB(0, 0, 0)
+    for index, value in enumerate(values):
+        x = 100 + index * 60
+        pdf.setFillColorRGB(0, 0.377, 0.663)
+        pdf.rect(x, base - value if hanging else base, 30, value, stroke=0, fill=1)
+        pdf.setFillColorRGB(0, 0, 0)
+        pdf.drawString(x + 8, base - value - 12 if hanging else base + value + 4, str(value))
+        pdf.drawString(x + 4, base + 8 if hanging else base - 14, f"Q{index + 1}")
+    if label:
+        pdf.rect(100, 380, 70, 20)
+        pdf.rect(170, 380, 300, 20)
+        pdf.drawString(106, 386, label)
+        pdf.drawString(176, 386, "Visitors per quarter of the year")
+    pdf.save()
+    return buffer.getvalue()
+
+
+def _striped_table() -> bytes:
+    """A ruled table whose rows are shaded in turn, each row's shading as wide as the table and holding the row's text."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    rows = [["Region", "Visitors", "Change"], ["North", "1,200", "+4%"], ["South", "980", "-2%"], ["East", "1,430", "+9%"],
+            ["West", "760", "+1%"]]
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    pdf.setFont("Helvetica", 10)
+    for number, row in enumerate(rows):
+        top = 700 - number * 20
+        if number % 2:
+            pdf.setFillColorRGB(0.85, 0.9, 1)
+            pdf.rect(100, top - 20, 300, 20, stroke=0, fill=1)
+        pdf.setFillColorRGB(0, 0, 0)
+        for column, text in enumerate(row):
+            pdf.drawString(106 + column * 100, top - 14, text)
+    for x in (100, 200, 300, 400):
+        pdf.line(x, 700, x, 700 - 20 * len(rows))
+    for number in range(len(rows) + 1):
+        pdf.line(100, 700 - number * 20, 400, 700 - number * 20)
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestBarCharts:
+    """The bars of a vector bar chart draw no rules (`_without_chart_bars`)."""
+
+    def test_a_bar_chart_is_not_a_table(self):
+        text = convert(_bar_chart([120, 80, 150, 60]), "a.pdf").text
+
+        assert "|" not in text
+        assert "150" in text and "Q3" in text
+
+    def test_bars_hanging_from_the_axis_are_not_a_table(self):
+        assert "|" not in convert(_bar_chart([40, 90, 25], hanging=True), "a.pdf").text
+
+    def test_a_table_with_shaded_rows_stays_a_table(self):
+        text = convert(_striped_table(), "a.pdf").text
+
+        assert "| Region | Visitors | Change |" in text
+        assert "| South | 980 | -2% |" in text
+
+    def test_a_figure_label_in_a_box_is_its_caption(self):
+        text = convert(_bar_chart([120, 80, 150], label="Diagram 4"), "a.pdf").text
+
+        assert "|" not in text
+        assert "Diagram 4" in text and "Visitors per quarter of the year" in text

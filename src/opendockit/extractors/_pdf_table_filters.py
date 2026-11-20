@@ -23,6 +23,12 @@ _CELL_ROW_REACH, _CELL_ALIGN = 6.0, 1.0
 # Filled rectangle inside a filled rectangle of the same colour (`_without_nested_fills`): how far (pt) it may reach past the
 # outer one's edges
 _NESTED_FILL_SLACK = 0.5
+# Bars of a bar chart (`_without_chart_bars`): at least this many, and how far (pt) their widths and stacked edges may differ
+_CHART_BARS_MIN, _BAR_SLACK = 3, 0.5
+# ... and how much wider the widest bar of a group may be than the narrowest (two series drawn 2.3pt and 3.1pt wide)
+_BAR_WIDTH_RATIO = 1.5
+# ... and how thick (pt) a bar is at least: Word draws the rules of a table as filled rectangles 0.5–1pt thick, in pieces per row
+_BAR_MIN_THICKNESS = 2.0
 
 
 # Glyph outline curve (_without_glyph_outlines): a curve smaller than this size (pt) both horizontally and vertically, and thicker
@@ -131,6 +137,61 @@ def _without_nested_fills(page: object) -> object:
     if not hidden:
         return page
     return page.filter(lambda obj: id(obj) not in hidden)
+
+
+def _without_chart_bars(page: object) -> object:
+    """Page without the bars of a bar chart (for finding tables). `page` itself when there are none.
+
+    A bar chart drawn as vector shapes is a row of borderless filled rectangles standing on (or hanging from) one baseline. pdfplumber took the
+    bar edges and the axis for rules, and the chart became a table of its value labels ('| 2 | 1 | 4 | 1 |', '| -3.1% |
+    -4.4% |'; 11 of 200 pages of a pdf corpus held such a table, Pinned by: test_pdf_highlights.py::TestBarCharts). Bars
+    are `_CHART_BARS_MIN` or more rectangles of one fill colour that share one edge (bottom or top; left or right for bars drawn
+    sideways), at least `_BAR_MIN_THICKNESS` thick, about as wide (tall) as each other (`_BAR_WIDTH_RATIO`), more than
+    `_BAR_SLACK` apart, not all of one length, and holding no text (one may) — the cells of a shaded table row share both
+    edges and are all as tall, the cells of a column touch, shaded cells hold their text, and the rules Word draws as thin
+    filled rectangles are thinner, so none of them are bars. The
+    segments stacked on a bar (same left and right edges, touching or overlapping it; for a bar drawn sideways, the same top
+    and bottom) go with it.
+    """
+    fills = [rect for rect in page.rects if rect.get("fill") and not rect.get("stroke")
+             and min(rect["width"], rect["height"]) >= _BAR_MIN_THICKNESS]
+    if len(fills) < _CHART_BARS_MIN:
+        return page
+    middles = sorted(((char["x0"] + char["x1"]) / 2, (char["top"] + char["bottom"]) / 2) for char in page.chars
+                     if char["text"].strip())
+
+    def holds_text(rect: dict) -> bool:
+        return any(rect["top"] <= y <= rect["bottom"]
+                   for _, y in middles[bisect_left(middles, (rect["x0"], -math.inf)):bisect_right(middles, (rect["x1"], math.inf))])
+
+    bars: set[int] = set()
+    for along, across, start, end in (("bottom", "width", "x0", "x1"), ("top", "width", "x0", "x1"),
+                                      ("x0", "height", "top", "bottom"), ("x1", "height", "top", "bottom")):
+        groups: dict[tuple[object, float], list[dict]] = {}
+        for rect in fills:
+            groups.setdefault((_colour(rect), round(rect[along])), []).append(rect)
+        for group in groups.values():
+            if len(group) < _CHART_BARS_MIN:
+                continue
+            thickness = sorted(rect[across] for rect in group)
+            lengths = {round(rect["height" if across == "width" else "width"]) for rect in group}
+            ordered = sorted(group, key=lambda rect: rect[start])
+            apart = all(after[start] > before[end] + _BAR_SLACK for before, after in pairwise(ordered))
+            if (thickness[-1] <= max(thickness[0] * _BAR_WIDTH_RATIO, thickness[0] + _BAR_SLACK) and len(lengths) > 1 and apart
+                    and sum(1 for rect in group if holds_text(rect)) <= 1):
+                bars.update(id(rect) for rect in group)
+    if not bars:
+        return page
+    found = [rect for rect in fills if id(rect) in bars]
+    stacked = {id(rect) for rect in fills if id(rect) not in bars and any(
+        abs(rect["x0"] - bar["x0"]) <= _BAR_SLACK and abs(rect["x1"] - bar["x1"]) <= _BAR_SLACK
+        and rect["top"] <= bar["bottom"] + _BAR_SLACK and bar["top"] <= rect["bottom"] + _BAR_SLACK
+        for bar in found) or any(
+        abs(rect["top"] - bar["top"]) <= _BAR_SLACK and abs(rect["bottom"] - bar["bottom"]) <= _BAR_SLACK
+        and rect["x0"] <= bar["x1"] + _BAR_SLACK and bar["x0"] <= rect["x1"] + _BAR_SLACK
+        for bar in found if bar["width"] > bar["height"])}
+    dropped = bars | stacked
+    return page.filter(lambda obj: id(obj) not in dropped)
 
 
 def _colour(rect: dict) -> object:

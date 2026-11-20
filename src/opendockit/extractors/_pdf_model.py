@@ -54,8 +54,11 @@ _BOLD_BODY_MAX_RATIO = 0.3
 # 'Medium' and 'Book' are body weights.
 _BOLD_FONT = re.compile(r"bold|black|heavy|semibold|demi|[-,]bd\b|[-,]bd[a-z]|-medi\b|-mediita\b|^cmbx|^cmssbx|^cmb\d",
                         re.IGNORECASE)
+# A figure label alone ('Diagram 4', 'Figure 6', 'Table 3.1', '그림 2'), the badge of a caption set in a box (`_is_caption_box`)
+_CAPTION_LABEL = re.compile(r"(?:fig(?:ure)?\.?|diagram|chart|graph|table|exhibit|photo|image|map|그림|표|도표|사진|차트)\s*"
+                            r"[0-9A-Z]{1,3}(?:[.\-][0-9]{1,3})*[.:]?", re.IGNORECASE)
 # Text of a caption or a note label: a bold 'Figure 3.' or 'Source:' at the body size is not a heading.
-_CAPTION_START = re.compile(r"^(?:fig(?:ure)?|table|tab|chart|graph|source|sources|note|notes|exhibit|box|photo|image|"
+_CAPTION_START = re.compile(r"^(?:fig(?:ure)?|table|tab|chart|graph|diagram|map|source|sources|note|notes|exhibit|box|photo|image|"
                             r"그림|표|도표|사진|출처|자료|주)\s*(?:[\d.:)\-]|[ⅠⅡⅢⅣⅤ]|[IVX]+\b)", re.IGNORECASE)
 # Borderless table: taken as a table only when at least 3 consecutive lines each have 3 or more short pieces (at most this ratio of
 # the page width) at the same height (tolerance in pt) and the pieces sit on the column boundaries of the first line. A two-column

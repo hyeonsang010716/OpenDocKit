@@ -11,6 +11,7 @@ from pdfplumber.table import TableFinder, TableSettings
 from opendockit.extractors._pdf_cell_text import _cell_rows, _text_outside
 from opendockit.extractors._pdf_chars import _drawn_text
 from opendockit.extractors._pdf_model import (
+    _CAPTION_LABEL,
     _CHECKBOX_SIDE,
     _TABLE_ROW_TOLERANCE,
     _TABLE_SETTINGS,
@@ -180,6 +181,20 @@ def _row_bands(cells: list[tuple], rows: int) -> tuple[tuple[float, float], ...]
     return bands if len(bands) == rows else ()
 
 
+def _is_caption_box(cells: list[list[str | None]]) -> bool:
+    """Whether a ruled 'table' is a caption set in a box: one row of two cells, the first a figure label ('Diagram 4',
+    'Figure 6', `_CAPTION_START`) and nothing more.
+
+    Deliberate: a report that sets each figure's label in a coloured badge beside its title gave a table
+    '| Diagram 4 | Distribution of Instagram Content |' under every chart (4 of 200 pages of a pdf corpus). As a line the
+    label stays with its title (Pinned by: test_pdf_highlights.py::TestBarCharts::test_a_figure_label_in_a_box_is_its_caption).
+    """
+    if len(cells) != 1 or len(cells[0]) != 2:
+        return False
+    label = (cells[0][0] or "").strip()
+    return bool(_CAPTION_LABEL.fullmatch(label)) and bool((cells[0][1] or "").strip())
+
+
 @_dropping_page_indexes
 def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], list[list[str]], list[tuple]]]:
     """Filter layout boxes out of the ruled tables: page frames (a box that covers the page but has hardly any cells), outer boxes
@@ -207,7 +222,7 @@ def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], 
         cells = _cell_rows(table)
         merged = _merge_split_header(cells)
         filled_columns = {index for row in merged for index, cell in enumerate(row) if cell and cell.strip()}
-        if len(filled_columns) >= 2:
+        if len(filled_columns) >= 2 and not _is_caption_box(cells):
             header_rows = len(cells) - len(merged) + 1  # 2 if a two-level header was merged
             _mark_filled_cells(table, cells, header_rows)
             rows = [[cell or "" for cell in row] for row in (*merged[:1], *cells[header_rows:])]
