@@ -223,6 +223,20 @@ class TestSizeHeadings:
 
         assert text.split("\n\n")[:3] == ["## 회의 결과 보고", "수신 각 부서", "참조 기획팀"]
 
+    def test_short_lines_all_in_one_size_stay_body_text(self):
+        """A memo of short lines all in one size over a smaller table, and a notice in large print with one small note: the
+        largest size is taken for titles only for a title or two, and these lines are the body."""
+        def cell(row: int, col: int, text: str) -> str:
+            return (f"<hp:tc><hp:subList>{_hwpx_paragraph(text, (4, text))}</hp:subList>"
+                    f'<hp:cellAddr colAddr="{col}" rowAddr="{row}"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>')
+        rows = "".join(f"<hp:tr>{cell(row, 0, f'항목 {row}')}{cell(row, 1, _BODY)}</hp:tr>" for row in range(6))
+        table = f'<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run><hp:tbl rowCnt="6" colCnt="2">{rows}</hp:tbl></hp:run></hp:p>'
+        memo = [_hwpx_paragraph(line, (0, line)) for line in ("수신 각 부서", "참조 기획팀", "제목 회의 결과", "장소 대회의실")]
+        notice = [_hwpx_paragraph(line, (1, line)) for line in ("주차장 이용 안내", "공사 기간 중 출입 금지", "지하 2층 이용 가능")]
+
+        for document in (_hwpx(*memo, table), _hwpx(*notice, _hwpx_paragraph("※ 문의 총무과", (4, "※ 문의 총무과")))):
+            assert not any(line.startswith("#") for line in convert(document, "a.hwpx").text.splitlines())
+
     def test_title_beside_a_shorter_line_keeps_its_heading(self):
         """A form's title with a short line in another size on top (`(앞쪽)`, `[별지 제1호서식]`) over its tables: the title's
         size was the most frequent at the top level and so the body size, and the title was lost."""
@@ -333,7 +347,7 @@ class TestOutlineHeads:
     # Clause endings without a full stop: the ㄴ다 of the plain style after any syllable, and the stems of `…하다`, `…같다`
     _CLAUSES = ("그 밖의 사항은 관계 법령에 따른다", "기한 내 제출하지 아니한 경우 포기한 것으로 본다", "을은 비밀 유지 의무를 진다",
                 "다만, 천재지변의 경우에는 그러하지 아니하다", "지원 대상은 다음과 같다", "필요한 사항은 따로 정할 수 있다",
-                "위원회가 이를 의결했다", "제도가 개선됐다", "다음 각 호의 사항을 포함한다:")
+                "위원회가 이를 의결했다", "제도가 개선됐다", "다음 각 호의 사항을 포함한다:", "제3조를 준용한다.", "삭제한다.")
 
     def test_titles_with_outline_heads_stay_headings(self):
         """An outline head is the author's title whatever it says; only the sentence of a numbered clause is left a numbered

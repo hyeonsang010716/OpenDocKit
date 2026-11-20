@@ -88,6 +88,8 @@ class TestSpacedLabels:
         ("주   소   는", "주   소   는"),
         ("상   중   하", "상   중   하"),          # the choices of a scale
         ("월   화   수   목   금", "월   화   수   목   금"),
+        ("갑   을   병   정", "갑   을   병   정"),    # the parties of a contract
+        ("일   월   화", "일   월   화"),
     ])
     def test_which_lines_are_spaced_labels(self, line, expected):
         assert unspaced_label(line) == expected

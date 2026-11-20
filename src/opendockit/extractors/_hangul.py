@@ -5,6 +5,7 @@ style name, a left margin, and text pieces with tables and text boxes between th
 here once, so the two formats cannot drift apart.
 """
 
+from collections import Counter
 from collections.abc import Callable
 import re
 
@@ -51,9 +52,9 @@ _DATE_UNITS = frozenset("년월일시분초")
 # One-syllable words of a sentence that are no syllable of a label: the conjunctions `및`, `또` (`수  및  양`)
 _JOINING_WORDS = frozenset(("및", "또"))
 # The syllables of the choices and scales of a form (`상   중   하`, `대   중   소`, `갑   을   병`, `월   화   수   목   금`,
-# `유   무`): a row made of nothing else is choices to tick, not a label, and joined they could not be told apart again. Not
-# 일, 정, 예, which end and start labels (`수정일`, `예정일`)
-_CHOICE_SYLLABLES = frozenset("상중하대소갑을병월화수목금토유무남여찬반")
+# `유   무`): a row whose syllables all come from one of these groups — weekdays, the parties of a contract, a scale — is choices
+# to tick, not a label, and joined they could not be told apart again; `수정일`, `예정일` mix the groups and are labels
+_CHOICE_GROUPS = (frozenset("월화수목금토일"), frozenset("갑을병정무"), frozenset("상중하대소유무남여찬반"))
 # A case particle that ends a phrase, never a label (`이   름   을`, `주   소   는`); not 과, 로, 의, which end labels (`결과`,
 # `경로`, `협의`)
 _LAST_PARTICLES = frozenset("을를은는")
@@ -99,7 +100,7 @@ def _unspaced_part(line: str) -> str:
     if len(words) not in _SPACED_LABEL_SYLLABLES or len(gaps) != 1 or len(next(iter(gaps))) < 2:
         return line
     if (not all(_SYLLABLE.fullmatch(word) for word in words) or all(word in _DATE_UNITS for word in words)
-            or any(word in _JOINING_WORDS for word in words) or all(word in _CHOICE_SYLLABLES for word in words)
+            or any(word in _JOINING_WORDS for word in words) or any(all(word in group for word in words) for group in _CHOICE_GROUPS)
             or words[-1] in _LAST_PARTICLES):
         return line
     return line[:len(line) - len(line.lstrip(" "))] + head + "".join(words) + line[len(line.rstrip(" ")):]
@@ -187,6 +188,8 @@ _UNCOUNTED = dict.fromkeys([*range(32), *(code for code in range(32, 0x3001) if 
 # The most characters the largest size of a document's top level may hold to be taken for its titles when it is also the size
 # most top-level characters have (`SizeHeadings.resolve`)
 _TITLE_ONLY_CHARACTERS = 40
+# The most paragraphs that size may have for them to be titles (a form's title, two forms' titles)
+_LONE_TITLES = 2
 # Ratio of a paragraph's character size to the body size → heading level (`SizeHeadings`)
 _SIZE_HEADING_LEVELS = ((1.5, 1), (1.3, 2), (1.15, 3))
 # A paragraph longer than this is not taken for a heading by its size (a sentence written large, a cover-page blurb)
@@ -243,6 +246,8 @@ def _outline_title(plain: str) -> bool:
     text = plain.strip().rstrip(_CLAUSE_CLOSING).rstrip()
     if not text:
         return False
+    if text.endswith("다.") and len(text) > 2 and "가" <= text[-3] <= "힣":
+        return False   # a Korean sentence with its full stop, of any length (`제3조를 준용한다.`)
     if (text[-1] == "." and len(text) > 1 and not text[-2].isdigit() and not text[-2].isspace() and text[-2] not in ".…"
             and len(text.split()) >= 3):
         return False   # a sentence and its full stop (not a number's or an ellipsis's, not `Appendix A.`)
@@ -380,7 +385,7 @@ class SizeHeadings:
             if body:
                 self._sizes[size] = self._sizes.get(size, 0) + characters
 
-    def body_size(self) -> int:
+    def body_size(self, candidates: Counter[int] | None = None) -> int:
         """The size most top-level text characters have, the smaller one on a tie. A form or a memo has little top-level
         text but its title, whose size was then the body size and never larger than it: when the largest top-level size is
         also the most frequent one and holds few characters (`_TITLE_ONLY_CHARACTERS`), it is taken for the titles, and the
@@ -389,7 +394,10 @@ class SizeHeadings:
         test_hwp_size_headings.py::TestSizeHeadings::test_form_whose_body_is_in_tables_keeps_its_title,
         test_short_body_lines_over_a_table_stay_body_text, test_title_beside_a_shorter_line_keeps_its_heading)."""
         body = _most_frequent(self._sizes)
-        if body and body == max(self._sizes) and self._sizes[body] <= _TITLE_ONLY_CHARACTERS:
+        # ... and only for a title or two: lines of a memo all in one size, or a notice in large print, are its body
+        # (Pinned by: test_hwp_size_headings.py::TestSizeHeadings::test_short_lines_all_in_one_size_stay_body_text)
+        lone_title = candidates is None or candidates.get(body, 0) <= _LONE_TITLES
+        if body and body == max(self._sizes) and self._sizes[body] <= _TITLE_ONLY_CHARACTERS and lone_title:
             smaller = {size: count for size, count in self._sizes.items() if size < body}
             body = _most_frequent(smaller) if smaller else _most_frequent(self._all_sizes)
         return body
@@ -403,7 +411,8 @@ class SizeHeadings:
         """The blocks with each candidate settled into a heading or left as body text (a plain `str`)."""
         if not any(type(block) is _SizeCandidate for block in blocks):
             return blocks
-        body = self.body_size()
+        titles = Counter(block.size for block in blocks if type(block) is _SizeCandidate)
+        body = self.body_size(titles)
         settled = []
         for block in blocks:
             if type(block) is not _SizeCandidate:
