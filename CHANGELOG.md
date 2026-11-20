@@ -67,7 +67,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   small DOCX 0.09 s instead of 0.25 s — what a command-line run and every Windows worker pay per file. The workers of
   `IsolatedConverter` still start with every extractor loaded. A reader library that cannot be imported (a broken
   installation) no longer stops `import opendockit`: converting a file of its format raises `ImportError` with a fixed
-  sentence.
+  sentence. The extractor functions are no longer importable from `opendockit.extractors` itself
+  (`from opendockit.extractors import extract_docx`); that package is internal, and `opendockit.extractors.docx` and
+  the other modules still have them.
 - **DOCX conversion is 12-19% faster** on large documents (20,000 paragraphs, 80,000 table cells); the output is the same
   to the byte.
 
