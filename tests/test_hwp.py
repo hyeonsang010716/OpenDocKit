@@ -669,6 +669,67 @@ def _hwp_form(level: int, kind: bytes, properties: str) -> bytes:
     return builder.hwp_record(TAG_CTRL_HEADER, level, builder.hwp_ctrl("form")) + builder.hwp_record(TAG_FORM_OBJECT, level + 1, body)
 
 
+def _hwp_ole_storage(streams: dict[str, bytes]) -> bytes:
+    """The BinData stream of an HWP OLE object: a UINT32 size and an OLE container of `streams`."""
+    container = builder.ole_file(streams)
+    return struct.pack("<I", len(container)) + container
+
+
+def _hwp_with_ole_objects(monkeypatch, bins: dict[int, bytes], *objects: int, text: str = "매출 현황:") -> bytes:
+    """An HWP whose first paragraph holds one drawing object (gso) per BinItem ID in `objects`, each an OLE object
+    (SHAPE_COMPONENT_OLE: attribute, extent, BinItem ID); `bins` are the BinData streams, as STORAGE items (kind 2) of DocInfo."""
+    record = builder.hwp_record
+    docinfo = b"".join(record(TAG_BIN_DATA, 0, struct.pack("<HHH", 0x2, item, 3) + "OLE".encode("utf-16-le"))
+                       for item in range(1, max(bins) + 1))
+    section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+               + record(TAG_PARA_TEXT, 1, builder.hwp_text(text, *[(11, "gso ")] * len(objects)))
+               + b"".join(record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("gso "))
+                          + record(TAG_SHAPE_OLE, 2, struct.pack("<IiiH", 1, 7200, 7200, item) + b"\x00" * 16) for item in objects))
+    extra = {f"BinData/BIN{item:04X}.OLE": data for item, data in bins.items()}
+    return _fake_hwp(monkeypatch, sections=[section], docinfo_extra=docinfo, extra=extra)
+
+
+class TestHwpCharts:
+    """A Hangul chart is an OLE object whose BinData stream holds an OLE container with the chart as OOXML XML in its
+    `OOXMLChartContents` stream, the same part the HWPX save of the document keeps as Chart/chart1.xml. HWP gave `[OLE object]`
+    and a warning where HWPX gave the chart's values; in 92 public Hangul files saved both ways, the two now give the same text."""
+
+    _CHART = {"OOXMLChartContents": _CHART_XML.encode(), "Contents": b"\x00" * 64}
+
+    def test_chart_values_are_kept(self, monkeypatch):
+        result = convert(_hwp_with_ole_objects(monkeypatch, {1: _hwp_ole_storage(self._CHART)}, 1), "a.hwp")
+
+        assert result.text == "매출 현황:\n\n[Chart] 판매\n\n| Category | 판매량 |\n| --- | --- |\n| 1월 | 5 |\n| 2월 | 7 |"
+        assert result.warnings == []
+
+    def test_chart_referenced_again_gives_its_title_line(self, monkeypatch):
+        result = convert(_hwp_with_ole_objects(monkeypatch, {1: _hwp_ole_storage(self._CHART)}, 1, 1), "a.hwp")
+
+        assert result.text.count("| 1월 | 5 |") == 1
+        assert result.text.endswith("\n\n[Chart] 판매")
+
+    @pytest.mark.parametrize("data", [
+        _hwp_ole_storage({"Workbook": b"\x09\x08" + b"\x00" * 30}),       # a pasted sheet, not a chart
+        _hwp_ole_storage({"OOXMLChartContents": b"<not xml"}),
+        _hwp_ole_storage({"OOXMLChartContents": b"<a/>"}),
+        struct.pack("<I", 9999) + b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 40,  # a broken container
+        b"\x01\x02",
+    ], ids=["workbook", "broken xml", "other xml", "broken container", "too short"])
+    def test_ole_object_that_is_no_chart_stays_a_placeholder(self, monkeypatch, data):
+        result = convert(_hwp_with_ole_objects(monkeypatch, {1: data}, 1), "a.hwp")
+
+        assert result.text == "매출 현황: [OLE object]"
+        assert result.warnings == ["The contents of 1 OLE object(s) (pasted tables, charts, etc.) could not be converted."]
+
+    def test_bin_items_of_storage_kind_name_their_stream(self):
+        from opendockit.extractors.hwp import parse_bin_items
+
+        records = [builder.hwp_record(TAG_BIN_DATA, 0, struct.pack("<HHH", kind, 1, 3) + "OLE".encode("utf-16-le")) for kind in (0, 1, 2)]
+
+        assert parse_bin_items(parse_records(b"".join(records))) == [(None, None), ("BinData/BIN0001.OLE", None),
+                                                                      ("BinData/BIN0001.OLE", None)]
+
+
 class TestHwpFormObjects:
     """HWP form objects keep their value in the properties string of the FORM_OBJECT record, and were not read: a form of nothing
     but form objects gave only its preview text. They are read as in HWPX (`TestHwpxFormObjects`); the kinds and values were

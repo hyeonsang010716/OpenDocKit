@@ -18,9 +18,11 @@ import struct
 import sys
 import zlib
 
+from lxml import etree
 import olefile
 
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
+from opendockit.extractors._charts import embedded_table, render_chart
 from opendockit.extractors._equation import render_equation
 from opendockit.extractors._hangul import (
     ParagraphPieces,
@@ -38,10 +40,10 @@ from opendockit.extractors._hangul import (
 )
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number
-from opendockit.extractors._notation import TableBudget, format_dutmal, note_table, omitted_rows_warning
+from opendockit.extractors._notation import TableBudget, chars_left, format_dutmal, note_table, omitted_rows_warning
 from opendockit.extractors._ole import OleFile, OleStreams
-from opendockit.extractors._package import decimal_int
-from opendockit.markdown import TableGrid, join_blocks, solid_length
+from opendockit.extractors._package import decimal_int, parse_part
+from opendockit.markdown import TableGrid, join_blocks, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
@@ -85,6 +87,11 @@ TAG_EQEDIT = _HWPTAG_BEGIN + 72
 # OLE object (pasted Excel sheet or chart) inside a drawing object (gso). Its content is not read; only a placeholder is left.
 TAG_SHAPE_OLE = _HWPTAG_BEGIN + 68
 _OLE_MARK = "[OLE object]"
+# A chart is an OLE object whose BinData stream (after a UINT32 size) is an OLE container holding the chart as OOXML XML in the
+# `OOXMLChartContents` stream, the part HWPX keeps as Chart/chartN.xml (`HwpRenderer._ole_chart`)
+_OLE_CHART_STREAM = "OOXMLChartContents"
+# The position of the BinItem ID in SHAPE_COMPONENT_OLE: attribute (4), extent (4 + 4)
+_OLE_BIN_ID_OFFSET = 12
 TAG_SHAPE_PICTURE = _HWPTAG_BEGIN + 69
 # Position of the BinItem ID in SHAPE_COMPONENT_PICTURE: border (12) + image rectangle (32) + crop (16) + inner margin (8) +
 # brightness, contrast and effect (3).
@@ -363,6 +370,8 @@ class HwpRenderer:
         # they were nested too deeply (`_MAX_NESTING`), and number of rows dropped by the table grid cell limit
         # (`TableGrid.omitted_rows`). Reported as warnings after everything is read.
         self.unread_ole = 0
+        # BinItem ID of a chart → the `[Chart] title` line later references to it give (`_ole_chart`)
+        self._charts: dict[int, str] = {}
         self.too_deep = 0
         self.omitted_rows = 0
         self._depth = 0
@@ -468,8 +477,9 @@ class HwpRenderer:
                 # Text art text is a separate block, like hp:textart in HWPX. It was not read and was dropped entirely (Pinned by:
                 # test_hwp_heads_and_shapes.py::
                 # TestHwpTextArt).
-                buffer.extend(self._object_markers(control))
-                inner = [*_text_arts(control), *self.render(control.children)]
+                markers, charts = self._object_markers(control)
+                buffer.extend(markers)
+                inner = [*charts, *_text_arts(control), *self.render(control.children)]
                 if inner:
                     flush()
                     blocks.extend(inner)
@@ -546,28 +556,62 @@ class HwpRenderer:
                 runs.append((start, shape))
         return runs
 
-    def _object_markers(self, control: Record) -> list[str]:
-        """Picture record inside a drawing object (gso) → DocInfo BIN_DATA index → BinData stream. An OLE object record leaves only a
-        placeholder — it used to vanish without a trace, so there was no telling what was missing (kept even when picture extraction is
-        off. Pinned by: test_hwp.py::TestEmbeddedObjects).
+    def _object_markers(self, control: Record) -> tuple[list[str], list[str]]:
+        """Picture record inside a drawing object (gso) → DocInfo BIN_DATA index → BinData stream; the placeholders of the pictures,
+        and the charts among the OLE objects (`_ole_chart`) as blocks. Any other OLE object record leaves only a placeholder — it used
+        to vanish without a trace, so there was no telling what was missing (kept even when picture extraction is off. Pinned by:
+        test_hwp.py::TestEmbeddedObjects).
 
         Paragraphs inside a text box (PARA_HEADER) are not descended into. A picture inside one is put in place when that paragraph is
         rendered. Descending registered the picture twice and placed it at the outer paragraph
         (Pinned by: test_hwp.py::TestHwpObjects::test_picture_inside_text_box_is_registered_once_where_it_is).
         """
         pictures = self._options.extract_images and self._load_bin is not None
-        markers = []
+        markers: list[str] = []
+        charts: list[str] = []
         for record in _flatten(control.children, stop=TAG_PARA_HEADER):
             if record.tag == TAG_SHAPE_OLE:
-                self.unread_ole += 1
-                markers.append(f" {_OLE_MARK} ")
+                chart = self._ole_chart(record)
+                if chart is None:
+                    self.unread_ole += 1
+                    markers.append(f" {_OLE_MARK} ")
+                elif chart:
+                    charts.append(chart)
             if not pictures or record.tag != TAG_SHAPE_PICTURE or len(record.payload) < _PICTURE_BIN_ID_OFFSET + 2:
                 continue
             (item_id,) = struct.unpack_from("<H", record.payload, _PICTURE_BIN_ID_OFFSET)
             data = self._load_bin(item_id)
             if data:
                 markers.append(f" {self._extraction.add_image(data)} ")
-        return markers
+        return markers, charts
+
+    def _ole_chart(self, record: Record) -> str | None:
+        """The chart of an OLE object (SHAPE_COMPONENT_OLE), by the renderer HWPX, DOCX and PPTX use: its BinData stream is a UINT32
+        size and an OLE container whose `OOXMLChartContents` stream is the OOXML chart, the part the HWPX save of the same document
+        keeps as Chart/chartN.xml. Hangul charts were left as `[OLE object]` in HWP while HWPX gave their values (Pinned by:
+        test_hwp.py::TestHwpCharts). None when the object is not a chart or cannot be read (it stays a placeholder), '' for a chart
+        without values.
+
+        As in HWPX (`hwpx.HwpxRenderer._render_chart`): a chart is read and rendered once, later references give its
+        `[Chart] title` line; inside a table cell its value table goes to the outer table; its value rows stop at the characters
+        the output can still take, counted on their own in a note, header or footer."""
+        if self._load_bin is None or len(record.payload) < _OLE_BIN_ID_OFFSET + 2:
+            return None
+        (item_id,) = struct.unpack_from("<H", record.payload, _OLE_BIN_ID_OFFSET)
+        if item_id in self._charts:
+            return self._charts[item_id]
+        data = self._load_bin(item_id)
+        root = _chart_part(data) if data else None
+        if root is None:
+            return None
+        self._charts[item_id] = ""
+        outer = self._grids[-1] if self._grids else None
+        table = embedded_table(outer) if outer is not None else render_table
+        own = self._note_depth or any(grid is None for grid in self._grids)
+        room = chars_left(Extraction() if own else self._extraction, self._options)
+        rendered = render_chart(root, table, None, room, self._extraction.warnings)
+        self._charts[item_id] = rendered.split("\n", 1)[0]
+        return rendered
 
     def _start_field(self, kind: str, control: Record, buffer: list[str]) -> None:
         """A field starts. A hyperlink (`%hlk`) becomes `[text](address)` up to its `FIELD_END` under `keep_links`, with the address
@@ -1110,10 +1154,31 @@ def _numbering_levels(payload: bytes) -> list[NumberLevel]:
     return [NumberLevel(template, shape, start) for (template, shape), start in zip(formats, starts, strict=True)]
 
 
+def _chart_part(data: bytes) -> etree._Element | None:
+    """The OOXML chart (`c:chartSpace`) inside the BinData stream of an OLE object, or None when it holds none. The stream is a
+    UINT32 size and an OLE container; the container's streams are read no further than its size (`_ole.OleStreams`), and one that
+    cannot be read leaves the object a placeholder."""
+    if len(data) < 4 + len(olefile.MAGIC):
+        return None
+    (size,) = struct.unpack_from("<I", data, 0)
+    container = data[4:4 + size]
+    if not container.startswith(olefile.MAGIC):
+        return None
+    try:
+        with OleFile(BytesIO(container)) as ole:
+            streams = OleStreams(ole, len(container))
+            xml = streams.read(_OLE_CHART_STREAM) if streams.exists(_OLE_CHART_STREAM) else b""
+    except (OSError, ValueError, struct.error):  # olefile: OSError for structural damage, ValueError for bad header values
+        return None
+    root = parse_part(xml) if xml else None
+    return root if root is not None and etree.QName(root).localname == "chartSpace" else None
+
+
 def parse_bin_items(doc_info: list[Record]) -> list[tuple[str | None, bool | None]]:
     """DocInfo BIN_DATA records → [(stream name, compressed or not)]. The index is the BinItem ID.
 
-    There is a stream only when the low 4 bits of the attribute are 1 (EMBEDDING) (0 LINK is an external file, 2 STORAGE an OLE object).
+    There is a stream when the low 4 bits of the attribute are 1 (EMBEDDING, a picture) or 2 (STORAGE, an OLE object, saved by
+    Hangul as the stream `BinData/BINxxxx.OLE` too); 0 LINK is an external file.
     Compression is in attribute bits 4-5: 0 means the document default (None), 1 compressed, 2 uncompressed.
     A broken record keeps its place without a stream: skipping it gave every later picture the stream of the next one
     (Pinned by: test_hwp_robustness.py::TestBrokenDocInfoRecordsKeepTheirPlace).
@@ -1127,7 +1192,7 @@ def parse_bin_items(doc_info: list[Record]) -> list[tuple[str | None, bool | Non
             continue
         (properties,) = struct.unpack_from("<H", record.payload, 0)
         compress = {1: True, 2: False}.get((properties >> 4) & 0x3)
-        if properties & 0xF != 1 or len(record.payload) < 6:
+        if properties & 0xF not in (1, 2) or len(record.payload) < 6:
             items.append((None, compress))
             continue
         bin_id, ext_length = struct.unpack_from("<HH", record.payload, 2)
