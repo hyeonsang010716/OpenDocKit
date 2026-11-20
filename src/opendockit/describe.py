@@ -299,9 +299,12 @@ async def describe_images(result: ConversionResult, describer: ImageDescriber, *
     tasks = [asyncio.ensure_future(run(image)) for image in result.images if _is_pending(image)]
     try:
         if tasks:
-            await asyncio.wait(tasks)
+            # Until every call has ended, or the first one raised: an error `run` does not catch ends the call at once, as it
+            # did, and the calls still under way are cancelled below instead of being waited for
+            # (Pinned by: test_image.py::TestResourceBounds::test_an_error_after_an_answer_ends_the_call_without_waiting_for_the_others).
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
         for task in tasks:   # what `run` does not catch (KeyboardInterrupt from the describer) ends the call, as before
-            if not task.cancelled() and task.exception() is not None:
+            if task.done() and not task.cancelled() and task.exception() is not None:
                 raise task.exception()
     finally:
         for task in tasks:

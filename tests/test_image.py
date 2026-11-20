@@ -1426,6 +1426,41 @@ class TestResourceBounds:
         assert sum(1 for image in result.images if image.description) == expected
         assert len(calls) <= expected + (max_concurrency - 1 if waits else 0)
 
+    def test_an_error_after_an_answer_ends_the_call_without_waiting_for_the_others(self, monkeypatch):
+        """An error that taking an answer in does not catch ends `describe_images` at once and cancels the calls still under way,
+        as the loop that took the answers one by one did; waiting for every call first held the error back until the slowest
+        answer came."""
+        import opendockit.describe as describe_module
+
+        strip = describe_module._strip_code_fence
+
+        def broken(text):
+            if text == "boom":
+                raise RuntimeError("broken")
+            return strip(text)
+
+        monkeypatch.setattr(describe_module, "_strip_code_fence", broken)
+        base = convert(_docx_with_pictures(4), "a.docx")
+        cancelled = []
+
+        class Describer:
+            async def describe(self, image):
+                if image.id == 1:
+                    return "boom"
+                try:
+                    await asyncio.Event().wait()   # never answers
+                except asyncio.CancelledError:
+                    cancelled.append(image.id)
+                    raise
+                return "never"
+
+        async def run():
+            return await asyncio.wait_for(describe_images(base, Describer(), max_concurrency=4), timeout=10)
+
+        with pytest.raises(RuntimeError):
+            asyncio.run(run())
+        assert sorted(cancelled) == [2, 3, 4]
+
     @pytest.mark.parametrize("limit", [700, 1_300, 2_000])
     def test_description_stops_at_the_same_image_when_a_placeholder_appears_more_than_once(self, limit):
         """When the placeholder of one picture appears several times, its description goes in that many times. Counting the bound
