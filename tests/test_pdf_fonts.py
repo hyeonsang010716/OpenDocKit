@@ -199,3 +199,54 @@ class TestWinAnsiUnusedCodesAreBullets:
         lines, _ = self._lines(font)
 
         assert ("• first item" in lines) is bullet
+
+
+def _undecoded_two(rotate: int = 0) -> bytes:
+    """'Page 207 of the report' in a font whose ToUnicode map gives U+FFFD for the code of its '2' (code 1, glyph 'two.SP'),
+    as a book font with old-style figures does: pdfminer reads 'Page \ufffd07'."""
+    cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS)"
+            b" /Supplement 0 >> def /CMapName /Adobe-Identity-UCS def /CMapType 2 def 1 begincodespacerange <00> <FF>"
+            b" endcodespacerange 1 beginbfchar <01> <FFFD> endbfchar 1 beginbfrange <20> <7E> <0020> endbfrange endcmap"
+            b" CMapName currentdict /CMap defineresource pop end end")
+    content = b"BT /F1 12 Tf 72 700 Td (Page \\00107 of the report) Tj ET"
+    page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Rotate %d /Contents 4 0 R"
+            b" /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 5 0 R"
+            b" /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /two.SP] >> >> >> >> >>" % rotate)
+    return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
+                     4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
+                     5: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(cmap), cmap)})
+
+
+class TestUndecodedGlyphs:
+    """A character pdfminer reads as U+FFFD takes the character pdfium reads at the same place. pdfium reads the glyph of an
+    embedded book font through the font program ('207', 'Figure 11.12'); with the non-embedded font of a document built here
+    it reads U+FFFD as well, so its reading is stood in for by replacing that one character."""
+
+    @staticmethod
+    def _pdfium_reads_two(monkeypatch: pytest.MonkeyPatch) -> None:
+        from opendockit.extractors import _pdf_glyph_repair
+
+        original = _pdf_glyph_repair._read_glyphs
+
+        def reads_two(document, index):
+            return [(*box, "2" if text == "\ufffd" else text) for *box, text in original(document, index)]
+
+        monkeypatch.setattr(_pdf_glyph_repair, "_read_glyphs", reads_two)
+
+    def test_an_undecoded_character_takes_what_pdfium_reads_there(self, monkeypatch):
+        self._pdfium_reads_two(monkeypatch)
+
+        text = convert(_undecoded_two(), "a.pdf").text
+
+        assert "Page 207 of the report" in text
+        assert "\ufffd" not in text
+
+    def test_where_pdfium_cannot_read_it_either_the_character_stays(self):
+        assert "Page \ufffd07 of the report" in convert(_undecoded_two(), "a.pdf").text
+
+    def test_a_turned_page_is_left_alone(self, monkeypatch):
+        self._pdfium_reads_two(monkeypatch)
+
+        text = convert(_undecoded_two(rotate=90), "a.pdf").text
+
+        assert "of the report" in text and "207" not in text
