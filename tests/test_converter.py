@@ -1467,7 +1467,9 @@ class TestImportsOnFirstUseAndFork:
     """A process forked from one thread while another imported a reader on first use got the lock of those imports held by a
     thread that does not exist in it: its first document of a format not yet loaded waited for ever. A fork now waits until
     no import on first use is under way. A child that only got the lock back still waited for ever on Python's own lock of the
-    half-imported module, for the format being imported."""
+    half-imported module (shown with a stand-in reader, `slow_reader`). A child converting the very format the thread goes on
+    to read can still wait on that reader's own locks (an accepted gap, `docs/decisions/core.md`): the real reader below is
+    checked with a child converting text."""
 
     @staticmethod
     def _run(tmp_path, shape: str) -> list[str]:
