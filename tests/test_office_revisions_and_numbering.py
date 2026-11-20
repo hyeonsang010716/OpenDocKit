@@ -608,6 +608,17 @@ class TestStrictOpenXmlOfficeDocuments:
         assert copy.count(b"xmlns") == 3 and len(copy) < len(part) + 100
         assert [element.tag for element in etree.fromstring(copy)[0]] == [f"{{{namespace}}}x"] * 2_000
 
+    def test_copy_grows_no_further_than_a_few_times_the_part(self):
+        """A name is written under the prefix last declared for its namespace: one of 40,000 characters declared after a short
+        one made each short name in the part that long. Past four times the part, the part is copied as written."""
+        strict = "http://purl.oclc.org/ooxml/wordprocessingml/main"
+        part = (f'<s:r xmlns:s="{strict}" xmlns:p{"a" * 40_000}="{strict}">' + "<s:x/>" * 20_000 + "</s:r>").encode()
+        archive = BytesIO()
+        with zipfile.ZipFile(archive, "w") as written:
+            written.writestr("p.xml", part)
+        with zipfile.ZipFile(archive) as read:
+            assert b"".join(_package._transitional_part(read, read.getinfo("p.xml"), relationships=False)) == part
+
     def test_transitional_document_with_a_strict_relationship_is_read_as_it_is(self):
         """A Transitional document whose package relationships also give a part the Strict main-part type was copied as a
         Strict one, the renamed relationship came first, and the whole document was refused."""

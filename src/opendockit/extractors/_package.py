@@ -237,6 +237,8 @@ class _Link:
 _Declared = tuple[str | None, list[_Link], list[_Link]]
 # Longest namespace name a part is renamed with (`_TransitionalWriter.start`); real ones are under a hundred characters
 _LONGEST_NAMESPACE = 1024
+# How many times its part the renamed copy of a part may be (`_TransitionalWriter`)
+_GROWTH = 4
 # Characters gathered before they are encoded into the copy (`_TransitionalWriter`)
 _CHARACTERS_PER_WRITE = 1 << 16
 # Chunk size for feeding a member to the parser (`_transitional_part`)
@@ -261,8 +263,16 @@ class _TransitionalWriter:
     chunks, written into the package one after the other and let go.
     (lxml's own incremental writer names `xml:space` under a prefix of its own and refuses a comment after the root element.)"""
 
-    def __init__(self, relationships: bool) -> None:
+    def __init__(self, relationships: bool, part_size: int) -> None:
         self._chunks: list[bytes] = []  # the copy, encoded
+        # The copy may not grow past a few times the part: the parser hands a name over without the prefix the part wrote it
+        # with, so a name is written under the prefix last declared for its namespace, and one prefix of 40,000 characters
+        # declared after a short one made a part of 160 KB (a ZIP of 471 bytes) an 800 MB copy. Past the bound the part is
+        # copied as written (escaping makes a copy at most five times a part only of `&` in CDATA sections, which Word does
+        # not write; Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
+        # test_copy_grows_no_further_than_a_few_times_the_part)
+        self._allowed = _GROWTH * part_size + _CHARACTERS_PER_WRITE
+        self._encoded = 0  # bytes in `_chunks`
         self._relationships = relationships
         self._pieces: list[str] = ['<?xml version="1.0" encoding="UTF-8"?>\n']
         self._characters = 0  # in `_pieces`
@@ -294,9 +304,14 @@ class _TransitionalWriter:
             self._flush()
 
     def _flush(self) -> None:
-        self._chunks.append("".join(self._pieces).encode("utf-8"))
+        chunk = "".join(self._pieces).encode("utf-8")
         self._pieces.clear()
         self._characters = 0
+        self._encoded += len(chunk)
+        if self._encoded > self._allowed:
+            self._chunks.clear()
+            raise ValueError("copy too large")
+        self._chunks.append(chunk)
 
     def _bind(self, prefix: str | None, namespace: str, undo: list[_Declared]) -> None:
         bindings = self._bound.setdefault(prefix, [])
@@ -395,7 +410,7 @@ def _transitional_part(archive: zipfile.ZipFile, info: zipfile.ZipInfo, *, relat
     A member that does not parse is copied as written, so opening the copy reports it as opening a Transitional document does
     (Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
     test_part_that_does_not_parse_is_copied_as_written). Raises `ZIP_MEMBER_ERRORS` when the member does not read."""
-    parser = etree.XMLParser(target=_TransitionalWriter(relationships), resolve_entities=False, no_network=True)
+    parser = etree.XMLParser(target=_TransitionalWriter(relationships, info.file_size), resolve_entities=False, no_network=True)
     parsed = True
     with archive.open(info) as source:
         while chunk := source.read(_FEED_CHUNK):  # read to its end even once parsing failed, to check that it reads
@@ -426,8 +441,8 @@ def transitional_package(data: bytes) -> bytes:
     compressed entry. Copied whole, a member nothing points at (a 100 MB run of zeros, a ZIP under 1 MB) cost three times its
     size, which the same Transitional document never read; and a picture was held whole and stored uncompressed (Pinned by:
     test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::test_members_no_relationship_reaches_are_not_read).
-    Besides the document itself, the copy holds the archive being written and the renamed form of one XML part, each bounded by
-    `max_uncompressed_bytes`, checked before extraction.
+    Besides the document itself, the copy holds the archive being written, bounded by `max_uncompressed_bytes` (checked before
+    extraction), and the renamed form of one XML part, at most four times that part (`_GROWTH`).
 
     Refused, a document Word saved as 'Strict Open XML Document' was not read at all, though only its names differ (Pinned by:
     test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments)."""
