@@ -450,6 +450,16 @@ class TestPartOfAWord:
     """Bold on part of a word is styling (a digit in another weight, a decorated initial), and marks inside a word are noise that
     Markdown readers do not agree on. A stressed word followed by its particle is the normal shape of Korean emphasis and stays."""
 
+    def test_part_of_a_word_across_a_link_edge(self):
+        """Part of a word is read on the text around it, link brackets or not: `인사` then a link `발령` is one word to the
+        reader, and the bold on `발령` is styling as without the link."""
+        links = {"u": "https://a.example/x"}
+
+        assert (_docx_text(_paragraph(_run("앞 인사"), _link("u", _bold("발령")), _run(" 뒤")), links=links)
+                == "앞 인사[발령](https://a.example/x) 뒤")
+        assert (_docx_text(_paragraph(_run("x "), _bold("S"), _link("u", _run("trength")), _run(" y")), links=links)
+                == "x S[trength](https://a.example/x) y")
+
     def test_word_followed_by_its_particle_is_emphasized(self):
         body = _paragraph(_bold("매출"), _run("은 늘고 "), _bold("신규 요금제"), _run("를 도입했으며 "), _italic("배출"), _run("량도 줄었다."))
 
@@ -539,12 +549,19 @@ class TestEmphasisAgainstPunctuation:
         that cleaning removes hid the word beyond it (`**67%**` + italic U+E000 + `으로`)."""
         bullet, links = chr(0xF081), {"u": "https://a.example/x"}
 
-        assert (_docx_text(_paragraph(_run("앞 "), _bold(bullet + " 추진"), _link("u", _bold("word")), _run(" 뒤")), links=links)
-                == "앞 추진[**word**](https://a.example/x) 뒤")
+        assert (_docx_text(_paragraph(_run("앞 "), _bold(bullet + " 추진 "), _link("u", _bold("word")), _run(" 뒤")), links=links)
+                == "앞 추진 [**word**](https://a.example/x) 뒤")
         assert (_docx_text(_paragraph(_run("앞 "), _bold("word"), _link("u", _bold(bullet + " 추진")), _run(" 뒤")), links=links)
                 == "앞 **word**[ 추진](https://a.example/x) 뒤")
         assert _docx_text(_paragraph(_run("항목"), _bold(f" {bullet} 추진 배경"), _run(" 다음"))) == "항목 추진 배경 다음"
         assert _docx_text(_paragraph(_run("비율 "), _bold("67%"), _italic(chr(0xE000)), _run("으로"))) == "비율 67%으로"
+        # italic is written apart on each side of a bold edge: `*—****67%?***` left `*—*` unclosed
+        assert _docx_text(_paragraph(_run("앞 "), _italic("—"), _run("67%?", "<w:b/><w:i/>"), _run(" 뒤"))) == "앞 —***67%?*** 뒤"
+        # a private-use bullet first or last in a link still has the bracket on its far side
+        assert (_docx_text(_paragraph(_run("앞 제"), _link("u", _run(bullet), _bold("「법」")), _run(" 뒤")), links=links)
+                == "앞 제[**「법」**](https://a.example/x) 뒤")
+        assert (_docx_text(_paragraph(_run("비율 "), _link("u", _bold("67%"), _run(bullet)), _run("으로 뒤")), links=links)
+                == "비율 [**67%**](https://a.example/x)으로 뒤")
 
     def test_hangul_span_of_private_use_bullets_leaves_no_marks(self):
         from tests.test_hwp_emphasis import _hwpx, _runs

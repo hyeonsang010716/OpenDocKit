@@ -558,13 +558,14 @@ def _drop_emphasis_inside_words(atoms: list[_Atom]) -> None:
             while end < count and getattr(atoms[end], name):
                 end += 1
             # Judged piece by piece as the writer writes them: a span is written apart at every link group
-            # (`_write_atoms`), so a bad piece took the marks of a good one with it, and an edge inside the span at a link
-            # bracket was never looked at (Pinned by:
+            # (`_write_atoms`), and italic apart on each side of a bold edge (`_write_emphasis`), so a bad piece took the
+            # marks of a good one with it, and an edge inside the span was never looked at (`*—****67%?***`) (Pinned by:
             # test_inline_formatting.py::TestEmphasisAgainstPunctuation::test_each_piece_of_a_span_is_judged_as_it_is_written)
             piece = index
             while piece < end:
                 stop = piece + 1
-                while stop < end and atoms[stop].url == atoms[piece].url:
+                while stop < end and atoms[stop].url == atoms[piece].url and (
+                        name == "bold" or atoms[stop].bold == atoms[piece].bold):
                     stop += 1
                 if _unmarkable(atoms, piece, stop, link_edges):
                     for position in range(piece, stop):
@@ -592,8 +593,12 @@ def _unmarkable(atoms: list[_Atom], start: int, stop: int, link_edges: dict[tupl
                                              or _neighbour(atoms, start - 1, -1, link_edges))
     after = " " if raw[-1:].isspace() else (link_edges.get(("]", stop - 1)) or link_edges.get(("[", stop))
                                             or _neighbour(atoms, stop, 1, link_edges))
-    starts_inside = before[-1:].isalnum() and written[:1].isalnum()
-    is_glued_character = stop - start == 1 and len(written) == 1 and written.isalnum() and after[:1].isalnum()
+    # Whether the piece is part of a word is read on the text around it, link brackets or not: `인사[발령](url)` is one word
+    # to the reader (Pinned by: test_inline_formatting.py::TestPartOfAWord::test_part_of_a_word_across_a_link_edge)
+    letter_before = " " if raw[:1].isspace() else _neighbour(atoms, start - 1, -1, {})
+    letter_after = " " if raw[-1:].isspace() else _neighbour(atoms, stop, 1, {})
+    starts_inside = letter_before[-1:].isalnum() and written[:1].isalnum()
+    is_glued_character = stop - start == 1 and len(written) == 1 and written.isalnum() and letter_after[:1].isalnum()
     return starts_inside or is_glued_character or _unflanked(before, written, written, after)
 
 
@@ -607,6 +612,10 @@ def _neighbour(atoms: list[_Atom], position: int, step: int, link_edges: dict[tu
         cleaned = _as_written(atoms[position].text)
         if cleaned:
             return cleaned[-1:] if step < 0 else cleaned[:1]
+        # An atom cleaned away still carries the bracket written on its far side (a private-use bullet first in a link)
+        bracket = link_edges.get(("[", position) if step < 0 else ("]", position))
+        if bracket:
+            return bracket
         position += step
     return ""
 
