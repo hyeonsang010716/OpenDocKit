@@ -37,8 +37,9 @@ def own_dictionary() -> None:
     took the dictionary of the thread that used that parser last, and kept it: two threads converting at once then added names
     to one dictionary, which libxml2 does not allow. A valid DOCX or XLSX came out as corrupted, a DOCX or HWPX with other
     text, or the process stopped on a bad access (a pool whose threads first converted a PPTX: 18 of 150 runs; four of five
-    runs of six threads parsing after one crashed). Known accepted gap: a thread that parsed through such a parser before it
-    first converts keeps the dictionary it took (Pinned by: test_converter.py::TestXmlParsersPerThread::
+    runs of six threads parsing after one crashed). Known accepted gap: such a parser still hands dictionaries on, so a thread
+    that parsed through one before it first converts keeps the dictionary it took, and a thread outside the library whose first
+    parse goes through one can take a converting thread's (Pinned by: test_converter.py::TestXmlParsersPerThread::
     test_threads_converting_after_a_shared_parser_keep_their_own_dictionaries)."""
     if not getattr(_OWNED, "done", False):
         etree.fromstring(b"<x/>", etree.XMLParser())
