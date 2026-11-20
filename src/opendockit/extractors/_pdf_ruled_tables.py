@@ -188,6 +188,7 @@ def _is_caption_box(cells: list[list[str | None]]) -> bool:
     Deliberate: a report that sets each figure's label in a coloured badge beside its title gave a table
     '| Diagram 4 | Distribution of Instagram Content |' under every chart (4 of 200 pages of a pdf corpus). As a line the
     label stays with its title (Pinned by: test_pdf_highlights.py::TestBarCharts::test_a_figure_label_in_a_box_is_its_caption).
+    Known accepted gap: a one-row box of two cells after a table label ('| 표 1 | 사업비 총액 … |') is read as lines, its text kept.
     """
     if len(cells) != 1 or len(cells[0]) != 2:
         return False

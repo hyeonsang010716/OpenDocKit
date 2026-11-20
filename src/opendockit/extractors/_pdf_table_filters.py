@@ -249,7 +249,8 @@ def _without_chart_bars(page: object) -> object:
     edges and are all as tall, the cells of a column touch, shaded cells hold their text, and the rules Word draws as thin
     filled rectangles are thinner, so none of them are bars. The
     segments stacked on a bar (same left and right edges, touching or overlapping it; for a bar drawn sideways, the same top
-    and bottom) go with it.
+    and bottom) go with it. Known accepted gap: a chart with a value label inside every bar is not taken for bars and
+    still reads as a table of its labels, as before this check.
     """
     fills = [rect for rect in page.rects if rect.get("fill") and not rect.get("stroke")
              and min(rect["width"], rect["height"]) >= _BAR_MIN_THICKNESS]
