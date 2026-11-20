@@ -198,6 +198,10 @@ _SIGNATURE = re.compile(r"\(\s*(?:서명|인|날인|직인)(?:\s*(?:또는|및|/
 # A line that starts with a typed bullet or note mark (`ㅇ 예산 확보 필요`, `※ 문의`, `□ 추진 배경`, `- 세부 내용`, `▶ 일정`):
 # an item of a 개조식 list, not a title
 _BULLET_LEAD = re.compile(r"(?:[ㅇo](?=\s)|[-–·•※□■○●◦◎▶▷►▸◆◇◈▪▫*→⇒➢✓√❍❏])")
+# The caption of a figure or table (`<그림 1> 추진 체계도`, `[표 2] 예산 현황`, `그림 3. 조직도`, `Table 1 Budget`): written
+# large under its picture it is no heading of the text around it, and as one it split the section it belongs to
+# (Pinned by: test_hwp_size_headings.py::TestSizeHeadings::test_dates_signatures_quotes_and_contacts_are_no_headings)
+_CAPTION_LEAD = re.compile(r"[<〈《\[［(（【]?\s*(?:그림|표|사진|도표|도식|차트|figure|fig\.?|table)\s*\d", re.IGNORECASE)
 # A web address, e-mail address or phone number (`www.example.go.kr`, `02-123-4567`): contact lines, not titles
 _CONTACT = re.compile(r"(?i:https?://|www\.)|[\w.+-]+@[\w-]+\.\w|\b\d{2,4}-\d{3,4}-\d{4}\b|\b[\w-]+(?:\.[\w-]+)*\.(?:kr|com|net|org)\b")
 
@@ -205,8 +209,8 @@ _CONTACT = re.compile(r"(?i:https?://|www\.)|[\w.+-]+@[\w-]+\.\w|\b\d{2,4}-\d{3,
 def _size_heading_text(plain: str) -> bool:
     """Whether a paragraph can be a heading by its size, from its text: short, one line, with a word, not a sentence (also inside
     closing quotes or brackets, or in the polite `…요` form), not a line in quotes, not a date, not the addressee, signature or
-    stamp line of a form, not an item of a typed bullet list or a note (`※`), not a contact line (web or e-mail address, phone
-    number), and not a table-of-contents line (text, tab, page label) (Pinned by:
+    stamp line of a form, not an item of a typed bullet list or a note (`※`), not a figure or table caption, not a contact
+    line (web or e-mail address, phone number), and not a table-of-contents line (text, tab, page label) (Pinned by:
     test_hwp_size_headings.py::TestSizeHeadings::test_lines_that_only_look_large_are_no_headings,
     test_dates_signatures_quotes_and_contacts_are_no_headings).
 
@@ -217,7 +221,8 @@ def _size_heading_text(plain: str) -> bool:
     unquoted = text.rstrip(_CLOSING).rstrip()
     if not _LETTER.search(_EQUATION.sub("", text)) or _SENTENCE_END.search(unquoted) or _POLITE_END.search(unquoted):
         return False
-    if _ADDRESSEE.search(text) or _SIGNATURE.search(text) or _BULLET_LEAD.match(text) or _CONTACT.search(text):
+    if (_ADDRESSEE.search(text) or _SIGNATURE.search(text) or _BULLET_LEAD.match(text) or _CAPTION_LEAD.match(text)
+            or _CONTACT.search(text)):
         return False
     if text[0] in "\"“'‘" and text[-1] in "\"”'’":
         return False

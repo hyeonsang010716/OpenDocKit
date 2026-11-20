@@ -121,11 +121,12 @@ class TestSizeHeadings:
 
     def test_dates_signatures_quotes_and_contacts_are_no_headings(self):
         """Lines of forms and letters printed large: a date (filled in or blank), a signature or stamp line, a quoted sentence or
-        saying, a polite `…요` sentence, a note or contact line, an address; and items of a typed bullet list (`ㅇ`, `□`, `-`)."""
+        saying, a polite `…요` sentence, a note or contact line, an address; items of a typed bullet list (`ㅇ`, `□`, `-`); and
+        the caption of a figure or table."""
         large = ["2024년 12월 31일", "2024년    월    일", "3월 5일(화)", "신청인 :          (서명 또는 인)", "대표이사  홍 길 동  (인)",
                  "“오늘은 좋은 하루였다.”", "(이하 생략한다)", '"나는 할 수 있다"', "함께 해요", "※ 문의: 02-123-4567",
                  "담당자 연락처 02-123-4567", "www.example.go.kr", "help@example.go.kr", "ㅇ 예산 확보 필요", "□ 추진 배경",
-                 "▶ 향후 일정", "- 세부 내용"]
+                 "▶ 향후 일정", "- 세부 내용", "〈그림 1〉 추진 체계도", "[표 2] 예산 현황", "그림 3. 조직도"]
         data = _hwp(*(_paragraph(line, (0, 2)) for line in large), *[_paragraph(_BODY)] * 3)
         hwpx = _hwpx(*(_hwpx_paragraph(line, (2, line)) for line in large), *[_hwpx_paragraph(_BODY)] * 3)
 
@@ -133,7 +134,8 @@ class TestSizeHeadings:
         assert not any(line.startswith("#") for line in convert(hwpx, "a.hwpx").text.splitlines())
 
     def test_titles_that_end_like_a_date_or_a_polite_word_stay_headings(self):
-        titles = ["1. 사업 개요", "추진 필요", "주요 내용", "2024년 사업 계획", "Ⅱ. 추진 경과(안)", "「개인정보 보호법」 개정 사항"]
+        titles = ["1. 사업 개요", "추진 필요", "주요 내용", "2024년 사업 계획", "Ⅱ. 추진 경과(안)", "「개인정보 보호법」 개정 사항",
+                  "표준 계약서 작성 방법", "그림책 지원 사업"]
         data = _hwp(*(_paragraph(title, (0, 2)) for title in titles), _paragraph(_BODY))
 
         assert [line for line in convert(data, "a.hwp").text.splitlines() if line.startswith("#")] == [f"# {t}" for t in titles]
