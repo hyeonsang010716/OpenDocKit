@@ -8,8 +8,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
 import math
+import struct
 import sys
 from typing import Any
+import zlib
 
 from PIL import Image, ImageChops, ImageMath, ImageOps, JpegImagePlugin
 
@@ -67,6 +69,7 @@ _PILLOW_WARNINGS = ((UserWarning, r"PIL\."), (Image.DecompressionBombWarning, r"
 _KEY_SCALE = {"1": 255, "L;2": 85, "L;4": 17}
 _TIFF_MAGIC = (b"II*\x00", b"MM\x00*")
 _JPEG_MAGIC = b"\xff\xd8\xff"
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 # Minimum share for salvaging a JPEG with a truncated end: the height actually drawn must be at least this much of the whole.
 # A file with only a few bytes of picture data left is nearly a plain gray sheet with nothing to describe.
 _MIN_TRUNCATED_JPEG_SHARE = 0.1
@@ -157,6 +160,9 @@ def prepare_image(data: bytes, *, min_side: int, max_side: int, filter_decoratio
         # (Pinned by: test_image.py::TestTransparencyOfEveryMode::test_lab_picture_is_opaque).
         bands = image.getbands()
         has_alpha = (("A" in bands and image.mode != "LAB") or "a" in bands) or "transparency" in image.info
+        as_it_is = _png_as_it_is(data, image, max_side)
+        if as_it_is is not None:
+            return PreparedImage(as_it_is, "image/png", *image.size)
         tiles = tuple(_encoded(image.crop(box), max_side, has_alpha)[0] for box in _tile_boxes(*image.size, max_side))
         data, mime_type, (shrunk_width, shrunk_height) = _encoded(image, max_side, has_alpha)
     except MemoryError:
@@ -336,6 +342,73 @@ def _encoded(image: Image.Image, max_side: int, has_alpha: bool) -> tuple[bytes,
         return output.getvalue(), "image/png", image.size
     image.convert("RGB").save(output, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
     return output.getvalue(), "image/jpeg", image.size
+
+
+def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | None:
+    """The file of an 8-bit RGBA PNG that needs no change, with only the chunks Pillow's own rewrite of it has (`IHDR`, `iCCP`
+    when Pillow read the profile, the `IDAT` picture data, `IEND`); None when the picture has to be rewritten (`_encoded`).
+
+    Deliberate: such a picture is handed on without being compressed again. Rewriting it was the PNG compression of
+    `_encoded`, most of the conversion time of a picture-heavy document: a real HWP with 51 pictures took 550 ms with
+    pictures decoded against 25 ms without, 420 ms of it in `Image.save`; a HWPX of 24 opaque RGBA photos of 1500×1000 took
+    2.2 s and takes 0.36 s. The picture is still decoded (a broken one is unreadable as before, and its size decides what is
+    dropped as decoration). The pixels are the ones the rewrite would hold; text, EXIF, XMP, time and colour-space chunks
+    are left out as the rewrite left them out (Pinned by: test_image.py::TestPngPassedOnAsItIs).
+
+    Only when nothing about the picture changes: colour type 6 at 8 bits (16 bits is reduced, a palette or grey picture is
+    made RGBA), the long side within `max_side` (so no downscale and no tiles), no EXIF chunk and no text chunk that names
+    EXIF or XMP (where Pillow reads an orientation from and turns the picture), no animation (`acTL`; the first frame is
+    taken), no critical chunk this does not know, every chunk kept with its right CRC (a decoder stricter than Pillow refuses
+    a picture data chunk with a wrong one), one `IHDR` and the `IDAT` chunks one after another (libpng refuses a picture
+    with either out of place), picture data that is one zlib stream with nothing after it (bytes hidden behind the picture
+    were dropped by the rewrite and must not be handed on), and picture data at most half the raw pixels (a file written
+    without or with little compression is compressed by the rewrite instead of handed on several times as large)."""
+    width, height = image.size
+    if image.mode != "RGBA" or max(width, height) > max_side or not data.startswith(_PNG_SIGNATURE):
+        return None
+    kept = [_PNG_SIGNATURE]
+    position, picture_data, kind = len(_PNG_SIGNATURE), 0, b""
+    stream = zlib.decompressobj()
+    data_ended = False   # a chunk other than IDAT came after the picture data
+    while kind != b"IEND":
+        if position + 12 > len(data):
+            return None
+        length = int.from_bytes(data[position:position + 4], "big")
+        kind = data[position + 4:position + 8]
+        end = position + 12 + length
+        if end > len(data):
+            return None
+        body = data[position + 8:end - 4]
+        if position == len(_PNG_SIGNATURE) and (kind != b"IHDR" or length != 13 or body[:8] != struct.pack(">II", width, height)
+                                                 or body[8:12] != b"\x08\x06\x00\x00" or body[12] > 1):
+            return None
+        if kind in (b"eXIf", b"acTL") or not (kind[0] & 0x20 or kind in (b"IHDR", b"PLTE", b"IDAT", b"IEND")):
+            return None
+        if (kind == b"IHDR" and position != len(_PNG_SIGNATURE)) or (kind == b"IDAT" and data_ended):
+            return None
+        if kind == b"IDAT":
+            # Only whether the stream ends where the data ends: the output is thrown away a piece at a time
+            try:
+                stream.decompress(body, 1 << 20)
+                while stream.unconsumed_tail:
+                    stream.decompress(stream.unconsumed_tail, 1 << 20)
+            except zlib.error:
+                return None
+            if stream.unused_data:
+                return None
+        elif picture_data:
+            data_ended = True
+        if kind in (b"tEXt", b"zTXt", b"iTXt") and any(name in body.split(b"\0", 1)[0].lower() for name in (b"exif", b"xmp")):
+            return None
+        if kind in (b"IHDR", b"IDAT", b"IEND") or (kind == b"iCCP" and "icc_profile" in image.info):
+            if zlib.crc32(kind + body) != int.from_bytes(data[end - 4:end], "big"):
+                return None
+            kept.append(data[position:end])
+            picture_data += length if kind == b"IDAT" else 0
+        position = end
+    if picture_data > width * height * 4 // 2 or not stream.eof or stream.unused_data:
+        return None
+    return b"".join(kept)
 
 
 def _tile_boxes(width: int, height: int, max_side: int) -> list[tuple[int, int, int, int]]:

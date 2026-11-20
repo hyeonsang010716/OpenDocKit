@@ -54,6 +54,7 @@ The thresholds are `min_image_side` and `repeated_image_threshold` in [`ConvertO
 ## Normalization
 
 - Every image is re-encoded as PNG (when it has transparency) or JPEG and its long side is reduced to 2048 px (`image_max_side`). OpenAI downsizes images anyway, so anything larger only slows the upload.
+- An 8-bit RGBA PNG that needs no change (within the long side, not turned, not animated) is passed on as its own file rather than compressed again, with its text, EXIF and XMP chunks removed — the same pixels and the same metadata left out as a re-encoded one, without most of the cost.
 - EXIF rotation is corrected.
 - The prepared pictures of one document take at most `max_uncompressed_bytes` (500 MB by default) together. A picture can grow far beyond its file when re-encoded; pictures past the bound keep their `[Image]` placeholder (scanned pages are prepared first) and a warning is added.
 - A picture inside a document is read only when it is one of the raster formats decoded in this process (JPEG, PNG, GIF, BMP, TIFF, WEBP, AVIF, HEIC with the extra, ICO, JPEG 2000, PCX, PPM); anything else — EPS, WMF / EMF, and rare formats such as TGA or PSD — keeps its `[Image]` placeholder.

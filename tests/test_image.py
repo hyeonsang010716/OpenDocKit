@@ -2771,3 +2771,175 @@ class TestPreparedImageBudget:
 
         assert len(result.images) == 1
         assert result.warnings == []
+
+
+def _chunks(data: bytes) -> list[tuple[bytes, bytes, bool]]:
+    """(kind, body, whether its CRC is right) of every chunk of a PNG."""
+    chunks, position = [], 8
+    while position < len(data):
+        length = int.from_bytes(data[position:position + 4], "big")
+        kind, body = data[position + 4:position + 8], data[position + 8:position + 8 + length]
+        crc = int.from_bytes(data[position + 8 + length:position + 12 + length], "big")
+        chunks.append((kind, body, zlib.crc32(kind + body) == crc))
+        position += 12 + length
+    return chunks
+
+
+def _photo(width: int = 600, height: int = 400) -> Image.Image:
+    """An opaque RGBA picture like a photo pasted into a document: a gradient under a pattern (the alpha band is all 255).
+    The same picture every call."""
+    gradient = Image.linear_gradient("L").resize((width, height)).convert("RGB")
+    pattern = Image.frombytes("L", (width, height), bytes((x * 7919 + y * 104729) % 251 for y in range(height)
+                                                          for x in range(width))).convert("RGB")
+    return Image.blend(gradient, pattern, 0.35).convert("RGBA")
+
+
+def _png_file(picture: Image.Image, **options) -> bytes:
+    buffer = BytesIO()
+    picture.save(buffer, format="PNG", **options)
+    return buffer.getvalue()
+
+
+class TestPngPassedOnAsItIs:
+    """An 8-bit RGBA PNG that needs no change was decoded and compressed again with the same pixels: the PNG compression of
+    `Image.save` was most of the conversion time of a picture-heavy document (a real HWP with 51 pictures: 550 ms, 420 ms
+    of it compressing, against 25 ms with pictures not decoded). Its file is handed on with only the chunks the rewrite
+    had, so the pixels and the metadata left out are what they were."""
+
+    def test_rgba_png_that_needs_no_change_is_its_own_picture_data(self):
+        from PIL import PngImagePlugin
+
+        picture = _photo()
+        text = PngImagePlugin.PngInfo()
+        text.add_text("Comment", "Taken at 37.5665 N, 126.9780 E")
+        data = _png_file(picture, pnginfo=text, compress_level=9)  # not what the rewrite writes (level 6)
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/png" and (result.width, result.height) == picture.size
+        assert [kind for kind, _, _ in _chunks(result.data)] == [b"IHDR", *[b"IDAT"] * (len(_chunks(data)) - 3), b"IEND"]
+        assert result.data == b"\x89PNG\r\n\x1a\n" + b"".join(
+            struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+            for kind, body, _ in _chunks(data) if kind != b"tEXt")
+        assert b"126.9780" not in result.data
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
+    def test_colour_profile_is_kept_as_the_rewrite_kept_it(self):
+        from PIL import ImageCms
+
+        profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+
+        result = prepare_image(_png_file(_photo(), icc_profile=profile), min_side=1, max_side=2048)
+
+        assert Image.open(BytesIO(result.data)).info["icc_profile"] == profile
+
+    @staticmethod
+    def _turned_by_exif() -> bytes:
+        exif = Image.Exif()
+        exif[0x0112] = 3  # turned 180°: the size alone does not tell
+        return _png_file(_photo(), exif=exif.tobytes())
+
+    @staticmethod
+    def _turned_by_xmp() -> bytes:
+        from PIL import PngImagePlugin
+
+        xmp = PngImagePlugin.PngInfo()
+        xmp.add_itxt("XML:com.adobe.xmp", '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF><rdf:Description '
+                                          'tiff:Orientation="3"/></rdf:RDF></x:xmpmeta>')
+        return _png_file(_photo(), pnginfo=xmp)
+
+    @pytest.mark.parametrize("make", [_turned_by_exif, _turned_by_xmp], ids=["exif", "xmp"])
+    def test_picture_with_an_orientation_is_turned(self, make):
+        result = prepare_image(make.__func__(), min_side=1, max_side=2048)
+
+        assert Image.open(BytesIO(result.data)).tobytes() == _photo().rotate(180).tobytes()
+
+    def test_picture_over_the_long_side_is_shrunk(self):
+        result = prepare_image(_png_file(_photo()), min_side=1, max_side=300)
+
+        assert (result.width, result.height) == (300, 200)
+
+    def test_16_bit_picture_is_written_at_8_bits(self):
+        row = b"".join(struct.pack(">HHHH", x * 100, 30_000, 60_000, 65_535) for x in range(300))
+        data = _png(300, 200, 16, 6, row, b"")
+        data = data.replace(data[33:33 + 12], b"")  # without the tRNS chunk, which a colour type 6 picture cannot have
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert _chunks(result.data)[0][1][8:10] == b"\x08\x06"
+
+    def test_file_written_without_compression_is_compressed(self):
+        data = _png_file(_photo(), compress_level=0)
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert len(result.data) < len(data) / 2
+        assert Image.open(BytesIO(result.data)).tobytes() == Image.open(BytesIO(data)).tobytes()
+
+    def test_animation_gives_its_first_frame_only(self):
+        first, second = _photo(), _photo().transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        data = _png_file(first, save_all=True, append_images=[second])
+        assert b"acTL" in data
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert b"acTL" not in result.data and b"fdAT" not in result.data
+        assert Image.open(BytesIO(result.data)).tobytes() == first.tobytes()
+
+    def test_picture_data_with_a_wrong_crc_is_written_anew(self):
+        data = bytearray(_png_file(_photo()))
+        end = data.index(b"IEND") - 4  # the CRC of the last IDAT chunk ends where the IEND chunk's length starts
+        data[end - 4:end] = b"\x00\x00\x00\x00"
+
+        try:
+            result = prepare_image(bytes(data), min_side=1, max_side=2048)
+        except ImageUnreadable:
+            return  # a Pillow that checks the CRC of the picture data refuses it: nothing is handed on either
+        assert all(right for _, _, right in _chunks(result.data))
+
+    @staticmethod
+    def _with_chunks(data: bytes, chunks: list[tuple[bytes, bytes]]) -> bytes:
+        def chunk(kind: bytes, body: bytes) -> bytes:
+            return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+        return b"\x89PNG\r\n\x1a\n" + b"".join(chunk(kind, body) for kind, body in chunks)
+
+    def test_second_header_chunk_is_written_anew(self):
+        """libpng refuses a picture with an IHDR out of place; Pillow reads it. (IDAT chunks apart Pillow refuses itself.)"""
+        chunks = [(kind, body) for kind, body, _ in _chunks(_png_file(_photo()))]
+        header, picture, end = chunks[0], [chunk for chunk in chunks if chunk[0] == b"IDAT"], chunks[-1]
+
+        result = prepare_image(self._with_chunks(b"", [header, *picture, header, end]), min_side=1, max_side=2048)
+
+        assert [kind for kind, _, _ in _chunks(result.data)].count(b"IHDR") == 1
+        assert Image.open(BytesIO(result.data)).tobytes() == _photo().tobytes()
+
+    def test_bytes_hidden_after_the_picture_data_are_not_handed_on(self):
+        chunks = [(kind, body) for kind, body, _ in _chunks(_png_file(_photo()))]
+        picture = b"".join(body for kind, body in chunks if kind == b"IDAT") + b"HIDDEN-PAYLOAD" * 10
+        data = self._with_chunks(b"", [chunks[0], (b"IDAT", picture), chunks[-1]])
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert b"HIDDEN" not in result.data
+        assert Image.open(BytesIO(result.data)).tobytes() == _photo().tobytes()
+
+    def test_pictures_that_need_a_change_are_still_rewritten(self):
+        """A palette picture with a transparent entry, a grey one with alpha: made RGBA and written as before."""
+        palette = _photo().convert("RGB").convert("P", palette=Image.Palette.ADAPTIVE)
+        palette.info["transparency"] = 0
+        grey = _photo().convert("LA")
+
+        for picture in (palette, grey):
+            result = prepare_image(_png_file(picture), min_side=1, max_side=2048)
+            assert _chunks(result.data)[0][1][8:10] == b"\x08\x06"
+
+    @pytest.mark.timing
+    def test_handing_on_takes_a_fraction_of_compressing_again(self):
+        """Measured: 13 ms against 88 ms before for a 1500×1000 opaque RGBA photo, of which 67 ms was compressing it."""
+        picture = _photo(1500, 1000)
+        data = _png_file(picture)
+
+        prepared = fastest(lambda: prepare_image(data, min_side=1, max_side=2048))
+        compressed = fastest(lambda: picture.save(BytesIO(), format="PNG"))
+
+        assert prepared < compressed / 2
