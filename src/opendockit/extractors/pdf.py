@@ -102,7 +102,6 @@ from opendockit.extractors._pdf_model import (
     _BoxIndex,
     _in_margin,
     _info_text,
-    _is_bold_line,
     _Line,
     _Page,
     _visual_rows,
@@ -605,7 +604,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
             images = _page_images(page, renderer, extraction) if renderer else []
             if page.text_untrusted and not images:
                 (unrendered if renderer.skipped > skipped else undrawable).append(page.number)
-            text = _render_page(page, heading_levels, line_gap, images, body_size)
+            text = _render_page(page, heading_levels, line_gap, images)
             if _CID.search(text):
                 has_cid = True
                 text = _CID.sub("", text)
@@ -1176,8 +1175,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
         size = statistics.median(sizes) if sizes else 0.0
         lines.append(_Line(top=top, bottom=bottom, x0=line["x0"], x1=line["x1"], text=_drawn_text(text),
                            size=size, parts=_gap_parts(inside, _drawn_text(text), size),
-                           fine_parts=_gap_parts(inside, _drawn_text(text), size, _UNSPACED_GAP_RATIO),
-                           bold=_is_bold_line(inside)))
+                           fine_parts=_gap_parts(inside, _drawn_text(text), size, _UNSPACED_GAP_RATIO)))
         line_owners.append(owner)
     lines = _place_xobject_lines(lines, line_owners)
     _mark_checkboxes(page, lines, [bbox for bbox, _, _ in tables])
