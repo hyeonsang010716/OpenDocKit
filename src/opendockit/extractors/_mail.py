@@ -72,10 +72,14 @@ _MAIL_BODY_HEADER = re.compile(rb"^(?:Content-Type:\s*(?:multipart/[\w.+-]+|text
                                rb"|(?:application|image|audio|video|model|font)/[\w.+-]+)\b|Content-Transfer-Encoding:)",
                                re.IGNORECASE | re.MULTILINE)
 # The top-level Content-Type of encrypted mail (`is_encrypted_mail`): S/MIME (application/pkcs7-mime, except the signature-only
-# signed-data and certs-only) and PGP/MIME (multipart/encrypted).
+# signed-data and certs-only) and PGP/MIME (multipart/encrypted). It is searched in the unfolded header block
+# (`_HEADER_LINE_FOLD`): the `smime-type` of an opaque-signed mail is often on a folded line of the Content-Type, and the mail
+# was rejected as encrypted (Pinned by: test_core_mailboxes_and_charsets.py::TestEncryptedMail::
+# test_signed_data_on_a_folded_line_is_still_read).
 _ENCRYPTED_CONTENT_TYPE = re.compile(
     rb"^Content-Type:\s*(?:multipart/encrypted\b|application/(?:x-)?pkcs7-mime\b(?![^\r\n]*smime-type\s*=\s*\"?(?:signed-data|certs-only)))",
     re.IGNORECASE | re.MULTILINE)
+_HEADER_LINE_FOLD = re.compile(rb"\r?\n(?=[ \t])")
 # RFC 2047 encoded words (`=?charset?b?…?=`). In a header mixed with 8-bit text only the words are decoded (`_decoded_header`).
 _ENCODED_WORD = re.compile(r"(=\?[^?\s]+\?[bBqQ]\?[^?\s]*\?=)")
 # The mail headers written out before the body.
@@ -490,7 +494,7 @@ def is_encrypted_mail(data: bytes) -> bool:
     headers = mime_header_block(data[start:start + MIME_HEAD_BYTES])
     if headers is None or (MIME_VERSION.search(headers) is None and _MAIL_SENDER.search(headers) is None):
         return False
-    return _ENCRYPTED_CONTENT_TYPE.search(headers) is not None
+    return _ENCRYPTED_CONTENT_TYPE.search(_HEADER_LINE_FOLD.sub(b"", headers)) is not None
 
 
 def mail_box(data: bytes) -> tuple[list[Message], int]:
