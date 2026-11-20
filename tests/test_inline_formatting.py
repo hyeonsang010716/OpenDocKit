@@ -468,6 +468,30 @@ class TestPartOfAWord:
         assert _html_text("<p><b>한</b>국어와 <b>한국</b>어</p>") == "한국어와 **한국**어"
 
 
+class TestEmphasisAgainstPunctuation:
+    """CommonMark closes `**` after a punctuation mark only before whitespace or punctuation, and opens it before one only after
+    them: `**67%**으로` and `**「법」**제15조` showed their asterisks as text (checked with a CommonMark reader). Such a span is not
+    marked; with whitespace or a punctuation mark on the other side of the edge it is."""
+
+    def test_span_ending_on_punctuation_against_a_word_is_not_marked(self):
+        body = _paragraph(_bold("전체의 67%"), _run("으로 늘었고 "), _bold("「개인정보보호법」"), _run("제15조에 따라"))
+
+        assert _docx_text(body) == "전체의 67%으로 늘었고 「개인정보보호법」제15조에 따라"
+
+    def test_span_starting_on_punctuation_after_a_word_is_not_marked(self):
+        assert _html_text("<p>근거는 제<b>「법」 제2조</b> 이다</p>") == "근거는 제「법」 제2조 이다"
+
+    def test_span_against_a_link_is_marked(self):
+        """A link right after the span is written from `[`, which is punctuation."""
+        assert _html_text('<p>전체의 <b>67%</b><a href="https://a.example/">으로</a> 늘었다</p>') == (
+            "전체의 **67%**[으로](https://a.example/) 늘었다")
+
+    def test_span_with_whitespace_or_punctuation_beyond_its_edge_is_marked(self):
+        body = _paragraph(_bold("「개인정보보호법」"), _run(" 제15조, "), _bold("맺음말"), _run(": 언급, "), _bold("(보충)"), _run("."))
+
+        assert _docx_text(body) == "**「개인정보보호법」** 제15조, **맺음말**: 언급, **(보충)**."
+
+
 class TestPptx:
     def test_link_and_emphasis_in_a_text_box(self):
         data = _deck(lambda slide: _text_box(slide, ("출시 전에 ", {}), ("배포 안내서", {"link": "https://example.com/guide"}),

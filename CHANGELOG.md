@@ -51,6 +51,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- Bold or italic that ends on a punctuation mark right before a letter (`**67%**으로`, `**「법」**제15조`) is no longer
+  written: Markdown readers showed its asterisks as text. This affects every format that keeps emphasis.
 - **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if
   that worker died first. The queue the file travels on is no longer waited for.
 - **MCP server**: the path of a call is resolved in a thread, as its content already was. A path the file system is slow

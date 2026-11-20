@@ -7,6 +7,7 @@ Markdown once per block, so the same rule does not drift between formats.
 
 from dataclasses import dataclass
 import re
+import unicodedata
 
 from opendockit.markdown import _INVISIBLE
 from opendockit.models import IMAGE_MARKER
@@ -552,10 +553,30 @@ def _drop_emphasis_inside_words(atoms: list[_Atom]) -> None:
             after = atoms[end].text[:1] if end < count else ""
             starts_inside = before.isalnum() and first[:1].isalnum()
             is_glued_character = (end - index == 1 and len(first.strip()) == 1 and last[-1:].isalnum() and after.isalnum())
-            if starts_inside or is_glued_character:
+            # What is written next to the span: a link that starts right after it begins with `[`, one that ends right before it
+            # ends with `)` — both punctuation, so `**67%**[으로](url)` is fine
+            written_after = "[" if end < count and atoms[end].url and atoms[end].url != atoms[end - 1].url else after
+            written_before = ")" if index and atoms[index - 1].url and atoms[index - 1].url != atoms[index].url else before
+            if starts_inside or is_glued_character or _unflanked(written_before, first, last, written_after):
                 for position in range(index, end):
                     setattr(atoms[position], name, False)
             index = end
+
+
+def _is_punctuation(character: str) -> bool:
+    """A Unicode punctuation character as CommonMark counts them (general category P or S)."""
+    return bool(character) and unicodedata.category(character)[0] in "PS"
+
+
+def _unflanked(before: str, first: str, last: str, after: str) -> bool:
+    """Whether marks around the span could not be read as emphasis: CommonMark closes `**` after a punctuation mark only before
+    whitespace or punctuation, and opens it before a punctuation mark only after them. `**67%**으로` and `**「법」**제15조`
+    came out with the asterisks shown as text, so such a span is not marked. Whitespace at the edge of the span goes outside the
+    marks and leaves the mark against the whitespace, which is fine (Pinned by:
+    test_inline_formatting.py::TestEmphasisAgainstPunctuation)."""
+    ends_on_punctuation = last[-1:] == last.rstrip()[-1:] and _is_punctuation(last[-1:]) and after[:1].isalnum()
+    starts_on_punctuation = first[:1] == first.lstrip()[:1] and _is_punctuation(first[:1]) and before[-1:].isalnum()
+    return ends_on_punctuation or starts_on_punctuation
 
 
 def _without_lead(line: list[_Atom]) -> list[_Atom]:

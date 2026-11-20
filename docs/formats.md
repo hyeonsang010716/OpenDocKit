@@ -339,6 +339,8 @@ but not emphasis. PDF and spreadsheet cells carry neither:
 - Bold and italic are kept as `**bold**`, `*italic*` and `***both***`.
 - Headings, captions and code are not emphasized, and bold that covers a whole paragraph, list item or table cell is not
   marked (in real documents that is styling, and marking it buries the emphasis that means something).
+- Bold that would end on a punctuation mark right before a letter (`67%으로`, `「법」제15조`) is not marked: Markdown
+  readers would show its asterisks.
 - Switch either off with `ConvertOptions(keep_links=False)` / `ConvertOptions(keep_emphasis=False)` to get plain text.
 
 More: [decisions/inline-formatting.md](decisions/inline-formatting.md).
