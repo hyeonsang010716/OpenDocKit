@@ -78,8 +78,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **MCP server**: one server object serves a second session after the first has ended (every SSE client and every
   in-memory client is a session of its own); the second refused every file as 'This IsolatedConverter is closed.', and
   one SSE client leaving stopped the conversions of another.
-- **CLI**: a message or warning on a standard error whose reader has gone (`2>&1 | head`) ends quietly with the run's
-  own exit code, not with a BrokenPipeError traceback or exit code 120.
+- **CLI**: a message or warning on a standard error whose reader has gone (`2>&1 | head`) ends quietly — with exit code
+  1 when the output went to that pipe too, else with the run's own — not with a BrokenPipeError traceback or exit code
+  120.
 - **Pictures**: alt text that is a sentence ending in a file name (`… exported from Visio as orgchart.png`) is kept as
   the author's; only a bare file name (`image1.png`) is dropped.
 - **Descriptions**: no describer call is sent once the answers already in are over `max_chars`; a whole further batch of
