@@ -668,6 +668,19 @@ class TestDisplayedFormulas:
 
         assert "| Speed |" in convert(_pieces_pdf_cid(pieces), "a.pdf").text
 
+    @pytest.mark.parametrize(("rows", "expected"), [
+        ([("등급", "A", "B", "C"), ("정밀", "±1", "±2", "±3"), ("일반", "±5", "±6", "±8")], "| 정밀 | ±1 | ±2 | ±3 |"),
+        ([("A", "≥90", "≤100"), ("B", "≥80", "<90"), ("C", "≥70", "<80")], "| B | ≥80 | <90 |"),
+        ([("Parameter", "Min", "Typ", "Max"), ("Vcc", "≥3", "5", "≤6"), ("Icc", "-", "10", "≤20"), ("Temp", "≥0", "25", "≤70")],
+         "| Icc | - | 10 | ≤20 |"),
+    ])
+    def test_a_table_of_signed_values_stays_a_table(self, rows, expected):
+        """Tolerances, grade thresholds and the limits of a datasheet are values with a sign in front, not
+        the operators of a formula."""
+        pieces = [(150 + column * 80, 700 - row * 16, text) for row, values in enumerate(rows) for column, text in enumerate(values)]
+
+        assert expected in convert(_pieces_pdf_cid(pieces), "a.pdf").text
+
 
 def _pieces_pdf_cid(pieces: list[tuple[float, float, str]]) -> bytes:
     """`_pieces_pdf` in a Korean CID font, which holds Greek letters and ○ × marks."""
