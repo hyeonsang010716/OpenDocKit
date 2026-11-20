@@ -7,6 +7,7 @@ from itertools import accumulate
 import math
 import re
 
+from opendockit.extractors._hangul import korean_sentence_end
 from opendockit.extractors._pdf_model import (
     _BOLD_BODY_MAX_RATIO,
     _BOLD_HEADING_MIN_RATIO,
@@ -456,12 +457,14 @@ def _weight_breaks(previous: _Line, line: _Line) -> bool:
     that ends a sentence starts something new.
 
     Deliberate: a bold title set at the body size and spacing ('5. The dynamics', 'Procedure:') was joined to the text below
-    it, so it could not be a heading. A bold sentence wrapped onto a full line, and a bold word inside a sentence, keep
-    their paragraph (Pinned by: test_pdf_headings.py::TestBoldHeadings)."""
+    it, so it could not be a heading. A bold sentence wrapped onto a full line, a bold word inside a sentence, and a bold
+    sentence closing a paragraph keep their paragraph (Pinned by: test_pdf_headings.py::TestBoldHeadings,
+    TestBoldSentenceEnds::test_a_bold_sentence_closing_a_paragraph_keeps_it)."""
     if previous.bold and not line.bold:
         return previous.x1 < line.x1 - 2 * previous.height
     if line.bold and not previous.bold:
-        return previous.text.rstrip().endswith((".", "!", "?", ":", "。"))
+        # A bold line that is itself a sentence ('Do not discard this notice!') closes the paragraph it is set in
+        return previous.text.rstrip().endswith((".", "!", "?", ":", "。")) and not _ends_like_a_sentence(line.text.strip())
     return False
 
 
@@ -520,9 +523,9 @@ def _is_bold_heading(paragraph: _Paragraph, body_size: float, side_by_side: froz
     """A heading set in a bold face at about the body size: every line is bold, the size is at least
     `_BOLD_HEADING_MIN_RATIO` of the body, it holds a letter, is not a caption or note label ('Figure 3.', 'Source:',
     `_CAPTION_START`), and does not end like a sentence (',' or ';'; '.' only when the whole text is a numbered label,
-    `_NUMBERED_LABEL`, such as 'CHAPTER 1.' or 'Part IV.'). A heading may end in ':' ('Procedure:') or '?'. A bold line
-    with another bold line beside it on the same row (`side_by_side`, `_header_cells`) is a header cell of a table the page
-    did not find, not a heading.
+    `_NUMBERED_LABEL`, such as 'CHAPTER 1.' or 'Part IV.'; `_ends_like_a_sentence`). A short heading may end in ':'
+    ('Procedure:'), '?' or '!'. A bold line with another bold line beside it on the same row (`side_by_side`,
+    `_header_cells`) is a header cell of a table the page did not find, not a heading.
 
     Deliberate: a heading in many books and papers differs from the body only by its weight ('5. The dynamics' in 11pt
     bold over a 10pt body), and with the size rule alone 53 of 193 headings of a 200-page pdf corpus were body text (Pinned
@@ -534,11 +537,35 @@ def _is_bold_heading(paragraph: _Paragraph, body_size: float, side_by_side: froz
     text = " ".join(line.text for line in paragraph.lines).strip()
     if max(line.size for line in paragraph.lines) < body_size * _BOLD_HEADING_MIN_RATIO or _CAPTION_START.match(text):
         return False
-    if not _HEADING_LETTER.search(text) or text.endswith((",", ";")):
-        return False
-    return not text.endswith(".") or bool(_NUMBERED_LABEL.fullmatch(text))
+    return bool(_HEADING_LETTER.search(text)) and not _ends_like_a_sentence(text)
 
 
+def _ends_like_a_sentence(text: str) -> bool:
+    """Whether a short bold text is a sentence rather than a title: it ends in ',' or ';'; in '.' unless the whole text is
+    a numbered label (`_NUMBERED_LABEL`); in '!', '?' or ':' after `_SENTENCE_MIN_WORDS` words or more; it holds a '!' or
+    '?' with more text after it ('Questions? Call 1-800-555-0100'); or it ends like a Korean sentence without its full stop
+    (`_hangul.korean_sentence_end`, the rule the Hangul readers tell sentences from titles by: `…합니다`, `…할 수 없다`).
+
+    Deliberate: with only ',', ';' and '.' looked at, bold notices and lead-ins at the body size became headings ('# Do not
+    discard this notice!', '# The following documents must be attached:', '# 을은 갑의 사전 동의 없이 업무를 위탁할 수
+    없다'), where 'Procedure:', 'Why entropy?' and '제1조(목적)' are headings (Pinned by:
+    test_pdf_headings.py::TestBoldSentences, TestBoldSentenceEnds)."""
+    if text.endswith((",", ";")):
+        return True
+    if text.endswith("."):
+        return not _NUMBERED_LABEL.fullmatch(text)
+    if _INNER_SENTENCE_END.search(text):
+        return True
+    if text.endswith(("!", "?", ":")) and len(text.split()) >= _SENTENCE_MIN_WORDS:
+        return True
+    return korean_sentence_end(text)
+
+
+# A bold text ending in '!', '?' or ':' with this many words or more is a sentence ('Do not discard this notice!', 'The
+# following documents must be attached:'), not a title ('Procedure:', 'Why entropy?')
+_SENTENCE_MIN_WORDS = 5
+# A '!' or '?' after a word with more text after it: two sentences on the line ('Questions? Call 1-800-555-0100')
+_INNER_SENTENCE_END = re.compile(r"[^\W\d_][!?]\s+\S")
 # A letter of a word (not a number or a symbol): a bold '2024' or '12.5%' alone is a value, not a heading.
 _HEADING_LETTER = re.compile(r"[A-Za-z\u00c0-\u024f가-힣一-鿿]")
 # Heading-like lines side by side on one row that make it the header row of a table (`_header_cells`): three panels of a slide

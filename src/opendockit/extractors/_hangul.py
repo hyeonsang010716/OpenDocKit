@@ -262,6 +262,16 @@ def _outline_title(plain: str) -> bool:
     return not (final == _FINAL_N and len(text.split()) >= 3)
 
 
+def korean_sentence_end(plain: str) -> bool:
+    """Whether a paragraph ends like a Korean sentence, without or with its full stop: a clause end (`_outline_title`:
+    `…한다`, `…합니다`, `…할 수 없다`, `…했다`; not the names `캐나다`, `바다`) or the polite `…요` (`_POLITE_END`; not
+    개요, 필요). The PDF reader holds its bold headings at the body size to it as well: in a PDF, too, a bold `신청서는 반드시
+    기한 내에 제출하여야 합니다` is a sentence set in bold, not a heading (Pinned by:
+    test_pdf_headings.py::TestBoldSentenceEnds::test_a_korean_sentence_without_a_full_stop_is_no_heading)."""
+    text = plain.strip()
+    return bool(text) and (not _outline_title(text) or bool(_POLITE_END.search(text.rstrip(_CLOSING).rstrip())))
+
+
 def _size_heading_text(plain: str) -> bool:
     """Whether a paragraph can be a heading by its size, from its text: short, one line, with a word, not a sentence (also inside
     closing quotes or brackets, or in the polite `…요` form), not a line in quotes, not a date, not the addressee, signature or

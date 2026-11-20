@@ -5,6 +5,7 @@ from io import BytesIO
 import pytest
 
 from opendockit import convert
+from tests.test_pdf import _raw_pdf
 
 
 _BODY = [
@@ -227,3 +228,79 @@ class TestBoldSentences:
         text = _text([*_body(80), (140, label, 10, "Times-Bold"), *_body(156)])
 
         assert f"# {label}\n\nThe next step" in text
+
+
+_KOREAN_BODY = [
+    "본 계약은 갑과 을 사이의 용역 제공에 관한 기본적인 사항을 정하는 것을 목적으로",
+    "하며 당사자는 신의에 따라 성실하게 이 계약을 이행하여야 하고 상대방의 권리를",
+    "존중하여야 한다. 계약의 내용은 서면으로 변경할 수 있으며 변경된 내용은 즉시",
+    "효력이 발생한다. 을은 갑의 사전 동의 없이 제3자에게 업무를 위탁할 수 없다.",
+]
+
+
+def _named_font_pdf(items: list[tuple[float, float, str, float, str]]) -> str:
+    """The text of a one-page PDF drawing each (x, y from the top, text, size, font name) in a font of exactly that name (not
+    embedded, Identity-H, a character's code is its code point, 500 units wide), so a Korean line can be set in a bold font
+    name ('Batang-Bold') as Korean PDFs do."""
+    names = list(dict.fromkeys(item[4] for item in items))
+    highs = sorted({ord(char) >> 8 for item in items for char in item[2]})
+    cmap = ("/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /U def 1 begincodespacerange <0000> <FFFF>"
+            f" endcodespacerange {len(highs)} beginbfrange " + " ".join(f"<{h:02X}00> <{h:02X}FF> <{h:02X}00>" for h in highs)
+            + " endbfrange endcmap CMapName currentdict /CMap defineresource pop end end").encode()
+    content = "\n".join(f"BT /F{names.index(font)} {size} Tf {x} {842 - y} Td <{''.join(f'{ord(c):04X}' for c in text)}> Tj ET"
+                         for x, y, text, size, font in items).encode()
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+               3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << %s >> >> >>"
+                  % b" ".join(b"/F%d %d 0 R" % (index, 10 + 3 * index) for index in range(len(names))),
+               4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
+               5: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(cmap), cmap)}
+    for index, name in enumerate(names):
+        base = 10 + 3 * index
+        objects[base] = (b"<< /Type /Font /Subtype /Type0 /BaseFont /%s /Encoding /Identity-H /DescendantFonts [%d 0 R]"
+                         b" /ToUnicode 5 0 R >>" % (name.encode(), base + 1))
+        objects[base + 1] = (b"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /%s /CIDSystemInfo << /Registry (Adobe)"
+                             b" /Ordering (Identity) /Supplement 0 >> /FontDescriptor %d 0 R /DW 500 /CIDToGIDMap /Identity >>"
+                             % (name.encode(), base + 2))
+        objects[base + 2] = (b"<< /Type /FontDescriptor /FontName /%s /Flags 32 /FontBBox [0 -200 1000 900] /ItalicAngle 0"
+                             b" /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>" % name.encode())
+    return convert(_raw_pdf(objects), "a.pdf").sections[0].text
+
+
+def _named_body(top: float, font: str = "Batang", lines: list[str] = _KOREAN_BODY) -> list[tuple[float, float, str, float, str]]:
+    return [(72, top + index * 12.5, line, 10, font) for index, line in enumerate(lines)]
+
+
+class TestBoldSentenceEnds:
+    """A bold sentence ending in '!', '?' or ':', holding two sentences, or ending like a Korean sentence is no heading; a
+    short title ending so, and a Korean title, is."""
+
+    @pytest.mark.parametrize("line", ["Do not discard this notice!", "Questions? Call 1-800-555-0100",
+                                      "The following documents must be attached:"])
+    def test_a_bold_sentence_with_another_end_is_no_heading(self, line):
+        text = _text([*_body(80), (140, line, 10, "Times-Bold"), *_body(156)])
+
+        assert "#" not in text and line in text
+
+    @pytest.mark.parametrize("line", ["신청서는 반드시 기한 내에 제출하여야 합니다", "을은 갑의 사전 동의 없이 업무를 위탁할 수 없다"])
+    def test_a_korean_sentence_without_a_full_stop_is_no_heading(self, line):
+        text = _named_font_pdf([*_named_body(80), (72, 140, line, 10, "Batang-Bold"), *_named_body(156)])
+
+        assert "#" not in text and line in text
+
+    @pytest.mark.parametrize("title", ["제1조(목적)", "1. 사업 개요", "추진 배경"])
+    def test_a_korean_title_in_bold_is_a_heading(self, title):
+        text = _named_font_pdf([*_named_body(80), (72, 140, title, 10, "Batang-Bold"), *_named_body(156)])
+
+        assert f"# {title}\n\n본 계약은" in text
+
+    @pytest.mark.parametrize("title", ["Why entropy?", "Read this first!", "Key findings", "1.1 Scope"])
+    def test_a_short_title_is_a_heading(self, title):
+        text = _text([*_body(80), (140, title, 10, "Times-Bold"), *_body(156)])
+
+        assert f"# {title}\n\nThe next step" in text
+
+    def test_a_bold_sentence_closing_a_paragraph_keeps_it(self):
+        text = _text([(80, _BODY[0], 10, "Times-Roman"), (92.5, "of time, simply because there are so many more of that kind.", 10,
+                       "Times-Roman"), (105, "Do not discard this notice!", 10, "Times-Bold"), *_body(130)])
+
+        assert "many more of that kind.\nDo not discard this notice!\n\nThe next step" in text
