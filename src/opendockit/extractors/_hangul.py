@@ -186,15 +186,42 @@ _SENTENCE_END = re.compile(r"(?:다|세요)[.!?]?\Z|[.!?]\Z")
 _ADDRESSEE = re.compile(r"(?:귀하|귀중)\Z")
 # What follows the last tab of a table-of-contents line: a page label (`7`, `3-12`, `ii`, `n+1`, `2 3`)
 _PAGE_LABEL = re.compile(r"[\divxlcIVXLCn+\-–—~., ]{1,12}")
+# Closing quotes and brackets after the end of a sentence (`“오늘은 좋은 하루였다.”`, `…한다)`)
+_CLOSING = "\"'”’」』)]）〉》"
+# A Korean polite sentence ending `…요` (`함께 해요`, `좋아요`, `그렇죠`); not the `요` of 개요, 필요, 주요 or 중요
+_POLITE_END = re.compile(r"(?:[어아여해에예네군데게까나래대봐와워줘져려]요|죠)\Z")
+# A Korean date or time, filled in or blank (`2024년 12월 31일`, `2024년    월    일`, `3월 5일(화)`, `14시 30분`)
+_WEEKDAY = re.compile(r"\(?[월화수목금토일](?:요일)?\)")
+_KOREAN_DATE = re.compile(r"[\d\s.,:~\-()]*(?:[년월일시분초][\d\s.,:~\-()]*)+")
+# The signature or stamp line of a form (`신청인 : (서명 또는 인)`, `대표이사 홍 길 동 (인)`)
+_SIGNATURE = re.compile(r"\(\s*(?:서명|인|날인|직인)(?:\s*(?:또는|및|/)\s*(?:서명|인|날인|직인))?\s*\)\Z")
+# A line that starts with a typed bullet or note mark (`ㅇ 예산 확보 필요`, `※ 문의`, `□ 추진 배경`, `- 세부 내용`, `▶ 일정`):
+# an item of a 개조식 list, not a title
+_BULLET_LEAD = re.compile(r"(?:[ㅇo](?=\s)|[-–·•※□■○●◦◎▶▷►▸◆◇◈▪▫*→⇒➢✓√❍❏])")
+# A web address, e-mail address or phone number (`www.example.go.kr`, `02-123-4567`): contact lines, not titles
+_CONTACT = re.compile(r"(?i:https?://|www\.)|[\w.+-]+@[\w-]+\.\w|\b\d{2,4}-\d{3,4}-\d{4}\b|\b[\w-]+(?:\.[\w-]+)*\.(?:kr|com|net|org)\b")
 
 
 def _size_heading_text(plain: str) -> bool:
-    """Whether a paragraph can be a heading by its size, from its text: short, one line, with a word, not a sentence, not the
-    addressee line of a form, and not a table-of-contents line (text, tab, page label)."""
+    """Whether a paragraph can be a heading by its size, from its text: short, one line, with a word, not a sentence (also inside
+    closing quotes or brackets, or in the polite `…요` form), not a line in quotes, not a date, not the addressee, signature or
+    stamp line of a form, not an item of a typed bullet list or a note (`※`), not a contact line (web or e-mail address, phone
+    number), and not a table-of-contents line (text, tab, page label) (Pinned by:
+    test_hwp_size_headings.py::TestSizeHeadings::test_lines_that_only_look_large_are_no_headings,
+    test_dates_signatures_quotes_and_contacts_are_no_headings).
+
+    The same guards decide whether an outline head (개요 번호) makes a heading (`decorated_text`)."""
     text = plain.strip()
     if not text or len(text) > _SIZE_HEADING_MAX_CHARS or "\n" in text:
         return False
-    if not _LETTER.search(_EQUATION.sub("", text)) or _SENTENCE_END.search(text) or _ADDRESSEE.search(text):
+    unquoted = text.rstrip(_CLOSING).rstrip()
+    if not _LETTER.search(_EQUATION.sub("", text)) or _SENTENCE_END.search(unquoted) or _POLITE_END.search(unquoted):
+        return False
+    if _ADDRESSEE.search(text) or _SIGNATURE.search(text) or _BULLET_LEAD.match(text) or _CONTACT.search(text):
+        return False
+    if text[0] in "\"“'‘" and text[-1] in "\"”'’":
+        return False
+    if _KOREAN_DATE.fullmatch(_WEEKDAY.sub("", text)):
         return False
     return "\t" not in text or not _PAGE_LABEL.fullmatch(text.rsplit("\t", 1)[1].strip())
 

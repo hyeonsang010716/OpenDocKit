@@ -35,8 +35,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   heading of its level, whatever its style — Hangul builds the outline and the table of contents from it, and it came out
   as a numbered list; a numbered clause that is a sentence (`1. 갑은 을에게 … 지급한다.`) stays a numbered paragraph. A
   short top-level paragraph set 1.15 / 1.3 / 1.5 times larger than the size most body paragraphs are written in is a
-  level 3 / 2 / 1 heading; dates, table-of-contents lines, the addressee line of a form and sentences written large stay
-  text. In 34 real HWP / HWPX files, where every title was set by size on 바탕글, no heading came out before; now their
+  level 3 / 2 / 1 heading; dates, table-of-contents lines, the addressee, signature and stamp lines of a form, typed
+  bullet items, contact lines and sentences written large stay text. In 34 real HWP / HWPX files, where every title was set by size on 바탕글, no heading came out before; now their
   chapter titles do.
 - **Letter-spaced labels of Hangul forms** are written without the spaces between their syllables (`성   명` →
   `성명`, `담   당   자` → `담당자`), so a search for the label finds it. Syllables one space apart stay as written

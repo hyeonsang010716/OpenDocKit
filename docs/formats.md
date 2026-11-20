@@ -130,7 +130,7 @@ Section unit: the whole document. Design notes: [decisions/hwp.md](decisions/hwp
 
 - "개요 N" (Outline N) styles and paragraphs with an outline number (개요 번호) → headings. In a document without them, a
   short paragraph set clearly larger than the body (1.15 / 1.3 / 1.5 times) becomes a level 3 / 2 / 1 heading; dates,
-  table-of-contents lines and sentences written large stay text.
+  table-of-contents lines, signature lines, typed bullet items, contact lines and sentences written large stay text.
 - Paragraph numbering and bullets; lower levels become indented lists.
 - Letter-spaced labels of forms are joined (`담   당   자` → `담당자`; syllables one space apart stay as written);
   blank dates (`년   월   일`) keep their spaces.
