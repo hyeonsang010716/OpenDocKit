@@ -84,8 +84,10 @@ def _digit_place(character: str) -> tuple[int, int] | None:
 
 
 def framed_number(text: str) -> str | None:
-    """The digits of composed characters that are nothing but framed-number pieces (`12` for U+F0289 U+F0294), or None."""
+    """The digits of composed characters that are a framed number made of pieces (`12` for U+F0289 U+F0294), or None: two pieces
+    of the tens and ones places, or three of the hundreds, tens and ones places, once each. A single piece is a symbol of its own
+    (`hancom_symbols`), and pieces of the same place twice or without the ones place are no number."""
     places = [_digit_place(character) for character in text]
-    if not places or None in places:
+    if None in places or sorted(place for place, _ in places) not in ([1, 2], [0, 1, 2]):
         return None
     return "".join(str(digit) for _, digit in sorted(places, key=lambda place: place[0]))

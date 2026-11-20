@@ -693,6 +693,14 @@ class TestComposedCharacters:
         document holds the digits in composeText."""
         assert self._hwp(monkeypatch, self._tcps(text, border)) == "12"
 
+    @pytest.mark.parametrize(("text", "expected"), [
+        ("\U000f0289", "①"),               # one piece is a symbol of its own (`_hancom_symbols`)
+        ("\U000f0289\U000f028a", "①②"),   # two pieces of the tens place are no number: each is its symbol
+        ("\U000f0289가", "①가"),            # a piece among letters
+    ])
+    def test_hwp_pieces_that_are_no_framed_number(self, monkeypatch, text, expected):
+        assert self._hwp(monkeypatch, self._tcps(text, 0)) == expected
+
     def test_hwp_three_digit_number_in_a_circle(self, monkeypatch):
         assert self._hwp(monkeypatch, self._tcps("\U000f0491\U000f049c\U000f04a7", 1)) == "123"
 
@@ -1582,6 +1590,19 @@ class TestClickHereFields:
         ])
 
         assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "성명: 소속: 총무과"
+
+    def test_unfilled_guide_with_a_hancom_symbol_is_dropped(self, monkeypatch):
+        """The text of the field has its Hancom symbols written out; so has the guide it is compared with."""
+        guide = "\U000f012b 서명"
+        body = f"<hp:p><hp:run><hp:t>성명 </hp:t>{_hwpx_click_here(1, guide, guide)}</hp:run></hp:p>"
+        command = f"Clickhere:set:44:Direction:wstring:{len(guide.encode('utf-16-le')) // 2}:{guide} HelpState:wstring:0:  "
+        record = builder.hwp_record
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 1, builder.hwp_text("성명 ", (3, "%clk"), "\ua12b 서명", (4, "%clk")))
+                   + record(TAG_CTRL_HEADER, 1, _hwp_field("%clk", command.replace(guide, "\ua12b 서명"))))
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "성명"
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "성명"
 
     @staticmethod
     def _nested_hwpx(count: int, guide: str = "g") -> bytes:

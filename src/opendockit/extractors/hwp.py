@@ -715,7 +715,7 @@ class HwpRenderer:
             # ended joined the text from each start again: 19 s (Pinned by: test_hwp.py::TestClickHereFields::
             # test_fields_opened_inside_each_other_take_linear_time)
             self._clicks_opened += 1
-            self._fields.append(_ClickHere(buffer, len(buffer), click_here_guide(command), self._clicks_opened))
+            self._fields.append(_ClickHere(buffer, len(buffer), click_here_guide(unfold(command)), self._clicks_opened))
             return
         if kind == "%hlk" and self._options.keep_links and command:
             url = command_link(command)

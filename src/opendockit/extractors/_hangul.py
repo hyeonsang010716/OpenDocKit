@@ -9,6 +9,7 @@ from collections import Counter
 from collections.abc import Callable
 import re
 
+from opendockit.extractors._hancom_symbols import hancom_symbols
 from opendockit.extractors._inline import (
     LINK_OPEN,
     emphasis_marks,
@@ -205,7 +206,10 @@ def click_here_guide(command: str) -> str | None:
     found = _CLICK_HERE_GUIDE.search(command)
     if found is None:
         return None
-    guide = command[found.end():found.end() + int(found.group(1))]
+    # The guide is compared with the text of the field, whose Hancom symbols are written out (`_hancom_symbols`): kept as they
+    # are, an unfilled guide with a seal mark (`(인) 서명`) no longer matched and stayed (Pinned by:
+    # test_hwp.py::TestClickHereFields::test_unfilled_guide_with_a_hancom_symbol_is_dropped)
+    guide = hancom_symbols(command[found.end():found.end() + int(found.group(1))])
     return guide.strip() or None
 
 
