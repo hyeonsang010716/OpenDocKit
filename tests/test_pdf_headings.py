@@ -304,3 +304,30 @@ class TestBoldSentenceEnds:
                        "Times-Roman"), (105, "Do not discard this notice!", 10, "Times-Bold"), *_body(130)])
 
         assert "many more of that kind.\nDo not discard this notice!\n\nThe next step" in text
+
+
+class TestBoldValues:
+    """A total, a date line, an address or the name under a letter's closing set in bold at the body size is no heading."""
+
+    @pytest.mark.parametrize("line", ["Total due USD 1,234.00", "March 3, 2024", "Q3 2024", "Acme Corp, PO Box 12, Springfield"])
+    def test_a_bold_value_is_no_heading(self, line):
+        text = _text([*_body(80), (140, line, 10, "Times-Bold"), *_body(156)])
+
+        assert "#" not in text and line in text
+
+    def test_a_bold_korean_total_is_no_heading(self):
+        text = _named_font_pdf([*_named_body(80), (72, 140, "합계 금액 1,000,000원", 10, "Batang-Bold"), *_named_body(156)])
+
+        assert "#" not in text and "합계 금액 1,000,000원" in text
+
+    def test_the_name_under_the_closing_of_a_letter_is_no_heading(self):
+        text = _named_font_pdf([*_named_body(80, "Times-Roman", _BODY), (72, 150, "Sincerely,", 10, "Times-Roman"),
+                                (72, 190, "Jane Smith", 10, "Times-Bold"), (72, 202.5, "Director of Sales", 10, "Times-Roman")])
+
+        assert "#" not in text and "Jane Smith" in text
+
+    @pytest.mark.parametrize("title", ["Results for 2023", "Planning, design and construction", "5. The dynamics"])
+    def test_a_title_with_a_number_or_commas_is_a_heading(self, title):
+        text = _text([*_body(80), (140, title, 10, "Times-Bold"), *_body(156)])
+
+        assert f"# {title}\n\nThe next step" in text

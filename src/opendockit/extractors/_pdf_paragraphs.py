@@ -7,7 +7,7 @@ from itertools import accumulate
 import math
 import re
 
-from opendockit.extractors._hangul import korean_sentence_end
+from opendockit.extractors._hangul import _CONTACT, _KOREAN_DATE, _WEEKDAY, korean_sentence_end
 from opendockit.extractors._pdf_model import (
     _BOLD_BODY_MAX_RATIO,
     _BOLD_HEADING_MIN_RATIO,
@@ -54,8 +54,10 @@ def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], lin
     sizes: list[tuple[float, int]] = []  # (bottom coordinate, line count) in the same order as items. Tables and pictures are (bottom, 0)
     boxes: list[tuple[float, float, float, float]] = []  # (top, bottom, x0, x1) of paragraphs. Tables and pictures are not included
     side_by_side = _header_cells(page.lines, body_size) if heading_levels else frozenset()
+    previous = None
     for paragraph in _group_paragraphs(page.lines, line_gap):
-        key = _heading_key(paragraph, heading_levels, body_size, side_by_side)
+        key = _heading_key(paragraph, heading_levels, body_size, side_by_side, previous)
+        previous = paragraph
         level = heading_levels[key] if key else 0
         text = (f"{'#' * level} {' '.join(line.text for line in paragraph.lines)}" if level
                 else _escaped_block_marks(_paragraph_text(paragraph)))
@@ -519,13 +521,16 @@ def _is_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset
             and max(line.size for line in paragraph.lines) / body_size >= _HEADING_SIZE_RATIO)
 
 
-def _is_bold_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset[int] = frozenset()) -> bool:
+def _is_bold_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset[int] = frozenset(),
+                     previous: _Paragraph | None = None) -> bool:
     """A heading set in a bold face at about the body size: every line is bold, the size is at least
     `_BOLD_HEADING_MIN_RATIO` of the body, it holds a letter, is not a caption or note label ('Figure 3.', 'Source:',
     `_CAPTION_START`), and does not end like a sentence (',' or ';'; '.' only when the whole text is a numbered label,
     `_NUMBERED_LABEL`, such as 'CHAPTER 1.' or 'Part IV.'; `_ends_like_a_sentence`). A short heading may end in ':'
     ('Procedure:'), '?' or '!'. A bold line with another bold line beside it on the same row (`side_by_side`,
-    `_header_cells`) is a header cell of a table the page did not find, not a heading.
+    `_header_cells`) is a header cell of a table the page did not find, not a heading. Nor is a value line (an amount, a
+    date, an address or a contact, `_is_value_text`) or the name under the closing of a letter (the paragraph before it,
+    `previous`, ends in ',': 'Sincerely,').
 
     Deliberate: a heading in many books and papers differs from the body only by its weight ('5. The dynamics' in 11pt
     bold over a 10pt body), and with the size rule alone 53 of 193 headings of a 200-page pdf corpus were body text (Pinned
@@ -537,7 +542,22 @@ def _is_bold_heading(paragraph: _Paragraph, body_size: float, side_by_side: froz
     text = " ".join(line.text for line in paragraph.lines).strip()
     if max(line.size for line in paragraph.lines) < body_size * _BOLD_HEADING_MIN_RATIO or _CAPTION_START.match(text):
         return False
-    return bool(_HEADING_LETTER.search(text)) and not _ends_like_a_sentence(text)
+    if previous is not None and previous.lines[-1].text.rstrip().endswith(","):
+        return False
+    return bool(_HEADING_LETTER.search(text)) and not _ends_like_a_sentence(text) and not _is_value_text(text)
+
+
+def _is_value_text(text: str) -> bool:
+    """Whether a short bold text is a value set in bold, not a title: it holds an amount (a currency sign or code, '원', or
+    digits grouped in thousands, `_AMOUNT`), is a date or a period ('March 3, 2024', 'Q3 2024', '2024-03-01', '2024년 3월
+    5일', `_DATE_LINE`, `_hangul._KOREAN_DATE`), is an address or a list holding a number between two commas or more
+    ('Acme Corp, PO Box 12, Springfield'), or holds a web or e-mail address or a phone number (`_hangul._CONTACT`).
+
+    Deliberate: a bold total, date line or address at the body size became a heading ('# Total due USD 1,234.00', '# 합계
+    금액 1,000,000원', '# March 3, 2024', '# Q3 2024') (Pinned by: test_pdf_headings.py::TestBoldValues)."""
+    if _AMOUNT.search(text) or _DATE_LINE.fullmatch(text) or _KOREAN_DATE.fullmatch(_WEEKDAY.sub("", text)):
+        return True
+    return (text.count(",") >= 2 and any(char.isdigit() for char in text)) or bool(_CONTACT.search(text))
 
 
 def _ends_like_a_sentence(text: str) -> bool:
@@ -566,6 +586,18 @@ def _ends_like_a_sentence(text: str) -> bool:
 _SENTENCE_MIN_WORDS = 5
 # A '!' or '?' after a word with more text after it: two sentences on the line ('Questions? Call 1-800-555-0100')
 _INNER_SENTENCE_END = re.compile(r"[^\W\d_][!?]\s+\S")
+# An amount: a currency sign or code by a number ('$110.00', 'USD 1,234.00', '1,000원', '30 EUR') or digits grouped in thousands
+# ('1,000,000')
+_AMOUNT = re.compile(r"[$€£¥₩]\s?\d|\b(?:USD|EUR|GBP|JPY|KRW|CNY|CHF)\s?\d|\d\s?(?:USD|EUR|GBP|JPY|KRW|CNY|CHF)\b"
+                     r"|\d\s?(?:원|달러|엔|위안)(?![가-힣])|\d{1,3}(?:,\d{3})+")
+# A date or a period alone on the line ('March 3, 2024', '3 March 2024', 'March 2024', 'Q3 2024', 'FY2024', '2024-03-01',
+# '03/01/2024')
+_MONTH = (r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?"
+          r"|Nov(?:ember)?|Dec(?:ember)?)\.?")
+_DATE_LINE = re.compile(rf"(?:[A-Z][a-z]{{2,8}},?\s+)?(?:{_MONTH}\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+\d{{4}}"
+                        rf"|\d{{1,2}}\.?\s+{_MONTH},?\s+\d{{4}}|{_MONTH},?\s+\d{{4}})"
+                        r"|(?:Q[1-4]|H[12])\s*(?:FY\s*)?'?\d{2,4}|FY\s*'?\d{2,4}"
+                        r"|\d{4}\s*[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2}\.?|\d{1,2}\s*[-./]\s*\d{1,2}\s*[-./]\s*\d{2,4}")
 # A letter of a word (not a number or a symbol): a bold '2024' or '12.5%' alone is a value, not a heading.
 _HEADING_LETTER = re.compile(r"[A-Za-z\u00c0-\u024f가-힣一-鿿]")
 # Heading-like lines side by side on one row that make it the header row of a table (`_header_cells`): three panels of a slide
@@ -639,7 +671,7 @@ def _bold_body(pages: list[_Page]) -> bool:
 
 
 def _heading_key(paragraph: _Paragraph, heading_levels: dict[_HeadingKey, int], body_size: float,
-                 side_by_side: frozenset[int] = frozenset()) -> _HeadingKey | None:
+                 side_by_side: frozenset[int] = frozenset(), previous: _Paragraph | None = None) -> _HeadingKey | None:
     """The level key of a paragraph that is a heading: its size when that is a heading size of the document, otherwise
     (size, True) when the document has bold headings at about the body size and the paragraph is one. None for body text."""
     if not _heading_shaped(paragraph) or any(id(line) in side_by_side for line in paragraph.lines):
@@ -647,7 +679,7 @@ def _heading_key(paragraph: _Paragraph, heading_levels: dict[_HeadingKey, int], 
     size = _heading_size(paragraph)
     if (size, False) in heading_levels:
         return (size, False)
-    if (size, True) in heading_levels and _is_bold_heading(paragraph, body_size, side_by_side):
+    if (size, True) in heading_levels and _is_bold_heading(paragraph, body_size, side_by_side, previous):
         return (size, True)
     return None
 
@@ -662,10 +694,12 @@ def _heading_levels(pages: list[_Page], body_size: float, line_gap: float) -> di
         if page.simple:
             continue
         side_by_side = _header_cells(page.lines, body_size)
+        previous = None
         for paragraph in _group_paragraphs(page.lines, line_gap):
             if _is_heading(paragraph, body_size, side_by_side):
                 keys.add((_heading_size(paragraph), False))
-            elif bold_allowed and _is_bold_heading(paragraph, body_size, side_by_side):
+            elif bold_allowed and _is_bold_heading(paragraph, body_size, side_by_side, previous):
                 keys.add((_heading_size(paragraph), True))
+            previous = paragraph
     ranked = sorted(keys, key=lambda key: (-key[0], key[1]))
     return {key: min(rank, 3) for rank, key in enumerate(ranked, start=1)}
