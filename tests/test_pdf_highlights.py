@@ -722,6 +722,41 @@ class TestBarCharts:
         small, large = seconds(1_000), seconds(4_000)
         assert large < small * 8
 
+    @pytest.mark.timing
+    def test_tall_bars_over_many_characters_take_linear_time(self):
+        """A bar looks only at the characters of its own width or of its own height: looking at those of every height band
+        it covers, 4,000 bars 1,000pt tall with ten characters beside each took 4.7 seconds, four times as many sixteen times
+        as long."""
+        from io import BytesIO
+
+        import pdfplumber
+        from reportlab.pdfgen import canvas
+
+        from opendockit.extractors._pdf_table_filters import _without_chart_bars
+        from tests.timing import fastest
+
+        def bars_pdf(count: int) -> bytes:
+            buffer = BytesIO()
+            pdf = canvas.Canvas(buffer, pagesize=(count * 5 + 100, 1400))
+            pdf.setFont("Helvetica", 4)
+            for index in range(count):
+                pdf.setFillColorRGB(0, 0.4, 0.7)
+                pdf.rect(10 + 5 * index, 10, 3, 1000 + index % 300, stroke=0, fill=1)
+                pdf.setFillColorRGB(0, 0, 0)
+                for line in range(10):
+                    pdf.drawString(10 + 5 * index + 3.6, 20 + line * 90, "1")
+            pdf.save()
+            return buffer.getvalue()
+
+        def seconds(count: int) -> float:
+            with pdfplumber.open(BytesIO(bars_pdf(count))) as document:
+                page = document.pages[0]
+                page.rects, page.chars  # noqa: B018 — pdfplumber's own reading is not measured
+                return fastest(lambda: _without_chart_bars(page))
+
+        small, large = seconds(500), seconds(2_000)
+        assert large < small * 8
+
     def test_a_bar_chart_is_not_a_table(self):
         text = convert(_bar_chart([120, 80, 150, 60]), "a.pdf").text
 

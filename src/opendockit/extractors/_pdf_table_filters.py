@@ -4,7 +4,7 @@ advance, highlights drawn behind text, and rows of cells that are a tiled backgr
 
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable
-from itertools import accumulate, pairwise
+from itertools import accumulate, islice, pairwise
 import math
 
 
@@ -31,8 +31,6 @@ _CHART_BARS_MIN, _BAR_SLACK = 3, 0.5
 _BAR_WIDTH_RATIO = 1.5
 # ... and how thick (pt) a bar is at least: Word draws the rules of a table as filled rectangles 0.5–1pt thick, in pieces per row
 _BAR_MIN_THICKNESS = 2.0
-# Height bands (pt) of the characters a bar is checked against (`_without_chart_bars`)
-_BAR_BAND = 16.0
 
 
 # Glyph outline curve (_without_glyph_outlines): a curve smaller than this size (pt) both horizontally and vertically, and thicker
@@ -257,22 +255,29 @@ def _without_chart_bars(page: object) -> object:
              and min(rect["width"], rect["height"]) >= _BAR_MIN_THICKNESS]
     if len(fills) < _CHART_BARS_MIN:
         return page
-    # The centres of the page's characters by height band: a bar looks only at those of the bands it covers (looking at every
-    # character of its x range took a sideways bar through all the rows of the page)
-    centres: dict[int, list[tuple[float, float]]] = {}
-    for char in page.chars:
-        x, y = (char["x0"] + char["x1"]) / 2, (char["top"] + char["bottom"]) / 2
-        if char["text"].strip() and math.isfinite(x) and math.isfinite(y):
-            centres.setdefault(math.floor(y / _BAR_BAND), []).append((x, y))
+    # The centres of the page's characters sorted across and down: a bar looks only at those of its own width or of its own
+    # height, whichever are fewer. Looking at the characters of the height bands it covers, a tall bar went through all the
+    # characters of the page: 4,000 bars over 40,000 characters took 4.7 seconds (Pinned by:
+    # test_pdf_highlights.py::TestBarCharts::test_tall_bars_over_many_characters_take_linear_time)
+    centres = [((char["x0"] + char["x1"]) / 2, (char["top"] + char["bottom"]) / 2) for char in page.chars if char["text"].strip()]
+    across = sorted((x, y) for x, y in centres if math.isfinite(x) and math.isfinite(y))
+    down = sorted((y, x) for x, y in across)
+    xs, ys = [x for x, _ in across], [y for y, _ in down]
+    held: dict[int, bool] = {}
 
     def holds_text(rect: dict) -> bool:
-        if not (math.isfinite(rect["top"]) and math.isfinite(rect["bottom"])):
-            return False
-        bands = range(math.floor(rect["top"] / _BAR_BAND), math.floor(rect["bottom"] / _BAR_BAND) + 1)
-        if len(bands) > len(centres):
-            bands = [band for band in centres if bands.start <= band < bands.stop]
-        return any(rect["x0"] <= x <= rect["x1"] and rect["top"] <= y <= rect["bottom"]
-                   for band in bands for x, y in centres.get(band, ()))
+        if id(rect) not in held:
+            x0, top, x1, bottom = rect["x0"], rect["top"], rect["x1"], rect["bottom"]
+            if not all(math.isfinite(value) for value in (x0, top, x1, bottom)):
+                held[id(rect)] = False
+            else:
+                left, right, low, high = bisect_left(xs, x0), bisect_right(xs, x1), bisect_left(ys, top), bisect_right(ys, bottom)
+                held[id(rect)] = (any(top <= y <= bottom for _, y in across[left:right]) if right - left <= high - low
+                                  else any(x0 <= x <= x1 for _, x in down[low:high]))
+        return held[id(rect)]
+
+    def at_most_one_holds_text(group: list[dict]) -> bool:
+        return sum(1 for _ in islice((rect for rect in group if holds_text(rect)), 2)) <= 1
 
     bars: set[int] = set()
     for along, across, start, end in (("bottom", "width", "x0", "x1"), ("top", "width", "x0", "x1"),
@@ -288,7 +293,7 @@ def _without_chart_bars(page: object) -> object:
             ordered = sorted(group, key=lambda rect: rect[start])
             apart = all(after[start] > before[end] + _BAR_SLACK for before, after in pairwise(ordered))
             if (thickness[-1] <= max(thickness[0] * _BAR_WIDTH_RATIO, thickness[0] + _BAR_SLACK) and len(lengths) > 1 and apart
-                    and sum(1 for rect in group if holds_text(rect)) <= 1):
+                    and at_most_one_holds_text(group)):
                 bars.update(id(rect) for rect in group)
     if not bars:
         return page
