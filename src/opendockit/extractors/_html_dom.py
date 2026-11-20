@@ -19,11 +19,11 @@ from opendockit.extractors._html_base import (
     _BLOCK_TAGS,
     _CHECKED,
     _CODE_BLOCKS,
-    _FOLDED_STYLE,
     _HEADER_PROBE_ROWS,
     _HEADINGS,
     _MAIN_CONTENT_TAGS,
     _UNCHECKED,
+    FOLDED_VALUES,
     _content_holders,
     _is_main_content,
     _list_number,
@@ -31,6 +31,7 @@ from opendockit.extractors._html_base import (
     _replace,
     _solid_length,
     parse_html,
+    style_sets,
 )
 from opendockit.extractors._html_tables import (
     STRIKE_KEY,
@@ -107,13 +108,16 @@ _STRIKE_STYLE = re.compile(r"(?:^|;)(?>[^;]*?text-decoration(?:-line)?\s*:)[^;]*
 # Only the `display` / `visibility` (and `content-visibility`) properties themselves: matched anywhere, the pattern removed a
 # visible element styled `backface-visibility:hidden`, text and all
 # (Pinned by: test_audit_html_text.py::TestStylePropertiesThatOnlyEndLikeAHidingOne). Only the values themselves too, followed
-# by the end, `;`, whitespace or `!important`: `display:none-ish` or `visibility:hiddenx` is not a value CSS knows, and the
-# element was removed (Pinned by: test_core_html_mail_hidden_and_frames.py::TestStyleValuesThatOnlyStartLikeAHidingOne).
-_HIDDEN_STYLE = re.compile(r"(?<![\w-])(?:display\s*:\s*none|(?:content-)?visibility\s*:\s*hidden)(?![\w-])", re.IGNORECASE)
+# by the end, whitespace or `!important`: `display:none-ish` or `visibility:hiddenx` is not a value CSS knows, and the element
+# was removed (Pinned by: test_core_html_mail_hidden_and_frames.py::TestStyleValuesThatOnlyStartLikeAHidingOne).
+# Each property is decided by the declaration that wins (`_html_base.style_sets`): matched on the raw text of the style,
+# `/* display:none; */ color:#333` and `display:none; display:block` removed a visible element, text and all
+# (Pinned by: test_core_html_mail_hidden_and_frames.py::TestHidingDecidedByTheWinningDeclaration).
+_HIDING_VALUES = {"display": "none", "visibility": "hidden", "content-visibility": "hidden"}
 # Hiding that a descendant cannot undo (`display:none`, `content-visibility:hidden`), and the inherited `visibility`, which a
 # descendant can set back with `visibility:visible` (`_drop_hidden`).
-_UNDOABLE_HIDING = re.compile(r"(?<![\w-])(?:display\s*:\s*none|content-visibility\s*:\s*hidden)(?![\w-])", re.IGNORECASE)
-_VISIBLE_STYLE = re.compile(r"(?<![\w-])visibility\s*:\s*visible(?![\w-])", re.IGNORECASE)
+_UNDOABLE_HIDING_VALUES = {"display": "none", "content-visibility": "hidden"}
+_VISIBLE_VALUE = {"visibility": "visible"}
 # Elements whose `visibility:hidden` is not taken as hiding: the page itself, hidden by an anti-flicker snippet until a script
 # shows it.
 _PAGE_ROOTS = {"html", "body"}
@@ -1015,7 +1019,7 @@ def _folded_answers(soup: BeautifulSoup, cut: frozenset[int] = frozenset(), open
     for tag in soup.find_all(_FOLDED_TAGS):
         if id(tag) in removed:
             continue
-        if id(tag) in cut or not _FOLDED_STYLE.search(str(tag.get("style", ""))) or _has_hidden(tag) or tag.get("aria-hidden") == "true":
+        if id(tag) in cut or not style_sets(str(tag.get("style", "")), FOLDED_VALUES) or _has_hidden(tag) or tag.get("aria-hidden") == "true":
             continue
         sibling = tag.find_previous_sibling(True)
         opener = _opener(sibling) if sibling is not None else None
@@ -2243,7 +2247,7 @@ def _marked_as_permalink(link: Tag) -> bool:
 
 
 def _hidden_by_style(tag: Tag) -> bool:
-    return tag.attrs is not None and (_has_hidden(tag) or bool(_HIDDEN_STYLE.search(str(tag.get("style", "")))))
+    return tag.attrs is not None and (_has_hidden(tag) or style_sets(str(tag.get("style", "")), _HIDING_VALUES))
 
 
 def _has_hidden(tag: Tag) -> bool:
@@ -2333,14 +2337,14 @@ def _hidden_nodes(soup: BeautifulSoup, hidden: list[Tag]) -> list[PageElement]:
     Documents without such a case take the old path unchanged (the elements themselves)."""
     if not hidden:
         return []
-    visibles = soup.find_all(style=_VISIBLE_STYLE)
+    visibles = soup.find_all(style=lambda style: style is not None and style_sets(style, _VISIBLE_VALUE))
     above: set[int] = set()  # elements with a `visibility:visible` descendant (each climbs once, stopping at one already seen)
     for visible in visibles:
         node = visible.parent
         while node is not None and id(node) not in above:
             above.add(id(node))
             node = node.parent
-    special = [tag for tag in hidden if not _has_hidden(tag) and not _UNDOABLE_HIDING.search(str(tag.get("style", "")))
+    special = [tag for tag in hidden if not _has_hidden(tag) and not style_sets(str(tag.get("style", "")), _UNDOABLE_HIDING_VALUES)
                and (tag.name in _PAGE_ROOTS or id(tag) in above)]
     if not special:
         return list(hidden)

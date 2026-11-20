@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from opendockit import ConvertOptions, DocumentFormat, convert
+from opendockit import ConvertOptions, DocumentFormat, UnsupportedFormatError, convert
 from opendockit.extractors import _mail
 from tests import builder, needs_html5_tokenizer
 from tests.timing import fastest
@@ -873,3 +873,41 @@ class TestMailWithRelatedPartsAtTheTop:
 
         assert result.text.startswith("Subject: Planning\nFrom: kim@corp.co.kr\nTo: lee@corp.co.kr\n\nOur new logo:")
         assert len(result.images) == 1
+
+    @pytest.mark.parametrize("filename", ["a.eml", "a.mht", None])
+    def test_plain_text_body_without_an_html_part_is_read_as_in_a_mixed_mail(self, filename):
+        plain = "Content-Type: text/plain; charset=utf-8\n\nPlease see the attached chart."
+
+        related = convert(_related_mail(plain), filename)
+        mixed = convert(_related_mail(plain, top="multipart/mixed"), filename)
+
+        assert related.text == mixed.text == ("Subject: Planning\nFrom: kim@corp.co.kr\nTo: lee@corp.co.kr\n\n"
+                                              "Please see the attached chart.")
+
+    def test_plain_text_body_and_an_attachment_are_read_as_in_a_mixed_mail(self):
+        plain = "Content-Type: text/plain\n\nPlease see the attached file."
+        attachment = ('Content-Type: application/pdf; name="q.pdf"\nContent-Disposition: attachment; filename="q.pdf"\n'
+                      "Content-Transfer-Encoding: base64\n\nJVBERi0=")
+
+        related = convert(_related_mail(plain, attachment), "a.eml")
+        mixed = convert(_related_mail(plain, attachment, top="multipart/mixed"), "a.eml")
+
+        assert related.text == mixed.text
+        assert related.text.endswith("Please see the attached file.")
+        assert related.warnings == mixed.warnings == ["1 mail attachment(s) (q.pdf) were not read. Convert attachments separately."]
+
+    def test_only_a_forwarded_mail_is_read_as_in_a_mixed_mail(self):
+        forwarded = "Content-Type: message/rfc822\n\nFrom: boss@corp.co.kr\nSubject: Original\n\nThe original body."
+
+        related = convert(_related_mail(forwarded), "a.eml")
+        mixed = convert(_related_mail(forwarded, top="multipart/mixed"), "a.eml")
+
+        assert related.text == mixed.text
+        assert related.text.endswith("## Forwarded message\n\nSubject: Original\nFrom: boss@corp.co.kr\n\nThe original body.")
+
+    def test_saved_page_without_an_html_part_is_still_rejected(self):
+        page = (b'From: <Saved by Blink>\nSubject: Planning\nMIME-Version: 1.0\nContent-Type: multipart/related; boundary="R"\n\n'
+                b"--R\nContent-Type: text/plain\n\nSaved text.\n--R--\n")
+
+        with pytest.raises(UnsupportedFormatError, match="without an HTML body"):
+            convert(page, "a.mht")

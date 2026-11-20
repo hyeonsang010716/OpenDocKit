@@ -97,14 +97,24 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
         raise ValueError("Every root must be an existing folder.")
     shares = frozenset(share for root in resolved if (share := _network_share(str(root))))
     converter: IsolatedConverter | None = None
+    sessions = 0
 
+    # The SDK enters the lifespan once per connection, not once per server: every SSE client and every in-memory `Client`
+    # has its own, and they may overlap. Closed when the first one ended and never made again, the converter refused every
+    # file of the next session ('This IsolatedConverter is closed.'), and one SSE client leaving stopped another's
+    # conversion. It is closed when the last session ends, and the next file makes a new one
+    # (Pinned by: test_mcp_server.py::TestSessions).
     @asynccontextmanager
     async def lifespan(_: MCPServer) -> AsyncIterator[None]:
+        nonlocal converter, sessions
+        sessions += 1
         try:
             yield
         finally:
-            if converter is not None:
-                await converter.aclose()
+            sessions -= 1
+            if sessions == 0 and converter is not None:
+                closing, converter = converter, None
+                await closing.aclose()
 
     server = MCPServer("opendockit", instructions=_INSTRUCTIONS, version=__version__, lifespan=lifespan)
     _serve_tools_only(server)

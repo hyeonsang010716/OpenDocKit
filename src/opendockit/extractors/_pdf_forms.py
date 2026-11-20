@@ -29,7 +29,7 @@ _FIELD_PARENT_DEPTH = 8
 _ANNOTATION_UNSEEN = (1 << 1) | (1 << 5)
 
 
-def _form_values(page: object, lines: list[_Line]) -> list[str]:
+def _form_values(page: object, lines: list[_Line], positions: "_KidPositions | None" = None) -> list[str]:
     """Return the values entered in the page's form fields (AcroForm widget annotations) as 'name: value' lines (top to bottom, left
     to right).
 
@@ -59,6 +59,7 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
     try:
         placed = []
         beside: _LinesBeside | None = None  # built on the first FreeText annotation
+        positions = {} if positions is None else positions
         for reference in resolve1(page.page_obj.annots) or []:
             # One annotation that cannot be read (a `/Rect` holding something that is not a number) is skipped on its own — it
             # used to drop the values of every other field of the page. The numbers of `/Rect` may be indirect objects
@@ -73,7 +74,7 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
                 low, high = sorted(float(resolve1(value)) for value in rect[1::2])
                 if subtype == "FreeText" and beside is None:
                     beside = _LinesBeside(lines)
-                text = _field_text(widget) if subtype == "Widget" else _free_text(page, widget, (x0, low, x1, high), beside)
+                text = _field_text(widget, positions) if subtype == "Widget" else _free_text(page, widget, (x0, low, x1, high), beside)
                 if text:
                     placed.append((-high, x0, text))
             except Exception:  # noqa: BLE001 — the other annotations of the page are still read
@@ -174,16 +175,16 @@ class _LinesBeside:
                    key=lambda line: line.x1, default=None)
 
 
-def _field_text(widget: dict) -> str | None:
+def _field_text(widget: dict, positions: "_KidPositions") -> str | None:
     """'name: value' of one form widget. None if there is no value to include."""
     kind, flags = _name_of(_inherited(widget, "FT")), _inherited(widget, "Ff")
     flags = flags if isinstance(flags, int) else 0
     if kind == "Btn":
         state = _name_of(widget.get("AS")) or _name_of(_inherited(widget, "V")) or "Off"
-        grouped = flags & _FIELD_RADIO or _widget_index(widget) is not None
+        grouped = flags & _FIELD_RADIO or _widget_index(widget, positions) is not None
         if flags & _FIELD_PUSH_BUTTON or (grouped and state == "Off"):
             return None
-        value = _export_value(widget, state) if grouped else "☐" if state == "Off" else "☑"
+        value = _export_value(widget, state, positions) if grouped else "☐" if state == "Off" else "☑"
     elif kind == "Tx" and not flags & _FIELD_PASSWORD:
         value = _field_string(_inherited(widget, "V"))
     elif kind == "Ch":
@@ -229,22 +230,41 @@ def _choice_text(widget: dict) -> str:
     return ", ".join(shown.get(text) or text for text in texts if text)
 
 
-def _widget_index(widget: dict) -> int | None:
+# The positions of the widgets among the `/Kids` of a field, per `/Kids` array, for one document (`_widget_index`; `_form_values`
+# is given the one of its document): the array, the widgets it resolves to (held, so that their identities stay theirs) and
+# each widget's first position.
+_KidPositions = dict[int, tuple[list, list, dict[int, int]]]
+
+
+def _widget_index(widget: dict, positions: _KidPositions) -> int | None:
     """Index of the widget among the several `/Kids` of its field (`/Parent`). None if it is not a widget of a field with two or more
-    widgets."""
+    widgets.
+
+    The positions of one array are found once per document (`positions`): searched for each widget, a field of 20,000 buttons
+    on one page took 20,000 × 20,000 lookups, 78 seconds in a 1.4 MB file, which no time budget bounds
+    (Pinned by: test_pdf_form_fields.py::TestGroupedFormFields::test_a_field_of_very_many_buttons_takes_linear_time); found once
+    per page, a field of 200,000 widgets shared by 1,000 pages took 119 seconds
+    (Pinned by: test_pdf_form_fields.py::TestGroupedFormFields::test_a_large_field_on_many_pages_takes_linear_time)."""
     parent = resolve1(widget.get("Parent"))
     kids = resolve1(parent.get("Kids")) if isinstance(parent, dict) and widget.get("T") is None else None
     if not isinstance(kids, list) or len(kids) < 2:
         return None
-    return next((index for index, kid in enumerate(kids) if resolve1(kid) is widget), None)
+    known = positions.get(id(kids))
+    if known is None or known[0] is not kids:
+        resolved = [resolve1(kid) for kid in kids]
+        first: dict[int, int] = {}
+        for index, kid in enumerate(resolved):
+            first.setdefault(id(kid), index)
+        known = positions[id(kids)] = (kids, resolved, first)
+    return known[2].get(id(widget))
 
 
-def _export_value(widget: dict, state: str) -> str:
+def _export_value(widget: dict, state: str, positions: "_KidPositions") -> str:
     """Export value of a button or checkbox that is on: if the field has `/Opt`, the entry at the widget's position (`/Kids` order,
     or the ordinal state name '/1' when it is not found), otherwise the state name. Generators that use `/Opt` write the state name
     as an ordinal, which gave 'grade: 1' (Pinned by: test_pdf_form_fields.py::TestGroupedFormFields)."""
     options = _inherited(widget, "Opt")
-    index = _widget_index(widget)
+    index = _widget_index(widget, positions)
     if index is None and state.isdecimal():
         index = int(state)
     if isinstance(options, list) and index is not None and 0 <= index < len(options):
