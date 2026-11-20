@@ -1750,6 +1750,61 @@ class TestDocxNumbering:
 
         assert result.text == "1) 하나\n\n2) 둘"
 
+    def test_numbering_style_without_a_defining_style_link_uses_the_list_it_names(self):
+        """When no definition says it defines the numbering style (no w:styleLink), the definition that points at the style
+        (w:numStyleLink) stands for the list the style itself names (its w:pPr/w:numPr, ECMA-376 17.9.21). Its levels stayed empty
+        and the items came out as plain paragraphs."""
+        styles = ('<w:style w:type="numbering" w:styleId="MyList"><w:name w:val="My List"/>'
+                  '<w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr></w:style>')
+        numbering = ('<w:abstractNum w:abstractNumId="0">' + _number_level(0, "%1)", "lowerLetter")
+                     + '</w:abstractNum><w:abstractNum w:abstractNumId="1"><w:numStyleLink w:val="MyList"/></w:abstractNum>'
+                     + _number_list(1, 0) + _number_list(2, 1))
+
+        result = convert(_docx_with_body(_paragraph("하나", 2) + _paragraph("둘", 2), numbering=numbering, styles=styles), "a.docx")
+
+        assert result.text == "a) 하나\n\nb) 둘"
+
+    def test_style_link_without_a_value_does_not_take_over_other_lists(self):
+        """A definition whose w:styleLink has no value was taken as the definition of the numbering style named '', and every
+        list with no link of its own resolved to it: a numbered list came out with its bullets."""
+        numbering = ('<w:abstractNum w:abstractNumId="0"><w:styleLink/>' + _number_level(0, "•", "bullet")
+                     + '</w:abstractNum><w:abstractNum w:abstractNumId="1">' + _number_level(0, "%1.") + "</w:abstractNum>"
+                     + _number_list(1, 1))
+
+        result = convert(_docx_with_body(_paragraph("하나", 1) + _paragraph("둘", 1), numbering=numbering), "a.docx")
+
+        assert result.text == "1. 하나\n2. 둘"
+
+    def test_numbering_style_naming_its_own_definition_does_not_loop(self):
+        styles = ('<w:style w:type="numbering" w:styleId="Loop"><w:name w:val="Loop"/>'
+                  '<w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr></w:style>')
+        numbering = '<w:abstractNum w:abstractNumId="0"><w:numStyleLink w:val="Loop"/></w:abstractNum>' + _number_list(1, 0)
+
+        result = convert(_docx_with_body(_paragraph("항목", 1), numbering=numbering, styles=styles), "a.docx")
+
+        assert "항목" in result.text
+
+    def test_style_named_only_by_a_numbering_level_is_numbered(self):
+        """A level that names a paragraph style (w:lvl/w:pStyle) numbers the paragraphs of that style even when the style has no
+        w:numPr of its own (ECMA-376 17.9.23); they came out as plain paragraphs. A style based on the named one is not numbered
+        by the link (the body text of a clause took a number of its own); a paragraph that switches numbering off (numId 0) is
+        not affected."""
+        styles = ('<w:style w:type="paragraph" w:styleId="Clause"><w:name w:val="Clause"/></w:style>'
+                  '<w:style w:type="paragraph" w:styleId="SubClause"><w:name w:val="Sub Clause"/></w:style>'
+                  '<w:style w:type="paragraph" w:styleId="ClauseBody"><w:name w:val="Clause Body"/><w:basedOn w:val="Clause"/>'
+                  "</w:style>")
+        numbering = ('<w:abstractNum w:abstractNumId="0">' + _number_level(0, "제%1조", extra='<w:pStyle w:val="Clause"/>')
+                     + _number_level(1, "%2.", extra='<w:pStyle w:val="SubClause"/>') + "</w:abstractNum>" + _number_list(5, 0))
+        body = (_paragraph("목적", style="Clause") + _paragraph("세부 사항", style="SubClause")
+                + _paragraph("이 규정은 목적을 정한다.", style="ClauseBody") + _paragraph("정의", style="Clause")
+                + '<w:p><w:pPr><w:pStyle w:val="Clause"/><w:numPr><w:numId w:val="0"/></w:numPr></w:pPr>'
+                  '<w:r><w:t>번호 없음</w:t></w:r></w:p>')
+
+        result = convert(_docx_with_body(body, numbering=numbering, styles=styles), "a.docx")
+
+        # The same as when the styles name the list in their own w:numPr, as Word writes them
+        assert result.text == "제1조 목적\n\n  1. 세부 사항\n\n이 규정은 목적을 정한다.\n\n제2조 정의\n\n번호 없음"
+
     def test_empty_numbered_paragraph_still_counts(self):
         """A numbered paragraph with empty text was not counted, pulling later numbers forward. The number is counted and the empty
         item is not written. A paragraph deleted under track changes is not in the final document, so it is not counted."""

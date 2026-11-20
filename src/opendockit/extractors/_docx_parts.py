@@ -153,19 +153,23 @@ def _load_numbering(document: object) -> dict[str, _NumberList]:
             levels[index] = _level_definition(level, index)
             indents[index] = _indent_values(level.find(f"{_w('pPr')}/{_w('ind')}"))
         abstract_levels[abstract_id], style_levels[abstract_id], abstract_indents[abstract_id] = levels, linked_styles, indents
+        # A link without a value names no style: taken as the style '', it drew every list that has no link of its own (Pinned
+        # by: test_office.py::TestDocxNumbering::test_style_link_without_a_value_does_not_take_over_other_lists)
         definition, link = abstract.find(_w("styleLink")), abstract.find(_w("numStyleLink"))
-        if definition is not None:
-            style_definitions[definition.get(_w("val"), "")] = abstract_id
-        if link is not None:
-            style_links[abstract_id] = link.get(_w("val"), "")
+        if definition is not None and definition.get(_w("val")):
+            style_definitions[definition.get(_w("val"))] = abstract_id
+        if link is not None and link.get(_w("val")):
+            style_links[abstract_id] = link.get(_w("val"))
 
+    nums = {num.get(_w("numId"), ""): num for num in numbering.iterchildren(_w("num"))}
+    style_lists = _numbering_style_lists(document) if style_links else {}
     lists = {}
     for num in numbering.iterchildren(_w("num")):
         abstract_ref = num.find(_w("abstractNumId"))
         if abstract_ref is None:
             continue
         abstract_id = abstract_ref.get(_w("val"), "")
-        abstract_id = style_definitions.get(style_links.get(abstract_id, ""), abstract_id)
+        abstract_id = _linked_definition(abstract_id, style_definitions, style_links, nums, style_lists)
         levels, restarts, indents = abstract_levels.get(abstract_id, {}), {}, abstract_indents.get(abstract_id, {})
         for override in num.iterchildren(_w("lvlOverride")):
             index = _int_value(override.get(_w("ilvl")), -1)
@@ -179,6 +183,39 @@ def _load_numbering(document: object) -> dict[str, _NumberList]:
                 restarts[index] = start_number(_int_attr(start, 1))
         lists[num.get(_w("numId"), "")] = _NumberList(abstract_id, levels, style_levels.get(abstract_id, {}), restarts, indents)
     return lists
+
+
+def _numbering_style_lists(document: object) -> dict[str, str]:
+    """Numbering style id (w:style w:type="numbering") → the numbered list (numId) its w:pPr/w:numPr names."""
+    root = _styles_root(document)
+    found = {}
+    for style in root.iterchildren(_w("style")) if root is not None else ():
+        num_id = style.find(f"{_w('pPr')}/{_w('numPr')}/{_w('numId')}")
+        if style.get(_w("type")) == "numbering" and num_id is not None:
+            found[style.get(_w("styleId"), "")] = num_id.get(_w("val"), "")
+    return found
+
+
+def _linked_definition(abstract_id: str, definitions: dict[str, str], links: dict[str, str], nums: dict[str, etree._Element],
+                       style_lists: dict[str, str]) -> str:
+    """The number definition a definition that points at a numbering style (w:numStyleLink) stands for: the one that defines
+    that style (w:styleLink); when none says so, the definition of the list the numbering style itself names (its
+    w:pPr/w:numPr), as ECMA-376 17.9.21 has it. The latter is followed through further links, never round a loop. Without it,
+    the levels of such a list stayed empty and its items came out as plain paragraphs (Pinned by: test_office.py::TestDocxNumbering::
+    test_numbering_style_without_a_defining_style_link_uses_the_list_it_names)."""
+    seen = {abstract_id}
+    while abstract_id in links:
+        style = links[abstract_id]
+        if style in definitions:
+            return definitions[style]
+        num = nums.get(style_lists.get(style, ""))
+        reference = num.find(_w("abstractNumId")) if num is not None else None
+        linked = reference.get(_w("val"), "") if reference is not None else ""
+        if not linked or linked in seen:
+            return abstract_id
+        seen.add(linked)
+        abstract_id = linked
+    return abstract_id
 
 
 def _level_definition(level: etree._Element, index: int) -> _LevelDefinition:

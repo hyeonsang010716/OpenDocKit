@@ -187,6 +187,11 @@ class _DocxRenderer:
                         if styles_root is not None else None)
         self._default_size = _half_points(default_size, 0) or 20  # document default font size. If absent, Word uses 10pt (20 half-points)
         self._number_lists = _load_numbering(document)
+        # Paragraph style id → the first list (in the order of w:num) and the level whose definition names that style (w:lvl/w:pStyle)
+        self._style_lists: dict[str, tuple[str, int]] = {}
+        for num_id, number_list in self._number_lists.items():
+            for style_id, level in number_list.style_levels.items():
+                self._style_lists.setdefault(style_id, (num_id, level))
         # There is one counter per number definition (abstractNum). Numbered lists (numId) already seen in the body are noted separately.
         self._numberings: dict[str, Numbering] = {}
         self._base_starts: dict[str, list[int]] = {}  # abstractNum id → the start of each level as its counter began
@@ -952,7 +957,8 @@ class _DocxRenderer:
         The numbering of a style is looked up through the inherited styles (basedOn) as well. The level of a style's numbering is not
         the ilvl written on the style but the level in the number definition that points at that style (w:lvl/w:pStyle) (Word's
         heading numbering). Without that lookup the number is dropped and the following numbers shift
-        (Pinned by: test_office.py::TestDocxNumbering::test_style_numbering_is_inherited_through_based_on).
+        (Pinned by: test_office.py::TestDocxNumbering::test_style_numbering_is_inherited_through_based_on). A style with no
+        numbering of its own that a level names is numbered by that level (`_style_lists`) — not the styles based on it.
         """
         num_pr = paragraph.find(f"{_w('pPr')}/{_w('numPr')}")
         num_id_element = num_pr.find(_w("numId")) if num_pr is not None else None
@@ -966,6 +972,14 @@ class _DocxRenderer:
                 number_list = self._number_lists.get(style.num_id)
                 level = (number_list.style_levels if number_list else {}).get(style.style_id, style.ilvl)
                 return style.num_id, _int_attr(direct_level, level)
+            # The paragraph's own style, when no numPr numbers it, is still numbered by a level whose definition names it
+            # (w:lvl/w:pStyle, ECMA-376 17.9.23): its paragraphs came out as plain text. Only that style: the link names one
+            # style, and passed on to the styles based on it, the body text under a numbered clause took the clause's number and
+            # moved every number after it (Pinned by: test_office.py::TestDocxNumbering::
+            # test_style_named_only_by_a_numbering_level_is_numbered)
+            if not seen and style.style_id in self._style_lists:
+                num_id, level = self._style_lists[style.style_id]
+                return num_id, _int_attr(direct_level, level)
             style = self._styles.get(style.based_on) if style.based_on else None
             seen += 1
         return None, 0
