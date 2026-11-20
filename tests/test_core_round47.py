@@ -59,8 +59,10 @@ class TestTransparentPictureEncoding:
             return original_save(image, fp, format, **params)
 
         monkeypatch.setattr(Image.Image, "save", recording_save)
-        picture = Image.new("RGBA", (300, 300), (0, 0, 0, 0))
-        picture.paste((200, 30, 30, 255), (50, 50, 250, 250))
+        # Grey with alpha: rewritten as RGBA. An RGBA PNG that needs no change is handed on without a rewrite
+        # (test_image.py::TestPngPassedOnAsItIs)
+        picture = Image.new("LA", (300, 300), (0, 0))
+        picture.paste((120, 255), (50, 50, 250, 250))
         buffer = io.BytesIO()
         original_save(picture, buffer, "PNG")
 

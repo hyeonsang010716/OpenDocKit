@@ -450,6 +450,16 @@ class TestPartOfAWord:
     """Bold on part of a word is styling (a digit in another weight, a decorated initial), and marks inside a word are noise that
     Markdown readers do not agree on. A stressed word followed by its particle is the normal shape of Korean emphasis and stays."""
 
+    def test_part_of_a_word_across_a_link_edge(self):
+        """Part of a word is read on the text around it, link brackets or not: `인사` then a link `발령` is one word to the
+        reader, and the bold on `발령` is styling as without the link."""
+        links = {"u": "https://a.example/x"}
+
+        assert (_docx_text(_paragraph(_run("앞 인사"), _link("u", _bold("발령")), _run(" 뒤")), links=links)
+                == "앞 인사[발령](https://a.example/x) 뒤")
+        assert (_docx_text(_paragraph(_run("x "), _bold("S"), _link("u", _run("trength")), _run(" y")), links=links)
+                == "x S[trength](https://a.example/x) y")
+
     def test_word_followed_by_its_particle_is_emphasized(self):
         body = _paragraph(_bold("매출"), _run("은 늘고 "), _bold("신규 요금제"), _run("를 도입했으며 "), _italic("배출"), _run("량도 줄었다."))
 
@@ -466,6 +476,112 @@ class TestPartOfAWord:
 
         assert _docx_text(body) == "부분 강조와 Strength, 그리고 **값** 하나"
         assert _html_text("<p><b>한</b>국어와 <b>한국</b>어</p>") == "한국어와 **한국**어"
+
+
+class TestEmphasisAgainstPunctuation:
+    """CommonMark closes `**` after a punctuation mark only before whitespace or punctuation, and opens it before one only after
+    them: `**67%**으로` and `**「법」**제15조` showed their asterisks as text (checked with a CommonMark reader). Such a span is not
+    marked; with whitespace or a punctuation mark on the other side of the edge it is."""
+
+    def test_span_ending_on_punctuation_against_a_word_is_not_marked(self):
+        body = _paragraph(_bold("전체의 67%"), _run("으로 늘었고 "), _bold("「개인정보보호법」"), _run("제15조에 따라"))
+
+        assert _docx_text(body) == "전체의 67%으로 늘었고 「개인정보보호법」제15조에 따라"
+
+    def test_span_starting_on_punctuation_after_a_word_is_not_marked(self):
+        assert _html_text("<p>근거는 제<b>「법」 제2조</b> 이다</p>") == "근거는 제「법」 제2조 이다"
+
+    def test_span_against_a_link_is_marked(self):
+        """A link right after the span is written from `[`, which is punctuation."""
+        assert _html_text('<p>전체의 <b>67%</b><a href="https://a.example/">으로</a> 늘었다</p>') == (
+            "전체의 **67%**[으로](https://a.example/) 늘었다")
+
+    def test_span_at_the_edge_of_a_link_is_marked(self):
+        """Inside a link the span ends against `]` and starts against `[`: `[**67%**](url)으로` is emphasis to a CommonMark reader,
+        and it used to be dropped as though `**` stood against `으`."""
+        body = "".join((
+            _paragraph(_run("근거는 "), _link("a", _bold("「개인정보보호법」")), _run("제15조")),
+            _paragraph(_run("근거는 "), _link("a", _run("법 "), _bold("「시행령」")), _run("제2조")),
+            _paragraph(_run("근거는 제"), _link("a", _bold("「법」")), _run(" 이다")),
+        ))
+
+        assert _docx_text(body, links={"a": "https://a.example/"}) == (
+            "근거는 [**「개인정보보호법」**](https://a.example/)제15조\n\n"
+            "근거는 [법 **「시행령」**](https://a.example/)제2조\n\n"
+            "근거는 제[**「법」**](https://a.example/) 이다")
+        assert _html_text('<p>전체의 <a href="https://a.example/"><b>67%</b></a>으로</p>'
+                          '<p>전체의 <b><a href="https://a.example/">67%</a></b>으로</p>') == (
+            "전체의 [**67%**](https://a.example/)으로\n\n전체의 [**67%**](https://a.example/)으로")
+
+    def test_span_inside_a_link_against_a_word_or_a_bare_address_is_not_marked(self):
+        """Away from the brackets, or in a link written as its bare address, the mark stands against the word."""
+        assert _html_text('<p>전체의 <a href="https://a.example/"><b>67%</b>는</a> 늘고</p>'
+                          '<p>주소 <a href="https://a.example/x%"><b>https://a.example/x%</b></a>으로</p>') == (
+            "전체의 [67%는](https://a.example/) 늘고\n\n주소 https://a.example/x%으로")
+
+    def test_combining_mark_counts_as_a_letter_and_a_removed_character_does_not(self):
+        """CommonMark reads anything but whitespace and punctuation as a letter here: `**%**́` showed its asterisks. A private-use
+        character is removed when the text is cleaned, so the whitespace behind it is what the mark stands against."""
+        assert _html_text("<p>앞 <b>%</b>&#x301; 뒤</p><p>앞 <b>%</b>&#xE000; 뒤</p>") == "앞 %\u0301 뒤\n\n앞 **%** 뒤"
+
+    def test_span_with_whitespace_or_punctuation_beyond_its_edge_is_marked(self):
+        body = _paragraph(_bold("「개인정보보호법」"), _run(" 제15조, "), _bold("맺음말"), _run(": 언급, "), _bold("(보충)"), _run("."))
+
+        assert _docx_text(body) == "**「개인정보보호법」** 제15조, **맺음말**: 언급, **(보충)**."
+
+    def test_span_judged_as_it_is_written_once_cleaned(self):
+        """The marks meet the text as cleaning writes it: a span of private-use bullets only, which cleaning removes, left
+        `****`; one in front of a space left `** 추진`, the space no longer at the edge the writer moves it from; a private-use
+        character or symbol-font glyph at the span's own edge hid the `%` or `•` the mark meets; and a line separator after a
+        span, written as a line break, counted as a letter and dropped a span that closes there."""
+        bullet, separator = chr(0xF081), chr(0x2028)
+
+        assert _docx_text(_paragraph(_run("항목 "), _bold(bullet), _run(" 다음 문장"))) == "항목 다음 문장"
+        assert _docx_text(_paragraph(_run("비율 "), _bold("67%" + chr(0xE000)), _run("으로 늘었다"))) == "비율 67%으로 늘었다"
+        assert _docx_text(_paragraph(_run("앞 "), _bold("법" + chr(0xF0B7)), _run("으로 늘었다"))) == "앞 법•으로 늘었다"
+        assert _docx_text(_paragraph(_run("비율 "), _bold("67%"), _run(separator + "다음 줄"))) == "비율 **67%**\n다음 줄"
+        assert _docx_text(_paragraph(_run("비율 "), _bold("67%"), _run("\x85다음 줄"))) == "비율 **67%**\n다음 줄"
+
+    def test_each_piece_of_a_span_is_judged_as_it_is_written(self):
+        """A span is written apart at every link group, and each piece is judged on its own with what is written next to it:
+        a bad piece took a good one's marks with it (`추진[word](url)`), an edge at a link bracket was never looked at
+        (`[** 추진**](url)`), a space before a private-use bullet stayed inside the marks (`** 추진 배경**`), and a neighbour
+        that cleaning removes hid the word beyond it (`**67%**` + italic U+E000 + `으로`)."""
+        bullet, links = chr(0xF081), {"u": "https://a.example/x"}
+
+        assert (_docx_text(_paragraph(_run("앞 "), _bold(bullet + " 추진 "), _link("u", _bold("word")), _run(" 뒤")), links=links)
+                == "앞 추진 [**word**](https://a.example/x) 뒤")
+        assert (_docx_text(_paragraph(_run("앞 "), _bold("word"), _link("u", _bold(bullet + " 추진")), _run(" 뒤")), links=links)
+                == "앞 **word**[ 추진](https://a.example/x) 뒤")
+        assert _docx_text(_paragraph(_run("항목"), _bold(f" {bullet} 추진 배경"), _run(" 다음"))) == "항목 추진 배경 다음"
+        assert _docx_text(_paragraph(_run("비율 "), _bold("67%"), _italic(chr(0xE000)), _run("으로"))) == "비율 67%으로"
+        # bold at the start of an italic span: the rest of the span is the same stressed words, not part of a word
+        assert (_docx_text(_paragraph(_run("앞 "), _run("요금제", "<w:b/><w:i/>"), _italic("를 꼭 확인하세요"), _run(" 뒤")))
+                == "앞 ***요금제****를 꼭 확인하세요* 뒤")
+        # bold that starts before the italic: `**신규 *요금제****를 확인*` cannot close, the glued piece goes unmarked
+        assert (_docx_text(_paragraph(_run("앞 "), _bold("신규 "), _run("요금제", "<w:b/><w:i/>"), _italic("를 확인"), _run(" 뒤")))
+                == "앞 **신규 *요금제***를 확인 뒤")
+        # a link edge is an edge of the words: mid-word bold after it stays unmarked, and two pieces whose marks would touch
+        # around a bare address (`**word****https://…**`) do not both keep them
+        assert (_docx_text(_paragraph(_run("x 1"), _bold("2"), _link("u", _bold("34")), _run(",5 y")), links=links)
+                == "x 12[34](https://a.example/x),5 y")
+        assert (_docx_text(_paragraph(_run("앞 "), _bold("word"), _link("b", _bold("https://b.example")), _run(" 뒤")),
+                           links={"b": "https://b.example"}) == "앞 **word**https://b.example 뒤")
+        # italic is written apart on each side of a bold edge: `*—****67%?***` left `*—*` unclosed
+        assert _docx_text(_paragraph(_run("앞 "), _italic("—"), _run("67%?", "<w:b/><w:i/>"), _run(" 뒤"))) == "앞 —***67%?*** 뒤"
+        # a private-use bullet first or last in a link still has the bracket on its far side
+        assert (_docx_text(_paragraph(_run("앞 제"), _link("u", _run(bullet), _bold("「법」")), _run(" 뒤")), links=links)
+                == "앞 제[**「법」**](https://a.example/x) 뒤")
+        assert (_docx_text(_paragraph(_run("비율 "), _link("u", _bold("67%"), _run(bullet)), _run("으로 뒤")), links=links)
+                == "비율 [**67%**](https://a.example/x)으로 뒤")
+
+    def test_hangul_span_of_private_use_bullets_leaves_no_marks(self):
+        from tests.test_hwp_emphasis import _hwpx, _runs
+
+        bullet = chr(0xF081)
+
+        assert convert(_hwpx(_runs((1, bullet), (0, " 추진 배경을 설명한다"))), "a.hwpx").text == "추진 배경을 설명한다"
+        assert convert(_hwpx(_runs((1, bullet + " 추진 배경"), (0, " 을 설명한다"))), "a.hwpx").text == "추진 배경 을 설명한다"
 
 
 class TestPptx:

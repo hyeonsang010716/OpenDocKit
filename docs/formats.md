@@ -128,8 +128,17 @@ CSV:
 
 Section unit: the whole document. Design notes: [decisions/hwp.md](decisions/hwp.md).
 
-- "개요 N" (Outline N) styles → headings.
+- "개요 N" (Outline N) styles and paragraphs with an outline number (개요 번호) → headings; a numbered clause that is a
+  sentence (`1. 갑은 … 지급한다.`) stays a numbered paragraph. In a document without them, a short paragraph set clearly
+  larger than the body (1.15 / 1.3 / 1.5 times) becomes a level 3 / 2 / 1 heading; dates, table-of-contents lines,
+  signature lines, quoted lines, typed bullet items, captions of figures and tables, contact lines and sentences written
+  large stay text.
 - Paragraph numbering and bullets; lower levels become indented lists.
+- Letter-spaced labels of three to six syllables are joined (`담   당   자` → `담당자`); syllables one space apart, two
+  syllables spaced wide (`성   명`, which choices such as `남    여` look like), the choices of a scale (`상   중   하`)
+  and blank dates (`년   월   일`) stay as written.
+- Headers that hold words (a form's number and title) are written once before the body, without their pictures; page
+  numbers and footers only with `include_headers_footers`.
 - Tables with merged cells.
 - Captions of tables, pictures and equations, including their automatic numbers.
 - Text boxes.
@@ -331,14 +340,16 @@ Section unit: document (`.doc`), slide (`.ppt`). These binary formats are read *
 
 ## Links and emphasis
 
-In DOCX, PPTX, HTML, email, ODT, ODP, RTF and EPUB, and in `.doc` / `.ppt` (read as DOCX / PPTX). HWP / HWPX carry links
-but not emphasis. PDF and spreadsheet cells carry neither:
+In DOCX, PPTX, HTML, email, ODT, ODP, RTF, EPUB, HWP and HWPX, and in `.doc` / `.ppt` (read as DOCX / PPTX). PDF and
+spreadsheet cells carry neither:
 
 - Hyperlinks are kept as `[text](url)`. Only `http`, `https` and `mailto` targets become links; a link whose text is its
   own address stays the bare address. Nothing is resolved or fetched.
 - Bold and italic are kept as `**bold**`, `*italic*` and `***both***`.
 - Headings, captions and code are not emphasized, and bold that covers a whole paragraph, list item or table cell is not
   marked (in real documents that is styling, and marking it buries the emphasis that means something).
+- Bold that would end on a punctuation mark right before a letter (`67%으로`, `「법」제15조`) is not marked: Markdown
+  readers would show its asterisks.
 - Switch either off with `ConvertOptions(keep_links=False)` / `ConvertOptions(keep_emphasis=False)` to get plain text.
 
 More: [decisions/inline-formatting.md](decisions/inline-formatting.md).

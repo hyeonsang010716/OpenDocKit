@@ -7,8 +7,9 @@ Markdown once per block, so the same rule does not drift between formats.
 
 from dataclasses import dataclass
 import re
+import unicodedata
 
-from opendockit.markdown import _INVISIBLE
+from opendockit.markdown import _INVISIBLE, _SYMBOL_FONT_GLYPHS
 from opendockit.models import IMAGE_MARKER
 
 
@@ -319,6 +320,14 @@ def mark_emphasis(text: str, bold: bool, italic: bool) -> str:
     return f"{_BOLD_OPEN}{text}{_BOLD_CLOSE}" if bold else text
 
 
+def emphasis_marks(bold: bool, italic: bool) -> tuple[str, str]:
+    """The temporary marks that open and close a bold and/or italic span (what `mark_emphasis` puts around a run), for formats that
+    keep their marks apart from the document text (Hangul: `_hangul.emphasis_pieces`)."""
+    opening = (_BOLD_OPEN if bold else "") + (_ITALIC_OPEN if italic else "")
+    closing = (_ITALIC_CLOSE if italic else "") + (_BOLD_CLOSE if bold else "")
+    return opening, closing
+
+
 def merge_emphasis_marks(text: str) -> str:
     """Join the temporary marks of neighbouring runs that have the same emphasis. Done before the strikethrough and script marks
     are resolved: with an emphasis mark between them, struck-through runs that Word split per character would each get their own
@@ -538,6 +547,7 @@ def _drop_emphasis_inside_words(atoms: list[_Atom]) -> None:
     unmarked too (Pinned by: test_inline_formatting.py::TestPartOfAWord).
     """
     count = len(atoms)
+    link_edges = _written_link_edges(atoms)
     for name in ("bold", "italic"):
         index = 0
         while index < count:
@@ -547,15 +557,155 @@ def _drop_emphasis_inside_words(atoms: list[_Atom]) -> None:
             end = index
             while end < count and getattr(atoms[end], name):
                 end += 1
-            first, last = atoms[index].text, atoms[end - 1].text
-            before = atoms[index - 1].text[-1:] if index else ""
-            after = atoms[end].text[:1] if end < count else ""
-            starts_inside = before.isalnum() and first[:1].isalnum()
-            is_glued_character = (end - index == 1 and len(first.strip()) == 1 and last[-1:].isalnum() and after.isalnum())
-            if starts_inside or is_glued_character:
-                for position in range(index, end):
-                    setattr(atoms[position], name, False)
+            # Judged piece by piece as the writer writes them: a span is written apart at every link group
+            # (`_write_atoms`), and italic apart on each side of a bold edge (`_write_emphasis`), so a bad piece took the
+            # marks of a good one with it, and an edge inside the span was never looked at (`*—****67%?***`) (Pinned by:
+            # test_inline_formatting.py::TestEmphasisAgainstPunctuation::test_each_piece_of_a_span_is_judged_as_it_is_written)
+            piece = index
+            while piece < end:
+                stop = piece + 1
+                while stop < end and atoms[stop].url == atoms[piece].url and (
+                        name == "bold" or atoms[stop].bold == atoms[piece].bold):
+                    stop += 1
+                if _unmarkable(atoms, piece, stop, link_edges, outer=(not _continues_after_bold(atoms, piece, index), True)):
+                    for position in range(piece, stop):
+                        setattr(atoms[position], name, False)
+                piece = stop
             index = end
+
+
+def _continues_after_bold(atoms: list[_Atom], piece: int, span_start: int) -> bool:
+    """Whether an italic piece begins where a bold group ends inside the same italic span and link group, that bold group being
+    italic throughout: written `***요금제****를 확인*`, the piece continues the same stressed words (and closes, where a group
+    written `**신규 *요금제***` before it does not: `****` cannot close `**` there)."""
+    if piece <= span_start or atoms[piece].url != atoms[piece - 1].url or atoms[piece].bold or not atoms[piece - 1].bold:
+        return False
+    position = piece - 1
+    while position >= 0 and atoms[position].bold and atoms[position].url == atoms[piece].url:
+        if not atoms[position].italic:
+            return False
+        position -= 1
+    return True
+
+
+def _unmarkable(atoms: list[_Atom], start: int, stop: int, link_edges: dict[tuple[str, int], str], *,
+                outer: tuple[bool, bool] = (True, True)) -> bool:
+    """Whether the marks of the emphasized atoms `start:stop`, written together, would not stress words or would not close.
+
+    Judged on the text as cleaning writes it (`_as_written`) and the characters actually written next to the marks: the
+    brackets of a link it fills, reaches the edge of from inside, or stands right before or after (`_written_link_edges`:
+    `[**67%**](url)으로`, `**67%**[으로](url)`, both closed), else the nearest neighbour that cleaning leaves (`_neighbour`),
+    whitespace at the edge of the piece going outside the marks. A piece of private-use bullets only, which cleaning removes,
+    left `****`; one with a space behind its bullet `** 추진 배경**`, the space no longer at the edge the writer moves it from; a
+    neighbour cleaned away hid the word beyond it (Pinned by:
+    test_inline_formatting.py::TestEmphasisAgainstPunctuation::test_span_judged_as_it_is_written_once_cleaned,
+    test_span_at_the_edge_of_a_link_is_marked)."""
+    raw = "".join(atoms[position].text for position in range(start, stop))
+    written = _as_written(raw.strip())
+    if not written.strip() or written[:1].isspace() or written[-1:].isspace():
+        return True
+    before = " " if raw[:1].isspace() else (link_edges.get(("[", start)) or link_edges.get((")", start - 1))
+                                             or _neighbour(atoms, start - 1, -1, link_edges))
+    after = " " if raw[-1:].isspace() else (link_edges.get(("]", stop - 1)) or link_edges.get(("[", stop))
+                                            or _neighbour(atoms, stop, 1, link_edges))
+    # Whether the span is part of a word is read on the text around it, link brackets or not: `인사[발령](url)` is one word
+    # to the reader (Pinned by: test_inline_formatting.py::TestPartOfAWord::test_part_of_a_word_across_a_link_edge). Not at
+    # the start of an italic piece that continues after an all-italic bold group (`outer`, `_continues_after_bold`): it is
+    # the same stressed words, and taken for part of a word it lost its italic (`***요금제****를 꼭 확인하세요*`); a link edge
+    # is an edge of the words as any other
+    letter_before = " " if raw[:1].isspace() else _neighbour(atoms, start - 1, -1, {})
+    letter_after = " " if raw[-1:].isspace() else _neighbour(atoms, stop, 1, {})
+    starts_inside = outer[0] and letter_before[-1:].isalnum() and written[:1].isalnum()
+    is_glued_character = (all(outer) and stop - start == 1 and len(written) == 1 and written.isalnum()
+                          and letter_after[:1].isalnum())
+    return starts_inside or is_glued_character or _unflanked(before, written, written, after)
+
+
+def _neighbour(atoms: list[_Atom], position: int, step: int, link_edges: dict[tuple[str, int], str]) -> str:
+    """The character written next to an emphasis piece on the side `step` (-1 before, 1 after), from the atom at `position`
+    on: the first one cleaning leaves (`_as_written`), past atoms that clean to nothing, up to a link bracket."""
+    while 0 <= position < len(atoms):
+        bracket = link_edges.get((")", position) if step < 0 else ("[", position))
+        if bracket:
+            return bracket
+        cleaned = _as_written(atoms[position].text)
+        if cleaned:
+            return cleaned[-1:] if step < 0 else cleaned[:1]
+        # An atom cleaned away still carries the bracket written on its far side (a private-use bullet first in a link)
+        bracket = link_edges.get(("[", position) if step < 0 else ("]", position))
+        if bracket:
+            return bracket
+        position += step
+    return ""
+
+
+def _written_link_edges(atoms: list[_Atom]) -> dict[tuple[str, int], str]:
+    """The link brackets `_write_link` writes next to an atom, as {("[", first worded atom of a link): "[", ("]", last worded
+    atom): "]", (")", last atom of the link): ")"}. A link written as its bare address has none; whitespace and placeholders at
+    its edges stay outside the brackets, so the brackets sit against its first and last worded atoms."""
+    edges: dict[tuple[str, int], str] = {}
+    index = 0
+    while index < len(atoms):
+        url = atoms[index].url
+        end = index + 1
+        while end < len(atoms) and atoms[end].url == url:
+            end += 1
+        if url and not _is_bare_address(url, atoms[index:end]):
+            worded = [position for position in range(index, end) if _has_words(atoms[position].text)]
+            if worded:
+                edges[("[", worded[0])] = "["
+                edges[("]", worded[-1])] = "]"
+                edges[(")", end - 1)] = ")"
+        index = end
+    return edges
+
+
+# What cleaning makes of the characters at the edge of a span (`markdown.clean_characters`): line separators become line breaks,
+# control and private-use characters go, symbol-font glyphs become their symbols. The table placeholders of `TableGrid`
+# (U+E020 … U+E021) are kept: they stand for a table.
+_LINE_SEPARATORS = str.maketrans(dict.fromkeys(("\x0b", "\x0c", "\x85", "\u2028", "\u2029"), "\n"))
+_REMOVED_WHEN_WRITTEN = re.compile("[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f\ue000-\ue01f\ue022-\uf8ff"
+                                   "\U000f0000-\U000ffffd\U00100000-\U0010fffd]")
+
+
+def _as_written(text: str) -> str:
+    """`text` as cleaning writes it, as far as the characters next to the emphasis marks go (`_LINE_SEPARATORS`)."""
+    return _REMOVED_WHEN_WRITTEN.sub("", text.translate(_SYMBOL_FONT_GLYPHS).translate(_LINE_SEPARATORS))
+
+
+def _has_words(text: str) -> bool:
+    """Whether `text` holds anything besides whitespace and placeholders."""
+    return bool("".join(_INLINE_PLACEHOLDER.split(text)[::2]).strip())
+
+
+def _is_bare_address(url: str, group: list[_Atom]) -> bool:
+    """Whether the text of a link is its address: it is written as it is, without brackets."""
+    label = "".join(atom.text for atom in group if atom.kind != "plain").strip()
+    addresses = {url.rstrip("/"), url.removeprefix("mailto:").rstrip("/")}
+    return label.rstrip("/") in addresses or (link_target(label) or "").rstrip("/") in addresses
+
+
+def _is_punctuation(character: str) -> bool:
+    """A Unicode punctuation character as CommonMark counts them (general category P or S)."""
+    return bool(character) and unicodedata.category(character)[0] in "PS"
+
+
+def _unflanked(before: str, first: str, last: str, after: str) -> bool:
+    """Whether marks around the span could not be read as emphasis: CommonMark closes `**` after a punctuation mark only before
+    whitespace or punctuation, and opens it before a punctuation mark only after them. `**67%**으로` and `**「법」**제15조`
+    came out with the asterisks shown as text, so such a span is not marked. Whitespace at the edge of the span goes outside the
+    marks and leaves the mark against the whitespace, which is fine (Pinned by:
+    test_inline_formatting.py::TestEmphasisAgainstPunctuation). Anything that is neither whitespace nor punctuation counts as a
+    word character there, a combining mark or a private-use character too: `**%**́` is not closed either."""
+    ends_on_punctuation = last[-1:] == last.rstrip()[-1:] and _is_punctuation(last[-1:]) and _is_word_like(after[:1])
+    starts_on_punctuation = first[:1] == first.lstrip()[:1] and _is_punctuation(first[:1]) and _is_word_like(before[-1:])
+    return ends_on_punctuation or starts_on_punctuation
+
+
+def _is_word_like(character: str) -> bool:
+    """A character that is neither Unicode whitespace (category Zs, tab, line feed, form feed, carriage return) nor punctuation,
+    as CommonMark tells them apart when it decides whether `**` opens or closes."""
+    return bool(character) and character not in "\t\n\f\r" and unicodedata.category(character) != "Zs" and not _is_punctuation(character)
 
 
 def _without_lead(line: list[_Atom]) -> list[_Atom]:
@@ -640,9 +790,7 @@ def _write_link(markup: str, url: str, group: list[_Atom]) -> str:
     if edges is not None and edges[1]:
         lead, core, trail = lead + edges[0], edges[1], edges[2] + trail
 
-    label = "".join(atom.text for atom in group if atom.kind != "plain").strip()
-    addresses = {url.rstrip("/"), url.removeprefix("mailto:").rstrip("/")}
-    if label.rstrip("/") in addresses or (link_target(label) or "").rstrip("/") in addresses:
+    if _is_bare_address(url, group):
         return markup
     return f"{lead}[{_escape_link_text(core)}]({url}){trail}"
 

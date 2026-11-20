@@ -28,6 +28,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     one body of a mail, whose attachments do not count — over 256 K characters, nested deeper than 1,000 elements, or
     leaving more than 16 raw-text elements open is still read by the older parser — html5lib is quadratic on those —
     and the result says so.
+- **Hancom equations**: `root` without `of` is a square root (`3 root5` → `3 \sqrt{5}`; `30 root5 cos theta` gave
+  `\sqrt[5]{\cos} \theta`), command words glued together are split (`costheta`), and `le`, `ge`, `nabla`, `LAND`, `LOR`,
+  `SUPERSET`, `nsubset`, `BIGOPLUS` and similar words, `OVERBRACE`, `UNDERBRACE` and `BOX` are read.
+- **Headings in Hangul documents that do not use the 개요 styles.** A paragraph with an outline head (개요 번호) is a
+  heading of its level, whatever its style — Hangul builds the outline and the table of contents from it, and it came out
+  as a numbered list; a numbered clause that is a sentence (`1. 갑은 을에게 … 지급한다.`, `가. … 따른다`) stays a
+  numbered paragraph. A
+  short top-level paragraph set 1.15 / 1.3 / 1.5 times larger than the size most body paragraphs are written in is a
+  level 3 / 2 / 1 heading (in a form whose body is in tables, measured against the tables' text); dates,
+  table-of-contents lines, the addressee, signature and stamp lines of a form, quoted lines, polite sentences, typed
+  bullet items (not the `□` section mark), captions of figures and tables, contact lines and sentences written large
+  stay text. In 34 real HWP / HWPX files, where every title was set by size on 바탕글, no heading came out before; now
+  their chapter titles do.
+- **Letter-spaced labels of Hangul forms** of three to six syllables are written without the spaces between them
+  (`담   당   자` → `담당자`), so a search for the label finds it. Syllables one space apart stay as written (`수 및 양`,
+  the choices `상 중 하`), and so do two syllables spaced wide (`성   명`, the choices `남    여`), the choices of a scale
+  spaced wide (`상   중   하`) and blank dates (`년   월   일`).
+- **Bold and italic in HWP and HWPX** under `keep_emphasis`, by the same rules as DOCX (`3. **시험기간** : …`).
+- **Headers of Hangul documents that hold words** (a form's number and title) are written once before the body even
+  without `include_headers_footers`, as plain paragraphs without their pictures. In 9 of 34 real files that text was
+  nowhere else and was dropped without a warning. Page numbers and footers still need the option.
+
+### Changed
+
+- **Pictures are prepared faster.** An RGBA PNG that needs no change is passed on as it is instead of being compressed
+  again (only the chunks a rewrite keeps are copied, so metadata is still stripped). A 7 MB HWP with 51 pictures
+  converts in 118 ms instead of 549 ms.
 
 ### Security
 
@@ -42,6 +69,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- Bold or italic that ends on a punctuation mark right before a letter (`**67%**으로`, `**「법」**제15조`) is no longer
+  written: Markdown readers showed its asterisks as text. This affects every format that keeps emphasis.
 - **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if
   that worker died first. The queue the file travels on is no longer waited for.
 - **MCP server**: the path of a call is resolved in a thread, as its content already was. A path the file system is slow
