@@ -881,8 +881,8 @@ def _t_text(node: etree._Element) -> str:
             parts.append("\t")
         elif name == "lineBreak":
             parts.append("\n")
-        elif name == "hyphen":
-            parts.append("-")
+        # hp:hypen (so spelled by Hangul; hp:hyphen too) is the soft hyphen of HWP code 24, drawn only at a line break inside
+        # the word: written as `-` it made a different word (Pinned by: test_hwp.py::TestSoftHyphen)
         elif name in ("nbSpace", "fwSpace"):
             parts.append(" ")
         parts.append(child.tail or "")

@@ -99,7 +99,11 @@ _TEXTART_BREAKS = re.compile("\r\n|\r|\n|␍␊|␍|␊")
 # Only extended controls have a CTRL_HEADER record each, and their order within the paragraph equals the order of the CTRL_HEADER children.
 _EXTENDED_CONTROLS = {1, 2, 3, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23}
 _INLINE_CONTROLS = {4, 5, 6, 7, 8, 9, 19, 20}
-_CHAR_REPLACEMENTS = {9: "\t", 10: "\n", 24: "-", 30: " ", 31: " "}
+# Code 24 is a soft hyphen, drawn only where Hangul breaks a line inside the word: Hancom's own PDF of a document reads
+# `Wordprocessor` where the file holds `Word` 24 `processor`, and the HWPX Hangul saves of it holds `<hp:hypen/>` there. Written as
+# `-`, it made a different word, so it is dropped like the other char controls without a character (Pinned by:
+# test_hwp.py::TestSoftHyphen).
+_CHAR_REPLACEMENTS = {9: "\t", 10: "\n", 30: " ", 31: " "}
 # The inline control that ends a field (spec table 6). The field starts at an extended control (3) whose CTRL_HEADER names the
 # field (`%hlk` a hyperlink, `%%me` a comment, `%clk` a click-here field …). The end does not say which field it closes; it is
 # taken to close the last field opened.
@@ -215,14 +219,14 @@ def iter_records(stream: bytes, budget: _RecordBudget | None = None) -> Iterator
 # '가' 00 AC) are never taken for a control, and possessively, so it keeps no backtracking state however long the text is. The
 # char controls of one WCHAR stay in the text and are replaced after decoding (`_CHAR_CONTROLS`).
 _UP_TO_WIDE_CONTROL = re.compile(rb"(?:[^\x01-\x09\x0b\x0c\x0e-\x17].|.[^\x00])*+", re.DOTALL)
-# What the char controls (one WCHAR: 0, 10, 13 and 24-31) become in the text: a hyphen, a space, or nothing (a line break stays
+# What the char controls (one WCHAR: 0, 10, 13 and 24-31) become in the text: a space, or nothing (a line break stays
 # itself). Replaced with `str.replace`, one control at a time and only when the text holds one: `str.translate` goes character by
 # character on Hangul text, 40 times slower.
 _CHAR_CONTROLS = tuple((chr(unit), _CHAR_REPLACEMENTS.get(unit, "")) for unit in range(32)
                        if unit not in _EXTENDED_CONTROLS and unit not in _INLINE_CONTROLS and unit != 10)
 _CHAR_CONTROL_TEXT = re.compile("[" + "".join(control for control, _ in _CHAR_CONTROLS) + "]")
-# Characters that are nothing but char controls that are dropped (0, 13, 25-29).
-_DROPPED_CONTROLS_ONLY = re.compile(rb"(?:[\x00\x0d\x19-\x1d]\x00)*+")
+# Characters that are nothing but char controls that are dropped (0, 13, 24-29).
+_DROPPED_CONTROLS_ONLY = re.compile(rb"(?:[\x00\x0d\x18-\x1d]\x00)*+")
 # Character shape runs of a paragraph: (start character position, (super/subscript mark, struck through or not, bold, italic)).
 # Ascending by position, and neighboring runs have different values.
 RunShape = tuple[str | None, bool, bool, bool]

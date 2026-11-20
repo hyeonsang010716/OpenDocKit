@@ -532,6 +532,24 @@ class TestHwpObjects:
         assert len(result.images) == 1
 
 
+class TestSoftHyphen:
+    """HWP code 24 and HWPX hp:hypen are a soft hyphen, drawn only at a line break inside the word. Hancom's PDF of
+    `Multilingual Word<hyphen>processor` reads `Wordprocessor`; written as `-`, HWP gave `Word-processor`, another word than
+    the HWPX save of the same document."""
+
+    def test_hwp_soft_hyphen_is_left_out(self, monkeypatch):
+        text = "Word".encode("utf-16-le") + struct.pack("<H", 24) + builder.hwp_text("processor")
+        section = builder.hwp_record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + builder.hwp_record(TAG_PARA_TEXT, 1, text)
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "Wordprocessor"
+
+    @pytest.mark.parametrize("element", ["hypen", "hyphen"])
+    def test_hwpx_soft_hyphen_is_left_out(self, element):
+        body = f"<hp:p><hp:run><hp:t>Word<hp:{element}/>processor</hp:t></hp:run></hp:p>"
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "Wordprocessor"
+
+
 class TestDutmal:
     """With dutmal (a small annotation above or below characters) even the main text is inside the control, not in the paragraph
     text, so the main text was dropped along with it."""
