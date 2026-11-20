@@ -92,6 +92,25 @@ def parse_part(data: bytes) -> etree._Element | None:
 # ---- Package -----------------------------------------------------------------------------------------------------
 
 
+# A universal measure (ECMA-376 ST_UniversalMeasure): a number and a unit. Points in one of each unit
+_UNIVERSAL_MEASURE = re.compile(r"(-?\d{1,9}(?:\.\d{1,9})?)(mm|cm|in|pt|pc|pi)")
+_POINTS_PER_UNIT = {"mm": 72 / 25.4, "cm": 72 / 2.54, "in": 72.0, "pt": 1.0, "pc": 12.0, "pi": 12.0}
+
+
+def measure_int[T](value: str | None, per_point: int, default: T) -> int | T:
+    """A length attribute in its own unit (`per_point` of them in a point: 20 for twips, 2 for half-points). Written as an integer
+    it is that unit (`decimal_int`); written as a universal measure (`72pt`, `2.5cm`) it is converted, rounded. Word writes its
+    twips that way in Strict Open XML (`w:ind w:left="36pt"`), so an indent read as a plain integer came out as none (Pinned by:
+    test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::test_measures_written_with_a_unit_are_read)."""
+    number = decimal_int(value, None, signed=True)
+    if number is not None or value is None:
+        return default if number is None else number
+    match = _UNIVERSAL_MEASURE.fullmatch(value.strip())
+    if match is None:
+        return default
+    return round(float(match.group(1)) * _POINTS_PER_UNIT[match.group(2)] * per_point)
+
+
 def open_package[T](opener: Callable[[BytesIO], T], data: bytes, warnings: list[str],
                     errors: tuple[type[Exception], ...] = ()) -> T:
     """Open an OOXML package with `opener` (`Package.open` of python-docx / python-pptx). If opening fails because of one missing or
@@ -143,9 +162,9 @@ def is_strict_package(data: bytes) -> bool:
     if unreadable.
 
     A DOCX/PPTX saved as a 'Strict Open XML document' differs in every relationship type and namespace, so python-docx / python-pptx
-    cannot find the main part. It is not corruption (the 'document structure cannot be read' error) but an unsupported format, so, to
-    advise saving again, we look only when opening fails (no cost for healthy documents.
-    Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments).
+    cannot find the main part. It is not corruption (the 'document structure cannot be read' error): a DOCX is read from its
+    Transitional copy (`transitional_package`), a PPTX is refused with the advice to save it again. We look only when opening
+    fails (no cost for healthy documents. Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments).
     """
     try:
         with zipfile.ZipFile(BytesIO(data)) as archive:
@@ -155,6 +174,65 @@ def is_strict_package(data: bytes) -> bool:
 
     relationships = root.iter(f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship") if root is not None else []
     return any(relationship.get("Type") == _STRICT_OFFICE_DOCUMENT for relationship in relationships)
+
+
+# A Strict namespace or relationship type (`http://purl.oclc.org/ooxml/<vocabulary>/<name>`) and its Transitional form
+# (`http://schemas.openxmlformats.org/<vocabulary>/2006/<name>`): ECMA-376 Part 1 gives the same vocabularies both names. The
+# two property parts and their relationships are spelled apart (`_STRICT_RENAMED`).
+_STRICT_NAME = re.compile(rb"http://purl\.oclc\.org/ooxml/(wordprocessingml|drawingml|presentationml|spreadsheetml|officeDocument)/"
+                          rb"([A-Za-z]+)(/[A-Za-z]+)?")
+_STRICT_RENAMED = {b"extendedProperties": b"extended-properties", b"customProperties": b"custom-properties"}
+
+
+def _transitional_name(match: re.Match[bytes]) -> bytes:
+    vocabulary, name, tail = match.group(1), match.group(2), match.group(3) or b""
+    if tail:
+        tail = b"/" + _STRICT_RENAMED.get(tail[1:], tail[1:])
+    return b"http://schemas.openxmlformats.org/" + vocabulary + b"/2006/" + _STRICT_RENAMED.get(name, name) + tail
+
+
+def _transitional_names(content: bytes) -> bytes:
+    """An XML part with its Strict names in their Transitional form. A part stored in UTF-16 (it starts with its byte order mark)
+    is renamed in its own encoding: matched as bytes, its names were not found and stayed Strict."""
+    if not content.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return _STRICT_NAME.sub(_transitional_name, content)
+    try:
+        text = content.decode("utf-16")
+    except UnicodeDecodeError:
+        return content
+    renamed = _STRICT_NAME.sub(_transitional_name, text.encode("utf-8")).decode("utf-8")
+    return renamed.encode("utf-16")
+
+
+def transitional_package(data: bytes) -> bytes:
+    """Copy of a Strict Open XML package (`is_strict_package`) whose XML parts and relationships use the Transitional namespaces
+    and relationship types, so python-docx opens it. Only names change; values written as measures (`72pt`, which Word writes in
+    Strict where Transitional has twips) are left for the readers (`measure_int`). A member that does not read is left out, so
+    that opening detaches it with its relationship as for any damaged part (`open_package`); with several members of one name
+    the last one is kept, as when reading. Members are read, renamed and written one at a time, and pictures are stored as
+    they are (they are compressed already): besides the document itself, the copy holds at most the archive being written
+    and one member, each bounded by `max_uncompressed_bytes`, checked before extraction.
+
+    Refused, a document Word saved as 'Strict Open XML Document' was not read at all, though only its names differ (Pinned by:
+    test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments)."""
+    buffer = BytesIO()
+    with zipfile.ZipFile(BytesIO(data)) as archive, zipfile.ZipFile(buffer, "w") as target:
+        members = archive.infolist()
+        last = {info.filename: index for index, info in enumerate(members)}
+        for index, info in enumerate(members):
+            if last[info.filename] != index:
+                continue
+            try:
+                content = archive.read(info)
+            except ZIP_MEMBER_ERRORS:
+                continue
+            is_xml = info.filename.lower().endswith((".xml", ".rels"))
+            if is_xml:
+                content = _transitional_names(content)
+            target.writestr(info.filename, content, compress_type=zipfile.ZIP_DEFLATED if is_xml else zipfile.ZIP_STORED,
+                            compresslevel=1)
+            del content
+    return buffer.getvalue()
 
 
 def related_part(owner: object, relationship_type: str) -> object:

@@ -28,7 +28,7 @@ from opendockit.extractors._notation import (
     format_dutmal,
 )
 from opendockit.extractors._omml import render_omml
-from opendockit.extractors._package import decimal_int, parse_part
+from opendockit.extractors._package import decimal_int, measure_int, parse_part
 from opendockit.extractors._symbols import SYMBOL_FONTS, SYMBOL_GLYPHS, symbol_font_text, symbol_glyph
 
 
@@ -758,8 +758,8 @@ def _run_script(run: etree._Element, body_size: int | None = None) -> str | None
     if align is not None:
         return {"superscript": SUPERSCRIPT, "subscript": SUBSCRIPT}.get(align.get(_w("val")))
 
-    size = _int_attr(properties.find(_w("sz")), 0)
-    shift = _int_attr(properties.find(_w("position")), 0)
+    size = _half_points(properties.find(_w("sz")), 0)
+    shift = _half_points(properties.find(_w("position")), 0)
     if not body_size or size <= 0 or size > 0.8 * body_size:
         return None
     if shift >= 0.2 * size:
@@ -880,6 +880,12 @@ def _int_attr(element: etree._Element | None, default: int) -> int:
         return default
     value = element.get(_w("val"))
     return _int_value(value, default)
+
+
+def _half_points(element: etree._Element | None, default: int) -> int:
+    """`w:val` of a font size or a raise (w:sz, w:position) in half-points; a value written with a unit (`11pt`) is converted
+    (`_package.measure_int`)."""
+    return default if element is None else measure_int(element.get(_w("val")), 2, default)
 
 
 def _int_value(value: str | None, default: int) -> int:

@@ -44,6 +44,7 @@ from opendockit.extractors._docx_runs import (
     _drawing_alt,
     _drawing_lines,
     _embed_markdown_tables,
+    _half_points,
     _Inline,
     _inside_fallback,
     _int_attr,
@@ -77,12 +78,14 @@ from opendockit.extractors._notation import (
     unread_ole_warning,
 )
 from opendockit.extractors._package import (
+    ZIP_MEMBER_ERRORS,
     core_properties,
     is_strict_package,
     main_document_part,
     open_package,
     parse_part,
     related_part,
+    transitional_package,
 )
 from opendockit.markdown import TableGrid, clean_characters, join_blocks, merged_copy, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, renumber_image_markers
@@ -177,7 +180,7 @@ class _DocxRenderer:
         styles_root = _styles_root(document)
         default_size = (styles_root.find(f"{_w('docDefaults')}/{_w('rPrDefault')}/{_w('rPr')}/{_w('sz')}")
                         if styles_root is not None else None)
-        self._default_size = _int_attr(default_size, 0) or 20  # document default font size. If absent, Word uses 10pt (20 half-points)
+        self._default_size = _half_points(default_size, 0) or 20  # document default font size. If absent, Word uses 10pt (20 half-points)
         self._number_lists = _load_numbering(document)
         # There is one counter per number definition (abstractNum). Numbered lists (numId) already seen in the body are noted separately.
         self._numberings: dict[str, Numbering] = {}
@@ -1116,40 +1119,69 @@ def is_mhtml(data: bytes) -> bool:
     return load("opendockit.extractors._html_mail").is_mhtml(data)
 
 
-def _reject_strict(data: bytes) -> None:
-    if is_strict_package(data):
-        raise UnsupportedFormatError("Word documents in the Strict Open XML format are not supported. "
+def _open_main_part(data: bytes, warnings: list[str]) -> tuple[DocumentPart | None, Exception | None]:
+    """The main part of the package, or None (with what opening raised) when there is no Word document in it: the package or its
+    main part does not open, the main part is not a document part, or its root is not w:document. A w:document without w:body
+    (optional in the schema) is an empty document, as a deck without a slide list is an empty deck: `extract_docx` gives it an
+    empty body in memory. Both raised from inside the body walk (Pinned by: test_audit_office.py::TestDocxMainPartWithoutABody).
+
+    A relationship without a Type is kept by python-docx, which opens the package as it is, and the parts looked up by type
+    were not found behind it: the styles or the numbering were dropped without a word, and the headings and list items came
+    out as plain text. One whose target has the content type of such a part takes that part's type, unless another
+    relationship of the same part has it already (Pinned by: test_office_robustness.py::TestIncompleteRelationship::
+    test_docx_relationship_without_a_type_takes_the_type_of_its_part)."""
+    try:
+        part = main_document_part(open_package(Package.open, data, warnings))
+    except (PackageNotFoundError, KeyError, ValueError) as exc:
+        return None, exc
+    if not isinstance(part, DocumentPart):
+        return None, None
+    _type_untyped_relationships(part.package)
+    if part.document.element.tag != _w("document"):
+        return None, None
+    return part, None
+
+
+def _strict_main_part(data: bytes, warnings: list[str]) -> DocumentPart | None:
+    """The main part of the Transitional copy of a Strict Open XML package (`_package.transitional_package`). Raises the advice to
+    save the document again when even the copy holds no Word document."""
+    try:
+        part, _ = _open_main_part(transitional_package(data), warnings)
+    except ZIP_MEMBER_ERRORS:
+        part = None
+    if part is None:
+        raise UnsupportedFormatError("This Word document in the Strict Open XML format could not be read. "
                                      "Please save the file again in Word as 'Word Document (.docx)'.")
+    return part
 
 
 def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
     # If opening fails because of one part that is missing or is not XML, only that part is detached and the package is opened again
     # (`_package.open_package`, one warning).
-    # A Strict Open XML document fails here because its main part is not found. It is not corruption; the message asks to save it again
-    # (`_package.is_strict_package`).
+    # A Strict Open XML document fails here because its main part is not found. It is not corruption: it is read again from its
+    # Transitional copy (`_strict_main_part`). Strict is looked for only when opening failed, so a healthy document pays nothing.
+    # The warnings of an attempt that failed are not kept.
+    # Whatever else opening raises (a member that does not read and that the repair, looking for Transitional relationships,
+    # cannot detach) goes up as before, unless the package is Strict: its copy is opened instead (Pinned by:
+    # test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
+    # test_picture_of_a_strict_docx_that_cannot_be_read_is_detached_and_the_body_kept).
     extraction = Extraction()
+    warnings: list[str] = []
     try:
-        part = main_document_part(open_package(Package.open, data, extraction.warnings))
-    except (PackageNotFoundError, KeyError, ValueError) as exc:
-        _reject_strict(data)
-        raise CorruptedDocumentError("The DOCX document structure could not be read.") from exc
-    if not isinstance(part, DocumentPart):
-        _reject_strict(data)
-        raise CorruptedDocumentError("The DOCX document structure could not be read.")
-
-    # A relationship without a Type is kept by python-docx, which opens the package as it is, and the parts looked up by type
-    # were not found behind it: the styles or the numbering were dropped without a word, and the headings and list items came
-    # out as plain text. One whose target has the content type of such a part takes that part's type, unless another
-    # relationship of the same part has it already (Pinned by: test_office_robustness.py::TestIncompleteRelationship::
-    # test_docx_relationship_without_a_type_takes_the_type_of_its_part).
-    _type_untyped_relationships(part.package)
+        part, error = _open_main_part(data, warnings)
+    except MemoryError:
+        raise
+    except Exception:
+        if not is_strict_package(data):
+            raise
+        part, error = None, None
+    if part is None and is_strict_package(data):
+        warnings = []
+        part = _strict_main_part(data, warnings)
+    if part is None:
+        raise CorruptedDocumentError("The DOCX document structure could not be read.") from error
+    extraction.warnings.extend(warnings)
     document = part.document
-    # A main part whose root is not w:document is not a Word document. A w:document without w:body (optional in the schema) is an
-    # empty document, as a deck without a slide list is an empty deck: it is given an empty body in memory. Both raised from
-    # inside the body walk (Pinned by: test_audit_office.py::TestDocxMainPartWithoutABody).
-    if document.element.tag != _w("document"):
-        _reject_strict(data)
-        raise CorruptedDocumentError("The DOCX document structure could not be read.")
     if document.element.body is None:
         etree.SubElement(document.element, _w("body"))
     renderer = _DocxRenderer(document, options, extraction)

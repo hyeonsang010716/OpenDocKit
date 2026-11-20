@@ -9,9 +9,9 @@ from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.parts.styles import StylesPart
 from lxml import etree
 
-from opendockit.extractors._docx_runs import _int_attr, _int_value, _is_on, _w
+from opendockit.extractors._docx_runs import _half_points, _int_attr, _int_value, _is_on, _w
 from opendockit.extractors._lists import DOCX_NUMBER_SHAPES, NumberLevel, start_number
-from opendockit.extractors._package import decimal_int, parse_part, related_part
+from opendockit.extractors._package import decimal_int, measure_int, parse_part, related_part
 
 
 @dataclass(slots=True)
@@ -101,7 +101,7 @@ def _load_styles(document: object) -> dict[str, _Style]:
             ilvl=_int_attr(num_pr.find(_w("ilvl")) if num_pr is not None else None, 0),
             based_on=based_on.get(_w("val")) if based_on is not None else None,
             indent=_indent_values(style.find(f"{_w('pPr')}/{_w('ind')}")),
-            size=_int_attr(style.find(f"{_w('rPr')}/{_w('sz')}"), 0) or None,
+            size=_half_points(style.find(f"{_w('rPr')}/{_w('sz')}"), 0) or None,
             default=style.get(_w("type")) == "paragraph" and style.get(_w("default")) in ("1", "true", "on"),
         )
     return styles
@@ -233,7 +233,8 @@ def _indent_values(indent: etree._Element | None) -> dict[str, int]:
         return values
     for key, names in (("left", ("left", "start")), ("chars", ("leftChars", "startChars"))):
         value = next((indent.get(_w(name)) for name in names if indent.get(_w(name)) is not None), None)
-        number = decimal_int(value, None, signed=True)
+        # The left indent is a length: Word writes it as `36pt` in Strict Open XML (`_package.measure_int`)
+        number = measure_int(value, 20, None) if key == "left" else decimal_int(value, None, signed=True)
         if number is not None:
             values[key] = number
     return values

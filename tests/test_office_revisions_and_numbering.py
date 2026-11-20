@@ -385,23 +385,142 @@ class TestDocxDeletedParagraphMarkChain:
         assert fastest(lambda: convert(chain, "a.docx"), runs=2) < fastest(lambda: convert(plain, "a.docx"), runs=2) * 2 + 0.3
 
 
+_TRANSITIONAL_NAME = re.compile(r"http://schemas\.openxmlformats\.org/(wordprocessingml|drawingml|presentationml|spreadsheetml|"
+                                r"officeDocument)/2006/([A-Za-z-]+)(/[A-Za-z-]+)?")
+_STRICT_SPELLING = {"extended-properties": "extendedProperties", "custom-properties": "customProperties"}
+
+
+def _strict_everywhere(data: bytes, edit: dict[str, tuple[str, str]] | None = None) -> bytes:
+    """Copy as Word saves a 'Strict Open XML Document': every Transitional namespace and relationship type of the five
+    vocabularies in its purl.oclc.org form, the two property parts spelled as Strict spells them; `edit` replaces text in a part
+    after that (part name → (old, new)) — the measures Word writes with a unit."""
+    def strict(match: re.Match[str]) -> str:
+        vocabulary, name, tail = match.group(1), match.group(2), match.group(3) or ""
+        if tail:
+            tail = "/" + _STRICT_SPELLING.get(tail[1:], tail[1:])
+        return f"http://purl.oclc.org/ooxml/{vocabulary}/{_STRICT_SPELLING.get(name, name)}{tail}"
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(BytesIO(data)) as source, zipfile.ZipFile(buffer, "w") as target:
+        for name in source.namelist():
+            content = source.read(name)
+            if name.endswith((".xml", ".rels")):
+                text = _TRANSITIONAL_NAME.sub(strict, content.decode("utf-8"))
+                for part, (old, new) in (edit or {}).items():
+                    if part == name:
+                        text = text.replace(old, new)
+                content = text.encode("utf-8")
+            target.writestr(name, content)
+    return buffer.getvalue()
+
+
 class TestStrictOpenXmlOfficeDocuments:
     """A DOCX/PPTX saved as a 'Strict Open XML document' differs in every relationship type and namespace, so the main part was
-    not found and it was rejected as 'document structure could not be read' (corrupted). It is not corruption but an unsupported
-    format, so the message advises saving it again (same direction as XLSX Strict)."""
+    not found and it was rejected as 'document structure could not be read' (corrupted). A DOCX is read from a copy that uses the
+    Transitional names (`_package.transitional_package`) — a document Word saved that way (Word 2016 and later) reads in full
+    then, so refusing it lost the whole document over its names. A PPTX is still refused, with the advice to save it again."""
 
-    @pytest.mark.parametrize(("data", "filename", "advice"), [
-        pytest.param(builder.docx_bytes(), "a.docx", "Word Document (.docx)", id="docx"),
-        pytest.param(builder.pptx_bytes(), "a.pptx", "PowerPoint Presentation (.pptx)", id="pptx"),
-    ])
-    def test_strict_document_is_reported_as_unsupported_with_a_resave_advice(self, data, filename, advice):
-        strict = _strict(data)
+    def test_strict_pptx_is_reported_as_unsupported_with_a_resave_advice(self):
+        strict = _strict(builder.pptx_bytes())
 
         with pytest.raises(UnsupportedFormatError) as raised:
-            convert(strict, filename)
+            convert(strict, "a.pptx")
 
         assert "Strict Open XML" in str(raised.value)
-        assert advice in str(raised.value)
+        assert "PowerPoint Presentation (.pptx)" in str(raised.value)
+
+    def test_strict_docx_reads_as_its_transitional_form(self):
+        data = builder.docx_bytes()
+        strict = _strict_everywhere(data)
+        assert b"purl.oclc.org/ooxml/officeDocument/relationships/extendedProperties" in zipfile.ZipFile(BytesIO(strict)).read(
+            "_rels/.rels")
+
+        result, expected = convert(strict, "a.docx"), convert(data, "a.docx")
+
+        assert result.text == expected.text
+        assert "# 1장 개요" in result.text and "$\\frac{a}{b}x^2$" in result.text
+        assert result.metadata == expected.metadata
+        assert result.warnings == expected.warnings == []
+
+    def test_pictures_of_a_strict_docx_are_read(self):
+        data = builder.docx_with_images()
+
+        result, expected = convert(_strict_everywhere(data), "a.docx"), convert(data, "a.docx")
+
+        assert result.text == expected.text
+        assert len(result.images) == len(expected.images) > 0
+
+    def test_measures_written_with_a_unit_are_read(self):
+        """Word writes twips as points in Strict (`w:ind w:left="40pt"` for 800): the indent that nests a list under the item it is
+        indented from was read as none. Font sizes and raises written with a unit are read too (half-points)."""
+        from tests.test_office import _indented_level
+
+        numbering = ('<w:abstractNum w:abstractNumId="0">' + _indented_level(0, "%1.", 800)
+                     + '</w:abstractNum><w:abstractNum w:abstractNumId="1">' + _indented_level(0, "-", 1600, "bullet")
+                     + "</w:abstractNum>" + _number_list(1, 0) + _number_list(2, 1))
+        styles = '<w:style w:type="paragraph" w:styleId="BodyText"><w:name w:val="Body Text"/><w:rPr><w:sz w:val="24"/></w:rPr></w:style>'
+        body = (_paragraph("개요", 1, 0) + _paragraph("세부 항목", 2, 0) + _paragraph("결론", 1, 0)
+                + '<w:p><w:pPr><w:pStyle w:val="BodyText"/></w:pPr><w:r><w:t xml:space="preserve">H</w:t></w:r>'
+                '<w:r><w:rPr><w:position w:val="-2"/><w:sz w:val="19"/></w:rPr><w:t>2</w:t></w:r><w:r><w:t>O</w:t></w:r></w:p>')
+        data = _docx_with_body(body, numbering=numbering, styles=styles)
+        in_points = {"word/numbering.xml": ('w:left="800"', 'w:left="40pt"'), "word/document.xml": ('w:val="19"', 'w:val="9.5pt"')}
+        strict = _strict_everywhere(data, edit=in_points)
+        strict = _strict_everywhere(strict, edit={"word/numbering.xml": ('w:left="1600"', 'w:left="80pt"'),
+                                                 "word/styles.xml": ('w:sz w:val="24"', 'w:sz w:val="12pt"'),
+                                                 "word/document.xml": ('w:val="-2"', 'w:val="-1pt"')})
+
+        result, expected = convert(strict, "a.docx"), convert(data, "a.docx")
+
+        assert expected.text == "1. 개요\n  - 세부 항목\n2. 결론\n\nH_2O"
+        assert result.text == expected.text
+
+    def test_strict_part_stored_in_utf16_is_renamed_too(self):
+        data = builder.docx_bytes()
+        buffer = BytesIO()
+        with zipfile.ZipFile(BytesIO(_strict_everywhere(data))) as source, zipfile.ZipFile(buffer, "w") as target:
+            for name in source.namelist():
+                content = source.read(name)
+                if name == "word/document.xml":
+                    declared = re.sub(r"encoding=['\"][^'\"]*['\"]", 'encoding="UTF-16"', content.decode("utf-8"), count=1)
+                    assert 'encoding="UTF-16"' in declared
+                    content = declared.encode("utf-16")
+                target.writestr(name, content)
+
+        assert convert(buffer.getvalue(), "a.docx").text == convert(data, "a.docx").text
+
+    def test_picture_of_a_strict_docx_that_cannot_be_read_is_detached_and_the_body_kept(self):
+        """A member that does not read is left out of the copy, and opening detaches it as for a Transitional document."""
+        from tests.test_office_robustness import _rebuilt
+
+        data = builder.docx_with_images()
+        transitional = convert(_rebuilt(data, corrupt=("word/media/image1.png",)), "a.docx")
+
+        result = convert(_rebuilt(_strict_everywhere(data), corrupt=("word/media/image1.png",)), "a.docx")
+
+        assert result.text == transitional.text
+        assert result.warnings == transitional.warnings
+        assert any("detaching 1 missing or broken part(s) (image1.png)" in warning for warning in result.warnings)
+
+    def test_strict_docx_whose_copy_holds_no_document_gets_the_resave_advice(self):
+        strict = builder.zip_with(_strict_everywhere(builder.docx_bytes()),
+                                  edit={"word/document.xml": lambda xml: re.sub(r"<w:document\b", "<w:other", xml, count=1)
+                                        .replace("</w:document>", "</w:other>")})
+
+        with pytest.raises(UnsupportedFormatError) as raised:
+            convert(strict, "a.docx")
+
+        assert "Strict Open XML" in str(raised.value)
+        assert "Word Document (.docx)" in str(raised.value)
+
+    def test_transitional_document_is_not_copied(self, monkeypatch):
+        from opendockit.extractors import docx
+
+        def never(data: bytes) -> bytes:
+            raise AssertionError("a healthy document was copied")
+
+        monkeypatch.setattr(docx, "transitional_package", never)
+
+        assert "# 1장 개요" in convert(builder.docx_bytes(), "a.docx").text
 
 
 _GLOSSARY_RELATIONSHIP = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/glossaryDocument"
