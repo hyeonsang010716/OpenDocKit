@@ -734,18 +734,23 @@ class _DocxRenderer:
                 row_cells.append((row_index, col, span, merge is not None and merge.get(_w("val"), "continue") == "continue", cell))
                 col += span
             if deleted:
-                # A merge carried on is one this row continues at the same width; one this row starts is carried from here
+                # A merge carried on is one this row continues over any of its columns; one this row starts is carried from here
                 still: dict[int, tuple[int, etree._Element]] = {}
                 for _, col, span, continues, cell in row_cells:
-                    if continues and col in carried and carried[col][0] == span:
-                        still[col] = carried[col]
+                    found = _carried_over(carried, col, span) if continues else None
+                    if found is not None:
+                        still[found[0]] = found[1]
                     elif not continues and _starts_merge(cell):
                         still[col] = (span, cell)
                 carried = still
                 continue
             for _, col, span, continues, cell in row_cells:
-                start = carried.get(col) if continues else None
-                cells.append((row_index, col, span, False, start[1]) if start is not None and start[0] == span
+                # The first row left of a merge carried from deleted rows starts it with the deleted start cell's text, at the
+                # same width or another: tied to the row above the deleted rows, a cell of another width took the text of the
+                # unrelated cell there (Pinned by: test_office_revisions_and_numbering.py::TestDocxDeletedTableRow::
+                # test_merge_starting_in_a_deleted_row_keeps_its_text_at_another_width)
+                found = _carried_over(carried, col, span) if continues else None
+                cells.append((row_index, col, span, False, found[1][1]) if found is not None
                              else (row_index, col, span, continues, cell))
             carried = {}
             row_index += 1
@@ -1558,6 +1563,16 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
 def _is_deleted_row(row: etree._Element) -> bool:
     """A table row deleted with Track Changes on (w:trPr/w:del)."""
     return row.find(f"{_w('trPr')}/{_w('del')}") is not None
+
+
+def _carried_over(carried: dict[int, tuple[int, etree._Element]], col: int, span: int
+                  ) -> tuple[int, tuple[int, etree._Element]] | None:
+    """The merge carried from deleted rows (start column → (span, start cell)) that covers any of the columns `col` to
+    `col + span`, with its start column."""
+    for start, (width, cell) in carried.items():
+        if start < col + span and col < start + width:
+            return start, (width, cell)
+    return None
 
 
 def _starts_merge(cell: etree._Element) -> bool:

@@ -208,6 +208,19 @@ class TestDocxDeletedTableRow:
 
         assert result.text == "| H1 | H2 |\n| --- | --- |\n| Seoul | 10 |\n| Busan | 30 |\n| Busan | 40 |"
 
+    def test_merge_starting_in_a_deleted_row_keeps_its_text_at_another_width(self):
+        """A continuation narrower than the deleted start cell was tied to the row above the deleted row and wrote the text of
+        the unrelated cell there (`Seoul`); the same table without the deletion repeats `Busan` there."""
+        span2 = '<w:gridSpan w:val="2"/>'
+        body = ("<w:tbl>" + _row(f"H1|{span2}", "H2") + _row(f"Seoul|{span2}", "10")
+                + _row(f'Busan|{span2}<w:vMerge w:val="restart"/>', "20", deleted=True) + _row("|<w:vMerge/>", "x", "30")
+                + "</w:tbl>")
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert "<tr><td>Busan</td><td>x</td><td>30</td></tr>" in result.text   # (an HTML table: it has a column span)
+        assert result.text.count("Seoul") == 1
+
     def test_merge_starting_in_a_deleted_first_row_keeps_its_text(self):
         body = ("<w:tbl>" + _row('Busan|<w:vMerge w:val="restart"/>', "20", deleted=True) + _row("|<w:vMerge/>", "30")
                 + _row("Seoul", "10") + "</w:tbl>")
