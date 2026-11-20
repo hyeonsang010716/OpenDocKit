@@ -497,6 +497,84 @@ class TestShadingInsideShadedCells:
 
         assert len(inner) == 4
 
+    @pytest.mark.timing
+    @pytest.mark.parametrize("shape", ["tall bars", "nested in two colours", "many in one band", "crossing"])
+    def test_crowded_pages_take_linear_time(self, shape):
+        """Each rectangle looks only at the rectangles near it in drawing order or overlapping it: looking at every fill of
+        the height bands it covers, and at every rectangle of those bands for each outer one, a histogram of 4,000 tall bars
+        took 14 seconds, 500 nested rectangles of two alternating colours 24 and 8,000 small ones in one band over a background
+        of their colour 14. Rectangles that all overlap each other (bars across bars) stop at `_NESTED_FILL_WORK`."""
+        from io import BytesIO
+
+        import pdfplumber
+        from reportlab.pdfgen import canvas
+
+        from opendockit.extractors._pdf_table_filters import _without_nested_fills
+        from tests.timing import fastest
+
+        def page_pdf(count: int) -> bytes:
+            buffer = BytesIO()
+            if shape == "tall bars":
+                pdf = canvas.Canvas(buffer, pagesize=(count * 2 + 100, 700))
+                pdf.setFillColorRGB(0.2, 0.4, 0.7)
+                for index in range(count):
+                    pdf.rect(40 + 2 * index, 60, 1.5, 20 + index * 37 % 430, stroke=0, fill=1)
+            elif shape == "nested in two colours":
+                pdf = canvas.Canvas(buffer, pagesize=(count * 2 + 100, count * 2 + 100))
+                for index in range(count):
+                    pdf.setFillColorRGB(*((0.9, 0.9, 0.9) if index % 2 else (0.2, 0.2, 0.2)))
+                    pdf.rect(10 + index, 10 + index, count * 2 + 80 - 2 * index, count * 2 + 80 - 2 * index, stroke=0, fill=1)
+            elif shape == "crossing":
+                pdf = canvas.Canvas(buffer, pagesize=(count * 2 + 100, count * 2 + 100))
+                for index in range(count):
+                    pdf.setFillColorRGB(0.5, 0.5, 0.5)
+                    pdf.rect(10 + 2 * index, 10, 1.5, count * 2 + 50, stroke=0, fill=1)
+                    pdf.setFillColorRGB(0.1, 0.5, 0.9)
+                    pdf.rect(10, 10 + 2 * index, count * 2 + 50, 1.5, stroke=0, fill=1)
+            else:
+                pdf = canvas.Canvas(buffer, pagesize=(count * 2 + 100, 200))
+                pdf.setFillColorRGB(0.9, 0.9, 0.9)
+                pdf.rect(0, 0, count * 2 + 100, 200, stroke=0, fill=1)
+                for index in range(count):
+                    pdf.setFillColorRGB(*((0.9, 0.9, 0.9) if index % 2 else (0.2, 0.2, 0.2)))
+                    pdf.rect(10 + 2 * index, 100, 1.5, 8, stroke=0, fill=1)
+            pdf.save()
+            return buffer.getvalue()
+
+        def seconds(count: int) -> float:
+            with pdfplumber.open(BytesIO(page_pdf(count))) as document:
+                page = document.pages[0]
+                page.rects  # noqa: B018 — pdfplumber's own reading is not measured
+                return fastest(lambda: _without_nested_fills(page))
+
+        small, large = (seconds(250), seconds(1_000)) if shape == "nested in two colours" else (seconds(1_000), seconds(4_000))
+        assert large < small * 8
+
+    def test_nested_shading_is_found_on_a_crowded_page_as_well(self):
+        """The line shading inside a shaded cell is found among hundreds of other fills, and a fill of the same colour beside
+        it (not around it) does not hide it."""
+        from io import BytesIO
+
+        import pdfplumber
+        from reportlab.pdfgen import canvas
+
+        from opendockit.extractors._pdf_table_filters import _without_nested_fills
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(800, 800))
+        for row in range(20):
+            for column in range(20):
+                pdf.setFillColorRGB(*((0.85, 0.85, 0.85) if (row + column) % 2 else (0.6, 0.8, 0.9)))
+                pdf.rect(20 + 30 * column, 20 + 30 * row, 30, 30, stroke=0, fill=1)
+                if row == column:
+                    pdf.rect(23 + 30 * column, 30 + 30 * row, 24, 10, stroke=0, fill=1)
+        pdf.save()
+        with pdfplumber.open(BytesIO(buffer.getvalue())) as document:
+            page = document.pages[0]
+            kept = _without_nested_fills(page)
+            assert len(page.rects) == 420 and len(kept.rects) == 400
+            assert not any(rect["height"] == 10 for rect in kept.rects)
+
 
 def _bar_chart(values: list[int], *, hanging: bool = False, label: str | None = None, stacked: bool = False,
                labelled: bool = False) -> bytes:

@@ -7,8 +7,6 @@ from collections.abc import Callable
 from itertools import accumulate, pairwise
 import math
 
-from opendockit.extractors._pdf_model import _BoxIndex
-
 
 # Highlighter rectangle (`_without_highlights`): its height is at most this multiple of the size of the covered characters, its
 # left edge is within this distance of the first covered character (ratio of the character size, capped in pt), and its right edge
@@ -23,6 +21,10 @@ _CELL_ROW_REACH, _CELL_ALIGN = 6.0, 1.0
 # Filled rectangle inside a filled rectangle of the same colour (`_without_nested_fills`): how far (pt) it may reach past the
 # outer one's edges
 _NESTED_FILL_SLACK = 0.5
+# ... and how many rectangles one page may look at for it (besides four per rectangle): about a second
+_NESTED_FILL_WORK = 2_000_000
+# ... and how far (rectangles) it first walks the drawing order from each rectangle before it looks at those overlapping it
+_NESTED_FILL_WALK = 8
 # Bars of a bar chart (`_without_chart_bars`): at least this many, and how far (pt) their widths and stacked edges may differ
 _CHART_BARS_MIN, _BAR_SLACK = 3, 0.5
 # ... and how much wider the widest bar of a group may be than the narrowest (two series drawn 2.3pt and 3.1pt wide)
@@ -110,35 +112,131 @@ def _without_nested_fills(page: object) -> object:
     They are invisible — the same colour over the same colour — but pdfplumber took their edges for rules: a header cell of four
     lines split its row into four, every other header cell was repeated four times as a vertical merge, and the inset right edge
     of the line shading made an empty column (Pinned by: test_pdf_highlights.py::TestShadingInsideShadedCells). A rectangle is
-    dropped only when it is filled without a border, lies within `_NESTED_FILL_SLACK` of a borderless filled rectangle of the same
-    fill colour, and no rectangle of another colour drawn between the two overlaps it (that one would make its edges show).
+    dropped only when it is filled without a border, lies within `_NESTED_FILL_SLACK` of a larger borderless filled rectangle of
+    the same fill colour, and no rectangle of another colour drawn between the two overlaps it (that one would make its edges
+    show).
+
+    Only the outer rectangle nearest in drawing order on each side can do (one further away has every rectangle between the
+    nearer one and this one between them as well), so each rectangle walks the drawing order outwards from itself to the first
+    rectangle that decides (an outer one, or one of another colour over it), or looks at the rectangles that overlap it on the
+    axis with fewer of them (`_AxisOverlaps`), whichever is shorter. Looking at the fills of its height bands and, for each
+    outer one, at every rectangle of those bands took a histogram of 8,000 tall bars 63 seconds and 500 nested rectangles of two
+    colours 24 (Pinned by: TestShadingInsideShadedCells::test_crowded_pages_take_linear_time). Past `_NESTED_FILL_WORK` steps
+    on one page (rectangles overlapping each other by the thousand) the remaining ones are kept: their edges may cut a table
+    into more cells, but no text is lost.
     """
     rects = page.rects
-    fills = [(order, rect) for order, rect in enumerate(rects) if rect.get("fill") and not rect.get("stroke")]
+    fills = [order for order, rect in enumerate(rects) if rect.get("fill") and not rect.get("stroke")]
     if len(fills) < 2:
         return page
-    # (x0, top, x1, bottom, drawing order) of the borderless fills, and of every rectangle
-    index = _BoxIndex([(rect["x0"], rect["top"], rect["x1"], rect["bottom"], order) for order, rect in fills])
-    drawn = _BoxIndex([(rect["x0"], rect["top"], rect["x1"], rect["bottom"], order) for order, rect in enumerate(rects)])
+    boxes = [(rect["x0"], rect["top"], rect["x1"], rect["bottom"]) for rect in rects]
     colours = [_colour(rect) for rect in rects]
+    borderless = [False] * len(rects)
+    for order in fills:
+        borderless[order] = True
+    by_x = _AxisOverlaps([box[0] for box in boxes], [box[2] for box in boxes])
+    by_y = _AxisOverlaps([box[1] for box in boxes], [box[3] for box in boxes])
+    slack = _NESTED_FILL_SLACK
+    work = _NESTED_FILL_WORK + len(rects) * 4
+
+    def decides(order: int, other: int, box: tuple[float, float, float, float], area: float) -> int:
+        """1: `other` is an outer rectangle of `order`, -1: it shows `order`'s edges, 0: neither."""
+        x0, top, x1, bottom = boxes[other]
+        if colours[other] != colours[order]:
+            return -1 if x0 < box[2] and box[0] < x1 and top < box[3] and box[1] < bottom else 0
+        return int(borderless[other] and (x1 - x0) * (bottom - top) > area
+                   and x0 - slack <= box[0] and box[2] <= x1 + slack and top - slack <= box[1] and box[3] <= bottom + slack)
+
     hidden: set[int] = set()
-    for order, rect in fills:
-        box = (rect["x0"], rect["top"], rect["x1"], rect["bottom"])
-        for x0, top, x1, bottom, other in index.near(box):
-            if other == order or colours[other] != colours[order] or (x1 - x0) * (bottom - top) <= rect["width"] * rect["height"]:
-                continue
-            if not (x0 - _NESTED_FILL_SLACK <= box[0] and box[2] <= x1 + _NESTED_FILL_SLACK
-                    and top - _NESTED_FILL_SLACK <= box[1] and box[3] <= bottom + _NESTED_FILL_SLACK):
-                continue
-            low, high = min(order, other), max(order, other)
-            if any(low < between < high and colours[between] != colours[order] and _overlaps(rects[between], box)
-                   for *_, between in drawn.near(box)):
-                continue
-            hidden.add(id(rect))
+    for order in fills:
+        if work <= 0:
             break
+        rect, box = rects[order], boxes[order]
+        area = rect["width"] * rect["height"]
+        # every rectangle that can decide overlaps the box on both axes, or, on an axis where the box is not wider than the
+        # slack, the box widened by twice the slack (an outer one may then end beside it)
+        widen_x = 0.0 if box[2] - box[0] > slack else 2 * slack
+        widen_y = 0.0 if box[3] - box[1] > slack else 2 * slack
+        low_x, high_x, low_y, high_y = box[0] - widen_x, box[2] + widen_x, box[1] - widen_y, box[3] + widen_y
+        across, along = by_x.count(low_x, high_x), by_y.count(low_y, high_y)
+        limit = min(across, along)
+        sides = [_walked(order, step, min(limit, _NESTED_FILL_WALK), len(rects), lambda other: decides(order, other, box, area))
+                 for step in (-1, 1)]
+        work -= sum(steps for _, steps in sides)
+        verdicts = {verdict for verdict, _ in sides}
+        found = 1 in verdicts
+        if not found and None in verdicts:
+            # the walk was longer than the overlapping rectangles: the nearest deciding one on each side among those
+            index, low, high = (by_x, low_x, high_x) if across <= along else (by_y, low_y, high_y)
+            work -= limit
+            nearest = {-1: (-1, 0), 1: (len(rects), 0)}
+            for other in index.each(low, high):
+                if other == order:
+                    continue
+                verdict = decides(order, other, box, area)
+                side = -1 if other < order else 1
+                if verdict and (other > nearest[side][0] if side < 0 else other < nearest[side][0]):
+                    nearest[side] = (other, verdict)
+            found = nearest[-1][1] == 1 or nearest[1][1] == 1
+        if found:
+            hidden.add(id(rect))
     if not hidden:
         return page
     return page.filter(lambda obj: id(obj) not in hidden)
+
+
+def _walked(order: int, step: int, limit: int, count: int, decides: Callable[[int], int]) -> tuple[int | None, int]:
+    """The verdict of the first rectangle that decides (`decides` not 0) walking the drawing order from `order` by `step`, -1
+    when the walk leaves the page's rectangles first, None when none decides within `limit` steps; and the steps taken
+    (`_without_nested_fills`)."""
+    other = order + step
+    for steps in range(limit):
+        if not 0 <= other < count:
+            return -1, steps
+        if verdict := decides(other):
+            return verdict, steps + 1
+        other += step
+    return (-1 if not 0 <= other < count else None), limit
+
+
+class _AxisOverlaps:
+    """The rectangles whose extent on one axis (`starts[k]` to `ends[k]`) overlaps an interval: how many (`count`) and which
+    (`each`), without looking at the others. The rectangles are sorted by their start, and a tree over that order keeps the
+    greatest end of each run of them, so that runs ending before the interval are skipped whole."""
+
+    def __init__(self, starts: list[float], ends: list[float]) -> None:
+        self._order = sorted(range(len(starts)), key=starts.__getitem__)
+        self._starts = [starts[k] for k in self._order]
+        self._ends = sorted(ends)
+        self._size = 1
+        while self._size < len(starts):
+            self._size *= 2
+        tree = [-math.inf] * (2 * self._size)
+        for position, k in enumerate(self._order):
+            tree[self._size + position] = ends[k]
+        for node in range(self._size - 1, 0, -1):
+            tree[node] = max(tree[2 * node], tree[2 * node + 1])
+        self._tree = tree
+
+    def count(self, low: float, high: float) -> int:
+        """How many rectangles start before `high` and end after `low` (those ending at `low` or before start before it)."""
+        return max(bisect_left(self._starts, high) - bisect_right(self._ends, low), 0)
+
+    def each(self, low: float, high: float) -> list[int]:
+        """The rectangles that start before `high` and end after `low`, by their index."""
+        limit, tree, size, found = bisect_left(self._starts, high), self._tree, self._size, []
+        stack = [(1, 0, size)]
+        while stack:
+            node, first, last = stack.pop()
+            if first >= limit or tree[node] <= low:
+                continue
+            if node >= size:
+                found.append(self._order[first])
+                continue
+            middle = (first + last) // 2
+            stack.append((2 * node + 1, middle, last))
+            stack.append((2 * node, first, middle))
+        return found
 
 
 def _without_chart_bars(page: object) -> object:
