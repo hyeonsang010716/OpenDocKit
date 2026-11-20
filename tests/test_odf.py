@@ -301,6 +301,59 @@ class TestTextDocument:
                     + "<text:list-item><text:p>본문</text:p></text:list-item></text:list>", styles=_LIST_STYLES)
         assert text == "# 1. 제목\n\n2. 본문"
 
+    def test_picture_inside_a_sentence_goes_after_its_paragraph(self):
+        """A picture anchored as a character inside a sentence cut it into two paragraphs around the picture; the DOCX of the
+        same document reads the sentence whole and the picture after it. A text box anchored there goes after it too."""
+        picture = ('<draw:frame text:anchor-type="as-char" svg:width="1cm" svg:height="1cm">'
+                   '<draw:image xlink:href="Pictures/a.png"/></draw:frame>')
+        body = (f"<text:p>The logo {picture} appears in the header.</text:p>"
+                f'<text:p>See {_text_frame("<text:p>Boxed</text:p>")} the box.</text:p><text:p>End.</text:p>')
+
+        result = _convert("text", body, parts={"Pictures/a.png": builder.png_bytes()})
+
+        assert result.text == "The logo appears in the header.\n\n[Image]\n\nSee the box.\n\nBoxed\n\nEnd."
+
+    def test_caption_written_after_its_picture_stays_after_it(self):
+        """LibreOffice's Insert Caption makes a frame holding a paragraph of the picture, then 'Figure 1: …'. With every block
+        of a paragraph put after its text, the caption came before the picture it is under."""
+        picture = ('<draw:frame text:anchor-type="as-char" svg:width="1cm" svg:height="1cm">'
+                   '<draw:image xlink:href="Pictures/a.png"/></draw:frame>')
+        caption = (f'<text:p>{picture}Figure <text:sequence text:name="Figure">1</text:sequence>: The logo</text:p>')
+        body = f"<text:p>Before.</text:p><text:p>{_text_frame(caption)}</text:p><text:p>After.</text:p>"
+
+        result = _convert("text", body, parts={"Pictures/a.png": builder.png_bytes()})
+
+        assert result.text == "Before.\n\n[Image]\n\nFigure 1: The logo\n\nAfter."
+
+    def test_list_item_that_starts_with_a_picture_keeps_its_label(self):
+        """Only a caption keeps the pictures written before its text in front of it: kept there in a list item, the picture
+        took the item's label ('-' on a line of its own, the item's text a paragraph outside the list), and a paragraph-anchored
+        picture went before its paragraph where DOCX writes it after."""
+        picture = ('<draw:frame text:anchor-type="as-char" svg:width="1cm" svg:height="1cm">'
+                   '<draw:image xlink:href="Pictures/a.png"/></draw:frame>')
+        body = (f"<text:list><text:list-item><text:p>{picture}First item</text:p></text:list-item>"
+                "<text:list-item><text:p>Second</text:p></text:list-item></text:list>"
+                f"<text:p>{picture.replace('as-char', 'paragraph')}Body text.</text:p>")
+
+        result = _convert("text", body, parts={"Pictures/a.png": builder.png_bytes()})
+
+        assert result.text == "- First item\n\n[Image]\n\n- Second\n\nBody text.\n\n[Image]"
+
+    def test_caption_in_a_note_or_a_comment_does_not_make_its_paragraph_one(self):
+        """A paragraph is a caption by a sequence field of its own; one in a footnote or a comment of the paragraph is theirs."""
+        picture = ('<draw:frame text:anchor-type="as-char" svg:width="1cm" svg:height="1cm">'
+                   '<draw:image xlink:href="Pictures/a.png"/></draw:frame>')
+        note = ('<text:note text:note-class="footnote"><text:note-citation>1</text:note-citation><text:note-body>'
+                '<text:p>See Figure <text:sequence text:name="Figure">2</text:sequence>.</text:p></text:note-body></text:note>')
+        comment = ('<office:annotation><dc:creator>A</dc:creator><text:p>See Figure <text:sequence text:name="Figure">2'
+                   '</text:sequence>.</text:p></office:annotation>')
+
+        noted = _convert("text", f"<text:p>{picture}Body{note} text.</text:p>", parts={"Pictures/a.png": builder.png_bytes()})
+        commented = _convert("text", f"<text:p>{picture}Body{comment} text.</text:p>", parts={"Pictures/a.png": builder.png_bytes()})
+
+        assert noted.text.startswith("Body[^1] text.\n\n[Image]")
+        assert commented.text.startswith("Body text.\n\n[Image]")
+
 
 class TestHiddenText:
     """Hidden text is not text of the document (as DOCX w:vanish and RTF `\\v`): it read like a valid value."""

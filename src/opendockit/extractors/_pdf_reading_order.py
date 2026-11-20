@@ -320,12 +320,18 @@ class _FlowingOn:
         count = len(lefts)
         self._end = list(range(count))  # index of the last line of the run starting at each line
         self._wraps = [False] * count  # a line of that run, before its last, fills the column width
+        self._reach = list(range(count))  # index of the last line the column reaches from each line, past subheadings
         for index in range(count - 2, -1, -1):
             line, lower = lefts[index], lefts[index + 1]
-            if (abs(lower.x0 - line.x0) <= _TABLE_ROW_TOLERANCE
-                    and 0 <= lower.top - line.bottom <= line.height * _WRAP_LINE_GAP_RATIO):
+            if abs(lower.x0 - line.x0) > _TABLE_ROW_TOLERANCE:
+                continue
+            gap = lower.top - line.bottom
+            if 0 <= gap <= line.height * _WRAP_LINE_GAP_RATIO:
                 self._end[index] = self._end[index + 1]
                 self._wraps[index] = line.x1 > left_end - line.height or self._wraps[index + 1]
+                self._reach[index] = self._reach[index + 1]
+            elif 0 <= gap <= max(line.height, lower.height) * _COLUMN_CONTINUE_RATIO and self._wraps[index + 1]:
+                self._reach[index] = self._reach[index + 1]
 
     def past(self, index: int, height: float, reaching: "_RightReaching") -> bool:
         """Whether the left column flows on from line `index` without a break, with a line wrapping at the column width
@@ -338,9 +344,15 @@ class _FlowingOn:
         column (Pinned by: test_pdf_reading_order.py::TestShortRightColumn). Text set out below both columns is a few
         lines or crosses the gutter; a run taller than the right column, at the column's left edge and wrapping at its
         width, is the left column going on.
+        How far it goes on is measured past a break no wider than a column continues across (`_COLUMN_CONTINUE_RATIO`
+        line heights, the space above a subheading) to a run at the same left edge that wraps at the column width
+        again: a subheading two paragraphs down cut the run short of the right column's height, and the rest of the
+        left column came out after the right column (Pinned by: test_pdf_reading_order.py::TestShortRightColumn::
+        test_left_column_running_on_past_a_subheading_comes_before_it). The paragraph the line opens must still flow
+        on and wrap by itself.
         """
         end = self._end[index]
-        last = self._lefts[end]
+        last = self._lefts[self._reach[index]]
         return (end > index + 1 and self._wraps[index + 1] and last.bottom - self._lefts[index].top > height
                 and not reaching.between(self._lefts[index].top, last.top))
 
@@ -764,17 +776,35 @@ def _table_caption_rows(lines: list[_Line], tables: list[tuple[float, float, flo
     or more lines at the same height all lie right above some table (gap at most `_CAPTION_GAP_RATIO` times the line
     height), overlapping that table horizontally, with no line continuing right above them (gap at most the line
     height) — the last row of a label-value group above a table ('작성 부서 인재개발팀 / 승인자 박본부장') is not a
-    caption. The extent of a borderless table is its cell text, so a caption sticks out a few pt to the left."""
+    caption. The extent of a borderless table is its cell text, so a caption sticks out a few pt to the left.
+    Lines over different tables (captions of side-by-side tables) are a caption row only when each is the last line
+    above its table — no line below it in its own column (overlapping it horizontally) before the table starts. The
+    first line of a two-line paragraph at the top of the right column, right above a table there, made a row with a
+    left-column heading over a table at its height and was pulled into the left column ahead of the rest of it (Pinned
+    by: test_pdf_reading_order.py::TestCaptionsOverSideBySideTables::
+    test_first_line_of_a_paragraph_above_a_table_is_not_a_caption). Lines over one table may each go on below (the
+    first lines of header cells set on several lines), as before."""
     if not tables:
         return []
 
-    def is_caption(line: _Line) -> bool:
-        return (any(-1 <= top - line.bottom <= line.height * _CAPTION_GAP_RATIO and line.x0 < x1 and x0 < line.x1
-                    for top, _, x0, x1 in tables)
-                and not any(other.x0 < line.x1 and line.x0 < other.x1 and 0 <= line.top - other.bottom <= line.height
-                            for other in lines))
+    def captioned(line: _Line) -> list[tuple[int, bool]]:
+        """The tables the line lies right above, each with whether it is the last line above that table."""
+        if any(other.x0 < line.x1 and line.x0 < other.x1 and 0 <= line.top - other.bottom <= line.height for other in lines):
+            return []
+        return [(number, not any(other is not line and other.x0 < line.x1 and line.x0 < other.x1
+                                 and line.bottom - 1 <= other.top and other.bottom <= top + 1 for other in lines))
+                for number, (top, _, x0, x1) in enumerate(tables)
+                if -1 <= top - line.bottom <= line.height * _CAPTION_GAP_RATIO and line.x0 < x1 and x0 < line.x1]
 
-    return [row for row in _visual_rows(lines) if len(row) >= 2 and all(is_caption(line) for line in row)]
+    def is_caption_row(row: list[_Line]) -> bool:
+        found = [captioned(line) for line in row]
+        if not all(found):
+            return False
+        if set.intersection(*({number for number, _ in tables_of} for tables_of in found)):
+            return True  # all over one table
+        return all(any(last for _, last in tables_of) for tables_of in found)
+
+    return [row for row in _visual_rows(lines) if len(row) >= 2 and is_caption_row(row)]
 
 
 def _is_figure_caption(line: _Line, figures: list[tuple[float, float, float, float]]) -> bool:

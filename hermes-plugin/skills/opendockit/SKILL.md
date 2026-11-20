@@ -33,7 +33,6 @@ written.
   downloads the package from PyPI, and Python 3.12 or newer if this machine has none, so the first
   call of a session can take a while on a slow connection.
 - Legacy `.doc` and `.ppt` need LibreOffice installed. `.docx` and `.pptx` do not.
-- On Windows, HTML, email and EPUB are not supported.
 
 ## How to Run
 

@@ -43,7 +43,6 @@ _XML_GENERAL_DATE = "[$-x-general-date]yyyy-mm-dd h:mm:ss"
 _FORMAT_TOKEN = re.compile(r'"([^"]*)"|\\(.)|\[([^\]]*)\]|[^"\\[]+|.', re.DOTALL)
 # The same tokens past the last `]` of a format, where a `[` can open no bracket section (group 3 never matches).
 _FORMAT_TOKEN_UNCLOSED = re.compile(r'"([^"]*)"|\\(.)|((?!))|[^"\\[]+|.', re.DOTALL)
-_FORMAT_QUOTED = re.compile(r'"([^"]*)"')
 _FORMAT_DATE_TOKENS = re.compile(r"[yYdDhHsS]|(?<![#0])[mM]")
 # `_x` leaves a space as wide as the character x, `*x` fills the cell with x (the `_-` and `* ` of the accounting format
 # `_-* #,##0_-`). They are for on-screen alignment, so they are not put into the value.
@@ -253,7 +252,11 @@ def _elapsed_text(value: timedelta, number_format: str | None) -> str:
     pattern = (number_format or "[h]:mm:ss").lower()
     seconds = round(value.total_seconds())
     sign, seconds = ("-" if seconds < 0 else ""), abs(seconds)
-    if number_format and _FORMAT_QUOTED.search(_first_section(number_format)):
+    # A backslash-escaped literal is a literal as a quoted one is: 90 minutes under `[mm]\m\i\n` came out as `90:00` and under
+    # `[h]\h mm\m` as `1:30` (Excel `90min`, `1h 30m`), while `[mm]" min"` gave `90 min`
+    # (Pinned by: test_spreadsheet.py::TestElapsedTime::test_backslash_escaped_literals_of_an_elapsed_format_are_kept).
+    if number_format and any(token.group(1) is not None or token.group(2) is not None
+                             for token in _format_tokens(_first_section(number_format))):
         clock = _clock_text(seconds, number_format, elapsed=True)
         if clock is not None:
             return (sign if seconds >= _smallest_unit(number_format) else "") + clock

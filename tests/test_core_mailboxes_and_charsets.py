@@ -240,6 +240,22 @@ class TestEncryptedMail:
 
         assert result.text.endswith("서명된 본문")
 
+    @pytest.mark.parametrize("fold", ["\r\n\t", "\r\n ", "\n  "])
+    def test_signed_data_on_a_folded_line_is_still_read(self, fold):
+        data = (_OUTER_HEAD + f'Content-Type: application/pkcs7-mime; name="smime.p7m";{fold}smime-type=signed-data\r\n'
+                'Content-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename="smime.p7m"\r\n\r\nMIIB\r\n').encode()
+
+        result = convert(data, "a.eml")
+
+        assert result.warnings == ["1 mail attachment(s) (smime.p7m) were not read. Convert attachments separately."]
+
+    def test_enveloped_data_on_a_folded_line_is_still_encrypted(self):
+        data = (_OUTER_HEAD + 'Content-Type: application/pkcs7-mime; name="smime.p7m";\r\n\tsmime-type=enveloped-data\r\n'
+                "Content-Transfer-Encoding: base64\r\n\r\nMIAGCSqGSIb3DQEHA6CAMIACAQAxggE=\r\n").encode()
+
+        with pytest.raises(EncryptedDocumentError):
+            convert(data, "a.eml")
+
 
 class TestPlainMailNamedAsHtml:
     """A plain-text mail named .html/.htm went to the HTML extractor by its extension, which squashed the headers and body into one

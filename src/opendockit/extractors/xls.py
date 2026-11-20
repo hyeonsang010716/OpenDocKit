@@ -2,11 +2,13 @@
 records.
 """
 
+import bisect
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
 import hashlib
 from io import BytesIO, StringIO
+import itertools
 import math
 import struct
 import sys
@@ -733,7 +735,15 @@ def _xls_drawing_blocks(items: list[str | bytes | None], sheet_name: str, extrac
 def _xls_rich_text(text: str, runs: list[tuple[int, int]], escapement: Callable[[int], int | None]) -> str:
     """Rich text of an XLS cell. `runs` are (character position, font index) pairs; that font applies from that position to the
     next one (before the first position it is the cell's font). A font escapement of 1 is superscript and 2 is subscript
-    (Pinned by: test_spreadsheet.py::TestSuperscriptInCells)."""
+    (Pinned by: test_spreadsheet.py::TestSuperscriptInCells).
+
+    BIFF counts the positions in UTF-16 code units, where a character outside the BMP (an emoji) is two; the text is in code
+    points. Taken as they were, every mark after an emoji landed one character early: `😀 m2` with a raised `2` came out as
+    `😀 m2` instead of `😀 m^2` (Pinned by: test_spreadsheet.py::TestSuperscriptInCells::test_xls_run_after_an_emoji_marks_the_right_character).
+    A position inside a surrogate pair goes to the character after it."""
+    if any(ord(character) > 0xFFFF for character in text):
+        starts = list(itertools.accumulate((2 if ord(character) > 0xFFFF else 1 for character in text), initial=0))
+        runs = [(bisect.bisect_left(starts, position), font) for position, font in runs]
     runs = sorted(runs)
     pieces = [text[:runs[0][0]]] if runs else [text]
     for (start, font), (end, _) in zip(runs, [*runs[1:], (len(text), 0)], strict=True):
@@ -757,6 +767,10 @@ def _xls_number_format(book: xlrd.book.Book, cell: xlrd.sheet.Cell) -> str | Non
 
 
 def _xls_cell_text(cell: xlrd.sheet.Cell, book: xlrd.book.Book) -> str:
+    if cell.ctype == xlrd.XL_CELL_ERROR:
+        # An error value is shown without its number format, as in XLSX (`spreadsheet._cell_text`): `#N/A 님` under `@" 님"`
+        # (Pinned by: test_spreadsheet.py::TestTextSections::test_xls_error_value_is_shown_without_its_format).
+        return _xls_value(cell, book.datemode, None)
     number_format = _xls_number_format(book, cell)
     return format_cell(_xls_value(cell, book.datemode, number_format), number_format)
 
@@ -768,15 +782,18 @@ def _xls_value(cell: xlrd.sheet.Cell, datemode: int, number_format: str | None) 
     format consisting only of an elapsed section (`[ss]`, `[mm]`, `[h]`) — xlrd decides after removing bracket sections and hands
     it over as a number cell, so the serial number was emitted (XLSX gives the cumulative value; Pinned by:
     test_spreadsheet.py::TestXlsValues::test_number_cell_with_only_an_elapsed_section_is_a_duration)."""
-    weekday_only = cell.ctype == xlrd.XL_CELL_NUMBER and _is_weekday_only(number_format)
-    if (cell.ctype == xlrd.XL_CELL_DATE or weekday_only) and cell.value == 0 and number_format and _shows_date(number_format):
+    # xlrd takes a format for a date only when it has more date letters than digits, so the `0`s of fractional seconds won and a
+    # cell under `ss.00`, `s.0` or `m:ss.000` came as a number: 12.34 s was `0.000142824074074074` (XLSX `00:00:12`). A number
+    # cell is read as a date whenever its format is one for XLSX and XML (`_is_date_number_format`)
+    # (Pinned by: test_spreadsheet.py::TestXlsValues::test_time_with_fractional_seconds_is_a_time).
+    rescued = cell.ctype == xlrd.XL_CELL_NUMBER and (_is_weekday_only(number_format) or _is_date_number_format(number_format))
+    if (cell.ctype == xlrd.XL_CELL_DATE or rescued) and cell.value == 0 and number_format and _shows_date(number_format):
         # 0 under a date format is '1900-01-00' in Excel. Returned as a number, not the time '00:00:00'
         # (`_is_serial_zero_shown_as_date`). xlrd hands a weekday-only cell (`aaa`) over as a number, which skipped this
         # (Pinned by: test_audit_spreadsheet_fixes.py::TestWeekdayFormatWithATime::test_serial_zero_is_the_number).
         return cell.value
     elapsed = _is_elapsed_format(number_format)
-    if cell.ctype == xlrd.XL_CELL_DATE or weekday_only or cell.ctype == xlrd.XL_CELL_NUMBER and (
-            elapsed and _is_date_number_format(number_format)):
+    if cell.ctype == xlrd.XL_CELL_DATE or rescued:
         try:
             # A value that does not fit in a duration (a billion days or more) raises OverflowError. The whole document was rejected
             # as 'corrupted'. The original value is shown
