@@ -360,8 +360,9 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
     made RGBA), the long side within `max_side` (so no downscale and no tiles), no EXIF chunk and no text chunk that names
     EXIF or XMP (where Pillow reads an orientation from and turns the picture), no animation (`acTL`; the first frame is
     taken), no critical chunk this does not know, every chunk kept with its right CRC (a decoder stricter than Pillow refuses
-    a picture data chunk with a wrong one), an empty `IEND`, at most one `iCCP` and one whose profile Pillow read (of two
-    libpng takes the first and Pillow the last; one that is not zlib Pillow reads as none), one `IHDR` and the `IDAT`
+    a picture data chunk with a wrong one), an empty `IEND`, at most one `iCCP`, before the picture data (libpng refuses
+    one after it), and one whose profile Pillow read (of two libpng takes the first and Pillow the last; one that is not
+    zlib Pillow reads as none), one `IHDR` and the `IDAT`
     chunks one after another (libpng refuses a picture with either out of place), picture data that is one zlib stream
     with nothing after it (bytes hidden behind the picture were dropped by the rewrite and must not be handed on) and that
     inflates to exactly the rows of the picture (a filter byte and 4 bytes a pixel a row, of each Adam7 pass when
@@ -376,7 +377,7 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
     rows = _png_rows_size(width, height, interlaced=data[28:29] == b"\x01")   # what the IDAT stream must inflate to
     stream = zlib.decompressobj()
     data_ended = False   # a chunk other than IDAT came after the picture data
-    profile_written = False
+    profile_written = data_started = False
     while kind != b"IEND":
         if position + 12 > len(data):
             return None
@@ -405,6 +406,7 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
                 return None
             if stream.unused_data or rows < 0:
                 return None
+            data_started = True
         elif picture_data:
             data_ended = True
         if kind in (b"tEXt", b"zTXt", b"iTXt") and any(name in body.split(b"\0", 1)[0].lower() for name in (b"exif", b"xmp")):
@@ -414,8 +416,10 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
             # profile that is not zlib (Pillow reads none) were handed on as they were, and of two profiles libpng takes the
             # first and Pillow the last. A second one, or one Pillow could not read, is written anew instead
             # (Pinned by: test_image.py::TestPngPassedOnAsItIs::test_colour_profile_is_written_as_the_rewrite_writes_it).
+            # One after the picture data is out of place for libpng and was handed on there; the rewrite puts it before
+            # (Pinned by: test_image.py::TestPngPassedOnAsItIs::test_colour_profile_after_the_picture_data_is_written_anew).
             profile = image.info.get("icc_profile")
-            if profile_written or not profile:
+            if profile_written or not profile or data_started:
                 return None
             kept.append(_png_chunk(b"iCCP", b"ICC Profile\0\0" + zlib.compress(profile)))
             profile_written = True

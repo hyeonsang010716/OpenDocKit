@@ -2981,6 +2981,17 @@ class TestPngPassedOnAsItIs:
         assert all(zlib.decompress(body.split(b"\0", 1)[1][1:]) == b"second" for body in iccp)
         assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
 
+    def test_colour_profile_after_the_picture_data_is_written_anew(self):
+        """libpng refuses an iCCP after IDAT as out of place; Pillow reads it, and the rewrite writes it before the data."""
+        picture = _photo()
+        profile = _png_chunk(b"iCCP", b"ICC Profile\0\0" + zlib.compress(b"PROFILE"))
+
+        result = prepare_image(_rgba_png(picture, after=profile), min_side=1, max_side=2048)
+
+        kinds = [kind for kind, _, _ in _chunks(result.data)]
+        assert b"iCCP" not in kinds or kinds.index(b"iCCP") < kinds.index(b"IDAT")
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
     def test_end_chunk_with_a_payload_is_written_anew(self):
         picture = _photo()
 
