@@ -29,6 +29,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     leaving more than 16 raw-text elements open is still read by the older parser — html5lib is quadratic on those —
     and the result says so.
 
+### Changed
+
+- **PDF headings**: a heading set in a bold face at about the body size ('5. The dynamics' in 11pt bold over a 10pt
+  body), and one 1.15 times the body size, is a heading; only 1.2 times the body size and more were. Bold headings at
+  the body size rank after every larger heading, and a document set in bold throughout gets none from its weight. A
+  caption, a value without a letter ('56%', a page number), a sentence, a row with check boxes or dot leaders, and four or
+  more heading-like lines side by side (the header row of a table) are not headings.
+
 ### Security
 
 - **MCP server on Windows**: a path on a network share (`\\host\share\…`) is refused before anything is looked up,
@@ -68,6 +76,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   its top, the rest of a ragged-right left column below them is no longer moved after the right column.
 - **PDF text**: a justified line whose word gaps are 1.1 em or wider (a narrow column with long words) is read as one
   line; its words came out one by one, shuffled and scattered through the paragraph.
+- **PDF text**: a character the font's ToUnicode map gives as U+FFFD is read from pdfium at the same place when it
+  reads a real one there; page and figure numbers in old-style figures came out as '�07' and 'Figure 11.1�'. A body
+  line starting with `#` or `>` is escaped, so a form row is not a Markdown heading or quote.
+- **PDF tables**: shading drawn inside a cell in the cell's own colour (Word shades a paragraph per line) no longer
+  splits a header cell into rows and repeats the others. The bars of a vector bar chart, a figure label set in a box
+  beside its title ('Diagram 4') and a displayed formula are no longer tables. The first level of a two-level header
+  drawn without a top border stays in its table.
+- **PDF reading order**: a two-column page that pdfminer read right column first is read left column first even when
+  one of its lines is drawn in pieces (a reference split at a wide justified space).
 
 ## [0.3.14] - 2026-11-19
 
