@@ -65,7 +65,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Faster start.** An extractor is imported the first time its format is converted, instead of all of them with the
   package. `import opendockit` takes 0.07 s and 43 MB instead of 0.23 s and 101 MB, and a fresh process converting one
   small DOCX 0.09 s instead of 0.25 s — what a command-line run and every Windows worker pay per file. The workers of
-  `IsolatedConverter` still start with every extractor loaded.
+  `IsolatedConverter` still start with every extractor loaded. A reader library that cannot be imported (a broken
+  installation) no longer stops `import opendockit`: converting a file of its format raises `ImportError` with a fixed
+  sentence.
 - **DOCX conversion is 12-19% faster** on large documents (20,000 paragraphs, 80,000 table cells); the output is the same
   to the byte.
 

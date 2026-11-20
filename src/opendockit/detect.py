@@ -16,7 +16,7 @@ from typing import Any
 import zipfile
 
 from opendockit.exceptions import ConversionError, CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
-from opendockit.extractors import load
+from opendockit.extractors import IMPORT_FAILED_MESSAGE, load
 from opendockit.extractors._encoding import decode_text, is_cp949_text, is_utf8_text, unicode_bom_codec, utf16_encoding
 from opendockit.extractors._ole import OleFile
 from opendockit.image import is_image_file
@@ -173,6 +173,10 @@ def detect_format(data: bytes | bytearray | memoryview, filename: str | None = N
         return _detect(data, filename)
     except ConversionError:
         raise
+    except ImportError as exc:  # a reader that cannot be imported (`_mail_readers`) is a broken installation, as in `convert`
+        if str(exc) == IMPORT_FAILED_MESSAGE:
+            raise
+        raise ImportError(IMPORT_FAILED_MESSAGE) from exc
     except Exception as exc:  # the same boundary as `convert`: arbitrary container-library exceptions become one failure
         raise CorruptedDocumentError("Could not parse the file format. The file may be corrupted.") from exc
 

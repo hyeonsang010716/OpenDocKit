@@ -98,7 +98,8 @@ class IsolatedConverter:
         """Same as `aconvert`, but the conversion runs in a worker process. With no free slot, wait until an earlier conversion ends.
 
         Exceeding the time limit, hitting the memory limit, or the worker dying raises `DocumentTooLargeError`
-        (`TOO_COMPLEX_MESSAGE`). Any other failure is the same `ConversionError` subclass `convert` raises. An argument type
+        (`TOO_COMPLEX_MESSAGE`). Any other failure is the same `ConversionError` subclass `convert` raises, or its `ImportError`
+        for a library that cannot be imported in the worker. An argument type
         error is a `TypeError`, and a file over `max_file_bytes` or an empty one the same error `convert` raises, before
         anything is sent to the worker.
         """

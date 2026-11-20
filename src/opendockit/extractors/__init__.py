@@ -17,6 +17,11 @@ from another thread while one was importing a reader got the lock held by a thre
 document of a format not yet loaded waited for ever; a child that also gave the lock back still waited for ever on Python's
 own lock of the half-imported library, for the format being imported
 (Pinned by: test_converter.py::TestImportsOnFirstUseAndFork).
+
+A reader library that cannot be imported (a broken wheel, a binary built for another Python, a missing file) is an
+`ImportError` with a fixed sentence (`IMPORT_FAILED_MESSAGE`, `load`), which `convert` and `detect_format` let through. Imported
+with the package, it stopped `import opendockit`; imported on first use inside the boundary that gathers parser failures, every
+valid file of that format came out as a corrupted document (Pinned by: test_converter.py::TestReaderThatCannotBeImported).
 """
 
 from collections.abc import Callable
@@ -79,10 +84,21 @@ def _hold_imports_over_fork() -> None:
 _hold_imports_over_fork()
 
 
+IMPORT_FAILED_MESSAGE = ("A library needed to read this file could not be imported. "
+                         "The installation of opendockit is incomplete or broken; please reinstall it.")
+
+
 def load(module: str) -> ModuleType:
-    """Module `module` (its full name), imported under the lock every import on first use shares."""
+    """Module `module` (its full name), imported under the lock every import on first use shares. A module that cannot be
+    imported is an `ImportError` with `IMPORT_FAILED_MESSAGE`, the library's own wording (a module name, a path of the
+    installation) kept only as its cause; it is tried again on the next call."""
     with _IMPORTING:
-        return import_module(module)
+        try:
+            return import_module(module)
+        except ImportError as exc:
+            if str(exc) == IMPORT_FAILED_MESSAGE:  # from a `load` inside this import
+                raise
+            raise ImportError(IMPORT_FAILED_MESSAGE) from exc
 
 
 def _on_first_use(module: str, name: str) -> Extractor:

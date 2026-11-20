@@ -1484,3 +1484,109 @@ class TestImportsOnFirstUseAndFork:
                                    timeout=60)
 
         assert completed.stdout.split() == ["child", "ok", "ended"]
+
+
+class TestReaderThatCannotBeImported:
+    """A reader library that cannot be imported (a broken wheel, a binary built for another Python) stopped `import opendockit`
+    while every extractor was imported with the package. Imported on first use inside the boundary that gathers parser failures,
+    it made every valid file of that format a `CorruptedDocumentError`, and HTML 'could not parse the file format'. It is an
+    `ImportError` with a fixed sentence; the library's own wording is only its cause."""
+
+    @staticmethod
+    def _broken(monkeypatch, *modules: str) -> list[str]:
+        """Make importing `modules` fail as a broken installation does; the names tried are listed in the result."""
+        from opendockit import extractors
+
+        tried: list[str] = []
+        real = extractors.import_module
+
+        def failing(name: str):
+            if name in modules:
+                tried.append(name)
+                raise ModuleNotFoundError("No module named 'openpyxl.cell._writer'; /site-packages/openpyxl is broken")
+            return real(name)
+
+        monkeypatch.setattr(extractors, "import_module", failing)
+        # A fresh entry for each format, as in a process that has not converted one yet
+        for document_format, (module, name) in extractors.EXTRACTOR_MODULES.items():
+            monkeypatch.setitem(extractors.EXTRACTORS, document_format, extractors._on_first_use(module, name))
+        return tried
+
+    def test_spreadsheet_reader_is_an_import_error_with_a_fixed_sentence(self, monkeypatch):
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+
+        tried = self._broken(monkeypatch, "opendockit.extractors.spreadsheet")
+
+        for _ in range(2):
+            with pytest.raises(ImportError) as raised:
+                convert(builder.xlsx_bytes(), "a.xlsx")
+            assert not isinstance(raised.value, ConversionError)
+            assert str(raised.value) == IMPORT_FAILED_MESSAGE
+            assert isinstance(raised.value.__cause__, ModuleNotFoundError)
+        assert tried == ["opendockit.extractors.spreadsheet"] * 2   # tried again, so a repaired installation is picked up
+
+    def test_pdf_reader_is_not_tried_as_text(self, monkeypatch):
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+
+        self._broken(monkeypatch, "opendockit.extractors.pdf")
+
+        with pytest.raises(ImportError, match=IMPORT_FAILED_MESSAGE):
+            convert(b"A note\n" + builder.pdf_bytes(1), "note.txt")
+        with pytest.raises(ImportError, match=IMPORT_FAILED_MESSAGE):
+            convert(builder.pdf_bytes(1), "a.pdf")
+
+    def test_mail_readers_of_detection_are_not_a_corrupted_html(self, monkeypatch):
+        from opendockit import detect_format
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+
+        self._broken(monkeypatch, "opendockit.extractors._html_mail")
+
+        with pytest.raises(ImportError, match=IMPORT_FAILED_MESSAGE):
+            convert(b"<html><body><p>hello</p></body></html>", "a.html")
+        with pytest.raises(ImportError, match=IMPORT_FAILED_MESSAGE):
+            detect_format(b"<html><body><p>hello</p></body></html>", "a.html")
+
+    def test_reader_of_imported_docx_content(self, monkeypatch):
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+        from tests.test_office import _docx_with_chunks
+
+        data = _docx_with_chunks('<w:altChunk r:id="rIdChunk"/>', {"rIdChunk": ("chunk1.html", "text/html", b"<p>imported</p>")})
+        self._broken(monkeypatch, "opendockit.extractors.html")
+
+        with pytest.raises(ImportError, match=IMPORT_FAILED_MESSAGE):
+            convert(data, "a.docx")
+
+    def test_import_a_library_makes_while_it_reads_gets_the_sentence_too(self, monkeypatch):
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+
+        def reader(data, options):
+            raise ImportError("cannot import name '_speedups' from 'somelib' (/opt/site-packages/somelib/__init__.py)")
+
+        monkeypatch.setitem(EXTRACTORS, DocumentFormat.TEXT, reader)
+
+        with pytest.raises(ImportError) as raised:
+            convert(b"plain words", "a.txt")
+        assert str(raised.value) == IMPORT_FAILED_MESSAGE
+
+    def test_worker_of_isolated_converter_reports_it_the_same_way(self, tmp_path):
+        """A broken BeautifulSoup in the installation: the forkserver's preload skips it, and the worker's conversion raises the
+        `ImportError`, which reaches the caller as such."""
+        import os
+        import subprocess
+
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+
+        (tmp_path / "bs4").mkdir()
+        (tmp_path / "bs4" / "__init__.py").write_text("raise ImportError('a broken build of bs4')\n")
+        script = ("import asyncio\nfrom opendockit import IsolatedConverter, convert\n"
+                  "html = b'<html><body><p>hello</p></body></html>'\n"
+                  "async def in_worker():\n    async with IsolatedConverter() as converter:\n"
+                  "        await converter.convert(html, 'a.html')\n"
+                  "for run in (lambda: convert(html, 'a.html'), lambda: asyncio.run(in_worker())):\n"
+                  "    try:\n        run()\n    except Exception as exc:\n        print(type(exc).__name__, '|', exc)\n")
+        environment = os.environ | {"PYTHONPATH": os.pathsep.join(filter(None, [str(tmp_path), os.environ.get("PYTHONPATH")]))}
+
+        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=True, timeout=120,
+                                   env=environment)
+
+        assert completed.stdout.splitlines() == [f"ImportError | {IMPORT_FAILED_MESSAGE}"] * 2

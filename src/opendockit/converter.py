@@ -20,7 +20,7 @@ from opendockit.exceptions import (
     EncryptedDocumentError,
     UnsupportedFormatError,
 )
-from opendockit.extractors import EXTRACTORS
+from opendockit.extractors import EXTRACTORS, IMPORT_FAILED_MESSAGE
 from opendockit.extractors._inline import _escape_link_text
 from opendockit.extractors._package import has_password_protected_part, uncompressed_size
 from opendockit.image import (
@@ -139,7 +139,8 @@ def convert(data: bytes | bytearray | memoryview, filename: str | None = None,
     This is synchronous CPU work. On an event loop, use `aconvert`.
     Images are extracted into `result.images` and the body keeps only placeholder text. To fill in the image content as text,
     use `aconvert(..., describer=...)` or `describe_images`.
-    Every failure is a `ConversionError` subclass (the message is fixed English wording that can be shown to the user). `data` is
+    Every failure is a `ConversionError` subclass (the message is fixed English wording that can be shown to the user); a
+    library needed for the file that cannot be imported (a broken installation) is an `ImportError` with a fixed sentence. `data` is
     bytes, bytearray or memoryview; any other type (a path string, Path, file object) is a `TypeError` — for a path use `convert_file`.
     """
     # Running out of memory anywhere in a conversion is 'too large or too complex', here as under `IsolatedConverter`, and
@@ -194,6 +195,14 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
             document_format, extraction = _extract(document_format, data, filename, options)
     except MemoryError:
         raise
+    except ImportError as exc:
+        # A reader library that cannot be imported is a broken installation, not a corrupted document: imported on first use,
+        # it was reported as corrupted for every valid file of its format. It goes up with the fixed sentence of
+        # `extractors.load`, which an import a library makes of its own while it reads gets too
+        # (Pinned by: test_converter.py::TestReaderThatCannotBeImported).
+        if str(exc) == IMPORT_FAILED_MESSAGE:
+            raise
+        raise ImportError(IMPORT_FAILED_MESSAGE) from exc
     except Exception as exc:  # the boundary that gathers arbitrary parser-library exceptions into one conversion failure.
         # A ZIP format that could not be read while parts of it carry the ZIP password bit (`zip -e`) is password-protected, not
         # corrupted: zipfile refuses every encrypted part, so the extractors found the parts they need missing or unreadable
@@ -349,7 +358,8 @@ def _extract(document_format: DocumentFormat, data: bytes, filename: str | None,
     try:
         return document_format, EXTRACTORS[document_format](data, options)
     except Exception as exc:
-        if document_format is not DocumentFormat.PDF or (isinstance(exc, ConversionError)
+        # A PDF reader that cannot be imported says nothing about the file: it is not tried as text (`_converted`)
+        if document_format is not DocumentFormat.PDF or isinstance(exc, ImportError) or (isinstance(exc, ConversionError)
                                                           and not isinstance(exc, CorruptedDocumentError)):
             raise
         fallback = pdf_lookalike_text_format(data, filename)
