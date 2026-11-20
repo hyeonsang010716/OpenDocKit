@@ -19,7 +19,7 @@ src/opendockit/
 ├── models.py
 ├── exceptions.py
 └── extractors/      # per format `(bytes, ConvertOptions) -> Extraction`. Registered in EXTRACTOR_MODULES in __init__.py, imported on first use (`all.py` imports them all)
-    ├── _package.py  # ZIP packages and their XML parts (OOXML, HWPX, ODF, EPUB): opening within the limits, `parse_part`, Strict OOXML detection (`is_strict_package`, DOCX/PPTX), repairing a damaged package (`repair_package`), integer attributes (`decimal_int`)
+    ├── _package.py  # ZIP packages and their XML parts (OOXML, HWPX, ODF, EPUB): opening within the limits, `parse_part`, Strict OOXML detection (`is_strict_package`, DOCX/PPTX) and the Transitional copy of a Strict DOCX (`transitional_package`), repairing a damaged package (`repair_package`), integer attributes (`decimal_int`) and lengths that may carry a unit (`measure_int`)
     ├── _charts.py   # OOXML charts and SmartArt as data (PPTX/DOCX/HWPX/Excel), chart tables inside a cell (`embedded_table`), DrawingML `a:br` line breaks (`drawing_paragraph_lines`, PPTX/DOCX/XLSX/charts)
     ├── _inline.py   # superscripts and subscripts, strikethrough, links and bold / italic: the temporary marks and the one place that resolves them (`resolve_inline`)
     ├── _omml.py     # Office equations (OMML → LaTeX, DOCX/PPTX)

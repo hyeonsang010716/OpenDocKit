@@ -460,8 +460,11 @@ def _strict_everywhere(data: bytes, edit: dict[str, tuple[str, str]] | None = No
 class TestStrictOpenXmlOfficeDocuments:
     """A DOCX/PPTX saved as a 'Strict Open XML document' differs in every relationship type and namespace, so the main part was
     not found and it was rejected as 'document structure could not be read' (corrupted). A DOCX is read from a copy that uses the
-    Transitional names (`_package.transitional_package`) — a document Word saved that way (Word 2016 and later) reads in full
-    then, so refusing it lost the whole document over its names. A PPTX is still refused, with the advice to save it again."""
+    Transitional names (`_package.transitional_package`) — a file Word saved that way was checked and reads in full then, so
+    refusing it lost the whole document over its names. A PPTX is still refused, with the advice to save it again.
+
+    These tests build their Strict files by reversing the rename (`_strict_everywhere`), so on their own they do not check the
+    names against Word."""
 
     def test_strict_pptx_is_reported_as_unsupported_with_a_resave_advice(self):
         strict = _strict(builder.pptx_bytes())
