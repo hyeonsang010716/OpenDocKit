@@ -567,11 +567,25 @@ def _drop_emphasis_inside_words(atoms: list[_Atom]) -> None:
                 while stop < end and atoms[stop].url == atoms[piece].url and (
                         name == "bold" or atoms[stop].bold == atoms[piece].bold):
                     stop += 1
-                if _unmarkable(atoms, piece, stop, link_edges, outer=(piece == index, stop == end)):
+                if _unmarkable(atoms, piece, stop, link_edges, outer=(not _continues_after_bold(atoms, piece, index), True)):
                     for position in range(piece, stop):
                         setattr(atoms[position], name, False)
                 piece = stop
             index = end
+
+
+def _continues_after_bold(atoms: list[_Atom], piece: int, span_start: int) -> bool:
+    """Whether an italic piece begins where a bold group ends inside the same italic span and link group, that bold group being
+    italic throughout: written `***요금제****를 확인*`, the piece continues the same stressed words (and closes, where a group
+    written `**신규 *요금제***` before it does not: `****` cannot close `**` there)."""
+    if piece <= span_start or atoms[piece].url != atoms[piece - 1].url or atoms[piece].bold or not atoms[piece - 1].bold:
+        return False
+    position = piece - 1
+    while position >= 0 and atoms[position].bold and atoms[position].url == atoms[piece].url:
+        if not atoms[position].italic:
+            return False
+        position -= 1
+    return True
 
 
 def _unmarkable(atoms: list[_Atom], start: int, stop: int, link_edges: dict[tuple[str, int], str], *,
@@ -595,9 +609,10 @@ def _unmarkable(atoms: list[_Atom], start: int, stop: int, link_edges: dict[tupl
     after = " " if raw[-1:].isspace() else (link_edges.get(("]", stop - 1)) or link_edges.get(("[", stop))
                                             or _neighbour(atoms, stop, 1, link_edges))
     # Whether the span is part of a word is read on the text around it, link brackets or not: `인사[발령](url)` is one word
-    # to the reader (Pinned by: test_inline_formatting.py::TestPartOfAWord::test_part_of_a_word_across_a_link_edge). Only
-    # at the span's own edges (`outer`): a piece that begins where bold ends inside one italic span continues the same
-    # stressed words, and taken for part of a word it lost its italic (`***요금제****를 꼭 확인하세요*`)
+    # to the reader (Pinned by: test_inline_formatting.py::TestPartOfAWord::test_part_of_a_word_across_a_link_edge). Not at
+    # the start of an italic piece that continues after an all-italic bold group (`outer`, `_continues_after_bold`): it is
+    # the same stressed words, and taken for part of a word it lost its italic (`***요금제****를 꼭 확인하세요*`); a link edge
+    # is an edge of the words as any other
     letter_before = " " if raw[:1].isspace() else _neighbour(atoms, start - 1, -1, {})
     letter_after = " " if raw[-1:].isspace() else _neighbour(atoms, stop, 1, {})
     starts_inside = outer[0] and letter_before[-1:].isalnum() and written[:1].isalnum()

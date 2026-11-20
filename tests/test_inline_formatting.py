@@ -558,6 +558,15 @@ class TestEmphasisAgainstPunctuation:
         # bold at the start of an italic span: the rest of the span is the same stressed words, not part of a word
         assert (_docx_text(_paragraph(_run("앞 "), _run("요금제", "<w:b/><w:i/>"), _italic("를 꼭 확인하세요"), _run(" 뒤")))
                 == "앞 ***요금제****를 꼭 확인하세요* 뒤")
+        # bold that starts before the italic: `**신규 *요금제****를 확인*` cannot close, the glued piece goes unmarked
+        assert (_docx_text(_paragraph(_run("앞 "), _bold("신규 "), _run("요금제", "<w:b/><w:i/>"), _italic("를 확인"), _run(" 뒤")))
+                == "앞 **신규 *요금제***를 확인 뒤")
+        # a link edge is an edge of the words: mid-word bold after it stays unmarked, and two pieces whose marks would touch
+        # around a bare address (`**word****https://…**`) do not both keep them
+        assert (_docx_text(_paragraph(_run("x 1"), _bold("2"), _link("u", _bold("34")), _run(",5 y")), links=links)
+                == "x 12[34](https://a.example/x),5 y")
+        assert (_docx_text(_paragraph(_run("앞 "), _bold("word"), _link("b", _bold("https://b.example")), _run(" 뒤")),
+                           links={"b": "https://b.example"}) == "앞 **word**https://b.example 뒤")
         # italic is written apart on each side of a bold edge: `*—****67%?***` left `*—*` unclosed
         assert _docx_text(_paragraph(_run("앞 "), _italic("—"), _run("67%?", "<w:b/><w:i/>"), _run(" 뒤"))) == "앞 —***67%?*** 뒤"
         # a private-use bullet first or last in a link still has the bracket on its far side
