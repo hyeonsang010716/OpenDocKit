@@ -434,14 +434,18 @@ class TestShortRightColumn:
     def _line(cls, label: str, number: int) -> str:
         return (f"{label} line {number} " + "lorem ipsum dolor sit amet " * 3)[:cls._WIDTHS[number]]
 
-    def _pdf(self, paragraphs: int) -> bytes:
+    def _pdf(self, paragraphs: int, heading_before: int | None = None) -> bytes:
         from reportlab.pdfgen import canvas
 
         buffer = BytesIO()
         pdf = canvas.Canvas(buffer)
-        pdf.setFont("Times-Roman", 10)
         y = 780.0
         for paragraph in range(paragraphs):
+            if paragraph == heading_before:
+                pdf.setFont("Times-Bold", 13)
+                pdf.drawString(56, y - 18, f"Heading{paragraph}")
+                y -= 38
+            pdf.setFont("Times-Roman", 10)
             for number in range(8):
                 pdf.drawString(56, y, self._line(f"Left{paragraph}", number))
                 y -= 12.5
@@ -457,6 +461,18 @@ class TestShortRightColumn:
         text = convert(self._pdf(paragraphs), "a.pdf", ConvertOptions(page_markers=False)).text
 
         marks = [f"Left{paragraph} line {number}" for paragraph in range(paragraphs) for number in range(8)]
+        marks += [f"Right line {number}" for number in range(8)]
+        order = [text.index(mark) for mark in marks]
+        assert order == sorted(order)
+
+    @pytest.mark.parametrize("paragraphs", [4, 6])
+    def test_left_column_running_on_past_a_subheading_comes_before_it(self, paragraphs):
+        """A subheading two paragraphs down, with the usual space above it, ended the run of the left column after one
+        paragraph, short of the right column's height: everything below the first paragraph came after the right column."""
+        text = convert(self._pdf(paragraphs, heading_before=2), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        marks = [f"Left{paragraph} line {number}" for paragraph in range(2) for number in range(8)]
+        marks += ["Heading2"] + [f"Left{paragraph} line {number}" for paragraph in range(2, paragraphs) for number in range(8)]
         marks += [f"Right line {number}" for number in range(8)]
         order = [text.index(mark) for mark in marks]
         assert order == sorted(order)
@@ -833,7 +849,7 @@ def _plain_below_both_columns(lines, left_end, right_start, blocks):
     import statistics
 
     from opendockit.extractors._pdf_model import _TABLE_ROW_TOLERANCE
-    from opendockit.extractors._pdf_reading_order import _WRAP_LINE_GAP_RATIO
+    from opendockit.extractors._pdf_reading_order import _COLUMN_CONTINUE_RATIO, _WRAP_LINE_GAP_RATIO
 
     def fills_column_below(line, lower):
         if len(lower) < 2 or lower[0].x1 <= left_end - lower[0].height:
@@ -843,16 +859,29 @@ def _plain_below_both_columns(lines, left_end, right_start, blocks):
             return False
         return not any(line.top < other.top < lower[0].top and other.x1 > left_end for other in lines)
 
-    def flows_past(lefts, index, height):
+    def run_from(lefts, index):
         end, wraps = index, False
         while end + 1 < len(lefts):
             upper, lower = lefts[end], lefts[end + 1]
             if not (abs(lower.x0 - upper.x0) <= _TABLE_ROW_TOLERANCE
                     and 0 <= lower.top - upper.bottom <= upper.height * _WRAP_LINE_GAP_RATIO):
                 break
-            wraps = wraps or (end > index and upper.x1 > left_end - upper.height)
+            wraps = wraps or upper.x1 > left_end - upper.height
             end += 1
-        top, last = lefts[index].top, lefts[end]
+        return end, wraps
+
+    def flows_past(lefts, index, height):
+        end, _ = run_from(lefts, index)
+        wraps = end > index + 1 and run_from(lefts, index + 1)[1]
+        reach = end
+        while reach + 1 < len(lefts):  # on past a subheading to a run at the same left edge that wraps again
+            upper, lower = lefts[reach], lefts[reach + 1]
+            following, wraps_again = run_from(lefts, reach + 1)
+            if not (abs(lower.x0 - upper.x0) <= _TABLE_ROW_TOLERANCE and wraps_again
+                    and 0 <= lower.top - upper.bottom <= max(upper.height, lower.height) * _COLUMN_CONTINUE_RATIO):
+                break
+            reach = following
+        top, last = lefts[index].top, lefts[reach]
         return (end > index + 1 and wraps and last.bottom - top > height
                 and not any(top < other.top < last.top and other.x1 > left_end for other in lines))
 

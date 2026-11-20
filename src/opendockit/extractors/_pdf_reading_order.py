@@ -318,12 +318,18 @@ class _FlowingOn:
         count = len(lefts)
         self._end = list(range(count))  # index of the last line of the run starting at each line
         self._wraps = [False] * count  # a line of that run, before its last, fills the column width
+        self._reach = list(range(count))  # index of the last line the column reaches from each line, past subheadings
         for index in range(count - 2, -1, -1):
             line, lower = lefts[index], lefts[index + 1]
-            if (abs(lower.x0 - line.x0) <= _TABLE_ROW_TOLERANCE
-                    and 0 <= lower.top - line.bottom <= line.height * _WRAP_LINE_GAP_RATIO):
+            if abs(lower.x0 - line.x0) > _TABLE_ROW_TOLERANCE:
+                continue
+            gap = lower.top - line.bottom
+            if 0 <= gap <= line.height * _WRAP_LINE_GAP_RATIO:
                 self._end[index] = self._end[index + 1]
                 self._wraps[index] = line.x1 > left_end - line.height or self._wraps[index + 1]
+                self._reach[index] = self._reach[index + 1]
+            elif 0 <= gap <= max(line.height, lower.height) * _COLUMN_CONTINUE_RATIO and self._wraps[index + 1]:
+                self._reach[index] = self._reach[index + 1]
 
     def past(self, index: int, height: float, reaching: "_RightReaching") -> bool:
         """Whether the left column flows on from line `index` without a break, with a line wrapping at the column width
@@ -336,9 +342,15 @@ class _FlowingOn:
         column (Pinned by: test_pdf_reading_order.py::TestShortRightColumn). Text set out below both columns is a few
         lines or crosses the gutter; a run taller than the right column, at the column's left edge and wrapping at its
         width, is the left column going on.
+        How far it goes on is measured past a break no wider than a column continues across (`_COLUMN_CONTINUE_RATIO`
+        line heights, the space above a subheading) to a run at the same left edge that wraps at the column width
+        again: a subheading two paragraphs down cut the run short of the right column's height, and the rest of the
+        left column came out after the right column (Pinned by: test_pdf_reading_order.py::TestShortRightColumn::
+        test_left_column_running_on_past_a_subheading_comes_before_it). The paragraph the line opens must still flow
+        on and wrap by itself.
         """
         end = self._end[index]
-        last = self._lefts[end]
+        last = self._lefts[self._reach[index]]
         return (end > index + 1 and self._wraps[index + 1] and last.bottom - self._lefts[index].top > height
                 and not reaching.between(self._lefts[index].top, last.top))
 
