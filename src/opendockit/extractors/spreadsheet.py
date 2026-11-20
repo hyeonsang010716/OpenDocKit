@@ -976,7 +976,7 @@ def _parsed_cell_text(sheet: object, cell: dict, reading: _CellReading | None) -
     if value is None:
         return ""
     kind = type(value)
-    if reading is not None and (kind is str or kind is float or kind is int or kind is datetime):
+    if reading is not None and ((kind is str and cell["data_type"] != "e") or kind is float or kind is int or kind is datetime):
         style_id = cell["style_id"]
         style = reading.styles_by_id.get(style_id, _UNKNOWN_STYLE)
         if style is _UNKNOWN_STYLE:
@@ -1047,7 +1047,8 @@ def _cell_text(cell: object) -> str:
     kind = type(value)
     if value is None:
         return ""
-    if kind is str or kind is float or kind is int or kind is datetime:
+    # An error value (`t="e"`) is text the long way leaves without its format
+    if (kind is str and cell.data_type != "e") or kind is float or kind is int or kind is datetime:
         reading = _READING.get()
         style = None if reading is None else _cell_style(cell, reading)
         if style is not None:
