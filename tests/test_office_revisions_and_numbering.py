@@ -587,6 +587,90 @@ class TestStrictOpenXmlOfficeDocuments:
         assert result.warnings == transitional.warnings
         assert any("detaching 1 missing or broken part(s) (image1.png)" in warning for warning in result.warnings)
 
+    def test_members_no_relationship_reaches_are_not_read(self, monkeypatch):
+        """The copy took every member whole: a member nothing points at (a 100 MB run of zeros, a ZIP under 1 MB) cost three times
+        its size, while the Transitional document never read it. Such members are left out unread, and a picture is streamed into
+        the copy instead of being read whole."""
+        utf16 = '<?xml version="1.0" encoding="UTF-16"?><a xmlns="http://purl.oclc.org/ooxml/drawingml/main"/>'.encode("utf-16")
+        data = builder.zip_with(_strict_everywhere(builder.docx_with_images()),
+                                add={"junk.bin": "0" * 10_000, "word/junk.xml": "<a/>", "word/_rels/junk.xml.rels": "<a/>"})
+        data = builder.zip_with(data, add={"word/media/unused.png": ""})
+        buffer = BytesIO()
+        with zipfile.ZipFile(BytesIO(data)) as source, zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+            for info in source.infolist():
+                target.writestr(info, source.read(info))
+            target.writestr("docProps/junk16.xml", utf16)
+        data = buffer.getvalue()
+        read, opened = [], []
+        real_read, real_open = zipfile.ZipFile.read, zipfile.ZipFile.open
+
+        def counting_read(archive, name, *args, **kwargs):
+            read.append(getattr(name, "filename", name))
+            return real_read(archive, name, *args, **kwargs)
+
+        def counting_open(archive, name, mode="r", *args, **kwargs):
+            if mode == "r":
+                opened.append(getattr(name, "filename", name))
+            return real_open(archive, name, mode, *args, **kwargs)
+
+        monkeypatch.setattr(zipfile.ZipFile, "read", counting_read)
+        monkeypatch.setattr(zipfile.ZipFile, "open", counting_open)
+        copy = transitional_package(data)
+        monkeypatch.undo()
+
+        unreached = {"junk.bin", "word/junk.xml", "word/_rels/junk.xml.rels", "word/media/unused.png", "docProps/junk16.xml"}
+        assert not unreached & set(opened)
+        assert "word/media/image1.png" in opened and not any(name.startswith("word/media/") for name in read)
+        with zipfile.ZipFile(BytesIO(copy)) as archive:
+            assert not unreached & set(archive.namelist())
+            assert all(info.compress_type == zipfile.ZIP_DEFLATED for info in archive.infolist())
+        expected = convert(builder.docx_with_images(), "a.docx")
+        result = convert(data, "a.docx")
+        assert result.text == expected.text and len(result.images) == len(expected.images) > 0
+
+    def test_target_in_another_case_is_still_found_in_the_copy(self):
+        """Only reached members are copied, but a target that names a member only in another case or percent-encoded reaches it
+        too, so the repair that opening makes still finds it."""
+        data = _strict_everywhere(builder.docx_with_images())
+        renamed = BytesIO()
+        with zipfile.ZipFile(BytesIO(data)) as source, zipfile.ZipFile(renamed, "w", zipfile.ZIP_DEFLATED) as target:
+            for info in source.infolist():
+                name = {"word/media/image1.png": "word/Media/Image1.png", "word/media/image2.png": "word/media/image%322.png"}
+                target.writestr(name.get(info.filename, info.filename), source.read(info))
+        data = builder.zip_with(renamed.getvalue(), edit={"word/_rels/document.xml.rels": lambda xml: xml.replace(
+            'Target="media/image2.png"', 'Target="media/image%25322.png"')})
+
+        with zipfile.ZipFile(BytesIO(transitional_package(data))) as archive:
+            assert {"word/Media/Image1.png", "word/media/image%322.png"} <= set(archive.namelist())
+
+    def test_failed_attempt_is_let_go_before_the_copy(self, monkeypatch):
+        """The exception of the first attempt held, through its traceback, the package it had opened with every part read, and
+        the package, held in reference cycles with its parts, outlived it until the cycle collector ran."""
+        import weakref
+
+        from docx.opc.package import OpcPackage
+
+        from opendockit.extractors import docx
+
+        opened: list[weakref.ref] = []
+        real_open, real_strict = OpcPackage.open.__func__, docx._strict_main_part
+        alive_at_copy: list[bool] = []
+
+        def recording_open(cls, source):
+            package = real_open(cls, source)
+            opened.append(weakref.ref(package))
+            return package
+
+        def checking_strict(data, warnings):
+            alive_at_copy.append(any(reference() is not None for reference in opened))
+            return real_strict(data, warnings)
+
+        monkeypatch.setattr(OpcPackage, "open", classmethod(recording_open))
+        monkeypatch.setattr(docx, "_strict_main_part", checking_strict)
+
+        assert "# 1장 개요" in convert(_strict_everywhere(builder.docx_bytes()), "a.docx").text
+        assert alive_at_copy == [False]
+
     def test_strict_docx_whose_copy_holds_no_document_gets_the_resave_advice(self):
         strict = builder.zip_with(_strict_everywhere(builder.docx_bytes()),
                                   edit={"word/document.xml": lambda xml: re.sub(r"<w:document\b", "<w:other", xml, count=1)

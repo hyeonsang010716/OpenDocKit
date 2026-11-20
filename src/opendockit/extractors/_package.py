@@ -246,30 +246,69 @@ def transitional_package(data: bytes) -> bytes:
     and relationship types, so python-docx opens it. Only names change; values written as measures (`72pt`, which Word writes in
     Strict where Transitional has twips) are left for the readers (`measure_int`). A member that does not read is left out, so
     that opening detaches it with its relationship as for any damaged part (`open_package`); with several members of one name
-    the last one is kept, as when reading. Members are read, renamed and written one at a time, and pictures are stored as
-    they are (they are compressed already): besides the document itself, the copy holds at most the archive being written
-    and one member, each bounded by `max_uncompressed_bytes`, checked before extraction.
+    the last one is kept, as when reading.
+
+    Only the members a relationship reaches from the package relationships are copied (`_reached_members`), with their
+    relationships and the content types: python-docx opens no other member. Each XML part is read, renamed and written one at a
+    time; any other member is checked and then streamed in chunks into a compressed entry. Copied whole, a member nothing points
+    at (a 100 MB run of zeros, a ZIP under 1 MB) cost three times its size, which the same Transitional document never read; and
+    a picture was held whole and stored uncompressed (Pinned by: test_office_revisions_and_numbering.py::
+    TestStrictOpenXmlOfficeDocuments::test_members_no_relationship_reaches_are_not_read). Besides the document itself, the copy
+    holds the archive being written and one XML part with its renamed form, each bounded by `max_uncompressed_bytes`, checked
+    before extraction.
 
     Refused, a document Word saved as 'Strict Open XML Document' was not read at all, though only its names differ (Pinned by:
     test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments)."""
     buffer = BytesIO()
-    with zipfile.ZipFile(BytesIO(data)) as archive, zipfile.ZipFile(buffer, "w") as target:
-        members = archive.infolist()
-        last = {info.filename: index for index, info in enumerate(members)}
-        for index, info in enumerate(members):
-            if last[info.filename] != index:
+    with (zipfile.ZipFile(BytesIO(data)) as archive,
+          zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as target):
+        members = {info.filename: info for info in archive.infolist()}  # with duplicate names, the last one
+        reached = _reached_members(archive, set(members))
+        for name, info in members.items():
+            if name.lower() not in reached:
                 continue
-            try:
-                content = archive.read(info)
-            except ZIP_MEMBER_ERRORS:
-                continue
-            is_xml = info.filename.lower().endswith((".xml", ".rels"))
-            if is_xml:
-                content = _transitional_names(content, relationships=_is_relationships(info.filename))
-            target.writestr(info.filename, content, compress_type=zipfile.ZIP_DEFLATED if is_xml else zipfile.ZIP_STORED,
-                            compresslevel=1)
-            del content
+            if name.lower().endswith((".xml", ".rels")):
+                try:
+                    content = _transitional_names(archive.read(info), relationships=_is_relationships(name))
+                except ZIP_MEMBER_ERRORS:
+                    continue
+                target.writestr(name, content)
+                del content
+            elif _member_reads(archive, info):
+                with archive.open(info) as source, target.open(name, "w", force_zip64=True) as sink:
+                    shutil.copyfileobj(source, sink, _CHECK_CHUNK)
+    # The bytes of the buffer itself: `getvalue` of a BytesIO nothing else reads shares its memory instead of copying it
     return buffer.getvalue()
+
+
+def _reached_members(archive: zipfile.ZipFile, names: set[str]) -> set[str]:
+    """Lower-case names of the members python-docx can open in a package: the content types, the package relationships, every
+    internal target a relationship reaches from them (as written and percent-decoded, in any case, so `repair_package` still finds
+    a target in another case or encoding) and the relationships of each. Strict and Transitional relationships parts share their
+    namespace, so this is read before renaming."""
+    by_case: dict[str, list[str]] = {}
+    for name in names:
+        by_case.setdefault(name.lower(), []).append(name)
+    reached = {"[content_types].xml"}
+    pending = ["_rels/.rels"]
+    while pending:
+        relationships = pending.pop()
+        if relationships.lower() in reached:
+            continue
+        reached.add(relationships.lower())
+        for member in by_case.get(relationships.lower(), ()):
+            root = _parse_member(archive, member)
+            if root is None:
+                continue
+            base = member[: member.rindex("_rels/")]
+            for relationship in root.iter(f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship"):
+                written = relationship.get("Target")
+                if not written or relationship.get("TargetMode") == "External":
+                    continue
+                for target in {_resolve_target(base, written), _resolve_target(base, unquote(written))}:
+                    reached.add(target.lower())
+                    pending.append(_relationships_of(target))
+    return reached
 
 
 def related_part(owner: object, relationship_type: str) -> object:

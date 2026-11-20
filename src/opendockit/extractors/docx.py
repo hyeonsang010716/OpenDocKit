@@ -8,6 +8,7 @@ from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+import gc
 import re
 import unicodedata
 
@@ -1223,7 +1224,13 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
             raise
         part, error = None, None
     if part is None and is_strict_package(data):
-        warnings = []
+        # What the failed attempt raised holds, through its traceback, the package it opened, with every part it read; and the
+        # package and its parts refer to each other, so let go it waits for the cycle collector. Kept while the copy was made and
+        # opened, a Strict document held its pictures twice over (a 170 MB picture: 533 MB against 352 MB for the Transitional
+        # document). It is let go and collected first, on this path only (Pinned by: test_office_revisions_and_numbering.py::
+        # TestStrictOpenXmlOfficeDocuments::test_failed_attempt_is_let_go_before_the_copy)
+        warnings, error = [], None
+        gc.collect()
         part = _strict_main_part(data, warnings)
     if part is None:
         raise CorruptedDocumentError("The DOCX document structure could not be read.") from error
