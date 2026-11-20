@@ -621,8 +621,8 @@ def _korean_notice_end(text: str) -> bool:
       `_KOREAN_NOUN_ENDS` (`재난 대응 골든타임`, `미 해군 항공모함`);
     - `…할 것` (not `알아야 할 것`, `해야 할 것`: the things to know or do, a title);
     - `바람` asked for (`기한 내 제출 바람`, `협조하기 바람`; not the wind, `변화의 바람`, `한류 바람`, `_requested`);
-    - the polite request `…세요` and `…하십시오` / `…시오`, the plain command `…하라`, and `…는다` after two words or
-      more (`결과를 얻는다`).
+    - the polite request `…세요` and `…하십시오` / `…시오` (not a greeting, `안녕하세요`, `어서 오세요`), the plain
+      command `…하라` after two words or more (not `사하라`), and `…는다` after two words or more (`결과를 얻는다`).
 
     Deliberate: in a PDF a bold notice at the body size ('# 서류는 기한 내 제출함', '# 확인해 주세요') became a heading,
     where '개요', '필요', '다음', '모임' and '향후 과제' are titles (Pinned by:
@@ -632,10 +632,15 @@ def _korean_notice_end(text: str) -> bool:
     if not words:
         return False
     last = words[-1]
+    if " ".join(words) in _KOREAN_GREETINGS:
+        return False
     if _KOREAN_VERB_END.search(last):
         return True
     if len(words) < 2:
         return False
+    if last.endswith(("하라", "되라")):
+        # the plain command after a word it is said with (`반드시 확인하라`); a single word is a name as often (`사하라`)
+        return True
     if (last == "것" and "가" <= words[-2][-1] <= "힣" and (ord(words[-2][-1]) - 0xAC00) % 28 == _FINAL_L
             and not (len(words) >= 3 and words[-3].endswith("야"))):
         # `…할 것` tells what to do; `…해야 할 것`, `알아야 할 것` is what one must do or know, the title of a list
@@ -672,9 +677,10 @@ _HANGUL = re.compile(r"[가-힣]")
 # Closing marks after the end of a Korean clause (`_korean_notice_end`)
 _KOREAN_CLOSING = ".!?\"'”’)） "
 # Endings of a Korean notice or instruction in the last word, whatever the words before it: a verb made a noun after a stem
-# or tense (`같음`, `있음`, `제출하였음`), the polite request (`주세요`, `하십시오`, `기입하시오`) and the plain command
-# (`확인하라`)
-_KOREAN_VERB_END = re.compile(r"(?:[하되있없같았었였했됐겠않]음|세요|시오|[하되]라)\Z")
+# or tense (`같음`, `있음`, `제출하였음`) and the polite request (`주세요`, `하십시오`, `기입하시오`)
+_KOREAN_VERB_END = re.compile(r"(?:[하되있없같았었였했됐겠않]음|세요|시오)\Z")
+# Greetings ending like a polite request, set as the title of a page (`_korean_notice_end`)
+_KOREAN_GREETINGS = frozenset(("안녕하세요", "어서 오세요", "어서오세요"))
 # A verbal noun closed by 함, 됨 or 임 (`제출함`, `신청함`, `완료됨`, `무효임`): three syllables or more, not `책임` or `모임`
 _KOREAN_NOMINAL_END = re.compile(r"[가-힣]{2,}[함됨임]")
 # Nouns ending like such a verbal noun (`_korean_notice_end`): a meeting, a responsibility, an appointment or a retirement, a
