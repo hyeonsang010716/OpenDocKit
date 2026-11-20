@@ -121,3 +121,40 @@ class TestBodyTextMarks:
 
         assert "\\# DNA replications" in text
         assert "\\> 50 participants" in text
+
+
+class TestHeaderRows:
+    @staticmethod
+    def _row_page(titles: list[str]) -> str:
+        """Body text, then the bold titles side by side on one row at 1.4 times the body size, each with a line under it,
+        then body text again."""
+        lines = [(y, text, size, font, 72.0) for y, text, size, font in [*_body(80), *_body(190)]]
+        for column, title in enumerate(titles):
+            x = 72.0 + column * 120
+            lines += [(140, title, 14, "Times-Bold", x), (158, f"text under {title.lower()}", 10, "Times-Roman", x)]
+        return convert(_pdf_at(lines), "a.pdf").sections[0].text
+
+    def test_the_header_row_of_a_table_is_not_four_headings(self):
+        text = self._row_page(["Service Stage", "Function", "Explanation", "Benefit"])
+
+        assert "#" not in text
+        assert "Service Stage" in text and "Benefit" in text
+
+    def test_three_panels_side_by_side_keep_their_headings(self):
+        text = self._row_page(["Our Purpose", "Our Mission", "What We Do"])
+
+        assert "# Our Purpose" in text and "# What We Do" in text
+
+
+def _pdf_at(lines: list[tuple[float, str, float, str, float]]) -> bytes:
+    """A one-page PDF drawing each (y from the top, text, size, font, x)."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    for y, text, size, font, x in lines:
+        pdf.setFont(font, size)
+        pdf.drawString(x, A4[1] - y, text)
+    pdf.save()
+    return buffer.getvalue()

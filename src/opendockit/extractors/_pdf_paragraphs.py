@@ -52,8 +52,9 @@ def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], lin
     spans: list[tuple[float, float]] = []  # horizontal ranges (x0, x1) in the same order as items
     sizes: list[tuple[float, int]] = []  # (bottom coordinate, line count) in the same order as items. Tables and pictures are (bottom, 0)
     boxes: list[tuple[float, float, float, float]] = []  # (top, bottom, x0, x1) of paragraphs. Tables and pictures are not included
+    side_by_side = _header_cells(page.lines, body_size) if heading_levels else frozenset()
     for paragraph in _group_paragraphs(page.lines, line_gap):
-        key = _heading_key(paragraph, heading_levels, body_size)
+        key = _heading_key(paragraph, heading_levels, body_size, side_by_side)
         level = heading_levels[key] if key else 0
         text = (f"{'#' * level} {' '.join(line.text for line in paragraph.lines)}" if level
                 else _escaped_block_marks(_paragraph_text(paragraph)))
@@ -507,22 +508,26 @@ def _heading_shaped(paragraph: _Paragraph) -> bool:
     return word_chars >= 2 and word_chars >= len(text.replace(" ", "")) * 0.5
 
 
-def _is_heading(paragraph: _Paragraph, body_size: float) -> bool:
-    """A heading-shaped paragraph (`_heading_shaped`) at least `_HEADING_SIZE_RATIO` times the body size."""
-    return (_heading_shaped(paragraph) and bool(body_size)
+def _is_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset[int] = frozenset()) -> bool:
+    """A heading-shaped paragraph (`_heading_shaped`) at least `_HEADING_SIZE_RATIO` times the body size, not a header cell
+    of a table (`_header_cells`)."""
+    return (_heading_shaped(paragraph) and bool(body_size) and not any(id(line) in side_by_side for line in paragraph.lines)
             and max(line.size for line in paragraph.lines) / body_size >= _HEADING_SIZE_RATIO)
 
 
-def _is_bold_heading(paragraph: _Paragraph, body_size: float) -> bool:
+def _is_bold_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset[int] = frozenset()) -> bool:
     """A heading set in a bold face at about the body size: every line is bold, the size is at least
     `_BOLD_HEADING_MIN_RATIO` of the body, it holds a letter, is not a caption or note label ('Figure 3.', 'Source:',
     `_CAPTION_START`), and does not end like a sentence (',' or ';'; '.' only after a section number such as 'CHAPTER 1.'
-    or '5.'). A heading may end in ':' ('Procedure:') or '?'.
+    or '5.'). A heading may end in ':' ('Procedure:') or '?'. A bold line with another bold line beside it on the same row
+    (`side_by_side`, `_header_cells`) is a header cell of a table the page did not find, not a heading.
 
     Deliberate: a heading in many books and papers differs from the body only by its weight ('5. The dynamics' in 11pt
     bold over a 10pt body), and with the size rule alone 53 of 193 headings of a 200-page pdf corpus were body text (Pinned
     by: test_pdf_headings.py::TestBoldHeadings)."""
     if not body_size or not _heading_shaped(paragraph) or not all(line.bold for line in paragraph.lines):
+        return False
+    if any(id(line) in side_by_side for line in paragraph.lines):
         return False
     text = " ".join(line.text for line in paragraph.lines).strip()
     if max(line.size for line in paragraph.lines) < body_size * _BOLD_HEADING_MIN_RATIO or _CAPTION_START.match(text):
@@ -534,12 +539,56 @@ def _is_bold_heading(paragraph: _Paragraph, body_size: float) -> bool:
 
 # A letter of a word (not a number or a symbol): a bold '2024' or '12.5%' alone is a value, not a heading.
 _HEADING_LETTER = re.compile(r"[A-Za-z\u00c0-\u024f가-힣一-鿿]")
+# Heading-like lines side by side on one row that make it the header row of a table (`_header_cells`): three panels of a slide
+# have a heading each, a table header has more cells
+_HEADER_ROW_CELLS = 4
 # A check box drawn or typed on the line (`_mark_checkboxes`).
 _CHECKBOX_MARK = re.compile(r"[☐☑☒]")
 # A line holding only a section number ('3.', '12', 'III.'), set above the title of a numbered heading.
 _LONE_SECTION_NUMBER = re.compile(r"^(?:\d{1,3}(?:\.\d{1,3})*|[IVXLC]{1,6})\.?$")
 # A heading that ends in a section number and a full stop ('CHAPTER 1.', '5.', 'Part IV.').
 _SECTION_NUMBER_END = re.compile(r"(?:^|\s)(?:\d+(?:\.\d+)*|[IVXLC]+)\.$")
+
+
+def _header_cells(lines: list[_Line], body_size: float) -> frozenset[int]:
+    """ids of the heading-like lines (short, and bold or at least `_HEADING_SIZE_RATIO` times the body) that stand on one
+    row (overlapping by half the lower height vertically, apart horizontally) with other heading-like lines, `_HEADER_ROW_CELLS`
+    or more of them. They are the header cells of a table the page did not find
+    ('Service Stage', 'Function Name', 'Explanation', 'Expected Benefit'), not headings. The headings of three panels of a
+    slide side by side ('Our Purpose', 'Our Mission', 'What We Do') and two bold headings of two columns of a page on one row
+    stay headings.
+
+    Deliberate: with the size rule alone, the 7pt bold header row of a table over a 5pt body came out as four headings
+    (Pinned by: test_pdf_headings.py::TestHeaderRows)."""
+    if not body_size:
+        return frozenset()
+
+    def heading_like(line: _Line) -> bool:
+        return (len(line.text) <= 100 and bool(_HEADING_LETTER.search(line.text))
+                and (line.bold or line.size >= body_size * _HEADING_SIZE_RATIO))
+
+    ordered = sorted(lines, key=lambda line: line.top)
+    found: set[int] = set()
+    for index, line in enumerate(ordered):
+        if not heading_like(line):
+            continue
+        row = [line]
+        for other in ordered[index + 1:]:
+            if other.top >= line.bottom + max(line.height, other.height):
+                break
+            overlap = min(line.bottom, other.bottom) - max(line.top, other.top)
+            if overlap >= min(line.height, other.height) * 0.5 and all(other.x0 >= kept.x1 or kept.x0 >= other.x1 for kept in row):
+                row.append(other)
+        for other in ordered[:index][::-1]:
+            if other.bottom <= line.top - max(line.height, other.height):
+                break
+            overlap = min(line.bottom, other.bottom) - max(line.top, other.top)
+            if overlap >= min(line.height, other.height) * 0.5 and all(other.x0 >= kept.x1 or kept.x0 >= other.x1 for kept in row):
+                row.append(other)
+        alike = [kept for kept in row if heading_like(kept)]
+        if len(alike) >= _HEADER_ROW_CELLS:
+            found.update(id(kept) for kept in alike)
+    return frozenset(found)
 
 
 def _bold_body(pages: list[_Page]) -> bool:
@@ -555,15 +604,16 @@ def _bold_body(pages: list[_Page]) -> bool:
     return bool(total) and bold >= total * _BOLD_BODY_MAX_RATIO
 
 
-def _heading_key(paragraph: _Paragraph, heading_levels: dict[_HeadingKey, int], body_size: float) -> _HeadingKey | None:
+def _heading_key(paragraph: _Paragraph, heading_levels: dict[_HeadingKey, int], body_size: float,
+                 side_by_side: frozenset[int] = frozenset()) -> _HeadingKey | None:
     """The level key of a paragraph that is a heading: its size when that is a heading size of the document, otherwise
     (size, True) when the document has bold headings at about the body size and the paragraph is one. None for body text."""
-    if not _heading_shaped(paragraph):
+    if not _heading_shaped(paragraph) or any(id(line) in side_by_side for line in paragraph.lines):
         return None
     size = _heading_size(paragraph)
     if (size, False) in heading_levels:
         return (size, False)
-    if (size, True) in heading_levels and _is_bold_heading(paragraph, body_size):
+    if (size, True) in heading_levels and _is_bold_heading(paragraph, body_size, side_by_side):
         return (size, True)
     return None
 
@@ -577,10 +627,11 @@ def _heading_levels(pages: list[_Page], body_size: float, line_gap: float) -> di
     for page in pages:
         if page.simple:
             continue
+        side_by_side = _header_cells(page.lines, body_size)
         for paragraph in _group_paragraphs(page.lines, line_gap):
-            if _is_heading(paragraph, body_size):
+            if _is_heading(paragraph, body_size, side_by_side):
                 keys.add((_heading_size(paragraph), False))
-            elif bold_allowed and _is_bold_heading(paragraph, body_size):
+            elif bold_allowed and _is_bold_heading(paragraph, body_size, side_by_side):
                 keys.add((_heading_size(paragraph), True))
     ranked = sorted(keys, key=lambda key: (-key[0], key[1]))
     return {key: min(rank, 3) for rank, key in enumerate(ranked, start=1)}
