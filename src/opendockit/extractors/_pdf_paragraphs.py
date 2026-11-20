@@ -740,10 +740,12 @@ _KOREAN_GREETINGS = frozenset(("안녕하세요", "어서 오세요", "어서오
 # A verbal noun closed by 함, 됨 or 임 (`제출함`, `신청함`, `완료됨`, `무효임`): three syllables or more, not `책임` or `모임`
 _KOREAN_NOMINAL_END = re.compile(r"[가-힣]{2,}[함됨임]")
 # Nouns ending like such a verbal noun (`_korean_notice_end`): a meeting, a responsibility, an appointment or a retirement, a
-# frame or a time, a ship, a box, and `포함` (`독서 정기모임`, `기업의 사회적책임`, `사외이사 재선임`, `분석 프레임`, `자바
-# 런타임`, `미 해군 항공모함`, `고객 건의함`, `받은 편지함`, `부가세 불포함`)
-_KOREAN_NOUN_ENDS = ("모임", "책임", "선임", "퇴임", "취임", "연임", "사임", "부임", "프레임", "타임", "게임", "잠수함", "모함",
-                     "군함", "건의함", "사서함", "편지함", "우편함", "보관함", "포함")
+# frame, a time or a paradigm, a ship, a box, `포함`, and the nouns of adjectives (`독서 정기모임`, `기업의 사회적책임`, `사외이사
+# 재선임`, `분석 프레임`, `자바 런타임`, `에너지 산업의 새로운 패러다임`, `미 해군 항공모함`, `해군 이지스 구축함`, `고객 건의함`,
+# `받은 편지함`, `부가세 불포함`, `모바일 결제의 편리함`, `일상 속 작은 소중함`)
+_KOREAN_NOUN_ENDS = ("모임", "책임", "선임", "퇴임", "취임", "연임", "사임", "부임", "프레임", "타임", "게임", "패러다임", "잠수함", "모함",
+                     "군함", "구축함", "건의함", "사서함", "편지함", "우편함", "보관함", "포함", "편리함", "불편함", "간편함", "소중함",
+                     "따뜻함", "투명함", "편안함", "익숙함", "다양함", "친절함")
 # Subject, topic and object particles: a word ending in one is what a verbal noun at the end of the line is said of
 # (`본 계약은 무효임`)
 _KOREAN_PARTICLES = frozenset("은는이가을를")

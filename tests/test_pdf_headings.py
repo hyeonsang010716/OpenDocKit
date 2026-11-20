@@ -378,7 +378,9 @@ class TestBoldSentenceEnds:
 
     @pytest.mark.parametrize("title", ["핵 잠수함", "미 해군 항공모함", "고객 건의함", "우편 사서함", "받은 편지함", "분석 프레임",
                                        "재난 대응 골든타임", "자바 런타임", "교수 정년퇴임", "회장 이취임", "사외이사 재선임",
-                                       "운영위원회 정기모임", "기업의 사회적책임", "부가세 불포함"])
+                                       "운영위원회 정기모임", "기업의 사회적책임", "부가세 불포함",
+                                       "에너지 산업의 새로운 패러다임", "해군 이지스 구축함", "모바일 결제의 편리함", "일상 속 작은 소중함",
+                                       "자연이 주는 따뜻함", "시민이 겪는 불편함", "행정 절차의 투명함"])
     def test_a_korean_compound_noun_ending_like_a_notice_is_a_heading(self, title):
         text = _named_font_pdf([*_named_body(80), (72, 140, title, 10, "Batang-Bold"), *_named_body(156)])
 
