@@ -218,3 +218,22 @@ class TestOutlineHeads:
         text = convert(_hwpx(_hwpx_paragraph(long_text, shape=1), head=head), "a.hwpx").text
 
         assert text == f"1. {long_text}"
+
+    def test_numbered_clause_sentences_stay_numbered_paragraphs(self):
+        """Contracts and regulations number their clauses with outline heads. A clause that is a sentence stays a numbered
+        paragraph, and does not keep the title set by size from being a heading (it is no outline heading of the document)."""
+        head = ('<hh:numberings itemCnt="1"><hh:numbering id="1" start="1">'
+                '<hh:paraHead level="1" numFormat="DIGIT">^1.</hh:paraHead>'
+                '<hh:paraHead level="2" numFormat="HANGUL_SYLLABLE">^2.</hh:paraHead></hh:numbering></hh:numberings>'
+                '<hh:paraProperties itemCnt="3"><hh:paraPr id="0"><hh:heading type="NONE" idRef="0" level="0"/></hh:paraPr>'
+                '<hh:paraPr id="1"><hh:heading type="OUTLINE" idRef="0" level="0"/></hh:paraPr>'
+                '<hh:paraPr id="2"><hh:heading type="OUTLINE" idRef="0" level="1"/></hh:paraPr></hh:paraProperties>')
+        body = ('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="2"><hp:secPr outlineShapeIDRef="1"/>'
+                '<hp:t>용역 계약서</hp:t></hp:run></hp:p>'
+                + _hwpx_paragraph("갑은 을에게 계약금을 계약 체결일로부터 7일 이내에 지급한다.", shape=1)
+                + _hwpx_paragraph("다만, 천재지변의 경우에는 그러하지 아니하다.", shape=2) + _hwpx_paragraph(_BODY))
+
+        lines = convert(_hwpx(body, head=head), "a.hwpx").text.split("\n\n")
+
+        assert lines[:2] == ["# 용역 계약서", "1. 갑은 을에게 계약금을 계약 체결일로부터 7일 이내에 지급한다.\n"
+                                              "  - 가. 다만, 천재지변의 경우에는 그러하지 아니하다."]

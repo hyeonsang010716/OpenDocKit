@@ -276,10 +276,14 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     An outline head makes a heading only in a top-level body paragraph (`top`); in a text box, a caption or a header it stays a
     number. No paragraph of a footnote or endnote (`in_note`) is a heading: `[^1]: # 1. 항목` is no Markdown heading and broke
     the note (Pinned by: test_hwp_size_headings.py::TestOutlineHeads::test_no_heading_in_a_note_or_text_box).
+    An outline head on a paragraph that does not look like a title (`_size_heading_text`: a sentence, a date, a long line) leaves it
+    a numbered paragraph, and does not make the document one with outline headings: contracts and regulations number their clauses
+    with outline heads (`1. 갑은 을에게 … 지급한다.`, `가. 다만, … 아니하다.`) (Pinned by:
+    test_hwp_size_headings.py::TestOutlineHeads::test_numbered_clause_sentences_stay_numbered_paragraphs).
     """
     plain = text if plain is None else plain
     match = None if in_cell or in_note else OUTLINE_STYLE.match(style_name.strip())
-    heading_level = int(match.group(1)) if match is not None else level + 1 if outline and top else 0
+    heading_level = int(match.group(1)) if match is not None else level + 1 if outline and top and _size_heading_text(plain) else 0
     fits = len(f"{mark} {plain}" if mark else plain) <= HEADING_MAX_CHARS and "\n" not in plain
     heading = bool(heading_level) and fits
     if heading and top and size_headings is not None:
