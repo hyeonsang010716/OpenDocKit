@@ -409,6 +409,18 @@ class TestHiddenText:
 
         assert result.text == "The logo appears in the header.\n\n[Image]\n\nSee the box.\n\nBoxed\n\nEnd."
 
+    def test_caption_written_after_its_picture_stays_after_it(self):
+        """LibreOffice's Insert Caption makes a frame holding a paragraph of the picture, then 'Figure 1: …'. With every block
+        of a paragraph put after its text, the caption came before the picture it is under."""
+        picture = ('<draw:frame text:anchor-type="as-char" svg:width="1cm" svg:height="1cm">'
+                   '<draw:image xlink:href="Pictures/a.png"/></draw:frame>')
+        caption = (f'<text:p>{picture}Figure <text:sequence text:name="Figure">1</text:sequence>: The logo</text:p>')
+        body = f"<text:p>Before.</text:p><text:p>{_text_frame(caption)}</text:p><text:p>After.</text:p>"
+
+        result = _convert("text", body, parts={"Pictures/a.png": builder.png_bytes()})
+
+        assert result.text == "Before.\n\n[Image]\n\nFigure 1: The logo\n\nAfter."
+
     def test_headers_and_footers_only_with_the_option(self):
         """A master page with a header and a footer (the footer also has a page-number field): left out by default, written
         once around the body with `include_headers_footers`, without the cached page number."""
