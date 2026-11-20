@@ -320,6 +320,22 @@ class TestXlsValues:
 
         assert value == expected
 
+    @pytest.mark.parametrize(("number_format", "seconds", "expected"),
+                             [("ss.00", 12.34, "00:00:12"), ("s.0", 12.34, "00:00:12"), ("m:ss.000", 72.345, "00:01:12")])
+    def test_time_with_fractional_seconds_is_a_time(self, number_format, seconds, expected):
+        """xlrd takes a format for a date only when it has more date letters than digits, so the `0`s of fractional seconds
+        made it a number cell and 12.34 s under `ss.00` came out as `0.000142824074074074`. XLSX gives `00:00:12`."""
+        format_record = builder.xls_record(0x041E, struct.pack("<HHB", 164, len(number_format), 1)
+                                           + number_format.encode("utf-16-le"))
+        styles = b"".join(builder.xls_record(0x00E0, struct.pack("<HHH", 0, format_id, 0) + b"\0" * 14) for format_id in (0, 164))
+        number = builder.xls_record(0x0203, struct.pack("<HHHd", 1, 0, 1, seconds / 86400))
+        data = builder.xls_bytes([("S", [["time"]], number)], globals_extra=format_record + styles)
+
+        text = xls.extract_xls(data, ConvertOptions()).sections[0].text
+
+        assert text.splitlines()[-1] == expected
+        assert "0.000" not in text
+
 
 class TestEastAsianBuiltinDateFormats:
     """Built-in format ids 27-36 and 50-58 (Korean/Chinese/Japanese dates and times) are General to openpyxl, so dates came out
