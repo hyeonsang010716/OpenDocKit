@@ -407,6 +407,34 @@ class TestStackedLabels:
 
         assert "# A Very Long Heading That Is Set In Bold Over Two Lines Of The Page\n\nThe next step" in text
 
+    def test_a_large_title_beside_short_lines_stays_one_heading(self):
+        """A cover title over two lines with 'Draft' and the date at the right of its lines: a heading by its size is no
+        form label."""
+        text = _named_font_pdf([(72, 100, "Annual Report on", 24, "Times-Bold"), (72, 130, "Water Quality", 24, "Times-Bold"),
+                                (450, 100, "Draft", 10, "Times-Roman"), (450, 130, "May 2024", 10, "Times-Roman"),
+                                *_named_body(200, "Times-Roman", _BODY)])
+
+        assert "# Annual Report on Water Quality" in text
+
+    def test_a_bold_heading_beside_margin_notes_stays_one_heading(self):
+        text = _named_font_pdf([*_named_body(80, "Times-Roman", _BODY), (72, 140, "Annual Results of the", 10, "Times-Bold"),
+                                (72, 152.5, "Regional Offices", 10, "Times-Bold"), (480, 140, "Page 3", 10, "Times-Roman"),
+                                (480, 152.5, "Draft", 10, "Times-Roman"), *_named_body(170, "Times-Roman", _BODY)])
+
+        assert "# Annual Results of the Regional Offices" in text
+
+    @pytest.mark.parametrize("size", [10, 14])
+    def test_two_line_headings_of_two_columns_on_the_same_rows_stay_headings(self, size):
+        column = ["The next step is to construct a model for", "the dynamics of the system as a whole and",
+                  "the idea which goes back to Boltzmann is", "that any state develops into a higher one."]
+        items = [(x, top + index * 12.5, line, 10, "Times-Roman") for x in (40, 320) for top in (80, 176)
+                 for index, line in enumerate(column)]
+        items += [(40, 140, "Methods and", size, "Times-Bold"), (40, 140 + size * 1.2, "Materials", size, "Times-Bold"),
+                  (320, 140, "Results and", size, "Times-Bold"), (320, 140 + size * 1.2, "Discussion", size, "Times-Bold")]
+        text = _named_font_pdf(items)
+
+        assert "# Methods and Materials" in text and "# Results and Discussion" in text
+
     def test_a_two_line_heading_beside_the_other_column_stays_one_heading(self):
         """The lines of the right column beside the heading are prose, not values."""
         left = ["The next step is to build a model of the whole", "system and the idea which goes back to the past",

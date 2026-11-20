@@ -632,6 +632,8 @@ _HEADING_LETTER = re.compile(r"[A-Za-z\u00c0-\u024f가-힣一-鿿]")
 _HEADER_DATA_ROWS = 2
 # The most words of a value beside a form label on its row ('Kim', 'Acme Corporation', '010-1234-5678') (`_stacked_labels`)
 _LABEL_VALUE_MAX_WORDS = 4
+# The most words of a form label stacked over another ('Name', 'Date of birth') (`_stacked_labels`)
+_LABEL_MAX_WORDS = 3
 # A year or a span of years alone ('2023', '1990–1999', '2023-24'): a heading of a timeline by its size (`_heading_shaped`)
 _YEAR = re.compile(r"(?:1[5-9]|20)\d{2}(?:\s*[-–—~]\s*(?:(?:1[5-9]|20)\d{2}|\d{2}))?")
 # A check box drawn or typed on the line (`_mark_checkboxes`).
@@ -663,21 +665,28 @@ def _rows(lines: list[_Line]) -> list[list[_Line]]:
 def _side_by_side_lines(lines: list[_Line], paragraphs: list[_Paragraph], body_size: float) -> frozenset[int]:
     """ids of the lines that are no heading for what stands beside them on their row: the header cells of a table
     (`_header_cells`) and the lines of stacked labels (`_stacked_labels`)."""
-    return _header_cells(lines, body_size) | _stacked_labels(lines, paragraphs)
+    return _header_cells(lines, body_size) | _stacked_labels(lines, paragraphs, body_size)
 
 
-def _stacked_labels(lines: list[_Line], paragraphs: list[_Paragraph]) -> frozenset[int]:
-    """ids of the lines of a paragraph of two lines or more where every line has a short value on its right on its row
-    (`_LABEL_VALUE_MAX_WORDS` words at most): the labels of a form stacked in one column ('Name' over 'Phone', each with its
-    value beside it), not a heading wrapped over two lines.
+def _stacked_labels(lines: list[_Line], paragraphs: list[_Paragraph], body_size: float) -> frozenset[int]:
+    """ids of the lines of a paragraph of two lines or more where every line is a label with a value on its right on its
+    row: the labels of a form stacked in one column ('Name' over 'Phone', each with its value beside it), not a heading
+    wrapped over two lines. A label is a bold line under `_HEADING_SIZE_RATIO` times the body size (a heading by its size
+    is no form label) of `_LABEL_MAX_WORDS` words at most; its value is the next line on its right, not bold, not larger
+    than the label, of `_LABEL_VALUE_MAX_WORDS` words at most.
 
     Deliberate: two bold labels at the usual line gap were joined into one heading, and their line break was lost ('# Name
-    Phone') (Pinned by: test_pdf_headings.py::TestStackedLabels)."""
+    Phone'). Taken for labels whatever their size and whatever stood on their right, a heading wrapped over two lines beside
+    a short line was lost: a cover title beside 'Draft' / 'May 2024', the left one of two headings of two columns on the
+    same rows, a heading beside a list of facts or beside 'Page 3' / 'Draft' in the margin (Pinned by:
+    test_pdf_headings.py::TestStackedLabels)."""
     valued: set[int] = set()
     for row in _rows(lines):
         ordered = sorted(row, key=lambda line: line.x0)
         for line, after in pairwise(ordered):
-            if after.x0 >= line.x1 and len(after.text.split()) <= _LABEL_VALUE_MAX_WORDS:
+            if (line.bold and not after.bold and after.x0 >= line.x1 and line.size < body_size * _HEADING_SIZE_RATIO
+                    and after.size <= line.size * 1.05 and len(line.text.split()) <= _LABEL_MAX_WORDS
+                    and len(after.text.split()) <= _LABEL_VALUE_MAX_WORDS):
                 valued.add(id(line))
     return frozenset(id(line) for paragraph in paragraphs if len(paragraph.lines) >= 2
                      and all(id(line) in valued for line in paragraph.lines) for line in paragraph.lines)
