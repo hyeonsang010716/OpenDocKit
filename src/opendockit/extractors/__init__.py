@@ -11,10 +11,18 @@ Every import made on first use goes through `load`, under one lock. Threads that
 the same moment imported BeautifulSoup or openpyxl at once, and Python's import machinery stopped one of them with a
 `_DeadlockError` (those libraries import their own modules in a circle), which the extractor reported as a corrupted file
 (Pinned by: test_converter.py::TestExtractorsImportedOnFirstUse::test_threads_converting_their_first_documents_at_once).
+
+A fork waits until no import on first use is under way (`os.register_at_fork`, `_hold_imports_over_fork`). A process forked
+from another thread while one was importing a reader got the lock held by a thread that does not exist in it, and its first
+document of a format not yet loaded waited for ever; a child that also gave the lock back still waited for ever on Python's
+own lock of the half-imported library, for the format being imported
+(Pinned by: test_converter.py::TestImportsOnFirstUseAndFork).
 """
 
 from collections.abc import Callable
 from importlib import import_module
+import logging  # noqa: F401 — imported before the fork hooks are registered, see `_hold_imports_over_fork`
+import os
 import threading
 from types import ModuleType
 
@@ -50,6 +58,25 @@ EXTRACTOR_MODULES: dict[DocumentFormat, tuple[str, str]] = {
 
 # Held while a module is imported on first use (`load`); reentrant, as importing one may load another
 _IMPORTING = threading.RLock()
+
+
+def _hold_imports_over_fork() -> None:
+    """Make `os.fork` take `_IMPORTING` before it forks and give it back on both sides after, where the platform forks.
+
+    The thread that forks holds the lock across the fork, so the child starts with every import on first use either finished
+    or not begun, and with the lock held by its own one thread, which gives it back. A thread that forks while it holds the
+    lock itself (a library that forks while it is being imported) takes it again, as it is reentrant. Hooks run before a fork
+    in the reverse order of their registration: `logging`, whose hook takes its module lock, is imported first, so that lock
+    is not yet held while the fork waits for an import that logs. `subprocess` without `preexec_fn` and the start of the
+    forkserver do not run these hooks; the forkserver forks its workers from its one thread, which holds the lock only while
+    it preloads
+    (Pinned by: test_converter.py::TestImportsOnFirstUseAndFork)."""
+    if hasattr(os, "register_at_fork"):  # not on Windows, which spawns
+        os.register_at_fork(before=_IMPORTING.acquire, after_in_parent=_IMPORTING.release,
+                            after_in_child=_IMPORTING.release)
+
+
+_hold_imports_over_fork()
 
 
 def load(module: str) -> ModuleType:

@@ -1387,3 +1387,100 @@ class TestExtractorsImportedOnFirstUse:
         assert preloaded == [["opendockit", "opendockit.extractors.all"]]
         loaded = _libraries_loaded_by("import opendockit.extractors.all")
         assert loaded >= {"openpyxl", "bs4", "pdfplumber", "pypdfium2", "pptx", "docx"}
+
+
+_FORK_SCRIPT = """
+import os, signal, sys, threading, time, warnings
+warnings.simplefilter("ignore")   # Python's DeprecationWarning for a fork in a process with threads
+import opendockit
+from opendockit.extractors import load
+
+folder, shape = sys.argv[1], sys.argv[2]
+sys.path.insert(0, folder)
+started = threading.Event()
+
+if shape == "real":
+    pdf = open(os.path.join(folder, "a.pdf"), "rb").read()
+    thread = threading.Thread(target=opendockit.convert, args=(pdf, "a.pdf"))
+    thread.start()
+    while "pdfplumber" not in sys.modules and thread.is_alive():
+        time.sleep(0.0005)
+else:
+    thread = threading.Thread(target=load, args=("slow_reader",))
+    thread.start()
+    started.wait()
+pid = os.fork()
+if pid == 0:
+    signal.alarm(10)
+    try:
+        if shape == "same module":
+            assert load("slow_reader").VALUE == 1
+        else:
+            assert opendockit.convert(b"hello world", "a.txt").text == "hello world"
+        os.write(1, b"child ok\\n")
+    finally:
+        os._exit(0)
+thread.join()
+_, status = os.waitpid(pid, 0)
+print("hung" if os.WIFSIGNALED(status) else "ended")
+"""
+
+# Imported on first use by a thread of the script above: it lets the main thread know it is being imported, and takes its time
+_SLOW_READER = "import sys, time\nsys.modules['__main__'].started.set()\ntime.sleep(0.5)\nVALUE = 1\n"
+
+# Forks while `load` imports it, with the lock held by the thread that forks
+_FORKING_READER = """
+import os, signal
+import opendockit
+pid = os.fork()
+if pid == 0:
+    signal.alarm(10)
+    try:
+        assert opendockit.convert(b"hello world", "a.txt").text == "hello world"
+        os.write(1, b"child ok\\n")
+    finally:
+        os._exit(0)
+_, status = os.waitpid(pid, 0)
+print("hung" if os.WIFSIGNALED(status) else "ended")
+"""
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "fork"), reason="only where processes fork")
+@pytest.mark.timing
+@pytest.mark.no_rerun  # starts processes and threads and checks how they end: one failure can be a real race
+class TestImportsOnFirstUseAndFork:
+    """A process forked from one thread while another imported a reader on first use got the lock of those imports held by a
+    thread that does not exist in it: its first document of a format not yet loaded waited for ever. A fork now waits until
+    no import on first use is under way. A child that only got the lock back still waited for ever on Python's own lock of the
+    half-imported module, for the format being imported."""
+
+    @staticmethod
+    def _run(tmp_path, shape: str) -> list[str]:
+        import subprocess
+
+        (tmp_path / "slow_reader.py").write_text(_SLOW_READER)
+        (tmp_path / "a.pdf").write_bytes(builder.pdf_bytes(3))
+        completed = subprocess.run([sys.executable, "-c", _FORK_SCRIPT, str(tmp_path), shape], capture_output=True, text=True,
+                                   check=True, timeout=60)
+        return completed.stdout.split()
+
+    def test_child_converts_a_format_not_yet_loaded(self, tmp_path):
+        assert self._run(tmp_path, "other format") == ["child", "ok", "ended"]
+
+    def test_child_imports_the_module_that_was_being_imported(self, tmp_path):
+        assert self._run(tmp_path, "same module") == ["child", "ok", "ended"]
+
+    def test_fork_while_a_thread_imports_a_real_reader(self, tmp_path):
+        assert self._run(tmp_path, "real") == ["child", "ok", "ended"]
+
+    def test_thread_that_holds_the_lock_can_fork(self, tmp_path):
+        """A library that forks while it is being imported: the thread that forks holds the lock already and takes it again."""
+        import subprocess
+
+        (tmp_path / "forking_reader.py").write_text(_FORKING_READER)
+        script = ("import sys, warnings\nwarnings.simplefilter('ignore')\nsys.path.insert(0, sys.argv[1])\n"
+                  "from opendockit.extractors import load\nload('forking_reader')\n")
+        completed = subprocess.run([sys.executable, "-c", script, str(tmp_path)], capture_output=True, text=True, check=True,
+                                   timeout=60)
+
+        assert completed.stdout.split() == ["child", "ok", "ended"]
