@@ -37,9 +37,8 @@ the server may read. Without it the server can read any file your user can read.
   key.
 - **The answer is bounded.** One call returns at most `max_chars` characters of the document; a longer one is cut with a
   note that tells the agent to read the outline and ask for sections.
-- **One file cannot take the server down.** On Linux and macOS every conversion runs in a disposable worker process that
-  is ended after 2 minutes, and on Linux also when it passes 2 GB of memory. On Windows it runs inside the server,
-  without those limits.
+- **One file cannot take the server down.** Every conversion runs in a disposable worker process that is ended after
+  2 minutes, and on Linux and Windows also when it passes 2 GB of memory (macOS accepts no memory limit).
 - **The text of a document is data.** A document can contain sentences addressed to the agent. The server returns what
   the file says; let it read only the folders you would hand the agent yourself.
 
@@ -47,7 +46,6 @@ the server may read. Without it the server can read any file your user can read.
 
 - No OCR: a scanned PDF or a photo comes back as a placeholder with a warning.
 - Legacy `.doc` / `.ppt` need LibreOffice installed.
-- On Windows, HTML, email and EPUB are not supported.
 
 Everything else — the tools in detail, the design notes, the limits — is in the
 [integrations guide](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md).

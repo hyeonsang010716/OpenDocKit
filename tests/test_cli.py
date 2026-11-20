@@ -263,6 +263,25 @@ class TestArguments:
         assert (output == "") if code else output.strip().isdigit()
         assert process.returncode == code
 
+    @pytest.mark.parametrize(("args", "code", "output"), [(["missing.txt"], 1, ""), (["a.png", "--count"], 0, "7"),
+                                                          (["blank.pdf"], 0, ""), (["--bogus", "a.png"], 2, "")],
+                             ids=["error", "warning with --count", "warning", "usage error"])
+    def test_messages_to_a_closed_pipe_end_quietly(self, tmp_path, args, code, output):
+        """With standard error sent to a pipe whose reader has gone (`2>&1 | true`), a message for a missing file ended in a
+        BrokenPipeError traceback, and a warning or a usage error failed again at exit with 'Exception ignored' and exit code
+        120. The messages go nowhere; the output and the exit code are those of the run."""
+        import subprocess
+
+        (tmp_path / "a.png").write_bytes(builder.png_bytes())
+        (tmp_path / "blank.pdf").write_text("  \n \n", encoding="utf-8")   # two warnings: not a PDF, and no text
+        process = subprocess.Popen([sys.executable, "-m", "opendockit", *args], cwd=tmp_path,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        process.stderr.close()  # before the first message, which takes longer than starting the process
+        written = process.stdout.read().decode()
+        assert process.wait(timeout=60) == code
+        assert written.strip() == output
+
     def test_help_is_printed_as_before(self, capsys, monkeypatch):
         from opendockit import cli
 

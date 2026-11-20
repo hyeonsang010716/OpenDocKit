@@ -69,9 +69,8 @@ pages, slides or sheets has nothing to ask for, and its note says to raise `max_
   (separated like `PATH`); files outside them, also through symbolic links, are refused.
 - **No network when converting.** No telemetry, no vision model, nothing uploaded. Legacy `.doc` / `.ppt` start a local
   LibreOffice if one is installed and are refused if not.
-- **One file cannot take the session down.** On Linux and macOS every conversion runs in a disposable worker process
-  that is ended after 2 minutes, and on Linux also when it passes 2 GB of memory. On Windows it runs inside the server,
-  without those limits.
+- **One file cannot take the session down.** Every conversion runs in a disposable worker process that is ended after
+  2 minutes, and on Linux and Windows also when it passes 2 GB of memory (macOS accepts no memory limit).
 - **The text of a document is data.** A document can contain sentences addressed to the agent. The server returns what
   the file says, and the skill tells the agent to quote such text, not to follow it.
 - **No credentials** are read or stored.
@@ -80,7 +79,6 @@ pages, slides or sheets has nothing to ask for, and its note says to raise `max_
 
 - No OCR. A scanned PDF or a photo comes back as a placeholder with a warning; the skill tells the agent to say so.
 - Pictures are `[Image]` placeholders. Charts built from data in an Office file come back as data tables.
-- On Windows, HTML, email and EPUB are not supported.
 - The full list is in [docs/limitations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md).
 
 ## Health check without Hermes

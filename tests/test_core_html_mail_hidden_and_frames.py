@@ -457,3 +457,85 @@ class TestStyleValuesThatOnlyStartLikeAHidingOne:
         html = '<div style="visibility:hidden"><p>숨김</p><p style="visibility:visiblex">숨김 2</p></div><p>끝</p>'
 
         assert convert(html.encode(), "a.html").text == "끝"
+
+
+class TestHidingDecidedByTheWinningDeclaration:
+    """Hiding was matched on the raw text of the style: a commented-out `display:none` and one that a later declaration
+    overrides removed a visible element, text and all."""
+
+    @pytest.mark.parametrize("style", ["/* display:none; */ color:#333", "display:none; display:block",
+                                       "visibility:hidden; visibility:visible", "display:none /* old */; display:block",
+                                       "display:none !important; display:none; DISPLAY: none !important; display:block !important",
+                                       "content-visibility:hidden;content-visibility:auto"])
+    def test_element_stays(self, style):
+        html = f'<p>앞</p><div style="{style}">본문</div>'
+
+        assert convert(html.encode(), "a.html").text == "앞\n\n본문"
+
+    @pytest.mark.parametrize("style", ["display:block; display:none", "display:none !important; display:block",
+                                       "/* display:block; */ display:none", "display:block;/* x */visibility:hidden"])
+    def test_winning_hiding_still_hides(self, style):
+        html = f'<p>앞</p><div style="{style}">숨김</div>'
+
+        assert convert(html.encode(), "a.html").text == "앞"
+
+    def test_overridden_display_none_does_not_stop_a_visible_descendant(self):
+        html = ('<div style="visibility:hidden; display:none; display:block"><p style="visibility:visible">보임</p><p>숨김</p></div>'
+                "<p>끝</p>")
+
+        assert convert(html.encode(), "a.html").text == "보임\n\n끝"
+
+    def test_commented_out_visible_does_not_show_a_descendant(self):
+        html = '<div style="visibility:hidden"><p>숨김</p><p style="/* visibility:visible */">숨김 2</p></div><p>끝</p>'
+
+        assert convert(html.encode(), "a.html").text == "끝"
+
+    @pytest.mark.parametrize("style", ["display:none; display:bogus", "display:none; display:", "visibility:hidden; visibility:",
+                                       "display:none!important; display:!important", "visibility:hidden; visibility:shown"])
+    def test_invalid_later_declaration_does_not_show_it(self, style):
+        """A browser drops a declaration whose value it does not know, so the earlier one stays in force; taken as the last one
+        written, it brought hidden text (a preheader, a tracking block) back."""
+        html = f'<p>앞</p><div style="{style}">숨김</div>'
+
+        assert convert(html.encode(), "a.html").text == "앞"
+
+    @pytest.mark.parametrize("style", ["display:none; display:var(--shown)", "display:none; display:INLINE-FLEX",
+                                       "display:none; display:block flow", "visibility:hidden; visibility:inherit",
+                                       "display:none; display:grid-lanes"])
+    def test_later_declaration_a_browser_accepts_shows_it(self, style):
+        html = f'<p>앞</p><div style="{style}">본문</div>'
+
+        assert convert(html.encode(), "a.html").text == "앞\n\n본문"
+
+    def test_long_styles_are_not_kept_after_their_page(self):
+        """The properties of the styles last read are kept for the next time one is asked about, for the life of the process: a
+        thousand styles of a few MB, kept whole, held a server's memory long after their pages. Only short ones are kept."""
+        from opendockit.extractors import _html_base
+
+        _html_base._cached_style_properties.cache_clear()
+        convert(f'<p>앞</p><div style="{"color:red;" * 1_000}display:none">숨김</div>'.encode(), "a.html")
+        assert _html_base._cached_style_properties.cache_info().currsize == 0
+
+        convert(b'<p>\xec\x95\x9e</p><div style="color:red; display:none">x</div>', "a.html")
+        assert _html_base._cached_style_properties.cache_info().currsize == 1
+        # Only the properties that hide are kept: a thousand styles of 4 KB of other properties held 68 MB.
+        assert _html_base._style_properties("color:red; margin:0 auto; display:none") == {"display": "none"}
+
+    @pytest.mark.parametrize("style", ["/* display:none; */", "display:none; display:block"])
+    def test_shown_answer_of_a_list_is_not_folded(self, style):
+        """A `<dd>` hidden by its own style is a folded answer, written on lines of its own; the style was matched on its raw
+        text, so a commented-out or overridden `display:none` made a shown answer one."""
+        html = f'<dl><dt>Question one?</dt><dd style="{style}">Answer one.</dd><dt>Question two?</dt><dd>Answer two.</dd></dl>'
+
+        assert convert(html.encode(), "a.html").text == convert(html.replace(f' style="{style}"', "").encode(), "a.html").text
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("piece", ["display:none;", "/* display:none; */", "display: none !important; display:block;", "/*"])
+    def test_long_style_takes_linear_time(self, piece):
+        def seconds(count: int) -> float:
+            data = f'<p>앞</p><div style="{piece * count}">본문</div>'.encode()
+            return fastest(lambda: convert(data, "a.html"))
+
+        small, large = seconds(20_000), seconds(80_000)
+
+        assert large < 8 * small + 0.5

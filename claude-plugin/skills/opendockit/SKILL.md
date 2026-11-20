@@ -30,7 +30,6 @@ offline and read-only. Nothing is uploaded and no file is written.
   first start downloads the package from PyPI, and Python 3.12 or newer if this machine has none, so the first call
   can take a while on a slow connection.
 - Legacy `.doc` and `.ppt` need LibreOffice installed. `.docx` and `.pptx` do not.
-- On Windows, HTML, email and EPUB are not supported.
 
 ## How to read a document
 

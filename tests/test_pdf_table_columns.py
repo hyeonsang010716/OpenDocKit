@@ -1569,6 +1569,26 @@ class TestBorderlessTableWithBlankCorner:
 
         assert "| 온라인 | 12,300 | 15,800 | 14,200 | 18,900 |\n| --- |" in text
 
+    def test_line_lined_up_with_the_columns_above_a_full_header_stays_out_of_the_table(self):
+        """A line of two pieces over a text table whose header is complete ('Prepared by … Kim' above 'Region | Manager |
+        Status') cannot be told from a header with a blank cell other than the first over its first data row: taken for one,
+        it became the header and the real header a data row. Only the blank top-left cell is recovered."""
+        def draw(pdf, index):
+            pdf.drawString(72, 800, "Some text before the table that is a normal paragraph.")
+            pdf.drawString(80, 768, "Prepared by")
+            pdf.drawString(360, 768, "Kim")
+            rows = [("Region", "Manager", "Status"), ("North", "Alice", "Open"), ("South", "Bob", "Closed"),
+                    ("West", "Carol", "Pending"), ("East", "Dave", "Done")]
+            for number, row in enumerate(rows):
+                for left, text in zip((80, 220, 360), row, strict=True):
+                    pdf.drawString(left, 750 - number * 18, text)
+            pdf.drawString(72, 630, "Some text after the table that is a normal paragraph.")
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| Region | Manager | Status |\n| --- | --- | --- |\n| North | Alice | Open |" in text
+        assert "| Prepared by |" not in text
+
 
 class TestBorderlessTwoLineHeader:
     """When the header cells of a borderless table have two lines ('판매량 / (대)', '전년 동기 / 대비 증감률'), the second line became the first data

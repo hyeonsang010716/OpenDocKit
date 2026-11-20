@@ -469,7 +469,7 @@ def _detect_text(data: bytes, extension: str) -> DocumentFormat:
         return DocumentFormat.TEXT
     # The mail readers (BeautifulSoup) are imported only for a document that may be one: imported with this module, every
     # conversion paid for them (Pinned by: test_converter.py::TestExtractorsImportedOnFirstUse)
-    is_mhtml, mail_reads_as_html, mhtml_html_part, is_encrypted_mail, mail_box = _mail_readers()
+    is_mhtml, mail_reads_as_html, mhtml_html_part, mhtml_is_sent_mail, is_encrypted_mail, mail_box = _mail_readers()
 
     if is_encrypted_mail(data):
         raise EncryptedDocumentError("The body of an encrypted mail (S/MIME, PGP) cannot be read. "
@@ -481,7 +481,11 @@ def _detect_text(data: bytes, extension: str) -> DocumentFormat:
     if len(mails) < 2 and is_mhtml(data):
         # MHTML (single-file web page) passed through as text, and the MIME headers and base64 became a "successful" result. The HTML
         # extractor pulls out the HTML part and reads it (Pinned by: test_detect.py::TestMhtml).
-        if mhtml_html_part(data) is None:
+        # A sent mail (`_mail.is_sent_mail`) without an HTML part is read as mail by the same extractor (plain-text body, forwarded
+        # mails, attachment warning): a multipart/related mail holding only a plain-text body was rejected as a page without HTML, and
+        # the whole mail was lost (Pinned by: test_core_mail_parts_and_icons.py::TestMailWithRelatedPartsAtTheTop). Only a saved page
+        # without HTML is rejected.
+        if mhtml_html_part(data) is None and not mhtml_is_sent_mail(data):
             raise UnsupportedFormatError("MHTML (single-file web page) documents without an HTML body are not supported. "
                                          "Please save the file again as HTML or XLSX.")
         return DocumentFormat.HTML
@@ -527,17 +531,18 @@ def _detect_text(data: bytes, extension: str) -> DocumentFormat:
 
 
 def _mail_readers() -> tuple[Callable[..., Any], ...]:
-    """`is_mhtml`, `mail_reads_as_html`, `mhtml_html_part`, `is_encrypted_mail`, `mail_box`, imported on first use under the shared
-    lock (`extractors.load`)."""
+    """`is_mhtml`, `mail_reads_as_html`, `mhtml_html_part`, `mhtml_is_sent_mail`, `is_encrypted_mail`, `mail_box`, imported on
+    first use under the shared lock (`extractors.load`)."""
     html_mail, mail = load("opendockit.extractors._html_mail"), load("opendockit.extractors._mail")
-    return html_mail.is_mhtml, html_mail.mail_reads_as_html, html_mail.mhtml_html_part, mail.is_encrypted_mail, mail.mail_box
+    return (html_mail.is_mhtml, html_mail.mail_reads_as_html, html_mail.mhtml_html_part, html_mail.mhtml_is_sent_mail,
+            mail.is_encrypted_mail, mail.mail_box)
 
 
 def _is_plain_mail(data: bytes) -> bool:
     """Is this a mail with nothing to read as HTML (`_mail.mail_box`, MHTML excluded)? A plain-text mail named `.html`/`.htm` went to the
     HTML extractor by its extension, and its headers and body were squashed into one line
     (Pinned by: test_core_mailboxes_and_charsets.py::TestPlainMailNamedAsHtml)."""
-    is_mhtml, mail_reads_as_html, _, _, mail_box = _mail_readers()
+    is_mhtml, mail_reads_as_html, _, _, _, mail_box = _mail_readers()
     mails, _ = mail_box(data)
     if not mails or (len(mails) < 2 and is_mhtml(data)):
         return False

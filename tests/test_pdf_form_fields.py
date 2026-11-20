@@ -1,10 +1,20 @@
 """PDF form (AcroForm) values: groups of checkboxes sharing one name, radios whose values are given by `/Opt`."""
 
 
+from importlib.metadata import version
+
 import pytest
 
-from opendockit import convert
-from tests.test_pdf import _raw_pdf
+from opendockit import ConvertOptions, convert
+from tests.test_pdf import _korean_pdf, _raw_pdf
+from tests.timing import fastest
+
+
+# pdfminer.six before 20260107 reads a long array in quadratic time — a `/Kids` of 6,000 entries took 6 seconds to parse
+# before OpenDocKit looked at it, 0.36 with 20260107 — so the bounds on what OpenDocKit does with a large field are measured
+# only where pdfminer reads it in linear time (the minimum-dependencies job installs 20251230).
+_LONG_ARRAYS_IN_LINEAR_TIME = pytest.mark.skipif(int(version("pdfminer.six")) < 20260107,
+                                                 reason="pdfminer.six before 20260107 parses a long array in quadratic time")
 
 
 _APPEARANCE = b"<< /Length 0 /Type /XObject /Subtype /Form /BBox [0 0 12 12] >>\nstream\n\nendstream"
@@ -30,6 +40,45 @@ def _widget(parent: int, x: int, state: bytes, on: bytes) -> bytes:
 
 
 class TestGroupedFormFields:
+    @pytest.mark.timing
+    @_LONG_ARRAYS_IN_LINEAR_TIME
+    def test_a_field_of_very_many_buttons_takes_linear_time(self):
+        """The position of a checkbox among the `/Kids` of the field it shares with the others was searched for each checkbox: a
+        field of 20,000 on one page took 78 seconds in a 1.4 MB file, past any time budget."""
+        def form(count: int) -> bytes:
+            kids = range(7, 7 + count)
+            return _form_pdf({6: b"<< /FT /Btn /T (grade) /Kids [%s] >>" % b" ".join(b"%d 0 R" % kid for kid in kids)},
+                             {kid: _widget(6, 100, b"On" if kid == 7 + count // 2 else b"Off", b"On") for kid in kids})
+
+        small, large = form(1_500), form(6_000)
+        assert convert(large, "a.pdf").text.endswith("grade: On")
+
+        assert fastest(lambda: convert(large, "a.pdf")) < 8 * fastest(lambda: convert(small, "a.pdf")) + 0.5
+
+    @pytest.mark.timing
+    @_LONG_ARRAYS_IN_LINEAR_TIME
+    def test_a_large_field_on_many_pages_takes_linear_time(self):
+        """A field of many widgets whose `/Kids` every page names: found once per page, the positions of a field of 200,000
+        widgets shared by 1,000 pages were looked up 1,000 times, 119 seconds; they are found once per document."""
+        def form(count: int) -> bytes:
+            content = b"BT /F1 12 Tf 50 780 Td (Form page) Tj ET"
+            pages = range(100, 100 + count)
+            objects = {1: b"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [6 0 R] >> >>",
+                       2: b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(b"%d 0 R" % page for page in pages), count),
+                       4: b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+                       5: _APPEARANCE,
+                       6: b"<< /FT /Btn /T (agree) /Kids [7 0 R %s] >>" % b" ".join(b"8 0 R" for _ in range(100 * count)),
+                       7: _widget(6, 100, b"On", b"On"), 8: _widget(6, 200, b"Off", b"On")}
+            for page in pages:
+                objects[page] = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << "
+                                 b"/F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Annots [7 0 R] >>")
+            return _raw_pdf(objects)
+
+        small, large = form(100), form(400)
+        assert convert(large, "a.pdf").sections[-1].text.endswith("agree: On")
+
+        assert fastest(lambda: convert(large, "a.pdf")) < 8 * fastest(lambda: convert(small, "a.pdf")) + 0.5
+
     def test_checkboxes_sharing_one_name_give_the_chosen_export_value(self):
         """Two checkboxes sharing one name ('동의함' agree · '동의하지 않음' disagree) came out as 'consent: ☐', 'consent: ☑',
         losing which one had been chosen."""
@@ -182,3 +231,70 @@ class TestFieldNames:
                          {7: b"<< /Type /Annot /Subtype /Widget /Parent 6 0 R /Rect [72 600 300 620] >>"})
 
         assert convert(data, "a.pdf").sections[0].text.endswith("Full name: Kim")
+
+
+def _filled_form(pdf, index):
+    pdf.drawString(70, 760, "Application form")
+    pdf.acroForm.textfield(name="applicant", tooltip="Applicant name", value="Jane Doe", x=180, y=690, width=200, height=20,
+                           fontName="Helvetica")
+    pdf.acroForm.checkbox(name="agree", tooltip="Agree", checked=True, x=180, y=655, size=14)
+
+
+def _past_the_time_budget(monkeypatch):
+    return ConvertOptions(pdf_time_budget=0.0)
+
+
+def _heavy_content(monkeypatch):
+    from opendockit.extractors import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 0)
+    return ConvertOptions()
+
+
+def _crowded_with_characters(monkeypatch):
+    from opendockit.extractors import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "_MAX_PAGE_CHARS", 0)
+    return ConvertOptions()
+
+
+def _failed_by_pdfminer(monkeypatch):
+    from pdfplumber.utils.exceptions import PdfminerException
+
+    from opendockit.extractors import pdf as pdf_module
+
+    def read(source, page, placement_fit):
+        raise PdfminerException(ValueError("broken font stream"))
+
+    monkeypatch.setattr(pdf_module, "_read_page_from", read)
+    return ConvertOptions()
+
+
+class TestFormValuesOnSimpleExtraction:
+    """A page read with pdfium's simple extraction lost the values of its form fields: they are in the annotations, which only
+    the path for a page pdfminer reads without characters copied over. Past the time budget, on a page with too much content
+    or too many characters and on a page pdfminer failed, 'Jane Doe' was dropped without a warning."""
+
+    @pytest.mark.parametrize("path", [_past_the_time_budget, _heavy_content, _crowded_with_characters, _failed_by_pdfminer])
+    def test_values_entered_in_the_form_are_kept(self, monkeypatch, path):
+        options = path(monkeypatch)
+
+        result = convert(_korean_pdf(_filled_form, pages=2), "a.pdf", options)
+
+        assert result.warnings, "the page was not read with simple extraction"
+        for section in result.sections:
+            assert section.text.endswith("Applicant name: Jane Doe\nAgree: ☑")
+
+    def test_values_past_the_annotation_bound_are_not_read(self, monkeypatch):
+        """Every annotation walked is time the time budget does not bound: 2,000 pages sharing one array of 20,000 widgets took
+        127 seconds past a budget of 0. Past the bound on the annotations of such pages, a page's values are left out and the
+        page is named."""
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_MAX_SIMPLE_FORM_ANNOTATIONS", 3)   # the two fields of the first page fit, not the next
+        result = convert(_korean_pdf(_filled_form, pages=2), "a.pdf", ConvertOptions(pdf_time_budget=0.0))
+
+        assert result.sections[0].text.endswith("Applicant name: Jane Doe\nAgree: ☑")
+        assert "Jane Doe" not in result.sections[1].text
+        assert ("The form field values of 1 PDF page(s) (2) read with simple extraction were not read, as the document has "
+                "too many annotations.") in result.warnings
