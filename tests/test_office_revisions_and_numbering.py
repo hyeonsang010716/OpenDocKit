@@ -593,6 +593,21 @@ class TestStrictOpenXmlOfficeDocuments:
         assert element.tag == "{urn:w}e"
         assert dict(element.attrib) == {"{http://schemas.openxmlformats.org/drawingml/2006/main}x": "1", "{urn:a}y": "2"}
 
+    def test_copy_declares_no_prefix_of_its_own(self):
+        """Where the prefix last declared for a namespace is declared again inside for another one, the names of that
+        namespace are written under another prefix the part has in scope: declaring one of the copy's own on each element
+        that used it, a part of 2,000 such elements in a namespace of 100 KB came to 200 MB."""
+        namespace = "urn:" + "a" * 100_000
+        part = (f'<r xmlns:q="{namespace}" xmlns:z="{namespace}"><p xmlns:z="urn:o">' + "<q:x/>" * 2_000 + "</p></r>").encode()
+        archive = BytesIO()
+        with zipfile.ZipFile(archive, "w") as written:
+            written.writestr("p.xml", part)
+        with zipfile.ZipFile(archive) as read:
+            copy = b"".join(_package._transitional_part(read, read.getinfo("p.xml"), relationships=False))
+
+        assert copy.count(b"xmlns") == 3 and len(copy) < len(part) + 100
+        assert [element.tag for element in etree.fromstring(copy)[0]] == [f"{{{namespace}}}x"] * 2_000
+
     def test_transitional_document_with_a_strict_relationship_is_read_as_it_is(self):
         """A Transitional document whose package relationships also give a part the Strict main-part type was copied as a
         Strict one, the renamed relationship came first, and the whole document was refused."""
@@ -895,6 +910,18 @@ class TestStrictCopyInLinearTime:
                                                   + b'<a:p xmlns:z="urn:z"/>' * count + b"</r>")
 
         small, large = document(2_000), document(16_000)
+
+        assert "# 1장 개요" in convert(large, "a.docx").text
+        assert fastest(lambda: convert(large, "a.docx")) < 8 * fastest(lambda: convert(small, "a.docx")) + 0.05
+
+    def test_long_namespace_name(self):
+        """The parser hands each name over with its namespace written out: elements in a namespace of 512 KB cost that much each
+        (16,000 of them in a ZIP of 1 KB: seconds). A part declaring a namespace that long is copied as written."""
+        def document(count: int) -> bytes:
+            return _strict_docx_with_reached_part(b"<r " + self._STRICT + b' xmlns:q="urn:' + b"a" * (1 << 19) + b'">'
+                                                  + b"<q:x/>" * count + b"</r>")
+
+        small, large = document(1_000), document(16_000)
 
         assert "# 1장 개요" in convert(large, "a.docx").text
         assert fastest(lambda: convert(large, "a.docx")) < 8 * fastest(lambda: convert(small, "a.docx")) + 0.05

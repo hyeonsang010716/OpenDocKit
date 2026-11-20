@@ -210,7 +210,33 @@ def _transitional_name(value: str) -> str:
 _XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace"
 # The prefixes in scope outside the root element (prefix → namespace; namespace → prefix of element names, of attribute names):
 # only `xml`, which is never declared
-_UNBOUND = object()  # no prefix declared for a namespace (`_TransitionalWriter`)
+class _Link:
+    """A prefix in the list of those bound to one namespace (`_TransitionalWriter`): a doubly linked ring around its head, so a
+    prefix is taken out and put back in constant time (put back in the reverse order they were taken out, the ring comes
+    back as it was)."""
+
+    __slots__ = ("next", "prefix", "previous")
+
+    def __init__(self, prefix: str | None) -> None:
+        self.prefix = prefix
+        self.previous = self.next = self
+
+    def append_to(self, head: "_Link") -> "_Link":
+        self.previous, self.next = head.previous, head
+        head.previous.next = head.previous = self
+        return self
+
+    def unlink(self) -> None:
+        self.previous.next, self.next.previous = self.next, self.previous
+
+    def relink(self) -> None:
+        self.previous.next = self.next.previous = self
+
+
+# What one namespace declaration changed: its prefix, its links (`_Link`), and the links of the binding of that prefix it hid
+_Declared = tuple[str | None, list[_Link], list[_Link]]
+# Longest namespace name a part is renamed with (`_TransitionalWriter.start`); real ones are under a hundred characters
+_LONGEST_NAMESPACE = 1024
 # Characters gathered before they are encoded into the copy (`_TransitionalWriter`)
 _CHARACTERS_PER_WRITE = 1 << 16
 # Chunk size for feeding a member to the parser (`_transitional_part`)
@@ -241,16 +267,21 @@ class _TransitionalWriter:
         self._pieces: list[str] = ['<?xml version="1.0" encoding="UTF-8"?>\n']
         self._characters = 0  # in `_pieces`
         # One entry per open element: its qualified name, and what its declarations changed, undone at its end
-        self._open: list[tuple[str, list[tuple[str | None, str, object, object]]]] = []
-        # The namespaces bound to each prefix in scope (innermost last; None is the default), and the prefix last declared for
-        # each namespace, for an element name and for an attribute name (which takes no default). Kept up to date one
-        # declaration at a time: rebuilt from every binding in scope at each element that declared one, a part of 16,000 such
-        # elements under 16,000 prefixes took 27 s (Pinned by: test_office_revisions_and_numbering.py::
-        # TestStrictCopyInLinearTime::test_many_namespace_declarations)
-        self._bound: dict[str | None, list[str]] = {"xml": [_XML_NAMESPACE]}
-        self._for_element: dict[str, str | None] = {_XML_NAMESPACE: "xml"}
-        self._for_attribute: dict[str, str] = {_XML_NAMESPACE: "xml"}
-        self._generated = 0  # prefixes declared by the copy (`_qualified`)
+        self._open: list[tuple[str, list[_Declared]]] = []
+        # The prefixes in scope, found from a namespace in constant time: for each namespace, one list of the prefixes now bound
+        # to it in the order they were declared (`_Link`), one for element names and one for attribute names (which take no
+        # default); a prefix declared again inside for another namespace is taken out of its list and put back at the end of
+        # that element, the changes undone in the reverse order they were made, so each list comes back as it was. The last
+        # prefix of a list is the one written. A prefix in scope for each name always exists, as the part was read in those
+        # names. Rebuilt from every binding in scope at each element that declared one, a part of 16,000 such elements under
+        # 16,000 prefixes took 27 s; with a prefix of the copy's own declared instead where the one last declared was taken,
+        # each element using it declared it again, and a ZIP of 600 bytes came to 1.5 GB (Pinned by:
+        # test_office_revisions_and_numbering.py::TestStrictCopyInLinearTime::test_many_namespace_declarations,
+        # TestStrictOpenXmlOfficeDocuments::test_names_keep_their_namespaces_when_their_prefix_is_declared_again,
+        # test_copy_declares_no_prefix_of_its_own)
+        self._bound: dict[str | None, list[list[_Link]]] = {}  # prefix → the links of each of its bindings, innermost last
+        self._lists: dict[tuple[str, bool], _Link] = {}  # (namespace, for an attribute) → the head of its list
+        self._bind("xml", _XML_NAMESPACE, [])
         self._tag_open = False  # a start tag is written up to its `>`, so that an empty element closes as `/>`
 
     def _write(self, piece: str) -> None:
@@ -267,49 +298,52 @@ class _TransitionalWriter:
         self._pieces.clear()
         self._characters = 0
 
-    def _bind(self, prefix: str | None, namespace: str, undo: list, declarations: list[str]) -> None:
-        self._bound.setdefault(prefix, []).append(namespace)
-        undo.append((prefix, namespace, self._for_element.get(namespace, _UNBOUND),
-                     self._for_attribute.get(namespace, _UNBOUND)))
+    def _bind(self, prefix: str | None, namespace: str, undo: list[_Declared]) -> None:
+        bindings = self._bound.setdefault(prefix, [])
+        shadowed = bindings[-1] if bindings else []
+        for link in shadowed:
+            link.unlink()
+        links = []
         if namespace:  # not `xmlns=""`
-            self._for_element[namespace] = prefix
-            if prefix:
-                self._for_attribute[namespace] = prefix
-        declarations.append(f' xmlns{":" + prefix if prefix else ""}="{_escaped_value(namespace)}"')
+            for attribute in ((False, True) if prefix else (False,)):
+                head = self._lists.get((namespace, attribute))
+                if head is None:
+                    head = self._lists[(namespace, attribute)] = _Link(None)
+                links.append(_Link(prefix).append_to(head))
+        bindings.append(links)
+        undo.append((prefix, links, shadowed))
 
-    def _qualified(self, name: str, attribute: bool, undo: list, declarations: list[str]) -> str:
+    def _name(self, name: str, attribute: bool) -> str:
+        """The name in its Transitional form, under the prefix last declared for its namespace that is still bound to it."""
         if not name.startswith("{"):
             return name
         namespace, _, local = name[1:].partition("}")
         namespace = _transitional_name(namespace) if namespace.startswith("http://purl.oclc.org/ooxml/") else namespace
-        prefix = (self._for_attribute if attribute else self._for_element).get(namespace, _UNBOUND)
-        bound = self._bound.get(prefix) if prefix is not _UNBOUND else None
-        if not bound or bound[-1] != namespace:
-            # The prefix last declared for it was declared again for another namespace inside: one of the copy's own is
-            # declared here, so that finding another one in scope does not cost a search. It is bound to nothing in scope, or
-            # a name of this element under that prefix would move to the namespace declared (the counter only grows, so the
-            # names skipped are skipped once; Pinned by: test_office_revisions_and_numbering.py::
-            # TestStrictOpenXmlOfficeDocuments::test_names_keep_their_namespaces_when_their_prefix_is_declared_again)
-            while True:
-                self._generated += 1
-                prefix = f"ns{self._generated}"
-                if not self._bound.get(prefix):
-                    break
-            self._bind(prefix, namespace, undo, declarations)
+        head = self._lists.get((namespace, attribute))
+        if head is None or head.previous is head:
+            raise LookupError(namespace)  # not in scope: the part is copied as written (`_PARSE_ERRORS`)
+        prefix = head.previous.prefix
         return f"{prefix}:{local}" if prefix else local
 
     def start(self, tag: str, attrib: dict[str, str], nsmap: dict[str, str]) -> None:
-        undo: list = []
-        declarations: list[str] = []
+        undo: list[_Declared] = []
+        declarations = []
         for prefix, namespace in nsmap.items():
-            self._bind(prefix, _transitional_name(namespace), undo, declarations)
-        name = self._qualified(tag, False, undo, declarations)
+            if len(namespace) > _LONGEST_NAMESPACE:
+                # The parser hands each name over with its namespace written out: a part of 30,000 elements in a namespace of
+                # 1 MB, a ZIP of 1.4 KB, took 10 s (3.5 s for the parser alone), so such a part is copied as written
+                # (Pinned by: test_office_revisions_and_numbering.py::TestStrictCopyInLinearTime::test_long_namespace_name)
+                raise ValueError("namespace name too long")
+            namespace = _transitional_name(namespace)
+            self._bind(prefix, namespace, undo)
+            declarations.append(f' xmlns{":" + prefix if prefix else ""}="{_escaped_value(namespace)}"')
+        name = self._name(tag, False)
         # Fed to a parser target without entities, libxml2 hands each `&` of an attribute value on as `&#38;` (and a written
         # `&#38;` as `&#38;#38;`), where the tree python-docx builds has `&`: written again as given, the `&` of every link
         # (`?a=1&b=2`) and of every value holding one became `&#38;` in the copy (Pinned by:
         # test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::test_attribute_values_keep_their_ampersands)
         attributes = "".join(
-            f' {self._qualified(attribute, True, undo, declarations)}="'
+            f' {self._name(attribute, True)}="'
             f'{_escaped_value(_transitional_name(value) if self._relationships and attribute == "Type" else value)}"'
             for attribute, value in ((attribute, value.replace("&#38;", "&")) for attribute, value in attrib.items()))
         self._write(f"<{name}{''.join(declarations)}{attributes}")
@@ -323,13 +357,12 @@ class _TransitionalWriter:
             self._tag_open = False
         else:
             self._write(f"</{name}>")
-        for prefix, namespace, for_element, for_attribute in reversed(undo):
+        for prefix, links, shadowed in reversed(undo):
+            for link in reversed(links):
+                link.unlink()
+            for link in reversed(shadowed):
+                link.relink()
             self._bound[prefix].pop()
-            for table, previous in ((self._for_element, for_element), (self._for_attribute, for_attribute)):
-                if previous is _UNBOUND:
-                    table.pop(namespace, None)
-                else:
-                    table[namespace] = previous
 
     def data(self, text: str) -> None:
         self._write(_escaped_text(text))

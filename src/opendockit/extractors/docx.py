@@ -1223,11 +1223,13 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
     # a small part (Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
     # test_strict_package_is_not_opened_before_the_copy, test_transitional_document_is_not_copied).
     # A package that names a main part with both types is opened as it is, since python-docx follows the Transitional one, and
-    # read from its copy when that finds no main part or one in Strict names (which opens with an empty body): taken as Strict,
-    # a Transitional document that also gave a part the Strict type was refused; taken as Transitional, a Strict one that also
-    # gave its document the Transitional type came out empty (Pinned by: test_office_revisions_and_numbering.py::
+    # read from its copy when that finds no Word document there (a part in Strict names is none): taken as Strict, a
+    # Transitional document that also gave a part the Strict type was refused; taken as Transitional, a Strict one that also
+    # gave its document the Transitional type was corrupted (Pinned by: test_office_revisions_and_numbering.py::
     # TestStrictOpenXmlOfficeDocuments::test_transitional_document_with_a_strict_relationship_is_read_as_it_is,
-    # test_strict_document_with_a_transitional_relationship_is_read_from_its_copy). Only then is the cost above paid.
+    # test_strict_document_with_a_transitional_relationship_is_read_from_its_copy). Only such a package pays the cost above:
+    # the package opened as it is stays until the cycle collector lets it go. Known accepted gap: when the Transitional
+    # relationship comes first and names something else than the document, the copy follows it too and the document is refused.
     extraction = Extraction()
     warnings: list[str] = []
     strict, transitional = main_part_types(data)
@@ -1235,10 +1237,9 @@ def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
         part, error = _strict_main_part(data, warnings), None
     else:
         part, error = _open_main_part(data, warnings)
-        if strict and (part is None or part.element.tag.startswith("{http://purl.oclc.org/ooxml/")):
-            part = error = None  # the package opened as it is goes before the copy is made
-            warnings = []
-            part = _strict_main_part(data, warnings)
+        if strict and part is None:
+            warnings = []  # those of the package opened as it is
+            part, error = _strict_main_part(data, warnings), None
     if part is None:
         raise CorruptedDocumentError("The DOCX document structure could not be read.") from error
     extraction.warnings.extend(warnings)
