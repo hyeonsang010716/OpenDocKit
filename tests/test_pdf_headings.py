@@ -112,3 +112,12 @@ class TestHeadingSizes:
         text = _text([(60, "12", 20, "Times-Roman"), *_body(90)])
 
         assert "# 12" not in text
+
+
+class TestBodyTextMarks:
+    def test_a_body_line_starting_with_a_heading_or_quote_mark_stays_text(self):
+        text = _text([*_body(80), (140, "# DNA replications", 10, "Times-Roman"), (170, "> 50 participants", 10, "Times-Roman"),
+                      *_body(200)])
+
+        assert "\\# DNA replications" in text
+        assert "\\> 50 participants" in text
