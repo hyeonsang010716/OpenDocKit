@@ -238,6 +238,23 @@ class TestGluedWords:
     def test_other_words_are_not_split(self, script, latex):
         assert equation_to_latex(script) == latex
 
+    @pytest.mark.parametrize("script, latex", [
+        ("thetadot", "thetadot"),                    # a decoration at the end has nothing to decorate: the whole equation fell back
+        ("a + thetadot", "a + thetadot"),
+        ("alphavec", "alphavec"),
+        ("y = xbar + pibar", "y = xbar + pibar"),
+        ("x = rmdot", "x = rmdot"),
+        ("costhetadot", r"\cos thetadot"),          # the function prefix as before
+        ("boxdot", "boxdot"),
+        ("intercheck", "intercheck"),
+        ("thetasqrt", "thetasqrt"),
+        ("pibar x", "pibar x"),                      # not π with the bar moved onto the next term
+        ("pibar{x}", r"\pi\overline{x}"),          # the operand written right after it
+        ("rmrm", "rmrm"),                            # nothing but font changes
+    ])
+    def test_word_ending_on_a_word_that_takes_an_operand_is_not_split(self, script, latex):
+        assert equation_to_latex(script) == latex
+
     @pytest.mark.timing
     def test_long_glued_word_takes_linear_time(self):
         small, large = "costheta" * 300, "costheta" * 1_200  # 9,600 characters, within the 10,000 of a script

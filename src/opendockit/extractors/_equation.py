@@ -175,7 +175,12 @@ _COMMAND_END: Final = re.compile(r"\\[A-Za-z]+$")
 # ordinary words: in (login, bulletin), ker (tanker), well (maxwell), iso (isobar), land (inland), arch (toparch).
 _GLUE_WORDS: Final = frozenset(
     {*_GREEK, *_FUNCTION_PREFIX.pattern.split("|"), *_SYMBOLS, *_DECORATIONS, "sqrt", "rm"}
-    - {"le", "ge", "in", "ker", "well", "iso", "land", "arch"})
+    - {"le", "ge", "in", "ker", "well", "iso", "land", "arch", "Exp", "Lim"})
+# Glue words that take the term after them (a decoration, `sqrt`): a glued word may end on one only right before a `{`
+# (`timesrmbar{PD}`). `thetadot` at the end of a script had nothing to decorate and the whole equation fell back to the
+# script, and `pibar x` put the bar over the next term (Pinned by: test_equation.py::TestGluedWords::
+# test_word_ending_on_a_word_that_takes_an_operand_is_not_split).
+_GLUE_OPERAND_WORDS: Final = frozenset(word for word in _GLUE_WORDS if word in _COMMANDS)
 _GLUE_LONGEST: Final = max(map(len, _GLUE_WORDS))
 _GLUED: Final = re.compile("([a-z]+)([A-Z]*)")
 
@@ -496,13 +501,23 @@ def _split_glued_words(tokens: list[str]) -> list[str]:
     is not split. Linear: each position tries a bounded number of word lengths, and every word is split once
     (Pinned by: test_equation.py::TestGluedWords)."""
     split: list[str] = []
-    for token in tokens:
+    for index, token in enumerate(tokens):
         if token.isascii() and token.isalpha() and not _is_known_word(token):
-            if (parts := _glued_parts(token)) is not None:
+            parts = _glued_parts(token)
+            if parts is not None and _splits(parts, tokens[index + 1] if index + 1 < len(tokens) else ""):
                 split.extend(parts)
                 continue
         split.append(token)
     return split
+
+
+def _splits(parts: list[str], following: str) -> bool:
+    """Whether a glued word is split into `parts`: not when its last part takes an operand that is not a `{` written right after
+    it (`thetadot`, `a = pibar`, `pibar x`, `rmhat` stay one word, as before glued words were split), and not when it is made of
+    `rm` alone (`rmrm`, a font change with nothing to change)."""
+    if parts[-1] in _GLUE_OPERAND_WORDS and following != "{":
+        return False
+    return any(part != "rm" for part in parts)
 
 
 def _is_known_word(word: str) -> bool:
