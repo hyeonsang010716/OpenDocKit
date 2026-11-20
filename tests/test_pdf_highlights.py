@@ -417,3 +417,82 @@ class TestManyHighlightedLines:
 
             assert len(objects[1]) == 8000 and len(left.rects) == 0  # the highlights of every line are removed
         assert elapsed < 4  # 15 seconds before
+
+
+def _table_with_shaded_header(line_shading: bool, between: bool = False) -> bytes:
+    """A ruled table of three columns whose header cells are shaded; the last header cell holds four lines. With
+    `line_shading`, every header line is shaded once more inside its cell in the cell's colour, as Word shades a paragraph
+    inside a shaded cell; with `between`, a white rectangle is drawn over the header cell before that line shading."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    columns = [72.0, 180.0, 300.0, 420.0]
+    header = [["Jurisdiction"], ["Permitted"], ["Foreign", "Ownership", "Reporting", "Requirements"]]
+    rows = [["Argentina", "Yes", "None"], ["Australia", "Yes", "To the agency"], ["Austria", "No", "None"]]
+    top, line, row_height = 100.0, 13.0, 20.0
+    header_height = 4 * line + 6
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    y = lambda top_y: A4[1] - top_y  # noqa: E731
+
+    pdf.setFillColorRGB(1, 0.949, 0.8)
+    for left, right in zip(columns, columns[1:], strict=False):
+        pdf.rect(left, y(top + header_height), right - left, header_height, stroke=0, fill=1)
+    if between:
+        pdf.setFillColorRGB(1, 1, 1)
+        pdf.rect(columns[2] + 2, y(top + header_height - 2), 116, header_height - 4, stroke=0, fill=1)
+        pdf.setFillColorRGB(1, 0.949, 0.8)
+    if line_shading:
+        for column, cell in enumerate(header):
+            for index in range(len(cell)):
+                pdf.rect(columns[column] + 5, y(top + 3 + (index + 1) * line), columns[column + 1] - columns[column] - 10, line,
+                         stroke=0, fill=1)
+    pdf.setFillColorRGB(0, 0, 0)
+    pdf.setFont("Helvetica", 10)
+    for column, cell in enumerate(header):
+        for index, text in enumerate(cell):
+            pdf.drawString(columns[column] + 6, y(top + 3 + (index + 1) * line - 3), text)
+    for number, row in enumerate(rows):
+        for column, text in enumerate(row):
+            pdf.drawString(columns[column] + 6, y(top + header_height + (number + 1) * row_height - 6), text)
+    bottom = top + header_height + len(rows) * row_height
+    for x in columns:
+        pdf.line(x, y(top), x, y(bottom))
+    for rule in [top, top + header_height, *(top + header_height + (n + 1) * row_height for n in range(len(rows)))]:
+        pdf.line(columns[0], y(rule), columns[-1], y(rule))
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestShadingInsideShadedCells:
+    """Line shading drawn in a shaded cell's own colour is invisible and draws no rule (`_without_nested_fills`)."""
+
+    def test_a_header_cell_shaded_again_line_by_line_stays_one_cell(self):
+        text = convert(_table_with_shaded_header(line_shading=True), "a.pdf").text
+
+        header = next(line for line in text.splitlines() if line.startswith("| Jurisdiction"))
+        assert header.count("|") == 4 and "Foreign<br>Ownership" in header and "Requirements" in header
+        assert "| Argentina | Yes | None |" in text
+        assert text.count("Jurisdiction") == 1 and text.count("Requirements") == 1
+
+    def test_it_reads_as_the_same_table_without_the_line_shading(self):
+        with_lines = convert(_table_with_shaded_header(line_shading=True), "a.pdf").text
+
+        assert with_lines == convert(_table_with_shaded_header(line_shading=False), "a.pdf").text
+
+    def test_line_shading_over_a_rectangle_of_another_colour_is_kept(self):
+        """A white rectangle drawn between the cell shading and the line shading makes the line shading's edges show."""
+        from io import BytesIO
+
+        import pdfplumber
+
+        from opendockit.extractors._pdf_table_filters import _without_nested_fills
+
+        with pdfplumber.open(BytesIO(_table_with_shaded_header(line_shading=True, between=True))) as pdf:
+            page = pdf.pages[0]
+            kept = _without_nested_fills(page)
+            inner = [rect for rect in kept.rects if rect["x0"] > 420 - 116 and rect["height"] < 14]
+
+        assert len(inner) == 4

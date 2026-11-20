@@ -7,6 +7,8 @@ from collections.abc import Callable
 from itertools import accumulate, pairwise
 import math
 
+from opendockit.extractors._pdf_model import _BoxIndex
+
 
 # Highlighter rectangle (`_without_highlights`): its height is at most this multiple of the size of the covered characters, its
 # left edge is within this distance of the first covered character (ratio of the character size, capped in pt), and its right edge
@@ -18,6 +20,9 @@ _HIGHLIGHT_TAIL_RATIO = 0.4
 # Filled table row (`_without_cell_rows`): it is a cell if it lines up, within this distance (pt), with a column of words within
 # this many lines (multiple of the character size) above or below
 _CELL_ROW_REACH, _CELL_ALIGN = 6.0, 1.0
+# Filled rectangle inside a filled rectangle of the same colour (`_without_nested_fills`): how far (pt) it may reach past the
+# outer one's edges
+_NESTED_FILL_SLACK = 0.5
 
 
 # Glyph outline curve (_without_glyph_outlines): a curve smaller than this size (pt) both horizontally and vertically, and thicker
@@ -87,6 +92,54 @@ def _without_unadvanced_spaces(page: object) -> object:
     if not hidden:
         return page
     return page.filter(lambda obj: obj.get("object_type") != "char" or id(obj) not in hidden)
+
+
+def _without_nested_fills(page: object) -> object:
+    """Page without the filled rectangles drawn inside a filled rectangle of the same colour (for finding tables). `page` itself
+    when there are none.
+
+    Word shades a paragraph inside a shaded table cell once more, one borderless rectangle per line, in the cell's own colour.
+    They are invisible — the same colour over the same colour — but pdfplumber took their edges for rules: a header cell of four
+    lines split its row into four, every other header cell was repeated four times as a vertical merge, and the inset right edge
+    of the line shading made an empty column (Pinned by: test_pdf_highlights.py::TestShadingInsideShadedCells). A rectangle is
+    dropped only when it is filled without a border, lies within `_NESTED_FILL_SLACK` of a borderless filled rectangle of the same
+    fill colour, and no rectangle of another colour drawn between the two overlaps it (that one would make its edges show).
+    """
+    rects = page.rects
+    fills = [(order, rect) for order, rect in enumerate(rects) if rect.get("fill") and not rect.get("stroke")]
+    if len(fills) < 2:
+        return page
+    # (x0, top, x1, bottom, drawing order) of the borderless fills, and of every rectangle
+    index = _BoxIndex([(rect["x0"], rect["top"], rect["x1"], rect["bottom"], order) for order, rect in fills])
+    drawn = _BoxIndex([(rect["x0"], rect["top"], rect["x1"], rect["bottom"], order) for order, rect in enumerate(rects)])
+    colours = [_colour(rect) for rect in rects]
+    hidden: set[int] = set()
+    for order, rect in fills:
+        box = (rect["x0"], rect["top"], rect["x1"], rect["bottom"])
+        for x0, top, x1, bottom, other in index.near(box):
+            if other == order or colours[other] != colours[order] or (x1 - x0) * (bottom - top) <= rect["width"] * rect["height"]:
+                continue
+            if not (x0 - _NESTED_FILL_SLACK <= box[0] and box[2] <= x1 + _NESTED_FILL_SLACK
+                    and top - _NESTED_FILL_SLACK <= box[1] and box[3] <= bottom + _NESTED_FILL_SLACK):
+                continue
+            low, high = min(order, other), max(order, other)
+            if any(low < between < high and colours[between] != colours[order] and _overlaps(rects[between], box)
+                   for *_, between in drawn.near(box)):
+                continue
+            hidden.add(id(rect))
+            break
+    if not hidden:
+        return page
+    return page.filter(lambda obj: id(obj) not in hidden)
+
+
+def _colour(rect: dict) -> object:
+    colour = rect.get("non_stroking_color")
+    return tuple(round(value, 3) for value in colour) if isinstance(colour, list | tuple) else colour
+
+
+def _overlaps(shape: dict, box: tuple[float, float, float, float]) -> bool:
+    return shape["x0"] < box[2] and box[0] < shape["x1"] and shape["top"] < box[3] and box[1] < shape["bottom"]
 
 
 def _without_highlights(page: object) -> object:
