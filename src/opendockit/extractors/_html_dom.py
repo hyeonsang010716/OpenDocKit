@@ -107,13 +107,19 @@ _STRIKE_STYLE = re.compile(r"(?:^|;)(?>[^;]*?text-decoration(?:-line)?\s*:)[^;]*
 # Only the `display` / `visibility` (and `content-visibility`) properties themselves: matched anywhere, the pattern removed a
 # visible element styled `backface-visibility:hidden`, text and all
 # (Pinned by: test_audit_html_text.py::TestStylePropertiesThatOnlyEndLikeAHidingOne). Only the values themselves too, followed
-# by the end, `;`, whitespace or `!important`: `display:none-ish` or `visibility:hiddenx` is not a value CSS knows, and the
-# element was removed (Pinned by: test_core_html_mail_hidden_and_frames.py::TestStyleValuesThatOnlyStartLikeAHidingOne).
-_HIDDEN_STYLE = re.compile(r"(?<![\w-])(?:display\s*:\s*none|(?:content-)?visibility\s*:\s*hidden)(?![\w-])", re.IGNORECASE)
+# by the end, whitespace or `!important`: `display:none-ish` or `visibility:hiddenx` is not a value CSS knows, and the element
+# was removed (Pinned by: test_core_html_mail_hidden_and_frames.py::TestStyleValuesThatOnlyStartLikeAHidingOne).
+# Each property is decided by the declaration that wins (`_style_properties`): matched on the raw text of the style,
+# `/* display:none; */ color:#333` and `display:none; display:block` removed a visible element, text and all
+# (Pinned by: test_core_html_mail_hidden_and_frames.py::TestHidingDecidedByTheWinningDeclaration).
+_HIDING_VALUES = {"display": "none", "visibility": "hidden", "content-visibility": "hidden"}
 # Hiding that a descendant cannot undo (`display:none`, `content-visibility:hidden`), and the inherited `visibility`, which a
 # descendant can set back with `visibility:visible` (`_drop_hidden`).
-_UNDOABLE_HIDING = re.compile(r"(?<![\w-])(?:display\s*:\s*none|content-visibility\s*:\s*hidden)(?![\w-])", re.IGNORECASE)
-_VISIBLE_STYLE = re.compile(r"(?<![\w-])visibility\s*:\s*visible(?![\w-])", re.IGNORECASE)
+_UNDOABLE_HIDING_VALUES = {"display": "none", "content-visibility": "hidden"}
+_VISIBLE_VALUE = {"visibility": "visible"}
+# A declaration of an inline style: `name: value`, with `!important` at its end.
+_STYLE_DECLARATION = re.compile(r"\s*([\w-]+)\s*:(.*)", re.DOTALL)
+_IMPORTANT = re.compile(r"!\s*important\s*$", re.IGNORECASE)
 # Elements whose `visibility:hidden` is not taken as hiding: the page itself, hidden by an anti-flicker snippet until a script
 # shows it.
 _PAGE_ROOTS = {"html", "body"}
@@ -2243,7 +2249,42 @@ def _marked_as_permalink(link: Tag) -> bool:
 
 
 def _hidden_by_style(tag: Tag) -> bool:
-    return tag.attrs is not None and (_has_hidden(tag) or bool(_HIDDEN_STYLE.search(str(tag.get("style", "")))))
+    return tag.attrs is not None and (_has_hidden(tag) or _style_sets(str(tag.get("style", "")), _HIDING_VALUES))
+
+
+def _style_properties(style: str) -> dict[str, str]:
+    """The properties of an inline style and the first word of the value that wins for each (lowercase): comments left out, the
+    declarations split at `;`, the last one written wins unless an earlier one is `!important` and it is not. One pass over the
+    style (linear time)."""
+    if "/*" in style:
+        style = _CSS_COMMENT.sub("", style)
+    properties: dict[str, str] = {}
+    important: set[str] = set()
+    for declaration in style.split(";"):
+        match = _STYLE_DECLARATION.match(declaration)
+        if match is None:
+            continue
+        name = match.group(1).lower()
+        value = match.group(2)
+        marked = _IMPORTANT.search(value)
+        if marked is not None:
+            value = value[:marked.start()]
+        elif name in important:
+            continue
+        if marked is not None:
+            important.add(name)
+        words = value.split(None, 1)
+        properties[name] = words[0].lower() if words else ""
+    return properties
+
+
+def _style_sets(style: str, values: dict[str, str]) -> bool:
+    """Whether the winning declaration (`_style_properties`) of one of the properties of `values` in an inline style has that
+    property's value."""
+    if ":" not in style:
+        return False
+    properties = _style_properties(style)
+    return any(properties.get(name) == value for name, value in values.items())
 
 
 def _has_hidden(tag: Tag) -> bool:
@@ -2333,14 +2374,14 @@ def _hidden_nodes(soup: BeautifulSoup, hidden: list[Tag]) -> list[PageElement]:
     Documents without such a case take the old path unchanged (the elements themselves)."""
     if not hidden:
         return []
-    visibles = soup.find_all(style=_VISIBLE_STYLE)
+    visibles = soup.find_all(style=lambda style: style is not None and _style_sets(style, _VISIBLE_VALUE))
     above: set[int] = set()  # elements with a `visibility:visible` descendant (each climbs once, stopping at one already seen)
     for visible in visibles:
         node = visible.parent
         while node is not None and id(node) not in above:
             above.add(id(node))
             node = node.parent
-    special = [tag for tag in hidden if not _has_hidden(tag) and not _UNDOABLE_HIDING.search(str(tag.get("style", "")))
+    special = [tag for tag in hidden if not _has_hidden(tag) and not _style_sets(str(tag.get("style", "")), _UNDOABLE_HIDING_VALUES)
                and (tag.name in _PAGE_ROOTS or id(tag) in above)]
     if not special:
         return list(hidden)

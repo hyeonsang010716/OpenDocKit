@@ -457,3 +457,46 @@ class TestStyleValuesThatOnlyStartLikeAHidingOne:
         html = '<div style="visibility:hidden"><p>숨김</p><p style="visibility:visiblex">숨김 2</p></div><p>끝</p>'
 
         assert convert(html.encode(), "a.html").text == "끝"
+
+
+class TestHidingDecidedByTheWinningDeclaration:
+    """Hiding was matched on the raw text of the style: a commented-out `display:none` and one that a later declaration
+    overrides removed a visible element, text and all."""
+
+    @pytest.mark.parametrize("style", ["/* display:none; */ color:#333", "display:none; display:block",
+                                       "visibility:hidden; visibility:visible", "display:none /* old */; display:block",
+                                       "display:none !important; display:none; DISPLAY: none !important; display:block !important",
+                                       "content-visibility:hidden;content-visibility:auto"])
+    def test_element_stays(self, style):
+        html = f'<p>앞</p><div style="{style}">본문</div>'
+
+        assert convert(html.encode(), "a.html").text == "앞\n\n본문"
+
+    @pytest.mark.parametrize("style", ["display:block; display:none", "display:none !important; display:block",
+                                       "/* display:block; */ display:none", "display:block;/* x */visibility:hidden"])
+    def test_winning_hiding_still_hides(self, style):
+        html = f'<p>앞</p><div style="{style}">숨김</div>'
+
+        assert convert(html.encode(), "a.html").text == "앞"
+
+    def test_overridden_display_none_does_not_stop_a_visible_descendant(self):
+        html = ('<div style="visibility:hidden; display:none; display:block"><p style="visibility:visible">보임</p><p>숨김</p></div>'
+                "<p>끝</p>")
+
+        assert convert(html.encode(), "a.html").text == "보임\n\n끝"
+
+    def test_commented_out_visible_does_not_show_a_descendant(self):
+        html = '<div style="visibility:hidden"><p>숨김</p><p style="/* visibility:visible */">숨김 2</p></div><p>끝</p>'
+
+        assert convert(html.encode(), "a.html").text == "끝"
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("piece", ["display:none;", "/* display:none; */", "display: none !important; display:block;", "/*"])
+    def test_long_style_takes_linear_time(self, piece):
+        def seconds(count: int) -> float:
+            data = f'<p>앞</p><div style="{piece * count}">본문</div>'.encode()
+            return fastest(lambda: convert(data, "a.html"))
+
+        small, large = seconds(20_000), seconds(80_000)
+
+        assert large < 8 * small + 0.5
