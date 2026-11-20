@@ -490,6 +490,30 @@ class TestHidingDecidedByTheWinningDeclaration:
 
         assert convert(html.encode(), "a.html").text == "끝"
 
+    @pytest.mark.parametrize("style", ["display:none; display:bogus", "display:none; display:", "visibility:hidden; visibility:",
+                                       "display:none!important; display:!important", "visibility:hidden; visibility:shown"])
+    def test_invalid_later_declaration_does_not_show_it(self, style):
+        """A browser drops a declaration whose value it does not know, so the earlier one stays in force; taken as the last one
+        written, it brought hidden text (a preheader, a tracking block) back."""
+        html = f'<p>앞</p><div style="{style}">숨김</div>'
+
+        assert convert(html.encode(), "a.html").text == "앞"
+
+    @pytest.mark.parametrize("style", ["display:none; display:var(--shown)", "display:none; display:INLINE-FLEX",
+                                       "display:none; display:block flow", "visibility:hidden; visibility:inherit"])
+    def test_later_declaration_a_browser_accepts_shows_it(self, style):
+        html = f'<p>앞</p><div style="{style}">본문</div>'
+
+        assert convert(html.encode(), "a.html").text == "앞\n\n본문"
+
+    @pytest.mark.parametrize("style", ["/* display:none; */", "display:none; display:block"])
+    def test_shown_answer_of_a_list_is_not_folded(self, style):
+        """A `<dd>` hidden by its own style is a folded answer, written on lines of its own; the style was matched on its raw
+        text, so a commented-out or overridden `display:none` made a shown answer one."""
+        html = f'<dl><dt>Question one?</dt><dd style="{style}">Answer one.</dd><dt>Question two?</dt><dd>Answer two.</dd></dl>'
+
+        assert convert(html.encode(), "a.html").text == convert(html.replace(f' style="{style}"', "").encode(), "a.html").text
+
     @pytest.mark.timing
     @pytest.mark.parametrize("piece", ["display:none;", "/* display:none; */", "display: none !important; display:block;", "/*"])
     def test_long_style_takes_linear_time(self, piece):
