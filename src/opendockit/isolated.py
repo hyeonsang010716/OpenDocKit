@@ -228,7 +228,9 @@ def _worker_context() -> BaseContext:
     if "forkserver" not in multiprocessing.get_all_start_methods():
         return multiprocessing.get_context("spawn")
     context = multiprocessing.get_context("forkserver")
-    context.set_forkserver_preload(["opendockit"])
+    # The extractors are imported on first use (`opendockit.extractors`); preloaded here, a new worker still starts with all of
+    # them loaded (Pinned by: test_converter.py::TestExtractorsImportedOnFirstUse::test_forkserver_preloads_every_extractor)
+    context.set_forkserver_preload(["opendockit", "opendockit.extractors.all"])
     return context
 
 

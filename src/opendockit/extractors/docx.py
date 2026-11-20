@@ -20,6 +20,7 @@ from docx.parts.document import DocumentPart
 from lxml import etree
 
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
+from opendockit.extractors import load
 from opendockit.extractors._charts import embedded_table, related_loader, render_chart, render_chartex, render_smartart
 from opendockit.extractors._docx_parts import (
     _indent_values,
@@ -60,7 +61,6 @@ from opendockit.extractors._docx_runs import (
     _w,
     _word_art_text,
 )
-from opendockit.extractors._html_mail import is_mhtml
 from opendockit.extractors._inline import (
     link_target,
     plain_inline,
@@ -84,8 +84,6 @@ from opendockit.extractors._package import (
     parse_part,
     related_part,
 )
-from opendockit.extractors.html import extract_html
-from opendockit.extractors.text import extract_text
 from opendockit.markdown import TableGrid, clean_characters, join_blocks, merged_copy, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, renumber_image_markers
 
@@ -1100,6 +1098,22 @@ class _DocxRenderer:
         if values.get("chars"):
             return values["chars"] * _TWIPS_PER_CHAR_HUNDREDTH
         return values.get("left")
+
+
+# The readers of imported content (w:altChunk) are imported when a document holds some. Imported with this module, every DOCX
+# loaded the HTML reader and BeautifulSoup for a part few documents have (Pinned by: test_converter.py::
+# TestExtractorsImportedOnFirstUse::test_docx_does_not_load_the_readers_of_other_formats).
+# They are imported under the lock every import on first use shares (`extractors.load`).
+def extract_html(data: bytes, options: ConvertOptions) -> Extraction:
+    return load("opendockit.extractors.html").extract_html(data, options)
+
+
+def extract_text(data: bytes, options: ConvertOptions) -> Extraction:
+    return load("opendockit.extractors.text").extract_text(data, options)
+
+
+def is_mhtml(data: bytes) -> bool:
+    return load("opendockit.extractors._html_mail").is_mhtml(data)
 
 
 def _reject_strict(data: bytes) -> None:

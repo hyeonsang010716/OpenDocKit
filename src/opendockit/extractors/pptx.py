@@ -240,7 +240,7 @@ def extract_pptx(data: bytes, options: ConvertOptions) -> Extraction:
     # (`_package.is_strict_package`).
     extraction = Extraction()
     try:
-        part = main_document_part(open_package(_open_presentation, data, extraction.warnings))
+        part = main_document_part(open_package(_open_presentation, data, extraction.warnings, errors=(InvalidXmlError,)))
     except (PackageNotFoundError, KeyError, ValueError) as exc:
         _reject_strict(data)
         raise CorruptedDocumentError("The PPTX document structure could not be read.") from exc

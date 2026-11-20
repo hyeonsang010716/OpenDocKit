@@ -1293,3 +1293,97 @@ class TestMetadataIsCleaned:
 
         assert result.metadata["title"] == "Quarterly report"
         assert result.metadata["author"] == "a b # Heading"
+
+
+_OTHER_FORMAT_LIBRARIES = ("openpyxl", "bs4", "pdfplumber", "pdfminer", "pypdfium2", "pptx", "html5lib")
+
+
+def _libraries_loaded_by(script: str) -> set[str]:
+    """Top-level names of `_OTHER_FORMAT_LIBRARIES` and python-docx that a fresh interpreter has imported after `script`."""
+    import json
+    import subprocess
+
+    watched = sorted({*_OTHER_FORMAT_LIBRARIES, "docx"})
+    probe = (f"{script}\nimport json, sys\n"
+             f"print(json.dumps(sorted({{name.split('.')[0] for name in sys.modules}} & set({watched!r}))))")
+    completed = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120)
+    return set(json.loads(completed.stdout.strip().splitlines()[-1]))
+
+
+class TestExtractorsImportedOnFirstUse:
+    """`import opendockit` imported every extractor and with them openpyxl, BeautifulSoup, pdfplumber, pypdfium2 and python-pptx:
+    0.2-0.3 s and 100 MB before a page was read, paid by every command-line run and every Windows worker (a full interpreter
+    start per file). An extractor's module is now imported the first time its format is converted."""
+
+    def test_importing_the_package_loads_no_reader_library(self):
+        assert _libraries_loaded_by("import opendockit") == set()
+
+    def test_docx_does_not_load_the_readers_of_other_formats(self, tmp_path):
+        path = tmp_path / "a.docx"
+        path.write_bytes(builder.docx_bytes())
+
+        loaded = _libraries_loaded_by(f"import opendockit\nassert opendockit.convert_file({str(path)!r}).text")
+
+        assert loaded == {"docx"}
+
+    def test_every_format_has_an_extractor_function_behind_it(self):
+        from importlib import import_module
+
+        from opendockit.extractors import EXTRACTOR_MODULES
+
+        assert set(EXTRACTOR_MODULES) == set(DocumentFormat)
+        for module, name in EXTRACTOR_MODULES.values():
+            assert callable(getattr(import_module(f"opendockit.extractors.{module}"), name))
+
+    def test_extractor_is_called_through_its_entry(self):
+        result = convert(b"plain words", "a.txt")
+
+        assert result.text == "plain words"
+        assert EXTRACTORS[DocumentFormat.TEXT].__name__ == "extract_text"
+
+    def test_threads_converting_their_first_documents_at_once(self, tmp_path):
+        """Threads that converted their first EPUB, XLSX, HTML … at the same moment imported the same libraries at once; Python's
+        import machinery stopped one of them with a `_DeadlockError`, and a valid file came out as corrupted (in 6 of 8 fresh
+        processes). The documents are built here, so the interpreter that converts them has imported none of the libraries."""
+        import json
+        import subprocess
+
+        from tests.test_epub import _epub
+
+        documents = {"a.docx": builder.docx_bytes(), "a.xlsx": builder.xlsx_bytes(), "a.pptx": builder.pptx_bytes(),
+                     "a.pdf": builder.pdf_bytes(1), "a.hwpx": builder.hwpx_bytes(), "a.html": b"<html><body><p>x</p></body></html>",
+                     "a.epub": _epub({"c1.xhtml": "<html><body><p>chapter</p></body></html>"}),
+                     "a.eml": b"Subject: s\nContent-Type: text/html\n\n<p>m</p>"}
+        for name, data in documents.items():
+            (tmp_path / name).write_bytes(data)
+        script = (
+            "import json, os, sys\nfrom concurrent.futures import ThreadPoolExecutor\nimport opendockit\n"
+            "folder = sys.argv[1]\n"
+            "documents = [(open(os.path.join(folder, n), 'rb').read(), n) for n in sorted(os.listdir(folder))] * 3\n"
+            "def run(document):\n"
+            "    try:\n        opendockit.convert(*document)\n"
+            "    except Exception as exc:\n        return f'{document[1]}: {type(exc.__cause__ or exc).__name__}'\n"
+            "with ThreadPoolExecutor(len(documents)) as pool:\n"
+            "    print(json.dumps(sorted(filter(None, pool.map(run, documents)))))\n")
+
+        for _ in range(4):
+            completed = subprocess.run([sys.executable, "-c", script, str(tmp_path)], capture_output=True, text=True, check=True,
+                                       timeout=120)
+            assert json.loads(completed.stdout.strip().splitlines()[-1]) == []
+
+    def test_forkserver_preloads_every_extractor(self, monkeypatch):
+        import multiprocessing
+
+        from opendockit import isolated
+
+        if "forkserver" not in multiprocessing.get_all_start_methods():
+            pytest.skip("no forkserver on this platform")
+        preloaded: list[list[str]] = []
+        monkeypatch.setattr(type(multiprocessing.get_context("forkserver")), "set_forkserver_preload",
+                            lambda self, modules: preloaded.append(list(modules)))
+
+        isolated._worker_context()
+
+        assert preloaded == [["opendockit", "opendockit.extractors.all"]]
+        loaded = _libraries_loaded_by("import opendockit.extractors.all")
+        assert loaded >= {"openpyxl", "bs4", "pdfplumber", "pypdfium2", "pptx", "docx"}

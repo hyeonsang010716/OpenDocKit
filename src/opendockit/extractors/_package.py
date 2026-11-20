@@ -14,7 +14,6 @@ import zipfile
 import zlib
 
 from lxml import etree
-from pptx.exc import InvalidXmlError
 
 
 _XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True)
@@ -27,8 +26,9 @@ ZIP_MEMBER_ERRORS: tuple[type[Exception], ...] = (zipfile.BadZipFile, zlib.error
                                                   NotImplementedError, ValueError)
 # What the libraries raise when a package does not open because of a part or relationship the repair can take out
 # (`open_package`): a missing part, a part that is not XML, a relationship without its Id, Type or Target, a member that does not read
-_OPEN_ERRORS: tuple[type[Exception], ...] = (KeyError, etree.XMLSyntaxError, TypeError, AttributeError, InvalidXmlError,
-                                             *ZIP_MEMBER_ERRORS)
+# (python-pptx's InvalidXmlError is added by the PPTX reader, `open_package(errors=...)`: imported here, it loaded python-pptx
+# for every document)
+_OPEN_ERRORS: tuple[type[Exception], ...] = (KeyError, etree.XMLSyntaxError, TypeError, AttributeError, *ZIP_MEMBER_ERRORS)
 # Chunk size for reading a member through to check it (`_member_reads`)
 _CHECK_CHUNK = 1 << 20
 
@@ -92,7 +92,8 @@ def parse_part(data: bytes) -> etree._Element | None:
 # ---- Package -----------------------------------------------------------------------------------------------------
 
 
-def open_package[T](opener: Callable[[BytesIO], T], data: bytes, warnings: list[str]) -> T:
+def open_package[T](opener: Callable[[BytesIO], T], data: bytes, warnings: list[str],
+                    errors: tuple[type[Exception], ...] = ()) -> T:
     """Open an OOXML package with `opener` (`Package.open` of python-docx / python-pptx). If opening fails because of one missing or
     non-XML part (KeyError, XMLSyntaxError) or one member that cannot be read out of the archive (`ZIP_MEMBER_ERRORS` — a picture
     with a broken compressed stream), open once more from a copy with that part and its relationship detached (`repair_package`)
@@ -108,10 +109,13 @@ def open_package[T](opener: Callable[[BytesIO], T], data: bytes, warnings: list[
     InvalidXmlError (python-pptx), in any `.rels`, even one nothing uses. Those are repaired too: when nothing is found to repair,
     the original error stands. python-docx keeps a relationship with no Type, its `reltype` None, so the DOCX readers that pick a
     part by type read it as no type (Pinned by: test_office_robustness.py::TestIncompleteRelationship).
+
+    `errors` are further exceptions of `opener` that mean the same (python-pptx's InvalidXmlError).
     """
+    open_errors = (*_OPEN_ERRORS, *errors)
     try:
         return opener(BytesIO(data))
-    except _OPEN_ERRORS:
+    except open_errors:
         try:
             repaired = repair_package(data)
         except ZIP_MEMBER_ERRORS:  # the archive itself cannot be read: the original error stands
@@ -120,7 +124,7 @@ def open_package[T](opener: Callable[[BytesIO], T], data: bytes, warnings: list[
             raise
     try:
         opened = opener(BytesIO(repaired[0]))
-    except _OPEN_ERRORS:
+    except open_errors:
         # Deliberate: a copy that reads parts found in another case and still does not open is made again without them, which
         # detaches those parts as missing, with the warning, as before parts were found in another case: a part found that way
         # whose relationships still failed rejected a document that opened with that part detached (Pinned by:
