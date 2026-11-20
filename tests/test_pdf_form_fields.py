@@ -1,11 +1,20 @@
 """PDF form (AcroForm) values: groups of checkboxes sharing one name, radios whose values are given by `/Opt`."""
 
 
+from importlib.metadata import version
+
 import pytest
 
 from opendockit import ConvertOptions, convert
 from tests.test_pdf import _korean_pdf, _raw_pdf
 from tests.timing import fastest
+
+
+# pdfminer.six before 20260107 reads a long array in quadratic time — a `/Kids` of 6,000 entries took 6 seconds to parse
+# before OpenDocKit looked at it, 0.36 with 20260107 — so the bounds on what OpenDocKit does with a large field are measured
+# only where pdfminer reads it in linear time (the minimum-dependencies job installs 20251230).
+_LONG_ARRAYS_IN_LINEAR_TIME = pytest.mark.skipif(int(version("pdfminer.six")) < 20260107,
+                                                 reason="pdfminer.six before 20260107 parses a long array in quadratic time")
 
 
 _APPEARANCE = b"<< /Length 0 /Type /XObject /Subtype /Form /BBox [0 0 12 12] >>\nstream\n\nendstream"
@@ -32,6 +41,7 @@ def _widget(parent: int, x: int, state: bytes, on: bytes) -> bytes:
 
 class TestGroupedFormFields:
     @pytest.mark.timing
+    @_LONG_ARRAYS_IN_LINEAR_TIME
     def test_a_field_of_very_many_buttons_takes_linear_time(self):
         """The position of a checkbox among the `/Kids` of the field it shares with the others was searched for each checkbox: a
         field of 20,000 on one page took 78 seconds in a 1.4 MB file, past any time budget."""
@@ -46,6 +56,7 @@ class TestGroupedFormFields:
         assert fastest(lambda: convert(large, "a.pdf")) < 8 * fastest(lambda: convert(small, "a.pdf")) + 0.5
 
     @pytest.mark.timing
+    @_LONG_ARRAYS_IN_LINEAR_TIME
     def test_a_large_field_on_many_pages_takes_linear_time(self):
         """A field of many widgets whose `/Kids` every page names: found once per page, the positions of a field of 200,000
         widgets shared by 1,000 pages were looked up 1,000 times, 119 seconds; they are found once per document."""
