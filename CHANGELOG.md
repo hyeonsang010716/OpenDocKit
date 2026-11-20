@@ -28,6 +28,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     one body of a mail, whose attachments do not count — over 256 K characters, nested deeper than 1,000 elements, or
     leaving more than 16 raw-text elements open is still read by the older parser — html5lib is quadratic on those —
     and the result says so.
+- **Hancom equations**: `root` without `of` is a square root (`3 root5` → `3 \sqrt{5}`; `30 root5 cos theta` gave
+  `\sqrt[5]{\cos} \theta`), command words glued together are split (`costheta`), and `le`, `ge`, `nabla`, `LAND`, `LOR`,
+  `SUPERSET`, `nsubset`, `BIGOPLUS` and similar words, `OVERBRACE`, `UNDERBRACE` and `BOX` are read.
 
 ### Security
 

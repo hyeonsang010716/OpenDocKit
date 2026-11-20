@@ -6,7 +6,9 @@ The rules follow Hancom's public document "Hangul Document File Structure - Equa
   subscript of `lim_N->inf` is the whole `N->inf`. So `over` and scripts take whitespace-separated terms, not words.
 - Commands are case-insensitive (`OVER`, `over`). Only Greek letters, arrows and `deg`/`DEG` change meaning with case
   (`alpha` α vs `Alpha` Α, `larrow` ← vs `LARROW` ⇐).
-- Basic functions are read as functions even when written without a space (`logx` → log x).
+- Basic functions are read as functions even when written without a space (`logx` → log x), and a word made entirely of
+  command words is split into them (`costheta` → cos θ; `_split_glued_words`).
+- `root n of x` is the n-th root, `root x` (no `of`) the square root.
 
 Returns None when the script cannot be converted, and the caller keeps the original script. Deliberate: unknown commands
 (LADDER, LONGDIV, ...), unbalanced braces, excessive nesting or length, and even defects in the converter itself all come back
@@ -49,6 +51,7 @@ _EXACT: Final = {
     "larrow": r"\leftarrow", "rarrow": r"\rightarrow", "uparrow": r"\uparrow", "downarrow": r"\downarrow",
     "LARROW": r"\Leftarrow", "RARROW": r"\Rightarrow", "UPARROW": r"\Uparrow", "DOWNARROW": r"\Downarrow",
     "udarrow": r"\updownarrow", "lrarrow": r"\leftrightarrow", "UDARROW": r"\Updownarrow", "LRARROW": r"\Leftrightarrow",
+    "leftarrow": r"\leftarrow", "rightarrow": r"\rightarrow",
     "vert": "|", "VERT": r"\|", "DEG": r"^{\circ}",
 }
 
@@ -72,13 +75,18 @@ _SYMBOLS: Final = {
     # big operators — scripts and from/to become the lower and upper limits
     "sum": r"\sum", "prod": r"\prod", "coprod": r"\coprod", "int": r"\int", "oint": r"\oint", "dint": r"\iint",
     "tint": r"\iiint", "odint": r"\oiint", "otint": r"\oiiint", "union": r"\bigcup", "inter": r"\bigcap",
-    "smallunion": r"\cup", "smallinter": r"\cap",
+    "smallunion": r"\cup", "smallinter": r"\cap", "smallsum": r"\sum", "smallprod": r"\prod",
+    "bigoplus": r"\bigoplus", "bigotimes": r"\bigotimes", "bigodot": r"\bigodot", "biguplus": r"\biguplus",
+    "bigsqcup": r"\bigsqcup",
     # sums and sets
     "cap": r"\cap", "cup": r"\cup", "sqcap": r"\sqcap", "sqcup": r"\sqcup", "oplus": r"\oplus", "ominus": r"\ominus",
-    "otimes": r"\otimes", "odot": r"\odot", "oslash": r"\oslash", "vee": r"\vee", "wedge": r"\wedge",
-    "subset": r"\subset", "supset": r"\supset", "subseteq": r"\subseteq", "supseteq": r"\supseteq", "in": r"\in",
-    "owns": r"\ni", "notin": r"\notin", "leq": r"\leq", "geq": r"\geq", "sqsubset": r"\sqsubset",
-    "sqsupset": r"\sqsupset", "sqsubseteq": r"\sqsubseteq", "sqsupseteq": r"\sqsupseteq", "lll": r"\lll",
+    "otimes": r"\otimes", "odot": r"\odot", "oslash": r"\oslash", "vee": r"\vee", "wedge": r"\wedge", "land": r"\land",
+    "lor": r"\lor", "subset": r"\subset", "supset": r"\supset", "superset": r"\supset", "nsubset": r"\not\subset",
+    "subseteq": r"\subseteq", "supseteq": r"\supseteq", "in": r"\in", "owns": r"\ni", "notin": r"\notin",
+    # `le`/`ge` only as words of their own: a token is a whole run of letters, and they are never split off a glued word
+    # (Pinned by: test_equation.py::TestAddedWords)
+    "leq": r"\leq", "geq": r"\geq", "le": r"\leq", "ge": r"\geq", "sqsubset": r"\sqsubset", "sqsupset": r"\sqsupset",
+    "sqsubseteq": r"\sqsubseteq", "sqsupseteq": r"\sqsupseteq", "lll": r"\lll",
     "prec": r"\prec", "succ": r"\succ", "uplus": r"\uplus",
     # operations and logic
     "times": r"\times", "div": r"\div", "divide": r"\div", "plusminus": r"\pm", "minusplus": r"\mp", "cdot": r"\cdot",
@@ -89,7 +97,7 @@ _SYMBOLS: Final = {
     "sim": r"\sim", "approx": r"\approx", "simeq": r"\simeq", "cong": r"\cong", "equiv": r"\equiv", "asymp": r"\asymp",
     "iso": r"\Bumpeq", "diamond": r"\diamond", "dsum": r"\dotplus", "forall": r"\forall", "prime": "'",
     "partial": r"\partial", "inf": r"\infty", "infinity": r"\infty", "lnot": r"\neg", "propto": r"\propto",
-    "xor": r"\veebar", "triangled": r"\nabla", "dagger": r"\dagger", "ddagger": r"\ddagger",
+    "xor": r"\veebar", "triangled": r"\nabla", "nabla": r"\nabla", "dagger": r"\dagger", "ddagger": r"\ddagger",
     # arrows (when the case does not match)
     "larrow": r"\leftarrow", "rarrow": r"\rightarrow", "uparrow": r"\uparrow", "downarrow": r"\downarrow",
     "udarrow": r"\updownarrow", "lrarrow": r"\leftrightarrow", "nwarrow": r"\nwarrow", "searrow": r"\searrow",
@@ -101,7 +109,7 @@ _SYMBOLS: Final = {
     "vdash": r"\vdash", "hleft": r"\dashv", "bot": r"\bot", "top": r"\top", "models": r"\models",
     "laplace": r"\mathcal{L}", "centigrade": r"{}^{\circ}\mathrm{C}", "fahrenheit": r"{}^{\circ}\mathrm{F}",
     "lslant": "/", "rslant": r"\backslash", "att": r"\text{※}", "hund": r"\text{‰}", "thou": r"\text{‱}",
-    "well": r"\#", "base": r"\text{⌂}", "benzene": r"\text{⌬}",
+    "box": r"\boxed{}", "well": r"\#", "base": r"\text{⌂}", "benzene": r"\text{⌬}",
     "aleph": r"\aleph", "hbar": r"\hbar", "imath": r"\imath", "jmath": r"\jmath", "ohm": r"\Omega", "ell": r"\ell",
     "liter": r"\ell", "wp": r"\wp", "imag": r"\Im", "angstrom": r"\text{Å}", "vartheta": r"\vartheta",
     "varpi": r"\varpi", "varsigma": r"\varsigma", "varupsilon": r"\upsilon", "varphi": r"\varphi",
@@ -139,7 +147,7 @@ _PRESCRIPTS: Final = {"lsub": "_", "lsup": "^"}
 _SPACED_SCRIPTS: Final = frozenset({"^", "_", "sup", "sub"})  # scripts consumed by the term after a fraction (not the from/to limits)
 # Commands that take the following term as an argument (`_Parser._command`).
 _COMMANDS: Final = frozenset({
-    "sqrt", "root", "binom", "left", "not", "color", "scale", "rel", "buildrel", *_DECORATIONS, *_ENVIRONMENTS,
+    "sqrt", "root", "binom", "overbrace", "underbrace", "left", "not", "color", "scale", "rel", "buildrel", *_DECORATIONS, *_ENVIRONMENTS,
 })
 _DROPPED: Final = frozenset({"rm", "it", "bold", "bigg", "col", "lcol", "rcol"})
 _UNSUPPORTED: Final = frozenset({"ladder", "sladder", "longdiv"})
@@ -161,6 +169,17 @@ _ROOT_INDEX: Final = re.compile(r"(?:^|(?<= ))\{\}\^\{([^{}]*)\} ?\\sqrt\{")  # 
 _COMMAND_END: Final = re.compile(r"\\[A-Za-z]+$")
 
 
+# Words a run-together word is split into (`costheta`, `timesrmbar`, `barAR`; `_split_glued_words`). Structural words (over,
+# to, from, of, left, …), environments and `root` are left out, and so are `le`/`ge` (`pile` is not π + le), `it` and `bold`
+# (`limit` is not lim + a font change), the case-sensitive Exp/Lim/Pr and if/for/and, and the symbols that end or start
+# ordinary words: in (login, bulletin), ker (tanker), well (maxwell), iso (isobar), land (inland), arch (toparch).
+_GLUE_WORDS: Final = frozenset(
+    {*_GREEK, *_FUNCTION_PREFIX.pattern.split("|"), *_SYMBOLS, *_DECORATIONS, "sqrt", "rm"}
+    - {"le", "ge", "in", "ker", "well", "iso", "land", "arch"})
+_GLUE_LONGEST: Final = max(map(len, _GLUE_WORDS))
+_GLUED: Final = re.compile("([a-z]+)([A-Z]*)")
+
+
 class _Unsupported(Exception):
     """A script that cannot be converted. The caller uses the original."""
 
@@ -179,7 +198,7 @@ def equation_to_latex(script: str) -> str | None:
     if not script.strip() or len(script) > _MAX_SCRIPT_CHARS:
         return None
     try:
-        latex = _Parser(_TOKEN.findall(script)).document()
+        latex = _Parser(_split_glued_words(_TOKEN.findall(script))).document()
     except Exception:  # noqa: BLE001
         return None  # Deliberate: unknown structures and converter defects alike fall back to the original (module docstring)
     latex = _TEXT_RUN.sub(lambda match: r"\text{" + " ".join(_TEXT_PIECE.findall(match.group())) + "}", latex)
@@ -392,9 +411,20 @@ class _Parser:
             top = _bare(self._operand())  # spec: BINOM [whole term] [chosen term]
             return rf"\binom{{{top}}}{{{_bare(self._operand())}}}"
         if key == "root":
-            degree = _bare(self._operand())
-            self._take("of")
-            return rf"\sqrt[{degree}]{{{_bare(self._operand())}}}"
+            # `root n of x` is the n-th root; `root x` without `of` is the square root of x, as in Hangul's editor. Read as
+            # `root n of x` regardless, `30 root5 cos theta` came out as `\sqrt[5]{\cos} \theta` and `2 over root5` fell back
+            # to the original script (Pinned by: test_equation.py::TestRootWithoutOf).
+            argument = _bare(self._operand())
+            after = self._index
+            if not self._take("of"):
+                self._index = after  # the blank after the argument still ends the term
+                return rf"\sqrt{{{argument}}}"
+            return rf"\sqrt[{argument}]{{{_bare(self._operand())}}}"
+        if key in ("overbrace", "underbrace"):
+            # OVERBRACE {body} {label}: the label goes above (below) the brace (Pinned by: test_equation.py::TestAddedWords).
+            body = _bare(self._operand())
+            mark = "^" if key == "overbrace" else "_"
+            return rf"\{key}{{{body}}}{mark}{{{_bare(self._operand())}}}"
         if key in _DECORATIONS:
             return f"{_DECORATIONS[key]}{{{_bare(self._operand())}}}"
         if key in _ENVIRONMENTS:
@@ -455,6 +485,53 @@ class _Parser:
             raise _Unsupported("the script ended midway")
         self._index += 1
         return token
+
+
+def _split_glued_words(tokens: list[str]) -> list[str]:
+    """Split a run-together word the parser would not know into the command words it is made of. Script writers glue command
+    words (`costheta`, `timesrmbar{PD}`, `rmAB`, `barAR`), and the word came out as text (`\\cos theta`, `timesrmbar`).
+
+    Only a word whose lowercase part splits completely into `_GLUE_WORDS` is split, longest word first; an uppercase tail is
+    kept as one term (point names: `barAR` is the bar over AR). A word with anything else left over (`sinx`, `pile`, `limit`)
+    is not split. Linear: each position tries a bounded number of word lengths, and every word is split once
+    (Pinned by: test_equation.py::TestGluedWords)."""
+    split: list[str] = []
+    for token in tokens:
+        if token.isascii() and token.isalpha() and not _is_known_word(token):
+            if (parts := _glued_parts(token)) is not None:
+                split.extend(parts)
+                continue
+        split.append(token)
+    return split
+
+
+def _is_known_word(word: str) -> bool:
+    key = word.lower()
+    return (word in _EXACT or word in _FUNCTIONS or key in _GREEK or key in _UNSUPPORTED or key in _DROPPED
+            or key in _COMMANDS or key in _SYMBOLS or key in _TERM_ENDS or key in _DELIMITERS)
+
+
+def _glued_parts(word: str) -> list[str] | None:
+    match = _GLUED.fullmatch(word)
+    if match is None:
+        return None
+    lower, tail = match.groups()
+    # ends[i]: the length of the longest word at i after which the rest splits too; 0 when the rest from i does not split.
+    ends = [0] * (len(lower) + 1)
+    ends[len(lower)] = -1  # the end of the word
+    for start in range(len(lower) - 1, -1, -1):
+        for length in range(min(_GLUE_LONGEST, len(lower) - start), 0, -1):
+            if ends[start + length] and lower[start:start + length] in _GLUE_WORDS:
+                ends[start] = length
+                break
+    if not ends[0]:
+        return None
+    parts: list[str] = []
+    start = 0
+    while start < len(lower):
+        parts.append(lower[start:start + ends[start]])
+        start += ends[start]
+    return [*parts, tail] if tail else parts
 
 
 def _key(token: str) -> str:
