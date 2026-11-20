@@ -1,5 +1,5 @@
 """DOCX numbering restart (w:lvlRestart), numbered paragraphs wrapped by an empty content control, number references without a
-definition; text boxes and shape text inside tracked changes and hidden runs; Strict Open XML DOCX/PPTX."""
+definition; text boxes and shape text inside tracked changes and hidden runs; deleted table rows; Strict Open XML DOCX/PPTX."""
 
 from io import BytesIO
 import re
@@ -165,6 +165,67 @@ class TestDocxBoxesOutsideTheFinalVersion:
         result = convert(_docx_with_body(body), "a.docx")
 
         assert result.text == "본문\n\n보이는 상자"
+
+
+def _row(*cells: str, deleted: bool = False) -> str:
+    """A table row whose cells are (text, tcPr inside) pairs written as 'text' or 'text|<tcPr children>'."""
+    properties = '<w:trPr><w:del w:id="9" w:author="a" w:date="2024-01-01T00:00:00Z"/></w:trPr>' if deleted else ""
+    written = []
+    for cell in cells:
+        text, _, cell_properties = cell.partition("|")
+        written.append(f"<w:tc>{f'<w:tcPr>{cell_properties}</w:tcPr>' if cell_properties else ''}"
+                       f"<w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:tc>")
+    return f"<w:tr>{properties}{''.join(written)}</w:tr>"
+
+
+class TestDocxDeletedTableRow:
+    """A table row deleted with Track Changes on (w:trPr/w:del) is not in the final version, as no other tracked deletion is: it
+    came out as a row of the table, so a struck-out clause or price read as if it were still agreed."""
+
+    def test_deleted_row_is_left_out_of_the_table(self):
+        body = "<w:tbl>" + _row("품목", "단가") + _row("철근", "1,000원", deleted=True) + _row("시멘트", "500원") + "</w:tbl>"
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert "철근" not in result.text and "1,000원" not in result.text
+        assert result.text == "| 품목 | 단가 |\n| --- | --- |\n| 시멘트 | 500원 |"
+
+    def test_vertical_merge_across_a_deleted_row_stays_tied(self):
+        body = ("<w:tbl>" + _row("구분", "값") + _row('본사|<w:vMerge w:val="restart"/>', "1")
+                + _row("|<w:vMerge/>", "2", deleted=True) + _row("|<w:vMerge/>", "3") + "</w:tbl>")
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == "| 구분 | 값 |\n| --- | --- |\n| 본사 | 1 |\n| 본사 | 3 |"
+
+    def test_table_whose_rows_are_all_deleted_leaves_nothing(self):
+        body = "<w:p><w:r><w:t>본문</w:t></w:r></w:p><w:tbl>" + _row("가", "나", deleted=True) + "</w:tbl>"
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == "본문"
+
+    def test_deleted_row_of_a_table_in_a_footnote_is_left_out(self):
+        from tests.test_office_symbols_fields_notes import _docx_with_footnote
+
+        note = "<w:tbl>" + _row("구분", "값") + _row("삭제", "9", deleted=True) + _row("유지", "1") + "</w:tbl>"
+
+        result = convert(_docx_with_footnote(note), "a.docx")
+
+        assert "삭제" not in result.text
+        assert "유지" in result.text
+
+    def test_text_of_a_deleted_row_is_not_quoted_as_a_commented_range(self):
+        from tests.test_office_comments import _comment, _docx_with_comments
+
+        body = ('<w:tbl><w:tr><w:tc><w:p><w:commentRangeStart w:id="1"/><w:r><w:t>남은 칸</w:t></w:r></w:p></w:tc></w:tr>'
+                '<w:tr><w:trPr><w:del w:id="9" w:author="a"/></w:trPr><w:tc><w:p><w:r><w:t>지운 칸</w:t></w:r>'
+                '<w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r></w:p></w:tc></w:tr></w:tbl>')
+
+        result = convert(_docx_with_comments(body, _comment("1", "검토자", "확인")), "a.docx")
+
+        assert "지운 칸" not in result.text
+        assert '> Comment(검토자, on "남은 칸"): 확인' in result.text
 
 
 class TestDocxDeletedParagraphMark:

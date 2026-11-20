@@ -42,6 +42,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **DOCX**: a table row deleted with Track Changes on is left out, as every other tracked deletion is. It came out as a
+  row of the final table, so a struck-out price or clause read as if it still stood.
 - **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if
   that worker died first. The queue the file travels on is no longer waited for.
 - **MCP server**: the path of a call is resolved in a thread, as its content already was. A path the file system is slow

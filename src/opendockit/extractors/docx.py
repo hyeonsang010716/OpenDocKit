@@ -687,7 +687,11 @@ class _DocxRenderer:
         repeated value into the HTML table instead of a rowspan."""
         # (row, column, column span, whether it is a continuation cell, tc)
         cells: list[tuple[int, int, int, bool, etree._Element]] = []
-        for row_index, row in enumerate(_children(table, _w("tr"))):
+        # A row deleted with Track Changes on (w:trPr/w:del) is not in the final version and is left out, as tracked deletions are
+        # everywhere else; rows are numbered without it, so a merge running across it stays tied. Kept, the struck-out row of a
+        # contract came out as a row of the final table (Pinned by: test_office_revisions_and_numbering.py::
+        # TestDocxDeletedTableRow).
+        for row_index, row in enumerate(_final_rows(table)):
             # A span below 1 and a negative number of skipped columns are not used as they are: gridSpan="0" put the next cell on
             # the same column (its text was lost) and a negative value moved cells to the left of their row
             # (Pinned by: test_audit_office.py::TestDocxGridSpanBelowOne).
@@ -1410,8 +1414,9 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
     is not scanned — with many ranges lacking an end mark, every empty text scanned them all, which took quadratic time (Pinned by:
     test_office_comments.py::TestDocxComments::test_many_open_ranges_over_empty_runs_take_linear_time). What the body does not show
     is left out, as in `_paragraph_text`: deleted text (w:del), the original position of moved text (w:moveFrom), hidden runs
-    (w:vanish) and compatibility copies (mc:Fallback) — the moved-away words were quoted as the commented range (Pinned by:
-    test_office_comments.py::TestDocxComments::test_moved_away_and_hidden_text_is_not_part_of_the_range)."""
+    (w:vanish), deleted table rows (w:trPr/w:del) and compatibility copies (mc:Fallback) — the moved-away words were quoted as the
+    commented range (Pinned by: test_office_comments.py::TestDocxComments::test_moved_away_and_hidden_text_is_not_part_of_the_range,
+    test_office_revisions_and_numbering.py::TestDocxDeletedTableRow::test_text_of_a_deleted_row_is_not_quoted_as_a_commented_range)."""
     targets: dict[str, list[str]] = {}
     open_ranges: dict[str, int] = {}  # range being collected → number of characters collected
     fallback = 0  # depth inside compatibility copies: nothing in there counts, range marks included
@@ -1421,7 +1426,8 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
         tag = element.tag
         if tag == f"{{{_MC}}}Fallback":
             fallback += 1 if event == "start" else -1
-        elif tag in _UNSHOWN_WRAPPERS or (tag == _w("r") and _is_on(element.find(f"{_w('rPr')}/{_w('vanish')}"))):
+        elif (tag in _UNSHOWN_WRAPPERS or (tag == _w("r") and _is_on(element.find(f"{_w('rPr')}/{_w('vanish')}")))
+              or (tag == _w("tr") and _is_deleted_row(element))):
             hidden += 1 if event == "start" else -1
         elif event != "start" or fallback:
             continue
@@ -1443,6 +1449,16 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
     return {comment_id: "".join(pieces) for comment_id, pieces in targets.items()}
 
 
+def _is_deleted_row(row: etree._Element) -> bool:
+    """A table row deleted with Track Changes on (w:trPr/w:del)."""
+    return row.find(f"{_w('trPr')}/{_w('del')}") is not None
+
+
+def _final_rows(table: etree._Element) -> list[etree._Element]:
+    """The rows of `table` in the final version: those deleted with Track Changes on are left out (`_is_deleted_row`)."""
+    return [row for row in _children(table, _w("tr")) if not _is_deleted_row(row)]
+
+
 def _note_block(block: etree._Element, image_marker: Callable[[etree._Element], str], inline: _Inline | None = None) -> str:
     """A paragraph inside a footnote (including the paragraphs of text boxes in it) or a table → one line. A table puts ' / '
     between cells and '; ' between rows (`_notation.note_table`, same as HWP/HWPX). Joining all cell paragraphs with spaces produced
@@ -1455,7 +1471,7 @@ def _note_block(block: etree._Element, image_marker: Callable[[etree._Element], 
                         for p in container.iter(_w("p")) if not _inside_fallback(p))
 
     if block.tag == _w("tbl"):
-        return note_table([text(cell) for cell in _children(row, _w("tc"))] for row in _children(block, _w("tr")))
+        return note_table([text(cell) for cell in _children(row, _w("tc"))] for row in _final_rows(block))
     return text(block)
 
 
