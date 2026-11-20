@@ -3053,6 +3053,17 @@ class TestPngPassedOnAsItIs:
         assert b"acTL" not in result.data and b"fdAT" not in result.data
         assert Image.open(BytesIO(result.data)).tobytes() == first.tobytes()
 
+    def test_frame_control_without_an_animation_is_written_anew(self):
+        """An `fcTL` before the picture data makes Pillow decode it into the frame's box only, even without `acTL`: handed on
+        without the chunk, the file showed the whole picture where the rewrite holds one row and the rest transparent."""
+        picture = _photo()
+        frame = _png_chunk(b"fcTL", struct.pack(">IIIIIHHBB", 0, picture.width, 1, 0, 0, 1, 1, 0, 0))
+        data = _rgba_png(picture, before=frame)
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert Image.open(BytesIO(result.data)).tobytes() == Image.open(BytesIO(data)).convert("RGBA").tobytes()
+
     def test_picture_data_with_a_wrong_crc_is_written_anew(self):
         data = bytearray(_png_file(_photo()))
         end = data.index(b"IEND") - 4  # the CRC of the last IDAT chunk ends where the IEND chunk's length starts
@@ -3172,6 +3183,9 @@ class TestPngPassedOnAsItIs:
                                                   + _png_chunk(b"iCCP", profile))
                 yield f"profile after the data {name}", png(after=_png_chunk(b"iCCP", profile))
                 yield f"end payload {name}", png(end=b"HIDDEN")
+                if not interlaced:   # Pillow cannot read interlaced data into a frame's box at all (unreadable on main too)
+                    yield f"frame control {name}", png(before=_png_chunk(b"fcTL", struct.pack(
+                        ">IIIIIHHBB", 0, picture.width, 1, 0, 0, 1, 1, 0, 0)))
                 yield f"after the rows {name}", png(after_rows=b"HIDDEN" * 50)
                 yield f"zeros after the rows {name}", png(after_rows=bytes(1 << 22))
                 yield f"after the stream {name}", plain.replace(_png_chunk(b"IDAT", body), _png_chunk(b"IDAT", body + b"HIDDEN"))

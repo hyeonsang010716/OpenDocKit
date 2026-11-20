@@ -358,17 +358,16 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
 
     Only when nothing about the picture changes: colour type 6 at 8 bits (16 bits is reduced, a palette or grey picture is
     made RGBA), the long side within `max_side` (so no downscale and no tiles), no EXIF chunk and no text chunk that names
-    EXIF or XMP (where Pillow reads an orientation from and turns the picture), no animation (`acTL`; the first frame is
-    taken), no critical chunk this does not know, every chunk kept with its right CRC (a decoder stricter than Pillow refuses
-    a picture data chunk with a wrong one), an empty `IEND`, at most one `iCCP`, before the picture data (libpng refuses
-    one after it), and one whose profile Pillow read (of two libpng takes the first and Pillow the last; one that is not
-    zlib Pillow reads as none), one `IHDR` and the `IDAT`
-    chunks one after another (libpng refuses a picture with either out of place), picture data that is one zlib stream
-    with nothing after it (bytes hidden behind the picture were dropped by the rewrite and must not be handed on) and that
-    inflates to exactly the rows of the picture (a filter byte and 4 bytes a pixel a row, of each Adam7 pass when
-    interlaced; more is hidden data or a zlib bomb, and inflating stops as soon as it goes past), and picture data at most
-    half the raw pixels (a file written without or with little compression is compressed by the rewrite instead of handed
-    on several times as large)."""
+    EXIF or XMP (where Pillow reads an orientation from and turns the picture), no animation or frame control (`acTL`,
+    `fcTL`, `fdAT`; the first frame is taken), no critical chunk this does not know, every chunk kept with its right CRC
+    (a decoder stricter than Pillow refuses a picture data chunk with a wrong one), an empty `IEND`, at most one `iCCP`,
+    before the picture data (libpng refuses one after it), and one whose profile Pillow read (of two libpng takes the first
+    and Pillow the last; one that is not zlib Pillow reads as none), one `IHDR` and the `IDAT` chunks one after another
+    (libpng refuses a picture with either out of place), picture data that is one zlib stream with nothing after it (bytes
+    hidden behind the picture were dropped by the rewrite and must not be handed on) and that inflates to exactly the rows
+    of the picture (a filter byte and 4 bytes a pixel a row, of each Adam7 pass when interlaced; more is hidden data or a
+    zlib bomb, and inflating stops as soon as it goes past), and picture data at most half the raw pixels (a file written
+    without or with little compression is compressed by the rewrite instead of handed on several times as large)."""
     width, height = image.size
     if image.mode != "RGBA" or max(width, height) > max_side or not data.startswith(_PNG_SIGNATURE):
         return None
@@ -390,7 +389,10 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
         if position == len(_PNG_SIGNATURE) and (kind != b"IHDR" or length != 13 or body[:8] != struct.pack(">II", width, height)
                                                  or body[8:12] != b"\x08\x06\x00\x00" or body[12] > 1):
             return None
-        if kind in (b"eXIf", b"acTL") or not (kind[0] & 0x20 or kind in (b"IHDR", b"PLTE", b"IDAT", b"IEND")):
+        # A frame control chunk is refused with the animation itself: before the picture data, even without `acTL`, Pillow
+        # decodes the data into the frame's box only (the rest transparent), which the rewrite holds and a viewer that
+        # drops the chunk does not (Pinned by: test_image.py::TestPngPassedOnAsItIs::test_frame_control_without_an_animation_is_written_anew).
+        if kind in (b"eXIf", b"acTL", b"fcTL", b"fdAT") or not (kind[0] & 0x20 or kind in (b"IHDR", b"PLTE", b"IDAT", b"IEND")):
             return None
         if (kind == b"IHDR" and position != len(_PNG_SIGNATURE)) or (kind == b"IDAT" and data_ended):
             return None
