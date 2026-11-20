@@ -1833,26 +1833,18 @@ class TestDocxNumbering:
         ratio = fastest(lambda: convert(large, "a.docx")) / max(fastest(lambda: convert(small, "a.docx")), 0.01)
         assert ratio < 8  # linear gives about 4 times for 4 times the input, quadratic about 16 times
 
-    def test_style_named_only_by_a_numbering_level_is_numbered(self):
-        """A level that names a paragraph style (w:lvl/w:pStyle) numbers the paragraphs of that style even when the style has no
-        w:numPr of its own (ECMA-376 17.9.23); they came out as plain paragraphs. A style based on the named one is not numbered
-        by the link (the body text of a clause took a number of its own); a paragraph that switches numbering off (numId 0) is
-        not affected."""
-        styles = ('<w:style w:type="paragraph" w:styleId="Clause"><w:name w:val="Clause"/></w:style>'
-                  '<w:style w:type="paragraph" w:styleId="SubClause"><w:name w:val="Sub Clause"/></w:style>'
-                  '<w:style w:type="paragraph" w:styleId="ClauseBody"><w:name w:val="Clause Body"/><w:basedOn w:val="Clause"/>'
-                  "</w:style>")
-        numbering = ('<w:abstractNum w:abstractNumId="0">' + _number_level(0, "제%1조", extra='<w:pStyle w:val="Clause"/>')
-                     + _number_level(1, "%2.", extra='<w:pStyle w:val="SubClause"/>') + "</w:abstractNum>" + _number_list(5, 0))
-        body = (_paragraph("목적", style="Clause") + _paragraph("세부 사항", style="SubClause")
-                + _paragraph("이 규정은 목적을 정한다.", style="ClauseBody") + _paragraph("정의", style="Clause")
-                + '<w:p><w:pPr><w:pStyle w:val="Clause"/><w:numPr><w:numId w:val="0"/></w:numPr></w:pPr>'
-                  '<w:r><w:t>번호 없음</w:t></w:r></w:p>')
+    def test_style_named_only_by_a_numbering_level_stays_unnumbered(self):
+        """A level that names a paragraph style (w:lvl/w:pStyle) does not number a style with no w:numPr of its own: real documents
+        keep the link after heading numbering is switched off, and numbered by it, a heading Word shows as `서론` came out as
+        `# 1. 서론` and the list sharing the definition skipped the numbers it took. Deliberate, against ECMA-376 17.9.23."""
+        numbering = ('<w:abstractNum w:abstractNumId="0">' + _number_level(0, "%1.", extra='<w:pStyle w:val="Heading1"/>')
+                     + "</w:abstractNum>" + _number_list(1, 0))
+        body = (_paragraph("서론", style="Heading1") + _paragraph("항목", 1) + _paragraph("항목2", 1)
+                + _paragraph("결론", style="Heading1") + _paragraph("항목3", 1))
 
-        result = convert(_docx_with_body(body, numbering=numbering, styles=styles), "a.docx")
+        result = convert(_docx_with_body(body, numbering=numbering), "a.docx")
 
-        # The same as when the styles name the list in their own w:numPr, as Word writes them
-        assert result.text == "제1조 목적\n\n  1. 세부 사항\n\n이 규정은 목적을 정한다.\n\n제2조 정의\n\n번호 없음"
+        assert result.text == "# 서론\n\n1. 항목\n2. 항목2\n\n# 결론\n\n3. 항목3"
 
     def test_empty_numbered_paragraph_still_counts(self):
         """A numbered paragraph with empty text was not counted, pulling later numbers forward. The number is counted and the empty
