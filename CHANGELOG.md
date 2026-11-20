@@ -37,6 +37,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   checked only after the path had been looked up: an agent talked into such a path by a document it read sent the
   user's NTLM hash to the host the document named, even though the call was then refused. A share to be read is
   given as `--root \\host\share`; a mapped drive letter is an ordinary folder.
+  The NT form of a path is held to the same rule: `\??\UNC\host\share\…`, which Windows sends to the kernel
+  as it is written, was taken for a local path and, on Python 3.12, looked up.
 
 ### Fixed
 
@@ -45,6 +47,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **MCP server**: the path of a call is resolved in a thread, as its content already was. A path the file system is slow
   to answer for — a disconnected network drive, a sleeping disk, a UNC name on Windows — stopped the whole server, and
   with it the agent's session, until it answered.
+- **XLSX**: a sheet stored in another case than the workbook names it (`Sheet2.xml` behind `sheet2.xml`) is read; it
+  was left out without a word. So is a workbook part in another case, which rejected the file, and a styles part in
+  another case, which turned every date into its serial number. A sheet whose part is missing from the file is named in
+  a warning instead of vanishing.
+- **DOCX / PPTX / XLSX**: a main part stored in another case (`word/Document.xml`) is read; the file was rejected as an
+  unsupported archive.
+- **XLSX / XLS / Excel 2003 XML**: a negative number under a negative section of text alone (Yes/No, True/False,
+  On/Off, `"예";"예";"아니요"`) shows that text, as Excel does, not `-Yes`.
+- **HTML**: the line of a table flattened into a cell stays apart from the text beside it (`Total: in1 in2`, not
+  `Total:in1 in2`). The lower levels of a list inside a table cell are marked `└ `, as in DOCX and HWP; every level came
+  out as one.
+- **Mail**: an invitation sent as a text/calendar part alone keeps its description (the agenda), and an event timed with
+  `DURATION` gets its end. A mail without MIME-Version whose only part is an invitation, a forwarded mail or an
+  attachment is read as mail, not as raw text. A mail with an empty HTML part read under a text name is read as mail.
+- **Server use**: `IsolatedConverter.convert` reports running out of memory while copying the content as too large,
+  as `convert` does, instead of letting a raw `MemoryError` out.
+- **Open WebUI**: a UUID inside the uploaded file's own name is kept; only Open WebUI's leading file id is taken off.
+- **PDF reading order**: on the last page of a two-column article whose right column holds only a few closing lines at
+  its top, the rest of a ragged-right left column below them is no longer moved after the right column.
+- **PDF text**: a justified line whose word gaps are 1.1 em or wider (a narrow column with long words) is read as one
+  line; its words came out one by one, shuffled and scattered through the paragraph.
 
 ## [0.3.14] - 2026-11-19
 

@@ -6,7 +6,7 @@ from contextvars import ContextVar
 import re
 import secrets
 
-from bs4 import NavigableString, Tag
+from bs4 import NavigableString, PageElement, Tag
 
 from opendockit.extractors._html_base import (
     _BLOCK_GAP,
@@ -576,12 +576,20 @@ def _render_list(node: Tag, list_depth: int) -> str:
     # drawn by the quote at the item's own depth, and `<ul><li>a<blockquote>` repeated 800 times (unclosed) hit the recursion
     # limit (Pinned by: test_core_html.py::TestListInsideAQuoteInsideAnItem::test_deeply_nested_quotes_and_lists_stay_bounded).
     if list_depth >= _MAX_LIST_DEPTH or _list_nesting.get() >= _MAX_LIST_DEPTH:
-        return f"{'  ' * list_depth}- {' '.join(node.get_text(' ').split())}"
+        return f"{_list_indent(list_depth)}- {' '.join(node.get_text(' ').split())}"
     token = _list_nesting.set(_list_nesting.get() + 1)
     try:
         return _render_list_items(node, list_depth)
     finally:
         _list_nesting.reset(token)
+
+
+def _list_indent(list_depth: int) -> str:
+    """What stands before the marker of a list line: two spaces per level, and inside a table cell, whose leading spaces are
+    removed, the level mark DOCX, PPTX, HWP/HWPX and ODF write there (`_lists.cell_level_mark`, `└ `): the levels of a list in a
+    cell were all one, `1. Design<br>1. Schema review<br>2. API draft<br>2. Build`
+    (Pinned by: test_core_html.py::TestNestedListInsideATableCell::test_levels_of_a_list_in_a_cell_are_marked)."""
+    return cell_level_mark(list_depth) if _in_cell.get() else "  " * list_depth
 
 
 def _render_list_items(node: Tag, list_depth: int) -> str:
@@ -603,7 +611,7 @@ def _render_list_items(node: Tag, list_depth: int) -> str:
     to_do_list = "to-do-list" in classes
     for item in entries:
         if isinstance(item, str):
-            lines.append(f"{'  ' * list_depth}- {item}")  # text outside the items. No number is written
+            lines.append(f"{_list_indent(list_depth)}- {item}")  # text outside the items. No number is written
             continue
         if item.name in {"ul", "ol"}:
             lines.append(_render_list(item, list_depth + 1))
@@ -659,7 +667,7 @@ def _render_list_items(node: Tag, list_depth: int) -> str:
             marker += f" {_CHECKED if 'checked' in item.get_attribute_list('class') else _UNCHECKED}"
         elif to_do_list and (box := item.find(class_=["checkbox-on", "checkbox-off"], recursive=False)) is not None:
             marker += f" {_CHECKED if 'checkbox-on' in box.get_attribute_list('class') else _UNCHECKED}"
-        lines.append(_item_text(f"{'  ' * list_depth}{marker} {first}".rstrip(), pieces, nested, list_depth))
+        lines.append(_item_text(f"{_list_indent(list_depth)}{marker} {first}".rstrip(), pieces, nested, list_depth))
         number += step
     return "\n".join(line for line in lines if line.strip()).rstrip("\n")  # leading whitespace is the indentation of nested lists
 
@@ -1056,7 +1064,7 @@ def _cell_text(cell: Tag, *, embed_into: TableGrid | None = None) -> str:
     for nested in _nearest(cell, wanted={"table"}, stop=set()):
         grid = _embedded_grid(nested) if embed_into is not None and len(_table_rows(nested)) > 1 else None
         placeholder = embed_into.embed(grid) if embed_into is not None and grid is not None else ""
-        stand_in = NavigableString(placeholder or _flat_table_text(nested))
+        stand_in = NavigableString(placeholder or _apart_from_the_text_beside(_flat_table_text(nested), nested, cell))
         _replace(nested, stand_in, places)
         stand_ins.append((stand_in, nested))
     token = _in_cell.set(True)
@@ -1066,6 +1074,36 @@ def _cell_text(cell: Tag, *, embed_into: TableGrid | None = None) -> str:
         _in_cell.reset(token)
         for stand_in, nested in stand_ins:
             _replace(stand_in, nested, places)
+
+
+def _apart_from_the_text_beside(text: str, table: Tag, cell: Tag) -> str:
+    """The one line of a flattened table with a space where text of the cell runs up to the table (a table flattened before it
+    included): the line ran into it, `Total:<table>…in1…` → `Total:in1`, `<table>…</table>units` → `in2units`. Only where that text
+    is not already apart — a space at the end of the cell or of a strikethrough would be left inside the mark
+    (Pinned by: test_core_html_layout_cells.py::TestNestedTableFlattenedIntoACell::test_text_beside_the_table_stays_apart)."""
+    if not text:
+        return text
+    inside = table.find_all(string=True)
+    before = _visible_text_beside(table, cell, backwards=True)
+    after = _visible_text_beside(inside[-1] if inside else table, cell, backwards=False)
+    if before[-1:].strip() and text[:1].strip():
+        text = " " + text
+    if after[:1].strip() and text[-1:].strip():
+        text += " "
+    return text
+
+
+def _visible_text_beside(node: PageElement, cell: Tag, *, backwards: bool) -> str:
+    """The nearest text of the cell before or after `node` that is not only strikethrough marks (`_html_dom` puts them in the
+    tree as text), with those marks taken out; empty at the edge of the cell."""
+    while (node := node.find_previous(string=True) if backwards else node.find_next(string=True)) is not None:
+        # By identity: `in` compares tags by their whole content, which recursed through deeply nested tables
+        if not any(parent is cell for parent in node.parents):
+            return ""
+        visible = str(node).replace("~~" + STRIKE_KEY, "").replace(STRIKE_KEY + "~~", "")
+        if visible:
+            return visible
+    return ""
 
 
 def _flat_table_text(table: Tag) -> str:

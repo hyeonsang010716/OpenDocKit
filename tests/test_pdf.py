@@ -3058,6 +3058,77 @@ class TestLinesDrawnInPieces:
         lines = result.sections[0].text.split("\n")
         assert all(head.strip() in lines and tail in lines for head, tail in self._LINES)
 
+    _JUSTIFIED = ("The internationalization of responsibilities is extraordinarily demanding for a small team, and the "
+                  "administrators acknowledged the responsibilities that internationalization brings to every department "
+                  "while the documentation of characteristics remains incomplete.")
+
+    def _justified_pdf(self) -> bytes:
+        """`_JUSTIFIED` justified in 10pt Helvetica in a 150pt column: most lines have word gaps of 1.1 em and more."""
+        from io import BytesIO
+
+        from reportlab.lib.enums import TA_JUSTIFY
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.platypus import Paragraph, SimpleDocTemplate
+
+        buffer = BytesIO()
+        style = ParagraphStyle("body", fontName="Helvetica", fontSize=10, leading=12, alignment=TA_JUSTIFY)
+        SimpleDocTemplate(buffer, leftMargin=72, rightMargin=612 - 72 - 150).build([Paragraph(self._JUSTIFIED, style)])
+        return buffer.getvalue()
+
+    def test_words_of_a_widely_justified_line_are_read_as_one_line(self):
+        """In a narrow justified column with long words the word gaps of a line widen to 1.1 em and more, and pdfminer made each
+        word a line and a text box of its own: the words of that row came out shuffled and scattered through the paragraph
+        ('of' / 'the' / 'documentation' at the end). A row whose word gaps are all the same, under or over a line of the
+        paragraph with the same left and right edges, is one line."""
+        text = convert(self._justified_pdf(), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text.split() == self._JUSTIFIED.split()
+        lines = text.split("\n")
+        assert {"responsibilities is", "acknowledged the", "the documentation of", "characteristics remains"} <= set(lines)
+
+    def test_justified_rows_past_the_work_of_a_page_stay_apart(self, monkeypatch):
+        """The lines looked at for the justified rows of a page are bounded (`_JUSTIFIED_WORK`); past it the rows stay as pdfminer
+        split them, every word still there."""
+        from opendockit.extractors import _pdf_pieces
+
+        monkeypatch.setattr(_pdf_pieces, "_JUSTIFIED_WORK", 0)
+
+        text = convert(self._justified_pdf(), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert sorted(text.split()) == sorted(self._JUSTIFIED.split())
+        assert "the documentation of" not in text.split("\n")
+
+    def test_evenly_spaced_row_of_a_table_under_a_line_as_wide_stays_a_table(self):
+        """Cells of a borderless table may be evenly spaced and a line above may be exactly as wide as the header row; the table is
+        still read as a table."""
+        from io import BytesIO
+
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        from reportlab.pdfgen import canvas
+
+        rows = [["Name", "City", "Score"], ["Alice", "Paris", "91"], ["Bob", "Rome", "78"], ["Carol", "Oslo", "85"]]
+        note = "Note: all scores here"
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer)
+        width = sum(stringWidth(word, "Helvetica", 10) for word in rows[0]) + 40
+        note_line = pdf.beginText(72, 714)
+        note_line.setFont("Helvetica", 10)
+        note_line.setCharSpace((width - stringWidth(note, "Helvetica", 10)) / (len(note) - 1))  # ends where the header row ends
+        note_line.textOut(note)
+        pdf.drawText(note_line)
+        pdf.setFont("Helvetica", 10)
+        for number, row in enumerate(rows):
+            x = 72.0
+            for cell in row:
+                pdf.drawString(x, 700 - number * 14, cell)
+                x += stringWidth(cell, "Helvetica", 10) + 20
+        pdf.showPage()
+        pdf.save()
+
+        text = convert(buffer.getvalue(), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| Name | City | Score |" in text and "| Carol | Oslo | 85 |" in text
+
     def test_piece_ending_with_a_footnote_mark_is_joined_to_the_next_piece(self):
         """A piece ending with a footnote number (a small raised digit) was not joined to the next piece, because the two touching
         characters differ in size and baseline, and the paragraph was shuffled piece by piece ('102,110¹' followed on the next line by

@@ -680,7 +680,7 @@ class TestManyListsOrTablesSetAsideWhileTheirParentIsRendered:
 
         seconds, text = _seconds(html.encode(), "a.html")
 
-        assert text == "| " + "a" * 30000 + " | b |\n| --- | --- |\n| c | d |"
+        assert text == "| " + " ".join("a" * 30000) + " | b |\n| --- | --- |\n| c | d |"
         assert seconds < allowed(8)
 
     @pytest.mark.parametrize(("html", "expected"), [
@@ -688,7 +688,7 @@ class TestManyListsOrTablesSetAsideWhileTheirParentIsRendered:
          "- one\n  - a\n\nbetween\n\n  1. b\n\nafter\n\n- two"),
         ("<table><tr><th>k</th><th>v</th></tr><tr><td>x<table><tr><td>1</td><td>2</td></tr></table>y"
          "<table><tr><td>3</td></tr></table>z</td><td><ul><li>p<ul><li>q</li></ul>r</li></ul></td></tr></table>",
-         "| k | v |\n| --- | --- |\n| x1 2y3z | - p<br>- q<br>r |"),
+         "| k | v |\n| --- | --- |\n| x 1 2 y 3 z | - p<br>└ - q<br>r |"),
     ])
     def test_item_and_cell_are_rendered_as_before(self, html, expected):
         assert convert(html.encode(), "a.html").text == expected

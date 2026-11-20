@@ -58,8 +58,9 @@ DEFAULT_MAX_CHARS = 10_000_000
 DEFAULT_MAX_FILE_MB = 50
 
 # Open WebUI names a stored upload '<file id>_<original name>' and sends that in `X-Filename`; the id is not part of the name
-# the document was given (Pinned by: test_open_webui.py::TestUploadName).
-_STORED_NAME = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_(?=.)", re.IGNORECASE)
+# the document was given. Only a leading id is: unanchored, a UUID inside the user's own name was cut out of it
+# (`contract_<uuid>_v2.pdf` became `contract_v2.pdf`) (Pinned by: test_open_webui.py::TestUploadName).
+_STORED_NAME = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_(?=.)", re.IGNORECASE)
 
 # Fixed sentences only: Open WebUI shows the body of a failed answer to the user, and nothing of the document or of a parser
 # error may be in it (core.md).

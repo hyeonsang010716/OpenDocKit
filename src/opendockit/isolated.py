@@ -102,7 +102,12 @@ class IsolatedConverter:
         error is a `TypeError`, and a file over `max_file_bytes` or an empty one the same error `convert` raises, before
         anything is sent to the worker.
         """
-        data = _content_bytes(data)  # a memoryview cannot be sent to a worker (not picklable)
+        try:
+            data = _content_bytes(data)  # a memoryview cannot be sent to a worker (not picklable)
+        except MemoryError as exc:
+            # The copy, as in `convert` and `aconvert`: the raw MemoryError left the server entry point, where memory is the
+            # most likely to run short (Pinned by: test_converter.py::TestRunningOutOfMemory::test_while_copying_the_content).
+            raise DocumentTooLargeError(TOO_COMPLEX_MESSAGE) from exc
         _check_arguments(filename, options)
         if self._closed:
             raise RuntimeError("This IsolatedConverter is closed.")

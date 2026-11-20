@@ -20,6 +20,7 @@ from opendockit.extractors._mail import (
     mail_head_text,
     mail_messages,
     mail_plain_body,
+    part_content,
 )
 from opendockit.extractors._mail_calendar import mail_calendar_text
 from opendockit.markdown import clean_characters, code_fences
@@ -48,7 +49,10 @@ def _mail_text(mail: Message, *, html_source: bool = False) -> tuple[str, list[s
     """
     messages, _ = mail_messages(mail)
     outer = mail_plain_body(mail)
-    if outer is None and mail_body_parts(mail):
+    # An HTML part with nothing in it is no HTML body, as detection judges (`html.mail_html_parts`): a mail whose alternative
+    # opened with an empty HTML branch went to this extractor and was given back raw, headers, boundaries and all
+    # (Pinned by: test_core_mail_bodies_and_events.py::TestInvitationWithoutABody::test_mail_with_an_empty_html_part_is_mail).
+    if outer is None and any(part_content(part) for part in mail_body_parts(mail)):
         if not html_source:
             return None
         outer = _mail_body(mail, "text/html")

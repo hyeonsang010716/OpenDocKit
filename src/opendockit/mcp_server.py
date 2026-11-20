@@ -347,6 +347,11 @@ _LOCAL_LONG_PATH = re.compile(r"\\\\\?\\[a-zA-Z]:\Z")      # `\\?\C:`: a local p
 _LONG_UNC_PREFIX = re.compile(r"\\\\\?\\UNC\\", re.IGNORECASE)   # `\\?\UNC\host\share`: a share written the long way
 _DEVICE_PREFIX = re.compile(r"\\\\[.?]\\")                  # `\\.\pipe`, `\\.\C:`, `\\?\GLOBALROOT`: the device namespace
 _DEVICE = "device"
+# `\??\`: the NT form of `\\?\`. Win32 hands a path with it to the kernel unchanged, so `\??\UNC\host\share` reaches the host
+# like `\\?\UNC\host\share` does, while `splitdrive` sees no drive in it at all. Python 3.12 counts it as absolute and resolves
+# it as written; 3.13 and later join it to the current folder first. Read as the `\\?\` form it stands for (Pinned by:
+# test_mcp_server.py::TestWhichFilesMayBeRead::test_a_network_path_is_refused_before_the_host_is_contacted).
+_NT_PREFIX = "\\??\\"
 
 
 def _network_share(path: str) -> str | None:
@@ -354,7 +359,10 @@ def _network_share(path: str) -> str | None:
     one. Read from the text only — nothing is looked up. Always None elsewhere: on POSIX `//host` is a local name."""
     if os.name != "nt":
         return None
-    drive = os.path.splitdrive(path.replace("/", "\\"))[0]
+    path = path.replace("/", "\\")
+    if path.startswith(_NT_PREFIX):
+        path = "\\\\?\\" + path[len(_NT_PREFIX):]
+    drive = os.path.splitdrive(path)[0]
     if not drive.startswith("\\\\") or _LOCAL_LONG_PATH.match(drive):
         return None
     if _LONG_UNC_PREFIX.match(drive):

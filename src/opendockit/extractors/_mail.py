@@ -62,10 +62,14 @@ _MAIL_CONTENT_TYPE = re.compile(rb"^Content-Type:\s*(?:multipart/(?!related\b)[\
                                 rb"|(?:application|image|audio|video|model|font)/[\w.+-]+)\b",
                                 re.IGNORECASE | re.MULTILINE)
 # Identifying mail without MIME-Version (`_mail_without_mime_version`): the sender, a recipient/subject/date, and a MIME body
-# header (a mail Content-Type — related and HTML included — or Content-Transfer-Encoding).
+# header (a mail Content-Type — every type `_MAIL_CONTENT_TYPE` takes, related and HTML included — or
+# Content-Transfer-Encoding). Only multipart and text/plain|html were taken, so an invitation (text/calendar), a forwarded mail
+# (message/rfc822) or a scanner's PDF without MIME-Version stayed text, raw headers and all
+# (Pinned by: test_core_mailboxes_and_charsets.py::TestMailWithoutMimeVersion::test_single_part_of_another_mail_type).
 _MAIL_SENDER = re.compile(rb"^From:", re.IGNORECASE | re.MULTILINE)
 _MAIL_ADDRESSING = re.compile(rb"^(?:To|Cc|Subject|Date):", re.IGNORECASE | re.MULTILINE)
-_MAIL_BODY_HEADER = re.compile(rb"^(?:Content-Type:\s*(?:multipart/[\w.+-]+|text/(?:plain|html))\b|Content-Transfer-Encoding:)",
+_MAIL_BODY_HEADER = re.compile(rb"^(?:Content-Type:\s*(?:multipart/[\w.+-]+|text/(?:plain|html|calendar)|message/(?:rfc822|global)"
+                               rb"|(?:application|image|audio|video|model|font)/[\w.+-]+)\b|Content-Transfer-Encoding:)",
                                re.IGNORECASE | re.MULTILINE)
 # The top-level Content-Type of encrypted mail (`is_encrypted_mail`): S/MIME (application/pkcs7-mime, except the signature-only
 # signed-data and certs-only) and PGP/MIME (multipart/encrypted).

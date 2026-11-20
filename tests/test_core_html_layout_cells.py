@@ -2,7 +2,9 @@
 from the body, Google Docs list levels, SVG text."""
 
 
-from opendockit import convert
+import pytest
+
+from opendockit import ConvertOptions, convert
 
 
 class TestIndentMarksOnlyForLabelCells:
@@ -108,6 +110,26 @@ class TestNestedTableFlattenedIntoACell:
         result = convert(html.encode(), "a.html")
 
         assert "| 가 | 매출 12,345원, 인사발령 CO_2 10^6톤 | x |" in result.text
+
+    @pytest.mark.parametrize(("cell", "expected"), [
+        ("Total:{one}", "Total: in1 in2"),
+        ("{one}units", "in1 in2 units"),
+        ("<b>Note</b>{two}<i>end</i>", "**Note** in1 in2 in3 in4 *end*"),
+        ("{one}{one}", "in1 in2 in1 in2"),
+        ("Total: {one} units", "Total: in1 in2 units"),
+        ("<div>Total:</div>{one}", "Total:<br>in1 in2"),
+        ("<del>old {two}</del>", "~~old in1 in2 in3 in4~~"),
+    ])
+    def test_text_beside_the_table_stays_apart(self, cell, expected):
+        """The one line of the table ran into the text of the cell right beside it: `Total:in1 in2`, `in1 in2units`."""
+        one = "<table><tr><td>in1</td><td>in2</td></tr></table>"
+        two = "<table><tr><td>in1</td><td>in2</td></tr><tr><td>in3</td><td>in4</td></tr></table>"
+        rows = "".join(f"<tr><td>item {number}</td><td>value {number}</td></tr>" for number in range(5))
+        html = f"<table><tr><th>A</th><th>B</th></tr><tr><td>{cell.format(one=one, two=two)}</td><td>z</td></tr>{rows}</table>"
+
+        result = convert(html.encode(), "a.html", ConvertOptions(keep_emphasis=True))
+
+        assert result.text.splitlines()[2] == f"| {expected} | z |"
 
 
 class TestTitleWhenTheBodyHasNoHeading:

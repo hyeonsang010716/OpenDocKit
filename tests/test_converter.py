@@ -16,6 +16,7 @@ from opendockit import (
     CorruptedDocumentError,
     DocumentTooLargeError,
     EncryptedDocumentError,
+    IsolatedConverter,
     UnsupportedFormatError,
     aconvert,
     convert,
@@ -547,6 +548,14 @@ class TestRunningOutOfMemory:
         assert isinstance(error.value.__cause__, MemoryError)
         with self._too_complex():
             asyncio.run(aconvert(NoMemoryForACopy(b"hello"), "a.txt"))
+
+        async def isolated():
+            async with IsolatedConverter() as converter:
+                await converter.convert(NoMemoryForACopy(b"hello"), "a.txt")
+
+        with self._too_complex() as error:
+            asyncio.run(isolated())
+        assert isinstance(error.value.__cause__, MemoryError)
 
     @pytest.mark.parametrize("stage", ["_content_bytes", "_check_arguments", "check_size"])
     def test_in_the_checks_before_the_conversion(self, monkeypatch, stage):

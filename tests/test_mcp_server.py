@@ -269,7 +269,9 @@ class TestWhichFilesMayBeRead:
         monkeypatch.setattr(mcp_server, "_checked_path", lambda path, allowed: looked_up.append(path))
         inbox = files["report.docx"].parent
         for path in (r"\\attacker.example\share\report.pdf", "//attacker.example/share/report.pdf",
-                     r"\\?\UNC\attacker.example\share\report.pdf", r"\\attacker.example@SSL@443\DavWWWRoot\report.pdf"):
+                     r"\\?\UNC\attacker.example\share\report.pdf", r"\\attacker.example@SSL@443\DavWWWRoot\report.pdf",
+                     # The NT form of `\\?\`, which Win32 passes to the kernel unchanged and `splitdrive` sees no drive in
+                     r"\??\UNC\attacker.example\share\report.pdf", "/??/UNC/attacker.example/share/report.pdf"):
             for roots in ([inbox], None):
                 with pytest.raises(ToolError, match="network share are read only when the share is given as a root"):
                     call("document_outline", {"path": path}, roots=roots)
@@ -282,7 +284,7 @@ class TestWhichFilesMayBeRead:
         looked_up: list[str] = []
         monkeypatch.setattr(mcp_server, "_checked_path", lambda path, allowed: looked_up.append(path))
         for path in (r"\\.\pipe\some-pipe", r"\\.\PhysicalDrive0", r"\\?\GLOBALROOT\Device\HarddiskVolume1\a.pdf",
-                     r"\\.\C:\a.pdf"):
+                     r"\\.\C:\a.pdf", r"\??\GLOBALROOT\Device\HarddiskVolume1\a.pdf", r"\??\pipe\some-pipe"):
             with pytest.raises(ToolError, match="path must name a file"):
                 call("document_outline", {"path": path})
 
@@ -303,11 +305,11 @@ class TestWhichFilesMayBeRead:
 
         assert shares == {r"\\fileserver\team"}
         for path in (r"\\fileserver\team\Documents\a.pdf", "//FILESERVER/Team/other/a.pdf",
-                     r"\\?\UNC\FileServer\TEAM\a.pdf"):
+                     r"\\?\UNC\FileServer\TEAM\a.pdf", r"\??\UNC\fileserver\Team\a.pdf"):
             mcp_server._refuse_unchosen_network_path(path, shares)   # not refused here
         with pytest.raises(ToolError, match="network share"):
             mcp_server._refuse_unchosen_network_path(r"\\fileserver\other\a.pdf", shares)
-        for local in (r"C:\docs\a.pdf", r"docs\a.pdf", r"\\?\C:\docs\a.pdf", r"\docs\a.pdf"):
+        for local in (r"C:\docs\a.pdf", r"docs\a.pdf", r"\\?\C:\docs\a.pdf", r"\docs\a.pdf", r"\??\C:\docs\a.pdf"):
             assert mcp_server._network_share(local) is None
 
     @pytest.mark.skipif(os.name != "posix", reason="on POSIX `//host` is a local name")

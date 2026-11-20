@@ -20,7 +20,7 @@ from opendockit.extractors._pdf_chars import (
     _SUBSCRIPT_DROP,
     _SUPERSCRIPT_RISE,
 )
-from opendockit.extractors._pdf_model import _MAX_GROUPED_TEXT_PIECES, _WORD_CHAR, _Line
+from opendockit.extractors._pdf_model import _MAX_GROUPED_TEXT_PIECES, _TABLE_ROW_TOLERANCE, _WORD_CHAR, _Line
 
 
 _FOOTNOTE_MARK_PIECE = re.compile(r"^(?:\d{1,3}\)|\*{1,3})$")  # footnote number piece drawn separately ('1)', '*', `_footnote_mark_piece`)
@@ -54,6 +54,25 @@ _PIECE_COPY_SHIFT_RATIO = 0.3
 # When the merged characters are put in x order and neighbouring characters overlap by more than this share of the wider one's
 # width, it is not an inserted piece but text drawn on top of other text (_glyphs_collide).
 _GLYPH_COLLISION_RATIO = 0.25
+
+
+# A justified line whose word gaps pdfminer split into pieces (`_justified_joints`): gaps between pieces wider than a space
+# (`_PIECE_SPACE_GAP_RATIO`) up to this multiple of the character size are looked at (a line of two words in a 15 em column
+# reaches 5 em), and all the word gaps of the row, inside the pieces and between them, may differ by this share of the size.
+# A gap inside a piece counts from this share of the size (letters touch, a natural space is 0.25 em or more).
+_JUSTIFIED_GAP_MAX_RATIO = 8.0
+_JUSTIFIED_GAP_SPREAD_RATIO = 0.1
+_JUSTIFIED_WORD_GAP_RATIO = 0.15
+# The line of the same paragraph above or below a justified row (`_JustifiedLines.spans`): its baseline this many character
+# sizes away at most, its left edge within `_TABLE_ROW_TOLERANCE` and its right edge within this share of the size of the
+# row's (within `_JUSTIFIED_GAP_SPREAD_RATIO` for a row with a single gap).
+_JUSTIFIED_PITCH_MAX_RATIO = 2.5
+_JUSTIFIED_EDGE_RATIO = 1.0
+# Passes over the split rows (`_justified_joints`): a row joined in one pass is the line of the same paragraph for the row next to
+# it in the next, so a run of split rows is joined this many rows away from an unsplit line at most.
+_JUSTIFIED_PASSES = 8
+# Lines one page may look at in all for the justified rows (`_JustifiedLines`); the rows after that stay apart.
+_JUSTIFIED_WORK = 1_000_000
 
 
 _RIGHT_TO_LEFT = re.compile(r"[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]")  # Hebrew and Arabic script (`_late_symbols_in_place`)
@@ -108,6 +127,7 @@ def _rejoined_lines(page: object, lines: list[dict], owners: list[int | None]) -
     pieces = [line or piece for line, piece in zip(placed, pieces, strict=True)]
     pieces, merged = _merged_overlapping_pieces(pieces, laparams.word_margin)
     following = _piece_joints(pieces)
+    following.update(_justified_joints(pieces, following))
     if not following and not merged and not any(placed):
         return lines, owners
 
@@ -396,6 +416,127 @@ def _piece_joints(pieces: list[LTTextLineHorizontal]) -> dict[int, int]:
             following[index] = other
             taken.add(other)
     return following
+
+
+def _justified_joints(pieces: list[LTTextLineHorizontal], following: dict[int, int]) -> dict[int, int]:
+    """Piece number → number of the next piece of the same justified line, for the lines whose word gaps pdfminer split
+    apart. Pieces already joined (`following`) are left out.
+
+    Justification widens every word gap of a line by the same amount; in a narrow column with long words a gap reaches
+    1.1 em and more, and pdfminer (char_margin 2.0 of the characters beside the gap) makes each word a line of its own and
+    a text box of its own, so the words of that row came out shuffled and scattered through the paragraph (Pinned by:
+    test_pdf.py::TestLinesDrawnInPieces::test_words_of_a_widely_justified_line_are_read_as_one_line). Pieces that far
+    apart are otherwise not joined: they cannot be told from the next column or the next cell of a table (Pinned by:
+    test_pieces_apart_on_the_same_row_are_left_as_they_are). A row is joined only when all of the following hold
+    (Deliberate, narrow):
+    - its pieces share a baseline and a character size, and the gaps between them are wider than a space and at most
+      `_JUSTIFIED_GAP_MAX_RATIO` times the size;
+    - all its word gaps, between the pieces and inside them, are the same (within `_JUSTIFIED_GAP_SPREAD_RATIO` of the
+      size) — a gutter or a cell gap differs from the word gaps of the text beside it;
+    - a line of the same size right above or below it starts at its left edge and ends at its right edge
+      (`_JUSTIFIED_EDGE_RATIO` of the size; with a single gap, which cannot be checked against others, within
+      `_JUSTIFIED_GAP_SPREAD_RATIO`): one paragraph line spans all its gaps, which no row of a table or of side-by-side
+      columns has. A row joined this way serves as that line for the row next to it (two split rows in a row).
+    """
+    joined = set(following) | set(following.values())
+    edges: dict[int, tuple[LTChar, LTChar]] = {}
+    for index, piece in enumerate(pieces):
+        edge = _edge_chars(piece)
+        if edge is not None and _finite_piece(piece, edge):
+            edges[index] = edge
+    lines = _JustifiedLines()
+    for index, (start, end) in edges.items():
+        lines.add(start, end)
+
+    rows = sorted((edges[index][0].y0, edges[index][0].x0, index) for index in edges if index not in joined)
+    chains: list[list[int]] = []
+    start = 0
+    while start < len(rows):  # rows of pieces sharing a baseline, each read left to right
+        size = max(edges[rows[start][2]][0].size, 1.0)
+        end = start + 1
+        while end < len(rows) and rows[end][0] - rows[start][0] <= size * _PIECE_BASELINE_RATIO:
+            end += 1
+        chain: list[int] = []
+        for _, _, index in sorted(rows[start:end], key=lambda row: row[1]):
+            if chain:
+                previous = chain[-1]
+                last, first = edges[previous][1], edges[index][0]
+                gap, size = first.x0 - last.x1, max(first.size, 1.0)
+                if (abs(last.size - first.size) <= 0.1 and pieces[index].x0 > pieces[previous].x1
+                        and size * _PIECE_SPACE_GAP_RATIO < gap <= size * _JUSTIFIED_GAP_MAX_RATIO):
+                    chain.append(index)
+                    continue
+                chains.append(chain)
+            chain = [index]
+        chains.append(chain)
+        start = end
+
+    pending = [(chain, single) for chain in chains if (single := _evenly_gapped(pieces, edges, chain)) is not None]
+    found: dict[int, int] = {}
+    for _ in range(_JUSTIFIED_PASSES):  # a row joined serves the split row next to it in the next pass
+        rest = []
+        for chain, single in pending:
+            first, last = edges[chain[0]][0], edges[chain[-1]][1]
+            if lines.spans(first, last, single):
+                found.update(zip(chain, chain[1:], strict=False))
+                lines.add(first, last)
+            else:
+                rest.append((chain, single))
+        if len(rest) == len(pending):
+            break
+        pending = rest
+    return found
+
+
+def _evenly_gapped(pieces: list[LTTextLineHorizontal], edges: dict[int, tuple[LTChar, LTChar]], chain: list[int]) -> bool | None:
+    """For a row of pieces (`chain`, left to right, each a wide gap from the one before) whose word gaps, between the pieces
+    and inside them, are all the same (`_justified_joints`): whether it has a single gap. None for any other row."""
+    if len(chain) < 2:
+        return None
+    size = max(edges[chain[0]][0].size, 1.0)
+    gaps = [edges[right][0].x0 - edges[left][1].x1 for left, right in zip(chain, chain[1:], strict=False)]
+    for index in chain:
+        chars = sorted((obj for obj in pieces[index] if isinstance(obj, LTChar) and obj.get_text().strip()),
+                       key=lambda char: char.x0)
+        gaps += [gap for left, right in zip(chars, chars[1:], strict=False)
+                 if (gap := right.x0 - left.x1) > size * _JUSTIFIED_WORD_GAP_RATIO]
+    if max(gaps) - min(gaps) > size * _JUSTIFIED_GAP_SPREAD_RATIO:
+        return None
+    return len(gaps) == 1
+
+
+class _JustifiedLines:
+    """The lines a justified row may be checked against (`_justified_joints`), by the rounded left edge of their first
+    character: (bottom of the first character, left edge, right edge of the last character, size), sorted by bottom.
+    Lines looked at past `_JUSTIFIED_WORK` on one page answer no: a page of copies drawn on top of one another holds
+    thousands of lines at one spot."""
+
+    def __init__(self) -> None:
+        self._by_start: dict[int, list[tuple[float, float, float, float]]] = {}
+        self._work = 0
+
+    def add(self, first: LTChar, last: LTChar) -> None:
+        insort(self._by_start.setdefault(round(first.x0), []), (first.y0, first.x0, last.x1, first.size))
+
+    def spans(self, first: LTChar, last: LTChar, single: bool) -> bool:
+        """Whether a line of the size of `first` right above or below the row from `first` to `last` (bottoms
+        `_JUSTIFIED_PITCH_MAX_RATIO` sizes apart at most) starts at the row's left edge and ends at its right edge."""
+        size = max(first.size, 1.0)
+        reach = size * _JUSTIFIED_PITCH_MAX_RATIO
+        edge = size * (_JUSTIFIED_GAP_SPREAD_RATIO if single else _JUSTIFIED_EDGE_RATIO)
+        tolerance = math.ceil(_TABLE_ROW_TOLERANCE)
+        for x in range(round(first.x0) - tolerance, round(first.x0) + tolerance + 1):
+            lines = self._by_start.get(x, ())
+            low = bisect_left(lines, (first.y0 - reach, -math.inf, -math.inf, -math.inf))
+            high = bisect_right(lines, (first.y0 + reach, math.inf, math.inf, math.inf))
+            self._work += high - low
+            if self._work > _JUSTIFIED_WORK:
+                return False
+            if any(abs(bottom - first.y0) >= size * 0.5 and abs(other_size - first.size) <= 0.1
+                   and abs(x0 - first.x0) <= _TABLE_ROW_TOLERANCE and abs(x1 - last.x1) <= edge
+                   for bottom, x0, x1, other_size in lines[low:high]):
+                return True
+        return False
 
 
 def _starting_within(starts: dict[tuple[int, int], list[int]], columns: dict[int, list[int]],

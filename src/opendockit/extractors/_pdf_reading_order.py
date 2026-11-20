@@ -238,7 +238,9 @@ def _below_both_columns(lines: list[_Line], left_end: float, right_start: float,
     If the line right below (with no line reaching towards both columns in between) continues while filling the column
     width, this is the closing text of a page whose left column is longer — the subheading and paragraph at the end of
     the left column were pushed after the right column (Pinned by:
-    test_heading_and_paragraph_closing_the_longer_left_column_stay_in_the_left_column).
+    test_heading_and_paragraph_closing_the_longer_left_column_stay_in_the_left_column). So is a line from which the left
+    column flows on without a break further down than the right column is tall (`_FlowingOn.past`): the rest of a ragged
+    left column under a short right column was pushed after it (Pinned by: test_pdf_reading_order.py::TestShortRightColumn).
     The lines above each candidate are not gone through again for it: their lowest bottom, leftmost edge and the gaps
     between them (sorted, for the median) are carried along from line to line, the bottoms of the tables and figures are
     looked up by bisection and the lines reaching towards the right column by their tops (`_RightReaching`), with the same
@@ -254,6 +256,8 @@ def _below_both_columns(lines: list[_Line], left_end: float, right_start: float,
     lefts = sorted((line for line in lines if line.x1 <= right_start), key=lambda line: line.top)
     block_bottoms = sorted(bottom for x1, bottom in blocks if x1 <= right_start and bottom == bottom)
     reaching = _RightReaching(lines, left_end)
+    flowing = _FlowingOn(lefts, left_end)
+    right_height = right_bottom - min(line.top for line in rights)
     gaps: list[float] = []  # sorted gaps between the lines above, where the lower line starts below the upper one
     lowest = leftmost = 0.0  # `max(bottom)` and `min(x0)` of the lines above, folded in the same order as `max` and `min`
     for index, line in enumerate(lefts):
@@ -276,7 +280,8 @@ def _below_both_columns(lines: list[_Line], left_end: float, right_start: float,
         if (line.x0 <= leftmost + _TABLE_ROW_TOLERANCE
                 and gap >= max(line.height * 0.5, _sorted_median(gaps) * 2 if gaps else 0.0)
                 and right_bottom >= left_bottom - line.height
-                and not _fills_column_below(line, lefts[index + 1:index + 3], reaching, left_end)):
+                and not _fills_column_below(line, lefts[index + 1:index + 3], reaching, left_end)
+                and not flowing.past(index, right_height, reaching)):
             return line.top
     return float("inf")
 
@@ -300,6 +305,42 @@ class _RightReaching:
             return False
         index = bisect_right(self._tops, above)
         return index < len(self._tops) and self._tops[index] < below
+
+
+class _FlowingOn:
+    """For each line of `lefts` (left-column lines sorted by top), how far the left column flows on from it without a
+    break: the run of lines each followed by the next at the same left edge and a gap of at most `_WRAP_LINE_GAP_RATIO`
+    times its height, and whether a line of that run (not its last) fills the column width and so wraps onto the next.
+    Worked out once from the bottom up, so a candidate of `_below_both_columns` asks it in constant time."""
+
+    def __init__(self, lefts: list[_Line], left_end: float) -> None:
+        self._lefts = lefts
+        count = len(lefts)
+        self._end = list(range(count))  # index of the last line of the run starting at each line
+        self._wraps = [False] * count  # a line of that run, before its last, fills the column width
+        for index in range(count - 2, -1, -1):
+            line, lower = lefts[index], lefts[index + 1]
+            if (abs(lower.x0 - line.x0) <= _TABLE_ROW_TOLERANCE
+                    and 0 <= lower.top - line.bottom <= line.height * _WRAP_LINE_GAP_RATIO):
+                self._end[index] = self._end[index + 1]
+                self._wraps[index] = line.x1 > left_end - line.height or self._wraps[index + 1]
+
+    def past(self, index: int, height: float, reaching: "_RightReaching") -> bool:
+        """Whether the left column flows on from line `index` without a break, with a line wrapping at the column width
+        in that run and no line reaching towards the right column in between, further down than `height` (that of the
+        right column) — the left column visibly goes on, so the line is not text below both columns.
+
+        On the last page of a two-column article whose right column holds only the closing lines at its top, ending
+        level with the end of a left-column paragraph, the first line of the next left paragraph (ragged right, short of
+        the column width) was taken for text below both columns and the rest of the left column came out after the right
+        column (Pinned by: test_pdf_reading_order.py::TestShortRightColumn). Text set out below both columns is a few
+        lines or crosses the gutter; a run taller than the right column, at the column's left edge and wrapping at its
+        width, is the left column going on.
+        """
+        end = self._end[index]
+        last = self._lefts[end]
+        return (end > index + 1 and self._wraps[index + 1] and last.bottom - self._lefts[index].top > height
+                and not reaching.between(self._lefts[index].top, last.top))
 
 
 def _fills_column_below(line: _Line, lower: list[_Line], reaching: "_RightReaching", left_end: float) -> bool:

@@ -35,7 +35,7 @@ from opendockit.extractors._openpyxl_reading import (
     _CellReading,
     _is_number,
 )
-from opendockit.extractors._package import _XML_PARSER, ZIP_MEMBER_ERRORS, named_part
+from opendockit.extractors._package import _XML_PARSER, ZIP_MEMBER_ERRORS, members_named_as_referenced, named_part
 from opendockit.extractors._sheet_format import (
     _ELAPSED_FORMAT,
     _format_value,
@@ -134,6 +134,9 @@ def extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
 
 
 def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
+    # Parts stored in another case than their references name them are read under those names: openpyxl and the part readers
+    # look a part up as named (Pinned by: test_office_robustness.py::TestTargetInAnotherCase::test_xlsx_parts_in_another_case).
+    data = members_named_as_referenced(data) or data
     data, repeated = _without_repeated_sheets(data)
     with zipfile.ZipFile(BytesIO(data)) as archive:
         # openpyxl reads the sheets the workbook's sheet list points to through relationships, wherever they are stored. Looking
@@ -210,6 +213,11 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
     extraction = Extraction()
     if repeated:
         extraction.warnings.append("The workbook points to the same sheet more than once, so it was read only once.")
+    # openpyxl passes over a sheet whose part is not in the file, so its whole content was gone without a word (a hidden one is
+    # left out anyway) (Pinned by: test_spreadsheet.py::TestMissingPartRelationships::test_sheet_whose_part_is_missing_is_named).
+    for name, state in reading.unread_sheets:
+        if state == "visible" or options.include_hidden_sheets:
+            extraction.warnings.append(f"Sheet '{name}' was left out because its part is missing from the file.")
     if styles_too_large:
         extraction.warnings.append("The workbook's style table is unusually large, so only number and date display formats were read."
                                    + (" Some display formats could not be kept, so dates and amounts may appear as numbers."
@@ -305,6 +313,7 @@ def _load_workbook(source: BytesIO, **options: bool) -> openpyxl.Workbook:
     reading = _READING.get()
     if reading is not None:
         reading.malformed = reading.unread_rich = 0
+        reading.unread_sheets.clear()
     return openpyxl.load_workbook(source, **options)
 
 

@@ -1,6 +1,6 @@
 """Meeting invitations in a mail (text/calendar parts): the events of an iCalendar body as labelled lines."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from email.message import Message
 import re
 
@@ -11,7 +11,12 @@ from opendockit.extractors._package import decimal_int
 
 # Event properties read from a meeting invitation (text/calendar) → label (`mail_calendar_events`). Written in this order.
 _CALENDAR_FIELDS = {"SUMMARY": "Title", "DTSTART": "Start", "DTEND": "End", "RRULE": "Repeats", "LOCATION": "Location", "ORGANIZER": "Organizer",
-                    "ATTENDEE": "Attendees"}
+                    "ATTENDEE": "Attendees", "DESCRIPTION": "Description"}
+# The description, read only for a mail with no body of its own (`mail_calendar_events`), and the length of an event that has
+# no end (DURATION, RFC 5545: `P1W`, `P2D`, `PT1H30M`, `P1DT12H`), which gives it one (`_end_from_duration`).
+_DESCRIPTION = "DESCRIPTION"
+_DURATION = "DURATION"
+_CALENDAR_DURATION = re.compile(r"\+?P(?:(\d{1,6})W)?(?:(\d{1,6})D)?(?:T(?:(\d{1,6})H)?(?:(\d{1,6})M)?(?:(\d{1,6})S)?)?")
 # Upper limits on the number of events (VEVENT) and attendees read and on the bytes of a calendar part. Anything beyond is
 # dropped silently — a recurring event can have dozens of exception events.
 _MAX_CALENDAR_EVENTS = 20
@@ -48,14 +53,18 @@ def mail_calendar_events(message: Message) -> list[tuple[str, list[tuple[str, st
 
     An Outlook meeting invitation does not write the date/time and location in the text/plain and text/html bodies of the
     alternative, only in the text/calendar part. Reading only the body, the date/time and location vanished without a warning
-    (Pinned by: test_core_mail_parts_and_icons.py::TestMeetingInvitation). Only the title, start, end (time zone as is),
-    recurrence (`_recurrence`), location, organizer and attendees are read — the description (DESCRIPTION) is the same text as
-    the body. A named .ics attachment keeps its attachment warning (`_is_attachment`).
-    Silently an empty list when there is no event to read or it cannot be decoded.
+    (Pinned by: test_core_mail_parts_and_icons.py::TestMeetingInvitation). Only the title, start, end (time zone as is; from
+    DURATION when there is no DTEND), recurrence (`_recurrence`), location, organizer and attendees are read — the description
+    (DESCRIPTION) is the same text as the body, and is read only when the mail has no body with text: an invitation sent as a
+    text/calendar part alone lost its agenda without a word, and an event timed with DURATION had no end (Pinned by:
+    test_core_mail_bodies_and_events.py::TestInvitationWithoutABody). A named .ics attachment keeps its attachment warning
+    (`_is_attachment`). Silently an empty list when there is no event to read or it cannot be decoded.
     """
     events: list[tuple[str, list[tuple[str, str]]]] = []
+    parts = _mail_parts(message)
+    with_description = not any(_is_body_with_text(part, message) for part in parts)
 
-    for part in _mail_parts(message):
+    for part in parts:
         if part.get_content_type() != "text/calendar" or _is_attachment(part, message):
             continue
         payload = part_content(part)
@@ -69,7 +78,7 @@ def mail_calendar_events(message: Message) -> list[tuple[str, list[tuple[str, st
         # that kept the cancelled event published it as an ordinary `Event:` (Pinned by:
         # test_core_mail_bodies_and_events.py::TestCancelledEvent).
         cancelled = str(part.get_param("method") or "").upper() == "CANCEL" or "\nMETHOD:CANCEL" in text.upper()
-        for fields, own_status in _calendar_events(text):
+        for fields, own_status in _calendar_events(text, with_description=with_description):
             event = ("Event (cancelled)" if cancelled or own_status == _CANCELLED else "Event", fields)
             # The same invitation sent twice, as the branch of an alternative and as a named part of its own, is one event:
             # both were written (Pinned by: test_core_mail_parts_and_icons.py::TestMeetingInvitation::
@@ -79,14 +88,23 @@ def mail_calendar_events(message: Message) -> list[tuple[str, list[tuple[str, st
     return events
 
 
+def _is_body_with_text(part: Message, message: Message) -> bool:
+    """Whether the part is a text/plain or text/html body of the mail (not an attachment) with anything but white space in it."""
+    if part.get_content_type() not in ("text/plain", "text/html") or _is_attachment(part, message):
+        return False
+    payload = part_content(part)
+    return not isinstance(payload, bytes) or bool(payload.strip())
+
+
 def mail_calendar_text(message: Message) -> str:
     """The events of a meeting invitation (`mail_calendar_events`) as text to place after the body: an `Event:` heading paragraph
-    + a `- label: value` list. Empty text if there is none."""
-    return "\n\n".join(f"{title}:\n\n" + "\n".join(f"- {label}: {value}" for label, value in fields)
+    + a `- label: value` list. Empty text if there is none. The further lines of a value (a description) are indented under
+    its item."""
+    return "\n\n".join(f"{title}:\n\n" + "\n".join(f"- {label}: {value}".replace("\n", "\n  ") for label, value in fields)
                        for title, fields in mail_calendar_events(message))
 
 
-def _calendar_events(text: str) -> list[tuple[list[tuple[str, str]], str]]:
+def _calendar_events(text: str, *, with_description: bool = False) -> list[tuple[list[tuple[str, str]], str]]:
     """([(label, value)], STATUS in capitals or '') for each VEVENT of iCalendar text. Unfolds folded lines (line break + space
     or tab) and leaves out events without a single value. Only the event's own properties are read: those of a component
     inside it (a VALARM reminder, which has its own SUMMARY and ATTENDEE) are not — an e-mail reminder written before the
@@ -116,7 +134,7 @@ def _calendar_events(text: str) -> list[tuple[list[tuple[str, str]], str]]:
         elif key == "END":
             events.extend(_event_fields(current))
             current = None
-        elif (key in _CALENDAR_FIELDS or key == _STATUS) and rest.strip():
+        elif ((key in _CALENDAR_FIELDS and (key != _DESCRIPTION or with_description)) or key in (_STATUS, _DURATION)) and rest.strip():
             current.append((key, name, rest.strip()))
     return events
 
@@ -125,7 +143,9 @@ def _event_fields(lines: list[tuple[str, str, str]]) -> list[tuple[list[tuple[st
     """[([(label, value)], STATUS)] of one event from its own property lines (key, name with parameters, value), or [] when it
     has no value: the first value of each property, and up to `_MAX_CALENDAR_ATTENDEES` attendees."""
     event: dict[str, list[str]] = {}
-    for key, name, value in lines:
+    for key, name, value in [*lines, *_end_from_duration(lines)]:
+        if key == _DURATION:
+            continue
         values = event.setdefault(key, [])
         if len(values) < (_MAX_CALENDAR_ATTENDEES if key == "ATTENDEE" else 1):
             values.append(_calendar_value(key, name, value))
@@ -153,6 +173,33 @@ def _end_of_all_day_event(event: dict[str, list[str]]) -> None:
         del event["DTEND"]
     else:
         event["DTEND"] = [last]
+
+
+def _end_from_duration(lines: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+    """The DTEND line of an event timed with DURATION instead (RFC 5545), in the time zone of its start; none when the event has
+    a DTEND, or the start or the length cannot be read. A date start takes whole days and weeks only. Known accepted gap: the
+    length is added to the time as written, so an event across a daylight-saving change ends an hour off."""
+    first = {key: (name, value) for key, name, value in reversed(lines)}
+    if "DTEND" in first or "DTSTART" not in first or _DURATION not in first:
+        return []
+    name, value = first["DTSTART"]
+    start, length = _CALENDAR_TIME.fullmatch(value), _CALENDAR_DURATION.fullmatch(first[_DURATION][1].strip().upper())
+    if start is None or length is None or not any(length.groups()):
+        return []
+    year, month, day, hour, minute, utc = start.groups()
+    weeks, days, hours, minutes, seconds = (int(number or 0) for number in length.groups())
+    try:
+        if hour is None:
+            if hours or minutes or seconds:
+                return []
+            end = (date(int(year), int(month), int(day)) + timedelta(weeks=weeks, days=days)).strftime("%Y%m%d")
+        else:
+            begin = datetime(int(year), int(month), int(day), int(hour), int(minute), int(value[13:15] or 0))
+            end = (begin + timedelta(weeks=weeks, days=days, hours=hours, minutes=minutes, seconds=seconds)).strftime(
+                "%Y%m%dT%H%M%S") + utc
+    except (ValueError, OverflowError):
+        return []
+    return [("DTEND", "DTEND" + name[len("DTSTART"):], end)]
 
 
 def _recurrence(rule: str) -> str:
@@ -232,5 +279,9 @@ def _calendar_value(key: str, params: str, value: str) -> str:
         name = _CALENDAR_PARAM_CN.search(params)
         name_text = name.group(1).strip().strip('"') if name else ""
         return f"{name_text} <{address}>" if name_text and name_text != address else address
+    if key == _DESCRIPTION:
+        # Its lines are kept (the agenda of a meeting), each with its white space collapsed, the empty ones left out
+        unescaped = _CALENDAR_ESCAPE.sub(lambda match: "\n" if match.group(1) in "nN" else match.group(1), value)
+        return "\n".join(line for line in (" ".join(piece.split()) for piece in unescaped.splitlines()) if line)
     unescaped = _CALENDAR_ESCAPE.sub(lambda match: " " if match.group(1) in "nN" else match.group(1), value)
     return " ".join(unescaped.split())
