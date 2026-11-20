@@ -173,8 +173,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Plugins and the MCP package**: the Claude Code and Hermes skills and READMEs no longer say HTML, email and EPUB are
   unsupported on Windows, or that the server converts inside its own process there.
 - **PDF text**: a character the font's ToUnicode map gives as U+FFFD is read from pdfium when pdfium reads a real one
-  for the same glyph — at the same place, between the same decoded characters — and otherwise stays U+FFFD; page and
-  figure numbers in old-style figures came out as '�07' and 'Figure 11.1�'. A body
+  for the same glyph — its row lined up with pdfium's from a character both read alike at the same place — and
+  otherwise stays U+FFFD; page and figure numbers in old-style figures came out as '�07' and 'Figure 11.1�'. A body
   line starting with `#` or `>` is escaped, so a form row is not a Markdown heading or quote.
 - **PDF tables**: shading drawn inside a cell in the cell's own colour (Word shades a paragraph per line) no longer
   splits a header cell into rows and repeats the others. The bars of a vector bar chart, a figure label set in a box

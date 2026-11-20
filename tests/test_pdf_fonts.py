@@ -1,5 +1,6 @@
 """PDF characters whose font information is incomplete or whose font is a symbol font: fonts without /Widths, Wingdings checkboxes."""
 
+from collections.abc import Callable
 import re
 
 import pytest
@@ -226,11 +227,12 @@ def _undecoded_two(rotate: int = 0, media_box: bytes = b"0 0 595 842", text: byt
 
 
 _OLD_STYLE = b" ".join(b"/%s.os" % name for name in
-                      (b"one", b"two", b"three", b"four", b"five", b"six", b"seven", b"eight", b"nine", b"zero"))
+                      (b"one", b"two", b"three", b"four", b"five", b"six", b"seven", b"eight", b"nine", b"zero", b"fi"))
 
 
 def _old_style_figures(content: bytes, base: bytes = b"BookSerif") -> tuple[bytes, bytes]:
-    """A page drawing `content` in a font whose codes 1-10 are the old-style figures 1-9 and 0 (glyphs 'one.os' …), and the
+    """A page drawing `content` in a font whose codes 1-10 are the old-style figures 1-9 and 0 (glyphs 'one.os' …; code 11 is
+    the ligature 'ﬁ', which pdfium reads as 'f' and 'i'), and the
     same page with a ToUnicode map giving those codes their digits. pdfminer reads the first: its map gives U+FFFD for the
     figures, as a book font's does. pdfium reads the glyphs of such an embedded font right; here it is made to read the
     second (`_pdfium_reads`), so that it reads a real character, and the right one, at every place. The font has /Widths,
@@ -241,7 +243,7 @@ def _old_style_figures(content: bytes, base: bytes = b"BookSerif") -> tuple[byte
     def document(figures: bytes) -> bytes:
         cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering"
                 b" (UCS) /Supplement 0 >> def /CMapName /Adobe-Identity-UCS def /CMapType 2 def 1 begincodespacerange <00> <FF>"
-                b" endcodespacerange 10 beginbfchar %s endbfchar 1 beginbfrange <20> <7E> <0020> endbfrange endcmap"
+                b" endcodespacerange 11 beginbfchar %s <0B> <FB01> endbfchar 1 beginbfrange <20> <7E> <0020> endbfrange endcmap"
                 b" CMapName currentdict /CMap defineresource pop end end") % figures
         page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 << /Type"
                 b" /Font /Subtype /Type1 /BaseFont /%s /ToUnicode 5 0 R %s /Encoding << /Type /Encoding /BaseEncoding"
@@ -270,6 +272,85 @@ def _converted(monkeypatch: pytest.MonkeyPatch, content: bytes, base: bytes = b"
     return convert(data, "a.pdf").text.replace("<!-- Page 1 -->", "").strip()
 
 
+def _repaired(content: bytes, base: bytes = b"BookSerif",
+              change: Callable[[list], list] | None = None) -> list[tuple[str, str]]:
+    """(the true character, the character after the repair) for each character of the page of `_old_style_figures`, pdfium
+    reading the second page of that function — its characters passed through `change` first, if given."""
+    from io import BytesIO
+
+    import pdfplumber
+    import pypdfium2 as pdfium
+
+    from opendockit.extractors._pdf_glyph_repair import _pdfium_glyphs, _repair_replacement_chars
+
+    data, truth = _old_style_figures(content, base)
+    with pdfplumber.open(BytesIO(truth)) as pdf:
+        wanted = [char["text"] for char in pdf.pages[0].chars]
+    with pdfplumber.open(BytesIO(data)) as pdf:
+        page = pdf.pages[0]
+        document = pdfium.PdfDocument(truth)
+        try:
+            glyphs = _pdfium_glyphs(document, 0)
+            _repair_replacement_chars(page, (lambda: change(glyphs())) if change else glyphs)
+        finally:
+            document.close()
+        return [(want, char["text"]) for want, char in zip(wanted, page.chars, strict=True)]
+
+
+def _misread(old: str, new: str) -> Callable[[list], list]:
+    """pdfium reads `new` for each `old`."""
+    return lambda glyphs: [(*box, new if text == old else text) for *box, text in glyphs]
+
+
+def _extra_before(text: str) -> Callable[[list], list]:
+    """pdfium also reads `text` just left of its last glyph, as for a glyph pdfminer does not see."""
+    return lambda glyphs: [*glyphs[:-1], (glyphs[-1][0] - 0.1, *glyphs[-1][1:4], text), glyphs[-1]]
+
+
+def _line(text: bytes, state: bytes = b"") -> bytes:
+    return b"BT /F1 12 Tf %s 72 700 Td (%s) Tj ET" % (state, text)
+
+
+# Pages of figures pdfminer reads as U+FFFD (codes \001-\011 are the figures 1-9, \012 is 0), drawn in shapes where taking the
+# glyph at the place or between the same letters gave a wrong figure, or might
+_INDEX = _line(rb"Pears \001, \002, \003, \004, \005, \006, \007, \010, \011")
+_PAIRS = _line(rb"Apples \001\002, \003\004, \005\006, \007\010, \011\012, \001\003")
+_LABELS = _line(rb"see a\001 a\002 a\003 a\004 a\005 a\006 a\007")
+_DATES = _line(rb"on 1/\001, 1/\002, 1/\003, 1/\004, 1/\005, 1/\006")
+_VERSIONS = _line(rb"v\001.0 v\002.0 v\003.0 v\004.0 v\005.0 v\006.0 v\007.0")
+_PAGE = _line(rb"Page \00207 of the report")
+_FIGURE = _line(rb"See Figure 11.1\002 for more")
+_FIGURE_AT_END = _line(rb"See Figure 11.1\002")
+_STARTING = _line(rb"\002\012\007 pages in all")
+_YEAR = _line(rb"In \001\011\011\010 the firm grew")
+_RUN = _line(rb"code \001\002\003\004\005\006 end")
+_TABLE = (rb"BT /F1 10 Tf 72 700 Td (Item) Tj 100 0 Td (Qty) Tj 100 0 Td (Price) Tj ET BT /F1 10 Tf 72 680 Td (Pens) Tj 100 0 Td"
+          rb" (\002) Tj 100 0 Td (4.50) Tj ET BT /F1 10 Tf 72 660 Td (Ink) Tj 100 0 Td (1\002) Tj 100 0 Td (9.\00250) Tj ET")
+_TURNED = rb"BT /F1 12 Tf -1 0 0 -1 400 500 Tm (Page \00207 of, total \001\003.) Tj ET"
+_BACKWARDS = _line(rb"Pears \001\001\002\003 1\0011\002\002\001 11\00111", b"-1.5 Tc")
+_NARROW = _line(rb"11\00211\00311 1\0041", b"-2 Tc")
+_SLANTED = rb"BT /F1 12 Tf 0.866 0.5 -0.5 0.866 72 500 Tm (Page \00207 of, total \001\003.) Tj ET"
+_UPRIGHT = rb"BT /F1 12 Tf 0 1 -1 0 300 300 Tm (Page \00207 of, total \001\003.) Tj ET"
+_CLOSE_LINES = rb"BT /F1 12 Tf 72 700 Td (aa\002aa) Tj ET BT /F1 12 Tf 72.5 703 Td (aa\005aa) Tj ET"
+_RAISED = rb"BT /F1 12 Tf 72 700 Td (x) Tj 6 Ts (\002) Tj 0 Ts (y and z) Tj ET"
+_LAYERS = rb"BT /F1 12 Tf 72 700 Td (Page \00207 of) Tj ET BT /F1 12 Tf 72.5 700 Td (Page \00507 of) Tj ET"
+_BOLD = rb"BT /F1 12 Tf 72 700 Td (Page \00207 of) Tj ET BT /F1 12 Tf 73 700 Td (Page \00207 of) Tj ET"
+_KERNED = rb"BT /F1 12 Tf 72 700 Td [(Page ) -300 (\002) 200 (07 of)] TJ ET"
+_SQUEEZED = _line(rb"Page \00207 of, total \001\003.", b"50 Tz")
+_ALONE = rb"BT /F1 12 Tf 72 700 Td (Body text line here.) Tj ET BT /F1 10 Tf 290 40 Td (\0020\002) Tj ET"
+_LIGATURE = _line(rb"the \013\002 of")
+_TIGHT = rb"BT /F1 12 Tf 72 700 Td (Page \00207 of) Tj ET BT /F1 12 Tf 72 690 Td (See Figure 11.1\002 for more) Tj ET"
+_BREAK = _line(rb"Pears \001, \002, \003 | \004, \005, \006, \007, \010, \011")
+_STRAY = _line(rb"Pears ! \001, \002, \003, \004, \005, \006, \007, \010, \011")
+_STRAY_LABEL = _line(rb"see a\001 a\002 ! a\003 a\004 a\005 a\006 a\007 a\010 a\011")
+_SHAPES = {"index": _INDEX, "pairs": _PAIRS, "labels": _LABELS, "dates": _DATES, "versions": _VERSIONS, "page": _PAGE,
+           "figure": _FIGURE, "figure at end": _FIGURE_AT_END, "starting": _STARTING, "year": _YEAR, "run": _RUN,
+           "table": _TABLE, "turned": _TURNED, "backwards": _BACKWARDS, "narrow": _NARROW, "slanted": _SLANTED,
+           "upright": _UPRIGHT, "close lines": _CLOSE_LINES, "raised": _RAISED, "layers": _LAYERS, "bold": _BOLD,
+           "kerned": _KERNED, "squeezed": _SQUEEZED, "alone": _ALONE, "ligature": _LIGATURE, "tight": _TIGHT,
+           "break": _BREAK, "stray": _STRAY, "stray label": _STRAY_LABEL}
+
+
 class TestUndecodedGlyphs:
     """A character pdfminer reads as U+FFFD takes the character pdfium reads for the same glyph. pdfium reads the glyph of an
     embedded book font through the font program ('207', 'Figure 11.12'); with the non-embedded font of a document built here
@@ -294,12 +375,39 @@ class TestUndecodedGlyphs:
         assert "Page 207 of the report" in text
         assert "\ufffd" not in text
 
-    @pytest.mark.parametrize(("text", "repaired"), [(b"See Figure 11.1\\001", "See Figure 11.12"),
-                                                     (b"\\00107 pages", "207 pages")])
-    def test_an_undecoded_character_beside_decoded_ones_on_one_side_only(self, monkeypatch, text, repaired):
-        self._pdfium_reads_two(monkeypatch)
+    @pytest.mark.parametrize("base", [b"BookSerif", b"Helvetica"])
+    @pytest.mark.parametrize("shape", list(_SHAPES))
+    def test_no_undecoded_character_takes_another_glyphs_character(self, shape, base):
+        """pdfium reads the right figure at every place here; a U+FFFD may stay, but must not take a neighbour's figure. With
+        the standard Helvetica pdfminer measures by its own widths and gives the figures none, pdfium uses /Widths: further
+        along a line its places drift, and a glyph at the place ('Pears 1, \ufffd, 2, 3') or between the same characters (a
+        repeating ', \ufffd,') was a neighbour's."""
+        assert [(want, got) for want, got in _repaired(_SHAPES[shape], base) if got not in (want, "\ufffd")] == []
 
-        assert repaired in convert(_undecoded_two(text=text), "a.pdf").text
+    @pytest.mark.parametrize(("shape", "base", "change"), [
+        ("page", b"BookSerif", _misread("2", "\x07")), ("page", b"BookSerif", _misread("g", "q")),
+        ("break", b"Helvetica", _misread("|", "!")), ("figure at end", b"BookSerif", _extra_before("x")),
+        ("figure at end", b"Helvetica", _extra_before("x")), ("stray", b"Helvetica", _misread("!", "?")),
+        ("stray label", b"Helvetica", _misread("!", "?"))])
+    def test_where_pdfium_reads_otherwise_no_character_takes_a_wrong_one(self, shape, base, change):
+        """pdfium reads a control character for the glyph, another character for a decoded one before it (the walk breaks
+        there and starts again further on — where the advances differ, from a place that is not in step, so each character
+        must then lie at its pair's place), or a glyph pdfminer does not see before it at the end of the row."""
+        assert [(want, got) for want, got in _repaired(_SHAPES[shape], base, change) if got not in (want, "\ufffd")] == []
+
+    @pytest.mark.parametrize(("shape", "base"), [
+        *((shape, b"BookSerif") for shape in ("index", "pairs", "labels", "dates", "versions", "page", "figure",
+                                              "figure at end", "starting", "year", "run", "table", "turned", "narrow",
+                                              "squeezed", "kerned", "ligature", "tight")),
+        *((shape, b"Helvetica") for shape in ("index", "labels", "dates", "versions", "page", "figure", "figure at end"))])
+    def test_each_undecoded_character_takes_its_own_glyphs_character(self, shape, base):
+        """Paired in order along their rows from a character both read alike at the same place, the figures come back even
+        where the two readers' advances differ (Helvetica), at the start or end of a line, in a run, and alone in a table
+        cell."""
+        assert all(want == got for want, got in _repaired(_SHAPES[shape], base))
+
+    def test_a_table_cell_of_one_undecoded_figure_takes_it(self, monkeypatch):
+        assert "| Pens | 2 | 4.50 |" in _converted(monkeypatch, _TABLE)
 
     @pytest.mark.parametrize("state", [b"/F1 12 Tf", b"/F1 7 Tf", b"/F1 12 Tf 60 Tz"])
     def test_where_pdfium_cannot_read_it_either_the_character_stays(self, state):
@@ -421,6 +529,33 @@ class TestUndecodedGlyphs:
 
         texts = [char["text"] for char in chars]
         return fastest(repair)
+
+    def test_a_glyph_two_characters_pair_with_is_given_to_neither(self):
+        """Two rows of pdfminer 3.5pt apart, and one of pdfium between them: both rows pair their U+FFFD with its '2'."""
+        from types import SimpleNamespace
+
+        from opendockit.extractors._pdf_glyph_repair import _repair_replacement_chars
+
+        def char(text: str, left: float, middle: float) -> dict:
+            return {"text": text, "x0": left, "x1": left + 6, "top": 842 - middle - 6, "bottom": 842 - middle + 6, "size": 12}
+
+        chars = [char("a", 100, 100), char("\ufffd", 106, 100), char("a", 100, 103.5), char("\ufffd", 106, 103.5)]
+        glyphs = [(100.0, 106.0, 95.75, 107.75, "a"), (106.0, 112.0, 95.75, 107.75, "2")]
+        _repair_replacement_chars(SimpleNamespace(chars=chars, rotation=0, height=842.0), lambda: glyphs)
+
+        assert [char["text"] for char in chars] == ["a", "\ufffd", "a", "\ufffd"]
+
+    @pytest.mark.timing
+    def test_a_pile_of_glyphs_on_one_spot_is_passed_over_in_linear_time(self):
+        """Each decoded character pdfium reads otherwise looks for an anchor among the glyphs at its place."""
+        def time_of(count: int) -> float:
+            chars = [{"text": "\ufffd" if number % 2 else "a", "x0": 100.0, "x1": 100.0, "top": 736.0, "bottom": 748.0,
+                      "size": 12.0} for number in range(count)]
+            glyphs = [(100.0, 106.0, 94.0, 106.0, "b")] * count
+            return self._repair_time(chars, glyphs, 842.0)
+
+        small, large = time_of(2_000), time_of(8_000)
+        assert large < small * 8
 
     @pytest.mark.timing
     def test_many_characters_in_one_box_are_joined_in_linear_time(self):
