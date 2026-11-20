@@ -210,8 +210,7 @@ class HwpxRenderer:
     def render_paragraph(self, paragraph: etree._Element) -> list[str]:
         self._note_memo_target(" ")  # between paragraphs of a comment range that spans several paragraphs
         # The head goes on the first text piece only, and a paragraph without text keeps its number (`_hangul.ParagraphPieces`).
-        pieces = ParagraphPieces(lambda text, plain, heading: self._decorate(paragraph, text, plain, heading),
-                                 in_cell=bool(self._cell_depth))
+        pieces = ParagraphPieces(lambda text, plain, heading: self._decorate(paragraph, text, plain, heading))
         blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
 
         for run in _children(paragraph, "run"):

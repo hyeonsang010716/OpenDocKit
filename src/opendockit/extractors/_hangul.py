@@ -41,50 +41,54 @@ _COMMAND_ESCAPE = re.compile(r"\\(.)", re.DOTALL)
 
 # A line this long or shorter can be a letter-spaced label (`unspaced_label`)
 _SPACED_LABEL_MAX_CHARS = 30
+# The number of syllables of a letter-spaced label (`담   당   자`): a longer row of one-syllable words is no label
+_SPACED_LABEL_SYLLABLES = range(2, 7)
 # One Hangul syllable, and the units of a blank date or time in a form (`년   월   일`, `시   분`), which are spaced for writing in,
 # not for looks
 _SYLLABLE = re.compile(r"[가-힣]")
 _DATE_UNITS = frozenset("년월일시분초")
 # A list mark in front of a label: a bullet, `1.`, `가.`, `(1)`, `①`
 _LABEL_LEAD = re.compile(r"(?:[-•·○●◦▪□■◇◆※*]|\(?\d{1,3}[.)]|\(?[가-힣][.)]|[①-⑳]) +")
-# Whitespace other than a plain space (a tab, an ideographic space): it separates a label from its value (`성 명<tab>홍길동`),
+# The gaps between the words of a label
+_LABEL_GAP = re.compile(r" +")
+# Whitespace other than a plain space (a tab, an ideographic space): it separates a label from its value (`성   명<tab>홍길동`),
 # so each part between is looked at on its own and the whitespace is kept
 _LABEL_SEPARATOR = re.compile(r"([^\S ]+)")
 
 
-def unspaced_label(line: str, *, in_cell: bool) -> str:
-    """A letter-spaced label with the spaces between its syllables taken out: `기 관 명` → `기관명`, `성 명` → `성명`,
-    `실 습 생 인적사항` → `실습생인적사항`; a list mark in front stays with one space (`13. 농 업 기 술` → `13. 농업기술`).
-    It is applied to the written line, after links and emphasis: a cell that is bold throughout is a label like any other.
+def unspaced_label(line: str) -> str:
+    """A letter-spaced label with the spaces between its syllables taken out: `담   당   자` → `담당자`, `성   명` → `성명`; a list
+    mark in front stays with one space (`□ 추   진   배   경` → `□ 추진배경`). It is applied to the written line, after links and
+    emphasis: a cell that is bold throughout is a label like any other.
 
     Korean forms space the syllables of a label to fill the width of its cell. Read as written, the label is a row of one-syllable
-    words that a search for `기관명` or `성명` does not find, and an LLM reading the form sees broken words. A line is a spaced
-    label when it is short and at least 70% of three or more words are one syllable, or, in a table cell, both of two words are
-    (outside a cell `앞 글` is two words of a sentence); a blank date or time
-    (`년   월   일`, `2024 년 월 일`, `시   분`) is not, nor is a line with anything but words and spaces. A tab or an
-    ideographic space separates a label from its value (`성 명<tab>홍 길 동` → `성명<tab>홍길동`): only plain spaces are taken
-    out, each part between other whitespace on its own (Pinned by: test_hwp_spaced_labels.py).
+    words that a search for `담당자` or `성명` does not find, and an LLM reading the form sees broken words. A line is a spaced
+    label only when it looks like nothing else: two to six words, each one Hangul syllable, with gaps of the same two or more
+    spaces between them. One space between one-syllable words is ordinary Korean as often (`수 및 양`, `할 수 있는 일`, the
+    choices `남 여`, `상 중 하`, a label and its value `성 명 홍 길 동`), and joining it cannot be undone, so `기 관 명` stays as
+    written. A blank date or time (`년   월   일`, `시   분`) is not a label either. A tab or an ideographic space separates a
+    label from its value (`성   명<tab>홍 길 동` → `성명<tab>홍 길 동`): only plain spaces are taken out, each part between other
+    whitespace on its own (Pinned by: test_hwp_spaced_labels.py).
     """
-    if len(line.strip()) > _SPACED_LABEL_MAX_CHARS or " " not in line:
+    if len(line.strip()) > _SPACED_LABEL_MAX_CHARS or "  " not in line:
         return line
     parts = _LABEL_SEPARATOR.split(line)
     if len(parts) > 1:
-        return "".join(part if index % 2 else _unspaced_part(part, in_cell) for index, part in enumerate(parts))
-    return _unspaced_part(line, in_cell)
+        return "".join(part if index % 2 else _unspaced_part(part) for index, part in enumerate(parts))
+    return _unspaced_part(line)
 
 
-def _unspaced_part(line: str, in_cell: bool) -> str:
+def _unspaced_part(line: str) -> str:
     """`unspaced_label` for text whose only whitespace is plain spaces."""
     stripped = line.strip(" ")
-    if " " not in stripped:
-        return line
     lead = _LABEL_LEAD.match(stripped)
     head, rest = (stripped[:lead.end()].rstrip(" ") + " ", stripped[lead.end():]) if lead else ("", stripped)
-    words = [word for word in rest.split(" ") if word]
-    singles = [word for word in words if len(word) == 1 and _SYLLABLE.fullmatch(word)]
-    if len(words) < (2 if in_cell else 3) or (len(words) == 2 and len(singles) < 2) or len(singles) < 0.7 * len(words):
+    words = rest.split(" ")
+    words = [word for word in words if word]
+    gaps = set(_LABEL_GAP.findall(rest))
+    if len(words) not in _SPACED_LABEL_SYLLABLES or len(gaps) != 1 or len(next(iter(gaps))) < 2:
         return line
-    if all(word in _DATE_UNITS for word in singles) or not all(word.isalnum() for word in words):
+    if not all(_SYLLABLE.fullmatch(word) for word in words) or all(word in _DATE_UNITS for word in words):
         return line
     return line[:len(line) - len(line.lstrip(" "))] + head + "".join(words) + line[len(line.rstrip(" ")):]
 
@@ -311,8 +315,7 @@ class ParagraphPieces:
     a link that does not end in the same piece of text (across a table, a text box or a paragraph end) stays text.
     """
 
-    def __init__(self, decorate: Callable[[str, str, Callable[[], str]], str], *, in_cell: bool = False) -> None:
-        self._in_cell = in_cell
+    def __init__(self, decorate: Callable[[str, str, Callable[[], str]], str]) -> None:
         self.blocks: list[str] = []
         self.buffer: list[str] = []
         self._decorate = decorate
@@ -352,11 +355,10 @@ class ParagraphPieces:
 
     def _unspaced(self, text: str) -> str:
         """The written text with its letter-spaced labels joined (`unspaced_label`). On the written text: a cell bold throughout
-        has lost its marks by now, and a line with marks or a link left in it is not a label (its words are not all letters and
-        digits)."""
-        if len(text) > _SPACED_LABEL_MAX_CHARS or " " not in text:
+        has lost its marks by now, and a line with marks or a link left in it is not a label (its words are not all syllables)."""
+        if len(text) > _SPACED_LABEL_MAX_CHARS or "  " not in text:
             return text
-        return "\n".join(unspaced_label(line, in_cell=self._in_cell) for line in text.split("\n"))
+        return "\n".join(unspaced_label(line) for line in text.split("\n"))
 
     def finish(self, head: Callable[[], tuple[str, int]], *, in_cell: bool) -> list[str]:
         """The blocks of the paragraph. `head` reads the paragraph head (mark, level); it is called only when no text piece took

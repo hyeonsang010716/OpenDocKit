@@ -132,7 +132,8 @@ Section unit: the whole document. Design notes: [decisions/hwp.md](decisions/hwp
   short paragraph set clearly larger than the body (1.15 / 1.3 / 1.5 times) becomes a level 3 / 2 / 1 heading; dates,
   table-of-contents lines and sentences written large stay text.
 - Paragraph numbering and bullets; lower levels become indented lists.
-- Letter-spaced labels of forms are joined (`기 관 명` → `기관명`); blank dates (`년   월   일`) keep their spaces.
+- Letter-spaced labels of forms are joined (`담   당   자` → `담당자`; syllables one space apart stay as written);
+  blank dates (`년   월   일`) keep their spaces.
 - Headers that hold words (a form's number and title) are written once before the body, without their pictures; page
   numbers and footers only with `include_headers_footers`.
 - Tables with merged cells.

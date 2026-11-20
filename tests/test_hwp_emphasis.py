@@ -81,9 +81,9 @@ class TestHwpEmphasis:
         assert convert(data, "a.hwp").text.startswith("# 1. 사업 개요\n")
 
     def test_spaced_bold_title_is_joined_in_its_heading_too(self):
-        """A bold title written with spaced syllables (`보 도 자 료`) and a bold word in it is a heading without emphasis, joined."""
+        """A bold title written with spaced syllables (`보  도  자  료`) and a bold word in it is a heading without emphasis, joined."""
         docinfo = b"".join(builder.hwp_record(TAG_CHAR_SHAPE, 0, _char_shape(size, bold))
                            for size, bold in ((1000, False), (2000, True), (2000, False)))
-        data = _fake_hwp(None, sections=[_paragraph("보 도 자 료", (0, 1), (2, 2)), _paragraph(_BODY)], docinfo_extra=docinfo)
+        data = _fake_hwp(None, sections=[_paragraph("보  도  자  료", (0, 1), (3, 2)), _paragraph(_BODY)], docinfo_extra=docinfo)
 
         assert convert(data, "a.hwp").text.startswith("# 보도자료\n")

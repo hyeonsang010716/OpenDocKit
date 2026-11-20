@@ -37,8 +37,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   written in is a level 3 / 2 / 1 heading; dates, table-of-contents lines, the addressee line of a form and sentences
   written large stay text. In 34 real HWP / HWPX files, where every title was set by size on 바탕글, no heading came out
   before; now their chapter titles do.
-- **Letter-spaced labels of Hangul forms** are written without the spaces between their syllables (`기 관 명` →
-  `기관명`, `담   당   자` → `담당자`), so a search for the label finds it. Blank dates (`년   월   일`) keep their spaces.
+- **Letter-spaced labels of Hangul forms** are written without the spaces between their syllables (`성   명` →
+  `성명`, `담   당   자` → `담당자`), so a search for the label finds it. Syllables one space apart stay as written
+  (`수 및 양`, the choices `남 여`), and blank dates (`년   월   일`) keep their spaces.
 - **Bold and italic in HWP and HWPX** under `keep_emphasis`, by the same rules as DOCX (`3. **시험기간** : …`).
 - **Headers of Hangul documents that hold words** (a form's number and title) are written once before the body even
   without `include_headers_footers`, without their pictures. In 9 of 34 real files that text was nowhere else and was
