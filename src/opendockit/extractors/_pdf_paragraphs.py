@@ -588,7 +588,9 @@ def _is_value_text(text: str) -> bool:
 def _ends_like_a_sentence(text: str) -> bool:
     """Whether a short bold text is a sentence rather than a title: it ends in ',' or ';'; in '.' unless the whole text is
     a numbered label (`_NUMBERED_LABEL`); in '!' or '?' after `_SENTENCE_MIN_WORDS` words or more, or in ':' after
-    `_LEAD_IN_MIN_WORDS` ('The applicant must provide:'; 'Key findings:' is a title; Korean after `_SENTENCE_MIN_WORDS`);
+    `_LEAD_IN_MIN_WORDS`, a leading section number not counted, unless it is set in title case ('The applicant must
+    provide:'; 'Key findings:', 'Summary of Key Findings:' and '1. Scope of Work:' are titles; a Korean line ending in ':'
+    is held to its sentence endings alone);
     it holds a '!' or '?' with more text after it ('Questions? Call 1-800-555-0100'); or it ends like a Korean sentence
     without its full stop (`_hangul.korean_sentence_end`, the rule the Hangul readers tell sentences from titles by:
     `…합니다`, `…할 수 없다`) or like a Korean notice (`_korean_notice_end`).
@@ -605,8 +607,10 @@ def _ends_like_a_sentence(text: str) -> bool:
         return True
     if text.endswith(("!", "?")) and len(text.split()) >= _SENTENCE_MIN_WORDS:
         return True
-    if text.endswith(":") and len(text.split()) >= (_SENTENCE_MIN_WORDS if _HANGUL.search(text) else _LEAD_IN_MIN_WORDS):
-        return True
+    if text.endswith(":") and not _HANGUL.search(text):
+        words = _SECTION_LEAD.sub("", text).split()
+        if len(words) >= _LEAD_IN_MIN_WORDS and not _title_case(words):
+            return True
     return korean_sentence_end(text) or _korean_notice_end(text)
 
 
@@ -668,14 +672,33 @@ _SLIGHTLY_LARGER_MAX_CHARS = 60
 # A bold text ending in '!' or '?' with this many words or more is a sentence ('Do not discard this notice!'), not a title
 # ('Why entropy?', 'Welcome!')
 _SENTENCE_MIN_WORDS = 5
-# A bold text ending in ':' with this many words or more is the lead-in of a list ('The applicant must provide:'), not a
-# title ('Procedure:', 'Key findings:', 'Chapter 3: Results'). A Korean line keeps `_SENTENCE_MIN_WORDS`: its words are
-# longer and its lead-ins end like a sentence before the ':' ('추진 현황 및 계획:' is a title). Pinned by:
-# test_pdf_headings.py::TestBoldSentenceEnds::test_a_bold_sentence_with_another_end_is_no_heading
+# A bold text ending in ':' with this many words or more, not counting a leading section number, and not in title case
+# (`_title_case`) is the lead-in of a list ('The applicant must provide:'), not a title ('Procedure:', 'Key findings:',
+# 'Summary of Key Findings:', '2.1 Data and Methods:'). A Korean line ending in ':' is held to its sentence endings alone:
+# its lead-ins end like a sentence before the ':' ('1. 추진 경과 및 향후 계획:' is a title). Pinned by:
+# test_pdf_headings.py::TestBoldSentenceEnds::test_a_bold_sentence_with_another_end_is_no_heading,
+# test_a_short_title_is_a_heading
 _LEAD_IN_MIN_WORDS = 4
+# A section number leading a heading ('1. ', '2.1 ', 'III. '), not counted as a word of it
+_SECTION_LEAD = re.compile(r"^(?:\d{1,3}(?:\.\d{1,3})*\.?|[IVXLC]{1,6}\.)\s+")
+# The small words a title in title case keeps in lower case
+_MINOR_WORDS = frozenset(("a", "an", "the", "and", "or", "nor", "but", "of", "for", "to", "in", "on", "at", "by", "with", "from",
+                          "into", "vs", "per", "as", "via"))
+
+
+def _title_case(words: list[str]) -> bool:
+    """Whether the words are set in title case: the first and every word but the small ones (`_MINOR_WORDS`) start with a
+    capital or a digit ('Summary of Key Findings', 'Q&A Session with Panelists', 'Part 1: Getting Started')."""
+    for index, word in enumerate(words):
+        word = word.strip(":;,.()\"'“”‘’")
+        if not word or not word[0].isalpha():
+            continue
+        if word[0].islower() and (index == 0 or word.lower() not in _MINOR_WORDS):
+            return False
+    return True
 _HANGUL = re.compile(r"[가-힣]")
 # Closing marks after the end of a Korean clause (`_korean_notice_end`)
-_KOREAN_CLOSING = ".!?\"'”’)） "
+_KOREAN_CLOSING = ".!?:\"'”’)） "
 # Endings of a Korean notice or instruction in the last word, whatever the words before it: a verb made a noun after a stem
 # or tense (`같음`, `있음`, `제출하였음`) and the polite request (`주세요`, `하십시오`, `기입하시오`)
 _KOREAN_VERB_END = re.compile(r"(?:[하되있없같았었였했됐겠않]음|세요|시오)\Z")

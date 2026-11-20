@@ -347,7 +347,8 @@ class TestBoldSentenceEnds:
     short title ending so, and a Korean title, is."""
 
     @pytest.mark.parametrize("line", ["Do not discard this notice!", "Questions? Call 1-800-555-0100",
-                                      "The following documents must be attached:", "The applicant must provide:"])
+                                      "The following documents must be attached:", "The applicant must provide:",
+                                      "Please note the following:"])
     def test_a_bold_sentence_with_another_end_is_no_heading(self, line):
         text = _text([*_body(80), (140, line, 10, "Times-Bold"), *_body(156)])
 
@@ -359,7 +360,7 @@ class TestBoldSentenceEnds:
 
         assert "#" not in text and line in text
 
-    @pytest.mark.parametrize("line", ["서류는 기한 내 제출함", "본 계약은 무효임", "위와 같이 신청함", "다음과 같음", "외부 회의 참여함", "사업 계획 수립됨",
+    @pytest.mark.parametrize("line", ["서류는 기한 내 제출함", "본 계약은 무효임", "위와 같이 신청함", "다음과 같음", "제출 서류는 다음과 같음:", "외부 회의 참여함", "사업 계획 수립됨",
                                       "반드시 원본을 제출할 것", "기한 내 제출 바람", "협조하기 바람", "확인해 주세요", "서명하십시오",
                                       "반드시 확인하라", "결과를 얻는다", "제출하였음"])
     def test_a_korean_notice_is_no_heading(self, line):
@@ -394,14 +395,17 @@ class TestBoldSentenceEnds:
         assert f"# {title}\n\n본 계약은" in text
 
     @pytest.mark.parametrize("title", ["제1조(목적)", "1. 사업 개요", "추진 배경", "개요", "필요", "다음", "정기 모임", "사회적 책임",
-                                       "추진 현황 및 계획:", "캐나다", "참고 자료", "향후 과제", "제5조(계약의 해지)", "왜 필요한가?", "100억원 투자 계획"])
+                                       "추진 현황 및 계획:", "1. 추진 경과 및 향후 계획:", "캐나다", "참고 자료", "향후 과제", "제5조(계약의 해지)", "왜 필요한가?", "100억원 투자 계획"])
     def test_a_korean_title_in_bold_is_a_heading(self, title):
         text = _named_font_pdf([*_named_body(80), (72, 140, title, 10, "Batang-Bold"), *_named_body(156)])
 
         assert f"# {title}\n\n본 계약은" in text
 
     @pytest.mark.parametrize("title", ["Why entropy?", "Read this first!", "Key findings", "1.1 Scope", "Requirements:",
-                                       "Key findings:", "Chapter 3: Results"])
+                                       "Key findings:", "Chapter 3: Results", "Part 1: Getting Started:",
+                                       "Summary of Key Findings:", "Terms of the Agreement:", "Risks and Mitigation Measures:",
+                                       "Q&A Session with Panelists:", "Section 2. Payment Terms:", "1. Scope of Work:",
+                                       "2.1 Data and Methods:", "III. Terms of Payment:"])
     def test_a_short_title_is_a_heading(self, title):
         text = _text([*_body(80), (140, title, 10, "Times-Bold"), *_body(156)])
 
