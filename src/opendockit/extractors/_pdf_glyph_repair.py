@@ -35,12 +35,14 @@ def _pdfium_glyphs(document: pdfium.PdfDocument | None, index: int | None) -> Ca
 
 
 def _read_glyphs(document: pdfium.PdfDocument, index: int) -> _Glyphs:
+    """pdfium's characters of the page. Empty when pdfium fails anywhere on the page: the repair never fails a document, it
+    leaves U+FFFD (Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs::test_a_pdfium_failure_leaves_the_character_as_it_was)."""
     found: _Glyphs = []
     with _PDFIUM_LOCK:
         try:
             page = document[index]
         except pdfium.PdfiumError:
-            return found
+            return []
         try:
             textpage = page.get_textpage()
             try:
@@ -52,6 +54,8 @@ def _read_glyphs(document: pdfium.PdfDocument, index: int) -> _Glyphs:
                     found.append((left.value, right.value, bottom.value, top.value, chr(code)))
             finally:
                 textpage.close()
+        except pdfium.PdfiumError:
+            return []
         finally:
             page.close()
     found.sort()

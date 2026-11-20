@@ -244,6 +244,17 @@ class TestUndecodedGlyphs:
     def test_where_pdfium_cannot_read_it_either_the_character_stays(self):
         assert "Page \ufffd07 of the report" in convert(_undecoded_two(), "a.pdf").text
 
+    def test_a_pdfium_failure_leaves_the_character_as_it_was(self, monkeypatch):
+        """pdfium failing to read the page's text failed the whole document."""
+        import pypdfium2 as pdfium
+
+        def fails(*args):
+            raise pdfium.PdfiumError("Failed to load text page.")
+
+        monkeypatch.setattr(pdfium.PdfPage, "get_textpage", fails)
+
+        assert "Page \ufffd07 of the report" in convert(_undecoded_two(), "a.pdf").text
+
     @pytest.mark.parametrize("media_box", [b"30 40 625 882", b"-30 -40 565 802"])
     def test_a_page_box_away_from_the_origin(self, monkeypatch, media_box):
         self._pdfium_reads_two(monkeypatch)
