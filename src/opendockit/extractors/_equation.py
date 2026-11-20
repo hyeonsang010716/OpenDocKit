@@ -427,7 +427,15 @@ class _Parser:
             return rf"\sqrt[{argument}]{{{_bare(self._operand())}}}"
         if key in ("overbrace", "underbrace"):
             # OVERBRACE {body} {label}: the label goes above (below) the brace (Pinned by: test_equation.py::TestAddedWords).
+            # The label is the group written after the body, and only a group: without one the brace has none, as a binary
+            # operator or the next term is no label — `overbrace a` fell back to the whole script and `overbrace {a} ^ {n}`
+            # took `^` for the label (Pinned by: test_equation.py::TestAddedWords::test_brace_without_a_label_group_has_none).
             body = _bare(self._operand())
+            after = self._index
+            self._skip_space()
+            if self._raw() != "{":
+                self._index = after  # the blank after the body still ends the term
+                return rf"\{key}{{{body}}}"
             mark = "^" if key == "overbrace" else "_"
             return rf"\{key}{{{body}}}{mark}{{{_bare(self._operand())}}}"
         if key in _DECORATIONS:

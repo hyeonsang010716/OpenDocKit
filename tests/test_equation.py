@@ -288,8 +288,16 @@ class TestAddedWords:
     def test_command_table_word(self, script, latex):
         assert equation_to_latex(script) == latex
 
-    def test_brace_without_its_label_falls_back(self):
-        assert equation_to_latex("OVERBRACE{a}") is None
+    @pytest.mark.parametrize("script, latex", [
+        ("OVERBRACE{a}", r"\overbrace{a}"),
+        ("x + underbrace a + y", r"x + \underbrace{a} + y"),
+        ("overbrace {a} ^ {n}", r"\overbrace{a}^{n}"),
+        ("overbrace {a+b} {n} + y", r"\overbrace{a+b}^{n} + y"),
+    ])
+    def test_brace_without_a_label_group_has_none(self, script, latex):
+        """The label is the group written after the body, and only a group: without one the whole equation fell back to the
+        script, and a script mark after the body was taken for the label (`\\overbrace{a}^{^} {n}`)."""
+        assert equation_to_latex(script) == latex
 
 
 class TestRepeatedStacks:
