@@ -82,6 +82,7 @@ from opendockit.extractors._notation import (
 from opendockit.extractors._package import (
     ZIP_MEMBER_ERRORS,
     core_properties,
+    has_password_protected_part,
     is_strict_package,
     main_document_part,
     open_package,
@@ -1197,6 +1198,11 @@ def _strict_main_part(data: bytes, warnings: list[str]) -> DocumentPart | None:
         part, _ = _open_main_part(transitional_package(data), warnings)
     except ZIP_MEMBER_ERRORS:
         part = None
+    if part is None and has_password_protected_part(data):
+        # A part the copy left out because it carries the ZIP password bit: corrupted as for a Transitional document, so the
+        # converter reports the password, not advice to save again that the password stops (Pinned by:
+        # test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::test_password_protected_strict_docx_is_encrypted)
+        raise CorruptedDocumentError("The DOCX document structure could not be read.")
     if part is None:
         raise UnsupportedFormatError("This Word document in the Strict Open XML format could not be read. "
                                      "Please save the file again in Word as 'Word Document (.docx)'.")

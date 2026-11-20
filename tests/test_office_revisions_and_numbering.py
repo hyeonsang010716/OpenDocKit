@@ -674,6 +674,15 @@ class TestStrictOpenXmlOfficeDocuments:
         assert "# 1장 개요" in convert(_strict_everywhere(builder.docx_bytes()), "a.docx").text
         assert alive_at_copy == [False]
 
+    def test_password_protected_strict_docx_is_encrypted(self):
+        """A Strict DOCX whose body carries the ZIP password bit got the advice to save it again; a Transitional one is reported
+        as password-protected."""
+        from opendockit import EncryptedDocumentError
+
+        for data in (builder.docx_bytes(), _strict_everywhere(builder.docx_bytes())):
+            with pytest.raises(EncryptedDocumentError, match="password-protected"):
+                convert(builder.zip_password(data, {"word/document.xml"}), "a.docx")
+
     def test_strict_docx_whose_copy_holds_no_document_gets_the_resave_advice(self):
         strict = builder.zip_with(_strict_everywhere(builder.docx_bytes()),
                                   edit={"word/document.xml": lambda xml: re.sub(r"<w:document\b", "<w:other", xml, count=1)
