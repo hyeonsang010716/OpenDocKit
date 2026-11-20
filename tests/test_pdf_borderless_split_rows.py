@@ -655,3 +655,35 @@ class TestDisplayedFormulas:
         text = convert(_pieces_pdf(pieces), "a.pdf").text
 
         assert "| A-2 | 13.1 g | ± 0.2 g |" in text
+
+    def test_a_table_of_parameters_or_marks_stays_a_table(self):
+        rows = [("Parameter", "Value", "Unit"), ("α", "0.05", "-"), ("β", "0.2", "-"), ("σ", "1.5", "mm")]
+        pieces = [(150 + column * 90, 700 - row * 16, text) for row, values in enumerate(rows) for column, text in enumerate(values)]
+
+        assert "| 0.2 | - |" in convert(_pieces_pdf_cid(pieces), "a.pdf").text
+
+        marks = [("Item", "A", "B", "C"), ("Price", "○", "×", "×"), ("Speed", "×", "×", "○"),
+                 ("Size", "×", "○", "×")]
+        pieces = [(150 + column * 70, 700 - row * 16, text) for row, values in enumerate(marks) for column, text in enumerate(values)]
+
+        assert "| Speed |" in convert(_pieces_pdf_cid(pieces), "a.pdf").text
+
+
+def _pieces_pdf_cid(pieces: list[tuple[float, float, str]]) -> bytes:
+    """`_pieces_pdf` in a Korean CID font, which holds Greek letters and ○ × marks."""
+    from io import BytesIO
+
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfgen import canvas
+
+    pdfmetrics.registerFont(UnicodeCIDFont("HYSMyeongJo-Medium"))
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer)
+    pdf.setFont("HYSMyeongJo-Medium", 11)
+    pdf.drawString(72, 760, "The table below lists the parameters of the model used in the study.")
+    for x, y, text in pieces:
+        pdf.drawString(x, y, text)
+    pdf.drawString(72, 600, "These values hold for every run of the model that is reported in this section.")
+    pdf.save()
+    return buffer.getvalue()

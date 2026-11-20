@@ -45,21 +45,26 @@ _HEADING_SIZE_RATIO = 1.15
 # A heading set in a bold face at about the body size (`_is_bold_heading`): its size is at least this ratio of the body size (a
 # smaller bold line is a caption or a table label, not a heading).
 _BOLD_HEADING_MIN_RATIO = 0.97
-# Share of a line's letters drawn in a bold face for the line to count as bold (`_Line.bold`).
+# Share of a line's letters and digits drawn in a bold face for the line to count as bold (`_Line.bold`).
 _BOLD_LINE_RATIO = 0.8
 # A document whose body lines are bold this often (by characters) sets its body in a bold face, so a bold line tells nothing there.
 _BOLD_BODY_MAX_RATIO = 0.3
 # Font names of a bold face ('Brill-Bold', 'Arial,BoldItalic', 'NanumGothicExtraBold', 'Helvetica-Black', 'FrutigerLT-Heavy',
 # 'MinionPro-Semibold', 'Garamond-Demi'), with the short names of TeX fonts ('NimbusRomNo9L-Medi', 'CMBX12', 'CMSSBX10').
 # 'Medium' and 'Book' are body weights.
-_BOLD_FONT = re.compile(r"bold|black|heavy|semibold|demi|[-,]bd\b|[-,]bd[a-z]|-medi\b|-mediita\b|^cmbx|^cmssbx|^cmb\d",
-                        re.IGNORECASE)
+# 'Demi' counts only as a word of the name and not as 'DemiLight', a light weight common in Korean fonts
+# ('NotoSansCJKkr-DemiLight'), nor inside a word ('Academica').
+_BOLD_FONT = re.compile(r"(?i:bold|black|heavy)|Demi(?!(?i:light))|[-,_ ](?i:demi)(?!(?i:light))"
+                        r"|(?i:[-,]bd\b|[-,]bd[a-z]|-medi\b|-mediita\b|^cmbx|^cmssbx|^cmb\d)")
 # A figure label alone ('Diagram 4', 'Figure 6', 'Table 3.1', '그림 2'), the badge of a caption set in a box (`_is_caption_box`)
-_CAPTION_LABEL = re.compile(r"(?:fig(?:ure)?\.?|diagram|chart|graph|table|exhibit|photo|image|map|그림|표|도표|사진|차트)\s*"
-                            r"[0-9A-Z]{1,3}(?:[.\-][0-9]{1,3})*[.:]?", re.IGNORECASE)
+# The number is digits, one capital letter ('Figure A.1') or a Roman number ('Table IV'): a word like 'Tablet', 'Maps' or 'Images' is no label.
+_CAPTION_LABEL = re.compile(r"(?:(?i:fig(?:ure)?\.?|diagram|chart|graph|table|exhibit|photo|image|map)|그림|표|도표|사진|차트)\s*"
+                            r"(?:[0-9]{1,3}|[A-Z]\b|[IVX]{1,4}\b)(?:[.\-][0-9]{1,3})*[.:]?")
 # Text of a caption or a note label: a bold 'Figure 3.' or 'Source:' at the body size is not a heading.
-_CAPTION_START = re.compile(r"^(?:fig(?:ure)?|table|tab|chart|graph|diagram|map|source|sources|note|notes|exhibit|box|photo|image|"
-                            r"그림|표|도표|사진|출처|자료|주)\s*(?:[\d.:)\-]|[ⅠⅡⅢⅣⅤ]|[IVX]+\b)", re.IGNORECASE)
+# '주' only as the label of a note ('주:', '주1)', '주)'): '주 52시간 근무제' (a week of 52 hours) is a heading. A Roman number
+# is in capitals ('Table IV'), so 'Box i…' is no caption.
+_CAPTION_START = re.compile(r"^(?:(?i:fig(?:ure)?|table|tab|chart|graph|diagram|map|source|sources|note|notes|exhibit|box|photo|image)"
+                            r"|그림|표|도표|사진|출처|자료)\s*(?:[\d.:)\-]|[ⅠⅡⅢⅣⅤ]|[IVX]+\b)|^주\s*\d*\s*[):]")
 # Borderless table: taken as a table only when at least 3 consecutive lines each have 3 or more short pieces (at most this ratio of
 # the page width) at the same height (tolerance in pt) and the pieces sit on the column boundaries of the first line. A two-column
 # layout (2 pieces) and long sentence lines are not tables.
@@ -177,8 +182,8 @@ class _Line:
 
 
 def _is_bold_line(chars: list[dict]) -> bool:
-    """Whether at least `_BOLD_LINE_RATIO` of the letters of a line's characters are drawn in a bold face (`_BOLD_FONT`, the
-    subset prefix 'ABCDEF+' of the font name left out)."""
+    """Whether at least `_BOLD_LINE_RATIO` of the letters and digits (`_WORD_CHAR`) of a line's characters are drawn in a bold
+    face (`_BOLD_FONT`, the subset prefix 'ABCDEF+' of the font name left out)."""
     letters = [char for char in chars if _WORD_CHAR.match(char.get("text", ""))]
     if not letters:
         return False

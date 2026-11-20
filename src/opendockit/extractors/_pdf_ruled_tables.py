@@ -183,7 +183,7 @@ def _row_bands(cells: list[tuple], rows: int) -> tuple[tuple[float, float], ...]
 
 def _is_caption_box(cells: list[list[str | None]]) -> bool:
     """Whether a ruled 'table' is a caption set in a box: one row of two cells, the first a figure label ('Diagram 4',
-    'Figure 6', `_CAPTION_START`) and nothing more.
+    'Figure 6', `_CAPTION_LABEL`) and nothing more.
 
     Deliberate: a report that sets each figure's label in a coloured badge beside its title gave a table
     '| Diagram 4 | Distribution of Instagram Content |' under every chart (4 of 200 pages of a pdf corpus). As a line the

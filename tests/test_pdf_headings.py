@@ -163,3 +163,30 @@ def _pdf_at(lines: list[tuple[float, str, float, str, float]]) -> bytes:
         pdf.drawString(x, A4[1] - y, text)
     pdf.save()
     return buffer.getvalue()
+
+
+class TestFontNamesAndLabels:
+    def test_a_demilight_line_is_not_bold(self):
+        from opendockit.extractors._pdf_model import _is_bold_line
+
+        def chars(font: str) -> list[dict]:
+            return [{"text": letter, "fontname": font} for letter in "Heading"]
+
+        assert not _is_bold_line(chars("ABCDEF+NotoSansCJKkr-DemiLight"))
+        assert not _is_bold_line(chars("Academica-Regular"))
+        assert _is_bold_line(chars("Garamond-Demi")) and _is_bold_line(chars("ABCDEF+NotoSansKR-Bold"))
+
+    def test_a_bold_heading_about_a_week_is_not_a_note_label(self):
+        from opendockit.extractors._pdf_model import _CAPTION_START
+
+        assert not _CAPTION_START.match("주 52시간 근무제 개편") and not _CAPTION_START.match("주1회 점검 결과")
+        assert _CAPTION_START.match("주: 단위 억원") and _CAPTION_START.match("주1) 잠정치")
+
+
+class TestCaptionLabels:
+    def test_a_word_beginning_like_a_label_is_no_figure_label(self):
+        """A one-row box '| Tablet | iPad 10 units |' is a table, not a caption set in a box (`_is_caption_box`)."""
+        from opendockit.extractors._pdf_model import _CAPTION_LABEL
+
+        assert not any(_CAPTION_LABEL.fullmatch(word) for word in ("Tablet", "Maps", "Images", "Charts", "Photos"))
+        assert all(_CAPTION_LABEL.fullmatch(label) for label in ("Diagram 4", "Figure A.1", "Table IV", "그림 2"))

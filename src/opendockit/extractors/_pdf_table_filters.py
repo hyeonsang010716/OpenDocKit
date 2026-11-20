@@ -195,8 +195,14 @@ def _without_chart_bars(page: object) -> object:
 
 
 def _colour(rect: dict) -> object:
+    """The fill of a rectangle as a key: its colour components with its colour space and pattern. A fill whose colour is not
+    known is a key of its own, equal to no other (two unknown colours may differ)."""
     colour = rect.get("non_stroking_color")
-    return tuple(round(value, 3) for value in colour) if isinstance(colour, list | tuple) else colour
+    if colour is None:
+        return object()
+    components = tuple(round(value, 3) if isinstance(value, int | float) else value for value in colour) \
+        if isinstance(colour, list | tuple) else colour
+    return (components, rect.get("ncs"), rect.get("non_stroking_pattern"))
 
 
 def _overlaps(shape: dict, box: tuple[float, float, float, float]) -> bool:

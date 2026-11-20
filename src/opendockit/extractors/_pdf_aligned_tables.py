@@ -682,8 +682,9 @@ _PROSE_BREAK_RATIO = 1.25
 # A displayed formula found as a borderless table (`_is_formula`): at least this share of its pieces hold a mathematical sign,
 # and at least this share are this short
 _FORMULA_SIGN_SHARE, _FORMULA_SHORT_SHARE, _FORMULA_SHORT_CHARS = 0.3, 0.6, 3
-# Signs of a formula: operators, relations, Greek letters and the marks of raised and lowered text (`_scripted_text`)
-_FORMULA_SIGN = re.compile(r"[=∂∑∏∫√±≤≥≠≈∈∉⊂⊆∀∃→←↔⇒⇔′∞∆∇⋅∗−×÷^_{}α-ωΑ-Ω]")
+# Signs of a formula: operators, relations and the marks of raised and lowered text (`_scripted_text`). Not Greek letters, '×'
+# or arrows: a table of parameters ('α | 0.05') or of ○/△/× marks holds them in short cells as values
+_FORMULA_SIGN = re.compile(r"[=∂∑∏∫√±≤≥≠≈∈∉⊂⊆∀∃⇒⇔′∞∆∇⋅∗−÷^_{}]")
 
 
 def _is_formula(run: list[list[_Line]]) -> bool:
@@ -692,8 +693,8 @@ def _is_formula(run: list[list[_Line]]) -> bool:
 
     Deliberate: the numerator, operators and denominators of a displayed formula stand in rows at the same places, so
     '| d | ∂L | ∂L |' / '| | − | = 0. |' / '| dt | dt | dt |' and '| M = | + | O(h^{p+1}). |' were tables (3 of 200 pages of
-    a pdf corpus). A table holding arrows or units between longer cells ('Genes in DNA | → | Protein') keeps its long
-    cells and stays a table (Pinned by: test_pdf_borderless_split_rows.py::TestDisplayedFormulas)."""
+    a pdf corpus). A table holding arrows or units between longer cells ('Genes in DNA | → | Protein'), a table of
+    parameters ('| α | 0.05 | - |') and a table of ○/△/× marks stay tables (Pinned by: test_pdf_borderless_split_rows.py::TestDisplayedFormulas)."""
     pieces = [line.text.strip() for row in run for line in row if line.text.strip()]
     if not pieces:
         return False
