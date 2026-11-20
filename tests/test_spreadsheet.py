@@ -1464,6 +1464,49 @@ class TestTextSections:
         assert "| 홍길동 님 | 과장 |" in xlsx.text
         assert "| 가 | 홍길동 님 |" in xml.text
 
+    @pytest.mark.parametrize("streamed", [False, True])
+    def test_xlsx_error_value_is_shown_without_its_format(self, monkeypatch, streamed):
+        """Excel shows an error value without its number format. Put into the text section like text, `#N/A` under `@" 님"`
+        came out as `#N/A 님`. A text cell that reads `#N/A` is text and keeps the format."""
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["kind", "name"])
+        sheet.append(["error", "#N/A"])
+        sheet.append(["formula", "#DIV/0!"])
+        sheet.append(["text", "#N/A"])
+        sheet["B4"].data_type = "s"
+        for row in (2, 3, 4):
+            sheet.cell(row, 2).number_format = '@" 님"'
+        buffer = BytesIO()
+        workbook.save(buffer)
+        data = builder.zip_with(buffer.getvalue(), edit={  # the cached error of a formula
+            "xl/worksheets/sheet1.xml": lambda xml: re.sub(r'(<c r="B3"[^>]*>)', r"\1<f>1/0</f>", xml)})
+        if streamed:
+            from opendockit.extractors import spreadsheet
+
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+
+        text = convert(data, "a.xlsx").text
+
+        assert "| error | #N/A |" in text
+        assert "| formula | #DIV/0! |" in text
+        assert "| text | #N/A 님 |" in text
+
+    def test_xls_error_value_is_shown_without_its_format(self):
+        number_format = '@" 님"'
+        format_record = builder.xls_record(0x041E, struct.pack("<HHB", 164, len(number_format), 1)
+                                           + number_format.encode("utf-16-le"))
+        styles = b"".join(builder.xls_record(0x00E0, struct.pack("<HHH", 0, format_id, 0) + b"\0" * 14) for format_id in (0, 164))
+        error = builder.xls_record(0x0205, struct.pack("<HHHBB", 1, 1, 1, 0x2A, 1))  # BOOLERR: #N/A
+        label = builder.xls_record(0x0204, struct.pack("<HHHHB", 2, 1, 1, 4, 1) + "#N/A".encode("utf-16-le"))
+        data = builder.xls_bytes([("S", [["kind", "name"], ["error"], ["text"]], error + label)],
+                                 globals_extra=format_record + styles)
+
+        text = xls.extract_xls(data, ConvertOptions()).sections[0].text
+
+        assert "| error | #N/A |" in text
+        assert "| text | #N/A 님 |" in text
+
 
 class TestTextOnlyNumberFormats:
     """A format with only text and no digit place (`"매우 좋음"` on the value 5) shows just that text on screen in Excel. The format

@@ -975,6 +975,11 @@ def _cell_text(cell: object) -> str:
     if isinstance(value, _CellPicture):
         reading = _READING.get()
         return reading.picture_text(value) if reading is not None and reading.picture_text is not None else ""
+    if cell.data_type == "e" and isinstance(value, str):
+        # Excel shows an error value (`t="e"`, a formula's cached `#N/A` too) without its number format; put into the text
+        # section like text it came out as `#N/A 님` under `@" 님"`. Known by the cell type, so a text cell reading `#N/A` keeps
+        # its format (Pinned by: test_spreadsheet.py::TestTextSections::test_xlsx_error_value_is_shown_without_its_format).
+        return value
     number_format = _number_format(cell)
     number_format = _BUILTIN_FORMAT_FIXES.get(number_format, number_format)
     if isinstance(value, (date, time)) and _is_elapsed_format(number_format):

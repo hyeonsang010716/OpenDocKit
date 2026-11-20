@@ -767,6 +767,10 @@ def _xls_number_format(book: xlrd.book.Book, cell: xlrd.sheet.Cell) -> str | Non
 
 
 def _xls_cell_text(cell: xlrd.sheet.Cell, book: xlrd.book.Book) -> str:
+    if cell.ctype == xlrd.XL_CELL_ERROR:
+        # An error value is shown without its number format, as in XLSX (`spreadsheet._cell_text`): `#N/A 님` under `@" 님"`
+        # (Pinned by: test_spreadsheet.py::TestTextSections::test_xls_error_value_is_shown_without_its_format).
+        return _xls_value(cell, book.datemode, None)
     number_format = _xls_number_format(book, cell)
     return format_cell(_xls_value(cell, book.datemode, number_format), number_format)
 
