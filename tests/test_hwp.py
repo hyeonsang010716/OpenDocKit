@@ -1363,9 +1363,11 @@ class TestPreviewFallback:
 
 
 class TestMemo:
-    """Comments (review remarks): HWPX puts them at the end of the document as `> Comment(author, on "range"): text` lines, like
-    DOCX and PPTX (comments were dropped without a warning, so review remarks could not be seen). The commented text stays in the
-    body as is. Comments in binary HWP are not read because there is no evidence for their structure (known accepted gap)."""
+    """Comments (review remarks): HWP and HWPX put them at the end of the document as `> Comment(author, on "range"): text` lines,
+    like DOCX and PPTX (comments were dropped without a warning, so review remarks could not be seen). The commented text stays in
+    the body as is. In HWP the range is a field whose command is `MEMO/<shape>/<number>/<time>/<time>/<author>/`, and the text a
+    MEMO_LIST record with that number among the children of a paragraph, followed by its paragraphs (Hancom files saved both ways
+    give the same comment lines)."""
 
     def test_hwpx_memo_is_written_after_the_body_with_its_target_text(self):
         body = ('<hp:p><hp:run><hp:t>운영체제: </hp:t><hp:ctrl><hp:fieldBegin id="1" type="MEMO"><hp:parameters cnt="1">'
@@ -1426,8 +1428,7 @@ class TestMemo:
 
     def test_hwp_paragraphs_under_a_memo_field_control_are_left_out(self, monkeypatch):
         """HWP reads only the inner paragraphs of the controls it knows how to read (table, text box, footnote, header). Paragraphs
-        under a comment field (`%%me`) are not read either (known accepted gap: there is no sample or specification evidence for
-        where the comment text of binary HWP lives)."""
+        under a field control are not read either: a comment's text is not there but in its MEMO_LIST (`test_hwp_memo_...`)."""
         record = builder.hwp_record
         section = b"".join([
             record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
@@ -1442,6 +1443,59 @@ class TestMemo:
         result = convert(data, "a.hwp")
 
         assert result.text == "운영체제: Ubuntu 22.04 LTS"
+
+
+def _hwp_memo_document(monkeypatch, memos: list[tuple[int, str, str]], texts: dict[int, str], body: str = "운영체제: ",
+                       after: str = " LTS") -> bytes:
+    """An HWP of one paragraph holding a comment field per (number, author, range text) in `memos`, and the comment text of each
+    number in `texts` under a last paragraph (MEMO_LIST, LIST_HEADER, paragraph), as Hangul saves them."""
+    from opendockit.extractors.hwp import TAG_MEMO_LIST
+    record = builder.hwp_record
+    parts: list = [body]
+    controls = b""
+    for number, author, target in memos:
+        parts += [(3, "%unk"), target, (4, "%unk")]
+        controls += record(TAG_CTRL_HEADER, 1, _hwp_field("%unk", f"MEMO/65535/{number}/1112218336/31288509/{author}/\\;;"))
+    parts.append(after)
+    last = record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("끝"))
+    for number, text in texts.items():
+        last += (record(TAG_MEMO_LIST, 1, struct.pack("<I", number)) + record(TAG_LIST_HEADER, 1, b"\x01\x00" + b"\x00" * 6)
+                 + record(TAG_PARA_HEADER, 1, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 2, builder.hwp_text(text)))
+    section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text(*parts))
+               + controls + last)
+    return _fake_hwp(monkeypatch, sections=[section])
+
+
+class TestHwpMemo:
+    def test_hwp_memo_is_written_after_the_body_with_its_target_text(self, monkeypatch):
+        data = _hwp_memo_document(monkeypatch, [(1, "검토자", "Ubuntu 22.04")], {1: "상세 버전 정보 부탁드립니다."})
+
+        result = convert(data, "a.hwp")
+
+        assert result.text == '운영체제: Ubuntu 22.04 LTS\n\n끝\n\n> Comment(검토자, on "Ubuntu 22.04"): 상세 버전 정보 부탁드립니다.'
+
+    def test_hwp_memos_follow_their_fields_and_texts_their_numbers(self, monkeypatch):
+        """Hangul writes the MEMO_LIST records in the order of the fields, and a reply is a memo of its own on the same range."""
+        data = _hwp_memo_document(monkeypatch, [(1, "kkomi", "모를 답"), (5, "kkomi", "모를 답"), (2, "", "니다")],
+                                  {5: "댓글입니다.", 1: "첫 메모", 2: "둘째"})
+
+        lines = convert(data, "a.hwp").text.splitlines()[-3:]
+
+        assert lines == ['> Comment(kkomi, on "모를 답"): 첫 메모', '> Comment(kkomi, on "모를 답"): 댓글입니다.',
+                         '> Comment(on "니다"): 둘째']
+
+    def test_hwp_memo_without_text_writes_nothing(self, monkeypatch):
+        data = _hwp_memo_document(monkeypatch, [(1, "검토자", "Ubuntu 22.04"), (9, "검토자", " LTS")], {1: "확인"}, after="")
+
+        assert convert(data, "a.hwp").text.endswith('> Comment(검토자, on "Ubuntu 22.04"): 확인')
+
+    def test_field_with_another_command_is_no_memo(self, monkeypatch):
+        record = builder.hwp_record
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 1, builder.hwp_text("가", (3, "%unk"), "나", (4, "%unk")))
+                   + record(TAG_CTRL_HEADER, 1, _hwp_field("%unk", "MEMOS/1/2/3/4/a/")))
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "가나"
 
 
 def _hwpx_link(field_id: int, command: str, text: str) -> str:

@@ -26,6 +26,7 @@ from opendockit.extractors._charts import embedded_table, render_chart
 from opendockit.extractors._equation import render_equation
 from opendockit.extractors._hancom_symbols import FRAME_GLYPHS, framed_number, hancom_symbols, unfold
 from opendockit.extractors._hangul import (
+    CommentRanges,
     ParagraphPieces,
     SizeHeadings,
     click_here_guide,
@@ -41,7 +42,14 @@ from opendockit.extractors._hangul import (
 )
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number
-from opendockit.extractors._notation import TableBudget, chars_left, format_dutmal, note_table, omitted_rows_warning
+from opendockit.extractors._notation import (
+    TableBudget,
+    chars_left,
+    comment_line,
+    format_dutmal,
+    note_table,
+    omitted_rows_warning,
+)
 from opendockit.extractors._ole import OleFile, OleStreams
 from opendockit.extractors._package import decimal_int, parse_part
 from opendockit.markdown import TableGrid, join_blocks, render_table, solid_length
@@ -109,6 +117,10 @@ TAG_SHAPE_TEXTART = _HWPTAG_BEGIN + 74
 # a group of the next N characters, `wstring:N:` is followed by N characters of text, `int:`/`bool:` by a value up to the next
 # space (`_form_properties`)
 TAG_FORM_OBJECT = _HWPTAG_BEGIN + 75
+# A comment (memo): the field of its range has the command `MEMO/<shape>/<number>/<time>/<time>/<author>/…`; its text is a
+# MEMO_LIST record (UINT32 number) among the children of a paragraph, followed by a LIST_HEADER and its paragraphs
+# (`HwpRenderer._read_memos`)
+TAG_MEMO_LIST = _HWPTAG_BEGIN + 77
 _FORM_PROPERTIES_OFFSET = 12
 _TEXTART_TEXT_OFFSET = 32
 _TEXTART_BREAKS = re.compile("\r\n|\r|\n|␍␊|␍|␊")
@@ -355,6 +367,13 @@ class _ClickHere:
     serial: int
 
 
+@dataclass(slots=True)
+class _Memo:
+    """A comment field opened in a paragraph: its key in `HwpRenderer._memo_ranges`."""
+
+    key: int
+
+
 class HwpRenderer:
     def __init__(self, styles: list[str], options: ConvertOptions, extraction: Extraction | None = None,
                  load_bin: Callable[[int], bytes | None] | None = None, heads: ParagraphHeads | None = None,
@@ -406,7 +425,13 @@ class HwpRenderer:
         self.footers: dict[str, None] = {}
         # The fields opened and not yet ended, innermost last: the address of a hyperlink that is kept, a click-here field
         # (`_ClickHere`), else None (`_start_field`)
-        self._fields: list[str | _ClickHere | None] = []
+        self._fields: list[str | _ClickHere | _Memo | None] = []
+        # Comments: (author, memo number, the pieces of its range) in the order of their fields; the text of each memo number
+        # (`_read_memos`); the ranges not yet closed; 1 or more while a comment's text is rendered
+        self.memos: list[tuple[str, int, list[str]]] = []
+        self._memo_texts: dict[int, str] = {}
+        self._memo_ranges = CommentRanges()
+        self._memo_depth = 0
         self._clicks_opened = 0  # click-here fields opened so far: one opened inside another is not its guide (`_start_field`)
 
     def render(self, records: list[Record]) -> list[str]:
@@ -452,14 +477,20 @@ class HwpRenderer:
         # The head goes on the first text piece only, and a paragraph without text keeps its number (`_hangul.ParagraphPieces`).
         pieces = ParagraphPieces(lambda text, plain, heading: self._decorate(paragraph, text, plain, heading, text_record, size_pairs))
         blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
+        if not self._memo_depth:
+            self._memo_ranges.add(" ")  # between paragraphs of a comment range that spans several paragraphs
 
         for part in parts:
             if isinstance(part, str):
                 buffer.append(part)
+                if not self._memo_depth:
+                    self._memo_ranges.add(part)
                 continue
             if part == FIELD_END:
                 field = self._fields.pop() if self._fields else None
-                if isinstance(field, _ClickHere):
+                if isinstance(field, _Memo):
+                    self._memo_ranges.close(field.key)
+                elif isinstance(field, _ClickHere):
                     if field.pieces is buffer and field.serial == self._clicks_opened:
                         drop_unfilled_guide(buffer, field.start, field.guide)
                 elif field is not None:
@@ -505,7 +536,38 @@ class HwpRenderer:
                 buffer.append(f" {value} " if value else "")
             elif kind.startswith("%"):
                 self._start_field(kind, control, buffer)
+        self._read_memos(paragraph)
         return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
+
+    def _read_memos(self, paragraph: Record) -> None:
+        """The text of the comments kept among the children of a paragraph (Hangul puts them under the last paragraph of the section):
+        a MEMO_LIST record with the memo number, then a LIST_HEADER and the comment's paragraphs, up to the next MEMO_LIST. The text is
+        the paragraphs on one line, rendered as the text of an HWPX comment is (`hwpx.HwpxRenderer._open_memo`); the first text of a
+        number is kept."""
+        if not any(child.tag == TAG_MEMO_LIST for child in paragraph.children):
+            return
+        groups: list[tuple[int, list[Record]]] = []
+        for child in paragraph.children:
+            if child.tag == TAG_MEMO_LIST:
+                groups.append((struct.unpack_from("<I", child.payload)[0] if len(child.payload) >= 4 else -1, []))
+            elif groups and child.tag == TAG_PARA_HEADER:
+                groups[-1][1].append(child)
+        for number, paragraphs in groups:
+            self._grids.append(None)
+            self._memo_depth += 1
+            try:
+                with self._own_numbering():
+                    text = " ".join(" ".join(block.split()) for block in self.render(paragraphs))
+            finally:
+                self._memo_depth -= 1
+                self._grids.pop()
+            self._memo_texts.setdefault(number, text)
+
+    def memo_lines(self) -> str:
+        """The comment lines written after the notes: `> Comment(author, on "range"): text`, as in HWPX (Pinned by:
+        test_hwp.py::TestMemo)."""
+        return "\n".join(comment_line(author, text, "".join(target).strip()) for author, number, target in self.memos
+                         if (text := self._memo_texts.get(number, "")))
 
     def _equation_with_caption(self, control: Record) -> str:
         """Equation (eqed) + its caption. The caption paragraph ('수식 1 넓이', including atno) comes as a sibling of the LIST_HEADER under
@@ -629,6 +691,16 @@ class HwpRenderer:
             (length,) = struct.unpack_from("<H", payload, _FIELD_COMMAND_OFFSET)
             start = _FIELD_COMMAND_OFFSET + 2
             command = payload[start:start + 2 * length].decode("utf-16-le", errors="replace")
+        if command.startswith("MEMO/"):
+            # A comment: its range up to the field end goes on the comment line; its text comes later, at the end of the section
+            # (`_read_memos`). The fields of Hangul's comments are `%unk` with this command
+            parts = command.split("/")
+            number = decimal_int(parts[2], -1) if len(parts) > 2 else -1
+            author = parts[5] if len(parts) > 5 else ""
+            key = len(self.memos)
+            self.memos.append((" ".join(author.split()), number, self._memo_ranges.open(key) if not self._memo_depth else []))
+            self._fields.append(_Memo(key))
+            return
         if kind == "%clk":
             # A click-here field (누름틀): its text is dropped at its end when it is still the guide (`drop_unfilled_guide`), unless
             # another click-here field was opened inside it. Checked at every end, 40,000 fields opened in one paragraph and then
@@ -748,6 +820,7 @@ class HwpRenderer:
         if not chosen and found is not self.headers:
             return
         pictures, notes, note_count, unread_ole = len(self._extraction.images), len(self.notes), self._note_count, self.unread_ole
+        memos = len(self.memos)
         self._grids.append(None)
         self._plain_header = not chosen
         try:
@@ -765,7 +838,7 @@ class HwpRenderer:
             self.unread_ole = unread_ole
             text = header_by_default(text)
             if not text or text in found:
-                del self.notes[notes:]
+                del self.notes[notes:], self.memos[memos:]
                 self._note_count = note_count
         if text and text not in found:
             found[text] = None
@@ -1444,7 +1517,7 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
     # (`_preview_text`), so the result stays empty (Pinned by: test_hwp.py::TestPreviewFallback).
     extraction.count(sum(solid_length(text) for text in renderer.footers), options)
     blocks = renderer.size_headings.resolve(blocks)
-    body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes)])
+    body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes), renderer.memo_lines()])
     if not body.strip() and preview:
         body = preview
         extraction.warnings.append("The body could not be parsed, so the preview text saved by Hancom Office was used instead "
