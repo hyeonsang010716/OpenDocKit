@@ -21,6 +21,7 @@ from opendockit.extractors._equation import render_equation
 from opendockit.extractors._hangul import (
     PREVIEW_CELL_MARKS,
     ParagraphPieces,
+    SizeHeadings,
     click_here_guide,
     command_link,
     decorated_text,
@@ -125,8 +126,15 @@ class HwpxRenderer:
     def __init__(self, styles: dict[str, str], options: ConvertOptions, extraction: Extraction,
                  load_binary: Callable[[str], bytes | None], heads: ParagraphHeads | None = None,
                  load_part: Callable[[str], bytes | None] | None = None, scripts: dict[str, str] | None = None,
-                 struck: frozenset[str] = frozenset()) -> None:
+                 struck: frozenset[str] = frozenset(), sizes: dict[str, int] | None = None) -> None:
         self._styles = styles
+        # Character shape id → size (hh:charPr height, 1/100 pt), the size of the run being read, the headings told by size
+        # (`_hangul.SizeHeadings`; the body blocks go through `size_headings.resolve` once everything is read), and how deep in
+        # inner paragraph lists (cells, notes, text boxes, captions, headers) the paragraph being read is
+        self._sizes = sizes or {}
+        self._size = 0
+        self.size_headings = SizeHeadings()
+        self._inner = 0
         # Character shape id → super/subscript mark. Looked up by the charPrIDRef of the run (hp:run).
         self._scripts = scripts or {}
         self._script: str | None = None
@@ -183,10 +191,12 @@ class HwpxRenderer:
         """An inner paragraph list (hp:subList etc.). The top-level body calls `render_paragraph` per paragraph."""
         blocks = []
         self._bullets.append(BulletNesting())
+        self._inner += 1
         try:
             for paragraph in _children(container, "p"):
                 blocks.extend(self.render_paragraph(paragraph))
         finally:
+            self._inner -= 1
             self._bullets.pop()
         return blocks
 
@@ -199,9 +209,10 @@ class HwpxRenderer:
         for run in _children(paragraph, "run"):
             script = self._scripts.get(run.get("charPrIDRef", ""))
             struck = run.get("charPrIDRef", "") in self._struck_shapes
+            size = self._sizes.get(run.get("charPrIDRef", ""), 0)
             for node in run:
                 # Reading inner paragraphs (table, text box) changes these by the time it returns, so set them again per node
-                self._script, self._struck = script, struck
+                self._script, self._struck, self._size = script, struck, size
                 self._render_object(node, buffer, blocks, flush)
         return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
 
@@ -211,6 +222,7 @@ class HwpxRenderer:
         if name == "t":
             # A run with a super/subscript character shape. Appended as plain text, 10⁶ became 106 (Pinned by: test_hwp.py::TestSuperscript).
             plain = _t_text(node)
+            self.size_headings.count(self._size, len(plain))
             text = mark_script(plain, self._script) if self._script else plain
             self._note_memo_target(plain)
             # A run with a strikethrough character shape. Appended as plain text, a deleted value read as a valid one
@@ -576,12 +588,32 @@ class HwpxRenderer:
         return "\n".join(comment_line(author, text, "".join(target).strip()) for author, text, target in self.memos if text)
 
     def _decorate(self, paragraph: etree._Element, text: str, plain: str) -> str:
-        """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style, the heading mark to the paragraph's first text piece."""
+        """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style or head, the heading mark to the paragraph's
+        first text piece. A top-level body paragraph (not in a cell, note, header, text box or caption) passes its smallest
+        character size, to become a heading by size (`_hangul.SizeHeadings`)."""
         mark, level = self._paragraph_head(paragraph)
         style_name = self._styles.get(paragraph.get("styleIDRef", ""), "")
         margin = self._heads.margins.get(paragraph.get("paraPrIDRef", ""), 0)
+        outline = self._heads.shapes.get(paragraph.get("paraPrIDRef", ""), ("NONE", "", 0))[0] == "OUTLINE"
+        top = not self._inner and not self._cell_depth and not self._note_depth
         return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth),
-                              check=self._check_mark(paragraph), plain=plain)
+                              check=self._check_mark(paragraph), plain=plain, outline=outline,
+                              size=self._smallest_text_size(paragraph) if top else 0, size_headings=self.size_headings,
+                              top=top, in_note=bool(self._note_depth))
+
+    def _smallest_text_size(self, paragraph: etree._Element) -> int:
+        """The smallest size among the runs of the paragraph that hold visible text (hp:t); 0 when one of them has no known size.
+        Only the first few runs are looked at: a paragraph of more is not a heading anyway (`_hangul.SizeHeadings`)."""
+        smallest = 0
+        for count, run in enumerate(_children(paragraph, "run")):
+            if count >= _SIZE_SCAN_RUNS:
+                return 0
+            if any(_t_text(node).strip() for node in _children(run, "t")):
+                size = self._sizes.get(run.get("charPrIDRef", ""), 0)
+                if size <= 0:
+                    return 0
+                smallest = min(smallest, size) if smallest else size
+        return smallest
 
     def _check_mark(self, paragraph: etree._Element) -> str:
         """The check state character (☑ or ☐) of a check bullet paragraph, plus a trailing space. Empty text if it is not a check bullet
@@ -711,7 +743,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
             extraction.warnings.append("The document style information (header.xml) could not be read, so the document was converted "
                                        "without headings, numbering and character formatting.")
         renderer = HwpxRenderer(styles, options, extraction, load_binary, _load_paragraph_heads(header), load_part,
-                                _load_scripts(header), _load_struck_shapes(header))
+                                _load_scripts(header), _load_struck_shapes(header), _load_char_sizes(header))
         blocks = []
         sections = _section_order(package, names, extraction.warnings)
         broken: list[Exception] = []
@@ -754,6 +786,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
     # it is a document without text (empty table, shapes only). Used as is, `<>` noise went out as the body
     # (Pinned by: test_hwp.py::TestPreviewFallback).
     extraction.count(sum(solid_length(text) for text in renderer.footers), options)
+    blocks = renderer.size_headings.resolve(blocks)
     body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes), renderer.memo_lines()])
     preview_text = preview.decode("utf-8", errors="replace")
     if not body.strip() and preview_text.translate(PREVIEW_CELL_MARKS).strip():
@@ -934,6 +967,23 @@ def _load_scripts(header: etree._Element | None) -> dict[str, str]:
             if marks:
                 scripts[node.get("id", "")] = marks[0]
     return scripts
+
+
+# Runs of a paragraph looked at for its character size (`HwpxRenderer._smallest_text_size`)
+_SIZE_SCAN_RUNS = 64
+
+
+def _load_char_sizes(header: etree._Element | None) -> dict[str, int]:
+    """Character shape (hh:charPr) id → its size (the height attribute, 1/100 pt). A height that is not a positive number is left out."""
+    if header is None:
+        return {}
+    sizes = {}
+    for node in header.iter():
+        if _local(node) == "charPr":
+            height = decimal_int(node.get("height"), 0)
+            if height > 0:
+                sizes[node.get("id", "")] = height
+    return sizes
 
 
 def _load_struck_shapes(header: etree._Element | None) -> frozenset[str]:

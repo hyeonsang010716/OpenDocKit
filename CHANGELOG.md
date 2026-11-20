@@ -31,6 +31,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Hancom equations**: `root` without `of` is a square root (`3 root5` → `3 \sqrt{5}`; `30 root5 cos theta` gave
   `\sqrt[5]{\cos} \theta`), command words glued together are split (`costheta`), and `le`, `ge`, `nabla`, `LAND`, `LOR`,
   `SUPERSET`, `nsubset`, `BIGOPLUS` and similar words, `OVERBRACE`, `UNDERBRACE` and `BOX` are read.
+- **Headings in Hangul documents that do not use the 개요 styles.** A paragraph with an outline head (개요 번호) is a
+  heading of its level, whatever its style — Hangul builds the outline and the table of contents from it, and it came out
+  as a numbered list. A short top-level paragraph set 1.15 / 1.3 / 1.5 times larger than the size most of the document is
+  written in is a level 3 / 2 / 1 heading; dates, table-of-contents lines, the addressee line of a form and sentences
+  written large stay text. In 34 real HWP / HWPX files, where every title was set by size on 바탕글, no heading came out
+  before; now their chapter titles do.
 
 ### Changed
 

@@ -237,7 +237,8 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 
 ### What is read
 
-- "개요 N" (Outline N) styles → `#` headings.
+- "개요 N" (Outline N) styles and outline-numbered paragraphs → `#` headings; without them, short paragraphs set clearly
+  larger than the body → headings by size.
 - Paragraph numbers and bullets (`1.`, `가.`, `-`).
 - Tables (including merged cells); captions of tables, pictures and equations (including the number of "표 1", "그림 2").
 - Multilevel lists inside a table cell are marked with `└` (level 2) and `└─` (level 3) before the sub-item.
