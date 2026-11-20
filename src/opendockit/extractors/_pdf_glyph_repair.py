@@ -13,12 +13,13 @@ from opendockit.extractors._pdf_model import _PDFIUM_LOCK
 
 
 _REPLACEMENT = "�"
-# How far apart pdfminer's and pdfium's boxes of one glyph may lie (left edges, vertical centres), as a share of the font
-# size, and that share's floor and ceiling (pt). It also bounds a row: characters whose centres lie within it of the row's
-# first character
-_GLYPH_TOLERANCE, _MIN_TOLERANCE, _MAX_TOLERANCE = 0.25, 0.5, 8.0
-# More pdfium glyphs than this at the place of a character (a pile of glyphs on one spot) give it no anchor
-_MAX_CANDIDATES = 8
+# How far apart the vertical centres of pdfminer's and pdfium's boxes of one glyph may lie, as a share of the font size (the
+# two readers take the height of a glyph from different font metrics), and its floor (pt). It also bounds a row: characters
+# whose centres lie within it of the row's first character
+_ROW_TOLERANCE, _MIN_ROW_TOLERANCE = 0.25, 0.5
+# How far apart their left edges may lie, as a share of the font size, and its floor (pt): both readers place a glyph by
+# the same text matrix and widths, so the edges agree but for rounding
+_EDGE_TOLERANCE, _MIN_EDGE_TOLERANCE = 0.02, 0.05
 
 # pdfium's characters of a page: (left, right, bottom, top, text) in PDF user space, in the order pdfium lists them (that of
 # the content stream, with the pieces of a line it puts in order). The box is pdfium's loose box (advance width × the font's
@@ -64,29 +65,19 @@ def _read_glyphs(document: pdfium.PdfDocument, index: int) -> _Glyphs:
 
 
 def _repair_replacement_chars(page: object, glyphs: Callable[[], _Glyphs] | None) -> None:
-    """Gives each U+FFFD character of the pdfplumber `page` the character pdfium reads for the same glyph, when pdfium reads a
-    real one.
+    """Gives the U+FFFD characters of the pdfplumber `page` the characters pdfium reads for the same glyphs, where pdfium
+    surely reads the same glyphs.
 
     Deliberate: pdfminer decodes a glyph only through the font's ToUnicode map and encoding, and old-style figures of book
     fonts that have no entry there came out as U+FFFD — the page number '207' read '�07' and 'Figure 11.12' read
     'Figure 11.1�' (8 of 200 pages of a pdf corpus). pdfium also reads the glyph names and the embedded font's own map and
-    gets them right. pdfium's glyph is taken only where both readers surely mean the same glyph. The page's characters are
-    put into rows by the vertical centres of their boxes, in both readers alike, and each row is read left to right (by left
-    edge, then in the readers' own order); spaces are left out. The two rows are walked side by side from an anchor: a decoded
-    character pdfium reads the same with its left edge and centre within a quarter of the font size (0.5–8pt), the only one
-    there. From an anchor with as many characters before it in both rows (the row's first decoded character, as a rule) the
-    characters are paired by their order alone, so the advances of the two readers may differ; from any other anchor each
-    decoded character must also lie within the tolerance of its pair. A U+FFFD takes its pair's character only when decoded
-    pairs that agree close the run of U+FFFD on both sides — or one side and the end or start of both rows — the run follows
-    the order of both readers' characters (`_in_order`), no other U+FFFD takes the same glyph, and pdfium reads a real
-    character (not U+FFFD, whitespace, a control or a separator). Two
-    decoded characters read differently break the walk and drop the run before them. Taking the glyph under the character
-    gave a neighbour's letter where the advances differ ('by \ufffd0' became 'by y0', 'total \ufffd\ufffd.' 'total a.'), and so did
-    checking only the text of the neighbours, in a repeating pattern ('Pears 1, 2, 3' became 'Pears 1, \ufffd, 2'). Otherwise
-    — pdfium reads U+FFFD or nothing as well (a symbol font of a TeX formula maps its minus to nothing either reader knows),
-    or a row has no decoded character to anchor it (a page number of old-style figures alone, a raised footnote figure in a
-    row of its own) — the character stays U+FFFD. A page turned by /Rotate is left alone: pdfminer turns its coordinates and
-    pdfium does not (Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs)."""
+    gets them right. A wrong character is worse than a U+FFFD, so a row is repaired only when the two readers agree on the
+    whole of it (`_agreeing`); otherwise every U+FFFD of the row stays as it is. Each rule short of that took wrong
+    characters somewhere: the glyph under the character ('by �0' became 'by y0'), the same neighbours ('Pears 1, �, 2, 3'),
+    pairing in order from an anchor ('01' for '10' under negative spacing, 't' for '1' from a line 2.5pt above). On the
+    review's truth fuzzer the whole-row rule took no wrong character in 8,000 pages where the others took 775 and 1,118.
+    A page turned by /Rotate is left alone, its U+FFFD as they are: pdfminer turns its coordinates and pdfium does not
+    (Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs)."""
     if glyphs is None or getattr(page, "rotation", 0) % 360 or "_objects" in vars(page):
         return  # (pdfplumber builds its characters and lines from the layout once: once built, nothing is changed)
     # The repair changes pdfminer's characters themselves, before pdfplumber builds its characters and the text of its lines
@@ -128,29 +119,26 @@ def _layout_chars(layout: LTContainer) -> Iterator[LTChar]:
             stack.pop()
 
 
-# A character of a row: (vertical centre, left, right, tolerance, rank among the reader's characters that are not spaces, its
-# index — into the page's characters for pdfminer, into the glyphs for pdfium — and its text, None where pdfminer read U+FFFD)
-_Spot = tuple[float, float, float, float, int, int, str | None]
+# A character of a row: (vertical centre, left, right, font size, index — into the page's characters for pdfminer, into the
+# glyphs for pdfium — and its text after NFKC, None where pdfminer read U+FFFD)
+_Spot = tuple[float, float, float, float, int, str | None]
 
 
 def _repairs(chars: list[dict], glyphs: Callable[[], _Glyphs], height: float) -> list[tuple[int, str]]:
-    """(index into `chars`, its text) for the characters pdfminer read as U+FFFD that pdfium reads
-    (`_repair_replacement_chars`). `chars` are pdfplumber's characters, or ones with the same keys and boxes."""
-    broken = [number for number, char in enumerate(chars) if char.get("text") == _REPLACEMENT]
-    if not broken:
+    """(index into `chars`, its text) for the characters pdfminer read as U+FFFD that pdfium surely reads
+    (`_repair_replacement_chars`). `chars` are pdfplumber's characters, or ones with the same keys and boxes.
+
+    The characters of both readers, spaces left out, are put into rows by the vertical centres of their boxes: a row holds
+    pdfminer's characters whose centres lie within the row tolerance of its first one, and pdfium's glyphs whose centres lie
+    within it of the row's. A row with a U+FFFD and a decoded character is repaired when `_agreeing` pairs it whole, and no
+    other row pairs a U+FFFD with the same glyph. Sorting and one pass over each row keep it linear but for the sorts: looking
+    at every glyph of a 16pt band for each broken character, a page of 32,000 characters took 9 seconds (Pinned by:
+    test_pdf_fonts.py::TestUndecodedGlyphs::test_many_undecoded_characters_in_one_band_are_repaired_in_linear_time)."""
+    if not any(char.get("text") == _REPLACEMENT for char in chars):
         return []
-    return _repaired_ones(chars, broken, glyphs, height)
-
-
-def _repaired_ones(chars: list[dict], broken: list[int], glyphs: Callable[[], _Glyphs], height: float) -> list[tuple[int, str]]:
-    """`_repairs` for the broken characters (indexes into `chars`).
-    Sorting and walking the rows is linear but for the sorts: looking at every glyph of a 16pt band for each broken character,
-    a page of 32,000 characters took 9 seconds (Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs::
-    test_many_undecoded_characters_in_one_band_are_repaired_in_linear_time)."""
     found = glyphs()
     if not found:
         return []
-    broken_set = set(broken)
     mine: list[_Spot] = []
     for number, char in enumerate(chars):
         text = char.get("text") or ""
@@ -160,100 +148,71 @@ def _repaired_ones(chars: list[dict], broken: list[int], glyphs: Callable[[], _G
         # PDF space is page height − the centre from the top whatever the MediaBox origin (Pinned by:
         # test_pdf_fonts.py::TestUndecodedGlyphs::test_a_page_box_away_from_the_origin)
         left, right, middle = char["x0"], char["x1"], height - (char["top"] + char["bottom"]) / 2
-        size = char.get("size") or char["bottom"] - char["top"]
+        size = abs(char.get("size") or char["bottom"] - char["top"])
         if all(math.isfinite(value) for value in (left, right, middle, size)):
-            tolerance = min(max(_GLYPH_TOLERANCE * abs(size), _MIN_TOLERANCE), _MAX_TOLERANCE)
-            mine.append((middle, left, right, tolerance, len(mine), number,
-                         None if number in broken_set else unicodedata.normalize("NFKC", text)))
+            mine.append((middle, left, right, size, number,
+                         None if text == _REPLACEMENT else unicodedata.normalize("NFKC", text)))
     groups = _grouped(found)
     theirs: list[_Spot] = []
     for position, (left, right, bottom, top, text) in enumerate(groups):
         if not text.isspace() and all(math.isfinite(value) for value in (left, right, bottom, top)):
-            theirs.append(((bottom + top) / 2, left, right, 0.0, len(theirs), position, unicodedata.normalize("NFKC", text)))
+            theirs.append(((bottom + top) / 2, left, right, 0.0, position, unicodedata.normalize("NFKC", text)))
     mine.sort()
     theirs.sort()
     middles = [glyph[0] for glyph in theirs]
     claims: dict[int, list[int]] = {}
     start = 0
     while start < len(mine):
-        first, tolerance = mine[start][0], mine[start][3]
+        first = mine[start][0]
+        tolerance = max(_ROW_TOLERANCE * mine[start][3], _MIN_ROW_TOLERANCE)
         end = start
         while end < len(mine) and mine[end][0] - first <= tolerance:
             end += 1
-        if any(spot[6] is None for spot in mine[start:end]):
-            row = sorted(mine[start:end], key=lambda spot: (spot[1], spot[4]))
-            low, high = bisect.bisect_left(middles, first - tolerance), bisect.bisect_right(middles, mine[end - 1][0] + tolerance)
-            for number, position in _paired(row, sorted(theirs[low:high], key=lambda spot: (spot[1], spot[4]))):
+        row = mine[start:end]
+        if any(char[5] is None for char in row) and any(char[5] is not None for char in row):
+            band = theirs[bisect.bisect_left(middles, first - tolerance):bisect.bisect_right(middles, row[-1][0] + tolerance)]
+            for number, position in _agreeing(row, band, tolerance):
                 claims.setdefault(position, []).append(number)
         start = end
-    return [(numbers[0], groups[position][4]) for position, numbers in claims.items()
-            if len(numbers) == 1 and _readable(groups[position][4])]
+    return [(numbers[0], groups[position][4]) for position, numbers in claims.items() if len(numbers) == 1]
 
 
-def _paired(mine: list[_Spot], theirs: list[_Spot]) -> list[tuple[int, int]]:
-    """(index of a broken character, index of pdfium's glyph) for the broken characters of a row of pdfminer (`mine`, left
-    to right) that the walk pairs with a glyph of pdfium's row (`theirs`, left to right; `_repair_replacement_chars`)."""
-    lefts = [glyph[1] for glyph in theirs]
+def _agreeing(mine: list[_Spot], theirs: list[_Spot], tolerance: float) -> list[tuple[int, int]]:
+    """(index of pdfminer's U+FFFD, index of pdfium's glyph) for a row that both readers read alike, character for
+    character; nothing otherwise. Both rows hold as many characters. Paired in the order of their left edges, each pair's
+    left edges lie within the edge tolerance — or, in a row drawn right to left (turned 180° or mirrored), paired in the
+    order of their right edges, each pair's right edges do: the edge at the glyph's origin, as pdfium's loose box reaches past
+    the advance on the other side as far as the glyph's ink — and each pair's centres within the row `tolerance`. So every
+    advance but the row's last agrees too. Each decoded character reads the same in both, and each U+FFFD's glyph is a real
+    character (not U+FFFD, a control or a separator). No character of pdfminer has no width (a glyph name pdfminer does not
+    know in a standard-14 font: the two readers then advance differently), and no two lie so close that their order could
+    differ between the readers (Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs::
+    test_pages_where_pairing_short_of_the_whole_row_took_a_wrong_character,
+    test_a_row_the_readers_do_not_read_alike_is_left_alone, test_no_random_page_takes_a_wrong_character)."""
+    if len(mine) != len(theirs):
+        return []
+    return _paired_by(mine, theirs, tolerance, 1) or _paired_by(mine, theirs, tolerance, 2)
+
+
+def _paired_by(mine: list[_Spot], theirs: list[_Spot], tolerance: float, side: int) -> list[tuple[int, int]]:
+    """`_agreeing` with the characters paired by their left (`side` 1) or right (2) edges."""
     pairs: list[tuple[int, int]] = []
-    pending: list[tuple[_Spot, _Spot]] = []  # broken characters since the last pair that agreed, with their glyphs
-    at: int | None = None  # the glyph of pdfium the next character of pdfminer is paired with, None outside a walk
-    strict = False
-    last_mine = last_theirs = -1  # the last pair that agreed (indexes into the rows)
-
-    def agreed() -> list[tuple[_Spot, _Spot]]:
-        return [(mine[last_mine], theirs[last_theirs])] if last_mine >= 0 else []
-
-    def take(run: list[tuple[_Spot, _Spot]], closing: list[tuple[_Spot, _Spot]]) -> None:
-        if _in_order([*agreed(), *run, *closing]):
-            pairs.extend((char[5], glyph[5]) for char, glyph in run)
-
-    for index, char in enumerate(mine):
-        if at is not None and at < len(theirs):
-            glyph = theirs[at]
-            if char[6] is None:
-                pending.append((char, glyph))
-                at += 1
-                continue
-            if glyph[6] == char[6] and (not strict or abs(glyph[1] - char[1]) <= char[3]):
-                take(pending, [(char, glyph)])
-                pending, last_mine, last_theirs, at = [], index, at, at + 1
-                continue
-        pending, at = [], None
-        if char[6] is None:
-            continue
-        anchor = _anchor(theirs, lefts, char)
-        if anchor is None:
-            continue
-        in_step = anchor - last_theirs == index - last_mine
-        if in_step and all(mine[before][6] is None for before in range(last_mine + 1, index)):
-            take([(mine[before], theirs[last_theirs + before - last_mine]) for before in range(last_mine + 1, index)],
-                 [(char, theirs[anchor])])
-        strict, last_mine, last_theirs, at = not in_step, index, anchor, anchor + 1
-    if at == len(theirs):
-        take(pending, [])  # the run of U+FFFD ends both rows
+    previous = -math.inf
+    for char, glyph in zip(sorted(mine, key=lambda char: char[side]), sorted(theirs, key=lambda glyph: glyph[side]),
+                           strict=True):
+        middle, left, right, size, number, text = char
+        edge = max(_EDGE_TOLERANCE * size, _MIN_EDGE_TOLERANCE)
+        if (right - left <= edge or char[side] - previous <= 2 * edge or abs(glyph[side] - char[side]) > edge
+                or abs(glyph[0] - middle) > tolerance):
+            return []
+        previous = char[side]
+        if text is None:
+            if not _readable(glyph[5]):
+                return []
+            pairs.append((number, glyph[4]))
+        elif glyph[5] != text:
+            return []
     return pairs
-
-
-def _in_order(run: list[tuple[_Spot, _Spot]]) -> bool:
-    """Whether the characters of a run, left to right, follow one another in both readers: each next to the one before in the
-    reader's own order of characters (spaces left out; either way, as a line drawn right to left runs backwards), or apart
-    from it by a clear gap (another cell of a table row). Where the advances go backwards (a negative character spacing over
-    glyphs pdfminer gives no width), left to right is not the order of the glyphs, and pairing by place in the row gave a
-    neighbour's figure (Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs::
-    test_no_undecoded_character_takes_another_glyphs_character[backwards-Helvetica])."""
-    return all(abs(after[4] - before[4]) == 1 or after[1] - before[2] >= char[3]
-               for (char, glyph), (next_char, next_glyph) in zip(run, run[1:], strict=False)
-               for before, after in ((char, next_char), (glyph, next_glyph)))
-
-
-def _anchor(theirs: list[_Spot], lefts: list[float], char: _Spot) -> int | None:
-    """The only glyph of pdfium's row that reads the text of `char` with its left edge and centre within its tolerance."""
-    tolerance = char[3]
-    low, high = bisect.bisect_left(lefts, char[1] - tolerance), bisect.bisect_right(lefts, char[1] + tolerance)
-    if high - low > _MAX_CANDIDATES:
-        return None
-    same = [at for at in range(low, high) if theirs[at][6] == char[6] and abs(theirs[at][0] - char[0]) <= tolerance]
-    return same[0] if len(same) == 1 else None
 
 
 def _grouped(found: _Glyphs) -> _Glyphs:
