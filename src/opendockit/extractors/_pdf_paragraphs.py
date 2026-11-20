@@ -504,11 +504,17 @@ _HeadingKey = tuple[float, bool]
 
 def _heading_shaped(paragraph: _Paragraph) -> bool:
     """A paragraph that is short (two lines, 100 characters at most; a line holding only the section number, '3.' or 'III.',
-    is not counted), mostly letters and holding one (a large '56%' or '20%↑' of an infographic is a value), does not start
-    with a bullet, and is not a form row with check boxes ('☐ Yes ☑') or a table-of-contents row with a dot leader
-    ('2.4. Results … 7')."""
+    is not counted), mostly letters and holding one (a large '56%' or '20%↑' of an infographic is a value) or a year alone
+    ('2023', '2023–2024', the headings of a timeline; a bold year at the body size is still a value, `_is_bold_heading`),
+    does not start with a bullet, and is not a form row with check boxes ('☐ Yes ☑') or a table-of-contents row with a dot
+    leader ('2.4. Results … 7').
+
+    Deliberate: asked for a letter, a year set large over its part of a timeline was no heading any more (Pinned by:
+    test_pdf_headings.py::TestHeadingSizes::test_a_large_year_is_a_heading)."""
     text = " ".join(line.text for line in paragraph.lines)
-    if _CHECKBOX_MARK.search(text) or _LEADER_RUN.search(text) or not _HEADING_LETTER.search(text):
+    if _CHECKBOX_MARK.search(text) or _LEADER_RUN.search(text):
+        return False
+    if not _HEADING_LETTER.search(text) and not _YEAR.fullmatch(text.strip()):
         return False
     counted = [line for line in paragraph.lines if not _LONE_SECTION_NUMBER.match(line.text.strip())]
     if not counted or not max(line.size for line in paragraph.lines) or len(counted) > 2 or len(text) > 100 or _BULLET_START.match(text):
@@ -626,6 +632,8 @@ _HEADING_LETTER = re.compile(r"[A-Za-z\u00c0-\u024f가-힣一-鿿]")
 _HEADER_DATA_ROWS = 2
 # The most words of a value beside a form label on its row ('Kim', 'Acme Corporation', '010-1234-5678') (`_stacked_labels`)
 _LABEL_VALUE_MAX_WORDS = 4
+# A year or a span of years alone ('2023', '1990–1999', '2023-24'): a heading of a timeline by its size (`_heading_shaped`)
+_YEAR = re.compile(r"(?:1[5-9]|20)\d{2}(?:\s*[-–—~]\s*(?:(?:1[5-9]|20)\d{2}|\d{2}))?")
 # A check box drawn or typed on the line (`_mark_checkboxes`).
 _CHECKBOX_MARK = re.compile(r"[☐☑☒]")
 # A line holding only a section number ('3.', '12', 'III.'), set above the title of a numbered heading.

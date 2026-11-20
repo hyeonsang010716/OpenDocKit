@@ -131,6 +131,14 @@ class TestHeadingSizes:
 
         assert "# 12" not in text
 
+    def test_a_large_year_is_a_heading(self):
+        """The years of a timeline set large; a bold year at the body size stays a value."""
+        text = _text([(50, "Company History", 20, "Times-Bold"), (90, "2023", 14, "Times-Bold"), *_body(110),
+                      (170, "2024", 14, "Times-Bold"), *_body(190), (250, "2025", 10, "Times-Bold"), *_body(266)])
+
+        assert "## 2023\n\nThe next step" in text and "## 2024\n\nThe next step" in text
+        assert "# 2025" not in text
+
     def test_a_large_value_of_an_infographic_is_not_a_heading(self):
         text = _text([*_body(80), (150, "56%", 24, "Times-Bold"), (175, "47698", 16, "Times-Roman"), *_body(200)])
 
