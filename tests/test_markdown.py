@@ -1,6 +1,7 @@
 """Shared normalization and table rendering."""
 
 import json
+import re
 import unicodedata
 
 import pytest
@@ -230,6 +231,19 @@ class TestSolidLength:
 
     def test_quote_marks_of_a_line_with_text_are_counted(self):
         assert solid_length("> 가나\n> > b ⟦IMG:1⟧") == solid_length(">가나>>b")
+
+class TestCellLines:
+    @pytest.mark.parametrize("text", [
+        "plain", "  padded  ", "a  b", "a\tb", "a\nb", "a\r\nb", "x\x0by\x0cz\x85w", "a\u2028b\u2029c", "a\xa0b\u3000c",
+        "a\u200bb", "x\x01y\x7f", "e\u0301", "\u1100\u1161", "각", "| pipe |", "", "   ", "\ufeffbom", "soft\u00adhyphen",
+        "\u2009thin", "\x1cx\x1f", "😀 ok", "ÅÅ", " a ", "x ", " 가 나 "])
+    def test_text_needing_no_step_is_its_stripped_line(self, text, monkeypatch):
+        """Pins: a cell with none of the characters the steps remove or change, already in NFC, is one line, its text stripped;
+        anything else goes through every step — the same lines either way."""
+        lines = markdown._cell_lines(text)
+        monkeypatch.setattr(markdown, "_CELL_AS_WRITTEN", re.compile(""))  # every text takes the steps
+        assert lines == markdown._cell_lines(text)
+
 
 class TestRenderTable:
     def test_br_in_cell_text_is_a_line_break_outside_a_table(self):
