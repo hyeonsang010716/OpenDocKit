@@ -1074,6 +1074,19 @@ class TestPreviewFallback:
         assert result.text == ""
         assert result.warnings == ["No text was extracted."]
 
+    @pytest.mark.parametrize("preview", ["<.<><><>\r\n<><><><>\r\n<><><><><><> >\r\n", "<->\r\n<·><>"])
+    def test_preview_of_marks_and_punctuation_only_is_not_used(self, monkeypatch, preview):
+        """Empty tables with a `.` in a text box: the preview had the `.` between the cell marks and became the body."""
+        empty = builder.hwp_record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+        hwp = _fake_hwp(monkeypatch, sections=[empty], preview=preview)
+        hwpx = builder.zip_with(builder.hwpx_bytes("<hp:p><hp:run/></hp:p>"), add={"Preview/PrvText.txt": preview})
+
+        for data, name in ((hwp, "a.hwp"), (hwpx, "a.hwpx")):
+            result = convert(data, name)
+
+            assert result.text == ""
+            assert result.warnings == ["No text was extracted."]
+
     def test_hwp_distribution_document_with_preview_of_empty_cells_only_raises(self, monkeypatch):
         data = _fake_hwp(monkeypatch, flags=0b100, preview="<>\r\n<>")
 

@@ -29,6 +29,14 @@ OUTLINE_STYLE = re.compile(r"^(?:개요|Outline)\s*([1-9])$")
 HEADING_MAX_CHARS = 120
 # Table cell marks in the preview text (HWP `PrvText`, HWPX `Preview/PrvText.txt`). A preview with nothing but these has no text.
 PREVIEW_CELL_MARKS = str.maketrans("", "", "<>")
+_WORD_CHARACTER = re.compile(r"[^\W_]")
+
+
+def preview_has_words(preview: str) -> bool:
+    """Whether the preview text holds a letter or digit outside its cell marks. A preview of nothing but marks, punctuation and
+    blanks is a document without text: empty tables with a `.` in a text box gave `<.<><><>` as the body (Pinned by:
+    test_hwp.py::TestPreviewFallback)."""
+    return bool(_WORD_CHARACTER.search(preview.translate(PREVIEW_CELL_MARKS)))
 
 # The temporary link marks of `_inline` (U+000E–U+0014). Document text never holds them in a paragraph that has a link: the text
 # of a control (ruby text, composed characters) is read from a binary HWP as it is, and could otherwise forge a link.

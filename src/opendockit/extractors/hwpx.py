@@ -19,7 +19,6 @@ from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._charts import embedded_table, package_loader, render_chart
 from opendockit.extractors._equation import render_equation
 from opendockit.extractors._hangul import (
-    PREVIEW_CELL_MARKS,
     ParagraphPieces,
     SizeHeadings,
     click_here_guide,
@@ -31,6 +30,7 @@ from opendockit.extractors._hangul import (
     header_by_default,
     link_end,
     link_start,
+    preview_has_words,
 )
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number
@@ -816,7 +816,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
     blocks = renderer.size_headings.resolve(blocks)
     body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes), renderer.memo_lines()])
     preview_text = preview.decode("utf-8", errors="replace")
-    if not body.strip() and preview_text.translate(PREVIEW_CELL_MARKS).strip():
+    if not body.strip() and preview_has_words(preview_text):
         body = preview_text
         extraction.warnings.append("The body could not be parsed, so the preview text saved by Hancom Office was used instead "
                                    "(it may contain only the beginning).")

@@ -23,7 +23,6 @@ import olefile
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
 from opendockit.extractors._equation import render_equation
 from opendockit.extractors._hangul import (
-    PREVIEW_CELL_MARKS,
     ParagraphPieces,
     SizeHeadings,
     click_here_guide,
@@ -34,6 +33,7 @@ from opendockit.extractors._hangul import (
     header_by_default,
     link_end,
     link_start,
+    preview_has_words,
 )
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number
@@ -1291,13 +1291,13 @@ def _distribution_fallback(preview: str, metadata: dict[str, str]) -> Extraction
 
 
 def _preview_text(streams: OleStreams) -> str:
-    """The preview text saved by Hancom Office. It writes table cells as `<cell text>`, so if no text remains after removing the cell marks
-    (`<`, `>`) the preview is considered absent. Used as is, a document without text emitted `<>` noise as its body
-    (Pinned by: test_hwp.py::TestPreviewFallback)."""
+    """The preview text saved by Hancom Office. It writes table cells as `<cell text>`, so if no letter or digit remains outside the
+    cell marks (`<`, `>`) the preview is considered absent (`_hangul.preview_has_words`). Used as is, a document without text
+    emitted `<>` noise as its body (Pinned by: test_hwp.py::TestPreviewFallback)."""
     if not streams.exists("PrvText"):
         return ""
     text = streams.read("PrvText").decode("utf-16-le", errors="replace").strip()
-    return text if text.translate(PREVIEW_CELL_MARKS).strip() else ""
+    return text if preview_has_words(text) else ""
 
 
 def _summary_metadata(streams: OleStreams) -> dict[str, str]:
