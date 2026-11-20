@@ -202,6 +202,7 @@ def _aligned_table_runs(page: _Page) -> list[list[list[_Line]]]:
         runs = [run for run in runs if not any(run is other for other in prose)]
         page.prose_lines.update(id(original) for run in prose for row in run for line in row
                                 for original in _original_lines_of(line))
+    runs = [run for run in runs if not _is_formula(run)]
     rows = _visual_rows(page.lines)
     runs = [_cut_at_closing_rule(run, page.rules) for run in runs]
 
@@ -676,6 +677,29 @@ _PROSE_COLUMN_EDGE = 4.0  # pieces whose left edges are this close start the sam
 _PROSE_WIDTH_SPREAD = 0.15
 # A gap in a column wider than this many times its median line pitch is a break: between two rows or two paragraphs.
 _PROSE_BREAK_RATIO = 1.25
+
+
+# A displayed formula found as a borderless table (`_is_formula`): at least this share of its pieces hold a mathematical sign,
+# and at least this share are this short
+_FORMULA_SIGN_SHARE, _FORMULA_SHORT_SHARE, _FORMULA_SHORT_CHARS = 0.3, 0.6, 3
+# Signs of a formula: operators, relations, Greek letters and the marks of raised and lowered text (`_scripted_text`)
+_FORMULA_SIGN = re.compile(r"[=∂∑∏∫√±≤≥≠≈∈∉⊂⊆∀∃→←↔⇒⇔′∞∆∇⋅∗−×÷^_{}α-ωΑ-Ω]")
+
+
+def _is_formula(run: list[list[_Line]]) -> bool:
+    """Whether a borderless table is a displayed formula: at least `_FORMULA_SIGN_SHARE` of its pieces hold a mathematical
+    sign (`_FORMULA_SIGN`) and at least `_FORMULA_SHORT_SHARE` hold `_FORMULA_SHORT_CHARS` characters or fewer.
+
+    Deliberate: the numerator, operators and denominators of a displayed formula stand in rows at the same places, so
+    '| d | ∂L | ∂L |' / '| | − | = 0. |' / '| dt | dt | dt |' and '| M = | + | O(h^{p+1}). |' were tables (3 of 200 pages of
+    a pdf corpus). A table holding arrows or units between longer cells ('Genes in DNA | → | Protein') keeps its long
+    cells and stays a table (Pinned by: test_pdf_borderless_split_rows.py::TestDisplayedFormulas)."""
+    pieces = [line.text.strip() for row in run for line in row if line.text.strip()]
+    if not pieces:
+        return False
+    signs = sum(1 for piece in pieces if _FORMULA_SIGN.search(piece))
+    short = sum(1 for piece in pieces if len(piece) <= _FORMULA_SHORT_CHARS)
+    return signs >= len(pieces) * _FORMULA_SIGN_SHARE and short >= len(pieces) * _FORMULA_SHORT_SHARE
 
 
 def _reads_as_prose_columns(run: list[list[_Line]], order: dict[int, int], lines: list[_Line]) -> bool:
