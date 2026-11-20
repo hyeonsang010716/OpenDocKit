@@ -239,6 +239,7 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 
 - "개요 N" (Outline N) styles and outline-numbered paragraphs → `#` headings; without them, short paragraphs set clearly
   larger than the body → headings by size.
+- Bold and italic → `**bold**` / `*italic*` (not in headings; a paragraph or cell bold throughout is not marked).
 - Letter-spaced form labels are joined (`성   명` → `성명`).
 - Paragraph numbers and bullets (`1.`, `가.`, `-`).
 - Tables (including merged cells); captions of tables, pictures and equations (including the number of "표 1", "그림 2").

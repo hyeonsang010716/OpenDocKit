@@ -320,6 +320,14 @@ def mark_emphasis(text: str, bold: bool, italic: bool) -> str:
     return f"{_BOLD_OPEN}{text}{_BOLD_CLOSE}" if bold else text
 
 
+def emphasis_marks(bold: bool, italic: bool) -> tuple[str, str]:
+    """The temporary marks that open and close a bold and/or italic span (what `mark_emphasis` puts around a run), for formats that
+    keep their marks apart from the document text (Hangul: `_hangul.emphasis_pieces`)."""
+    opening = (_BOLD_OPEN if bold else "") + (_ITALIC_OPEN if italic else "")
+    closing = (_ITALIC_CLOSE if italic else "") + (_BOLD_CLOSE if bold else "")
+    return opening, closing
+
+
 def merge_emphasis_marks(text: str) -> str:
     """Join the temporary marks of neighbouring runs that have the same emphasis. Done before the strikethrough and script marks
     are resolved: with an emphasis mark between them, struck-through runs that Word split per character would each get their own

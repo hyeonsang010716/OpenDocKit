@@ -26,6 +26,7 @@ from opendockit.extractors._hangul import (
     command_link,
     decorated_text,
     drop_unfilled_guide,
+    emphasis_pieces,
     has_text,
     link_end,
     link_start,
@@ -126,8 +127,13 @@ class HwpxRenderer:
     def __init__(self, styles: dict[str, str], options: ConvertOptions, extraction: Extraction,
                  load_binary: Callable[[str], bytes | None], heads: ParagraphHeads | None = None,
                  load_part: Callable[[str], bytes | None] | None = None, scripts: dict[str, str] | None = None,
-                 struck: frozenset[str] = frozenset(), sizes: dict[str, int] | None = None) -> None:
+                 struck: frozenset[str] = frozenset(), sizes: dict[str, int] | None = None,
+                 emphasis: dict[str, tuple[bool, bool]] | None = None) -> None:
         self._styles = styles
+        # Character shape id → (bold, italic) for the shapes that have either (`_load_emphasis`; empty without `keep_emphasis`),
+        # and that of the run being read
+        self._emphasis = emphasis or {}
+        self._bold_italic = (False, False)
         # Character shape id → size (hh:charPr height, 1/100 pt), the size of the run being read, the headings told by size
         # (`_hangul.SizeHeadings`; the body blocks go through `size_headings.resolve` once everything is read), and how deep in
         # inner paragraph lists (cells, notes, text boxes, captions, headers) the paragraph being read is
@@ -203,7 +209,7 @@ class HwpxRenderer:
     def render_paragraph(self, paragraph: etree._Element) -> list[str]:
         self._note_memo_target(" ")  # between paragraphs of a comment range that spans several paragraphs
         # The head goes on the first text piece only, and a paragraph without text keeps its number (`_hangul.ParagraphPieces`).
-        pieces = ParagraphPieces(lambda text, plain: self._decorate(paragraph, text, plain),
+        pieces = ParagraphPieces(lambda text, plain, heading: self._decorate(paragraph, text, plain, heading),
                                  in_cell=bool(self._cell_depth))
         blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
 
@@ -211,9 +217,10 @@ class HwpxRenderer:
             script = self._scripts.get(run.get("charPrIDRef", ""))
             struck = run.get("charPrIDRef", "") in self._struck_shapes
             size = self._sizes.get(run.get("charPrIDRef", ""), 0)
+            bold_italic = self._emphasis.get(run.get("charPrIDRef", ""), (False, False))
             for node in run:
                 # Reading inner paragraphs (table, text box) changes these by the time it returns, so set them again per node
-                self._script, self._struck, self._size = script, struck, size
+                self._script, self._struck, self._size, self._bold_italic = script, struck, size, bold_italic
                 self._render_object(node, buffer, blocks, flush)
         return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
 
@@ -228,7 +235,7 @@ class HwpxRenderer:
             self._note_memo_target(plain)
             # A run with a strikethrough character shape. Appended as plain text, a deleted value read as a valid one
             # (Pinned by: test_hwp.py::TestStrikethrough).
-            buffer.append(mark_strike(text) if self._struck else text)
+            buffer.extend(emphasis_pieces(mark_strike(text) if self._struck else text, *self._bold_italic))
         elif name == "tbl":
             flush()
             blocks.append(self._render_table(node))
@@ -588,7 +595,7 @@ class HwpxRenderer:
     def memo_lines(self) -> str:
         return "\n".join(comment_line(author, text, "".join(target).strip()) for author, text, target in self.memos if text)
 
-    def _decorate(self, paragraph: etree._Element, text: str, plain: str) -> str:
+    def _decorate(self, paragraph: etree._Element, text: str, plain: str, heading: Callable[[], str]) -> str:
         """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style or head, the heading mark to the paragraph's
         first text piece. A top-level body paragraph (not in a cell, note, header, text box or caption) passes its smallest
         character size, to become a heading by size (`_hangul.SizeHeadings`)."""
@@ -600,7 +607,7 @@ class HwpxRenderer:
         return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth),
                               check=self._check_mark(paragraph), plain=plain, outline=outline,
                               size=self._smallest_text_size(paragraph) if top else 0, size_headings=self.size_headings,
-                              top=top, in_note=bool(self._note_depth))
+                              heading_text=heading, top=top, in_note=bool(self._note_depth))
 
     def _smallest_text_size(self, paragraph: etree._Element) -> int:
         """The smallest size among the runs of the paragraph that hold visible text (hp:t); 0 when one of them has no known size.
@@ -744,7 +751,8 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
             extraction.warnings.append("The document style information (header.xml) could not be read, so the document was converted "
                                        "without headings, numbering and character formatting.")
         renderer = HwpxRenderer(styles, options, extraction, load_binary, _load_paragraph_heads(header), load_part,
-                                _load_scripts(header), _load_struck_shapes(header), _load_char_sizes(header))
+                                _load_scripts(header), _load_struck_shapes(header), _load_char_sizes(header),
+                                _load_emphasis(header) if options.keep_emphasis else None)
         blocks = []
         sections = _section_order(package, names, extraction.warnings)
         broken: list[Exception] = []
@@ -985,6 +993,19 @@ def _load_char_sizes(header: etree._Element | None) -> dict[str, int]:
             if height > 0:
                 sizes[node.get("id", "")] = height
     return sizes
+
+
+def _load_emphasis(header: etree._Element | None) -> dict[str, tuple[bool, bool]]:
+    """Character shape (hh:charPr) id → (bold, italic), for the shapes with an hh:bold or hh:italic child."""
+    emphasis: dict[str, tuple[bool, bool]] = {}
+    if header is None:
+        return emphasis
+    for node in header.iter():
+        if _local(node) == "charPr":
+            bold, italic = _child(node, "bold") is not None, _child(node, "italic") is not None
+            if bold or italic:
+                emphasis[node.get("id", "")] = (bold, italic)
+    return emphasis
 
 
 def _load_struck_shapes(header: etree._Element | None) -> frozenset[str]:

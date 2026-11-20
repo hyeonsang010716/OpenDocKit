@@ -39,6 +39,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   before; now their chapter titles do.
 - **Letter-spaced labels of Hangul forms** are written without the spaces between their syllables (`기 관 명` →
   `기관명`, `담   당   자` → `담당자`), so a search for the label finds it. Blank dates (`년   월   일`) keep their spaces.
+- **Bold and italic in HWP and HWPX** under `keep_emphasis`, by the same rules as DOCX (`3. **시험기간** : …`).
 
 ### Changed
 

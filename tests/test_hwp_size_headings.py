@@ -108,7 +108,7 @@ class TestSizeHeadings:
         """'3. 시험기간 : 시험 시작일로부터 X일' with only the label in 13 pt is a body line."""
         data = _hwp(_paragraph("3. 시험기간 : 시작일로부터", (0, 1), (7, 0)), _paragraph(_BODY))
 
-        assert convert(data, "a.hwp").text.startswith("3. 시험기간 : 시작일로부터")
+        assert convert(data, "a.hwp").text.startswith("3. **시험기간** : 시작일로부터")   # the 13 pt label is bold
 
     def test_lines_that_only_look_large_are_no_headings(self):
         """A cover-page date, a table-of-contents line, the addressee line of a form and a sentence written large stay text."""

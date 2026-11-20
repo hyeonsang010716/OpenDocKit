@@ -10,8 +10,10 @@ import re
 
 from opendockit.extractors._inline import (
     LINK_OPEN,
+    emphasis_marks,
     link_close,
     link_target,
+    merge_emphasis_marks,
     plain_inline,
     resolve_inline,
     resolve_scripts,
@@ -53,7 +55,7 @@ _LABEL_SEPARATOR = re.compile(r"([^\S ]+)")
 def unspaced_label(line: str, *, in_cell: bool) -> str:
     """A letter-spaced label with the spaces between its syllables taken out: `기 관 명` → `기관명`, `성 명` → `성명`,
     `실 습 생 인적사항` → `실습생인적사항`; a list mark in front stays with one space (`13. 농 업 기 술` → `13. 농업기술`).
-    It is applied to the written line, after links.
+    It is applied to the written line, after links and emphasis: a cell that is bold throughout is a label like any other.
 
     Korean forms space the syllables of a label to fill the width of its cell. Read as written, the label is a row of one-syllable
     words that a search for `기관명` or `성명` does not find, and an LLM reading the form sees broken words. A line is a spaced
@@ -88,9 +90,20 @@ def _unspaced_part(line: str, in_cell: bool) -> str:
 
 
 class _LinkMark(str):
-    """A link mark in the text pieces of a paragraph, told apart from the text of the document (`ParagraphPieces.flush`)."""
+    """A link or emphasis mark in the text pieces of a paragraph, told apart from the text of the document
+    (`ParagraphPieces.flush`)."""
 
     __slots__ = ()
+
+
+def emphasis_pieces(text: str, bold: bool, italic: bool) -> list[str]:
+    """The text pieces of a bold and/or italic run: the text between its marks. Whitespace-only text is left unmarked, as by
+    `_inline.mark_emphasis`. The marks are pieces of their own, so the text of the document cannot forge one
+    (Pinned by: test_hwp_emphasis.py)."""
+    if not (bold or italic) or not text.strip():
+        return [text]
+    opening, closing = emphasis_marks(bold, italic)
+    return [_LinkMark(opening), text, _LinkMark(closing)]
 
 
 def link_start() -> str:
@@ -227,7 +240,8 @@ class SizeHeadings:
 
 def decorated_text(text: str, mark: str, level: int, style_name: str, margin: int, nesting: BulletNesting, *, in_cell: bool,
                    check: str = "", plain: str | None = None, outline: bool = False, size: int = 0,
-                   size_headings: SizeHeadings | None = None, top: bool = False, in_note: bool = False) -> str:
+                   size_headings: SizeHeadings | None = None, heading_text: Callable[[], str] | None = None,
+                   top: bool = False, in_note: bool = False) -> str:
     """The first text piece of a paragraph with its head (`_lists.paragraph_head`) and, for an outline style or outline head, the
     heading mark.
 
@@ -236,6 +250,8 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     check bullet (HWPX). `plain` is the text without link marks and addresses: whether the paragraph is a heading is decided on it,
     so a link does not change that (as in DOCX). `size` is the smallest character size of the paragraph's text when it is a
     top-level body paragraph (0 otherwise); with `size_headings` such a paragraph can become a heading by its size (`SizeHeadings`).
+    `heading_text` gives the text written without bold and italic, used when the paragraph is a heading (a heading is bold by
+    its style, as in DOCX).
 
     A paragraph with an outline head is a heading of its outline level + 1, as one in a 개요 style is: Hangul builds the outline
     (and the table of contents) from the head, and a real document put it on 바탕글 paragraphs, which came out as a numbered list
@@ -261,10 +277,10 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
 
     head = paragraph_head(mark, level, in_cell=in_cell, heading=heading) + check
     if heading:
-        return f"{'#' * min(heading_level, 6)} {head}{text}"
+        return f"{'#' * min(heading_level, 6)} {head}{text if heading_text is None else heading_text()}"
     if size and size_headings is not None and not in_cell and mark != "-" and _size_heading_text(plain):
         heading_head = paragraph_head(mark, level, in_cell=False, heading=True) + check
-        return size_headings.candidate(head + text, heading_head + text, size)
+        return size_headings.candidate(head + text, heading_head + (text if heading_text is None else heading_text()), size)
     return head + text
 
 
@@ -282,7 +298,7 @@ class ParagraphPieces:
     a link that does not end in the same piece of text (across a table, a text box or a paragraph end) stays text.
     """
 
-    def __init__(self, decorate: Callable[[str, str], str], *, in_cell: bool = False) -> None:
+    def __init__(self, decorate: Callable[[str, str, Callable[[], str]], str], *, in_cell: bool = False) -> None:
         self._in_cell = in_cell
         self.blocks: list[str] = []
         self.buffer: list[str] = []
@@ -296,11 +312,14 @@ class ParagraphPieces:
         linked = any(type(piece) is _LinkMark for piece in buffer)
         text = "".join(piece if type(piece) is _LinkMark else piece.translate(_WITHOUT_INLINE_MARKS) for piece in buffer) if linked \
             else "".join(buffer)
-        text = resolve_scripts(resolve_strikes(text))  # strikethrough comes first (`resolve_strikes`), links last, as in DOCX
+        # Marks of neighbouring runs with the same emphasis are joined first, then strikethrough (`resolve_strikes`), scripts, and
+        # links and emphasis last, as in DOCX. A heading is written without emphasis (`heading`)
+        text = resolve_scripts(resolve_strikes(merge_emphasis_marks(text) if linked else text))
         plain = None
+        marked = text
         if linked:
             plain = plain_inline(text).strip()
-            text = resolve_inline(text, emphasis=False)
+            text = resolve_inline(text)
         text = text.strip()
         buffer.clear()
         if not text:
@@ -313,12 +332,15 @@ class ParagraphPieces:
             self._bare = len(self.blocks) if self._bare is None else self._bare
             self.blocks.append(text)
         else:
-            self.blocks.append(self._decorate(text, text if plain is None else plain))
+            # The paragraph written without emphasis, for a heading: resolved only when it is one (most paragraphs are not)
+            heading = (lambda: self._unspaced(resolve_inline(marked, emphasis=False).strip())) if linked else (lambda: text)
+            self.blocks.append(self._decorate(text, text if plain is None else plain, heading))
             self._headed = True
 
     def _unspaced(self, text: str) -> str:
-        """The written text with its letter-spaced labels joined (`unspaced_label`). On the written text: a line with a link left
-        in it is not a label (its words are not all letters and digits)."""
+        """The written text with its letter-spaced labels joined (`unspaced_label`). On the written text: a cell bold throughout
+        has lost its marks by now, and a line with marks or a link left in it is not a label (its words are not all letters and
+        digits)."""
         if len(text) > _SPACED_LABEL_MAX_CHARS or " " not in text:
             return text
         return "\n".join(unspaced_label(line, in_cell=self._in_cell) for line in text.split("\n"))

@@ -1,6 +1,6 @@
 # Links and emphasis decisions
 
-Deliberate decisions for keeping hyperlinks (`[text](url)`) and bold / italic (`**bold**`, `*italic*`, `***both***`) in DOCX, PPTX and HTML (`ConvertOptions.keep_links`, `keep_emphasis`; both on by default). The rules live in one place, `extractors/_inline.py` (`link_target`, `resolve_inline`); the extractors only say where a span starts and ends.
+Deliberate decisions for keeping hyperlinks (`[text](url)`) and bold / italic (`**bold**`, `*italic*`, `***both***`) in DOCX, PPTX, HTML, ODF, HWP and HWPX (`ConvertOptions.keep_links`, `keep_emphasis`; both on by default). The rules live in one place, `extractors/_inline.py` (`link_target`, `resolve_inline`); the extractors only say where a span starts and ends.
 The rule is the same as in the other files: do not revert the decisions in this table. To change one, change its pinning test first and write the reason in the same row.
 
 | Decision | Why | Pinned by |

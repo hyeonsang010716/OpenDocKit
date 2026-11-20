@@ -35,6 +35,17 @@ class TestSpacedLabels:
         assert convert(builder.hwpx_bytes(body), "a.hwpx").text.split("\n\n") == ["기관명 서울시청", "대표자 홍길동"]
         assert unspaced_label("성 명\t홍 길 동", in_cell=True) == "성명\t홍길동"
 
+    def test_bold_label_is_joined_too(self):
+        """Header cells are often bold throughout; their marks are dropped as for any whole cell, and the label is joined."""
+        head = '<hh:charProperties itemCnt="1"><hh:charPr id="1" height="1000"><hh:bold/></hh:charPr></hh:charProperties>'
+        body = ('<hp:p><hp:run><hp:tbl rowCnt="1" colCnt="2"><hp:tr>'
+                + _cell(0, 0, "기 관 명").replace("<hp:run>", '<hp:run charPrIDRef="1">') + _cell(0, 1, "한국정보원")
+                + "</hp:tr></hp:tbl></hp:run></hp:p>")
+        data = builder.zip_with(builder.hwpx_bytes(body), edit={
+            "Contents/header.xml": lambda xml: xml.replace("</hh:refList>", head + "</hh:refList>")})
+
+        assert convert(data, "a.hwpx").text.splitlines()[0] == "| 기관명 | 한국정보원 |"
+
     def test_blank_date_of_a_form_keeps_its_spaces(self):
         text = convert(_form(("작성일", "2024 년   월   일"), ("시간", "시   분")), "a.hwpx").text
 
