@@ -5,6 +5,7 @@ from io import BytesIO
 import re
 import zipfile
 
+from lxml import etree
 import pytest
 
 from opendockit import ConvertOptions, UnsupportedFormatError, convert
@@ -576,19 +577,90 @@ class TestStrictOpenXmlOfficeDocuments:
 
     @pytest.mark.parametrize("relationships", [False, True])
     def test_only_declarations_and_relationship_types_are_renamed(self, relationships):
-        from opendockit.extractors._package import _transitional_names
-
+        """The namespaces of names are renamed, declared under the prefixes the part gave them; what text, values, comments,
+        processing instructions and CDATA sections hold stays as written, in a part stored in UTF-8 or UTF-16."""
         strict, transitional = ("http://purl.oclc.org/ooxml/drawingml/main", "http://schemas.openxmlformats.org/drawingml/2006/main")
+        unknown = "http://purl.oclc.org/ooxml/other/main"  # not one of the five vocabularies
         kept = (f'<?pi {strict}?><!-- <a xmlns="{strict}"> --><b c="{strict}" d=\'xmlns="{strict}"\' Target="{strict}">'
                 f'<![CDATA[<a xmlns="{strict}">]]>xmlns="{strict}" Type="{strict}"</b>')
-        unknown = 'xmlns:a="http://purl.oclc.org/ooxml/other/main"'  # not one of the five vocabularies
-        part = f"<r xmlns='{strict}' {unknown} Type=\"{strict}\">{kept}</r>"
+        part = (f"<r xmlns='{strict}' xmlns:u=\"{unknown}\" xmlns:mc=\"urn:mc\" mc:Ignorable=\"u\" Type=\"{strict}\">{kept}"
+                f'<s:t xmlns:s="{strict}" s:v="1" xml:space="preserve"> x </s:t></r>')
 
-        renamed = _transitional_names(part.encode(), relationships=relationships)
+        for encoding in ("utf-8", "utf-16"):
+            renamed = _renamed_part(part.encode(encoding), "word/_rels/a.xml.rels" if relationships else "word/a.xml")
+            root = etree.fromstring(renamed)
+            assert renamed.startswith(b'<?xml version="1.0" encoding="UTF-8"?>')
+            assert root.tag == f"{{{transitional}}}r" and root.nsmap == {None: transitional, "u": unknown, "mc": "urn:mc"}
+            assert root.get("Type") == (transitional if relationships else strict)
+            pi, comment, b, t = root
+            assert (pi.target, pi.text, comment.text) == ("pi", strict, f' <a xmlns="{strict}"> ')
+            assert b.tag == f"{{{transitional}}}b" and dict(b.attrib) == {"c": strict, "d": f'xmlns="{strict}"', "Target": strict}
+            assert b.text == f'<a xmlns="{strict}">xmlns="{strict}" Type="{strict}"'
+            assert t.prefix == "s" and t.tag == f"{{{transitional}}}t" and t.get(f"{{{transitional}}}v") == "1"
+            assert t.text == " x " and t.get("{http://www.w3.org/XML/1998/namespace}space") == "preserve"
 
-        type_value = transitional if relationships else strict
-        assert renamed == f"<r xmlns='{transitional}' {unknown} Type=\"{type_value}\">{kept}</r>".encode()
-        assert _transitional_names(part.encode("utf-16"), relationships=relationships).decode("utf-16") == renamed.decode()
+    def test_part_that_does_not_parse_is_copied_as_written(self):
+        """Opening the copy then reports it as opening a Transitional document reports it."""
+        broken = b'<r xmlns="http://purl.oclc.org/ooxml/drawingml/main"><b></r>'
+
+        assert _renamed_part(broken, "word/a.xml") == broken
+        assert _renamed_part(b"", "word/a.xml") == b""
+
+    def test_declarations_are_read_by_a_parser(self):
+        """A `>` in an attribute value before a declaration, and a character reference in a namespace, left the declaration
+        Strict, and the paragraphs under it were lost without a word."""
+        strict = "http://purl.oclc.org/ooxml/wordprocessingml/main"
+        data = _docx_with_body('<w:p xmlns:q="urn:q" q:a="1"><w:r><w:t>first paragraph</w:t></w:r></w:p>'
+                               '<w:p xmlns:k="urn:k" k:id="2"><w:r><w:t>second paragraph</w:t></w:r></w:p>')
+        redeclared = builder.zip_with(_strict_everywhere(data), edit={"word/document.xml": lambda xml: xml.replace(
+            '<w:p xmlns:q="urn:q" q:a="1">', f'<w:p xmlns:q="urn:q" q:a="1>2" xmlns:w="{strict}">').replace(
+            '<w:p xmlns:k="urn:k" k:id="2">', f'<w:p xmlns:k="urn:k" k:id="2" xmlns:w="{strict.replace("main", "m&#97;in")}">')})
+        with zipfile.ZipFile(BytesIO(redeclared)) as archive:
+            assert archive.read("word/document.xml").count(b'xmlns:w="http://purl.oclc.org/ooxml/wordprocessingml/m') == 3
+
+        result, expected = convert(redeclared, "a.docx"), convert(data, "a.docx")
+
+        assert "first paragraph" in expected.text and "second paragraph" in expected.text
+        assert result.text == expected.text
+
+    def test_part_is_streamed_through_the_parser(self, monkeypatch):
+        """A part stored in UTF-16 was held as its decoded text, four bytes a character once one character lies outside the BMP
+        (with its renamed form beside it). It is fed to the parser in chunks: no member that parses is read whole, and copying
+        holds less than the part itself (the text of one element is still decoded whole, as reading it does)."""
+        import tracemalloc
+
+        paragraph = "가😀" + "x" * 60
+        data = builder.zip_with(_strict_everywhere(_docx_with_body(f"<w:p><w:r><w:t>{paragraph}</w:t></w:r></w:p>" * 20_000)))
+        buffer = BytesIO()
+        with zipfile.ZipFile(BytesIO(data)) as source, zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+            for name in source.namelist():
+                content = source.read(name)
+                if name == "word/document.xml":
+                    content = re.sub(r"encoding=['\"][^'\"]*['\"]", 'encoding="UTF-16"', content.decode(), count=1).encode("utf-16")
+                    size = len(content)
+                target.writestr(name, content)
+        data = buffer.getvalue()
+        read: list[str] = []
+        real_read = zipfile.ZipFile.read
+
+        def counting_read(archive, name, *args, **kwargs):
+            read.append(getattr(name, "filename", name))
+            return real_read(archive, name, *args, **kwargs)
+
+        monkeypatch.setattr(zipfile.ZipFile, "read", counting_read)
+        tracemalloc.start()
+        try:
+            copy = transitional_package(data)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        monkeypatch.undo()
+
+        assert "word/document.xml" not in read
+        assert peak < size
+        with zipfile.ZipFile(BytesIO(copy)) as archive:
+            assert archive.read("word/document.xml").count(paragraph.encode()) == 20_000
+        assert convert(data, "a.docx").text.startswith(f"{paragraph}\n\n{paragraph}\n\n")
 
     def test_picture_of_a_strict_docx_that_cannot_be_read_is_detached_and_the_body_kept(self):
         """A member that does not read is left out of the copy, and opening detaches it as for a Transitional document."""
@@ -659,33 +731,27 @@ class TestStrictOpenXmlOfficeDocuments:
         with zipfile.ZipFile(BytesIO(transitional_package(data))) as archive:
             assert {"word/Media/Image1.png", "word/media/image%322.png"} <= set(archive.namelist())
 
-    def test_failed_attempt_is_let_go_before_the_copy(self, monkeypatch):
-        """The exception of the first attempt held, through its traceback, the package it had opened with every part read, and
-        the package, held in reference cycles with its parts, outlived it until the cycle collector ran."""
-        import weakref
-
+    def test_strict_package_is_not_opened_before_the_copy(self, monkeypatch):
+        """Opened as it was first, a Strict package failed for its main part, and what that raised held, through its traceback,
+        the package with every part read until the cycle collector let it go: a 170 MB picture cost 533 MB against 352 MB, or a
+        collection of the whole heap per document. Strict is now told from the package relationships, and only the copy is
+        opened."""
         from docx.opc.package import OpcPackage
 
-        from opendockit.extractors import docx
-
-        opened: list[weakref.ref] = []
-        real_open, real_strict = OpcPackage.open.__func__, docx._strict_main_part
-        alive_at_copy: list[bool] = []
+        strict = _strict_everywhere(builder.docx_bytes())
+        opened: list[bytes] = []
+        real_open = OpcPackage.open.__func__
 
         def recording_open(cls, source):
-            package = real_open(cls, source)
-            opened.append(weakref.ref(package))
-            return package
-
-        def checking_strict(data, warnings):
-            alive_at_copy.append(any(reference() is not None for reference in opened))
-            return real_strict(data, warnings)
+            opened.append(source.getvalue())
+            return real_open(cls, source)
 
         monkeypatch.setattr(OpcPackage, "open", classmethod(recording_open))
-        monkeypatch.setattr(docx, "_strict_main_part", checking_strict)
 
-        assert "# 1장 개요" in convert(_strict_everywhere(builder.docx_bytes()), "a.docx").text
-        assert alive_at_copy == [False]
+        assert "# 1장 개요" in convert(strict, "a.docx").text
+        assert len(opened) == 1 and opened[0] != strict
+        with zipfile.ZipFile(BytesIO(opened[0])) as archive:
+            assert b"purl.oclc.org" not in archive.read("_rels/.rels")
 
     def test_password_protected_strict_docx_is_encrypted(self):
         """A Strict DOCX whose body carries the ZIP password bit got the advice to save it again; a Transitional one is reported
@@ -716,6 +782,55 @@ class TestStrictOpenXmlOfficeDocuments:
         monkeypatch.setattr(docx, "transitional_package", never)
 
         assert "# 1장 개요" in convert(builder.docx_bytes(), "a.docx").text
+
+
+def _renamed_part(content: bytes, name: str) -> bytes:
+    """`content` as the Transitional copy writes it, read from a member named `name`."""
+    from opendockit.extractors._package import _transitional_part
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(name, content)
+    with zipfile.ZipFile(buffer) as archive:
+        return b"".join(_transitional_part(archive, archive.getinfo(name), relationships=name.endswith(".rels")))
+
+
+def _strict_docx_with_reached_part(content: bytes) -> bytes:
+    """Strict DOCX whose document has a relationship to a custom XML part holding `content`."""
+    custom = "http://purl.oclc.org/ooxml/officeDocument/relationships/customXml"
+    return builder.zip_with(_strict_everywhere(builder.docx_bytes()), edit={"word/_rels/document.xml.rels": lambda xml: xml.replace(
+        "</Relationships>", f'<Relationship Id="rIdJunk" Type="{custom}" Target="junk.xml"/></Relationships>')},
+        add={"word/junk.xml": content.decode("latin-1")})
+
+
+@pytest.mark.timing
+class TestStrictCopyInLinearTime:
+    """The Strict names were found by a hand-written scan of each part, which went over the same text again from each place a
+    match failed: spaces closing a start tag (a 37 KB document took 17 s), or a comment, CDATA section, processing instruction,
+    declaration or start tag left unclosed in a reached part (200 KB: 53 s). A parser reads each part once."""
+
+    _STRICT = b'xmlns:a="http://purl.oclc.org/ooxml/drawingml/main"'
+
+    def test_spaces_closing_a_start_tag(self):
+        def document(spaces: int) -> bytes:
+            return builder.zip_with(_strict_everywhere(builder.docx_bytes()), edit={"word/document.xml": lambda xml: re.sub(
+                r"(<w:document\b[^>]*)>", lambda match: match.group(1) + " " * spaces + ">", xml, count=1)})
+
+        small, large = document(5_000), document(40_000)
+
+        assert "# 1장 개요" in convert(large, "a.docx").text
+        assert fastest(lambda: convert(large, "a.docx")) < 8 * fastest(lambda: convert(small, "a.docx")) + 0.05
+
+    @pytest.mark.parametrize(("opened", "repeated"), [(b"", b"<!--"), (b"", b"<![CDATA["), (b"", b"<?"), (b"", b"<!"),
+                                                      (b"<a ", b"purl.oclc.org/ooxml/ ")])
+    def test_markup_left_unclosed(self, opened, repeated):
+        def document(size: int) -> bytes:
+            return _strict_docx_with_reached_part(b"<r " + self._STRICT + b"/>" + opened + repeated * (size // len(repeated)))
+
+        small, large = document(20_000), document(160_000)
+
+        assert "# 1장 개요" in convert(large, "a.docx").text
+        assert fastest(lambda: convert(large, "a.docx")) < 8 * fastest(lambda: convert(small, "a.docx")) + 0.05
 
 
 _GLOSSARY_RELATIONSHIP = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/glossaryDocument"

@@ -8,7 +8,6 @@ from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-import gc
 import re
 import unicodedata
 
@@ -1217,32 +1216,18 @@ def _strict_main_part(data: bytes, warnings: list[str]) -> DocumentPart | None:
 def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
     # If opening fails because of one part that is missing or is not XML, only that part is detached and the package is opened again
     # (`_package.open_package`, one warning).
-    # A Strict Open XML document fails here because its main part is not found. It is not corruption: it is read again from its
-    # Transitional copy (`_strict_main_part`). Strict is looked for only when opening failed, so a healthy document pays nothing.
-    # The warnings of an attempt that failed are not kept.
-    # Whatever else opening raises (a member that does not read and that the repair, looking for Transitional relationships,
-    # cannot detach) goes up as before, unless the package is Strict: its copy is opened instead (Pinned by:
-    # test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
-    # test_picture_of_a_strict_docx_that_cannot_be_read_is_detached_and_the_body_kept).
+    # A Strict Open XML document (`is_strict_package`) is read from its Transitional copy (`_strict_main_part`) without being
+    # opened as it is first: opened, its main part is not found, and the attempt held, through what it raised, the package it
+    # had opened with every part read, until the cycle collector let it go (a 170 MB picture: 533 MB against 352 MB for the
+    # Transitional document, or a collection of the whole heap per document). Looking costs reading the package relationships,
+    # a small part (Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
+    # test_strict_package_is_not_opened_before_the_copy, test_transitional_document_is_not_copied).
     extraction = Extraction()
     warnings: list[str] = []
-    try:
+    if is_strict_package(data):
+        part, error = _strict_main_part(data, warnings), None
+    else:
         part, error = _open_main_part(data, warnings)
-    except MemoryError:
-        raise
-    except Exception:
-        if not is_strict_package(data):
-            raise
-        part, error = None, None
-    if part is None and is_strict_package(data):
-        # What the failed attempt raised holds, through its traceback, the package it opened, with every part it read; and the
-        # package and its parts refer to each other, so let go it waits for the cycle collector. Kept while the copy was made and
-        # opened, a Strict document held its pictures twice over (a 170 MB picture: 533 MB against 352 MB for the Transitional
-        # document). It is let go and collected first, on this path only (Pinned by: test_office_revisions_and_numbering.py::
-        # TestStrictOpenXmlOfficeDocuments::test_failed_attempt_is_let_go_before_the_copy)
-        warnings, error = [], None
-        gc.collect()
-        part = _strict_main_part(data, warnings)
     if part is None:
         raise CorruptedDocumentError("The DOCX document structure could not be read.") from error
     extraction.warnings.extend(warnings)

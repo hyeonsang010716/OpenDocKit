@@ -163,8 +163,10 @@ def is_strict_package(data: bytes) -> bool:
 
     A DOCX/PPTX saved as a 'Strict Open XML document' differs in every relationship type and namespace, so python-docx / python-pptx
     cannot find the main part. It is not corruption (the 'document structure cannot be read' error): a DOCX is read from its
-    Transitional copy (`transitional_package`), a PPTX is refused with the advice to save it again. We look only when opening
-    fails (no cost for healthy documents. Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments).
+    Transitional copy (`transitional_package`), a PPTX is refused with the advice to save it again. The DOCX reader looks before
+    opening the package, so a Strict one is never opened as it is; the PPTX reader only when opening failed. Looking reads the
+    ZIP directory and one small part (Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
+    test_strict_package_is_not_opened_before_the_copy).
     """
     try:
         with zipfile.ZipFile(BytesIO(data)) as archive:
@@ -184,14 +186,9 @@ _STRICT_NAME = re.compile(r"http://purl\.oclc\.org/ooxml/(wordprocessingml|drawi
 _STRICT_RENAMED = {"extendedProperties": "extended-properties", "customProperties": "custom-properties"}
 
 
-# The markup of an XML part that can hold a Strict name as a name: a start tag in which a Strict name stands (`tag`). Comments,
-# CDATA sections, processing instructions and declarations match as a whole, so that what they hold is never taken for a tag;
-# text holds no `<` and is passed over. A tag is read up to its first `>`: Word writes a `>` in an attribute value as `&gt;`
-_MARKUP = (r"<!--.*?-->|<!\[CDATA\[.*?\]\]>|<\?.*?\?>|<![^>]*>"
-           r"|(?P<tag><[A-Za-z_][^<>]*?purl\.oclc\.org/ooxml/[^<>]*>)")
-_MARKUP_TEXT, _MARKUP_BYTES = re.compile(_MARKUP, re.S), re.compile(_MARKUP.encode("ascii"), re.S)
-# The attributes of a start tag, one after the other, so a quoted value is never read for an attribute of its own
-_ATTRIBUTE = re.compile(r"""(\s+)([^\s=<>/"']+)(\s*=\s*)("[^"]*"|'[^']*')""")
+# What parsing an XML part with the writer below as its target raises for a part that is not well-formed (XMLSyntaxError) or
+# whose content the writer cannot write again (a name in no namespace in scope: LookupError; ValueError, TypeError)
+_PARSE_ERRORS: tuple[type[Exception], ...] = (etree.LxmlError, LookupError, ValueError, TypeError)
 
 
 def _transitional_name(value: str) -> str:
@@ -204,41 +201,142 @@ def _transitional_name(value: str) -> str:
     return "http://schemas.openxmlformats.org/" + vocabulary + "/2006/" + _STRICT_RENAMED.get(name, name) + tail
 
 
-def _transitional_tag(tag: str, relationships: bool) -> str:
-    """A start tag whose namespace declarations (and, in a relationships part, `Type`) are renamed when their value is a Strict
-    name as a whole; every other attribute stays as written."""
-    def attribute(match: re.Match[str]) -> str:
-        name, value = match.group(2), match.group(4)
-        if not (name == "xmlns" or name.startswith("xmlns:") or (relationships and name == "Type")):
-            return match.group(0)
-        return match.group(1) + name + match.group(3) + value[0] + _transitional_name(value[1:-1]) + value[-1]
+_XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace"
+# The prefixes in scope outside the root element (prefix → namespace; namespace → prefix of element names, of attribute names):
+# only `xml`, which is never declared
+_OUTSIDE_THE_ROOT: tuple[dict[str, str], dict[str, str], dict[str, str]] = (
+    {"xml": _XML_NAMESPACE}, {_XML_NAMESPACE: "xml:"}, {_XML_NAMESPACE: "xml:"})
+# Characters gathered before they are encoded into the copy (`_TransitionalWriter`)
+_CHARACTERS_PER_WRITE = 1 << 16
+# Chunk size for feeding a member to the parser (`_transitional_part`)
+_FEED_CHUNK = 1 << 16
 
-    return _ATTRIBUTE.sub(attribute, tag)
+
+def _escaped_text(text: str) -> str:
+    # `replace` returns the string itself when there is nothing to replace, so text without markup characters is not copied
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\r", "&#13;")
 
 
-def _transitional_names(content: bytes, *, relationships: bool) -> bytes:
-    """An XML part with the Strict names of its namespace declarations (and, in a relationships part, of its relationship types)
-    in their Transitional form. Only those values change, so text, other attribute values, comments and the targets of links
-    stay byte for byte as written: renamed wherever they stood, a paragraph quoting a Strict namespace and a link to one came
-    out as their Transitional forms (Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
-    test_strict_names_in_text_and_link_targets_stay_as_written). Matched as bytes in a part stored in UTF-8 (or another encoding
-    that writes markup in ASCII); a part stored in UTF-16 (it starts with its byte order mark) is matched as its text: matched as
-    bytes, its names were not found and stayed Strict."""
-    if not content.startswith((b"\xff\xfe", b"\xfe\xff")):
-        if b"purl.oclc.org/ooxml/" not in content:
-            return content
-        return _MARKUP_BYTES.sub(lambda match: match.group(0) if match.group("tag") is None
-                                 else _transitional_tag(match.group("tag").decode("latin-1"), relationships).encode("latin-1"),
-                                 content)
-    try:
-        text = content.decode("utf-16")
-    except UnicodeDecodeError:
-        return content
-    if "purl.oclc.org/ooxml/" not in text:
-        return content
-    del content
-    return _MARKUP_TEXT.sub(lambda match: match.group(0) if match.group("tag") is None
-                            else _transitional_tag(match.group("tag"), relationships), text).encode("utf-16")
+def _escaped_value(value: str) -> str:
+    return (_escaped_text(value).replace('"', "&quot;").replace("\t", "&#9;").replace("\n", "&#10;"))
+
+
+class _TransitionalWriter:
+    """Parser target that writes the XML part it is fed again, as the parser reads it, with its Strict names in their
+    Transitional form: the namespace of each element and attribute name, declared under the prefix the part gave it (so a
+    prefix list such as `mc:Ignorable` still names it), and, in a relationships part, the `Type` of each relationship. Text,
+    the other attribute values, comments and processing instructions are written as they were read, a CDATA section as the
+    same text escaped. Written in UTF-8 with an XML declaration; no tree of the part is built, and `close` gives the copy in
+    chunks, written into the package one after the other and let go.
+    (lxml's own incremental writer names `xml:space` under a prefix of its own and refuses a comment after the root element.)"""
+
+    def __init__(self, relationships: bool) -> None:
+        self._chunks: list[bytes] = []  # the copy, encoded
+        self._relationships = relationships
+        self._pieces: list[str] = ['<?xml version="1.0" encoding="UTF-8"?>\n']
+        self._characters = 0  # in `_pieces`
+        # One entry per open element: its qualified name, and the prefixes in scope inside it (as `_OUTSIDE_THE_ROOT`)
+        self._open: list[tuple[str, dict[str, str], dict[str, str], dict[str, str]]] = []
+        self._scope = _OUTSIDE_THE_ROOT
+        self._tag_open = False  # a start tag is written up to its `>`, so that an empty element closes as `/>`
+
+    def _write(self, piece: str) -> None:
+        if self._tag_open:
+            self._pieces.append(">")
+            self._tag_open = False
+        self._pieces.append(piece)
+        self._characters += len(piece)
+        if self._characters >= _CHARACTERS_PER_WRITE:
+            self._flush()
+
+    def _flush(self) -> None:
+        self._chunks.append("".join(self._pieces).encode("utf-8"))
+        self._pieces.clear()
+        self._characters = 0
+
+    @staticmethod
+    def _qualified(name: str, prefixes: dict[str, str]) -> str:
+        if not name.startswith("{"):
+            return name
+        namespace, _, local = name[1:].partition("}")
+        return prefixes[_transitional_name(namespace) if namespace.startswith("http://purl.oclc.org/ooxml/") else namespace] + local
+
+    def start(self, tag: str, attrib: dict[str, str], nsmap: dict[str, str]) -> None:
+        bindings, element_prefixes, attribute_prefixes = self._scope
+        declarations = ""
+        if nsmap:
+            declared = {prefix: _transitional_name(namespace) for prefix, namespace in nsmap.items()}  # '' is the default
+            bindings = {**bindings, **declared}
+            element_prefixes = {namespace: prefix + ":" if prefix else "" for prefix, namespace in bindings.items() if namespace}
+            attribute_prefixes = {namespace: prefix + ":" for prefix, namespace in bindings.items() if namespace and prefix}
+            self._scope = bindings, element_prefixes, attribute_prefixes
+            declarations = "".join(f' xmlns{":" + prefix if prefix else ""}="{_escaped_value(namespace)}"'
+                                   for prefix, namespace in declared.items())
+        name = self._qualified(tag, element_prefixes)
+        attributes = "".join(
+            f' {self._qualified(attribute, attribute_prefixes)}="'
+            f'{_escaped_value(_transitional_name(value) if self._relationships and attribute == "Type" else value)}"'
+            for attribute, value in attrib.items())
+        self._write(f"<{name}{declarations}{attributes}")
+        self._tag_open = True
+        self._open.append((name, *self._scope))
+
+    def end(self, tag: str) -> None:
+        name = self._open.pop()[0]
+        if self._tag_open:
+            self._pieces.append("/>")
+            self._tag_open = False
+        else:
+            self._write(f"</{name}>")
+        self._scope = self._open[-1][1:] if self._open else _OUTSIDE_THE_ROOT
+
+    def data(self, text: str) -> None:
+        self._write(_escaped_text(text))
+
+    def comment(self, text: str) -> None:
+        self._write(f"<!--{text}-->")
+
+    def pi(self, target: str, data: str | None = None) -> None:
+        self._write(f"<?{target} {data}?>" if data else f"<?{target}?>")
+
+    def close(self) -> list[bytes]:
+        self._flush()
+        chunks, self._chunks = self._chunks, []  # the parser may outlive the call: it does not hold the copy
+        return chunks
+
+
+def _transitional_part(archive: zipfile.ZipFile, info: zipfile.ZipInfo, *, relationships: bool) -> list[bytes]:
+    """An XML member with its Strict names in their Transitional form (`_TransitionalWriter`). Read by an XML parser with the
+    settings of `parse_part` and python-docx (no entities, no network, libxml2's limits), so only names are renamed: renamed
+    wherever they stood, a paragraph quoting a Strict namespace and a link to one came out as their Transitional forms (Pinned
+    by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
+    test_strict_names_in_text_and_link_targets_stay_as_written). The member is fed to the parser in chunks as it is read, so
+    neither it nor its decoded text is held whole, in any encoding, and it is read once, in linear time. Found by a hand-written
+    scan, spaces closing a start tag or an unclosed comment took seconds per 10 KB, a part stored in UTF-16 was held as its
+    decoded text (four bytes a character once one lies outside the BMP), and a declaration after `q:a="1>2"` or written
+    `m&#97;in` stayed Strict, its paragraphs lost (Pinned by: test_office_revisions_and_numbering.py::
+    TestStrictOpenXmlOfficeDocuments::test_declarations_are_read_by_a_parser, test_part_is_streamed_through_the_parser;
+    test_office_revisions_and_numbering.py::TestStrictCopyInLinearTime).
+
+    A member that does not parse is copied as written, so opening the copy reports it as opening a Transitional document does
+    (Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
+    test_part_that_does_not_parse_is_copied_as_written). Raises `ZIP_MEMBER_ERRORS` when the member does not read."""
+    parser = etree.XMLParser(target=_TransitionalWriter(relationships), resolve_entities=False, no_network=True)
+    parsed = True
+    with archive.open(info) as source:
+        while chunk := source.read(_FEED_CHUNK):  # read to its end even once parsing failed, to check that it reads
+            if parsed:
+                try:
+                    parser.feed(chunk)
+                except _PARSE_ERRORS:
+                    parsed = False
+    if parsed:
+        try:
+            return parser.close()
+        except _PARSE_ERRORS:
+            pass
+    del parser
+    return [archive.read(info)]
 
 
 def transitional_package(data: bytes) -> bytes:
@@ -250,12 +348,12 @@ def transitional_package(data: bytes) -> bytes:
 
     Only the members a relationship reaches from the package relationships are copied (`_reached_members`), with their
     relationships and the content types: python-docx opens no other member. Each XML part is read, renamed and written one at a
-    time; any other member is checked and then streamed in chunks into a compressed entry. Copied whole, a member nothing points
-    at (a 100 MB run of zeros, a ZIP under 1 MB) cost three times its size, which the same Transitional document never read; and
-    a picture was held whole and stored uncompressed (Pinned by: test_office_revisions_and_numbering.py::
-    TestStrictOpenXmlOfficeDocuments::test_members_no_relationship_reaches_are_not_read). Besides the document itself, the copy
-    holds the archive being written and one XML part with its renamed form, each bounded by `max_uncompressed_bytes`, checked
-    before extraction.
+    time, streamed through a parser (`_transitional_part`); any other member is checked and then streamed in chunks into a
+    compressed entry. Copied whole, a member nothing points at (a 100 MB run of zeros, a ZIP under 1 MB) cost three times its
+    size, which the same Transitional document never read; and a picture was held whole and stored uncompressed (Pinned by:
+    test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::test_members_no_relationship_reaches_are_not_read).
+    Besides the document itself, the copy holds the archive being written and the renamed form of one XML part, each bounded by
+    `max_uncompressed_bytes`, checked before extraction.
 
     Refused, a document Word saved as 'Strict Open XML Document' was not read at all, though only its names differ (Pinned by:
     test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments)."""
@@ -269,11 +367,14 @@ def transitional_package(data: bytes) -> bytes:
                 continue
             if name.lower().endswith((".xml", ".rels")):
                 try:
-                    content = _transitional_names(archive.read(info), relationships=_is_relationships(name))
+                    chunks = _transitional_part(archive, info, relationships=_is_relationships(name))
                 except ZIP_MEMBER_ERRORS:
                     continue
-                target.writestr(name, content)
-                del content
+                with target.open(name, "w", force_zip64=True) as sink:
+                    for index, chunk in enumerate(chunks):
+                        chunks[index] = b""
+                        sink.write(chunk)
+                        del chunk
             elif _member_reads(archive, info):
                 with archive.open(info) as source, target.open(name, "w", force_zip64=True) as sink:
                     shutil.copyfileobj(source, sink, _CHECK_CHUNK)
