@@ -113,6 +113,11 @@ class TestHeadingSizes:
 
         assert "# 12" not in text
 
+    def test_a_large_value_of_an_infographic_is_not_a_heading(self):
+        text = _text([*_body(80), (150, "56%", 24, "Times-Bold"), (175, "47698", 16, "Times-Roman"), *_body(200)])
+
+        assert "#" not in text and "56%" in text
+
 
 class TestBodyTextMarks:
     def test_a_body_line_starting_with_a_heading_or_quote_mark_stays_text(self):

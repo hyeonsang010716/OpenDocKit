@@ -496,10 +496,11 @@ _HeadingKey = tuple[float, bool]
 
 def _heading_shaped(paragraph: _Paragraph) -> bool:
     """A paragraph that is short (two lines, 100 characters at most; a line holding only the section number, '3.' or 'III.',
-    is not counted), mostly letters, does not start with a bullet, and is not a form row with check boxes ('☐ Yes ☑') or a
-    table-of-contents row with a dot leader ('2.4. Results … 7')."""
+    is not counted), mostly letters and holding one (a large '56%' or '20%↑' of an infographic is a value), does not start
+    with a bullet, and is not a form row with check boxes ('☐ Yes ☑') or a table-of-contents row with a dot leader
+    ('2.4. Results … 7')."""
     text = " ".join(line.text for line in paragraph.lines)
-    if _CHECKBOX_MARK.search(text) or _LEADER_RUN.search(text):
+    if _CHECKBOX_MARK.search(text) or _LEADER_RUN.search(text) or not _HEADING_LETTER.search(text):
         return False
     counted = [line for line in paragraph.lines if not _LONE_SECTION_NUMBER.match(line.text.strip())]
     if not counted or not max(line.size for line in paragraph.lines) or len(counted) > 2 or len(text) > 100 or _BULLET_START.match(text):
