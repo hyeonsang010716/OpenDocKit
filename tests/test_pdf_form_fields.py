@@ -5,6 +5,7 @@ import pytest
 
 from opendockit import ConvertOptions, convert
 from tests.test_pdf import _korean_pdf, _raw_pdf
+from tests.timing import fastest
 
 
 _APPEARANCE = b"<< /Length 0 /Type /XObject /Subtype /Form /BBox [0 0 12 12] >>\nstream\n\nendstream"
@@ -30,6 +31,20 @@ def _widget(parent: int, x: int, state: bytes, on: bytes) -> bytes:
 
 
 class TestGroupedFormFields:
+    @pytest.mark.timing
+    def test_a_field_of_very_many_buttons_takes_linear_time(self):
+        """The position of a checkbox among the `/Kids` of the field it shares with the others was searched for each checkbox: a
+        field of 20,000 on one page took 78 seconds in a 1.4 MB file, past any time budget."""
+        def form(count: int) -> bytes:
+            kids = range(7, 7 + count)
+            return _form_pdf({6: b"<< /FT /Btn /T (grade) /Kids [%s] >>" % b" ".join(b"%d 0 R" % kid for kid in kids)},
+                             {kid: _widget(6, 100, b"On" if kid == 7 + count // 2 else b"Off", b"On") for kid in kids})
+
+        small, large = form(1_500), form(6_000)
+        assert convert(large, "a.pdf").text.endswith("grade: On")
+
+        assert fastest(lambda: convert(large, "a.pdf")) < 8 * fastest(lambda: convert(small, "a.pdf")) + 0.5
+
     def test_checkboxes_sharing_one_name_give_the_chosen_export_value(self):
         """Two checkboxes sharing one name ('동의함' agree · '동의하지 않음' disagree) came out as 'consent: ☐', 'consent: ☑',
         losing which one had been chosen."""
