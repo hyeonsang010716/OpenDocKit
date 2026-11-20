@@ -261,9 +261,12 @@ def _without_chart_bars(page: object) -> object:
     # characters of the page: 4,000 bars over 40,000 characters took 4.7 seconds (Pinned by:
     # test_pdf_highlights.py::TestBarCharts::test_tall_bars_over_many_characters_take_linear_time)
     centres = [((char["x0"] + char["x1"]) / 2, (char["top"] + char["bottom"]) / 2) for char in page.chars if char["text"].strip()]
-    across = sorted((x, y) for x, y in centres if math.isfinite(x) and math.isfinite(y))
-    down = sorted((y, x) for x, y in across)
-    xs, ys = [x for x, _ in across], [y for y, _ in down]
+    # (named apart from the `across` of the loop below: holding the same name, the closure read that loop's 'width' or
+    # 'height' instead, and a chart with a label above a bar near the left margin failed the whole PDF; Pinned by:
+    # test_pdf_highlights.py::TestBarCharts::test_a_chart_labelled_above_its_bars_at_the_left_margin_is_read)
+    by_x = sorted((x, y) for x, y in centres if math.isfinite(x) and math.isfinite(y))
+    by_y = sorted((y, x) for x, y in by_x)
+    xs, ys = [x for x, _ in by_x], [y for y, _ in by_y]
     held: dict[int, bool] = {}
 
     def holds_text(rect: dict) -> bool:
@@ -273,8 +276,8 @@ def _without_chart_bars(page: object) -> object:
                 held[id(rect)] = False
             else:
                 left, right, low, high = bisect_left(xs, x0), bisect_right(xs, x1), bisect_left(ys, top), bisect_right(ys, bottom)
-                held[id(rect)] = (any(top <= y <= bottom for _, y in across[left:right]) if right - left <= high - low
-                                  else any(x0 <= x <= x1 for _, x in down[low:high]))
+                held[id(rect)] = (any(top <= y <= bottom for _, y in by_x[left:right]) if right - left <= high - low
+                                  else any(x0 <= x <= x1 for _, x in by_y[low:high]))
         return held[id(rect)]
 
     def at_most_one_holds_text(group: list[dict]) -> bool:

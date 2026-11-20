@@ -689,6 +689,29 @@ class TestBarCharts:
     def test_a_bar_holding_its_value_is_still_a_bar(self):
         assert "|" not in convert(_bar_chart([120, 80, 150, 60], labelled=True), "a.pdf").text
 
+    def test_a_chart_labelled_above_its_bars_at_the_left_margin_is_read(self):
+        """The characters of a bar's own width were looked up in a list whose name the loop after it took for 'width':
+        a chart at the left margin with its values above the bars failed the whole PDF as corrupted."""
+        from io import BytesIO
+
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(595, 842))
+        pdf.setFont("Helvetica", 10)
+        for line in range(20):
+            pdf.drawString(200, 782 - 14 * line, f"Body line {line} of the report text beside the chart.")
+        for index, value in enumerate([60, 90, 40, 120]):
+            pdf.setFillColorRGB(0.2, 0.4, 0.7)
+            pdf.rect(30 + 35 * index, 300, 20, value, stroke=0, fill=1)
+            pdf.setFillColorRGB(0, 0, 0)
+            pdf.drawString(33 + 35 * index, 304 + value, str(value))
+        pdf.save()
+
+        text = convert(buffer.getvalue(), "a.pdf").text
+
+        assert "Body line 19" in text and "120" in text and "|" not in text
+
     @pytest.mark.timing
     def test_a_page_of_thousands_of_bars_is_read_in_linear_time(self):
         """A segment is looked up among the bars of its own edges: compared with every bar, 4,000 bars and 4,000 other fills
