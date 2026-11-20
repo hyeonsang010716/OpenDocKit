@@ -96,7 +96,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **XLS**: a number under a format XLSX reads as a date or time is read as one too — a time under a format with
   fractional seconds (`ss.00`, `m:ss.000`) was its serial number; superscripts and subscripts after an emoji land on the
   right characters.
-- **XLSX / XLS**: an error value (`#N/A`) is shown without its number format, as Excel does (`#N/A 님` under `@" 님"`).
+- **XLSX / XLS**: an error value is shown without its number format, as Excel does (`#N/A`, was `#N/A 님` under `@" 님"`).
   An elapsed-time format keeps its backslash-escaped literals (`[mm]\m\i\n` → `90min`, was `90:00`).
 - **RTF**: a paragraph whose mark was deleted with Track Changes is joined to the next one, as in DOCX; the sentence was
   cut in two and a list item took a number of its own.
