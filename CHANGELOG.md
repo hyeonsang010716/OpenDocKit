@@ -86,9 +86,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
-- **Threads converting at once**: a valid DOCX, XLSX, EPUB or HWPX could come out as corrupted when other threads were
-  converting at the same moment, as an XML parser kept by the library was shared between them. Each thread now parses
-  with its own.
+- **Threads converting at once**: a valid DOCX or XLSX could come out as corrupted, a DOCX or HWPX with other text, or
+  the process could stop on a bad access, when threads converted at the same moment — most often in a pool whose threads
+  had converted a PowerPoint file. lxml had left them sharing one string dictionary, through a parser kept for every
+  thread. Each converting thread now has a dictionary of its own, and the library's own parsers are one for each thread.
 - **DOCX lists** whose definition points at a numbering style that no definition claims are numbered: they now use the
   list the style names, as ECMA-376 defines. They came out as plain paragraphs.
 - **DOCX**: a document whose own style is named 'Heading' (Apple Pages' first heading level) gets its headings; a legacy

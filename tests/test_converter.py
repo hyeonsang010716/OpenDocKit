@@ -1310,6 +1310,35 @@ def _libraries_loaded_by(script: str) -> set[str]:
     return set(json.loads(completed.stdout.strip().splitlines()[-1]))
 
 
+# Six threads convert a PPTX after the main thread did, then parse names of their own at once (`TestXmlParsersPerThread`)
+_SHARED_DICTIONARY_SCRIPT = """
+import sys, threading
+from lxml import etree
+import opendockit
+data = open(sys.argv[1], "rb").read()
+opendockit.convert(data, "a.pptx")
+wrong = []
+barrier = threading.Barrier(6)
+def work(thread):
+    opendockit.convert(data, "a.pptx")
+    barrier.wait()
+    parser = etree.XMLParser()
+    for count in range(400):
+        names = [f"t{thread}n{count}x{index}" for index in range(30)]
+        try:
+            root = etree.fromstring(("<r>" + "".join(f"<{name}/>" for name in names) + "</r>").encode(), parser)
+            wrong.extend(name for name, child in zip(names, root) if child.tag != name)
+        except etree.XMLSyntaxError:
+            wrong.append("syntax")
+threads = [threading.Thread(target=work, args=(thread,)) for thread in range(6)]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+print("wrong", len(wrong))
+"""
+
+
 class TestXmlParsersPerThread:
     """A parser kept by a module and used by threads converting at once made other threads' parses fail (python-docx read a
     sound `settings.xml` as 'Namespace prefix w on settings is not defined'), so a valid file came out as corrupted in 7 of
@@ -1329,6 +1358,20 @@ class TestXmlParsersPerThread:
 
         assert parser() is parser() and others[0] is others[1]
         assert others[0] is not parser()
+
+    def test_threads_converting_after_a_shared_parser_keep_their_own_dictionaries(self, tmp_path):
+        """python-pptx parses with one parser for every thread, so a thread whose first parse was a PPTX took the string
+        dictionary of the thread that used that parser last; threads parsing at once then added names to one dictionary:
+        names came out wrong, or the process stopped on a bad access (each of five runs). Each converting thread now makes
+        a dictionary of its own first."""
+        import subprocess
+
+        (tmp_path / "a.pptx").write_bytes(builder.pptx_bytes())
+        completed = subprocess.run([sys.executable, "-c", _SHARED_DICTIONARY_SCRIPT, str(tmp_path / "a.pptx")],
+                                   capture_output=True, text=True, timeout=120)
+
+        assert completed.returncode == 0, completed.stderr[-2000:]
+        assert completed.stdout.split() == ["wrong", "0"]
 
 
 class TestExtractorsImportedOnFirstUse:

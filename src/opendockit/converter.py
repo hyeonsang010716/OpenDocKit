@@ -23,6 +23,7 @@ from opendockit.exceptions import (
 from opendockit.extractors import EXTRACTORS, IMPORT_FAILED_MESSAGE
 from opendockit.extractors._inline import _escape_link_text
 from opendockit.extractors._package import has_password_protected_part, uncompressed_size
+from opendockit.extractors._xml import own_dictionary
 from opendockit.image import (
     ImageOutOfMemory,
     ImageSkipped,
@@ -186,6 +187,7 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
     # ZIP (RuntimeError) or an unknown compression method (NotImplementedError) leaked out as an exception outside ConversionError
     # (Pinned by: test_converter.py::test_zip_that_cannot_be_inspected_is_a_conversion_error).
     document_format = None
+    own_dictionary()  # before any parse of lxml in this thread (`_xml.own_dictionary`)
     try:
         document_format = detect_format(data, filename)
         if document_format in _ZIP_FORMATS:
