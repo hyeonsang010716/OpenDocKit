@@ -335,6 +335,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
                                                    lines=[], tables=[], has_images=False,
                                                    view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
+                            pages[-1].form_values = _form_values(page, [])  # (see `late` below)
                         elif late:
                             over_budget += 1
                             extraction.time_limited = True
@@ -347,9 +348,18 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
                                                    lines=[], tables=[], has_images=False,
                                                    view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
+                            # pdfium's characters do not hold the values of a fillable form either: they are read from the
+                            # page's annotations, as on every path that reads a page with simple extraction. Only the 0-character
+                            # path kept them, so past the time budget, on a crowded page and on a page pdfminer failed, the
+                            # entered values were dropped without a warning — and the XFA warning below took an AcroForm with
+                            # values for one without. Reading the annotations does not lay out the page (the cost the budget
+                            # avoids); without lines a FreeText annotation has no label
+                            # (Pinned by: test_pdf_form_fields.py::TestFormValuesOnSimpleExtraction).
+                            pages[-1].form_values = _form_values(page, [])
                         elif crowded_page is not None:
                             crowded.append(page.page_number)
                             pages.append(_numbered(crowded_page, page.page_number))
+                            pages[-1].form_values = _form_values(page, [])  # (see `late` above)
                         else:
                             if line_pieces > _MAX_GROUPED_TEXT_PIECES:
                                 dense.add(page.page_number)
@@ -417,6 +427,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                             pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
                                                lines=[], tables=[], has_images=False,
                                                view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
+                        pages[-1].form_values = _form_values(page, [])  # (see `late` above)
                         failed.append(page.page_number)
                     finally:
                         page.close()

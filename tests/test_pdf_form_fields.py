@@ -3,8 +3,8 @@
 
 import pytest
 
-from opendockit import convert
-from tests.test_pdf import _raw_pdf
+from opendockit import ConvertOptions, convert
+from tests.test_pdf import _korean_pdf, _raw_pdf
 
 
 _APPEARANCE = b"<< /Length 0 /Type /XObject /Subtype /Form /BBox [0 0 12 12] >>\nstream\n\nendstream"
@@ -182,3 +182,56 @@ class TestFieldNames:
                          {7: b"<< /Type /Annot /Subtype /Widget /Parent 6 0 R /Rect [72 600 300 620] >>"})
 
         assert convert(data, "a.pdf").sections[0].text.endswith("Full name: Kim")
+
+
+def _filled_form(pdf, index):
+    pdf.drawString(70, 760, "Application form")
+    pdf.acroForm.textfield(name="applicant", tooltip="Applicant name", value="Jane Doe", x=180, y=690, width=200, height=20,
+                           fontName="Helvetica")
+    pdf.acroForm.checkbox(name="agree", tooltip="Agree", checked=True, x=180, y=655, size=14)
+
+
+def _past_the_time_budget(monkeypatch):
+    return ConvertOptions(pdf_time_budget=0.0)
+
+
+def _heavy_content(monkeypatch):
+    from opendockit.extractors import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "_MAX_READ_CONTENT_TOKENS", 0)
+    return ConvertOptions()
+
+
+def _crowded_with_characters(monkeypatch):
+    from opendockit.extractors import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "_MAX_PAGE_CHARS", 0)
+    return ConvertOptions()
+
+
+def _failed_by_pdfminer(monkeypatch):
+    from pdfplumber.utils.exceptions import PdfminerException
+
+    from opendockit.extractors import pdf as pdf_module
+
+    def read(source, page, placement_fit):
+        raise PdfminerException(ValueError("broken font stream"))
+
+    monkeypatch.setattr(pdf_module, "_read_page_from", read)
+    return ConvertOptions()
+
+
+class TestFormValuesOnSimpleExtraction:
+    """A page read with pdfium's simple extraction lost the values of its form fields: they are in the annotations, which only
+    the path for a page pdfminer reads without characters copied over. Past the time budget, on a page with too much content
+    or too many characters and on a page pdfminer failed, 'Jane Doe' was dropped without a warning."""
+
+    @pytest.mark.parametrize("path", [_past_the_time_budget, _heavy_content, _crowded_with_characters, _failed_by_pdfminer])
+    def test_values_entered_in_the_form_are_kept(self, monkeypatch, path):
+        options = path(monkeypatch)
+
+        result = convert(_korean_pdf(_filled_form, pages=2), "a.pdf", options)
+
+        assert result.warnings, "the page was not read with simple extraction"
+        for section in result.sections:
+            assert section.text.endswith("Applicant name: Jane Doe\nAgree: ☑")
