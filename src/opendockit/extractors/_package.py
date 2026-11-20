@@ -179,29 +179,66 @@ def is_strict_package(data: bytes) -> bool:
 # A Strict namespace or relationship type (`http://purl.oclc.org/ooxml/<vocabulary>/<name>`) and its Transitional form
 # (`http://schemas.openxmlformats.org/<vocabulary>/2006/<name>`): ECMA-376 Part 1 gives the same vocabularies both names. The
 # two property parts and their relationships are spelled apart (`_STRICT_RENAMED`).
-_STRICT_NAME = re.compile(rb"http://purl\.oclc\.org/ooxml/(wordprocessingml|drawingml|presentationml|spreadsheetml|officeDocument)/"
-                          rb"([A-Za-z]+)(/[A-Za-z]+)?")
-_STRICT_RENAMED = {b"extendedProperties": b"extended-properties", b"customProperties": b"custom-properties"}
+_STRICT_NAME = re.compile(r"http://purl\.oclc\.org/ooxml/(wordprocessingml|drawingml|presentationml|spreadsheetml|officeDocument)/"
+                          r"([A-Za-z]+)(/[A-Za-z]+)?")
+_STRICT_RENAMED = {"extendedProperties": "extended-properties", "customProperties": "custom-properties"}
 
 
-def _transitional_name(match: re.Match[bytes]) -> bytes:
-    vocabulary, name, tail = match.group(1), match.group(2), match.group(3) or b""
+# The markup of an XML part that can hold a Strict name as a name: a start tag in which a Strict name stands (`tag`). Comments,
+# CDATA sections, processing instructions and declarations match as a whole, so that what they hold is never taken for a tag;
+# text holds no `<` and is passed over. A tag is read up to its first `>`: Word writes a `>` in an attribute value as `&gt;`
+_MARKUP = (r"<!--.*?-->|<!\[CDATA\[.*?\]\]>|<\?.*?\?>|<![^>]*>"
+           r"|(?P<tag><[A-Za-z_][^<>]*?purl\.oclc\.org/ooxml/[^<>]*>)")
+_MARKUP_TEXT, _MARKUP_BYTES = re.compile(_MARKUP, re.S), re.compile(_MARKUP.encode("ascii"), re.S)
+# The attributes of a start tag, one after the other, so a quoted value is never read for an attribute of its own
+_ATTRIBUTE = re.compile(r"""(\s+)([^\s=<>/"']+)(\s*=\s*)("[^"]*"|'[^']*')""")
+
+
+def _transitional_name(value: str) -> str:
+    match = _STRICT_NAME.fullmatch(value)
+    if match is None:
+        return value
+    vocabulary, name, tail = match.group(1), match.group(2), match.group(3) or ""
     if tail:
-        tail = b"/" + _STRICT_RENAMED.get(tail[1:], tail[1:])
-    return b"http://schemas.openxmlformats.org/" + vocabulary + b"/2006/" + _STRICT_RENAMED.get(name, name) + tail
+        tail = "/" + _STRICT_RENAMED.get(tail[1:], tail[1:])
+    return "http://schemas.openxmlformats.org/" + vocabulary + "/2006/" + _STRICT_RENAMED.get(name, name) + tail
 
 
-def _transitional_names(content: bytes) -> bytes:
-    """An XML part with its Strict names in their Transitional form. A part stored in UTF-16 (it starts with its byte order mark)
-    is renamed in its own encoding: matched as bytes, its names were not found and stayed Strict."""
+def _transitional_tag(tag: str, relationships: bool) -> str:
+    """A start tag whose namespace declarations (and, in a relationships part, `Type`) are renamed when their value is a Strict
+    name as a whole; every other attribute stays as written."""
+    def attribute(match: re.Match[str]) -> str:
+        name, value = match.group(2), match.group(4)
+        if not (name == "xmlns" or name.startswith("xmlns:") or (relationships and name == "Type")):
+            return match.group(0)
+        return match.group(1) + name + match.group(3) + value[0] + _transitional_name(value[1:-1]) + value[-1]
+
+    return _ATTRIBUTE.sub(attribute, tag)
+
+
+def _transitional_names(content: bytes, *, relationships: bool) -> bytes:
+    """An XML part with the Strict names of its namespace declarations (and, in a relationships part, of its relationship types)
+    in their Transitional form. Only those values change, so text, other attribute values, comments and the targets of links
+    stay byte for byte as written: renamed wherever they stood, a paragraph quoting a Strict namespace and a link to one came
+    out as their Transitional forms (Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
+    test_strict_names_in_text_and_link_targets_stay_as_written). Matched as bytes in a part stored in UTF-8 (or another encoding
+    that writes markup in ASCII); a part stored in UTF-16 (it starts with its byte order mark) is matched as its text: matched as
+    bytes, its names were not found and stayed Strict."""
     if not content.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return _STRICT_NAME.sub(_transitional_name, content)
+        if b"purl.oclc.org/ooxml/" not in content:
+            return content
+        return _MARKUP_BYTES.sub(lambda match: match.group(0) if match.group("tag") is None
+                                 else _transitional_tag(match.group("tag").decode("latin-1"), relationships).encode("latin-1"),
+                                 content)
     try:
         text = content.decode("utf-16")
     except UnicodeDecodeError:
         return content
-    renamed = _STRICT_NAME.sub(_transitional_name, text.encode("utf-8")).decode("utf-8")
-    return renamed.encode("utf-16")
+    if "purl.oclc.org/ooxml/" not in text:
+        return content
+    del content
+    return _MARKUP_TEXT.sub(lambda match: match.group(0) if match.group("tag") is None
+                            else _transitional_tag(match.group("tag"), relationships), text).encode("utf-16")
 
 
 def transitional_package(data: bytes) -> bytes:
@@ -228,7 +265,7 @@ def transitional_package(data: bytes) -> bytes:
                 continue
             is_xml = info.filename.lower().endswith((".xml", ".rels"))
             if is_xml:
-                content = _transitional_names(content)
+                content = _transitional_names(content, relationships=_is_relationships(info.filename))
             target.writestr(info.filename, content, compress_type=zipfile.ZIP_DEFLATED if is_xml else zipfile.ZIP_STORED,
                             compresslevel=1)
             del content

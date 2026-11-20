@@ -8,6 +8,7 @@ import zipfile
 import pytest
 
 from opendockit import ConvertOptions, UnsupportedFormatError, convert
+from opendockit.extractors._package import transitional_package
 from tests import builder
 from tests.test_office import _docx_with_body, _number_list, _paragraph, _without_parts
 from tests.timing import fastest
@@ -529,6 +530,49 @@ class TestStrictOpenXmlOfficeDocuments:
                 target.writestr(name, content)
 
         assert convert(buffer.getvalue(), "a.docx").text == convert(data, "a.docx").text
+
+    def test_strict_names_in_text_and_link_targets_stay_as_written(self):
+        """Only the names are renamed: a paragraph that quotes a Strict namespace (even as a declaration), a link to one, a
+        property and a comment kept their Strict spelling in the Transitional copy."""
+        namespace, relationship = ("http://purl.oclc.org/ooxml/wordprocessingml/main",
+                                   "http://purl.oclc.org/ooxml/officeDocument/relationships/extendedProperties")
+        body = (f'<w:p><w:r><w:t xml:space="preserve">Strict namespace is {namespace} and xmlns:w="{namespace}", '
+                f'Type="{relationship}"</w:t></w:r></w:p><!-- <w:p xmlns:x="{namespace}"> -->'
+                '<w:p><w:hyperlink r:id="rIdX"><w:r><w:t>schema link</w:t></w:r></w:hyperlink></w:p>')
+        link = ('<Relationship Id="rIdX" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
+                'Target="http://purl.oclc.org/ooxml/drawingml/main" TargetMode="External"/></Relationships>')
+        data = builder.zip_with(_docx_with_body(body), edit={
+            "word/_rels/document.xml.rels": lambda xml: xml.replace("</Relationships>", link),
+            "docProps/core.xml": lambda xml: xml.replace("<dc:title/>", f"<dc:title>{namespace}</dc:title>")})
+        strict = _strict_everywhere(data)
+        with zipfile.ZipFile(BytesIO(strict)) as archive:
+            assert archive.read("word/document.xml").count(namespace.encode()) > 3
+
+        result, expected = convert(strict, "a.docx"), convert(data, "a.docx")
+
+        assert f"Strict namespace is {namespace}" in expected.text and "(http://purl.oclc.org/ooxml/drawingml/main)" in expected.text
+        assert result.text == expected.text
+        assert result.metadata == expected.metadata
+        with zipfile.ZipFile(BytesIO(transitional_package(strict))) as archive:
+            document = archive.read("word/document.xml")
+        assert f'<!-- <w:p xmlns:x="{namespace}"> -->'.encode() in document
+        assert b'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"' in document
+
+    @pytest.mark.parametrize("relationships", [False, True])
+    def test_only_declarations_and_relationship_types_are_renamed(self, relationships):
+        from opendockit.extractors._package import _transitional_names
+
+        strict, transitional = ("http://purl.oclc.org/ooxml/drawingml/main", "http://schemas.openxmlformats.org/drawingml/2006/main")
+        kept = (f'<?pi {strict}?><!-- <a xmlns="{strict}"> --><b c="{strict}" d=\'xmlns="{strict}"\' Target="{strict}">'
+                f'<![CDATA[<a xmlns="{strict}">]]>xmlns="{strict}" Type="{strict}"</b>')
+        unknown = 'xmlns:a="http://purl.oclc.org/ooxml/other/main"'  # not one of the five vocabularies
+        part = f"<r xmlns='{strict}' {unknown} Type=\"{strict}\">{kept}</r>"
+
+        renamed = _transitional_names(part.encode(), relationships=relationships)
+
+        type_value = transitional if relationships else strict
+        assert renamed == f"<r xmlns='{transitional}' {unknown} Type=\"{type_value}\">{kept}</r>".encode()
+        assert _transitional_names(part.encode("utf-16"), relationships=relationships).decode("utf-16") == renamed.decode()
 
     def test_picture_of_a_strict_docx_that_cannot_be_read_is_detached_and_the_body_kept(self):
         """A member that does not read is left out of the copy, and opening detaches it as for a Transitional document."""
