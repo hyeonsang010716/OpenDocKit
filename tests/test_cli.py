@@ -66,6 +66,26 @@ class TestFileErrors:
         assert code == 1
         assert capsys.readouterr().err.startswith(("File not found: ", "Could not read the file "))
 
+    def test_reader_library_that_cannot_be_imported_prints_a_message(self, tmp_path, monkeypatch, capsys):
+        """A reader library that cannot be imported on first use ended the command in a traceback."""
+        from opendockit import extractors
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+        from opendockit.models import DocumentFormat
+
+        def broken(name: str):
+            raise ModuleNotFoundError("No module named 'openpyxl.cell._writer'")
+
+        # A fresh entry for the format, as in a process that has not converted one yet, whose reader cannot be imported
+        monkeypatch.setattr(extractors, "import_module", broken)
+        monkeypatch.setitem(extractors.EXTRACTORS, DocumentFormat.XLSX, extractors._on_first_use("spreadsheet", "extract_xlsx"))
+        (tmp_path / "a.xlsx").write_bytes(builder.xlsx_bytes())
+        monkeypatch.setattr("sys.argv", ["opendockit", str(tmp_path / "a.xlsx")])
+
+        code = main()
+
+        assert code == 1
+        assert capsys.readouterr().err.strip() == IMPORT_FAILED_MESSAGE
+
     def test_file_over_the_size_limit_is_rejected_without_reading_it(self, tmp_path, monkeypatch, capsys):
         """The whole file was read into memory before the size check. The size is checked first from the file metadata."""
 
