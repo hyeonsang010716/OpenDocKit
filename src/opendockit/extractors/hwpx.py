@@ -484,6 +484,7 @@ class HwpxRenderer:
             # Without `include_headers_footers` a header that holds a word is still kept (`_hangul.header_by_default`)
             elif name == "header" or (name == "footer" and self._options.include_headers_footers):
                 pictures, notes, note_count, memos = len(self._extraction.images), len(self.notes), self._note_count, len(self.memos)
+                unread = dict(self._unread)
                 self._grids.append(None)
                 try:
                     with self._own_numbering():
@@ -493,6 +494,9 @@ class HwpxRenderer:
                 if not self._options.include_headers_footers:
                     # Only the words of the header: the pictures it registered are taken back with their placeholders
                     del self._extraction.images[pictures:]
+                    # and so are its OLE objects and videos, which would warn of contents not converted that are not written
+                    # (Pinned by: test_hwp_headers.py::TestHeadersByDefault::test_object_of_a_header_not_written_does_not_warn)
+                    self._unread = unread
                     text = header_by_default(text)
                     # A header that is not written takes back its notes and comments, which would be left without a reference
                     if not text or text in (self.headers if name == "header" else self.footers):

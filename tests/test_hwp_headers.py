@@ -3,6 +3,7 @@ number and the document title in the header (`[별지 제3호 서식] … 평가
 real HWP / HWPX files that text was nowhere else, and it was dropped without a warning."""
 
 from opendockit import ConvertOptions, convert
+from opendockit.extractors.hwp import TAG_SHAPE_OLE
 from tests import builder
 from tests.test_hwp import _fake_hwp, _hwp_header_footer, _hwp_paragraph, _hwpx_header_footer, _hwpx_p
 
@@ -33,6 +34,36 @@ class TestHeadersByDefault:
 
     def test_header_without_a_word_is_left_out(self):
         assert convert(_hwpx(_hwpx_header_footer("header", "- 3 -")), "a.hwpx").text == "본문"
+
+    def test_page_number_with_a_page_word_is_left_out(self):
+        """A page number field is written as nothing, so `Page` + field came out as `Page`, and `- ` field ` 쪽 -` as `- 쪽 -`."""
+        field = '<hp:ctrl><hp:autoNum num="1" numType="PAGE"/></hp:ctrl>'
+        for header in (f"<hp:t>Page </hp:t>{field}", f"<hp:t>- </hp:t>{field}<hp:t> 쪽 -</hp:t>", "<hp:t>- iv -</hp:t>",
+                       "<hp:t>p. 2 of 9</hp:t>", "<hp:t>3 페이지</hp:t>"):
+            control = f"<hp:ctrl><hp:header><hp:subList>{_hwpx_p(header)}</hp:subList></hp:header></hp:ctrl>"
+            assert convert(_hwpx(control), "a.hwpx").text == "본문", header
+        # words made of Roman-numeral letters are words
+        assert convert(_hwpx(_hwpx_header_footer("header", "Civil Mix")), "a.hwpx").text == "Civil Mix\n\n본문"
+
+    def test_object_of_a_header_not_written_does_not_warn(self):
+        """The OLE object of a header that is not written, or written by its words only, is not written: it warned that its
+        contents could not be converted."""
+        for words in ("- 1 -", "제목"):
+            ole = f'<hp:ole binaryItemIDRef="x"/><hp:t>{words}</hp:t>'
+            control = f"<hp:ctrl><hp:header><hp:subList>{_hwpx_p(ole)}</hp:subList></hp:header></hp:ctrl>"
+            assert convert(_hwpx(control), "a.hwpx").warnings == []
+            assert convert(_hwpx(control), "a.hwpx", ConvertOptions(include_headers_footers=True)).warnings == [
+                "The contents of 1 OLE object(s) (pasted tables, charts, etc.) could not be converted."]
+
+        record = builder.hwp_record
+        header = (record(0x10 + 55, 1, builder.hwp_ctrl("head")) + record(0x10 + 56, 2, b"\x01\x00" + b"\x00" * 6)
+                  + _hwp_paragraph(2, (11, "gso "), "제목") + record(0x10 + 55, 3, builder.hwp_ctrl("gso "))
+                  + record(TAG_SHAPE_OLE, 4, b"\x00" * 24))
+        data = _fake_hwp(None, sections=[_hwp_paragraph(0, (16, "head"), "본문") + header])
+
+        assert convert(data, "a.hwp").warnings == []
+        assert convert(data, "a.hwp", ConvertOptions(include_headers_footers=True)).warnings == [
+            "The contents of 1 OLE object(s) (pasted tables, charts, etc.) could not be converted."]
 
     def test_header_is_written_once(self):
         header = _hwpx_header_footer("header", "보고서 제목")

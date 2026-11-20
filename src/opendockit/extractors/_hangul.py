@@ -226,6 +226,13 @@ def _size_heading_text(plain: str) -> bool:
     return "\t" not in text or not _PAGE_LABEL.fullmatch(text.rsplit("\t", 1)[1].strip())
 
 
+# A header that is only a page number: digits, dashes and brackets, a page word (`Page`, `p.`, `of`, `쪽`, `면`, `페이지`) and
+# Roman numerals (`header_by_default`)
+_PAGE_NUMBER_ONLY = re.compile(
+    r"(?:[\s\d\-–—/|.,:()\[\]<>~]|(?i:pages?|pg|p|of|no)\b|쪽|면|페이지"
+    r"|(?i:\b(?=[ivxlcdm])m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})\b))*")
+
+
 def header_by_default(text: str) -> str:
     """The text of a Hangul header written when `include_headers_footers` is off: its words without pictures and other objects
     (a logo in the header was never written by default and would cost a description each time), or '' when it holds no word.
@@ -233,10 +240,14 @@ def header_by_default(text: str) -> str:
     Hangul forms and reports put the form number and the title of the document in the header (`[별지 제3호 서식] 표준 현장실습학기제
     평가표 및 출석부`, `시험합의서` and its document number): in 9 of 34 real HWP / HWPX files that text was in no other place, and
     leaving headers out dropped it without a warning. A header with no word (`- 1 -`, a page number field) is still left out, and
-    so are footers. Each distinct header is written once, before the body, as with the option on (Pinned by:
-    test_hwp_headers.py)."""
+    so is a page number with a page word or in Roman numerals (`Page 1`, `- 3 쪽 -`, `- iv -`, `p. 2 of 9`; the number of a page
+    number field is not written, so `Page` alone is left), and footers. Each distinct header is written once, before the body, as
+    with the option on (Pinned by: test_hwp_headers.py).
+
+    The pictures, notes, comments and OLE objects of a header are taken back by the extractor when the header is not written, or
+    only its words are."""
     words = "\n".join(" ".join(line.split()) for line in _OBJECT_PLACEHOLDERS.sub(" ", text).split("\n")).strip()
-    return words if _LETTER.search(words) else ""
+    return words if _LETTER.search(words) and not _PAGE_NUMBER_ONLY.fullmatch(words) else ""
 
 
 class SizeHeadings:

@@ -678,7 +678,7 @@ class HwpRenderer:
         chosen = self._options.include_headers_footers
         if not chosen and found is not self.headers:
             return
-        pictures, notes, note_count = len(self._extraction.images), len(self.notes), self._note_count
+        pictures, notes, note_count, unread_ole = len(self._extraction.images), len(self.notes), self._note_count, self.unread_ole
         self._grids.append(None)
         try:
             with self._own_numbering():
@@ -687,8 +687,11 @@ class HwpRenderer:
             self._grids.pop()
         if not chosen:
             # Only the words of the header: the pictures it registered are taken back with their placeholders, and a header that
-            # is not written takes back its notes, which would be left without a reference
+            # is not written takes back its notes, which would be left without a reference. Its OLE objects are taken back too: they
+            # would warn of contents not converted that are not written (Pinned by:
+            # test_hwp_headers.py::TestHeadersByDefault::test_object_of_a_header_not_written_does_not_warn)
             del self._extraction.images[pictures:]
+            self.unread_ole = unread_ole
             text = header_by_default(text)
             if not text or text in found:
                 del self.notes[notes:]
