@@ -91,6 +91,8 @@ _OLE_MARK = "[OLE object]"
 # A chart is an OLE object whose BinData stream (after a UINT32 size) is an OLE container holding the chart as OOXML XML in the
 # `OOXMLChartContents` stream, the part HWPX keeps as Chart/chartN.xml (`HwpRenderer._ole_chart`)
 _OLE_CHART_STREAM = "OOXMLChartContents"
+# The UINT32 of a PARA_SHAPE that holds the paragraph's level 0-9 (`parse_paragraph_heads`)
+_PARA_SHAPE_LEVEL_OFFSET = 54
 # The position of the BinItem ID in SHAPE_COMPONENT_OLE: attribute (4), extent (4 + 4)
 _OLE_BIN_ID_OFFSET = 12
 TAG_SHAPE_PICTURE = _HWPTAG_BEGIN + 69
@@ -1129,12 +1131,16 @@ def parse_paragraph_heads(doc_info: list[Record]) -> ParagraphHeads:
     record is treated as having no head.
 
     PARA_SHAPE: attribute 1 (head kind in bits 23-24, level in bits 25-27) + 6 INT32s (the first is the left margin) + tab ID (2) +
-    numbering/bullet ID (2, at byte 30).
-    NUMBERING: for each of 7 levels, 12 bytes of paragraph head information (number shape in attribute bits 5-8) + a format string
+    numbering/bullet ID (2, at byte 30). The 3 bits of the level stop at 6 (level 7); Hangul 5.1 keeps the level 0-9 of levels 8-10 in
+    the UINT32 at byte 54 too, so the larger of the two is the level (in public Hangul files, 1,629 shapes of levels 8-10 had 6 in
+    the attribute and 7-9 there, and no shape disagreed otherwise).
+    NUMBERING: for each of 7 levels, 12 bytes of paragraph head information (number shape in attribute bits 5-9) + a format string
     (^n in "^1." is the number of level n),
-    then the start number (2) and, from 5.0.2.5 on, per-level start numbers (4×7). The number shape values (0 digits, 1 circled digits,
-    8 가나다 (Hangul syllables)) were confirmed with real files holding Hangul's default
-    numbering definition (1. 가. 1) 가) (1) (가) ①) (public hwplib samples and Hangul form documents).
+    then the start number (2) and, from 5.0.2.5 on, per-level start numbers (4×7); from Hangul 5.1 on, levels 8-10 follow in the
+    same shape (head information and format string 3 times, then 3 start numbers). The number shape values (0 digits, 1 circled
+    digits, 8 가나다 (Hangul syllables)) were confirmed with real files holding Hangul's default
+    numbering definition (1. 가. 1) 가) (1) (가) ①) (public hwplib samples and Hangul form documents); the levels 8-10 with a Hancom
+    file numbered to level 10 in HWP and HWPX (Pinned by: test_hwp.py::TestNumberingLevelsEightToTen).
     """
     heads = ParagraphHeads()
     for record in doc_info:
@@ -1143,7 +1149,10 @@ def parse_paragraph_heads(doc_info: list[Record]) -> ParagraphHeads:
             if len(payload) >= 32:
                 (properties,) = struct.unpack_from("<I", payload, 0)
                 (numbering_id,) = struct.unpack_from("<H", payload, 30)
-                heads.shapes.append(((properties >> 23) & 0x3, (properties >> 25) & 0x7, numbering_id))
+                level = (properties >> 25) & 0x7
+                if len(payload) >= _PARA_SHAPE_LEVEL_OFFSET + 4:
+                    level = max(level, min(struct.unpack_from("<I", payload, _PARA_SHAPE_LEVEL_OFFSET)[0], 9))
+                heads.shapes.append(((properties >> 23) & 0x3, level, numbering_id))
                 heads.margins.append(struct.unpack_from("<i", payload, 4)[0])
             else:
                 heads.shapes.append((0, 0, 0))
@@ -1156,26 +1165,40 @@ def parse_paragraph_heads(doc_info: list[Record]) -> ParagraphHeads:
 
 
 def _numbering_levels(payload: bytes) -> list[NumberLevel]:
-    offset = 0
-    formats: list[tuple[str, str]] = []
-    for _ in range(7):
-        if offset + 14 > len(payload):
-            return []
-        (properties,) = struct.unpack_from("<I", payload, offset)
-        (length,) = struct.unpack_from("<H", payload, offset + 12)
-        offset += 14
-        if offset + length * 2 > len(payload):
-            return []
-        template = payload[offset:offset + length * 2].decode("utf-16-le", errors="replace")
-        offset += length * 2
-        shape = (properties >> 5) & 0xF
-        formats.append((template, NUMBER_SHAPES[shape] if shape < len(NUMBER_SHAPES) else "DIGIT"))
+    formats, offset = _number_formats(payload, 0, 7)
+    if formats is None:
+        return []
 
     # If per-level start numbers (4×7) follow the start number (2), use them (otherwise 1). 0 is taken as 1.
     starts = [1] * 7
     if offset + 2 + 28 <= len(payload):
         starts = [value or 1 for value in struct.unpack_from("<7I", payload, offset + 2)]
+        # Levels 8-10 (Hangul 5.1): three more levels and their three start numbers. A broken or missing part leaves seven levels
+        more, end = _number_formats(payload, offset + 2 + 28, 3)
+        if more is not None and end + 12 <= len(payload):
+            formats += more
+            starts += [value or 1 for value in struct.unpack_from("<3I", payload, end)]
     return [NumberLevel(template, shape, start) for (template, shape), start in zip(formats, starts, strict=True)]
+
+
+def _number_formats(payload: bytes, offset: int, count: int) -> tuple[list[tuple[str, str]] | None, int]:
+    """`count` levels of a NUMBERING record from `offset`: 12 bytes of paragraph head information (number shape in attribute bits
+    5-9) and the format string (WORD length + WCHARs) each → ([(format string, shape)], the offset after them), or (None, offset)
+    when the record ends before them."""
+    formats: list[tuple[str, str]] = []
+    for _ in range(count):
+        if offset + 14 > len(payload):
+            return None, offset
+        (properties,) = struct.unpack_from("<I", payload, offset)
+        (length,) = struct.unpack_from("<H", payload, offset + 12)
+        offset += 14
+        if offset + length * 2 > len(payload):
+            return None, offset
+        template = payload[offset:offset + length * 2].decode("utf-16-le", errors="replace")
+        offset += length * 2
+        shape = (properties >> 5) & 0x1F
+        formats.append((template, NUMBER_SHAPES[shape] if shape < len(NUMBER_SHAPES) else "DIGIT"))
+    return formats, offset
 
 
 def _chart_part(data: bytes) -> etree._Element | None:

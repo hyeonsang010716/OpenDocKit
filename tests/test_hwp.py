@@ -447,6 +447,50 @@ def _section_definition(outline_numbering_id: int) -> bytes:
     return builder.hwp_ctrl("secd")[:4] + struct.pack("<IhHHIH", 0, 0, 0, 0, 8000, outline_numbering_id) + b"\x00" * 16
 
 
+class TestNumberingLevelsEightToTen:
+    """Hangul 5.1 numbers to level 10: a NUMBERING record carries levels 8-10 after the per-level start numbers, and a paragraph
+    shape keeps levels 8-10 in the UINT32 at byte 54, its 3-bit level stopping at 6. Both were read only to level 7, so the
+    paragraphs of levels 8-10 came out with the numbers of level 7 (`②③④` where the HWPX save of a Hancom file numbered to
+    level 10 has `㉮`). The number shapes are 5 bits (15 갑을병, 16 甲乙丙)."""
+
+    @staticmethod
+    def _docinfo() -> bytes:
+        record = builder.hwp_record
+        levels = [("^1.", 0)] * 7 + [("^8)", 15), ("^9.", 16), ("(^10)", 0)]
+        payload = b"".join(struct.pack("<IhhIH", shape << 5, 0, 0, 0, len(template)) + template.encode("utf-16-le")
+                           for template, shape in levels[:7])
+        payload += struct.pack("<H7I", 1, *[1] * 7)
+        payload += b"".join(struct.pack("<IhhIH", shape << 5, 0, 0, 0, len(template)) + template.encode("utf-16-le")
+                            for template, shape in levels[7:])
+        payload += struct.pack("<3I", 1, 1, 1)
+        shapes = [_para_shape(), _para_shape(2, 0, 1)] + [_para_shape(2, 6, 1) + struct.pack("<I", tail) for tail in (7, 8, 9)]
+        return record(TAG_NUMBERING, 0, payload) + b"".join(record(TAG_PARA_SHAPE, 0, shape) for shape in shapes)
+
+    def test_paragraphs_of_levels_eight_to_ten_take_their_numbers(self, monkeypatch):
+        record = builder.hwp_record
+        section = b"".join(record(TAG_PARA_HEADER, 0, _para_header(shape)) + record(TAG_PARA_TEXT, 1, builder.hwp_text(text))
+                           for shape, text in ((1, "하나"), (2, "여덟"), (3, "아홉"), (4, "열"), (2, "다시")))
+
+        lines = convert(_fake_hwp(monkeypatch, sections=[section], docinfo_extra=self._docinfo()), "a.hwp").text.splitlines()
+
+        assert [line.strip() for line in lines] == ["1. 하나", "- 갑) 여덟", "- 甲. 아홉", "- (1) 열", "- 을) 다시"]
+
+    def test_record_without_levels_eight_to_ten_keeps_seven(self):
+        from opendockit.extractors.hwp import _numbering_levels
+
+        assert len(_numbering_levels(_numbering(("^1.", 0)))) == 7
+        assert len(_numbering_levels(_numbering(("^1.", 0)) + b"\x05\x00")) == 7   # a broken tail is left out
+
+    @pytest.mark.parametrize(("shape", "values", "expected"), [
+        ("DECAGON_CIRCLE", (1, 2, 10, 11), ["갑", "을", "계", "11"]),
+        ("DECAGON_CIRCLE_HANJA", (1, 3, 10), ["甲", "丙", "癸"]),
+    ])
+    def test_heavenly_stem_shapes(self, shape, values, expected):
+        from opendockit.extractors._lists import format_number
+
+        assert [format_number(value, shape) for value in values] == expected
+
+
 class TestParagraphNumbering:
     """Hangul paragraph numbers and bullets are a paragraph shape (PARA_SHAPE → NUMBERING/BULLET), not characters. They were not
     read, so "1." "가." were dropped. Lower-level numbers take the `list_item_prefix` form ('  - 가. ',
