@@ -603,7 +603,30 @@ def _ends_like_a_sentence(text: str) -> bool:
         return True
     if text.endswith(("!", "?", ":")) and len(text.split()) >= _SENTENCE_MIN_WORDS:
         return True
-    return korean_sentence_end(text)
+    return korean_sentence_end(text) or _korean_notice_end(text)
+
+
+def _korean_notice_end(text: str) -> bool:
+    """Whether a Korean line ends like the clause of a notice or an instruction, which `_hangul.korean_sentence_end` (the
+    rule the Hangul readers keep for their titles) does not look at: a verb made a noun after a stem or tense (`…같음`,
+    `…있음`, `…하였음`), a verbal noun closed by 함, 됨 or 임 after two words or more (`기한 내 제출함`, `본 계약은
+    무효임`; not `책임`, `모임` or a single `포함`), `…할 것`, `… 바람` after two words or more, the polite request
+    `…세요` and `…하십시오` / `…시오`, the plain command `…하라`, and `…는다` after two words or more (`결과를 얻는다`).
+
+    Deliberate: in a PDF a bold notice at the body size ('# 서류는 기한 내 제출함', '# 확인해 주세요') became a heading,
+    where '개요', '필요', '다음', '모임' and '향후 과제' are titles (Pinned by:
+    test_pdf_headings.py::TestBoldSentenceEnds::test_a_korean_notice_is_no_heading)."""
+    words = text.rstrip(_KOREAN_CLOSING).split()
+    if not words:
+        return False
+    last = words[-1]
+    if _KOREAN_VERB_END.search(last):
+        return True
+    if len(words) < 2:
+        return False
+    if last == "것" and "가" <= words[-2][-1] <= "힣" and (ord(words[-2][-1]) - 0xAC00) % 28 == _FINAL_L:
+        return True
+    return bool(_KOREAN_NOMINAL_END.fullmatch(last)) or last.endswith(("바람", "는다"))
 
 
 # The longest heading by a size 1.15 to 1.2 times the body (`_slightly_larger_text`)
@@ -611,6 +634,16 @@ _SLIGHTLY_LARGER_MAX_CHARS = 60
 # A bold text ending in '!', '?' or ':' with this many words or more is a sentence ('Do not discard this notice!', 'The
 # following documents must be attached:'), not a title ('Procedure:', 'Why entropy?')
 _SENTENCE_MIN_WORDS = 5
+# Closing marks after the end of a Korean clause (`_korean_notice_end`)
+_KOREAN_CLOSING = ".!?\"'”’)） "
+# Endings of a Korean notice or instruction in the last word, whatever the words before it: a verb made a noun after a stem
+# or tense (`같음`, `있음`, `제출하였음`), the polite request (`주세요`, `하십시오`, `기입하시오`) and the plain command
+# (`확인하라`)
+_KOREAN_VERB_END = re.compile(r"(?:[하되있없같았었였했됐겠않]음|세요|시오|[하되]라)\Z")
+# A verbal noun closed by 함, 됨 or 임 (`제출함`, `신청함`, `완료됨`, `무효임`): three syllables or more, not `책임` or `모임`
+_KOREAN_NOMINAL_END = re.compile(r"[가-힣]{2,}[함됨임]")
+# The final consonant ㄹ (종성 index) of `할` in `…할 것`
+_FINAL_L = 8
 # A '!' or '?' after a word with more text after it: two sentences on the line ('Questions? Call 1-800-555-0100')
 _INNER_SENTENCE_END = re.compile(r"[^\W\d_][!?]\s+\S")
 # An amount: a currency sign or code by a number ('$110.00', 'USD 1,234.00', '1,000원', '30 EUR') or digits grouped in thousands
