@@ -217,8 +217,8 @@ Next to Open WebUI in Docker Compose, with nothing to build:
 
 The first release with the loader is 0.3.12; pin the version you have tested (`==`) in production.
 
-- Each file is converted offline in a worker process of its own, ended after 2 minutes or (on Linux) at 2 GB; `--workers`
-  files at once (2), `--queue` more waiting (16), and a file past that is refused with 503 at once.
+- Each file is converted offline in a worker process of its own, ended after 2 minutes or (on Linux and Windows) at
+  2 GB; `--workers` files at once (2), `--queue` more waiting (16), and a file past that is refused with 503 at once.
 - Pictures keep their placeholders, alt text included; nothing is sent to a vision model, so a scanned PDF fails with
   "No text could be extracted from this file." Legacy `.doc` and `.ppt` need LibreOffice in the loader's image.
 - Every failure is a fixed sentence Open WebUI shows to the user (`The file is too large (maximum 50MB).`, `The Office
