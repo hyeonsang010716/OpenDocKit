@@ -45,6 +45,29 @@ class TestGroupedFormFields:
 
         assert fastest(lambda: convert(large, "a.pdf")) < 8 * fastest(lambda: convert(small, "a.pdf")) + 0.5
 
+    @pytest.mark.timing
+    def test_a_large_field_on_many_pages_takes_linear_time(self):
+        """A field of many widgets whose `/Kids` every page names: found once per page, the positions of a field of 200,000
+        widgets shared by 1,000 pages were looked up 1,000 times, 119 seconds; they are found once per document."""
+        def form(count: int) -> bytes:
+            content = b"BT /F1 12 Tf 50 780 Td (Form page) Tj ET"
+            pages = range(100, 100 + count)
+            objects = {1: b"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [6 0 R] >> >>",
+                       2: b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(b"%d 0 R" % page for page in pages), count),
+                       4: b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+                       5: _APPEARANCE,
+                       6: b"<< /FT /Btn /T (agree) /Kids [7 0 R %s] >>" % b" ".join(b"8 0 R" for _ in range(100 * count)),
+                       7: _widget(6, 100, b"On", b"On"), 8: _widget(6, 200, b"Off", b"On")}
+            for page in pages:
+                objects[page] = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << "
+                                 b"/F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Annots [7 0 R] >>")
+            return _raw_pdf(objects)
+
+        small, large = form(100), form(400)
+        assert convert(large, "a.pdf").sections[-1].text.endswith("agree: On")
+
+        assert fastest(lambda: convert(large, "a.pdf")) < 8 * fastest(lambda: convert(small, "a.pdf")) + 0.5
+
     def test_checkboxes_sharing_one_name_give_the_chosen_export_value(self):
         """Two checkboxes sharing one name ('동의함' agree · '동의하지 않음' disagree) came out as 'consent: ☐', 'consent: ☑',
         losing which one had been chosen."""

@@ -29,7 +29,7 @@ _FIELD_PARENT_DEPTH = 8
 _ANNOTATION_UNSEEN = (1 << 1) | (1 << 5)
 
 
-def _form_values(page: object, lines: list[_Line]) -> list[str]:
+def _form_values(page: object, lines: list[_Line], positions: "_KidPositions | None" = None) -> list[str]:
     """Return the values entered in the page's form fields (AcroForm widget annotations) as 'name: value' lines (top to bottom, left
     to right).
 
@@ -59,7 +59,7 @@ def _form_values(page: object, lines: list[_Line]) -> list[str]:
     try:
         placed = []
         beside: _LinesBeside | None = None  # built on the first FreeText annotation
-        positions: _KidPositions = {}
+        positions = {} if positions is None else positions
         for reference in resolve1(page.page_obj.annots) or []:
             # One annotation that cannot be read (a `/Rect` holding something that is not a number) is skipped on its own — it
             # used to drop the values of every other field of the page. The numbers of `/Rect` may be indirect objects
@@ -230,8 +230,9 @@ def _choice_text(widget: dict) -> str:
     return ", ".join(shown.get(text) or text for text in texts if text)
 
 
-# The positions of the widgets among the `/Kids` of a field, per `/Kids` array, for one page (`_widget_index`): the array, the
-# widgets it resolves to (held, so that their identities stay theirs) and each widget's first position.
+# The positions of the widgets among the `/Kids` of a field, per `/Kids` array, for one document (`_widget_index`; `_form_values`
+# is given the one of its document): the array, the widgets it resolves to (held, so that their identities stay theirs) and
+# each widget's first position.
 _KidPositions = dict[int, tuple[list, list, dict[int, int]]]
 
 
@@ -239,9 +240,11 @@ def _widget_index(widget: dict, positions: _KidPositions) -> int | None:
     """Index of the widget among the several `/Kids` of its field (`/Parent`). None if it is not a widget of a field with two or more
     widgets.
 
-    The positions of one array are found once per page (`positions`): searched for each widget, a field of 20,000 buttons on one
-    page took 20,000 × 20,000 lookups, 78 seconds in a 1.4 MB file, which no time budget bounds
-    (Pinned by: test_pdf_form_fields.py::TestGroupedFormFields::test_a_field_of_very_many_buttons_takes_linear_time)."""
+    The positions of one array are found once per document (`positions`): searched for each widget, a field of 20,000 buttons
+    on one page took 20,000 × 20,000 lookups, 78 seconds in a 1.4 MB file, which no time budget bounds
+    (Pinned by: test_pdf_form_fields.py::TestGroupedFormFields::test_a_field_of_very_many_buttons_takes_linear_time); found once
+    per page, a field of 200,000 widgets shared by 1,000 pages took 119 seconds
+    (Pinned by: test_pdf_form_fields.py::TestGroupedFormFields::test_a_large_field_on_many_pages_takes_linear_time)."""
     parent = resolve1(widget.get("Parent"))
     kids = resolve1(parent.get("Kids")) if isinstance(parent, dict) and widget.get("T") is None else None
     if not isinstance(kids, list) or len(kids) < 2:

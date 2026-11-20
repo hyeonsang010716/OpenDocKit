@@ -33,6 +33,7 @@ text. A vector chart (lines and shapes, not an image) on a page that has charact
 """
 
 from collections import Counter
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from io import BytesIO
 from itertools import islice
@@ -173,6 +174,9 @@ _MAX_READ_CONTENT_TOKENS = 2_000_000
 # time budget of 0 (6 before their values were read there). A form of 1,000 pages of 100 fields is within it
 # (Pinned by: test_pdf_form_fields.py::TestFormValuesOnSimpleExtraction::test_values_past_the_annotation_bound_are_not_read).
 _MAX_SIMPLE_FORM_ANNOTATIONS = 100_000
+# The positions of form widgets among the `/Kids` of their fields, for the document being read (`_pdf_forms._widget_index`): a
+# field that every page names is looked up once, not once a page.
+_FORM_POSITIONS: ContextVar[dict | None] = ContextVar("pdf_form_positions", default=None)
 # A page whose content adds more pieces to paths than this (`m l c v y h re`, `_path_segments`, as often as drawn) is read with
 # pdfium's simple extraction too, with the same warning. pdfminer and pdfplumber keep every point of a path in their objects: one path
 # of 100,000 / 200,000 / 400,000 / 600,000 line segments peaked at 248 / 385 / 653 / 942MB (1.4KB a segment; 1, 2, 4 and 6.5
@@ -233,11 +237,13 @@ def extract_pdf(data: bytes, options: ConvertOptions) -> Extraction:
     (`_decode_within_budget`) and by the measuring of page streams before pdfium opens a page (`_charge_page`)."""
     budget = _InflateBudget(options.max_uncompressed_bytes, font_entries=_DOCUMENT_FONT_RANGE_ENTRIES)
     token = _INFLATE_BUDGET.set(budget)
+    positions = _FORM_POSITIONS.set({})
     _quiet_pdfminer(True)
     try:
         return _extract_pdf(data, options, budget)
     finally:
         _quiet_pdfminer(False)
+        _FORM_POSITIONS.reset(positions)
         _INFLATE_BUDGET.reset(token)
 
 
@@ -279,8 +285,9 @@ class _SimpleFormValues:
     for them stay within `_MAX_SIMPLE_FORM_ANNOTATIONS`; past it a page's values are not read and the page is named in a
     warning (`skipped`)."""
 
-    def __init__(self) -> None:
+    def __init__(self, positions: dict) -> None:
         self._left = _MAX_SIMPLE_FORM_ANNOTATIONS
+        self._positions = positions   # the document's (`_pdf_forms._widget_index`)
         self.skipped: list[int] = []
 
     def __call__(self, page: object) -> list[str]:
@@ -294,12 +301,12 @@ class _SimpleFormValues:
             self.skipped.append(page.page_number)
             return []
         self._left -= count
-        return _form_values(page, [])
+        return _form_values(page, [], self._positions)
 
 
 def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -> Extraction:
     extraction = Extraction()
-    simple_form_values = _SimpleFormValues()
+    simple_form_values = _SimpleFormValues(_FORM_POSITIONS.get())
     try:
         pdf = _open_pdfplumber(data)
     except PdfminerException as exc:
@@ -1177,7 +1184,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                  has_outlines=outline_points >= _OUTLINE_MIN_POINTS,
                  placement_fit=placement_fit, placement_pending=placement_pending, sideways=sideways_text,
                  text_view=text_view[0] if text_view else None,
-                 form_values=_form_values(layout_page, lines),
+                 form_values=_form_values(layout_page, lines, _FORM_POSITIONS.get()),
                  hidden_chars=hidden_chars if not lines and not tables and not sideways_text else 0,
                  undecodable=blank and _has_undecodable_contents(layout_page), unmeasured=unmeasured,
                  rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [],
