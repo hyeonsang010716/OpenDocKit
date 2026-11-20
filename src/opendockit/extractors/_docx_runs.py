@@ -4,6 +4,7 @@ symbol fonts, scripts, strikethrough, emphasis and links, and what a run looks l
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from functools import cache
 import re
 
 from docx.opc.part import Part, PartFactory
@@ -101,8 +102,16 @@ def _select_part_class(content_type: str, reltype: str) -> type[Part] | None:
 PartFactory.part_class_selector = _select_part_class
 
 
+@cache
 def _w(tag: str) -> str:
+    """The WordprocessingML name of `tag`. Cached: it is asked for millions of times in one large document (5 million calls for
+    80,000 table cells), and building the string each time cost as much as reading the cells' properties."""
     return f"{{{_W}}}{tag}"
+
+
+# Paths asked of every run (`_paragraph_text`, `_RunLook`), built once
+_VANISH = f"{_w('rPr')}/{_w('vanish')}"
+_RUN_FONTS = f"{_w('rPr')}/{_w('rFonts')}"
 
 
 # Text elements that are not emitted when on the instruction side of a complex field (`_paragraph_text`).
@@ -286,7 +295,7 @@ def _paragraph_text(paragraph: etree._Element, notes: "_NoteLabels | None",
                 if tag == _w("t"):
                     fields[-1].hidden.append((len(parts), child.text or ""))
                 continue
-            if tag == _w("r") and _is_on(child.find(f"{_w('rPr')}/{_w('vanish')}")):
+            if tag == _w("r") and _is_on(child.find(_VANISH)):
                 # Deliberate: only the text of a hidden run is left out. Its field characters and instruction still shape the
                 # field: a separate in a hidden run left the field on the instruction side, so its visible result ('Total: 1,200
                 # won') was taken for instruction text and dropped, and a hidden instruction is still where the visible result
@@ -528,11 +537,17 @@ class _RunLook:
 
     @classmethod
     def of(cls, run: etree._Element, body_size: int | None, inline: "_Inline | None" = None) -> "_RunLook":
+        # A run without properties (most runs of a plain table or form) has none of the looks: every check below reads w:rPr
+        if run.find(_w("rPr")) is None:
+            return _PLAIN_LOOK
         is_script = _run_script(run, body_size) is not None
         emphasis = (False, False)
         if inline is not None and inline.emphasis and not is_script and run.tag == _w("r"):
             emphasis = _run_emphasis(run, inline.styles)
         return cls(_is_struck(run) and not is_script, _symbol_font(run), *_plain_fonts(run), _is_painted_box(run), *emphasis)
+
+
+_PLAIN_LOOK = _RunLook(struck=False, symbol_font=None, ascii_font=None, latin_font=None, painted_box=False)
 
 
 def _is_painted_box(run: etree._Element) -> bool:
@@ -758,10 +773,12 @@ def _run_script(run: etree._Element, body_size: int | None = None) -> str | None
     if align is not None:
         return {"superscript": SUPERSCRIPT, "subscript": SUBSCRIPT}.get(align.get(_w("val")))
 
-    size = _half_points(properties.find(_w("sz")), 0)
-    shift = _half_points(properties.find(_w("position")), 0)
-    if not body_size or size <= 0 or size > 0.8 * body_size:
+    if not body_size:
         return None
+    size = _half_points(properties.find(_w("sz")), 0)
+    if size <= 0 or size > 0.8 * body_size:
+        return None
+    shift = _half_points(properties.find(_w("position")), 0)
     if shift >= 0.2 * size:
         return SUPERSCRIPT
     return SUBSCRIPT if -shift >= 0.1 * size else None
@@ -785,7 +802,7 @@ def _is_read_box(box: etree._Element, paragraph: etree._Element) -> bool:
             return True
         if ancestor.tag in (_w("txbxContent"), _w("del"), _w("moveFrom")):
             return False
-        if ancestor.tag == _w("r") and _is_on(ancestor.find(f"{_w('rPr')}/{_w('vanish')}")):
+        if ancestor.tag == _w("r") and _is_on(ancestor.find(_VANISH)):
             return False
     return True
 
@@ -805,7 +822,7 @@ def _symbol_font(run: etree._Element) -> str | None:
     mapping had only □, so ☒ was removed and only □ was left, and the chosen option read the other way round
     (Pinned by: test_office_symbols_fields_notes.py::TestSymbolFontCharactersInText).
     """
-    fonts = run.find(f"{_w('rPr')}/{_w('rFonts')}")
+    fonts = run.find(_RUN_FONTS)
     if fonts is None:
         return None
     return next((font for slot in _RUN_FONT_SLOTS if (font := fonts.get(_w(slot))) and font.strip().lower() in SYMBOL_GLYPHS),
@@ -833,7 +850,7 @@ def _plain_fonts(run: etree._Element) -> tuple[str | None, str | None]:
     """Fonts for ordinary characters set directly on the run: (w:ascii for ASCII characters, w:hAnsi for the other Latin-1
     characters). A theme font (w:asciiTheme etc.), when present, wins, so the slot counts as absent (the Symbol mapping of ordinary
     characters in `symbol_font_text`)."""
-    fonts = run.find(f"{_w('rPr')}/{_w('rFonts')}")
+    fonts = run.find(_RUN_FONTS)
     if fonts is None:
         return None, None
     return tuple(None if fonts.get(_w(f"{slot}Theme")) else fonts.get(_w(slot)) for slot in ("ascii", "hAnsi"))

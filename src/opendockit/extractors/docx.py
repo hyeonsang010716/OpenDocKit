@@ -39,6 +39,7 @@ from opendockit.extractors._docx_runs import (
     _DIAGRAM,
     _MC,
     _V,
+    _VANISH,
     _children,
     _custom_mark,
     _drawing_alt,
@@ -134,6 +135,10 @@ _EMPHASIS_STYLE_NAMES = {"strong": (True, False), "emphasis": (False, True)}
 
 # Blocks read in order in the body, cells and text boxes: paragraph, table, imported content
 _BLOCK_TAGS = (_w("p"), _w("tbl"), _w("altChunk"))
+# What a paragraph holds that is read after its text (`_render_paragraph`): text boxes, shape text, legacy WordArt
+_TEXT_BOX = _w("txbxContent")
+_SHAPE_TEXT = f"{{{_A}}}txBody"
+_WORD_ART = f"{{{_V}}}textpath"
 
 
 @dataclass(slots=True)
@@ -465,10 +470,15 @@ class _DocxRenderer:
         after = [block for block in objects if block]
         # Those of a chain far past the limit are not built at all: they would all go past the cut (`_past_the_cut`)
         boxes = not finishing and not self._past_the_cut(joined, paragraph)
+        # Text boxes, then shape text, then WordArt, each in document order — found in one pass over the paragraph: three passes
+        # over every paragraph of a table-heavy document cost a tenth of its conversion
+        found: dict[str, list[etree._Element]] = {_TEXT_BOX: [], _SHAPE_TEXT: [], _WORD_ART: []}
+        for element in (paragraph.iter(_TEXT_BOX, _SHAPE_TEXT, _WORD_ART) if boxes else ()):
+            found[element.tag].append(element)
         with self._own_lists():
             after.extend(
                 block
-                for box in (paragraph.iter(_w("txbxContent")) if boxes else ())
+                for box in found[_TEXT_BOX]
                 if _is_read_box(box, paragraph)
                 for block in self.render_container(box)
             )
@@ -476,7 +486,7 @@ class _DocxRenderer:
         # like a text box (Pinned by: test_office.py::TestDocxFieldsAndRuns::test_text_of_a_pasted_drawing_shape_is_kept).
         after.extend(
             line
-            for body in (paragraph.iter(f"{{{_A}}}txBody") if boxes else ())
+            for body in found[_SHAPE_TEXT]
             if _is_read_box(body, paragraph)
             for line in _drawing_lines(body)
         )
@@ -484,7 +494,7 @@ class _DocxRenderer:
         # same shape in a header is a watermark laid on every page ('초안' (draft), '대외비' (confidential))
         # (Pinned by: test_office.py::TestDocxLegacyWordArt).
         if self._part is self._main_part and boxes:
-            arts = (_word_art_text(path) for path in paragraph.iter(f"{{{_V}}}textpath") if _is_read_box(path, paragraph))
+            arts = (_word_art_text(path) for path in found[_WORD_ART] if _is_read_box(path, paragraph))
             after.extend(art for art in arts if art)
 
         # A numbered paragraph with empty text still counts its number (no item is emitted). Otherwise the following numbers are pulled
@@ -1472,7 +1482,7 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
         tag = element.tag
         if tag == f"{{{_MC}}}Fallback":
             fallback += 1 if event == "start" else -1
-        elif (tag in _UNSHOWN_WRAPPERS or (tag == _w("r") and _is_on(element.find(f"{_w('rPr')}/{_w('vanish')}")))
+        elif (tag in _UNSHOWN_WRAPPERS or (tag == _w("r") and _is_on(element.find(_VANISH)))
               or (tag == _w("tr") and _is_deleted_row(element))):
             hidden += 1 if event == "start" else -1
         elif event != "start" or fallback:
