@@ -219,25 +219,68 @@ async def describe_images(result: ConversionResult, describer: ImageDescriber, *
     if headroom is not None and headroom < 0:
         return result
     semaphore = asyncio.Semaphore(max(max_concurrency, 1))
+    # When the answer that crosses the limit came back, the call waiting on the semaphore was sent before the loop below had
+    # looked at that answer: one paid call per free slot after the limit was known to be exceeded (8 of 8 with the default
+    # concurrency), and with a describer that answers without waiting, every remaining picture. Each answer is now counted
+    # (`settle`) before its slot is given up, and a call that gets a slot after the limit was crossed is not sent. Which
+    # descriptions are kept is the same: the answers are counted in the order they come back, as before
+    # (Pinned by: test_image.py::TestResourceBounds::test_no_call_is_sent_once_the_limit_is_known_to_be_exceeded).
+    stopped = False
+    pattern = image_marker_pattern(result.marker_key)
+    # When the placeholder of one picture appears several times, its description goes in that many times. The bound on the
+    # increase has to be multiplied by that count for the stopping point to be the same even when rendering is skipped
+    # (Pinned by: test_image.py::TestResourceBounds::test_description_stops_at_the_same_image_when_a_placeholder_appears_more_than_once).
+    occurrences = Counter(int(found) for section in result.sections for found in pattern.findall(section.template))
+    quotes = quote_widths(result.sections, pattern)
 
-    async def run(image: DocumentImage) -> DocumentImage:
-        if image.description or image.decorative:
-            return image
-        async with semaphore:
-            try:
-                text = _answer_text(await describer.describe(image))
-            except Exception:  # noqa: BLE001 — description is best-effort. Leave the placeholder text and report it with a warning.
-                return replace(image, failed=True)
-            except asyncio.CancelledError:
-                # A CancelledError the describer (a library inside it) raised by itself is a failure of this picture. Propagated
-                # as is, it killed the whole aconvert although the outside was not cancelled, losing the descriptions of the
-                # other pictures too. Only a real cancellation (cancel arrived at this task) is propagated
-                # (Pinned by: test_image.py::TestAuditedImageGaps::test_describer_that_raises_cancelled_error_itself_fails_only_that_image,
-                # test_cancelling_aconvert_still_cancels_it).
+    def settle(image: DocumentImage) -> None:
+        """Count one answer against the limit, and stop every other call once the result is surely over it."""
+        nonlocal headroom, stopped
+        if stopped:
+            return
+        finished[image.id] = image
+        if limit is None or headroom is None:
+            return
+        # Rendering the body takes time proportional to the document length, so doing it per picture is quadratic in the number
+        # of pictures (25 seconds for 3,332 pictures). Only subtract the most characters one picture can add, and render for
+        # an exact decision only when the headroom runs out. The stopping point is the same as when rendering every time
+        # (Pinned by: test_image.py::TestResourceBounds::test_description_stops_at_exactly_the_image_that_crosses_the_limit).
+        headroom -= image_length_bound(image, result.fallbacks, quotes.get(image.id, 0)) * max(occurrences[image.id], 1)
+        if headroom < 0:
+            headroom = limit - _floor_length(result, finished)
+            if headroom < 0:
+                stopped = True
                 current = asyncio.current_task()
-                if current is None or current.cancelling():
-                    raise
-                return replace(image, failed=True)
+                for task in tasks:
+                    if task is not current:
+                        task.cancel()
+
+    async def run(image: DocumentImage) -> None:
+        if stopped:
+            return
+        if image.description or image.decorative:
+            settle(image)
+            return
+        async with semaphore:
+            if stopped:   # the slot came free after the limit was crossed
+                return
+            settle(await answered(image))
+
+    async def answered(image: DocumentImage) -> DocumentImage:
+        try:
+            text = _answer_text(await describer.describe(image))
+        except Exception:  # noqa: BLE001 — description is best-effort. Leave the placeholder text and report it with a warning.
+            return replace(image, failed=True)
+        except asyncio.CancelledError:
+            # A CancelledError the describer (a library inside it) raised by itself is a failure of this picture. Propagated
+            # as is, it killed the whole aconvert although the outside was not cancelled, losing the descriptions of the
+            # other pictures too. Only a real cancellation (cancel arrived at this task) is propagated
+            # (Pinned by: test_image.py::TestAuditedImageGaps::test_describer_that_raises_cancelled_error_itself_fails_only_that_image,
+            # test_cancelling_aconvert_still_cancels_it).
+            current = asyncio.current_task()
+            if current is None or current.cancelling():
+                raise
+            return replace(image, failed=True)
 
         text = clean_text(_strip_code_fence(text))
         if not text or (image.kind is not ImageKind.FIGURE and is_no_content(text)):
@@ -253,29 +296,13 @@ async def describe_images(result: ConversionResult, describer: ImageDescriber, *
             return replace(image, decorative=True, failed=False)
         return replace(image, description=text, failed=False)
 
-    # When the placeholder of one picture appears several times, its description goes in that many times. The bound on the
-    # increase has to be multiplied by that count for the stopping point to be the same even when rendering is skipped
-    # (Pinned by: test_image.py::TestResourceBounds::test_description_stops_at_the_same_image_when_a_placeholder_appears_more_than_once).
-    pattern = image_marker_pattern(result.marker_key)
-    occurrences = Counter(int(found) for section in result.sections for found in pattern.findall(section.template))
-    quotes = quote_widths(result.sections, pattern)
     tasks = [asyncio.ensure_future(run(image)) for image in result.images if _is_pending(image)]
     try:
-        for next_done in asyncio.as_completed(tasks):
-            image = await next_done
-            finished[image.id] = image
-            if limit is None or headroom is None:
-                continue
-
-            # Rendering the body takes time proportional to the document length, so doing it per picture is quadratic in the number
-            # of pictures (25 seconds for 3,332 pictures). Only subtract the most characters one picture can add, and render for
-            # an exact decision only when the headroom runs out. The stopping point is the same as when rendering every time
-            # (Pinned by: test_image.py::TestResourceBounds::test_description_stops_at_exactly_the_image_that_crosses_the_limit).
-            headroom -= image_length_bound(image, result.fallbacks, quotes.get(image.id, 0)) * max(occurrences[image.id], 1)
-            if headroom < 0:
-                headroom = limit - _floor_length(result, finished)
-                if headroom < 0:
-                    break
+        if tasks:
+            await asyncio.wait(tasks)
+        for task in tasks:   # what `run` does not catch (KeyboardInterrupt from the describer) ends the call, as before
+            if not task.cancelled() and task.exception() is not None:
+                raise task.exception()
     finally:
         for task in tasks:
             task.cancel()

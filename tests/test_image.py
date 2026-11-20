@@ -1393,7 +1393,38 @@ class TestResourceBounds:
 
         assert result.exceeded
         assert sum(1 for image in result.images if image.description) == expected
-        assert len(describer.seen) <= expected + 1, "the one next call started before the decision is cancelled"
+        assert len(describer.seen) == expected, "no call is sent once the limit is crossed"
+
+    @pytest.mark.parametrize("max_concurrency", [1, 4])
+    @pytest.mark.parametrize("waits", [True, False], ids=["describer that waits", "describer that never waits"])
+    def test_no_call_is_sent_once_the_limit_is_known_to_be_exceeded(self, max_concurrency, waits):
+        """The call waiting for a slot was sent as soon as the answer that crossed the limit freed one, before that answer
+        was counted: one paid call per slot after the limit was known, and every remaining picture with a describer that
+        answers without waiting. Only the calls already under way when the limit was crossed are sent; the descriptions
+        kept are the same."""
+        from dataclasses import replace
+
+        from opendockit.converter import render
+
+        base = convert(_docx_with_pictures(12), "a.docx", ConvertOptions(max_chars=700))
+        answers = {image_id: "가" * (20 + 15 * image_id) for image_id in range(1, 13)}
+        expected = next(count for count in range(1, 13) if render(replace(base, images=[
+            replace(image, description=answers[image.id]) if index < count else replace(image, decorative=True)
+            for index, image in enumerate(base.images)])).exceeded)
+        calls = []
+
+        class Describer:
+            async def describe(self, image):
+                calls.append(image.id)
+                if waits:
+                    await asyncio.sleep(0)
+                return answers[image.id]
+
+        result = asyncio.run(describe_images(base, Describer(), max_concurrency=max_concurrency))
+
+        assert result.exceeded
+        assert sum(1 for image in result.images if image.description) == expected
+        assert len(calls) <= expected + (max_concurrency - 1 if waits else 0)
 
     @pytest.mark.parametrize("limit", [700, 1_300, 2_000])
     def test_description_stops_at_the_same_image_when_a_placeholder_appears_more_than_once(self, limit):
