@@ -210,3 +210,20 @@ class TestHeaderRowsTakeLinearTime:
 
         small, large = seconds(1_000), seconds(4_000)
         assert large < small * 8
+
+
+class TestBoldSentences:
+    """A bold line at the body size that is a sentence is emphasis in the text, not a heading."""
+
+    def test_a_sentence_ending_in_a_number_is_no_heading(self):
+        text = _text([*_body(80), (140, "Applications must be received by June 30.", 10, "Times-Bold"), *_body(156),
+                      (220, "The full list of sites is given in Appendix C.", 10, "Times-Bold"), *_body(236)])
+
+        assert "#" not in text
+        assert "Applications must be received by June 30." in text and "given in Appendix C." in text
+
+    @pytest.mark.parametrize("label", ["CHAPTER 1.", "Part IV.", "Section 2.3.", "Appendix C."])
+    def test_a_numbered_label_with_a_full_stop_is_a_heading(self, label):
+        text = _text([*_body(80), (140, label, 10, "Times-Bold"), *_body(156)])
+
+        assert f"# {label}\n\nThe next step" in text

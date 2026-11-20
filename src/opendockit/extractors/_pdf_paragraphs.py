@@ -519,9 +519,10 @@ def _is_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset
 def _is_bold_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset[int] = frozenset()) -> bool:
     """A heading set in a bold face at about the body size: every line is bold, the size is at least
     `_BOLD_HEADING_MIN_RATIO` of the body, it holds a letter, is not a caption or note label ('Figure 3.', 'Source:',
-    `_CAPTION_START`), and does not end like a sentence (',' or ';'; '.' only after a section number such as 'CHAPTER 1.'
-    or '5.'). A heading may end in ':' ('Procedure:') or '?'. A bold line with another bold line beside it on the same row
-    (`side_by_side`, `_header_cells`) is a header cell of a table the page did not find, not a heading.
+    `_CAPTION_START`), and does not end like a sentence (',' or ';'; '.' only when the whole text is a numbered label,
+    `_NUMBERED_LABEL`, such as 'CHAPTER 1.' or 'Part IV.'). A heading may end in ':' ('Procedure:') or '?'. A bold line
+    with another bold line beside it on the same row (`side_by_side`, `_header_cells`) is a header cell of a table the page
+    did not find, not a heading.
 
     Deliberate: a heading in many books and papers differs from the body only by its weight ('5. The dynamics' in 11pt
     bold over a 10pt body), and with the size rule alone 53 of 193 headings of a 200-page pdf corpus were body text (Pinned
@@ -535,7 +536,7 @@ def _is_bold_heading(paragraph: _Paragraph, body_size: float, side_by_side: froz
         return False
     if not _HEADING_LETTER.search(text) or text.endswith((",", ";")):
         return False
-    return not text.endswith(".") or bool(_SECTION_NUMBER_END.search(text))
+    return not text.endswith(".") or bool(_NUMBERED_LABEL.fullmatch(text))
 
 
 # A letter of a word (not a number or a symbol): a bold '2024' or '12.5%' alone is a value, not a heading.
@@ -547,8 +548,12 @@ _HEADER_ROW_CELLS = 4
 _CHECKBOX_MARK = re.compile(r"[☐☑☒]")
 # A line holding only a section number ('3.', '12', 'III.'), set above the title of a numbered heading.
 _LONE_SECTION_NUMBER = re.compile(r"^(?:\d{1,3}(?:\.\d{1,3})*|[IVXLC]{1,6})\.?$")
-# A heading that ends in a section number and a full stop ('CHAPTER 1.', '5.', 'Part IV.').
-_SECTION_NUMBER_END = re.compile(r"(?:^|\s)(?:\d+(?:\.\d+)*|[IVXLC]+)\.$")
+# A bold heading that ends in a full stop: the whole text is a numbered label ('CHAPTER 1.', 'Part IV.', 'Section 2.3.',
+# 'Appendix C.', '제 3 장.'). A sentence that only ends in a number or a capital ('… received by June 30.', '… given in
+# Appendix C.') is no heading (Pinned by: test_pdf_headings.py::TestBoldSentences::test_a_sentence_ending_in_a_number_is_no_heading).
+_NUMBERED_LABEL = re.compile(r"(?:(?i:chapter|part|section|article|appendix|annex|book|unit|lesson|lecture|step|stage|phase)\s+"
+                             r"(?:\d{1,3}(?:\.\d{1,3})*|[IVXLC]{1,6}|[A-Z])|\d{1,3}(?:\.\d{1,3})*|[IVXLC]{1,6}"
+                             r"|제\s*\d{1,3}\s*[장절조편부관항])\.")
 
 
 def _header_cells(lines: list[_Line], body_size: float) -> frozenset[int]:
