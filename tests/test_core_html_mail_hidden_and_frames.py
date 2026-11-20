@@ -500,11 +500,24 @@ class TestHidingDecidedByTheWinningDeclaration:
         assert convert(html.encode(), "a.html").text == "앞"
 
     @pytest.mark.parametrize("style", ["display:none; display:var(--shown)", "display:none; display:INLINE-FLEX",
-                                       "display:none; display:block flow", "visibility:hidden; visibility:inherit"])
+                                       "display:none; display:block flow", "visibility:hidden; visibility:inherit",
+                                       "display:none; display:grid-lanes"])
     def test_later_declaration_a_browser_accepts_shows_it(self, style):
         html = f'<p>앞</p><div style="{style}">본문</div>'
 
         assert convert(html.encode(), "a.html").text == "앞\n\n본문"
+
+    def test_long_styles_are_not_kept_after_their_page(self):
+        """The properties of the styles last read are kept for the next time one is asked about, for the life of the process: a
+        thousand styles of a few MB, kept whole, held a server's memory long after their pages. Only short ones are kept."""
+        from opendockit.extractors import _html_base
+
+        _html_base._cached_style_properties.cache_clear()
+        convert(f'<p>앞</p><div style="{"color:red;" * 1_000}display:none">숨김</div>'.encode(), "a.html")
+        assert _html_base._cached_style_properties.cache_info().currsize == 0
+
+        convert(b'<p>\xec\x95\x9e</p><div style="color:red; display:none">x</div>', "a.html")
+        assert _html_base._cached_style_properties.cache_info().currsize == 1
 
     @pytest.mark.parametrize("style", ["/* display:none; */", "display:none; display:block"])
     def test_shown_answer_of_a_list_is_not_folded(self, style):

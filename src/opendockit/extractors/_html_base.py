@@ -240,7 +240,7 @@ _KNOWN_VALUES = {
         "table-cell", "table-column-group", "table-column", "table-caption", "list-item", "run-in", "ruby", "ruby-base",
         "ruby-text", "ruby-base-container", "ruby-text-container", "math", "-webkit-box", "-webkit-inline-box", "-webkit-flex",
         "-webkit-inline-flex", "-moz-box", "-moz-inline-box", "-ms-flexbox", "-ms-inline-flexbox", "-ms-grid",
-        "-ms-inline-grid"},
+        "-ms-inline-grid", "grid-lanes", "inline-grid-lanes"},
     "visibility": _GLOBAL_VALUES | {"visible", "hidden", "collapse"},
     "content-visibility": _GLOBAL_VALUES | {"visible", "hidden", "auto"},
 }
@@ -248,12 +248,28 @@ _KNOWN_VALUES = {
 _COMPUTED_VALUE = re.compile(r"(?:var|env|attr)\(", re.IGNORECASE)
 
 
-@lru_cache(maxsize=1024)
+# The longest inline style whose properties are kept for the next time it is asked about (`_style_properties`): the cache lives
+# as long as the process, and kept whole, a thousand styles of a few MB held a server's memory long after their pages.
+_CACHED_STYLE_CHARS = 4_096
+
+
 def _style_properties(style: str) -> dict[str, str]:
-    """The properties of an inline style and the first word of the value that wins for each (lowercase): comments left out, the
-    declarations split at `;`, the last valid one written wins unless an earlier one is `!important` and it is not. One pass
-    over the style (linear time); kept for the styles last asked about, as a page checks one style several times (the returned
-    dict is shared: not to be changed)."""
+    """The properties of an inline style and the first word of the value that wins for each (lowercase), as a browser applies
+    them (`_read_style_properties`). A page checks one style several times — hidden, then under a hidden ancestor, then for
+    a visible descendant — so the result for a short style is kept (the returned dict is shared: not to be changed)
+    (Pinned by: test_core_html_mail_hidden_and_frames.py::TestHidingDecidedByTheWinningDeclaration::
+    test_long_styles_are_not_kept_after_their_page)."""
+    return _cached_style_properties(style) if len(style) <= _CACHED_STYLE_CHARS else _read_style_properties(style)
+
+
+@lru_cache(maxsize=1024)
+def _cached_style_properties(style: str) -> dict[str, str]:
+    return _read_style_properties(style)
+
+
+def _read_style_properties(style: str) -> dict[str, str]:
+    """Comments left out, the declarations split at `;`, the last valid one written wins unless an earlier one is `!important`
+    and it is not. One pass over the style (linear time)."""
     if "/*" in style:
         style = _STYLE_COMMENT.sub("", style)
     properties: dict[str, str] = {}
