@@ -144,6 +144,12 @@ class TestSameRowsAsOpenpyxlsParser:
         expected, quick = _both(monkeypatch, _xlsx(rows, prolog=prolog), ConvertOptions(), reader)
         assert quick == expected
 
+    @pytest.mark.parametrize("value", ["&#65;&#x42;&amp;&lt;", "&#x+41;", "&#+65;", "&#x;", "&#0;", "&undefined;"])
+    def test_references(self, monkeypatch, streamed, reader, value):
+        rows = f'<row r="1"><c r="A1" t="str"><v>{value}</v></c><c r="B1" t="str"><v>after</v></c></row>'
+        expected, quick = _both(monkeypatch, _xlsx(rows), ConvertOptions(), reader)
+        assert quick == expected
+
     def test_part_in_another_encoding(self, monkeypatch, streamed, reader):
         rows = '<row r="1"><c r="A1" t="str"><v>café</v></c></row>'
         data = _xlsx(rows, prolog='<?xml version="1.0" encoding="ISO-8859-1"?>', encoding="latin-1")

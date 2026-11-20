@@ -94,15 +94,18 @@ fn reference(name: &[u8]) -> Option<char> {
         "quot" => '"',
         "apos" => '\'',
         _ => {
+            // Digits only: Rust's parsers also take a leading `+`, which XML does not
             let code = if let Some(hex) = name.strip_prefix("#x") {
+                if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return None;
+                }
                 u32::from_str_radix(hex, 16).ok()?
-            } else if let Some(decimal) = name.strip_prefix('#') {
+            } else {
+                let decimal = name.strip_prefix('#')?;
                 if !decimal.bytes().all(|b| b.is_ascii_digit()) {
                     return None;
                 }
                 decimal.parse().ok()?
-            } else {
-                return None;
             };
             char::from_u32(code)?
         }
