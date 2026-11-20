@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import re
 import unicodedata
 
-from opendockit.markdown import _INVISIBLE
+from opendockit.markdown import _CONTROL, _INVISIBLE, _PRIVATE_USE, _SYMBOL_FONT_GLYPHS
 from opendockit.models import IMAGE_MARKER
 
 
@@ -547,6 +547,7 @@ def _drop_emphasis_inside_words(atoms: list[_Atom]) -> None:
     unmarked too (Pinned by: test_inline_formatting.py::TestPartOfAWord).
     """
     count = len(atoms)
+    link_edges = _written_link_edges(atoms)
     for name in ("bold", "italic"):
         index = 0
         while index < count:
@@ -561,14 +562,61 @@ def _drop_emphasis_inside_words(atoms: list[_Atom]) -> None:
             after = atoms[end].text[:1] if end < count else ""
             starts_inside = before.isalnum() and first[:1].isalnum()
             is_glued_character = (end - index == 1 and len(first.strip()) == 1 and last[-1:].isalnum() and after.isalnum())
-            # What is written next to the span: a link that starts right after it begins with `[`, one that ends right before it
-            # ends with `)` — both punctuation, so `**67%**[으로](url)` is fine
-            written_after = "[" if end < count and atoms[end].url and atoms[end].url != atoms[end - 1].url else after
-            written_before = ")" if index and atoms[index - 1].url and atoms[index - 1].url != atoms[index].url else before
+            # What is written next to the span (`_written_link_edges`): the brackets of a link it fills or reaches the edge of from
+            # inside, `[**67%**](url)으로`, or that starts right after it or ends right before it, `**67%**[으로](url)` — all
+            # punctuation (Pinned by: test_inline_formatting.py::TestEmphasisAgainstPunctuation::test_span_at_the_edge_of_a_link_is_marked)
+            written_before = (link_edges.get(("[", index)) or link_edges.get((")", index - 1))
+                              or (_cleaned_edge(atoms[index - 1].text, last=True) if index else ""))
+            written_after = (link_edges.get(("]", end - 1)) or link_edges.get(("[", end))
+                             or (_cleaned_edge(atoms[end].text, last=False) if end < count else ""))
             if starts_inside or is_glued_character or _unflanked(written_before, first, last, written_after):
                 for position in range(index, end):
                     setattr(atoms[position], name, False)
             index = end
+
+
+def _written_link_edges(atoms: list[_Atom]) -> dict[tuple[str, int], str]:
+    """The link brackets `_write_link` writes next to an atom, as {("[", first worded atom of a link): "[", ("]", last worded
+    atom): "]", (")", last atom of the link): ")"}. A link written as its bare address has none; whitespace and placeholders at
+    its edges stay outside the brackets, so the brackets sit against its first and last worded atoms."""
+    edges: dict[tuple[str, int], str] = {}
+    index = 0
+    while index < len(atoms):
+        url = atoms[index].url
+        end = index + 1
+        while end < len(atoms) and atoms[end].url == url:
+            end += 1
+        if url and not _is_bare_address(url, atoms[index:end]):
+            worded = [position for position in range(index, end) if _has_words(atoms[position].text)]
+            if worded:
+                edges[("[", worded[0])] = "["
+                edges[("]", worded[-1])] = "]"
+                edges[(")", end - 1)] = ")"
+        index = end
+    return edges
+
+
+def _cleaned_edge(text: str, *, last: bool) -> str:
+    """The last (or first) character of `text` as it is written once the text is cleaned: a private-use or control character is
+    removed then (`clean_text`), and a private-use font bullet becomes the symbol it stands for. Read as it is, the character
+    removed from `%<U+E000> 뒤` counted as a word against `**%**`."""
+    edge = text[-1:] if last else text[:1]
+    if not edge or unicodedata.category(edge) not in ("Co", "Cc"):
+        return edge
+    cleaned = _CONTROL.sub("", _PRIVATE_USE.sub("", text.translate(_SYMBOL_FONT_GLYPHS)))
+    return cleaned[-1:] if last else cleaned[:1]
+
+
+def _has_words(text: str) -> bool:
+    """Whether `text` holds anything besides whitespace and placeholders."""
+    return bool("".join(_INLINE_PLACEHOLDER.split(text)[::2]).strip())
+
+
+def _is_bare_address(url: str, group: list[_Atom]) -> bool:
+    """Whether the text of a link is its address: it is written as it is, without brackets."""
+    label = "".join(atom.text for atom in group if atom.kind != "plain").strip()
+    addresses = {url.rstrip("/"), url.removeprefix("mailto:").rstrip("/")}
+    return label.rstrip("/") in addresses or (link_target(label) or "").rstrip("/") in addresses
 
 
 def _is_punctuation(character: str) -> bool:
@@ -581,10 +629,17 @@ def _unflanked(before: str, first: str, last: str, after: str) -> bool:
     whitespace or punctuation, and opens it before a punctuation mark only after them. `**67%**으로` and `**「법」**제15조`
     came out with the asterisks shown as text, so such a span is not marked. Whitespace at the edge of the span goes outside the
     marks and leaves the mark against the whitespace, which is fine (Pinned by:
-    test_inline_formatting.py::TestEmphasisAgainstPunctuation)."""
-    ends_on_punctuation = last[-1:] == last.rstrip()[-1:] and _is_punctuation(last[-1:]) and after[:1].isalnum()
-    starts_on_punctuation = first[:1] == first.lstrip()[:1] and _is_punctuation(first[:1]) and before[-1:].isalnum()
+    test_inline_formatting.py::TestEmphasisAgainstPunctuation). Anything that is neither whitespace nor punctuation counts as a
+    word character there, a combining mark or a private-use character too: `**%**́` is not closed either."""
+    ends_on_punctuation = last[-1:] == last.rstrip()[-1:] and _is_punctuation(last[-1:]) and _is_word_like(after[:1])
+    starts_on_punctuation = first[:1] == first.lstrip()[:1] and _is_punctuation(first[:1]) and _is_word_like(before[-1:])
     return ends_on_punctuation or starts_on_punctuation
+
+
+def _is_word_like(character: str) -> bool:
+    """A character that is neither Unicode whitespace (category Zs, tab, line feed, form feed, carriage return) nor punctuation,
+    as CommonMark tells them apart when it decides whether `**` opens or closes."""
+    return bool(character) and character not in "\t\n\f\r" and unicodedata.category(character) != "Zs" and not _is_punctuation(character)
 
 
 def _without_lead(line: list[_Atom]) -> list[_Atom]:
@@ -669,9 +724,7 @@ def _write_link(markup: str, url: str, group: list[_Atom]) -> str:
     if edges is not None and edges[1]:
         lead, core, trail = lead + edges[0], edges[1], edges[2] + trail
 
-    label = "".join(atom.text for atom in group if atom.kind != "plain").strip()
-    addresses = {url.rstrip("/"), url.removeprefix("mailto:").rstrip("/")}
-    if label.rstrip("/") in addresses or (link_target(label) or "").rstrip("/") in addresses:
+    if _is_bare_address(url, group):
         return markup
     return f"{lead}[{_escape_link_text(core)}]({url}){trail}"
 

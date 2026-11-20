@@ -486,6 +486,34 @@ class TestEmphasisAgainstPunctuation:
         assert _html_text('<p>전체의 <b>67%</b><a href="https://a.example/">으로</a> 늘었다</p>') == (
             "전체의 **67%**[으로](https://a.example/) 늘었다")
 
+    def test_span_at_the_edge_of_a_link_is_marked(self):
+        """Inside a link the span ends against `]` and starts against `[`: `[**67%**](url)으로` is emphasis to a CommonMark reader,
+        and it used to be dropped as though `**` stood against `으`."""
+        body = "".join((
+            _paragraph(_run("근거는 "), _link("a", _bold("「개인정보보호법」")), _run("제15조")),
+            _paragraph(_run("근거는 "), _link("a", _run("법 "), _bold("「시행령」")), _run("제2조")),
+            _paragraph(_run("근거는 제"), _link("a", _bold("「법」")), _run(" 이다")),
+        ))
+
+        assert _docx_text(body, links={"a": "https://a.example/"}) == (
+            "근거는 [**「개인정보보호법」**](https://a.example/)제15조\n\n"
+            "근거는 [법 **「시행령」**](https://a.example/)제2조\n\n"
+            "근거는 제[**「법」**](https://a.example/) 이다")
+        assert _html_text('<p>전체의 <a href="https://a.example/"><b>67%</b></a>으로</p>'
+                          '<p>전체의 <b><a href="https://a.example/">67%</a></b>으로</p>') == (
+            "전체의 [**67%**](https://a.example/)으로\n\n전체의 [**67%**](https://a.example/)으로")
+
+    def test_span_inside_a_link_against_a_word_or_a_bare_address_is_not_marked(self):
+        """Away from the brackets, or in a link written as its bare address, the mark stands against the word."""
+        assert _html_text('<p>전체의 <a href="https://a.example/"><b>67%</b>는</a> 늘고</p>'
+                          '<p>주소 <a href="https://a.example/x%"><b>https://a.example/x%</b></a>으로</p>') == (
+            "전체의 [67%는](https://a.example/) 늘고\n\n주소 https://a.example/x%으로")
+
+    def test_combining_mark_counts_as_a_letter_and_a_removed_character_does_not(self):
+        """CommonMark reads anything but whitespace and punctuation as a letter here: `**%**́` showed its asterisks. A private-use
+        character is removed when the text is cleaned, so the whitespace behind it is what the mark stands against."""
+        assert _html_text("<p>앞 <b>%</b>&#x301; 뒤</p><p>앞 <b>%</b>&#xE000; 뒤</p>") == "앞 %\u0301 뒤\n\n앞 **%** 뒤"
+
     def test_span_with_whitespace_or_punctuation_beyond_its_edge_is_marked(self):
         body = _paragraph(_bold("「개인정보보호법」"), _run(" 제15조, "), _bold("맺음말"), _run(": 언급, "), _bold("(보충)"), _run("."))
 
