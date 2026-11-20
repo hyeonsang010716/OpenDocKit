@@ -417,7 +417,8 @@ class HwpRenderer:
         size_pairs = self._count_sizes(paragraph, text_record)
 
         # The head goes on the first text piece only, and a paragraph without text keeps its number (`_hangul.ParagraphPieces`).
-        pieces = ParagraphPieces(lambda text, plain: self._decorate(paragraph, text, plain, text_record, size_pairs))
+        pieces = ParagraphPieces(lambda text, plain: self._decorate(paragraph, text, plain, text_record, size_pairs),
+                                 in_cell=bool(self._cell_depth))
         blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
 
         for part in parts:
