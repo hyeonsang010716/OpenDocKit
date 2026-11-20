@@ -397,6 +397,18 @@ class TestHiddenText:
         off = _convert("text", body, ConvertOptions(extract_images=False), parts=parts)
         assert not off.images and off.text == "앞\n\n뒤"
 
+    def test_picture_inside_a_sentence_goes_after_its_paragraph(self):
+        """A picture anchored as a character inside a sentence cut it into two paragraphs around the picture; the DOCX of the
+        same document reads the sentence whole and the picture after it. A text box anchored there goes after it too."""
+        picture = ('<draw:frame text:anchor-type="as-char" svg:width="1cm" svg:height="1cm">'
+                   '<draw:image xlink:href="Pictures/a.png"/></draw:frame>')
+        body = (f"<text:p>The logo {picture} appears in the header.</text:p>"
+                f'<text:p>See {_text_frame("<text:p>Boxed</text:p>")} the box.</text:p><text:p>End.</text:p>')
+
+        result = _convert("text", body, parts={"Pictures/a.png": builder.png_bytes()})
+
+        assert result.text == "The logo appears in the header.\n\n[Image]\n\nSee the box.\n\nBoxed\n\nEnd."
+
     def test_headers_and_footers_only_with_the_option(self):
         """A master page with a header and a footer (the footer also has a page-number field): left out by default, written
         once around the body with `include_headers_footers`, without the cached page number."""

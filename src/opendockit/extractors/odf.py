@@ -720,21 +720,16 @@ class _Renderer:
         return resolve_inline(resolve_scripts(resolve_strikes(merge_emphasis_marks(text))), emphasis=emphasis)
 
     def _paragraph(self, node: etree._Element, context: _Context, depth: int, *, emphasis: bool = True) -> list[str]:
-        """A paragraph as blocks: its text, with the pictures and text boxes anchored in it as blocks of their own in place."""
+        """A paragraph as blocks: its text, then the pictures, text boxes, tables and charts anchored in it as blocks of their
+        own, in the order they are anchored. Written in place, a picture anchored as a character inside a sentence cut the
+        sentence into two paragraphs around it, where the DOCX of the same document reads the sentence whole and the picture
+        after it (Pinned by: test_odf.py::TestTextDocument::test_picture_inside_a_sentence_goes_after_its_paragraph)."""
         pieces: list[_Run | _Block] = []
         self._inline(node, _PLAIN_LOOK, None, pieces, context, depth)
-        blocks: list[str] = []
-        runs: list[_Run] = []
-        for piece in [*pieces, _Block("")]:
-            if isinstance(piece, _Run):
-                runs.append(piece)
-                continue
-            text = "\n".join(line.strip() for line in self._format(runs, context, emphasis).split("\n")).strip("\n")
-            if text:
-                blocks.append(text)
-            if piece.text:
-                blocks.append(piece.text)
-            runs = []
+        runs = [piece for piece in pieces if isinstance(piece, _Run)]
+        text = "\n".join(line.strip() for line in self._format(runs, context, emphasis).split("\n")).strip("\n")
+        blocks = [text] if text else []
+        blocks.extend(piece.text for piece in pieces if isinstance(piece, _Block) and piece.text)
         return blocks
 
     def _note(self, node: etree._Element, context: _Context, depth: int) -> str:
