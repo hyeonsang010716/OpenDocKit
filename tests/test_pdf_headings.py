@@ -168,8 +168,10 @@ class TestHeaderRows:
         return convert(_pdf_at(lines), "a.pdf").sections[0].text
 
     def test_the_header_row_of_a_table_is_not_four_headings(self):
-        """The header row of a table with rows of cells under it. (The cells were one line of text under each title until
-        the panels of a slide, a line of text under each heading, were told from a table by the rows of cells under it.)"""
+        """The header row of a table with three rows of short cells under it. A table with a single data row is not told
+        from the panels of a slide, a line of text under each heading (an accepted gap of `_cell_rows_under`): this test had
+        one line of text under each title until the four panels of a slide, which main kept as headings, were told from a
+        table by the rows of cells under it."""
         text = self._row_page(["Service Stage", "Function", "Explanation", "Benefit"],
                               [["Intake", "Register", "Checks", "Faster"], ["Review", "Score", "", "Fairer"],
                                ["Payment", "Transfer", "Pays out", "Sooner"]])
@@ -189,21 +191,36 @@ class TestHeaderRows:
 
         assert "# Our Purpose" in text and "# What We Do" in text
 
+    @pytest.mark.parametrize("size", [10, 14])
+    def test_headings_over_short_lines_of_prose_stay_headings(self, size):
+        """Two headings 280pt apart, each over a column of short ragged prose at the same baselines as the other's."""
+        full = ["The next step is to construct a model for the", "dynamics of the system as a whole and the idea",
+                "which goes back to Boltzmann is that any state", "is likely to develop into a higher entropy."]
+        narrow = ["Open Monday to Friday", "from nine to five and", "on Saturday mornings", "by appointment only."]
+        items = [(x, 80 + index * 12.5, line, 10, "Times-Roman") for x in (40, 320) for index, line in enumerate(full)]
+        items += [(40, 140, "Opening Hours", size, "Times-Bold"), (320, 140, "Our Location", size, "Times-Bold")]
+        items += [(x, 140 + size * 1.6 + index * 12.5, line, 10, "Times-Roman") for x in (40, 320)
+                  for index, line in enumerate(narrow)]
+        text = _named_font_pdf(items)
+
+        assert "# Opening Hours" in text and "# Our Location" in text
+
     def test_four_panels_of_a_slide_keep_their_headings(self):
         text = self._row_page(["Plan", "Build", "Test", "Ship"], [["Set goals", "Write code", "Check it", "Release"]])
 
         assert all(f"# {title}" in text for title in ["Plan", "Build", "Test", "Ship"])
 
-    @pytest.mark.parametrize(("width", "header"), [(200, False), (60, True)], ids=["prose", "cells"])
-    def test_lines_filling_their_column_under_headings_are_prose_not_cells(self, width, header):
-        """Two headings of two columns on one row with the lines of their columns under them stay headings; with lines
-        narrower than half the column under them they are the header of a table."""
+    @pytest.mark.parametrize(("width", "words", "header"), [(200, "the text of the column", False), (60, "alpha", True)],
+                             ids=["prose", "cells"])
+    def test_lines_filling_their_column_under_headings_are_prose_not_cells(self, width, words, header):
+        """Two headings of two columns on one row with the lines of their columns under them stay headings; with cells
+        (narrower than half the column, under three words) under them they are the header of a table."""
         from opendockit.extractors._pdf_model import _Line
         from opendockit.extractors._pdf_paragraphs import _header_cells
 
         heads = [_Line(top=100, bottom=110, x0=x, x1=x + 40, text=text, size=10, bold=True)
                  for x, text in [(72, "Methods"), (300, "Results")]]
-        under = [_Line(top=113 + 13 * row, bottom=123 + 13 * row, x0=x, x1=x + width, text="the text of the column", size=10)
+        under = [_Line(top=113 + 13 * row, bottom=123 + 13 * row, x0=x, x1=x + width, text=words, size=10)
                  for row in range(3) for x in (72, 300)]
 
         assert (_header_cells(heads + under, 10.0) == {id(line) for line in heads}) is header

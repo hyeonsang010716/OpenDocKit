@@ -630,6 +630,8 @@ _HEADING_LETTER = re.compile(r"[A-Za-z\u00c0-\u024f가-힣一-鿿]")
 # The rows of cells under heading-like lines side by side that make them the header row of a table (`_header_cells`): the
 # panels of a slide have a line or two of text under their headings
 _HEADER_DATA_ROWS = 2
+# A line of this many words or more under a header column is a line of prose, not a cell (`_cell_rows_under`)
+_PROSE_LINE_MIN_WORDS = 3
 # The most words of a value beside a form label on its row ('Kim', 'Acme Corporation', '010-1234-5678') (`_stacked_labels`)
 _LABEL_VALUE_MAX_WORDS = 4
 # The most words of a form label stacked over another ('Name', 'Date of birth') (`_stacked_labels`)
@@ -731,13 +733,21 @@ def _cell_rows_under(header: list[_Line], below: list[list[_Line]], heading_like
     the cells of a table under them: each row follows the one above within twice its height, holds no heading-like line,
     has a line in two columns of the header or more (a column runs from a header line's left edge, less its height, to the
     next one's) and none left of the first, and has a line narrower than half the pitch of its column (a cell, where the
-    lines of prose under side-by-side headings fill their column)."""
+    lines of prose under side-by-side headings fill their column); and one column of the header or more holds a cell
+    there: a line of fewer than `_PROSE_LINE_MIN_WORDS` words. A column whose every line under the header holds that many
+    words or more is a column of prose, however short its lines ('Open Monday to Friday' / 'from nine to five and' under
+    'Opening Hours'), and headings over columns of prose only are headings.
+
+    Known accepted gap: a table with a single data row is not told from headings with one line under each (the panels of
+    a slide), and its header cells are headings; so is the header of a table whose every cell holds three words or more
+    (Pinned by: test_pdf_headings.py::TestHeaderRows)."""
     if len(below) < _HEADER_DATA_ROWS:
         return False
     lefts = [line.x0 - line.height for line in header]
     pitches = [after - left for left, after in pairwise(lefts)]
     pitches.append(pitches[-1])
     above = header
+    cells = set()  # the columns with a line of fewer than `_PROSE_LINE_MIN_WORDS` words under the header
     for row in below:
         if min(line.top for line in row) - max(line.bottom for line in above) > 2 * max(line.height for line in above):
             return False
@@ -749,10 +759,12 @@ def _cell_rows_under(header: list[_Line], below: list[list[_Line]], heading_like
                 return False
             columns.add(column)
             narrow = narrow or line.x1 - line.x0 < pitches[column] * 0.5
+            if len(line.text.split()) < _PROSE_LINE_MIN_WORDS:
+                cells.add(column)
         if len(columns) < 2 or not narrow:
             return False
         above = row
-    return True
+    return bool(cells)
 
 
 def _bold_body(pages: list[_Page]) -> bool:
