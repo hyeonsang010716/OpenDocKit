@@ -1,10 +1,11 @@
 """Characters pdfminer could not decode (U+FFFD) read again from pdfium where pdfium reads the same glyph."""
 
 import bisect
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 import math
 import unicodedata
 
+from pdfminer.layout import LTChar, LTContainer
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
@@ -64,7 +65,7 @@ def _read_glyphs(document: pdfium.PdfDocument, index: int) -> _Glyphs:
 
 def _repair_replacement_chars(page: object, glyphs: Callable[[], _Glyphs] | None) -> None:
     """Gives each U+FFFD character of the pdfplumber `page` the character pdfium reads for the same glyph, when pdfium reads a
-    real one. Every such character is marked `undecoded` with its index in `page.chars`, repaired or not (`_repaired_line_text`).
+    real one.
 
     Deliberate: pdfminer decodes a glyph only through the font's ToUnicode map and encoding, and old-style figures of book
     fonts that have no entry there came out as U+FFFD — the page number '207' read '�07' and 'Figure 11.12' read
@@ -86,24 +87,45 @@ def _repair_replacement_chars(page: object, glyphs: Callable[[], _Glyphs] | None
     or a row has no decoded character to anchor it (a page number of old-style figures alone, a raised footnote figure in a
     row of its own) — the character stays U+FFFD. A page turned by /Rotate is left alone: pdfminer turns its coordinates and
     pdfium does not (Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs)."""
-    if glyphs is None or getattr(page, "rotation", 0) % 360:
+    if glyphs is None or getattr(page, "rotation", 0) % 360 or "_objects" in vars(page):
+        return  # (pdfplumber builds its characters and lines from the layout once: once built, nothing is changed)
+    # The repair changes pdfminer's characters themselves, before pdfplumber builds its characters and the text of its lines
+    # from them, so each line's text holds the repaired character in its own place. Filling the U+FFFD of a line's text in
+    # turn from the characters at the line's level and place gave a raised line a figure of a cell below it ('�04' for '694',
+    # Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs::test_each_line_text_holds_its_own_repaired_characters)
+    letters = list(_layout_chars(page.layout))
+    if not any(letter.get_text() == _REPLACEMENT for letter in letters):
         return
-    chars = page.chars
-    broken = [number for number, char in enumerate(chars) if char.get("text") == _REPLACEMENT]
-    if not broken:
-        return
-    for number in broken:
-        chars[number]["undecoded"] = number  # its place in the page's characters, the order of the layout line's text
+    height = float(page.height)
+    left_of_box, top_of_box = page.mediabox[:2]
+    # the box pdfplumber gives each character (`Page.process_object`)
+    chars = [{"text": letter.get_text(), "x0": letter.x0 + left_of_box, "x1": letter.x1 + left_of_box,
+              "top": height - letter.y1 + top_of_box, "bottom": height - letter.y0 + top_of_box, "size": letter.size}
+             for letter in letters]
     try:
-        repairs = _repairs(chars, broken, glyphs, float(page.height))
+        repairs = _repairs(chars, glyphs, height)
     except MemoryError:
         raise
     except Exception:  # noqa: BLE001
         # the repair never fails a document: whatever goes wrong in it leaves U+FFFD (Pinned by:
         # test_pdf_fonts.py::TestUndecodedGlyphs::test_a_failure_inside_the_repair_leaves_the_character_as_it_was)
         return
-    for char, text in repairs:
-        char["text"] = text
+    for number, text in repairs:
+        letters[number]._text = text
+
+
+def _layout_chars(layout: LTContainer) -> Iterator[LTChar]:
+    """The characters of a pdfminer layout, in the order pdfplumber lists them."""
+    stack = [iter(layout)]
+    while stack:
+        for item in stack[-1]:
+            if isinstance(item, LTChar):
+                yield item
+            elif isinstance(item, LTContainer):
+                stack.append(iter(item))
+                break
+        else:
+            stack.pop()
 
 
 # A character of a row: (vertical centre, left, right, tolerance, rank among the reader's characters that are not spaces, its
@@ -111,8 +133,17 @@ def _repair_replacement_chars(page: object, glyphs: Callable[[], _Glyphs] | None
 _Spot = tuple[float, float, float, float, int, int, str | None]
 
 
-def _repairs(chars: list[dict], broken: list[int], glyphs: Callable[[], _Glyphs], height: float) -> list[tuple[dict, str]]:
-    """(character, its text) for the broken characters (indexes into `chars`) that pdfium reads (`_repair_replacement_chars`).
+def _repairs(chars: list[dict], glyphs: Callable[[], _Glyphs], height: float) -> list[tuple[int, str]]:
+    """(index into `chars`, its text) for the characters pdfminer read as U+FFFD that pdfium reads
+    (`_repair_replacement_chars`). `chars` are pdfplumber's characters, or ones with the same keys and boxes."""
+    broken = [number for number, char in enumerate(chars) if char.get("text") == _REPLACEMENT]
+    if not broken:
+        return []
+    return _repaired_ones(chars, broken, glyphs, height)
+
+
+def _repaired_ones(chars: list[dict], broken: list[int], glyphs: Callable[[], _Glyphs], height: float) -> list[tuple[int, str]]:
+    """`_repairs` for the broken characters (indexes into `chars`).
     Sorting and walking the rows is linear but for the sorts: looking at every glyph of a 16pt band for each broken character,
     a page of 32,000 characters took 9 seconds (Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs::
     test_many_undecoded_characters_in_one_band_are_repaired_in_linear_time)."""
@@ -155,7 +186,7 @@ def _repairs(chars: list[dict], broken: list[int], glyphs: Callable[[], _Glyphs]
             for number, position in _paired(row, sorted(theirs[low:high], key=lambda spot: (spot[1], spot[4]))):
                 claims.setdefault(position, []).append(number)
         start = end
-    return [(chars[numbers[0]], groups[position][4]) for position, numbers in claims.items()
+    return [(numbers[0], groups[position][4]) for position, numbers in claims.items()
             if len(numbers) == 1 and _readable(groups[position][4])]
 
 
@@ -244,19 +275,3 @@ def _grouped(found: _Glyphs) -> _Glyphs:
 
 def _readable(text: str) -> bool:
     return _REPLACEMENT not in text and not text.isspace() and all(unicodedata.category(letter)[0] not in "CZ" for letter in text)
-
-
-def _repaired_line_text(text: str, chars: list[dict]) -> str:
-    """The line text with its U+FFFD characters replaced, in turn, by what the `undecoded` characters of the line now hold —
-    when they are as many as the U+FFFD of the text; otherwise the text as it was. They are taken in their order among the
-    page's characters, which is that of the layout line's text: taken by their place left to right, a line drawn right to
-    left (turned 180° or mirrored) had its digits swapped (Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs::
-    test_the_characters_of_a_line_drawn_right_to_left_are_put_back_in_its_order)."""
-    count = text.count(_REPLACEMENT)
-    if not count:
-        return text
-    repaired = [char["text"] for char in sorted((char for char in chars if "undecoded" in char), key=lambda char: char["undecoded"])]
-    if len(repaired) != count:
-        return text
-    pieces = text.split(_REPLACEMENT)
-    return "".join(piece + (repaired[index] if index < count else "") for index, piece in enumerate(pieces))

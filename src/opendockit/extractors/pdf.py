@@ -90,7 +90,7 @@ from opendockit.extractors._pdf_continued_tables import _carry_table_headers, _j
 from opendockit.extractors._pdf_figures import _figure_boxes, _open_pdfium, _page_images, _PageRenderer, _untrusted_text_layer_pages
 from opendockit.extractors._pdf_footnotes import _link_footnotes
 from opendockit.extractors._pdf_forms import _annotated_attachments, _form_values, _has_xfa, _named_attachments
-from opendockit.extractors._pdf_glyph_repair import _Glyphs, _pdfium_glyphs, _repair_replacement_chars, _repaired_line_text
+from opendockit.extractors._pdf_glyph_repair import _Glyphs, _pdfium_glyphs, _repair_replacement_chars
 from opendockit.extractors._pdf_margins import _body_font_size, _edge_rows, _remove_repeated_margins, _typical_line_gap
 from opendockit.extractors._pdf_marks import _mark_checkboxes, _mark_circle_bullets
 from opendockit.extractors._pdf_model import (
@@ -1157,7 +1157,6 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
         spot = (line["x0"], line["x1"], line["top"], line["bottom"], line.get("text", ""))
         if spot in overprinted:
             continue
-        text = _repaired_line_text(text, inside)
         if any(char.get("restored") for char in inside):
             text = _text_from_chars(inside) or text  # the line text pdfminer built lacks the restored spaces
         text = _letter_spaced_text(inside, spacings) or text

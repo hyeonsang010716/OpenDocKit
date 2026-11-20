@@ -351,6 +351,38 @@ _SHAPES = {"index": _INDEX, "pairs": _PAIRS, "labels": _LABELS, "dates": _DATES,
            "break": _BREAK, "stray": _STRAY, "stray label": _STRAY_LABEL}
 
 
+def _repair_chars(chars: list[dict], glyphs: list, height: float) -> None:
+    """Repairs characters given as pdfplumber's (`_repairs`) with pdfium reading `glyphs`."""
+    from opendockit.extractors._pdf_glyph_repair import _repairs
+
+    for number, text in _repairs(chars, lambda: glyphs, height):
+        chars[number]["text"] = text
+
+
+def _wrong_in_text(content: bytes, base: bytes = b"BookSerif") -> list[tuple[str, str]]:
+    """(true character, converted character) for each character of the converted text of `_old_style_figures` that the repair
+    changed to anything but the truth: the text is converted with pdfium reading nothing (no repair), with pdfium reading the
+    second page, and that second page itself; where the three texts do not line up, nothing is compared."""
+    import pypdfium2 as pdfium
+
+    from opendockit.extractors import _pdf_glyph_repair
+
+    data, truth = _old_style_figures(content, base)
+    original, document = _pdf_glyph_repair._read_glyphs, pdfium.PdfDocument(truth)
+    try:
+        _pdf_glyph_repair._read_glyphs = lambda _, index: original(document, index)
+        got = convert(data, "a.pdf").text
+        _pdf_glyph_repair._read_glyphs = lambda _, index: []
+        plain = convert(data, "a.pdf").text
+    finally:
+        _pdf_glyph_repair._read_glyphs = original
+        document.close()
+    want = convert(truth, "a.pdf").text
+    if not len(got) == len(plain) == len(want) or any(p != w and p != "\ufffd" for p, w in zip(plain, want, strict=True)):
+        return []
+    return [(w, g) for p, w, g in zip(plain, want, got, strict=True) if g not in (p, w)]
+
+
 class TestUndecodedGlyphs:
     """A character pdfminer reads as U+FFFD takes the character pdfium reads for the same glyph. pdfium reads the glyph of an
     embedded book font through the font program ('207', 'Figure 11.12'); with the non-embedded font of a document built here
@@ -477,6 +509,15 @@ class TestUndecodedGlyphs:
         with pytest.raises(DocumentTooLargeError):
             convert(_undecoded_two(), "a.pdf")
 
+    def test_each_line_text_holds_its_own_repaired_characters(self):
+        """The U+FFFD of a line's text were filled in turn from the repaired characters at the line's level and place; a
+        line raised over the row of cells took a '0' of a cell ('\ufffd04' for '694')."""
+        content = (rb"BT /F1 10 Tf 3 Ts 73 690 Td [(\006) 600 (\0114)] TJ -30 0 Td (\005:\011i) Tj ET BT /F1 10 Tf 72 700 Td (\002) Tj"
+                   rb" 60 0 Td (\001\0120) Tj 60 0 Td (1\012) Tj 60 0 Td (\002) Tj 60 0 Td (\001\0120) Tj ET BT /F1 8 Tf 72 686 Td"
+                   rb" (1\012) Tj 60 0 Td (\001\0120) Tj 60 0 Td (2.\0015) Tj ET")
+
+        assert _wrong_in_text(content) == []
+
     @pytest.mark.parametrize("matrix", [b"-1 0 0 -1 400 500", b"-1 0 0 1 400 500"])
     def test_the_characters_of_a_line_drawn_right_to_left_are_put_back_in_its_order(self, monkeypatch, matrix):
         """The line text runs in the order of its characters; filled by their place left to right, a line turned 180° or
@@ -495,53 +536,43 @@ class TestUndecodedGlyphs:
     def test_a_page_of_thousands_of_undecoded_characters_is_repaired_in_linear_time(self):
         """Each undecoded character looks only at pdfium's characters of its own rows: looking at every character of a strip
         200pt wide, 8,000 undecoded characters took 2.3 seconds, four times as many sixteen times as long."""
-        from types import SimpleNamespace
-
-        from opendockit.extractors._pdf_glyph_repair import _repair_replacement_chars
         from tests.timing import fastest
 
-        def page_of(count: int) -> tuple[SimpleNamespace, list]:
+        def page_of(count: int) -> tuple[list, list, float]:
             rows = count // 100
             chars = [{"text": "\ufffd", "x0": 20.0 + 5 * column, "x1": 24.0 + 5 * column, "top": 10.0 + 8 * row,
                       "bottom": 16.0 + 8 * row} for row in range(rows) for column in range(100)]
             height = 20.0 + 8 * rows
             glyphs = sorted((char["x0"], char["x1"], height - char["bottom"], height - char["top"], "\ufffd") for char in chars)
-            return SimpleNamespace(chars=chars, rotation=0, height=height), glyphs
+            return chars, glyphs, height
 
         def repair(count: int) -> float:
-            page, glyphs = page_of(count)
-            return fastest(lambda: _repair_replacement_chars(page, lambda: glyphs))
+            chars, glyphs, height = page_of(count)
+            return fastest(lambda: _repair_chars(chars, glyphs, height))
 
         small, large = repair(2_000), repair(8_000)
         assert large < small * 8
 
     @staticmethod
     def _repair_time(chars: list[dict], glyphs: list, height: float) -> float:
-        from types import SimpleNamespace
-
-        from opendockit.extractors._pdf_glyph_repair import _repair_replacement_chars
         from tests.timing import fastest
 
         def repair() -> None:
             for char, text in zip(chars, texts, strict=True):
                 char["text"] = text
-            _repair_replacement_chars(SimpleNamespace(chars=chars, rotation=0, height=height), lambda: glyphs)
+            _repair_chars(chars, glyphs, height)
 
         texts = [char["text"] for char in chars]
         return fastest(repair)
 
     def test_a_glyph_two_characters_pair_with_is_given_to_neither(self):
         """Two rows of pdfminer 3.5pt apart, and one of pdfium between them: both rows pair their U+FFFD with its '2'."""
-        from types import SimpleNamespace
-
-        from opendockit.extractors._pdf_glyph_repair import _repair_replacement_chars
-
         def char(text: str, left: float, middle: float) -> dict:
             return {"text": text, "x0": left, "x1": left + 6, "top": 842 - middle - 6, "bottom": 842 - middle + 6, "size": 12}
 
         chars = [char("a", 100, 100), char("\ufffd", 106, 100), char("a", 100, 103.5), char("\ufffd", 106, 103.5)]
         glyphs = [(100.0, 106.0, 95.75, 107.75, "a"), (106.0, 112.0, 95.75, 107.75, "2")]
-        _repair_replacement_chars(SimpleNamespace(chars=chars, rotation=0, height=842.0), lambda: glyphs)
+        _repair_chars(chars, glyphs, 842.0)
 
         assert [char["text"] for char in chars] == ["a", "\ufffd", "a", "\ufffd"]
 
