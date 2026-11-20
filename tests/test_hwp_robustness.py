@@ -574,11 +574,11 @@ class TestHugeParagraphText:
         def units(*values):
             return b"".join(value.encode("utf-16-le") if isinstance(value, str) else struct.pack("<H", value) for value in values)
 
-        superscript = ("^", False)
+        superscript = ("^", False, False, False)
 
         assert decode_para_text(units("a", 24, "b", 30, "c", 31, "d", 10, "e", 0, 13, 25, 29, "f", 13)) == ["a-b c d\nef"]
         assert decode_para_text(units(13)) == []
-        assert (decode_para_text(units("ab", 0, "cd"), [(0, superscript), (2, (None, False)), (3, superscript)])
+        assert (decode_para_text(units("ab", 0, "cd"), [(0, superscript), (2, (None, False, False, False)), (3, superscript)])
                 == decode_para_text(units("abcd"), [(0, superscript)]))
 
     @pytest.mark.timing
@@ -617,7 +617,7 @@ class TestHugeParagraphText:
         assert runs == []
         assert peak < 4 * len(payload)  # the record read as an array and split in two; sorted tuples took 13 times
         unordered = Record(TAG_PARA_HEADER, 0, b"", [Record(TAG_PARA_CHAR_SHAPE, 1, struct.pack("<6I", 2, 0, 0, 0, 0, 1))])
-        assert HwpRenderer([], ConvertOptions(), scripts={1: "^"})._shape_runs(unordered, 5) == [(0, ("^", False)), (2, (None, False))]
+        assert HwpRenderer([], ConvertOptions(), scripts={1: "^"})._shape_runs(unordered, 5) == [(0, ("^", False, False, False)), (2, (None, False, False, False))]
 
     def test_bytes_that_look_like_a_control_across_two_characters_are_text(self):
         """Bytes spanning two characters, such as 'A' (41 00) followed by '가' (00 AC), may look like a control character (1f or

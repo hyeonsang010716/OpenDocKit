@@ -21,7 +21,7 @@ result = convert(data, "deck.pptx", options)
 | `max_sheet_cols` | 100 | Column limit per sheet (a warning when exceeded). Counted from the leftmost column that has a value; for large XLSX read in streaming mode, XLSX with formulas that have no value, Excel 2003 XML and CSV it is counted from column A. The number of rows is not limited — the only size limit is `max_chars` |
 | `include_speaker_notes` | `True` | Speaker notes (PPTX, ODP, PPT) |
 | `include_hidden_sheets` | `False` | Hidden sheets (XLSX, XLS, ODS) |
-| `include_headers_footers` | `False` | Headers and footers of DOCX, ODT, RTF, DOC, HWP and HWPX (usually noise) |
+| `include_headers_footers` | `False` | Headers and footers of DOCX, ODT, RTF, DOC, HWP and HWPX (usually noise). HWP and HWPX headers that hold words are written even when off — Hangul forms put their number and title there — without their pictures |
 | `include_footnotes` | `True` | Footnotes as `[^n]: …` at the end of the document (PDF: not applied — its notes stay at the bottom of each page) |
 | `keep_links` | `True` | Hyperlinks as `[text](url)` (http, https and mailto only). `False`: only the link text |
 | `keep_emphasis` | `True` | Bold and italic as `**bold**` / `*italic*`. `False`: plain text |

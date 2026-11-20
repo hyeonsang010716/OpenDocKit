@@ -664,10 +664,10 @@ class TestInlineFormatting:
             '<style:text-properties style:text-line-through-style="solid"/></style:style>'
             '<style:style style:name="BSub" style:family="text" style:parent-style-name="B">'
             '<style:text-properties style:text-position="sub 58%"/></style:style>')
-        text = _odt('<text:p>정가 <text:span text:style-name="BDel">1,000</text:span>원, '
+        text = _odt('<text:p>정가 <text:span text:style-name="BDel">1,000</text:span> 원, '
                     '<text:span text:style-name="B">H</text:span><text:span text:style-name="BSub">2</text:span>'
                     '<text:span text:style-name="B">O</text:span> 사용</text:p>', automatic=automatic)
-        assert text == "정가 **~~1,000~~**원, **H_2O** 사용"
+        assert text == "정가 **~~1,000~~** 원, **H_2O** 사용"
 
     def test_heading_inside_a_table_cell_is_a_paragraph_and_keeps_its_emphasis(self):
         """A `text:h` in a cell is not a heading (no `#`), so the heading rule does not apply to it: a bold word stays marked."""
