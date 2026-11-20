@@ -519,6 +519,27 @@ class TestEmphasisAgainstPunctuation:
 
         assert _docx_text(body) == "**「개인정보보호법」** 제15조, **맺음말**: 언급, **(보충)**."
 
+    def test_span_judged_as_it_is_written_once_cleaned(self):
+        """The marks meet the text as cleaning writes it: a span of private-use bullets only, which cleaning removes, left
+        `****`; one in front of a space left `** 추진`, the space no longer at the edge the writer moves it from; a private-use
+        character or symbol-font glyph at the span's own edge hid the `%` or `•` the mark meets; and a line separator after a
+        span, written as a line break, counted as a letter and dropped a span that closes there."""
+        bullet, separator = chr(0xF081), chr(0x2028)
+
+        assert _docx_text(_paragraph(_run("항목 "), _bold(bullet), _run(" 다음 문장"))) == "항목 다음 문장"
+        assert _docx_text(_paragraph(_run("비율 "), _bold("67%" + chr(0xE000)), _run("으로 늘었다"))) == "비율 67%으로 늘었다"
+        assert _docx_text(_paragraph(_run("앞 "), _bold("법" + chr(0xF0B7)), _run("으로 늘었다"))) == "앞 법•으로 늘었다"
+        assert _docx_text(_paragraph(_run("비율 "), _bold("67%"), _run(separator + "다음 줄"))) == "비율 **67%**\n다음 줄"
+        assert _docx_text(_paragraph(_run("비율 "), _bold("67%"), _run("\x85다음 줄"))) == "비율 **67%**\n다음 줄"
+
+    def test_hangul_span_of_private_use_bullets_leaves_no_marks(self):
+        from tests.test_hwp_emphasis import _hwpx, _runs
+
+        bullet = chr(0xF081)
+
+        assert convert(_hwpx(_runs((1, bullet), (0, " 추진 배경을 설명한다"))), "a.hwpx").text == "추진 배경을 설명한다"
+        assert convert(_hwpx(_runs((1, bullet + " 추진 배경"), (0, " 을 설명한다"))), "a.hwpx").text == "추진 배경 을 설명한다"
+
 
 class TestPptx:
     def test_link_and_emphasis_in_a_text_box(self):

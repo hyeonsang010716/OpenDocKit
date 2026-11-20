@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import re
 import unicodedata
 
-from opendockit.markdown import _CONTROL, _INVISIBLE, _PRIVATE_USE, _SYMBOL_FONT_GLYPHS
+from opendockit.markdown import _INVISIBLE, _SYMBOL_FONT_GLYPHS
 from opendockit.models import IMAGE_MARKER
 
 
@@ -569,7 +569,14 @@ def _drop_emphasis_inside_words(atoms: list[_Atom]) -> None:
                               or (_cleaned_edge(atoms[index - 1].text, last=True) if index else ""))
             written_after = (link_edges.get(("]", end - 1)) or link_edges.get(("[", end))
                              or (_cleaned_edge(atoms[end].text, last=False) if end < count else ""))
-            if starts_inside or is_glued_character or _unflanked(written_before, first, last, written_after):
+            # The span as it is written once cleaned (`_as_written`): a run of private-use bullets cleaned away left `****`, and
+            # one in front of a space `** 추진 배경**`, where the space cannot go outside the marks; a symbol-font glyph or a
+            # private-use character at the span's own edge is what the mark meets (Pinned by:
+            # test_inline_formatting.py::TestEmphasisAgainstPunctuation::test_span_judged_as_it_is_written_once_cleaned)
+            written = "".join(_as_written(atoms[position].text) for position in range(index, end))
+            exposed = (written[:1].isspace() and not first[:1].isspace()) or (written[-1:].isspace() and not last[-1:].isspace())
+            if (starts_inside or is_glued_character or not written.strip() or exposed
+                    or _unflanked(written_before, written, written, written_after)):
                 for position in range(index, end):
                     setattr(atoms[position], name, False)
             index = end
@@ -597,14 +604,27 @@ def _written_link_edges(atoms: list[_Atom]) -> dict[tuple[str, int], str]:
 
 
 def _cleaned_edge(text: str, *, last: bool) -> str:
-    """The last (or first) character of `text` as it is written once the text is cleaned: a private-use or control character is
-    removed then (`clean_text`), and a private-use font bullet becomes the symbol it stands for. Read as it is, the character
-    removed from `%<U+E000> 뒤` counted as a word against `**%**`."""
+    """The last (or first) character of `text` as it is written once the text is cleaned (`_as_written`). Read as it is, the
+    character removed from `%<U+E000> 뒤` counted as a word against `**%**`, and a line separator (U+2028, NEL), which cleaning
+    writes as a line break, kept `**67%**` from closing before the next line."""
     edge = text[-1:] if last else text[:1]
-    if not edge or unicodedata.category(edge) not in ("Co", "Cc"):
+    if not edge or (unicodedata.category(edge) not in ("Co", "Cc", "Zl", "Zp")):
         return edge
-    cleaned = _CONTROL.sub("", _PRIVATE_USE.sub("", text.translate(_SYMBOL_FONT_GLYPHS)))
+    cleaned = _as_written(text)
     return cleaned[-1:] if last else cleaned[:1]
+
+
+# What cleaning makes of the characters at the edge of a span (`markdown.clean_characters`): line separators become line breaks,
+# control and private-use characters go, symbol-font glyphs become their symbols. The table placeholders of `TableGrid`
+# (U+E020 … U+E021) are kept: they stand for a table.
+_LINE_SEPARATORS = str.maketrans(dict.fromkeys(("\x0b", "\x0c", "\x85", "\u2028", "\u2029"), "\n"))
+_REMOVED_WHEN_WRITTEN = re.compile("[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f\ue000-\ue01f\ue022-\uf8ff"
+                                   "\U000f0000-\U000ffffd\U00100000-\U0010fffd]")
+
+
+def _as_written(text: str) -> str:
+    """`text` as cleaning writes it, as far as the characters next to the emphasis marks go (`_LINE_SEPARATORS`)."""
+    return _REMOVED_WHEN_WRITTEN.sub("", text.translate(_SYMBOL_FONT_GLYPHS).translate(_LINE_SEPARATORS))
 
 
 def _has_words(text: str) -> bool:
