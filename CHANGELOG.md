@@ -88,7 +88,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **DOCX**: a document whose own style is named 'Heading' (Apple Pages' first heading level) gets its headings; a legacy
   VML picture keeps the alt text written on its shape.
 - **DOCX**: a table row deleted with Track Changes on is left out, as every other tracked deletion is. It came out as a
-  row of the final table, so a struck-out price or clause read as if it still stood.
+  row of the final table, so a struck-out price or clause read as if it still stood. A vertical merge that starts in
+  the deleted row keeps its text in the rows left.
 - Bold or italic that ends on a punctuation mark right before a letter (`**67%**으로`, `**「법」**제15조`) is no longer
   written: Markdown readers showed its asterisks as text. This affects every format that keeps emphasis.
 - **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if

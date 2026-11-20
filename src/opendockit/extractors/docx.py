@@ -704,10 +704,20 @@ class _DocxRenderer:
         # (row, column, column span, whether it is a continuation cell, tc)
         cells: list[tuple[int, int, int, bool, etree._Element]] = []
         # A row deleted with Track Changes on (w:trPr/w:del) is not in the final version and is left out, as tracked deletions are
-        # everywhere else; rows are numbered without it, so a merge running across it stays tied. Kept, the struck-out row of a
-        # contract came out as a row of the final table (Pinned by: test_office_revisions_and_numbering.py::
+        # everywhere else; the rows left are numbered without it, so a merge whose start is kept and runs across it stays tied. Kept,
+        # the struck-out row of a contract came out as a row of the final table (Pinned by: test_office_revisions_and_numbering.py::
         # TestDocxDeletedTableRow).
-        for row_index, row in enumerate(_final_rows(table)):
+        # A merge that starts in a deleted row still covers the rows left below it: Word keeps a merged cell's content when a row
+        # of it goes, and the cell spans what is left. Its first row left becomes its start, with the text of the deleted start
+        # cell. Numbered without the deleted row and nothing more, its continuation cells were tied to the unrelated cell above
+        # the deleted row and wrote that cell's text (`Seoul` for `Busan`), or, in the first row, came out empty (Pinned by:
+        # test_office_revisions_and_numbering.py::TestDocxDeletedTableRow::test_merge_starting_in_a_deleted_row_keeps_its_text).
+        # Start column → (column span, start cell) of the merges whose start lies in the deleted rows just read
+        carried: dict[int, tuple[int, etree._Element]] = {}
+        row_index = 0
+        for row in _children(table, _w("tr")):
+            deleted = _is_deleted_row(row)
+            row_cells: list[tuple[int, int, int, bool, etree._Element]] = []
             # A span below 1 and a negative number of skipped columns are not used as they are: gridSpan="0" put the next cell on
             # the same column (its text was lost) and a negative value moved cells to the left of their row
             # (Pinned by: test_audit_office.py::TestDocxGridSpanBelowOne).
@@ -719,13 +729,29 @@ class _DocxRenderer:
                 # Kept separate, the merge became an empty cell (Pinned by:
                 # test_office.py::TestDocxStruckDeletedAndSymbolRuns::test_legacy_horizontal_merge_extends_the_starting_cell).
                 merge = properties.find(_w("hMerge")) if properties is not None else None
-                if merge is not None and merge.get(_w("val"), "continue") == "continue" and cells and cells[-1][0] == row_index:
-                    cells[-1] = (*cells[-1][:2], cells[-1][2] + span, *cells[-1][3:])
+                if merge is not None and merge.get(_w("val"), "continue") == "continue" and row_cells:
+                    row_cells[-1] = (*row_cells[-1][:2], row_cells[-1][2] + span, *row_cells[-1][3:])
                     col += span
                     continue
                 merge = properties.find(_w("vMerge")) if properties is not None else None
-                cells.append((row_index, col, span, merge is not None and merge.get(_w("val"), "continue") == "continue", cell))
+                row_cells.append((row_index, col, span, merge is not None and merge.get(_w("val"), "continue") == "continue", cell))
                 col += span
+            if deleted:
+                # A merge carried on is one this row continues at the same width; one this row starts is carried from here
+                still: dict[int, tuple[int, etree._Element]] = {}
+                for _, col, span, continues, cell in row_cells:
+                    if continues and col in carried and carried[col][0] == span:
+                        still[col] = carried[col]
+                    elif not continues and _starts_merge(cell):
+                        still[col] = (span, cell)
+                carried = still
+                continue
+            for _, col, span, continues, cell in row_cells:
+                start = carried.get(col) if continues else None
+                cells.append((row_index, col, span, False, start[1]) if start is not None and start[0] == span
+                             else (row_index, col, span, continues, cell))
+            carried = {}
+            row_index += 1
 
         # A continuation cell with no cell above any of its columns (in the first row, or below the columns a row skips with
         # w:gridBefore) continues no merge and is an ordinary cell. It took the text of the missing cell above (none), so its own
@@ -1528,6 +1554,12 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
 def _is_deleted_row(row: etree._Element) -> bool:
     """A table row deleted with Track Changes on (w:trPr/w:del)."""
     return row.find(f"{_w('trPr')}/{_w('del')}") is not None
+
+
+def _starts_merge(cell: etree._Element) -> bool:
+    """Whether `cell` starts a vertical merge (w:vMerge w:val="restart")."""
+    merge = cell.find(f"{_w('tcPr')}/{_w('vMerge')}")
+    return merge is not None and merge.get(_w("val"), "continue") == "restart"
 
 
 def _final_rows(table: etree._Element) -> list[etree._Element]:

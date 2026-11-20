@@ -198,6 +198,48 @@ class TestDocxDeletedTableRow:
 
         assert result.text == "| 구분 | 값 |\n| --- | --- |\n| 본사 | 1 |\n| 본사 | 3 |"
 
+    def test_merge_starting_in_a_deleted_row_keeps_its_text(self):
+        """Its continuation cells were tied to the unrelated cell above the deleted row and wrote that cell's text."""
+        body = ("<w:tbl>" + _row("H1", "H2") + _row("Seoul", "10") + _row('Busan|<w:vMerge w:val="restart"/>', "20", deleted=True)
+                + _row("|<w:vMerge/>", "30") + _row("|<w:vMerge/>", "40") + "</w:tbl>")
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == "| H1 | H2 |\n| --- | --- |\n| Seoul | 10 |\n| Busan | 30 |\n| Busan | 40 |"
+
+    def test_merge_starting_in_a_deleted_first_row_keeps_its_text(self):
+        body = ("<w:tbl>" + _row('Busan|<w:vMerge w:val="restart"/>', "20", deleted=True) + _row("|<w:vMerge/>", "30")
+                + _row("Seoul", "10") + "</w:tbl>")
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == "| Busan | 30 |\n| --- | --- |\n| Seoul | 10 |"
+
+    def test_merge_whose_first_rows_are_all_deleted_keeps_its_text(self):
+        body = ("<w:tbl>" + _row("H1", "H2") + _row("Seoul", "10") + _row('Busan|<w:vMerge w:val="restart"/>', "20", deleted=True)
+                + _row("|<w:vMerge/>", "25", deleted=True) + _row("|<w:vMerge/>", "30") + _row("Daegu", "50") + "</w:tbl>")
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == "| H1 | H2 |\n| --- | --- |\n| Seoul | 10 |\n| Busan | 30 |\n| Daegu | 50 |"
+
+    def test_merge_ending_in_a_deleted_row_does_not_reach_the_row_after(self):
+        body = ("<w:tbl>" + _row("H1", "H2") + _row('Seoul|<w:vMerge w:val="restart"/>', "10")
+                + _row("|<w:vMerge/>", "20", deleted=True) + _row("Busan", "30") + "</w:tbl>")
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == "| H1 | H2 |\n| --- | --- |\n| Seoul | 10 |\n| Busan | 30 |"
+
+    def test_merge_starting_in_a_deleted_row_of_a_nested_table_keeps_its_text(self):
+        inner = ("<w:tbl>" + _row("Seoul", "10") + _row('Busan|<w:vMerge w:val="restart"/>', "20", deleted=True)
+                 + _row("|<w:vMerge/>", "30") + "</w:tbl>")
+        body = f"<w:tbl>{_row('A', 'B')}<w:tr><w:tc>{inner}<w:p/></w:tc><w:tc><w:p><w:r><w:t>o</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert "<tr><th>Seoul</th><th>10</th></tr><tr><td>Busan</td><td>30</td></tr>" in result.text
+
     def test_table_whose_rows_are_all_deleted_leaves_nothing(self):
         body = "<w:p><w:r><w:t>본문</w:t></w:r></w:p><w:tbl>" + _row("가", "나", deleted=True) + "</w:tbl>"
 
