@@ -68,6 +68,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   its top, the rest of a ragged-right left column below them is no longer moved after the right column.
 - **PDF text**: a justified line whose word gaps are 1.1 em or wider (a narrow column with long words) is read as one
   line; its words came out one by one, shuffled and scattered through the paragraph.
+- **PDF reading order**: the rest of a long left column is kept before a short right column when a subheading breaks it;
+  everything below the subheading was moved after the right column. The first line of a two-line paragraph over a table
+  in the right column is no longer taken for a caption of a table in the left column and read ahead of it.
+- **PDF forms**: the values of a filled form are kept on a page read with simple extraction (past the time budget, a
+  crowded or very heavy page, a page pdfminer cannot read); they were dropped without a word.
+- **PDF tables**: a borderless text table whose header leaves a cell other than the first blank (`Region | | Status`)
+  keeps that header; it fell out as loose lines and the first data row became the header.
+- **MCP server**: one server object serves a second session after the first has ended (every SSE client and every
+  in-memory client is a session of its own); the second refused every file as 'This IsolatedConverter is closed.', and
+  one SSE client leaving stopped the conversions of another.
+- **CLI**: a message or warning on a standard error whose reader has gone (`2>&1 | head`) ends quietly with the run's
+  own exit code, not with a BrokenPipeError traceback or exit code 120.
+- **Pictures**: alt text that is a sentence ending in a file name (`… exported from Visio as orgchart.png`) is kept as
+  the author's; only a bare file name (`image1.png`) is dropped.
+- **Descriptions**: no describer call is sent once the answers already in are over `max_chars`; a whole further batch of
+  paid calls (one per slot) went out after the limit was known.
+- **Mail**: a sent mail whose top level is `multipart/related` with a plain-text body and no HTML part is read as mail;
+  it was rejected as a web page without HTML. An opaque-signed S/MIME mail whose `smime-type` is on a folded header line
+  is no longer taken for an encrypted one.
+- **HTML**: whether an inline style hides an element is decided by the declaration that wins, comments left out:
+  `/* display:none */` and `display:none; display:block` hid visible text.
+- **XLS**: a time under a format with fractional seconds (`ss.00`, `m:ss.000`) is a time, as in XLSX, not its serial
+  number; superscripts and subscripts after an emoji land on the right characters.
+- **XLSX / XLS**: an error value (`#N/A`) is shown without its number format, as Excel does (`#N/A 님` under `@" 님"`).
+  An elapsed-time format keeps its backslash-escaped literals (`[mm]\m\i\n` → `90min`, was `90:00`).
+- **RTF**: a paragraph whose mark was deleted with Track Changes is joined to the next one, as in DOCX; the sentence was
+  cut in two and a list item took a number of its own.
+- **ODT**: a picture or text box inside a sentence goes after its paragraph, as in DOCX, instead of cutting the sentence
+  into two paragraphs around it.
+- **Plugins and the MCP package**: the Claude Code and Hermes skills and READMEs no longer say HTML, email and EPUB are
+  unsupported on Windows, or that the server converts inside its own process there.
 
 ## [0.3.14] - 2026-11-19
 
