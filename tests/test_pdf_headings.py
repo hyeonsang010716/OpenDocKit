@@ -331,3 +331,35 @@ class TestBoldValues:
         text = _text([*_body(80), (140, title, 10, "Times-Bold"), *_body(156)])
 
         assert f"# {title}\n\nThe next step" in text
+
+
+class TestStackedLabels:
+    """Bold labels stacked in one column with their values beside them are a form, not a heading over two lines."""
+
+    def test_stacked_bold_labels_with_values_beside_them_keep_their_lines(self):
+        form = [(72, 150, "Name", 10, "Times-Bold"), (150, 150, "Kim", 10, "Times-Roman"), (250, 150, "Date", 10, "Times-Bold"),
+                (330, 150, "2024", 10, "Times-Roman"), (72, 163, "Phone", 10, "Times-Bold"), (150, 163, "010", 10, "Times-Roman"),
+                (250, 163, "Email", 10, "Times-Bold"), (330, 163, "a@b.c", 10, "Times-Roman")]
+        text = _named_font_pdf([*_named_body(80, "Times-Roman", _BODY), *form, *_named_body(190, "Times-Roman", _BODY)])
+
+        assert "#" not in text
+        assert "Name\nPhone" in text and "Date\nEmail" in text
+
+    def test_a_bold_heading_over_two_lines_stays_one_heading(self):
+        text = _named_font_pdf([*_named_body(80, "Times-Roman", _BODY),
+                                (72, 140, "A Very Long Heading That Is Set In Bold Over", 10, "Times-Bold"),
+                                (72, 152.5, "Two Lines Of The Page", 10, "Times-Bold"), *_named_body(170, "Times-Roman", _BODY)])
+
+        assert "# A Very Long Heading That Is Set In Bold Over Two Lines Of The Page\n\nThe next step" in text
+
+    def test_a_two_line_heading_beside_the_other_column_stays_one_heading(self):
+        """The lines of the right column beside the heading are prose, not values."""
+        left = ["The next step is to build a model of the whole", "system and the idea which goes back to the past",
+                "is that any state is likely to develop into one"]
+        right = [f"line {index} of the right column holds several words" for index in range(10)]
+        text = _named_font_pdf([*[(60, 80 + index * 12.5, line, 9, "Times-Roman") for index, line in enumerate(left)],
+                                (60, 130, "Results Of The Study Set", 9, "Times-Bold"), (60, 142.5, "Over Two Lines", 9, "Times-Bold"),
+                                *[(60, 160 + index * 12.5, line, 9, "Times-Roman") for index, line in enumerate(left)],
+                                *[(320, 80 + index * 12.5, line, 9, "Times-Roman") for index, line in enumerate(right)]])
+
+        assert "# Results Of The Study Set Over Two Lines" in text

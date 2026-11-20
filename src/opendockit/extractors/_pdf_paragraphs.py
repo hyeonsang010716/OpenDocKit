@@ -3,7 +3,7 @@ the columns a paragraph belongs to.
 """
 
 from bisect import bisect_left
-from itertools import accumulate
+from itertools import accumulate, pairwise
 import math
 import re
 
@@ -53,9 +53,10 @@ def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], lin
     spans: list[tuple[float, float]] = []  # horizontal ranges (x0, x1) in the same order as items
     sizes: list[tuple[float, int]] = []  # (bottom coordinate, line count) in the same order as items. Tables and pictures are (bottom, 0)
     boxes: list[tuple[float, float, float, float]] = []  # (top, bottom, x0, x1) of paragraphs. Tables and pictures are not included
-    side_by_side = _header_cells(page.lines, body_size) if heading_levels else frozenset()
+    paragraphs = _group_paragraphs(page.lines, line_gap)
+    side_by_side = _side_by_side_lines(page.lines, paragraphs, body_size) if heading_levels else frozenset()
     previous = None
-    for paragraph in _group_paragraphs(page.lines, line_gap):
+    for paragraph in paragraphs:
         key = _heading_key(paragraph, heading_levels, body_size, side_by_side, previous)
         previous = paragraph
         level = heading_levels[key] if key else 0
@@ -603,6 +604,8 @@ _HEADING_LETTER = re.compile(r"[A-Za-z\u00c0-\u024f가-힣一-鿿]")
 # Heading-like lines side by side on one row that make it the header row of a table (`_header_cells`): three panels of a slide
 # have a heading each, a table header has more cells
 _HEADER_ROW_CELLS = 4
+# The most words of a value beside a form label on its row ('Kim', 'Acme Corporation', '010-1234-5678') (`_stacked_labels`)
+_LABEL_VALUE_MAX_WORDS = 4
 # A check box drawn or typed on the line (`_mark_checkboxes`).
 _CHECKBOX_MARK = re.compile(r"[☐☑☒]")
 # A line holding only a section number ('3.', '12', 'III.'), set above the title of a numbered heading.
@@ -613,6 +616,43 @@ _LONE_SECTION_NUMBER = re.compile(r"^(?:\d{1,3}(?:\.\d{1,3})*|[IVXLC]{1,6})\.?$"
 _NUMBERED_LABEL = re.compile(r"(?:(?i:chapter|part|section|article|appendix|annex|book|unit|lesson|lecture|step|stage|phase)\s+"
                              r"(?:\d{1,3}(?:\.\d{1,3})*|[IVXLC]{1,6}|[A-Z])|\d{1,3}(?:\.\d{1,3})*|[IVXLC]{1,6}"
                              r"|제\s*\d{1,3}\s*[장절조편부관항])\.")
+
+
+def _rows(lines: list[_Line]) -> list[list[_Line]]:
+    """The lines grouped into rows: sorted by their middle, a line joins the row whose first line it overlaps by half the
+    lower height. The rows are made once and each is looked at once: comparing every line of a crowded row with the others
+    took minutes on a page of a thousand letters set one by one on a row."""
+    rows: list[list[_Line]] = []
+    for line in sorted(lines, key=lambda line: (line.top + line.bottom) / 2):
+        first = rows[-1][0] if rows else None
+        if first is not None and min(first.bottom, line.bottom) - max(first.top, line.top) >= min(first.height, line.height) * 0.5:
+            rows[-1].append(line)
+        else:
+            rows.append([line])
+    return rows
+
+
+def _side_by_side_lines(lines: list[_Line], paragraphs: list[_Paragraph], body_size: float) -> frozenset[int]:
+    """ids of the lines that are no heading for what stands beside them on their row: the header cells of a table
+    (`_header_cells`) and the lines of stacked labels (`_stacked_labels`)."""
+    return _header_cells(lines, body_size) | _stacked_labels(lines, paragraphs)
+
+
+def _stacked_labels(lines: list[_Line], paragraphs: list[_Paragraph]) -> frozenset[int]:
+    """ids of the lines of a paragraph of two lines or more where every line has a short value on its right on its row
+    (`_LABEL_VALUE_MAX_WORDS` words at most): the labels of a form stacked in one column ('Name' over 'Phone', each with its
+    value beside it), not a heading wrapped over two lines.
+
+    Deliberate: two bold labels at the usual line gap were joined into one heading, and their line break was lost ('# Name
+    Phone') (Pinned by: test_pdf_headings.py::TestStackedLabels)."""
+    valued: set[int] = set()
+    for row in _rows(lines):
+        ordered = sorted(row, key=lambda line: line.x0)
+        for line, after in pairwise(ordered):
+            if after.x0 >= line.x1 and len(after.text.split()) <= _LABEL_VALUE_MAX_WORDS:
+                valued.add(id(line))
+    return frozenset(id(line) for paragraph in paragraphs if len(paragraph.lines) >= 2
+                     and all(id(line) in valued for line in paragraph.lines) for line in paragraph.lines)
 
 
 def _header_cells(lines: list[_Line], body_size: float) -> frozenset[int]:
@@ -632,18 +672,8 @@ def _header_cells(lines: list[_Line], body_size: float) -> frozenset[int]:
         return (len(line.text) <= 100 and bool(_HEADING_LETTER.search(line.text))
                 and (line.bold or line.size >= body_size * _HEADING_SIZE_RATIO))
 
-    # The lines are grouped into rows once (sorted by their middle, a line joins the row whose first line it overlaps by half
-    # the lower height) and each row is looked at once: comparing every line of a crowded row with the others took minutes on
-    # a page of a thousand letters set one by one on a row
-    rows: list[list[_Line]] = []
-    for line in sorted(lines, key=lambda line: (line.top + line.bottom) / 2):
-        first = rows[-1][0] if rows else None
-        if first is not None and min(first.bottom, line.bottom) - max(first.top, line.top) >= min(first.height, line.height) * 0.5:
-            rows[-1].append(line)
-        else:
-            rows.append([line])
     found: set[int] = set()
-    for row in rows:
+    for row in _rows(lines):
         alike = [line for line in row if heading_like(line)]
         if len(alike) < _HEADER_ROW_CELLS:
             continue
@@ -693,9 +723,10 @@ def _heading_levels(pages: list[_Page], body_size: float, line_gap: float) -> di
     for page in pages:
         if page.simple:
             continue
-        side_by_side = _header_cells(page.lines, body_size)
+        paragraphs = _group_paragraphs(page.lines, line_gap)
+        side_by_side = _side_by_side_lines(page.lines, paragraphs, body_size)
         previous = None
-        for paragraph in _group_paragraphs(page.lines, line_gap):
+        for paragraph in paragraphs:
             if _is_heading(paragraph, body_size, side_by_side):
                 keys.add((_heading_size(paragraph), False))
             elif bold_allowed and _is_bold_heading(paragraph, body_size, side_by_side, previous):
