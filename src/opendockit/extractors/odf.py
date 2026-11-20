@@ -502,11 +502,12 @@ def _top_level_blocks(body: etree._Element) -> Iterator[etree._Element]:
 
 
 def _is_caption(paragraph: etree._Element) -> bool:
-    """Whether a paragraph is numbered by a sequence field of its own (`text:sequence`, 'Figure 1'), not one in a frame or a note
-    inside it."""
+    """Whether a paragraph is numbered by a sequence field of its own (`text:sequence`, 'Figure 1'), not one in a frame, a note or
+    a comment inside it."""
     for field in paragraph.iter(_SEQUENCE):
         parent = field.getparent()
-        while parent is not None and parent is not paragraph and etree.QName(parent).namespace != _DRAW and parent.tag != _NOTE:
+        while (parent is not None and parent is not paragraph and etree.QName(parent).namespace != _DRAW
+               and parent.tag not in (_NOTE, _ANNOTATION)):
             parent = parent.getparent()
         if parent is paragraph:
             return True

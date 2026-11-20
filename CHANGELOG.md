@@ -73,7 +73,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   over a table in the right column is no longer taken for a caption of a table in the left column and read ahead of it.
 - **PDF forms**: the values of a filled form are kept on a page read with simple extraction (past the time budget, a
   crowded or very heavy page, a page pdfminer cannot read); they were dropped without a word. The annotations walked for
-  them are bounded over the document, with a warning past it, and the widgets of a large field are found once a page
+  them are bounded over the document, with a warning past it, and the widgets of a large field are found once a document
   instead of once a widget: a field of 20,000 checkboxes took 78 seconds, on any page.
 - **MCP server**: one server object serves a second session after the first has ended (every SSE client and every
   in-memory client is a session of its own); the second refused every file as 'This IsolatedConverter is closed.', and
