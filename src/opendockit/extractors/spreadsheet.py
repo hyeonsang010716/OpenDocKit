@@ -3,6 +3,7 @@
 import codecs
 from collections import deque
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import html
 from io import BytesIO
@@ -13,6 +14,7 @@ from zipfile import BadZipFile
 
 from lxml import etree
 import openpyxl
+from openpyxl.cell.read_only import ReadOnlyCell
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.chartsheet import Chartsheet
 from openpyxl.formula.tokenizer import TokenizerError
@@ -314,6 +316,8 @@ def _load_workbook(source: BytesIO, **options: bool) -> openpyxl.Workbook:
     if reading is not None:
         reading.malformed = reading.unread_rich = 0
         reading.unread_sheets.clear()
+        reading.cell_styles.clear()  # a repaired copy may carry other formats under the same ids
+        reading.styles_by_id.clear()
     return openpyxl.load_workbook(source, **options)
 
 
@@ -913,14 +917,12 @@ def _streamed_rows(sheet: object, max_cols: int) -> Iterator[tuple[int, tuple[st
     openpyxl sets the row width from the last cell written, so the cells are passed on sorted by column
     (Pinned by: test_office.py::TestXlsx::test_streamed_row_keeps_cells_written_out_of_order).
     """
-    build_row = sheet._get_row
-
     def bounded_row(cells: list[dict], min_col: int = 1, max_col: int | None = None, values_only: bool = False) -> tuple:
-        kept = sorted((cell for cell in cells if cell["column"] <= max_cols), key=lambda cell: cell["column"])
+        kept = sorted((cell for cell in cells if cell["column"] <= max_cols), key=_column_of)
         overflow = next((cell for cell in cells if cell["column"] > max_cols and cell["value"] is not None), None)
         if overflow is not None:
             kept.append({**overflow, "column": max_cols + 1})
-        return build_row(kept, min_col, max_col, values_only)
+        return _placed_cells(kept, min_col, max_col)
 
     sheet.reset_dimensions()
     sheet._get_row = bounded_row
@@ -933,10 +935,59 @@ def _streamed_rows(sheet: object, max_cols: int) -> Iterator[tuple[int, tuple[st
     try:
         for index, row in enumerate(sheet.iter_rows()):
             number = index + 1 if numbers is None else numbers[index]
-            yield number, _with_xlsx_level_mark(row, [_cell_text(cell) for cell in row])
+            yield number, _streamed_row_texts(sheet, row, reading)
     finally:
         if reading is not None:
             reading.row_numbers = None
+
+
+def _column_of(cell: dict) -> int:
+    return cell["column"]
+
+
+def _placed_cells(cells: list[dict], min_col: int, max_col: int | None) -> tuple:
+    """The row openpyxl's `ReadOnlyWorksheet._get_row` makes of the parsed cells, with each cell left as what the parser gave
+    (None where there is no cell): its `ReadOnlyCell` is made only when it is needed (`_streamed_row_texts`). Making one for
+    every cell of a streamed sheet was a fifth of the time the sheet took."""
+    if not cells and not max_col:
+        return ()
+    max_col = max_col or cells[-1]["column"]
+    placed: list[dict | None] = [None] * (max_col + 1 - min_col)
+    for cell in cells:
+        if min_col <= cell["column"] <= max_col:
+            placed[cell["column"] - min_col] = cell
+    return tuple(placed)
+
+
+def _streamed_row_texts(sheet: object, row: tuple, reading: _CellReading | None) -> tuple[str, ...]:
+    """The texts of a streamed row (`_placed_cells`): what `_cell_text` gives for the `ReadOnlyCell` of each cell, with the
+    indent mark of `_with_xlsx_level_mark`."""
+    texts = ["" if cell is None else _parsed_cell_text(sheet, cell, reading) for cell in row]
+    first = next((index for index, text in enumerate(texts) if text), None)
+    if first is not None:
+        texts[first] = _level_mark(ReadOnlyCell(sheet, **row[first]), texts[first])
+    return tuple(texts)
+
+
+def _parsed_cell_text(sheet: object, cell: dict, reading: _CellReading | None) -> str:
+    """`_cell_text` of the `ReadOnlyCell` openpyxl makes of a parsed cell, made only for the values `_cell_text` takes the long
+    way for."""
+    value = cell["value"]
+    if value is None:
+        return ""
+    kind = type(value)
+    if reading is not None and (kind is str or kind is float or kind is int or kind is datetime):
+        style_id = cell["style_id"]
+        style = reading.styles_by_id.get(style_id, _UNKNOWN_STYLE)
+        if style is _UNKNOWN_STYLE:
+            style = reading.styles_by_id[style_id] = _cell_style(ReadOnlyCell(sheet, **cell), reading)
+        if style is not None:
+            text = _styled_text(value, kind, style)
+            return text if text is not None else _full_cell_text(ReadOnlyCell(sheet, **cell))
+    return _cell_text(ReadOnlyCell(sheet, **cell))
+
+
+_UNKNOWN_STYLE = object()
 
 
 def _with_xlsx_level_mark(cells: list[object] | tuple[object, ...], texts: list[str]) -> tuple[str, ...]:
@@ -944,11 +995,17 @@ def _with_xlsx_level_mark(cells: list[object] | tuple[object, ...], texts: list[
     load and streaming)."""
     first = next((index for index, text in enumerate(texts) if text), None)
     if first is not None:
-        value = _plain_value(cells[first].value)
-        if isinstance(value, str):
-            alignment = getattr(cells[first], "alignment", None)
-            texts[first] = _level_marked(texts[first], value, getattr(alignment, "indent", 0) or 0)
+        texts[first] = _level_mark(cells[first], texts[first])
     return tuple(texts)
+
+
+def _level_mark(cell: object, text: str) -> str:
+    """The text of the first text cell of a row with its indent-level mark (`_with_xlsx_level_mark`)."""
+    value = _plain_value(cell.value)
+    if isinstance(value, str):
+        alignment = getattr(cell, "alignment", None)
+        return _level_marked(text, value, getattr(alignment, "indent", 0) or 0)
+    return text
 
 
 # Built-in date/time format ids of East Asian locales. openpyxl does not know the format strings of these ids, treats them as General
@@ -968,9 +1025,65 @@ _BUILTIN_FORMAT_FIXES = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class _CellStyle:
+    """What `_cell_text` needs to know of one number format of the workbook being read, found once per format id.
+
+    `number_format` is the format as `_full_cell_text` applies it; `elapsed`: a date under it is a duration; `special`: a number
+    under it needs the workbook's epoch (East Asian date ids, weekday-only formats)."""
+
+    number_format: str | None
+    elapsed: bool
+    special: bool
+
+
 def _cell_text(cell: object) -> str:
+    """The text of a cell. The common values — text, numbers and dates — take a short path that looks up their format once per
+    format id of the workbook (`_cell_style`) and gives the same text as `_full_cell_text`: going through every check for each
+    cell was half the time a sheet took to convert (Pinned by: test_spreadsheet_fast_cells.py)."""
     if cell is None:
         return ""
+    value = cell.value
+    kind = type(value)
+    if value is None:
+        return ""
+    if kind is str or kind is float or kind is int or kind is datetime:
+        reading = _READING.get()
+        style = None if reading is None else _cell_style(cell, reading)
+        if style is not None:
+            text = _styled_text(value, kind, style)
+            if text is not None:
+                return text
+    return _full_cell_text(cell)
+
+
+def _styled_text(value: object, kind: type, style: _CellStyle) -> str | None:
+    """`_full_cell_text` of a text, number or date under `style`, or None when it takes the long way after all."""
+    if kind is str:
+        text = _unescape_xstring(value)
+        number_format = style.number_format
+        return text.strip() if not number_format or "@" not in number_format else format_cell(text, number_format)
+    if kind is datetime:
+        return None if style.elapsed else format_cell(value, style.number_format)
+    return None if style.special else format_cell(value, style.number_format)
+
+
+def _cell_style(cell: object, reading: _CellReading) -> _CellStyle | None:
+    """The `_CellStyle` of the cell's number format, or None when its format id cannot be read (the full path decides)."""
+    format_id = _format_id(cell)
+    if type(format_id) is not int:
+        return None
+    style = reading.cell_styles.get(format_id)
+    if style is None:
+        number_format = _number_format(cell)
+        number_format = _BUILTIN_FORMAT_FIXES.get(number_format, number_format)
+        style = reading.cell_styles[format_id] = _CellStyle(
+            number_format, _is_elapsed_format(number_format),
+            format_id in _EAST_ASIAN_DATE_FORMAT_IDS or _is_weekday_only(number_format))
+    return style
+
+
+def _full_cell_text(cell: object) -> str:
     value = _plain_value(cell.value)
     if isinstance(value, _CellPicture):
         reading = _READING.get()

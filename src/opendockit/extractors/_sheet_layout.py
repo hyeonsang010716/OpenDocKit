@@ -84,7 +84,8 @@ def _collect_rows(rows: object, options: ConvertOptions, sheet_name: str, extrac
     warned = False
     for raw in rows:
         # Pinned by: test_audit_spreadsheet.py::TestSheetDrawingStopsAtTheLimit::test_sparse_rows_cost_their_cells
-        values = ["" if value is None or value == "" else _format_value(value) for value in raw]
+        # Rows of text (as XLSX and XLS rows arrive) are stripped directly: what `_format_value` gives a string
+        values = [value.strip() if type(value) is str else "" if value is None else _format_value(value) for value in raw]
         if not any(values):
             collected.append([])
             continue

@@ -91,6 +91,9 @@ class _CellReading:
     sheet_parts: dict[int, str] = field(default_factory=dict)  # `id` of a sheet object → path of its part (`_sheets_noting_parts`)
     streamed: bool = False  # the workbook is read by streaming, which has no use for merges (`_parse_cells_and_merges`)
     unread_sheets: list[tuple[str, str]] = field(default_factory=list)  # (name, state) of sheets openpyxl passed over (`_sheets_noting_parts`)
+    # number-format id → what `_cell_text` needs to know of that format, for the workbook being read (`spreadsheet._cell_style`)
+    cell_styles: dict[int, object] = field(default_factory=dict)
+    styles_by_id: dict[object, object] = field(default_factory=dict)  # cell-format index → the same, for streamed cells
 
 
 # Deliberate: the cell interpretation of openpyxl's sheet parser (`WorkSheetParser.parse_cell`) and the place that knows the number
@@ -230,14 +233,31 @@ def _plain_string(element: etree._Element) -> str:
 
 def _single_text(element: object) -> str | None:
     """The text of a shared string `<si>` or inline string `<is>` that is one plain `<t>` and nothing else, or None for any
-    other string. Most strings are like that, and for them openpyxl's readers give the text with `x005F_` removed when they
-    read rich text (Pinned by: test_spreadsheet_quick_rows.py)."""
+    other string. Most strings are like that, and for them openpyxl's readers give the text with `x005F_` removed, rich text or
+    not; building openpyxl's objects for each one took about a tenth of the time a sheet of text took to read
+    (Pinned by: test_spreadsheet_fast_cells.py::TestPlainStrings)."""
     if element.attrib or len(element) != 1:
         return None
     child = element[0]
     if child.tag != _STRING_TEXT or len(child):
         return None
     return child.text or ""
+
+
+_parse_richtext_string = _openpyxl_sheet_reader.parse_richtext_string
+
+
+def _quick_richtext_string(element: object) -> object:
+    """openpyxl's `parse_richtext_string` for the inline string of a cell (`<is>`), taking a plain `<t>` straight to its text
+    while this module is reading (`_single_text`)."""
+    if _READING.get() is not None:
+        text = _single_text(element)
+        if text is not None:
+            return text.replace("x005F_", "")
+    return _parse_richtext_string(element)
+
+
+_openpyxl_sheet_reader.parse_richtext_string = _quick_richtext_string
 
 
 def _rich_or_plain(text: CellRichText) -> CellRichText | str:
@@ -266,12 +286,16 @@ def _tolerant_string_table(original: Callable[..., list], rich: bool) -> Callabl
                 continue
             if node.tag != _STRING_ITEM:
                 continue
-            try:
-                text = _rich_or_plain(CellRichText.from_tree(node)) if rich else Text.from_tree(node).content
-            except (ValueError, TypeError, IndexError, OverflowError):
-                text = _plain_string(node)
-            if not rich:
-                text = text.replace("x005F_", "")  # same as openpyxl
+            text = _single_text(node)
+            if text is not None:
+                text = text.replace("x005F_", "")  # what openpyxl's readers below give for it
+            else:
+                try:
+                    text = _rich_or_plain(CellRichText.from_tree(node)) if rich else Text.from_tree(node).content
+                except (ValueError, TypeError, IndexError, OverflowError):
+                    text = _plain_string(node)
+                if not rich:
+                    text = text.replace("x005F_", "")  # same as openpyxl
             node.clear()
             strings.append(text)
             if table is not None and len(table) and table[-1] is node:
