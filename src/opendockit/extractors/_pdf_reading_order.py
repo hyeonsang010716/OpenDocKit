@@ -749,17 +749,35 @@ def _table_caption_rows(lines: list[_Line], tables: list[tuple[float, float, flo
     or more lines at the same height all lie right above some table (gap at most `_CAPTION_GAP_RATIO` times the line
     height), overlapping that table horizontally, with no line continuing right above them (gap at most the line
     height) — the last row of a label-value group above a table ('작성 부서 인재개발팀 / 승인자 박본부장') is not a
-    caption. The extent of a borderless table is its cell text, so a caption sticks out a few pt to the left."""
+    caption. The extent of a borderless table is its cell text, so a caption sticks out a few pt to the left.
+    Lines over different tables (captions of side-by-side tables) are a caption row only when each is the last line
+    above its table — no line below it in its own column (overlapping it horizontally) before the table starts. The
+    first line of a two-line paragraph at the top of the right column, right above a table there, made a row with a
+    left-column heading over a table at its height and was pulled into the left column ahead of the rest of it (Pinned
+    by: test_pdf_reading_order.py::TestCaptionsOverSideBySideTables::
+    test_first_line_of_a_paragraph_above_a_table_is_not_a_caption). Lines over one table may each go on below (the
+    first lines of header cells set on several lines), as before."""
     if not tables:
         return []
 
-    def is_caption(line: _Line) -> bool:
-        return (any(-1 <= top - line.bottom <= line.height * _CAPTION_GAP_RATIO and line.x0 < x1 and x0 < line.x1
-                    for top, _, x0, x1 in tables)
-                and not any(other.x0 < line.x1 and line.x0 < other.x1 and 0 <= line.top - other.bottom <= line.height
-                            for other in lines))
+    def captioned(line: _Line) -> list[tuple[int, bool]]:
+        """The tables the line lies right above, each with whether it is the last line above that table."""
+        if any(other.x0 < line.x1 and line.x0 < other.x1 and 0 <= line.top - other.bottom <= line.height for other in lines):
+            return []
+        return [(number, not any(other is not line and other.x0 < line.x1 and line.x0 < other.x1
+                                 and line.bottom - 1 <= other.top and other.bottom <= top + 1 for other in lines))
+                for number, (top, _, x0, x1) in enumerate(tables)
+                if -1 <= top - line.bottom <= line.height * _CAPTION_GAP_RATIO and line.x0 < x1 and x0 < line.x1]
 
-    return [row for row in _visual_rows(lines) if len(row) >= 2 and all(is_caption(line) for line in row)]
+    def is_caption_row(row: list[_Line]) -> bool:
+        found = [captioned(line) for line in row]
+        if not all(found):
+            return False
+        if set.intersection(*({number for number, _ in tables_of} for tables_of in found)):
+            return True  # all over one table
+        return all(any(last for _, last in tables_of) for tables_of in found)
+
+    return [row for row in _visual_rows(lines) if len(row) >= 2 and is_caption_row(row)]
 
 
 def _is_figure_caption(line: _Line, figures: list[tuple[float, float, float, float]]) -> bool:

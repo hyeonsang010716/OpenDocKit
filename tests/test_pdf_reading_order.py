@@ -170,6 +170,37 @@ class TestCaptionsOverSideBySideTables:
         text = result.text
         assert text.index("인재개발팀") < text.index("승인자") < text.index("박본부장") < text.index("작성일") < text.index("예산 총액")
 
+    @pytest.mark.parametrize("paragraphs", [3, 6])
+    def test_first_line_of_a_paragraph_above_a_table_is_not_a_caption(self, paragraphs):
+        """Two columns: a heading over a table at the top of the left column, a two-line paragraph over a table at the top of
+        the right column. The first line of that paragraph, beside the heading and within a caption's gap of the right table
+        (its second line in between), made a caption row with the heading and was pulled into the left column."""
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import FrameBreak, Paragraph, Spacer, Table, TableStyle
+
+        words = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec "
+                 "romeo sierra tango uniform victor whiskey xray yankee zulu").split()
+
+        def paragraph(tag, count):
+            return " ".join([tag] + [words[index % len(words)] for index in range(count - 1)])
+
+        def story(font):
+            styles = getSampleStyleSheet()
+            grid = TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black)])
+            return [Paragraph("LEFTHEAD Introduction", styles["Heading2"]),
+                    Table([["LTABLE Item", "Qty"], ["Pencil", "3"], ["Notebook", "2"]], style=grid), Spacer(1, 8),
+                    *(Paragraph(paragraph(f"LEFTP{number}", 60), styles["BodyText"]) for number in range(paragraphs)),
+                    FrameBreak(), Paragraph(paragraph("RIGHTFIRST", 8), styles["BodyText"]),
+                    Table([["RTABLE Item", "Qty", "Price"], ["Pencil", "3", "500"], ["Notebook", "2", "1200"]], style=grid),
+                    Paragraph(paragraph("RIGHTP", 60), styles["BodyText"])]
+
+        text = convert(builder.pdf_two_column_story(story), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        marks = ["LEFTHEAD", "LTABLE", *(f"LEFTP{number}" for number in range(paragraphs)), "RIGHTFIRST", "RTABLE", "RIGHTP"]
+        order = [text.index(mark) for mark in marks]
+        assert order == sorted(order)
+
 
 class TestCentredLinesOverTwoColumns:
     """On a two-column paper page whose right column is short and which has centred title and affiliation lines at the top, those lines were
