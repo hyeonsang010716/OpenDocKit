@@ -721,6 +721,28 @@ def _peak_memory(action) -> int:
         tracemalloc.stop()
 
 
+class TestOleDirectoryThatHoldsItself:
+    """A damaged OLE directory that lists a storage among its own descendants made the walk of `_ole.OleStreams` grow the path
+    (`root entry/root entry/…`) without end and fill memory. An OLE object inside an HWP is such a container too, so one changed
+    byte in a pasted object stopped a whole document. Every entry is walked once."""
+
+    def test_walk_ends_and_keeps_the_streams(self):
+        from types import SimpleNamespace
+
+        from opendockit.extractors._ole import OleStreams
+
+        stream = SimpleNamespace(name="OOXMLChartContents", size=10, kids=[])
+        storage = SimpleNamespace(name="Root Entry", size=0, kids=[])
+        root = SimpleNamespace(name="Root Entry", size=0, kids=[storage, stream])
+        storage.kids = [root, storage, stream]  # the storage holds the root and itself
+        ole = SimpleNamespace(minisectorcutoff=4096, root=root, num_mini_fat_sectors=0, sector_size=512)
+
+        streams = OleStreams(ole, 1000)
+
+        assert streams.exists("OOXMLChartContents")
+        assert streams.exists("root entry")
+
+
 class TestStreamsLargerThanTheFile:
     """olefile reads a stream whole when it is opened, as many sectors as its directory entry declares, and only notes a defect
     when the sector chain loops: a 26.5 KB HWP whose Section0 chain pointed at itself with a declared size of 2 GB made 5.4 GB in

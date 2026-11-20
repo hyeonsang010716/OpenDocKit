@@ -56,13 +56,18 @@ class OleStreams:
         ole.root.size = min(ole.root.size, file_size)
         ole.num_mini_fat_sectors = min(ole.num_mini_fat_sectors, file_size // ole.sector_size + 1)
         self._entries: dict[str, olefile.olefile.OleDirectoryEntry] = {}
+        # Every entry is walked once: a damaged directory that lists a storage among its own descendants made the path grow
+        # without end (`root entry/root entry/…`), so the walk never stopped and filled memory (Pinned by:
+        # test_hwp_robustness.py::TestOleDirectoryThatHoldsItself)
+        visited = {id(ole.root)}
         pending = [("", ole.root)]
         while pending:
             prefix, node = pending.pop()
             for kid in node.kids:
                 path = prefix + kid.name.lower()
-                if path in self._entries:
+                if path in self._entries or id(kid) in visited:
                     continue
+                visited.add(id(kid))
                 if kid.size >= cutoff:
                     kid.size = min(kid.size, largest)
                 self._entries[path] = kid
