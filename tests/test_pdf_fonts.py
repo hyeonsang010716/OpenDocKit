@@ -1,6 +1,7 @@
 """PDF characters whose font information is incomplete or whose font is a symbol font: fonts without /Widths, Wingdings checkboxes."""
 
 from collections.abc import Callable
+from importlib.metadata import version
 import random
 import re
 
@@ -8,6 +9,14 @@ import pytest
 
 from opendockit import ConvertOptions, DocumentTooLargeError, convert
 from tests.test_pdf import _raw_pdf
+
+
+# pdfium before the one pypdfium2 5 bundles gives a glyph turned or scaled by its text matrix a loose box apart from
+# pdfminer's, so such a row is not read alike and keeps its U+FFFD there (no wrong character; the minimum supported
+# pypdfium2 is 4.30). The tests of what those rows repair to need the newer one.
+_TRANSFORMED_BOXES = pytest.mark.skipif(
+    int(version("pypdfium2").split(".")[0]) < 5,
+    reason="older pdfium measures turned and scaled glyphs otherwise; their rows stay U+FFFD")
 
 
 def _page_pdf(content: bytes, fonts: dict[bytes, bytes], extra: dict[int, bytes] | None = None) -> bytes:
@@ -499,7 +508,8 @@ class TestUndecodedGlyphs:
         assert [(want, got) for want, got in _repaired(_SHAPES[shape], base, change) if got not in (want, "\ufffd")] == []
 
     @pytest.mark.parametrize("shape", ["index", "pairs", "labels", "dates", "versions", "page", "figure", "figure at end",
-                                       "starting", "year", "run", "table", "turned", "narrow", "squeezed", "kerned",
+                                       "starting", "year", "run", "table", pytest.param("turned", marks=_TRANSFORMED_BOXES),
+                                       "narrow", pytest.param("squeezed", marks=_TRANSFORMED_BOXES), "kerned",
                                        "ligature", "tight", "backwards", "break", "stray"])
     def test_each_undecoded_character_takes_its_own_glyphs_character(self, shape):
         """Where both readers read the whole row alike, character for character, the figures come back: at the start or
@@ -713,6 +723,7 @@ class TestUndecodedGlyphs:
 
         assert _wrong_in_text(content) == []
 
+    @_TRANSFORMED_BOXES
     @pytest.mark.parametrize("matrix", [b"-1 0 0 -1 400 500", b"-1 0 0 1 400 500"])
     def test_the_characters_of_a_line_drawn_right_to_left_are_put_back_in_its_order(self, monkeypatch, matrix):
         """The line text runs in the order of its characters; filled by their place left to right, a line turned 180° or
