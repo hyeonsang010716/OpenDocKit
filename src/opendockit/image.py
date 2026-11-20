@@ -346,7 +346,8 @@ def _encoded(image: Image.Image, max_side: int, has_alpha: bool) -> tuple[bytes,
 
 def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | None:
     """The file of an 8-bit RGBA PNG that needs no change, with only the chunks Pillow's own rewrite of it has (`IHDR`, `iCCP`
-    when Pillow read the profile, the `IDAT` picture data, `IEND`); None when the picture has to be rewritten (`_encoded`).
+    when Pillow read the profile, written as the rewrite writes it, the `IDAT` picture data, an empty `IEND`); None when the
+    picture has to be rewritten (`_encoded`).
 
     Deliberate: such a picture is handed on without being compressed again. Rewriting it was the PNG compression of
     `_encoded`, most of the conversion time of a picture-heavy document: a real HWP with 51 pictures took 550 ms with
@@ -359,12 +360,14 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
     made RGBA), the long side within `max_side` (so no downscale and no tiles), no EXIF chunk and no text chunk that names
     EXIF or XMP (where Pillow reads an orientation from and turns the picture), no animation (`acTL`; the first frame is
     taken), no critical chunk this does not know, every chunk kept with its right CRC (a decoder stricter than Pillow refuses
-    a picture data chunk with a wrong one), one `IHDR` and the `IDAT` chunks one after another (libpng refuses a picture
-    with either out of place), picture data that is one zlib stream with nothing after it (bytes hidden behind the picture
-    were dropped by the rewrite and must not be handed on) and that inflates to exactly the rows of the picture (a filter
-    byte and 4 bytes a pixel a row, of each Adam7 pass when interlaced; more is hidden data or a zlib bomb, and inflating
-    stops as soon as it goes past), and picture data at most half the raw pixels (a file written
-    without or with little compression is compressed by the rewrite instead of handed on several times as large)."""
+    a picture data chunk with a wrong one), an empty `IEND`, at most one `iCCP` and one whose profile Pillow read (of two
+    libpng takes the first and Pillow the last; one that is not zlib Pillow reads as none), one `IHDR` and the `IDAT`
+    chunks one after another (libpng refuses a picture with either out of place), picture data that is one zlib stream
+    with nothing after it (bytes hidden behind the picture were dropped by the rewrite and must not be handed on) and that
+    inflates to exactly the rows of the picture (a filter byte and 4 bytes a pixel a row, of each Adam7 pass when
+    interlaced; more is hidden data or a zlib bomb, and inflating stops as soon as it goes past), and picture data at most
+    half the raw pixels (a file written without or with little compression is compressed by the rewrite instead of handed
+    on several times as large)."""
     width, height = image.size
     if image.mode != "RGBA" or max(width, height) > max_side or not data.startswith(_PNG_SIGNATURE):
         return None
@@ -373,6 +376,7 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
     rows = _png_rows_size(width, height, interlaced=data[28:29] == b"\x01")   # what the IDAT stream must inflate to
     stream = zlib.decompressobj()
     data_ended = False   # a chunk other than IDAT came after the picture data
+    profile_written = False
     while kind != b"IEND":
         if position + 12 > len(data):
             return None
@@ -405,7 +409,20 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
             data_ended = True
         if kind in (b"tEXt", b"zTXt", b"iTXt") and any(name in body.split(b"\0", 1)[0].lower() for name in (b"exif", b"xmp")):
             return None
-        if kind in (b"IHDR", b"IDAT", b"IEND") or (kind == b"iCCP" and "icc_profile" in image.info):
+        if kind == b"iCCP":
+            # The profile Pillow read, written as Pillow's rewrite writes it: the name, bytes after the zlib stream and a
+            # profile that is not zlib (Pillow reads none) were handed on as they were, and of two profiles libpng takes the
+            # first and Pillow the last. A second one, or one Pillow could not read, is written anew instead
+            # (Pinned by: test_image.py::TestPngPassedOnAsItIs::test_colour_profile_is_written_as_the_rewrite_writes_it).
+            profile = image.info.get("icc_profile")
+            if profile_written or not profile:
+                return None
+            kept.append(_png_chunk(b"iCCP", b"ICC Profile\0\0" + zlib.compress(profile)))
+            profile_written = True
+        if kind == b"IEND" and length:
+            return None   # a payload inside IEND is not handed on
+            # (Pinned by: test_image.py::TestPngPassedOnAsItIs::test_end_chunk_with_a_payload_is_written_anew)
+        if kind in (b"IHDR", b"IDAT", b"IEND"):
             if zlib.crc32(kind + body) != int.from_bytes(data[end - 4:end], "big"):
                 return None
             kept.append(data[position:end])
@@ -414,6 +431,10 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
     if picture_data > width * height * 4 // 2 or not stream.eof or stream.unused_data or rows:
         return None
     return b"".join(kept)
+
+
+def _png_chunk(kind: bytes, body: bytes) -> bytes:
+    return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
 
 
 # Where each of the seven Adam7 passes starts and how far apart its pixels are: (x0, y0, dx, dy)

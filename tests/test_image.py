@@ -2953,6 +2953,42 @@ class TestPngPassedOnAsItIs:
 
         assert Image.open(BytesIO(result.data)).info["icc_profile"] == profile
 
+    @pytest.mark.parametrize("profile_chunk", [
+        b"Profile of 37.5665 N\0\0" + zlib.compress(b"PROFILE"),            # a name of the file's own
+        b"ICC Profile\0\0" + zlib.compress(b"PROFILE") + b"HIDDEN" * 20,    # bytes after the zlib stream, which Pillow ignores
+    ], ids=["name", "after-the-stream"])
+    def test_colour_profile_is_written_as_the_rewrite_writes_it(self, profile_chunk):
+        picture = _photo()
+
+        result = prepare_image(_rgba_png(picture, before=_png_chunk(b"iCCP", profile_chunk)), min_side=1, max_side=2048)
+
+        assert [kind for kind, _, _ in _chunks(result.data)][:2] == [b"IHDR", b"iCCP"]
+        assert _chunks(result.data)[1][1] == b"ICC Profile\0\0" + zlib.compress(b"PROFILE")
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
+    @pytest.mark.parametrize("profiles", [
+        [b"x\0\0" + b"HIDDEN not zlib"],                                      # Pillow reads no profile
+        [b"x\0\0" + zlib.compress(b"HIDDEN first"), b"x\0\0" + zlib.compress(b"second")],  # libpng takes the first
+    ], ids=["not-zlib", "two"])
+    def test_colour_profile_pillow_did_not_take_is_not_handed_on(self, profiles):
+        picture = _photo()
+        before = b"".join(_png_chunk(b"iCCP", body) for body in profiles)
+
+        result = prepare_image(_rgba_png(picture, before=before), min_side=1, max_side=2048)
+
+        iccp = [body for kind, body, _ in _chunks(result.data) if kind == b"iCCP"]
+        assert len(iccp) <= 1 and b"HIDDEN" not in result.data
+        assert all(zlib.decompress(body.split(b"\0", 1)[1][1:]) == b"second" for body in iccp)
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
+    def test_end_chunk_with_a_payload_is_written_anew(self):
+        picture = _photo()
+
+        result = prepare_image(_rgba_png(picture, end=b"HIDDEN" * 100), min_side=1, max_side=2048)
+
+        assert _chunks(result.data)[-1][:2] == (b"IEND", b"")
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
     @staticmethod
     def _turned_by_exif() -> bytes:
         exif = Image.Exif()
