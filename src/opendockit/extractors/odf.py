@@ -71,6 +71,7 @@ _S, _TAB, _LINE_BREAK = f"{{{_TEXT}}}s", f"{{{_TEXT}}}tab", f"{{{_TEXT}}}line-br
 _LIST, _LIST_ITEM, _LIST_HEADER = f"{{{_TEXT}}}list", f"{{{_TEXT}}}list-item", f"{{{_TEXT}}}list-header"
 _NOTE, _NOTE_BODY = f"{{{_TEXT}}}note", f"{{{_TEXT}}}note-body"
 _RUBY, _RUBY_BASE, _RUBY_TEXT = f"{{{_TEXT}}}ruby", f"{{{_TEXT}}}ruby-base", f"{{{_TEXT}}}ruby-text"
+_SEQUENCE = f"{{{_TEXT}}}sequence"
 _SECTION = f"{{{_TEXT}}}section"
 _NUMBER = f"{{{_TEXT}}}number"
 _HIDDEN_TEXT, _HIDDEN_PARAGRAPH, _IS_HIDDEN = f"{{{_TEXT}}}hidden-text", f"{{{_TEXT}}}hidden-paragraph", f"{{{_TEXT}}}is-hidden"
@@ -500,6 +501,17 @@ def _top_level_blocks(body: etree._Element) -> Iterator[etree._Element]:
             stack.pop()
 
 
+def _is_caption(paragraph: etree._Element) -> bool:
+    """Whether a paragraph is numbered by a sequence field of its own (`text:sequence`, 'Figure 1'), not one in a frame inside it."""
+    for field in paragraph.iter(_SEQUENCE):
+        parent = field.getparent()
+        while parent is not None and parent is not paragraph and etree.QName(parent).namespace != _DRAW:
+            parent = parent.getparent()
+        if parent is paragraph:
+            return True
+    return False
+
+
 def _is_hidden_section(node: etree._Element) -> bool:
     """A section hidden for good (`text:display="none"`) or by a condition that held when the file was saved (LibreOffice
     writes `text:is-hidden="true"` on a conditional section only while it is hidden). See `_is_hidden`."""
@@ -724,13 +736,18 @@ class _Renderer:
         own, in the order they are anchored. Written in place, a picture anchored as a character inside a sentence cut the
         sentence into two paragraphs around it, where the DOCX of the same document reads the sentence whole and the picture
         after it (Pinned by: test_odf.py::TestTextDocument::test_picture_inside_a_sentence_goes_after_its_paragraph).
-        The blocks anchored before any of its text stay in front of it: LibreOffice's captioned figure is a paragraph
-        holding the picture, then 'Figure 1: …', and with every block after the text the caption came before its picture
-        (Pinned by: test_odf.py::TestTextDocument::test_caption_written_after_its_picture_stays_after_it)."""
+        Only in a caption — a paragraph numbered by a sequence field (`text:sequence`, what Insert Caption writes) — do the
+        blocks anchored before its text stay in front of it: LibreOffice's captioned figure is a paragraph holding the
+        picture, then 'Figure 1: …', and with every block after the text the caption came before its picture
+        (Pinned by: test_odf.py::TestTextDocument::test_caption_written_after_its_picture_stays_after_it). In any other
+        paragraph they go after it too, as in DOCX: kept in front of a list item's text, they took its label
+        (Pinned by: test_odf.py::TestTextDocument::test_list_item_that_starts_with_a_picture_keeps_its_label)."""
         pieces: list[_Run | _Block] = []
         self._inline(node, _PLAIN_LOOK, None, pieces, context, depth)
-        lead = next((index for index, piece in enumerate(pieces) if isinstance(piece, _Run) and piece.text.strip()),
-                    len(pieces))
+        lead = 0
+        if _is_caption(node):
+            lead = next((index for index, piece in enumerate(pieces) if isinstance(piece, _Run) and piece.text.strip()),
+                        len(pieces))
         runs = [piece for piece in pieces if isinstance(piece, _Run)]
         text = "\n".join(line.strip() for line in self._format(runs, context, emphasis).split("\n")).strip("\n")
         blocks = [piece.text for piece in pieces[:lead] if isinstance(piece, _Block) and piece.text]
