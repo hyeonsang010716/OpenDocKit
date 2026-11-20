@@ -28,6 +28,7 @@ from opendockit.extractors._hangul import (
     drop_unfilled_guide,
     emphasis_pieces,
     has_text,
+    header_by_default,
     link_end,
     link_start,
 )
@@ -480,13 +481,23 @@ class HwpxRenderer:
                     buffer.append(link_end(url))
             elif name in ("footNote", "endNote") and self._options.include_footnotes and not self._note_depth:
                 self._render_note(node, buffer)
-            elif name in ("header", "footer") and self._options.include_headers_footers:
+            # Without `include_headers_footers` a header that holds a word is still kept (`_hangul.header_by_default`)
+            elif name == "header" or (name == "footer" and self._options.include_headers_footers):
+                pictures, notes, note_count, memos = len(self._extraction.images), len(self.notes), self._note_count, len(self.memos)
                 self._grids.append(None)
                 try:
                     with self._own_numbering():
                         text = join_blocks(block for sub in _top_sublists(node) for block in self.render_paragraphs(sub))
                 finally:
                     self._grids.pop()
+                if not self._options.include_headers_footers:
+                    # Only the words of the header: the pictures it registered are taken back with their placeholders
+                    del self._extraction.images[pictures:]
+                    text = header_by_default(text)
+                    # A header that is not written takes back its notes and comments, which would be left without a reference
+                    if not text or text in (self.headers if name == "header" else self.footers):
+                        del self.notes[notes:], self.memos[memos:], self._memo_ids[memos:]
+                        self._note_count = note_count
                 found = self.headers if name == "header" else self.footers
                 if text and text not in found:
                     found[text] = None

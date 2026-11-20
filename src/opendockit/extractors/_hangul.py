@@ -19,7 +19,7 @@ from opendockit.extractors._inline import (
     resolve_scripts,
     resolve_strikes,
 )
-from opendockit.extractors._lists import BulletNesting, is_placeholder_only, paragraph_head
+from opendockit.extractors._lists import _OBJECT_PLACEHOLDERS, BulletNesting, is_placeholder_only, paragraph_head
 
 
 # Hangul's "개요 1" to "개요 7" (Outline 1-7) paragraph styles are the chapter/section structure of the document. They become Markdown headings.
@@ -191,6 +191,19 @@ def _size_heading_text(plain: str) -> bool:
     if not _LETTER.search(_EQUATION.sub("", text)) or _SENTENCE_END.search(text) or _ADDRESSEE.search(text):
         return False
     return "\t" not in text or not _PAGE_LABEL.fullmatch(text.rsplit("\t", 1)[1].strip())
+
+
+def header_by_default(text: str) -> str:
+    """The text of a Hangul header written when `include_headers_footers` is off: its words without pictures and other objects
+    (a logo in the header was never written by default and would cost a description each time), or '' when it holds no word.
+
+    Hangul forms and reports put the form number and the title of the document in the header (`[별지 제3호 서식] 표준 현장실습학기제
+    평가표 및 출석부`, `시험합의서` and its document number): in 9 of 34 real HWP / HWPX files that text was in no other place, and
+    leaving headers out dropped it without a warning. A header with no word (`- 1 -`, a page number field) is still left out, and
+    so are footers. Each distinct header is written once, before the body, as with the option on (Pinned by:
+    test_hwp_headers.py)."""
+    words = "\n".join(" ".join(line.split()) for line in _OBJECT_PLACEHOLDERS.sub(" ", text).split("\n")).strip()
+    return words if _LETTER.search(words) else ""
 
 
 class SizeHeadings:

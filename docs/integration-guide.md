@@ -258,7 +258,7 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 - **Hangul 3.x and earlier (old .hwp)** gives `unsupported_format` → advise "save again as HWP or HWPX in Hangul".
 - An encrypted document gives `encrypted_document`.
 - **A distribution (copy-protected) document** does not have its body decrypted; the **preview text (the beginning only)** saved by Hancom Office is used (warning).
-- Headers and footers are excluded by default. Page numbers are not included. Comments (review comments) are added at the end of the document for HWPX only; in HWP they are not included (the body text a comment is attached to is kept).
+- Headers that hold words (a form's number and title) are written once before the body, without their pictures; footers and page numbers are excluded by default (`include_headers_footers=True` writes every header and footer). Comments (review comments) are added at the end of the document for HWPX only; in HWP they are not included (the body text a comment is attached to is kept).
 - A document with no text at all (empty tables, only shapes) gives an empty result plus a warning that no text was extracted.
 - Charts of HWP (binary) are not converted.
 - OLE objects such as pasted Excel tables and charts, and videos, do not have their content read; only `[OLE object]` and `[Video]` placeholders remain (a warning reports the count).

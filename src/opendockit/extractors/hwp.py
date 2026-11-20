@@ -31,6 +31,7 @@ from opendockit.extractors._hangul import (
     decorated_text,
     drop_unfilled_guide,
     emphasis_pieces,
+    header_by_default,
     link_end,
     link_start,
 )
@@ -660,15 +661,26 @@ class HwpRenderer:
 
     def _collect_header_footer(self, control: Record, found: dict[str, None]) -> None:
         """Render a header or footer control into `found` (`headers` or `footers`). A header is counted against the character
-        limit when it is first seen, because every header is written before the body; footers are counted after the body."""
-        if not self._options.include_headers_footers:
+        limit when it is first seen, because every header is written before the body; footers are counted after the body.
+        Without `include_headers_footers` only headers that hold a word are kept (`_hangul.header_by_default`)."""
+        chosen = self._options.include_headers_footers
+        if not chosen and found is not self.headers:
             return
+        pictures, notes, note_count = len(self._extraction.images), len(self.notes), self._note_count
         self._grids.append(None)
         try:
             with self._own_numbering():
                 text = join_blocks(self.render(control.children))
         finally:
             self._grids.pop()
+        if not chosen:
+            # Only the words of the header: the pictures it registered are taken back with their placeholders, and a header that
+            # is not written takes back its notes, which would be left without a reference
+            del self._extraction.images[pictures:]
+            text = header_by_default(text)
+            if not text or text in found:
+                del self.notes[notes:]
+                self._note_count = note_count
         if text and text not in found:
             found[text] = None
             if found is self.headers:

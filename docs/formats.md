@@ -133,6 +133,8 @@ Section unit: the whole document. Design notes: [decisions/hwp.md](decisions/hwp
   table-of-contents lines and sentences written large stay text.
 - Paragraph numbering and bullets; lower levels become indented lists.
 - Letter-spaced labels of forms are joined (`기 관 명` → `기관명`); blank dates (`년   월   일`) keep their spaces.
+- Headers that hold words (a form's number and title) are written once before the body, without their pictures; page
+  numbers and footers only with `include_headers_footers`.
 - Tables with merged cells.
 - Captions of tables, pictures and equations, including their automatic numbers.
 - Text boxes.
