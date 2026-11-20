@@ -1,5 +1,7 @@
 """PDF characters whose font information is incomplete or whose font is a symbol font: fonts without /Widths, Wingdings checkboxes."""
 
+import re
+
 import pytest
 
 from opendockit import ConvertOptions, convert
@@ -201,24 +203,30 @@ class TestWinAnsiUnusedCodesAreBullets:
         assert ("• first item" in lines) is bullet
 
 
-def _undecoded_two(rotate: int = 0, media_box: bytes = b"0 0 595 842") -> bytes:
+_UNDECODED_CMAP = (
+    b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS)"
+    b" /Supplement 0 >> def /CMapName /Adobe-Identity-UCS def /CMapType 2 def 1 begincodespacerange <00> <FF>"
+    b" endcodespacerange 1 beginbfchar <01> <FFFD> endbfchar 1 beginbfrange <20> <7E> <0020> endbfrange endcmap"
+    b" CMapName currentdict /CMap defineresource pop end end")
+
+
+def _undecoded_two(rotate: int = 0, media_box: bytes = b"0 0 595 842", text: bytes = b"Page \\00107 of the report",
+                   font: bytes = b"", state: bytes = b"/F1 12 Tf") -> bytes:
     """'Page 207 of the report' in a font whose ToUnicode map gives U+FFFD for the code of its '2' (code 1, glyph 'two.SP'),
-    as a book font with old-style figures does: pdfminer reads 'Page \ufffd07'."""
-    cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS)"
-            b" /Supplement 0 >> def /CMapName /Adobe-Identity-UCS def /CMapType 2 def 1 begincodespacerange <00> <FF>"
-            b" endcodespacerange 1 beginbfchar <01> <FFFD> endbfchar 1 beginbfrange <20> <7E> <0020> endbfrange endcmap"
-            b" CMapName currentdict /CMap defineresource pop end end")
-    content = b"BT /F1 12 Tf 72 700 Td (Page \\00107 of the report) Tj ET"
+    as a book font with old-style figures does: pdfminer reads 'Page \ufffd07'. `font` adds to the font dictionary, `state`
+    sets the text state."""
+    content = b"BT %s 72 700 Td (%s) Tj ET" % (state, text)
     page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [%s] /Rotate %d /Contents 4 0 R"
-            b" /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 5 0 R"
-            b" /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /two.SP] >> >> >> >> >>" % (media_box, rotate))
+            b" /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 5 0 R %s"
+            b" /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /two.SP] >> >> >> >> >>"
+            % (media_box, rotate, font))
     return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
                      4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
-                     5: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(cmap), cmap)})
+                     5: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(_UNDECODED_CMAP), _UNDECODED_CMAP)})
 
 
 class TestUndecodedGlyphs:
-    """A character pdfminer reads as U+FFFD takes the character pdfium reads at the same place. pdfium reads the glyph of an
+    """A character pdfminer reads as U+FFFD takes the character pdfium reads for the same glyph. pdfium reads the glyph of an
     embedded book font through the font program ('207', 'Figure 11.12'); with the non-embedded font of a document built here
     it reads U+FFFD as well, so its reading is stood in for by replacing that one character."""
 
@@ -241,8 +249,47 @@ class TestUndecodedGlyphs:
         assert "Page 207 of the report" in text
         assert "\ufffd" not in text
 
-    def test_where_pdfium_cannot_read_it_either_the_character_stays(self):
-        assert "Page \ufffd07 of the report" in convert(_undecoded_two(), "a.pdf").text
+    @pytest.mark.parametrize(("text", "repaired"), [(b"See Figure 11.1\\001", "See Figure 11.12"),
+                                                     (b"\\00107 pages", "207 pages")])
+    def test_an_undecoded_character_beside_decoded_ones_on_one_side_only(self, monkeypatch, text, repaired):
+        self._pdfium_reads_two(monkeypatch)
+
+        assert repaired in convert(_undecoded_two(text=text), "a.pdf").text
+
+    @pytest.mark.parametrize("state", [b"/F1 12 Tf", b"/F1 7 Tf", b"/F1 12 Tf 60 Tz"])
+    def test_where_pdfium_cannot_read_it_either_the_character_stays(self, state):
+        """Nor does it take a neighbour's letter: pdfminer gives the glyph 'two.SP' (no /Widths, a name outside the standard
+        widths) no width and pdfium does, so later on the line pdfminer's U+FFFD lies where pdfium draws the letter before
+        it, and took it ('total a.', 'total l.'). (The two U+FFFD of pdfminer lie on one spot, and one of them is removed as
+        a copy.)"""
+        text = convert(_undecoded_two(text=b"Page \\00107 of the report, total \\001\\001.", state=state), "a.pdf").text
+
+        assert "Page \ufffd07 of the report" in text
+        assert re.search("total \ufffd+\\.", text), text
+
+    def test_where_the_readers_advance_differently_no_neighbour_is_taken(self):
+        """pdfminer measures the standard Helvetica by its own widths, pdfium by the font's /Widths: further along the line
+        the glyph under pdfminer's U+FFFD is a neighbour's ('by \ufffd0' became 'by y0')."""
+        widths = b"/FirstChar 1 /LastChar 126 /Widths [" + b" ".join([b"456"] * 126) + b"]"
+        data = _undecoded_two(text=b"Revenue grew in quarter \\001 by \\0010 percent", font=widths)
+
+        assert "Revenue grew in quarter \ufffd by \ufffd0 percent" in convert(data, "a.pdf").text
+
+    def test_a_ligature_pdfium_reads_as_two_characters_is_one_glyph(self, monkeypatch):
+        """pdfium gives each character of a glyph mapped to two ('fi') the glyph's box; pdfminer one character."""
+        from opendockit.extractors import _pdf_glyph_repair
+
+        original = _pdf_glyph_repair._read_glyphs
+
+        def reads_fi(document, index):
+            read = []
+            for *box, text in original(document, index):
+                read += [(*box, "f"), (*box, "i")] if text == "\ufffd" else [(*box, text)]
+            return read
+
+        monkeypatch.setattr(_pdf_glyph_repair, "_read_glyphs", reads_fi)
+
+        assert "the office is" in convert(_undecoded_two(text=b"the of\\001ce is"), "a.pdf").text
 
     def test_a_pdfium_failure_leaves_the_character_as_it_was(self, monkeypatch):
         """pdfium failing to read the page's text failed the whole document."""
@@ -283,6 +330,51 @@ class TestUndecodedGlyphs:
             return fastest(lambda: _repair_replacement_chars(page, lambda: glyphs))
 
         small, large = repair(2_000), repair(8_000)
+        assert large < small * 8
+
+    @staticmethod
+    def _repair_time(chars: list[dict], glyphs: list, height: float) -> float:
+        from types import SimpleNamespace
+
+        from opendockit.extractors._pdf_glyph_repair import _repair_replacement_chars
+        from tests.timing import fastest
+
+        def repair() -> None:
+            for char, text in zip(chars, texts, strict=True):
+                char["text"] = text
+            _repair_replacement_chars(SimpleNamespace(chars=chars, rotation=0, height=height), lambda: glyphs)
+
+        texts = [char["text"] for char in chars]
+        return fastest(repair)
+
+    @pytest.mark.timing
+    def test_many_undecoded_characters_in_one_band_are_repaired_in_linear_time(self):
+        """Sixteen lines 1pt apart, every other character undecoded: each one looked at every glyph of its 16pt band, and
+        32,000 characters took 9 seconds instead of 1."""
+        def time_of(count: int) -> float:
+            per_line, height = count // 16, 842.0
+            width = 500.0 / per_line
+            chars = [{"text": "�" if column % 2 else "a", "x0": 50 + width * column, "x1": 50 + width * (column + 1),
+                      "top": 400.0 + line, "bottom": 401.0 + line, "size": 1.0}
+                     for line in range(16) for column in range(per_line)]
+            glyphs = [(char["x0"], char["x1"], height - char["bottom"], height - char["top"],
+                       "2" if char["text"] == "�" else "a") for char in chars]
+            return self._repair_time(chars, glyphs, height)
+
+        small, large = time_of(4_000), time_of(16_000)
+        assert large < small * 8
+
+    @pytest.mark.timing
+    def test_undecoded_characters_of_tall_glyphs_are_repaired_in_linear_time(self):
+        """Glyphs 900pt tall went into every 16pt band they reach, and each character of the row looked at all of them."""
+        def time_of(count: int) -> float:
+            width, height = 500.0 / count, 1000.0
+            chars = [{"text": "�" if column % 2 else "a", "x0": 50 + width * column, "x1": 50 + width * (column + 1),
+                      "top": 50.0, "bottom": 950.0, "size": 900.0} for column in range(count)]
+            glyphs = [(char["x0"], char["x1"], 50.0, 950.0, "2" if char["text"] == "�" else "a") for char in chars]
+            return self._repair_time(chars, glyphs, height)
+
+        small, large = time_of(2_000), time_of(8_000)
         assert large < small * 8
 
     def test_a_turned_page_is_left_alone(self, monkeypatch):
