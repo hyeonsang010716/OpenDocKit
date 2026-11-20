@@ -357,11 +357,15 @@ class _TransitionalWriter:
         # `&#38;` as `&#38;#38;`), where the tree python-docx builds has `&`: written again as given, the `&` of every link
         # (`?a=1&b=2`) and of every value holding one became `&#38;` in the copy (Pinned by:
         # test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::test_attribute_values_keep_their_ampersands)
-        attributes = "".join(
-            f' {self._name(attribute, True)}="'
-            f'{_escaped_value(_transitional_name(value) if self._relationships and attribute == "Type" else value)}"'
-            for attribute, value in ((attribute, value.replace("&#38;", "&")) for attribute, value in attrib.items()))
-        self._write(f"<{name}{''.join(declarations)}{attributes}")
+        self._write(f"<{name}{''.join(declarations)}")
+        # Each attribute written as a piece of its own, so the bound on the copy (`_allowed`) is checked within a start tag:
+        # joined first, an element of 20,000 attributes under a prefix of 40,000 characters was a string of 800 MB before it
+        # was checked (Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
+        # test_copy_grows_no_further_than_a_few_times_the_part)
+        for attribute, value in attrib.items():
+            value = value.replace("&#38;", "&")
+            value = _transitional_name(value) if self._relationships and attribute == "Type" else value
+            self._write(f' {self._name(attribute, True)}="{_escaped_value(value)}"')
         self._tag_open = True
         self._open.append((name, undo))
 
