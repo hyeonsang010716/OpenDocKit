@@ -381,6 +381,12 @@ class TestBoldSentenceEnds:
 
         assert f"# {title}\n\n본 계약은" in text
 
+    @pytest.mark.parametrize("title", ["꼭 알아야 할 것", "창업 전 알아야 할 것"])
+    def test_a_korean_title_of_things_to_know_is_a_heading(self, title):
+        text = _named_font_pdf([*_named_body(80), (72, 140, title, 10, "Batang-Bold"), *_named_body(156)])
+
+        assert f"# {title}\n\n본 계약은" in text
+
     @pytest.mark.parametrize("title", ["제1조(목적)", "1. 사업 개요", "추진 배경", "개요", "필요", "다음", "정기 모임", "사회적 책임",
                                        "추진 현황 및 계획:", "캐나다", "참고 자료", "향후 과제", "제5조(계약의 해지)", "왜 필요한가?", "100억원 투자 계획"])
     def test_a_korean_title_in_bold_is_a_heading(self, title):

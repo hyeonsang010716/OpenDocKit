@@ -619,9 +619,10 @@ def _korean_notice_end(text: str) -> bool:
       a word ending in a subject, topic or object particle, or two words or more before it (`본 계약은 무효임`, `기한 내
       제출함`, `외부 회의 참여함`); not the nouns `교수 정년퇴임` or `핵 잠수함`, nor a compound ending in a noun of
       `_KOREAN_NOUN_ENDS` (`재난 대응 골든타임`, `미 해군 항공모함`);
-    - `…할 것`, `바람` asked for (`기한 내 제출 바람`, `협조하기 바람`; not the wind, `변화의 바람`, `한류 바람`,
-      `_requested`), the polite request `…세요` and `…하십시오` / `…시오`, the plain command
-      `…하라`, and `…는다` after two words or more (`결과를 얻는다`).
+    - `…할 것` (not `알아야 할 것`, `해야 할 것`: the things to know or do, a title);
+    - `바람` asked for (`기한 내 제출 바람`, `협조하기 바람`; not the wind, `변화의 바람`, `한류 바람`, `_requested`);
+    - the polite request `…세요` and `…하십시오` / `…시오`, the plain command `…하라`, and `…는다` after two words or
+      more (`결과를 얻는다`).
 
     Deliberate: in a PDF a bold notice at the body size ('# 서류는 기한 내 제출함', '# 확인해 주세요') became a heading,
     where '개요', '필요', '다음', '모임' and '향후 과제' are titles (Pinned by:
@@ -635,7 +636,9 @@ def _korean_notice_end(text: str) -> bool:
         return True
     if len(words) < 2:
         return False
-    if last == "것" and "가" <= words[-2][-1] <= "힣" and (ord(words[-2][-1]) - 0xAC00) % 28 == _FINAL_L:
+    if (last == "것" and "가" <= words[-2][-1] <= "힣" and (ord(words[-2][-1]) - 0xAC00) % 28 == _FINAL_L
+            and not (len(words) >= 3 and words[-3].endswith("야"))):
+        # `…할 것` tells what to do; `…해야 할 것`, `알아야 할 것` is what one must do or know, the title of a list
         return True
     if (_KOREAN_NOMINAL_END.fullmatch(last) and not last.endswith(_KOREAN_NOUN_ENDS)
             and (len(words) >= 3 or any(word[-1] in _KOREAN_PARTICLES for word in words[:-1]))):
