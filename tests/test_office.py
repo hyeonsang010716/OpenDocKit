@@ -1811,6 +1811,28 @@ class TestDocxNumbering:
 
         assert "항목" in result.text
 
+    @pytest.mark.timing
+    def test_long_chain_of_numbering_style_links_takes_linear_time(self):
+        """Each definition points at a numbering style that names the list of the next definition (w:numStyleLink → w:numPr), the
+        last one with a level. The chain was walked again for every w:num: 2,000 links took 2.8 s, 4,000 of them 10 s. Twice the
+        chain should take about twice the time."""
+        from tests.timing import fastest
+
+        def chained(count: int) -> bytes:
+            styles = "".join(f'<w:style w:type="numbering" w:styleId="L{index}"><w:name w:val="L{index}"/>'
+                             f'<w:pPr><w:numPr><w:numId w:val="{index + 2}"/></w:numPr></w:pPr></w:style>' for index in range(count))
+            numbering = "".join(f'<w:abstractNum w:abstractNumId="{index}"><w:numStyleLink w:val="L{index}"/></w:abstractNum>'
+                                for index in range(count))
+            numbering += f'<w:abstractNum w:abstractNumId="{count}">' + _number_level(0, "%1.") + "</w:abstractNum>"
+            numbering += "".join(_number_list(index + 1, index) for index in range(count + 1))
+            return _docx_with_body(_paragraph("항목", 1), numbering=numbering, styles=styles)
+
+        small, large = chained(1_000), chained(4_000)
+
+        assert convert(large, "a.docx").text == "1. 항목"
+        ratio = fastest(lambda: convert(large, "a.docx")) / max(fastest(lambda: convert(small, "a.docx")), 0.01)
+        assert ratio < 8  # linear gives about 4 times for 4 times the input, quadratic about 16 times
+
     def test_style_named_only_by_a_numbering_level_is_numbered(self):
         """A level that names a paragraph style (w:lvl/w:pStyle) numbers the paragraphs of that style even when the style has no
         w:numPr of its own (ECMA-376 17.9.23); they came out as plain paragraphs. A style based on the named one is not numbered

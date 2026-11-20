@@ -163,13 +163,14 @@ def _load_numbering(document: object) -> dict[str, _NumberList]:
 
     nums = {num.get(_w("numId"), ""): num for num in numbering.iterchildren(_w("num"))}
     style_lists = _numbering_style_lists(document) if style_links else {}
+    resolved: dict[str, str] = {}  # definition → the definition its links end at (`_linked_definition`)
     lists = {}
     for num in numbering.iterchildren(_w("num")):
         abstract_ref = num.find(_w("abstractNumId"))
         if abstract_ref is None:
             continue
         abstract_id = abstract_ref.get(_w("val"), "")
-        abstract_id = _linked_definition(abstract_id, style_definitions, style_links, nums, style_lists)
+        abstract_id = _linked_definition(abstract_id, style_definitions, style_links, nums, style_lists, resolved)
         levels, restarts, indents = abstract_levels.get(abstract_id, {}), {}, abstract_indents.get(abstract_id, {})
         for override in num.iterchildren(_w("lvlOverride")):
             index = _int_value(override.get(_w("ilvl")), -1)
@@ -197,25 +198,42 @@ def _numbering_style_lists(document: object) -> dict[str, str]:
 
 
 def _linked_definition(abstract_id: str, definitions: dict[str, str], links: dict[str, str], nums: dict[str, etree._Element],
-                       style_lists: dict[str, str]) -> str:
+                       style_lists: dict[str, str], resolved: dict[str, str]) -> str:
     """The number definition a definition that points at a numbering style (w:numStyleLink) stands for: the one that defines
     that style (w:styleLink); when none says so, the definition of the list the numbering style itself names (its
     w:pPr/w:numPr), as ECMA-376 17.9.21 has it. The latter is followed through further links, never round a loop. Without it,
     the levels of such a list stayed empty and its items came out as plain paragraphs (Pinned by: test_office.py::TestDocxNumbering::
-    test_numbering_style_without_a_defining_style_link_uses_the_list_it_names)."""
-    seen = {abstract_id}
-    while abstract_id in links:
-        style = links[abstract_id]
+    test_numbering_style_without_a_defining_style_link_uses_the_list_it_names).
+
+    Every definition walked through is noted in `resolved` with the definition the walk ends at, and a later walk stops at the
+    first one noted, so each link is followed once for the whole document. Walked again for every w:num, a chain of 2,000
+    linked definitions (77 KB) took 2.8 s, 4,000 of them 10 s (Pinned by: test_office.py::TestDocxNumbering::
+    test_long_chain_of_numbering_style_links_takes_linear_time)."""
+    path: list[str] = []
+    seen: set[str] = set()
+    while True:
+        if abstract_id in resolved:
+            result = resolved[abstract_id]
+            break
+        path.append(abstract_id)
+        seen.add(abstract_id)
+        style = links.get(abstract_id)
+        if style is None:
+            result = abstract_id
+            break
         if style in definitions:
-            return definitions[style]
+            result = definitions[style]
+            break
         num = nums.get(style_lists.get(style, ""))
         reference = num.find(_w("abstractNumId")) if num is not None else None
         linked = reference.get(_w("val"), "") if reference is not None else ""
         if not linked or linked in seen:
-            return abstract_id
-        seen.add(linked)
+            result = abstract_id
+            break
         abstract_id = linked
-    return abstract_id
+    for walked in path:
+        resolved[walked] = result
+    return result
 
 
 def _level_definition(level: etree._Element, index: int) -> _LevelDefinition:
