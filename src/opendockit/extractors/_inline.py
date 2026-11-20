@@ -567,14 +567,15 @@ def _drop_emphasis_inside_words(atoms: list[_Atom]) -> None:
                 while stop < end and atoms[stop].url == atoms[piece].url and (
                         name == "bold" or atoms[stop].bold == atoms[piece].bold):
                     stop += 1
-                if _unmarkable(atoms, piece, stop, link_edges):
+                if _unmarkable(atoms, piece, stop, link_edges, outer=(piece == index, stop == end)):
                     for position in range(piece, stop):
                         setattr(atoms[position], name, False)
                 piece = stop
             index = end
 
 
-def _unmarkable(atoms: list[_Atom], start: int, stop: int, link_edges: dict[tuple[str, int], str]) -> bool:
+def _unmarkable(atoms: list[_Atom], start: int, stop: int, link_edges: dict[tuple[str, int], str], *,
+                outer: tuple[bool, bool] = (True, True)) -> bool:
     """Whether the marks of the emphasized atoms `start:stop`, written together, would not stress words or would not close.
 
     Judged on the text as cleaning writes it (`_as_written`) and the characters actually written next to the marks: the
@@ -593,12 +594,15 @@ def _unmarkable(atoms: list[_Atom], start: int, stop: int, link_edges: dict[tupl
                                              or _neighbour(atoms, start - 1, -1, link_edges))
     after = " " if raw[-1:].isspace() else (link_edges.get(("]", stop - 1)) or link_edges.get(("[", stop))
                                             or _neighbour(atoms, stop, 1, link_edges))
-    # Whether the piece is part of a word is read on the text around it, link brackets or not: `인사[발령](url)` is one word
-    # to the reader (Pinned by: test_inline_formatting.py::TestPartOfAWord::test_part_of_a_word_across_a_link_edge)
+    # Whether the span is part of a word is read on the text around it, link brackets or not: `인사[발령](url)` is one word
+    # to the reader (Pinned by: test_inline_formatting.py::TestPartOfAWord::test_part_of_a_word_across_a_link_edge). Only
+    # at the span's own edges (`outer`): a piece that begins where bold ends inside one italic span continues the same
+    # stressed words, and taken for part of a word it lost its italic (`***요금제****를 꼭 확인하세요*`)
     letter_before = " " if raw[:1].isspace() else _neighbour(atoms, start - 1, -1, {})
     letter_after = " " if raw[-1:].isspace() else _neighbour(atoms, stop, 1, {})
-    starts_inside = letter_before[-1:].isalnum() and written[:1].isalnum()
-    is_glued_character = stop - start == 1 and len(written) == 1 and written.isalnum() and letter_after[:1].isalnum()
+    starts_inside = outer[0] and letter_before[-1:].isalnum() and written[:1].isalnum()
+    is_glued_character = (all(outer) and stop - start == 1 and len(written) == 1 and written.isalnum()
+                          and letter_after[:1].isalnum())
     return starts_inside or is_glued_character or _unflanked(before, written, written, after)
 
 

@@ -555,6 +555,9 @@ class TestEmphasisAgainstPunctuation:
                 == "앞 **word**[ 추진](https://a.example/x) 뒤")
         assert _docx_text(_paragraph(_run("항목"), _bold(f" {bullet} 추진 배경"), _run(" 다음"))) == "항목 추진 배경 다음"
         assert _docx_text(_paragraph(_run("비율 "), _bold("67%"), _italic(chr(0xE000)), _run("으로"))) == "비율 67%으로"
+        # bold at the start of an italic span: the rest of the span is the same stressed words, not part of a word
+        assert (_docx_text(_paragraph(_run("앞 "), _run("요금제", "<w:b/><w:i/>"), _italic("를 꼭 확인하세요"), _run(" 뒤")))
+                == "앞 ***요금제****를 꼭 확인하세요* 뒤")
         # italic is written apart on each side of a bold edge: `*—****67%?***` left `*—*` unclosed
         assert _docx_text(_paragraph(_run("앞 "), _italic("—"), _run("67%?", "<w:b/><w:i/>"), _run(" 뒤"))) == "앞 —***67%?*** 뒤"
         # a private-use bullet first or last in a link still has the bracket on its far side
