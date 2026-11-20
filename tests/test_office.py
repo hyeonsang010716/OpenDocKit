@@ -735,6 +735,33 @@ class TestDocxStructure:
 
 
 class TestDocxObjects:
+    @pytest.mark.parametrize(("attributes", "expected"), [
+        pytest.param(('alt="분기 매출 그래프"', 'o:title="chart1"'), "[Image: 분기 매출 그래프]", id="alt-of-the-shape"),
+        pytest.param(('alt=" "', 'o:title=""'), "[Image]", id="none"),
+        pytest.param(("", 'o:title="clip_image002"'), "[Image]", id="title-of-the-picture-is-no-description"),
+    ])
+    def test_alt_text_of_a_vml_picture_is_kept(self, attributes, expected):
+        """A legacy VML picture (w:pict/v:shape/v:imagedata) keeps its alt text on the shape (`alt`); it was not read and came out
+        as a bare [Image]. The picture's `o:title` (a source file name, when it holds anything) is not alt text."""
+        from docx import Document
+        from lxml import etree
+
+        document = Document()
+        relationship, _ = document.part.get_or_add_image(BytesIO(builder.png_bytes(seed=4)))
+        shape_alt, title = attributes
+        paragraph = document.add_paragraph()._p
+        paragraph.append(etree.fromstring(
+            f'<w:r {_WORD_NAMESPACES} xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">'
+            f'<w:pict><v:shape style="width:200pt;height:120pt" {shape_alt}><v:imagedata r:id="{relationship}" {title}/></v:shape>'
+            "</w:pict></w:r>"))
+        buffer = BytesIO()
+        document.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.docx")
+
+        assert result.text == expected
+        assert len(result.images) == 1
+
     def test_chart_and_smartart_are_kept(self):
         """Only pictures (a:blip) in a paragraph were read, so charts (c:chart) and SmartArt (dgm:relIds) vanished without a warning.
         They are rendered with the same renderer as PPTX."""
@@ -3332,6 +3359,17 @@ class TestOfficeReadingOrderAndListMarks:
         result = convert(data, f"a.{extension}")
 
         assert result.text == "## Slide 1\n\n매크로 쇼의 글"
+
+    def test_heading_style_of_apple_pages_is_a_heading_but_not_its_children(self):
+        """Apple Pages exports its first heading level as the style 'Heading'; it came out as body text. A style based on one named
+        'Heading' (LibreOffice's Subtitle) is no heading for that."""
+        styles = ('<w:style w:type="paragraph" w:styleId="Heading"><w:name w:val="Heading"/></w:style>'
+                  '<w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:basedOn w:val="Heading"/></w:style>')
+        body = _paragraph("연간 보고서", style="Heading") + _paragraph("부제", style="Subtitle") + _paragraph("본문")
+
+        result = convert(_docx_with_body(body, styles=styles), "a.docx")
+
+        assert result.text == "# 연간 보고서\n\n부제\n\n본문"
 
     def test_heading_style_inside_a_table_cell_gets_no_heading_mark(self):
         """A heading-style paragraph inside a cell got '## ', so the table cell text became '## 추진 배경'. HWP and HWPX put no mark on

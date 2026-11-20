@@ -936,6 +936,12 @@ class _DocxRenderer:
         if direct is not None:
             return _outline_to_heading(_int_attr(direct, 9))
 
+        # Apple Pages names its first heading level 'Heading' (then 'Heading 2', 'Heading 3'). Only the paragraph's own style is
+        # taken by that name: in LibreOffice 'Heading' is the parent of Title, Subtitle and Contents Heading, and followed through
+        # basedOn it made every subtitle a heading (Pinned by: test_office.py::TestOfficeReadingOrderAndListMarks::
+        # test_heading_style_of_apple_pages_is_a_heading_but_not_its_children)
+        if style is not None and style.name.strip().lower() == "heading" and style.outline_level is None:
+            return 1
         seen = 0
         while style is not None and seen < 10:
             match = _HEADING_NAME.match(style.name.strip())

@@ -880,7 +880,15 @@ def _word_art_text(path: etree._Element) -> str:
 
 
 def _drawing_alt(element: etree._Element) -> str | None:
-    """Alt text of a picture: the wp:docPr descr (title if absent) of the nearest wp:inline / wp:anchor."""
+    """Alt text of a picture: the wp:docPr descr (title if absent) of the nearest wp:inline / wp:anchor. A legacy VML picture
+    (v:imagedata) keeps it on its v:shape (`alt`): it was not read, so the picture of an older document lost the description its
+    author wrote. Deliberate: the picture's `o:title` is not taken — real documents leave it empty, and it is where a source
+    file name such as `clip_image002` goes, which the filter of Office's own alt text does not catch (Pinned by:
+    test_office.py::TestDocxObjects::test_alt_text_of_a_vml_picture_is_kept)."""
+    if element.tag == f"{{{_V}}}imagedata":
+        shape = element.getparent()
+        alt = shape.get("alt") if shape is not None and shape.tag == f"{{{_V}}}shape" else None
+        return (alt or "").strip() or None
     for ancestor in element.iterancestors(f"{{{_WP}}}inline", f"{{{_WP}}}anchor"):
         doc_pr = ancestor.find(f"{{{_WP}}}docPr")
         if doc_pr is not None:
