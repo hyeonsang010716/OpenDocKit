@@ -101,6 +101,8 @@ _OLE_MARK = "[OLE object]"
 _OLE_CHART_STREAM = "OOXMLChartContents"
 # The UINT32 of a PARA_SHAPE that holds the paragraph's level 0-9 (`parse_paragraph_heads`)
 _PARA_SHAPE_LEVEL_OFFSET = 54
+# BIN_DATA kinds (low 4 bits of the attribute): a picture, an OLE object (`parse_bin_items`)
+_BIN_EMBEDDING, _BIN_STORAGE = 1, 2
 # The position of the BinItem ID in SHAPE_COMPONENT_OLE: attribute (4), extent (4 + 4)
 _OLE_BIN_ID_OFFSET = 12
 TAG_SHAPE_PICTURE = _HWPTAG_BEGIN + 69
@@ -395,7 +397,9 @@ class HwpRenderer:
         # (`TableGrid.omitted_rows`). Reported as warnings after everything is read.
         self.unread_ole = 0
         # BinItem ID of a chart → the `[Chart] title` line later references to it give (`_ole_chart`)
-        self._charts: dict[int, str] = {}
+        self._charts: dict[int, str | None] = {}
+        # BinItem ID of an OLE object → its stream (`extract_hwp.load_ole`); None reads no OLE object
+        self.load_ole: Callable[[int], bytes | None] | None = None
         self.too_deep = 0
         self.omitted_rows = 0
         self._depth = 0
@@ -662,12 +666,16 @@ class HwpRenderer:
         As in HWPX (`hwpx.HwpxRenderer._render_chart`): a chart is read and rendered once, later references give its
         `[Chart] title` line; inside a table cell its value table goes to the outer table; its value rows stop at the characters
         the output can still take, counted on their own in a note, header or footer."""
-        if self._load_bin is None or len(record.payload) < _OLE_BIN_ID_OFFSET + 2:
+        if self.load_ole is None or len(record.payload) < _OLE_BIN_ID_OFFSET + 2:
             return None
         (item_id,) = struct.unpack_from("<H", record.payload, _OLE_BIN_ID_OFFSET)
+        # What an object turned out to be is kept, a chart or not: opened and parsed again at each reference, 2,000 references
+        # to one object holding 300,000 empty elements took 28 s (Pinned by: test_hwp.py::TestHwpCharts::
+        # test_object_referenced_many_times_is_read_once)
         if item_id in self._charts:
             return self._charts[item_id]
-        data = self._load_bin(item_id)
+        self._charts[item_id] = None
+        data = self.load_ole(item_id)
         root = _chart_part(data) if data else None
         if root is None:
             return None
@@ -1294,11 +1302,12 @@ def _chart_part(data: bytes) -> etree._Element | None:
     return root if root is not None and etree.QName(root).localname == "chartSpace" else None
 
 
-def parse_bin_items(doc_info: list[Record]) -> list[tuple[str | None, bool | None]]:
+def parse_bin_items(doc_info: list[Record], kind: int = _BIN_EMBEDDING) -> list[tuple[str | None, bool | None]]:
     """DocInfo BIN_DATA records → [(stream name, compressed or not)]. The index is the BinItem ID.
 
-    There is a stream when the low 4 bits of the attribute are 1 (EMBEDDING, a picture) or 2 (STORAGE, an OLE object, saved by
-    Hangul as the stream `BinData/BINxxxx.OLE` too); 0 LINK is an external file.
+    There is a stream of the `kind` asked for when the low 4 bits of the attribute are that kind: 1 (EMBEDDING, a picture) or 2
+    (STORAGE, an OLE object, saved by Hangul as the stream `BinData/BINxxxx.OLE` too); 0 LINK is an external file. Pictures are
+    read from EMBEDDING items only, OLE objects from STORAGE items only (`HwpRenderer._ole_chart`).
     Compression is in attribute bits 4-5: 0 means the document default (None), 1 compressed, 2 uncompressed.
     A broken record keeps its place without a stream: skipping it gave every later picture the stream of the next one
     (Pinned by: test_hwp_robustness.py::TestBrokenDocInfoRecordsKeepTheirPlace).
@@ -1312,7 +1321,7 @@ def parse_bin_items(doc_info: list[Record]) -> list[tuple[str | None, bool | Non
             continue
         (properties,) = struct.unpack_from("<H", record.payload, 0)
         compress = {1: True, 2: False}.get((properties >> 4) & 0x3)
-        if properties & 0xF not in (1, 2) or len(record.payload) < 6:
+        if properties & 0xF != kind or len(record.payload) < 6:
             items.append((None, compress))
             continue
         bin_id, ext_length = struct.unpack_from("<HH", record.payload, 2)
@@ -1469,9 +1478,27 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
                     loaded[key] = None
             return loaded[key]
 
+        ole_items = parse_bin_items(doc_info, _BIN_STORAGE)
+        ole_budget = _InflateBudget(options.max_uncompressed_bytes)
+
+        def load_ole(item_id: int) -> bytes | None:
+            """The stream of an OLE object, read to look for a chart (`HwpRenderer._ole_chart`). Its decompression has a budget of
+            its own, as large as the document's: charged to the document's, a pasted sheet that the conversion never reads made a
+            document fail as too large that converted before. An object past it, or whose compression is broken, stays a
+            placeholder; the stream is not kept (Pinned by: test_hwp.py::TestHwpCharts::
+            test_large_ole_object_does_not_make_the_document_too_large)."""
+            name, compress = ole_items[item_id - 1] if 1 <= item_id <= len(ole_items) else (None, None)
+            if not name or not streams.exists(name):
+                return None
+            try:
+                return _read_stream(streams, name, compressed if compress is None else compress, ole_budget)
+            except (zlib.error, DocumentTooLargeError):
+                return None
+
         renderer = HwpRenderer(parse_styles(doc_info), options, extraction, load_bin, parse_paragraph_heads(doc_info),
                                parse_char_scripts(doc_info), parse_struck_shapes(doc_info), parse_char_sizes(doc_info),
                                parse_char_emphasis(doc_info) if options.keep_emphasis else None)
+        renderer.load_ole = load_ole
         blocks = []
         names = _section_streams(ole)
         broken: list[zlib.error] = []

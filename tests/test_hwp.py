@@ -841,13 +841,49 @@ class TestHwpCharts:
         assert result.text == "매출 현황: [OLE object]"
         assert result.warnings == ["The contents of 1 OLE object(s) (pasted tables, charts, etc.) could not be converted."]
 
-    def test_bin_items_of_storage_kind_name_their_stream(self):
+    def test_object_referenced_many_times_is_read_once(self, monkeypatch):
+        """What an object is, a chart or not, is kept: opened and parsed again at each reference, 2,000 references to one object
+        of 300,000 empty elements took 28 s."""
+        from opendockit.extractors import hwp
+
+        calls = []
+        original = hwp._chart_part
+        monkeypatch.setattr(hwp, "_chart_part", lambda data: calls.append(1) or original(data))
+        data = _hwp_with_ole_objects(monkeypatch, {1: _hwp_ole_storage({"OOXMLChartContents": b"<a>" + b"<b/>" * 1000 + b"</a>"}),
+                                                   2: _hwp_ole_storage(self._CHART)}, *[1, 2] * 50)
+
+        result = convert(data, "a.hwp")
+
+        assert len(calls) == 2
+        assert result.text.count("[OLE object]") == 50 and result.text.count("[Chart] 판매") == 50
+
+    def test_large_ole_object_does_not_make_the_document_too_large(self, monkeypatch):
+        """An OLE object is read only to look for a chart, under a budget of its own: a pasted sheet of 3 MB made a document fail
+        as too large under `max_uncompressed_bytes` of 2 MB, which it never read before."""
+        record = builder.hwp_record
+        sheet = _hwp_ole_storage({"Workbook": bytes(3_000_000)})
+        stored = zlib.compress(sheet)[2:-4]
+        docinfo = record(TAG_BIN_DATA, 0, struct.pack("<HHH", 0x2 | 1 << 4, 1, 3) + "OLE".encode("utf-16-le"))
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 1, builder.hwp_text("표:", (11, "gso ")))
+                   + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("gso "))
+                   + record(TAG_SHAPE_OLE, 2, struct.pack("<IiiH", 1, 7200, 7200, 1) + b"\x00" * 16))
+        data = _fake_hwp(monkeypatch, sections=[section], docinfo_extra=docinfo, extra={"BinData/BIN0001.OLE": stored})
+
+        result = convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=2_000_000))
+
+        assert result.text == "표: [OLE object]"
+
+    def test_bin_items_of_each_kind_name_their_stream(self):
+        """Pictures are read from EMBEDDING items only and OLE objects from STORAGE items only: a picture record pointing at an
+        OLE object gave the picture decoder its container."""
         from opendockit.extractors.hwp import parse_bin_items
 
         records = [builder.hwp_record(TAG_BIN_DATA, 0, struct.pack("<HHH", kind, 1, 3) + "OLE".encode("utf-16-le")) for kind in (0, 1, 2)]
+        doc_info = parse_records(b"".join(records))
 
-        assert parse_bin_items(parse_records(b"".join(records))) == [(None, None), ("BinData/BIN0001.OLE", None),
-                                                                      ("BinData/BIN0001.OLE", None)]
+        assert parse_bin_items(doc_info) == [(None, None), ("BinData/BIN0001.OLE", None), (None, None)]
+        assert parse_bin_items(doc_info, 2) == [(None, None), (None, None), ("BinData/BIN0001.OLE", None)]
 
 
 class TestHwpFormObjects:
