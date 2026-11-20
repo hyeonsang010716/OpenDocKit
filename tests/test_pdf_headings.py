@@ -427,6 +427,22 @@ class TestStackedLabels:
         assert "#" not in text
         assert "Name\nPhone" in text and "Date\nEmail" in text
 
+    @pytest.mark.parametrize(("labels", "values", "label_font", "value_font", "value_size"), [
+        (["Name", "Phone"], ["Kim Minsu", "010-1234-5678"], "Times-Bold", "Times-Bold", 10),
+        (["Name", "Phone"], ["Kim Minsu", "010-1234-5678"], "Times-Bold", "Times-Roman", 11),
+        (["Invoice No.", "Due Date"], ["INV-2024-001", "March 3, 2024"], "Times-Bold", "Times-Bold", 10),
+        (["성명", "연락처"], ["김민수", "010-1234-5678"], "Batang-Bold", "Batang-Bold", 10),
+        (["신청인", "소속"], ["김민수", "기획조정실"], "Batang-Bold", "Batang-Bold", 10),
+    ], ids=["bold-values", "larger-values", "invoice", "korean", "korean-names"])
+    def test_stacked_labels_with_bold_or_larger_values_are_no_heading(self, labels, values, label_font, value_font, value_size):
+        items = [*_named_body(80, "Times-Roman", _BODY)]
+        for row, (label, value) in enumerate(zip(labels, values, strict=True)):
+            items += [(72, 140 + 12.5 * row, label, 10, label_font), (250, 140 + 12.5 * row, value, value_size, value_font)]
+        text = _named_font_pdf([*items, *_named_body(185, "Times-Roman", _BODY)])
+
+        assert "#" not in text
+        assert all(label in text and value in text for label, value in zip(labels, values, strict=True))
+
     def test_a_bold_heading_over_two_lines_stays_one_heading(self):
         text = _named_font_pdf([*_named_body(80, "Times-Roman", _BODY),
                                 (72, 140, "A Very Long Heading That Is Set In Bold Over", 10, "Times-Bold"),
