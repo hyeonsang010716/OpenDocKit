@@ -157,25 +157,31 @@ def open_package[T](opener: Callable[[BytesIO], T], data: bytes, warnings: list[
     return opened
 
 
-def is_strict_package(data: bytes) -> bool:
-    """Is the main-part relationship type in the package relationships (_rels/.rels) the Strict Open XML one (purl.oclc.org)? False
-    if unreadable.
+def main_part_types(data: bytes) -> tuple[bool, bool]:
+    """Do the package relationships (_rels/.rels) name a main part with the Strict Open XML type (purl.oclc.org), and one with
+    the Transitional type? Both False if unreadable.
 
     A DOCX/PPTX saved as a 'Strict Open XML document' differs in every relationship type and namespace, so python-docx / python-pptx
     cannot find the main part. It is not corruption (the 'document structure cannot be read' error): a DOCX is read from its
     Transitional copy (`transitional_package`), a PPTX is refused with the advice to save it again. The DOCX reader looks before
-    opening the package, so a Strict one is never opened as it is; the PPTX reader only when opening failed. Looking reads the
-    ZIP directory and one small part (Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
-    test_strict_package_is_not_opened_before_the_copy).
+    opening the package, so a package that names only a Strict main part is never opened as it is; the PPTX reader only when
+    opening failed. Looking reads the ZIP directory and one small part (Pinned by: test_office_revisions_and_numbering.py::
+    TestStrictOpenXmlOfficeDocuments::test_strict_package_is_not_opened_before_the_copy).
     """
     try:
         with zipfile.ZipFile(BytesIO(data)) as archive:
             root = _parse_member(archive, "_rels/.rels") if "_rels/.rels" in archive.namelist() else None
     except ZIP_MEMBER_ERRORS:
-        return False
+        return False, False
 
-    relationships = root.iter(f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship") if root is not None else []
-    return any(relationship.get("Type") == _STRICT_OFFICE_DOCUMENT for relationship in relationships)
+    types = {relationship.get("Type") for relationship in root.iter(f"{{{_PACKAGE_RELATIONSHIPS}}}Relationship")} \
+        if root is not None else set()
+    return _STRICT_OFFICE_DOCUMENT in types, _OFFICE_DOCUMENT in types
+
+
+def is_strict_package(data: bytes) -> bool:
+    """Is a main part named with the Strict Open XML type in the package relationships (`main_part_types`)?"""
+    return main_part_types(data)[0]
 
 
 # A Strict namespace or relationship type (`http://purl.oclc.org/ooxml/<vocabulary>/<name>`) and its Transitional form
@@ -204,8 +210,7 @@ def _transitional_name(value: str) -> str:
 _XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace"
 # The prefixes in scope outside the root element (prefix → namespace; namespace → prefix of element names, of attribute names):
 # only `xml`, which is never declared
-_OUTSIDE_THE_ROOT: tuple[dict[str, str], dict[str, str], dict[str, str]] = (
-    {"xml": _XML_NAMESPACE}, {_XML_NAMESPACE: "xml:"}, {_XML_NAMESPACE: "xml:"})
+_UNBOUND = object()  # no prefix declared for a namespace (`_TransitionalWriter`)
 # Characters gathered before they are encoded into the copy (`_TransitionalWriter`)
 _CHARACTERS_PER_WRITE = 1 << 16
 # Chunk size for feeding a member to the parser (`_transitional_part`)
@@ -235,9 +240,17 @@ class _TransitionalWriter:
         self._relationships = relationships
         self._pieces: list[str] = ['<?xml version="1.0" encoding="UTF-8"?>\n']
         self._characters = 0  # in `_pieces`
-        # One entry per open element: its qualified name, and the prefixes in scope inside it (as `_OUTSIDE_THE_ROOT`)
-        self._open: list[tuple[str, dict[str, str], dict[str, str], dict[str, str]]] = []
-        self._scope = _OUTSIDE_THE_ROOT
+        # One entry per open element: its qualified name, and what its declarations changed, undone at its end
+        self._open: list[tuple[str, list[tuple[str | None, str, object, object]]]] = []
+        # The namespaces bound to each prefix in scope (innermost last; None is the default), and the prefix last declared for
+        # each namespace, for an element name and for an attribute name (which takes no default). Kept up to date one
+        # declaration at a time: rebuilt from every binding in scope at each element that declared one, a part of 16,000 such
+        # elements under 16,000 prefixes took 27 s (Pinned by: test_office_revisions_and_numbering.py::
+        # TestStrictCopyInLinearTime::test_many_namespace_declarations)
+        self._bound: dict[str | None, list[str]] = {"xml": [_XML_NAMESPACE]}
+        self._for_element: dict[str, str | None] = {_XML_NAMESPACE: "xml"}
+        self._for_attribute: dict[str, str] = {_XML_NAMESPACE: "xml"}
+        self._generated = 0  # prefixes declared by the copy (`_qualified`)
         self._tag_open = False  # a start tag is written up to its `>`, so that an empty element closes as `/>`
 
     def _write(self, piece: str) -> None:
@@ -254,45 +267,69 @@ class _TransitionalWriter:
         self._pieces.clear()
         self._characters = 0
 
-    @staticmethod
-    def _qualified(name: str, prefixes: dict[str, str]) -> str:
+    def _bind(self, prefix: str | None, namespace: str, undo: list, declarations: list[str]) -> None:
+        self._bound.setdefault(prefix, []).append(namespace)
+        undo.append((prefix, namespace, self._for_element.get(namespace, _UNBOUND),
+                     self._for_attribute.get(namespace, _UNBOUND)))
+        if namespace:  # not `xmlns=""`
+            self._for_element[namespace] = prefix
+            if prefix:
+                self._for_attribute[namespace] = prefix
+        declarations.append(f' xmlns{":" + prefix if prefix else ""}="{_escaped_value(namespace)}"')
+
+    def _qualified(self, name: str, attribute: bool, undo: list, declarations: list[str]) -> str:
         if not name.startswith("{"):
             return name
         namespace, _, local = name[1:].partition("}")
-        return prefixes[_transitional_name(namespace) if namespace.startswith("http://purl.oclc.org/ooxml/") else namespace] + local
+        namespace = _transitional_name(namespace) if namespace.startswith("http://purl.oclc.org/ooxml/") else namespace
+        prefix = (self._for_attribute if attribute else self._for_element).get(namespace, _UNBOUND)
+        bound = self._bound.get(prefix) if prefix is not _UNBOUND else None
+        if not bound or bound[-1] != namespace:
+            # The prefix last declared for it was declared again for another namespace inside: one of the copy's own is
+            # declared here, so that finding another one in scope does not cost a search. It is bound to nothing in scope, or
+            # a name of this element under that prefix would move to the namespace declared (the counter only grows, so the
+            # names skipped are skipped once; Pinned by: test_office_revisions_and_numbering.py::
+            # TestStrictOpenXmlOfficeDocuments::test_names_keep_their_namespaces_when_their_prefix_is_declared_again)
+            while True:
+                self._generated += 1
+                prefix = f"ns{self._generated}"
+                if not self._bound.get(prefix):
+                    break
+            self._bind(prefix, namespace, undo, declarations)
+        return f"{prefix}:{local}" if prefix else local
 
     def start(self, tag: str, attrib: dict[str, str], nsmap: dict[str, str]) -> None:
-        bindings, element_prefixes, attribute_prefixes = self._scope
-        declarations = ""
-        if nsmap:
-            declared = {prefix: _transitional_name(namespace) for prefix, namespace in nsmap.items()}  # '' is the default
-            bindings = {**bindings, **declared}
-            element_prefixes = {namespace: prefix + ":" if prefix else "" for prefix, namespace in bindings.items() if namespace}
-            attribute_prefixes = {namespace: prefix + ":" for prefix, namespace in bindings.items() if namespace and prefix}
-            self._scope = bindings, element_prefixes, attribute_prefixes
-            declarations = "".join(f' xmlns{":" + prefix if prefix else ""}="{_escaped_value(namespace)}"'
-                                   for prefix, namespace in declared.items())
-        name = self._qualified(tag, element_prefixes)
+        undo: list = []
+        declarations: list[str] = []
+        for prefix, namespace in nsmap.items():
+            self._bind(prefix, _transitional_name(namespace), undo, declarations)
+        name = self._qualified(tag, False, undo, declarations)
         # Fed to a parser target without entities, libxml2 hands each `&` of an attribute value on as `&#38;` (and a written
         # `&#38;` as `&#38;#38;`), where the tree python-docx builds has `&`: written again as given, the `&` of every link
         # (`?a=1&b=2`) and of every value holding one became `&#38;` in the copy (Pinned by:
         # test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::test_attribute_values_keep_their_ampersands)
         attributes = "".join(
-            f' {self._qualified(attribute, attribute_prefixes)}="'
+            f' {self._qualified(attribute, True, undo, declarations)}="'
             f'{_escaped_value(_transitional_name(value) if self._relationships and attribute == "Type" else value)}"'
             for attribute, value in ((attribute, value.replace("&#38;", "&")) for attribute, value in attrib.items()))
-        self._write(f"<{name}{declarations}{attributes}")
+        self._write(f"<{name}{''.join(declarations)}{attributes}")
         self._tag_open = True
-        self._open.append((name, *self._scope))
+        self._open.append((name, undo))
 
     def end(self, tag: str) -> None:
-        name = self._open.pop()[0]
+        name, undo = self._open.pop()
         if self._tag_open:
             self._pieces.append("/>")
             self._tag_open = False
         else:
             self._write(f"</{name}>")
-        self._scope = self._open[-1][1:] if self._open else _OUTSIDE_THE_ROOT
+        for prefix, namespace, for_element, for_attribute in reversed(undo):
+            self._bound[prefix].pop()
+            for table, previous in ((self._for_element, for_element), (self._for_attribute, for_attribute)):
+                if previous is _UNBOUND:
+                    table.pop(namespace, None)
+                else:
+                    table[namespace] = previous
 
     def data(self, text: str) -> None:
         self._write(_escaped_text(text))

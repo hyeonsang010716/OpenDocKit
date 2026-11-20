@@ -9,6 +9,7 @@ from lxml import etree
 import pytest
 
 from opendockit import ConvertOptions, UnsupportedFormatError, convert
+from opendockit.extractors import _package
 from opendockit.extractors._package import transitional_package
 from tests import builder
 from tests.test_office import _docx_with_body, _number_list, _paragraph, _without_parts
@@ -575,6 +576,44 @@ class TestStrictOpenXmlOfficeDocuments:
         assert f'<!-- <w:p xmlns:x="{namespace}"> -->'.encode() in document
         assert b'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"' in document
 
+    def test_names_keep_their_namespaces_when_their_prefix_is_declared_again(self):
+        """A prefix declared again inside for another namespace leaves the outer one to another prefix in scope: the copy
+        declares one of its own for it, bound to nothing in scope, so the names already written under a prefix of the element
+        keep theirs."""
+        strict = "http://purl.oclc.org/ooxml/drawingml/main"
+        part = (f'<r xmlns:ns1="{strict}" xmlns:a="urn:a" xmlns:w="urn:a"><e xmlns:w="urn:w">'
+                f'<w:e ns1:x="1" a:y="2"/></e></r>').encode()
+        archive = BytesIO()
+        with zipfile.ZipFile(archive, "w") as written:
+            written.writestr("p.xml", part)
+        with zipfile.ZipFile(archive) as read:
+            copy = b"".join(_package._transitional_part(read, read.getinfo("p.xml"), relationships=False))
+
+        element = etree.fromstring(copy)[0][0]
+        assert element.tag == "{urn:w}e"
+        assert dict(element.attrib) == {"{http://schemas.openxmlformats.org/drawingml/2006/main}x": "1", "{urn:a}y": "2"}
+
+    def test_transitional_document_with_a_strict_relationship_is_read_as_it_is(self):
+        """A Transitional document whose package relationships also give a part the Strict main-part type was copied as a
+        Strict one, the renamed relationship came first, and the whole document was refused."""
+        strict = "http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument"
+        data = builder.zip_with(builder.docx_bytes(), edit={"_rels/.rels": lambda xml: xml.replace(
+            "<Relationship ", f'<Relationship Id="rIdS" Type="{strict}" Target="word/styles.xml"/><Relationship ', 1)})
+
+        result = convert(data, "a.docx")
+
+        assert result.text == convert(builder.docx_bytes(), "a.docx").text and "# 1장 개요" in result.text
+
+    def test_strict_document_with_a_transitional_relationship_is_read_from_its_copy(self):
+        """A Strict document whose package relationships also give its document the Transitional main-part type: python-docx
+        opens it as it is with no body it can read, so it is read from its copy."""
+        transitional = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+        strict = _strict_everywhere(builder.docx_bytes())
+        data = builder.zip_with(strict, edit={"_rels/.rels": lambda xml: xml.replace(
+            "</Relationships>", f'<Relationship Id="rIdT" Type="{transitional}" Target="word/document.xml"/></Relationships>')})
+
+        assert convert(data, "a.docx").text == convert(strict, "a.docx").text
+
     def test_attribute_values_keep_their_ampersands(self):
         """A parser target without entities is handed each `&` of an attribute value as `&#38;`: written again as given, the
         query of every link (`?a=1&b=2`) came out as `?a=1&#38;b=2`, and so did any value holding one."""
@@ -843,6 +882,19 @@ class TestStrictCopyInLinearTime:
             return _strict_docx_with_reached_part(b"<r " + self._STRICT + b"/>" + opened + repeated * (size // len(repeated)))
 
         small, large = document(20_000), document(160_000)
+
+        assert "# 1장 개요" in convert(large, "a.docx").text
+        assert fastest(lambda: convert(large, "a.docx")) < 8 * fastest(lambda: convert(small, "a.docx")) + 0.05
+
+    def test_many_namespace_declarations(self):
+        """The prefixes in scope were gathered again from every binding at each element that declared one: a part whose root
+        declares 16,000 prefixes over 16,000 elements that each declare one more (666 KB) took 27 s."""
+        def document(count: int) -> bytes:
+            prefixes = b" ".join(b'xmlns:p%d="urn:%d"' % (number, number) for number in range(count))
+            return _strict_docx_with_reached_part(b"<r " + self._STRICT + b" " + prefixes + b">"
+                                                  + b'<a:p xmlns:z="urn:z"/>' * count + b"</r>")
+
+        small, large = document(2_000), document(16_000)
 
         assert "# 1장 개요" in convert(large, "a.docx").text
         assert fastest(lambda: convert(large, "a.docx")) < 8 * fastest(lambda: convert(small, "a.docx")) + 0.05
