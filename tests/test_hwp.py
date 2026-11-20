@@ -1533,6 +1533,33 @@ class TestHwpMemo:
 
         assert convert(data, "a.hwp").text.endswith('> Comment(검토자, on "Ubuntu 22.04"): 확인')
 
+    def test_link_in_the_text_of_a_comment_is_plain(self, monkeypatch):
+        """The text of a comment is plain, as in HWPX and DOCX."""
+        from opendockit.extractors.hwp import TAG_MEMO_LIST
+        record = builder.hwp_record
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 1, builder.hwp_text("가", (3, "%unk"), "B", (4, "%unk")))
+                   + record(TAG_CTRL_HEADER, 1, _hwp_field("%unk", "MEMO/65535/1/0/0/a/\\;;"))
+                   + record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("끝"))
+                   + record(TAG_MEMO_LIST, 1, struct.pack("<I", 1)) + record(TAG_LIST_HEADER, 1, b"\x01\x00" + b"\x00" * 6)
+                   + record(TAG_PARA_HEADER, 1, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 2, builder.hwp_text("see ", (3, "%hlk"), "site", (4, "%hlk")))
+                   + record(TAG_CTRL_HEADER, 2, _hwp_field("%hlk", "https\\://x.org/;1;0;0;")))
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text.endswith('> Comment(a, on "B"): see site')
+
+    def test_comment_of_a_repeated_header_is_written_once(self):
+        header = ('<hp:ctrl><hp:header><hp:subList><hp:p><hp:run><hp:ctrl><hp:fieldBegin id="1" type="MEMO"><hp:parameters cnt="1">'
+                  '<hp:stringParam name="Author">hdr</hp:stringParam></hp:parameters><hp:subList><hp:p><hp:run><hp:t>h</hp:t>'
+                  '</hp:run></hp:p></hp:subList></hp:fieldBegin></hp:ctrl><hp:t>Form</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="1"/>'
+                  "</hp:ctrl></hp:run></hp:p></hp:subList></hp:header></hp:ctrl>")
+        body = f"<hp:p><hp:run>{header}<hp:t>첫</hp:t></hp:run></hp:p><hp:p><hp:run>{header}<hp:t>둘</hp:t></hp:run></hp:p>"
+
+        for options in (ConvertOptions(), ConvertOptions(include_headers_footers=True)):
+            text = convert(builder.hwpx_bytes(body), "a.hwpx", options).text
+
+            assert text.count('> Comment(hdr, on "Form"): h') == 1
+
     def test_field_with_another_command_is_no_memo(self, monkeypatch):
         record = builder.hwp_record
         section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())

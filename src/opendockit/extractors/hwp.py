@@ -717,7 +717,8 @@ class HwpRenderer:
             self._clicks_opened += 1
             self._fields.append(_ClickHere(buffer, len(buffer), click_here_guide(unfold(command)), self._clicks_opened))
             return
-        if kind == "%hlk" and self._options.keep_links and command:
+        # The text of a comment is plain, as in HWPX and DOCX
+        if kind == "%hlk" and self._options.keep_links and command and not self._memo_depth:
             url = command_link(command)
         self._fields.append(url)
         if url is not None:
@@ -848,6 +849,8 @@ class HwpRenderer:
             if not text or text in found:
                 del self.notes[notes:], self.memos[memos:]
                 self._note_count = note_count
+        elif text in found:
+            del self.memos[memos:]  # a header written once has its comments once (as in HWPX)
         if text and text not in found:
             found[text] = None
             if found is self.headers:
