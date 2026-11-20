@@ -23,6 +23,7 @@ from lxml import etree
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._encoding import decode_text, decoding_warning
 from opendockit.extractors._package import parse_part
+from opendockit.extractors._xml import thread_parser
 from opendockit.extractors.html import extract_html
 from opendockit.markdown import solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, renumber_image_markers
@@ -59,7 +60,7 @@ _OPS = "{http://www.idpf.org/2007/ops}"
 _SWITCH_NAMES = {name: (f"{_OPS}{name}", f"epub:{name}") for name in ("switch", "case", "default")}
 _READ_NAMESPACES = frozenset({"http://www.w3.org/1998/Math/MathML"})
 # Entities stay unexpanded (an entity defined in the chapter cannot multiply itself) and nothing is fetched.
-_CHAPTER_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, remove_comments=True, remove_pis=True)
+_chapter_parser = thread_parser(resolve_entities=False, no_network=True, remove_comments=True, remove_pis=True)
 # libxml2's HTML parser keeps at most 2,048 nested elements and drops what lies deeper. A chapter that reaches that depth
 # (no real book does) is reported (Pinned by: test_epub.py::TestChapterMarkup::test_chapter_nested_deeper_than_the_parser_reads_is_reported).
 _HTML_PARSER_DEPTH = 2_000
@@ -411,7 +412,7 @@ def _parse_chapter(data: bytes, warnings: list[str]) -> etree._Element | None:
     """The chapter as a tree: XML when it is well-formed, otherwise what the HTML parser makes of it (as reading systems do
     for `&nbsp;` without a DTD or an unclosed `<p>`). None when even that gives nothing."""
     try:
-        return etree.fromstring(data, parser=_CHAPTER_PARSER)
+        return etree.fromstring(data, parser=_chapter_parser())
     except etree.XMLSyntaxError:
         pass
     match = _DECLARED_CHARSET.search(data[:_CHARSET_PRESCAN_BYTES])

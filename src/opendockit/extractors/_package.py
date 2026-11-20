@@ -15,8 +15,10 @@ import zlib
 
 from lxml import etree
 
+from opendockit.extractors._xml import thread_parser
 
-_XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True)
+
+_xml_parser = thread_parser(resolve_entities=False, no_network=True)
 
 # What reading one damaged member of a ZIP archive can raise: a bad CRC or local header (BadZipFile), a broken compressed stream
 # (zlib.error, lzma.LZMAError, OSError from bz2), a stream cut short (EOFError), an encrypted member (RuntimeError), an unknown
@@ -84,7 +86,7 @@ def has_password_protected_part(data: bytes) -> bool:
 def parse_part(data: bytes) -> etree._Element | None:
     """Read part XML without entities or network access. A broken part gives None (only that object is skipped)."""
     try:
-        return etree.fromstring(data, parser=_XML_PARSER)
+        return etree.fromstring(data, parser=_xml_parser())
     except etree.XMLSyntaxError:
         return None
 
@@ -667,7 +669,7 @@ def repair_package(data: bytes, *, in_another_case: bool = True) -> tuple[bytes,
         # document was rejected (Pinned by: test_office_robustness.py::TestTargetInAnotherCase::
         # test_relationships_carried_to_another_folder_case_keep_their_targets).
         for old_name in renamed:
-            root = (etree.fromstring(rewritten[old_name], parser=_XML_PARSER) if old_name in rewritten
+            root = (etree.fromstring(rewritten[old_name], parser=_xml_parser()) if old_name in rewritten
                     else _parse_member(archive, old_name))
             if root is None:
                 continue
@@ -837,7 +839,7 @@ def named_part(name: str, exists: Callable[[str], bool]) -> str:
 def _parse_member(archive: zipfile.ZipFile, name: str) -> etree._Element | None:
     """Root of an XML member. None when it does not parse or cannot be read out of the archive."""
     try:
-        return etree.fromstring(archive.read(name), parser=_XML_PARSER)
+        return etree.fromstring(archive.read(name), parser=_xml_parser())
     except (etree.XMLSyntaxError, *ZIP_MEMBER_ERRORS):
         return None
 

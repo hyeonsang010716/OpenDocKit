@@ -1310,6 +1310,27 @@ def _libraries_loaded_by(script: str) -> set[str]:
     return set(json.loads(completed.stdout.strip().splitlines()[-1]))
 
 
+class TestXmlParsersPerThread:
+    """A parser kept by a module and used by threads converting at once made other threads' parses fail (python-docx read a
+    sound `settings.xml` as 'Namespace prefix w on settings is not defined'), so a valid file came out as corrupted in 7 of
+    200 runs of eight threads converting different formats. Each thread now parses with its own parser."""
+
+    @pytest.mark.parametrize(("module", "name"), [("_package", "_xml_parser"), ("_xlsx_parts", "_vml_parser"),
+                                                  ("epub", "_chapter_parser"), ("hwpx", "_xml_parser"), ("odf", "_xml_parser")])
+    def test_each_thread_has_its_own_parser(self, module, name):
+        from importlib import import_module
+        import threading
+
+        parser = getattr(import_module(f"opendockit.extractors.{module}"), name)
+        others: list[object] = []
+        thread = threading.Thread(target=lambda: others.extend([parser(), parser()]))
+        thread.start()
+        thread.join()
+
+        assert parser() is parser() and others[0] is others[1]
+        assert others[0] is not parser()
+
+
 class TestExtractorsImportedOnFirstUse:
     """`import opendockit` imported every extractor and with them openpyxl, BeautifulSoup, pdfplumber, pypdfium2 and python-pptx:
     0.2-0.3 s and 100 MB before a page was read, paid by every command-line run and every Windows worker (a full interpreter

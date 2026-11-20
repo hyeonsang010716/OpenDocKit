@@ -44,6 +44,7 @@ from opendockit.extractors._notation import (
     omitted_rows_warning,
 )
 from opendockit.extractors._package import ZIP_MEMBER_ERRORS, decimal_int, parse_part
+from opendockit.extractors._xml import thread_parser
 from opendockit.markdown import TableGrid, join_blocks, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -51,7 +52,7 @@ from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 _SECTION_NAME = re.compile(r"^Contents/section(\d+)\.xml$")
 # Spine entries (itemref of content.hpf) looked at, the same number as for an EPUB (`_section_order`).
 _MAX_SPINE_ITEMS = 5_000
-_XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, remove_comments=True)
+_xml_parser = thread_parser(resolve_entities=False, no_network=True, remove_comments=True)
 # Pictures, OLE objects and videos have no text, and a picture's description (shapeComment) is the "그림입니다. 원본 그림의 이름…" text
 # that Hangul inserts automatically.
 # The caption of an object (hp:caption) is read separately by `HwpxRenderer._caption`.
@@ -119,7 +120,7 @@ def _child(element: etree._Element, name: str) -> etree._Element | None:
 
 def parse_xml(data: bytes) -> etree._Element:
     try:
-        return etree.fromstring(data, parser=_XML_PARSER)
+        return etree.fromstring(data, parser=_xml_parser())
     except etree.XMLSyntaxError as exc:
         raise CorruptedDocumentError("The XML of the HWPX document is corrupted.") from exc
 
@@ -937,7 +938,7 @@ def _parse_member(archive: zipfile.ZipFile, names: Collection[str], name: str) -
     if data is None:
         return None
     try:
-        return etree.fromstring(data, parser=_XML_PARSER)
+        return etree.fromstring(data, parser=_xml_parser())
     except etree.XMLSyntaxError:
         return None
 

@@ -33,7 +33,7 @@ from openpyxl.worksheet.merge import MergeCell, MergeCells
 from openpyxl.xml.constants import SHEET_MAIN_NS
 from openpyxl.xml.functions import iterparse as _openpyxl_iterparse
 
-from opendockit.extractors._package import _XML_PARSER, decimal_int, named_part
+from opendockit.extractors._package import _xml_parser, decimal_int, named_part
 from opendockit.extractors._sheet_format import _format_within_length, _is_date_number_format, _is_elapsed_format
 
 
@@ -651,7 +651,7 @@ def _properties_or_title(reader: _openpyxl_excel_reader.ExcelReader) -> None:
         _read_properties(reader)
     except (ValueError, TypeError, SyntaxError, AttributeError, OverflowError):
         try:
-            root = etree.fromstring(reader.archive.read(_openpyxl_excel_reader.ARC_CORE), parser=_XML_PARSER)
+            root = etree.fromstring(reader.archive.read(_openpyxl_excel_reader.ARC_CORE), parser=_xml_parser())
         except etree.XMLSyntaxError:
             return
         reader.wb.properties.title = root.findtext(_CORE_TITLE)
