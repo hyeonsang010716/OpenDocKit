@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **DOCX saved as Strict Open XML is read.** It was refused with the advice to save it again; its namespaces and
+  relationship types are now read as their Transitional forms, and the lengths Word writes there with a unit (`36pt`)
+  as the twips and half-points they stand for, so indented lists and raised or lowered text come out as they do in an
+  ordinary DOCX. A Strict PowerPoint or Excel file is still refused with that advice.
 - **Windows is a supported platform.** The suite runs there for every change, and the sample outputs are identical to
   the ones Linux and macOS write.
   - `IsolatedConverter` keeps the memory limit it is given (the `ProcessMemoryLimit` of a job object, as `RLIMIT_AS` is
@@ -56,6 +60,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   again (only the chunks a rewrite keeps are copied, so metadata is still stripped). A 7 MB HWP with 51 pictures
   converts in 118 ms instead of 549 ms.
 
+### Changed
+
+- **Faster start.** An extractor is imported the first time its format is converted, instead of all of them with the
+  package. `import opendockit` takes 0.07 s and 43 MB instead of 0.23 s and 101 MB, and a fresh process converting one
+  small DOCX 0.09 s instead of 0.25 s — what a command-line run and every Windows worker pay per file. The workers of
+  `IsolatedConverter` still start with every extractor loaded. A reader library that cannot be imported (a broken
+  installation) no longer stops `import opendockit`: converting a file of its format raises `ImportError` with a fixed
+  sentence. The extractor functions are no longer importable from `opendockit.extractors` itself
+  (`from opendockit.extractors import extract_docx`); that package is internal, and `opendockit.extractors.docx` and
+  the other modules still have them.
+- **DOCX conversion is 12-19% faster** on large documents (20,000 paragraphs, 80,000 table cells); the output is the same
+  to the byte.
+
 ### Security
 
 - **MCP server on Windows**: a path on a network share (`\\host\share\…`) is refused before anything is looked up,
@@ -69,6 +86,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Threads converting at once**: a valid DOCX or XLSX could come out as corrupted, a DOCX or HWPX with other text, or
+  the process could stop on a bad access, when threads converted at the same moment — most often in a pool whose threads
+  had converted a PowerPoint file. lxml had left them sharing one string dictionary, through a parser kept for every
+  thread. Each converting thread now has a dictionary of its own, and the library's own parsers are one for each thread.
+- **DOCX lists** whose definition points at a numbering style that no definition claims are numbered: they now use the
+  list the style names, as ECMA-376 defines. They came out as plain paragraphs.
+- **DOCX**: a document whose own style is named 'Heading' (Apple Pages' first heading level) gets its headings; a legacy
+  VML picture keeps the alt text written on its shape.
+- **DOCX**: a table row deleted with Track Changes on is left out, as every other tracked deletion is. It came out as a
+  row of the final table, so a struck-out price or clause read as if it still stood. A vertical merge that starts in
+  the deleted row keeps its text in the rows left.
 - Bold or italic that ends on a punctuation mark right before a letter (`**67%**으로`, `**「법」**제15조`) is no longer
   written: Markdown readers showed its asterisks as text. This affects every format that keeps emphasis.
 - **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if

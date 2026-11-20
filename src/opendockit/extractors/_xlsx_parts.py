@@ -16,13 +16,14 @@ from openpyxl.utils.cell import coordinate_to_tuple
 from opendockit.extractors._charts import package_loader, render_chart, render_chartex, render_smartart
 from opendockit.extractors._notation import chars_left
 from opendockit.extractors._openpyxl_reading import _READING, _CellPicture
-from opendockit.extractors._package import _XML_PARSER, decimal_int, named_part, parse_part
+from opendockit.extractors._package import _xml_parser, decimal_int, named_part, parse_part
 from opendockit.extractors._sheet_layout import (
     _CHECKED,
     _UNCHECKED,
     _CellComment,
     _SheetRows,
 )
+from opendockit.extractors._xml import thread_parser
 from opendockit.markdown import solid_length
 from opendockit.models import ConvertOptions, Extraction
 
@@ -49,7 +50,7 @@ def _workbook_path(archive: zipfile.ZipFile, names: set[str]) -> str:
     (Pinned by: test_detect.py::TestRenamedMainPart)."""
     if "_rels/.rels" in names:
         try:
-            root = etree.fromstring(archive.read("_rels/.rels"), parser=_XML_PARSER)
+            root = etree.fromstring(archive.read("_rels/.rels"), parser=_xml_parser())
         except etree.XMLSyntaxError:
             return "xl/workbook.xml"
         for relationship in root.iter(_RELATIONSHIPS):
@@ -102,7 +103,7 @@ def _drawing_blocks(archive: zipfile.ZipFile, names: set[str], sheet_path: str, 
         if drawing not in names:
             continue
         try:
-            root = etree.fromstring(archive.read(drawing), parser=_XML_PARSER)
+            root = etree.fromstring(archive.read(drawing), parser=_xml_parser())
         except etree.XMLSyntaxError:
             continue  # openpyxl cannot read it either
         media = _part_relations(archive, names, drawing)
@@ -234,7 +235,7 @@ _FORM_CONTROL_TYPES = frozenset(("checkbox", "radio"))
 
 
 # Excel's VML sometimes uses unclosed tags (<br>) as HTML does. Broken parts are skipped while reading.
-_VML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, recover=True)
+_vml_parser = thread_parser(resolve_entities=False, no_network=True, recover=True)
 # Unclosed void HTML tags. For every unmatched closing tag the parser pushed elements one level, so x:ClientData ended up inside
 # v:textbox and the check box was lost.
 # `<` is not allowed in the attribute part — each `<br` continuing without a `>` was scanned to the end, and a 6KB document took a
@@ -286,7 +287,7 @@ def _vml_root(xml: bytes) -> etree._Element | None:
     garbage bytes) — check boxes are an extra, so the document is not rejected because of them
     (Pinned by: test_spreadsheet_damaged_parts.py::TestDamagedFormControlDrawing)."""
     try:
-        return etree.fromstring(_VML_VOID_TAG.sub(rb"<\1\2/>", _plain_text_boxes(xml)), parser=_VML_PARSER)
+        return etree.fromstring(_VML_VOID_TAG.sub(rb"<\1\2/>", _plain_text_boxes(xml)), parser=_vml_parser())
     except etree.XMLSyntaxError:
         return None
 
@@ -458,11 +459,11 @@ def _rich_values(archive: zipfile.ZipFile, names: set[str]) -> dict[str, object]
         return {}
 
     try:
-        metadata = etree.fromstring(archive.read(parts["/sheetMetadata"]), parser=_XML_PARSER)
-        values = etree.fromstring(archive.read(parts["/rdRichValue"]), parser=_XML_PARSER)
-        structures = (etree.fromstring(archive.read(parts["/rdRichValueStructure"]), parser=_XML_PARSER)
+        metadata = etree.fromstring(archive.read(parts["/sheetMetadata"]), parser=_xml_parser())
+        values = etree.fromstring(archive.read(parts["/rdRichValue"]), parser=_xml_parser())
+        structures = (etree.fromstring(archive.read(parts["/rdRichValueStructure"]), parser=_xml_parser())
                       if parts["/rdRichValueStructure"] else None)
-        relations = (etree.fromstring(archive.read(parts["/richValueRel"]), parser=_XML_PARSER)
+        relations = (etree.fromstring(archive.read(parts["/richValueRel"]), parser=_xml_parser())
                      if parts["/richValueRel"] else None)
     except etree.XMLSyntaxError:
         return {}
@@ -540,7 +541,7 @@ def _picture_reference_bytes(archive: zipfile.ZipFile) -> int:
                 continue
             media = _part_relations(archive, names, part)
             try:
-                root = etree.fromstring(archive.read(part), parser=_XML_PARSER)
+                root = etree.fromstring(archive.read(part), parser=_xml_parser())
             except etree.XMLSyntaxError:
                 continue  # openpyxl cannot read it either
             total += sum(sizes.get(media.get(element.get(_EMBED), ""), 0) for element in root.iter()
@@ -561,7 +562,7 @@ def _related(archive: zipfile.ZipFile, names: set[str], source: str, kind: str |
     if rels_path not in names:
         return {}
 
-    root = etree.fromstring(archive.read(rels_path), parser=_XML_PARSER)
+    root = etree.fromstring(archive.read(rels_path), parser=_xml_parser())
     targets = {}
     for relationship in root.iter(_RELATIONSHIPS):
         if kind is not None and not relationship.get("Type", "").endswith(kind):
