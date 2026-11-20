@@ -25,10 +25,13 @@ from opendockit.extractors._equation import render_equation
 from opendockit.extractors._hangul import (
     PREVIEW_CELL_MARKS,
     ParagraphPieces,
+    SizeHeadings,
     click_here_guide,
     command_link,
     decorated_text,
     drop_unfilled_guide,
+    emphasis_pieces,
+    header_by_default,
     link_end,
     link_start,
 )
@@ -59,6 +62,8 @@ TAG_PARA_CHAR_SHAPE = _HWPTAG_BEGIN + 52
 # agrees). The position was confirmed on real files through bold (bit 1) and the base size, and the script bits by comparing with the
 # HWPX twin (hh:supscript) of the same document (Pinned by: test_hwp.py::TestSuperscript).
 _CHAR_SHAPE_ATTRIBUTE_OFFSET = 46
+# The base size (INT32, in 1/100 pt) just before the attribute (`parse_char_sizes`)
+_CHAR_SHAPE_SIZE_OFFSET = 42
 _CHAR_SHAPE_SUPERSCRIPT, _CHAR_SHAPE_SUBSCRIPT = 1 << 15, 1 << 16
 # In the same table, bits 18-20 are the strikeout flag and bits 26-29 the strikeout shape (line type, in the order of spec table 27 =
 # hwplib BorderType2: 0 solid … 7 double … 10 thin+thick+thin, 11 and 12 wave, 13-16 3D). It counts as strikethrough only when the flag
@@ -218,9 +223,11 @@ _CHAR_CONTROLS = tuple((chr(unit), _CHAR_REPLACEMENTS.get(unit, "")) for unit in
 _CHAR_CONTROL_TEXT = re.compile("[" + "".join(control for control, _ in _CHAR_CONTROLS) + "]")
 # Characters that are nothing but char controls that are dropped (0, 13, 25-29).
 _DROPPED_CONTROLS_ONLY = re.compile(rb"(?:[\x00\x0d\x19-\x1d]\x00)*+")
-# Character shape runs of a paragraph: (start character position, (super/subscript mark, struck through or not)). Ascending by position,
-# and neighboring runs have different values.
-ShapeRuns = list[tuple[int, tuple[str | None, bool]]]
+# Character shape runs of a paragraph: (start character position, (super/subscript mark, struck through or not, bold, italic)).
+# Ascending by position, and neighboring runs have different values.
+RunShape = tuple[str | None, bool, bool, bool]
+ShapeRuns = list[tuple[int, RunShape]]
+_PLAIN_RUN: RunShape = (None, False, False, False)
 
 
 def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> list[str | int]:
@@ -241,13 +248,13 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
     view = memoryview(payload)
     parts: list[str | int] = []
     pieces: list[bytes | memoryview] = []  # text being gathered now (UTF-16 bytes)
-    shape: tuple[str | None, bool] = (None, False)  # (script mark, struck through or not) of the text being gathered now
+    shape: RunShape = _PLAIN_RUN  # (script mark, struck through, bold, italic) of the text being gathered now
     runs = shape_runs or []
     run = -1  # index of the run covering the current position (-1 is before the first run)
 
     def flush() -> None:
         if pieces:
-            script, struck = shape
+            script, struck, bold, italic = shape
             decoded = b"".join(pieces).decode("utf-16-le", errors="replace")
             pieces.clear()
             if _CHAR_CONTROL_TEXT.search(decoded):
@@ -256,7 +263,7 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
                         decoded = decoded.replace(control, replacement)
             if decoded:  # nothing but controls that are dropped
                 decoded = mark_script(decoded, script) if script else decoded
-                parts.append(mark_strike(decoded) if struck else decoded)
+                parts.extend(emphasis_pieces(mark_strike(decoded) if struck else decoded, bold, italic))
 
     def add(start: int, stop: int, piece: bytes | None = None) -> None:
         """Gather the text at character positions [start, stop) (that one character if `piece` is given), split per run mark."""
@@ -264,7 +271,7 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
         while start < stop:
             while run + 1 < len(runs) and runs[run + 1][0] <= start:
                 run += 1
-            wanted = runs[run][1] if run >= 0 else (None, False)
+            wanted = runs[run][1] if run >= 0 else _PLAIN_RUN
             end = min(stop, runs[run + 1][0]) if run + 1 < len(runs) else stop
             span = piece if piece is not None else view[2 * start:2 * end]
             if wanted != shape:
@@ -327,8 +334,15 @@ class _ClickHere:
 class HwpRenderer:
     def __init__(self, styles: list[str], options: ConvertOptions, extraction: Extraction | None = None,
                  load_bin: Callable[[int], bytes | None] | None = None, heads: ParagraphHeads | None = None,
-                 scripts: dict[int, str] | None = None, struck: frozenset[int] = frozenset()) -> None:
+                 scripts: dict[int, str] | None = None, struck: frozenset[int] = frozenset(),
+                 sizes: list[int] | None = None, emphasis: dict[int, tuple[bool, bool]] | None = None) -> None:
         self._styles = styles
+        # Character shape ID → (bold, italic) for the shapes that have either (parse_char_emphasis; empty without `keep_emphasis`)
+        self._emphasis = emphasis or {}
+        # Character shape ID → base size (parse_char_sizes), and the headings told by size (`_hangul.SizeHeadings`; the body
+        # blocks go through `size_headings.resolve` once everything is read)
+        self._sizes = sizes or []
+        self.size_headings = SizeHeadings()
         # Character shape ID → super/subscript mark (parse_char_scripts), and the character shape IDs that are struck through
         # (parse_struck_shapes)
         self._scripts = scripts or {}
@@ -354,6 +368,7 @@ class HwpRenderer:
         self._note_count = 0
         self._cell_depth = 0
         self._note_depth = 0  # 1 or more while footnote/endnote text is rendered. A table inside it becomes one line (`note_table`)
+        self._plain_header = False  # while a header written without `include_headers_footers` is rendered (no headings)
         # Tables being rendered (an inner table is handed to the top-level table). None is a place where a table cannot be handed over
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
@@ -406,9 +421,10 @@ class HwpRenderer:
         text_record = next((child for child in paragraph.children if child.tag == TAG_PARA_TEXT), None)
         controls = iter([child for child in paragraph.children if child.tag == TAG_CTRL_HEADER])
         parts = decode_para_text(text_record.payload, self._shape_runs(paragraph, len(text_record.payload) // 2)) if text_record else []
+        size_pairs = self._count_sizes(paragraph, text_record)
 
         # The head goes on the first text piece only, and a paragraph without text keeps its number (`_hangul.ParagraphPieces`).
-        pieces = ParagraphPieces(lambda text, plain: self._decorate(paragraph, text, plain))
+        pieces = ParagraphPieces(lambda text, plain, heading: self._decorate(paragraph, text, plain, heading, text_record, size_pairs))
         blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
 
         for part in parts:
@@ -479,13 +495,13 @@ class HwpRenderer:
         (Pinned by: test_hwp.py::TestSuperscript, TestStrikethrough). The pairs are read as an array rather than unpacked into tuples
         (same reason as `decode_para_text`)."""
         record = next((child for child in paragraph.children if child.tag == TAG_PARA_CHAR_SHAPE), None)
-        if record is None or not (self._scripts or self._struck):
+        if record is None or not (self._scripts or self._struck or self._emphasis):
             return None
         values = array("I", record.payload[:len(record.payload) // 8 * 8])
         if sys.byteorder == "big":
             values.byteswap()
         starts, shape_ids = values[0::2], values[1::2]
-        if not any(shape_id in self._scripts or shape_id in self._struck for shape_id in shape_ids):
+        if not any(shape_id in self._scripts or shape_id in self._struck or shape_id in self._emphasis for shape_id in shape_ids):
             return None
 
         # If the positions always increase, use them as is; otherwise by position — at the same position the larger ID wins, as it
@@ -508,8 +524,8 @@ class HwpRenderer:
                 break
             if runs and runs[-1][0] == start:
                 runs.pop()
-            shape = (self._scripts.get(shape_id), shape_id in self._struck)
-            if (runs[-1][1] if runs else (None, False)) != shape:
+            shape = (self._scripts.get(shape_id), shape_id in self._struck, *self._emphasis.get(shape_id, (False, False)))
+            if (runs[-1][1] if runs else _PLAIN_RUN) != shape:
                 runs.append((start, shape))
         return runs
 
@@ -561,14 +577,50 @@ class HwpRenderer:
         if url is not None:
             buffer.append(link_start())
 
-    def _decorate(self, paragraph: Record, text: str, plain: str) -> str:
-        """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style, the heading mark to the paragraph's first text piece."""
+    def _decorate(self, paragraph: Record, text: str, plain: str, heading: Callable[[], str], text_record: Record | None,
+                  size_pairs: list[tuple[int, int]]) -> str:
+        """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style or head, the heading mark to the paragraph's
+        first text piece. A top-level body paragraph (not in a cell, note, header, text box or caption) passes its smallest
+        character size, to become a heading by size (`_hangul.SizeHeadings`)."""
         mark, level = self._paragraph_head(paragraph)
         style_id = paragraph.payload[10] if len(paragraph.payload) > 10 else -1
         style_name = self._styles[style_id] if 0 <= style_id < len(self._styles) else ""
         shape_id = struct.unpack_from("<H", paragraph.payload, 8)[0] if len(paragraph.payload) >= 10 else -1
         margin = self._heads.margins[shape_id] if 0 <= shape_id < len(self._heads.margins) else 0
-        return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth), plain=plain)
+        outline = 0 <= shape_id < len(self._heads.shapes) and self._heads.shapes[shape_id][0] == _HEAD_OUTLINE
+        top = self._depth == 1 and not self._cell_depth and not self._note_depth
+        size = _smallest_text_size(text_record.payload, size_pairs, self._sizes) if top and text_record is not None else 0
+        return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth), plain=plain,
+                              outline=outline, size=size, size_headings=self.size_headings, heading_text=heading, top=top,
+                              in_note=bool(self._note_depth), no_heading=self._plain_header)
+
+    def _count_sizes(self, paragraph: Record, text_record: Record | None) -> list[tuple[int, int]]:
+        """Count the text characters of a paragraph per character size (`SizeHeadings.count`, which finds the body size; those
+        of top-level body paragraphs apart, notes not at all) and return its character shape runs (`_size_pairs`). The 8 WCHARs
+        of a wide control are not text and are skipped, as the characters of HWPX `hp:t` are all that HWPX counts."""
+        if text_record is None or not self._sizes:
+            return []
+        payload = text_record.payload
+        length = len(payload) // 2
+        pairs = _size_pairs(paragraph, length)
+        if not pairs or self._note_depth:
+            return pairs
+        body = self._depth == 1 and not self._cell_depth
+        run = 0
+        index = 0
+        while index < length:
+            control = _UP_TO_WIDE_CONTROL.match(payload, 2 * index, 2 * length).end() // 2
+            while index < control:   # the text up to the control, run by run
+                while run + 1 < len(pairs) and pairs[run + 1][0] <= index:
+                    run += 1
+                end = min(control, pairs[run + 1][0]) if run + 1 < len(pairs) else control
+                shape_id = pairs[run][1]
+                if 0 <= shape_id < len(self._sizes):
+                    self.size_headings.count(self._sizes[shape_id], payload[2 * index:2 * end].decode("utf-16-le", errors="replace"),
+                                             body=body)
+                index = end
+            index = control + 8
+        return pairs
 
     def _paragraph_head(self, paragraph: Record) -> tuple[str, int]:
         """Paragraph head of the paragraph shape → (number "1." / "가." or bullet "-", level). ("", 0) if the definition is missing or
@@ -624,15 +676,31 @@ class HwpRenderer:
 
     def _collect_header_footer(self, control: Record, found: dict[str, None]) -> None:
         """Render a header or footer control into `found` (`headers` or `footers`). A header is counted against the character
-        limit when it is first seen, because every header is written before the body; footers are counted after the body."""
-        if not self._options.include_headers_footers:
+        limit when it is first seen, because every header is written before the body; footers are counted after the body.
+        Without `include_headers_footers` only headers that hold a word are kept (`_hangul.header_by_default`)."""
+        chosen = self._options.include_headers_footers
+        if not chosen and found is not self.headers:
             return
+        pictures, notes, note_count, unread_ole = len(self._extraction.images), len(self.notes), self._note_count, self.unread_ole
         self._grids.append(None)
+        self._plain_header = not chosen
         try:
             with self._own_numbering():
                 text = join_blocks(self.render(control.children))
         finally:
             self._grids.pop()
+            self._plain_header = False
+        if not chosen:
+            # Only the words of the header: the pictures it registered are taken back with their placeholders, and a header that
+            # is not written takes back its notes, which would be left without a reference. Its OLE objects are taken back too: they
+            # would warn of contents not converted that are not written (Pinned by:
+            # test_hwp_headers.py::TestHeadersByDefault::test_object_of_a_header_not_written_does_not_warn)
+            del self._extraction.images[pictures:]
+            self.unread_ole = unread_ole
+            text = header_by_default(text)
+            if not text or text in found:
+                del self.notes[notes:]
+                self._note_count = note_count
         if text and text not in found:
             found[text] = None
             if found is self.headers:
@@ -706,6 +774,55 @@ class HwpRenderer:
         rendered = grid.render(room=budget.room if budget is not None else self._options.max_chars)
         self.omitted_rows += grid.omitted_rows()
         return join_blocks([caption_text, rendered])
+
+
+# A paragraph longer than this (in WCHARs, controls included) is not scanned for its character sizes: it is not a heading anyway
+# (`_hangul.SizeHeadings` takes paragraphs of up to 80 characters)
+_SIZE_SCAN_MAX = 512
+
+
+def _size_pairs(paragraph: Record, length: int) -> list[tuple[int, int]]:
+    """The character shape runs of a paragraph from its PARA_CHAR_SHAPE: (start position, character shape ID), the starts inside
+    the text (`length` WCHARs). Only increasing starts, as Hangul writes them, are used — the runs of a paragraph that has them out
+    of order give no size. At most `length` runs can start inside the text, so only that many are looked at, and a paragraph of
+    millions of runs costs no more than its text (as in `_shape_runs`)."""
+    record = next((child for child in paragraph.children if child.tag == TAG_PARA_CHAR_SHAPE), None)
+    if record is None or length <= 0:
+        return []
+    values = array("I", record.payload[:min(len(record.payload) // 8, length + 1) * 8])
+    if sys.byteorder == "big":
+        values.byteswap()
+    starts, shape_ids = values[0::2], values[1::2]
+    if not starts or starts[0] != 0 or not all(before < after for before, after in zip(starts, starts[1:], strict=False)):
+        return []
+    return [(start, shape_id) for start, shape_id in zip(starts, shape_ids, strict=True) if start < length]
+
+
+def _smallest_text_size(payload: bytes, pairs: list[tuple[int, int]], sizes: list[int]) -> int:
+    """The smallest base size among the visible characters of a short paragraph (not whitespace, not controls); 0 when the
+    paragraph is too long to be a heading, has no visible character, or one of them has no known size."""
+    count = len(payload) // 2
+    if not pairs or count > _SIZE_SCAN_MAX:
+        return 0
+    units = struct.unpack_from(f"<{count}H", payload)
+    smallest = 0
+    run = 0
+    index = 0
+    while index < count:
+        unit = units[index]
+        if unit < 32:   # a control: extended and inline controls take 8 WCHARs, char controls one
+            index += 8 if unit in _EXTENDED_CONTROLS or unit in _INLINE_CONTROLS else 1
+            continue
+        if not chr(unit).isspace():
+            while run + 1 < len(pairs) and pairs[run + 1][0] <= index:
+                run += 1
+            shape_id = pairs[run][1]
+            size = sizes[shape_id] if 0 <= shape_id < len(sizes) else 0
+            if size <= 0:
+                return 0
+            smallest = min(smallest, size) if smallest else size
+        index += 1
+    return smallest
 
 
 def _cell_address(payload: bytes, row_count: int, col_count: int) -> tuple[int, int, int, int] | None:
@@ -822,6 +939,34 @@ def parse_char_scripts(doc_info: list[Record]) -> dict[int, str]:
         elif attribute & _CHAR_SHAPE_SUBSCRIPT:
             scripts[shape_id] = SUBSCRIPT
     return scripts
+
+
+def parse_char_sizes(doc_info: list[Record]) -> list[int]:
+    """The base size (1/100 pt) of each CHAR_SHAPE record of DocInfo (index is the character shape ID); 0 for a broken record."""
+    sizes = []
+    for record in doc_info:
+        if record.tag == TAG_CHAR_SHAPE:
+            payload = record.payload
+            sizes.append(struct.unpack_from("<i", payload, _CHAR_SHAPE_SIZE_OFFSET)[0]
+                         if len(payload) >= _CHAR_SHAPE_SIZE_OFFSET + 4 else 0)
+    return sizes
+
+
+# Bits 0 (italic) and 1 (bold) of the character shape attribute (spec table 35; bold confirmed on real files, see above)
+_CHAR_SHAPE_ITALIC, _CHAR_SHAPE_BOLD = 1 << 0, 1 << 1
+
+
+def parse_char_emphasis(doc_info: list[Record]) -> dict[int, tuple[bool, bool]]:
+    """CHAR_SHAPE records of DocInfo (index is the character shape ID) that are bold or italic → (bold, italic)."""
+    emphasis = {}
+    shapes = (record for record in doc_info if record.tag == TAG_CHAR_SHAPE)
+    for shape_id, record in enumerate(shapes):
+        if len(record.payload) < _CHAR_SHAPE_ATTRIBUTE_OFFSET + 4:
+            continue
+        (attribute,) = struct.unpack_from("<I", record.payload, _CHAR_SHAPE_ATTRIBUTE_OFFSET)
+        if attribute & (_CHAR_SHAPE_BOLD | _CHAR_SHAPE_ITALIC):
+            emphasis[shape_id] = (bool(attribute & _CHAR_SHAPE_BOLD), bool(attribute & _CHAR_SHAPE_ITALIC))
+    return emphasis
 
 
 def parse_struck_shapes(doc_info: list[Record]) -> frozenset[int]:
@@ -1067,7 +1212,8 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
             return loaded[key]
 
         renderer = HwpRenderer(parse_styles(doc_info), options, extraction, load_bin, parse_paragraph_heads(doc_info),
-                               parse_char_scripts(doc_info), parse_struck_shapes(doc_info))
+                               parse_char_scripts(doc_info), parse_struck_shapes(doc_info), parse_char_sizes(doc_info),
+                               parse_char_emphasis(doc_info) if options.keep_emphasis else None)
         blocks = []
         names = _section_streams(ole)
         broken: list[zlib.error] = []
@@ -1112,6 +1258,7 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
     # shapes only) has an empty preview too
     # (`_preview_text`), so the result stays empty (Pinned by: test_hwp.py::TestPreviewFallback).
     extraction.count(sum(solid_length(text) for text in renderer.footers), options)
+    blocks = renderer.size_headings.resolve(blocks)
     body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes)])
     if not body.strip() and preview:
         body = preview

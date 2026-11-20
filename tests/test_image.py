@@ -2872,3 +2872,387 @@ class TestPreparedImageBudget:
 
         assert len(result.images) == 1
         assert result.warnings == []
+
+
+def _chunks(data: bytes) -> list[tuple[bytes, bytes, bool]]:
+    """(kind, body, whether its CRC is right) of every chunk of a PNG."""
+    chunks, position = [], 8
+    while position < len(data):
+        length = int.from_bytes(data[position:position + 4], "big")
+        kind, body = data[position + 4:position + 8], data[position + 8:position + 8 + length]
+        crc = int.from_bytes(data[position + 8 + length:position + 12 + length], "big")
+        chunks.append((kind, body, zlib.crc32(kind + body) == crc))
+        position += 12 + length
+    return chunks
+
+
+def _photo(width: int = 600, height: int = 400) -> Image.Image:
+    """An opaque RGBA picture like a photo pasted into a document: a gradient under a pattern (the alpha band is all 255).
+    The same picture every call."""
+    gradient = Image.linear_gradient("L").resize((width, height)).convert("RGB")
+    pattern = Image.frombytes("L", (width, height), bytes((x * 7919 + y * 104729) % 251 for y in range(height)
+                                                          for x in range(width))).convert("RGB")
+    return Image.blend(gradient, pattern, 0.35).convert("RGBA")
+
+
+def _png_file(picture: Image.Image, **options) -> bytes:
+    buffer = BytesIO()
+    picture.save(buffer, format="PNG", **options)
+    return buffer.getvalue()
+
+
+def _png_chunk(kind: bytes, body: bytes) -> bytes:
+    return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+
+def _rgba_png(picture: Image.Image, *, interlaced: bool = False, after_rows: bytes = b"", before: bytes = b"",
+              after: bytes = b"", end: bytes = b"") -> bytes:
+    """An 8-bit RGBA PNG written chunk by chunk (unfiltered rows, Adam7 passes when `interlaced`), with `after_rows` inflated
+    after the rows in the same zlib stream, the chunks `before` and `after` the picture data, and `end` inside IEND."""
+    width, height = picture.size
+    pixels = picture.tobytes()
+    passes = ((0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)) if interlaced \
+        else ((0, 0, 1, 1),)
+    rows = b"".join(b"\x00" + b"".join(pixels[(y * width + x) * 4:(y * width + x) * 4 + 4] for x in range(x0, width, dx))
+                    for x0, y0, dx, dy in passes if x0 < width for y in range(y0, height, dy))
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, int(interlaced))
+    return (b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", header) + before
+            + _png_chunk(b"IDAT", zlib.compress(rows + after_rows, 9)) + after + _png_chunk(b"IEND", end))
+
+
+class TestPngPassedOnAsItIs:
+    """An 8-bit RGBA PNG that needs no change was decoded and compressed again with the same pixels: the PNG compression of
+    `Image.save` was most of the conversion time of a picture-heavy document (a real HWP with 51 pictures: 550 ms, 420 ms
+    of it compressing, against 25 ms with pictures not decoded). Its file is handed on with only the chunks the rewrite
+    had, so the pixels and the metadata left out are what they were."""
+
+    def test_rgba_png_that_needs_no_change_is_its_own_picture_data(self):
+        from PIL import PngImagePlugin
+
+        picture = _photo()
+        text = PngImagePlugin.PngInfo()
+        text.add_text("Comment", "Taken at 37.5665 N, 126.9780 E")
+        data = _png_file(picture, pnginfo=text, compress_level=9)  # not what the rewrite writes (level 6)
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert result.mime_type == "image/png" and (result.width, result.height) == picture.size
+        assert [kind for kind, _, _ in _chunks(result.data)] == [b"IHDR", *[b"IDAT"] * (len(_chunks(data)) - 3), b"IEND"]
+        assert result.data == b"\x89PNG\r\n\x1a\n" + b"".join(
+            struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+            for kind, body, _ in _chunks(data) if kind != b"tEXt")
+        assert b"126.9780" not in result.data
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
+    def test_colour_profile_is_kept_as_the_rewrite_kept_it(self):
+        from PIL import ImageCms
+
+        profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+
+        result = prepare_image(_png_file(_photo(), icc_profile=profile), min_side=1, max_side=2048)
+
+        assert Image.open(BytesIO(result.data)).info["icc_profile"] == profile
+
+    @pytest.mark.parametrize("profile_chunk", [
+        b"Profile of 37.5665 N\0\0" + zlib.compress(b"PROFILE"),            # a name of the file's own
+        b"ICC Profile\0\0" + zlib.compress(b"PROFILE") + b"HIDDEN" * 20,    # bytes after the zlib stream, which Pillow ignores
+    ], ids=["name", "after-the-stream"])
+    def test_colour_profile_is_written_as_the_rewrite_writes_it(self, profile_chunk):
+        picture = _photo()
+
+        result = prepare_image(_rgba_png(picture, before=_png_chunk(b"iCCP", profile_chunk)), min_side=1, max_side=2048)
+
+        assert [kind for kind, _, _ in _chunks(result.data)][:2] == [b"IHDR", b"iCCP"]
+        assert _chunks(result.data)[1][1] == b"ICC Profile\0\0" + zlib.compress(b"PROFILE")
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
+    @pytest.mark.parametrize("profiles", [
+        [b"x\0\0" + b"HIDDEN not zlib"],                                      # Pillow reads no profile
+        [b"x\0\0" + zlib.compress(b"HIDDEN first"), b"x\0\0" + zlib.compress(b"second")],  # libpng takes the first
+    ], ids=["not-zlib", "two"])
+    def test_colour_profile_pillow_did_not_take_is_not_handed_on(self, profiles):
+        picture = _photo()
+        before = b"".join(_png_chunk(b"iCCP", body) for body in profiles)
+
+        result = prepare_image(_rgba_png(picture, before=before), min_side=1, max_side=2048)
+
+        iccp = [body for kind, body, _ in _chunks(result.data) if kind == b"iCCP"]
+        assert len(iccp) <= 1 and b"HIDDEN" not in result.data
+        assert all(zlib.decompress(body.split(b"\0", 1)[1][1:]) == b"second" for body in iccp)
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
+    def test_colour_profile_after_the_picture_data_is_written_anew(self):
+        """libpng refuses an iCCP after IDAT as out of place; Pillow reads it, and the rewrite writes it before the data."""
+        picture = _photo()
+        profile = _png_chunk(b"iCCP", b"ICC Profile\0\0" + zlib.compress(b"PROFILE"))
+
+        result = prepare_image(_rgba_png(picture, after=profile), min_side=1, max_side=2048)
+
+        kinds = [kind for kind, _, _ in _chunks(result.data)]
+        assert b"iCCP" not in kinds or kinds.index(b"iCCP") < kinds.index(b"IDAT")
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
+    def test_end_chunk_with_a_payload_is_written_anew(self):
+        picture = _photo()
+
+        result = prepare_image(_rgba_png(picture, end=b"HIDDEN" * 100), min_side=1, max_side=2048)
+
+        assert _chunks(result.data)[-1][:2] == (b"IEND", b"")
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
+    @staticmethod
+    def _turned_by_exif() -> bytes:
+        exif = Image.Exif()
+        exif[0x0112] = 3  # turned 180°: the size alone does not tell
+        return _png_file(_photo(), exif=exif.tobytes())
+
+    @staticmethod
+    def _turned_by_xmp() -> bytes:
+        from PIL import PngImagePlugin
+
+        xmp = PngImagePlugin.PngInfo()
+        xmp.add_itxt("XML:com.adobe.xmp", '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF><rdf:Description '
+                                          'tiff:Orientation="3"/></rdf:RDF></x:xmpmeta>')
+        return _png_file(_photo(), pnginfo=xmp)
+
+    @pytest.mark.parametrize("make", [_turned_by_exif, _turned_by_xmp], ids=["exif", "xmp"])
+    def test_picture_with_an_orientation_is_turned(self, make):
+        result = prepare_image(make.__func__(), min_side=1, max_side=2048)
+
+        assert Image.open(BytesIO(result.data)).tobytes() == _photo().rotate(180).tobytes()
+
+    def test_picture_over_the_long_side_is_shrunk(self):
+        result = prepare_image(_png_file(_photo()), min_side=1, max_side=300)
+
+        assert (result.width, result.height) == (300, 200)
+
+    def test_16_bit_picture_is_written_at_8_bits(self):
+        row = b"".join(struct.pack(">HHHH", x * 100, 30_000, 60_000, 65_535) for x in range(300))
+        data = _png(300, 200, 16, 6, row, b"")
+        data = data.replace(data[33:33 + 12], b"")  # without the tRNS chunk, which a colour type 6 picture cannot have
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert _chunks(result.data)[0][1][8:10] == b"\x08\x06"
+
+    def test_file_written_without_compression_is_compressed(self):
+        data = _png_file(_photo(), compress_level=0)
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert len(result.data) < len(data) / 2
+        assert Image.open(BytesIO(result.data)).tobytes() == Image.open(BytesIO(data)).tobytes()
+
+    def test_animation_gives_its_first_frame_only(self):
+        first, second = _photo(), _photo().transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        data = _png_file(first, save_all=True, append_images=[second])
+        assert b"acTL" in data
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert b"acTL" not in result.data and b"fdAT" not in result.data
+        assert Image.open(BytesIO(result.data)).tobytes() == first.tobytes()
+
+    def test_frame_control_without_an_animation_is_written_anew(self):
+        """An `fcTL` before the picture data makes Pillow decode it into the frame's box only, even without `acTL`: handed on
+        without the chunk, the file showed the whole picture where the rewrite holds one row and the rest transparent."""
+        picture = _photo()
+        frame = _png_chunk(b"fcTL", struct.pack(">IIIIIHHBB", 0, picture.width, 1, 0, 0, 1, 1, 0, 0))
+        data = _rgba_png(picture, before=frame)
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert Image.open(BytesIO(result.data)).tobytes() == Image.open(BytesIO(data)).convert("RGBA").tobytes()
+
+    def test_picture_data_with_a_wrong_crc_is_written_anew(self):
+        data = bytearray(_png_file(_photo()))
+        end = data.index(b"IEND") - 4  # the CRC of the last IDAT chunk ends where the IEND chunk's length starts
+        data[end - 4:end] = b"\x00\x00\x00\x00"
+
+        try:
+            result = prepare_image(bytes(data), min_side=1, max_side=2048)
+        except ImageUnreadable:
+            return  # a Pillow that checks the CRC of the picture data refuses it: nothing is handed on either
+        assert all(right for _, _, right in _chunks(result.data))
+
+    @staticmethod
+    def _with_chunks(data: bytes, chunks: list[tuple[bytes, bytes]]) -> bytes:
+        def chunk(kind: bytes, body: bytes) -> bytes:
+            return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+        return b"\x89PNG\r\n\x1a\n" + b"".join(chunk(kind, body) for kind, body in chunks)
+
+    def test_second_header_chunk_is_written_anew(self):
+        """libpng refuses a picture with an IHDR out of place; Pillow reads it. (IDAT chunks apart Pillow refuses itself.)"""
+        chunks = [(kind, body) for kind, body, _ in _chunks(_png_file(_photo()))]
+        header, picture, end = chunks[0], [chunk for chunk in chunks if chunk[0] == b"IDAT"], chunks[-1]
+
+        result = prepare_image(self._with_chunks(b"", [header, *picture, header, end]), min_side=1, max_side=2048)
+
+        assert [kind for kind, _, _ in _chunks(result.data)].count(b"IHDR") == 1
+        assert Image.open(BytesIO(result.data)).tobytes() == _photo().tobytes()
+
+    def test_bytes_hidden_after_the_picture_data_are_not_handed_on(self):
+        chunks = [(kind, body) for kind, body, _ in _chunks(_png_file(_photo()))]
+        picture = b"".join(body for kind, body in chunks if kind == b"IDAT") + b"HIDDEN-PAYLOAD" * 10
+        data = self._with_chunks(b"", [chunks[0], (b"IDAT", picture), chunks[-1]])
+
+        result = prepare_image(data, min_side=1, max_side=2048)
+
+        assert b"HIDDEN" not in result.data
+        assert Image.open(BytesIO(result.data)).tobytes() == _photo().tobytes()
+
+    def test_picture_data_that_inflates_past_its_rows_is_written_anew(self, monkeypatch):
+        """Zeros after the rows in the zlib stream: 8 MB of them inflate to 8 GB, which were inflated whole (3–10 s) to see where
+        the stream ended and then handed on, against 0.05 s for the rewrite. Inflating stops just past the rows."""
+        import opendockit.image as image_module
+
+        inflated, decompressobj = [], zlib.decompressobj
+
+        class Counting:
+            def __init__(self):
+                self._stream = decompressobj()
+
+            def decompress(self, data, max_length=0):
+                out = self._stream.decompress(data, max_length)
+                inflated.append(len(out))
+                return out
+
+            def __getattr__(self, name):
+                return getattr(self._stream, name)
+
+        monkeypatch.setattr(image_module.zlib, "decompressobj", Counting)
+        picture = _photo()
+        rows = picture.height * (1 + picture.width * 4)
+
+        result = prepare_image(_rgba_png(picture, after_rows=bytes(64 << 20)), min_side=1, max_side=2048)
+
+        assert sum(inflated) <= rows + 1
+        assert len(result.data) < 1 << 20 and _chunks(result.data)[0][1][8:10] == b"\x08\x06"
+        picture_data = zlib.decompress(b"".join(body for kind, body, _ in _chunks(result.data) if kind == b"IDAT"))
+        assert len(picture_data) == rows
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
+    @pytest.mark.parametrize("interlaced", [False, True], ids=["rows", "adam7"])
+    def test_picture_data_of_exactly_its_rows_is_handed_on(self, interlaced):
+        for size in ((600, 400), (301, 203), (97, 410), (410, 97)):  # sizes whose passes are cut short
+            picture = _photo(*size)
+            data = _rgba_png(picture, interlaced=interlaced)
+
+            result = prepare_image(data, min_side=1, max_side=2048)
+
+            assert result.data == data, size
+            assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
+    @staticmethod
+    def _generated_pngs():
+        """(name, file) of RGBA PNGs as writers make them and with each anomaly a file can hold."""
+        from PIL import PngImagePlugin
+
+        profile = b"ICC Profile\0\0" + zlib.compress(b"PROFILE")
+        text = PngImagePlugin.PngInfo()
+        text.add_text("Comment", "a note")
+        text.add_itxt("Title", "a title", zip=True)
+        for size in ((600, 400), (257, 129)):
+            picture = _photo(*size)
+            yield f"pillow {size}", _png_file(picture)
+            yield f"pillow level 9 {size}", _png_file(picture, compress_level=9)
+            yield f"pillow text {size}", _png_file(picture, pnginfo=text)
+            yield f"pillow profile {size}", _png_file(picture, icc_profile=b"PROFILE")
+            for interlaced in (False, True):
+                name = f"{size} {'adam7' if interlaced else 'rows'}"
+
+                def png(interlaced=interlaced, picture=picture, **parts):
+                    return _rgba_png(picture, interlaced=interlaced, **parts)
+                plain = png()
+                chunks = _chunks(plain)
+                yield f"plain {name}", plain
+                body = chunks[1][1]
+                split = b"".join(_png_chunk(b"IDAT", body[i:i + 997]) for i in range(0, len(body), 997))
+                yield f"split data {name}", plain.replace(_png_chunk(b"IDAT", body), split)
+                yield f"split by a chunk {name}", plain.replace(
+                    _png_chunk(b"IDAT", body), _png_chunk(b"IDAT", body[:500]) + _png_chunk(b"tEXt", b"a\0b")
+                    + _png_chunk(b"IDAT", body[500:]))
+                yield f"colour chunks {name}", png(before=_png_chunk(b"gAMA", struct.pack(">I", 45455))
+                                                   + _png_chunk(b"sRGB", b"\0") + _png_chunk(b"pHYs", bytes(9))
+                                                   + _png_chunk(b"PLTE", bytes(30)))
+                yield f"profile {name}", png(before=_png_chunk(b"iCCP", profile))
+                yield f"profile named {name}", png(before=_png_chunk(b"iCCP", b"HIDDEN\0\0" + zlib.compress(b"PROFILE")))
+                yield f"profile tail {name}", png(before=_png_chunk(b"iCCP", profile + b"HIDDEN"))
+                yield f"profile not zlib {name}", png(before=_png_chunk(b"iCCP", b"x\0\0HIDDEN"))
+                yield f"two profiles {name}", png(before=_png_chunk(b"iCCP", b"x\0\0" + zlib.compress(b"HIDDEN"))
+                                                  + _png_chunk(b"iCCP", profile))
+                yield f"profile after the data {name}", png(after=_png_chunk(b"iCCP", profile))
+                yield f"end payload {name}", png(end=b"HIDDEN")
+                if not interlaced:   # Pillow cannot read interlaced data into a frame's box at all (unreadable on main too)
+                    yield f"frame control {name}", png(before=_png_chunk(b"fcTL", struct.pack(
+                        ">IIIIIHHBB", 0, picture.width, 1, 0, 0, 1, 1, 0, 0)))
+                yield f"after the rows {name}", png(after_rows=b"HIDDEN" * 50)
+                yield f"zeros after the rows {name}", png(after_rows=bytes(1 << 22))
+                yield f"after the stream {name}", plain.replace(_png_chunk(b"IDAT", body), _png_chunk(b"IDAT", body + b"HIDDEN"))
+                yield f"after the end {name}", plain + b"HIDDEN"
+                yield f"text after the data {name}", png(after=_png_chunk(b"tEXt", b"Comment\0HIDDEN"))
+                yield f"private chunk {name}", png(before=_png_chunk(b"prVt", b"HIDDEN"))
+
+    def test_handed_on_file_means_what_the_rewrite_means(self, monkeypatch):
+        """Differential: whatever is handed on carries the pixels and the chunks (type, order and content, the picture data
+        aside) of the rewrite, inflates to exactly its rows and holds nothing after IEND; otherwise it is the rewrite."""
+        import opendockit.image as image_module
+
+        handed_on = set()
+        for name, data in self._generated_pngs():
+            try:
+                result = prepare_image(data, min_side=1, max_side=2048)
+            except ImageUnreadable:
+                assert name.startswith("split by a chunk"), name   # Pillow refuses picture data chunks apart itself
+                continue
+            with monkeypatch.context() as patched:
+                patched.setattr(image_module, "_png_as_it_is", lambda *args: None)
+                rewrite = prepare_image(data, min_side=1, max_side=2048)
+            if result.data == rewrite.data:
+                continue
+            handed_on.add(name)
+            ours, theirs = _chunks(result.data), _chunks(rewrite.data)
+            assert all(right for _, _, right in ours), name
+            def described(chunks):   # the interlacing of the rows is how they are stored, not what they mean
+                return [(kind, body[:12] if kind == b"IHDR" else body) for kind, body, _ in chunks if kind != b"IDAT"]
+            assert described(ours) == described(theirs), name
+            kinds = [kind for kind, _, _ in ours]
+            assert kinds[0] == b"IHDR" and kinds[-1] == b"IEND" and kinds.count(b"IDAT") >= 1, name
+            first = kinds.index(b"IDAT")
+            assert set(kinds[first:-1]) == {b"IDAT"} and b"IDAT" not in kinds[:first], name   # the data together, nothing after
+            assert result.data.endswith(_png_chunk(b"IEND", b"")), name
+            width, height = result.width, result.height
+            passes = ((0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)) \
+                if ours[0][1][12] == 1 else ((0, 0, 1, 1),)
+            expected = sum(len(range(y0, height, dy)) * (1 + 4 * len(range(x0, width, dx)))
+                           for x0, y0, dx, dy in passes if x0 < width and y0 < height)
+            stream = zlib.decompressobj()
+            assert len(stream.decompress(b"".join(body for kind, body, _ in ours if kind == b"IDAT"))) == expected, name
+            assert stream.eof and not stream.unused_data, name
+            shown, written = Image.open(BytesIO(result.data)), Image.open(BytesIO(rewrite.data))
+            assert shown.tobytes() == written.tobytes() and shown.info.get("icc_profile") == written.info.get("icc_profile"), name
+        # The pass-through is still taken for what writers make
+        assert {"pillow level 9 (600, 400)", "plain (600, 400) rows",
+                "plain (600, 400) adam7", "split data (600, 400) rows", "colour chunks (600, 400) rows",
+                "profile (600, 400) rows", "profile named (600, 400) rows", "after the end (600, 400) rows"} <= handed_on
+
+    def test_pictures_that_need_a_change_are_still_rewritten(self):
+        """A palette picture with a transparent entry, a grey one with alpha: made RGBA and written as before."""
+        palette = _photo().convert("RGB").convert("P", palette=Image.Palette.ADAPTIVE)
+        palette.info["transparency"] = 0
+        grey = _photo().convert("LA")
+
+        for picture in (palette, grey):
+            result = prepare_image(_png_file(picture), min_side=1, max_side=2048)
+            assert _chunks(result.data)[0][1][8:10] == b"\x08\x06"
+
+    @pytest.mark.timing
+    def test_handing_on_takes_a_fraction_of_compressing_again(self):
+        """Measured: 13 ms against 88 ms before for a 1500×1000 opaque RGBA photo, of which 67 ms was compressing it."""
+        picture = _photo(1500, 1000)
+        data = _png_file(picture)
+
+        prepared = fastest(lambda: prepare_image(data, min_side=1, max_side=2048))
+        compressed = fastest(lambda: picture.save(BytesIO(), format="PNG"))
+
+        assert prepared < compressed / 2

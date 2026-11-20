@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **DOCX saved as Strict Open XML is read.** It was refused with the advice to save it again; its namespaces and
+  relationship types are now read as their Transitional forms, and the lengths Word writes there with a unit (`36pt`)
+  as the twips and half-points they stand for, so indented lists and raised or lowered text come out as they do in an
+  ordinary DOCX. A Strict PowerPoint or Excel file is still refused with that advice.
 - **Windows is a supported platform.** The suite runs there for every change, and the sample outputs are identical to
   the ones Linux and macOS write.
   - `IsolatedConverter` keeps the memory limit it is given (the `ProcessMemoryLimit` of a job object, as `RLIMIT_AS` is
@@ -28,6 +32,46 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     one body of a mail, whose attachments do not count — over 256 K characters, nested deeper than 1,000 elements, or
     leaving more than 16 raw-text elements open is still read by the older parser — html5lib is quadratic on those —
     and the result says so.
+- **Hancom equations**: `root` without `of` is a square root (`3 root5` → `3 \sqrt{5}`; `30 root5 cos theta` gave
+  `\sqrt[5]{\cos} \theta`), command words glued together are split (`costheta`), and `le`, `ge`, `nabla`, `LAND`, `LOR`,
+  `SUPERSET`, `nsubset`, `BIGOPLUS` and similar words, `OVERBRACE`, `UNDERBRACE` and `BOX` are read.
+- **Headings in Hangul documents that do not use the 개요 styles.** A paragraph with an outline head (개요 번호) is a
+  heading of its level, whatever its style — Hangul builds the outline and the table of contents from it, and it came out
+  as a numbered list; a numbered clause that is a sentence (`1. 갑은 을에게 … 지급한다.`, `가. … 따른다`) stays a
+  numbered paragraph. A
+  short top-level paragraph set 1.15 / 1.3 / 1.5 times larger than the size most body paragraphs are written in is a
+  level 3 / 2 / 1 heading (in a form whose body is in tables, measured against the tables' text); dates,
+  table-of-contents lines, the addressee, signature and stamp lines of a form, quoted lines, polite sentences, typed
+  bullet items (not the `□` section mark), captions of figures and tables, contact lines and sentences written large
+  stay text. In 34 real HWP / HWPX files, where every title was set by size on 바탕글, no heading came out before; now
+  their chapter titles do.
+- **Letter-spaced labels of Hangul forms** of three to six syllables are written without the spaces between them
+  (`담   당   자` → `담당자`), so a search for the label finds it. Syllables one space apart stay as written (`수 및 양`,
+  the choices `상 중 하`), and so do two syllables spaced wide (`성   명`, the choices `남    여`), the choices of a scale
+  spaced wide (`상   중   하`) and blank dates (`년   월   일`).
+- **Bold and italic in HWP and HWPX** under `keep_emphasis`, by the same rules as DOCX (`3. **시험기간** : …`).
+- **Headers of Hangul documents that hold words** (a form's number and title) are written once before the body even
+  without `include_headers_footers`, as plain paragraphs without their pictures. In 9 of 34 real files that text was
+  nowhere else and was dropped without a warning. Page numbers and footers still need the option.
+
+### Changed
+
+- **Pictures are prepared faster.** An RGBA PNG that needs no change is passed on as it is instead of being compressed
+  again (only the chunks a rewrite keeps are copied, so metadata is still stripped). A 7 MB HWP with 51 pictures
+  converts in 118 ms instead of 549 ms.
+
+### Changed
+
+- **Faster start.** An extractor is imported the first time its format is converted, instead of all of them with the
+  package. `import opendockit` takes 0.07 s and 43 MB instead of 0.23 s and 101 MB, and a fresh process converting one
+  small DOCX 0.09 s instead of 0.25 s — what a command-line run and every Windows worker pay per file. The workers of
+  `IsolatedConverter` still start with every extractor loaded. A reader library that cannot be imported (a broken
+  installation) no longer stops `import opendockit`: converting a file of its format raises `ImportError` with a fixed
+  sentence. The extractor functions are no longer importable from `opendockit.extractors` itself
+  (`from opendockit.extractors import extract_docx`); that package is internal, and `opendockit.extractors.docx` and
+  the other modules still have them.
+- **DOCX conversion is 12-19% faster** on large documents (20,000 paragraphs, 80,000 table cells); the output is the same
+  to the byte.
 
 ### Changed
 
@@ -50,6 +94,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Threads converting at once**: a valid DOCX or XLSX could come out as corrupted, a DOCX or HWPX with other text, or
+  the process could stop on a bad access, when threads converted at the same moment — most often in a pool whose threads
+  had converted a PowerPoint file. lxml had left them sharing one string dictionary, through a parser kept for every
+  thread. Each converting thread now has a dictionary of its own, and the library's own parsers are one for each thread.
+- **DOCX lists** whose definition points at a numbering style that no definition claims are numbered: they now use the
+  list the style names, as ECMA-376 defines. They came out as plain paragraphs.
+- **DOCX**: a document whose own style is named 'Heading' (Apple Pages' first heading level) gets its headings; a legacy
+  VML picture keeps the alt text written on its shape.
+- **DOCX**: a table row deleted with Track Changes on is left out, as every other tracked deletion is. It came out as a
+  row of the final table, so a struck-out price or clause read as if it still stood. A vertical merge that starts in
+  the deleted row keeps its text in the rows left.
+- Bold or italic that ends on a punctuation mark right before a letter (`**67%**으로`, `**「법」**제15조`) is no longer
+  written: Markdown readers showed its asterisks as text. This affects every format that keeps emphasis.
 - **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if
   that worker died first. The queue the file travels on is no longer waited for.
 - **MCP server**: the path of a call is resolved in a thread, as its content already was. A path the file system is slow

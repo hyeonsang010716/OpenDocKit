@@ -178,6 +178,128 @@ class TestRules:
         assert result == r"\begin{aligned} x & = 1 \\ y & = 2 \end{aligned}"
 
 
+class TestRootWithoutOf:
+    """`root x` without `of` is the square root of x in Hangul's editor; only `root n of x` is the n-th root. Every `root` was
+    read as `root n of x`, so `30 root5 cos theta` came out as `30 \\sqrt[5]{\\cos} \\theta` and `3 root5` fell back."""
+
+    @pytest.mark.parametrize("script, latex", [
+        ("3 root5", r"3 \sqrt{5}"),
+        ("root {5}", r"\sqrt{5}"),
+        ("2 over root5", r"\frac{2}{\sqrt{5}}"),
+        ("= 70- 30 root5 cos theta", r"= 70- 30 \sqrt{5} \cos \theta"),
+        ("a over root 5 b", r"\frac{a}{\sqrt{5}} b"),
+        ("root{x+1}^2", r"\sqrt{x+1}^{2}"),
+        ("sqrt5 x", r"\sqrt{5} x"),
+    ])
+    def test_root_without_of_is_a_square_root(self, script, latex):
+        assert equation_to_latex(script) == latex
+
+    @pytest.mark.parametrize("script, latex", [
+        ("root 2 of x", r"\sqrt[2]{x}"),
+        ("ROOT 3 OF {x+1}", r"\sqrt[3]{x+1}"),
+        ("root n of x over 2", r"\frac{\sqrt[n]{x}}{2}"),
+    ])
+    def test_root_with_of_keeps_its_index(self, script, latex):
+        assert equation_to_latex(script) == latex
+
+    def test_root_without_an_argument_still_falls_back(self):
+        assert equation_to_latex("root") is None
+        assert equation_to_latex("root 3 of") is None
+
+
+class TestGluedWords:
+    """Script writers glue command words together (`costheta`, `timesrmbar{PD}`), and the word passed through as text. A word
+    is split only when its lowercase part is made entirely of command words; an uppercase tail is one term (point names)."""
+
+    @pytest.mark.parametrize("script, latex", [
+        ("costheta", r"\cos\theta"),
+        ("2 sinalpha cosbeta", r"2 \sin\alpha \cos\beta"),
+        ("A timesrmbar{PD}", r"A \times\overline{PD}"),
+        ("rmAB = 3", "AB = 3"),
+        ("barAR", r"\overline{AR}"),
+        ("rmCO _{2}", "CO_{2}"),
+        ("thetatimes2", r"\theta\times 2"),
+    ])
+    def test_word_made_of_command_words_is_split(self, script, latex):
+        assert equation_to_latex(script) == latex
+
+    @pytest.mark.parametrize("script, latex", [
+        ("sinx", r"\sin x"),                                   # a function prefix as before, x is not a command word
+        ("limit", r"\lim it"),                                 # not lim + the `it` font command (which would drop text)
+        ("pile{a#b}", r"\begin{matrix} a \\ b \end{matrix}"),  # a known word is never split (not pi + le)
+        ("lpile{a}", r"\begin{matrix} a \end{matrix}"),
+        ("login", r"\log in"),                                # the function prefix as before, not log + in (∈)
+        ("maxwell", r"\max well"),                            # not max + well (#)
+        ("isobar", "isobar"),
+        ("inA", "inA"),
+        ("xy + ABC", "xy + ABC"),
+        ("cosTheta", r"\cos Theta"),                           # a mixed-case tail is not split (known accepted gap)
+    ])
+    def test_other_words_are_not_split(self, script, latex):
+        assert equation_to_latex(script) == latex
+
+    @pytest.mark.parametrize("script, latex", [
+        ("thetadot", "thetadot"),                    # a decoration at the end has nothing to decorate: the whole equation fell back
+        ("a + thetadot", "a + thetadot"),
+        ("alphavec", "alphavec"),
+        ("y = xbar + pibar", "y = xbar + pibar"),
+        ("x = rmdot", "x = rmdot"),
+        ("costhetadot", r"\cos thetadot"),          # the function prefix as before
+        ("boxdot", "boxdot"),
+        ("intercheck", "intercheck"),
+        ("thetasqrt", "thetasqrt"),
+        ("pibar x", "pibar x"),                      # not π with the bar moved onto the next term
+        ("pibar{x}", r"\pi\overline{x}"),          # the operand written right after it
+        ("rmrm", "rmrm"),                            # nothing but font changes
+    ])
+    def test_word_ending_on_a_word_that_takes_an_operand_is_not_split(self, script, latex):
+        assert equation_to_latex(script) == latex
+
+    @pytest.mark.timing
+    def test_long_glued_word_takes_linear_time(self):
+        small, large = "costheta" * 300, "costheta" * 1_200  # 9,600 characters, within the 10,000 of a script
+
+        assert equation_to_latex(large).count(r"\theta") == 1_200
+        assert fastest(lambda: equation_to_latex(large)) < 8 * fastest(lambda: equation_to_latex(small)) + 0.01
+        unsplittable_small, unsplittable_large = "pi" * 1_200 + "x", "pi" * 4_900 + "x"  # every suffix is tried, none splits
+        assert equation_to_latex(unsplittable_large) is not None
+        assert (fastest(lambda: equation_to_latex(unsplittable_large))
+                < 8 * fastest(lambda: equation_to_latex(unsplittable_small)) + 0.01)
+
+
+class TestAddedWords:
+    """Words of Hancom's command table that passed through as text."""
+
+    @pytest.mark.parametrize("script, latex", [
+        ("x le y ge z", r"x \leq y \geq z"),
+        ("x LE y GE z LEQ w GEQ v", r"x \leq y \geq z \leq w \geq v"),
+        ("lex + gem", "lex + gem"),  # `le` and `ge` only as words of their own
+        ("nabla f", r"\nabla f"),
+        ("p LAND q LOR r", r"p \land q \lor r"),
+        ("A SUPERSET B", r"A \supset B"),
+        ("A nsubset B", r"A \not\subset B"),
+        ("BIGOPLUS BIGOTIMES BIGODOT BIGUPLUS BIGSQCUP", r"\bigoplus \bigotimes \bigodot \biguplus \bigsqcup"),
+        ("SMALLSUM_{i=1}^{n} a SMALLPROD b", r"\sum_{i=1}^{n} a \prod b"),
+        ("OVERBRACE{a+b}{n}", r"\overbrace{a+b}^{n}"),
+        ("UNDERBRACE{1+ cdots +1}{k}", r"\underbrace{1+ \cdots +1}_{k}"),
+        ("BOX + 3 = 5", r"\boxed{} + 3 = 5"),
+        ("a rightarrow b leftarrow c", r"a \rightarrow b \leftarrow c"),
+    ])
+    def test_command_table_word(self, script, latex):
+        assert equation_to_latex(script) == latex
+
+    @pytest.mark.parametrize("script, latex", [
+        ("OVERBRACE{a}", r"\overbrace{a}"),
+        ("x + underbrace a + y", r"x + \underbrace{a} + y"),
+        ("overbrace {a} ^ {n}", r"\overbrace{a}^{n}"),
+        ("overbrace {a+b} {n} + y", r"\overbrace{a+b}^{n} + y"),
+    ])
+    def test_brace_without_a_label_group_has_none(self, script, latex):
+        """The label is the group written after the body, and only a group: without one the whole equation fell back to the
+        script, and a script mark after the body was taken for the label (`\\overbrace{a}^{^} {n}`)."""
+        assert equation_to_latex(script) == latex
+
+
 class TestRepeatedStacks:
     """The top of an `atop` lost its braces like any argument, so a chain of them came out as `{a \\atop b \\atop c}`, which TeX
     rejects as ambiguous, and every repetition scanned the whole top again: 20 equations of `a atop a atop …` in a 1.6 KB HWPX

@@ -198,7 +198,7 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 ### What is dropped or changed
 
 - Legacy `.doc` is converted when the server has LibreOffice installed (the result carries a warning that the document went through LibreOffice, and takes a few seconds longer); otherwise it gives `unsupported_format` → advise "save as DOCX and upload".
-- A docx saved in Strict Open XML format gives `unsupported_format` → advise "save again as a normal Word Document (.docx)".
+- A docx saved in Strict Open XML format is read like any other. Only one whose content still cannot be read gives `unsupported_format` → advise "save again as a normal Word Document (.docx)".
 - Headers and footers are excluded by default (usually noise).
 - Hyperlinks come out as `[text](url)` (http, https and mailto only) and bold / italic as `**bold**` / `*italic*`; a paragraph or cell that is bold throughout is not marked. Hidden text is not included. Comments (review comments) are added at the end of the document as `> Comment(author, on "passage"): text`.
 - A numbered paragraph with empty text (including one wrapped in an empty input field) only advances the numbering and is not output.
@@ -237,7 +237,10 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 
 ### What is read
 
-- "개요 N" (Outline N) styles → `#` headings.
+- "개요 N" (Outline N) styles and outline-numbered paragraphs → `#` headings; without them, short paragraphs set clearly
+  larger than the body → headings by size.
+- Bold and italic → `**bold**` / `*italic*` (not in headings; a paragraph or cell bold throughout is not marked).
+- Letter-spaced form labels are joined (`성   명` → `성명`).
 - Paragraph numbers and bullets (`1.`, `가.`, `-`).
 - Tables (including merged cells); captions of tables, pictures and equations (including the number of "표 1", "그림 2").
 - Multilevel lists inside a table cell are marked with `└` (level 2) and `└─` (level 3) before the sub-item.
@@ -255,7 +258,7 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 - **Hangul 3.x and earlier (old .hwp)** gives `unsupported_format` → advise "save again as HWP or HWPX in Hangul".
 - An encrypted document gives `encrypted_document`.
 - **A distribution (copy-protected) document** does not have its body decrypted; the **preview text (the beginning only)** saved by Hancom Office is used (warning).
-- Headers and footers are excluded by default. Page numbers are not included. Comments (review comments) are added at the end of the document for HWPX only; in HWP they are not included (the body text a comment is attached to is kept).
+- Headers that hold words (a form's number and title) are written once before the body, without their pictures; footers and page numbers are excluded by default (`include_headers_footers=True` writes every header and footer). Comments (review comments) are added at the end of the document for HWPX only; in HWP they are not included (the body text a comment is attached to is kept).
 - A document with no text at all (empty tables, only shapes) gives an empty result plus a warning that no text was extracted.
 - Charts of HWP (binary) are not converted.
 - OLE objects such as pasted Excel tables and charts, and videos, do not have their content read; only `[OLE object]` and `[Video]` placeholders remain (a warning reports the count).
