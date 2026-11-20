@@ -584,3 +584,56 @@ class TestBarCharts:
 
         assert "|" not in text
         assert "Diagram 4" in text and "Visitors per quarter of the year" in text
+
+
+def _table_with_open_header() -> bytes:
+    """A ruled table of seven columns under a header of two levels drawn without a top border or outer sides: 'No.', 'Party'
+    and 'Change' are merged over both levels, 'Provisional' and 'Official' over two sub-columns each, and only the rules
+    between the merged cells reach up to the first level."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    columns = [60, 100, 220, 280, 340, 400, 460, 520]
+    first, second, body = 92, 118, 155
+    rows = [["1", "North Party", "1,652", "28,008", "1,652", "28,008", "0"],
+            ["2", "South Party", "1,649", "23,679", "1,623", "23,939", "+260"],
+            ["3", "East Party", "715", "9,407", "680", "9,952", "+545"]]
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    y = lambda top: A4[1] - top  # noqa: E731
+    pdf.setFont("Helvetica", 9)
+    for x, text in ((64, "No."), (104, "Party"), (224, "Provisional"), (344, "Official"), (464, "Change")):
+        pdf.drawString(x, y(first + 16), text)
+    for x in (224, 344):
+        pdf.drawString(x, y(second + 22), "Areas")
+        pdf.drawString(x + 60, y(second + 22), "Candidates")
+    for x in (100, 220, 340, 460):
+        pdf.line(x, y(first), x, y(second))
+    pdf.line(220, y(second), 460, y(second))
+    for x in columns[1:-1]:
+        pdf.line(x, y(second), x, y(body))
+    bottom = body + 16 * len(rows)
+    for x in columns:
+        pdf.line(x, y(body), x, y(bottom))
+    for number, row in enumerate(rows):
+        pdf.line(columns[0], y(body + 16 * number), columns[-1], y(body + 16 * number))
+        for column, text in enumerate(row):
+            pdf.drawString(columns[column] + 4, y(body + 16 * number + 11), text)
+    pdf.line(columns[0], y(bottom), columns[-1], y(bottom))
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestHeaderWithoutTopBorder:
+    """A two-level header drawn without a top border or outer sides belongs to its table (`_closed_above_open_header`)."""
+
+    def test_the_first_header_level_is_a_row_of_the_table(self):
+        text = convert(_table_with_open_header(), "a.pdf").text
+
+        table = [line for line in text.splitlines() if line.startswith("|")]
+        assert table[0] == ("| No. | Party | Provisional Areas | Provisional Candidates | Official Areas | Official Candidates"
+                            " | Change |")
+        assert "| 2 | South Party | 1,649 | 23,679 | 1,623 | 23,939 | +260 |" in table
+        assert not any(line.startswith(("No.", "Provisional")) for line in text.splitlines())

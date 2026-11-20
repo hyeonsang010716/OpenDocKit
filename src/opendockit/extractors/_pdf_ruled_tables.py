@@ -213,6 +213,8 @@ def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], 
                   if not any(_is_inner_part(table.bbox, closed.bbox) for closed in regular)]
     found = _with_shaded_rows(page, open_sided + [table for table in regular
                                                   if not any(_encloses(other.bbox, table.bbox) for other in open_sided)])
+    # after the shaded rows, which find a shaded table again from the page's own rules
+    found = [_closed_above_open_header(page, table) for table in found]
     candidates = []
     for table in found:
         x0, top, x1, bottom = table.bbox
@@ -380,6 +382,59 @@ def _closed_at_open_ends(page: object, table: object) -> object:
         return table
     found = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_horizontal_lines": lines})
     if (len(found) != 1 or len(found[0].rows) != len(table.rows) + len(lines) or len(found[0].columns) != len(table.columns)
+            or not all(map(_BoxIndex([cell for cell in found[0].cells if cell]).holds, stray))):
+        return table
+    return found[0]
+
+
+def _closed_above_open_header(page: object, table: object) -> object:
+    """If vertical rules at two or more of the table's column boundaries go on above its top to one height and there is text in
+    between, the table found again with a top rule at that height and its outer sides closed up to it. `table` itself when there
+    is nothing to change.
+
+    A header of two levels drawn without a top border or outer sides ('No.', 'Political party' merged over both levels, and
+    'Provisional registration result' over two sub-columns) has rules only between its merged cells above the second level,
+    so the table started at the second level and the first fell out as lines above it (3 of 200 pages of a pdf corpus). Every
+    boundary is needed for a row split at the page end (`_closed_at_open_ends`); here the merged cells cover some of them.
+    The table is replaced only when exactly one table is found again, with the same columns, one row more, and all the text in
+    between in its cells (Pinned by: test_pdf_highlights.py::TestHeaderWithoutTopBorder).
+    """
+    if not table.rows:
+        return table
+    x0, top, x1, bottom = table.bbox
+    edges = _column_edges(table)
+    positions, verticals = _verticals_by_x(page)
+    verticals = verticals[bisect_left(positions, min(edges) - 2):bisect_right(positions, max(edges) + 2)] if edges else []
+    reaches = []
+    for x in edges:
+        ends = [edge["top"] for edge in verticals if abs(edge["x0"] - x) <= 1.5 and abs(edge["bottom"] - top) <= 1.5]
+        if ends:
+            reaches.append(min(ends))
+    if len(reaches) < 2 or max(reaches) - min(reaches) > 1.5:
+        return table
+    highest = min(reaches)
+    if top - highest < _CHECKBOX_SIDE[0]:
+        return table
+    middles, ordered = _text_by_middle(page)
+    stray = [char for char in ordered[bisect_right(middles, highest):bisect_left(middles, top)]
+             if x0 < (char["x0"] + char["x1"]) / 2 < x1]
+    if not stray:
+        return table
+    box = _region_on_page(page, x0, highest, x1, bottom)
+    if box is None:
+        return table
+    # The outer sides are closed down to the first cell of the outer column: its merged header cell has no side either
+    sides = [(x, next((cell[1] for row in table.rows if (cell := row.cells[column]) is not None), top))
+             for x, column in ((x0, 0), (x1, -1))]
+    # The table's own cells are drawn as rules too: a table grown from cell shading (`_with_shaded_rows`) has sides the page
+    # does not draw, and found again from the page alone it lost them
+    cells = [cell for cell in table.cells if cell]
+    lines = {"explicit_horizontal_lines": [_rule_line(x0, highest, x1, highest),
+                                           *(_rule_line(left, y, right, y) for left, upper, right, lower in cells for y in (upper, lower))],
+             "explicit_vertical_lines": [*(_rule_line(x, highest, x, end) for x, end in sides),
+                                         *(_rule_line(x, upper, x, lower) for left, upper, right, lower in cells for x in (left, right))]}
+    found = _cropped(page, box).find_tables({**_TABLE_SETTINGS, **lines})
+    if (len(found) != 1 or len(found[0].rows) != len(table.rows) + 1 or len(found[0].columns) != len(table.columns)
             or not all(map(_BoxIndex([cell for cell in found[0].cells if cell]).holds, stray))):
         return table
     return found[0]
