@@ -190,6 +190,21 @@ class TestElapsedTime:
 
         assert result == expected
 
+    @pytest.mark.parametrize(("number_format", "expected"),
+                             [("[mm]\\m\\i\\n", "90min"), ("[h]\\h mm\\m", "1h 30m"), ("[mm]\" min\"", "90 min")])
+    def test_backslash_escaped_literals_of_an_elapsed_format_are_kept(self, number_format, expected):
+        """Only a quoted literal sent an elapsed format through `_clock_text`, so 90 minutes under `[mm]\\m\\i\\n` came out as
+        `90:00` and under `[h]\\h mm\\m` as `1:30` (Excel `90min`, `1h 30m`)."""
+        workbook = openpyxl.Workbook()
+        workbook.active.append([90 / 1440])
+        workbook.active["A1"].number_format = number_format
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.xlsx")
+
+        assert result.text.splitlines()[-1] == expected
+
     def test_xlsx_elapsed_time_cell(self):
         data = _xlsx([["작업", "기간"], ["설치", timedelta(hours=26)]], {"B2": "[h]:mm"})
 
@@ -319,6 +334,22 @@ class TestXlsValues:
         value = format_cell(_xls_value(cell, 0, number_format), number_format)
 
         assert value == expected
+
+    @pytest.mark.parametrize(("number_format", "seconds", "expected"),
+                             [("ss.00", 12.34, "00:00:12"), ("s.0", 12.34, "00:00:12"), ("m:ss.000", 72.345, "00:01:12")])
+    def test_time_with_fractional_seconds_is_a_time(self, number_format, seconds, expected):
+        """xlrd takes a format for a date only when it has more date letters than digits, so the `0`s of fractional seconds
+        made it a number cell and 12.34 s under `ss.00` came out as `0.000142824074074074`. XLSX gives `00:00:12`."""
+        format_record = builder.xls_record(0x041E, struct.pack("<HHB", 164, len(number_format), 1)
+                                           + number_format.encode("utf-16-le"))
+        styles = b"".join(builder.xls_record(0x00E0, struct.pack("<HHH", 0, format_id, 0) + b"\0" * 14) for format_id in (0, 164))
+        number = builder.xls_record(0x0203, struct.pack("<HHHd", 1, 0, 1, seconds / 86400))
+        data = builder.xls_bytes([("S", [["time"]], number)], globals_extra=format_record + styles)
+
+        text = xls.extract_xls(data, ConvertOptions()).sections[0].text
+
+        assert text.splitlines()[-1] == expected
+        assert "0.000" not in text
 
 
 class TestEastAsianBuiltinDateFormats:
@@ -558,6 +589,31 @@ class TestSuperscriptInCells:
         text = _xls_rich_text("10의 6승 CO2 끝", [(1, 0), (4, 5), (5, 0), (9, 6), (10, 0)], escapements.get)
 
         assert text == "10의 ^6승 CO_2 끝"
+
+    def test_xls_run_after_an_emoji_marks_the_right_character(self):
+        """BIFF counts run positions in UTF-16 code units, where an emoji is two. Read as code points, the raised `2` of
+        `😀 m2` (unit 4) fell past the end of the text and nothing was marked."""
+        def font(escapement: int) -> bytes:
+            return builder.xls_record(0x0031, struct.pack("<HHHHHBBBBBB", 200, 0, 0x7FFF, 400, escapement, 0, 0, 0, 0, 5, 0)
+                                      + b"Arial")
+
+        def shared_string(text: str, runs: list[tuple[int, int]]) -> bytes:
+            units = text.encode("utf-16-le")
+            return (struct.pack("<HBH", len(units) // 2, 0x09, len(runs)) + units
+                    + b"".join(struct.pack("<HH", position, font_index) for position, font_index in runs))
+
+        strings = [("😀 m2", [(4, 5)]), ("😀😀 CO2 m3", [(7, 5), (8, 0), (10, 5)])]
+        fonts = b"".join(font(escapement) for escapement in (0, 0, 0, 0, 1))  # index 4 is skipped: the last font is 5
+        styles = builder.xls_record(0x00E0, struct.pack("<HHH", 0, 0, 0) + b"\0" * 14)
+        table = builder.xls_record(0x00FC, struct.pack("<II", len(strings), len(strings))
+                                   + b"".join(shared_string(text, runs) for text, runs in strings))
+        cells = b"".join(builder.xls_record(0x00FD, struct.pack("<HHHI", row, 0, 0, row - 1)) for row in (1, 2))
+        data = builder.xls_bytes([("S", [["unit"]], cells)], globals_extra=fonts + styles + styles + table)
+
+        text = xls.extract_xls(data, ConvertOptions()).sections[0].text
+
+        assert "😀 m^2" in text
+        assert "😀😀 CO^2 m^3" in text
 
 
 def _xml_spreadsheet(number_format: str, kind: str, value: str) -> bytes:
@@ -1407,6 +1463,49 @@ class TestTextSections:
 
         assert "| 홍길동 님 | 과장 |" in xlsx.text
         assert "| 가 | 홍길동 님 |" in xml.text
+
+    @pytest.mark.parametrize("streamed", [False, True])
+    def test_xlsx_error_value_is_shown_without_its_format(self, monkeypatch, streamed):
+        """Excel shows an error value without its number format. Put into the text section like text, `#N/A` under `@" 님"`
+        came out as `#N/A 님`. A text cell that reads `#N/A` is text and keeps the format."""
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["kind", "name"])
+        sheet.append(["error", "#N/A"])
+        sheet.append(["formula", "#DIV/0!"])
+        sheet.append(["text", "#N/A"])
+        sheet["B4"].data_type = "s"
+        for row in (2, 3, 4):
+            sheet.cell(row, 2).number_format = '@" 님"'
+        buffer = BytesIO()
+        workbook.save(buffer)
+        data = builder.zip_with(buffer.getvalue(), edit={  # the cached error of a formula
+            "xl/worksheets/sheet1.xml": lambda xml: re.sub(r'(<c r="B3"[^>]*>)', r"\1<f>1/0</f>", xml)})
+        if streamed:
+            from opendockit.extractors import spreadsheet
+
+            monkeypatch.setattr(spreadsheet, "_FULL_LOAD_MAX_SHEET_BYTES", 0)
+
+        text = convert(data, "a.xlsx").text
+
+        assert "| error | #N/A |" in text
+        assert "| formula | #DIV/0! |" in text
+        assert "| text | #N/A 님 |" in text
+
+    def test_xls_error_value_is_shown_without_its_format(self):
+        number_format = '@" 님"'
+        format_record = builder.xls_record(0x041E, struct.pack("<HHB", 164, len(number_format), 1)
+                                           + number_format.encode("utf-16-le"))
+        styles = b"".join(builder.xls_record(0x00E0, struct.pack("<HHH", 0, format_id, 0) + b"\0" * 14) for format_id in (0, 164))
+        error = builder.xls_record(0x0205, struct.pack("<HHHBB", 1, 1, 1, 0x2A, 1))  # BOOLERR: #N/A
+        label = builder.xls_record(0x0204, struct.pack("<HHHHB", 2, 1, 1, 4, 1) + "#N/A".encode("utf-16-le"))
+        data = builder.xls_bytes([("S", [["kind", "name"], ["error"], ["text"]], error + label)],
+                                 globals_extra=format_record + styles)
+
+        text = xls.extract_xls(data, ConvertOptions()).sections[0].text
+
+        assert "| error | #N/A |" in text
+        assert "| text | #N/A 님 |" in text
 
 
 class TestTextOnlyNumberFormats:

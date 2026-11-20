@@ -179,11 +179,12 @@ def _page_codec(page: int) -> str | None:
 class _State:
     """What a group scopes: the destination and the character formatting."""
 
-    __slots__ = ("dest", "bold", "italic", "hidden", "font", "uc", "link", "closer", "nested_row", "ud", "in_upr")
+    __slots__ = ("dest", "bold", "italic", "hidden", "deleted", "font", "uc", "link", "closer", "nested_row", "ud", "in_upr")
 
     def __init__(self) -> None:
         self.dest = _BODY
         self.bold = self.italic = self.hidden = False
+        self.deleted = False  # inside a tracked deletion (`\deleted`): a paragraph mark here joins the next paragraph
         self.font: int | None = None
         self.uc = 1
         self.link: str | None = None
@@ -195,6 +196,7 @@ class _State:
     def child(self) -> "_State":
         state = _State.__new__(_State)
         state.dest, state.bold, state.italic, state.hidden = self.dest, self.bold, self.italic, self.hidden
+        state.deleted = self.deleted
         state.font, state.uc, state.link, state.nested_row = self.font, self.uc, self.link, self.nested_row
         state.closer, state.ud, state.in_upr = None, None, self.in_upr
         return state
@@ -405,6 +407,9 @@ class _Flow:
         self.tables: list[_Table] = []  # the open tables, outermost first
         self.row = _RowDefinition()
         self.nested_row = _RowDefinition()
+        # The paragraph whose mark was deleted that the paragraph being read is joined to (`join_next`): its table depth, its
+        # properties and how many of `runs` are its own.
+        self._joined: tuple[int, _Paragraph, int] | None = None
 
     def _depth(self) -> int:
         paragraph = self.paragraph
@@ -484,9 +489,37 @@ class _Flow:
             else:
                 self.add_block(block)
 
+    def join_next(self) -> None:
+        """A `\\par` inside a tracked deletion (`\\deleted`): the paragraph is one with the next in the final version, so it does
+        not end here. Its text stays where it was typed in front of the next paragraph's, and the joined paragraph takes the
+        properties of the paragraph mark that is left (those in force at the next `\\par`), as in DOCX. Ended there, a sentence
+        joined with Track Changes on stayed cut in two, and a list item took a number of its own
+        (Pinned by: test_rtf.py::TestTrackedChanges::test_paragraph_whose_mark_was_deleted_is_joined_to_the_next).
+        A paragraph whose mark is only hidden (`\\v`) still ends there, as DOCX leaves it."""
+        depth = self._depth()
+        self._end_joined_elsewhere(depth)
+        self._settle()
+        self._joined = depth, self.paragraph, len(self.runs)
+
+    def _end_joined_elsewhere(self, depth: int) -> None:
+        """Before a paragraph ends at table depth `depth`: the paragraph whose mark was deleted that it would join (`join_next`)
+        is written on its own when it stands at another depth — the next paragraph is in a table it is not in, or the other way
+        round — as DOCX joins only a paragraph that the next paragraph follows (Pinned by:
+        test_rtf.py::TestTrackedChanges::test_paragraph_whose_mark_was_deleted_before_a_table_is_not_joined_to_its_cell)."""
+        joined, self._joined = self._joined, None
+        if joined is None or joined[0] == depth:
+            return
+        _, paragraph, count = joined
+        self._settle()
+        rest, self.runs = self.runs[count:], self.runs[:count]
+        current, self.paragraph = self.paragraph, paragraph
+        self.end_paragraph()
+        self.paragraph, self.runs = current, rest
+
     def end_paragraph(self, *, marked: bool = False) -> None:
         """`marked`: the paragraph ends at its own paragraph mark (`\\par`), so it is there even when it is empty."""
         depth = self._depth()
+        self._end_joined_elsewhere(depth)
         self._enter(depth)
         if depth:
             table = self.tables[-1]
@@ -499,7 +532,9 @@ class _Flow:
             self.add_block(text)
 
     def end_cell(self, *, nested: bool) -> None:
-        self._enter(max(self._depth(), 2) if nested else 1)
+        depth = max(self._depth(), 2) if nested else 1
+        self._end_joined_elsewhere(depth)
+        self._enter(depth)
         table = self.tables[-1]
         text = self._paragraph_text(in_cell=True, kept=_takes_cells(table))
         if text:
@@ -584,7 +619,8 @@ class _Flow:
         (Pinned by: test_rtf.py::TestLists::test_empty_numbered_paragraph_still_takes_its_number). Only a paragraph ended by
         its own `\\par`: the end of a flow, a `\\cell` or a `\\sect` right after a `\\par` close no paragraph of the
         document, and counted they would take a number from the list the properties still name. One whose paragraph mark is
-        hidden or deleted (`\\v`, `\\deleted` in force at `\\par`) is not in the document and is not counted either."""
+        hidden (`\\v` in force at `\\par`) is not in the document and is not counted either; one whose mark is deleted does not
+        end at it (`join_next`)."""
         paragraph, reader = self.paragraph, self.reader
         if self.kind == "note" or (paragraph.ls is None and paragraph.pn is None) or reader.mark_hidden():
             return
@@ -1143,7 +1179,7 @@ class _Reader:
             return
         if symbol in (b"\r", b"\n"):  # a backslash before a line break is `\par`
             if self._state.dest == _BODY:
-                self._flow.end_paragraph(marked=True)
+                self._paragraph_mark()
             return
         text = _SYMBOLS.get(symbol)
         if text:
@@ -1172,12 +1208,14 @@ class _Reader:
         state, flow = self._state, self._flow
         paragraph = flow.paragraph
         on = number is None or number != 0
-        if word == b"par" or word == b"sect":
-            flow.end_paragraph(marked=word == b"par")
+        if word == b"par":
+            self._paragraph_mark()
+        elif word == b"sect":
+            flow.end_paragraph()
         elif word == b"pard":
             flow.paragraph = _Paragraph()
         elif word == b"plain":
-            state.bold = state.italic = state.hidden = False
+            state.bold = state.italic = state.hidden = state.deleted = False
             state.font = None
         elif word == b"b":
             state.bold = on
@@ -1186,6 +1224,8 @@ class _Reader:
         elif word == b"v" or word == b"deleted":
             # Hidden text and tracked deletions are not text of the document (DOCX leaves out w:vanish and w:del the same way).
             state.hidden = on
+            if word == b"deleted":
+                state.deleted = on
         elif word == b"f":
             state.font = number
         elif word == b"s":
@@ -1385,7 +1425,7 @@ class _Reader:
             return
         state.dest = _BODY
         # The text of a header, footnote or shape starts with plain formatting, whatever the run that anchors it looks like.
-        state.bold = state.italic = state.hidden = False
+        state.bold = state.italic = state.hidden = state.deleted = False
         state.link = None
         if kind == "box":
             if self._boxes >= _MAX_SHAPE_DEPTH:
@@ -1470,6 +1510,13 @@ class _Reader:
 
     def end_simple_numbering(self) -> None:
         self._simple_counters = [None] * (_MAX_LEVEL + 1)
+
+    def _paragraph_mark(self) -> None:
+        """`\\par`: the paragraph ends, unless its mark is a tracked deletion (`_Flow.join_next`)."""
+        if self._state.deleted:
+            self._flow.join_next()
+        else:
+            self._flow.end_paragraph(marked=True)
 
     def mark_hidden(self) -> bool:
         """Whether the paragraph mark being read is hidden or deleted text."""

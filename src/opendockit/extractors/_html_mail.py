@@ -87,6 +87,11 @@ def mhtml_html_part(data: bytes) -> tuple[bytes, str | None] | None:
     return _html_part(_mhtml_message(data))
 
 
+def mhtml_is_sent_mail(data: bytes) -> bool:
+    """Whether a message detected as MHTML (`is_mhtml`) is a sent mail (`_mail.is_sent_mail`)."""
+    return is_sent_mail(_mhtml_message(data))
+
+
 def mail_html_parts(message: Message) -> list[tuple[bytes, str | None]]:
     """The text/html body parts of a mail (`_mail.mime_mail`) (`_mail.mail_html_body_parts` — in document order, including
     pieces separated by attachments) as (bytes, charset the part declares). An empty list if there are none (a mail with only

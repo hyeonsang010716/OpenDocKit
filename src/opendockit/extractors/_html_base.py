@@ -5,6 +5,7 @@ finished text in the tree.
 
 from contextvars import ContextVar
 from dataclasses import dataclass
+from functools import lru_cache
 import re
 
 from bs4 import BeautifulSoup, Tag, XMLParsedAsHTMLWarning
@@ -218,7 +219,93 @@ _BLOCK_TAGS = {"address", "article", "aside", "blockquote", "dd", "details", "di
                "search", "section", "summary", "caption", "center"}
 
 
-_FOLDED_STYLE = re.compile(r"display\s*:\s*none", re.IGNORECASE)
+# The answer of a folded question (`<dd>`, `_html_dom._folded_answers`): hidden by its own style until a script opens it. Decided
+# by the declaration that wins (`style_sets`), like hiding: matched on the raw text, `/* display:none */` or a later
+# `display:block` made a shown answer a folded one (Pinned by:
+# test_core_html_mail_hidden_and_frames.py::TestHidingDecidedByTheWinningDeclaration::test_shown_answer_of_a_list_is_not_folded).
+FOLDED_VALUES = {"display": "none"}
+
+# A declaration of an inline style: `name: value`, with `!important` at its end.
+_STYLE_DECLARATION = re.compile(r"\s*([\w-]+)\s*:(.*)", re.DOTALL)
+_IMPORTANT = re.compile(r"!\s*important\s*$", re.IGNORECASE)
+_STYLE_COMMENT = re.compile(r"/\*.*?(?:\*/|$)", re.DOTALL)
+_GLOBAL_VALUES = frozenset({"inherit", "initial", "unset", "revert", "revert-layer"})
+# The values a browser accepts for the properties that hide (the first word of the value): a declaration with any other value is
+# invalid and dropped, so an earlier one stays in force — `display:none; display:bogus` is hidden (Pinned by:
+# test_core_html_mail_hidden_and_frames.py::TestHidingDecidedByTheWinningDeclaration::test_invalid_later_declaration_does_not_show_it).
+_KNOWN_VALUES = {
+    "display": _GLOBAL_VALUES | {
+        "none", "contents", "block", "inline", "inline-block", "flow", "flow-root", "flex", "inline-flex", "grid",
+        "inline-grid", "table", "inline-table", "table-row-group", "table-header-group", "table-footer-group", "table-row",
+        "table-cell", "table-column-group", "table-column", "table-caption", "list-item", "run-in", "ruby", "ruby-base",
+        "ruby-text", "ruby-base-container", "ruby-text-container", "math", "-webkit-box", "-webkit-inline-box", "-webkit-flex",
+        "-webkit-inline-flex", "-moz-box", "-moz-inline-box", "-ms-flexbox", "-ms-inline-flexbox", "-ms-grid",
+        "-ms-inline-grid", "grid-lanes", "inline-grid-lanes"},
+    "visibility": _GLOBAL_VALUES | {"visible", "hidden", "collapse"},
+    "content-visibility": _GLOBAL_VALUES | {"visible", "hidden", "auto"},
+}
+# A value computed from a variable or a function is valid when the style is read; what it becomes is not known here.
+_COMPUTED_VALUE = re.compile(r"(?:var|env|attr)\(", re.IGNORECASE)
+
+
+# The longest inline style whose properties are kept for the next time it is asked about (`_style_properties`): the cache lives
+# as long as the process, and kept whole, a thousand styles of a few MB held a server's memory long after their pages.
+_CACHED_STYLE_CHARS = 4_096
+
+
+def _style_properties(style: str) -> dict[str, str]:
+    """The properties of an inline style that hide (`display`, `visibility`, `content-visibility`) and the first word of the value
+    that wins for each (lowercase), as a browser applies them (`_read_style_properties`). A page checks one style several
+    times — hidden, then under a hidden ancestor, then for a visible descendant — so the result for a short style is kept (the
+    returned dict is shared: not to be changed)
+    (Pinned by: test_core_html_mail_hidden_and_frames.py::TestHidingDecidedByTheWinningDeclaration::
+    test_long_styles_are_not_kept_after_their_page)."""
+    return _cached_style_properties(style) if len(style) <= _CACHED_STYLE_CHARS else _read_style_properties(style)
+
+
+@lru_cache(maxsize=1024)
+def _cached_style_properties(style: str) -> dict[str, str]:
+    return _read_style_properties(style)
+
+
+def _read_style_properties(style: str) -> dict[str, str]:
+    """Comments left out, the declarations split at `;`, the last valid one written wins unless an earlier one is `!important`
+    and it is not. One pass over the style (linear time)."""
+    if "/*" in style:
+        style = _STYLE_COMMENT.sub("", style)
+    properties: dict[str, str] = {}
+    important: set[str] = set()
+    for declaration in style.split(";"):
+        match = _STYLE_DECLARATION.match(declaration)
+        if match is None:
+            continue
+        name = match.group(1).lower()
+        value = match.group(2)
+        marked = _IMPORTANT.search(value)
+        if marked is not None:
+            value = value[:marked.start()]
+        elif name in important:
+            continue
+        words = value.split(None, 1)
+        word = words[0].lower() if words else ""
+        known = _KNOWN_VALUES.get(name)
+        if known is None:
+            continue   # only the properties that hide are asked about (and kept, `_cached_style_properties`)
+        if word not in known and not _COMPUTED_VALUE.match(word):
+            continue   # invalid: a browser drops the declaration
+        if marked is not None:
+            important.add(name)
+        properties[name] = word
+    return properties
+
+
+def style_sets(style: str, values: dict[str, str]) -> bool:
+    """Whether the winning declaration (`_style_properties`) of one of the properties of `values` in an inline style has that
+    property's value."""
+    if ":" not in style:
+        return False
+    properties = _style_properties(style)
+    return any(properties.get(name) == value for name, value in values.items())
 
 
 _WHITESPACE = re.compile(r"\s+")
