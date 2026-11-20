@@ -2901,6 +2901,25 @@ def _png_file(picture: Image.Image, **options) -> bytes:
     return buffer.getvalue()
 
 
+def _png_chunk(kind: bytes, body: bytes) -> bytes:
+    return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+
+def _rgba_png(picture: Image.Image, *, interlaced: bool = False, after_rows: bytes = b"", before: bytes = b"",
+              after: bytes = b"", end: bytes = b"") -> bytes:
+    """An 8-bit RGBA PNG written chunk by chunk (unfiltered rows, Adam7 passes when `interlaced`), with `after_rows` inflated
+    after the rows in the same zlib stream, the chunks `before` and `after` the picture data, and `end` inside IEND."""
+    width, height = picture.size
+    pixels = picture.tobytes()
+    passes = ((0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)) if interlaced \
+        else ((0, 0, 1, 1),)
+    rows = b"".join(b"\x00" + b"".join(pixels[(y * width + x) * 4:(y * width + x) * 4 + 4] for x in range(x0, width, dx))
+                    for x0, y0, dx, dy in passes if x0 < width for y in range(y0, height, dy))
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, int(interlaced))
+    return (b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", header) + before
+            + _png_chunk(b"IDAT", zlib.compress(rows + after_rows, 9)) + after + _png_chunk(b"IEND", end))
+
+
 class TestPngPassedOnAsItIs:
     """An 8-bit RGBA PNG that needs no change was decoded and compressed again with the same pixels: the PNG compression of
     `Image.save` was most of the conversion time of a picture-heavy document (a real HWP with 51 pictures: 550 ms, 420 ms
@@ -3023,6 +3042,48 @@ class TestPngPassedOnAsItIs:
 
         assert b"HIDDEN" not in result.data
         assert Image.open(BytesIO(result.data)).tobytes() == _photo().tobytes()
+
+    def test_picture_data_that_inflates_past_its_rows_is_written_anew(self, monkeypatch):
+        """Zeros after the rows in the zlib stream: 8 MB of them inflate to 8 GB, which were inflated whole (3–10 s) to see where
+        the stream ended and then handed on, against 0.05 s for the rewrite. Inflating stops just past the rows."""
+        import opendockit.image as image_module
+
+        inflated, decompressobj = [], zlib.decompressobj
+
+        class Counting:
+            def __init__(self):
+                self._stream = decompressobj()
+
+            def decompress(self, data, max_length=0):
+                out = self._stream.decompress(data, max_length)
+                inflated.append(len(out))
+                return out
+
+            def __getattr__(self, name):
+                return getattr(self._stream, name)
+
+        monkeypatch.setattr(image_module.zlib, "decompressobj", Counting)
+        picture = _photo()
+        rows = picture.height * (1 + picture.width * 4)
+
+        result = prepare_image(_rgba_png(picture, after_rows=bytes(64 << 20)), min_side=1, max_side=2048)
+
+        assert sum(inflated) <= rows + 1
+        assert len(result.data) < 1 << 20 and _chunks(result.data)[0][1][8:10] == b"\x08\x06"
+        picture_data = zlib.decompress(b"".join(body for kind, body, _ in _chunks(result.data) if kind == b"IDAT"))
+        assert len(picture_data) == rows
+        assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
+
+    @pytest.mark.parametrize("interlaced", [False, True], ids=["rows", "adam7"])
+    def test_picture_data_of_exactly_its_rows_is_handed_on(self, interlaced):
+        for size in ((600, 400), (301, 203), (97, 410), (410, 97)):  # sizes whose passes are cut short
+            picture = _photo(*size)
+            data = _rgba_png(picture, interlaced=interlaced)
+
+            result = prepare_image(data, min_side=1, max_side=2048)
+
+            assert result.data == data, size
+            assert Image.open(BytesIO(result.data)).tobytes() == picture.tobytes()
 
     def test_pictures_that_need_a_change_are_still_rewritten(self):
         """A palette picture with a transparent entry, a grey one with alpha: made RGBA and written as before."""

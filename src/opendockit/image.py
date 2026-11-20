@@ -361,13 +361,16 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
     taken), no critical chunk this does not know, every chunk kept with its right CRC (a decoder stricter than Pillow refuses
     a picture data chunk with a wrong one), one `IHDR` and the `IDAT` chunks one after another (libpng refuses a picture
     with either out of place), picture data that is one zlib stream with nothing after it (bytes hidden behind the picture
-    were dropped by the rewrite and must not be handed on), and picture data at most half the raw pixels (a file written
+    were dropped by the rewrite and must not be handed on) and that inflates to exactly the rows of the picture (a filter
+    byte and 4 bytes a pixel a row, of each Adam7 pass when interlaced; more is hidden data or a zlib bomb, and inflating
+    stops as soon as it goes past), and picture data at most half the raw pixels (a file written
     without or with little compression is compressed by the rewrite instead of handed on several times as large)."""
     width, height = image.size
     if image.mode != "RGBA" or max(width, height) > max_side or not data.startswith(_PNG_SIGNATURE):
         return None
     kept = [_PNG_SIGNATURE]
     position, picture_data, kind = len(_PNG_SIGNATURE), 0, b""
+    rows = _png_rows_size(width, height, interlaced=data[28:29] == b"\x01")   # what the IDAT stream must inflate to
     stream = zlib.decompressobj()
     data_ended = False   # a chunk other than IDAT came after the picture data
     while kind != b"IEND":
@@ -387,14 +390,16 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
         if (kind == b"IHDR" and position != len(_PNG_SIGNATURE)) or (kind == b"IDAT" and data_ended):
             return None
         if kind == b"IDAT":
-            # Only whether the stream ends where the data ends: the output is thrown away a piece at a time
+            # The rows inflate to exactly `rows` bytes, thrown away a piece at a time: a stream holding more is refused as soon
+            # as it goes past, so a few MB of zeros after the rows (8 GB inflated) are neither inflated whole nor handed on
+            # (Pinned by: test_image.py::TestPngPassedOnAsItIs::test_picture_data_that_inflates_past_its_rows_is_written_anew).
             try:
-                stream.decompress(body, 1 << 20)
-                while stream.unconsumed_tail:
-                    stream.decompress(stream.unconsumed_tail, 1 << 20)
+                rows -= len(stream.decompress(body, min(rows + 1, 1 << 20)))
+                while stream.unconsumed_tail and rows >= 0:
+                    rows -= len(stream.decompress(stream.unconsumed_tail, min(rows + 1, 1 << 20)))
             except zlib.error:
                 return None
-            if stream.unused_data:
+            if stream.unused_data or rows < 0:
                 return None
         elif picture_data:
             data_ended = True
@@ -406,9 +411,26 @@ def _png_as_it_is(data: bytes, image: Image.Image, max_side: int) -> bytes | Non
             kept.append(data[position:end])
             picture_data += length if kind == b"IDAT" else 0
         position = end
-    if picture_data > width * height * 4 // 2 or not stream.eof or stream.unused_data:
+    if picture_data > width * height * 4 // 2 or not stream.eof or stream.unused_data or rows:
         return None
     return b"".join(kept)
+
+
+# Where each of the seven Adam7 passes starts and how far apart its pixels are: (x0, y0, dx, dy)
+_ADAM7 = ((0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2))
+
+
+def _png_rows_size(width: int, height: int, *, interlaced: bool) -> int:
+    """The bytes the picture data of an 8-bit RGBA PNG inflates to: a filter byte and 4 bytes a pixel for every row, of
+    each Adam7 pass that holds pixels when interlaced."""
+    if not interlaced:
+        return height * (1 + width * 4)
+    size = 0
+    for x0, y0, dx, dy in _ADAM7:
+        pass_width, pass_height = -(-(width - x0) // dx), -(-(height - y0) // dy)
+        if pass_width > 0 and pass_height > 0:
+            size += pass_height * (1 + pass_width * 4)
+    return size
 
 
 def _tile_boxes(width: int, height: int, max_side: int) -> list[tuple[int, int, int, int]]:
