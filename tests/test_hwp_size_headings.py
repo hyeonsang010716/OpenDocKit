@@ -157,6 +157,30 @@ class TestSizeHeadings:
 
         assert convert(data, "a.hwp").text.startswith("사업 개요")
 
+    def test_body_size_is_counted_on_body_paragraphs_only(self):
+        """A report written in 11 pt with a long table in 9 pt: the table's text set the body size to 9 pt, and every 11 pt body
+        line became a heading (`### 담당 부서 : 기획예산과`)."""
+        def cell(row: int, col: int, text: str) -> str:
+            return (f"<hp:tc><hp:subList>{_hwpx_paragraph(text, (4, text))}</hp:subList>"
+                    f'<hp:cellAddr colAddr="{col}" rowAddr="{row}"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>')
+        rows = "".join(f"<hp:tr>{cell(row, 0, f'항목 {row}')}{cell(row, 1, _BODY)}</hp:tr>" for row in range(12))
+        table = f'<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run><hp:tbl rowCnt="12" colCnt="2">{rows}</hp:tbl></hp:run></hp:p>'
+        body = [_hwpx_paragraph(line, (3, line)) for line in ("담당 부서 : 기획예산과", "총사업비 120억원", "붙임 자료 참조")]
+
+        lines = convert(_hwpx(_hwpx_paragraph("사업 개요", (2, "사업 개요")), *body, table), "a.hwpx").text.split("\n\n")
+
+        assert lines[:4] == ["## 사업 개요", "담당 부서 : 기획예산과", "총사업비 120억원", "붙임 자료 참조"]
+
+    def test_hwp_and_hwpx_count_the_same_characters(self):
+        """HWP counted the 8 WCHARs of a tab and the paragraph end with the text: twenty short 13 pt lines with a tab outweighed
+        a 10 pt body as HWP and not as HWPX, so the same document lost its heading as HWP."""
+        body = "본문은 열 포인트 글자로 길게 씁니다. " * 7
+        hwp = _hwp(_paragraph("1. 사업 개요", (0, 1)), _paragraph(body), *[_paragraph(("가", _TAB, "나다."), (0, 1))] * 20)
+        hwpx = _hwpx(_hwpx_paragraph("1. 사업 개요", (1, "1. 사업 개요")), _hwpx_paragraph(body),
+                     *['<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="1"><hp:t>가<hp:tab/>나다.</hp:t></hp:run></hp:p>'] * 20)
+
+        assert convert(hwp, "a.hwp").text.splitlines()[0] == convert(hwpx, "a.hwpx").text.splitlines()[0] == "## 1. 사업 개요"
+
 
 class TestOutlineHeads:
     """A paragraph with an outline head (개요 번호) is a heading whatever its style. A real Hangul file (examples/samples/

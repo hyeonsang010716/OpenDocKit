@@ -170,6 +170,8 @@ class _SizeCandidate(str):
     size: int
 
 
+# Characters not counted for the body size (`SizeHeadings.count`): controls and whitespace
+_UNCOUNTED = dict.fromkeys([*range(32), *(code for code in range(32, 0x3001) if chr(code).isspace())])
 # Ratio of a paragraph's character size to the body size → heading level (`SizeHeadings`)
 _SIZE_HEADING_LEVELS = ((1.5, 1), (1.3, 2), (1.15, 3))
 # A paragraph longer than this is not taken for a heading by its size (a sentence written large, a cover-page blurb)
@@ -216,10 +218,11 @@ class SizeHeadings:
     Most Hangul documents write every paragraph in the 바탕글 (Normal) style and make a title by setting a larger (usually bold)
     character size on it, not by the 개요 (outline) styles or paragraph heads. In 26 real HWP files and 8 HWPX files, none had an
     outline style or head on a title, so no heading came out at all. A top-level paragraph whose smallest character size is at least
-    1.15 / 1.3 / 1.5 times the body size becomes a level 3 / 2 / 1 heading; the body size is the size most characters of the
-    document have (counted while it is read). The paragraph must also look like a title (`_size_heading_text`): the same files
-    otherwise gave a heading for a cover-page date, every table-of-contents line, the addressee line of a form and a sentence written
-    large. A document with any outline heading (style or paragraph head) keeps those only: there the author marked the structure.
+    1.15 / 1.3 / 1.5 times the body size becomes a level 3 / 2 / 1 heading; the body size is the size most text characters of
+    the top-level body paragraphs have (counted while they are read, `count`). The paragraph must also look like a title
+    (`_size_heading_text`): the same files otherwise gave a heading for a cover-page date, every table-of-contents line, the
+    addressee line of a form and a sentence written large. A document with any outline heading (style or paragraph head) keeps
+    those only: there the author marked the structure.
 
     The paragraphs are rendered as they are read, before the body size is known, so a candidate is kept as a `_SizeCandidate` in the
     blocks and settled by `resolve` at the end (Pinned by: test_hwp_size_headings.py).
@@ -229,8 +232,15 @@ class SizeHeadings:
         self._sizes: dict[int, int] = {}   # character size → number of characters written in it
         self.outlined = False              # whether the document has an outline heading
 
-    def count(self, size: int, characters: int) -> None:
-        if size > 0 and characters > 0:
+    def count(self, size: int, text: str) -> None:
+        """Count the characters of `text`, written in `size`, of a top-level body paragraph (the paragraphs a candidate comes
+        from). Only text characters count (`_UNCOUNTED`: not whitespace, not controls), the same in HWP and HWPX: the text of
+        tables and notes, written smaller, pulled the body size down and made headings of body lines, and HWP counted the 8 WCHARs
+        of each control and the paragraph end, so the same document had other headings as HWP than as HWPX (Pinned by:
+        test_hwp_size_headings.py::TestSizeHeadings::test_body_size_is_counted_on_body_paragraphs_only,
+        test_hwp_and_hwpx_count_the_same_characters)."""
+        characters = len(text.translate(_UNCOUNTED)) if size > 0 else 0
+        if characters:
             self._sizes[size] = self._sizes.get(size, 0) + characters
 
     def candidate(self, body: str, heading: str, size: int) -> str:

@@ -594,16 +594,29 @@ class HwpRenderer:
                               in_note=bool(self._note_depth))
 
     def _count_sizes(self, paragraph: Record, text_record: Record | None) -> list[tuple[int, int]]:
-        """Count the characters of the paragraph per character size (`SizeHeadings.count`, which finds the body size) and return
-        its character shape runs (`_size_pairs`)."""
+        """Count the text characters of a top-level body paragraph per character size (`SizeHeadings.count`, which finds the
+        body size) and return its character shape runs (`_size_pairs`). The 8 WCHARs of a wide control are not text and are
+        skipped, as the characters of HWPX `hp:t` are all that HWPX counts."""
         if text_record is None or not self._sizes:
             return []
-        length = len(text_record.payload) // 2
+        payload = text_record.payload
+        length = len(payload) // 2
         pairs = _size_pairs(paragraph, length)
-        for index, (start, shape_id) in enumerate(pairs):
-            end = pairs[index + 1][0] if index + 1 < len(pairs) else length
-            if 0 <= shape_id < len(self._sizes):
-                self.size_headings.count(self._sizes[shape_id], end - start)
+        if not pairs or self._depth != 1 or self._cell_depth or self._note_depth:
+            return pairs
+        run = 0
+        index = 0
+        while index < length:
+            control = _UP_TO_WIDE_CONTROL.match(payload, 2 * index, 2 * length).end() // 2
+            while index < control:   # the text up to the control, run by run
+                while run + 1 < len(pairs) and pairs[run + 1][0] <= index:
+                    run += 1
+                end = min(control, pairs[run + 1][0]) if run + 1 < len(pairs) else control
+                shape_id = pairs[run][1]
+                if 0 <= shape_id < len(self._sizes):
+                    self.size_headings.count(self._sizes[shape_id], payload[2 * index:2 * end].decode("utf-16-le", errors="replace"))
+                index = end
+            index = control + 8
         return pairs
 
     def _paragraph_head(self, paragraph: Record) -> tuple[str, int]:

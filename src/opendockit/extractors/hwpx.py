@@ -230,7 +230,8 @@ class HwpxRenderer:
         if name == "t":
             # A run with a super/subscript character shape. Appended as plain text, 10⁶ became 106 (Pinned by: test_hwp.py::TestSuperscript).
             plain = _t_text(node)
-            self.size_headings.count(self._size, len(plain))
+            if not self._inner and not self._cell_depth and not self._note_depth:
+                self.size_headings.count(self._size, plain)
             text = mark_script(plain, self._script) if self._script else plain
             self._note_memo_target(plain)
             # A run with a strikethrough character shape. Appended as plain text, a deleted value read as a valid one

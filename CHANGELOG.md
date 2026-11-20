@@ -33,10 +33,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `SUPERSET`, `nsubset`, `BIGOPLUS` and similar words, `OVERBRACE`, `UNDERBRACE` and `BOX` are read.
 - **Headings in Hangul documents that do not use the 개요 styles.** A paragraph with an outline head (개요 번호) is a
   heading of its level, whatever its style — Hangul builds the outline and the table of contents from it, and it came out
-  as a numbered list; a numbered clause that is a sentence (`1. 갑은 을에게 … 지급한다.`) stays a numbered paragraph. A short top-level paragraph set 1.15 / 1.3 / 1.5 times larger than the size most of the document is
-  written in is a level 3 / 2 / 1 heading; dates, table-of-contents lines, the addressee line of a form and sentences
-  written large stay text. In 34 real HWP / HWPX files, where every title was set by size on 바탕글, no heading came out
-  before; now their chapter titles do.
+  as a numbered list; a numbered clause that is a sentence (`1. 갑은 을에게 … 지급한다.`) stays a numbered paragraph. A
+  short top-level paragraph set 1.15 / 1.3 / 1.5 times larger than the size most body paragraphs are written in is a
+  level 3 / 2 / 1 heading; dates, table-of-contents lines, the addressee line of a form and sentences written large stay
+  text. In 34 real HWP / HWPX files, where every title was set by size on 바탕글, no heading came out before; now their
+  chapter titles do.
 - **Letter-spaced labels of Hangul forms** are written without the spaces between their syllables (`성   명` →
   `성명`, `담   당   자` → `담당자`), so a search for the label finds it. Syllables one space apart stay as written
   (`수 및 양`, the choices `남 여`), and blank dates (`년   월   일`) keep their spaces.
