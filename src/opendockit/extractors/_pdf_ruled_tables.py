@@ -404,10 +404,10 @@ def _closed_above_open_header(page: object, table: object) -> object:
     x0, top, x1, bottom = table.bbox
     edges = _column_edges(table)
     positions, verticals = _verticals_by_x(page)
-    verticals = verticals[bisect_left(positions, min(edges) - 2):bisect_right(positions, max(edges) + 2)] if edges else []
     reaches = []
-    for x in edges:
-        ends = [edge["top"] for edge in verticals if abs(edge["x0"] - x) <= 1.5 and abs(edge["bottom"] - top) <= 1.5]
+    for x in edges:  # only the rules at each boundary, found by their position (a grid of hundreds of columns)
+        ends = [edge["top"] for edge in verticals[bisect_left(positions, x - 1.5):bisect_right(positions, x + 1.5)]
+                if abs(edge["bottom"] - top) <= 1.5]
         if ends:
             reaches.append(min(ends))
     if len(reaches) < 2 or max(reaches) - min(reaches) > 1.5:

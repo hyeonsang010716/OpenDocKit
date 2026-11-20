@@ -29,6 +29,8 @@ _CHART_BARS_MIN, _BAR_SLACK = 3, 0.5
 _BAR_WIDTH_RATIO = 1.5
 # ... and how thick (pt) a bar is at least: Word draws the rules of a table as filled rectangles 0.5–1pt thick, in pieces per row
 _BAR_MIN_THICKNESS = 2.0
+# Height bands (pt) of the characters a bar is checked against (`_without_chart_bars`)
+_BAR_BAND = 16.0
 
 
 # Glyph outline curve (_without_glyph_outlines): a curve smaller than this size (pt) both horizontally and vertically, and thicker
@@ -157,12 +159,22 @@ def _without_chart_bars(page: object) -> object:
              and min(rect["width"], rect["height"]) >= _BAR_MIN_THICKNESS]
     if len(fills) < _CHART_BARS_MIN:
         return page
-    middles = sorted(((char["x0"] + char["x1"]) / 2, (char["top"] + char["bottom"]) / 2) for char in page.chars
-                     if char["text"].strip())
+    # The centres of the page's characters by height band: a bar looks only at those of the bands it covers (looking at every
+    # character of its x range took a sideways bar through all the rows of the page)
+    centres: dict[int, list[tuple[float, float]]] = {}
+    for char in page.chars:
+        x, y = (char["x0"] + char["x1"]) / 2, (char["top"] + char["bottom"]) / 2
+        if char["text"].strip() and math.isfinite(x) and math.isfinite(y):
+            centres.setdefault(math.floor(y / _BAR_BAND), []).append((x, y))
 
     def holds_text(rect: dict) -> bool:
-        return any(rect["top"] <= y <= rect["bottom"]
-                   for _, y in middles[bisect_left(middles, (rect["x0"], -math.inf)):bisect_right(middles, (rect["x1"], math.inf))])
+        if not (math.isfinite(rect["top"]) and math.isfinite(rect["bottom"])):
+            return False
+        bands = range(math.floor(rect["top"] / _BAR_BAND), math.floor(rect["bottom"] / _BAR_BAND) + 1)
+        if len(bands) > len(centres):
+            bands = [band for band in centres if bands.start <= band < bands.stop]
+        return any(rect["x0"] <= x <= rect["x1"] and rect["top"] <= y <= rect["bottom"]
+                   for band in bands for x, y in centres.get(band, ()))
 
     bars: set[int] = set()
     for along, across, start, end in (("bottom", "width", "x0", "x1"), ("top", "width", "x0", "x1"),
@@ -182,14 +194,26 @@ def _without_chart_bars(page: object) -> object:
                 bars.update(id(rect) for rect in group)
     if not bars:
         return page
-    found = [rect for rect in fills if id(rect) in bars]
-    stacked = {id(rect) for rect in fills if id(rect) not in bars and any(
+    # The bars by their left and right edges (by their top and bottom edges for sideways ones), rounded to the point: a
+    # segment stacked on a bar is looked up among the bars of its own edges, not compared with every bar of the page
+    upright: dict[tuple[int, int], list[dict]] = {}
+    sideways: dict[tuple[int, int], list[dict]] = {}
+    for rect in fills:
+        if id(rect) in bars:
+            upright.setdefault((round(rect["x0"]), round(rect["x1"])), []).append(rect)
+            if rect["width"] > rect["height"]:
+                sideways.setdefault((round(rect["top"]), round(rect["bottom"])), []).append(rect)
+
+    def near(index: dict[tuple[int, int], list[dict]], first: float, second: float) -> list[dict]:
+        return [bar for a in (-1, 0, 1) for b in (-1, 0, 1) for bar in index.get((round(first) + a, round(second) + b), ())]
+
+    stacked = {id(rect) for rect in fills if id(rect) not in bars and (any(
         abs(rect["x0"] - bar["x0"]) <= _BAR_SLACK and abs(rect["x1"] - bar["x1"]) <= _BAR_SLACK
         and rect["top"] <= bar["bottom"] + _BAR_SLACK and bar["top"] <= rect["bottom"] + _BAR_SLACK
-        for bar in found) or any(
+        for bar in near(upright, rect["x0"], rect["x1"])) or any(
         abs(rect["top"] - bar["top"]) <= _BAR_SLACK and abs(rect["bottom"] - bar["bottom"]) <= _BAR_SLACK
         and rect["x0"] <= bar["x1"] + _BAR_SLACK and bar["x0"] <= rect["x1"] + _BAR_SLACK
-        for bar in found if bar["width"] > bar["height"])}
+        for bar in near(sideways, rect["top"], rect["bottom"])))}
     dropped = bars | stacked
     return page.filter(lambda obj: id(obj) not in dropped)
 

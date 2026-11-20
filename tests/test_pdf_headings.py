@@ -2,6 +2,8 @@
 
 from io import BytesIO
 
+import pytest
+
 from opendockit import convert
 
 
@@ -190,3 +192,21 @@ class TestCaptionLabels:
 
         assert not any(_CAPTION_LABEL.fullmatch(word) for word in ("Tablet", "Maps", "Images", "Charts", "Photos"))
         assert all(_CAPTION_LABEL.fullmatch(label) for label in ("Diagram 4", "Figure A.1", "Table IV", "그림 2"))
+
+
+class TestHeaderRowsTakeLinearTime:
+    @pytest.mark.timing
+    def test_a_row_of_a_thousand_pieces_is_looked_at_once(self):
+        """The lines are grouped into rows once: comparing each line of a crowded row with the others, 400 bold pieces on one
+        row took 0.8 seconds and 1,000 did not finish in two minutes."""
+        from opendockit.extractors._pdf_model import _Line
+        from opendockit.extractors._pdf_paragraphs import _header_cells
+        from tests.timing import fastest
+
+        def seconds(count: int) -> float:
+            lines = [_Line(top=100, bottom=110, x0=10.0 * index, x1=10.0 * index + 8, text="Ab", size=14, bold=True)
+                     for index in range(count)]
+            return fastest(lambda: _header_cells(lines, 10.0))
+
+        small, large = seconds(1_000), seconds(4_000)
+        assert large < small * 8

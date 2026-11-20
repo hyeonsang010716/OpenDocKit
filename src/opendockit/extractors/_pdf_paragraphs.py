@@ -568,27 +568,28 @@ def _header_cells(lines: list[_Line], body_size: float) -> frozenset[int]:
         return (len(line.text) <= 100 and bool(_HEADING_LETTER.search(line.text))
                 and (line.bold or line.size >= body_size * _HEADING_SIZE_RATIO))
 
-    ordered = sorted(lines, key=lambda line: line.top)
+    # The lines are grouped into rows once (sorted by their middle, a line joins the row whose first line it overlaps by half
+    # the lower height) and each row is looked at once: comparing every line of a crowded row with the others took minutes on
+    # a page of a thousand letters set one by one on a row
+    rows: list[list[_Line]] = []
+    for line in sorted(lines, key=lambda line: (line.top + line.bottom) / 2):
+        first = rows[-1][0] if rows else None
+        if first is not None and min(first.bottom, line.bottom) - max(first.top, line.top) >= min(first.height, line.height) * 0.5:
+            rows[-1].append(line)
+        else:
+            rows.append([line])
     found: set[int] = set()
-    for index, line in enumerate(ordered):
-        if not heading_like(line):
+    for row in rows:
+        alike = [line for line in row if heading_like(line)]
+        if len(alike) < _HEADER_ROW_CELLS:
             continue
-        row = [line]
-        for other in ordered[index + 1:]:
-            if other.top >= line.bottom + max(line.height, other.height):
-                break
-            overlap = min(line.bottom, other.bottom) - max(line.top, other.top)
-            if overlap >= min(line.height, other.height) * 0.5 and all(other.x0 >= kept.x1 or kept.x0 >= other.x1 for kept in row):
-                row.append(other)
-        for other in ordered[:index][::-1]:
-            if other.bottom <= line.top - max(line.height, other.height):
-                break
-            overlap = min(line.bottom, other.bottom) - max(line.top, other.top)
-            if overlap >= min(line.height, other.height) * 0.5 and all(other.x0 >= kept.x1 or kept.x0 >= other.x1 for kept in row):
-                row.append(other)
-        alike = [kept for kept in row if heading_like(kept)]
-        if len(alike) >= _HEADER_ROW_CELLS:
-            found.update(id(kept) for kept in alike)
+        apart, end = [], -math.inf  # heading-like lines side by side, left to right, not overlapping each other
+        for line in sorted(alike, key=lambda line: line.x0):
+            if line.x0 >= end:
+                apart.append(line)
+                end = line.x1
+        if len(apart) >= _HEADER_ROW_CELLS:
+            found.update(id(line) for line in alike)
     return frozenset(found)
 
 

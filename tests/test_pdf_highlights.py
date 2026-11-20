@@ -498,10 +498,12 @@ class TestShadingInsideShadedCells:
         assert len(inner) == 4
 
 
-def _bar_chart(values: list[int], *, hanging: bool = False, label: str | None = None) -> bytes:
+def _bar_chart(values: list[int], *, hanging: bool = False, label: str | None = None, stacked: bool = False,
+               labelled: bool = False) -> bytes:
     """A bar chart drawn as vector shapes: an axis with a gridline every 30pt, one filled bar per value standing on it (or
     hanging from it), the value above (below) each bar, and the category under the axis; with `label`, a caption in a ruled box under the chart whose
-    first cell holds the figure label."""
+    first cell holds the figure label. With `stacked`, a second segment of another colour stands on each bar; with `labelled`,
+    the first bar holds its value inside it."""
     from io import BytesIO
 
     from reportlab.lib.pagesizes import A4
@@ -521,8 +523,14 @@ def _bar_chart(values: list[int], *, hanging: bool = False, label: str | None = 
         x = 100 + index * 60
         pdf.setFillColorRGB(0, 0.377, 0.663)
         pdf.rect(x, base - value if hanging else base, 30, value, stroke=0, fill=1)
+        if stacked:
+            pdf.setFillColorRGB(0.9, 0.5, 0.1)
+            pdf.rect(x, base + value, 30, 20, stroke=0, fill=1)
+        pdf.setFillColorRGB(1, 1, 1) if labelled and not index else pdf.setFillColorRGB(0, 0, 0)
+        inside = labelled and not index
+        pdf.drawString(x + 8, base + value / 2 if inside else base - value - 12 if hanging else base + value + (24 if stacked else 4),
+                       str(value))
         pdf.setFillColorRGB(0, 0, 0)
-        pdf.drawString(x + 8, base - value - 12 if hanging else base + value + 4, str(value))
         pdf.drawString(x + 4, base + 8 if hanging else base - 14, f"Q{index + 1}")
     if label:
         pdf.rect(100, 380, 70, 20)
@@ -561,8 +569,80 @@ def _striped_table() -> bytes:
     return buffer.getvalue()
 
 
+def _sideways_bar_chart(values: list[int]) -> bytes:
+    """A bar chart with its bars drawn sideways from a vertical axis, a vertical gridline every 30pt, each value after its bar
+    and each category before the axis."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(72, 760, "The chart below shows the number of visitors in each region of the country.")
+    axis, top = 150.0, 700.0
+    pdf.line(axis, top, axis, top - 40 * len(values))
+    pdf.setStrokeColorRGB(0.8, 0.8, 0.8)
+    for step in range(1, 6):
+        pdf.line(axis + 30 * step, top, axis + 30 * step, top - 40 * len(values))
+    for index, value in enumerate(values):
+        y = top - 40 * index - 30
+        pdf.setFillColorRGB(0, 0.377, 0.663)
+        pdf.rect(axis, y, value, 20, stroke=0, fill=1)
+        pdf.setFillColorRGB(0, 0, 0)
+        pdf.drawString(axis + value + 4, y + 6, str(value))
+        pdf.drawString(axis - 40, y + 6, f"Area {index + 1}")
+    pdf.save()
+    return buffer.getvalue()
+
+
 class TestBarCharts:
     """The bars of a vector bar chart draw no rules (`_without_chart_bars`)."""
+
+    def test_bars_drawn_sideways_are_not_a_table(self):
+        text = convert(_sideways_bar_chart([120, 80, 150]), "a.pdf").text
+
+        assert "|" not in text and "Area 2" in text and "150" in text
+
+    def test_bars_with_segments_stacked_on_them_are_not_a_table(self):
+        assert "|" not in convert(_bar_chart([120, 80, 150, 60], stacked=True), "a.pdf").text
+
+    def test_a_bar_holding_its_value_is_still_a_bar(self):
+        assert "|" not in convert(_bar_chart([120, 80, 150, 60], labelled=True), "a.pdf").text
+
+    @pytest.mark.timing
+    def test_a_page_of_thousands_of_bars_is_read_in_linear_time(self):
+        """A segment is looked up among the bars of its own edges: compared with every bar, 4,000 bars and 4,000 other fills
+        took 2 seconds, four times as many sixteen times as long."""
+        from io import BytesIO
+
+        import pdfplumber
+        from reportlab.pdfgen import canvas
+
+        from opendockit.extractors._pdf_table_filters import _without_chart_bars
+        from tests.timing import fastest
+
+        def bars_pdf(count: int) -> bytes:
+            buffer = BytesIO()
+            pdf = canvas.Canvas(buffer, pagesize=(20 * count / 100 + 100, 4000))
+            for index in range(count):
+                x, row = 10 + 20 * (index % (count // 100)), index // (count // 100)
+                pdf.setFillColorRGB(0, 0.4, 0.7)
+                pdf.rect(x, 10 + 38 * row, 8, 5 + index % 7, stroke=0, fill=1)
+                pdf.setFillColorRGB(0.9, 0.5, 0.1)
+                pdf.rect(x + 9, 10 + 38 * row + 30, 6, 3, stroke=0, fill=1)
+            pdf.save()
+            return buffer.getvalue()
+
+        def seconds(count: int) -> float:
+            with pdfplumber.open(BytesIO(bars_pdf(count))) as document:
+                page = document.pages[0]
+                page.rects  # noqa: B018 — pdfplumber's own reading is not measured
+                return fastest(lambda: _without_chart_bars(page))
+
+        small, large = seconds(1_000), seconds(4_000)
+        assert large < small * 8
 
     def test_a_bar_chart_is_not_a_table(self):
         text = convert(_bar_chart([120, 80, 150, 60]), "a.pdf").text
