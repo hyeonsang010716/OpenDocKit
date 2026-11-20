@@ -69,28 +69,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **PDF text**: a justified line whose word gaps are 1.1 em or wider (a narrow column with long words) is read as one
   line; its words came out one by one, shuffled and scattered through the paragraph.
 - **PDF reading order**: the rest of a long left column is kept before a short right column when a subheading breaks it;
-  the left column from its second paragraph on was moved after the right column. The first line of a two-line paragraph over a table
-  in the right column is no longer taken for a caption of a table in the left column and read ahead of it.
+  the left column from its second paragraph on was moved after the right column. The first line of a two-line paragraph
+  over a table in the right column is no longer taken for a caption of a table in the left column and read ahead of it.
 - **PDF forms**: the values of a filled form are kept on a page read with simple extraction (past the time budget, a
   crowded or very heavy page, a page pdfminer cannot read); they were dropped without a word. The annotations walked for
-  them are bounded over the document, with a warning past it, so the time budget still bounds such a document.
+  them are bounded over the document, with a warning past it, and the widgets of a large field are found once a page
+  instead of once a widget: a field of 20,000 checkboxes took 78 seconds, on any page.
 - **MCP server**: one server object serves a second session after the first has ended (every SSE client and every
   in-memory client is a session of its own); the second refused every file as 'This IsolatedConverter is closed.', and
   one SSE client leaving stopped the conversions of another.
-- **CLI**: a message or warning on a standard error whose reader has gone (`2>&1 | head`) ends quietly — with exit code
-  1 when the output went to that pipe too, else with the run's own — not with a BrokenPipeError traceback or exit code
-  120.
-- **Pictures**: alt text that is a sentence ending in a file name (`… exported from Visio as orgchart.png`) is kept as
-  the author's; only a bare file name (`image1.png`) is dropped.
+- **CLI**: a message or warning on a standard error whose reader has gone (`2>&1 | head`) ends quietly, with the exit
+  code the run would have had (1 when its output was going to that pipe too), not with a BrokenPipeError traceback or
+  exit code 120.
+- **Pictures**: alt text that is a sentence or a longer phrase ending in a file name (`… exported from Visio as
+  orgchart.png`) is kept as the author's; only a file name (`image1.png`, `Screenshot 2024-01-01 at 10.00.00.png`) or a
+  title of a few words that ends in one is dropped.
 - **Descriptions**: no describer call is sent once the answers already in are over `max_chars`; a whole further batch of
   paid calls (one per slot) went out after the limit was known.
 - **Mail**: a sent mail whose top level is `multipart/related` without an HTML part (a plain-text body, attachments, a
   forwarded mail) is read as mail, as the same mail under `multipart/mixed` is; it was rejected as a web page without
-  HTML. An opaque-signed S/MIME mail whose `smime-type` is on a folded header line
-  is no longer taken for an encrypted one.
+  HTML. An opaque-signed S/MIME mail whose `smime-type` is on a folded header line is no longer taken for an encrypted
+  one.
 - **HTML**: whether an inline style hides an element, or folds the answer of a question list, is decided by the
-  declaration a browser applies — comments left out, the last valid one: `/* display:none */` and `display:none;
-  display:block` hid visible text, and `display:none; display:bogus` showed hidden text.
+  declaration a browser applies — comments left out, the last one whose value it knows: `/* display:none */` and
+  `display:none; display:block` hid visible text, and `display:none; display:bogus` showed hidden text.
 - **XLS**: a number under a format XLSX reads as a date or time is read as one too — a time under a format with
   fractional seconds (`ss.00`, `m:ss.000`) was its serial number; superscripts and subscripts after an emoji land on the
   right characters.
@@ -99,7 +101,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **RTF**: a paragraph whose mark was deleted with Track Changes is joined to the next one, as in DOCX; the sentence was
   cut in two and a list item took a number of its own.
 - **ODT**: a picture or text box inside a sentence goes after its paragraph, as in DOCX, instead of cutting the sentence
-  into two paragraphs around it; one anchored before the text (a captioned figure) stays in front of it.
+  into two paragraphs around it; in a caption (`Figure 1: …` after its picture) the picture stays in front.
 - **Plugins and the MCP package**: the Claude Code and Hermes skills and READMEs no longer say HTML, email and EPUB are
   unsupported on Windows, or that the server converts inside its own process there.
 
