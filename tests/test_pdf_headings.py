@@ -359,13 +359,21 @@ class TestBoldSentenceEnds:
 
         assert "#" not in text and line in text
 
-    @pytest.mark.parametrize("line", ["서류는 기한 내 제출함", "본 계약은 무효임", "위와 같이 신청함", "다음과 같음",
+    @pytest.mark.parametrize("line", ["서류는 기한 내 제출함", "본 계약은 무효임", "위와 같이 신청함", "다음과 같음", "외부 회의 참여함", "사업 계획 수립됨",
                                       "반드시 원본을 제출할 것", "기한 내 제출 바람", "확인해 주세요", "서명하십시오",
                                       "반드시 확인하라", "결과를 얻는다", "제출하였음"])
     def test_a_korean_notice_is_no_heading(self, line):
         text = _named_font_pdf([*_named_body(80), (72, 140, line, 10, "Batang-Bold"), *_named_body(156)])
 
         assert "#" not in text and line in text
+
+    @pytest.mark.parametrize("title", ["핵 잠수함", "미 해군 항공모함", "고객 건의함", "우편 사서함", "받은 편지함", "분석 프레임",
+                                       "재난 대응 골든타임", "자바 런타임", "교수 정년퇴임", "회장 이취임", "사외이사 재선임",
+                                       "운영위원회 정기모임", "기업의 사회적책임", "부가세 불포함"])
+    def test_a_korean_compound_noun_ending_like_a_notice_is_a_heading(self, title):
+        text = _named_font_pdf([*_named_body(80), (72, 140, title, 10, "Batang-Bold"), *_named_body(156)])
+
+        assert f"# {title}\n\n본 계약은" in text
 
     @pytest.mark.parametrize("title", ["제1조(목적)", "1. 사업 개요", "추진 배경", "개요", "필요", "다음", "정기 모임", "사회적 책임",
                                        "추진 현황 및 계획:", "캐나다", "참고 자료", "향후 과제", "제5조(계약의 해지)", "왜 필요한가?", "100억원 투자 계획"])

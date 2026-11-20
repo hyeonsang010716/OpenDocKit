@@ -612,14 +612,20 @@ def _ends_like_a_sentence(text: str) -> bool:
 
 def _korean_notice_end(text: str) -> bool:
     """Whether a Korean line ends like the clause of a notice or an instruction, which `_hangul.korean_sentence_end` (the
-    rule the Hangul readers keep for their titles) does not look at: a verb made a noun after a stem or tense (`…같음`,
-    `…있음`, `…하였음`), a verbal noun closed by 함, 됨 or 임 after two words or more (`기한 내 제출함`, `본 계약은
-    무효임`; not `책임`, `모임` or a single `포함`), `…할 것`, `… 바람` after two words or more, the polite request
-    `…세요` and `…하십시오` / `…시오`, the plain command `…하라`, and `…는다` after two words or more (`결과를 얻는다`).
+    rule the Hangul readers keep for their titles) does not look at:
+
+    - a verb made a noun after a stem or tense (`…같음`, `…있음`, `…하였음`);
+    - a verbal noun closed by 함, 됨 or 임 (a last word of three syllables or more) said of something earlier in the line:
+      a word ending in a subject, topic or object particle, or two words or more before it (`본 계약은 무효임`, `기한 내
+      제출함`, `외부 회의 참여함`); not the nouns `교수 정년퇴임` or `핵 잠수함`, nor a compound ending in a noun of
+      `_KOREAN_NOUN_ENDS` (`재난 대응 골든타임`, `미 해군 항공모함`);
+    - `…할 것`, `… 바람` after two words or more, the polite request `…세요` and `…하십시오` / `…시오`, the plain command
+      `…하라`, and `…는다` after two words or more (`결과를 얻는다`).
 
     Deliberate: in a PDF a bold notice at the body size ('# 서류는 기한 내 제출함', '# 확인해 주세요') became a heading,
     where '개요', '필요', '다음', '모임' and '향후 과제' are titles (Pinned by:
-    test_pdf_headings.py::TestBoldSentenceEnds::test_a_korean_notice_is_no_heading)."""
+    test_pdf_headings.py::TestBoldSentenceEnds::test_a_korean_notice_is_no_heading,
+    test_a_korean_compound_noun_ending_like_a_notice_is_a_heading)."""
     words = text.rstrip(_KOREAN_CLOSING).split()
     if not words:
         return False
@@ -630,7 +636,10 @@ def _korean_notice_end(text: str) -> bool:
         return False
     if last == "것" and "가" <= words[-2][-1] <= "힣" and (ord(words[-2][-1]) - 0xAC00) % 28 == _FINAL_L:
         return True
-    return bool(_KOREAN_NOMINAL_END.fullmatch(last)) or last.endswith(("바람", "는다"))
+    if (_KOREAN_NOMINAL_END.fullmatch(last) and not last.endswith(_KOREAN_NOUN_ENDS)
+            and (len(words) >= 3 or any(word[-1] in _KOREAN_PARTICLES for word in words[:-1]))):
+        return True
+    return last.endswith(("바람", "는다"))
 
 
 # The longest heading by a size 1.15 to 1.2 times the body (`_slightly_larger_text`)
@@ -652,6 +661,14 @@ _KOREAN_CLOSING = ".!?\"'”’)） "
 _KOREAN_VERB_END = re.compile(r"(?:[하되있없같았었였했됐겠않]음|세요|시오|[하되]라)\Z")
 # A verbal noun closed by 함, 됨 or 임 (`제출함`, `신청함`, `완료됨`, `무효임`): three syllables or more, not `책임` or `모임`
 _KOREAN_NOMINAL_END = re.compile(r"[가-힣]{2,}[함됨임]")
+# Nouns ending like such a verbal noun (`_korean_notice_end`): a meeting, a responsibility, an appointment or a retirement, a
+# frame or a time, a ship, a box, and `포함` (`독서 정기모임`, `기업의 사회적책임`, `사외이사 재선임`, `분석 프레임`, `자바
+# 런타임`, `미 해군 항공모함`, `고객 건의함`, `받은 편지함`, `부가세 불포함`)
+_KOREAN_NOUN_ENDS = ("모임", "책임", "선임", "퇴임", "취임", "연임", "사임", "부임", "프레임", "타임", "게임", "잠수함", "모함",
+                     "군함", "건의함", "사서함", "편지함", "우편함", "보관함", "포함")
+# Subject, topic and object particles: a word ending in one is what a verbal noun at the end of the line is said of
+# (`본 계약은 무효임`)
+_KOREAN_PARTICLES = frozenset("은는이가을를")
 # The final consonant ㄹ (종성 index) of `할` in `…할 것`
 _FINAL_L = 8
 # A '!' or '?' after a word with more text after it: two sentences on the line ('Questions? Call 1-800-555-0100')
