@@ -190,6 +190,21 @@ class TestElapsedTime:
 
         assert result == expected
 
+    @pytest.mark.parametrize(("number_format", "expected"),
+                             [("[mm]\\m\\i\\n", "90min"), ("[h]\\h mm\\m", "1h 30m"), ("[mm]\" min\"", "90 min")])
+    def test_backslash_escaped_literals_of_an_elapsed_format_are_kept(self, number_format, expected):
+        """Only a quoted literal sent an elapsed format through `_clock_text`, so 90 minutes under `[mm]\\m\\i\\n` came out as
+        `90:00` and under `[h]\\h mm\\m` as `1:30` (Excel `90min`, `1h 30m`)."""
+        workbook = openpyxl.Workbook()
+        workbook.active.append([90 / 1440])
+        workbook.active["A1"].number_format = number_format
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.xlsx")
+
+        assert result.text.splitlines()[-1] == expected
+
     def test_xlsx_elapsed_time_cell(self):
         data = _xlsx([["작업", "기간"], ["설치", timedelta(hours=26)]], {"B2": "[h]:mm"})
 
