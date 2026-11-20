@@ -225,6 +225,51 @@ def _undecoded_two(rotate: int = 0, media_box: bytes = b"0 0 595 842", text: byt
                      5: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(_UNDECODED_CMAP), _UNDECODED_CMAP)})
 
 
+_OLD_STYLE = b" ".join(b"/%s.os" % name for name in
+                      (b"one", b"two", b"three", b"four", b"five", b"six", b"seven", b"eight", b"nine", b"zero"))
+
+
+def _old_style_figures(content: bytes, base: bytes = b"BookSerif") -> tuple[bytes, bytes]:
+    """A page drawing `content` in a font whose codes 1-10 are the old-style figures 1-9 and 0 (glyphs 'one.os' …), and the
+    same page with a ToUnicode map giving those codes their digits. pdfminer reads the first: its map gives U+FFFD for the
+    figures, as a book font's does. pdfium reads the glyphs of such an embedded font right; here it is made to read the
+    second (`_pdfium_reads`), so that it reads a real character, and the right one, at every place. The font has /Widths,
+    which both readers use — unless `base` is one of the standard 14 fonts, whose widths pdfminer takes from its own
+    metrics (and gives the figures, names it does not know, none)."""
+    widths = b"/FirstChar 1 /LastChar 126 /Widths [" + b" ".join([b"556"] * 10 + [b"500"] * 21 + [b"278"] + [b"556"] * 94) + b"]"
+
+    def document(figures: bytes) -> bytes:
+        cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering"
+                b" (UCS) /Supplement 0 >> def /CMapName /Adobe-Identity-UCS def /CMapType 2 def 1 begincodespacerange <00> <FF>"
+                b" endcodespacerange 10 beginbfchar %s endbfchar 1 beginbfrange <20> <7E> <0020> endbfrange endcmap"
+                b" CMapName currentdict /CMap defineresource pop end end") % figures
+        page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 << /Type"
+                b" /Font /Subtype /Type1 /BaseFont /%s /ToUnicode 5 0 R %s /Encoding << /Type /Encoding /BaseEncoding"
+                b" /WinAnsiEncoding /Differences [1 %s] >> >> >> >> >>") % (base, widths, _OLD_STYLE)
+        return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
+                         4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
+                         5: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(cmap), cmap)})
+
+    return (document(b" ".join(b"<%02X> <FFFD>" % code for code in range(1, 11))),
+            document(b" ".join(b"<%02X> <%04X>" % (code, ord(str(code % 10))) for code in range(1, 11))))
+
+
+def _pdfium_reads(monkeypatch: pytest.MonkeyPatch, truth: bytes) -> None:
+    """pdfium reads the page of `truth` (`_old_style_figures`) in place of the page converted."""
+    import pypdfium2 as pdfium
+
+    from opendockit.extractors import _pdf_glyph_repair
+
+    original, document = _pdf_glyph_repair._read_glyphs, pdfium.PdfDocument(truth)
+    monkeypatch.setattr(_pdf_glyph_repair, "_read_glyphs", lambda _, index: original(document, index))
+
+
+def _converted(monkeypatch: pytest.MonkeyPatch, content: bytes, base: bytes = b"BookSerif") -> str:
+    data, truth = _old_style_figures(content, base)
+    _pdfium_reads(monkeypatch, truth)
+    return convert(data, "a.pdf").text.replace("<!-- Page 1 -->", "").strip()
+
+
 class TestUndecodedGlyphs:
     """A character pdfminer reads as U+FFFD takes the character pdfium reads for the same glyph. pdfium reads the glyph of an
     embedded book font through the font program ('207', 'Figure 11.12'); with the non-embedded font of a document built here
@@ -323,6 +368,14 @@ class TestUndecodedGlyphs:
 
         with pytest.raises(DocumentTooLargeError):
             convert(_undecoded_two(), "a.pdf")
+
+    @pytest.mark.parametrize("matrix", [b"-1 0 0 -1 400 500", b"-1 0 0 1 400 500"])
+    def test_the_characters_of_a_line_drawn_right_to_left_are_put_back_in_its_order(self, monkeypatch, matrix):
+        """The line text runs in the order of its characters; filled by their place left to right, a line turned 180° or
+        mirrored had its repaired digits swapped ('Page 307 of, total 12.')."""
+        content = b"BT /F1 12 Tf %s Tm (Page \\00207 of, total \\001\\003.) Tj ET" % matrix
+
+        assert "Page 207 of, total 13." in _converted(monkeypatch, content)
 
     @pytest.mark.parametrize("media_box", [b"30 40 625 882", b"-30 -40 565 802"])
     def test_a_page_box_away_from_the_origin(self, monkeypatch, media_box):

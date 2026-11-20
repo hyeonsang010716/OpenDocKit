@@ -69,7 +69,7 @@ def _read_glyphs(document: pdfium.PdfDocument, index: int) -> _Glyphs:
 
 def _repair_replacement_chars(page: object, glyphs: Callable[[], _Glyphs] | None) -> None:
     """Gives each U+FFFD character of the pdfplumber `page` the character pdfium reads for the same glyph, when pdfium reads a
-    real one. Every such character is marked `undecoded`, repaired or not (`_repaired_line_text`).
+    real one. Every such character is marked `undecoded` with its index in `page.chars`, repaired or not (`_repaired_line_text`).
 
     Deliberate: pdfminer decodes a glyph only through the font's ToUnicode map and encoding, and old-style figures of book
     fonts that have no entry there came out as U+FFFD — the page number '207' read '�07' and 'Figure 11.12' read
@@ -89,7 +89,7 @@ def _repair_replacement_chars(page: object, glyphs: Callable[[], _Glyphs] | None
     if not broken:
         return
     for number in broken:
-        chars[number]["undecoded"] = True
+        chars[number]["undecoded"] = number  # its place in the page's characters, the order of the layout line's text
     try:
         repairs = _repairs(chars, broken, glyphs, float(page.height))
     except MemoryError:
@@ -238,12 +238,15 @@ def _readable(text: str) -> bool:
 
 
 def _repaired_line_text(text: str, chars: list[dict]) -> str:
-    """The line text with its U+FFFD characters replaced, left to right, by what the `undecoded` characters of the line now
-    hold — when they are as many as the U+FFFD of the text; otherwise the text as it was."""
+    """The line text with its U+FFFD characters replaced, in turn, by what the `undecoded` characters of the line now hold —
+    when they are as many as the U+FFFD of the text; otherwise the text as it was. They are taken in their order among the
+    page's characters, which is that of the layout line's text: taken by their place left to right, a line drawn right to
+    left (turned 180° or mirrored) had its digits swapped (Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs::
+    test_the_characters_of_a_line_drawn_right_to_left_are_put_back_in_its_order)."""
     count = text.count(_REPLACEMENT)
     if not count:
         return text
-    repaired = [char["text"] for char in sorted(chars, key=lambda char: char["x0"]) if char.get("undecoded")]
+    repaired = [char["text"] for char in sorted((char for char in chars if "undecoded" in char), key=lambda char: char["undecoded"])]
     if len(repaired) != count:
         return text
     pieces = text.split(_REPLACEMENT)
