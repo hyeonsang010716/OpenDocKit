@@ -49,6 +49,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Headers of Hangul documents that hold words** (a form's number and title) are written once before the body even
   without `include_headers_footers`, as plain paragraphs without their pictures. In 9 of 34 real files that text was
   nowhere else and was dropped without a warning. Page numbers and footers still need the option.
+- **Charts in HWP**: a chart, an OLE object that holds the chart as OOXML, gives its values as in HWPX; it was left as
+  `[OLE object]` with a warning. In 92 public Hangul files saved both ways, the two now give the same text.
+- **Form objects in HWP**: check boxes and radio buttons give `☒`/`☐` and their caption, combo and edit boxes their text,
+  as in HWPX. A form of nothing but form objects gave only its preview text. A caption's `&&` is one `&` in both formats,
+  as Hangul shows it (`R&D 자율성트랙`).
+- **Comments in HWP** are written after the body as `> Comment(author, on "range"): text`, as in HWPX; they were not read.
+- **Hancom symbols**: the seal mark `(인)`, boxed and circled item numbers, bullets (`□ ▸ ►`) and book brackets (`『 』`)
+  that Hangul keeps in private-use characters are written out where their meaning is known; they were removed. A number
+  in a frame (글자 겹치기) is its digits, and HWP no longer writes the frame glyph in front of it (`△12`), as HWPX does.
+- **HWP numbering to level 10**, and the heavenly-stem number shapes (`갑을병`, `甲乙丙`); levels 8 to 10 took the
+  numbers of level 7.
 
 ### Changed
 
@@ -69,6 +80,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **HWP and HWPX**: the soft hyphen (HWP code 24, HWPX `hp:hypen`) is left out, as Hangul draws it only where a line
+  breaks inside the word; HWP wrote `Word-processor` for `Wordprocessor`.
+- **HWP and HWPX**: an empty body is not replaced by a preview that holds no letter or digit; empty tables gave
+  `<.<><><>` as the text.
 - Bold or italic that ends on a punctuation mark right before a letter (`**67%**으로`, `**「법」**제15조`) is no longer
   written: Markdown readers showed its asterisks as text. This affects every format that keeps emphasis.
 - **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if
