@@ -587,9 +587,11 @@ def _is_value_text(text: str) -> bool:
 
 def _ends_like_a_sentence(text: str) -> bool:
     """Whether a short bold text is a sentence rather than a title: it ends in ',' or ';'; in '.' unless the whole text is
-    a numbered label (`_NUMBERED_LABEL`); in '!', '?' or ':' after `_SENTENCE_MIN_WORDS` words or more; it holds a '!' or
-    '?' with more text after it ('Questions? Call 1-800-555-0100'); or it ends like a Korean sentence without its full stop
-    (`_hangul.korean_sentence_end`, the rule the Hangul readers tell sentences from titles by: `…합니다`, `…할 수 없다`).
+    a numbered label (`_NUMBERED_LABEL`); in '!' or '?' after `_SENTENCE_MIN_WORDS` words or more, or in ':' after
+    `_LEAD_IN_MIN_WORDS` ('The applicant must provide:'; 'Key findings:' is a title; Korean after `_SENTENCE_MIN_WORDS`);
+    it holds a '!' or '?' with more text after it ('Questions? Call 1-800-555-0100'); or it ends like a Korean sentence
+    without its full stop (`_hangul.korean_sentence_end`, the rule the Hangul readers tell sentences from titles by:
+    `…합니다`, `…할 수 없다`) or like a Korean notice (`_korean_notice_end`).
 
     Deliberate: with only ',', ';' and '.' looked at, bold notices and lead-ins at the body size became headings ('# Do not
     discard this notice!', '# The following documents must be attached:', '# 을은 갑의 사전 동의 없이 업무를 위탁할 수
@@ -601,7 +603,9 @@ def _ends_like_a_sentence(text: str) -> bool:
         return not _NUMBERED_LABEL.fullmatch(text)
     if _INNER_SENTENCE_END.search(text):
         return True
-    if text.endswith(("!", "?", ":")) and len(text.split()) >= _SENTENCE_MIN_WORDS:
+    if text.endswith(("!", "?")) and len(text.split()) >= _SENTENCE_MIN_WORDS:
+        return True
+    if text.endswith(":") and len(text.split()) >= (_SENTENCE_MIN_WORDS if _HANGUL.search(text) else _LEAD_IN_MIN_WORDS):
         return True
     return korean_sentence_end(text) or _korean_notice_end(text)
 
@@ -631,9 +635,15 @@ def _korean_notice_end(text: str) -> bool:
 
 # The longest heading by a size 1.15 to 1.2 times the body (`_slightly_larger_text`)
 _SLIGHTLY_LARGER_MAX_CHARS = 60
-# A bold text ending in '!', '?' or ':' with this many words or more is a sentence ('Do not discard this notice!', 'The
-# following documents must be attached:'), not a title ('Procedure:', 'Why entropy?')
+# A bold text ending in '!' or '?' with this many words or more is a sentence ('Do not discard this notice!'), not a title
+# ('Why entropy?', 'Welcome!')
 _SENTENCE_MIN_WORDS = 5
+# A bold text ending in ':' with this many words or more is the lead-in of a list ('The applicant must provide:'), not a
+# title ('Procedure:', 'Key findings:', 'Chapter 3: Results'). A Korean line keeps `_SENTENCE_MIN_WORDS`: its words are
+# longer and its lead-ins end like a sentence before the ':' ('추진 현황 및 계획:' is a title). Pinned by:
+# test_pdf_headings.py::TestBoldSentenceEnds::test_a_bold_sentence_with_another_end_is_no_heading
+_LEAD_IN_MIN_WORDS = 4
+_HANGUL = re.compile(r"[가-힣]")
 # Closing marks after the end of a Korean clause (`_korean_notice_end`)
 _KOREAN_CLOSING = ".!?\"'”’)） "
 # Endings of a Korean notice or instruction in the last word, whatever the words before it: a verb made a noun after a stem

@@ -347,7 +347,7 @@ class TestBoldSentenceEnds:
     short title ending so, and a Korean title, is."""
 
     @pytest.mark.parametrize("line", ["Do not discard this notice!", "Questions? Call 1-800-555-0100",
-                                      "The following documents must be attached:"])
+                                      "The following documents must be attached:", "The applicant must provide:"])
     def test_a_bold_sentence_with_another_end_is_no_heading(self, line):
         text = _text([*_body(80), (140, line, 10, "Times-Bold"), *_body(156)])
 
@@ -368,13 +368,14 @@ class TestBoldSentenceEnds:
         assert "#" not in text and line in text
 
     @pytest.mark.parametrize("title", ["제1조(목적)", "1. 사업 개요", "추진 배경", "개요", "필요", "다음", "정기 모임", "사회적 책임",
-                                       "캐나다", "참고 자료", "향후 과제", "제5조(계약의 해지)", "왜 필요한가?", "100억원 투자 계획"])
+                                       "추진 현황 및 계획:", "캐나다", "참고 자료", "향후 과제", "제5조(계약의 해지)", "왜 필요한가?", "100억원 투자 계획"])
     def test_a_korean_title_in_bold_is_a_heading(self, title):
         text = _named_font_pdf([*_named_body(80), (72, 140, title, 10, "Batang-Bold"), *_named_body(156)])
 
         assert f"# {title}\n\n본 계약은" in text
 
-    @pytest.mark.parametrize("title", ["Why entropy?", "Read this first!", "Key findings", "1.1 Scope"])
+    @pytest.mark.parametrize("title", ["Why entropy?", "Read this first!", "Key findings", "1.1 Scope", "Requirements:",
+                                       "Key findings:", "Chapter 3: Results"])
     def test_a_short_title_is_a_heading(self, title):
         text = _text([*_body(80), (140, title, 10, "Times-Bold"), *_body(156)])
 
