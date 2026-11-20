@@ -575,6 +575,21 @@ class TestStrictOpenXmlOfficeDocuments:
         assert f'<!-- <w:p xmlns:x="{namespace}"> -->'.encode() in document
         assert b'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"' in document
 
+    def test_attribute_values_keep_their_ampersands(self):
+        """A parser target without entities is handed each `&` of an attribute value as `&#38;`: written again as given, the
+        query of every link (`?a=1&b=2`) came out as `?a=1&#38;b=2`, and so did any value holding one."""
+        body = ('<w:p><w:hyperlink r:id="rIdX"><w:r><w:t>search</w:t></w:r></w:hyperlink></w:p>'
+                '<w:p><w:r><w:t>R&amp;D &#38;#38;</w:t></w:r></w:p>')
+        link = ('<Relationship Id="rIdX" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
+                'Target="https://example.com/s?a=1&amp;b=2&amp;c=&#38;#38;" TargetMode="External"/></Relationships>')
+        data = builder.zip_with(_docx_with_body(body), edit={
+            "word/_rels/document.xml.rels": lambda xml: xml.replace("</Relationships>", link)})
+
+        result, expected = convert(_strict_everywhere(data), "a.docx"), convert(data, "a.docx")
+
+        assert "(https://example.com/s?a=1&b=2&c=&#38;)" in expected.text and "R&D &#38;" in expected.text
+        assert result.text == expected.text
+
     @pytest.mark.parametrize("relationships", [False, True])
     def test_only_declarations_and_relationship_types_are_renamed(self, relationships):
         """The namespaces of names are renamed, declared under the prefixes the part gave them; what text, values, comments,

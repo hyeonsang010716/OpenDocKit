@@ -273,10 +273,14 @@ class _TransitionalWriter:
             declarations = "".join(f' xmlns{":" + prefix if prefix else ""}="{_escaped_value(namespace)}"'
                                    for prefix, namespace in declared.items())
         name = self._qualified(tag, element_prefixes)
+        # Fed to a parser target without entities, libxml2 hands each `&` of an attribute value on as `&#38;` (and a written
+        # `&#38;` as `&#38;#38;`), where the tree python-docx builds has `&`: written again as given, the `&` of every link
+        # (`?a=1&b=2`) and of every value holding one became `&#38;` in the copy (Pinned by:
+        # test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::test_attribute_values_keep_their_ampersands)
         attributes = "".join(
             f' {self._qualified(attribute, attribute_prefixes)}="'
             f'{_escaped_value(_transitional_name(value) if self._relationships and attribute == "Type" else value)}"'
-            for attribute, value in attrib.items())
+            for attribute, value in ((attribute, value.replace("&#38;", "&")) for attribute, value in attrib.items()))
         self._write(f"<{name}{declarations}{attributes}")
         self._tag_open = True
         self._open.append((name, *self._scope))
