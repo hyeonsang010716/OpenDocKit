@@ -228,6 +228,18 @@ def _plain_string(element: etree._Element) -> str:
     return "".join(pieces)
 
 
+def _single_text(element: object) -> str | None:
+    """The text of a shared string `<si>` or inline string `<is>` that is one plain `<t>` and nothing else, or None for any
+    other string. Most strings are like that, and for them openpyxl's readers give the text with `x005F_` removed when they
+    read rich text (Pinned by: test_spreadsheet_quick_rows.py)."""
+    if element.attrib or len(element) != 1:
+        return None
+    child = element[0]
+    if child.tag != _STRING_TEXT or len(child):
+        return None
+    return child.text or ""
+
+
 def _rich_or_plain(text: CellRichText) -> CellRichText | str:
     """Like openpyxl `read_rich_text`, return a string that is a single unformatted text as str."""
     if len(text) == 0:
@@ -517,12 +529,55 @@ _parse_sheet = _openpyxl_sheet_reader.WorkSheetParser.parse
 def _parse_cells_and_merges(parser: object) -> Iterator[tuple[int, list]]:
     """While this module is reading, make `WorkSheetParser.parse` read only cells and merges (`_SHEET_PARTS_LEFT_UNREAD`). A row
     that has been read is also taken out of the tree — openpyxl only empties it, so one empty element per row stayed in memory
-    until the sheet ended (Pinned by: test_audit_spreadsheet_fixes.py::TestSheetScansKeepNoTree)."""
+    until the sheet ended (Pinned by: test_audit_spreadsheet_fixes.py::TestSheetScansKeepNoTree).
+
+    The rows are read by `_quick_rows` where it can, which gives exactly what the rest of this function would; whatever it does
+    not take on it hands back, and the sheet is read here from its start, the rows already given being skipped."""
     reading = _READING.get()
     if reading is None:
         yield from _parse_sheet(parser)
         return
 
+    given = 0
+    # Formulas read as written keep state across cells (shared formulas), so those sheets stay with openpyxl's parser
+    readers = [] if not parser.data_only else [
+        reader for reader, used in ((_quick_rows, QUICK_ROWS),) if used]
+    counts = reading.malformed, reading.unread_rich
+    numbers = None if reading.row_numbers is None else len(reading.row_numbers)
+    for reader in readers:
+        rows = reader(parser, reading)
+        skipped = given
+        try:
+            for row in rows:
+                if skipped:
+                    skipped -= 1
+                    continue
+                given += 1
+                yield row
+            return
+        except MemoryError:
+            raise
+        except Exception:  # noqa: BLE001 — handed back (or refused): the next reader reads the part as it always was
+            pass
+        finally:
+            rows.close()
+        # Read again from the start: what the rows read so far counted and noted is undone, as they are read again
+        reading.malformed, reading.unread_rich = counts
+        if numbers is not None:
+            del reading.row_numbers[numbers:]
+        if parser.source.seekable():  # a source that cannot be rewound was handed back before anything was read from it
+            parser.source.seek(0)
+        parser.row_counter = parser.col_counter = 0
+
+    for row in _openpyxl_rows(parser, reading):
+        if given:
+            given -= 1
+            continue
+        yield row
+
+
+def _openpyxl_rows(parser: object, reading: _CellReading) -> Iterator[tuple[int, list]]:
+    """The rows of the sheet as openpyxl's parser reads them, through the replacements of this module."""
     data = None  # `<sheetData>`: rows already read are removed from it, so the parsed tree does not grow with the sheet
     merges = None  # `<mergeCells>` of a streamed sheet: emptied the same way, as its merges are not used
     for event, element in _openpyxl_sheet_reader.iterparse(parser.source, events=("start", "end")):
@@ -553,7 +608,156 @@ def _parse_cells_and_merges(parser: object) -> Iterator[tuple[int, list]]:
             element.clear()
 
 
+# Whether sheets are read by `_quick_rows` (False reads every sheet through openpyxl's parser; the tests compare the two).
+QUICK_ROWS = True
+
+
+class _HandedBack(Exception):
+    """`_quick_rows` leaves the sheet to openpyxl's parser."""
+
+
+# Reading a sheet through openpyxl's parser took most of the time an XLSX took to convert: its pull parser hands every start and
+# end of every element to Python, and every cell goes through `parse_cell` and the replacement above, about 6 µs a cell, five
+# times what the value is worth. `_quick_rows` has libxml2 hand over only whole rows and reads the cells of the usual shapes
+# itself; any other cell or row goes through the same functions as before, so the rows are exactly those openpyxl's parser
+# gives (Pinned by: test_spreadsheet_quick_rows.py). A part it does not take on — a document type declaration (entities), an
+# XML declaration other than version 1.0 in UTF-8, anything libxml2 cannot read — is left to openpyxl's parser from the start,
+# which reads it as it always did.
 _MERGE_CELL_TAG = f"{{{SHEET_MAIN_NS}}}mergeCell"
+_ROW_TAGS = (_openpyxl_sheet_reader.ROW_TAG, _openpyxl_sheet_reader.MERGE_TAG, _MERGE_CELL_TAG, *_SHEET_PARTS_LEFT_UNREAD)
+_XML_DECLARATION = re.compile(rb"<\?xml\s[^>]*?\?>")
+_DECLARED = re.compile(rb"""(version|encoding)\s*=\s*["']([^"']*)["']""")
+_ROOT_START = re.compile(rb"<(?![?!])")
+_PROLOG_PEEK = 64 * 1024
+_CELL_TAG = f"{{{SHEET_MAIN_NS}}}c"
+_VALUE_TAG = _openpyxl_sheet_reader.VALUE_TAG
+_INLINE_TAG = _openpyxl_sheet_reader.INLINE_STRING
+_PLAIN_REFERENCE = re.compile(r"([A-Z]{1,3})([0-9]+)")
+_TYPES_READ = frozenset(("n", "s", "str", "b", "e", "inlineStr"))
+
+
+def _plain_prolog(source: object) -> bool:
+    """Whether the part starts as `_quick_rows` reads it: at most an XML declaration of version 1.0 in UTF-8 before the root,
+    and no document type declaration. The source is left at its start."""
+    if not source.seekable():
+        return False
+    head = source.read(_PROLOG_PEEK)
+    source.seek(0)
+    root = _ROOT_START.search(head)
+    if root is None or b"<!DOCTYPE" in head[:root.start()] or head.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return False
+    declaration = _XML_DECLARATION.match(head.removeprefix(b"\xef\xbb\xbf"))
+    if declaration is None:
+        return True
+    declared = {name.decode(): value.decode("ascii", "replace") for name, value in _DECLARED.findall(declaration.group())}
+    return declared.get("version", "1.0") == "1.0" and declared.get("encoding", "utf-8").lower() in ("utf-8", "utf8")
+
+
+def _quick_rows(parser: object, reading: _CellReading) -> Iterator[tuple[int, list]]:
+    """The rows `_openpyxl_rows` gives, read with libxml2 (see above). Raises `_HandedBack` for a part it does not take on."""
+    source = parser.source
+    if not _plain_prolog(source):
+        raise _HandedBack
+    columns: dict[str, int] = {}
+    quick_cell = _quick_cell
+    for _, element in etree.iterparse(source, events=("end",), tag=_ROW_TAGS, resolve_entities=False, no_network=True,
+                                      remove_comments=True, remove_pis=True):
+        tag = element.tag
+        if tag == _openpyxl_sheet_reader.ROW_TAG:
+            number = element.get("r")
+            if number is not None and not (number.isascii() and number.isdigit()):
+                row = parser.parse_row(element)  # a row number openpyxl reads otherwise (`1.5`, `abc`)
+            else:
+                attributes = element.attrib
+                parser.row_counter = int(number) if number is not None else parser.row_counter + 1
+                parser.col_counter = 0
+                if len(attributes) > (number is not None) + ("spans" in attributes) and \
+                        {key for key in attributes if not key.startswith("{")} - {"r", "spans"}:
+                    parser.row_dimensions[str(parser.row_counter)] = dict(attributes)
+                row = _consecutive((parser.row_counter, [quick_cell(parser, reading, cell, columns, number)
+                                                            for cell in element]))
+            yield row
+        elif tag == _openpyxl_sheet_reader.MERGE_TAG:
+            if not reading.streamed:
+                parser.merged_cells = _readable_merges(element)
+        elif tag == _MERGE_CELL_TAG and not reading.streamed:
+            continue  # kept for `<mergeCells>`, read when it ends (a streamed sheet's are emptied as they come)
+        element.clear()
+        while element.getprevious() is not None:
+            del element.getparent()[0]
+
+
+def _quick_cell(parser: object, reading: _CellReading, element: object, columns: dict[str, int], row_text: str | None) -> dict:
+    """The cell `_tolerant_parse_cell` gives for `element`, read directly when it has one of the usual shapes; any other cell is
+    read by `_tolerant_parse_cell` itself. `row_text` is the row number as written on the row, if it is one."""
+    written_type = element.get("t")
+    reference = element.get("r")
+    style = element.get("s")
+    data_type = "n" if written_type is None else written_type
+    # An attribute besides r, s and t may be the value-metadata index of an in-cell picture or data type (`vm`)
+    others = len(element.attrib) - (written_type is not None) - (reference is not None) - (style is not None)
+    if data_type not in _TYPES_READ or element.tag != _CELL_TAG or (others and element.get("vm") is not None):
+        return _tolerant_parse_cell(parser, element)
+    if reference:
+        # The column letters of a reference ending in the row's own number were checked when first seen
+        column = columns.get(reference[:-len(row_text)]) if row_text and reference.endswith(row_text) else None
+        if column is not None:
+            row = parser.row_counter
+        else:
+            match = _PLAIN_REFERENCE.fullmatch(reference)
+            if match is None:
+                return _tolerant_parse_cell(parser, element)
+            letters = match.group(1)
+            column = columns.get(letters)
+            if column is None:
+                column = columns[letters] = column_index_from_string(letters)
+            row = int(match.group(2))
+    else:
+        row, column = parser.row_counter, parser.col_counter + 1
+    if style is None:
+        style_id = 0
+    elif style.isascii() and style.isdigit() and (reading.style_count is None or int(style) < reading.style_count):
+        style_id = int(style)
+    else:
+        return _tolerant_parse_cell(parser, element)
+
+    try:
+        if data_type == "inlineStr":
+            inline = element.find(_INLINE_TAG)
+            if inline is None:
+                return _tolerant_parse_cell(parser, element)
+            text = _single_text(inline)
+            if text is None:
+                return _tolerant_parse_cell(parser, element)
+            value, data_type = (text.replace("x005F_", "") if parser.rich_text else text), "s"
+        else:
+            value = None  # the text of the first `<v>`, as `findtext` gives it (an empty one is no value)
+            for child in element:
+                if child.tag == _VALUE_TAG:
+                    value = child.text or None
+                    break
+            if value is not None:
+                if data_type == "n":
+                    value = float(value) if "." in value or "E" in value or "e" in value else int(value)
+                    if type(value) is float and not math.isfinite(value) or \
+                            type(value) is int and abs(value) > sys.float_info.max:
+                        return _tolerant_parse_cell(parser, element)
+                    if style_id in parser.date_formats:
+                        data_type = "d"
+                        value = _openpyxl_sheet_reader.from_excel(value, parser.epoch,
+                                                                  timedelta=style_id in parser.timedelta_formats)
+                        if type(value) is float and not math.isfinite(value):
+                            return _tolerant_parse_cell(parser, element)
+                elif data_type == "s":
+                    value = parser.shared_strings[int(value)]
+                elif data_type == "b":
+                    value = bool(int(value))
+                elif data_type == "str":
+                    data_type = "s"
+    except Exception:  # noqa: BLE001 — a value of another shape: `_tolerant_parse_cell` reads it as it always did
+        return _tolerant_parse_cell(parser, element)
+    parser.col_counter = column
+    return {"row": row, "column": column, "value": value, "data_type": data_type, "style_id": style_id}
 
 
 def _readable_merges(element: etree._Element) -> MergeCells:
