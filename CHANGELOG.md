@@ -82,8 +82,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   code the run would have had (1 when its output was going to that pipe too), not with a BrokenPipeError traceback or
   exit code 120.
 - **Pictures**: alt text that is a sentence or a longer phrase ending in a file name (`… exported from Visio as
-  orgchart.png`) is kept as the author's; only a file name (`image1.png`, `Screenshot 2024-01-01 at 10.00.00.png`) or a
-  title of a few words that ends in one is dropped.
+  orgchart.png`) is kept as the author's; only what is shaped like a file name is dropped — `image1.png`, `Screenshot
+  2024-01-01 at 10.00.00.png`, a title of up to four words, or up to eight with a number, that ends in one.
 - **Descriptions**: no describer call is sent once the answers already in are over `max_chars`; a whole further batch of
   paid calls (one per slot) went out after the limit was known.
 - **Mail**: a sent mail whose top level is `multipart/related` without an HTML part (a plain-text body, attachments, a
