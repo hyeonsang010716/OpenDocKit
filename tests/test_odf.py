@@ -339,6 +339,18 @@ class TestTextDocument:
 
         assert result.text == "- First item\n\n[Image]\n\n- Second\n\nBody text.\n\n[Image]"
 
+    def test_caption_in_a_note_does_not_make_its_paragraph_one(self):
+        """A paragraph is a caption by a sequence field of its own; one in a footnote of the paragraph is the note's."""
+        picture = ('<draw:frame text:anchor-type="as-char" svg:width="1cm" svg:height="1cm">'
+                   '<draw:image xlink:href="Pictures/a.png"/></draw:frame>')
+        note = ('<text:note text:note-class="footnote"><text:note-citation>1</text:note-citation><text:note-body>'
+                '<text:p>See Figure <text:sequence text:name="Figure">2</text:sequence>.</text:p></text:note-body></text:note>')
+        body = f"<text:p>{picture}Body{note} text.</text:p>"
+
+        result = _convert("text", body, parts={"Pictures/a.png": builder.png_bytes()})
+
+        assert result.text.startswith("Body[^1] text.\n\n[Image]")
+
 
 class TestHiddenText:
     """Hidden text is not text of the document (as DOCX w:vanish and RTF `\\v`): it read like a valid value."""

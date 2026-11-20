@@ -518,6 +518,8 @@ class TestHidingDecidedByTheWinningDeclaration:
 
         convert(b'<p>\xec\x95\x9e</p><div style="color:red; display:none">x</div>', "a.html")
         assert _html_base._cached_style_properties.cache_info().currsize == 1
+        # Only the properties that hide are kept: a thousand styles of 4 KB of other properties held 68 MB.
+        assert _html_base._style_properties("color:red; margin:0 auto; display:none") == {"display": "none"}
 
     @pytest.mark.parametrize("style", ["/* display:none; */", "display:none; display:block"])
     def test_shown_answer_of_a_list_is_not_folded(self, style):

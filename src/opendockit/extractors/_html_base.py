@@ -254,9 +254,10 @@ _CACHED_STYLE_CHARS = 4_096
 
 
 def _style_properties(style: str) -> dict[str, str]:
-    """The properties of an inline style and the first word of the value that wins for each (lowercase), as a browser applies
-    them (`_read_style_properties`). A page checks one style several times — hidden, then under a hidden ancestor, then for
-    a visible descendant — so the result for a short style is kept (the returned dict is shared: not to be changed)
+    """The properties of an inline style that hide (`display`, `visibility`, `content-visibility`) and the first word of the value
+    that wins for each (lowercase), as a browser applies them (`_read_style_properties`). A page checks one style several
+    times — hidden, then under a hidden ancestor, then for a visible descendant — so the result for a short style is kept (the
+    returned dict is shared: not to be changed)
     (Pinned by: test_core_html_mail_hidden_and_frames.py::TestHidingDecidedByTheWinningDeclaration::
     test_long_styles_are_not_kept_after_their_page)."""
     return _cached_style_properties(style) if len(style) <= _CACHED_STYLE_CHARS else _read_style_properties(style)
@@ -288,7 +289,9 @@ def _read_style_properties(style: str) -> dict[str, str]:
         words = value.split(None, 1)
         word = words[0].lower() if words else ""
         known = _KNOWN_VALUES.get(name)
-        if known is not None and word not in known and not _COMPUTED_VALUE.match(word):
+        if known is None:
+            continue   # only the properties that hide are asked about (and kept, `_cached_style_properties`)
+        if word not in known and not _COMPUTED_VALUE.match(word):
             continue   # invalid: a browser drops the declaration
         if marked is not None:
             important.add(name)
