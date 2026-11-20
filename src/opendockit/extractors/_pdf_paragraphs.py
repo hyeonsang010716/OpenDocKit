@@ -8,8 +8,11 @@ import math
 import re
 
 from opendockit.extractors._pdf_model import (
+    _BOLD_BODY_MAX_RATIO,
+    _BOLD_HEADING_MIN_RATIO,
     _BULLET_START,
-    _HEADING_MIN_RATIO,
+    _CAPTION_START,
+    _HEADING_SIZE_RATIO,
     _LONE_BULLET,
     _TABLE_ROW_TOLERANCE,
     _WORD_CHAR,
@@ -41,8 +44,8 @@ _COLUMN_MIN_WIDTH_RATIO = 0.5
 _PICTURE_ROW_MIN = 3
 
 
-def _render_page(page: _Page, heading_levels: dict[float, int], line_gap: float,
-                 images: list[tuple[tuple[float, ...], str]] | None = None) -> str:
+def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], line_gap: float,
+                 images: list[tuple[tuple[float, ...], str]] | None = None, body_size: float = 0.0) -> str:
     """Join the page's paragraphs, tables and pictures in reading order. `images` is a list of ((top, x0, x1, bottom),
     placeholder)."""
     items: list[tuple[float, str, bool]] = []
@@ -50,7 +53,8 @@ def _render_page(page: _Page, heading_levels: dict[float, int], line_gap: float,
     sizes: list[tuple[float, int]] = []  # (bottom coordinate, line count) in the same order as items. Tables and pictures are (bottom, 0)
     boxes: list[tuple[float, float, float, float]] = []  # (top, bottom, x0, x1) of paragraphs. Tables and pictures are not included
     for paragraph in _group_paragraphs(page.lines, line_gap):
-        level = heading_levels.get(_heading_size(paragraph), 0) if _is_heading(paragraph, heading_levels) else 0
+        key = _heading_key(paragraph, heading_levels, body_size)
+        level = heading_levels[key] if key else 0
         text = f"{'#' * level} {' '.join(line.text for line in paragraph.lines)}" if level else _paragraph_text(paragraph)
         items.append((paragraph.top, text, False))
         spans.append((min(line.x0 for line in paragraph.lines), max(line.x1 for line in paragraph.lines)))
@@ -436,10 +440,27 @@ def _continues(previous: _Line, line: _Line, line_gap: float) -> bool:
         return abs((previous.top + previous.bottom) / 2 - (line.top + line.bottom) / 2) <= previous.height
     if previous.size and line.size and abs(previous.size - line.size) > 0.15 * max(previous.size, line.size):
         return False
+    if _weight_breaks(previous, line):
+        return False
     gap = line.top - previous.bottom
     allowed = previous.height * (line_gap if line_gap else 0.5) * 1.5 + 1.0
     horizontally_overlaps = line.x0 < previous.x1 and previous.x0 < line.x1
     return -previous.height * 0.3 <= gap <= allowed and horizontally_overlaps
+
+
+def _weight_breaks(previous: _Line, line: _Line) -> bool:
+    """Whether a change of weight between two lines starts a new paragraph: a bold line that stops clearly short of the
+    regular line below it (by more than twice its height) is a title over that text, and a bold line after a regular line
+    that ends a sentence starts something new.
+
+    Deliberate: a bold title set at the body size and spacing ('5. The dynamics', 'Procedure:') was joined to the text below
+    it, so it could not be a heading. A bold sentence wrapped onto a full line, and a bold word inside a sentence, keep
+    their paragraph (Pinned by: test_pdf_headings.py::TestBoldHeadings)."""
+    if previous.bold and not line.bold:
+        return previous.x1 < line.x1 - 2 * previous.height
+    if line.bold and not previous.bold:
+        return previous.text.rstrip().endswith((".", "!", "?", ":", "。"))
+    return False
 
 
 def _paragraph_text(paragraph: _Paragraph) -> str:
@@ -456,27 +477,98 @@ def _heading_size(paragraph: _Paragraph) -> float:
     return round(max(line.size for line in paragraph.lines) * 2) / 2
 
 
-def _is_heading(paragraph: _Paragraph, heading_levels: dict[float, int] | None = None, body_size: float = 0.0) -> bool:
-    """A paragraph that is short, mostly letters, does not start with a bullet, and is clearly larger than the body text."""
+# A heading level key: (heading size in 0.5pt steps, whether it is a bold heading at about the body size).
+_HeadingKey = tuple[float, bool]
+
+
+def _heading_shaped(paragraph: _Paragraph) -> bool:
+    """A paragraph that is short (two lines, 100 characters at most; a line holding only the section number, '3.' or 'III.',
+    is not counted), mostly letters, does not start with a bullet, and is not a form row with check boxes ('☐ Yes ☑') or a
+    table-of-contents row with a dot leader ('2.4. Results … 7')."""
     text = " ".join(line.text for line in paragraph.lines)
-    size = max(line.size for line in paragraph.lines)
-    if not size or len(paragraph.lines) > 2 or len(text) > 100 or _BULLET_START.match(text):
+    if _CHECKBOX_MARK.search(text) or _LEADER_RUN.search(text):
+        return False
+    counted = [line for line in paragraph.lines if not _LONE_SECTION_NUMBER.match(line.text.strip())]
+    if not counted or not max(line.size for line in paragraph.lines) or len(counted) > 2 or len(text) > 100 or _BULLET_START.match(text):
         return False
     word_chars = len(_WORD_CHAR.findall(text))
-    if word_chars < 2 or word_chars < len(text.replace(" ", "")) * 0.5:
+    return word_chars >= 2 and word_chars >= len(text.replace(" ", "")) * 0.5
+
+
+def _is_heading(paragraph: _Paragraph, body_size: float) -> bool:
+    """A heading-shaped paragraph (`_heading_shaped`) at least `_HEADING_SIZE_RATIO` times the body size."""
+    return (_heading_shaped(paragraph) and bool(body_size)
+            and max(line.size for line in paragraph.lines) / body_size >= _HEADING_SIZE_RATIO)
+
+
+def _is_bold_heading(paragraph: _Paragraph, body_size: float) -> bool:
+    """A heading set in a bold face at about the body size: every line is bold, the size is at least
+    `_BOLD_HEADING_MIN_RATIO` of the body, it holds a letter, is not a caption or note label ('Figure 3.', 'Source:',
+    `_CAPTION_START`), and does not end like a sentence (',' or ';'; '.' only after a section number such as 'CHAPTER 1.'
+    or '5.'). A heading may end in ':' ('Procedure:') or '?'.
+
+    Deliberate: a heading in many books and papers differs from the body only by its weight ('5. The dynamics' in 11pt
+    bold over a 10pt body), and with the size rule alone 53 of 193 headings of a 200-page pdf corpus were body text (Pinned
+    by: test_pdf_headings.py::TestBoldHeadings)."""
+    if not body_size or not _heading_shaped(paragraph) or not all(line.bold for line in paragraph.lines):
         return False
-    if heading_levels is not None:
-        return _heading_size(paragraph) in heading_levels
-    return bool(body_size) and size / body_size >= _HEADING_MIN_RATIO
+    text = " ".join(line.text for line in paragraph.lines).strip()
+    if max(line.size for line in paragraph.lines) < body_size * _BOLD_HEADING_MIN_RATIO or _CAPTION_START.match(text):
+        return False
+    if not _HEADING_LETTER.search(text) or text.endswith((",", ";")):
+        return False
+    return not text.endswith(".") or bool(_SECTION_NUMBER_END.search(text))
 
 
-def _heading_levels(pages: list[_Page], body_size: float, line_gap: float) -> dict[float, int]:
-    """Heading size (in 0.5pt steps) → level. The heading sizes in the document are mapped, largest first, to #, ## and ###
-    (### from the fourth size onward)."""
-    sizes = {
-        _heading_size(paragraph)
-        for page in pages if not page.simple
-        for paragraph in _group_paragraphs(page.lines, line_gap)
-        if _is_heading(paragraph, body_size=body_size)
-    }
-    return {size: min(rank, 3) for rank, size in enumerate(sorted(sizes, reverse=True), start=1)}
+# A letter of a word (not a number or a symbol): a bold '2024' or '12.5%' alone is a value, not a heading.
+_HEADING_LETTER = re.compile(r"[A-Za-z\u00c0-\u024f가-힣一-鿿]")
+# A check box drawn or typed on the line (`_mark_checkboxes`).
+_CHECKBOX_MARK = re.compile(r"[☐☑☒]")
+# A line holding only a section number ('3.', '12', 'III.'), set above the title of a numbered heading.
+_LONE_SECTION_NUMBER = re.compile(r"^(?:\d{1,3}(?:\.\d{1,3})*|[IVXLC]{1,6})\.?$")
+# A heading that ends in a section number and a full stop ('CHAPTER 1.', '5.', 'Part IV.').
+_SECTION_NUMBER_END = re.compile(r"(?:^|\s)(?:\d+(?:\.\d+)*|[IVXLC]+)\.$")
+
+
+def _bold_body(pages: list[_Page]) -> bool:
+    """Whether the document sets its body in a bold face: at least `_BOLD_BODY_MAX_RATIO` of the characters of its lines are
+    in bold lines. A bold line is then no sign of a heading."""
+    total = bold = 0
+    for page in pages:
+        if page.simple:
+            continue
+        for line in page.lines:
+            total += len(line.text)
+            bold += len(line.text) if line.bold else 0
+    return bool(total) and bold >= total * _BOLD_BODY_MAX_RATIO
+
+
+def _heading_key(paragraph: _Paragraph, heading_levels: dict[_HeadingKey, int], body_size: float) -> _HeadingKey | None:
+    """The level key of a paragraph that is a heading: its size when that is a heading size of the document, otherwise
+    (size, True) when the document has bold headings at about the body size and the paragraph is one. None for body text."""
+    if not _heading_shaped(paragraph):
+        return None
+    size = _heading_size(paragraph)
+    if (size, False) in heading_levels:
+        return (size, False)
+    if (size, True) in heading_levels and _is_bold_heading(paragraph, body_size):
+        return (size, True)
+    return None
+
+
+def _heading_levels(pages: list[_Page], body_size: float, line_gap: float) -> dict[_HeadingKey, int]:
+    """Heading key (`_heading_key`) → level. The heading sizes in the document are mapped, largest first, to #, ## and ###
+    (### from the fourth size onward); at the same size a bold heading at about the body size comes after a larger one, so
+    those come last."""
+    bold_allowed = not _bold_body(pages)
+    keys: set[_HeadingKey] = set()
+    for page in pages:
+        if page.simple:
+            continue
+        for paragraph in _group_paragraphs(page.lines, line_gap):
+            if _is_heading(paragraph, body_size):
+                keys.add((_heading_size(paragraph), False))
+            elif bold_allowed and _is_bold_heading(paragraph, body_size):
+                keys.add((_heading_size(paragraph), True))
+    ranked = sorted(keys, key=lambda key: (-key[0], key[1]))
+    return {key: min(rank, 3) for rank, key in enumerate(ranked, start=1)}

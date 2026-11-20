@@ -38,6 +38,25 @@ _BULLET_START = re.compile(rf"^[•●○◦▪▫■□◆◇►▶➢✓✔※
 # Minimum font size ratio (relative to the body) for a heading. The level (#, ##, ###) is assigned not by the ratio but by the rank
 # of the heading size within the document.
 _HEADING_MIN_RATIO = 1.2
+# Minimum font size ratio (relative to the body) for a paragraph to be a heading by its size alone (`_is_heading`). Lower than
+# `_HEADING_MIN_RATIO`, which the reading-order rules use to tell a title from the column body: a subheading set 12.5pt over a
+# 10.5pt body (1.19) is a heading too. Pinned by: test_pdf_headings.py::TestHeadingSizes.
+_HEADING_SIZE_RATIO = 1.15
+# A heading set in a bold face at about the body size (`_is_bold_heading`): its size is at least this ratio of the body size (a
+# smaller bold line is a caption or a table label, not a heading).
+_BOLD_HEADING_MIN_RATIO = 0.97
+# Share of a line's letters drawn in a bold face for the line to count as bold (`_Line.bold`).
+_BOLD_LINE_RATIO = 0.8
+# A document whose body lines are bold this often (by characters) sets its body in a bold face, so a bold line tells nothing there.
+_BOLD_BODY_MAX_RATIO = 0.3
+# Font names of a bold face ('Brill-Bold', 'Arial,BoldItalic', 'NanumGothicExtraBold', 'Helvetica-Black', 'FrutigerLT-Heavy',
+# 'MinionPro-Semibold', 'Garamond-Demi'), with the short names of TeX fonts ('NimbusRomNo9L-Medi', 'CMBX12', 'CMSSBX10').
+# 'Medium' and 'Book' are body weights.
+_BOLD_FONT = re.compile(r"bold|black|heavy|semibold|demi|[-,]bd\b|[-,]bd[a-z]|-medi\b|-mediita\b|^cmbx|^cmssbx|^cmb\d",
+                        re.IGNORECASE)
+# Text of a caption or a note label: a bold 'Figure 3.' or 'Source:' at the body size is not a heading.
+_CAPTION_START = re.compile(r"^(?:fig(?:ure)?|table|tab|chart|graph|source|sources|note|notes|exhibit|box|photo|image|"
+                            r"그림|표|도표|사진|출처|자료|주)\s*(?:[\d.:)\-]|[ⅠⅡⅢⅣⅤ]|[IVX]+\b)", re.IGNORECASE)
 # Borderless table: taken as a table only when at least 3 consecutive lines each have 3 or more short pieces (at most this ratio of
 # the page width) at the same height (tolerance in pt) and the pieces sit on the column boundaries of the first line. A two-column
 # layout (2 pieces) and long sentence lines are not tables.
@@ -145,10 +164,23 @@ class _Line:
     # linked (`_pdf_footnotes._link_footnotes`). The notes are paragraphs of their own, one per note (`_continues`).
     footnote: bool = False
     footnote_start: bool = False
+    # At least `_BOLD_LINE_RATIO` of the line's letters are drawn in a bold face (`_BOLD_FONT`). A heading set in bold at about
+    # the body size is told from the body only by this (`_is_bold_heading`); lines built from other lines leave it False.
+    bold: bool = False
 
     @property
     def height(self) -> float:
         return max(self.bottom - self.top, 1.0)
+
+
+def _is_bold_line(chars: list[dict]) -> bool:
+    """Whether at least `_BOLD_LINE_RATIO` of the letters of a line's characters are drawn in a bold face (`_BOLD_FONT`, the
+    subset prefix 'ABCDEF+' of the font name left out)."""
+    letters = [char for char in chars if _WORD_CHAR.match(char.get("text", ""))]
+    if not letters:
+        return False
+    bold = sum(1 for char in letters if _BOLD_FONT.search(str(char.get("fontname", "")).rpartition("+")[2]))
+    return bold >= len(letters) * _BOLD_LINE_RATIO
 
 
 def _original_lines_of(line: _Line) -> tuple[_Line, ...]:
