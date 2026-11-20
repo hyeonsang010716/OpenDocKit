@@ -575,6 +575,31 @@ class TestSuperscriptInCells:
 
         assert text == "10의 ^6승 CO_2 끝"
 
+    def test_xls_run_after_an_emoji_marks_the_right_character(self):
+        """BIFF counts run positions in UTF-16 code units, where an emoji is two. Read as code points, the raised `2` of
+        `😀 m2` (unit 4) fell past the end of the text and nothing was marked."""
+        def font(escapement: int) -> bytes:
+            return builder.xls_record(0x0031, struct.pack("<HHHHHBBBBBB", 200, 0, 0x7FFF, 400, escapement, 0, 0, 0, 0, 5, 0)
+                                      + b"Arial")
+
+        def shared_string(text: str, runs: list[tuple[int, int]]) -> bytes:
+            units = text.encode("utf-16-le")
+            return (struct.pack("<HBH", len(units) // 2, 0x09, len(runs)) + units
+                    + b"".join(struct.pack("<HH", position, font_index) for position, font_index in runs))
+
+        strings = [("😀 m2", [(4, 5)]), ("😀😀 CO2 m3", [(7, 5), (8, 0), (10, 5)])]
+        fonts = b"".join(font(escapement) for escapement in (0, 0, 0, 0, 1))  # index 4 is skipped: the last font is 5
+        styles = builder.xls_record(0x00E0, struct.pack("<HHH", 0, 0, 0) + b"\0" * 14)
+        table = builder.xls_record(0x00FC, struct.pack("<II", len(strings), len(strings))
+                                   + b"".join(shared_string(text, runs) for text, runs in strings))
+        cells = b"".join(builder.xls_record(0x00FD, struct.pack("<HHHI", row, 0, 0, row - 1)) for row in (1, 2))
+        data = builder.xls_bytes([("S", [["unit"]], cells)], globals_extra=fonts + styles + styles + table)
+
+        text = xls.extract_xls(data, ConvertOptions()).sections[0].text
+
+        assert "😀 m^2" in text
+        assert "😀😀 CO^2 m^3" in text
+
 
 def _xml_spreadsheet(number_format: str, kind: str, value: str) -> bytes:
     """Excel 2003 XML spreadsheet: one `name | value` row. The value cell gets a number format."""

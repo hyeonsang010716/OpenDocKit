@@ -2,11 +2,13 @@
 records.
 """
 
+import bisect
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
 import hashlib
 from io import BytesIO, StringIO
+import itertools
 import math
 import struct
 import sys
@@ -733,7 +735,15 @@ def _xls_drawing_blocks(items: list[str | bytes | None], sheet_name: str, extrac
 def _xls_rich_text(text: str, runs: list[tuple[int, int]], escapement: Callable[[int], int | None]) -> str:
     """Rich text of an XLS cell. `runs` are (character position, font index) pairs; that font applies from that position to the
     next one (before the first position it is the cell's font). A font escapement of 1 is superscript and 2 is subscript
-    (Pinned by: test_spreadsheet.py::TestSuperscriptInCells)."""
+    (Pinned by: test_spreadsheet.py::TestSuperscriptInCells).
+
+    BIFF counts the positions in UTF-16 code units, where a character outside the BMP (an emoji) is two; the text is in code
+    points. Taken as they were, every mark after an emoji landed one character early: `😀 m2` with a raised `2` came out as
+    `😀 m2` instead of `😀 m^2` (Pinned by: test_spreadsheet.py::TestSuperscriptInCells::test_xls_run_after_an_emoji_marks_the_right_character).
+    A position inside a surrogate pair goes to the character after it."""
+    if any(ord(character) > 0xFFFF for character in text):
+        starts = list(itertools.accumulate((2 if ord(character) > 0xFFFF else 1 for character in text), initial=0))
+        runs = [(bisect.bisect_left(starts, position), font) for position, font in runs]
     runs = sorted(runs)
     pieces = [text[:runs[0][0]]] if runs else [text]
     for (start, font), (end, _) in zip(runs, [*runs[1:], (len(text), 0)], strict=True):
