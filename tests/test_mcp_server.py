@@ -801,6 +801,54 @@ class TestRepeatedCalls:
         assert converted == [path.name for path in paths] + ["note0.txt"], "the oldest entry was dropped"
 
 
+class TestSessions:
+    """One server object serves many sessions (every SSE client, every in-memory client), and the SDK enters its lifespan
+    once for each. Closed when the first one ended, the worker pool refused every file of the next."""
+
+    def test_a_second_session_after_the_first_ended_converts(self, files):
+        async def run() -> list[str]:
+            from mcp.client.client import Client
+
+            server = mcp_server.create_server()
+            answers = []
+            for name in ("report.docx", "paper.pdf"):   # two files: the second must not come from the cache
+                async with Client(server) as client:
+                    result = await client.call_tool("document_outline", {"path": str(files[name])})
+                    assert not result.is_error, result.content[0].text
+                    answers.append(result.content[0].text)
+            return answers
+
+        answers = asyncio.run(run())
+
+        assert answers[0].startswith("Format: docx") and answers[1].startswith("Format: pdf")
+
+    def test_a_session_ending_does_not_close_the_workers_of_one_still_open(self, files, monkeypatch):
+        closed: list[int] = []
+        aclose = mcp_server.IsolatedConverter.aclose
+
+        async def counted(self):
+            closed.append(id(self))
+            await aclose(self)
+
+        monkeypatch.setattr(mcp_server.IsolatedConverter, "aclose", counted)
+
+        async def run() -> str:
+            from mcp.client.client import Client
+
+            server = mcp_server.create_server()
+            async with Client(server) as staying:
+                async with Client(server) as leaving:
+                    first = await leaving.call_tool("document_outline", {"path": str(files["report.docx"])})
+                    assert not first.is_error, first.content[0].text
+                assert closed == [], "closed while another session was open"
+                result = await staying.call_tool("document_outline", {"path": str(files["paper.pdf"])})
+                assert not result.is_error, result.content[0].text
+            assert len(closed) == 1, "closed once the last session ended"
+            return result.content[0].text
+
+        assert asyncio.run(run()).startswith("Format: pdf")
+
+
 class TestCommandLine:
     def test_root_that_is_not_a_folder_is_an_error_before_the_server_starts(self, tmp_path, capsys):
         with pytest.raises(SystemExit):

@@ -588,6 +588,40 @@ class TestLists:
         assert _text(body, head=r"\ansi\ansicpg949") == "1. 매출 집계\n2. 환율 적용"
 
 
+class TestTrackedChanges:
+    """A paragraph mark deleted with Track Changes on (`{\\deleted\\par}`) ended the paragraph: the sentence joined in the final
+    version stayed cut in two, and a list item took a number of its own. The two paragraphs are joined as written, and the joined
+    one takes the properties of the mark that is left, as in DOCX."""
+
+    def test_paragraph_whose_mark_was_deleted_is_joined_to_the_next(self):
+        body = (r"\pard The contract ends on {\deleted\revauthdel1 \par }\pard 31 December 2026.\par"
+                r"\pard Pay {\deleted\par}\pard within {\deleted\par}\pard 30 days.\par\pard Next\par")
+
+        assert _text(body) == "The contract ends on 31 December 2026.\n\nPay within 30 days.\n\nNext"
+
+    def test_paragraph_whose_mark_is_only_hidden_still_ends(self):
+        """DOCX keeps a paragraph whose mark is hidden (`w:vanish`) apart too."""
+        assert _text(r"\pard Visible{\v \par }\pard apart\par") == "Visible\n\napart"
+
+    def test_numbered_paragraph_whose_mark_was_deleted_takes_no_number(self):
+        body = _LISTS + r"\pard\ls2 Apples and {\deleted \par }\pard\ls2 pears\par\pard\ls2 Plums\par"
+
+        assert _text(body) == "1. Apples and pears\n2. Plums"
+
+    def test_joined_paragraph_takes_the_properties_of_the_mark_that_is_left(self):
+        assert _text(_STYLES + r"\pard\s1 Title part {\deleted\par}\pard body text\par") == "Title part body text"
+        assert _text(_STYLES + r"\pard body part {\deleted\par}\pard\s1 Title\par") == "# body part Title"
+
+    def test_paragraphs_of_a_cell_are_joined(self):
+        assert _text(_row([r"one {\deleted\par}\pard\intbl two", "b"])) == "| one two | b |\n| --- | --- |"
+
+    def test_paragraph_whose_mark_was_deleted_before_a_table_is_not_joined_to_its_cell(self):
+        """DOCX joins only a paragraph that a paragraph follows; the text of the paragraph went into the first cell."""
+        body = r"\pard Intro{\deleted\par}" + _row(["a", "b"]) + r"\pard After\par"
+
+        assert _text(body) == "Intro\n\n| a | b |\n| --- | --- |\n\nAfter"
+
+
 class TestTables:
     def test_simple_table(self):
         body = r"Intro\par" + _row(["Name", "Qty"]) + _row([_cp949("사과"), "3"]) + r"\pard After\par"

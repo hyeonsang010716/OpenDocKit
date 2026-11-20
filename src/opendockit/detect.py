@@ -15,7 +15,7 @@ import zipfile
 
 from opendockit.exceptions import ConversionError, CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
 from opendockit.extractors._encoding import decode_text, is_cp949_text, is_utf8_text, unicode_bom_codec, utf16_encoding
-from opendockit.extractors._html_mail import is_mhtml, mail_reads_as_html, mhtml_html_part
+from opendockit.extractors._html_mail import is_mhtml, mail_reads_as_html, mhtml_html_part, mhtml_is_sent_mail
 from opendockit.extractors._mail import is_encrypted_mail, mail_box
 from opendockit.extractors._ole import OleFile
 from opendockit.image import is_image_file
@@ -476,7 +476,11 @@ def _detect_text(data: bytes, extension: str) -> DocumentFormat:
     if len(mails) < 2 and is_mhtml(data):
         # MHTML (single-file web page) passed through as text, and the MIME headers and base64 became a "successful" result. The HTML
         # extractor pulls out the HTML part and reads it (Pinned by: test_detect.py::TestMhtml).
-        if mhtml_html_part(data) is None:
+        # A sent mail (`_mail.is_sent_mail`) without an HTML part is read as mail by the same extractor (plain-text body, forwarded
+        # mails, attachment warning): a multipart/related mail holding only a plain-text body was rejected as a page without HTML, and
+        # the whole mail was lost (Pinned by: test_core_mail_parts_and_icons.py::TestMailWithRelatedPartsAtTheTop). Only a saved page
+        # without HTML is rejected.
+        if mhtml_html_part(data) is None and not mhtml_is_sent_mail(data):
             raise UnsupportedFormatError("MHTML (single-file web page) documents without an HTML body are not supported. "
                                          "Please save the file again as HTML or XLSX.")
         return DocumentFormat.HTML

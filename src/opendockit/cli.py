@@ -51,7 +51,10 @@ def main() -> int:
     # As `opendockit-mcp` and `opendockit-open-webui` have it; the bug report form asks for the version
     # (Pinned by: test_cli.py::TestArguments::test_version_is_printed_without_a_file).
     parser.add_argument("--version", action=_Version, nargs=0, help="show program's version number and exit")
-    args = parser.parse_args()
+    try:
+        args = parser.parse_args()
+    finally:
+        _flush_errors()   # argparse's usage error: it ignores a failed write, and the message was flushed only at exit
 
     path = Path(args.path)
     describer = OpenAIImageDescriber(model_name=args.model) if args.describe else None
@@ -96,16 +99,49 @@ def _write(print_output: Callable[[], None]) -> int:
         # (the SIGPIPE advice in the Python docs, Pinned by: test_cli.py::TestArguments::test_closed_pipe_ends_quietly).
         # Windows reports a closed pipe as EINVAL, not as a BrokenPipeError: a short output there ended in an OSError
         # traceback (Pinned by: test_cli.py::TestArguments::test_closed_pipe_ends_quietly_after_a_short_output).
-        if not (isinstance(error, BrokenPipeError) or (sys.platform == "win32" and error.errno == errno.EINVAL)):
+        if not _reader_gone(error):
             raise
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 1
     return 0
 
 
+def _reader_gone(error: OSError) -> bool:
+    """Whether a write failed because the reader of the pipe has gone. Windows reports a closed pipe as EINVAL, not as a
+    BrokenPipeError."""
+    return isinstance(error, BrokenPipeError) or (sys.platform == "win32" and error.errno == errno.EINVAL)
+
+
 def _error(message: str) -> None:
-    """A message or warning on standard error (a null device when it is closed, `main`)."""
-    print(message, file=sys.stderr)
+    """A message or warning on standard error (a null device when it is closed, `main`, or when its reader has gone,
+    `_flush_errors`)."""
+    try:
+        print(message, file=sys.stderr)
+    except OSError as error:
+        if not _reader_gone(error):
+            raise
+    _flush_errors()
+
+
+def _flush_errors() -> None:
+    """Flush standard error; when its reader has gone, point it at the null device, as `_write` does with standard output.
+
+    With standard error sent to a pipe that was closed (`2>&1 | true`, a log reader that died) a warning or a message raised
+    BrokenPipeError: a message for a missing file ended in a traceback, and a warning, or argparse's usage error (which
+    ignores a failed write), stayed in the buffer and failed again at exit with 'Exception ignored … BrokenPipeError' and
+    exit code 120. The messages now go nowhere and the exit code is the one the run would have had: the reader of the
+    messages has gone, not the reader of the output
+    (Pinned by: test_cli.py::TestArguments::test_messages_to_a_closed_pipe_end_quietly).
+    """
+    try:
+        sys.stderr.flush()
+    except OSError as error:
+        if not _reader_gone(error):
+            raise
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stderr.fileno())
+        except (OSError, ValueError):   # a stream without a file descriptor of its own
+            sys.stderr = open(os.devnull, "w", encoding="utf-8")  # open for the life of the process
 
 
 class _Help(argparse.Action):

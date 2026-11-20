@@ -12,11 +12,11 @@ from opendockit.extractors._html_base import (
     _BLOCK_GAP,
     _BLOCK_TAGS,
     _CHECKED,
-    _FOLDED_STYLE,
     _HEADER_PROBE_ROWS,
     _HEADINGS,
     _UNCHECKED,
     _WHITESPACE,
+    FOLDED_VALUES,
     _Inline,
     _inline,
     _list_number,
@@ -24,6 +24,7 @@ from opendockit.extractors._html_base import (
     _Places,
     _replace,
     _table_room,
+    style_sets,
 )
 from opendockit.extractors._html_tables import (
     STRIKE_KEY,
@@ -397,7 +398,7 @@ def _definition_entries(node: Tag) -> list[Tag] | None:
             if isinstance(item, NavigableString):
                 if str(item).strip():
                     return None
-            elif item.name not in ("dt", "dd") or (item.name == "dd" and _FOLDED_STYLE.search(str(item.get("style", "")))):
+            elif item.name not in ("dt", "dd") or (item.name == "dd" and style_sets(str(item.get("style", "")), FOLDED_VALUES)):
                 return None
             else:
                 entries.append(item)

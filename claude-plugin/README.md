@@ -66,7 +66,7 @@ or sheets has nothing to ask for, and its note says to raise `max_chars` instead
 
 - **Runs a local process.** `uvx --python ">=3.12" --exclude-newer 2026-11-19T07:46:00Z --from "opendockit[mcp]==0.3.14" opendockit-mcp`,
   over stdio, for as long as the session lasts. Each file is converted in a worker process that is ended after 2
-  minutes, or on Linux at 2 GB.
+  minutes, or on Linux and Windows at 2 GB (macOS accepts no memory limit).
 - **Downloads once.** The first start fetches `opendockit` 0.3.14 and its dependencies from PyPI into uv's cache, and
   Python 3.12 or newer if the machine has none. After that it starts from the cache. It needs
   [uv](https://docs.astral.sh/uv/) on the `PATH`.
@@ -88,7 +88,7 @@ same code until this file changes. The plugin's version is the OpenDocKit releas
 ## Limits
 
 - Scanned PDFs and photos: no OCR. Claude's Read tool can look at such a page as an image.
-- Legacy `.doc` and `.ppt` need LibreOffice. On Windows, HTML, email and EPUB are not supported.
+- Legacy `.doc` and `.ppt` need LibreOffice.
 - The server reads local files only, not URLs.
 
 ## Troubleshooting
