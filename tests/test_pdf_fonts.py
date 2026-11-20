@@ -348,6 +348,19 @@ class TestUndecodedGlyphs:
         return fastest(repair)
 
     @pytest.mark.timing
+    def test_many_characters_in_one_box_are_joined_in_linear_time(self):
+        """pdfium gives every character of one glyph the glyph's box; adding each to the text so far was quadratic."""
+        from opendockit.extractors._pdf_glyph_repair import _grouped
+        from tests.timing import fastest
+
+        def time_of(count: int) -> float:
+            found = [(10.0, 20.0, 30.0, 40.0, "x")] * count
+            return fastest(lambda: _grouped(found))
+
+        small, large = time_of(50_000), time_of(200_000)
+        assert large < small * 8
+
+    @pytest.mark.timing
     def test_many_undecoded_characters_in_one_band_are_repaired_in_linear_time(self):
         """Sixteen lines 1pt apart, every other character undecoded: each one looked at every glyph of its 16pt band, and
         32,000 characters took 9 seconds instead of 1."""

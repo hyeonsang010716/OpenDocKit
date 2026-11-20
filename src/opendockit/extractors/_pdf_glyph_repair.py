@@ -137,14 +137,18 @@ def _repair_replacement_chars(page: object, glyphs: Callable[[], _Glyphs] | None
 def _grouped(found: _Glyphs) -> _Glyphs:
     """pdfium's characters with those of one glyph joined: pdfium gives each character of a glyph mapped to several (a
     ligature 'ﬁ' mapped to 'fi') the glyph's box, pdfminer gives the glyph one character (Pinned by:
-    test_pdf_fonts.py::TestUndecodedGlyphs::test_a_ligature_pdfium_reads_as_two_characters_is_one_glyph)."""
-    groups: _Glyphs = []
-    for glyph in found:
-        if groups and groups[-1][:4] == glyph[:4] and not glyph[4].isspace() and not groups[-1][4].isspace():
-            groups[-1] = (*glyph[:4], groups[-1][4] + glyph[4])
+    test_pdf_fonts.py::TestUndecodedGlyphs::test_a_ligature_pdfium_reads_as_two_characters_is_one_glyph). The pieces of a
+    glyph are joined once at the end: adding each to the text so far took 18 seconds for 1.6 million characters in one box
+    (Pinned by: test_pdf_fonts.py::TestUndecodedGlyphs::test_many_characters_in_one_box_are_joined_in_linear_time)."""
+    boxes: list[tuple[float, float, float, float]] = []
+    pieces: list[list[str]] = []
+    for *box, text in found:
+        if boxes and boxes[-1] == tuple(box) and not text.isspace() and not pieces[-1][-1].isspace():
+            pieces[-1].append(text)
         else:
-            groups.append(glyph)
-    return groups
+            boxes.append(tuple(box))
+            pieces.append([text])
+    return [(*box, "".join(texts)) for box, texts in zip(boxes, pieces, strict=True)]
 
 
 def _near(groups: _Glyphs, cells: dict[tuple[int, int], list[int] | None], left: float, middle: float,
