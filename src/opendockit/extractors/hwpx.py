@@ -18,6 +18,7 @@ from lxml import etree
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._charts import embedded_table, package_loader, render_chart
 from opendockit.extractors._equation import render_equation
+from opendockit.extractors._hancom_symbols import framed_number, hancom_symbols
 from opendockit.extractors._hangul import (
     ParagraphPieces,
     SizeHeadings,
@@ -231,7 +232,7 @@ class HwpxRenderer:
         name = _local(node)
         if name == "t":
             # A run with a super/subscript character shape. Appended as plain text, 10⁶ became 106 (Pinned by: test_hwp.py::TestSuperscript).
-            plain = _t_text(node)
+            plain = hancom_symbols(_t_text(node))  # Hancom's own symbols as text (`_hancom_symbols`)
             if not self._note_depth:
                 self.size_headings.count(self._size, plain, body=not self._inner and not self._cell_depth)
             text = mark_script(plain, self._script) if self._script else plain
@@ -278,7 +279,10 @@ class HwpxRenderer:
         elif name == "compose":
             # Composed characters: the overlapped characters are in the composeText attribute and were dropped
             # (Pinned by: test_hwp.py::TestComposedCharacters).
-            buffer.append(node.get("composeText", ""))
+            # A number in a frame is private-use pieces of its digits there too, as in HWP (`hwp._composed_text`)
+            text = node.get("composeText", "")
+            number = framed_number(text.strip())
+            buffer.append(number if number is not None else hancom_symbols(text))
         elif name in _FORM_OBJECTS:
             # Form objects: the value is in attributes and children and was dropped (Pinned by: test_hwp.py::TestHwpxFormObjects).
             value = _form_value(node)

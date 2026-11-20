@@ -624,6 +624,82 @@ class TestComposedCharacters:
 
         assert result.text == "제12조"
 
+    @staticmethod
+    def _tcps(text: str, border: int) -> bytes:
+        units = text.encode("utf-16-le")
+        return "tcps"[::-1].encode("latin-1") + struct.pack("<H", len(units) // 2) + units + bytes([border, 0xfd, 0, 0x0a]) + b"\xff" * 40
+
+    def _hwp(self, monkeypatch, *controls: bytes) -> str:
+        record = builder.hwp_record
+        section = b"".join([record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+                            record(TAG_PARA_TEXT, 1, builder.hwp_text(*[part for _ in controls for part in ((23, "tcps"), " ")])),
+                            *[record(TAG_CTRL_HEADER, 1, control) for control in controls]])
+        return convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text
+
+    @pytest.mark.parametrize(("text", "border"), [
+        ("\U000f0289\U000f0294", 1),              # 12 in a circle: the private-use pieces of a tens 1 and a ones 2
+        ("\U000f029d\U000f02a8", 2),              # in a reversed circle
+        ("\U000f02ba\U000f02c5", 3),              # in a box
+        ("\U000f02d7\U000f02e2", 4),              # in a reversed box
+        ("\U000f02ba\U000f02c5", 0),              # the pieces of a box, with no border kind
+        ("\ua2ba\ua2c5", 3),                      # the same written as HWP 5 units 0xA000 | X
+    ])
+    def test_hwp_number_in_a_frame_is_its_digits(self, monkeypatch, text, border):
+        """Hangul writes a two- or three-digit number in a frame as private-use pieces of its digits; the HWPX save of the same
+        document holds the digits in composeText."""
+        assert self._hwp(monkeypatch, self._tcps(text, border)) == "12"
+
+    def test_hwp_three_digit_number_in_a_circle(self, monkeypatch):
+        assert self._hwp(monkeypatch, self._tcps("\U000f0491\U000f049c\U000f04a7", 1)) == "123"
+
+    @pytest.mark.parametrize(("frame", "border"), [("◯", 1), ("●", 2), ("□", 3), ("■", 4), ("△", 5), ("▲", 6), ("☼", 7),
+                                                   ("◇", 8), ("◆", 9), ("▢", 10), ("♲", 11), ("♺", 12), ("♻", 13)])
+    def test_hwp_frame_glyph_of_the_border_kind_is_left_out(self, monkeypatch, frame, border):
+        """HWP writes the frame first (`△12`, `◯가`); HWPX keeps it as circleType and writes `12`, `가`. Matched on a Hancom file
+        holding every border kind in both formats."""
+        assert self._hwp(monkeypatch, self._tcps(f"{frame}가나", border)) == "가나"
+
+    def test_hwp_glyph_that_is_not_the_frame_of_the_border_kind_stays(self, monkeypatch):
+        assert self._hwp(monkeypatch, self._tcps("△가", 1), self._tcps("한글", 0), self._tcps("◯", 1)) == "△가 한글 ◯"
+
+    def test_hwpx_number_in_a_frame_is_its_digits(self):
+        body = ('<hp:p><hp:run><hp:compose circleType="SHAPE_RECTANGLE" composeText="&#xF02BA;&#xF02C3;"/>'
+                "<hp:t> 공공부문</hp:t></hp:run></hp:p>")
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "10 공공부문"
+
+
+class TestHancomSymbols:
+    """Hangul writes its own symbols as plane-15 private-use characters (HWPX U+F0000 | X, HWP 5 also the unit 0xA000 | X), which
+    the cleaning removed: the seal mark `(인)` of a form, boxed numbers, bullets and book brackets were lost, and HWP 5 units like
+    0xA832 came out as letters of another script. The symbols whose meaning Hancom's PDFs show are written out."""
+
+    def _hwp(self, monkeypatch, text: str) -> str:
+        section = (builder.hwp_record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + builder.hwp_record(TAG_PARA_TEXT, 1, builder.hwp_text(text)))
+        return convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text
+
+    def test_hwp_symbols_are_written_out(self, monkeypatch):
+        text = "신청인 : 홍길동 \U000f012b \U000f0854한성순보\U000f0855 \U000f02b1 항목 \U000f03c5 확인"
+
+        assert self._hwp(monkeypatch, text) == "신청인 : 홍길동 (인) 『한성순보』 ① 항목 □ 확인"
+
+    def test_hwp_5_units_of_hancom_symbols_are_written_out(self, monkeypatch):
+        assert self._hwp(monkeypatch, "기증자 : \ua12b \ua2b1 \ua2b2") == "기증자 : (인) ① ②"
+
+    def test_letters_of_the_yi_and_syloti_nagri_blocks_that_are_no_hancom_symbol_stay(self, monkeypatch):
+        """Hangul keeps U+A813 as it is in an English word set in Malgun Gothic; only the measured units are symbols."""
+        assert self._hwp(monkeypatch, "spectro\ua813scopy \ua000") == "spectro\ua813scopy \ua000"
+
+    def test_line_pieces_and_unknown_symbols_are_left_out(self, monkeypatch):
+        """Rule and box pieces (`\U000f080f` drawn as a rule, `\ua832` a double rule) and symbols whose meaning is not known."""
+        assert self._hwp(monkeypatch, "제목\U000f080f\U000f080f \ua832\ua832 끝\U000f03e0") == "제목 끝"
+
+    def test_hwpx_symbols_are_written_out(self):
+        body = "<hp:p><hp:run><hp:t>&#xF0854;조선 상고사&#xF0855; &#xF012B; &#xF080F;&#xF080F;</hp:t></hp:run></hp:p>"
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "『조선 상고사』 (인)"
+
 
 class TestHwpxFormObjects:
     """HWPX form objects (check box, radio button, combo box, edit box) keep their values in element attributes and children, so

@@ -24,6 +24,7 @@ import olefile
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
 from opendockit.extractors._charts import embedded_table, render_chart
 from opendockit.extractors._equation import render_equation
+from opendockit.extractors._hancom_symbols import FRAME_GLYPHS, framed_number, hancom_symbols, unfold
 from opendockit.extractors._hangul import (
     ParagraphPieces,
     SizeHeadings,
@@ -280,6 +281,8 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
                 for control, replacement in _CHAR_CONTROLS:
                     if control in decoded:
                         decoded = decoded.replace(control, replacement)
+            # Hancom's own symbols (the seal mark, boxed numbers, bullets) as text (`_hancom_symbols`)
+            decoded = hancom_symbols(unfold(decoded))
             if decoded:  # nothing but controls that are dropped
                 decoded = mark_script(decoded, script) if script else decoded
                 parts.extend(emphasis_pieces(mark_strike(decoded) if struck else decoded, bold, italic))
@@ -490,7 +493,7 @@ class HwpRenderer:
             elif kind == "tcps":
                 # Composed characters: the overlapped characters are also inside the control, so they were dropped
                 # (Pinned by: test_hwp.py::TestComposedCharacters).
-                buffer.extend(_control_strings(control, 1))
+                buffer.append(_composed_text(control))
             elif kind == "atno":
                 buffer.append(_auto_number(control))
             elif kind == "form":
@@ -1021,6 +1024,27 @@ def _control_strings(control: Record, count: int) -> list[str]:
 
 
 _CONTROL_TEXT = dict.fromkeys(range(32)) | dict.fromkeys(range(0x09, 0x0E), " ")
+
+
+def _composed_text(control: Record) -> str:
+    """The characters of composed characters (`tcps`: WORD count + WCHARs, then the border kind BYTE) as the HWPX save of the same
+    document writes them in composeText: a number in a frame, which HWP writes as private-use pieces of its digits, is its digits
+    (`12`), and the frame glyph HWP writes first (`△12`, `◯가`) is left out when it is the glyph of the border kind — HWPX keeps
+    the frame as circleType. Matched one by one on a Hancom file holding every border kind in both formats (Pinned by:
+    test_hwp.py::TestComposedCharacters)."""
+    payload = control.payload
+    if len(payload) < 6:
+        return ""
+    (count,) = struct.unpack_from("<H", payload, 4)
+    text = unfold(payload[6:6 + 2 * count].decode("utf-16-le", errors="replace"))
+    border = payload[6 + 2 * count] if len(payload) > 6 + 2 * count else 0
+    number = framed_number(text.strip())
+    if number is not None:
+        return number
+    frame = FRAME_GLYPHS.get(border)
+    if frame is not None and len(text) > 1 and text[0] == frame:
+        text = text[1:]
+    return hancom_symbols(text).translate(_CONTROL_TEXT).strip()
 # The control characters of an equation script that `str.split` does not take for white space
 _SCRIPT_CONTROLS = {code: None for code in range(0x20) if not chr(code).isspace()}
 
