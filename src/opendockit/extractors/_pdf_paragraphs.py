@@ -682,16 +682,32 @@ _SECTION_LEAD = re.compile(r"^(?:\d{1,3}(?:\.\d{1,3})*\.?|[IVXLC]{1,6}\.)\s+")
 # The small words a title in title case keeps in lower case
 _MINOR_WORDS = frozenset(("a", "an", "the", "and", "or", "nor", "but", "of", "for", "to", "in", "on", "at", "by", "with", "from",
                           "into", "vs", "per", "as", "via"))
+# Function words of a sentence a title does not capitalize after its first word (`_title_case`)
+_SENTENCE_WORDS = frozenset(("is", "are", "was", "were", "be", "will", "must", "shall", "should", "can", "may", "you", "your", "we",
+                             "please", "this", "that", "these", "those"))
+# The first words of a sentence, not of a title (`_title_case`)
+_SENTENCE_STARTS = frozenset(("please", "you", "we", "i", "to"))
 
 
 def _title_case(words: list[str]) -> bool:
-    """Whether the words are set in title case: the first and every word but the small ones (`_MINOR_WORDS`) start with a
-    capital or a digit ('Summary of Key Findings', 'Q&A Session with Panelists', 'Part 1: Getting Started')."""
+    """Whether the words are set in title case, the way a title is and a sentence is not: the first and every word but the
+    small ones (`_MINOR_WORDS`) start with a capital or a digit, the small ones and the function words of a sentence
+    (`_SENTENCE_WORDS`) after the first word do not, the first word is no word a sentence starts with (`_SENTENCE_STARTS`),
+    the line holds a lowercase letter and no comma ('Summary of Key Findings', 'Q&A Session with Panelists', 'Part 1:
+    Getting Started'; not 'Please Read The Following Carefully', 'Payment Is Due Within 30 Days Of', 'To Apply, Please
+    Include', 'THE PARTIES AGREE AS FOLLOWS')."""
+    text = " ".join(words)
+    if "," in text or not any(char.islower() for char in text):
+        return False
     for index, word in enumerate(words):
         word = word.strip(":;,.()\"'“”‘’")
         if not word or not word[0].isalpha():
             continue
+        if index == 0 and word.lower() in _SENTENCE_STARTS:
+            return False
         if word[0].islower() and (index == 0 or word.lower() not in _MINOR_WORDS):
+            return False
+        if index and word[0].isupper() and word.lower() in _MINOR_WORDS | _SENTENCE_WORDS:
             return False
     return True
 _HANGUL = re.compile(r"[가-힣]")

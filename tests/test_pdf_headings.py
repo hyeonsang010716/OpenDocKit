@@ -349,7 +349,11 @@ class TestBoldSentenceEnds:
 
     @pytest.mark.parametrize("line", ["Do not discard this notice!", "Questions? Call 1-800-555-0100",
                                       "The following documents must be attached:", "The applicant must provide:",
-                                      "Please note the following:"])
+                                      "Please note the following:", "THE PARTIES AGREE AS FOLLOWS:",
+                                      "NOW, THEREFORE, THE PARTIES AGREE AS FOLLOWS:", "PLEASE READ THE FOLLOWING CAREFULLY:",
+                                      "Please Read The Following Carefully:", "Applicants Must Submit The Following Documents:",
+                                      "Payment Is Due Within 30 Days Of:", "To Apply, Please Include:", "You Will Need The Following:",
+                                      "In This Section You Will Learn:"])
     def test_a_bold_sentence_with_another_end_is_no_heading(self, line):
         text = _text([*_body(80), (140, line, 10, "Times-Bold"), *_body(156)])
 
@@ -409,7 +413,8 @@ class TestBoldSentenceEnds:
                                        "Key findings:", "Chapter 3: Results", "Part 1: Getting Started:",
                                        "Summary of Key Findings:", "Terms of the Agreement:", "Risks and Mitigation Measures:",
                                        "Q&A Session with Panelists:", "Section 2. Payment Terms:", "1. Scope of Work:",
-                                       "2.1 Data and Methods:", "III. Terms of Payment:"])
+                                       "2.1 Data and Methods:", "III. Terms of Payment:",
+                                       "Article 12 - Governing Law:", "1.2.3 Results and Discussion:"])
     def test_a_short_title_is_a_heading(self, title):
         text = _text([*_body(80), (140, title, 10, "Times-Bold"), *_body(156)])
 
