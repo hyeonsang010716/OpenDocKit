@@ -76,10 +76,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Changed
 
 - **PDF headings**: a heading set in a bold face at about the body size ('5. The dynamics' in 11pt bold over a 10pt
-  body), and one 1.15 times the body size, is a heading; only 1.2 times the body size and more were. Bold headings at
-  the body size rank after every larger heading, and a document set in bold throughout gets none from its weight. A
-  caption, a value without a letter ('56%', a page number), a sentence, a row with check boxes or dot leaders, and
-  heading-like lines side by side with rows of cells under them (the header row of a table) are not headings.
+  body), and a short one 1.15 times the body size that is no sentence, is a heading; only 1.2 times the body size and
+  more were. Bold headings at the body size rank after every larger heading, and a document set in bold throughout
+  gets none from its weight. A caption, a value without a letter ('56%', a page number), a sentence, a row with check
+  boxes or dot leaders, and heading-like lines side by side with rows of cells under them (the header row of a table)
+  are not headings.
 
 ### Security
 

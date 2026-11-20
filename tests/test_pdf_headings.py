@@ -106,6 +106,21 @@ class TestHeadingSizes:
 
         assert "# Introduction to the Texts" in text
 
+    def test_a_sentence_a_little_larger_than_the_body_is_body_text(self):
+        """A pull quote 1.15 times the body, and a sentence at the size of a subheading of the same band."""
+        text = _text([(50, "Report", 20, "Times-Bold"), *_body(80, 10.5), (145, "Introduction to the Texts", 12.5, "Times-Roman"),
+                      *_body(165, 10.5), (230, "Revenue grew in every region this year.", 12.5, "Times-Italic"), *_body(250, 10.5)])
+
+        assert "## Introduction to the Texts" in text
+        assert "\n\nRevenue grew in every region this year.\n\n" in text
+
+    def test_paragraphs_a_little_larger_than_a_small_body_are_body_text(self):
+        rows = [f"Row {index} of the table data with several words in a smaller size for the report" for index in range(30)]
+        text = _text([*_body(60, 9, lines=rows), (420, "This short paragraph is written in the normal text size of the report.", 10.5,
+                      "Times-Roman")])
+
+        assert "#" not in text
+
     def test_a_line_only_a_tenth_larger_is_body_text(self):
         text = _text([*_body(80, 10.5), (145, "Introduction to the Texts", 11.5, "Times-Roman"), *_body(165, 10.5)])
 

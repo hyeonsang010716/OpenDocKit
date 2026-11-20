@@ -14,6 +14,7 @@ from opendockit.extractors._pdf_model import (
     _BOLD_HEADING_MIN_RATIO,
     _BULLET_START,
     _CAPTION_START,
+    _HEADING_MIN_RATIO,
     _HEADING_SIZE_RATIO,
     _LONE_BULLET,
     _TABLE_ROW_TOLERANCE,
@@ -518,9 +519,25 @@ def _heading_shaped(paragraph: _Paragraph) -> bool:
 
 def _is_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset[int] = frozenset()) -> bool:
     """A heading-shaped paragraph (`_heading_shaped`) at least `_HEADING_SIZE_RATIO` times the body size, not a header cell
-    of a table (`_header_cells`)."""
+    of a table (`_header_cells`) and not a sentence set a little larger (`_slightly_larger_text`)."""
     return (_heading_shaped(paragraph) and bool(body_size) and not any(id(line) in side_by_side for line in paragraph.lines)
-            and max(line.size for line in paragraph.lines) / body_size >= _HEADING_SIZE_RATIO)
+            and max(line.size for line in paragraph.lines) / body_size >= _HEADING_SIZE_RATIO
+            and not _slightly_larger_text(paragraph, body_size))
+
+
+def _slightly_larger_text(paragraph: _Paragraph, body_size: float) -> bool:
+    """Whether a paragraph under `_HEADING_MIN_RATIO` times the body size (the 1.15–1.2 band a heading by size may also be
+    in) ends like a sentence (`_ends_like_a_sentence`) or is longer than `_SLIGHTLY_LARGER_MAX_CHARS`: a pull quote or a
+    paragraph set a little larger than the body, not a heading. From 1.2 times the body on, the size alone makes a heading,
+    as it did before the band.
+
+    Deliberate: the band was looked at by size only, so an 11.5pt pull quote over a 10pt body and 10.5pt paragraphs over a
+    9pt body became headings ('## Revenue grew in every region this year.') (Pinned by:
+    test_pdf_headings.py::TestHeadingSizes::test_a_sentence_a_little_larger_than_the_body_is_body_text)."""
+    if not body_size or max(line.size for line in paragraph.lines) / body_size >= _HEADING_MIN_RATIO:
+        return False
+    text = " ".join(line.text for line in paragraph.lines).strip()
+    return len(text) > _SLIGHTLY_LARGER_MAX_CHARS or _ends_like_a_sentence(text)
 
 
 def _is_bold_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset[int] = frozenset(),
@@ -583,6 +600,8 @@ def _ends_like_a_sentence(text: str) -> bool:
     return korean_sentence_end(text)
 
 
+# The longest heading by a size 1.15 to 1.2 times the body (`_slightly_larger_text`)
+_SLIGHTLY_LARGER_MAX_CHARS = 60
 # A bold text ending in '!', '?' or ':' with this many words or more is a sentence ('Do not discard this notice!', 'The
 # following documents must be attached:'), not a title ('Procedure:', 'Why entropy?')
 _SENTENCE_MIN_WORDS = 5
@@ -740,7 +759,7 @@ def _heading_key(paragraph: _Paragraph, heading_levels: dict[_HeadingKey, int], 
         return None
     size = _heading_size(paragraph)
     if (size, False) in heading_levels:
-        return (size, False)
+        return None if _slightly_larger_text(paragraph, body_size) else (size, False)
     if (size, True) in heading_levels and _is_bold_heading(paragraph, body_size, side_by_side, previous):
         return (size, True)
     return None
