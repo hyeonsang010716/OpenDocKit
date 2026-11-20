@@ -135,8 +135,8 @@ Section unit: the whole document. Design notes: [decisions/hwp.md](decisions/hwp
   large stay text.
 - Paragraph numbering and bullets; lower levels become indented lists.
 - Letter-spaced labels of three to six syllables are joined (`담   당   자` → `담당자`); syllables one space apart, two
-  syllables spaced wide (`성   명`, which choices such as `남    여` look like) and blank dates (`년   월   일`) stay as
-  written.
+  syllables spaced wide (`성   명`, which choices such as `남    여` look like), the choices of a scale (`상   중   하`)
+  and blank dates (`년   월   일`) stay as written.
 - Headers that hold words (a form's number and title) are written once before the body, without their pictures; page
   numbers and footers only with `include_headers_footers`.
 - Tables with merged cells.

@@ -42,11 +42,12 @@ class TestHeadersByDefault:
         field = '<hp:ctrl><hp:autoNum num="1" numType="PAGE"/></hp:ctrl>'
         for header in (f"<hp:t>Page </hp:t>{field}", f"<hp:t>- </hp:t>{field}<hp:t> 쪽 -</hp:t>", "<hp:t>- iv -</hp:t>",
                        "<hp:t>p. 2 of 9</hp:t>", "<hp:t>3 페이지</hp:t>", "<hp:t>- IV -</hp:t>", "<hp:t>(ii)</hp:t>",
-                       f"<hp:t>Page </hp:t>{field}<hp:t> of </hp:t>{field}"):
+                       f"<hp:t>Page </hp:t>{field}<hp:t> of </hp:t>{field}", f"{field}<hp:t> of </hp:t>{field}",
+                       "<hp:t>xii</hp:t>", f"<hp:t>제 </hp:t>{field}<hp:t> 쪽</hp:t>", "<hp:t>총 9쪽 중 3쪽</hp:t>"):
             control = f"<hp:ctrl><hp:header><hp:subList>{_hwpx_p(header)}</hp:subList></hp:header></hp:ctrl>"
             assert convert(_hwpx(control), "a.hwpx").text == "본문", header
 
-    @pytest.mark.parametrize("words", ["Civil Mix", "MIX", "CV", "DC", "MD", "XL", "I", "No", "Of", "No. 1", "II 단계", "Vol. II"])
+    @pytest.mark.parametrize("words", ["Civil Mix", "MIX", "CV", "DC", "MD", "XL", "I", "No", "No. 1", "II 단계", "Vol. II"])
     def test_header_of_words_that_look_like_page_words_is_written(self, words):
         """Only page words, or one Roman numeral set between dashes or brackets as front-matter pages are, make a page number:
         a header that spells a Roman numeral (`MIX`, `CV`) or reads `No. 1` was dropped as one."""

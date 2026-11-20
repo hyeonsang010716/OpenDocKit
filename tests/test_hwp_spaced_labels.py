@@ -81,7 +81,9 @@ class TestSpacedLabels:
         ("A   B   C", "A   B   C"),
         ("대   표   이   사", "대표이사"),
         ("수  및  양", "수  및  양"),            # a conjunction: words of a sentence spaced wide
-        ("이   름   을", "이   름   을"),         # ends in a case particle
+        ("검   토   결   과", "검토결과"),
+        ("상   중   하", "상   중   하"),          # the choices of a scale
+        ("월   화   수   목   금", "월   화   수   목   금"),
     ])
     def test_which_lines_are_spaced_labels(self, line, expected):
         assert unspaced_label(line) == expected

@@ -48,10 +48,11 @@ _SPACED_LABEL_SYLLABLES = range(3, 7)
 # not for looks
 _SYLLABLE = re.compile(r"[가-힣]")
 _DATE_UNITS = frozenset("년월일시분초")
-# One-syllable words of a sentence that are no syllable of a label: the conjunctions `및`, `또` anywhere (`수  및  양`), a case
-# particle at the end (`이   름   을`). Not `이`, `등`, `가` elsewhere: 대표이사, 주민등록, 가족관계 are labels
+# One-syllable words of a sentence that are no syllable of a label: the conjunctions `및`, `또` (`수  및  양`)
 _JOINING_WORDS = frozenset(("및", "또"))
-_LAST_PARTICLES = frozenset(("을", "를", "은", "는", "의", "와", "과", "에", "로"))
+# The syllables of the choices and scales of a form (`상   중   하`, `대   중   소`, `갑   을   병`, `월   화   수   목   금`,
+# `유   무`): a row made of nothing else is choices to tick, not a label, and joined they could not be told apart again
+_CHOICE_SYLLABLES = frozenset("상중하대소갑을병정월화수목금토일유무남여찬반예")
 # A list mark in front of a label: a bullet, `1.`, `가.`, `(1)`, `①`
 _LABEL_LEAD = re.compile(r"(?:[-•·○●◦▪□■◇◆※*]|\(?\d{1,3}[.)]|\(?[가-힣][.)]|[①-⑳]) +")
 # The gaps between the words of a label
@@ -94,7 +95,7 @@ def _unspaced_part(line: str) -> str:
     if len(words) not in _SPACED_LABEL_SYLLABLES or len(gaps) != 1 or len(next(iter(gaps))) < 2:
         return line
     if (not all(_SYLLABLE.fullmatch(word) for word in words) or all(word in _DATE_UNITS for word in words)
-            or any(word in _JOINING_WORDS for word in words) or words[-1] in _LAST_PARTICLES):
+            or any(word in _JOINING_WORDS for word in words) or all(word in _CHOICE_SYLLABLES for word in words)):
         return line
     return line[:len(line) - len(line.lstrip(" "))] + head + "".join(words) + line[len(line.rstrip(" ")):]
 
@@ -178,8 +179,8 @@ class _SizeCandidate(str):
 
 # Characters not counted for the body size (`SizeHeadings.count`): controls and whitespace
 _UNCOUNTED = dict.fromkeys([*range(32), *(code for code in range(32, 0x3001) if chr(code).isspace())])
-# The fewest characters in the body size of the top-level paragraphs for that size to be the document's (`SizeHeadings.resolve`)
-_MIN_BODY_CHARACTERS = 20
+# The most characters a document's top level may hold, all in one size, to be taken for its title alone (`SizeHeadings.resolve`)
+_TITLE_ONLY_CHARACTERS = 20
 # Ratio of a paragraph's character size to the body size → heading level (`SizeHeadings`)
 _SIZE_HEADING_LEVELS = ((1.5, 1), (1.3, 2), (1.15, 3))
 # A paragraph longer than this is not taken for a heading by its size (a sentence written large, a cover-page blurb)
@@ -190,11 +191,16 @@ _EQUATION = re.compile(r"\$[^$\n]*\$")
 # A sentence: the Korean sentence endings `…다` (`…합니다`, `…한다`) and `…세요`, or a closing full stop, question or exclamation
 # mark. Not `…요` alone: 개요, 필요 and 주요 end many titles ('1. 사업 개요').
 _SENTENCE_END = re.compile(r"(?:다|세요)[.!?]?\Z|(?<!\d)[.!?]\Z")
-# The sentence of a numbered clause (`1. 갑은 을에게 … 지급한다.`, `가. 다만, … 아니하다`): a verb ending, or a word then a full
-# stop. An outline head on such a paragraph makes no heading; an outline head is the author's title otherwise, whatever it
-# says (`1. 캐나다`, `Ⅰ. 총칙(개정 2024. 1. 1.)`, `2024년 12월`), so only this guard of the size headings applies to it
-# (Pinned by: test_hwp_size_headings.py::TestOutlineHeads::test_titles_with_outline_heads_stay_headings)
-_CLAUSE_END = re.compile(r"(?:[한된는았었였겠않]다|니다|이다|있다|없다|[^\W\d_][.!?])[\"'”’)]*\Z")
+# The sentence of a numbered clause (`1. 갑은 을에게 … 지급한다.`, `가. 다만, … 아니하다`, `… 따른다`, `… 본다`): an outline head
+# on such a paragraph makes no heading; an outline head is the author's title otherwise, whatever it says (`1. 캐나다`,
+# `Ⅰ. 총칙(개정 2024. 1. 1.)`, `2024년 12월`, `왜 바다인가?`), so only this guard of the size headings applies to it
+# (`_outline_title`; Pinned by: test_hwp_size_headings.py::TestOutlineHeads::test_titles_with_outline_heads_stay_headings,
+# test_numbered_clause_sentences_stay_numbered_paragraphs). A Korean sentence ends in `다` after a syllable closed by ㄴ
+# (`…한다`, `…따른다`, `…본다`, `…진다`, the ㄴ다 of the plain style), after one of the stems and endings below (`…하다`,
+# `…같다`, `…있다`, `…이다`, `…니다`, `…았다`), or in a word and a full stop; `캐나다`, `바다`, `플로리다` end in `다` after an open
+# syllable and are names. A question mark ends a title as often as a sentence (FAQ headings), so it is no clause end.
+_CLAUSE_STEMS = frozenset("하같있없이니았었였겠않싶렵롭답")
+_CLAUSE_CLOSING = "\"'”’)"
 # The addressee line of a Korean form or letter (`…사업단장 귀하`, `… 귀중`), printed large at the bottom: not a heading.
 _ADDRESSEE = re.compile(r"(?:귀하|귀중)\Z")
 # What follows the last tab of a table-of-contents line: a page label (`7`, `3-12`, `ii`, `n+1`, `2 3`)
@@ -214,17 +220,25 @@ _BULLET_LEAD = re.compile(r"(?:[ㅇo](?=\s)|[-–·•※○●◦◎▶▷►�
 # The caption of a figure or table (`<그림 1> 추진 체계도`, `[표 2] 예산 현황`, `그림 3. 조직도`, `Table 1 Budget`): written
 # large under its picture it is no heading of the text around it, and as one it split the section it belongs to
 # (Pinned by: test_hwp_size_headings.py::TestSizeHeadings::test_dates_signatures_quotes_and_contacts_are_no_headings)
-_CAPTION_LEAD = re.compile(r"[<〈《\[［(（【〔]?\s*(?:그림|표|사진|도표|도식|차트|figure|fig\.?|table)\s*[-–]?\s*"
-                           r"(?:\d|[Ⅰ-ↈ]|[IVX]+(?![A-Za-z]))", re.IGNORECASE)
+_CAPTION_LEAD = re.compile(r"[<〈《\[［(（【〔]?\s*(?:(?:그림|표|사진|도표|도식|차트)\s*[-–]?\s*(?:\d|[Ⅰ-ↈ])"
+                           r"|(?i:figure|fig\.?|table)\s*[-–]?\s*(?:\d|[Ⅰ-ↈ]|[IVX]+(?![A-Za-z-])))")
 # A web address, e-mail address or phone number (`www.example.go.kr`, `02-123-4567`): contact lines, not titles
 _CONTACT = re.compile(r"(?i:https?://|www\.)|[\w.+-]+@[\w-]+\.\w|(?<![\d-])(?:0\d{1,2}-\d{3,4}|1[5-9]\d{2})-\d{4}(?![\d-])"
                       r"|(?<![\w.-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.(?:kr|com|net|org)\b")
 
 
 def _outline_title(plain: str) -> bool:
-    """Whether a paragraph with an outline head is the title it numbers, not the sentence of a numbered clause (`_CLAUSE_END`)."""
-    text = plain.strip()
-    return bool(text) and not _CLAUSE_END.search(text)
+    """Whether a paragraph with an outline head is the title it numbers, not the sentence of a numbered clause."""
+    text = plain.strip().rstrip(_CLAUSE_CLOSING).rstrip()
+    if not text:
+        return False
+    if text[-1] == "." and len(text) > 1 and not text[-2].isdigit() and not text[-2].isspace():
+        return False   # a word and a full stop
+    text = text.rstrip(".!").rstrip()
+    if len(text) < 2 or text[-1] != "다":
+        return True
+    stem = text[-2]
+    return not (stem in _CLAUSE_STEMS or ("가" <= stem <= "힣" and (ord(stem) - 0xAC00) % 28 == 4))
 
 
 def _size_heading_text(plain: str) -> bool:
@@ -235,7 +249,7 @@ def _size_heading_text(plain: str) -> bool:
     test_hwp_size_headings.py::TestSizeHeadings::test_lines_that_only_look_large_are_no_headings,
     test_dates_signatures_quotes_and_contacts_are_no_headings).
 
-    The same guards decide whether an outline head (개요 번호) makes a heading (`decorated_text`)."""
+    An outline head (개요 번호) is held to `_outline_title` alone (`decorated_text`)."""
     text = plain.strip()
     if not text or len(text) > _SIZE_HEADING_MAX_CHARS or "\n" in text:
         return False
@@ -252,15 +266,39 @@ def _size_heading_text(plain: str) -> bool:
     return "\t" not in text or not _PAGE_LABEL.fullmatch(text.rsplit("\t", 1)[1].strip())
 
 
-# A header that is only a page number (`header_by_default`): its words are page words (`Page`, `p.`, `쪽`, `면`, `페이지`, with
-# `of` between), or one Roman numeral set between dashes or brackets as front-matter pages are (`- iv -`, `(II)`). A word that
-# only spells a Roman numeral (`MIX`, `CV`, `DC`) or a lone `No` is a header's word (Pinned by:
+# A header that is only a page number (`header_by_default`, `_is_page_number`): beside digits and the dashes and brackets around
+# them, only page words (`Page`, `p.`, `쪽`, `면`, `페이지`, and the `of`, `제`, `총`, `중` written with them: `1 of 9`,
+# `제 3 쪽`, `총 9쪽 중 3쪽`; the number of a page number field is not written, so `Page` or `of` alone is left) and Roman
+# numerals in lower case, or in upper case between dashes or brackets (`- iv -`, `ii`, `- IV -`). A word that only spells a
+# Roman numeral in upper case (`MIX`, `CV`, `I`) or a lone `No` is a header's word (Pinned by:
 # test_hwp_headers.py::TestHeadersByDefault::test_page_number_with_a_page_word_is_left_out,
 # test_header_of_words_that_look_like_page_words_is_written)
-_PAGE_DECORATION = r"[\s\d\-–—/|.,:()\[\]<>~]*"
-_PAGE_WORDS_ONLY = re.compile(_PAGE_DECORATION + r"(?:(?:(?i:pages?|pg|p)\b|쪽|면|페이지)" + _PAGE_DECORATION
-                              + r"(?:(?i:of)\b" + _PAGE_DECORATION + r")?)+")
-_ROMAN_PAGE = re.compile(r"[\s(\[<]*[-–—(\[<]\s*(?i:m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3}))\s*[-–—)\]>][\s)\]>]*")
+_PAGE_TOKEN = re.compile(r"[^\s\d\-–—/|.,:()\[\]<>~]+")
+_PAGE_WORDS = frozenset(("page", "pages", "pg", "p", "of", "쪽", "면", "페이지"))
+_PAGE_FILLERS = frozenset(("제", "총", "중"))
+_ROMAN_NUMERAL = re.compile(r"m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})")
+
+
+def _is_page_number(words: str) -> bool:
+    """Whether a header's words are a page number only (`_PAGE_TOKEN`)."""
+    found = False
+    for token in _PAGE_TOKEN.finditer(words):
+        word = token.group()
+        if word.lower() in _PAGE_WORDS:
+            found = True
+        elif word in _PAGE_FILLERS:
+            continue
+        elif _ROMAN_NUMERAL.fullmatch(word.lower()) and (word.islower() or _between_page_marks(words, token.start(), token.end())):
+            found = True
+        else:
+            return False
+    return found
+
+
+def _between_page_marks(words: str, start: int, end: int) -> bool:
+    """Whether `words[start:end]` stands between a dash or an opening bracket and a dash or a closing bracket (`- IV -`)."""
+    before, after = words[:start].rstrip()[-1:], words[end:].lstrip()[:1]
+    return bool(before) and before in "-–—([<" and bool(after) and after in "-–—)]>"
 
 
 def header_by_default(text: str) -> str:
@@ -277,8 +315,7 @@ def header_by_default(text: str) -> str:
     The pictures, notes, comments and OLE objects of a header are taken back by the extractor when the header is not written, or
     only its words are."""
     words = "\n".join(" ".join(line.split()) for line in _OBJECT_PLACEHOLDERS.sub(" ", text).split("\n")).strip()
-    page_only = _PAGE_WORDS_ONLY.fullmatch(words) or _ROMAN_PAGE.fullmatch(words)
-    return words if _LETTER.search(words) and not page_only else ""
+    return words if _LETTER.search(words) and not _is_page_number(words) else ""
 
 
 class SizeHeadings:
@@ -325,11 +362,13 @@ class SizeHeadings:
         if not any(type(block) is _SizeCandidate for block in blocks):
             return blocks
         # The body size: the size of most characters, the smaller one when two sizes are as frequent. A form whose body is all in
-        # tables has hardly any top-level text but its title, which then set the body size and was never larger than it: below
-        # `_MIN_BODY_CHARACTERS` the cells count too (Pinned by:
-        # test_hwp_size_headings.py::TestSizeHeadings::test_form_whose_body_is_in_tables_keeps_its_title)
+        # tables has no top-level text but its title, which then set the body size and was never larger than it: when the top
+        # level is a few characters in one size (`_TITLE_ONLY_CHARACTERS`), the cells count too. Short lines in another size
+        # beside the title (`수신 각 부서` over a table) are top-level body text and keep it (Pinned by:
+        # test_hwp_size_headings.py::TestSizeHeadings::test_form_whose_body_is_in_tables_keeps_its_title,
+        # test_short_body_lines_over_a_table_stay_body_text)
         body = _most_frequent(self._sizes)
-        if self._sizes.get(body, 0) < _MIN_BODY_CHARACTERS:
+        if len(self._sizes) <= 1 and sum(self._sizes.values()) <= _TITLE_ONLY_CHARACTERS:
             body = _most_frequent(self._all_sizes)
         settled = []
         for block in blocks:

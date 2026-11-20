@@ -209,6 +209,20 @@ class TestSizeHeadings:
 
         assert text.startswith("# 개인정보 수집 동의서")
 
+    def test_short_body_lines_over_a_table_stay_body_text(self):
+        """A memo's routing lines in 11 pt beside its 16 pt title, over a table in 9 pt: the top level is not its title alone,
+        so its own sizes set the body, and the routing lines are body text, not headings measured against the table."""
+        def cell(row: int, col: int, text: str) -> str:
+            return (f"<hp:tc><hp:subList>{_hwpx_paragraph(text, (4, text))}</hp:subList>"
+                    f'<hp:cellAddr colAddr="{col}" rowAddr="{row}"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>')
+        rows = "".join(f"<hp:tr>{cell(row, 0, f'항목 {row}')}{cell(row, 1, _BODY)}</hp:tr>" for row in range(6))
+        table = f'<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run><hp:tbl rowCnt="6" colCnt="2">{rows}</hp:tbl></hp:run></hp:p>'
+        lines = [_hwpx_paragraph(line, (3, line)) for line in ("수신 각 부서", "참조 기획팀")]
+
+        text = convert(_hwpx(_hwpx_paragraph("회의 결과 보고", (2, "회의 결과 보고")), *lines, table), "a.hwpx").text
+
+        assert text.split("\n\n")[:3] == ["## 회의 결과 보고", "수신 각 부서", "참조 기획팀"]
+
     def test_hwp_and_hwpx_count_the_same_characters(self):
         """HWP counted the 8 WCHARs of a tab and the paragraph end with the text: twenty short 13 pt lines with a tab outweighed
         a 10 pt body as HWP and not as HWPX, so the same document lost its heading as HWP."""
@@ -293,12 +307,19 @@ class TestOutlineHeads:
         body = ('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="2"><hp:secPr outlineShapeIDRef="1"/>'
                 '<hp:t>용역 계약서</hp:t></hp:run></hp:p>'
                 + _hwpx_paragraph("갑은 을에게 계약금을 계약 체결일로부터 7일 이내에 지급한다.", shape=1)
-                + _hwpx_paragraph("다만, 천재지변의 경우에는 그러하지 아니하다.", shape=2) + _hwpx_paragraph(_BODY))
+                + _hwpx_paragraph("다만, 천재지변의 경우에는 그러하지 아니하다.", shape=2)
+                + "".join(_hwpx_paragraph(clause, shape=2) for clause in self._CLAUSES) + _hwpx_paragraph(_BODY))
 
         lines = convert(_hwpx(body, head=head), "a.hwpx").text.split("\n\n")
 
-        assert lines[:2] == ["# 용역 계약서", "1. 갑은 을에게 계약금을 계약 체결일로부터 7일 이내에 지급한다.\n"
-                                              "  - 가. 다만, 천재지변의 경우에는 그러하지 아니하다."]
+        assert lines[0] == "# 용역 계약서"
+        assert not any(line.startswith("#") for line in lines[1:])
+        assert lines[1].startswith("1. 갑은 을에게 계약금을 계약 체결일로부터 7일 이내에 지급한다.\n"
+                                   "  - 가. 다만, 천재지변의 경우에는 그러하지 아니하다.")
+
+    # Clause endings without a full stop: the ㄴ다 of the plain style after any syllable, and the stems of `…하다`, `…같다`
+    _CLAUSES = ("그 밖의 사항은 관계 법령에 따른다", "기한 내 제출하지 아니한 경우 포기한 것으로 본다", "을은 비밀 유지 의무를 진다",
+                "다만, 천재지변의 경우에는 그러하지 아니하다", "지원 대상은 다음과 같다", "필요한 사항은 따로 정할 수 있다")
 
     def test_titles_with_outline_heads_stay_headings(self):
         """An outline head is the author's title whatever it says; only the sentence of a numbered clause is left a numbered
@@ -308,7 +329,8 @@ class TestOutlineHeads:
                 '<hh:paraHead level="1" numFormat="DIGIT">^1.</hh:paraHead></hh:numbering></hh:numberings>'
                 '<hh:paraProperties itemCnt="2"><hh:paraPr id="0"><hh:heading type="NONE" idRef="0" level="0"/></hh:paraPr>'
                 '<hh:paraPr id="1"><hh:heading type="OUTLINE" idRef="0" level="0"/></hh:paraPr></hh:paraProperties>')
-        titles = ["캐나다", "플로리다", "총칙(개정 2024. 1. 1.)", "2024년 12월", "Introduction"]
+        titles = ["캐나다", "플로리다", "총칙(개정 2024. 1. 1.)", "2024년 12월", "Introduction", "왜 바다인가?",
+                  "Ⅳ. 사례: 미국, 영국, 캐나다"]
         body = ('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run><hp:secPr outlineShapeIDRef="1"/><hp:t>보고서</hp:t></hp:run></hp:p>'
                 + "".join(_hwpx_paragraph(title, shape=1) for title in titles) + _hwpx_paragraph(_BODY))
 
