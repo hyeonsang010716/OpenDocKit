@@ -876,11 +876,13 @@ class TestHwpCharts:
                    + record(TAG_PARA_TEXT, 1, builder.hwp_text("표:", (11, "gso ")))
                    + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("gso "))
                    + record(TAG_SHAPE_OLE, 2, struct.pack("<IiiH", 1, 7200, 7200, 1) + b"\x00" * 16))
-        data = _fake_hwp(monkeypatch, sections=[section], docinfo_extra=docinfo, extra={"BinData/BIN0001.OLE": stored})
+        second = record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("둘째"))
+        data = _fake_hwp(monkeypatch, sections=[section, second], docinfo_extra=docinfo, extra={"BinData/BIN0001.OLE": stored})
 
         result = convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=2_000_000))
 
-        assert result.text == "표: [OLE object]"
+        # The section read after the object is within the document's budget: charged to it, the object made it too large
+        assert result.text == "표: [OLE object]\n\n둘째"
 
     def test_bin_items_of_each_kind_name_their_stream(self):
         """Pictures are read from EMBEDDING items only and OLE objects from STORAGE items only: a picture record pointing at an
@@ -1559,6 +1561,26 @@ class TestHwpMemo:
             text = convert(builder.hwpx_bytes(body), "a.hwpx", options).text
 
             assert text.count('> Comment(hdr, on "Form"): h') == 1
+
+    def test_comment_of_a_repeated_hwp_header_is_written_once(self, monkeypatch):
+        from opendockit.extractors.hwp import TAG_MEMO_LIST
+        record = builder.hwp_record
+
+        def section(body: str, *memo_text: str) -> bytes:
+            header = (record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("head")) + record(TAG_LIST_HEADER, 2, b"\x01\x00" + b"\x00" * 6)
+                      + record(TAG_PARA_HEADER, 2, builder.hwp_para_header())
+                      + record(TAG_PARA_TEXT, 3, builder.hwp_text((3, "%unk"), "Form", (4, "%unk")))
+                      + record(TAG_CTRL_HEADER, 3, _hwp_field("%unk", "MEMO/65535/1/0/0/hdr/\\;;")))
+            memos = b"".join(record(TAG_MEMO_LIST, 1, struct.pack("<I", 1)) + record(TAG_LIST_HEADER, 1, b"\x01\x00" + b"\x00" * 6)
+                             + record(TAG_PARA_HEADER, 1, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 2, builder.hwp_text(text))
+                             for text in memo_text)
+            return (record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text((16, "head"), body))
+                    + header + memos)
+
+        data = _fake_hwp(monkeypatch, sections=[section("첫", "h"), section("둘", "h")])
+
+        for options in (ConvertOptions(), ConvertOptions(include_headers_footers=True)):
+            assert convert(data, "a.hwp", options).text.count('> Comment(hdr, on "Form"): h') == 1
 
     def test_field_with_another_command_is_no_memo(self, monkeypatch):
         record = builder.hwp_record

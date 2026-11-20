@@ -850,7 +850,9 @@ class HwpRenderer:
                 del self.notes[notes:], self.memos[memos:]
                 self._note_count = note_count
         elif text in found:
-            del self.memos[memos:]  # a header written once has its comments once (as in HWPX)
+            # A header written once has its comments once, as in HWPX (Pinned by:
+            # test_hwp.py::TestHwpMemo::test_comment_of_a_repeated_hwp_header_is_written_once)
+            del self.memos[memos:]
         if text and text not in found:
             found[text] = None
             if found is self.headers:
