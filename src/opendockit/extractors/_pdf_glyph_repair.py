@@ -1,8 +1,8 @@
 """Characters pdfminer could not decode (U+FFFD) read again from pdfium at the same place on the page."""
 
-from bisect import bisect_left, bisect_right
 from collections.abc import Callable
 import ctypes
+import math
 import unicodedata
 
 import pypdfium2 as pdfium
@@ -14,6 +14,8 @@ from opendockit.extractors._pdf_model import _PDFIUM_LOCK
 _REPLACEMENT = "�"
 # How far (pt) the centre of pdfminer's character may lie outside the box of pdfium's character.
 _GLYPH_TOLERANCE = 1.0
+# Height bands (pt) of pdfium's characters, and the tallest character (in bands) put into them; a taller one has no place
+_BAND, _MAX_BANDS = 16.0, 64
 
 # pdfium's characters of a page: (left, right, bottom, top, text) in PDF user space, left → right.
 _Glyphs = list[tuple[float, float, float, float, str]]
@@ -74,20 +76,29 @@ def _repair_replacement_chars(page: object, glyphs: Callable[[], _Glyphs] | None
     found = glyphs()
     if not found:
         return
-    lefts = [glyph[0] for glyph in found]
-    media = getattr(page.page_obj, "mediabox", None) or (0.0, 0.0, 0.0, float(page.height))
-    origin_x, top_y = float(media[0]), float(media[3])
+    # pdfium's characters by height band, so that each broken character looks only at those of its own rows (a page of
+    # thousands of undecoded characters scanned every character of a wide strip for each of them)
+    bands: dict[int, list[tuple[float, float, float, float, str]]] = {}
+    for glyph in found:
+        if all(math.isfinite(value) for value in glyph[:4]) and glyph[3] - glyph[2] <= _BAND * _MAX_BANDS:
+            for band in range(math.floor((glyph[2] - _GLYPH_TOLERANCE) / _BAND), math.floor((glyph[3] + _GLYPH_TOLERANCE) / _BAND) + 1):
+                bands.setdefault(band, []).append(glyph)
+    height = float(page.height)
     for char in broken:
         char["undecoded"] = True
-        x = (char["x0"] + char["x1"]) / 2 + origin_x
-        y = top_y - (char["top"] + char["bottom"]) / 2
-        start = bisect_left(lefts, x - 200.0)
-        stop = bisect_right(lefts, x + _GLYPH_TOLERANCE)
-        for left, right, bottom, top, text in found[start:stop]:
-            if (left - _GLYPH_TOLERANCE <= x <= right + _GLYPH_TOLERANCE
-                    and bottom - _GLYPH_TOLERANCE <= y <= top + _GLYPH_TOLERANCE and _readable(text)):
-                char["text"] = text
-                break
+        # pdfplumber's x is already in PDF space and its top is measured from the top of the page box, so the centre in
+        # PDF space is (x, page height − top) whatever the MediaBox origin (Pinned by:
+        # test_pdf_fonts.py::TestUndecodedGlyphs::test_a_page_box_away_from_the_origin)
+        x = (char["x0"] + char["x1"]) / 2
+        y = height - (char["top"] + char["bottom"]) / 2
+        if not (math.isfinite(x) and math.isfinite(y)):
+            continue
+        near = [glyph for glyph in bands.get(math.floor(y / _BAND), ())
+                if glyph[0] - _GLYPH_TOLERANCE <= x <= glyph[1] + _GLYPH_TOLERANCE
+                and glyph[2] - _GLYPH_TOLERANCE <= y <= glyph[3] + _GLYPH_TOLERANCE and _readable(glyph[4])]
+        if near:
+            # the glyph whose centre is nearest: a narrow raised digit lies within the tolerance of its neighbour's box too
+            char["text"] = min(near, key=lambda glyph: abs((glyph[0] + glyph[1]) / 2 - x) + abs((glyph[2] + glyph[3]) / 2 - y))[4]
 
 
 def _readable(text: str) -> bool:

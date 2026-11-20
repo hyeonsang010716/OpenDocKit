@@ -201,7 +201,7 @@ class TestWinAnsiUnusedCodesAreBullets:
         assert ("• first item" in lines) is bullet
 
 
-def _undecoded_two(rotate: int = 0) -> bytes:
+def _undecoded_two(rotate: int = 0, media_box: bytes = b"0 0 595 842") -> bytes:
     """'Page 207 of the report' in a font whose ToUnicode map gives U+FFFD for the code of its '2' (code 1, glyph 'two.SP'),
     as a book font with old-style figures does: pdfminer reads 'Page \ufffd07'."""
     cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS)"
@@ -209,9 +209,9 @@ def _undecoded_two(rotate: int = 0) -> bytes:
             b" endcodespacerange 1 beginbfchar <01> <FFFD> endbfchar 1 beginbfrange <20> <7E> <0020> endbfrange endcmap"
             b" CMapName currentdict /CMap defineresource pop end end")
     content = b"BT /F1 12 Tf 72 700 Td (Page \\00107 of the report) Tj ET"
-    page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Rotate %d /Contents 4 0 R"
+    page = (b"<< /Type /Page /Parent 2 0 R /MediaBox [%s] /Rotate %d /Contents 4 0 R"
             b" /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 5 0 R"
-            b" /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /two.SP] >> >> >> >> >>" % rotate)
+            b" /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /two.SP] >> >> >> >> >>" % (media_box, rotate))
     return _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: page,
                      4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
                      5: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(cmap), cmap)})
@@ -243,6 +243,36 @@ class TestUndecodedGlyphs:
 
     def test_where_pdfium_cannot_read_it_either_the_character_stays(self):
         assert "Page \ufffd07 of the report" in convert(_undecoded_two(), "a.pdf").text
+
+    @pytest.mark.parametrize("media_box", [b"30 40 625 882", b"-30 -40 565 802"])
+    def test_a_page_box_away_from_the_origin(self, monkeypatch, media_box):
+        self._pdfium_reads_two(monkeypatch)
+
+        assert "Page 207 of the report" in convert(_undecoded_two(media_box=media_box), "a.pdf").text
+
+    @pytest.mark.timing
+    def test_a_page_of_thousands_of_undecoded_characters_is_repaired_in_linear_time(self):
+        """Each undecoded character looks only at pdfium's characters of its own rows: looking at every character of a strip
+        200pt wide, 8,000 undecoded characters took 2.3 seconds, four times as many sixteen times as long."""
+        from types import SimpleNamespace
+
+        from opendockit.extractors._pdf_glyph_repair import _repair_replacement_chars
+        from tests.timing import fastest
+
+        def page_of(count: int) -> tuple[SimpleNamespace, list]:
+            rows = count // 100
+            chars = [{"text": "\ufffd", "x0": 20.0 + 5 * column, "x1": 24.0 + 5 * column, "top": 10.0 + 8 * row,
+                      "bottom": 16.0 + 8 * row} for row in range(rows) for column in range(100)]
+            height = 20.0 + 8 * rows
+            glyphs = sorted((char["x0"], char["x1"], height - char["bottom"], height - char["top"], "\ufffd") for char in chars)
+            return SimpleNamespace(chars=chars, rotation=0, height=height), glyphs
+
+        def repair(count: int) -> float:
+            page, glyphs = page_of(count)
+            return fastest(lambda: _repair_replacement_chars(page, lambda: glyphs))
+
+        small, large = repair(2_000), repair(8_000)
+        assert large < small * 8
 
     def test_a_turned_page_is_left_alone(self, monkeypatch):
         self._pdfium_reads_two(monkeypatch)
