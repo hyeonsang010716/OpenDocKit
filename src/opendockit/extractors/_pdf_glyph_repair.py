@@ -88,11 +88,25 @@ def _repair_replacement_chars(page: object, glyphs: Callable[[], _Glyphs] | None
     broken = [number for number, char in enumerate(chars) if char.get("text") == _REPLACEMENT]
     if not broken:
         return
-    found = glyphs()
     for number in broken:
         chars[number]["undecoded"] = True
-    if not found:
+    try:
+        repairs = _repairs(chars, broken, glyphs, float(page.height))
+    except MemoryError:
+        raise
+    except Exception:  # noqa: BLE001
+        # the repair never fails a document: whatever goes wrong in it leaves U+FFFD (Pinned by:
+        # test_pdf_fonts.py::TestUndecodedGlyphs::test_a_failure_inside_the_repair_leaves_the_character_as_it_was)
         return
+    for char, text in repairs:
+        char["text"] = text
+
+
+def _repairs(chars: list[dict], broken: list[int], glyphs: Callable[[], _Glyphs], height: float) -> list[tuple[dict, str]]:
+    """(character, its text) for the broken characters (indexes into `chars`) that pdfium reads (`_repair_replacement_chars`)."""
+    found = glyphs()
+    if not found:
+        return []
     groups = _grouped(found)
     # pdfium's glyphs by cell of (left edge, vertical centre), so that each broken character looks only at those of its own
     # place: looking at every glyph of a 16pt band for each of them, a page of 32,000 characters took 9 seconds (Pinned by:
@@ -106,7 +120,6 @@ def _repair_replacement_chars(page: object, glyphs: Callable[[], _Glyphs] | None
                 cell.append(position)
                 if len(cell) > _MAX_PER_CELL:
                     cells[key] = None
-    height = float(page.height)
     claims: dict[int, list[dict]] = {}
     for number in broken:
         char = chars[number]
@@ -129,9 +142,7 @@ def _repair_replacement_chars(page: object, glyphs: Callable[[], _Glyphs] | None
                 and _agrees(after, _pdfium_context(groups, position, 1))]
         if len(same) == 1:
             claims.setdefault(same[0], []).append(char)
-    for position, takers in claims.items():
-        if len(takers) == 1:
-            takers[0]["text"] = groups[position][4]
+    return [(takers[0], groups[position][4]) for position, takers in claims.items() if len(takers) == 1]
 
 
 def _grouped(found: _Glyphs) -> _Glyphs:

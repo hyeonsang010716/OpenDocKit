@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from opendockit import ConvertOptions, convert
+from opendockit import ConvertOptions, DocumentTooLargeError, convert
 from tests.test_pdf import _raw_pdf
 
 
@@ -301,6 +301,28 @@ class TestUndecodedGlyphs:
         monkeypatch.setattr(pdfium.PdfPage, "get_textpage", fails)
 
         assert "Page \ufffd07 of the report" in convert(_undecoded_two(), "a.pdf").text
+
+    @pytest.mark.parametrize("error", [ValueError, OSError, KeyError])
+    def test_a_failure_inside_the_repair_leaves_the_character_as_it_was(self, monkeypatch, error):
+        from opendockit.extractors import _pdf_glyph_repair
+
+        def fails(*args):
+            raise error("x")
+
+        monkeypatch.setattr(_pdf_glyph_repair, "_grouped", fails)
+
+        assert "Page \ufffd07 of the report" in convert(_undecoded_two(), "a.pdf").text
+
+    def test_running_out_of_memory_inside_the_repair_is_not_hidden(self, monkeypatch):
+        from opendockit.extractors import _pdf_glyph_repair
+
+        def fails(*args):
+            raise MemoryError
+
+        monkeypatch.setattr(_pdf_glyph_repair, "_grouped", fails)
+
+        with pytest.raises(DocumentTooLargeError):
+            convert(_undecoded_two(), "a.pdf")
 
     @pytest.mark.parametrize("media_box", [b"30 40 625 882", b"-30 -40 565 802"])
     def test_a_page_box_away_from_the_origin(self, monkeypatch, media_box):
