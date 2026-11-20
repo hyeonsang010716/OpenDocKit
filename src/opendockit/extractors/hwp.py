@@ -368,6 +368,7 @@ class HwpRenderer:
         self._note_count = 0
         self._cell_depth = 0
         self._note_depth = 0  # 1 or more while footnote/endnote text is rendered. A table inside it becomes one line (`note_table`)
+        self._plain_header = False  # while a header written without `include_headers_footers` is rendered (no headings)
         # Tables being rendered (an inner table is handed to the top-level table). None is a place where a table cannot be handed over
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
@@ -591,7 +592,7 @@ class HwpRenderer:
         size = _smallest_text_size(text_record.payload, size_pairs, self._sizes) if top and text_record is not None else 0
         return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth), plain=plain,
                               outline=outline, size=size, size_headings=self.size_headings, heading_text=heading, top=top,
-                              in_note=bool(self._note_depth))
+                              in_note=bool(self._note_depth), no_heading=self._plain_header)
 
     def _count_sizes(self, paragraph: Record, text_record: Record | None) -> list[tuple[int, int]]:
         """Count the text characters of a top-level body paragraph per character size (`SizeHeadings.count`, which finds the
@@ -680,11 +681,13 @@ class HwpRenderer:
             return
         pictures, notes, note_count, unread_ole = len(self._extraction.images), len(self.notes), self._note_count, self.unread_ole
         self._grids.append(None)
+        self._plain_header = not chosen
         try:
             with self._own_numbering():
                 text = join_blocks(self.render(control.children))
         finally:
             self._grids.pop()
+            self._plain_header = False
         if not chosen:
             # Only the words of the header: the pictures it registered are taken back with their placeholders, and a header that
             # is not written takes back its notes, which would be left without a reference. Its OLE objects are taken back too: they

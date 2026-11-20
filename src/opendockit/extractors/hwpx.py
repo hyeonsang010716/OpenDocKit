@@ -170,6 +170,7 @@ class HwpxRenderer:
         self._note_count = 0
         self._cell_depth = 0
         self._note_depth = 0  # 1 or more while footnote/endnote text is rendered. A table inside it becomes one line (`note_table`)
+        self._plain_header = False  # while a header written without `include_headers_footers` is rendered (no headings)
         # Tables being rendered (an inner table is handed to the top-level table). None is a place where a table cannot be handed over
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
@@ -486,11 +487,13 @@ class HwpxRenderer:
                 pictures, notes, note_count, memos = len(self._extraction.images), len(self.notes), self._note_count, len(self.memos)
                 unread = dict(self._unread)
                 self._grids.append(None)
+                self._plain_header = not self._options.include_headers_footers
                 try:
                     with self._own_numbering():
                         text = join_blocks(block for sub in _top_sublists(node) for block in self.render_paragraphs(sub))
                 finally:
                     self._grids.pop()
+                    self._plain_header = False
                 if not self._options.include_headers_footers:
                     # Only the words of the header: the pictures it registered are taken back with their placeholders
                     del self._extraction.images[pictures:]
@@ -622,7 +625,7 @@ class HwpxRenderer:
         return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth),
                               check=self._check_mark(paragraph), plain=plain, outline=outline,
                               size=self._smallest_text_size(paragraph) if top else 0, size_headings=self.size_headings,
-                              heading_text=heading, top=top, in_note=bool(self._note_depth))
+                              heading_text=heading, top=top, in_note=bool(self._note_depth), no_heading=self._plain_header)
 
     def _smallest_text_size(self, paragraph: etree._Element) -> int:
         """The smallest size among the runs of the paragraph that hold visible text (hp:t); 0 when one of them has no known size.

@@ -43,8 +43,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (`수 및 양`, the choices `남 여`), and blank dates (`년   월   일`) keep their spaces.
 - **Bold and italic in HWP and HWPX** under `keep_emphasis`, by the same rules as DOCX (`3. **시험기간** : …`).
 - **Headers of Hangul documents that hold words** (a form's number and title) are written once before the body even
-  without `include_headers_footers`, without their pictures. In 9 of 34 real files that text was nowhere else and was
-  dropped without a warning. Page numbers and footers still need the option.
+  without `include_headers_footers`, as plain paragraphs without their pictures. In 9 of 34 real files that text was
+  nowhere else and was dropped without a warning. Page numbers and footers still need the option.
 
 ### Changed
 

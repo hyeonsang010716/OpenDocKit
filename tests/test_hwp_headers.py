@@ -65,6 +65,23 @@ class TestHeadersByDefault:
         assert convert(data, "a.hwp", ConvertOptions(include_headers_footers=True)).warnings == [
             "The contents of 1 OLE object(s) (pasted tables, charts, etc.) could not be converted."]
 
+    def test_header_written_by_default_is_no_heading(self):
+        """A header in a 개요 style was written as `# 시험합의서`, the first heading of every such document (an outline, the
+        heading metadata of a chunk). With the option on it is written as before."""
+        control = '<hp:ctrl><hp:header><hp:subList><hp:p styleIDRef="2"><hp:run><hp:t>시험합의서</hp:t></hp:run></hp:p></hp:subList></hp:header></hp:ctrl>'
+
+        assert convert(_hwpx(control), "a.hwpx").text == "시험합의서\n\n본문"
+        assert convert(_hwpx(control), "a.hwpx", ConvertOptions(include_headers_footers=True)).text == "# 시험합의서\n\n본문"
+
+        from tests.test_hwp import _para_header
+        record = builder.hwp_record
+        header = (record(0x10 + 55, 1, builder.hwp_ctrl("head")) + record(0x10 + 56, 2, b"\x01\x00" + b"\x00" * 6)
+                  + record(0x10 + 50, 2, _para_header(0, 2)) + record(0x10 + 51, 3, builder.hwp_text("시험합의서")))
+        data = _fake_hwp(None, sections=[_hwp_paragraph(0, (16, "head"), "본문") + header])
+
+        assert convert(data, "a.hwp").text == "시험합의서\n\n본문"
+        assert convert(data, "a.hwp", ConvertOptions(include_headers_footers=True)).text == "# 시험합의서\n\n본문"
+
     def test_header_is_written_once(self):
         header = _hwpx_header_footer("header", "보고서 제목")
         data = builder.hwpx_bytes(_hwpx_p(header + "<hp:t>첫 쪽</hp:t>") + _hwpx_p(header + "<hp:t>둘째 쪽</hp:t>"))
