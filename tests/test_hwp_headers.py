@@ -2,6 +2,8 @@
 number and the document title in the header (`[별지 제3호 서식] … 평가표 및 출석부`, `시험합의서` and its number); in 9 of 34
 real HWP / HWPX files that text was nowhere else, and it was dropped without a warning."""
 
+import pytest
+
 from opendockit import ConvertOptions, convert
 from opendockit.extractors.hwp import TAG_SHAPE_OLE
 from tests import builder
@@ -39,11 +41,16 @@ class TestHeadersByDefault:
         """A page number field is written as nothing, so `Page` + field came out as `Page`, and `- ` field ` 쪽 -` as `- 쪽 -`."""
         field = '<hp:ctrl><hp:autoNum num="1" numType="PAGE"/></hp:ctrl>'
         for header in (f"<hp:t>Page </hp:t>{field}", f"<hp:t>- </hp:t>{field}<hp:t> 쪽 -</hp:t>", "<hp:t>- iv -</hp:t>",
-                       "<hp:t>p. 2 of 9</hp:t>", "<hp:t>3 페이지</hp:t>"):
+                       "<hp:t>p. 2 of 9</hp:t>", "<hp:t>3 페이지</hp:t>", "<hp:t>- IV -</hp:t>", "<hp:t>(ii)</hp:t>",
+                       f"<hp:t>Page </hp:t>{field}<hp:t> of </hp:t>{field}"):
             control = f"<hp:ctrl><hp:header><hp:subList>{_hwpx_p(header)}</hp:subList></hp:header></hp:ctrl>"
             assert convert(_hwpx(control), "a.hwpx").text == "본문", header
-        # words made of Roman-numeral letters are words
-        assert convert(_hwpx(_hwpx_header_footer("header", "Civil Mix")), "a.hwpx").text == "Civil Mix\n\n본문"
+
+    @pytest.mark.parametrize("words", ["Civil Mix", "MIX", "CV", "DC", "MD", "XL", "I", "No", "Of", "No. 1", "II 단계", "Vol. II"])
+    def test_header_of_words_that_look_like_page_words_is_written(self, words):
+        """Only page words, or one Roman numeral set between dashes or brackets as front-matter pages are, make a page number:
+        a header that spells a Roman numeral (`MIX`, `CV`) or reads `No. 1` was dropped as one."""
+        assert convert(_hwpx(_hwpx_header_footer("header", words)), "a.hwpx").text == f"{words}\n\n본문"
 
     def test_object_of_a_header_not_written_does_not_warn(self):
         """The OLE object of a header that is not written, or written by its words only, is not written: it warned that its

@@ -26,7 +26,8 @@ class TestSpacedLabels:
     def test_labels_of_a_form_are_written_without_their_spaces(self):
         text = convert(_form(("기  관  명", "한국정보원"), ("성   명", "홍길동"), ("담   당   자", "김철수")), "a.hwpx").text
 
-        assert text.splitlines() == ["| 기관명 | 한국정보원 |", "| --- | --- |", "| 성명 | 홍길동 |", "| 담당자 | 김철수 |"]
+        # (a two-syllable label stays spaced: `test_two_one_syllable_words_spaced_wide_stay_apart`)
+        assert text.splitlines() == ["| 기관명 | 한국정보원 |", "| --- | --- |", "| 성 명 | 홍길동 |", "| 담당자 | 김철수 |"]
 
     def test_tab_or_ideographic_space_keeps_a_label_apart_from_its_value(self):
         body = ('<hp:p><hp:run><hp:t>기   관   명<hp:tab/>서울시청</hp:t></hp:run></hp:p>'
@@ -34,7 +35,7 @@ class TestSpacedLabels:
 
         # (the shared cleaning writes the tab and the ideographic space as a space)
         assert convert(builder.hwpx_bytes(body), "a.hwpx").text.split("\n\n") == ["기관명 서울시청", "대표자 홍길동"]
-        assert unspaced_label("성   명\t홍 길 동") == "성명\t홍 길 동"
+        assert unspaced_label("담   당   자\t홍 길 동") == "담당자\t홍 길 동"
 
     def test_bold_label_is_joined_too(self):
         """Header cells are often bold throughout; their marks are dropped as for any whole cell, and the label is joined."""
@@ -65,8 +66,8 @@ class TestSpacedLabels:
 
     @pytest.mark.parametrize(("line", "expected"), [
         ("담   당   자", "담당자"),
-        ("주        소", "주소"),
-        ("목   차", "목차"),
+        ("주        소", "주        소"),   # two syllables: as the choices `남    여`
+        ("목   차", "목   차"),
         ("□ 추   진   배   경", "□ 추진배경"),
         ("13. 농  업  기  술  센  터", "13. 농업기술센터"),
         ("기 관 명", "기 관 명"),           # one space: as `수 및 양`
@@ -78,12 +79,23 @@ class TestSpacedLabels:
         ("성   명   (인)", "성   명   (인)"),
         ("제   1   장", "제   1   장"),
         ("A   B   C", "A   B   C"),
+        ("대   표   이   사", "대표이사"),
+        ("수  및  양", "수  및  양"),            # a conjunction: words of a sentence spaced wide
+        ("이   름   을", "이   름   을"),         # ends in a case particle
     ])
     def test_which_lines_are_spaced_labels(self, line, expected):
         assert unspaced_label(line) == expected
 
     def test_spaced_title_paragraph_is_joined(self):
-        text = convert(builder.hwpx_bytes("<hp:p><hp:run><hp:t>목   차</hp:t></hp:run></hp:p>"
+        text = convert(builder.hwpx_bytes("<hp:p><hp:run><hp:t>보   도   자   료</hp:t></hp:run></hp:p>"
                                           "<hp:p><hp:run><hp:t>보 도 자 료</hp:t></hp:run></hp:p>"), "a.hwpx").text
 
-        assert text == "목차\n\n보 도 자 료"
+        assert text == "보도자료\n\n보 도 자 료"
+
+    def test_two_one_syllable_words_spaced_wide_stay_apart(self):
+        """Two one-syllable words spaced wide are as often choices or the parties of a contract (`남    여`, `갑   을`, `유   무`)
+        as a label (`성   명`): joined, `남여` and `갑을` could not be undone, so a two-syllable label stays spaced."""
+        lines = ("남    여", "갑   을", "유   무", "찬   반", "성   명")
+        body = "".join(f"<hp:p><hp:run><hp:t>{line}</hp:t></hp:run></hp:p>" for line in lines)
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text.split("\n\n") == [" ".join(line.split()) for line in lines]

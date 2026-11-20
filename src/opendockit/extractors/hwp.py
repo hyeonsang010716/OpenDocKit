@@ -595,16 +595,17 @@ class HwpRenderer:
                               in_note=bool(self._note_depth), no_heading=self._plain_header)
 
     def _count_sizes(self, paragraph: Record, text_record: Record | None) -> list[tuple[int, int]]:
-        """Count the text characters of a top-level body paragraph per character size (`SizeHeadings.count`, which finds the
-        body size) and return its character shape runs (`_size_pairs`). The 8 WCHARs of a wide control are not text and are
-        skipped, as the characters of HWPX `hp:t` are all that HWPX counts."""
+        """Count the text characters of a paragraph per character size (`SizeHeadings.count`, which finds the body size; those
+        of top-level body paragraphs apart, notes not at all) and return its character shape runs (`_size_pairs`). The 8 WCHARs
+        of a wide control are not text and are skipped, as the characters of HWPX `hp:t` are all that HWPX counts."""
         if text_record is None or not self._sizes:
             return []
         payload = text_record.payload
         length = len(payload) // 2
         pairs = _size_pairs(paragraph, length)
-        if not pairs or self._depth != 1 or self._cell_depth or self._note_depth:
+        if not pairs or self._note_depth:
             return pairs
+        body = self._depth == 1 and not self._cell_depth
         run = 0
         index = 0
         while index < length:
@@ -615,7 +616,8 @@ class HwpRenderer:
                 end = min(control, pairs[run + 1][0]) if run + 1 < len(pairs) else control
                 shape_id = pairs[run][1]
                 if 0 <= shape_id < len(self._sizes):
-                    self.size_headings.count(self._sizes[shape_id], payload[2 * index:2 * end].decode("utf-16-le", errors="replace"))
+                    self.size_headings.count(self._sizes[shape_id], payload[2 * index:2 * end].decode("utf-16-le", errors="replace"),
+                                             body=body)
                 index = end
             index = control + 8
         return pairs

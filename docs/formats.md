@@ -128,12 +128,15 @@ CSV:
 
 Section unit: the whole document. Design notes: [decisions/hwp.md](decisions/hwp.md).
 
-- "개요 N" (Outline N) styles and paragraphs with an outline number (개요 번호) → headings. In a document without them, a
-  short paragraph set clearly larger than the body (1.15 / 1.3 / 1.5 times) becomes a level 3 / 2 / 1 heading; dates,
-  table-of-contents lines, signature lines, typed bullet items, contact lines and sentences written large stay text.
+- "개요 N" (Outline N) styles and paragraphs with an outline number (개요 번호) → headings; a numbered clause that is a
+  sentence (`1. 갑은 … 지급한다.`) stays a numbered paragraph. In a document without them, a short paragraph set clearly
+  larger than the body (1.15 / 1.3 / 1.5 times) becomes a level 3 / 2 / 1 heading; dates, table-of-contents lines,
+  signature lines, quoted lines, typed bullet items, captions of figures and tables, contact lines and sentences written
+  large stay text.
 - Paragraph numbering and bullets; lower levels become indented lists.
-- Letter-spaced labels of forms are joined (`담   당   자` → `담당자`; syllables one space apart stay as written);
-  blank dates (`년   월   일`) keep their spaces.
+- Letter-spaced labels of three to six syllables are joined (`담   당   자` → `담당자`); syllables one space apart, two
+  syllables spaced wide (`성   명`, which choices such as `남    여` look like) and blank dates (`년   월   일`) stay as
+  written.
 - Headers that hold words (a form's number and title) are written once before the body, without their pictures; page
   numbers and footers only with `include_headers_footers`.
 - Tables with merged cells.

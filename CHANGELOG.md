@@ -35,12 +35,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   heading of its level, whatever its style — Hangul builds the outline and the table of contents from it, and it came out
   as a numbered list; a numbered clause that is a sentence (`1. 갑은 을에게 … 지급한다.`) stays a numbered paragraph. A
   short top-level paragraph set 1.15 / 1.3 / 1.5 times larger than the size most body paragraphs are written in is a
-  level 3 / 2 / 1 heading; dates, table-of-contents lines, the addressee, signature and stamp lines of a form, typed
-  bullet items, contact lines and sentences written large stay text. In 34 real HWP / HWPX files, where every title was set by size on 바탕글, no heading came out before; now their
-  chapter titles do.
-- **Letter-spaced labels of Hangul forms** are written without the spaces between their syllables (`성   명` →
-  `성명`, `담   당   자` → `담당자`), so a search for the label finds it. Syllables one space apart stay as written
-  (`수 및 양`, the choices `남 여`), and blank dates (`년   월   일`) keep their spaces.
+  level 3 / 2 / 1 heading (in a form whose body is in tables, measured against the tables' text); dates,
+  table-of-contents lines, the addressee, signature and stamp lines of a form, quoted lines, polite sentences, typed
+  bullet items (not the `□` section mark), captions of figures and tables, contact lines and sentences written large
+  stay text. In 34 real HWP / HWPX files, where every title was set by size on 바탕글, no heading came out before; now
+  their chapter titles do.
+- **Letter-spaced labels of Hangul forms** of three to six syllables are written without the spaces between them
+  (`담   당   자` → `담당자`), so a search for the label finds it. Syllables one space apart stay as written (`수 및 양`,
+  the choices `상 중 하`), and so do two syllables spaced wide (`성   명`, the choices `남    여`) and blank dates
+  (`년   월   일`).
 - **Bold and italic in HWP and HWPX** under `keep_emphasis`, by the same rules as DOCX (`3. **시험기간** : …`).
 - **Headers of Hangul documents that hold words** (a form's number and title) are written once before the body even
   without `include_headers_footers`, as plain paragraphs without their pictures. In 9 of 34 real files that text was

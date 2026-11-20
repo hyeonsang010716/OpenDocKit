@@ -9,6 +9,7 @@ out of any of them.
 import struct
 
 from opendockit import convert
+from opendockit.extractors._hangul import _size_heading_text
 from opendockit.extractors.hwp import (
     TAG_CHAR_SHAPE,
     TAG_CTRL_HEADER,
@@ -125,18 +126,21 @@ class TestSizeHeadings:
         the caption of a figure or table."""
         large = ["2024년 12월 31일", "2024년    월    일", "3월 5일(화)", "신청인 :          (서명 또는 인)", "대표이사  홍 길 동  (인)",
                  "“오늘은 좋은 하루였다.”", "(이하 생략한다)", '"나는 할 수 있다"', "함께 해요", "※ 문의: 02-123-4567",
-                 "담당자 연락처 02-123-4567", "www.example.go.kr", "help@example.go.kr", "ㅇ 예산 확보 필요", "□ 추진 배경",
-                 "▶ 향후 일정", "- 세부 내용", "〈그림 1〉 추진 체계도", "[표 2] 예산 현황", "그림 3. 조직도"]
+                 "담당자 연락처 02-123-4567", "www.example.go.kr", "help@example.go.kr", "ㅇ 예산 확보 필요",
+                 "▶ 향후 일정", "- 세부 내용", "〈그림 1〉 추진 체계도", "[표 2] 예산 현황", "그림 3. 조직도", "〈표 Ⅲ-1〉 연도별 예산", "[표-1] 예산",
+                 "〔그림 1〕 체계", "1588-1234 안내"]
         data = _hwp(*(_paragraph(line, (0, 2)) for line in large), *[_paragraph(_BODY)] * 3)
         hwpx = _hwpx(*(_hwpx_paragraph(line, (2, line)) for line in large), *[_hwpx_paragraph(_BODY)] * 3)
 
         assert not any(line.startswith("#") for line in convert(data, "a.hwp").text.splitlines())
         assert not any(line.startswith("#") for line in convert(hwpx, "a.hwpx").text.splitlines())
+        assert not _size_heading_text("<표 Ⅲ-1> 연도별 예산")   # (an ASCII `<` cannot be written into the XML built here)
 
     def test_titles_that_end_like_a_date_or_a_polite_word_stay_headings(self):
         titles = ["1. 사업 개요", "추진 필요", "주요 내용", "2024년 사업 계획", "Ⅱ. 추진 경과(안)", "「개인정보 보호법」 개정 사항",
-                  "표준 계약서 작성 방법", "그림책 지원 사업"]
-        data = _hwp(*(_paragraph(title, (0, 2)) for title in titles), _paragraph(_BODY))
+                  "표준 계약서 작성 방법", "그림책 지원 사업", "□ 추진 배경", "Ⅰ. 총칙(개정 2024. 1. 1.)", "제3장 2023-2024-2025 계획",
+                  "서울.kr 소개", "2024년", "사업 대요", "『소년이 온다』"]
+        data = _hwp(*(_paragraph(title, (0, 2)) for title in titles), *[_paragraph(_BODY)] * 4)
 
         assert [line for line in convert(data, "a.hwp").text.splitlines() if line.startswith("#")] == [f"# {t}" for t in titles]
 
@@ -191,6 +195,19 @@ class TestSizeHeadings:
         lines = convert(_hwpx(_hwpx_paragraph("사업 개요", (2, "사업 개요")), *body, table), "a.hwpx").text.split("\n\n")
 
         assert lines[:4] == ["## 사업 개요", "담당 부서 : 기획예산과", "총사업비 120억원", "붙임 자료 참조"]
+
+    def test_form_whose_body_is_in_tables_keeps_its_title(self):
+        """A form has its title on top and its body in a table: counted on top-level paragraphs alone, the body size was the
+        title's own, and the title was never larger than it."""
+        def cell(row: int, col: int, text: str) -> str:
+            return (f"<hp:tc><hp:subList>{_hwpx_paragraph(text, (0, text))}</hp:subList>"
+                    f'<hp:cellAddr colAddr="{col}" rowAddr="{row}"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>')
+        rows = "".join(f"<hp:tr>{cell(row, 0, f'항목 {row}')}{cell(row, 1, _BODY)}</hp:tr>" for row in range(6))
+        table = f'<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run><hp:tbl rowCnt="6" colCnt="2">{rows}</hp:tbl></hp:run></hp:p>'
+
+        text = convert(_hwpx(_hwpx_paragraph("개인정보 수집 동의서", (2, "개인정보 수집 동의서")), table), "a.hwpx").text
+
+        assert text.startswith("# 개인정보 수집 동의서")
 
     def test_hwp_and_hwpx_count_the_same_characters(self):
         """HWP counted the 8 WCHARs of a tab and the paragraph end with the text: twenty short 13 pt lines with a tab outweighed
@@ -282,3 +299,19 @@ class TestOutlineHeads:
 
         assert lines[:2] == ["# 용역 계약서", "1. 갑은 을에게 계약금을 계약 체결일로부터 7일 이내에 지급한다.\n"
                                               "  - 가. 다만, 천재지변의 경우에는 그러하지 아니하다."]
+
+    def test_titles_with_outline_heads_stay_headings(self):
+        """An outline head is the author's title whatever it says; only the sentence of a numbered clause is left a numbered
+        paragraph. With every guard of the size headings, `1. 캐나다` (it ends in `다`), a title with its revision date and a
+        year were lost."""
+        head = ('<hh:numberings itemCnt="1"><hh:numbering id="1" start="1">'
+                '<hh:paraHead level="1" numFormat="DIGIT">^1.</hh:paraHead></hh:numbering></hh:numberings>'
+                '<hh:paraProperties itemCnt="2"><hh:paraPr id="0"><hh:heading type="NONE" idRef="0" level="0"/></hh:paraPr>'
+                '<hh:paraPr id="1"><hh:heading type="OUTLINE" idRef="0" level="0"/></hh:paraPr></hh:paraProperties>')
+        titles = ["캐나다", "플로리다", "총칙(개정 2024. 1. 1.)", "2024년 12월", "Introduction"]
+        body = ('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run><hp:secPr outlineShapeIDRef="1"/><hp:t>보고서</hp:t></hp:run></hp:p>'
+                + "".join(_hwpx_paragraph(title, shape=1) for title in titles) + _hwpx_paragraph(_BODY))
+
+        lines = convert(_hwpx(body, head=head), "a.hwpx").text.split("\n\n")
+
+        assert [line for line in lines if line.startswith("#")] == [f"# {n}. {t}" for n, t in enumerate(titles, 1)]
