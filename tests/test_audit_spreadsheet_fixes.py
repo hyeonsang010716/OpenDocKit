@@ -174,6 +174,7 @@ class TestSheetScansKeepNoTree:
         data = _with_sheet_xml(_sheet_xml(rows))
         result = {}
         monkeypatch.setattr(_openpyxl_reading, "QUICK_ROWS", quick)
+        monkeypatch.setattr(_openpyxl_reading, "NATIVE_ROWS", False)  # it builds no tree at all
 
         def run() -> None:
             result["text"] = convert(data, "a.xlsx", options=ConvertOptions(max_chars=None)).text

@@ -22,3 +22,6 @@ htmlcov/
 data/
 .backup/
 .env
+
+# Build output of the native sheet reader
+/packages/opendockit-xlsx-core/target/

@@ -64,6 +64,38 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run pytest -m timing --durations=15
 
+  native:
+    # The native sheet reader (packages/opendockit-xlsx-core): built from source and installed, the whole suite is run
+    # with it, so every test compares its rows with the Python readers' (tests/test_spreadsheet_quick_rows.py).
+    timeout-minutes: 40
+    name: native reader (py${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --locked --python ${{ matrix.python }}
+      - name: Lint the native reader
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: |
+          cargo fmt --manifest-path packages/opendockit-xlsx-core/Cargo.toml --check
+          cargo clippy --manifest-path packages/opendockit-xlsx-core/Cargo.toml --release -- -D warnings
+      - name: Build and install the native reader
+        shell: bash
+        run: |
+          python="$(uv run --no-sync python -c 'import sys; print(sys.executable)')"
+          uvx maturin build --release --manifest-path packages/opendockit-xlsx-core/Cargo.toml --interpreter "$python" --out native-dist
+          uv pip install native-dist/*.whl
+      - run: uv run --no-sync python -c "import opendockit_xlsx_core"
+      - name: Tests (parallel)
+        run: uv run --no-sync pytest -n auto -m "not timing"
+
   minimum-dependencies:
     timeout-minutes: 40
     # Runs the suite against the oldest versions allowed by pyproject.toml, so the declared lower bounds stay true.

@@ -77,11 +77,22 @@ def _outcome(data: bytes, options: ConvertOptions) -> tuple:
     return result.text, tuple(result.warnings)
 
 
-def _both(monkeypatch: pytest.MonkeyPatch, data: bytes, options: ConvertOptions) -> tuple:
-    """The outcome through openpyxl's parser alone, and through the quick rows in front of it."""
+# The readers compared with openpyxl's parser: the quick rows alone, and the native reader in front of them where it is installed
+_READERS = ["quick rows", *(["native reader"] if _openpyxl_reading._native is not None else [])]
+
+
+@pytest.fixture(params=_READERS)
+def reader(request: pytest.FixtureRequest) -> str:
+    return request.param
+
+
+def _both(monkeypatch: pytest.MonkeyPatch, data: bytes, options: ConvertOptions, reader: str = "quick rows") -> tuple:
+    """The outcome through openpyxl's parser alone, and through `reader` in front of it."""
     monkeypatch.setattr(_openpyxl_reading, "QUICK_ROWS", False)
+    monkeypatch.setattr(_openpyxl_reading, "NATIVE_ROWS", False)
     expected = _outcome(data, options)
-    monkeypatch.setattr(_openpyxl_reading, "QUICK_ROWS", True)
+    monkeypatch.setattr(_openpyxl_reading, "QUICK_ROWS", reader == "quick rows")
+    monkeypatch.setattr(_openpyxl_reading, "NATIVE_ROWS", reader == "native reader")
     return expected, _outcome(data, options)
 
 
@@ -110,14 +121,14 @@ _SHEETS = {
 class TestSameRowsAsOpenpyxlsParser:
     @pytest.mark.parametrize("sheet", list(_SHEETS))
     @pytest.mark.parametrize("max_chars", [None, 30])
-    def test_sheet(self, monkeypatch, streamed, sheet, max_chars):
+    def test_sheet(self, monkeypatch, streamed, reader, sheet, max_chars):
         rows, after = _SHEETS[sheet]
-        expected, quick = _both(monkeypatch, _xlsx(rows, after), ConvertOptions(max_chars=max_chars))
+        expected, quick = _both(monkeypatch, _xlsx(rows, after), ConvertOptions(max_chars=max_chars), reader)
         assert quick == expected
         assert isinstance(expected[0], str)
 
-    def test_usual_cells_are_read_as_excel_shows_them(self, monkeypatch, streamed):
-        expected, quick = _both(monkeypatch, _xlsx(_USUAL), ConvertOptions())
+    def test_usual_cells_are_read_as_excel_shows_them(self, monkeypatch, streamed, reader):
+        expected, quick = _both(monkeypatch, _xlsx(_USUAL), ConvertOptions(), reader)
         assert quick == expected
         for shown in ("서울", "1,234.50", "2023-03-15", "12.50%", "36:00", "&text<", "TRUE", "#N/A", "inline", "sp", "m"):
             assert shown in quick[0]
@@ -128,32 +139,32 @@ class TestSameRowsAsOpenpyxlsParser:
         "<?xml version='1.0' encoding='utf-8'?>",
         "",
     ], ids=["document type", "version 1.1", "single quotes", "no declaration"])
-    def test_prologs(self, monkeypatch, streamed, prolog):
+    def test_prologs(self, monkeypatch, streamed, reader, prolog):
         rows = '<row r="1"><c r="A1" t="str"><v>&e;</v></c><c r="B1"><v>1</v></c></row>' if "ENTITY" in prolog else _USUAL
-        expected, quick = _both(monkeypatch, _xlsx(rows, prolog=prolog), ConvertOptions())
+        expected, quick = _both(monkeypatch, _xlsx(rows, prolog=prolog), ConvertOptions(), reader)
         assert quick == expected
 
-    def test_part_in_another_encoding(self, monkeypatch, streamed):
+    def test_part_in_another_encoding(self, monkeypatch, streamed, reader):
         rows = '<row r="1"><c r="A1" t="str"><v>café</v></c></row>'
         data = _xlsx(rows, prolog='<?xml version="1.0" encoding="ISO-8859-1"?>', encoding="latin-1")
-        expected, quick = _both(monkeypatch, data, ConvertOptions())
+        expected, quick = _both(monkeypatch, data, ConvertOptions(), reader)
         assert quick == expected
 
     @pytest.mark.parametrize("cut", [0.3, 0.6, 0.95])
-    def test_xml_that_breaks_off(self, monkeypatch, streamed, cut):
+    def test_xml_that_breaks_off(self, monkeypatch, streamed, reader, cut):
         rows = "".join(f'<row r="{row}"><c r="A{row}" t="str"><v>row {row}</v></c></row>' for row in range(1, 400))
         data = _xlsx(rows)
         with zipfile.ZipFile(BytesIO(data)) as archive:
             sheet = archive.read(_SHEET)
         broken = sheet[:int(len(sheet) * cut)] + b"<</broken>" + sheet[int(len(sheet) * cut):]
         data = builder.zip_with(data, edit={_SHEET: lambda _: broken.decode()})
-        expected, quick = _both(monkeypatch, data, ConvertOptions(max_chars=None))
+        expected, quick = _both(monkeypatch, data, ConvertOptions(max_chars=None), reader)
         assert quick == expected
 
-    def test_formulas_read_as_written(self, monkeypatch, streamed):
+    def test_formulas_read_as_written(self, monkeypatch, streamed, reader):
         rows = ('<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f t="shared" ref="B1:B3" si="0">A1*2</f></c></row>'
                 '<row r="2"><c r="A2"><v>2</v></c><c r="B2"><f t="shared" si="0"/></c></row>')
-        expected, quick = _both(monkeypatch, _xlsx(rows), ConvertOptions())
+        expected, quick = _both(monkeypatch, _xlsx(rows), ConvertOptions(), reader)
         assert quick == expected
 
 
@@ -177,3 +188,20 @@ class TestUsualCellsAreReadDirectly:
             convert(_xlsx(_USUAL, prolog='<!DOCTYPE worksheet [<!ENTITY e "x">]>'), "a.xlsx")
         assert read  # once, or once per repaired copy when the first reading is refused
 
+
+@pytest.mark.skipif(_openpyxl_reading._native is None, reason="the native reader is not installed")
+class TestNativeReader:
+    def test_usual_sheet_is_read_by_the_native_reader(self, monkeypatch, streamed):
+        quick = []
+        original = _openpyxl_reading._quick_rows
+        monkeypatch.setattr(_openpyxl_reading, "_quick_rows", lambda *args: quick.append(1) or original(*args))
+        convert(_xlsx(_USUAL, _MERGES), "a.xlsx")
+        assert quick == []
+
+    @pytest.mark.parametrize("rows", [_ODD_CELLS, _ODD_ROWS], ids=["odd cells", "odd rows"])
+    def test_what_it_does_not_take_on_goes_to_the_quick_rows(self, monkeypatch, streamed, rows):
+        quick = []
+        original = _openpyxl_reading._quick_rows
+        monkeypatch.setattr(_openpyxl_reading, "_quick_rows", lambda *args: quick.append(1) or original(*args))
+        convert(_xlsx(rows), "a.xlsx")
+        assert quick

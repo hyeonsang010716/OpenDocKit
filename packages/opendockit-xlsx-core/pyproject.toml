@@ -1,0 +1,25 @@
+[build-system]
+requires = ["maturin>=1.8,<2"]
+build-backend = "maturin"
+
+[project]
+name = "opendockit-xlsx-core"
+version = "0.3.14"
+description = "Native sheet reader of OpenDocKit's XLSX converter. Installed with opendockit where a wheel exists; opendockit reads the same sheets without it, more slowly."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{ name = "OpenDocKit contributors" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+]
+
+[tool.maturin]
+python-source = "python"
+module-name = "opendockit_xlsx_core._core"
+features = ["pyo3/extension-module"]

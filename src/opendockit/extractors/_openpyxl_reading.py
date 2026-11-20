@@ -4,7 +4,7 @@ Importing this module replaces functions of openpyxl's readers. Each replacement
 package is reading (`_READING`, a context variable), so other use of openpyxl in the same process is unaffected.
 """
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextvars import ContextVar
 import copy
 from dataclasses import dataclass, field
@@ -555,8 +555,9 @@ def _parse_cells_and_merges(parser: object) -> Iterator[tuple[int, list]]:
     that has been read is also taken out of the tree — openpyxl only empties it, so one empty element per row stayed in memory
     until the sheet ended (Pinned by: test_audit_spreadsheet_fixes.py::TestSheetScansKeepNoTree).
 
-    The rows are read by `_quick_rows` where it can, which gives exactly what the rest of this function would; whatever it does
-    not take on it hands back, and the sheet is read here from its start, the rows already given being skipped."""
+    The rows are read by the native reader where it is installed (`_native_rows`), otherwise or where it hands the part back
+    by `_quick_rows`, and where that hands it back here: each gives exactly what the next one would, and each that takes over
+    reads the part from its start, the rows already given being skipped."""
     reading = _READING.get()
     if reading is None:
         yield from _parse_sheet(parser)
@@ -565,7 +566,7 @@ def _parse_cells_and_merges(parser: object) -> Iterator[tuple[int, list]]:
     given = 0
     # Formulas read as written keep state across cells (shared formulas), so those sheets stay with openpyxl's parser
     readers = [] if not parser.data_only else [
-        reader for reader, used in ((_quick_rows, QUICK_ROWS),) if used]
+        reader for reader, used in ((_native_rows, NATIVE_ROWS and _native is not None), (_quick_rows, QUICK_ROWS)) if used]
     counts = reading.malformed, reading.unread_rich
     numbers = None if reading.row_numbers is None else len(reading.row_numbers)
     for reader in readers:
@@ -600,6 +601,26 @@ def _parse_cells_and_merges(parser: object) -> Iterator[tuple[int, list]]:
         yield row
 
 
+def _native_rows(parser: object, reading: _CellReading) -> Iterator[tuple[int, list]]:
+    """The rows `_quick_rows` gives, read by the native reader (`opendockit_xlsx_core`), which takes on fewer shapes still and
+    hands the part back for anything else (`HandedBack`). It gives the cells; the row numbers are kept here as `parse_row`
+    keeps them."""
+    source = parser.source
+    if type(parser.shared_strings) is not list or not _plain_prolog(source):
+        raise _HandedBack
+    for item in _native.sheet_rows(source, parser.shared_strings, reading.style_count, parser.date_formats,
+                                   parser.timedelta_formats, _openpyxl_sheet_reader.from_excel, parser.epoch, parser.rich_text):
+        if item[0] == "row":
+            _, number, extra, cells = item
+            parser.row_counter = number
+            parser.col_counter = cells[-1]["column"] if cells else 0
+            if extra is not None:
+                parser.row_dimensions[str(number)] = extra
+            yield _consecutive((number, cells))
+        elif not reading.streamed:
+            parser.merged_cells = _readable_merge_references(item[1])
+
+
 def _openpyxl_rows(parser: object, reading: _CellReading) -> Iterator[tuple[int, list]]:
     """The rows of the sheet as openpyxl's parser reads them, through the replacements of this module."""
     data = None  # `<sheetData>`: rows already read are removed from it, so the parsed tree does not grow with the sheet
@@ -632,8 +653,14 @@ def _openpyxl_rows(parser: object, reading: _CellReading) -> Iterator[tuple[int,
             element.clear()
 
 
-# Whether sheets are read by `_quick_rows` (False reads every sheet through openpyxl's parser; the tests compare the two).
+# Whether sheets are read by the native reader and by `_quick_rows` (False leaves them to the next reader; the tests compare them).
+NATIVE_ROWS = True
 QUICK_ROWS = True
+try:
+    # The native sheet reader, installed with opendockit where a wheel exists. Without it the same rows are read, more slowly.
+    import opendockit_xlsx_core as _native
+except ImportError:  # pragma: no cover — depends on the platform
+    _native = None
 
 
 class _HandedBack(Exception):
@@ -789,9 +816,14 @@ def _readable_merges(element: etree._Element) -> MergeCells:
     range (`B3:A2`), row 0 (`A0:A2`), column name without a row (`abc`) or unknown attribute (`foo="1"`) used to reject the whole
     document. Only that merge is dropped, without a warning — the value is still in its cell
     (Pinned by: test_office_round45.py::TestMalformedMergeRange, test_core_spreadsheet.py::TestMergeReferenceWithoutRows)."""
+    return _readable_merge_references((child.get("ref") or "") if child.tag == _MERGE_CELL_TAG else "" for child in element)
+
+
+def _readable_merge_references(references: Iterable[str]) -> MergeCells:
+    """`_readable_merges` of the `ref` of each child of the merge list ("" for a child that is not a merge)."""
     merges = []
-    for child in element:
-        reference = (child.get("ref") or "").strip() if child.tag == _MERGE_CELL_TAG else ""
+    for reference in references:
+        reference = reference.strip()
         try:
             min_col, min_row, max_col, max_row = range_boundaries(reference) if reference else (None,) * 4
         except (ValueError, TypeError):
