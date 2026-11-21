@@ -276,6 +276,57 @@ def _sideways_line_text(line: list[tuple]) -> str:
     return " ".join("".join(parts).split())
 
 
+# Filled shapes of the size of a letter standing in the lines of text of a page, where no character stands: from this many
+# on, the page draws part of its text as shapes (`_letter_shapes`). A page of more curves than `_LETTER_SHAPES_CURVES` is
+# a drawing and is not looked at.
+_LETTER_SHAPES_MIN = 5
+_LETTER_SHAPES_CURVES = 20_000
+# A shape of the size of a letter: at least this share of the height of the line it stands in, no wider than that many
+# heights, and reaching past the line by no more than this share of its height
+_LETTER_SHAPE_MIN_HEIGHT = 0.3
+_LETTER_SHAPE_MAX_WIDTH = 1.5
+_LETTER_SHAPE_OVERHANG = 0.15
+
+
+def _letter_shapes(curves: list[dict], lines: list[tuple[float, float, float, float]], chars: list[dict],
+                   char_tops: list[float]) -> int:
+    """How many filled shapes of the size of a letter stand inside the lines of text of a page (`lines`: top, bottom, x0, x1,
+    from the top down) at a place where none of its characters (`chars`, sorted by `char_tops`) stands.
+
+    Some programs write part of a text as outlines and not as text — the digits and Latin letters of a Korean page
+    (a cairo PDF: '제 조' for '제3조', with '3' a filled path between the two syllables), the formulas inside a sentence.
+    Nothing reads those back without recognising the shapes, but the page shows that they are there: a shape as tall as
+    the line, in the line, with letters of the line before it and after it. A bullet drawn as a shape stands before the
+    letters of its line (the 19 bullets of a brochure were the first form's false alarm), and a rule or an underline is
+    no curve. Not counted: the parts of a formula set on a line of its own, which reach past the height of a line.
+    Pinned by: test_pdf_letter_shapes.py.
+    """
+    if not lines or not curves or len(curves) > _LETTER_SHAPES_CURVES:
+        return 0
+    tops = [line[0] for line in lines]
+    found = 0
+    for curve in curves:
+        if not curve.get("fill"):
+            continue
+        middle_x, middle_y = (curve["x0"] + curve["x1"]) / 2, (curve["top"] + curve["bottom"]) / 2
+        place = bisect_right(tops, middle_y)
+        for top, bottom, x0, x1 in lines[max(place - 3, 0):place]:
+            height = bottom - top
+            if not (top - height * _LETTER_SHAPE_OVERHANG <= curve["top"] and curve["bottom"] <= bottom + height * _LETTER_SHAPE_OVERHANG
+                    and curve["bottom"] - curve["top"] >= height * _LETTER_SHAPE_MIN_HEIGHT
+                    and curve["x1"] - curve["x0"] <= height * _LETTER_SHAPE_MAX_WIDTH and x0 < middle_x < x1):
+                continue
+            # the letters of this line: a shape counts between two of them, where none stands
+            letters = [char for char in chars[bisect_left(char_tops, top - height):bisect_right(char_tops, bottom)]
+                       if char["top"] < bottom and char["bottom"] > top and x0 - 0.5 <= char["x0"] and char["x1"] <= x1 + 0.5
+                       and char["text"].strip()]
+            if (any(char["x1"] <= middle_x for char in letters) and any(char["x0"] >= middle_x for char in letters)
+                    and not any(char["x0"] - 0.5 <= middle_x <= char["x1"] + 0.5 for char in letters)):
+                found += 1
+            break
+    return found
+
+
 def _unmeasured(chars: list[dict]) -> bool:
     """Whether at least `_UNMEASURED_RATIO` of the visible characters have zero width.
 

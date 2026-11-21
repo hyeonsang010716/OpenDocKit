@@ -299,6 +299,9 @@ class _Page:
     # multi-line header of a three-line table (`_join_ruled_header_lines`) and to cut a borderless table at its bottom border
     # (`_cut_at_closing_rule`).
     rules: list[tuple[float, float, float]] = field(default_factory=list)
+    # Filled shapes of the size of a letter standing in the lines of text where no character stands
+    # (`_pdf_artifacts._letter_shapes`): text the page draws as outlines, which is missing from what was read.
+    letter_shapes: int = 0
     # The tables the structure tree of a tagged PDF states on this page (`_pdf_tagged_tables._TaggedTable`), with the text and
     # the box of each cell. Made into tables where the page agrees with them (`_extract_tagged_tables`).
     tagged: list = field(default_factory=list)
