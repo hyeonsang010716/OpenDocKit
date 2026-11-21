@@ -12,7 +12,8 @@ The PDF is saved twice: as LibreOffice saves it, with the structure tree of a ta
 (`/pdf-untagged`), the same pages with nothing but the page to read the tables from.
 
 The Markdown goes through HTML on its way to DOCX: the references write their tables as HTML, which pandoc reads as
-tables only from HTML.
+tables only from HTML. That HTML is kept as a twin of its own (`/html`, a whole page with a head), and pandoc writes
+it as an EPUB too (`/epub`).
 """
 
 from pathlib import Path
@@ -58,7 +59,20 @@ def main() -> int:
         if html is None or _run(["pandoc", "-f", "html", "-t", "docx", "-o", str(out)], _PANDOC_SECONDS, stdin=html) is None:
             out.unlink(missing_ok=True)
     documents = sorted(originals.glob("*.docx"))
-    print(f"{'docx':5} {len(documents):4}")
+    print(f"{'docx':12} {len(documents):4}")
+    for name, writer in (("html", ["-t", "html", "-s"]), ("epub", ["-t", "epub"])):
+        folder = target / name
+        folder.mkdir(exist_ok=True)
+        for reference in sorted(references.glob("*.md")):
+            out = folder / f"{reference.stem}.{name}"
+            if out.is_file() or not (originals / f"{reference.stem}.docx").is_file():
+                continue
+            html = _run(["pandoc", "-f", "gfm", "-t", "html", str(reference)], _PANDOC_SECONDS)
+            # the title is the name of the file, which no reference holds: a page needs one, and it is left out of the body
+            command = ["pandoc", "-f", "html", *writer, "--metadata", f"pagetitle={reference.stem}", "-o", str(out)]
+            if html is None or _run(command, _PANDOC_SECONDS, stdin=html) is None:
+                out.unlink(missing_ok=True)
+        print(f"{name:12} {len(list(folder.iterdir())):4}")
 
     # A profile of its own, so a LibreOffice the user has open is not the one that converts
     with tempfile.TemporaryDirectory() as profile:
