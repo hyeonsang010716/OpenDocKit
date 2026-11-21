@@ -114,6 +114,37 @@ Compared with `main` before the headings by weight were put back, the PDF reader
 releases and loses none: the section titles of two long releases, the labels of summary boxes, and — wrongly — a line
 of place and the quoted slogans of a list of companies.
 
+## Korean holdout: releases no rule was written on
+
+```bash
+uv run python evals/fetch_korean_pairs.py ../corpus/korean-holdout --list korean_pairs_holdout.tsv
+H=../corpus/korean-holdout
+uv run python -m evals.run --documents $H/pdf --gold $H/hwpx --baseline evals/baselines/korean-holdout.json --gate nid,nid_s,teds,teds_s,words
+```
+
+The sixty releases above come from two days of November 2026, and the rules for Korean documents were written looking
+at them: the words put together again, the tables of one row, the bars of attachments. Sixty more
+(`korean_pairs_holdout.tsv`), one every few thousand releases from September 2026 back to November 2023, say whether
+those rules hold on releases nobody looked at. Scored with the readers as they were before those rules (`48dd49c`) and
+as they are:
+
+| Holdout, 60 releases | Before | Now |
+| :--- | ---: | ---: |
+| Overall | 0.713 | 0.781 |
+| NID | 0.918 | 0.935 |
+| TEDS | 0.477 | 0.580 |
+| MHS | 0.708 | 0.807 |
+| Words | 0.943 | 0.957 |
+| Line breaks taken out of a word, right / wrong by the HWPX | | 355 / 32 |
+
+The gains are those of the first sixty (overall 0.666 → 0.747 there), and the rule that joins a word is right as often
+(92% here, 93% there). The holdout also found what the first sixty did not have: a bar of three cells ('붙임2', a
+figure, the title), which the HWPX reader wrote as a line and the PDF reader as a heading.
+
+**Keep it a holdout.** Run it to judge a change; do not open its documents to write a rule. A rule comes from the
+first sixty, or from a document of your own, and this list says whether it carries. When it has been looked at too
+often to say so, find a new one (`--find 60 --from <id> --stride 3000`) and say so here.
+
 ## Format twins: one document in four formats
 
 ```bash

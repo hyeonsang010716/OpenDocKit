@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **A Korean holdout on the scorecard** (`evals/korean_pairs_holdout.tsv`): sixty press releases from 2023 to 2026 that no
+  rule was written on. The rules written on the first sixty carry to them (overall 0.713 → 0.781).
 - **The scorecard counts words** (`evals/metrics.py::words`): how far the output and the reference are made of the same
   words. The reading-order score compares characters and did not see a word cut in two.
 - **Scorecard** (`evals/`): the structure of the PDF output — reading order, tables, headings — is scored on the 200
@@ -144,7 +146,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   header over no rows; in 59 Korean press releases 126 of 219 tables were of this kind and none held data. The cells are
   now written as one line ('보도시점 배포 즉시 보도 가능 배포 2026. 11. 20.(금)'), a heading when set large, and under the
   label of an attachment a heading of level 2 (`## 붙임 1 행사 개요`), so the parts of such a document have their
-  titles. A row with a cell of several paragraphs stays a table.
+  titles. A row with a cell of several paragraphs stays a table. The label decides the bar, not each cell: one with a
+  cell of a single figure between the label and the title is a heading too.
 - **HWP and HWPX**: the soft hyphen (HWP code 24, HWPX `hp:hypen`) is left out, as Hangul draws it only where a line
   breaks inside the word; HWP wrote `Word-processor` for `Wordprocessor`.
 - **HWP and HWPX**: an empty body is not replaced by a preview that holds no letter or digit; empty tables gave

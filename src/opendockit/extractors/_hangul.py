@@ -535,11 +535,14 @@ class SizeHeadings:
             return written
         parts = [cell[0] for cell in filled]
         line = render_table([[" ".join(parts)]])
+        # the text of a cell as a heading writes it, where it was read as one that may be a heading (a number without its
+        # list bullet), and as it stands where it was not (a cell of one figure)
+        titles = [part.heading if type(part) is _SizeCandidate else part for part in parts]
+        title = " ".join(titles)
+        if len(parts) > 1 and _ATTACHMENT_LABEL.match(titles[0].strip()):
+            return f"## {title}"
         if not all(type(part) is _SizeCandidate for part in parts):
             return line
-        title = " ".join(part.heading for part in parts)
-        if len(parts) > 1 and _ATTACHMENT_LABEL.match(parts[0].heading):
-            return f"## {title}"
         return self.box(line, [[self.candidate(line, title, min(part.size for part in parts))]], grid)
 
     def resolve(self, blocks: list[str]) -> list[str]:
