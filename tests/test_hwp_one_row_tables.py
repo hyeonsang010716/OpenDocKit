@@ -54,6 +54,11 @@ class TestOneRowTables:
             for text in _both([(label, 3)], [], [("행사 개요", 3)]):
                 assert text.split("\n\n")[1] == f"## {label} 행사 개요"
 
+    def test_a_bar_with_a_cell_that_could_be_no_heading_is_a_heading_still(self):
+        """A cell of one figure between the label and the title, as some bars have: the label decides, not each cell."""
+        for text in _both([("붙임2", 3)], [("1", 3)], [("업무협약서 전문", 3)]):
+            assert text.split("\n\n")[1] == "## 붙임2 1 업무협약서 전문"
+
     def test_a_label_alone_or_another_first_cell_is_no_attachment_bar(self):
         for text in (*_both([("붙임", 3)], []), *_both([("붙임 자료는 다음과 같다", 3)], [("행사 개요", 3)])):
             assert "#" not in text

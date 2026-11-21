@@ -37,7 +37,8 @@ document that justifies it.
   Tests that call a real vision model are marked `live` and skipped unless `OPENDOCKIT_LIVE_TESTS=1`; never run them unasked.
 - A change to how structure is guessed from a PDF (headings, tables, reading order) is judged by the scorecard
   (`evals/README.md`), not by the document it was written for: it comes with the comparison against the baseline, no
-  mean may fall on the benchmark, the Korean pairs or the PDF twins, and the baselines are updated in the same change.
+  mean may fall on the benchmark, the Korean pairs, the Korean holdout or the PDF twins, and the baselines are updated in
+  the same change. The holdout is run, not read: a rule is not written from its documents (`evals/README.md`).
   A change to how DOCX, ODT or RTF write headings, lists or tables is run against their twins the same way.
 - A deliberate trade-off gets a row in `docs/decisions/` and a `Pinned by:` comment at the code site.
 - Extractors only produce sections; normalization, headings, images and limits belong to `converter.py`.
