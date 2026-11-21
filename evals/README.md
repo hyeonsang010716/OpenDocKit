@@ -145,19 +145,19 @@ figure, the title), which the HWPX reader wrote as a line and the PDF reader as 
 first sixty, or from a document of your own, and this list says whether it carries. When it has been looked at too
 often to say so, find a new one (`--find 60 --from <id> --stride 3000`) and say so here.
 
-## Format twins: one document in four formats
+## Format twins: one document in six formats
 
 ```bash
 uv run python evals/make_twins.py $C/ground-truth/markdown ../corpus/twins     # needs pandoc and LibreOffice; about 15 minutes
 T=../corpus/twins
-for f in docx odt rtf pdf pdf-untagged; do
+for f in docx odt rtf html epub pdf pdf-untagged; do
   uv run python -m evals.run --plain --documents $T/$f --gold $C/ground-truth/markdown --baseline evals/baselines/twins-$f.json
 done
 ```
 
 The 200 hand-checked references of the benchmark, written by pandoc as DOCX files that say their structure outright
-(heading styles, tables, lists) and saved by LibreOffice as ODT, RTF and PDF. The four files hold one document whose
-right answer is known, so each reader is scored against the same reference, and a difference between two formats is
+(heading styles, tables, lists) and saved by LibreOffice as ODT, RTF and PDF; pandoc also writes each as an HTML page
+and as an EPUB. The files hold one document whose right answer is known, so each reader is scored against the same reference, and a difference between two formats is
 a difference between two readers. `--plain` converts without emphasis and links, which the references do not write.
 
 | Twin | Overall | NID | TEDS | MHS |
@@ -165,12 +165,18 @@ a difference between two readers. `--plain` converts without emphasis and links,
 | DOCX | 0.992 | 0.991 | 0.967 | 0.995 |
 | ODT | 0.992 | 0.991 | 0.967 | 0.997 |
 | RTF | 0.992 | 0.991 | 0.967 | 0.995 |
+| HTML | 0.990 | 0.989 | 0.967 | 0.997 |
+| EPUB | 0.992 | 0.991 | 0.967 | 0.997 |
 | PDF, as LibreOffice saves it (tagged) | 0.969 | 0.978 | 0.846 | 0.973 |
 | PDF, the same pages without tags | 0.931 | 0.965 | 0.487 | 0.969 |
 
 - **The readers of the formats that state their structure agree with the reference and with each other.** No document
   is more than 0.15 lower in one of them than in another; 39 of the 42 tables are read exactly. What is left is
   convention (a table of one column is written as paragraphs).
+- **HTML and EPUB read as well as DOCX** on the HTML pandoc writes, which is clean: no navigation, no scripts, no
+  layout tables. It says the readers lose nothing of a plain page, not how they do on the pages of the web. Five
+  references have no heading, and the title of the page — the name of the file — becomes one there, as the HTML
+  reader means it to (`docs/decisions/extractors.md`).
 - **The same documents as PDF lose their tables.** pandoc's tables have no rules, and LibreOffice sets them as
   aligned text with nothing between two rows but the next line. The first run read 3 of 42 to 0.9 or more and 9 not at
   all (TEDS 0.330); on the benchmark's own PDFs, most of which rule their tables, TEDS is 0.776. Tables without any
@@ -197,7 +203,8 @@ run where they were made, not in CI.
 
 ## What it does not measure yet
 
-- XLSX, PPTX, HTML, EPUB and mail: the twins cover the text formats only.
+- XLSX, PPTX and mail: the twins cover the text formats only. HTML as it is found on the web, with navigation and
+  layout tables around the text.
 - Korean headings against a reference a person checked: the pairs above have none.
 - The level of a heading: MHS treats every level alike.
 - Text that is right but should not be there (running headers, watermarks) only as far as it lowers NID.
