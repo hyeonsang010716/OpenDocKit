@@ -545,7 +545,7 @@ class TestHugeParagraphText:
         assert parts == ["가" * 2_000_000]
         assert peak < 4 * len(payload)  # an integer per character would take more than 20 times
 
-    @pytest.mark.parametrize(("unit", "text"), [(10, "\n"), (24, "-"), (30, " "), (31, " ")])
+    @pytest.mark.parametrize(("unit", "text"), [(10, "\n"), (30, " "), (31, " ")])
     def test_paragraph_of_char_controls_is_decoded_in_one_go(self, unit, text):
         """A char control of one WCHAR that stands for a character (line break, hyphen, fixed-width space) was taken one at a time,
         making a bytes object per character again: 63 times the paragraph, and 60 MB of line breaks in a 57 KB file took 13 s
@@ -567,18 +567,20 @@ class TestHugeParagraphText:
         assert peak < 4 * len(payload)
 
     def test_char_controls_read_the_same_inside_text(self):
-        """Replaced in the decoded text, the char controls give what they gave one at a time: a hyphen, a space, a line break,
-        or nothing (paragraph end, null, reserved), and a dropped one between two parts of a marked run does not split the run."""
+        """Replaced in the decoded text, the char controls give what they gave one at a time: a space, a line break, or nothing
+        (paragraph end, null, soft hyphen, reserved), and a dropped one between two parts of a marked run does not split the run."""
         from opendockit.extractors.hwp import decode_para_text
 
         def units(*values):
             return b"".join(value.encode("utf-16-le") if isinstance(value, str) else struct.pack("<H", value) for value in values)
 
-        superscript = ("^", False)
+        superscript = ("^", False, False, False)
 
-        assert decode_para_text(units("a", 24, "b", 30, "c", 31, "d", 10, "e", 0, 13, 25, 29, "f", 13)) == ["a-b c d\nef"]
+        assert decode_para_text(units("a", 24, "b", 30, "c", 31, "d", 10, "e", 0, 13, 25, 29, "f", 13)) == ["ab c d\nef"]
         assert decode_para_text(units(13)) == []
-        assert (decode_para_text(units("ab", 0, "cd"), [(0, superscript), (2, (None, False)), (3, superscript)])
+        assert (decode_para_text(units("ab", 0, "cd"), [(0, superscript), (2, (None, False, False, False)), (3, superscript)])
+                == decode_para_text(units("abcd"), [(0, superscript)]))
+        assert (decode_para_text(units("ab", 24, "cd"), [(0, superscript), (2, (None, False, False, False)), (3, superscript)])
                 == decode_para_text(units("abcd"), [(0, superscript)]))
 
     @pytest.mark.timing
@@ -617,7 +619,7 @@ class TestHugeParagraphText:
         assert runs == []
         assert peak < 4 * len(payload)  # the record read as an array and split in two; sorted tuples took 13 times
         unordered = Record(TAG_PARA_HEADER, 0, b"", [Record(TAG_PARA_CHAR_SHAPE, 1, struct.pack("<6I", 2, 0, 0, 0, 0, 1))])
-        assert HwpRenderer([], ConvertOptions(), scripts={1: "^"})._shape_runs(unordered, 5) == [(0, ("^", False)), (2, (None, False))]
+        assert HwpRenderer([], ConvertOptions(), scripts={1: "^"})._shape_runs(unordered, 5) == [(0, ("^", False, False, False)), (2, (None, False, False, False))]
 
     def test_bytes_that_look_like_a_control_across_two_characters_are_text(self):
         """Bytes spanning two characters, such as 'A' (41 00) followed by '가' (00 AC), may look like a control character (1f or
@@ -625,12 +627,12 @@ class TestHugeParagraphText:
         from opendockit.extractors.hwp import decode_para_text
 
         tab = struct.pack("<H", 9) + b"\x00" * 12 + struct.pack("<H", 9)
-        payload = ("A가Ā가".encode("utf-16-le") + tab + "B".encode("utf-16-le") + struct.pack("<H", 24)
+        payload = ("A가Ā가".encode("utf-16-le") + tab + "B".encode("utf-16-le") + struct.pack("<H", 30)
                    + "\U0001F600".encode("utf-16-le") + builder.hwp_text((11, "tbl "))[:-2] + "끝".encode("utf-16-le"))
 
         parts = decode_para_text(payload)
 
-        assert parts == ["A가Ā가\tB-\U0001F600", 11, "끝"]
+        assert parts == ["A가Ā가\tB \U0001F600", 11, "끝"]
 
     def test_character_shapes_still_mark_runs_that_span_a_tab(self, monkeypatch):
         """A character shape span that continues across a tab is marked as one span, and it is not broken at a boundary to
@@ -717,6 +719,28 @@ def _peak_memory(action) -> int:
         return tracemalloc.get_traced_memory()[1]
     finally:
         tracemalloc.stop()
+
+
+class TestOleDirectoryThatHoldsItself:
+    """A damaged OLE directory that lists a storage among its own descendants made the walk of `_ole.OleStreams` grow the path
+    (`root entry/root entry/…`) without end and fill memory. An OLE object inside an HWP is such a container too, so one changed
+    byte in a pasted object stopped a whole document. Every entry is walked once."""
+
+    def test_walk_ends_and_keeps_the_streams(self):
+        from types import SimpleNamespace
+
+        from opendockit.extractors._ole import OleStreams
+
+        stream = SimpleNamespace(name="OOXMLChartContents", size=10, kids=[])
+        storage = SimpleNamespace(name="Root Entry", size=0, kids=[])
+        root = SimpleNamespace(name="Root Entry", size=0, kids=[storage, stream])
+        storage.kids = [root, storage, stream]  # the storage holds the root and itself
+        ole = SimpleNamespace(minisectorcutoff=4096, root=root, num_mini_fat_sectors=0, sector_size=512)
+
+        streams = OleStreams(ole, 1000)
+
+        assert streams.exists("OOXMLChartContents")
+        assert streams.exists("root entry")
 
 
 class TestStreamsLargerThanTheFile:

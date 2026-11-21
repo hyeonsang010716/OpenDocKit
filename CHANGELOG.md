@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **DOCX saved as Strict Open XML is read.** It was refused with the advice to save it again; its namespaces and
+  relationship types are now read as their Transitional forms, and the lengths Word writes there with a unit (`36pt`)
+  as the twips and half-points they stand for, so indented lists and raised or lowered text come out as they do in an
+  ordinary DOCX. A Strict PowerPoint or Excel file is still refused with that advice.
 - **Windows is a supported platform.** The suite runs there for every change, and the sample outputs are identical to
   the ones Linux and macOS write.
   - `IsolatedConverter` keeps the memory limit it is given (the `ProcessMemoryLimit` of a job object, as `RLIMIT_AS` is
@@ -28,9 +32,54 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     one body of a mail, whose attachments do not count — over 256 K characters, nested deeper than 1,000 elements, or
     leaving more than 16 raw-text elements open is still read by the older parser — html5lib is quadratic on those —
     and the result says so.
+- **Hancom equations**: `root` without `of` is a square root (`3 root5` → `3 \sqrt{5}`; `30 root5 cos theta` gave
+  `\sqrt[5]{\cos} \theta`), command words glued together are split (`costheta`), and `le`, `ge`, `nabla`, `LAND`, `LOR`,
+  `SUPERSET`, `nsubset`, `BIGOPLUS` and similar words, `OVERBRACE`, `UNDERBRACE` and `BOX` are read.
+- **Headings in Hangul documents that do not use the 개요 styles.** A paragraph with an outline head (개요 번호) is a
+  heading of its level, whatever its style — Hangul builds the outline and the table of contents from it, and it came out
+  as a numbered list; a numbered clause that is a sentence (`1. 갑은 을에게 … 지급한다.`, `가. … 따른다`) stays a
+  numbered paragraph. A
+  short top-level paragraph set 1.15 / 1.3 / 1.5 times larger than the size most body paragraphs are written in is a
+  level 3 / 2 / 1 heading (in a form whose body is in tables, measured against the tables' text); dates,
+  table-of-contents lines, the addressee, signature and stamp lines of a form, quoted lines, polite sentences, typed
+  bullet items (not the `□` section mark), captions of figures and tables, contact lines and sentences written large
+  stay text. In 34 real HWP / HWPX files, where every title was set by size on 바탕글, no heading came out before; now
+  their chapter titles do.
+- **Letter-spaced labels of Hangul forms** of three to six syllables are written without the spaces between them
+  (`담   당   자` → `담당자`), so a search for the label finds it. Syllables one space apart stay as written (`수 및 양`,
+  the choices `상 중 하`), and so do two syllables spaced wide (`성   명`, the choices `남    여`), the choices of a scale
+  spaced wide (`상   중   하`) and blank dates (`년   월   일`).
+- **Bold and italic in HWP and HWPX** under `keep_emphasis`, by the same rules as DOCX (`3. **시험기간** : …`).
+- **Headers of Hangul documents that hold words** (a form's number and title) are written once before the body even
+  without `include_headers_footers`, as plain paragraphs without their pictures. In 9 of 34 real files that text was
+  nowhere else and was dropped without a warning. Page numbers and footers still need the option.
+- **Charts in HWP**: a chart, an OLE object that holds the chart as OOXML, gives its values as in HWPX; it was left as
+  `[OLE object]` with a warning. In 92 public Hangul files saved both ways, the two now give the same text.
+- **Form objects in HWP**: check boxes and radio buttons give `☒`/`☐` and their caption, combo and edit boxes their text,
+  as in HWPX. A form of nothing but form objects gave only its preview text. A caption's `&&` is one `&` in both formats,
+  as Hangul shows it (`R&D 자율성트랙`).
+- **Comments in HWP** are written after the body as `> Comment(author, on "range"): text`, as in HWPX; they were not read.
+- **Hancom symbols**: the seal mark `(인)`, boxed and circled item numbers, bullets (`□ ▸ ►`) and book brackets (`『 』`)
+  that Hangul keeps in private-use characters are written out where their meaning is known; they were removed. A number
+  in a frame (글자 겹치기) is its digits, and HWP no longer writes the frame glyph in front of it (`△12`), as HWPX does.
+- **HWP numbering to level 10**, and the heavenly-stem number shapes (`갑을병`, `甲乙丙`); levels 8 to 10 took the
+  numbers of level 7.
 
 ### Changed
 
+- **Pictures are prepared faster.** An RGBA PNG that needs no change is passed on as it is instead of being compressed
+  again (only the chunks a rewrite keeps are copied, so metadata is still stripped). A 7 MB HWP with 51 pictures
+  converts in 118 ms instead of 549 ms.
+- **Faster start.** An extractor is imported the first time its format is converted, instead of all of them with the
+  package. `import opendockit` takes 0.07 s and 43 MB instead of 0.23 s and 101 MB, and a fresh process converting one
+  small DOCX 0.09 s instead of 0.25 s — what a command-line run and every Windows worker pay per file. The workers of
+  `IsolatedConverter` still start with every extractor loaded. A reader library that cannot be imported (a broken
+  installation) no longer stops `import opendockit`: converting a file of its format raises `ImportError` with a fixed
+  sentence. The extractor functions are no longer importable from `opendockit.extractors` itself
+  (`from opendockit.extractors import extract_docx`); that package is internal, and `opendockit.extractors.docx` and
+  the other modules still have them.
+- **DOCX conversion is 12-19% faster** on large documents (20,000 paragraphs, 80,000 table cells); the output is the same
+  to the byte.
 - **XLSX is converted about twice as fast, with the same output.** A 20,000-row sheet of text, amounts and dates takes
   1.2 s instead of 1.9 s and a 100,000-row one 4.5 s instead of 9.1 s; the text, the warnings and the failures are
   what they were.
@@ -56,6 +105,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **HWP and HWPX**: the soft hyphen (HWP code 24, HWPX `hp:hypen`) is left out, as Hangul draws it only where a line
+  breaks inside the word; HWP wrote `Word-processor` for `Wordprocessor`.
+- **HWP and HWPX**: an empty body is not replaced by a preview that holds no letter or digit; empty tables gave
+  `<.<><><>` as the text.
+- **Threads converting at once**: a valid DOCX or XLSX could come out as corrupted, a DOCX or HWPX with other text, or
+  the process could stop on a bad access, when threads converted at the same moment — most often in a pool whose threads
+  had converted a PowerPoint file. lxml had left them sharing one string dictionary, through a parser kept for every
+  thread. Each converting thread now has a dictionary of its own, and the library's own parsers are one for each thread.
+- **DOCX lists** whose definition points at a numbering style that no definition claims are numbered: they now use the
+  list the style names, as ECMA-376 defines. They came out as plain paragraphs.
+- **DOCX**: a document whose own style is named 'Heading' (Apple Pages' first heading level) gets its headings; a legacy
+  VML picture keeps the alt text written on its shape.
+- **DOCX**: a table row deleted with Track Changes on is left out, as every other tracked deletion is. It came out as a
+  row of the final table, so a struck-out price or clause read as if it still stood. A vertical merge that starts in
+  the deleted row keeps its text in the rows left.
+- Bold or italic that ends on a punctuation mark right before a letter (`**67%**으로`, `**「법」**제15조`) is no longer
+  written: Markdown readers showed its asterisks as text. This affects every format that keeps emphasis.
 - **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if
   that worker died first. The queue the file travels on is no longer waited for.
 - **MCP server**: the path of a call is resolved in a thread, as its content already was. A path the file system is slow
@@ -85,6 +151,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **PDF reading order**: the rest of a long left column is kept before a short right column when a subheading breaks it;
   the left column from its second paragraph on was moved after the right column. The first line of a two-line paragraph
   over a table in the right column is no longer taken for a caption of a table in the left column and read ahead of it.
+  A two-column page that pdfminer read right column first is read left column first even when one of its lines is
+  drawn in pieces (a reference split at a wide justified space).
+- **PDF headings**: a paragraph without a letter ('56%', a page number set larger) is no heading any more; a year set
+  large stays one. A body line starting with `#` or `>` is escaped, so a form row is not a Markdown heading or quote.
 - **PDF forms**: the values of a filled form are kept on a page read with simple extraction (past the time budget, a
   crowded or very heavy page, a page pdfminer cannot read); they were dropped without a word. The annotations walked for
   them are bounded over the document, with a warning past it, and the widgets of a large field are found once a document
@@ -118,6 +188,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   into two paragraphs around it; in a caption (`Figure 1: …` after its picture) the picture stays in front.
 - **Plugins and the MCP package**: the Claude Code and Hermes skills and READMEs no longer say HTML, email and EPUB are
   unsupported on Windows, or that the server converts inside its own process there.
+- **PDF text**: a character the font's ToUnicode map gives as U+FFFD is read from pdfium when both readers read its
+  whole row alike — every character in the same place, every decoded one the same — and otherwise stays U+FFFD; page
+  and figure numbers in old-style figures came out as '�07' and 'Figure 11.1�'.
+- **PDF tables**: shading drawn inside a cell in the cell's own colour (Word shades a paragraph per line) no longer
+  splits a header cell into rows and repeats the others. The bars of a vector bar chart, a figure label set in a box
+  beside its title ('Diagram 4') and a displayed formula are no longer tables. The first level of a two-level header
+  drawn without a top border stays in its table.
 
 ## [0.3.14] - 2026-11-19
 

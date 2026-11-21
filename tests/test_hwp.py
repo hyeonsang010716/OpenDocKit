@@ -447,6 +447,75 @@ def _section_definition(outline_numbering_id: int) -> bytes:
     return builder.hwp_ctrl("secd")[:4] + struct.pack("<IhHHIH", 0, 0, 0, 0, 8000, outline_numbering_id) + b"\x00" * 16
 
 
+class TestNumberingLevelsEightToTen:
+    """Hangul 5.1 numbers to level 10: a NUMBERING record carries levels 8-10 after the per-level start numbers, and a paragraph
+    shape keeps levels 8-10 in the UINT32 at byte 54, its 3-bit level stopping at 6. Both were read only to level 7, so the
+    paragraphs of levels 8-10 came out with the numbers of level 7 (`②③④` where the HWPX save of a Hancom file numbered to
+    level 10 has `㉮`). The number shapes are 5 bits (15 갑을병, 16 甲乙丙)."""
+
+    @staticmethod
+    def _docinfo() -> bytes:
+        record = builder.hwp_record
+        levels = [("^1.", 0)] * 7 + [("^8)", 15), ("^9.", 16), ("(^10)", 0)]
+        payload = b"".join(struct.pack("<IhhIH", shape << 5, 0, 0, 0, len(template)) + template.encode("utf-16-le")
+                           for template, shape in levels[:7])
+        payload += struct.pack("<H7I", 1, *[1] * 7)
+        payload += b"".join(struct.pack("<IhhIH", shape << 5, 0, 0, 0, len(template)) + template.encode("utf-16-le")
+                            for template, shape in levels[7:])
+        payload += struct.pack("<3I", 1, 1, 1)
+        shapes = [_para_shape(), _para_shape(2, 0, 1)] + [_para_shape(2, 6, 1) + struct.pack("<I", tail) for tail in (7, 8, 9)]
+        return record(TAG_NUMBERING, 0, payload) + b"".join(record(TAG_PARA_SHAPE, 0, shape) for shape in shapes)
+
+    def test_paragraphs_of_levels_eight_to_ten_take_their_numbers(self, monkeypatch):
+        record = builder.hwp_record
+        section = b"".join(record(TAG_PARA_HEADER, 0, _para_header(shape)) + record(TAG_PARA_TEXT, 1, builder.hwp_text(text))
+                           for shape, text in ((1, "하나"), (2, "여덟"), (3, "아홉"), (4, "열"), (2, "다시")))
+
+        lines = convert(_fake_hwp(monkeypatch, sections=[section], docinfo_extra=self._docinfo()), "a.hwp").text.splitlines()
+
+        assert [line.strip() for line in lines] == ["1. 하나", "- 갑) 여덟", "- 甲. 아홉", "- (1) 열", "- 을) 다시"]
+
+    @pytest.mark.parametrize(("level", "tail"), [(1, 5), (6, 12), (6, 3)], ids=["shallower level", "past level 10", "below 8"])
+    def test_a_shallower_level_keeps_the_level_of_its_attribute(self, monkeypatch, level, tail):
+        """The UINT32 at byte 54 is read only where the 3 bits of the attribute stop (6), and only a level 7-9 from it: taking the
+        larger of the two would move a paragraph of any level deeper by whatever that field holds."""
+        record = builder.hwp_record
+
+        def text(shape: bytes) -> str:
+            numbering = record(TAG_NUMBERING, 0, self._docinfo_numbering())
+            docinfo = numbering + b"".join(record(TAG_PARA_SHAPE, 0, each) for each in (_para_shape(), shape))
+            section = b"".join(record(TAG_PARA_HEADER, 0, _para_header(1)) + record(TAG_PARA_TEXT, 1, builder.hwp_text(word))
+                               for word in ("가", "나"))
+            return convert(_fake_hwp(monkeypatch, sections=[section], docinfo_extra=docinfo), "a.hwp").text
+
+        assert text(_para_shape(2, level, 1) + struct.pack("<I", tail)) == text(_para_shape(2, level, 1))
+
+    @staticmethod
+    def _docinfo_numbering() -> bytes:
+        """A NUMBERING record of ten levels, each written `(level n)` so the level a paragraph took shows."""
+        payload = b"".join(struct.pack("<IhhIH", 0, 0, 0, 0, len(template)) + template.encode("utf-16-le")
+                           for template in [f"L{n}:^{n}" for n in range(1, 8)])
+        payload += struct.pack("<H7I", 1, *[1] * 7)
+        payload += b"".join(struct.pack("<IhhIH", 0, 0, 0, 0, len(template)) + template.encode("utf-16-le")
+                            for template in [f"L{n}:^{n}" for n in range(8, 11)])
+        return payload + struct.pack("<3I", 1, 1, 1)
+
+    def test_record_without_levels_eight_to_ten_keeps_seven(self):
+        from opendockit.extractors.hwp import _numbering_levels
+
+        assert len(_numbering_levels(_numbering(("^1.", 0)))) == 7
+        assert len(_numbering_levels(_numbering(("^1.", 0)) + b"\x05\x00")) == 7   # a broken tail is left out
+
+    @pytest.mark.parametrize(("shape", "values", "expected"), [
+        ("DECAGON_CIRCLE", (1, 2, 10, 11), ["갑", "을", "계", "11"]),
+        ("DECAGON_CIRCLE_HANJA", (1, 3, 10), ["甲", "丙", "癸"]),
+    ])
+    def test_heavenly_stem_shapes(self, shape, values, expected):
+        from opendockit.extractors._lists import format_number
+
+        assert [format_number(value, shape) for value in values] == expected
+
+
 class TestParagraphNumbering:
     """Hangul paragraph numbers and bullets are a paragraph shape (PARA_SHAPE → NUMBERING/BULLET), not characters. They were not
     read, so "1." "가." were dropped. Lower-level numbers take the `list_item_prefix` form ('  - 가. ',
@@ -532,6 +601,24 @@ class TestHwpObjects:
         assert len(result.images) == 1
 
 
+class TestSoftHyphen:
+    """HWP code 24 and HWPX hp:hypen are a soft hyphen, drawn only at a line break inside the word. Hancom's PDF of
+    `Multilingual Word<hyphen>processor` reads `Wordprocessor`; written as `-`, HWP gave `Word-processor`, another word than
+    the HWPX save of the same document."""
+
+    def test_hwp_soft_hyphen_is_left_out(self, monkeypatch):
+        text = "Word".encode("utf-16-le") + struct.pack("<H", 24) + builder.hwp_text("processor")
+        section = builder.hwp_record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + builder.hwp_record(TAG_PARA_TEXT, 1, text)
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "Wordprocessor"
+
+    @pytest.mark.parametrize("element", ["hypen", "hyphen"])
+    def test_hwpx_soft_hyphen_is_left_out(self, element):
+        body = f"<hp:p><hp:run><hp:t>Word<hp:{element}/>processor</hp:t></hp:run></hp:p>"
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "Wordprocessor"
+
+
 class TestDutmal:
     """With dutmal (a small annotation above or below characters) even the main text is inside the control, not in the paragraph
     text, so the main text was dropped along with it."""
@@ -606,6 +693,91 @@ class TestComposedCharacters:
 
         assert result.text == "제12조"
 
+    @staticmethod
+    def _tcps(text: str, border: int) -> bytes:
+        units = text.encode("utf-16-le")
+        return "tcps"[::-1].encode("latin-1") + struct.pack("<H", len(units) // 2) + units + bytes([border, 0xfd, 0, 0x0a]) + b"\xff" * 40
+
+    def _hwp(self, monkeypatch, *controls: bytes) -> str:
+        record = builder.hwp_record
+        section = b"".join([record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
+                            record(TAG_PARA_TEXT, 1, builder.hwp_text(*[part for _ in controls for part in ((23, "tcps"), " ")])),
+                            *[record(TAG_CTRL_HEADER, 1, control) for control in controls]])
+        return convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text
+
+    @pytest.mark.parametrize(("text", "border"), [
+        ("\U000f0289\U000f0294", 1),              # 12 in a circle: the private-use pieces of a tens 1 and a ones 2
+        ("\U000f029d\U000f02a8", 2),              # in a reversed circle
+        ("\U000f02ba\U000f02c5", 3),              # in a box
+        ("\U000f02d7\U000f02e2", 4),              # in a reversed box
+        ("\U000f02ba\U000f02c5", 0),              # the pieces of a box, with no border kind
+        ("\ua2ba\ua2c5", 3),                      # the same written as HWP 5 units 0xA000 | X
+        ("\u25ef\U000f0289\U000f0294", 1),      # behind the frame glyph of its border kind
+    ])
+    def test_hwp_number_in_a_frame_is_its_digits(self, monkeypatch, text, border):
+        """Hangul writes a two- or three-digit number in a frame as private-use pieces of its digits; the HWPX save of the same
+        document holds the digits in composeText."""
+        assert self._hwp(monkeypatch, self._tcps(text, border)) == "12"
+
+    @pytest.mark.parametrize(("text", "expected"), [
+        ("\U000f0289", "①"),               # one piece is a symbol of its own (`_hancom_symbols`)
+        ("\U000f0289\U000f028a", "①②"),   # two pieces of the tens place are no number: each is its symbol
+        ("\U000f0289가", "①가"),            # a piece among letters
+    ])
+    def test_hwp_pieces_that_are_no_framed_number(self, monkeypatch, text, expected):
+        assert self._hwp(monkeypatch, self._tcps(text, 0)) == expected
+
+    def test_hwp_three_digit_number_in_a_circle(self, monkeypatch):
+        assert self._hwp(monkeypatch, self._tcps("\U000f0491\U000f049c\U000f04a7", 1)) == "123"
+
+    @pytest.mark.parametrize(("frame", "border"), [("◯", 1), ("●", 2), ("□", 3), ("■", 4), ("△", 5), ("▲", 6), ("☼", 7),
+                                                   ("◇", 8), ("◆", 9), ("▢", 10), ("♲", 11), ("♺", 12), ("♻", 13)])
+    def test_hwp_frame_glyph_of_the_border_kind_is_left_out(self, monkeypatch, frame, border):
+        """HWP writes the frame first (`△12`, `◯가`); HWPX keeps it as circleType and writes `12`, `가`. Matched on a Hancom file
+        holding every border kind in both formats."""
+        assert self._hwp(monkeypatch, self._tcps(f"{frame}가나", border)) == "가나"
+
+    def test_hwp_glyph_that_is_not_the_frame_of_the_border_kind_stays(self, monkeypatch):
+        assert self._hwp(monkeypatch, self._tcps("△가", 1), self._tcps("한글", 0), self._tcps("◯", 1)) == "△가 한글 ◯"
+
+    def test_hwpx_number_in_a_frame_is_its_digits(self):
+        body = ('<hp:p><hp:run><hp:compose circleType="SHAPE_RECTANGLE" composeText="&#xF02BA;&#xF02C3;"/>'
+                "<hp:t> 공공부문</hp:t></hp:run></hp:p>")
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "10 공공부문"
+
+
+class TestHancomSymbols:
+    """Hangul writes its own symbols as plane-15 private-use characters (HWPX U+F0000 | X, HWP 5 also the unit 0xA000 | X), which
+    the cleaning removed: the seal mark `(인)` of a form, boxed numbers, bullets and book brackets were lost, and HWP 5 units like
+    0xA832 came out as letters of another script. The symbols whose meaning Hancom's PDFs show are written out."""
+
+    def _hwp(self, monkeypatch, text: str) -> str:
+        section = (builder.hwp_record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + builder.hwp_record(TAG_PARA_TEXT, 1, builder.hwp_text(text)))
+        return convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text
+
+    def test_hwp_symbols_are_written_out(self, monkeypatch):
+        text = "신청인 : 홍길동 \U000f012b \U000f0854한성순보\U000f0855 \U000f02b1 항목 \U000f03c5 확인"
+
+        assert self._hwp(monkeypatch, text) == "신청인 : 홍길동 (인) 『한성순보』 ① 항목 □ 확인"
+
+    def test_hwp_5_units_of_hancom_symbols_are_written_out(self, monkeypatch):
+        assert self._hwp(monkeypatch, "기증자 : \ua12b \ua2b1 \ua2b2") == "기증자 : (인) ① ②"
+
+    def test_letters_of_the_yi_and_syloti_nagri_blocks_that_are_no_hancom_symbol_stay(self, monkeypatch):
+        """Hangul keeps U+A813 as it is in an English word set in Malgun Gothic; only the measured units are symbols."""
+        assert self._hwp(monkeypatch, "spectro\ua813scopy \ua000") == "spectro\ua813scopy \ua000"
+
+    def test_line_pieces_and_unknown_symbols_are_left_out(self, monkeypatch):
+        """Rule and box pieces (`\U000f080f` drawn as a rule, `\ua832` a double rule) and symbols whose meaning is not known."""
+        assert self._hwp(monkeypatch, "제목\U000f080f\U000f080f \ua832\ua832 끝\U000f03e0") == "제목 끝"
+
+    def test_hwpx_symbols_are_written_out(self):
+        body = "<hp:p><hp:run><hp:t>&#xF0854;조선 상고사&#xF0855; &#xF012B; &#xF080F;&#xF080F;</hp:t></hp:run></hp:p>"
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "『조선 상고사』 (인)"
+
 
 class TestHwpxFormObjects:
     """HWPX form objects (check box, radio button, combo box, edit box) keep their values in element attributes and children, so
@@ -629,6 +801,178 @@ class TestHwpxFormObjects:
         result = convert(builder.hwpx_bytes(body), "a.hwpx")
 
         assert result.text == "동의: ☒ 개인정보 수집 ☐ 마케팅 수신\n\n성별: ☐ 남 ☒ 여\n\n부서: 인사팀 사번: 1234"
+
+
+def _form_properties(caption: str = "", value: int | None = None, text: str | None = None) -> str:
+    """The properties string of an HWP form object, as Hangul writes it (`name:type:value` items, sets and wstrings by length)."""
+    common = "Name:wstring:8:CheckBox ForeColor:int:0 GroupName:wstring:0: TabOrder:int:2 Enabled:bool:1 "
+    items = f"CommonSet:set:{len(common)}:{common} "
+    if text is not None:
+        edit = f"Text:wstring:{len(text)}:{text} MultiLine:bool:0 AlignText:int:0 "
+        items += f"EditSet:set:{len(edit)}:{edit} "
+    else:
+        button = f"Caption:wstring:{len(caption)}:{caption} " + (f"Value:int:{value} " if value is not None else "")
+        items += f"ButtonSet:set:{len(button)}:{button} "
+    return items
+
+
+def _hwp_form(level: int, kind: bytes, properties: str) -> bytes:
+    """The `form` CTRL_HEADER of a paragraph at `level - 1` and its FORM_OBJECT record (kind twice, UINT32, WORD length, WCHARs)."""
+    from opendockit.extractors.hwp import TAG_FORM_OBJECT
+    body = kind * 2 + struct.pack("<I", len(properties)) + struct.pack("<H", len(properties)) + properties.encode("utf-16-le")
+    return builder.hwp_record(TAG_CTRL_HEADER, level, builder.hwp_ctrl("form")) + builder.hwp_record(TAG_FORM_OBJECT, level + 1, body)
+
+
+def _hwp_ole_storage(streams: dict[str, bytes]) -> bytes:
+    """The BinData stream of an HWP OLE object: a UINT32 size and an OLE container of `streams`."""
+    container = builder.ole_file(streams)
+    return struct.pack("<I", len(container)) + container
+
+
+def _hwp_with_ole_objects(monkeypatch, bins: dict[int, bytes], *objects: int, text: str = "매출 현황:") -> bytes:
+    """An HWP whose first paragraph holds one drawing object (gso) per BinItem ID in `objects`, each an OLE object
+    (SHAPE_COMPONENT_OLE: attribute, extent, BinItem ID); `bins` are the BinData streams, as STORAGE items (kind 2) of DocInfo."""
+    record = builder.hwp_record
+    docinfo = b"".join(record(TAG_BIN_DATA, 0, struct.pack("<HHH", 0x2, item, 3) + "OLE".encode("utf-16-le"))
+                       for item in range(1, max(bins) + 1))
+    section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+               + record(TAG_PARA_TEXT, 1, builder.hwp_text(text, *[(11, "gso ")] * len(objects)))
+               + b"".join(record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("gso "))
+                          + record(TAG_SHAPE_OLE, 2, struct.pack("<IiiH", 1, 7200, 7200, item) + b"\x00" * 16) for item in objects))
+    extra = {f"BinData/BIN{item:04X}.OLE": data for item, data in bins.items()}
+    return _fake_hwp(monkeypatch, sections=[section], docinfo_extra=docinfo, extra=extra)
+
+
+class TestHwpCharts:
+    """A Hangul chart is an OLE object whose BinData stream holds an OLE container with the chart as OOXML XML in its
+    `OOXMLChartContents` stream, the same part the HWPX save of the document keeps as Chart/chart1.xml. HWP gave `[OLE object]`
+    and a warning where HWPX gave the chart's values; in 92 public Hangul files saved both ways, the two now give the same text."""
+
+    _CHART = {"OOXMLChartContents": _CHART_XML.encode(), "Contents": b"\x00" * 64}
+
+    def test_chart_values_are_kept(self, monkeypatch):
+        result = convert(_hwp_with_ole_objects(monkeypatch, {1: _hwp_ole_storage(self._CHART)}, 1), "a.hwp")
+
+        assert result.text == "매출 현황:\n\n[Chart] 판매\n\n| Category | 판매량 |\n| --- | --- |\n| 1월 | 5 |\n| 2월 | 7 |"
+        assert result.warnings == []
+
+    def test_chart_referenced_again_gives_its_title_line(self, monkeypatch):
+        result = convert(_hwp_with_ole_objects(monkeypatch, {1: _hwp_ole_storage(self._CHART)}, 1, 1), "a.hwp")
+
+        assert result.text.count("| 1월 | 5 |") == 1
+        assert result.text.endswith("\n\n[Chart] 판매")
+
+    @pytest.mark.parametrize("data", [
+        _hwp_ole_storage({"Workbook": b"\x09\x08" + b"\x00" * 30}),       # a pasted sheet, not a chart
+        _hwp_ole_storage({"OOXMLChartContents": b"<not xml"}),
+        _hwp_ole_storage({"OOXMLChartContents": b"<a/>"}),
+        struct.pack("<I", 9999) + b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 40,  # a broken container
+        b"\x01\x02",
+        # a mini sector shift of 200: olefile raised OverflowError, and the document failed that converted before
+        (lambda data: data[:36] + struct.pack("<H", 200) + data[38:])(_hwp_ole_storage({"OOXMLChartContents": _CHART_XML.encode()})),
+    ], ids=["workbook", "broken xml", "other xml", "broken container", "too short", "huge mini sector shift"])
+    def test_ole_object_that_is_no_chart_stays_a_placeholder(self, monkeypatch, data):
+        result = convert(_hwp_with_ole_objects(monkeypatch, {1: data}, 1), "a.hwp")
+
+        assert result.text == "매출 현황: [OLE object]"
+        assert result.warnings == ["The contents of 1 OLE object(s) (pasted tables, charts, etc.) could not be converted."]
+
+    def test_object_referenced_many_times_is_read_once(self, monkeypatch):
+        """What an object is, a chart or not, is kept: opened and parsed again at each reference, 2,000 references to one object
+        of 300,000 empty elements took 28 s."""
+        from opendockit.extractors import hwp
+
+        calls = []
+        original = hwp._chart_part
+        monkeypatch.setattr(hwp, "_chart_part", lambda data: calls.append(1) or original(data))
+        data = _hwp_with_ole_objects(monkeypatch, {1: _hwp_ole_storage({"OOXMLChartContents": b"<a>" + b"<b/>" * 1000 + b"</a>"}),
+                                                   2: _hwp_ole_storage(self._CHART)}, *[1, 2] * 50)
+
+        result = convert(data, "a.hwp")
+
+        assert len(calls) == 2
+        assert result.text.count("[OLE object]") == 50 and result.text.count("[Chart] 판매") == 50
+
+    def test_large_ole_object_does_not_make_the_document_too_large(self, monkeypatch):
+        """An OLE object is read only to look for a chart, under a budget of its own: a pasted sheet of 3 MB made a document fail
+        as too large under `max_uncompressed_bytes` of 2 MB, which it never read before."""
+        record = builder.hwp_record
+        sheet = _hwp_ole_storage({"Workbook": bytes(3_000_000)})
+        stored = zlib.compress(sheet)[2:-4]
+        docinfo = record(TAG_BIN_DATA, 0, struct.pack("<HHH", 0x2 | 1 << 4, 1, 3) + "OLE".encode("utf-16-le"))
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 1, builder.hwp_text("표:", (11, "gso ")))
+                   + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("gso "))
+                   + record(TAG_SHAPE_OLE, 2, struct.pack("<IiiH", 1, 7200, 7200, 1) + b"\x00" * 16))
+        second = record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("둘째"))
+        data = _fake_hwp(monkeypatch, sections=[section, second], docinfo_extra=docinfo, extra={"BinData/BIN0001.OLE": stored})
+
+        result = convert(data, "a.hwp", ConvertOptions(max_uncompressed_bytes=2_000_000))
+
+        # The section read after the object is within the document's budget: charged to it, the object made it too large
+        assert result.text == "표: [OLE object]\n\n둘째"
+
+    def test_bin_items_of_each_kind_name_their_stream(self):
+        """Pictures are read from EMBEDDING items only and OLE objects from STORAGE items only: a picture record pointing at an
+        OLE object gave the picture decoder its container."""
+        from opendockit.extractors.hwp import parse_bin_items
+
+        records = [builder.hwp_record(TAG_BIN_DATA, 0, struct.pack("<HHH", kind, 1, 3) + "OLE".encode("utf-16-le")) for kind in (0, 1, 2)]
+        doc_info = parse_records(b"".join(records))
+
+        assert parse_bin_items(doc_info) == [(None, None), ("BinData/BIN0001.OLE", None), (None, None)]
+        assert parse_bin_items(doc_info, 2) == [(None, None), (None, None), ("BinData/BIN0001.OLE", None)]
+
+
+class TestHwpFormObjects:
+    """HWP form objects keep their value in the properties string of the FORM_OBJECT record, and were not read: a form of nothing
+    but form objects gave only its preview text. They are read as in HWPX (`TestHwpxFormObjects`); the kinds and values were
+    matched against the HWPX save of the same Hangul document (check box `Value:int:1` is value="CHECKED")."""
+
+    def _paragraph(self, text: str, *forms: tuple[bytes, str]) -> bytes:
+        record = builder.hwp_record
+        return (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                + record(TAG_PARA_TEXT, 1, builder.hwp_text(text, *[(11, "form")] * len(forms)))
+                + b"".join(_hwp_form(1, kind, properties) for kind, properties in forms))
+
+    def test_check_boxes_radio_buttons_and_values_are_kept(self, monkeypatch):
+        section = (self._paragraph("동의:", (b"tbc+", _form_properties("개인정보 수집", 1)), (b"tbc+", _form_properties("마케팅 수신", 0)))
+                   + self._paragraph("성별:", (b"tbr+", _form_properties("남", 0)), (b"tbr+", _form_properties("여", 1)),
+                                     (b"tbp+", _form_properties("제출")))
+                   + self._paragraph("사번:", (b"tde+", _form_properties(text="1234: 가나 다")), (b"boc+", _form_properties(text=""))))
+
+        result = convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp")
+
+        assert result.text == "동의: ☒ 개인정보 수집 ☐ 마케팅 수신\n\n성별: ☐ 남 ☒ 여\n\n사번: 1234: 가나 다"
+
+    def test_double_ampersand_of_a_caption_is_one(self, monkeypatch):
+        """Hancom's PDF of a real form shows the caption `R&&D 자율성트랙(일반)` as `R&D 자율성트랙(일반)`, in HWP and HWPX alike."""
+        section = self._paragraph("트랙:", (b"tbc+", _form_properties("R&&D 자율성트랙(일반)", 1)))
+        hwpx = builder.hwpx_bytes('<hp:p><hp:run><hp:t>트랙:</hp:t><hp:checkBtn caption="R&amp;&amp;D 자율성트랙(일반)" '
+                                  'value="CHECKED" name="x"/></hp:run></hp:p>')
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "트랙: ☒ R&D 자율성트랙(일반)"
+        assert convert(hwpx, "a.hwpx").text == "트랙: ☒ R&D 자율성트랙(일반)"
+
+    def test_text_is_taken_by_its_length_and_names_are_whole(self):
+        """A wstring value may hold spaces and colons; `AlignText` is not `Text`."""
+        from opendockit.extractors.hwp import _form_properties as properties
+
+        assert properties("EditSet:set:41:Text:wstring:10:a b:c Text AlignText:int:3 ") == {"Text": "a b:c Text", "AlignText": "3"}
+
+    @pytest.mark.parametrize("broken", ["", "Caption", "Caption:wstring", "Caption:wstring:x:abc", "Caption:wstring:99:short",
+                                        "a:set:-1:b:int:2", ":::"])
+    def test_broken_properties_do_not_fail(self, broken):
+        from opendockit.extractors.hwp import _form_properties as properties
+
+        assert isinstance(properties(broken), dict)
+
+    def test_broken_form_record_gives_nothing(self, monkeypatch):
+        record = builder.hwp_record
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("앞", (11, "form")))
+                   + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("form")) + record(0x10 + 75, 2, b"tbc+tb"))
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "앞"
 
 
 class TestHwpxTrackChanges:
@@ -1056,6 +1400,19 @@ class TestPreviewFallback:
         assert result.text == ""
         assert result.warnings == ["No text was extracted."]
 
+    @pytest.mark.parametrize("preview", ["<.<><><>\r\n<><><><>\r\n<><><><><><> >\r\n", "<->\r\n<·><>"])
+    def test_preview_of_marks_and_punctuation_only_is_not_used(self, monkeypatch, preview):
+        """Empty tables with a `.` in a text box: the preview had the `.` between the cell marks and became the body."""
+        empty = builder.hwp_record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+        hwp = _fake_hwp(monkeypatch, sections=[empty], preview=preview)
+        hwpx = builder.zip_with(builder.hwpx_bytes("<hp:p><hp:run/></hp:p>"), add={"Preview/PrvText.txt": preview})
+
+        for data, name in ((hwp, "a.hwp"), (hwpx, "a.hwpx")):
+            result = convert(data, name)
+
+            assert result.text == ""
+            assert result.warnings == ["No text was extracted."]
+
     def test_hwp_distribution_document_with_preview_of_empty_cells_only_raises(self, monkeypatch):
         data = _fake_hwp(monkeypatch, flags=0b100, preview="<>\r\n<>")
 
@@ -1080,9 +1437,11 @@ class TestPreviewFallback:
 
 
 class TestMemo:
-    """Comments (review remarks): HWPX puts them at the end of the document as `> Comment(author, on "range"): text` lines, like
-    DOCX and PPTX (comments were dropped without a warning, so review remarks could not be seen). The commented text stays in the
-    body as is. Comments in binary HWP are not read because there is no evidence for their structure (known accepted gap)."""
+    """Comments (review remarks): HWP and HWPX put them at the end of the document as `> Comment(author, on "range"): text` lines,
+    like DOCX and PPTX (comments were dropped without a warning, so review remarks could not be seen). The commented text stays in
+    the body as is. In HWP the range is a field whose command is `MEMO/<shape>/<number>/<time>/<time>/<author>/`, and the text a
+    MEMO_LIST record with that number among the children of a paragraph, followed by its paragraphs (Hancom files saved both ways
+    give the same comment lines)."""
 
     def test_hwpx_memo_is_written_after_the_body_with_its_target_text(self):
         body = ('<hp:p><hp:run><hp:t>운영체제: </hp:t><hp:ctrl><hp:fieldBegin id="1" type="MEMO"><hp:parameters cnt="1">'
@@ -1143,8 +1502,7 @@ class TestMemo:
 
     def test_hwp_paragraphs_under_a_memo_field_control_are_left_out(self, monkeypatch):
         """HWP reads only the inner paragraphs of the controls it knows how to read (table, text box, footnote, header). Paragraphs
-        under a comment field (`%%me`) are not read either (known accepted gap: there is no sample or specification evidence for
-        where the comment text of binary HWP lives)."""
+        under a field control are not read either: a comment's text is not there but in its MEMO_LIST (`test_hwp_memo_...`)."""
         record = builder.hwp_record
         section = b"".join([
             record(TAG_PARA_HEADER, 0, builder.hwp_para_header()),
@@ -1159,6 +1517,106 @@ class TestMemo:
         result = convert(data, "a.hwp")
 
         assert result.text == "운영체제: Ubuntu 22.04 LTS"
+
+
+def _hwp_memo_document(monkeypatch, memos: list[tuple[int, str, str]], texts: dict[int, str], body: str = "운영체제: ",
+                       after: str = " LTS") -> bytes:
+    """An HWP of one paragraph holding a comment field per (number, author, range text) in `memos`, and the comment text of each
+    number in `texts` under a last paragraph (MEMO_LIST, LIST_HEADER, paragraph), as Hangul saves them."""
+    from opendockit.extractors.hwp import TAG_MEMO_LIST
+    record = builder.hwp_record
+    parts: list = [body]
+    controls = b""
+    for number, author, target in memos:
+        parts += [(3, "%unk"), target, (4, "%unk")]
+        controls += record(TAG_CTRL_HEADER, 1, _hwp_field("%unk", f"MEMO/65535/{number}/1112218336/31288509/{author}/\\;;"))
+    parts.append(after)
+    last = record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("끝"))
+    for number, text in texts.items():
+        last += (record(TAG_MEMO_LIST, 1, struct.pack("<I", number)) + record(TAG_LIST_HEADER, 1, b"\x01\x00" + b"\x00" * 6)
+                 + record(TAG_PARA_HEADER, 1, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 2, builder.hwp_text(text)))
+    section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text(*parts))
+               + controls + last)
+    return _fake_hwp(monkeypatch, sections=[section])
+
+
+class TestHwpMemo:
+    def test_hwp_memo_is_written_after_the_body_with_its_target_text(self, monkeypatch):
+        data = _hwp_memo_document(monkeypatch, [(1, "검토자", "Ubuntu 22.04")], {1: "상세 버전 정보 부탁드립니다."})
+
+        result = convert(data, "a.hwp")
+
+        assert result.text == '운영체제: Ubuntu 22.04 LTS\n\n끝\n\n> Comment(검토자, on "Ubuntu 22.04"): 상세 버전 정보 부탁드립니다.'
+
+    def test_hwp_memos_follow_their_fields_and_texts_their_numbers(self, monkeypatch):
+        """Hangul writes the MEMO_LIST records in the order of the fields, and a reply is a memo of its own on the same range."""
+        data = _hwp_memo_document(monkeypatch, [(1, "kkomi", "모를 답"), (5, "kkomi", "모를 답"), (2, "", "니다")],
+                                  {5: "댓글입니다.", 1: "첫 메모", 2: "둘째"})
+
+        lines = convert(data, "a.hwp").text.splitlines()[-3:]
+
+        assert lines == ['> Comment(kkomi, on "모를 답"): 첫 메모', '> Comment(kkomi, on "모를 답"): 댓글입니다.',
+                         '> Comment(on "니다"): 둘째']
+
+    def test_hwp_memo_without_text_writes_nothing(self, monkeypatch):
+        data = _hwp_memo_document(monkeypatch, [(1, "검토자", "Ubuntu 22.04"), (9, "검토자", " LTS")], {1: "확인"}, after="")
+
+        assert convert(data, "a.hwp").text.endswith('> Comment(검토자, on "Ubuntu 22.04"): 확인')
+
+    def test_link_in_the_text_of_a_comment_is_plain(self, monkeypatch):
+        """The text of a comment is plain, as in HWPX and DOCX."""
+        from opendockit.extractors.hwp import TAG_MEMO_LIST
+        record = builder.hwp_record
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 1, builder.hwp_text("가", (3, "%unk"), "B", (4, "%unk")))
+                   + record(TAG_CTRL_HEADER, 1, _hwp_field("%unk", "MEMO/65535/1/0/0/a/\\;;"))
+                   + record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("끝"))
+                   + record(TAG_MEMO_LIST, 1, struct.pack("<I", 1)) + record(TAG_LIST_HEADER, 1, b"\x01\x00" + b"\x00" * 6)
+                   + record(TAG_PARA_HEADER, 1, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 2, builder.hwp_text("see ", (3, "%hlk"), "site", (4, "%hlk")))
+                   + record(TAG_CTRL_HEADER, 2, _hwp_field("%hlk", "https\\://x.org/;1;0;0;")))
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text.endswith('> Comment(a, on "B"): see site')
+
+    def test_comment_of_a_repeated_header_is_written_once(self):
+        header = ('<hp:ctrl><hp:header><hp:subList><hp:p><hp:run><hp:ctrl><hp:fieldBegin id="1" type="MEMO"><hp:parameters cnt="1">'
+                  '<hp:stringParam name="Author">hdr</hp:stringParam></hp:parameters><hp:subList><hp:p><hp:run><hp:t>h</hp:t>'
+                  '</hp:run></hp:p></hp:subList></hp:fieldBegin></hp:ctrl><hp:t>Form</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="1"/>'
+                  "</hp:ctrl></hp:run></hp:p></hp:subList></hp:header></hp:ctrl>")
+        body = f"<hp:p><hp:run>{header}<hp:t>첫</hp:t></hp:run></hp:p><hp:p><hp:run>{header}<hp:t>둘</hp:t></hp:run></hp:p>"
+
+        for options in (ConvertOptions(), ConvertOptions(include_headers_footers=True)):
+            text = convert(builder.hwpx_bytes(body), "a.hwpx", options).text
+
+            assert text.count('> Comment(hdr, on "Form"): h') == 1
+
+    def test_comment_of_a_repeated_hwp_header_is_written_once(self, monkeypatch):
+        from opendockit.extractors.hwp import TAG_MEMO_LIST
+        record = builder.hwp_record
+
+        def section(body: str, *memo_text: str) -> bytes:
+            header = (record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("head")) + record(TAG_LIST_HEADER, 2, b"\x01\x00" + b"\x00" * 6)
+                      + record(TAG_PARA_HEADER, 2, builder.hwp_para_header())
+                      + record(TAG_PARA_TEXT, 3, builder.hwp_text((3, "%unk"), "Form", (4, "%unk")))
+                      + record(TAG_CTRL_HEADER, 3, _hwp_field("%unk", "MEMO/65535/1/0/0/hdr/\\;;")))
+            memos = b"".join(record(TAG_MEMO_LIST, 1, struct.pack("<I", 1)) + record(TAG_LIST_HEADER, 1, b"\x01\x00" + b"\x00" * 6)
+                             + record(TAG_PARA_HEADER, 1, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 2, builder.hwp_text(text))
+                             for text in memo_text)
+            return (record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text((16, "head"), body))
+                    + header + memos)
+
+        data = _fake_hwp(monkeypatch, sections=[section("첫", "h"), section("둘", "h")])
+
+        for options in (ConvertOptions(), ConvertOptions(include_headers_footers=True)):
+            assert convert(data, "a.hwp", options).text.count('> Comment(hdr, on "Form"): h') == 1
+
+    def test_field_with_another_command_is_no_memo(self, monkeypatch):
+        record = builder.hwp_record
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 1, builder.hwp_text("가", (3, "%unk"), "나", (4, "%unk")))
+                   + record(TAG_CTRL_HEADER, 1, _hwp_field("%unk", "MEMOS/1/2/3/4/a/")))
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "가나"
 
 
 def _hwpx_link(field_id: int, command: str, text: str) -> str:
@@ -1209,6 +1667,19 @@ class TestClickHereFields:
         ])
 
         assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "성명: 소속: 총무과"
+
+    def test_unfilled_guide_with_a_hancom_symbol_is_dropped(self, monkeypatch):
+        """The text of the field has its Hancom symbols written out; so has the guide it is compared with."""
+        guide = "\U000f012b 서명"
+        body = f"<hp:p><hp:run><hp:t>성명 </hp:t>{_hwpx_click_here(1, guide, guide)}</hp:run></hp:p>"
+        command = f"Clickhere:set:44:Direction:wstring:{len(guide.encode('utf-16-le')) // 2}:{guide} HelpState:wstring:0:  "
+        record = builder.hwp_record
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 1, builder.hwp_text("성명 ", (3, "%clk"), "\ua12b 서명", (4, "%clk")))
+                   + record(TAG_CTRL_HEADER, 1, _hwp_field("%clk", command.replace(guide, "\ua12b 서명"))))
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "성명"
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "성명"
 
     @staticmethod
     def _nested_hwpx(count: int, guide: str = "g") -> bytes:

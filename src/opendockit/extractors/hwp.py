@@ -18,25 +18,41 @@ import struct
 import sys
 import zlib
 
+from lxml import etree
 import olefile
 
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
+from opendockit.extractors._charts import embedded_table, render_chart
 from opendockit.extractors._equation import render_equation
+from opendockit.extractors._hancom_symbols import FRAME_GLYPHS, framed_number, hancom_symbols, unfold
 from opendockit.extractors._hangul import (
-    PREVIEW_CELL_MARKS,
+    CommentRanges,
     ParagraphPieces,
+    SizeHeadings,
     click_here_guide,
     command_link,
     decorated_text,
     drop_unfilled_guide,
+    emphasis_pieces,
+    form_caption,
+    header_by_default,
     link_end,
     link_start,
+    preview_has_words,
 )
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import NUMBER_SHAPES, BulletNesting, Numbering, NumberLevel, format_number
-from opendockit.extractors._notation import TableBudget, format_dutmal, note_table, omitted_rows_warning
+from opendockit.extractors._notation import (
+    TableBudget,
+    chars_left,
+    comment_line,
+    format_dutmal,
+    note_table,
+    omitted_rows_warning,
+)
 from opendockit.extractors._ole import OleFile, OleStreams
-from opendockit.markdown import TableGrid, join_blocks, solid_length
+from opendockit.extractors._package import decimal_int, parse_part
+from opendockit.markdown import TableGrid, join_blocks, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
@@ -59,6 +75,8 @@ TAG_PARA_CHAR_SHAPE = _HWPTAG_BEGIN + 52
 # agrees). The position was confirmed on real files through bold (bit 1) and the base size, and the script bits by comparing with the
 # HWPX twin (hh:supscript) of the same document (Pinned by: test_hwp.py::TestSuperscript).
 _CHAR_SHAPE_ATTRIBUTE_OFFSET = 46
+# The base size (INT32, in 1/100 pt) just before the attribute (`parse_char_sizes`)
+_CHAR_SHAPE_SIZE_OFFSET = 42
 _CHAR_SHAPE_SUPERSCRIPT, _CHAR_SHAPE_SUBSCRIPT = 1 << 15, 1 << 16
 # In the same table, bits 18-20 are the strikeout flag and bits 26-29 the strikeout shape (line type, in the order of spec table 27 =
 # hwplib BorderType2: 0 solid … 7 double … 10 thin+thick+thin, 11 and 12 wave, 13-16 3D). It counts as strikethrough only when the flag
@@ -78,6 +96,19 @@ TAG_EQEDIT = _HWPTAG_BEGIN + 72
 # OLE object (pasted Excel sheet or chart) inside a drawing object (gso). Its content is not read; only a placeholder is left.
 TAG_SHAPE_OLE = _HWPTAG_BEGIN + 68
 _OLE_MARK = "[OLE object]"
+# A chart is an OLE object whose BinData stream (after a UINT32 size) is an OLE container holding the chart as OOXML XML in the
+# `OOXMLChartContents` stream, the part HWPX keeps as Chart/chartN.xml (`HwpRenderer._ole_chart`)
+_OLE_CHART_STREAM = "OOXMLChartContents"
+# The UINT32 of a PARA_SHAPE that holds the paragraph's level 0-9 (`parse_paragraph_heads`)
+_PARA_SHAPE_LEVEL_OFFSET = 54
+# The level 6 (level 7) where the 3 bits of the attribute stop; only there is the UINT32 at byte 54 read, and only a level 7-9
+# (levels 8-10) from it, so a shape of a shallower level, or a value there that is no level, keeps the level of its attribute
+# (Pinned by: test_hwp.py::TestNumberingLevelsEightToTen::test_a_shallower_level_keeps_the_level_of_its_attribute)
+_LAST_ATTRIBUTE_LEVEL = 6
+# BIN_DATA kinds (low 4 bits of the attribute): a picture, an OLE object (`parse_bin_items`)
+_BIN_EMBEDDING, _BIN_STORAGE = 1, 2
+# The position of the BinItem ID in SHAPE_COMPONENT_OLE: attribute (4), extent (4 + 4)
+_OLE_BIN_ID_OFFSET = 12
 TAG_SHAPE_PICTURE = _HWPTAG_BEGIN + 69
 # Position of the BinItem ID in SHAPE_COMPONENT_PICTURE: border (12) + image rectangle (32) + crop (16) + inner margin (8) +
 # brightness, contrast and effect (3).
@@ -87,6 +118,16 @@ _PICTURE_BIN_ID_OFFSET = 71
 # (hwplib ForControlTextArt).
 # Line breaks are written as CR/LF or, as in HWPX, as control picture symbols (␍␊).
 TAG_SHAPE_TEXTART = _HWPTAG_BEGIN + 74
+# Form object (`form` control: check box, radio button, combo box, edit box, push button). Its kind is 4 characters (`tbc+`)
+# written twice, then a UINT32 and the properties as a string (WORD length + WCHARs) of `name:type:value` items: `set:N:` opens
+# a group of the next N characters, `wstring:N:` is followed by N characters of text, `int:`/`bool:` by a value up to the next
+# space (`_form_properties`)
+TAG_FORM_OBJECT = _HWPTAG_BEGIN + 75
+# A comment (memo): the field of its range has the command `MEMO/<shape>/<number>/<time>/<time>/<author>/…`; its text is a
+# MEMO_LIST record (UINT32 number) among the children of a paragraph, followed by a LIST_HEADER and its paragraphs
+# (`HwpRenderer._read_memos`)
+TAG_MEMO_LIST = _HWPTAG_BEGIN + 77
+_FORM_PROPERTIES_OFFSET = 12
 _TEXTART_TEXT_OFFSET = 32
 _TEXTART_BREAKS = re.compile("\r\n|\r|\n|␍␊|␍|␊")
 
@@ -94,7 +135,11 @@ _TEXTART_BREAKS = re.compile("\r\n|\r|\n|␍␊|␍|␊")
 # Only extended controls have a CTRL_HEADER record each, and their order within the paragraph equals the order of the CTRL_HEADER children.
 _EXTENDED_CONTROLS = {1, 2, 3, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23}
 _INLINE_CONTROLS = {4, 5, 6, 7, 8, 9, 19, 20}
-_CHAR_REPLACEMENTS = {9: "\t", 10: "\n", 24: "-", 30: " ", 31: " "}
+# Code 24 is a soft hyphen, drawn only where Hangul breaks a line inside the word: Hancom's own PDF of a document reads
+# `Wordprocessor` where the file holds `Word` 24 `processor`, and the HWPX Hangul saves of it holds `<hp:hypen/>` there. Written as
+# `-`, it made a different word, so it is dropped like the other char controls without a character (Pinned by:
+# test_hwp.py::TestSoftHyphen).
+_CHAR_REPLACEMENTS = {9: "\t", 10: "\n", 30: " ", 31: " "}
 # The inline control that ends a field (spec table 6). The field starts at an extended control (3) whose CTRL_HEADER names the
 # field (`%hlk` a hyperlink, `%%me` a comment, `%clk` a click-here field …). The end does not say which field it closes; it is
 # taken to close the last field opened.
@@ -210,17 +255,19 @@ def iter_records(stream: bytes, budget: _RecordBudget | None = None) -> Iterator
 # '가' 00 AC) are never taken for a control, and possessively, so it keeps no backtracking state however long the text is. The
 # char controls of one WCHAR stay in the text and are replaced after decoding (`_CHAR_CONTROLS`).
 _UP_TO_WIDE_CONTROL = re.compile(rb"(?:[^\x01-\x09\x0b\x0c\x0e-\x17].|.[^\x00])*+", re.DOTALL)
-# What the char controls (one WCHAR: 0, 10, 13 and 24-31) become in the text: a hyphen, a space, or nothing (a line break stays
+# What the char controls (one WCHAR: 0, 10, 13 and 24-31) become in the text: a space, or nothing (a line break stays
 # itself). Replaced with `str.replace`, one control at a time and only when the text holds one: `str.translate` goes character by
 # character on Hangul text, 40 times slower.
 _CHAR_CONTROLS = tuple((chr(unit), _CHAR_REPLACEMENTS.get(unit, "")) for unit in range(32)
                        if unit not in _EXTENDED_CONTROLS and unit not in _INLINE_CONTROLS and unit != 10)
 _CHAR_CONTROL_TEXT = re.compile("[" + "".join(control for control, _ in _CHAR_CONTROLS) + "]")
-# Characters that are nothing but char controls that are dropped (0, 13, 25-29).
-_DROPPED_CONTROLS_ONLY = re.compile(rb"(?:[\x00\x0d\x19-\x1d]\x00)*+")
-# Character shape runs of a paragraph: (start character position, (super/subscript mark, struck through or not)). Ascending by position,
-# and neighboring runs have different values.
-ShapeRuns = list[tuple[int, tuple[str | None, bool]]]
+# Characters that are nothing but char controls that are dropped (0, 13, 24-29).
+_DROPPED_CONTROLS_ONLY = re.compile(rb"(?:[\x00\x0d\x18-\x1d]\x00)*+")
+# Character shape runs of a paragraph: (start character position, (super/subscript mark, struck through or not, bold, italic)).
+# Ascending by position, and neighboring runs have different values.
+RunShape = tuple[str | None, bool, bool, bool]
+ShapeRuns = list[tuple[int, RunShape]]
+_PLAIN_RUN: RunShape = (None, False, False, False)
 
 
 def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> list[str | int]:
@@ -241,22 +288,24 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
     view = memoryview(payload)
     parts: list[str | int] = []
     pieces: list[bytes | memoryview] = []  # text being gathered now (UTF-16 bytes)
-    shape: tuple[str | None, bool] = (None, False)  # (script mark, struck through or not) of the text being gathered now
+    shape: RunShape = _PLAIN_RUN  # (script mark, struck through, bold, italic) of the text being gathered now
     runs = shape_runs or []
     run = -1  # index of the run covering the current position (-1 is before the first run)
 
     def flush() -> None:
         if pieces:
-            script, struck = shape
+            script, struck, bold, italic = shape
             decoded = b"".join(pieces).decode("utf-16-le", errors="replace")
             pieces.clear()
             if _CHAR_CONTROL_TEXT.search(decoded):
                 for control, replacement in _CHAR_CONTROLS:
                     if control in decoded:
                         decoded = decoded.replace(control, replacement)
+            # Hancom's own symbols (the seal mark, boxed numbers, bullets) as text (`_hancom_symbols`)
+            decoded = hancom_symbols(unfold(decoded))
             if decoded:  # nothing but controls that are dropped
                 decoded = mark_script(decoded, script) if script else decoded
-                parts.append(mark_strike(decoded) if struck else decoded)
+                parts.extend(emphasis_pieces(mark_strike(decoded) if struck else decoded, bold, italic))
 
     def add(start: int, stop: int, piece: bytes | None = None) -> None:
         """Gather the text at character positions [start, stop) (that one character if `piece` is given), split per run mark."""
@@ -264,7 +313,7 @@ def decode_para_text(payload: bytes, shape_runs: ShapeRuns | None = None) -> lis
         while start < stop:
             while run + 1 < len(runs) and runs[run + 1][0] <= start:
                 run += 1
-            wanted = runs[run][1] if run >= 0 else (None, False)
+            wanted = runs[run][1] if run >= 0 else _PLAIN_RUN
             end = min(stop, runs[run + 1][0]) if run + 1 < len(runs) else stop
             span = piece if piece is not None else view[2 * start:2 * end]
             if wanted != shape:
@@ -324,11 +373,25 @@ class _ClickHere:
     serial: int
 
 
+@dataclass(slots=True)
+class _Memo:
+    """A comment field opened in a paragraph: its key in `HwpRenderer._memo_ranges`."""
+
+    key: int
+
+
 class HwpRenderer:
     def __init__(self, styles: list[str], options: ConvertOptions, extraction: Extraction | None = None,
                  load_bin: Callable[[int], bytes | None] | None = None, heads: ParagraphHeads | None = None,
-                 scripts: dict[int, str] | None = None, struck: frozenset[int] = frozenset()) -> None:
+                 scripts: dict[int, str] | None = None, struck: frozenset[int] = frozenset(),
+                 sizes: list[int] | None = None, emphasis: dict[int, tuple[bool, bool]] | None = None) -> None:
         self._styles = styles
+        # Character shape ID → (bold, italic) for the shapes that have either (parse_char_emphasis; empty without `keep_emphasis`)
+        self._emphasis = emphasis or {}
+        # Character shape ID → base size (parse_char_sizes), and the headings told by size (`_hangul.SizeHeadings`; the body
+        # blocks go through `size_headings.resolve` once everything is read)
+        self._sizes = sizes or []
+        self.size_headings = SizeHeadings()
         # Character shape ID → super/subscript mark (parse_char_scripts), and the character shape IDs that are struck through
         # (parse_struck_shapes)
         self._scripts = scripts or {}
@@ -337,6 +400,10 @@ class HwpRenderer:
         # they were nested too deeply (`_MAX_NESTING`), and number of rows dropped by the table grid cell limit
         # (`TableGrid.omitted_rows`). Reported as warnings after everything is read.
         self.unread_ole = 0
+        # BinItem ID of a chart → the `[Chart] title` line later references to it give (`_ole_chart`)
+        self._charts: dict[int, str | None] = {}
+        # BinItem ID of an OLE object → its stream (`extract_hwp.load_ole`); None reads no OLE object
+        self.load_ole: Callable[[int], bytes | None] | None = None
         self.too_deep = 0
         self.omitted_rows = 0
         self._depth = 0
@@ -354,6 +421,7 @@ class HwpRenderer:
         self._note_count = 0
         self._cell_depth = 0
         self._note_depth = 0  # 1 or more while footnote/endnote text is rendered. A table inside it becomes one line (`note_table`)
+        self._plain_header = False  # while a header written without `include_headers_footers` is rendered (no headings)
         # Tables being rendered (an inner table is handed to the top-level table). None is a place where a table cannot be handed over
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
@@ -365,7 +433,13 @@ class HwpRenderer:
         self.footers: dict[str, None] = {}
         # The fields opened and not yet ended, innermost last: the address of a hyperlink that is kept, a click-here field
         # (`_ClickHere`), else None (`_start_field`)
-        self._fields: list[str | _ClickHere | None] = []
+        self._fields: list[str | _ClickHere | _Memo | None] = []
+        # Comments: (author, memo number, the pieces of its range) in the order of their fields; the text of each memo number
+        # (`_read_memos`); the ranges not yet closed; 1 or more while a comment's text is rendered
+        self.memos: list[tuple[str, int, list[str]]] = []
+        self._memo_texts: dict[int, str] = {}
+        self._memo_ranges = CommentRanges()
+        self._memo_depth = 0
         self._clicks_opened = 0  # click-here fields opened so far: one opened inside another is not its guide (`_start_field`)
 
     def render(self, records: list[Record]) -> list[str]:
@@ -406,18 +480,25 @@ class HwpRenderer:
         text_record = next((child for child in paragraph.children if child.tag == TAG_PARA_TEXT), None)
         controls = iter([child for child in paragraph.children if child.tag == TAG_CTRL_HEADER])
         parts = decode_para_text(text_record.payload, self._shape_runs(paragraph, len(text_record.payload) // 2)) if text_record else []
+        size_pairs = self._count_sizes(paragraph, text_record)
 
         # The head goes on the first text piece only, and a paragraph without text keeps its number (`_hangul.ParagraphPieces`).
-        pieces = ParagraphPieces(lambda text, plain: self._decorate(paragraph, text, plain))
+        pieces = ParagraphPieces(lambda text, plain, heading: self._decorate(paragraph, text, plain, heading, text_record, size_pairs))
         blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
+        if not self._memo_depth:
+            self._memo_ranges.add(" ")  # between paragraphs of a comment range that spans several paragraphs
 
         for part in parts:
             if isinstance(part, str):
                 buffer.append(part)
+                if not self._memo_depth:
+                    self._memo_ranges.add(part)
                 continue
             if part == FIELD_END:
                 field = self._fields.pop() if self._fields else None
-                if isinstance(field, _ClickHere):
+                if isinstance(field, _Memo):
+                    self._memo_ranges.close(field.key)
+                elif isinstance(field, _ClickHere):
                     if field.pieces is buffer and field.serial == self._clicks_opened:
                         drop_unfilled_guide(buffer, field.start, field.guide)
                 elif field is not None:
@@ -440,8 +521,9 @@ class HwpRenderer:
                 # Text art text is a separate block, like hp:textart in HWPX. It was not read and was dropped entirely (Pinned by:
                 # test_hwp_heads_and_shapes.py::
                 # TestHwpTextArt).
-                buffer.extend(self._object_markers(control))
-                inner = [*_text_arts(control), *self.render(control.children)]
+                markers, charts = self._object_markers(control)
+                buffer.extend(markers)
+                inner = [*charts, *_text_arts(control), *self.render(control.children)]
                 if inner:
                     flush()
                     blocks.extend(inner)
@@ -452,12 +534,48 @@ class HwpRenderer:
             elif kind == "tcps":
                 # Composed characters: the overlapped characters are also inside the control, so they were dropped
                 # (Pinned by: test_hwp.py::TestComposedCharacters).
-                buffer.extend(_control_strings(control, 1))
+                buffer.append(_composed_text(control))
             elif kind == "atno":
                 buffer.append(_auto_number(control))
+            elif kind == "form":
+                # Form objects: the value is in the properties of the FORM_OBJECT record and was dropped, and a form of nothing
+                # but form objects gave only its preview text (Pinned by: test_hwp.py::TestHwpFormObjects)
+                value = _form_value(control)
+                buffer.append(f" {value} " if value else "")
             elif kind.startswith("%"):
                 self._start_field(kind, control, buffer)
+        self._read_memos(paragraph)
         return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
+
+    def _read_memos(self, paragraph: Record) -> None:
+        """The text of the comments kept among the children of a paragraph (Hangul puts them under the last paragraph of the section):
+        a MEMO_LIST record with the memo number, then a LIST_HEADER and the comment's paragraphs, up to the next MEMO_LIST. The text is
+        the paragraphs on one line, rendered as the text of an HWPX comment is (`hwpx.HwpxRenderer._open_memo`); the first text of a
+        number is kept."""
+        if not any(child.tag == TAG_MEMO_LIST for child in paragraph.children):
+            return
+        groups: list[tuple[int, list[Record]]] = []
+        for child in paragraph.children:
+            if child.tag == TAG_MEMO_LIST:
+                groups.append((struct.unpack_from("<I", child.payload)[0] if len(child.payload) >= 4 else -1, []))
+            elif groups and child.tag == TAG_PARA_HEADER:
+                groups[-1][1].append(child)
+        for number, paragraphs in groups:
+            self._grids.append(None)
+            self._memo_depth += 1
+            try:
+                with self._own_numbering():
+                    text = " ".join(" ".join(block.split()) for block in self.render(paragraphs))
+            finally:
+                self._memo_depth -= 1
+                self._grids.pop()
+            self._memo_texts.setdefault(number, text)
+
+    def memo_lines(self) -> str:
+        """The comment lines written after the notes: `> Comment(author, on "range"): text`, as in HWPX (Pinned by:
+        test_hwp.py::TestMemo)."""
+        return "\n".join(comment_line(author, text, "".join(target).strip()) for author, number, target in self.memos
+                         if (text := self._memo_texts.get(number, "")))
 
     def _equation_with_caption(self, control: Record) -> str:
         """Equation (eqed) + its caption. The caption paragraph ('수식 1 넓이', including atno) comes as a sibling of the LIST_HEADER under
@@ -479,13 +597,13 @@ class HwpRenderer:
         (Pinned by: test_hwp.py::TestSuperscript, TestStrikethrough). The pairs are read as an array rather than unpacked into tuples
         (same reason as `decode_para_text`)."""
         record = next((child for child in paragraph.children if child.tag == TAG_PARA_CHAR_SHAPE), None)
-        if record is None or not (self._scripts or self._struck):
+        if record is None or not (self._scripts or self._struck or self._emphasis):
             return None
         values = array("I", record.payload[:len(record.payload) // 8 * 8])
         if sys.byteorder == "big":
             values.byteswap()
         starts, shape_ids = values[0::2], values[1::2]
-        if not any(shape_id in self._scripts or shape_id in self._struck for shape_id in shape_ids):
+        if not any(shape_id in self._scripts or shape_id in self._struck or shape_id in self._emphasis for shape_id in shape_ids):
             return None
 
         # If the positions always increase, use them as is; otherwise by position — at the same position the larger ID wins, as it
@@ -508,33 +626,71 @@ class HwpRenderer:
                 break
             if runs and runs[-1][0] == start:
                 runs.pop()
-            shape = (self._scripts.get(shape_id), shape_id in self._struck)
-            if (runs[-1][1] if runs else (None, False)) != shape:
+            shape = (self._scripts.get(shape_id), shape_id in self._struck, *self._emphasis.get(shape_id, (False, False)))
+            if (runs[-1][1] if runs else _PLAIN_RUN) != shape:
                 runs.append((start, shape))
         return runs
 
-    def _object_markers(self, control: Record) -> list[str]:
-        """Picture record inside a drawing object (gso) → DocInfo BIN_DATA index → BinData stream. An OLE object record leaves only a
-        placeholder — it used to vanish without a trace, so there was no telling what was missing (kept even when picture extraction is
-        off. Pinned by: test_hwp.py::TestEmbeddedObjects).
+    def _object_markers(self, control: Record) -> tuple[list[str], list[str]]:
+        """Picture record inside a drawing object (gso) → DocInfo BIN_DATA index → BinData stream; the placeholders of the pictures,
+        and the charts among the OLE objects (`_ole_chart`) as blocks. Any other OLE object record leaves only a placeholder — it used
+        to vanish without a trace, so there was no telling what was missing (kept even when picture extraction is off. Pinned by:
+        test_hwp.py::TestEmbeddedObjects).
 
         Paragraphs inside a text box (PARA_HEADER) are not descended into. A picture inside one is put in place when that paragraph is
         rendered. Descending registered the picture twice and placed it at the outer paragraph
         (Pinned by: test_hwp.py::TestHwpObjects::test_picture_inside_text_box_is_registered_once_where_it_is).
         """
         pictures = self._options.extract_images and self._load_bin is not None
-        markers = []
+        markers: list[str] = []
+        charts: list[str] = []
         for record in _flatten(control.children, stop=TAG_PARA_HEADER):
             if record.tag == TAG_SHAPE_OLE:
-                self.unread_ole += 1
-                markers.append(f" {_OLE_MARK} ")
+                chart = self._ole_chart(record)
+                if chart is None:
+                    self.unread_ole += 1
+                    markers.append(f" {_OLE_MARK} ")
+                elif chart:
+                    charts.append(chart)
             if not pictures or record.tag != TAG_SHAPE_PICTURE or len(record.payload) < _PICTURE_BIN_ID_OFFSET + 2:
                 continue
             (item_id,) = struct.unpack_from("<H", record.payload, _PICTURE_BIN_ID_OFFSET)
             data = self._load_bin(item_id)
             if data:
                 markers.append(f" {self._extraction.add_image(data)} ")
-        return markers
+        return markers, charts
+
+    def _ole_chart(self, record: Record) -> str | None:
+        """The chart of an OLE object (SHAPE_COMPONENT_OLE), by the renderer HWPX, DOCX and PPTX use: its BinData stream is a UINT32
+        size and an OLE container whose `OOXMLChartContents` stream is the OOXML chart, the part the HWPX save of the same document
+        keeps as Chart/chartN.xml. Hangul charts were left as `[OLE object]` in HWP while HWPX gave their values (Pinned by:
+        test_hwp.py::TestHwpCharts). None when the object is not a chart or cannot be read (it stays a placeholder), '' for a chart
+        without values.
+
+        As in HWPX (`hwpx.HwpxRenderer._render_chart`): a chart is read and rendered once, later references give its
+        `[Chart] title` line; inside a table cell its value table goes to the outer table; its value rows stop at the characters
+        the output can still take, counted on their own in a note, header or footer."""
+        if self.load_ole is None or len(record.payload) < _OLE_BIN_ID_OFFSET + 2:
+            return None
+        (item_id,) = struct.unpack_from("<H", record.payload, _OLE_BIN_ID_OFFSET)
+        # What an object turned out to be is kept, a chart or not: opened and parsed again at each reference, 2,000 references
+        # to one object holding 300,000 empty elements took 28 s (Pinned by: test_hwp.py::TestHwpCharts::
+        # test_object_referenced_many_times_is_read_once)
+        if item_id in self._charts:
+            return self._charts[item_id]
+        self._charts[item_id] = None
+        data = self.load_ole(item_id)
+        root = _chart_part(data) if data else None
+        if root is None:
+            return None
+        self._charts[item_id] = ""
+        outer = self._grids[-1] if self._grids else None
+        table = embedded_table(outer) if outer is not None else render_table
+        own = self._note_depth or any(grid is None for grid in self._grids)
+        room = chars_left(Extraction() if own else self._extraction, self._options)
+        rendered = render_chart(root, table, None, room, self._extraction.warnings)
+        self._charts[item_id] = rendered.split("\n", 1)[0]
+        return rendered
 
     def _start_field(self, kind: str, control: Record, buffer: list[str]) -> None:
         """A field starts. A hyperlink (`%hlk`) becomes `[text](address)` up to its `FIELD_END` under `keep_links`, with the address
@@ -547,28 +703,75 @@ class HwpRenderer:
             (length,) = struct.unpack_from("<H", payload, _FIELD_COMMAND_OFFSET)
             start = _FIELD_COMMAND_OFFSET + 2
             command = payload[start:start + 2 * length].decode("utf-16-le", errors="replace")
+        if command.startswith("MEMO/"):
+            # A comment: its range up to the field end goes on the comment line; its text comes later, at the end of the section
+            # (`_read_memos`). The fields of Hangul's comments are `%unk` with this command
+            parts = command.split("/")
+            number = decimal_int(parts[2], -1) if len(parts) > 2 else -1
+            author = parts[5] if len(parts) > 5 else ""
+            key = len(self.memos)
+            self.memos.append((" ".join(author.split()), number, self._memo_ranges.open(key) if not self._memo_depth else []))
+            self._fields.append(_Memo(key))
+            return
         if kind == "%clk":
             # A click-here field (누름틀): its text is dropped at its end when it is still the guide (`drop_unfilled_guide`), unless
             # another click-here field was opened inside it. Checked at every end, 40,000 fields opened in one paragraph and then
             # ended joined the text from each start again: 19 s (Pinned by: test_hwp.py::TestClickHereFields::
             # test_fields_opened_inside_each_other_take_linear_time)
             self._clicks_opened += 1
-            self._fields.append(_ClickHere(buffer, len(buffer), click_here_guide(command), self._clicks_opened))
+            self._fields.append(_ClickHere(buffer, len(buffer), click_here_guide(unfold(command)), self._clicks_opened))
             return
-        if kind == "%hlk" and self._options.keep_links and command:
+        # The text of a comment is plain, as in HWPX and DOCX
+        if kind == "%hlk" and self._options.keep_links and command and not self._memo_depth:
             url = command_link(command)
         self._fields.append(url)
         if url is not None:
             buffer.append(link_start())
 
-    def _decorate(self, paragraph: Record, text: str, plain: str) -> str:
-        """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style, the heading mark to the paragraph's first text piece."""
+    def _decorate(self, paragraph: Record, text: str, plain: str, heading: Callable[[], str], text_record: Record | None,
+                  size_pairs: list[tuple[int, int]]) -> str:
+        """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style or head, the heading mark to the paragraph's
+        first text piece. A top-level body paragraph (not in a cell, note, header, text box or caption) passes its smallest
+        character size, to become a heading by size (`_hangul.SizeHeadings`)."""
         mark, level = self._paragraph_head(paragraph)
         style_id = paragraph.payload[10] if len(paragraph.payload) > 10 else -1
         style_name = self._styles[style_id] if 0 <= style_id < len(self._styles) else ""
         shape_id = struct.unpack_from("<H", paragraph.payload, 8)[0] if len(paragraph.payload) >= 10 else -1
         margin = self._heads.margins[shape_id] if 0 <= shape_id < len(self._heads.margins) else 0
-        return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth), plain=plain)
+        outline = 0 <= shape_id < len(self._heads.shapes) and self._heads.shapes[shape_id][0] == _HEAD_OUTLINE
+        top = self._depth == 1 and not self._cell_depth and not self._note_depth
+        size = _smallest_text_size(text_record.payload, size_pairs, self._sizes) if top and text_record is not None else 0
+        return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth), plain=plain,
+                              outline=outline, size=size, size_headings=self.size_headings, heading_text=heading, top=top,
+                              in_note=bool(self._note_depth), no_heading=self._plain_header)
+
+    def _count_sizes(self, paragraph: Record, text_record: Record | None) -> list[tuple[int, int]]:
+        """Count the text characters of a paragraph per character size (`SizeHeadings.count`, which finds the body size; those
+        of top-level body paragraphs apart, notes not at all) and return its character shape runs (`_size_pairs`). The 8 WCHARs
+        of a wide control are not text and are skipped, as the characters of HWPX `hp:t` are all that HWPX counts."""
+        if text_record is None or not self._sizes:
+            return []
+        payload = text_record.payload
+        length = len(payload) // 2
+        pairs = _size_pairs(paragraph, length)
+        if not pairs or self._note_depth:
+            return pairs
+        body = self._depth == 1 and not self._cell_depth
+        run = 0
+        index = 0
+        while index < length:
+            control = _UP_TO_WIDE_CONTROL.match(payload, 2 * index, 2 * length).end() // 2
+            while index < control:   # the text up to the control, run by run
+                while run + 1 < len(pairs) and pairs[run + 1][0] <= index:
+                    run += 1
+                end = min(control, pairs[run + 1][0]) if run + 1 < len(pairs) else control
+                shape_id = pairs[run][1]
+                if 0 <= shape_id < len(self._sizes):
+                    self.size_headings.count(self._sizes[shape_id], payload[2 * index:2 * end].decode("utf-16-le", errors="replace"),
+                                             body=body)
+                index = end
+            index = control + 8
+        return pairs
 
     def _paragraph_head(self, paragraph: Record) -> tuple[str, int]:
         """Paragraph head of the paragraph shape → (number "1." / "가." or bullet "-", level). ("", 0) if the definition is missing or
@@ -624,15 +827,36 @@ class HwpRenderer:
 
     def _collect_header_footer(self, control: Record, found: dict[str, None]) -> None:
         """Render a header or footer control into `found` (`headers` or `footers`). A header is counted against the character
-        limit when it is first seen, because every header is written before the body; footers are counted after the body."""
-        if not self._options.include_headers_footers:
+        limit when it is first seen, because every header is written before the body; footers are counted after the body.
+        Without `include_headers_footers` only headers that hold a word are kept (`_hangul.header_by_default`)."""
+        chosen = self._options.include_headers_footers
+        if not chosen and found is not self.headers:
             return
+        pictures, notes, note_count, unread_ole = len(self._extraction.images), len(self.notes), self._note_count, self.unread_ole
+        memos = len(self.memos)
         self._grids.append(None)
+        self._plain_header = not chosen
         try:
             with self._own_numbering():
                 text = join_blocks(self.render(control.children))
         finally:
             self._grids.pop()
+            self._plain_header = False
+        if not chosen:
+            # Only the words of the header: the pictures it registered are taken back with their placeholders, and a header that
+            # is not written takes back its notes, which would be left without a reference. Its OLE objects are taken back too: they
+            # would warn of contents not converted that are not written (Pinned by:
+            # test_hwp_headers.py::TestHeadersByDefault::test_object_of_a_header_not_written_does_not_warn)
+            del self._extraction.images[pictures:]
+            self.unread_ole = unread_ole
+            text = header_by_default(text)
+            if not text or text in found:
+                del self.notes[notes:], self.memos[memos:]
+                self._note_count = note_count
+        elif text in found:
+            # A header written once has its comments once, as in HWPX (Pinned by:
+            # test_hwp.py::TestHwpMemo::test_comment_of_a_repeated_hwp_header_is_written_once)
+            del self.memos[memos:]
         if text and text not in found:
             found[text] = None
             if found is self.headers:
@@ -708,6 +932,55 @@ class HwpRenderer:
         return join_blocks([caption_text, rendered])
 
 
+# A paragraph longer than this (in WCHARs, controls included) is not scanned for its character sizes: it is not a heading anyway
+# (`_hangul.SizeHeadings` takes paragraphs of up to 80 characters)
+_SIZE_SCAN_MAX = 512
+
+
+def _size_pairs(paragraph: Record, length: int) -> list[tuple[int, int]]:
+    """The character shape runs of a paragraph from its PARA_CHAR_SHAPE: (start position, character shape ID), the starts inside
+    the text (`length` WCHARs). Only increasing starts, as Hangul writes them, are used — the runs of a paragraph that has them out
+    of order give no size. At most `length` runs can start inside the text, so only that many are looked at, and a paragraph of
+    millions of runs costs no more than its text (as in `_shape_runs`)."""
+    record = next((child for child in paragraph.children if child.tag == TAG_PARA_CHAR_SHAPE), None)
+    if record is None or length <= 0:
+        return []
+    values = array("I", record.payload[:min(len(record.payload) // 8, length + 1) * 8])
+    if sys.byteorder == "big":
+        values.byteswap()
+    starts, shape_ids = values[0::2], values[1::2]
+    if not starts or starts[0] != 0 or not all(before < after for before, after in zip(starts, starts[1:], strict=False)):
+        return []
+    return [(start, shape_id) for start, shape_id in zip(starts, shape_ids, strict=True) if start < length]
+
+
+def _smallest_text_size(payload: bytes, pairs: list[tuple[int, int]], sizes: list[int]) -> int:
+    """The smallest base size among the visible characters of a short paragraph (not whitespace, not controls); 0 when the
+    paragraph is too long to be a heading, has no visible character, or one of them has no known size."""
+    count = len(payload) // 2
+    if not pairs or count > _SIZE_SCAN_MAX:
+        return 0
+    units = struct.unpack_from(f"<{count}H", payload)
+    smallest = 0
+    run = 0
+    index = 0
+    while index < count:
+        unit = units[index]
+        if unit < 32:   # a control: extended and inline controls take 8 WCHARs, char controls one
+            index += 8 if unit in _EXTENDED_CONTROLS or unit in _INLINE_CONTROLS else 1
+            continue
+        if not chr(unit).isspace():
+            while run + 1 < len(pairs) and pairs[run + 1][0] <= index:
+                run += 1
+            shape_id = pairs[run][1]
+            size = sizes[shape_id] if 0 <= shape_id < len(sizes) else 0
+            if size <= 0:
+                return 0
+            smallest = min(smallest, size) if smallest else size
+        index += 1
+    return smallest
+
+
 def _cell_address(payload: bytes, row_count: int, col_count: int) -> tuple[int, int, int, int] | None:
     """(row, column, row span, column span) of a cell LIST_HEADER.
 
@@ -758,6 +1031,62 @@ def _auto_number(control: Record) -> str:
     return f"{prefix}{text}{suffix}"
 
 
+# Form object kinds → what they show: check boxes and radio buttons the check state and caption, combo boxes and edit boxes
+# their text, push buttons nothing (as HWPX checkBtn, radioBtn, comboBox, edit and btn, `hwpx._form_value`)
+_FORM_CHECKS = {b"tbc+", b"tbr+"}
+_FORM_TEXTS = {b"boc+", b"tde+"}
+
+
+def _form_value(control: Record) -> str:
+    """The value a form object (`form`) showed: `☒ caption` / `☐ caption` for a check box or radio button (Value 1 is checked,
+    as HWPX value="CHECKED" for the same object), the Text of a combo box or edit box. A push button, an unknown kind and a broken
+    record give an empty string."""
+    record = next((child for child in control.children if child.tag == TAG_FORM_OBJECT), None)
+    if record is None or len(record.payload) < _FORM_PROPERTIES_OFFSET + 2:
+        return ""
+    kind = record.payload[:4]
+    if kind not in _FORM_CHECKS and kind not in _FORM_TEXTS:
+        return ""
+    (length,) = struct.unpack_from("<H", record.payload, _FORM_PROPERTIES_OFFSET)
+    start = _FORM_PROPERTIES_OFFSET + 2
+    properties = _form_properties(record.payload[start:start + 2 * length].decode("utf-16-le", errors="replace"))
+    if kind in _FORM_CHECKS:
+        mark = "☒" if properties.get("Value") == "1" else "☐"
+        return f"{mark} {form_caption(properties.get('Caption', ''))}".translate(_CONTROL_TEXT).strip()
+    return properties.get("Text", "").translate(_CONTROL_TEXT).strip()
+
+
+def _form_properties(text: str) -> dict[str, str]:
+    """The `name:type:value` items of a form object's properties, the first value of each name. The items of a `set` are read as
+    if they stood outside it; a `wstring` value is taken by its length, so it may hold spaces and colons. Each item moves on past
+    its value, so a broken string ends the reading instead of repeating it."""
+    properties: dict[str, str] = {}
+    position, end = 0, len(text)
+    while position < end:
+        while position < end and text[position] == " ":
+            position += 1
+        name_end = text.find(":", position)
+        kind_end = text.find(":", name_end + 1) if name_end >= 0 else -1
+        if kind_end < 0:
+            break
+        name, kind = text[position:name_end], text[name_end + 1:kind_end]
+        if kind in ("set", "wstring"):
+            length_end = text.find(":", kind_end + 1)
+            length = decimal_int(text[kind_end + 1:length_end], None) if length_end >= 0 else None
+            if length is None:
+                break
+            if kind == "set":
+                position = length_end + 1
+                continue
+            value, position = text[length_end + 1:length_end + 1 + length], length_end + 1 + length
+        else:
+            value_end = text.find(" ", kind_end + 1)
+            value_end = end if value_end < 0 else value_end
+            value, position = text[kind_end + 1:value_end], value_end
+        properties.setdefault(name, value)
+    return properties
+
+
 def _dutmal_text(control: Record) -> str:
     """Ruby text (dutmal) control → "main text(ruby text)". The main text is not in the paragraph text either but inside the control
     (after the control ID: length + characters, main text then ruby text), so even the main text was dropped entirely. The structure was
@@ -787,6 +1116,28 @@ def _control_strings(control: Record, count: int) -> list[str]:
 
 
 _CONTROL_TEXT = dict.fromkeys(range(32)) | dict.fromkeys(range(0x09, 0x0E), " ")
+
+
+def _composed_text(control: Record) -> str:
+    """The characters of composed characters (`tcps`: WORD count + WCHARs, then the border kind BYTE) as the HWPX save of the same
+    document writes them in composeText: a number in a frame, which HWP writes as private-use pieces of its digits, is its digits
+    (`12`), and the frame glyph HWP writes first (`△12`, `◯가`) is left out when it is the glyph of the border kind — HWPX keeps
+    the frame as circleType. Matched one by one on a Hancom file holding every border kind in both formats (Pinned by:
+    test_hwp.py::TestComposedCharacters)."""
+    payload = control.payload
+    if len(payload) < 6:
+        return ""
+    (count,) = struct.unpack_from("<H", payload, 4)
+    text = unfold(payload[6:6 + 2 * count].decode("utf-16-le", errors="replace"))
+    border = payload[6 + 2 * count] if len(payload) > 6 + 2 * count else 0
+    frame = FRAME_GLYPHS.get(border)
+    if frame is not None and len(text) > 1 and text[0] == frame:
+        text = text[1:]
+    # After the frame glyph: pieces behind it were otherwise taken one by one, `◯` + the pieces of 12 giving `①`
+    number = framed_number(text.strip())
+    if number is not None:
+        return number
+    return hancom_symbols(text).translate(_CONTROL_TEXT).strip()
 # The control characters of an equation script that `str.split` does not take for white space
 _SCRIPT_CONTROLS = {code: None for code in range(0x20) if not chr(code).isspace()}
 
@@ -824,6 +1175,34 @@ def parse_char_scripts(doc_info: list[Record]) -> dict[int, str]:
     return scripts
 
 
+def parse_char_sizes(doc_info: list[Record]) -> list[int]:
+    """The base size (1/100 pt) of each CHAR_SHAPE record of DocInfo (index is the character shape ID); 0 for a broken record."""
+    sizes = []
+    for record in doc_info:
+        if record.tag == TAG_CHAR_SHAPE:
+            payload = record.payload
+            sizes.append(struct.unpack_from("<i", payload, _CHAR_SHAPE_SIZE_OFFSET)[0]
+                         if len(payload) >= _CHAR_SHAPE_SIZE_OFFSET + 4 else 0)
+    return sizes
+
+
+# Bits 0 (italic) and 1 (bold) of the character shape attribute (spec table 35; bold confirmed on real files, see above)
+_CHAR_SHAPE_ITALIC, _CHAR_SHAPE_BOLD = 1 << 0, 1 << 1
+
+
+def parse_char_emphasis(doc_info: list[Record]) -> dict[int, tuple[bool, bool]]:
+    """CHAR_SHAPE records of DocInfo (index is the character shape ID) that are bold or italic → (bold, italic)."""
+    emphasis = {}
+    shapes = (record for record in doc_info if record.tag == TAG_CHAR_SHAPE)
+    for shape_id, record in enumerate(shapes):
+        if len(record.payload) < _CHAR_SHAPE_ATTRIBUTE_OFFSET + 4:
+            continue
+        (attribute,) = struct.unpack_from("<I", record.payload, _CHAR_SHAPE_ATTRIBUTE_OFFSET)
+        if attribute & (_CHAR_SHAPE_BOLD | _CHAR_SHAPE_ITALIC):
+            emphasis[shape_id] = (bool(attribute & _CHAR_SHAPE_BOLD), bool(attribute & _CHAR_SHAPE_ITALIC))
+    return emphasis
+
+
 def parse_struck_shapes(doc_info: list[Record]) -> frozenset[int]:
     """CHAR_SHAPE records of DocInfo (index is the character shape ID) that are struck through: flag value 1 and a line-type shape (0-10)."""
     struck = set()
@@ -843,12 +1222,16 @@ def parse_paragraph_heads(doc_info: list[Record]) -> ParagraphHeads:
     record is treated as having no head.
 
     PARA_SHAPE: attribute 1 (head kind in bits 23-24, level in bits 25-27) + 6 INT32s (the first is the left margin) + tab ID (2) +
-    numbering/bullet ID (2, at byte 30).
-    NUMBERING: for each of 7 levels, 12 bytes of paragraph head information (number shape in attribute bits 5-8) + a format string
+    numbering/bullet ID (2, at byte 30). The 3 bits of the level stop at 6 (level 7); Hangul 5.1 keeps the level 0-9 of levels 8-10 in
+    the UINT32 at byte 54 too (in public Hangul files, 1,629 shapes of levels 8-10 had 6 in the attribute and 7-9 there, and no
+    shape disagreed otherwise), which is read only when the attribute holds 6.
+    NUMBERING: for each of 7 levels, 12 bytes of paragraph head information (number shape in attribute bits 5-9) + a format string
     (^n in "^1." is the number of level n),
-    then the start number (2) and, from 5.0.2.5 on, per-level start numbers (4×7). The number shape values (0 digits, 1 circled digits,
-    8 가나다 (Hangul syllables)) were confirmed with real files holding Hangul's default
-    numbering definition (1. 가. 1) 가) (1) (가) ①) (public hwplib samples and Hangul form documents).
+    then the start number (2) and, from 5.0.2.5 on, per-level start numbers (4×7); from Hangul 5.1 on, levels 8-10 follow in the
+    same shape (head information and format string 3 times, then 3 start numbers). The number shape values (0 digits, 1 circled
+    digits, 8 가나다 (Hangul syllables)) were confirmed with real files holding Hangul's default
+    numbering definition (1. 가. 1) 가) (1) (가) ①) (public hwplib samples and Hangul form documents); the levels 8-10 with a Hancom
+    file numbered to level 10 in HWP and HWPX (Pinned by: test_hwp.py::TestNumberingLevelsEightToTen).
     """
     heads = ParagraphHeads()
     for record in doc_info:
@@ -857,7 +1240,11 @@ def parse_paragraph_heads(doc_info: list[Record]) -> ParagraphHeads:
             if len(payload) >= 32:
                 (properties,) = struct.unpack_from("<I", payload, 0)
                 (numbering_id,) = struct.unpack_from("<H", payload, 30)
-                heads.shapes.append(((properties >> 23) & 0x3, (properties >> 25) & 0x7, numbering_id))
+                level = (properties >> 25) & 0x7
+                if level == _LAST_ATTRIBUTE_LEVEL and len(payload) >= _PARA_SHAPE_LEVEL_OFFSET + 4:
+                    deep = struct.unpack_from("<I", payload, _PARA_SHAPE_LEVEL_OFFSET)[0]
+                    level = deep if _LAST_ATTRIBUTE_LEVEL < deep <= 9 else level
+                heads.shapes.append(((properties >> 23) & 0x3, level, numbering_id))
                 heads.margins.append(struct.unpack_from("<i", payload, 4)[0])
             else:
                 heads.shapes.append((0, 0, 0))
@@ -870,32 +1257,72 @@ def parse_paragraph_heads(doc_info: list[Record]) -> ParagraphHeads:
 
 
 def _numbering_levels(payload: bytes) -> list[NumberLevel]:
-    offset = 0
-    formats: list[tuple[str, str]] = []
-    for _ in range(7):
-        if offset + 14 > len(payload):
-            return []
-        (properties,) = struct.unpack_from("<I", payload, offset)
-        (length,) = struct.unpack_from("<H", payload, offset + 12)
-        offset += 14
-        if offset + length * 2 > len(payload):
-            return []
-        template = payload[offset:offset + length * 2].decode("utf-16-le", errors="replace")
-        offset += length * 2
-        shape = (properties >> 5) & 0xF
-        formats.append((template, NUMBER_SHAPES[shape] if shape < len(NUMBER_SHAPES) else "DIGIT"))
+    formats, offset = _number_formats(payload, 0, 7)
+    if formats is None:
+        return []
 
     # If per-level start numbers (4×7) follow the start number (2), use them (otherwise 1). 0 is taken as 1.
     starts = [1] * 7
     if offset + 2 + 28 <= len(payload):
         starts = [value or 1 for value in struct.unpack_from("<7I", payload, offset + 2)]
+        # Levels 8-10 (Hangul 5.1): three more levels and their three start numbers. A broken or missing part leaves seven levels
+        more, end = _number_formats(payload, offset + 2 + 28, 3)
+        if more is not None and end + 12 <= len(payload):
+            formats += more
+            starts += [value or 1 for value in struct.unpack_from("<3I", payload, end)]
     return [NumberLevel(template, shape, start) for (template, shape), start in zip(formats, starts, strict=True)]
 
 
-def parse_bin_items(doc_info: list[Record]) -> list[tuple[str | None, bool | None]]:
+def _number_formats(payload: bytes, offset: int, count: int) -> tuple[list[tuple[str, str]] | None, int]:
+    """`count` levels of a NUMBERING record from `offset`: 12 bytes of paragraph head information (number shape in attribute bits
+    5-9) and the format string (WORD length + WCHARs) each → ([(format string, shape)], the offset after them), or (None, offset)
+    when the record ends before them."""
+    formats: list[tuple[str, str]] = []
+    for _ in range(count):
+        if offset + 14 > len(payload):
+            return None, offset
+        (properties,) = struct.unpack_from("<I", payload, offset)
+        (length,) = struct.unpack_from("<H", payload, offset + 12)
+        offset += 14
+        if offset + length * 2 > len(payload):
+            return None, offset
+        template = payload[offset:offset + length * 2].decode("utf-16-le", errors="replace")
+        offset += length * 2
+        shape = (properties >> 5) & 0x1F
+        formats.append((template, NUMBER_SHAPES[shape] if shape < len(NUMBER_SHAPES) else "DIGIT"))
+    return formats, offset
+
+
+def _chart_part(data: bytes) -> etree._Element | None:
+    """The OOXML chart (`c:chartSpace`) inside the BinData stream of an OLE object, or None when it holds none. The stream is a
+    UINT32 size and an OLE container; the container's streams are read no further than its size (`_ole.OleStreams`), and one that
+    cannot be read leaves the object a placeholder, whatever olefile raises: the object was never read before, and a container
+    with a huge mini sector shift (OverflowError) made the whole document fail that converted with `[OLE object]` (Pinned by:
+    test_hwp.py::TestHwpCharts::test_ole_object_that_is_no_chart_stays_a_placeholder)."""
+    if len(data) < 4 + len(olefile.MAGIC):
+        return None
+    (size,) = struct.unpack_from("<I", data, 0)
+    container = data[4:4 + size]
+    if not container.startswith(olefile.MAGIC):
+        return None
+    try:
+        with OleFile(BytesIO(container)) as ole:
+            streams = OleStreams(ole, len(container))
+            xml = streams.read(_OLE_CHART_STREAM) if streams.exists(_OLE_CHART_STREAM) else b""
+    except MemoryError:
+        raise
+    except Exception:  # noqa: BLE001
+        return None
+    root = parse_part(xml) if xml else None
+    return root if root is not None and etree.QName(root).localname == "chartSpace" else None
+
+
+def parse_bin_items(doc_info: list[Record], kind: int = _BIN_EMBEDDING) -> list[tuple[str | None, bool | None]]:
     """DocInfo BIN_DATA records → [(stream name, compressed or not)]. The index is the BinItem ID.
 
-    There is a stream only when the low 4 bits of the attribute are 1 (EMBEDDING) (0 LINK is an external file, 2 STORAGE an OLE object).
+    There is a stream of the `kind` asked for when the low 4 bits of the attribute are that kind: 1 (EMBEDDING, a picture) or 2
+    (STORAGE, an OLE object, saved by Hangul as the stream `BinData/BINxxxx.OLE` too); 0 LINK is an external file. Pictures are
+    read from EMBEDDING items only, OLE objects from STORAGE items only (`HwpRenderer._ole_chart`).
     Compression is in attribute bits 4-5: 0 means the document default (None), 1 compressed, 2 uncompressed.
     A broken record keeps its place without a stream: skipping it gave every later picture the stream of the next one
     (Pinned by: test_hwp_robustness.py::TestBrokenDocInfoRecordsKeepTheirPlace).
@@ -909,7 +1336,7 @@ def parse_bin_items(doc_info: list[Record]) -> list[tuple[str | None, bool | Non
             continue
         (properties,) = struct.unpack_from("<H", record.payload, 0)
         compress = {1: True, 2: False}.get((properties >> 4) & 0x3)
-        if properties & 0xF != 1 or len(record.payload) < 6:
+        if properties & 0xF != kind or len(record.payload) < 6:
             items.append((None, compress))
             continue
         bin_id, ext_length = struct.unpack_from("<HH", record.payload, 2)
@@ -1066,8 +1493,27 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
                     loaded[key] = None
             return loaded[key]
 
+        ole_items = parse_bin_items(doc_info, _BIN_STORAGE)
+        ole_budget = _InflateBudget(options.max_uncompressed_bytes)
+
+        def load_ole(item_id: int) -> bytes | None:
+            """The stream of an OLE object, read to look for a chart (`HwpRenderer._ole_chart`). Its decompression has a budget of
+            its own, as large as the document's: charged to the document's, a pasted sheet that the conversion never reads made a
+            document fail as too large that converted before. An object past it, or whose compression is broken, stays a
+            placeholder; the stream is not kept (Pinned by: test_hwp.py::TestHwpCharts::
+            test_large_ole_object_does_not_make_the_document_too_large)."""
+            name, compress = ole_items[item_id - 1] if 1 <= item_id <= len(ole_items) else (None, None)
+            if not name or not streams.exists(name):
+                return None
+            try:
+                return _read_stream(streams, name, compressed if compress is None else compress, ole_budget)
+            except (zlib.error, DocumentTooLargeError):
+                return None
+
         renderer = HwpRenderer(parse_styles(doc_info), options, extraction, load_bin, parse_paragraph_heads(doc_info),
-                               parse_char_scripts(doc_info), parse_struck_shapes(doc_info))
+                               parse_char_scripts(doc_info), parse_struck_shapes(doc_info), parse_char_sizes(doc_info),
+                               parse_char_emphasis(doc_info) if options.keep_emphasis else None)
+        renderer.load_ole = load_ole
         blocks = []
         names = _section_streams(ole)
         broken: list[zlib.error] = []
@@ -1112,7 +1558,8 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
     # shapes only) has an empty preview too
     # (`_preview_text`), so the result stays empty (Pinned by: test_hwp.py::TestPreviewFallback).
     extraction.count(sum(solid_length(text) for text in renderer.footers), options)
-    body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes)])
+    blocks = renderer.size_headings.resolve(blocks)
+    body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes), renderer.memo_lines()])
     if not body.strip() and preview:
         body = preview
         extraction.warnings.append("The body could not be parsed, so the preview text saved by Hancom Office was used instead "
@@ -1140,13 +1587,13 @@ def _distribution_fallback(preview: str, metadata: dict[str, str]) -> Extraction
 
 
 def _preview_text(streams: OleStreams) -> str:
-    """The preview text saved by Hancom Office. It writes table cells as `<cell text>`, so if no text remains after removing the cell marks
-    (`<`, `>`) the preview is considered absent. Used as is, a document without text emitted `<>` noise as its body
-    (Pinned by: test_hwp.py::TestPreviewFallback)."""
+    """The preview text saved by Hancom Office. It writes table cells as `<cell text>`, so if no letter or digit remains outside the
+    cell marks (`<`, `>`) the preview is considered absent (`_hangul.preview_has_words`). Used as is, a document without text
+    emitted `<>` noise as its body (Pinned by: test_hwp.py::TestPreviewFallback)."""
     if not streams.exists("PrvText"):
         return ""
     text = streams.read("PrvText").decode("utf-16-le", errors="replace").strip()
-    return text if text.translate(PREVIEW_CELL_MARKS).strip() else ""
+    return text if preview_has_words(text) else ""
 
 
 def _summary_metadata(streams: OleStreams) -> dict[str, str]:

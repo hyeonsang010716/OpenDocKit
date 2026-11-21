@@ -38,6 +38,10 @@ _BULLET_START = re.compile(rf"^[•●○◦▪▫■□◆◇►▶➢✓✔※
 # Minimum font size ratio (relative to the body) for a heading. The level (#, ##, ###) is assigned not by the ratio but by the rank
 # of the heading size within the document.
 _HEADING_MIN_RATIO = 1.2
+# A figure label alone ('Diagram 4', 'Figure 6', 'Table 3.1', '그림 2'), the badge of a caption set in a box (`_is_caption_box`)
+# The number is digits, one capital letter ('Figure A.1') or a Roman number ('Table IV'): a word like 'Tablet', 'Maps' or 'Images' is no label.
+_CAPTION_LABEL = re.compile(r"(?:(?i:fig(?:ure)?\.?|diagram|chart|graph|table|exhibit|photo|image|map)|그림|표|도표|사진|차트)\s*"
+                            r"(?:[0-9]{1,3}|[A-Z]\b|[IVX]{1,4}\b)(?:[.\-][0-9]{1,3})*[.:]?")
 # Borderless table: taken as a table only when at least 3 consecutive lines each have 3 or more short pieces (at most this ratio of
 # the page width) at the same height (tolerance in pt) and the pieces sit on the column boundaries of the first line. A two-column
 # layout (2 pieces) and long sentence lines are not tables.

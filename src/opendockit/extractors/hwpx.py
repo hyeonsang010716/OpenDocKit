@@ -18,21 +18,26 @@ from lxml import etree
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._charts import embedded_table, package_loader, render_chart
 from opendockit.extractors._equation import render_equation
+from opendockit.extractors._hancom_symbols import framed_number, hancom_symbols
 from opendockit.extractors._hangul import (
-    PREVIEW_CELL_MARKS,
+    CommentRanges,
     ParagraphPieces,
+    SizeHeadings,
     click_here_guide,
     command_link,
     decorated_text,
     drop_unfilled_guide,
+    emphasis_pieces,
+    form_caption,
     has_text,
+    header_by_default,
     link_end,
     link_start,
+    preview_has_words,
 )
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import (
-    COMMENT_TARGET_MAX,
     TableBudget,
     chars_left,
     comment_line,
@@ -41,6 +46,7 @@ from opendockit.extractors._notation import (
     omitted_rows_warning,
 )
 from opendockit.extractors._package import ZIP_MEMBER_ERRORS, decimal_int, parse_part
+from opendockit.extractors._xml import thread_parser
 from opendockit.markdown import TableGrid, join_blocks, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -48,7 +54,7 @@ from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 _SECTION_NAME = re.compile(r"^Contents/section(\d+)\.xml$")
 # Spine entries (itemref of content.hpf) looked at, the same number as for an EPUB (`_section_order`).
 _MAX_SPINE_ITEMS = 5_000
-_XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, remove_comments=True)
+_xml_parser = thread_parser(resolve_entities=False, no_network=True, remove_comments=True)
 # Pictures, OLE objects and videos have no text, and a picture's description (shapeComment) is the "그림입니다. 원본 그림의 이름…" text
 # that Hangul inserts automatically.
 # The caption of an object (hp:caption) is read separately by `HwpxRenderer._caption`.
@@ -116,7 +122,7 @@ def _child(element: etree._Element, name: str) -> etree._Element | None:
 
 def parse_xml(data: bytes) -> etree._Element:
     try:
-        return etree.fromstring(data, parser=_XML_PARSER)
+        return etree.fromstring(data, parser=_xml_parser())
     except etree.XMLSyntaxError as exc:
         raise CorruptedDocumentError("The XML of the HWPX document is corrupted.") from exc
 
@@ -125,8 +131,20 @@ class HwpxRenderer:
     def __init__(self, styles: dict[str, str], options: ConvertOptions, extraction: Extraction,
                  load_binary: Callable[[str], bytes | None], heads: ParagraphHeads | None = None,
                  load_part: Callable[[str], bytes | None] | None = None, scripts: dict[str, str] | None = None,
-                 struck: frozenset[str] = frozenset()) -> None:
+                 struck: frozenset[str] = frozenset(), sizes: dict[str, int] | None = None,
+                 emphasis: dict[str, tuple[bool, bool]] | None = None) -> None:
         self._styles = styles
+        # Character shape id → (bold, italic) for the shapes that have either (`_load_emphasis`; empty without `keep_emphasis`),
+        # and that of the run being read
+        self._emphasis = emphasis or {}
+        self._bold_italic = (False, False)
+        # Character shape id → size (hh:charPr height, 1/100 pt), the size of the run being read, the headings told by size
+        # (`_hangul.SizeHeadings`; the body blocks go through `size_headings.resolve` once everything is read), and how deep in
+        # inner paragraph lists (cells, notes, text boxes, captions, headers) the paragraph being read is
+        self._sizes = sizes or {}
+        self._size = 0
+        self.size_headings = SizeHeadings()
+        self._inner = 0
         # Character shape id → super/subscript mark. Looked up by the charPrIDRef of the run (hp:run).
         self._scripts = scripts or {}
         self._script: str | None = None
@@ -155,6 +173,7 @@ class HwpxRenderer:
         self._note_count = 0
         self._cell_depth = 0
         self._note_depth = 0  # 1 or more while footnote/endnote text is rendered. A table inside it becomes one line (`note_table`)
+        self._plain_header = False  # while a header written without `include_headers_footers` is rendered (no headings)
         # Tables being rendered (an inner table is handed to the top-level table). None is a place where a table cannot be handed over
         # (a footnote or header inside a cell).
         self._grids: list[TableGrid | None] = []
@@ -168,9 +187,7 @@ class HwpxRenderer:
         # fieldBegin and the fieldEnd with the same id
         self.memos: list[tuple[str, str, list[str]]] = []
         self._memo_ids: list[str] = []  # the id of each comment above, to take back those of a passed-over hp:switch branch
-        self._open_memos: dict[str, list[str]] = {}  # comment id not yet closed by fieldEnd and still being gathered → range pieces
-        self._memo_lengths: dict[str, int] = {}  # comment id above → number of characters gathered
-        self._unspaced_memos: dict[str, None] = {}  # comments above with a non-empty range not ending in whitespace (get a space between paragraphs)
+        self._memo_ranges = CommentRanges()  # the ranges of the comments not yet closed by fieldEnd, by comment id
         self._memo_depth = 0  # 1 or more while comment text is rendered. That text is not the range of another comment
         self._open_links: dict[str, str] = {}  # hyperlink field id not yet closed by fieldEnd → its address (`_open_link`)
         # click-here field id not yet closed → (the pieces it was opened in, where its text starts there, its guide text, how many
@@ -183,25 +200,29 @@ class HwpxRenderer:
         """An inner paragraph list (hp:subList etc.). The top-level body calls `render_paragraph` per paragraph."""
         blocks = []
         self._bullets.append(BulletNesting())
+        self._inner += 1
         try:
             for paragraph in _children(container, "p"):
                 blocks.extend(self.render_paragraph(paragraph))
         finally:
+            self._inner -= 1
             self._bullets.pop()
         return blocks
 
     def render_paragraph(self, paragraph: etree._Element) -> list[str]:
         self._note_memo_target(" ")  # between paragraphs of a comment range that spans several paragraphs
         # The head goes on the first text piece only, and a paragraph without text keeps its number (`_hangul.ParagraphPieces`).
-        pieces = ParagraphPieces(lambda text, plain: self._decorate(paragraph, text, plain))
+        pieces = ParagraphPieces(lambda text, plain, heading: self._decorate(paragraph, text, plain, heading))
         blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
 
         for run in _children(paragraph, "run"):
             script = self._scripts.get(run.get("charPrIDRef", ""))
             struck = run.get("charPrIDRef", "") in self._struck_shapes
+            size = self._sizes.get(run.get("charPrIDRef", ""), 0)
+            bold_italic = self._emphasis.get(run.get("charPrIDRef", ""), (False, False))
             for node in run:
                 # Reading inner paragraphs (table, text box) changes these by the time it returns, so set them again per node
-                self._script, self._struck = script, struck
+                self._script, self._struck, self._size, self._bold_italic = script, struck, size, bold_italic
                 self._render_object(node, buffer, blocks, flush)
         return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
 
@@ -210,12 +231,14 @@ class HwpxRenderer:
         name = _local(node)
         if name == "t":
             # A run with a super/subscript character shape. Appended as plain text, 10⁶ became 106 (Pinned by: test_hwp.py::TestSuperscript).
-            plain = _t_text(node)
+            plain = hancom_symbols(_t_text(node))  # Hancom's own symbols as text (`_hancom_symbols`)
+            if not self._note_depth:
+                self.size_headings.count(self._size, plain, body=not self._inner and not self._cell_depth)
             text = mark_script(plain, self._script) if self._script else plain
             self._note_memo_target(plain)
             # A run with a strikethrough character shape. Appended as plain text, a deleted value read as a valid one
             # (Pinned by: test_hwp.py::TestStrikethrough).
-            buffer.append(mark_strike(text) if self._struck else text)
+            buffer.extend(emphasis_pieces(mark_strike(text) if self._struck else text, *self._bold_italic))
         elif name == "tbl":
             flush()
             blocks.append(self._render_table(node))
@@ -255,7 +278,10 @@ class HwpxRenderer:
         elif name == "compose":
             # Composed characters: the overlapped characters are in the composeText attribute and were dropped
             # (Pinned by: test_hwp.py::TestComposedCharacters).
-            buffer.append(node.get("composeText", ""))
+            # A number in a frame is private-use pieces of its digits there too, as in HWP (`hwp._composed_text`)
+            text = node.get("composeText", "")
+            number = framed_number(text.strip())
+            buffer.append(number if number is not None else hancom_symbols(text))
         elif name in _FORM_OBJECTS:
             # Form objects: the value is in attributes and children and was dropped (Pinned by: test_hwp.py::TestHwpxFormObjects).
             value = _form_value(node)
@@ -460,13 +486,33 @@ class HwpxRenderer:
                     buffer.append(link_end(url))
             elif name in ("footNote", "endNote") and self._options.include_footnotes and not self._note_depth:
                 self._render_note(node, buffer)
-            elif name in ("header", "footer") and self._options.include_headers_footers:
+            # Without `include_headers_footers` a header that holds a word is still kept (`_hangul.header_by_default`)
+            elif name == "header" or (name == "footer" and self._options.include_headers_footers):
+                pictures, notes, note_count, memos = len(self._extraction.images), len(self.notes), self._note_count, len(self.memos)
+                unread = dict(self._unread)
                 self._grids.append(None)
+                self._plain_header = not self._options.include_headers_footers
                 try:
                     with self._own_numbering():
                         text = join_blocks(block for sub in _top_sublists(node) for block in self.render_paragraphs(sub))
                 finally:
                     self._grids.pop()
+                    self._plain_header = False
+                if not self._options.include_headers_footers:
+                    # Only the words of the header: the pictures it registered are taken back with their placeholders
+                    del self._extraction.images[pictures:]
+                    # and so are its OLE objects and videos, which would warn of contents not converted that are not written
+                    # (Pinned by: test_hwp_headers.py::TestHeadersByDefault::test_object_of_a_header_not_written_does_not_warn)
+                    self._unread = unread
+                    text = header_by_default(text)
+                    # A header that is not written takes back its notes and comments, which would be left without a reference
+                    if not text or text in (self.headers if name == "header" else self.footers):
+                        del self.notes[notes:], self.memos[memos:], self._memo_ids[memos:]
+                        self._note_count = note_count
+                elif text in (self.headers if name == "header" else self.footers):
+                    # A header written once has its comments once: repeated, its comment lines came out once per copy
+                    # (Pinned by: test_hwp.py::TestHwpMemo::test_comment_of_a_repeated_header_is_written_once)
+                    del self.memos[memos:], self._memo_ids[memos:]
                 found = self.headers if name == "header" else self.footers
                 if text and text not in found:
                     found[text] = None
@@ -525,12 +571,8 @@ class HwpxRenderer:
         finally:
             self._memo_depth -= 1
             self._grids.pop()
-        target: list[str] = []
-        self.memos.append((author, text, target))
+        self.memos.append((author, text, self._memo_ranges.open(field.get("id", ""))))
         self._memo_ids.append(field.get("id", ""))
-        self._open_memos[field.get("id", "")] = target
-        self._memo_lengths[field.get("id", "")] = 0
-        self._unspaced_memos.pop(field.get("id", ""), None)
 
     def _open_link(self, field: etree._Element, buffer: list[str]) -> None:
         """A hyperlink field: the text up to the hp:fieldEnd with its id becomes `[text](address)` under `keep_links`, with the
@@ -544,44 +586,44 @@ class HwpxRenderer:
             buffer.append(link_start())
 
     def _note_memo_target(self, text: str) -> None:
-        """Add a piece of body text to the ranges of the open comments. Only as much as will be shown is gathered (limit + 1 characters
-        even without one trailing space, so that exceeding `COMMENT_TARGET_MAX` can be noticed), and a comment that has gathered enough
-        is removed from the open list. A whitespace-only piece (between paragraphs) is not appended at the start of a range or after
-        whitespace.
-        Recounting the gathered characters for every piece and appending between-paragraph spaces without limit, a single comment
-        without fieldEnd took time quadratic in the number of paragraphs
-        (Pinned by: test_hwp.py::TestMemo::test_hwpx_memos_without_an_end_take_linear_time). A whitespace piece scans only the comments
-        that will take it (`_unspaced_memos`)
-        — scanning all open comments for every paragraph was quadratic when many comments were open with an empty range (Pinned by: same
-        class
-        test_many_hwpx_memos_over_empty_paragraphs_take_linear_time)."""
-        if self._memo_depth or not text or not self._open_memos:  # empty text (`<hp:t/>`) does not extend a range
-            return
-        for memo_id in list(self._unspaced_memos if text.isspace() else self._open_memos):
-            self._open_memos[memo_id].append(text)
-            self._memo_lengths[memo_id] += len(text)
-            if self._memo_lengths[memo_id] > COMMENT_TARGET_MAX + 1:
-                self._close_memo(memo_id)
-            elif text[-1:].isspace():
-                self._unspaced_memos.pop(memo_id, None)
-            else:
-                self._unspaced_memos[memo_id] = None
+        """Add a piece of body text to the ranges of the open comments (`_hangul.CommentRanges`); the text of a comment itself is
+        not the range of another."""
+        if not self._memo_depth:
+            self._memo_ranges.add(text)
 
     def _close_memo(self, memo_id: str) -> None:
-        self._open_memos.pop(memo_id, None)
-        self._memo_lengths.pop(memo_id, None)
-        self._unspaced_memos.pop(memo_id, None)
+        self._memo_ranges.close(memo_id)
 
     def memo_lines(self) -> str:
         return "\n".join(comment_line(author, text, "".join(target).strip()) for author, text, target in self.memos if text)
 
-    def _decorate(self, paragraph: etree._Element, text: str, plain: str) -> str:
-        """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style, the heading mark to the paragraph's first text piece."""
+    def _decorate(self, paragraph: etree._Element, text: str, plain: str, heading: Callable[[], str]) -> str:
+        """Attach the paragraph head (`_lists.paragraph_head`) and, for an outline style or head, the heading mark to the paragraph's
+        first text piece. A top-level body paragraph (not in a cell, note, header, text box or caption) passes its smallest
+        character size, to become a heading by size (`_hangul.SizeHeadings`)."""
         mark, level = self._paragraph_head(paragraph)
         style_name = self._styles.get(paragraph.get("styleIDRef", ""), "")
         margin = self._heads.margins.get(paragraph.get("paraPrIDRef", ""), 0)
+        outline = self._heads.shapes.get(paragraph.get("paraPrIDRef", ""), ("NONE", "", 0))[0] == "OUTLINE"
+        top = not self._inner and not self._cell_depth and not self._note_depth
         return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth),
-                              check=self._check_mark(paragraph), plain=plain)
+                              check=self._check_mark(paragraph), plain=plain, outline=outline,
+                              size=self._smallest_text_size(paragraph) if top else 0, size_headings=self.size_headings,
+                              heading_text=heading, top=top, in_note=bool(self._note_depth), no_heading=self._plain_header)
+
+    def _smallest_text_size(self, paragraph: etree._Element) -> int:
+        """The smallest size among the runs of the paragraph that hold visible text (hp:t); 0 when one of them has no known size.
+        Only the first few runs are looked at: a paragraph of more is not a heading anyway (`_hangul.SizeHeadings`)."""
+        smallest = 0
+        for count, run in enumerate(_children(paragraph, "run")):
+            if count >= _SIZE_SCAN_RUNS:
+                return 0
+            if any(_t_text(node).strip() for node in _children(run, "t")):
+                size = self._sizes.get(run.get("charPrIDRef", ""), 0)
+                if size <= 0:
+                    return 0
+                smallest = min(smallest, size) if smallest else size
+        return smallest
 
     def _check_mark(self, paragraph: etree._Element) -> str:
         """The check state character (☑ or ☐) of a check bullet paragraph, plus a trailing space. Empty text if it is not a check bullet
@@ -711,7 +753,8 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
             extraction.warnings.append("The document style information (header.xml) could not be read, so the document was converted "
                                        "without headings, numbering and character formatting.")
         renderer = HwpxRenderer(styles, options, extraction, load_binary, _load_paragraph_heads(header), load_part,
-                                _load_scripts(header), _load_struck_shapes(header))
+                                _load_scripts(header), _load_struck_shapes(header), _load_char_sizes(header),
+                                _load_emphasis(header) if options.keep_emphasis else None)
         blocks = []
         sections = _section_order(package, names, extraction.warnings)
         broken: list[Exception] = []
@@ -754,9 +797,10 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
     # it is a document without text (empty table, shapes only). Used as is, `<>` noise went out as the body
     # (Pinned by: test_hwp.py::TestPreviewFallback).
     extraction.count(sum(solid_length(text) for text in renderer.footers), options)
+    blocks = renderer.size_headings.resolve(blocks)
     body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes), renderer.memo_lines()])
     preview_text = preview.decode("utf-8", errors="replace")
-    if not body.strip() and preview_text.translate(PREVIEW_CELL_MARKS).strip():
+    if not body.strip() and preview_has_words(preview_text):
         body = preview_text
         extraction.warnings.append("The body could not be parsed, so the preview text saved by Hancom Office was used instead "
                                    "(it may contain only the beginning).")
@@ -787,7 +831,7 @@ def _form_value(node: etree._Element) -> str:
     name = _local(node)
     if name in ("checkBtn", "radioBtn"):
         mark = _CHECKED if node.get("value") == "CHECKED" else _UNCHECKED
-        return f"{mark} {node.get('caption', '')}".strip()
+        return f"{mark} {form_caption(node.get('caption', ''))}".strip()
     if name in ("comboBox", "listBox"):
         return node.get("selectedValue", "").strip()
     if name == "edit":
@@ -821,8 +865,8 @@ def _t_text(node: etree._Element) -> str:
             parts.append("\t")
         elif name == "lineBreak":
             parts.append("\n")
-        elif name == "hyphen":
-            parts.append("-")
+        # hp:hypen (so spelled by Hangul; hp:hyphen too) is the soft hyphen of HWP code 24, drawn only at a line break inside
+        # the word: written as `-` it made a different word (Pinned by: test_hwp.py::TestSoftHyphen)
         elif name in ("nbSpace", "fwSpace"):
             parts.append(" ")
         parts.append(child.tail or "")
@@ -877,7 +921,7 @@ def _parse_member(archive: zipfile.ZipFile, names: Collection[str], name: str) -
     if data is None:
         return None
     try:
-        return etree.fromstring(data, parser=_XML_PARSER)
+        return etree.fromstring(data, parser=_xml_parser())
     except etree.XMLSyntaxError:
         return None
 
@@ -934,6 +978,36 @@ def _load_scripts(header: etree._Element | None) -> dict[str, str]:
             if marks:
                 scripts[node.get("id", "")] = marks[0]
     return scripts
+
+
+# Runs of a paragraph looked at for its character size (`HwpxRenderer._smallest_text_size`)
+_SIZE_SCAN_RUNS = 64
+
+
+def _load_char_sizes(header: etree._Element | None) -> dict[str, int]:
+    """Character shape (hh:charPr) id → its size (the height attribute, 1/100 pt). A height that is not a positive number is left out."""
+    if header is None:
+        return {}
+    sizes = {}
+    for node in header.iter():
+        if _local(node) == "charPr":
+            height = decimal_int(node.get("height"), 0)
+            if height > 0:
+                sizes[node.get("id", "")] = height
+    return sizes
+
+
+def _load_emphasis(header: etree._Element | None) -> dict[str, tuple[bool, bool]]:
+    """Character shape (hh:charPr) id → (bold, italic), for the shapes with an hh:bold or hh:italic child."""
+    emphasis: dict[str, tuple[bool, bool]] = {}
+    if header is None:
+        return emphasis
+    for node in header.iter():
+        if _local(node) == "charPr":
+            bold, italic = _child(node, "bold") is not None, _child(node, "italic") is not None
+            if bold or italic:
+                emphasis[node.get("id", "")] = (bold, italic)
+    return emphasis
 
 
 def _load_struck_shapes(header: etree._Element | None) -> frozenset[str]:

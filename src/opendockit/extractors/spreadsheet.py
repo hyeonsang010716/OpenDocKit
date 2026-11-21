@@ -37,7 +37,7 @@ from opendockit.extractors._openpyxl_reading import (
     _CellReading,
     _is_number,
 )
-from opendockit.extractors._package import _XML_PARSER, ZIP_MEMBER_ERRORS, members_named_as_referenced, named_part
+from opendockit.extractors._package import ZIP_MEMBER_ERRORS, _xml_parser, members_named_as_referenced, named_part
 from opendockit.extractors._sheet_format import (
     _ELAPSED_FORMAT,
     _format_value,
@@ -334,7 +334,7 @@ def _without_repeated_sheets(data: bytes) -> tuple[bytes, bool]:
         if workbook_path not in names:
             return data, False
         try:
-            root = etree.fromstring(archive.read(workbook_path), parser=_XML_PARSER)
+            root = etree.fromstring(archive.read(workbook_path), parser=_xml_parser())
         except etree.XMLSyntaxError:
             return data, False  # openpyxl rejects it for the same reason
         if root.tag == f"{{{_STRICT_SPREADSHEET_MAIN}}}workbook":
@@ -379,7 +379,7 @@ def _with_number_formats_only(data: bytes) -> tuple[bytes, bool] | None:
     """
     with zipfile.ZipFile(BytesIO(data)) as archive:
         try:
-            root = etree.fromstring(archive.read(_STYLES_PATH), parser=_XML_PARSER)
+            root = etree.fromstring(archive.read(_STYLES_PATH), parser=_xml_parser())
         except (KeyError, etree.XMLSyntaxError):
             return None
 
@@ -624,7 +624,7 @@ def _listed_sheet_parts(archive: zipfile.ZipFile) -> set[str]:
     names = set(archive.namelist())
     workbook_path = _workbook_path(archive, names)
     try:
-        root = etree.fromstring(archive.read(workbook_path), parser=_XML_PARSER)
+        root = etree.fromstring(archive.read(workbook_path), parser=_xml_parser())
         targets = _related(archive, names, workbook_path)
     except (KeyError, etree.XMLSyntaxError):
         return set()
@@ -669,7 +669,7 @@ def _written_without_calculation(archive: zipfile.ZipFile) -> bool:
     names = set(archive.namelist())
     workbook_path = _workbook_path(archive, names)
     try:
-        workbook = etree.fromstring(archive.read(workbook_path), parser=_XML_PARSER)
+        workbook = etree.fromstring(archive.read(workbook_path), parser=_xml_parser())
     except (KeyError, etree.XMLSyntaxError):
         return False
     calculation = workbook.find(f"{{{_SPREADSHEET_MAIN}}}calcPr")
@@ -679,13 +679,13 @@ def _written_without_calculation(archive: zipfile.ZipFile) -> bool:
     path = "docProps/app.xml"
     if "_rels/.rels" in names:
         try:
-            package = etree.fromstring(archive.read("_rels/.rels"), parser=_XML_PARSER)
+            package = etree.fromstring(archive.read("_rels/.rels"), parser=_xml_parser())
         except etree.XMLSyntaxError:
             return False
         path = next((named_part(relationship.get("Target", "").lstrip("/"), names.__contains__)
                      for relationship in package.iter(_RELATIONSHIPS) if relationship.get("Type") == _EXTENDED_PROPERTIES), path)
     try:
-        properties = etree.fromstring(archive.read(path), parser=_XML_PARSER)
+        properties = etree.fromstring(archive.read(path), parser=_xml_parser())
     except (KeyError, etree.XMLSyntaxError):
         return False
     return "apache poi" in (properties.findtext("{*}Application") or "").lower()

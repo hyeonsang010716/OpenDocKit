@@ -1293,3 +1293,381 @@ class TestMetadataIsCleaned:
 
         assert result.metadata["title"] == "Quarterly report"
         assert result.metadata["author"] == "a b # Heading"
+
+
+_OTHER_FORMAT_LIBRARIES = ("openpyxl", "bs4", "pdfplumber", "pdfminer", "pypdfium2", "pptx", "html5lib")
+
+
+def _libraries_loaded_by(script: str) -> set[str]:
+    """Top-level names of `_OTHER_FORMAT_LIBRARIES` and python-docx that a fresh interpreter has imported after `script`."""
+    import json
+    import subprocess
+
+    watched = sorted({*_OTHER_FORMAT_LIBRARIES, "docx"})
+    probe = (f"{script}\nimport json, sys\n"
+             f"print(json.dumps(sorted({{name.split('.')[0] for name in sys.modules}} & set({watched!r}))))")
+    completed = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120)
+    return set(json.loads(completed.stdout.strip().splitlines()[-1]))
+
+
+# Six threads convert a PPTX after the main thread did, then parse names of their own at once (`TestXmlParsersPerThread`)
+_SHARED_DICTIONARY_SCRIPT = """
+import sys, threading
+from lxml import etree
+import opendockit
+data = open(sys.argv[1], "rb").read()
+opendockit.convert(data, "a.pptx")
+wrong = []
+barrier = threading.Barrier(6)
+def work(thread):
+    opendockit.convert(data, "a.pptx")
+    barrier.wait()
+    parser = etree.XMLParser()
+    for count in range(400):
+        names = [f"t{thread}n{count}x{index}" for index in range(30)]
+        try:
+            root = etree.fromstring(("<r>" + "".join(f"<{name}/>" for name in names) + "</r>").encode(), parser)
+            wrong.extend(name for name, child in zip(names, root) if child.tag != name)
+        except etree.XMLSyntaxError:
+            wrong.append("syntax")
+threads = [threading.Thread(target=work, args=(thread,)) for thread in range(6)]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+print("wrong", len(wrong))
+"""
+
+
+class TestXmlParsersPerThread:
+    """A parser kept by a module and used by threads converting at once made other threads' parses fail (python-docx read a
+    sound `settings.xml` as 'Namespace prefix w on settings is not defined'), so a valid file came out as corrupted in 7 of
+    200 runs of eight threads converting different formats. Each thread now parses with its own parser."""
+
+    @pytest.mark.parametrize(("module", "name"), [("_package", "_xml_parser"), ("_xlsx_parts", "_vml_parser"),
+                                                  ("epub", "_chapter_parser"), ("hwpx", "_xml_parser"), ("odf", "_xml_parser")])
+    def test_each_thread_has_its_own_parser(self, module, name):
+        from importlib import import_module
+        import threading
+
+        parser = getattr(import_module(f"opendockit.extractors.{module}"), name)
+        others: list[object] = []
+        thread = threading.Thread(target=lambda: others.extend([parser(), parser()]))
+        thread.start()
+        thread.join()
+
+        assert parser() is parser() and others[0] is others[1]
+        assert others[0] is not parser()
+
+    def test_threads_converting_after_a_shared_parser_keep_their_own_dictionaries(self, tmp_path):
+        """python-pptx parses with one parser for every thread, so a thread whose first parse was a PPTX took the string
+        dictionary of the thread that used that parser last; threads parsing at once then added names to one dictionary:
+        names came out wrong, or the process stopped on a bad access (each of five runs). Each converting thread now makes
+        a dictionary of its own first."""
+        import subprocess
+
+        (tmp_path / "a.pptx").write_bytes(builder.pptx_bytes())
+        completed = subprocess.run([sys.executable, "-c", _SHARED_DICTIONARY_SCRIPT, str(tmp_path / "a.pptx")],
+                                   capture_output=True, text=True, timeout=120)
+
+        assert completed.returncode == 0, completed.stderr[-2000:]
+        assert completed.stdout.split() == ["wrong", "0"]
+
+
+class TestExtractorsImportedOnFirstUse:
+    """`import opendockit` imported every extractor and with them openpyxl, BeautifulSoup, pdfplumber, pypdfium2 and python-pptx:
+    0.2-0.3 s and 100 MB before a page was read, paid by every command-line run and every Windows worker (a full interpreter
+    start per file). An extractor's module is now imported the first time its format is converted."""
+
+    def test_importing_the_package_loads_no_reader_library(self):
+        assert _libraries_loaded_by("import opendockit") == set()
+
+    def test_docx_does_not_load_the_readers_of_other_formats(self, tmp_path):
+        path = tmp_path / "a.docx"
+        path.write_bytes(builder.docx_bytes())
+
+        loaded = _libraries_loaded_by(f"import opendockit\nassert opendockit.convert_file({str(path)!r}).text")
+
+        assert loaded == {"docx"}
+
+    def test_every_format_has_an_extractor_function_behind_it(self):
+        from importlib import import_module
+
+        from opendockit.extractors import EXTRACTOR_MODULES
+
+        assert set(EXTRACTOR_MODULES) == set(DocumentFormat)
+        for module, name in EXTRACTOR_MODULES.values():
+            assert callable(getattr(import_module(f"opendockit.extractors.{module}"), name))
+
+    def test_extractor_is_called_through_its_entry(self):
+        result = convert(b"plain words", "a.txt")
+
+        assert result.text == "plain words"
+        assert EXTRACTORS[DocumentFormat.TEXT].__name__ == "extract_text"
+
+    def test_threads_converting_their_first_documents_at_once(self, tmp_path):
+        """Threads that converted their first EPUB, XLSX, HTML … at the same moment imported the same libraries at once; Python's
+        import machinery stopped one of them with a `_DeadlockError`, and a valid file came out as corrupted (in 6 of 8 fresh
+        processes). The documents are built here, so the interpreter that converts them has imported none of the libraries."""
+        import json
+        import subprocess
+
+        from tests.test_epub import _epub
+
+        documents = {"a.docx": builder.docx_bytes(), "a.xlsx": builder.xlsx_bytes(), "a.pptx": builder.pptx_bytes(),
+                     "a.pdf": builder.pdf_bytes(1), "a.hwpx": builder.hwpx_bytes(), "a.html": b"<html><body><p>x</p></body></html>",
+                     "a.epub": _epub({"c1.xhtml": "<html><body><p>chapter</p></body></html>"}),
+                     "a.eml": b"Subject: s\nContent-Type: text/html\n\n<p>m</p>"}
+        for name, data in documents.items():
+            (tmp_path / name).write_bytes(data)
+        script = (
+            "import json, os, sys\nfrom concurrent.futures import ThreadPoolExecutor\nimport opendockit\n"
+            "folder = sys.argv[1]\n"
+            "documents = [(open(os.path.join(folder, n), 'rb').read(), n) for n in sorted(os.listdir(folder))] * 3\n"
+            "def run(document):\n"
+            "    try:\n        opendockit.convert(*document)\n"
+            "    except Exception as exc:\n        return f'{document[1]}: {type(exc.__cause__ or exc).__name__}'\n"
+            "with ThreadPoolExecutor(len(documents)) as pool:\n"
+            "    print(json.dumps(sorted(filter(None, pool.map(run, documents)))))\n")
+
+        for _ in range(4):
+            completed = subprocess.run([sys.executable, "-c", script, str(tmp_path)], capture_output=True, text=True, check=True,
+                                       timeout=120)
+            assert json.loads(completed.stdout.strip().splitlines()[-1]) == []
+
+    def test_importing_them_all_goes_through_the_lock(self, monkeypatch):
+        """`opendockit.extractors.all` imported its modules around the lock of the imports on first use: a thread importing it
+        while others converted their first documents could import the same libraries as they did, at once."""
+        from importlib import import_module
+
+        from opendockit import extractors
+
+        loaded: list[str] = []
+        monkeypatch.delitem(sys.modules, "opendockit.extractors.all", raising=False)
+        monkeypatch.setattr(extractors, "load", lambda module: loaded.append(module) or import_module(module))
+
+        import_module("opendockit.extractors.all")
+
+        assert sorted(loaded) == sorted({f"opendockit.extractors.{module}" for module, _ in extractors.EXTRACTOR_MODULES.values()})
+
+    def test_forkserver_preloads_every_extractor(self, monkeypatch):
+        import multiprocessing
+
+        from opendockit import isolated
+
+        if "forkserver" not in multiprocessing.get_all_start_methods():
+            pytest.skip("no forkserver on this platform")
+        preloaded: list[list[str]] = []
+        monkeypatch.setattr(type(multiprocessing.get_context("forkserver")), "set_forkserver_preload",
+                            lambda self, modules: preloaded.append(list(modules)))
+
+        isolated._worker_context()
+
+        assert preloaded == [["opendockit", "opendockit.extractors.all"]]
+        loaded = _libraries_loaded_by("import opendockit.extractors.all")
+        assert loaded >= {"openpyxl", "bs4", "pdfplumber", "pypdfium2", "pptx", "docx"}
+
+
+_FORK_SCRIPT = """
+import os, signal, sys, threading, time, warnings
+warnings.simplefilter("ignore")   # Python's DeprecationWarning for a fork in a process with threads
+import opendockit
+from opendockit.extractors import load
+
+folder, shape = sys.argv[1], sys.argv[2]
+sys.path.insert(0, folder)
+started = threading.Event()
+
+if shape == "real":
+    pdf = open(os.path.join(folder, "a.pdf"), "rb").read()
+    thread = threading.Thread(target=opendockit.convert, args=(pdf, "a.pdf"))
+    thread.start()
+    while "pdfplumber" not in sys.modules and thread.is_alive():
+        time.sleep(0.0005)
+else:
+    thread = threading.Thread(target=load, args=("slow_reader",))
+    thread.start()
+    started.wait()
+pid = os.fork()
+if pid == 0:
+    signal.alarm(10)
+    try:
+        if shape == "same module":
+            assert load("slow_reader").VALUE == 1
+        else:
+            assert opendockit.convert(b"hello world", "a.txt").text == "hello world"
+        os.write(1, b"child ok\\n")
+    finally:
+        os._exit(0)
+thread.join()
+_, status = os.waitpid(pid, 0)
+print("hung" if os.WIFSIGNALED(status) else "ended")
+"""
+
+# Imported on first use by a thread of the script above: it lets the main thread know it is being imported, and takes its time
+_SLOW_READER = "import sys, time\nsys.modules['__main__'].started.set()\ntime.sleep(0.5)\nVALUE = 1\n"
+
+# Forks while `load` imports it, with the lock held by the thread that forks
+_FORKING_READER = """
+import os, signal
+import opendockit
+pid = os.fork()
+if pid == 0:
+    signal.alarm(10)
+    try:
+        assert opendockit.convert(b"hello world", "a.txt").text == "hello world"
+        os.write(1, b"child ok\\n")
+    finally:
+        os._exit(0)
+_, status = os.waitpid(pid, 0)
+print("hung" if os.WIFSIGNALED(status) else "ended")
+"""
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "fork"), reason="only where processes fork")
+@pytest.mark.timing
+@pytest.mark.no_rerun  # starts processes and threads and checks how they end: one failure can be a real race
+class TestImportsOnFirstUseAndFork:
+    """A process forked from one thread while another imported a reader on first use got the lock of those imports held by a
+    thread that does not exist in it: its first document of a format not yet loaded waited for ever. A fork now waits until
+    no import on first use is under way. A child that only got the lock back still waited for ever on Python's own lock of the
+    half-imported module (shown with a stand-in reader, `slow_reader`). A child converting the very format the thread goes on
+    to read can still wait on that reader's own locks (an accepted gap, `docs/decisions/core.md`): the real reader below is
+    checked with a child converting text."""
+
+    @staticmethod
+    def _run(tmp_path, shape: str) -> list[str]:
+        import subprocess
+
+        (tmp_path / "slow_reader.py").write_text(_SLOW_READER)
+        (tmp_path / "a.pdf").write_bytes(builder.pdf_bytes(3))
+        completed = subprocess.run([sys.executable, "-c", _FORK_SCRIPT, str(tmp_path), shape], capture_output=True, text=True,
+                                   check=True, timeout=60)
+        return completed.stdout.split()
+
+    def test_child_converts_a_format_not_yet_loaded(self, tmp_path):
+        assert self._run(tmp_path, "other format") == ["child", "ok", "ended"]
+
+    def test_child_imports_the_module_that_was_being_imported(self, tmp_path):
+        assert self._run(tmp_path, "same module") == ["child", "ok", "ended"]
+
+    def test_fork_while_a_thread_imports_a_real_reader(self, tmp_path):
+        assert self._run(tmp_path, "real") == ["child", "ok", "ended"]
+
+    def test_thread_that_holds_the_lock_can_fork(self, tmp_path):
+        """A library that forks while it is being imported: the thread that forks holds the lock already and takes it again."""
+        import subprocess
+
+        (tmp_path / "forking_reader.py").write_text(_FORKING_READER)
+        script = ("import sys, warnings\nwarnings.simplefilter('ignore')\nsys.path.insert(0, sys.argv[1])\n"
+                  "from opendockit.extractors import load\nload('forking_reader')\n")
+        completed = subprocess.run([sys.executable, "-c", script, str(tmp_path)], capture_output=True, text=True, check=True,
+                                   timeout=60)
+
+        assert completed.stdout.split() == ["child", "ok", "ended"]
+
+
+class TestReaderThatCannotBeImported:
+    """A reader library that cannot be imported (a broken wheel, a binary built for another Python) stopped `import opendockit`
+    while every extractor was imported with the package. Imported on first use inside the boundary that gathers parser failures,
+    it made every valid file of that format a `CorruptedDocumentError`, and HTML 'could not parse the file format'. It is an
+    `ImportError` with a fixed sentence; the library's own wording is only its cause."""
+
+    @staticmethod
+    def _broken(monkeypatch, *modules: str) -> list[str]:
+        """Make importing `modules` fail as a broken installation does; the names tried are listed in the result."""
+        from opendockit import extractors
+
+        tried: list[str] = []
+        real = extractors.import_module
+
+        def failing(name: str):
+            if name in modules:
+                tried.append(name)
+                raise ModuleNotFoundError("No module named 'openpyxl.cell._writer'; /site-packages/openpyxl is broken")
+            return real(name)
+
+        monkeypatch.setattr(extractors, "import_module", failing)
+        # A fresh entry for each format, as in a process that has not converted one yet
+        for document_format, (module, name) in extractors.EXTRACTOR_MODULES.items():
+            monkeypatch.setitem(extractors.EXTRACTORS, document_format, extractors._on_first_use(module, name))
+        return tried
+
+    def test_spreadsheet_reader_is_an_import_error_with_a_fixed_sentence(self, monkeypatch):
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+
+        tried = self._broken(monkeypatch, "opendockit.extractors.spreadsheet")
+
+        for _ in range(2):
+            with pytest.raises(ImportError) as raised:
+                convert(builder.xlsx_bytes(), "a.xlsx")
+            assert not isinstance(raised.value, ConversionError)
+            assert str(raised.value) == IMPORT_FAILED_MESSAGE
+            assert isinstance(raised.value.__cause__, ModuleNotFoundError)
+        assert tried == ["opendockit.extractors.spreadsheet"] * 2   # tried again, so a repaired installation is picked up
+
+    def test_pdf_reader_is_not_tried_as_text(self, monkeypatch):
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+
+        self._broken(monkeypatch, "opendockit.extractors.pdf")
+
+        with pytest.raises(ImportError, match=IMPORT_FAILED_MESSAGE):
+            convert(b"A note\n" + builder.pdf_bytes(1), "note.txt")
+        with pytest.raises(ImportError, match=IMPORT_FAILED_MESSAGE):
+            convert(builder.pdf_bytes(1), "a.pdf")
+
+    def test_mail_readers_of_detection_are_not_a_corrupted_html(self, monkeypatch):
+        from opendockit import detect_format
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+
+        self._broken(monkeypatch, "opendockit.extractors._html_mail")
+
+        with pytest.raises(ImportError, match=IMPORT_FAILED_MESSAGE):
+            convert(b"<html><body><p>hello</p></body></html>", "a.html")
+        with pytest.raises(ImportError, match=IMPORT_FAILED_MESSAGE):
+            detect_format(b"<html><body><p>hello</p></body></html>", "a.html")
+
+    def test_reader_of_imported_docx_content(self, monkeypatch):
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+        from tests.test_office import _docx_with_chunks
+
+        data = _docx_with_chunks('<w:altChunk r:id="rIdChunk"/>', {"rIdChunk": ("chunk1.html", "text/html", b"<p>imported</p>")})
+        self._broken(monkeypatch, "opendockit.extractors.html")
+
+        with pytest.raises(ImportError, match=IMPORT_FAILED_MESSAGE):
+            convert(data, "a.docx")
+
+    def test_import_a_library_makes_while_it_reads_gets_the_sentence_too(self, monkeypatch):
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+
+        def reader(data, options):
+            raise ImportError("cannot import name '_speedups' from 'somelib' (/opt/site-packages/somelib/__init__.py)")
+
+        monkeypatch.setitem(EXTRACTORS, DocumentFormat.TEXT, reader)
+
+        with pytest.raises(ImportError) as raised:
+            convert(b"plain words", "a.txt")
+        assert str(raised.value) == IMPORT_FAILED_MESSAGE
+
+    def test_worker_of_isolated_converter_reports_it_the_same_way(self, tmp_path):
+        """A broken BeautifulSoup in the installation: the forkserver's preload skips it, and the worker's conversion raises the
+        `ImportError`, which reaches the caller as such."""
+        import os
+        import subprocess
+
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+
+        (tmp_path / "bs4").mkdir()
+        (tmp_path / "bs4" / "__init__.py").write_text("raise ImportError('a broken build of bs4')\n")
+        script = ("import asyncio\nfrom opendockit import IsolatedConverter, convert\n"
+                  "html = b'<html><body><p>hello</p></body></html>'\n"
+                  "async def in_worker():\n    async with IsolatedConverter() as converter:\n"
+                  "        await converter.convert(html, 'a.html')\n"
+                  "for run in (lambda: convert(html, 'a.html'), lambda: asyncio.run(in_worker())):\n"
+                  "    try:\n        run()\n    except Exception as exc:\n        print(type(exc).__name__, '|', exc)\n")
+        environment = os.environ | {"PYTHONPATH": os.pathsep.join(filter(None, [str(tmp_path), os.environ.get("PYTHONPATH")]))}
+
+        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=True, timeout=120,
+                                   env=environment)
+
+        assert completed.stdout.splitlines() == [f"ImportError | {IMPORT_FAILED_MESSAGE}"] * 2

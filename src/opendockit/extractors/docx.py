@@ -20,6 +20,7 @@ from docx.parts.document import DocumentPart
 from lxml import etree
 
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
+from opendockit.extractors import load
 from opendockit.extractors._charts import embedded_table, related_loader, render_chart, render_chartex, render_smartart
 from opendockit.extractors._docx_parts import (
     _indent_values,
@@ -38,11 +39,13 @@ from opendockit.extractors._docx_runs import (
     _DIAGRAM,
     _MC,
     _V,
+    _VANISH,
     _children,
     _custom_mark,
     _drawing_alt,
     _drawing_lines,
     _embed_markdown_tables,
+    _half_points,
     _Inline,
     _inside_fallback,
     _int_attr,
@@ -60,7 +63,6 @@ from opendockit.extractors._docx_runs import (
     _w,
     _word_art_text,
 )
-from opendockit.extractors._html_mail import is_mhtml
 from opendockit.extractors._inline import (
     link_target,
     plain_inline,
@@ -77,15 +79,16 @@ from opendockit.extractors._notation import (
     unread_ole_warning,
 )
 from opendockit.extractors._package import (
+    ZIP_MEMBER_ERRORS,
     core_properties,
-    is_strict_package,
+    has_password_protected_part,
     main_document_part,
+    main_part_types,
     open_package,
     parse_part,
     related_part,
+    transitional_package,
 )
-from opendockit.extractors.html import extract_html
-from opendockit.extractors.text import extract_text
 from opendockit.markdown import TableGrid, clean_characters, join_blocks, merged_copy, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, renumber_image_markers
 
@@ -133,6 +136,10 @@ _EMPHASIS_STYLE_NAMES = {"strong": (True, False), "emphasis": (False, True)}
 
 # Blocks read in order in the body, cells and text boxes: paragraph, table, imported content
 _BLOCK_TAGS = (_w("p"), _w("tbl"), _w("altChunk"))
+# What a paragraph holds that is read after its text (`_render_paragraph`): text boxes, shape text, legacy WordArt
+_TEXT_BOX = _w("txbxContent")
+_SHAPE_TEXT = f"{{{_A}}}txBody"
+_WORD_ART = f"{{{_V}}}textpath"
 
 
 @dataclass(slots=True)
@@ -179,7 +186,7 @@ class _DocxRenderer:
         styles_root = _styles_root(document)
         default_size = (styles_root.find(f"{_w('docDefaults')}/{_w('rPrDefault')}/{_w('rPr')}/{_w('sz')}")
                         if styles_root is not None else None)
-        self._default_size = _int_attr(default_size, 0) or 20  # document default font size. If absent, Word uses 10pt (20 half-points)
+        self._default_size = _half_points(default_size, 0) or 20  # document default font size. If absent, Word uses 10pt (20 half-points)
         self._number_lists = _load_numbering(document)
         # There is one counter per number definition (abstractNum). Numbered lists (numId) already seen in the body are noted separately.
         self._numberings: dict[str, Numbering] = {}
@@ -464,10 +471,15 @@ class _DocxRenderer:
         after = [block for block in objects if block]
         # Those of a chain far past the limit are not built at all: they would all go past the cut (`_past_the_cut`)
         boxes = not finishing and not self._past_the_cut(joined, paragraph)
+        # Text boxes, then shape text, then WordArt, each in document order — found in one pass over the paragraph: three passes
+        # over every paragraph of a table-heavy document cost a tenth of its conversion
+        found: dict[str, list[etree._Element]] = {_TEXT_BOX: [], _SHAPE_TEXT: [], _WORD_ART: []}
+        for element in (paragraph.iter(_TEXT_BOX, _SHAPE_TEXT, _WORD_ART) if boxes else ()):
+            found[element.tag].append(element)
         with self._own_lists():
             after.extend(
                 block
-                for box in (paragraph.iter(_w("txbxContent")) if boxes else ())
+                for box in found[_TEXT_BOX]
                 if _is_read_box(box, paragraph)
                 for block in self.render_container(box)
             )
@@ -475,7 +487,7 @@ class _DocxRenderer:
         # like a text box (Pinned by: test_office.py::TestDocxFieldsAndRuns::test_text_of_a_pasted_drawing_shape_is_kept).
         after.extend(
             line
-            for body in (paragraph.iter(f"{{{_A}}}txBody") if boxes else ())
+            for body in found[_SHAPE_TEXT]
             if _is_read_box(body, paragraph)
             for line in _drawing_lines(body)
         )
@@ -483,7 +495,7 @@ class _DocxRenderer:
         # same shape in a header is a watermark laid on every page ('초안' (draft), '대외비' (confidential))
         # (Pinned by: test_office.py::TestDocxLegacyWordArt).
         if self._part is self._main_part and boxes:
-            arts = (_word_art_text(path) for path in paragraph.iter(f"{{{_V}}}textpath") if _is_read_box(path, paragraph))
+            arts = (_word_art_text(path) for path in found[_WORD_ART] if _is_read_box(path, paragraph))
             after.extend(art for art in arts if art)
 
         # A numbered paragraph with empty text still counts its number (no item is emitted). Otherwise the following numbers are pulled
@@ -687,7 +699,21 @@ class _DocxRenderer:
         repeated value into the HTML table instead of a rowspan."""
         # (row, column, column span, whether it is a continuation cell, tc)
         cells: list[tuple[int, int, int, bool, etree._Element]] = []
-        for row_index, row in enumerate(_children(table, _w("tr"))):
+        # A row deleted with Track Changes on (w:trPr/w:del) is not in the final version and is left out, as tracked deletions are
+        # everywhere else; the rows left are numbered without it, so a merge whose start is kept and runs across it stays tied. Kept,
+        # the struck-out row of a contract came out as a row of the final table (Pinned by: test_office_revisions_and_numbering.py::
+        # TestDocxDeletedTableRow).
+        # A merge that starts in a deleted row still covers the rows left below it: Word keeps a merged cell's content when a row
+        # of it goes, and the cell spans what is left. Its first row left becomes its start, with the text of the deleted start
+        # cell. Numbered without the deleted row and nothing more, its continuation cells were tied to the unrelated cell above
+        # the deleted row and wrote that cell's text (`Seoul` for `Busan`), or, in the first row, came out empty (Pinned by:
+        # test_office_revisions_and_numbering.py::TestDocxDeletedTableRow::test_merge_starting_in_a_deleted_row_keeps_its_text).
+        # Start column → (column span, start cell) of the merges whose start lies in the deleted rows just read
+        carried: dict[int, tuple[int, etree._Element]] = {}
+        row_index = 0
+        for row in _children(table, _w("tr")):
+            deleted = _is_deleted_row(row)
+            row_cells: list[tuple[int, int, int, bool, etree._Element]] = []
             # A span below 1 and a negative number of skipped columns are not used as they are: gridSpan="0" put the next cell on
             # the same column (its text was lost) and a negative value moved cells to the left of their row
             # (Pinned by: test_audit_office.py::TestDocxGridSpanBelowOne).
@@ -699,13 +725,34 @@ class _DocxRenderer:
                 # Kept separate, the merge became an empty cell (Pinned by:
                 # test_office.py::TestDocxStruckDeletedAndSymbolRuns::test_legacy_horizontal_merge_extends_the_starting_cell).
                 merge = properties.find(_w("hMerge")) if properties is not None else None
-                if merge is not None and merge.get(_w("val"), "continue") == "continue" and cells and cells[-1][0] == row_index:
-                    cells[-1] = (*cells[-1][:2], cells[-1][2] + span, *cells[-1][3:])
+                if merge is not None and merge.get(_w("val"), "continue") == "continue" and row_cells:
+                    row_cells[-1] = (*row_cells[-1][:2], row_cells[-1][2] + span, *row_cells[-1][3:])
                     col += span
                     continue
                 merge = properties.find(_w("vMerge")) if properties is not None else None
-                cells.append((row_index, col, span, merge is not None and merge.get(_w("val"), "continue") == "continue", cell))
+                row_cells.append((row_index, col, span, merge is not None and merge.get(_w("val"), "continue") == "continue", cell))
                 col += span
+            if deleted:
+                # A merge carried on is one this row continues over any of its columns; one this row starts is carried from here
+                still: dict[int, tuple[int, etree._Element]] = {}
+                for _, col, span, continues, cell in row_cells:
+                    found = _carried_over(carried, col, span) if continues else None
+                    if found is not None:
+                        still[found[0]] = found[1]
+                    elif not continues and _starts_merge(cell):
+                        still[col] = (span, cell)
+                carried = still
+                continue
+            for _, col, span, continues, cell in row_cells:
+                # The first row left of a merge carried from deleted rows starts it with the deleted start cell's text, at the
+                # same width or another: tied to the row above the deleted rows, a cell of another width took the text of the
+                # unrelated cell there (Pinned by: test_office_revisions_and_numbering.py::TestDocxDeletedTableRow::
+                # test_merge_starting_in_a_deleted_row_keeps_its_text_at_another_width)
+                found = _carried_over(carried, col, span) if continues else None
+                cells.append((row_index, col, span, False, found[1][1]) if found is not None
+                             else (row_index, col, span, continues, cell))
+            carried = {}
+            row_index += 1
 
         # A continuation cell with no cell above any of its columns (in the first row, or below the columns a row skips with
         # w:gridBefore) continues no merge and is an ordinary cell. It took the text of the missing cell above (none), so its own
@@ -916,6 +963,12 @@ class _DocxRenderer:
         if direct is not None:
             return _outline_to_heading(_int_attr(direct, 9))
 
+        # Apple Pages names its first heading level 'Heading' (then 'Heading 2', 'Heading 3'). Only the paragraph's own style is
+        # taken by that name: in LibreOffice 'Heading' is the parent of Title, Subtitle and Contents Heading, and followed through
+        # basedOn it made every subtitle a heading (Pinned by: test_office.py::TestOfficeReadingOrderAndListMarks::
+        # test_heading_style_of_apple_pages_is_a_heading_but_not_its_children)
+        if style is not None and style.name.strip().lower() == "heading" and style.outline_level is None:
+            return 1
         seen = 0
         while style is not None and seen < 10:
             match = _HEADING_NAME.match(style.name.strip())
@@ -951,6 +1004,11 @@ class _DocxRenderer:
                 number_list = self._number_lists.get(style.num_id)
                 level = (number_list.style_levels if number_list else {}).get(style.style_id, style.ilvl)
                 return style.num_id, _int_attr(direct_level, level)
+            # A level that names a style with no numPr of its own (w:lvl/w:pStyle, ECMA-376 17.9.23) does not number it
+            # (**deliberate**): real documents keep such links after the numbering was switched off (Heading 1 named by a level of
+            # a heading numbering since removed), and numbered by it, `서론` came out as `# 1. 서론` and the list sharing the
+            # definition skipped the numbers taken. Known accepted gap: a document that relies on such a link alone loses those
+            # numbers (Pinned by: test_office.py::TestDocxNumbering::test_style_named_only_by_a_numbering_level_stays_unnumbered)
             style = self._styles.get(style.based_on) if style.based_on else None
             seen += 1
         return None, 0
@@ -1098,40 +1156,94 @@ class _DocxRenderer:
         return values.get("left")
 
 
-def _reject_strict(data: bytes) -> None:
-    if is_strict_package(data):
-        raise UnsupportedFormatError("Word documents in the Strict Open XML format are not supported. "
+# The readers of imported content (w:altChunk) are imported when a document holds some. Imported with this module, every DOCX
+# loaded the HTML reader and BeautifulSoup for a part few documents have (Pinned by: test_converter.py::
+# TestExtractorsImportedOnFirstUse::test_docx_does_not_load_the_readers_of_other_formats).
+# They are imported under the lock every import on first use shares (`extractors.load`).
+def extract_html(data: bytes, options: ConvertOptions) -> Extraction:
+    return load("opendockit.extractors.html").extract_html(data, options)
+
+
+def extract_text(data: bytes, options: ConvertOptions) -> Extraction:
+    return load("opendockit.extractors.text").extract_text(data, options)
+
+
+def is_mhtml(data: bytes) -> bool:
+    return load("opendockit.extractors._html_mail").is_mhtml(data)
+
+
+def _open_main_part(data: bytes, warnings: list[str]) -> tuple[DocumentPart | None, Exception | None]:
+    """The main part of the package, or None (with what opening raised) when there is no Word document in it: the package or its
+    main part does not open, the main part is not a document part, or its root is not w:document. A w:document without w:body
+    (optional in the schema) is an empty document, as a deck without a slide list is an empty deck: `extract_docx` gives it an
+    empty body in memory. Both raised from inside the body walk (Pinned by: test_audit_office.py::TestDocxMainPartWithoutABody).
+
+    A relationship without a Type is kept by python-docx, which opens the package as it is, and the parts looked up by type
+    were not found behind it: the styles or the numbering were dropped without a word, and the headings and list items came
+    out as plain text. One whose target has the content type of such a part takes that part's type, unless another
+    relationship of the same part has it already (Pinned by: test_office_robustness.py::TestIncompleteRelationship::
+    test_docx_relationship_without_a_type_takes_the_type_of_its_part)."""
+    try:
+        part = main_document_part(open_package(Package.open, data, warnings))
+    except (PackageNotFoundError, KeyError, ValueError) as exc:
+        return None, exc
+    if not isinstance(part, DocumentPart):
+        return None, None
+    _type_untyped_relationships(part.package)
+    if part.document.element.tag != _w("document"):
+        return None, None
+    return part, None
+
+
+def _strict_main_part(data: bytes, warnings: list[str]) -> DocumentPart | None:
+    """The main part of the Transitional copy of a Strict Open XML package (`_package.transitional_package`). Raises the advice to
+    save the document again when even the copy holds no Word document."""
+    try:
+        part, _ = _open_main_part(transitional_package(data), warnings)
+    except ZIP_MEMBER_ERRORS:
+        part = None
+    if part is None and has_password_protected_part(data):
+        # A part the copy left out because it carries the ZIP password bit: corrupted as for a Transitional document, so the
+        # converter reports the password, not advice to save again that the password stops (Pinned by:
+        # test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::test_password_protected_strict_docx_is_encrypted)
+        raise CorruptedDocumentError("The DOCX document structure could not be read.")
+    if part is None:
+        raise UnsupportedFormatError("This Word document in the Strict Open XML format could not be read. "
                                      "Please save the file again in Word as 'Word Document (.docx)'.")
+    return part
 
 
 def extract_docx(data: bytes, options: ConvertOptions) -> Extraction:
     # If opening fails because of one part that is missing or is not XML, only that part is detached and the package is opened again
     # (`_package.open_package`, one warning).
-    # A Strict Open XML document fails here because its main part is not found. It is not corruption; the message asks to save it again
-    # (`_package.is_strict_package`).
+    # A Strict Open XML document (`is_strict_package`) is read from its Transitional copy (`_strict_main_part`) without being
+    # opened as it is first: opened, its main part is not found, and the attempt held, through what it raised, the package it
+    # had opened with every part read, until the cycle collector let it go (a 170 MB picture: 533 MB against 352 MB for the
+    # Transitional document, or a collection of the whole heap per document). Looking costs reading the package relationships,
+    # a small part (Pinned by: test_office_revisions_and_numbering.py::TestStrictOpenXmlOfficeDocuments::
+    # test_strict_package_is_not_opened_before_the_copy, test_transitional_document_is_not_copied).
+    # A package that names a main part with both types is opened as it is, since python-docx follows the Transitional one, and
+    # read from its copy when that finds no Word document there (a part in Strict names is none): taken as Strict, a
+    # Transitional document that also gave a part the Strict type was refused; taken as Transitional, a Strict one that also
+    # gave its document the Transitional type was corrupted (Pinned by: test_office_revisions_and_numbering.py::
+    # TestStrictOpenXmlOfficeDocuments::test_transitional_document_with_a_strict_relationship_is_read_as_it_is,
+    # test_strict_document_with_a_transitional_relationship_is_read_from_its_copy). Only such a package pays the cost above:
+    # the package opened as it is stays until the cycle collector lets it go. Known accepted gap: when the Transitional
+    # relationship comes first and names something else than the document, the copy follows it too and the document is refused.
     extraction = Extraction()
-    try:
-        part = main_document_part(open_package(Package.open, data, extraction.warnings))
-    except (PackageNotFoundError, KeyError, ValueError) as exc:
-        _reject_strict(data)
-        raise CorruptedDocumentError("The DOCX document structure could not be read.") from exc
-    if not isinstance(part, DocumentPart):
-        _reject_strict(data)
-        raise CorruptedDocumentError("The DOCX document structure could not be read.")
-
-    # A relationship without a Type is kept by python-docx, which opens the package as it is, and the parts looked up by type
-    # were not found behind it: the styles or the numbering were dropped without a word, and the headings and list items came
-    # out as plain text. One whose target has the content type of such a part takes that part's type, unless another
-    # relationship of the same part has it already (Pinned by: test_office_robustness.py::TestIncompleteRelationship::
-    # test_docx_relationship_without_a_type_takes_the_type_of_its_part).
-    _type_untyped_relationships(part.package)
+    warnings: list[str] = []
+    strict, transitional = main_part_types(data)
+    if strict and not transitional:
+        part, error = _strict_main_part(data, warnings), None
+    else:
+        part, error = _open_main_part(data, warnings)
+        if strict and part is None:
+            warnings = []  # those of the package opened as it is
+            part, error = _strict_main_part(data, warnings), None
+    if part is None:
+        raise CorruptedDocumentError("The DOCX document structure could not be read.") from error
+    extraction.warnings.extend(warnings)
     document = part.document
-    # A main part whose root is not w:document is not a Word document. A w:document without w:body (optional in the schema) is an
-    # empty document, as a deck without a slide list is an empty deck: it is given an empty body in memory. Both raised from
-    # inside the body walk (Pinned by: test_audit_office.py::TestDocxMainPartWithoutABody).
-    if document.element.tag != _w("document"):
-        _reject_strict(data)
-        raise CorruptedDocumentError("The DOCX document structure could not be read.")
     if document.element.body is None:
         etree.SubElement(document.element, _w("body"))
     renderer = _DocxRenderer(document, options, extraction)
@@ -1410,8 +1522,9 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
     is not scanned — with many ranges lacking an end mark, every empty text scanned them all, which took quadratic time (Pinned by:
     test_office_comments.py::TestDocxComments::test_many_open_ranges_over_empty_runs_take_linear_time). What the body does not show
     is left out, as in `_paragraph_text`: deleted text (w:del), the original position of moved text (w:moveFrom), hidden runs
-    (w:vanish) and compatibility copies (mc:Fallback) — the moved-away words were quoted as the commented range (Pinned by:
-    test_office_comments.py::TestDocxComments::test_moved_away_and_hidden_text_is_not_part_of_the_range)."""
+    (w:vanish), deleted table rows (w:trPr/w:del) and compatibility copies (mc:Fallback) — the moved-away words were quoted as the
+    commented range (Pinned by: test_office_comments.py::TestDocxComments::test_moved_away_and_hidden_text_is_not_part_of_the_range,
+    test_office_revisions_and_numbering.py::TestDocxDeletedTableRow::test_text_of_a_deleted_row_is_not_quoted_as_a_commented_range)."""
     targets: dict[str, list[str]] = {}
     open_ranges: dict[str, int] = {}  # range being collected → number of characters collected
     fallback = 0  # depth inside compatibility copies: nothing in there counts, range marks included
@@ -1421,7 +1534,8 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
         tag = element.tag
         if tag == f"{{{_MC}}}Fallback":
             fallback += 1 if event == "start" else -1
-        elif tag in _UNSHOWN_WRAPPERS or (tag == _w("r") and _is_on(element.find(f"{_w('rPr')}/{_w('vanish')}"))):
+        elif (tag in _UNSHOWN_WRAPPERS or (tag == _w("r") and _is_on(element.find(_VANISH)))
+              or (tag == _w("tr") and _is_deleted_row(element))):
             hidden += 1 if event == "start" else -1
         elif event != "start" or fallback:
             continue
@@ -1443,6 +1557,32 @@ def _comment_targets(body: etree._Element) -> dict[str, str]:
     return {comment_id: "".join(pieces) for comment_id, pieces in targets.items()}
 
 
+def _is_deleted_row(row: etree._Element) -> bool:
+    """A table row deleted with Track Changes on (w:trPr/w:del)."""
+    return row.find(f"{_w('trPr')}/{_w('del')}") is not None
+
+
+def _carried_over(carried: dict[int, tuple[int, etree._Element]], col: int, span: int
+                  ) -> tuple[int, tuple[int, etree._Element]] | None:
+    """The merge carried from deleted rows (start column → (span, start cell)) that covers any of the columns `col` to
+    `col + span`, with its start column."""
+    for start, (width, cell) in carried.items():
+        if start < col + span and col < start + width:
+            return start, (width, cell)
+    return None
+
+
+def _starts_merge(cell: etree._Element) -> bool:
+    """Whether `cell` starts a vertical merge (w:vMerge w:val="restart")."""
+    merge = cell.find(f"{_w('tcPr')}/{_w('vMerge')}")
+    return merge is not None and merge.get(_w("val"), "continue") == "restart"
+
+
+def _final_rows(table: etree._Element) -> list[etree._Element]:
+    """The rows of `table` in the final version: those deleted with Track Changes on are left out (`_is_deleted_row`)."""
+    return [row for row in _children(table, _w("tr")) if not _is_deleted_row(row)]
+
+
 def _note_block(block: etree._Element, image_marker: Callable[[etree._Element], str], inline: _Inline | None = None) -> str:
     """A paragraph inside a footnote (including the paragraphs of text boxes in it) or a table → one line. A table puts ' / '
     between cells and '; ' between rows (`_notation.note_table`, same as HWP/HWPX). Joining all cell paragraphs with spaces produced
@@ -1455,7 +1595,7 @@ def _note_block(block: etree._Element, image_marker: Callable[[etree._Element], 
                         for p in container.iter(_w("p")) if not _inside_fallback(p))
 
     if block.tag == _w("tbl"):
-        return note_table([text(cell) for cell in _children(row, _w("tc"))] for row in _children(block, _w("tr")))
+        return note_table([text(cell) for cell in _children(row, _w("tc"))] for row in _final_rows(block))
     return text(block)
 
 

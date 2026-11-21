@@ -417,3 +417,439 @@ class TestManyHighlightedLines:
 
             assert len(objects[1]) == 8000 and len(left.rects) == 0  # the highlights of every line are removed
         assert elapsed < 4  # 15 seconds before
+
+
+def _table_with_shaded_header(line_shading: bool, between: bool = False) -> bytes:
+    """A ruled table of three columns whose header cells are shaded; the last header cell holds four lines. With
+    `line_shading`, every header line is shaded once more inside its cell in the cell's colour, as Word shades a paragraph
+    inside a shaded cell; with `between`, a white rectangle is drawn over the header cell before that line shading."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    columns = [72.0, 180.0, 300.0, 420.0]
+    header = [["Jurisdiction"], ["Permitted"], ["Foreign", "Ownership", "Reporting", "Requirements"]]
+    rows = [["Argentina", "Yes", "None"], ["Australia", "Yes", "To the agency"], ["Austria", "No", "None"]]
+    top, line, row_height = 100.0, 13.0, 20.0
+    header_height = 4 * line + 6
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    y = lambda top_y: A4[1] - top_y  # noqa: E731
+
+    pdf.setFillColorRGB(1, 0.949, 0.8)
+    for left, right in zip(columns, columns[1:], strict=False):
+        pdf.rect(left, y(top + header_height), right - left, header_height, stroke=0, fill=1)
+    if between:
+        pdf.setFillColorRGB(1, 1, 1)
+        pdf.rect(columns[2] + 2, y(top + header_height - 2), 116, header_height - 4, stroke=0, fill=1)
+        pdf.setFillColorRGB(1, 0.949, 0.8)
+    if line_shading:
+        for column, cell in enumerate(header):
+            for index in range(len(cell)):
+                pdf.rect(columns[column] + 5, y(top + 3 + (index + 1) * line), columns[column + 1] - columns[column] - 10, line,
+                         stroke=0, fill=1)
+    pdf.setFillColorRGB(0, 0, 0)
+    pdf.setFont("Helvetica", 10)
+    for column, cell in enumerate(header):
+        for index, text in enumerate(cell):
+            pdf.drawString(columns[column] + 6, y(top + 3 + (index + 1) * line - 3), text)
+    for number, row in enumerate(rows):
+        for column, text in enumerate(row):
+            pdf.drawString(columns[column] + 6, y(top + header_height + (number + 1) * row_height - 6), text)
+    bottom = top + header_height + len(rows) * row_height
+    for x in columns:
+        pdf.line(x, y(top), x, y(bottom))
+    for rule in [top, top + header_height, *(top + header_height + (n + 1) * row_height for n in range(len(rows)))]:
+        pdf.line(columns[0], y(rule), columns[-1], y(rule))
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestShadingInsideShadedCells:
+    """Line shading drawn in a shaded cell's own colour is invisible and draws no rule (`_without_nested_fills`)."""
+
+    def test_a_header_cell_shaded_again_line_by_line_stays_one_cell(self):
+        text = convert(_table_with_shaded_header(line_shading=True), "a.pdf").text
+
+        header = next(line for line in text.splitlines() if line.startswith("| Jurisdiction"))
+        assert header.count("|") == 4 and "Foreign<br>Ownership" in header and "Requirements" in header
+        assert "| Argentina | Yes | None |" in text
+        assert text.count("Jurisdiction") == 1 and text.count("Requirements") == 1
+
+    def test_it_reads_as_the_same_table_without_the_line_shading(self):
+        with_lines = convert(_table_with_shaded_header(line_shading=True), "a.pdf").text
+
+        assert with_lines == convert(_table_with_shaded_header(line_shading=False), "a.pdf").text
+
+    def test_line_shading_over_a_rectangle_of_another_colour_is_kept(self):
+        """A white rectangle drawn between the cell shading and the line shading makes the line shading's edges show."""
+        from io import BytesIO
+
+        import pdfplumber
+
+        from opendockit.extractors._pdf_table_filters import _without_nested_fills
+
+        with pdfplumber.open(BytesIO(_table_with_shaded_header(line_shading=True, between=True))) as pdf:
+            page = pdf.pages[0]
+            kept = _without_nested_fills(page)
+            inner = [rect for rect in kept.rects if rect["x0"] > 420 - 116 and rect["height"] < 14]
+
+        assert len(inner) == 4
+
+    @pytest.mark.timing
+    @pytest.mark.parametrize("shape", ["tall bars", "nested in two colours", "many in one band", "crossing"])
+    def test_crowded_pages_take_linear_time(self, shape):
+        """Each rectangle looks only at the rectangles near it in drawing order or overlapping it: looking at every fill of
+        the height bands it covers, and at every rectangle of those bands for each outer one, a histogram of 4,000 tall bars
+        took 14 seconds, 500 nested rectangles of two alternating colours 24 and 8,000 small ones in one band over a background
+        of their colour 14. Rectangles that all overlap each other (bars across bars) stop at `_NESTED_FILL_WORK`."""
+        from io import BytesIO
+
+        import pdfplumber
+        from reportlab.pdfgen import canvas
+
+        from opendockit.extractors._pdf_table_filters import _without_nested_fills
+        from tests.timing import fastest
+
+        def page_pdf(count: int) -> bytes:
+            buffer = BytesIO()
+            if shape == "tall bars":
+                pdf = canvas.Canvas(buffer, pagesize=(count * 2 + 100, 700))
+                pdf.setFillColorRGB(0.2, 0.4, 0.7)
+                for index in range(count):
+                    pdf.rect(40 + 2 * index, 60, 1.5, 20 + index * 37 % 430, stroke=0, fill=1)
+            elif shape == "nested in two colours":
+                pdf = canvas.Canvas(buffer, pagesize=(count * 2 + 100, count * 2 + 100))
+                for index in range(count):
+                    pdf.setFillColorRGB(*((0.9, 0.9, 0.9) if index % 2 else (0.2, 0.2, 0.2)))
+                    pdf.rect(10 + index, 10 + index, count * 2 + 80 - 2 * index, count * 2 + 80 - 2 * index, stroke=0, fill=1)
+            elif shape == "crossing":
+                pdf = canvas.Canvas(buffer, pagesize=(count * 2 + 100, count * 2 + 100))
+                for index in range(count):
+                    pdf.setFillColorRGB(0.5, 0.5, 0.5)
+                    pdf.rect(10 + 2 * index, 10, 1.5, count * 2 + 50, stroke=0, fill=1)
+                    pdf.setFillColorRGB(0.1, 0.5, 0.9)
+                    pdf.rect(10, 10 + 2 * index, count * 2 + 50, 1.5, stroke=0, fill=1)
+            else:
+                pdf = canvas.Canvas(buffer, pagesize=(count * 2 + 100, 200))
+                pdf.setFillColorRGB(0.9, 0.9, 0.9)
+                pdf.rect(0, 0, count * 2 + 100, 200, stroke=0, fill=1)
+                for index in range(count):
+                    pdf.setFillColorRGB(*((0.9, 0.9, 0.9) if index % 2 else (0.2, 0.2, 0.2)))
+                    pdf.rect(10 + 2 * index, 100, 1.5, 8, stroke=0, fill=1)
+            pdf.save()
+            return buffer.getvalue()
+
+        def seconds(count: int) -> float:
+            with pdfplumber.open(BytesIO(page_pdf(count))) as document:
+                page = document.pages[0]
+                page.rects  # noqa: B018 — pdfplumber's own reading is not measured
+                return fastest(lambda: _without_nested_fills(page))
+
+        small, large = (seconds(250), seconds(1_000)) if shape == "nested in two colours" else (seconds(1_000), seconds(4_000))
+        assert large < small * 8
+
+    def test_nested_shading_is_found_on_a_crowded_page_as_well(self):
+        """The line shading inside a shaded cell is found among hundreds of other fills, and a fill of the same colour beside
+        it (not around it) does not hide it."""
+        from io import BytesIO
+
+        import pdfplumber
+        from reportlab.pdfgen import canvas
+
+        from opendockit.extractors._pdf_table_filters import _without_nested_fills
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(800, 800))
+        for row in range(20):
+            for column in range(20):
+                pdf.setFillColorRGB(*((0.85, 0.85, 0.85) if (row + column) % 2 else (0.6, 0.8, 0.9)))
+                pdf.rect(20 + 30 * column, 20 + 30 * row, 30, 30, stroke=0, fill=1)
+                if row == column:
+                    pdf.rect(23 + 30 * column, 30 + 30 * row, 24, 10, stroke=0, fill=1)
+        pdf.save()
+        with pdfplumber.open(BytesIO(buffer.getvalue())) as document:
+            page = document.pages[0]
+            kept = _without_nested_fills(page)
+            assert len(page.rects) == 420 and len(kept.rects) == 400
+            assert not any(rect["height"] == 10 for rect in kept.rects)
+
+
+def _bar_chart(values: list[int], *, hanging: bool = False, label: str | None = None, stacked: bool = False,
+               labelled: bool = False) -> bytes:
+    """A bar chart drawn as vector shapes: an axis with a gridline every 30pt, one filled bar per value standing on it (or
+    hanging from it), the value above (below) each bar, and the category under the axis; with `label`, a caption in a ruled box under the chart whose
+    first cell holds the figure label. With `stacked`, a second segment of another colour stands on each bar; with `labelled`,
+    the first bar holds its value inside it."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    base = 500.0
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(72, 760, "The chart below shows the number of visitors in each quarter of the year.")
+    pdf.line(90, base, 90 + 60 * len(values), base)
+    pdf.setStrokeColorRGB(0.8, 0.8, 0.8)
+    for step in range(1, 6):
+        pdf.line(90, base - 30 * step if hanging else base + 30 * step, 90 + 60 * len(values), base - 30 * step if hanging else base + 30 * step)
+    pdf.setStrokeColorRGB(0, 0, 0)
+    for index, value in enumerate(values):
+        x = 100 + index * 60
+        pdf.setFillColorRGB(0, 0.377, 0.663)
+        pdf.rect(x, base - value if hanging else base, 30, value, stroke=0, fill=1)
+        if stacked:
+            pdf.setFillColorRGB(0.9, 0.5, 0.1)
+            pdf.rect(x, base + value, 30, 20, stroke=0, fill=1)
+        pdf.setFillColorRGB(1, 1, 1) if labelled and not index else pdf.setFillColorRGB(0, 0, 0)
+        inside = labelled and not index
+        pdf.drawString(x + 8, base + value / 2 if inside else base - value - 12 if hanging else base + value + (24 if stacked else 4),
+                       str(value))
+        pdf.setFillColorRGB(0, 0, 0)
+        pdf.drawString(x + 4, base + 8 if hanging else base - 14, f"Q{index + 1}")
+    if label:
+        pdf.rect(100, 380, 70, 20)
+        pdf.rect(170, 380, 300, 20)
+        pdf.drawString(106, 386, label)
+        pdf.drawString(176, 386, "Visitors per quarter of the year")
+    pdf.save()
+    return buffer.getvalue()
+
+
+def _striped_table() -> bytes:
+    """A ruled table whose rows are shaded in turn, each row's shading as wide as the table and holding the row's text."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    rows = [["Region", "Visitors", "Change"], ["North", "1,200", "+4%"], ["South", "980", "-2%"], ["East", "1,430", "+9%"],
+            ["West", "760", "+1%"]]
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    pdf.setFont("Helvetica", 10)
+    for number, row in enumerate(rows):
+        top = 700 - number * 20
+        if number % 2:
+            pdf.setFillColorRGB(0.85, 0.9, 1)
+            pdf.rect(100, top - 20, 300, 20, stroke=0, fill=1)
+        pdf.setFillColorRGB(0, 0, 0)
+        for column, text in enumerate(row):
+            pdf.drawString(106 + column * 100, top - 14, text)
+    for x in (100, 200, 300, 400):
+        pdf.line(x, 700, x, 700 - 20 * len(rows))
+    for number in range(len(rows) + 1):
+        pdf.line(100, 700 - number * 20, 400, 700 - number * 20)
+    pdf.save()
+    return buffer.getvalue()
+
+
+def _sideways_bar_chart(values: list[int]) -> bytes:
+    """A bar chart with its bars drawn sideways from a vertical axis, a vertical gridline every 30pt, each value after its bar
+    and each category before the axis."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(72, 760, "The chart below shows the number of visitors in each region of the country.")
+    axis, top = 150.0, 700.0
+    pdf.line(axis, top, axis, top - 40 * len(values))
+    pdf.setStrokeColorRGB(0.8, 0.8, 0.8)
+    for step in range(1, 6):
+        pdf.line(axis + 30 * step, top, axis + 30 * step, top - 40 * len(values))
+    for index, value in enumerate(values):
+        y = top - 40 * index - 30
+        pdf.setFillColorRGB(0, 0.377, 0.663)
+        pdf.rect(axis, y, value, 20, stroke=0, fill=1)
+        pdf.setFillColorRGB(0, 0, 0)
+        pdf.drawString(axis + value + 4, y + 6, str(value))
+        pdf.drawString(axis - 40, y + 6, f"Area {index + 1}")
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestBarCharts:
+    """The bars of a vector bar chart draw no rules (`_without_chart_bars`)."""
+
+    def test_bars_drawn_sideways_are_not_a_table(self):
+        text = convert(_sideways_bar_chart([120, 80, 150]), "a.pdf").text
+
+        assert "|" not in text and "Area 2" in text and "150" in text
+
+    def test_bars_with_segments_stacked_on_them_are_not_a_table(self):
+        assert "|" not in convert(_bar_chart([120, 80, 150, 60], stacked=True), "a.pdf").text
+
+    def test_a_bar_holding_its_value_is_still_a_bar(self):
+        assert "|" not in convert(_bar_chart([120, 80, 150, 60], labelled=True), "a.pdf").text
+
+    def test_a_chart_labelled_above_its_bars_at_the_left_margin_is_read(self):
+        """The characters of a bar's own width were looked up in a list whose name the loop after it took for 'width':
+        a chart at the left margin with its values above the bars failed the whole PDF as corrupted."""
+        from io import BytesIO
+
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(595, 842))
+        pdf.setFont("Helvetica", 10)
+        for line in range(20):
+            pdf.drawString(200, 782 - 14 * line, f"Body line {line} of the report text beside the chart.")
+        for index, value in enumerate([60, 90, 40, 120]):
+            pdf.setFillColorRGB(0.2, 0.4, 0.7)
+            pdf.rect(30 + 35 * index, 300, 20, value, stroke=0, fill=1)
+            pdf.setFillColorRGB(0, 0, 0)
+            pdf.drawString(33 + 35 * index, 304 + value, str(value))
+        pdf.save()
+
+        text = convert(buffer.getvalue(), "a.pdf").text
+
+        assert "Body line 19" in text and "120" in text and "|" not in text
+
+    @pytest.mark.timing
+    def test_a_page_of_thousands_of_bars_is_read_in_linear_time(self):
+        """A segment is looked up among the bars of its own edges: compared with every bar, 4,000 bars and 4,000 other fills
+        took 2 seconds, four times as many sixteen times as long."""
+        from io import BytesIO
+
+        import pdfplumber
+        from reportlab.pdfgen import canvas
+
+        from opendockit.extractors._pdf_table_filters import _without_chart_bars
+        from tests.timing import fastest
+
+        def bars_pdf(count: int) -> bytes:
+            buffer = BytesIO()
+            pdf = canvas.Canvas(buffer, pagesize=(20 * count / 100 + 100, 4000))
+            for index in range(count):
+                x, row = 10 + 20 * (index % (count // 100)), index // (count // 100)
+                pdf.setFillColorRGB(0, 0.4, 0.7)
+                pdf.rect(x, 10 + 38 * row, 8, 5 + index % 7, stroke=0, fill=1)
+                pdf.setFillColorRGB(0.9, 0.5, 0.1)
+                pdf.rect(x + 9, 10 + 38 * row + 30, 6, 3, stroke=0, fill=1)
+            pdf.save()
+            return buffer.getvalue()
+
+        def seconds(count: int) -> float:
+            with pdfplumber.open(BytesIO(bars_pdf(count))) as document:
+                page = document.pages[0]
+                page.rects  # noqa: B018 — pdfplumber's own reading is not measured
+                return fastest(lambda: _without_chart_bars(page))
+
+        small, large = seconds(1_000), seconds(4_000)
+        assert large < small * 8
+
+    @pytest.mark.timing
+    def test_tall_bars_over_many_characters_take_linear_time(self):
+        """A bar looks only at the characters of its own width or of its own height: looking at those of every height band
+        it covers, 4,000 bars 1,000pt tall with ten characters beside each took 4.7 seconds, four times as many sixteen times
+        as long."""
+        from io import BytesIO
+
+        import pdfplumber
+        from reportlab.pdfgen import canvas
+
+        from opendockit.extractors._pdf_table_filters import _without_chart_bars
+        from tests.timing import fastest
+
+        def bars_pdf(count: int) -> bytes:
+            buffer = BytesIO()
+            pdf = canvas.Canvas(buffer, pagesize=(count * 5 + 100, 1400))
+            pdf.setFont("Helvetica", 4)
+            for index in range(count):
+                pdf.setFillColorRGB(0, 0.4, 0.7)
+                pdf.rect(10 + 5 * index, 10, 3, 1000 + index % 300, stroke=0, fill=1)
+                pdf.setFillColorRGB(0, 0, 0)
+                for line in range(10):
+                    pdf.drawString(10 + 5 * index + 3.6, 20 + line * 90, "1")
+            pdf.save()
+            return buffer.getvalue()
+
+        def seconds(count: int) -> float:
+            with pdfplumber.open(BytesIO(bars_pdf(count))) as document:
+                page = document.pages[0]
+                page.rects, page.chars  # noqa: B018 — pdfplumber's own reading is not measured
+                return fastest(lambda: _without_chart_bars(page))
+
+        small, large = seconds(500), seconds(2_000)
+        assert large < small * 8
+
+    def test_a_bar_chart_is_not_a_table(self):
+        text = convert(_bar_chart([120, 80, 150, 60]), "a.pdf").text
+
+        assert "|" not in text
+        assert "150" in text and "Q3" in text
+
+    def test_bars_hanging_from_the_axis_are_not_a_table(self):
+        assert "|" not in convert(_bar_chart([40, 90, 25], hanging=True), "a.pdf").text
+
+    def test_a_table_with_shaded_rows_stays_a_table(self):
+        text = convert(_striped_table(), "a.pdf").text
+
+        assert "| Region | Visitors | Change |" in text
+        assert "| South | 980 | -2% |" in text
+
+    def test_a_figure_label_in_a_box_is_its_caption(self):
+        text = convert(_bar_chart([120, 80, 150], label="Diagram 4"), "a.pdf").text
+
+        assert "|" not in text
+        assert "Diagram 4" in text and "Visitors per quarter of the year" in text
+
+
+def _table_with_open_header() -> bytes:
+    """A ruled table of seven columns under a header of two levels drawn without a top border or outer sides: 'No.', 'Party'
+    and 'Change' are merged over both levels, 'Provisional' and 'Official' over two sub-columns each, and only the rules
+    between the merged cells reach up to the first level."""
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    columns = [60, 100, 220, 280, 340, 400, 460, 520]
+    first, second, body = 92, 118, 155
+    rows = [["1", "North Party", "1,652", "28,008", "1,652", "28,008", "0"],
+            ["2", "South Party", "1,649", "23,679", "1,623", "23,939", "+260"],
+            ["3", "East Party", "715", "9,407", "680", "9,952", "+545"]]
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    y = lambda top: A4[1] - top  # noqa: E731
+    pdf.setFont("Helvetica", 9)
+    for x, text in ((64, "No."), (104, "Party"), (224, "Provisional"), (344, "Official"), (464, "Change")):
+        pdf.drawString(x, y(first + 16), text)
+    for x in (224, 344):
+        pdf.drawString(x, y(second + 22), "Areas")
+        pdf.drawString(x + 60, y(second + 22), "Candidates")
+    for x in (100, 220, 340, 460):
+        pdf.line(x, y(first), x, y(second))
+    pdf.line(220, y(second), 460, y(second))
+    for x in columns[1:-1]:
+        pdf.line(x, y(second), x, y(body))
+    bottom = body + 16 * len(rows)
+    for x in columns:
+        pdf.line(x, y(body), x, y(bottom))
+    for number, row in enumerate(rows):
+        pdf.line(columns[0], y(body + 16 * number), columns[-1], y(body + 16 * number))
+        for column, text in enumerate(row):
+            pdf.drawString(columns[column] + 4, y(body + 16 * number + 11), text)
+    pdf.line(columns[0], y(bottom), columns[-1], y(bottom))
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestHeaderWithoutTopBorder:
+    """A two-level header drawn without a top border or outer sides belongs to its table (`_closed_above_open_header`)."""
+
+    def test_the_first_header_level_is_a_row_of_the_table(self):
+        text = convert(_table_with_open_header(), "a.pdf").text
+
+        table = [line for line in text.splitlines() if line.startswith("|")]
+        assert table[0] == ("| No. | Party | Provisional Areas | Provisional Candidates | Official Areas | Official Candidates"
+                            " | Change |")
+        assert "| 2 | South Party | 1,649 | 23,679 | 1,623 | 23,939 | +260 |" in table
+        assert not any(line.startswith(("No.", "Provisional")) for line in text.splitlines())

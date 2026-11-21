@@ -145,6 +145,19 @@ class TestConvertDocument:
         with pytest.raises(ToolError, match="corrupted|Could not"):
             call("convert_document", {"path": str(broken)})
 
+    def test_a_reader_that_cannot_be_imported_is_a_fixed_sentence(self, files, monkeypatch):
+        """A broken installation in the worker: the SDK answered only 'Error executing tool', and nothing said what to do."""
+        from opendockit.extractors import IMPORT_FAILED_MESSAGE
+
+        async def failing(*_, **__):
+            raise ImportError("No module named 'openpyxl.cell._writer'")
+
+        monkeypatch.setattr(mcp_server.IsolatedConverter, "convert", failing)
+
+        with pytest.raises(ToolError) as raised:
+            call("convert_document", {"path": str(files["book.xlsx"])})
+        assert str(raised.value).endswith(IMPORT_FAILED_MESSAGE) and "openpyxl" not in str(raised.value)
+
 
     def test_warnings_of_an_answer_are_bounded(self, tmp_path):
         """Listed whole, a workbook of 400 hidden sheets put 25,000 characters of warnings under a 200-character answer, on

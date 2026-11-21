@@ -1126,3 +1126,33 @@ class TestManyLinesLiftedInPlace:
         small, large = run(60), run(240)  # 120 and 480 lines: 16 times the work when quadratic, 64 when cubic
 
         assert large < small * 40  # 0.11 s and 7 s before; 0.01 s and 0.23 s now
+
+
+class TestRightColumnReadFirst:
+    """A two-column page that pdfminer read right column first is reordered even when a line of a column is drawn in pieces
+    side by side (a justified reference line split at a wide space). One such row is no table in the column, and the
+    pieces of one line are no row read across the gutter."""
+
+    @staticmethod
+    def _draw(pieces: int):
+        from tests.test_pdf import TestWidelySpacedColumns
+
+        def draw(pdf, index):
+            TestWidelySpacedColumns._paragraph_columns(pdf)
+            words = ["왼쪽 단 끝", "조각 둘", "조각 셋", "조각 넷"][:pieces]
+            for number, word in enumerate(words):
+                pdf.drawString(57 + number * (150 if pieces == 2 else 58), 520, word)
+
+        return draw
+
+    @pytest.mark.parametrize("pieces", [2, 4])
+    def test_a_line_in_pieces_does_not_keep_the_columns_as_read(self, monkeypatch, pieces):
+        from tests.test_pdf import TestWidelySpacedColumns, _korean_pdf
+
+        TestWidelySpacedColumns._read_in_order(monkeypatch, lambda line: (line.x0 < 300, line.top, line.x0))  # right column first
+
+        text = convert(_korean_pdf(self._draw(pieces)), "a.pdf").text
+
+        marks = ["왼쪽 단 1번 문단 1번째", "왼쪽 단 3번 문단 5번째", "오른쪽 단 1번 문단 1번째", "오른쪽 단 3번 문단 5번째"]
+        order = [text.index(mark) for mark in marks]
+        assert order == sorted(order)
