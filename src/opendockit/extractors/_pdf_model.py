@@ -175,10 +175,23 @@ class _Line:
     # At least `_BOLD_LINE_RATIO` of the line's letters are drawn in a bold face (`_BOLD_FONT`). A heading set in bold at about
     # the body size is told from the body only by this (`_is_bold_heading`); lines built from other lines leave it False.
     bold: bool = False
+    # Whether the last glyph drawn on the line is a space: True when it is, False when the line draws its spaces as glyphs and
+    # ends without one, None when it draws none or was built from other lines. A generator that writes the space a line was
+    # broken at leaves none where it broke the line inside a word (`_pdf_paragraphs._breaks_inside_a_word`).
+    space_at_end: bool | None = None
 
     @property
     def height(self) -> float:
         return max(self.bottom - self.top, 1.0)
+
+
+def _space_at_end(chars: list[dict]) -> bool | None:
+    """`_Line.space_at_end` of a line drawn with the characters `chars`."""
+    if not chars:
+        return None
+    if max(chars, key=lambda char: char["x0"]).get("text") == " ":
+        return True
+    return False if any(char.get("text") == " " for char in chars) else None
 
 
 def _is_bold_line(chars: list[dict]) -> bool:

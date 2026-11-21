@@ -27,6 +27,10 @@
   "mhs_s": {
    "mean": 1.0,
    "documents": 107
+  },
+  "words": {
+   "mean": 0.9996,
+   "documents": 200
   }
  },
  "documents": {
@@ -37,7 +41,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000002": {
    "overall": 1.0,
@@ -46,7 +51,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000003": {
    "overall": 1.0,
@@ -55,7 +61,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000004": {
    "overall": 1.0,
@@ -64,7 +71,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000005": {
    "overall": 1.0,
@@ -73,7 +81,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000006": {
    "overall": 1.0,
@@ -82,7 +91,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000007": {
    "overall": 1.0,
@@ -91,7 +101,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000008": {
    "overall": 1.0,
@@ -100,7 +111,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000009": {
    "overall": 1.0,
@@ -109,7 +121,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000010": {
    "overall": 1.0,
@@ -118,7 +131,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000011": {
    "overall": 1.0,
@@ -127,7 +141,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000012": {
    "overall": 1.0,
@@ -136,7 +151,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000013": {
    "overall": 1.0,
@@ -145,7 +161,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000014": {
    "overall": 1.0,
@@ -154,7 +171,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000015": {
    "overall": 1.0,
@@ -163,7 +181,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000016": {
    "overall": 1.0,
@@ -172,7 +191,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000017": {
    "overall": 1.0,
@@ -181,7 +201,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000018": {
    "overall": 1.0,
@@ -190,7 +211,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000019": {
    "overall": 1.0,
@@ -199,7 +221,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000020": {
    "overall": 1.0,
@@ -208,7 +231,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000021": {
    "overall": 1.0,
@@ -217,7 +241,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000022": {
    "overall": 1.0,
@@ -226,7 +251,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000023": {
    "overall": 1.0,
@@ -235,7 +261,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000024": {
    "overall": 1.0,
@@ -244,7 +271,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000025": {
    "overall": 1.0,
@@ -253,7 +281,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000026": {
    "overall": 1.0,
@@ -262,7 +291,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000027": {
    "overall": 1.0,
@@ -271,7 +301,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000028": {
    "overall": 1.0,
@@ -280,7 +311,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000029": {
    "overall": 1.0,
@@ -289,7 +321,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000030": {
    "overall": 1.0,
@@ -298,7 +331,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000031": {
    "overall": 1.0,
@@ -307,7 +341,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000032": {
    "overall": 1.0,
@@ -316,7 +351,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000033": {
    "overall": 1.0,
@@ -325,7 +361,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000034": {
    "overall": 0.9974,
@@ -334,7 +371,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 0.9887
   },
   "01030000000035": {
    "overall": 1.0,
@@ -343,7 +381,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000036": {
    "overall": 1.0,
@@ -352,7 +391,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000037": {
    "overall": 1.0,
@@ -361,7 +401,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000038": {
    "overall": 1.0,
@@ -370,7 +411,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000039": {
    "overall": 1.0,
@@ -379,7 +421,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000040": {
    "overall": 1.0,
@@ -388,7 +431,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000041": {
    "overall": 1.0,
@@ -397,7 +441,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000042": {
    "overall": 1.0,
@@ -406,7 +451,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000043": {
    "overall": 1.0,
@@ -415,7 +461,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000044": {
    "overall": 1.0,
@@ -424,7 +471,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000045": {
    "overall": 0.9732,
@@ -433,7 +481,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000046": {
    "overall": 0.9661,
@@ -442,7 +491,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000047": {
    "overall": 0.9619,
@@ -451,7 +501,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000048": {
    "overall": 1.0,
@@ -460,7 +511,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000049": {
    "overall": 1.0,
@@ -469,7 +521,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000050": {
    "overall": 0.9982,
@@ -478,7 +531,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 0.998
   },
   "01030000000051": {
    "overall": 0.9759,
@@ -487,7 +541,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9681,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000052": {
    "overall": 0.9788,
@@ -496,7 +551,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000053": {
    "overall": 0.9792,
@@ -505,7 +561,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9749,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000054": {
    "overall": 1.0,
@@ -514,7 +571,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000055": {
    "overall": 1.0,
@@ -523,7 +581,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000056": {
    "overall": 1.0,
@@ -532,7 +591,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000057": {
    "overall": 1.0,
@@ -541,7 +601,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000058": {
    "overall": 1.0,
@@ -550,7 +611,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000059": {
    "overall": 1.0,
@@ -559,7 +621,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000060": {
    "overall": 0.9981,
@@ -568,7 +631,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000061": {
    "overall": 1.0,
@@ -577,7 +641,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000062": {
    "overall": 1.0,
@@ -586,7 +651,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000063": {
    "overall": 1.0,
@@ -595,7 +661,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000064": {
    "overall": 0.9853,
@@ -604,7 +671,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000065": {
    "overall": 1.0,
@@ -613,7 +681,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000066": {
    "overall": 1.0,
@@ -622,7 +691,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000067": {
    "overall": 1.0,
@@ -631,7 +701,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000068": {
    "overall": 1.0,
@@ -640,7 +711,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000069": {
    "overall": 1.0,
@@ -649,7 +721,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000070": {
    "overall": 1.0,
@@ -658,7 +731,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000071": {
    "overall": 1.0,
@@ -667,7 +741,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000072": {
    "overall": 1.0,
@@ -676,7 +751,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000073": {
    "overall": 1.0,
@@ -685,7 +761,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000074": {
    "overall": 1.0,
@@ -694,7 +771,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000075": {
    "overall": 1.0,
@@ -703,7 +781,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000076": {
    "overall": 1.0,
@@ -712,7 +791,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000077": {
    "overall": 1.0,
@@ -721,7 +801,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000078": {
    "overall": 0.9757,
@@ -730,7 +811,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 0.9902
   },
   "01030000000079": {
    "overall": 1.0,
@@ -739,7 +821,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000080": {
    "overall": 1.0,
@@ -748,7 +831,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000081": {
    "overall": 0.9742,
@@ -757,7 +841,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000082": {
    "overall": 0.9623,
@@ -766,7 +851,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000083": {
    "overall": 0.9586,
@@ -775,7 +861,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000084": {
    "overall": 0.9581,
@@ -784,7 +871,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000085": {
    "overall": 1.0,
@@ -793,7 +881,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000086": {
    "overall": 1.0,
@@ -802,7 +891,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000087": {
    "overall": 1.0,
@@ -811,7 +901,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000088": {
    "overall": 0.9828,
@@ -820,7 +911,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000089": {
    "overall": 0.9843,
@@ -829,7 +921,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000090": {
    "overall": 0.9817,
@@ -838,7 +931,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000091": {
    "overall": 1.0,
@@ -847,7 +941,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000092": {
    "overall": 1.0,
@@ -856,7 +951,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000093": {
    "overall": 1.0,
@@ -865,7 +961,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000094": {
    "overall": 0.9954,
@@ -874,7 +971,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000095": {
    "overall": 1.0,
@@ -883,7 +981,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000096": {
    "overall": 0.9963,
@@ -892,7 +991,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000097": {
    "overall": 1.0,
@@ -901,7 +1001,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000098": {
    "overall": 0.999,
@@ -910,7 +1011,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000099": {
    "overall": 1.0,
@@ -919,7 +1021,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000100": {
    "overall": 1.0,
@@ -928,7 +1031,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000101": {
    "overall": 1.0,
@@ -937,7 +1041,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000102": {
    "overall": 1.0,
@@ -946,7 +1051,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000103": {
    "overall": 1.0,
@@ -955,7 +1061,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000104": {
    "overall": 1.0,
@@ -964,7 +1071,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000105": {
    "overall": 0.998,
@@ -973,7 +1081,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 0.9988,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000106": {
    "overall": 1.0,
@@ -982,7 +1091,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000107": {
    "overall": 1.0,
@@ -991,7 +1101,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000108": {
    "overall": 1.0,
@@ -1000,7 +1111,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000109": {
    "overall": 1.0,
@@ -1009,7 +1121,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000110": {
    "overall": 0.9706,
@@ -1018,7 +1131,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000111": {
    "overall": 1.0,
@@ -1027,7 +1141,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000112": {
    "overall": 1.0,
@@ -1036,7 +1151,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000113": {
    "overall": 1.0,
@@ -1045,7 +1161,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000114": {
    "overall": 1.0,
@@ -1054,7 +1171,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000115": {
    "overall": 0.9994,
@@ -1063,7 +1181,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 0.9995,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000116": {
    "overall": 0.9704,
@@ -1072,7 +1191,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000117": {
    "overall": 0.9809,
@@ -1081,7 +1201,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9653,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000118": {
    "overall": 1.0,
@@ -1090,7 +1211,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000119": {
    "overall": 0.9887,
@@ -1099,7 +1221,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000120": {
    "overall": 0.989,
@@ -1108,7 +1231,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000121": {
    "overall": 0.9928,
@@ -1117,7 +1241,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9896,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000122": {
    "overall": 0.9829,
@@ -1126,7 +1251,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9794,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000123": {
    "overall": 1.0,
@@ -1135,7 +1261,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000124": {
    "overall": 1.0,
@@ -1144,7 +1271,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000125": {
    "overall": 1.0,
@@ -1153,7 +1281,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000126": {
    "overall": 1.0,
@@ -1162,7 +1291,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000127": {
    "overall": 0.9715,
@@ -1171,7 +1301,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000128": {
    "overall": 0.9607,
@@ -1180,7 +1311,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000129": {
    "overall": 0.9912,
@@ -1189,7 +1321,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 0.977
   },
   "01030000000130": {
    "overall": 0.9835,
@@ -1198,7 +1331,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000131": {
    "overall": 1.0,
@@ -1207,7 +1341,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000132": {
    "overall": 0.9962,
@@ -1216,7 +1351,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000133": {
    "overall": 1.0,
@@ -1225,7 +1361,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000134": {
    "overall": 1.0,
@@ -1234,7 +1371,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000135": {
    "overall": 1.0,
@@ -1243,7 +1381,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000136": {
    "overall": 1.0,
@@ -1252,7 +1391,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000137": {
    "overall": 1.0,
@@ -1261,7 +1401,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000138": {
    "overall": 1.0,
@@ -1270,7 +1411,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000139": {
    "overall": 1.0,
@@ -1279,7 +1421,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000140": {
    "overall": 1.0,
@@ -1288,7 +1431,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000141": {
    "overall": 1.0,
@@ -1297,7 +1441,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000142": {
    "overall": 1.0,
@@ -1306,7 +1451,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000143": {
    "overall": 1.0,
@@ -1315,7 +1461,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000144": {
    "overall": 0.9989,
@@ -1324,7 +1471,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 0.9991,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000145": {
    "overall": 1.0,
@@ -1333,7 +1481,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000146": {
    "overall": 0.8756,
@@ -1342,7 +1491,8 @@
    "teds": 0.7143,
    "teds_s": 0.7143,
    "mhs": 0.9699,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 0.9713
   },
   "01030000000147": {
    "overall": 0.9926,
@@ -1351,7 +1501,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9931,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000148": {
    "overall": 1.0,
@@ -1360,7 +1511,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000149": {
    "overall": 0.4439,
@@ -1369,7 +1521,8 @@
    "teds": 0.0,
    "teds_s": 0.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000150": {
    "overall": 0.9916,
@@ -1378,7 +1531,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9918,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000151": {
    "overall": 1.0,
@@ -1387,7 +1541,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000152": {
    "overall": 1.0,
@@ -1396,7 +1551,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000153": {
    "overall": 1.0,
@@ -1405,7 +1561,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000154": {
    "overall": 1.0,
@@ -1414,7 +1571,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000155": {
    "overall": 1.0,
@@ -1423,7 +1581,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000156": {
    "overall": 1.0,
@@ -1432,7 +1591,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000157": {
    "overall": 1.0,
@@ -1441,7 +1601,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000158": {
    "overall": 1.0,
@@ -1450,7 +1611,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000159": {
    "overall": 1.0,
@@ -1459,7 +1621,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000160": {
    "overall": 1.0,
@@ -1468,7 +1631,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000161": {
    "overall": 1.0,
@@ -1477,7 +1641,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000162": {
    "overall": 0.9993,
@@ -1486,7 +1651,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000163": {
    "overall": 1.0,
@@ -1495,7 +1661,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000164": {
    "overall": 1.0,
@@ -1504,7 +1671,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000165": {
    "overall": 0.986,
@@ -1513,7 +1681,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9699,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000166": {
    "overall": 0.9927,
@@ -1522,7 +1691,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9945,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000167": {
    "overall": 1.0,
@@ -1531,7 +1701,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000168": {
    "overall": 0.9989,
@@ -1540,7 +1711,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 0.9989,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000169": {
    "overall": 0.9994,
@@ -1549,7 +1721,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 0.9994,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000170": {
    "overall": 0.9706,
@@ -1558,7 +1731,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000171": {
    "overall": 1.0,
@@ -1567,7 +1741,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000172": {
    "overall": 1.0,
@@ -1576,7 +1751,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000173": {
    "overall": 1.0,
@@ -1585,7 +1761,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000174": {
    "overall": 1.0,
@@ -1594,7 +1771,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000175": {
    "overall": 1.0,
@@ -1603,7 +1781,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000176": {
    "overall": 1.0,
@@ -1612,7 +1791,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000177": {
    "overall": 1.0,
@@ -1621,7 +1801,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000178": {
    "overall": 0.9903,
@@ -1630,7 +1811,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9893,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000179": {
    "overall": 1.0,
@@ -1639,7 +1821,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000180": {
    "overall": 0.9835,
@@ -1648,7 +1831,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9748,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000181": {
    "overall": 1.0,
@@ -1657,7 +1841,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000182": {
    "overall": 0.9865,
@@ -1666,7 +1851,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.987,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000183": {
    "overall": 0.9983,
@@ -1675,7 +1861,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 0.9986,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000184": {
    "overall": 1.0,
@@ -1684,7 +1871,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000185": {
    "overall": 1.0,
@@ -1693,7 +1881,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000186": {
    "overall": 1.0,
@@ -1702,7 +1891,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000187": {
    "overall": 0.9941,
@@ -1711,7 +1901,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9937,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000188": {
    "overall": 0.9825,
@@ -1720,7 +1911,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9869,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000189": {
    "overall": 0.9758,
@@ -1729,7 +1921,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9745,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000190": {
    "overall": 0.986,
@@ -1738,7 +1931,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9864,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000191": {
    "overall": 1.0,
@@ -1747,7 +1941,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000192": {
    "overall": 1.0,
@@ -1756,7 +1951,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000193": {
    "overall": 1.0,
@@ -1765,7 +1961,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000194": {
    "overall": 1.0,
@@ -1774,7 +1971,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": null,
-   "mhs_s": null
+   "mhs_s": null,
+   "words": 1.0
   },
   "01030000000195": {
    "overall": 1.0,
@@ -1783,7 +1981,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000196": {
    "overall": 1.0,
@@ -1792,7 +1991,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000197": {
    "overall": 0.9875,
@@ -1801,7 +2001,8 @@
    "teds": 1.0,
    "teds_s": 1.0,
    "mhs": 0.9869,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000198": {
    "overall": 1.0,
@@ -1810,7 +2011,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000199": {
    "overall": 1.0,
@@ -1819,7 +2021,8 @@
    "teds": null,
    "teds_s": null,
    "mhs": 1.0,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 1.0
   },
   "01030000000200": {
    "overall": 0.9406,
@@ -1828,7 +2031,8 @@
    "teds": 0.8824,
    "teds_s": 0.8824,
    "mhs": 0.9803,
-   "mhs_s": 1.0
+   "mhs_s": 1.0,
+   "words": 0.9888
   }
  }
 }

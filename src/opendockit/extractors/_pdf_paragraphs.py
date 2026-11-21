@@ -63,7 +63,7 @@ def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], lin
         key = _heading_key(paragraph, heading_levels, body_size, side_by_side, previous)
         previous = paragraph
         level = heading_levels[key] if key else 0
-        text = (f"{'#' * level} {' '.join(line.text for line in paragraph.lines)}" if level
+        text = (f"{'#' * level} {_paragraph_text(paragraph, ' ')}" if level
                 else _escaped_block_marks(_paragraph_text(paragraph)))
         items.append((paragraph.top, text, False))
         spans.append((min(line.x0 for line in paragraph.lines), max(line.x1 for line in paragraph.lines)))
@@ -485,14 +485,73 @@ def _escaped_block_marks(text: str) -> str:
     return _BLOCK_MARK_START.sub(lambda match: "\\" + match.group(0), text)
 
 
-def _paragraph_text(paragraph: _Paragraph) -> str:
+def _paragraph_text(paragraph: _Paragraph, joint: str = "\n") -> str:
+    """The lines of a paragraph joined with `joint`; a bullet on a line of its own is joined to the next line, and a line
+    broken inside a word to the rest of the word (`_breaks_inside_a_word`)."""
     parts: list[str] = []
+    right = max(line.x1 for line in paragraph.lines)
+    previous = None
     for line in paragraph.lines:
         if parts and _LONE_BULLET.match(parts[-1]):
             parts[-1] = f"{parts[-1]} {line.text}"
+        elif previous is not None and _breaks_inside_a_word(previous, line, right):
+            parts[-1] += line.text
         else:
             parts.append(line.text)
-    return "\n".join(parts)
+        previous = line
+    return joint.join(parts)
+
+
+# A document writes the space a line was broken at when this many of its lines end in one.
+_SPACED_ENDS_MIN = 3
+# How far (in text sizes) the end of a line may lie from the end of a line of its size that ends in a space on the same
+# page, and from the right end of its paragraph, and still be a line that ran to the end of the column. The space at the
+# end of the other line is part of the distance.
+_LINE_END_REACH = 0.75
+_HANGUL_AT_END = re.compile(r"[가-힣]$")
+_HANGUL_AT_START = re.compile(r"^[가-힣]")
+
+
+def _keep_proven_line_ends(pages: list[_Page]) -> None:
+    """Keep what a line says of the space at its end (`_Line.space_at_end`) only where the document proves what a missing
+    one means, and forget it everywhere else.
+
+    Hangul (HWP) breaks a line of Korean after any syllable, in the middle of a word as readily as between two, and its
+    PDF draws the space the line was broken at as the last glyph of the line. So in such a document a line that ends
+    without one was broken inside a word. A document proves it by `_SPACED_ENDS_MIN` lines ending in a space, and a
+    line is believed only when it ends where such a line of its size and page does (`_LINE_END_REACH`), the right end of
+    the column: a short line is the end of a paragraph and has no space after it either, and so is each line of a title
+    the writer broke by hand. Chrome and most other generators
+    draw no space at the end of a line; nothing is known of their lines and nothing changes for them.
+    """
+    proven = sum(1 for page in pages for line in page.lines if line.space_at_end) >= _SPACED_ENDS_MIN
+    for page in pages:
+        ends: dict[int, list[float]] = {}  # text size in half points → where the lines of that size ending in a space end
+        for line in page.lines if proven else ():
+            if line.space_at_end:
+                ends.setdefault(round(line.size * 2), []).append(line.x1)
+        for same_size in ends.values():
+            same_size.sort()
+        for line in page.lines:
+            if line.space_at_end is False:
+                same_size = ends.get(round(line.size * 2), [])
+                place = bisect_left(same_size, line.x1)
+                if not any(abs(end - line.x1) <= line.size * _LINE_END_REACH for end in same_size[max(place - 1, 0):place + 1]):
+                    line.space_at_end = None
+
+
+def _breaks_inside_a_word(previous: _Line, line: _Line, right: float) -> bool:
+    """Whether the line break between two lines of a paragraph falls inside a Korean word, so the two are written as one
+    line with nothing between them: the document writes the space a line is broken at and `previous` has none
+    (`_keep_proven_line_ends`), it runs to the right end of its paragraph (`right`), and Hangul stands on both sides.
+
+    Deliberate: every other line break of a paragraph stays a line break — a line broken at a space, and any line of a
+    document that does not show where its spaces were. Markdown reads a line break inside a paragraph as a space, which
+    is what stood there; inside a word it put a space into the word ('산림\n청과' for '산림청과').
+    Pinned by: test_pdf_words_broken_at_line_ends.py.
+    """
+    return (previous.space_at_end is False and previous.x1 >= right - max(previous.size, 1.0) * _LINE_END_REACH
+            and _HANGUL_AT_END.search(previous.text) is not None and _HANGUL_AT_START.match(line.text) is not None)
 
 
 def _heading_size(paragraph: _Paragraph) -> float:

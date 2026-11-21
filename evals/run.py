@@ -21,7 +21,7 @@ from evals.metrics import score
 from opendockit import ConversionError, ConvertOptions, convert
 
 
-METRICS = ("overall", "nid", "nid_s", "teds", "teds_s", "mhs", "mhs_s")
+METRICS = ("overall", "nid", "nid_s", "teds", "teds_s", "mhs", "mhs_s", "words")
 # Page markers and picture placeholders are OpenDocKit's own marks, not text of the document, so they are left out of
 # what is scored; everything else is the default conversion.
 OPTIONS = ConvertOptions(page_markers=False, extract_images=False)
@@ -85,7 +85,8 @@ def compare(card: dict, baseline: dict, tolerance: float, gate: tuple[str, ...] 
     lines, fell = [], False
     lines.append(f"{'metric':8} {'baseline':>9} {'now':>9} {'change':>9}")
     for metric in METRICS:
-        before, now = baseline["means"][metric]["mean"], card["means"][metric]["mean"]
+        # a baseline written before a metric was added has no number for it
+        before, now = baseline["means"].get(metric, {}).get("mean"), card["means"][metric]["mean"]
         if before is None or now is None:
             continue
         mark = ""
@@ -97,8 +98,8 @@ def compare(card: dict, baseline: dict, tolerance: float, gate: tuple[str, ...] 
         old = baseline["documents"].get(name)
         if old is None:
             continue
-        changes = [(scores[metric] - old[metric], metric) for metric in ("nid", "teds", "mhs")
-                   if scores[metric] is not None and old[metric] is not None and abs(scores[metric] - old[metric]) > MOVED]
+        changes = [(scores[metric] - old[metric], metric) for metric in ("nid", "teds", "mhs", "words")
+                   if scores[metric] is not None and old.get(metric) is not None and abs(scores[metric] - old[metric]) > MOVED]
         if changes:
             moved.append((min(change for change, _ in changes), name, changes))
     moved.sort()

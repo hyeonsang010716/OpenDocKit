@@ -107,9 +107,10 @@ from opendockit.extractors._pdf_model import (
     _is_bold_line,
     _Line,
     _Page,
+    _space_at_end,
     _visual_rows,
 )
-from opendockit.extractors._pdf_paragraphs import _heading_levels, _render_page
+from opendockit.extractors._pdf_paragraphs import _heading_levels, _keep_proven_line_ends, _render_page
 from opendockit.extractors._pdf_pdfium_pages import _PdfiumPages
 from opendockit.extractors._pdf_pdfminer import (
     _DOCUMENT_FONT_RANGE_ENTRIES,
@@ -594,6 +595,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
         _read_sidebar_first(page)
     _carry_table_headers(pages)
     _link_footnotes(pages)
+    _keep_proven_line_ends(pages)
     line_gap = _typical_line_gap(pages)
     heading_levels = _heading_levels(pages, body_size, line_gap)
 
@@ -1181,7 +1183,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
         lines.append(_Line(top=top, bottom=bottom, x0=line["x0"], x1=line["x1"], text=_drawn_text(text),
                            size=size, parts=_gap_parts(inside, _drawn_text(text), size),
                            fine_parts=_gap_parts(inside, _drawn_text(text), size, _UNSPACED_GAP_RATIO),
-                           bold=_is_bold_line(inside)))
+                           bold=_is_bold_line(inside), space_at_end=_space_at_end(inside)))
         line_owners.append(owner)
     lines = _place_xobject_lines(lines, line_owners)
     _mark_checkboxes(page, lines, [bbox for bbox, _, _ in tables])
