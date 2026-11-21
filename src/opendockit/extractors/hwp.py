@@ -101,6 +101,10 @@ _OLE_MARK = "[OLE object]"
 _OLE_CHART_STREAM = "OOXMLChartContents"
 # The UINT32 of a PARA_SHAPE that holds the paragraph's level 0-9 (`parse_paragraph_heads`)
 _PARA_SHAPE_LEVEL_OFFSET = 54
+# The level 6 (level 7) where the 3 bits of the attribute stop; only there is the UINT32 at byte 54 read, and only a level 7-9
+# (levels 8-10) from it, so a shape of a shallower level, or a value there that is no level, keeps the level of its attribute
+# (Pinned by: test_hwp.py::TestNumberingLevelsEightToTen::test_a_shallower_level_keeps_the_level_of_its_attribute)
+_LAST_ATTRIBUTE_LEVEL = 6
 # BIN_DATA kinds (low 4 bits of the attribute): a picture, an OLE object (`parse_bin_items`)
 _BIN_EMBEDDING, _BIN_STORAGE = 1, 2
 # The position of the BinItem ID in SHAPE_COMPONENT_OLE: attribute (4), extent (4 + 4)
@@ -1218,8 +1222,8 @@ def parse_paragraph_heads(doc_info: list[Record]) -> ParagraphHeads:
 
     PARA_SHAPE: attribute 1 (head kind in bits 23-24, level in bits 25-27) + 6 INT32s (the first is the left margin) + tab ID (2) +
     numbering/bullet ID (2, at byte 30). The 3 bits of the level stop at 6 (level 7); Hangul 5.1 keeps the level 0-9 of levels 8-10 in
-    the UINT32 at byte 54 too, so the larger of the two is the level (in public Hangul files, 1,629 shapes of levels 8-10 had 6 in
-    the attribute and 7-9 there, and no shape disagreed otherwise).
+    the UINT32 at byte 54 too (in public Hangul files, 1,629 shapes of levels 8-10 had 6 in the attribute and 7-9 there, and no
+    shape disagreed otherwise), which is read only when the attribute holds 6.
     NUMBERING: for each of 7 levels, 12 bytes of paragraph head information (number shape in attribute bits 5-9) + a format string
     (^n in "^1." is the number of level n),
     then the start number (2) and, from 5.0.2.5 on, per-level start numbers (4×7); from Hangul 5.1 on, levels 8-10 follow in the
@@ -1236,8 +1240,9 @@ def parse_paragraph_heads(doc_info: list[Record]) -> ParagraphHeads:
                 (properties,) = struct.unpack_from("<I", payload, 0)
                 (numbering_id,) = struct.unpack_from("<H", payload, 30)
                 level = (properties >> 25) & 0x7
-                if len(payload) >= _PARA_SHAPE_LEVEL_OFFSET + 4:
-                    level = max(level, min(struct.unpack_from("<I", payload, _PARA_SHAPE_LEVEL_OFFSET)[0], 9))
+                if level == _LAST_ATTRIBUTE_LEVEL and len(payload) >= _PARA_SHAPE_LEVEL_OFFSET + 4:
+                    deep = struct.unpack_from("<I", payload, _PARA_SHAPE_LEVEL_OFFSET)[0]
+                    level = deep if _LAST_ATTRIBUTE_LEVEL < deep <= 9 else level
                 heads.shapes.append(((properties >> 23) & 0x3, level, numbering_id))
                 heads.margins.append(struct.unpack_from("<i", payload, 4)[0])
             else:

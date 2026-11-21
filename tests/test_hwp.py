@@ -475,6 +475,31 @@ class TestNumberingLevelsEightToTen:
 
         assert [line.strip() for line in lines] == ["1. 하나", "- 갑) 여덟", "- 甲. 아홉", "- (1) 열", "- 을) 다시"]
 
+    @pytest.mark.parametrize(("level", "tail"), [(1, 5), (6, 12), (6, 3)], ids=["shallower level", "past level 10", "below 8"])
+    def test_a_shallower_level_keeps_the_level_of_its_attribute(self, monkeypatch, level, tail):
+        """The UINT32 at byte 54 is read only where the 3 bits of the attribute stop (6), and only a level 7-9 from it: taking the
+        larger of the two would move a paragraph of any level deeper by whatever that field holds."""
+        record = builder.hwp_record
+
+        def text(shape: bytes) -> str:
+            numbering = record(TAG_NUMBERING, 0, self._docinfo_numbering())
+            docinfo = numbering + b"".join(record(TAG_PARA_SHAPE, 0, each) for each in (_para_shape(), shape))
+            section = b"".join(record(TAG_PARA_HEADER, 0, _para_header(1)) + record(TAG_PARA_TEXT, 1, builder.hwp_text(word))
+                               for word in ("가", "나"))
+            return convert(_fake_hwp(monkeypatch, sections=[section], docinfo_extra=docinfo), "a.hwp").text
+
+        assert text(_para_shape(2, level, 1) + struct.pack("<I", tail)) == text(_para_shape(2, level, 1))
+
+    @staticmethod
+    def _docinfo_numbering() -> bytes:
+        """A NUMBERING record of ten levels, each written `(level n)` so the level a paragraph took shows."""
+        payload = b"".join(struct.pack("<IhhIH", 0, 0, 0, 0, len(template)) + template.encode("utf-16-le")
+                           for template in [f"L{n}:^{n}" for n in range(1, 8)])
+        payload += struct.pack("<H7I", 1, *[1] * 7)
+        payload += b"".join(struct.pack("<IhhIH", 0, 0, 0, 0, len(template)) + template.encode("utf-16-le")
+                            for template in [f"L{n}:^{n}" for n in range(8, 11)])
+        return payload + struct.pack("<3I", 1, 1, 1)
+
     def test_record_without_levels_eight_to_ten_keeps_seven(self):
         from opendockit.extractors.hwp import _numbering_levels
 
