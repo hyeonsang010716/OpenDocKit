@@ -70,6 +70,15 @@ class TestBoldHeadings:
 
         assert "#" not in text
 
+    def test_a_line_that_is_one_quotation_is_no_heading(self):
+        """The slogans of a list of companies, each bold and a little larger under its company's name, were headings
+        (13 in one press release). A title that only holds a quotation is a title still."""
+        text = _text([*_body(80), (140, "\u201cA workplace where people grow together\u201d", 11, "Times-Bold"), *_body(156),
+                      (220, "'Every meal makes a job'", 14, "Times-Roman"), *_body(240),
+                      (300, "The \u201cgreen\u201d programme", 11, "Times-Bold"), *_body(316)])
+
+        assert [line for line in text.splitlines() if line.startswith("#")] == ["# The \u201cgreen\u201d programme"]
+
     def test_a_document_set_in_bold_has_no_bold_headings(self):
         text = _text([*_body(80, font="Times-Bold"), (140, "The dynamics", 10, "Times-Bold"), *_body(156, font="Times-Bold")])
 
