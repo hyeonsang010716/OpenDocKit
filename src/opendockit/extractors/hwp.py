@@ -420,6 +420,9 @@ class HwpRenderer:
         self._load_bin = load_bin
         self._note_count = 0
         self._cell_depth = 0
+        # The paragraphs of each cell of the layout box being read — a one-column table of the top-level body — and None outside
+        # one (`_render_table`, `_hangul.SizeHeadings.box`)
+        self._box_cells: list[list[str]] | None = None
         self._note_depth = 0  # 1 or more while footnote/endnote text is rendered. A table inside it becomes one line (`note_table`)
         self._plain_header = False  # while a header written without `include_headers_footers` is rendered (no headings)
         # Tables being rendered (an inner table is handed to the top-level table). None is a place where a table cannot be handed over
@@ -740,10 +743,17 @@ class HwpRenderer:
         margin = self._heads.margins[shape_id] if 0 <= shape_id < len(self._heads.margins) else 0
         outline = 0 <= shape_id < len(self._heads.shapes) and self._heads.shapes[shape_id][0] == _HEAD_OUTLINE
         top = self._depth == 1 and not self._cell_depth and not self._note_depth
-        size = _smallest_text_size(text_record.payload, size_pairs, self._sizes) if top and text_record is not None else 0
+        boxed = self._in_box()
+        size = (_smallest_text_size(text_record.payload, size_pairs, self._sizes)
+                if (top or boxed) and text_record is not None else 0)
         return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth), plain=plain,
                               outline=outline, size=size, size_headings=self.size_headings, heading_text=heading, top=top,
-                              in_note=bool(self._note_depth), no_heading=self._plain_header)
+                              in_note=bool(self._note_depth), no_heading=self._plain_header, boxed=boxed)
+
+    def _in_box(self) -> bool:
+        """Whether the paragraph being read is one of a cell of a layout box (`_render_table`), not one of a text box or a
+        table inside that cell."""
+        return self._box_cells is not None and self._cell_depth == 1 and self._depth == 2 and not self._note_depth
 
     def _count_sizes(self, paragraph: Record, text_record: Record | None) -> list[tuple[int, int]]:
         """Count the text characters of a paragraph per character size (`SizeHeadings.count`, which finds the body size; those
@@ -894,11 +904,19 @@ class HwpRenderer:
         # are not read.
         budget = None if self._grids or self._cell_depth or self._note_depth else TableBudget(self._extraction, self._options)
         outer = self._grids[-1] if self._grids else None
+        # A table of one column in the top-level body is a layout box: its paragraphs are kept as they are read, so that one
+        # set as a title can become a heading by its size (`_hangul.SizeHeadings.box`)
+        box = (col_count == 1 and not caption and not self._grids and not self._cell_depth and self._depth == 1
+               and not self._note_depth and not self._plain_header)
         self._grids.append(grid)
         self._cell_depth += 1
+        box_cells = self._box_cells = [] if box else self._box_cells
         try:
             for position, (header, paragraphs) in enumerate(cells):
-                text = "\n".join(self.render(paragraphs))
+                blocks = self.render(paragraphs)
+                if box:
+                    box_cells.append(blocks)
+                text = "\n".join(blocks)
                 columns = max(col_count, 1)
                 row, col, row_span, col_span = (_cell_address(header.payload, row_count, col_count)
                                                 or (position // columns, position % columns, 1, 1))
@@ -908,6 +926,8 @@ class HwpRenderer:
         finally:
             self._cell_depth -= 1
             self._grids.pop()
+            if box:
+                self._box_cells = None
 
         # A table inside a footnote (and tables inside it) is flattened to one line (`note_table`: cells ' / ', rows '; '). Rendering a
         # Markdown table gave '| 연도 | 값 | | --- |' when the footnote was joined into one line
@@ -929,6 +949,8 @@ class HwpRenderer:
         # test_office_table_char_limit.py::TestMergedCopiesPastTheLimit::test_hangul_header_table_stops_at_the_limit)
         rendered = grid.render(room=budget.room if budget is not None else self._options.max_chars)
         self.omitted_rows += grid.omitted_rows()
+        if box:
+            return self.size_headings.box(rendered, box_cells)
         return join_blocks([caption_text, rendered])
 
 

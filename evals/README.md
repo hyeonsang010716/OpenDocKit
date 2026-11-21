@@ -87,11 +87,11 @@ The scores say how far the two readers agree, so read them as a watch for change
   horizontal rules, which unfolded the top of 17 releases and lost their titles while the English benchmark stood still.
 - **TEDS 0.475** is low for a reason that is not the PDF reader's alone: the box of release time and distribution at
   the top of every release is a table in the HWPX and four pieces of text without a rule in the PDF.
-- **MHS is not gated here.** The HWPX reader writes 11 headings in the 60 releases and the PDF reader 140, and it is
-  the PDF reader that is right about most: the title of a release stands in a one-column table in the HWPX, where
-  headings by size are not looked for, and comes out as plain text. That is a finding about the HWPX reader — the
-  same document should not have a title in one format and none in the other — and it cannot be fixed where the text
-  of a cell is a string by the time the table decides to unfold: it needs blocks that keep their role.
+- **MHS 0.599 over 52 releases is not gated**: it says how far two readers agree, and a heading only one of them writes
+  is not known to be wrong. The first run had 5 releases to measure it on: the HWPX reader wrote 11 headings in the 60
+  releases and the PDF reader 140, because the title of a release stands in a one-column table in the HWPX, where a
+  paragraph could not become a heading by its size. It can now (`docs/decisions/hwp.md`), the HWPX reader writes 58,
+  and what is left to read in this number is mostly headings the PDF reader makes and the HWPX reader does not.
 
 Compared with `main` before the headings by weight were put back, the PDF reader writes 45 more headings in these
 releases and loses none: the section titles of two long releases, the labels of summary boxes, and — wrongly — a line

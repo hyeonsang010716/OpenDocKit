@@ -172,6 +172,9 @@ class HwpxRenderer:
         self._load_binary = load_binary
         self._note_count = 0
         self._cell_depth = 0
+        # The paragraphs of each cell of the layout box being read — a one-column table of the top-level body — and None outside
+        # one (`_render_table`, `_hangul.SizeHeadings.box`)
+        self._box_cells: list[list[str]] | None = None
         self._note_depth = 0  # 1 or more while footnote/endnote text is rendered. A table inside it becomes one line (`note_table`)
         self._plain_header = False  # while a header written without `include_headers_footers` is rendered (no headings)
         # Tables being rendered (an inner table is handed to the top-level table). None is a place where a table cannot be handed over
@@ -606,10 +609,17 @@ class HwpxRenderer:
         margin = self._heads.margins.get(paragraph.get("paraPrIDRef", ""), 0)
         outline = self._heads.shapes.get(paragraph.get("paraPrIDRef", ""), ("NONE", "", 0))[0] == "OUTLINE"
         top = not self._inner and not self._cell_depth and not self._note_depth
+        boxed = self._in_box()
         return decorated_text(text, mark, level, style_name, margin, self._bullets[-1], in_cell=bool(self._cell_depth),
                               check=self._check_mark(paragraph), plain=plain, outline=outline,
-                              size=self._smallest_text_size(paragraph) if top else 0, size_headings=self.size_headings,
-                              heading_text=heading, top=top, in_note=bool(self._note_depth), no_heading=self._plain_header)
+                              size=self._smallest_text_size(paragraph) if top or boxed else 0, size_headings=self.size_headings,
+                              heading_text=heading, top=top, in_note=bool(self._note_depth), no_heading=self._plain_header,
+                              boxed=boxed)
+
+    def _in_box(self) -> bool:
+        """Whether the paragraph being read is one of a cell of a layout box (`_render_table`), not one of a text box or a
+        table inside that cell."""
+        return self._box_cells is not None and self._cell_depth == 1 and self._inner == 1 and not self._note_depth
 
     def _smallest_text_size(self, paragraph: etree._Element) -> int:
         """The smallest size among the runs of the paragraph that hold visible text (hp:t); 0 when one of them has no known size.
@@ -647,8 +657,13 @@ class HwpxRenderer:
         # are not read.
         budget = None if self._grids or self._cell_depth or self._note_depth else TableBudget(self._extraction, self._options)
         outer = self._grids[-1] if self._grids else None
+        # A table of one column in the top-level body is a layout box: its paragraphs are kept as they are read, so that one
+        # set as a title can become a heading by its size (`_hangul.SizeHeadings.box`)
+        box = (table.get("colCnt") == "1" and caption is None and not self._grids and not self._cell_depth and not self._inner
+               and not self._note_depth and not self._plain_header)
         self._grids.append(grid)
         self._cell_depth += 1
+        box_cells = self._box_cells = [] if box else self._box_cells
         try:
             for row_index, row in enumerate(_children(table, "tr")):
                 grid.reach(row_index, 0)  # a row (hp:tr) whose cells are all covered by vertical spans from above is in the table (TableGrid.reach)
@@ -657,6 +672,8 @@ class HwpxRenderer:
         finally:
             self._cell_depth -= 1
             self._grids.pop()
+            if box:
+                self._box_cells = None
 
         # A table inside a footnote (and tables inside it) is flattened to one line (`note_table`: cells ' / ', rows '; '). Rendering a
         # Markdown table gave '| 연도 | 값 | | --- |' when the footnote was joined into one line
@@ -677,13 +694,18 @@ class HwpxRenderer:
         # test_office_table_char_limit.py::TestMergedCopiesPastTheLimit::test_hangul_header_table_stops_at_the_limit)
         rendered = grid.render(room=budget.room if budget is not None else self._options.max_chars)
         self.omitted_rows += grid.omitted_rows()
+        if box:
+            return self.size_headings.box(rendered, box_cells)
         return join_blocks([caption_text, rendered])
 
     def _place_row(self, grid: TableGrid, row: etree._Element, row_index: int, budget: TableBudget | None) -> bool:
         """Place the cells of a table row (hp:tr) on the grid. True if `budget` says the limit is exceeded — the remaining cells and rows are not
         read."""
         for cell in _children(row, "tc"):
-            text = "\n".join(block for sub in _children(cell, "subList") for block in self.render_paragraphs(sub))
+            blocks = [block for sub in _children(cell, "subList") for block in self.render_paragraphs(sub)]
+            if self._box_cells is not None and self._cell_depth == 1 and self._inner == 0:
+                self._box_cells.append(blocks)
+            text = "\n".join(blocks)
             address = _child(cell, "cellAddr")
             span = _child(cell, "cellSpan")
             row_span = _int(span.get("rowSpan") if span is not None else None, 1)

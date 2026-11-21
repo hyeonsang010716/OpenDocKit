@@ -23,6 +23,7 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._lists import _OBJECT_PLACEHOLDERS, BulletNesting, is_placeholder_only, paragraph_head
 from opendockit.extractors._notation import COMMENT_TARGET_MAX
+from opendockit.markdown import render_table
 
 
 # Hangul's "개요 1" to "개요 7" (Outline 1-7) paragraph styles are the chapter/section structure of the document. They become Markdown headings.
@@ -248,6 +249,14 @@ class _SizeCandidate(str):
     size: int
 
 
+class _Box(str):
+    """A one-column table of the top-level body, a layout box, that holds a paragraph that may be a heading by its size. Its
+    value is the box as it is written when none of them is one (the table unfolded into paragraphs, `render_table`); `cells`
+    are the paragraphs of each cell as they were read, candidates among them, for when one is (`SizeHeadings.resolve`)."""
+
+    cells: list[list[str]]
+
+
 # Characters not counted for the body size (`SizeHeadings.count`): controls and whitespace
 _UNCOUNTED = dict.fromkeys([*range(32), *(code for code in range(32, 0x3001) if chr(code).isspace())])
 # The most characters the largest size of a document's top level may hold to be taken for its titles when it is also the size
@@ -259,6 +268,9 @@ _LONE_TITLES = 2
 _SIZE_HEADING_LEVELS = ((1.5, 1), (1.3, 2), (1.15, 3))
 # A paragraph longer than this is not taken for a heading by its size (a sentence written large, a cover-page blurb)
 _SIZE_HEADING_MAX_CHARS = 80
+# The lowest heading level a paragraph of a layout box takes by its size (`SizeHeadings.box`): 1.3 times the body size and
+# more. A box holds the text of an attachment as often as a title, and its items set a little larger are items.
+_BOX_HEADING_MAX_LEVEL = 2
 # A word in any script: a paragraph without one (a date `2025.12.12`, a blank form date `202 . .`, a page number) is no heading.
 _LETTER = re.compile(r"[^\W\d_]")
 _EQUATION = re.compile(r"\$[^$\n]*\$")
@@ -482,21 +494,77 @@ class SizeHeadings:
         candidate.heading, candidate.size = heading, size
         return candidate
 
+    def box(self, written: str, cells: list[list[str]]) -> str:
+        """`written`, a one-column table of the top-level body unfolded into paragraphs, remembering the paragraphs of its
+        `cells` when one of them is a candidate: the title of a Korean press release stands in such a box, above the lines
+        that sum the release up, and the text of a cell is one string by the time a table is drawn."""
+        if not any(type(block) is _SizeCandidate for cell in cells for block in cell):
+            return written
+        box = _Box(written)
+        box.cells = cells
+        return box
+
     def resolve(self, blocks: list[str]) -> list[str]:
         """The blocks with each candidate settled into a heading or left as body text (a plain `str`)."""
-        if not any(type(block) is _SizeCandidate for block in blocks):
+        if not any(type(block) in (_SizeCandidate, _Box) for block in blocks):
             return blocks
-        titles = Counter(block.size for block in blocks if type(block) is _SizeCandidate)
+        titles = Counter(candidate.size for block in blocks
+                         for candidate in ((block,) if type(block) is _SizeCandidate else
+                                           (inner for cell in block.cells for inner in cell) if type(block) is _Box else ())
+                         if type(candidate) is _SizeCandidate)
         body = self.body_size(titles)
+
+        def level_of(block: str | None, body: int = body) -> int:
+            if type(block) is not _SizeCandidate or self.outlined or body <= 0:
+                return 0
+            return next((level for ratio, level in _SIZE_HEADING_LEVELS if block.size >= body * ratio), 0)
+
+        # A paragraph of a box is measured against the size most characters of the whole document have as well: where the
+        # text of a document stands in boxes, the little outside them is not its body.
+        boxed_body = max(body, _most_frequent(self._all_sizes))
+
         settled = []
         for block in blocks:
-            if type(block) is not _SizeCandidate:
-                settled.append(block)
-                continue
-            level = 0 if self.outlined or body <= 0 else next(
-                (level for ratio, level in _SIZE_HEADING_LEVELS if block.size >= body * ratio), 0)
-            settled.append(f"{'#' * level} {block.heading}" if level else str(block))
+            if type(block) is _Box:
+                settled.extend(self._unfolded(block, lambda inner: level_of(inner, boxed_body)))
+            elif level := level_of(block):
+                settled.append(f"{'#' * level} {block.heading}")
+            else:
+                settled.append(str(block) if type(block) is _SizeCandidate else block)
         return settled
+
+    @staticmethod
+    def _unfolded(box: _Box, level_of: Callable[[str | None], int]) -> list[str]:
+        """The blocks of a box: as it was written when it holds no heading, and otherwise each heading as a block of its own
+        between the paragraphs around it, which are written as the cell of a one-column table is (`render_table`), so that
+        everything but the heading mark reads as before. Headings of one size following each other in a cell are one title
+        set on several lines ('과기정통부-기후부,' / 'AI 데이터센터 신속 구축을 위한' / '전력계통영향평가 제도 개선 추진') and are
+        written as one."""
+        def level_of(block: str | None, of_any: Callable[[str | None], int] = level_of) -> int:
+            level = of_any(block)
+            return level if level <= _BOX_HEADING_MAX_LEVEL else 0
+
+        if not any(level_of(block) for cell in box.cells for block in cell):
+            return [str(box)]
+        blocks: list[str] = []
+        for cell in box.cells:
+            plain: list[str] = []
+            title: list[str] = []   # the headings of one size in a row: a title set on several lines, written as one
+            for block, following in zip(cell, [*cell[1:], None], strict=True):
+                level = level_of(block)
+                if not level:
+                    plain.append(str(block))
+                    continue
+                if plain:
+                    blocks.append(render_table([["\n".join(plain)]]))
+                    plain = []
+                title.append(block.heading)
+                if not (level_of(following) and following.size == block.size):
+                    blocks.append(f"{'#' * level} {' '.join(title)}")
+                    title = []
+            if plain:
+                blocks.append(render_table([["\n".join(plain)]]))
+        return blocks
 
 
 def _most_frequent(sizes: dict[int, int]) -> int:
@@ -507,7 +575,7 @@ def _most_frequent(sizes: dict[int, int]) -> int:
 def decorated_text(text: str, mark: str, level: int, style_name: str, margin: int, nesting: BulletNesting, *, in_cell: bool,
                    check: str = "", plain: str | None = None, outline: bool = False, size: int = 0,
                    size_headings: SizeHeadings | None = None, heading_text: Callable[[], str] | None = None,
-                   top: bool = False, in_note: bool = False, no_heading: bool = False) -> str:
+                   top: bool = False, in_note: bool = False, no_heading: bool = False, boxed: bool = False) -> str:
     """The first text piece of a paragraph with its head (`_lists.paragraph_head`) and, for an outline style or outline head, the
     heading mark.
 
@@ -517,7 +585,8 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     so a link does not change that (as in DOCX). `size` is the smallest character size of the paragraph's text when it is a
     top-level body paragraph (0 otherwise); with `size_headings` such a paragraph can become a heading by its size (`SizeHeadings`).
     `heading_text` gives the text written without bold and italic, used when the paragraph is a heading (a heading is bold by
-    its style, as in DOCX).
+    its style, as in DOCX). `boxed` is a paragraph of a one-column table of the top-level body, a layout box: it is a
+    paragraph of a cell in everything but this, that it can become a heading by its size (`SizeHeadings.box`).
 
     A paragraph with an outline head is a heading of its outline level + 1, as one in a 개요 style is: Hangul builds the outline
     (and the table of contents) from the head, and a real document put it on 바탕글 paragraphs, which came out as a numbered list
@@ -551,7 +620,7 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     head = paragraph_head(mark, level, in_cell=in_cell, heading=heading) + check
     if heading:
         return f"{'#' * min(heading_level, 6)} {head}{text if heading_text is None else heading_text()}"
-    if size and size_headings is not None and not in_cell and mark != "-" and _size_heading_text(plain):
+    if size and size_headings is not None and (not in_cell or boxed) and mark != "-" and _size_heading_text(plain):
         heading_head = paragraph_head(mark, level, in_cell=False, heading=True) + check
         return size_headings.candidate(head + text, heading_head + (text if heading_text is None else heading_text()), size)
     return head + text

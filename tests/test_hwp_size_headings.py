@@ -150,12 +150,14 @@ class TestSizeHeadings:
         assert convert(data, "a.hwp").text.startswith("# 1. 사업 개요")
 
     def test_cell_text_in_a_larger_size_is_no_heading(self):
+        """In a table of two columns: a table of one is a layout box (`TestTitlesInBoxes`)."""
         record = builder.hwp_record
-        cell = (record(TAG_LIST_HEADER, 2, builder.hwp_cell(0, 0)) + record(TAG_PARA_HEADER, 2, _para_header(0))
-                + record(TAG_PARA_TEXT, 3, builder.hwp_text("표 제목")) + record(TAG_PARA_CHAR_SHAPE, 3, struct.pack("<II", 0, 2)))
+        cells = b"".join(record(TAG_LIST_HEADER, 2, builder.hwp_cell(0, col)) + record(TAG_PARA_HEADER, 2, _para_header(0))
+                         + record(TAG_PARA_TEXT, 3, builder.hwp_text(text)) + record(TAG_PARA_CHAR_SHAPE, 3, struct.pack("<II", 0, 2))
+                         for col, text in enumerate(("표 제목", "단위")))
         table = (record(TAG_PARA_HEADER, 0, _para_header(0)) + record(TAG_PARA_TEXT, 1, builder.hwp_text((11, "tbl ")))
-                 + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("tbl ")) + record(TAG_TABLE, 2, struct.pack("<IHH", 0, 1, 1) + b"\x00" * 10)
-                 + cell)
+                 + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("tbl ")) + record(TAG_TABLE, 2, struct.pack("<IHH", 0, 1, 2) + b"\x00" * 10)
+                 + cells)
         data = _hwp(table, _paragraph(_BODY))
 
         assert "#" not in convert(data, "a.hwp").text
@@ -366,3 +368,69 @@ class TestOutlineHeads:
         lines = convert(_hwpx(body, head=head), "a.hwpx").text.split("\n\n")
 
         assert [line for line in lines if line.startswith("#")] == [f"# {n}. {t}" for n, t in enumerate(titles, 1)]
+
+
+def _hwp_box(*cells: list[tuple[str, int]]) -> bytes:
+    """A top-level table of one column; each cell is its paragraphs as (text, character shape id)."""
+    record = builder.hwp_record
+    body = b"".join(
+        record(TAG_LIST_HEADER, 2, builder.hwp_cell(row, 0))
+        + b"".join(record(TAG_PARA_HEADER, 2, _para_header(0)) + record(TAG_PARA_TEXT, 3, builder.hwp_text(text))
+                   + record(TAG_PARA_CHAR_SHAPE, 3, struct.pack("<II", 0, shape)) for text, shape in cell)
+        for row, cell in enumerate(cells))
+    return (record(TAG_PARA_HEADER, 0, _para_header(0)) + record(TAG_PARA_TEXT, 1, builder.hwp_text((11, "tbl ")))
+            + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("tbl ")) + record(TAG_TABLE, 2, struct.pack("<IHH", 0, len(cells), 1) + b"\x00" * 10)
+            + body)
+
+
+def _hwpx_box(*cells: list[tuple[str, int]]) -> str:
+    rows = "".join("<hp:tr><hp:tc><hp:subList>" + "".join(_hwpx_paragraph(text, (shape, text)) for text, shape in cell)
+                   + f'</hp:subList><hp:cellAddr colAddr="0" rowAddr="{row}"/></hp:tc></hp:tr>' for row, cell in enumerate(cells))
+    return f'<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl rowCnt="{len(cells)}" colCnt="1">{rows}</hp:tbl></hp:run></hp:p>'
+
+
+class TestTitlesInBoxes:
+    """A table of one column in the top-level body is a layout box, written as paragraphs; a paragraph of it set as a title is
+    a heading by its size (`SizeHeadings.box`). The title of a Korean press release stands in such a box: of 60 releases of
+    November 2026, 47 had no heading at all as HWPX while their PDF had the title as one (`evals/README.md`)."""
+
+    _TITLE = [("산림청, 전국 산지관리", 2), ("담당자 워크숍 개최", 2)]
+    _SUMMARY = [("- 산지관리 제도 개선 방향을 논의했다", 3), ("- 우수 사례를 공유했다", 3)]
+
+    def _both(self, *cells: list[tuple[str, int]]) -> tuple[str, str]:
+        return (convert(_hwp(_hwp_box(*cells), _paragraph(_BODY), _paragraph(_BODY)), "a.hwp").text,
+                convert(_hwpx(_hwpx_box(*cells), _hwpx_paragraph(_BODY), _hwpx_paragraph(_BODY)), "a.hwpx").text)
+
+    def test_the_title_of_a_box_is_a_heading_and_its_lines_are_one(self):
+        for text in self._both(self._TITLE, self._SUMMARY):
+            blocks = text.split("\n\n")
+            assert blocks[0] == "# 산림청, 전국 산지관리 담당자 워크숍 개최"
+            assert blocks[1] == "- 산지관리 제도 개선 방향을 논의했다\n- 우수 사례를 공유했다"
+            assert blocks[2].startswith("본문은")
+
+    def test_text_around_the_title_in_its_cell_is_written_as_before(self):
+        for text in self._both([("보도자료", 0), *self._TITLE, ("배포 즉시 보도", 0)]):
+            assert text.split("\n\n")[:3] == ["보도자료", "# 산림청, 전국 산지관리 담당자 워크숍 개최", "배포 즉시 보도"]
+
+    def test_a_box_without_a_title_is_written_as_before(self):
+        plain = [("참고 사항", 0), ("문의는 담당 부서로 하십시오", 0)]
+        for text in self._both(plain, self._SUMMARY):
+            assert "#" not in text
+            assert text.startswith("참고 사항\n문의는 담당 부서로 하십시오\n\n- 산지관리 제도 개선 방향을 논의했다\n- 우수 사례를 공유했다\n\n본문은")
+
+    def test_a_line_only_a_little_larger_is_no_heading_in_a_box(self):
+        """1.1 times the body: a heading of level 3 at the top level needs 1.15, one in a box 1.3."""
+        for text in self._both([("추진 배경", 3)], self._SUMMARY):
+            assert "#" not in text
+
+    def test_a_box_is_measured_against_the_size_most_of_the_document_has(self):
+        """The text of the document stands in the box, in 13 pt; the one line outside it is 9 pt and is not its body."""
+        box = [("추진 배경", 1)] + [("본문을 상자 안에 열세 포인트로 길게 적은 문서입니다 " * 3, 1)] * 4
+        hwp = convert(_hwp(_hwp_box(box), _paragraph("- 1 -", (0, 4))), "a.hwp").text
+        hwpx = convert(_hwpx(_hwpx_box(box), _hwpx_paragraph("- 1 -", (4, "- 1 -"))), "a.hwpx").text
+
+        assert "#" not in hwp and "#" not in hwpx
+
+    def test_a_sentence_or_a_date_in_a_box_is_no_heading(self):
+        for text in self._both([("오늘 행사를 개최했다", 2), ("2026년 11월 20일", 2)], self._SUMMARY):
+            assert "#" not in text
