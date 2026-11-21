@@ -244,7 +244,7 @@ class TestChapterMarkup:
                        f"<body>{switch * count}</body></html>").encode()
             timer = Fastest()
             for _ in timer:
-                root = etree.fromstring(chapter, parser=epub._CHAPTER_PARSER)
+                root = etree.fromstring(chapter, parser=epub._chapter_parser())
                 with timer:
                     epub._choose_switch_branches(root)
             return timer.seconds

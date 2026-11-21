@@ -735,6 +735,33 @@ class TestDocxStructure:
 
 
 class TestDocxObjects:
+    @pytest.mark.parametrize(("attributes", "expected"), [
+        pytest.param(('alt="분기 매출 그래프"', 'o:title="chart1"'), "[Image: 분기 매출 그래프]", id="alt-of-the-shape"),
+        pytest.param(('alt=" "', 'o:title=""'), "[Image]", id="none"),
+        pytest.param(("", 'o:title="clip_image002"'), "[Image]", id="title-of-the-picture-is-no-description"),
+    ])
+    def test_alt_text_of_a_vml_picture_is_kept(self, attributes, expected):
+        """A legacy VML picture (w:pict/v:shape/v:imagedata) keeps its alt text on the shape (`alt`); it was not read and came out
+        as a bare [Image]. The picture's `o:title` (a source file name, when it holds anything) is not alt text."""
+        from docx import Document
+        from lxml import etree
+
+        document = Document()
+        relationship, _ = document.part.get_or_add_image(BytesIO(builder.png_bytes(seed=4)))
+        shape_alt, title = attributes
+        paragraph = document.add_paragraph()._p
+        paragraph.append(etree.fromstring(
+            f'<w:r {_WORD_NAMESPACES} xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">'
+            f'<w:pict><v:shape style="width:200pt;height:120pt" {shape_alt}><v:imagedata r:id="{relationship}" {title}/></v:shape>'
+            "</w:pict></w:r>"))
+        buffer = BytesIO()
+        document.save(buffer)
+
+        result = convert(buffer.getvalue(), "a.docx")
+
+        assert result.text == expected
+        assert len(result.images) == 1
+
     def test_chart_and_smartart_are_kept(self):
         """Only pictures (a:blip) in a paragraph were read, so charts (c:chart) and SmartArt (dgm:relIds) vanished without a warning.
         They are rendered with the same renderer as PPTX."""
@@ -1749,6 +1776,75 @@ class TestDocxNumbering:
         result = convert(_docx_with_body(_paragraph("하나", 2) + _paragraph("둘", 2), numbering=numbering), "a.docx")
 
         assert result.text == "1) 하나\n\n2) 둘"
+
+    def test_numbering_style_without_a_defining_style_link_uses_the_list_it_names(self):
+        """When no definition says it defines the numbering style (no w:styleLink), the definition that points at the style
+        (w:numStyleLink) stands for the list the style itself names (its w:pPr/w:numPr, ECMA-376 17.9.21). Its levels stayed empty
+        and the items came out as plain paragraphs."""
+        styles = ('<w:style w:type="numbering" w:styleId="MyList"><w:name w:val="My List"/>'
+                  '<w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr></w:style>')
+        numbering = ('<w:abstractNum w:abstractNumId="0">' + _number_level(0, "%1)", "lowerLetter")
+                     + '</w:abstractNum><w:abstractNum w:abstractNumId="1"><w:numStyleLink w:val="MyList"/></w:abstractNum>'
+                     + _number_list(1, 0) + _number_list(2, 1))
+
+        result = convert(_docx_with_body(_paragraph("하나", 2) + _paragraph("둘", 2), numbering=numbering, styles=styles), "a.docx")
+
+        assert result.text == "a) 하나\n\nb) 둘"
+
+    def test_style_link_without_a_value_does_not_take_over_other_lists(self):
+        """A definition whose w:styleLink has no value was taken as the definition of the numbering style named '', and every
+        list with no link of its own resolved to it: a numbered list came out with its bullets."""
+        numbering = ('<w:abstractNum w:abstractNumId="0"><w:styleLink/>' + _number_level(0, "•", "bullet")
+                     + '</w:abstractNum><w:abstractNum w:abstractNumId="1">' + _number_level(0, "%1.") + "</w:abstractNum>"
+                     + _number_list(1, 1))
+
+        result = convert(_docx_with_body(_paragraph("하나", 1) + _paragraph("둘", 1), numbering=numbering), "a.docx")
+
+        assert result.text == "1. 하나\n2. 둘"
+
+    def test_numbering_style_naming_its_own_definition_does_not_loop(self):
+        styles = ('<w:style w:type="numbering" w:styleId="Loop"><w:name w:val="Loop"/>'
+                  '<w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr></w:style>')
+        numbering = '<w:abstractNum w:abstractNumId="0"><w:numStyleLink w:val="Loop"/></w:abstractNum>' + _number_list(1, 0)
+
+        result = convert(_docx_with_body(_paragraph("항목", 1), numbering=numbering, styles=styles), "a.docx")
+
+        assert "항목" in result.text
+
+    @pytest.mark.timing
+    def test_long_chain_of_numbering_style_links_takes_linear_time(self):
+        """Each definition points at a numbering style that names the list of the next definition (w:numStyleLink → w:numPr), the
+        last one with a level. The chain was walked again for every w:num: 2,000 links took 2.8 s, 4,000 of them 10 s. Twice the
+        chain should take about twice the time."""
+        from tests.timing import fastest
+
+        def chained(count: int) -> bytes:
+            styles = "".join(f'<w:style w:type="numbering" w:styleId="L{index}"><w:name w:val="L{index}"/>'
+                             f'<w:pPr><w:numPr><w:numId w:val="{index + 2}"/></w:numPr></w:pPr></w:style>' for index in range(count))
+            numbering = "".join(f'<w:abstractNum w:abstractNumId="{index}"><w:numStyleLink w:val="L{index}"/></w:abstractNum>'
+                                for index in range(count))
+            numbering += f'<w:abstractNum w:abstractNumId="{count}">' + _number_level(0, "%1.") + "</w:abstractNum>"
+            numbering += "".join(_number_list(index + 1, index) for index in range(count + 1))
+            return _docx_with_body(_paragraph("항목", 1), numbering=numbering, styles=styles)
+
+        small, large = chained(1_000), chained(4_000)
+
+        assert convert(large, "a.docx").text == "1. 항목"
+        ratio = fastest(lambda: convert(large, "a.docx")) / max(fastest(lambda: convert(small, "a.docx")), 0.01)
+        assert ratio < 8  # linear gives about 4 times for 4 times the input, quadratic about 16 times
+
+    def test_style_named_only_by_a_numbering_level_stays_unnumbered(self):
+        """A level that names a paragraph style (w:lvl/w:pStyle) does not number a style with no w:numPr of its own: real documents
+        keep the link after heading numbering is switched off, and numbered by it, a heading Word shows as `서론` came out as
+        `# 1. 서론` and the list sharing the definition skipped the numbers it took. Deliberate, against ECMA-376 17.9.23."""
+        numbering = ('<w:abstractNum w:abstractNumId="0">' + _number_level(0, "%1.", extra='<w:pStyle w:val="Heading1"/>')
+                     + "</w:abstractNum>" + _number_list(1, 0))
+        body = (_paragraph("서론", style="Heading1") + _paragraph("항목", 1) + _paragraph("항목2", 1)
+                + _paragraph("결론", style="Heading1") + _paragraph("항목3", 1))
+
+        result = convert(_docx_with_body(body, numbering=numbering), "a.docx")
+
+        assert result.text == "# 서론\n\n1. 항목\n2. 항목2\n\n# 결론\n\n3. 항목3"
 
     def test_empty_numbered_paragraph_still_counts(self):
         """A numbered paragraph with empty text was not counted, pulling later numbers forward. The number is counted and the empty
@@ -3277,6 +3373,17 @@ class TestOfficeReadingOrderAndListMarks:
         result = convert(data, f"a.{extension}")
 
         assert result.text == "## Slide 1\n\n매크로 쇼의 글"
+
+    def test_heading_style_of_apple_pages_is_a_heading_but_not_its_children(self):
+        """Apple Pages exports its first heading level as the style 'Heading'; it came out as body text. A style based on one named
+        'Heading' (LibreOffice's Subtitle) is no heading for that."""
+        styles = ('<w:style w:type="paragraph" w:styleId="Heading"><w:name w:val="Heading"/></w:style>'
+                  '<w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:basedOn w:val="Heading"/></w:style>')
+        body = _paragraph("연간 보고서", style="Heading") + _paragraph("부제", style="Subtitle") + _paragraph("본문")
+
+        result = convert(_docx_with_body(body, styles=styles), "a.docx")
+
+        assert result.text == "# 연간 보고서\n\n부제\n\n본문"
 
     def test_heading_style_inside_a_table_cell_gets_no_heading_mark(self):
         """A heading-style paragraph inside a cell got '## ', so the table cell text became '## 추진 배경'. HWP and HWPX put no mark on

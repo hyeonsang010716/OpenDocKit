@@ -67,6 +67,11 @@ def main() -> int:
     except ConversionError as exc:
         _error(f"[{exc.code}] {exc}")
         return 1
+    except ImportError as exc:
+        # A reader library that cannot be imported (`extractors.load`): its fixed sentence, not a traceback (Pinned by:
+        # test_cli.py::TestFileErrors::test_reader_library_that_cannot_be_imported_prints_a_message)
+        _error(str(exc))
+        return 1
     except _DescriberUnavailable as exc:
         _error(f"Cannot use --describe: {exc}")
         return 1

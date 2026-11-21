@@ -4,7 +4,7 @@ advance, highlights drawn behind text, and rows of cells that are a tiled backgr
 
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable
-from itertools import accumulate, pairwise
+from itertools import accumulate, islice, pairwise
 import math
 
 
@@ -18,6 +18,19 @@ _HIGHLIGHT_TAIL_RATIO = 0.4
 # Filled table row (`_without_cell_rows`): it is a cell if it lines up, within this distance (pt), with a column of words within
 # this many lines (multiple of the character size) above or below
 _CELL_ROW_REACH, _CELL_ALIGN = 6.0, 1.0
+# Filled rectangle inside a filled rectangle of the same colour (`_without_nested_fills`): how far (pt) it may reach past the
+# outer one's edges
+_NESTED_FILL_SLACK = 0.5
+# ... and how many rectangles one page may look at for it (besides four per rectangle): about a second
+_NESTED_FILL_WORK = 2_000_000
+# ... and how far (rectangles) it first walks the drawing order from each rectangle before it looks at those overlapping it
+_NESTED_FILL_WALK = 8
+# Bars of a bar chart (`_without_chart_bars`): at least this many, and how far (pt) their widths and stacked edges may differ
+_CHART_BARS_MIN, _BAR_SLACK = 3, 0.5
+# ... and how much wider the widest bar of a group may be than the narrowest (two series drawn 2.3pt and 3.1pt wide)
+_BAR_WIDTH_RATIO = 1.5
+# ... and how thick (pt) a bar is at least: Word draws the rules of a table as filled rectangles 0.5–1pt thick, in pieces per row
+_BAR_MIN_THICKNESS = 2.0
 
 
 # Glyph outline curve (_without_glyph_outlines): a curve smaller than this size (pt) both horizontally and vertically, and thicker
@@ -87,6 +100,244 @@ def _without_unadvanced_spaces(page: object) -> object:
     if not hidden:
         return page
     return page.filter(lambda obj: obj.get("object_type") != "char" or id(obj) not in hidden)
+
+
+def _without_nested_fills(page: object) -> object:
+    """Page without the filled rectangles drawn inside a filled rectangle of the same colour (for finding tables). `page` itself
+    when there are none.
+
+    Word shades a paragraph inside a shaded table cell once more, one borderless rectangle per line, in the cell's own colour.
+    They are invisible — the same colour over the same colour — but pdfplumber took their edges for rules: a header cell of four
+    lines split its row into four, every other header cell was repeated four times as a vertical merge, and the inset right edge
+    of the line shading made an empty column (Pinned by: test_pdf_highlights.py::TestShadingInsideShadedCells). A rectangle is
+    dropped only when it is filled without a border, lies within `_NESTED_FILL_SLACK` of a larger borderless filled rectangle of
+    the same fill colour, and no rectangle of another colour drawn between the two overlaps it (that one would make its edges
+    show).
+
+    Only the outer rectangle nearest in drawing order on each side can do (one further away has every rectangle between the
+    nearer one and this one between them as well), so each rectangle walks the drawing order outwards from itself to the first
+    rectangle that decides (an outer one, or one of another colour over it), or looks at the rectangles that overlap it on the
+    axis with fewer of them (`_AxisOverlaps`), whichever is shorter. Looking at the fills of its height bands and, for each
+    outer one, at every rectangle of those bands took a histogram of 8,000 tall bars 63 seconds and 500 nested rectangles of two
+    colours 24 (Pinned by: TestShadingInsideShadedCells::test_crowded_pages_take_linear_time). Past `_NESTED_FILL_WORK` steps
+    on one page (rectangles overlapping each other by the thousand) the remaining ones are kept: their edges may cut a table
+    into more cells, but no text is lost.
+    """
+    rects = page.rects
+    fills = [order for order, rect in enumerate(rects) if rect.get("fill") and not rect.get("stroke")]
+    if len(fills) < 2:
+        return page
+    boxes = [(rect["x0"], rect["top"], rect["x1"], rect["bottom"]) for rect in rects]
+    colours = [_colour(rect) for rect in rects]
+    borderless = [False] * len(rects)
+    for order in fills:
+        borderless[order] = True
+    by_x = _AxisOverlaps([box[0] for box in boxes], [box[2] for box in boxes])
+    by_y = _AxisOverlaps([box[1] for box in boxes], [box[3] for box in boxes])
+    slack = _NESTED_FILL_SLACK
+    work = _NESTED_FILL_WORK + len(rects) * 4
+
+    def decides(order: int, other: int, box: tuple[float, float, float, float], area: float) -> int:
+        """1: `other` is an outer rectangle of `order`, -1: it shows `order`'s edges, 0: neither."""
+        x0, top, x1, bottom = boxes[other]
+        if colours[other] != colours[order]:
+            return -1 if x0 < box[2] and box[0] < x1 and top < box[3] and box[1] < bottom else 0
+        return int(borderless[other] and (x1 - x0) * (bottom - top) > area
+                   and x0 - slack <= box[0] and box[2] <= x1 + slack and top - slack <= box[1] and box[3] <= bottom + slack)
+
+    hidden: set[int] = set()
+    for order in fills:
+        if work <= 0:
+            break
+        rect, box = rects[order], boxes[order]
+        area = rect["width"] * rect["height"]
+        # every rectangle that can decide overlaps the box on both axes, or, on an axis where the box is not wider than the
+        # slack, the box widened by twice the slack (an outer one may then end beside it)
+        widen_x = 0.0 if box[2] - box[0] > slack else 2 * slack
+        widen_y = 0.0 if box[3] - box[1] > slack else 2 * slack
+        low_x, high_x, low_y, high_y = box[0] - widen_x, box[2] + widen_x, box[1] - widen_y, box[3] + widen_y
+        across, along = by_x.count(low_x, high_x), by_y.count(low_y, high_y)
+        limit = min(across, along)
+        sides = [_walked(order, step, min(limit, _NESTED_FILL_WALK), len(rects), lambda other: decides(order, other, box, area))
+                 for step in (-1, 1)]
+        work -= sum(steps for _, steps in sides)
+        verdicts = {verdict for verdict, _ in sides}
+        found = 1 in verdicts
+        if not found and None in verdicts:
+            # the walk was longer than the overlapping rectangles: the nearest deciding one on each side among those
+            index, low, high = (by_x, low_x, high_x) if across <= along else (by_y, low_y, high_y)
+            work -= limit
+            nearest = {-1: (-1, 0), 1: (len(rects), 0)}
+            for other in index.each(low, high):
+                if other == order:
+                    continue
+                verdict = decides(order, other, box, area)
+                side = -1 if other < order else 1
+                if verdict and (other > nearest[side][0] if side < 0 else other < nearest[side][0]):
+                    nearest[side] = (other, verdict)
+            found = nearest[-1][1] == 1 or nearest[1][1] == 1
+        if found:
+            hidden.add(id(rect))
+    if not hidden:
+        return page
+    return page.filter(lambda obj: id(obj) not in hidden)
+
+
+def _walked(order: int, step: int, limit: int, count: int, decides: Callable[[int], int]) -> tuple[int | None, int]:
+    """The verdict of the first rectangle that decides (`decides` not 0) walking the drawing order from `order` by `step`, -1
+    when the walk leaves the page's rectangles first, None when none decides within `limit` steps; and the steps taken
+    (`_without_nested_fills`)."""
+    other = order + step
+    for steps in range(limit):
+        if not 0 <= other < count:
+            return -1, steps
+        if verdict := decides(other):
+            return verdict, steps + 1
+        other += step
+    return (-1 if not 0 <= other < count else None), limit
+
+
+class _AxisOverlaps:
+    """The rectangles whose extent on one axis (`starts[k]` to `ends[k]`) overlaps an interval: how many (`count`) and which
+    (`each`), without looking at the others. The rectangles are sorted by their start, and a tree over that order keeps the
+    greatest end of each run of them, so that runs ending before the interval are skipped whole."""
+
+    def __init__(self, starts: list[float], ends: list[float]) -> None:
+        self._order = sorted(range(len(starts)), key=starts.__getitem__)
+        self._starts = [starts[k] for k in self._order]
+        self._ends = sorted(ends)
+        self._size = 1
+        while self._size < len(starts):
+            self._size *= 2
+        tree = [-math.inf] * (2 * self._size)
+        for position, k in enumerate(self._order):
+            tree[self._size + position] = ends[k]
+        for node in range(self._size - 1, 0, -1):
+            tree[node] = max(tree[2 * node], tree[2 * node + 1])
+        self._tree = tree
+
+    def count(self, low: float, high: float) -> int:
+        """How many rectangles start before `high` and end after `low` (those ending at `low` or before start before it)."""
+        return max(bisect_left(self._starts, high) - bisect_right(self._ends, low), 0)
+
+    def each(self, low: float, high: float) -> list[int]:
+        """The rectangles that start before `high` and end after `low`, by their index."""
+        limit, tree, size, found = bisect_left(self._starts, high), self._tree, self._size, []
+        stack = [(1, 0, size)]
+        while stack:
+            node, first, last = stack.pop()
+            if first >= limit or tree[node] <= low:
+                continue
+            if node >= size:
+                found.append(self._order[first])
+                continue
+            middle = (first + last) // 2
+            stack.append((2 * node + 1, middle, last))
+            stack.append((2 * node, first, middle))
+        return found
+
+
+def _without_chart_bars(page: object) -> object:
+    """Page without the bars of a bar chart (for finding tables). `page` itself when there are none.
+
+    A bar chart drawn as vector shapes is a row of borderless filled rectangles standing on (or hanging from) one baseline. pdfplumber took the
+    bar edges and the axis for rules, and the chart became a table of its value labels ('| 2 | 1 | 4 | 1 |', '| -3.1% |
+    -4.4% |'; 11 of 200 pages of a pdf corpus held such a table, Pinned by: test_pdf_highlights.py::TestBarCharts). Bars
+    are `_CHART_BARS_MIN` or more rectangles of one fill colour that share one edge (bottom or top; left or right for bars drawn
+    sideways), at least `_BAR_MIN_THICKNESS` thick, about as wide (tall) as each other (`_BAR_WIDTH_RATIO`), more than
+    `_BAR_SLACK` apart, not all of one length, and holding no text (one may) — the cells of a shaded table row share both
+    edges and are all as tall, the cells of a column touch, shaded cells hold their text, and the rules Word draws as thin
+    filled rectangles are thinner, so none of them are bars. The
+    segments stacked on a bar (same left and right edges, touching or overlapping it; for a bar drawn sideways, the same top
+    and bottom) go with it. Known accepted gap: a chart with a value label inside every bar is not taken for bars and
+    still reads as a table of its labels, as before this check.
+    """
+    fills = [rect for rect in page.rects if rect.get("fill") and not rect.get("stroke")
+             and min(rect["width"], rect["height"]) >= _BAR_MIN_THICKNESS]
+    if len(fills) < _CHART_BARS_MIN:
+        return page
+    # The centres of the page's characters sorted across and down: a bar looks only at those of its own width or of its own
+    # height, whichever are fewer. Looking at the characters of the height bands it covers, a tall bar went through all the
+    # characters of the page: 4,000 bars over 40,000 characters took 4.7 seconds (Pinned by:
+    # test_pdf_highlights.py::TestBarCharts::test_tall_bars_over_many_characters_take_linear_time)
+    centres = [((char["x0"] + char["x1"]) / 2, (char["top"] + char["bottom"]) / 2) for char in page.chars if char["text"].strip()]
+    # (named apart from the `across` of the loop below: holding the same name, the closure read that loop's 'width' or
+    # 'height' instead, and a chart with a label above a bar near the left margin failed the whole PDF; Pinned by:
+    # test_pdf_highlights.py::TestBarCharts::test_a_chart_labelled_above_its_bars_at_the_left_margin_is_read)
+    by_x = sorted((x, y) for x, y in centres if math.isfinite(x) and math.isfinite(y))
+    by_y = sorted((y, x) for x, y in by_x)
+    xs, ys = [x for x, _ in by_x], [y for y, _ in by_y]
+    held: dict[int, bool] = {}
+
+    def holds_text(rect: dict) -> bool:
+        if id(rect) not in held:
+            x0, top, x1, bottom = rect["x0"], rect["top"], rect["x1"], rect["bottom"]
+            if not all(math.isfinite(value) for value in (x0, top, x1, bottom)):
+                held[id(rect)] = False
+            else:
+                left, right, low, high = bisect_left(xs, x0), bisect_right(xs, x1), bisect_left(ys, top), bisect_right(ys, bottom)
+                held[id(rect)] = (any(top <= y <= bottom for _, y in by_x[left:right]) if right - left <= high - low
+                                  else any(x0 <= x <= x1 for _, x in by_y[low:high]))
+        return held[id(rect)]
+
+    def at_most_one_holds_text(group: list[dict]) -> bool:
+        return sum(1 for _ in islice((rect for rect in group if holds_text(rect)), 2)) <= 1
+
+    bars: set[int] = set()
+    for along, across, start, end in (("bottom", "width", "x0", "x1"), ("top", "width", "x0", "x1"),
+                                      ("x0", "height", "top", "bottom"), ("x1", "height", "top", "bottom")):
+        groups: dict[tuple[object, float], list[dict]] = {}
+        for rect in fills:
+            groups.setdefault((_colour(rect), round(rect[along])), []).append(rect)
+        for group in groups.values():
+            if len(group) < _CHART_BARS_MIN:
+                continue
+            thickness = sorted(rect[across] for rect in group)
+            lengths = {round(rect["height" if across == "width" else "width"]) for rect in group}
+            ordered = sorted(group, key=lambda rect: rect[start])
+            apart = all(after[start] > before[end] + _BAR_SLACK for before, after in pairwise(ordered))
+            if (thickness[-1] <= max(thickness[0] * _BAR_WIDTH_RATIO, thickness[0] + _BAR_SLACK) and len(lengths) > 1 and apart
+                    and at_most_one_holds_text(group)):
+                bars.update(id(rect) for rect in group)
+    if not bars:
+        return page
+    # The bars by their left and right edges (by their top and bottom edges for sideways ones), rounded to the point: a
+    # segment stacked on a bar is looked up among the bars of its own edges, not compared with every bar of the page
+    upright: dict[tuple[int, int], list[dict]] = {}
+    sideways: dict[tuple[int, int], list[dict]] = {}
+    for rect in fills:
+        if id(rect) in bars:
+            upright.setdefault((round(rect["x0"]), round(rect["x1"])), []).append(rect)
+            if rect["width"] > rect["height"]:
+                sideways.setdefault((round(rect["top"]), round(rect["bottom"])), []).append(rect)
+
+    def near(index: dict[tuple[int, int], list[dict]], first: float, second: float) -> list[dict]:
+        return [bar for a in (-1, 0, 1) for b in (-1, 0, 1) for bar in index.get((round(first) + a, round(second) + b), ())]
+
+    stacked = {id(rect) for rect in fills if id(rect) not in bars and (any(
+        abs(rect["x0"] - bar["x0"]) <= _BAR_SLACK and abs(rect["x1"] - bar["x1"]) <= _BAR_SLACK
+        and rect["top"] <= bar["bottom"] + _BAR_SLACK and bar["top"] <= rect["bottom"] + _BAR_SLACK
+        for bar in near(upright, rect["x0"], rect["x1"])) or any(
+        abs(rect["top"] - bar["top"]) <= _BAR_SLACK and abs(rect["bottom"] - bar["bottom"]) <= _BAR_SLACK
+        and rect["x0"] <= bar["x1"] + _BAR_SLACK and bar["x0"] <= rect["x1"] + _BAR_SLACK
+        for bar in near(sideways, rect["top"], rect["bottom"])))}
+    dropped = bars | stacked
+    return page.filter(lambda obj: id(obj) not in dropped)
+
+
+def _colour(rect: dict) -> object:
+    """The fill of a rectangle as a key: its colour components with its colour space and pattern. A fill whose colour is not
+    known is a key of its own, equal to no other (two unknown colours may differ)."""
+    colour = rect.get("non_stroking_color")
+    if colour is None:
+        return object()
+    components = tuple(round(value, 3) if isinstance(value, int | float) else value for value in colour) \
+        if isinstance(colour, list | tuple) else colour
+    return (components, rect.get("ncs"), rect.get("non_stroking_pattern"))
+
+
+def _overlaps(shape: dict, box: tuple[float, float, float, float]) -> bool:
+    return shape["x0"] < box[2] and box[0] < shape["x1"] and shape["top"] < box[3] and box[1] < shape["bottom"]
 
 
 def _without_highlights(page: object) -> object:

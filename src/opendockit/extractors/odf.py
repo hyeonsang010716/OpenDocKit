@@ -48,6 +48,7 @@ from opendockit.extractors._package import decimal_int
 # dependency direction, like DOCX altChunk → html (docs/decisions/odf.md.
 # Pinned by: test_odf.py::TestSpreadsheet::test_two_tables_on_one_sheet_are_split_like_xlsx).
 from opendockit.extractors._sheet_layout import _append_sheet, _collect_rows, _warn_once
+from opendockit.extractors._xml import thread_parser
 from opendockit.markdown import TableGrid, join_blocks, merged_copy, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -108,7 +109,7 @@ _SKIPPED_CLASSES = frozenset(("header", "footer", "date-time", "page-number", "p
 _HEADERS = tuple(f"{{{_STYLE}}}{name}" for name in ("header", "header-first", "header-left"))
 _FOOTERS = tuple(f"{{{_STYLE}}}{name}" for name in ("footer", "footer-first", "footer-left"))
 
-_XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, remove_comments=True, remove_pis=True)
+_xml_parser = thread_parser(resolve_entities=False, no_network=True, remove_comments=True, remove_pis=True)
 # ODF collapses white space in paragraph text (runs of spaces, tabs and line ends count as one space); real spaces, tabs and line
 # breaks are the elements `text:s`, `text:tab` and `text:line-break`. Indented XML otherwise became line breaks inside a sentence.
 _XML_SPACE = re.compile(r"[ \t\r\n]+")
@@ -443,7 +444,7 @@ class _Package:
 
 def _parse(data: bytes) -> etree._Element | None:
     try:
-        return etree.fromstring(data, parser=_XML_PARSER)
+        return etree.fromstring(data, parser=_xml_parser())
     except (etree.XMLSyntaxError, ValueError):
         return None
 

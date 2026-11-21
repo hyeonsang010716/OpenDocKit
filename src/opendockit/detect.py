@@ -5,18 +5,19 @@ the "Excel download" of Korean web systems serves an HTML table as `.xls`, and u
 The extension is used only to split the text family (TXT, MD, CSV, HTML), which cannot be told apart by content.
 """
 
+from collections.abc import Callable
 import csv
 from io import BytesIO
 import json
 from pathlib import PurePath
 import re
 import struct
+from typing import Any
 import zipfile
 
 from opendockit.exceptions import ConversionError, CorruptedDocumentError, EncryptedDocumentError, UnsupportedFormatError
+from opendockit.extractors import IMPORT_FAILED_MESSAGE, load
 from opendockit.extractors._encoding import decode_text, is_cp949_text, is_utf8_text, unicode_bom_codec, utf16_encoding
-from opendockit.extractors._html_mail import is_mhtml, mail_reads_as_html, mhtml_html_part, mhtml_is_sent_mail
-from opendockit.extractors._mail import is_encrypted_mail, mail_box
 from opendockit.extractors._ole import OleFile
 from opendockit.image import is_image_file
 from opendockit.models import DocumentFormat
@@ -172,6 +173,10 @@ def detect_format(data: bytes | bytearray | memoryview, filename: str | None = N
         return _detect(data, filename)
     except ConversionError:
         raise
+    except ImportError as exc:  # a reader that cannot be imported (`_mail_readers`) is a broken installation, as in `convert`
+        if str(exc) == IMPORT_FAILED_MESSAGE:
+            raise
+        raise ImportError(IMPORT_FAILED_MESSAGE) from exc
     except Exception as exc:  # the same boundary as `convert`: arbitrary container-library exceptions become one failure
         raise CorruptedDocumentError("Could not parse the file format. The file may be corrupted.") from exc
 
@@ -466,6 +471,10 @@ def _detect_text(data: bytes, extension: str) -> DocumentFormat:
     _reject_other_xml_documents(body)
     if _is_xml_data(body):
         return DocumentFormat.TEXT
+    # The mail readers (BeautifulSoup) are imported only for a document that may be one: imported with this module, every
+    # conversion paid for them (Pinned by: test_converter.py::TestExtractorsImportedOnFirstUse)
+    is_mhtml, mail_reads_as_html, mhtml_html_part, mhtml_is_sent_mail, is_encrypted_mail, mail_box = _mail_readers()
+
     if is_encrypted_mail(data):
         raise EncryptedDocumentError("The body of an encrypted mail (S/MIME, PGP) cannot be read. "
                                      "Please decrypt and save it in your mail program, then upload it again.")
@@ -525,10 +534,19 @@ def _detect_text(data: bytes, extension: str) -> DocumentFormat:
     return DocumentFormat.TEXT
 
 
+def _mail_readers() -> tuple[Callable[..., Any], ...]:
+    """`is_mhtml`, `mail_reads_as_html`, `mhtml_html_part`, `mhtml_is_sent_mail`, `is_encrypted_mail`, `mail_box`, imported on
+    first use under the shared lock (`extractors.load`)."""
+    html_mail, mail = load("opendockit.extractors._html_mail"), load("opendockit.extractors._mail")
+    return (html_mail.is_mhtml, html_mail.mail_reads_as_html, html_mail.mhtml_html_part, html_mail.mhtml_is_sent_mail,
+            mail.is_encrypted_mail, mail.mail_box)
+
+
 def _is_plain_mail(data: bytes) -> bool:
     """Is this a mail with nothing to read as HTML (`_mail.mail_box`, MHTML excluded)? A plain-text mail named `.html`/`.htm` went to the
     HTML extractor by its extension, and its headers and body were squashed into one line
     (Pinned by: test_core_mailboxes_and_charsets.py::TestPlainMailNamedAsHtml)."""
+    is_mhtml, mail_reads_as_html, _, _, _, mail_box = _mail_readers()
     mails, _ = mail_box(data)
     if not mails or (len(mails) < 2 and is_mhtml(data)):
         return False

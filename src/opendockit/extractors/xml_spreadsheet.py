@@ -13,7 +13,7 @@ from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors._encoding import decode_text, decoding_warning
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._notation import chars_left
-from opendockit.extractors._package import _XML_PARSER, decimal_int
+from opendockit.extractors._package import _xml_parser, decimal_int
 from opendockit.extractors._sheet_format import (
     _MAX_FORMAT_LENGTH,
     _XML_GENERAL_DATE,
@@ -121,13 +121,13 @@ def _parse_xml_spreadsheet(data: bytes) -> tuple[etree._Element, str | None]:
     replacement-character warning).
     """
     try:
-        return etree.fromstring(data.removeprefix(b"\xef\xbb\xbf").lstrip(b" \t\r\n"), _XML_PARSER), None
+        return etree.fromstring(data.removeprefix(b"\xef\xbb\xbf").lstrip(b" \t\r\n"), _xml_parser()), None
     except (etree.XMLSyntaxError, LookupError, ValueError):
         pass
 
     text, encoding = decode_text(data)
     try:
-        root = etree.fromstring(_XML_DECLARATION.sub("", text.lstrip("\ufeff"), count=1).encode("utf-8"), _XML_PARSER)
+        root = etree.fromstring(_XML_DECLARATION.sub("", text.lstrip("\ufeff"), count=1).encode("utf-8"), _xml_parser())
         return root, encoding
     except (etree.XMLSyntaxError, ValueError) as exc:
         raise CorruptedDocumentError("The XML spreadsheet structure could not be read.") from exc

@@ -29,6 +29,7 @@ import stat
 from opendockit import __version__
 from opendockit.converter import _size_text, read_limited, section_heading
 from opendockit.exceptions import ConversionError, DocumentTooLargeError
+from opendockit.extractors import IMPORT_FAILED_MESSAGE
 from opendockit.isolated import IsolatedConverter
 from opendockit.models import ConversionResult, ConvertOptions, Section, SectionKind
 
@@ -147,6 +148,11 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
             result = await converter.convert(data, file.name, options)
         except ConversionError as error:
             raise ToolError(str(error)) from error
+        except ImportError as error:
+            # A reader library that cannot be imported (a broken installation), here or in the worker: a fixed sentence, where
+            # the SDK answered only "Error executing tool" (Pinned by: test_mcp_server.py::TestConvertDocument::
+            # test_a_reader_that_cannot_be_imported_is_a_fixed_sentence)
+            raise ToolError(IMPORT_FAILED_MESSAGE) from error
         except OSError as error:   # no permission, a file removed meanwhile
             raise ToolError("The file could not be read.") from error
         # A result a wall-clock limit cut short (the PDF time budget on a busy machine) is not kept: the next call may get the

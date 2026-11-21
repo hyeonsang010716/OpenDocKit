@@ -33,6 +33,7 @@ text. A vector chart (lines and shapes, not an image) on a page that has charact
 """
 
 from collections import Counter
+from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -89,6 +90,7 @@ from opendockit.extractors._pdf_continued_tables import _carry_table_headers, _j
 from opendockit.extractors._pdf_figures import _figure_boxes, _open_pdfium, _page_images, _PageRenderer, _untrusted_text_layer_pages
 from opendockit.extractors._pdf_footnotes import _link_footnotes
 from opendockit.extractors._pdf_forms import _annotated_attachments, _form_values, _has_xfa, _named_attachments
+from opendockit.extractors._pdf_glyph_repair import _Glyphs, _pdfium_glyphs, _repair_replacement_chars
 from opendockit.extractors._pdf_margins import _body_font_size, _edge_rows, _remove_repeated_margins, _typical_line_gap
 from opendockit.extractors._pdf_marks import _mark_checkboxes, _mark_circle_bullets
 from opendockit.extractors._pdf_model import (
@@ -134,8 +136,10 @@ from opendockit.extractors._pdf_row_joins import _join_row_fragments
 from opendockit.extractors._pdf_ruled_tables import _real_tables, _ruled_table, _TableLookups, _with_open_below
 from opendockit.extractors._pdf_shaded_tables import _shade_bands, _thin_rules
 from opendockit.extractors._pdf_table_filters import (
+    _without_chart_bars,
     _without_glyph_outlines,
     _without_highlights,
+    _without_nested_fills,
     _without_unadvanced_spaces,
     _without_unbounded_shapes,
 )
@@ -406,7 +410,11 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 ungrouped = ungrouped or pdfplumber.open(BytesIO(data), laparams=_UNGROUPED_LAPARAMS)
                             ungrouped_before = budget.ungrouped_layouts
                             budget.new_page()
-                            read = _read_page_from(ungrouped if page.page_number in dense | grids else pdf, page, placement_fit)
+                            token = _PAGE_GLYPHS.set(_pdfium_glyphs(fallback, index))
+                            try:
+                                read = _read_page_from(ungrouped if page.page_number in dense | grids else pdf, page, placement_fit)
+                            finally:
+                                _PAGE_GLYPHS.reset(token)
                             if budget.ungrouped_layouts > ungrouped_before:
                                 # Too much text-box grouping (`_PAGE_GROUPING_COST`). The page was read from `pdf` with the bound
                                 # in force, so it is read again from there (`crammed` is not in `dense`, which picks `ungrouped`)
@@ -495,7 +503,11 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                     ungrouped_before = budget.ungrouped_layouts
                     budget.new_page()
                     try:
-                        pages[index] = _read_page(page, placement_fit)
+                        token = _PAGE_GLYPHS.set(_pdfium_glyphs(fallback, read.pdfium_index))
+                        try:
+                            pages[index] = _read_page(page, placement_fit)
+                        finally:
+                            _PAGE_GLYPHS.reset(token)
                         pages[index].pdfium_index = read.pdfium_index
                     except PdfminerException:
                         pass
@@ -883,6 +895,12 @@ def _simple_page(page: pdfium.PdfPage, index: int) -> _Page:
                  has_images=has_images, view=(0.0, 0.0, float(width), float(height)), simple=True)
 
 
+# pdfium's reading of the page being read (`_pdfium_glyphs`), for the characters pdfminer could not decode
+# (`_repair_replacement_chars`). Set around `_read_page` by its callers, so that the tests replacing `_read_page` keep its
+# signature and those of `_read_page_from`.
+_PAGE_GLYPHS: ContextVar[Callable[[], _Glyphs] | None] = ContextVar("_PAGE_GLYPHS", default=None)
+
+
 def _read_page_from(source: object, page: object, placement_fit: tuple[float, float] | None) -> _Page:
     """Reads `page` from the `source` document. If that is another document (the one with text-box grouping off), the same page of
     that document is opened, read and closed."""
@@ -1038,12 +1056,14 @@ def _sound_cid_system_info(info: dict) -> bool:
 def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -> _Page:
     _normalize_page_boxes(page)
     _repair_cid_system_info(page)
+    _repair_replacement_chars(page, _PAGE_GLYPHS.get())  # pdfium's character where pdfminer read U+FFFD
     layout_page = page  # the layout of a derived page (FilteredPage) redoes layout analysis from scratch, so read from the original page
     unmeasured = _unmeasured(page.chars)
     page, dropped = _without_drawing_artifacts(page)
     hidden_chars = sum(1 for char in dropped if char["text"].strip())
     placement_fit, placement_pending = _repair_placed_runs(page, placement_fit)
-    tables = _real_tables(_without_unadvanced_spaces(_without_highlights(_without_glyph_outlines(_without_unbounded_shapes(page)))))
+    tables = _real_tables(_without_unadvanced_spaces(_without_highlights(_without_chart_bars(_without_nested_fills(
+        _without_glyph_outlines(_without_unbounded_shapes(page)))))))
     # What is taken out of the body flow is not the whole table area but the characters actually inside cells. Characters where the
     # table finder could not build a cell (e.g. a table continued onto the next page without a bottom border) are not held by any
     # cell, so removing by area would make them vanish silently

@@ -25,6 +25,7 @@ _MAX_STRETCH = 8.0
 RUNS = 3
 _clock = time.perf_counter  # module-level names, so that tests/test_timing.py can replace them without touching `time` itself
 _collect = gc.collect
+_freeze, _unfreeze = gc.freeze, gc.unfreeze
 
 
 def allowed(seconds: float) -> float:
@@ -48,8 +49,12 @@ class Fastest:
                 read(page)
         seconds = timer.seconds
 
-    The garbage left by earlier runs is collected before each timed block, so that collecting it does not fall into one of them;
-    what the timed code itself allocates is collected as usual. A pass that never enters the timed block leaves `seconds` at
+    The garbage left by earlier runs is collected before each timed block, so that collecting it does not fall into one of them,
+    and what is left of the heap is frozen for the block: Python 3.14 looks through a share of the old objects at every
+    collection, so a run allocating enough to collect paid for the whole heap of the test session (a filter linear in its
+    rectangles measured 16 times as long for 4 times as many on a runner that had run the other timing tests, 51 times with
+    30 million objects alive, and 4.4 times with them frozen). What the timed code itself allocates is collected as usual
+    (Pinned by: test_timing.py::TestFastestOfAFewRuns::test_the_heap_before_each_timed_block_is_frozen_for_it). A pass that never enters the timed block leaves `seconds` at
     infinity, which fails any bound.
     """
 
@@ -66,11 +71,13 @@ class Fastest:
 
     def __enter__(self) -> "Fastest":
         _collect()
+        _freeze()
         self._started = _clock()
         return self
 
     def __exit__(self, kind: object, value: object, traceback: object) -> None:
         spent = _clock() - self._started
+        _unfreeze()
         self._started = None
         if kind is None:
             self.seconds = min(self.seconds, spent)
