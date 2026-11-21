@@ -433,8 +433,21 @@ class TestTitlesInBoxes:
         assert "#" not in hwp and "#" not in hwpx
 
     def test_a_sentence_or_a_date_in_a_box_is_no_heading(self):
-        for text in self._both([("오늘 행사를 개최했다", 2), ("2026년 11월 20일", 2)], self._SUMMARY):
-            assert "#" not in text
+        """A sentence with its full stop, one in the polite style, a question and a date, each set as large as a title."""
+        for line in ("오늘 행사를 개최했다.", "오늘 행사를 개최했습니다", "왜 필요한가?", "2026년 11월 20일"):
+            for text in self._both([(line, 2)], self._SUMMARY):
+                assert "#" not in text
+
+    def test_a_headline_in_a_box_is_a_heading_though_it_ends_as_a_sentence_does(self):
+        """A press release is titled in the plain style without a full stop ('… 공략한다', '… 나눈다', '… 올렸다'): of 59
+        releases 5 lost their title to the sentence guard. Outside a box the same line is a sentence set large, as before."""
+        for headline in ("K-스마트농업, 중국 시장 공략한다", "‘글로벌 대도약’ 깃발 올렸다"):
+            for text in self._both([(headline, 2)], self._SUMMARY):
+                assert text.split("\n\n")[0] == f"# {headline}"
+        for text in self._both([("국제교류 경험·성과", 2), ("7개국 청소년과 나눈다", 2)], self._SUMMARY):
+            assert text.split("\n\n")[0] == "# 국제교류 경험·성과 7개국 청소년과 나눈다"
+        top_level = convert(_hwp(_paragraph("K-스마트농업, 중국 시장 공략한다", (0, 2)), _paragraph(_BODY), _paragraph(_BODY)), "a.hwp").text
+        assert "#" not in top_level
 
     def test_a_table_inside_a_box_with_a_title_is_kept(self):
         """The box is unfolded by the table itself, which holds the tables of its cells: unfolded from the text of the

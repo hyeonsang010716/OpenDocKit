@@ -164,6 +164,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **PDF: the bar an attachment of a Korean official document opens with is a heading** (`## 붙임 1 행사 개요`), as in HWP
   and HWPX. It was a line of text, a table of one row, or a label and a title apart: of 52 bars in 59 press releases 15
   were headings. The list of attachments in the body ('붙임 1. … 1부.') stays body text.
+- **HWP and HWPX: the headline of a press release is a heading** though it ends as a sentence does ('… 공략한다',
+  '… 올렸다'): in a title box, a line in the plain style without a full stop is the title.
 - **HWP and HWPX: a table of one row is a line of text, and the bar of an attachment a heading.** A table of one row is a
   header over no rows; in 59 Korean press releases 126 of 219 tables were of this kind and none held data. The cells are
   now written as one line ('보도시점 배포 즉시 보도 가능 배포 2026. 11. 20.(금)'), a heading when set large, and under the
