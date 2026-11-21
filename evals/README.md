@@ -49,6 +49,24 @@ PyMuPDF4LLM, scored from the Markdown that benchmark publishes for each. Convers
 options without page markers and picture placeholders (`evals/run.py::OPTIONS`), which are OpenDocKit's own marks and
 not text of the document.
 
+## Reading a comparison
+
+A run against a baseline prints the mean of each metric before and now, the documents one of whose scores moved by more
+than 0.02, and the documents whose text changed at all:
+
+```
+documents that moved by more than 0.02: 1 (0 with a metric that fell)
+  01030000000058  mhs +0.955
+documents whose text changed: 3 of 200 (2 without a score that moved)
+  01030000000017
+  01030000000102
+```
+
+The last lines are there because a mean can stand still while the documents under it change: a baseline keeps a digest
+of each converted text, and a document that came out differently is named even when no score noticed. Look at those
+before believing a change touched only what it was meant to (`--out <dir>` on both sides, then `diff`). A change that
+is meant to leave the output alone should say "0 of 200".
+
 ## Where OpenDocKit stands (2026-11-21)
 
 | Converter | Overall | NID | TEDS | MHS | Needs a model |

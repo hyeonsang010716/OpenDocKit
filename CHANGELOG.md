@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   — is now read from that tree where the page agrees with it, and not guessed from the alignment of its text: on 200
   documents saved by LibreOffice the table score rises from 0.489 to 0.846. A ruled table is read from its rules as
   before, and a PDF without tags is read as before.
+- **The scorecard names the documents whose text changed**, whether a score moved or not: a baseline keeps a digest of
+  each converted text.
 - **HTML and EPUB twins on the scorecard**: the same 200 references as an HTML page and as an EPUB score 0.990 and
   0.992, as DOCX does.
 - **A Korean holdout on the scorecard** (`evals/korean_pairs_holdout.tsv`): sixty press releases from 2023 to 2026 that no

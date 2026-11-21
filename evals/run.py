@@ -7,11 +7,14 @@ A document `<name>.<ext>` is scored against `<gold>/<name>.md`. A reference that
 the same text in a format that states its structure, the HWPX of a PDF — and is converted first, so its score says how
 far the two readers agree, which is as good as the reader of the reference is. With `--baseline` the run ends with status 1 when the
 mean of a metric fell by more than `--tolerance`, and lists the documents that moved either way, so a change to a rule
-that guesses structure is judged by all the documents and not by the one it was written for (`evals/README.md`).
+that guesses structure is judged by all the documents and not by the one it was written for (`evals/README.md`). It
+also says how many documents came out as another text than the baseline's, moved or not: a mean can stand still while
+the documents under it change.
 """
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -29,6 +32,7 @@ OPTIONS = ConvertOptions(page_markers=False, extract_images=False)
 PLAIN_OPTIONS = ConvertOptions(page_markers=False, extract_images=False, keep_emphasis=False, keep_links=False)
 WORKERS = 4
 MOVED = 0.02  # a document is listed when one of its metrics moved by more than this
+CHANGED_SHOWN = 40  # how many of the documents whose text changed without a score moving are named
 
 
 def _convert(path: Path, plain: bool = False) -> tuple[str, float]:
@@ -40,7 +44,12 @@ def _convert(path: Path, plain: bool = False) -> tuple[str, float]:
     return text, time.perf_counter() - started
 
 
-def _score_document(job: tuple[str, str | None, str | None, str, str | None, bool]) -> tuple[str, dict[str, float | None], float]:
+def _digest(text: str) -> str:
+    """What stands for the text of a document in a scorecard: enough of its SHA-256 to tell two texts apart."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def _score_document(job: tuple[str, str | None, str | None, str, str | None, bool]) -> tuple[str, dict[str, float | None], float, str]:
     name, document, prediction, gold, out, plain = job
     if document is not None:
         text, seconds = _convert(Path(document), plain)
@@ -49,7 +58,7 @@ def _score_document(job: tuple[str, str | None, str | None, str, str | None, boo
     else:
         text, seconds = (Path(prediction).read_text(encoding="utf-8") if prediction and Path(prediction).is_file() else ""), 0.0
     reference = Path(gold).read_text(encoding="utf-8") if gold.endswith(".md") else _convert(Path(gold), plain)[0]
-    return name, score(reference, text).as_dict(), seconds
+    return name, score(reference, text).as_dict(), seconds, _digest(text)
 
 
 def _means(documents: dict[str, dict[str, float | None]]) -> dict[str, dict[str, float | int | None]]:
@@ -76,8 +85,10 @@ def run(gold: Path, documents: Path | None, predictions: Path | None, out: Path 
         jobs.append((reference.stem, source, prediction, str(reference), str(out) if out is not None else None, plain))
     with ProcessPoolExecutor(WORKERS) as pool:
         results = list(pool.map(_score_document, jobs, chunksize=4))
-    scored = {name: {metric: None if value is None else round(value, 4) for metric, value in scores.items()} for name, scores, _ in results}
-    return {"means": _means(scored), "seconds": round(sum(seconds for _, _, seconds in results), 1), "documents": scored}
+    scored = {name: {metric: None if value is None else round(value, 4) for metric, value in scores.items()}
+              for name, scores, _, _ in results}
+    return {"means": _means(scored), "seconds": round(sum(seconds for _, _, seconds, _ in results), 1), "documents": scored,
+            "texts": {name: digest for name, _, _, digest in results}}
 
 
 def compare(card: dict, baseline: dict, tolerance: float, gate: tuple[str, ...] = METRICS) -> tuple[list[str], bool]:
@@ -107,6 +118,16 @@ def compare(card: dict, baseline: dict, tolerance: float, gate: tuple[str, ...] 
     lines.append(f"documents that moved by more than {MOVED}: {len(moved)} ({len(worse)} with a metric that fell)")
     for _, name, changes in moved:
         lines.append(f"  {name}  " + "  ".join(f"{metric} {change:+.3f}" for change, metric in changes))
+    # The text of each document against the baseline's (`texts`, absent from a baseline written before it was kept): a
+    # document whose text changed and whose scores did not move by `MOVED` is named, the others are in the list above
+    before = baseline.get("texts")
+    if before is not None and "texts" in card:
+        changed = sorted(name for name, digest in card["texts"].items() if name in before and before[name] != digest)
+        quiet = [name for name in changed if name not in {name for _, name, _ in moved}]
+        lines.append(f"documents whose text changed: {len(changed)} of {len(card['texts'])} ({len(quiet)} without a score that moved)")
+        lines.extend(f"  {name}" for name in quiet[:CHANGED_SHOWN])
+        if len(quiet) > CHANGED_SHOWN:
+            lines.append(f"  … and {len(quiet) - CHANGED_SHOWN} more")
     return lines, fell
 
 
@@ -135,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.update_baseline:
         args.baseline.parent.mkdir(parents=True, exist_ok=True)
-        args.baseline.write_text(json.dumps({key: card[key] for key in ("means", "documents")}, indent=1) + "\n", encoding="utf-8")
+        args.baseline.write_text(json.dumps({key: card[key] for key in ("means", "documents", "texts")}, indent=1) + "\n", encoding="utf-8")
         return 0
     lines, fell = compare(card, json.loads(args.baseline.read_text(encoding="utf-8")), args.tolerance, tuple(args.gate.split(",")))
     print("\n".join(lines))

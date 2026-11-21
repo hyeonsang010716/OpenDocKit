@@ -193,6 +193,19 @@ class TestCompare:
         assert not fell and not any(line.startswith("words") for line in lines)
 
 
+    def test_a_text_that_changed_without_a_score_moving_is_named(self):
+        old, new = self._card(0.7, 0.9), self._card(0.7, 0.9)
+        old["texts"], new["texts"] = {"a": "1" * 12, "b": "2" * 12}, {"a": "1" * 12, "b": "3" * 12}
+
+        lines, fell = compare(new, old, tolerance=0.002)
+
+        assert not fell
+        assert "documents whose text changed: 1 of 2 (1 without a score that moved)" in lines and "  b" in lines
+        # a baseline written before the texts were kept says nothing of them
+        del old["texts"]
+        assert not any("text changed" in line for line in compare(new, old, tolerance=0.002)[0])
+
+
 class TestRun:
     def test_documents_are_scored_against_markdown_and_against_documents(self, tmp_path):
         from evals.run import run
@@ -205,7 +218,9 @@ class TestRun:
         (gold / "a.md").write_text("# Title\n\nBody text of the document.\n", encoding="utf-8")
         (twins / "a.html").write_text("<h1>Title</h1><p>Body text of the document.</p>", encoding="utf-8")
 
-        against_markdown = run(gold, documents, None, None)["documents"]["a"]
+        card = run(gold, documents, None, None)
+        against_markdown = card["documents"]["a"]
+        assert len(card["texts"]["a"]) == 12 and card["texts"] == run(gold, documents, None, None)["texts"]
         against_a_document = run(twins, documents, None, tmp_path / "out")["documents"]["a"]
 
         # the .txt is the document converted; the .md beside it is never taken for one
