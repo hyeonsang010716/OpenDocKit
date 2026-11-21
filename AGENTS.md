@@ -38,7 +38,8 @@ document that justifies it.
 - A change to how structure is guessed from a PDF (headings, tables, reading order) is judged by the scorecard
   (`evals/README.md`), not by the document it was written for: it comes with the comparison against the baseline, no
   mean may fall on the benchmark, the Korean pairs, the Korean holdout or the PDF twins (tagged and untagged), and the baselines are updated in
-  the same change. The holdout is run, not read: a rule is not written from its documents (`evals/README.md`).
+  the same change. The holdout is run, not read: a rule is not written from its documents (`evals/README.md`). The comparison also names
+  the documents whose text changed without a score moving: look at them before saying what a change did.
   A change to how DOCX, ODT, RTF, HTML or EPUB write headings, lists or tables is run against their twins the same way.
 - A deliberate trade-off gets a row in `docs/decisions/` and a `Pinned by:` comment at the code site.
 - Extractors only produce sections; normalization, headings, images and limits belong to `converter.py`.
