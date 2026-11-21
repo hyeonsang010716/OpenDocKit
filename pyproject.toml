@@ -97,6 +97,7 @@ dev = [
     "pytest-xdist>=3.6",
     "reportlab>=4.2",
     "ruff>=0.8",
+    "rapidfuzz>=3.9",  # the scorecard's edit distances on long documents (evals/metrics.py, which also runs without it); MIT, development only
 ]
 
 [tool.hatch.build.targets.wheel]

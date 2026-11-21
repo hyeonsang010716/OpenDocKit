@@ -10,7 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **Scorecard** (`evals/`): the structure of the PDF output — reading order, tables, headings — is scored on the 200
   documents of a public benchmark (overall 0.875) and on 60 Korean press releases published as both HWPX and PDF, the
-  HWPX being the reference for the PDF, and compared with a baseline (`evals/README.md`).
+  HWPX being the reference for the PDF, and compared with a baseline (`evals/README.md`). The benchmark's references
+  are also made into DOCX, ODT, RTF and PDF twins, which score the reader of each format against one answer.
 - **DOCX saved as Strict Open XML is read.** It was refused with the advice to save it again; its namespaces and
   relationship types are now read as their Transitional forms, and the lengths Word writes there with a unit (`36pt`)
   as the twips and half-points they stand for, so indented lists and raised or lowered text come out as they do in an

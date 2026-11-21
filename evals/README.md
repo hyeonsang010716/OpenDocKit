@@ -97,9 +97,48 @@ Compared with `main` before the headings by weight were put back, the PDF reader
 releases and loses none: the section titles of two long releases, the labels of summary boxes, and — wrongly — a line
 of place and the quoted slogans of a list of companies.
 
+## Format twins: one document in four formats
+
+```bash
+uv run python evals/make_twins.py $C/ground-truth/markdown ../corpus/twins     # needs pandoc and LibreOffice; about 15 minutes
+T=../corpus/twins
+for f in docx odt rtf pdf; do
+  uv run python -m evals.run --plain --documents $T/$f --gold $C/ground-truth/markdown --baseline evals/baselines/twins-$f.json
+done
+```
+
+The 200 hand-checked references of the benchmark, written by pandoc as DOCX files that say their structure outright
+(heading styles, tables, lists) and saved by LibreOffice as ODT, RTF and PDF. The four files hold one document whose
+right answer is known, so each reader is scored against the same reference, and a difference between two formats is
+a difference between two readers. `--plain` converts without emphasis and links, which the references do not write.
+
+| Twin | Overall | NID | TEDS | MHS |
+| :--- | ---: | ---: | ---: | ---: |
+| DOCX | 0.992 | 0.991 | 0.967 | 0.995 |
+| ODT | 0.992 | 0.991 | 0.967 | 0.997 |
+| RTF | 0.992 | 0.991 | 0.967 | 0.995 |
+| PDF, as LibreOffice sets it | 0.913 | 0.955 | 0.330 | 0.966 |
+
+- **The readers of the formats that state their structure agree with the reference and with each other.** No document
+  is more than 0.15 lower in one of them than in another; 39 of the 42 tables are read exactly. What is left is
+  convention (a table of one column is written as paragraphs).
+- **The same documents as PDF lose their tables.** pandoc's tables have no rules, and LibreOffice sets them as
+  aligned text: 3 of 42 are read to 0.9 or more, 9 not at all, the rest in part. On the benchmark's own PDFs, most of
+  which rule their tables, TEDS is 0.776. Tables without any rule are where the PDF reader is weakest, and these 42,
+  with their exact answers, are the place to work on it.
+- Headings are easy here (0.966): a heading style is set large. The benchmark's own PDFs, where a heading is often
+  bold at the body size, are the harder measure of headings.
+
+A first form of this corpus took 116 public DOCX test files and pandoc's reading of them as the reference. It measured
+conventions and test fixtures more than readers — tables with one filled column, placeholder text of empty form
+fields, files of thirty characters — and was dropped for the references a person had checked.
+
+The twins depend on the versions of pandoc and LibreOffice that made them (3.9 and 26.2 for the baselines), so they
+run where they were made, not in CI.
+
 ## What it does not measure yet
 
-- Formats other than PDF. The runner takes any folder of documents and references, so another corpus needs no code.
+- XLSX, PPTX, HTML, EPUB and mail: the twins cover the text formats only.
 - Korean headings against a reference a person checked: the pairs above have none.
 - The level of a heading: MHS treats every level alike.
 - Text that is right but should not be there (running headers, watermarks) only as far as it lowers NID.
