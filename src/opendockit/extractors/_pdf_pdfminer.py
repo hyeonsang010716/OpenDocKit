@@ -761,8 +761,8 @@ def _symbol_font(fontname: str) -> str | None:
 
 
 def _symbol_font_glyph(char: LTChar, font: object) -> None:
-    """When a symbol font character comes out in the private use area (U+F020–F0FF), replaces it using that font's table
-    (`_symbols.symbol_glyph`).
+    """When a symbol font character comes out in the private use area (U+F020–F0FF), or a Wingdings one as a letter of
+    Windows-1252, replaces it using that font's table (`_symbols.symbol_glyph`).
 
     The check boxes in a PDF exported by Word (☑ = F052 and ☐ = F0A3 in Wingdings 2, □ = F06F and ☒ = F078 in Wingdings) are code
     points missing from the shared mapping (`markdown._SYMBOL_FONT_GLYPHS`), so they were deleted and which side had been ticked
@@ -772,11 +772,25 @@ def _symbol_font_glyph(char: LTChar, font: object) -> None:
     the font dictionary's BaseFont is checked as well.
     """
     text = char._text
-    if len(text) != 1 or not 0xF020 <= ord(text) <= 0xF0FF or text in _SYMBOL_BULLETS:
+    if len(text) != 1 or text in _SYMBOL_BULLETS or text.isspace():
         return
     basefont = getattr(font, "basefont", None)
     name = _symbol_font(char.fontname) or (_symbol_font(basefont) if isinstance(basefont, str) else None)
-    glyph = symbol_glyph(name, ord(text)) if name else None
+    if not name:
+        return
+    if 0xF020 <= ord(text) <= 0xF0FF:
+        glyph = symbol_glyph(name, ord(text))
+    elif name.startswith("wingdings"):
+        # A Wingdings font holds no letters: where a character of it comes out as one — 'm' for the circle Hangul's PDF
+        # sets before an item, '§' and 'ž' for its small squares and dots — the PDF named the glyph by its number read as
+        # Windows-1252, and the number is looked up as it is for the private use area. A number the table does not hold
+        # is left as it came (Pinned by: test_pdf_fonts.py::TestWingdingsGlyphsReadAsLetters).
+        try:
+            glyph = symbol_glyph(name, text.encode("cp1252")[0])
+        except UnicodeEncodeError:
+            glyph = None
+    else:
+        glyph = None
     if glyph:
         char._text = glyph
 
