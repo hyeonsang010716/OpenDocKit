@@ -1290,7 +1290,9 @@ def _number_formats(payload: bytes, offset: int, count: int) -> tuple[list[tuple
 def _chart_part(data: bytes) -> etree._Element | None:
     """The OOXML chart (`c:chartSpace`) inside the BinData stream of an OLE object, or None when it holds none. The stream is a
     UINT32 size and an OLE container; the container's streams are read no further than its size (`_ole.OleStreams`), and one that
-    cannot be read leaves the object a placeholder."""
+    cannot be read leaves the object a placeholder, whatever olefile raises: the object was never read before, and a container
+    with a huge mini sector shift (OverflowError) made the whole document fail that converted with `[OLE object]` (Pinned by:
+    test_hwp.py::TestHwpCharts::test_ole_object_that_is_no_chart_stays_a_placeholder)."""
     if len(data) < 4 + len(olefile.MAGIC):
         return None
     (size,) = struct.unpack_from("<I", data, 0)
@@ -1301,7 +1303,9 @@ def _chart_part(data: bytes) -> etree._Element | None:
         with OleFile(BytesIO(container)) as ole:
             streams = OleStreams(ole, len(container))
             xml = streams.read(_OLE_CHART_STREAM) if streams.exists(_OLE_CHART_STREAM) else b""
-    except (OSError, ValueError, struct.error):  # olefile: OSError for structural damage, ValueError for bad header values
+    except MemoryError:
+        raise
+    except Exception:  # noqa: BLE001
         return None
     root = parse_part(xml) if xml else None
     return root if root is not None and etree.QName(root).localname == "chartSpace" else None

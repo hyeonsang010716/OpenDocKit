@@ -842,7 +842,9 @@ class TestHwpCharts:
         _hwp_ole_storage({"OOXMLChartContents": b"<a/>"}),
         struct.pack("<I", 9999) + b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 40,  # a broken container
         b"\x01\x02",
-    ], ids=["workbook", "broken xml", "other xml", "broken container", "too short"])
+        # a mini sector shift of 200: olefile raised OverflowError, and the document failed that converted before
+        (lambda data: data[:36] + struct.pack("<H", 200) + data[38:])(_hwp_ole_storage({"OOXMLChartContents": _CHART_XML.encode()})),
+    ], ids=["workbook", "broken xml", "other xml", "broken container", "too short", "huge mini sector shift"])
     def test_ole_object_that_is_no_chart_stays_a_placeholder(self, monkeypatch, data):
         result = convert(_hwp_with_ole_objects(monkeypatch, {1: data}, 1), "a.hwp")
 
