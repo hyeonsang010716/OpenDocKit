@@ -173,7 +173,8 @@ class _Line:
     footnote: bool = False
     footnote_start: bool = False
     # At least `_BOLD_LINE_RATIO` of the line's letters are drawn in a bold face (`_BOLD_FONT`). A heading set in bold at about
-    # the body size is told from the body only by this (`_is_bold_heading`); lines built from other lines leave it False.
+    # the body size is told from the body only by this (`_is_bold_heading`); lines built from other lines leave it False,
+    # but a number or bullet joined to its item, which has the weight of the item (`_pdf_row_joins._join_row_fragments`).
     bold: bool = False
     # Whether the last glyph drawn on the line is a space: True when it is, False when the line draws its spaces as glyphs and
     # ends without one, None when it draws none or was built from other lines. A generator that writes the space a line was
