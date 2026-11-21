@@ -58,11 +58,13 @@ import pypdfium2.raw as pdfium_c
 from opendockit.exceptions import CorruptedDocumentError, DocumentTooLargeError, EncryptedDocumentError
 from opendockit.extractors._pdf_aligned_tables import _extract_aligned_tables
 from opendockit.extractors._pdf_artifacts import (
+    _LETTER_SHAPES_MIN,
     _chars_at_line_level,
     _CopyIndex,
     _has_undecodable_contents,
     _is_sideways,
     _is_tilted,
+    _letter_shapes,
     _part_outside_cells,
     _rejoined_copy_lines,
     _sideways_paragraphs,
@@ -572,6 +574,10 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
         skipped = simple_form_values.skipped
         extraction.warnings.append(f"The form field values of {len(skipped)} PDF page(s) ({_page_list(skipped)}) read with simple "
                                    "extraction were not read, as the document has too many annotations.")
+    outlined = [page.number for page in pages if page.letter_shapes >= _LETTER_SHAPES_MIN]
+    if outlined:
+        extraction.warnings.append(f"{len(outlined)} PDF page(s) ({_page_list(outlined)}) draw some of their characters as shapes "
+                                   "and not as text, so those characters (often digits or Latin letters) are missing.")
     undecodable = [page.number for page in pages if page.undecodable]
     if undecodable:
         extraction.warnings.append(f"The content of {len(undecodable)} PDF page(s) ({_page_list(undecodable)}) could not be decoded "
@@ -1224,6 +1230,8 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                  undecodable=blank and _has_undecodable_contents(layout_page), unmeasured=unmeasured,
                  rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [],
                  uprights=_upright_rules(page) if lines else [], tagged=_tagged_on(layout_page, page_chars) if lines else [],
+                 letter_shapes=_letter_shapes(page.curves, sorted((line.top, line.bottom, line.x0, line.x1) for line in lines),
+                                              chars, char_tops) if lines else 0,
                  literal_carets=any("^" in char["text"] for char in page_chars), unshown_marks=unshown_marks)
 
 

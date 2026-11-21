@@ -150,6 +150,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   inside a word, and the two lines are now written as one. In 60 press releases 287 words are put right; 22 pairs of
   words are joined wrongly, where the PDF holds no space to go by (`docs/decisions/pdf-flow.md`). A PDF from another
   generator, and any line break at a space, is left as it was.
+- **PDF: a page that draws some of its characters as shapes is named in a warning.** Some programs write digits and
+  Latin letters as outlines, not as text: '제3조' came out as '제 조' with nothing to say that a number was missing.
+  The characters cannot be read back, but the page is now reported.
 - **XLS: a workbook is no longer refused as corrupted** for a defined name xlrd cannot evaluate (a print area written
   as a relative reference) or a cell comment it cannot read. The cells are read; an unread comment is counted in a
   warning.
