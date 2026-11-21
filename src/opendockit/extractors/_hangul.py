@@ -286,6 +286,11 @@ _EQUATION = re.compile(r"\$[^$\n]*\$")
 # A sentence: the Korean sentence endings `…다` (`…합니다`, `…한다`) and `…세요`, or a closing full stop, question or exclamation
 # mark. Not `…요` alone: 개요, 필요 and 주요 end many titles ('1. 사업 개요').
 _SENTENCE_END = re.compile(r"(?:다|세요)[.!?]?\Z|(?<!\d)[.!?]\Z")
+# The end of a headline: the plain style `…다` with nothing after it ('K-스마트농업, 중국 시장 공략한다', '국제교류 경험·성과
+# 나눈다', '깃발 올렸다'). A Korean press release is titled so, in the box its title stands in, and its sentences end in a
+# full stop; a sentence printed large in a form ends in one too, or in the polite style ('…진행됩니다', '…적어 주세요'),
+# which no headline is written in.
+_HEADLINE_END = re.compile(r"(?<!니)다\Z")
 # The sentence of a numbered clause (`1. 갑은 을에게 … 지급한다.`, `가. 다만, … 아니하다`, `… 따른다`, `… 본다`): an outline head
 # on such a paragraph makes no heading; an outline head is the author's title otherwise, whatever it says (`1. 캐나다`,
 # `Ⅰ. 총칙(개정 2024. 1. 1.)`, `2024년 12월`, `왜 바다인가?`), so only this guard of the size headings applies to it
@@ -358,7 +363,7 @@ def korean_sentence_end(plain: str) -> bool:
     return bool(text) and (not _outline_title(text) or bool(_POLITE_END.search(text.rstrip(_CLOSING).rstrip())))
 
 
-def _size_heading_text(plain: str) -> bool:
+def _size_heading_text(plain: str, *, boxed: bool = False) -> bool:
     """Whether a paragraph can be a heading by its size, from its text: short, one line, with a word, not a sentence (also inside
     closing quotes or brackets, or in the polite `…요` form), not a line in quotes, not a date, not the addressee, signature or
     stamp line of a form, not an item of a typed bullet list or a note (`※`), not a figure or table caption, not a contact
@@ -371,7 +376,10 @@ def _size_heading_text(plain: str) -> bool:
     if not text or len(text) > _SIZE_HEADING_MAX_CHARS or "\n" in text:
         return False
     unquoted = text.rstrip(_CLOSING).rstrip()
-    if not _LETTER.search(_EQUATION.sub("", text)) or _SENTENCE_END.search(unquoted) or _POLITE_END.search(unquoted):
+    if not _LETTER.search(_EQUATION.sub("", text)) or _POLITE_END.search(unquoted):
+        return False
+    # ... but for the headline of a layout box, which ends as a sentence does and has no full stop (`_HEADLINE_END`)
+    if _SENTENCE_END.search(unquoted) and not (boxed and _HEADLINE_END.search(unquoted)):
         return False
     if (_ADDRESSEE.search(text) or _SIGNATURE.search(text) or _BULLET_LEAD.match(text) or _CAPTION_LEAD.match(text)
             or _CONTACT.search(text)):
@@ -642,7 +650,7 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     head = paragraph_head(mark, level, in_cell=in_cell, heading=heading) + check
     if heading:
         return f"{'#' * min(heading_level, 6)} {head}{text if heading_text is None else heading_text()}"
-    if size and size_headings is not None and (not in_cell or boxed) and mark != "-" and _size_heading_text(plain):
+    if size and size_headings is not None and (not in_cell or boxed) and mark != "-" and _size_heading_text(plain, boxed=boxed):
         heading_head = paragraph_head(mark, level, in_cell=False, heading=True) + check
         return size_headings.candidate(head + text, heading_head + (text if heading_text is None else heading_text()), size)
     return head + text
