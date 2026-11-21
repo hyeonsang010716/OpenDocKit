@@ -51,7 +51,8 @@ def _render_page(page: _Page, heading_levels: dict[float, int], line_gap: float,
     boxes: list[tuple[float, float, float, float]] = []  # (top, bottom, x0, x1) of paragraphs. Tables and pictures are not included
     for paragraph in _group_paragraphs(page.lines, line_gap):
         level = heading_levels.get(_heading_size(paragraph), 0) if _is_heading(paragraph, heading_levels) else 0
-        text = f"{'#' * level} {' '.join(line.text for line in paragraph.lines)}" if level else _paragraph_text(paragraph)
+        text = (f"{'#' * level} {' '.join(line.text for line in paragraph.lines)}" if level
+                else _escaped_block_marks(_paragraph_text(paragraph)))
         items.append((paragraph.top, text, False))
         spans.append((min(line.x0 for line in paragraph.lines), max(line.x1 for line in paragraph.lines)))
         sizes.append((paragraph.lines[-1].bottom, len(paragraph.lines)))
@@ -442,6 +443,17 @@ def _continues(previous: _Line, line: _Line, line_gap: float) -> bool:
     return -previous.height * 0.3 <= gap <= allowed and horizontally_overlaps
 
 
+# A line start Markdown reads as the mark of a block: `#` … `######` and a space (a heading) or `>` (a quote)
+_BLOCK_MARK_START = re.compile(r"^(?:#{1,6}(?=\s|$)|>)", re.MULTILINE)
+
+
+def _escaped_block_marks(text: str) -> str:
+    """Body text whose lines start with a heading or quote mark, escaped (`\\#`, `\\>`). The text of a page is text, never
+    structure: a form row '# DNA replications' (a count column) became a Markdown heading (Pinned by:
+    test_pdf_headings.py::TestBodyTextMarks)."""
+    return _BLOCK_MARK_START.sub(lambda match: "\\" + match.group(0), text)
+
+
 def _paragraph_text(paragraph: _Paragraph) -> str:
     parts: list[str] = []
     for line in paragraph.lines:
@@ -457,7 +469,12 @@ def _heading_size(paragraph: _Paragraph) -> float:
 
 
 def _is_heading(paragraph: _Paragraph, heading_levels: dict[float, int] | None = None, body_size: float = 0.0) -> bool:
-    """A paragraph that is short, mostly letters, does not start with a bullet, and is clearly larger than the body text."""
+    """A paragraph that is short, mostly letters and holding one, or a year alone, does not start with a bullet, and is clearly
+    larger than the body text.
+
+    Deliberate: a paragraph of no letter is a value, not a heading: a large '56%' of an infographic or a running page number
+    '47698' set larger became a heading. A year or span of years alone ('2023', '2023–2024') stays one, the heading of its
+    part of a timeline (Pinned by: test_pdf_headings.py::TestHeadingSizes)."""
     text = " ".join(line.text for line in paragraph.lines)
     size = max(line.size for line in paragraph.lines)
     if not size or len(paragraph.lines) > 2 or len(text) > 100 or _BULLET_START.match(text):
@@ -465,9 +482,15 @@ def _is_heading(paragraph: _Paragraph, heading_levels: dict[float, int] | None =
     word_chars = len(_WORD_CHAR.findall(text))
     if word_chars < 2 or word_chars < len(text.replace(" ", "")) * 0.5:
         return False
+    if not any(character.isalpha() for character in text) and not _YEAR.fullmatch(text.strip()):
+        return False
     if heading_levels is not None:
         return _heading_size(paragraph) in heading_levels
     return bool(body_size) and size / body_size >= _HEADING_MIN_RATIO
+
+
+# A year or a span of years alone ('2023', '1990–1999', '2023-24'): a heading by its size though it holds no letter (`_is_heading`)
+_YEAR = re.compile(r"(?:1[5-9]|20)\d{2}(?:\s*[-–—~]\s*(?:(?:1[5-9]|20)\d{2}|\d{2}))?")
 
 
 def _heading_levels(pages: list[_Page], body_size: float, line_gap: float) -> dict[float, int]:

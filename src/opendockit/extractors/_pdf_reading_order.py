@@ -49,6 +49,8 @@ _LONE_LINE_MAX_LINES = 500
 _ALTERNATING_WORK = 1_000_000
 # Difference between centres (relative to the page width, `_centred_on`) for a line to count as placed in the middle of the page.
 _CENTRED_TOLERANCE_RATIO = 0.03
+# Rows with lines side by side inside one column that make it hold a table (`_has_lines_side_by_side`)
+_SIDE_BY_SIDE_ROWS_MIN = 2
 
 
 def _read_columns_in_turn(page: _Page) -> None:
@@ -416,7 +418,10 @@ def _paragraph_columns(page: _Page) -> tuple[float, float, float] | None:
         if heading_size is None:
             return None
     headed = heading_size < float("inf")
-    pairs = sum(1 for previous, line in zip(page.lines, page.lines[1:], strict=False) if _side_by_side(previous, line))
+    # Rows read across the gutter, a left line next to a right one (a row-wise '조건 | 지표' list). Pieces of one line within a
+    # column (a reference split in two pieces) are no such row (Pinned by: test_pdf_reading_order.py::TestRightColumnReadFirst)
+    pairs = sum(1 for previous, line in zip(page.lines, page.lines[1:], strict=False)
+                if _side_by_side(previous, line) and _across_gutter(previous, line, left_end, right_start))
     if pairs >= _COLUMN_MIX_MIN and not headed:
         return None
     if (_has_lines_side_by_side([line for line in page.lines if line.x1 <= right_start])
@@ -515,15 +520,37 @@ def _beside_each_other(lines: list[_Line], others: list[_Line]) -> list[_Line]:
 
 
 def _has_lines_side_by_side(lines: list[_Line]) -> bool:
-    """Whether `lines` contains two lines placed side by side in the same row."""
+    """Whether `lines` contains lines placed side by side in the same row on `_SIDE_BY_SIDE_ROWS_MIN` rows or more (a table
+    in the column).
+
+    One row is not enough: a single line of a reference list drawn in two pieces ('human feedback without tears.' and
+    'arXiv preprint' on one row) kept a two-column page that pdfminer read right column first from being reordered
+    (Pinned by: test_pdf_reading_order.py::TestRightColumnReadFirst)."""
     lines = sorted(lines, key=lambda line: line.top)
+    rows: list[_Line] = []  # the first line of each row found (pieces of one row count once)
     for index, line in enumerate(lines):
+        if rows and _side_by_side_row(rows[-1], line):
+            continue
         for other in lines[index + 1:]:
             if other.top >= line.bottom:
                 break
             if _side_by_side(line, other):
-                return True
+                rows.append(line)
+                if len(rows) >= _SIDE_BY_SIDE_ROWS_MIN:
+                    return True
+                break
     return False
+
+
+def _across_gutter(first: _Line, second: _Line, left_end: float, right_start: float) -> bool:
+    """Whether one of two lines lies in the left column and the other in the right one."""
+    sides = [(line.x1 <= right_start, line.x0 >= left_end) for line in (first, second)]
+    return {side for side in sides if side[0] != side[1]} == {(True, False), (False, True)}
+
+
+def _side_by_side_row(first: _Line, second: _Line) -> bool:
+    """Whether two lines are in the same row (vertical overlap at least half the smaller line height)."""
+    return min(first.bottom, second.bottom) - max(first.top, second.top) >= min(first.height, second.height) * 0.5
 
 
 def _side_by_side(first: _Line, second: _Line) -> bool:

@@ -20,6 +20,8 @@ class _Clock:
         self.events: list[str] = []
         monkeypatch.setattr(timing, "_clock", self._read)
         monkeypatch.setattr(timing, "_collect", lambda: self.events.append("collect"))
+        monkeypatch.setattr(timing, "_freeze", lambda: self.events.append("freeze"))
+        monkeypatch.setattr(timing, "_unfreeze", lambda: self.events.append("unfreeze"))
 
     def _read(self) -> float:
         self.events.append("clock")
@@ -46,7 +48,23 @@ class TestFastestOfAFewRuns:
 
         fastest(lambda: None)
 
-        assert clock.events == ["collect", "clock", "clock"] * 3
+        assert clock.events == ["collect", "freeze", "clock", "clock", "unfreeze"] * 3
+
+    def test_the_heap_before_each_timed_block_is_frozen_for_it(self):
+        """Python 3.14 looks through a share of the old objects at every collection: a run that allocated enough paid for the
+        heap of the whole test session. The heap is frozen for the block and thawed after it, after a failed run too."""
+        import gc
+
+        frozen: list[int] = []
+        timer = Fastest(runs=2)
+        with pytest.raises(AssertionError):
+            for _ in timer:
+                with timer:
+                    frozen.append(gc.get_freeze_count())
+                    if len(frozen) == 2:
+                        raise AssertionError
+
+        assert all(count > 0 for count in frozen) and gc.get_freeze_count() == 0
 
     def test_input_made_anew_for_every_run_is_not_timed(self, monkeypatch):
         _Clock(monkeypatch, [0.0, 2.0, 10.0, 13.0, 20.0, 22.0])

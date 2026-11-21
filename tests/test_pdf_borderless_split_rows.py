@@ -618,3 +618,85 @@ class TestSparseRowsAboveABorderlessTable:
 
         assert ("| 항목0 | 항목1 | 항목2 |\n| --- | --- | --- |\n| 금액 | | |\n| 배 | | |\n| 서울 | | |\n"
                 "| 비고 | 99,598 | 3,646 |\n| 서울 | | |\n| 미정 | | 73,270 |\n| 미정 | 60.1% | |") in text
+
+
+def _pieces_pdf(pieces: list[tuple[float, float, str]]) -> bytes:
+    """A page with a sentence above and below, and each (x, y, text) piece in between, in 11pt Helvetica."""
+    from io import BytesIO
+
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer)
+    pdf.setFont("Helvetica", 11)
+    pdf.drawString(72, 760, "The Lagrange equations are traditionally written as follows in the text.")
+    for x, y, text in pieces:
+        pdf.drawString(x, y, text)
+    pdf.drawString(72, 600, "These hold for every path the system is allowed to take, at each moment of time.")
+    pdf.save()
+    return buffer.getvalue()
+
+
+class TestDisplayedFormulas:
+    def test_a_displayed_formula_is_not_a_table(self):
+        pieces = [(150, 700, "d"), (200, 700, "dL"), (260, 700, "dL"), (150, 686, "="), (230, 686, "±"), (290, 686, "= 0."),
+                  (150, 672, "dt"), (200, 672, "dv"), (260, 672, "dq")]
+
+        text = convert(_pieces_pdf(pieces), "a.pdf").text
+
+        assert "|" not in text
+        assert "d dL dL" in text and "dt dv dq" in text
+
+    def test_a_table_of_measurements_with_signs_stays_a_table(self):
+        rows = [("Sample", "Mass", "Error"), ("A-1", "12.5 g", "± 0.3 g"), ("A-2", "13.1 g", "± 0.2 g"),
+                ("A-3", "11.8 g", "± 0.4 g")]
+        pieces = [(150 + column * 90, 700 - row * 16, text) for row, values in enumerate(rows) for column, text in enumerate(values)]
+
+        text = convert(_pieces_pdf(pieces), "a.pdf").text
+
+        assert "| A-2 | 13.1 g | ± 0.2 g |" in text
+
+    def test_a_table_of_parameters_or_marks_stays_a_table(self):
+        rows = [("Parameter", "Value", "Unit"), ("α", "0.05", "-"), ("β", "0.2", "-"), ("σ", "1.5", "mm")]
+        pieces = [(150 + column * 90, 700 - row * 16, text) for row, values in enumerate(rows) for column, text in enumerate(values)]
+
+        assert "| 0.2 | - |" in convert(_pieces_pdf_cid(pieces), "a.pdf").text
+
+        marks = [("Item", "A", "B", "C"), ("Price", "○", "×", "×"), ("Speed", "×", "×", "○"),
+                 ("Size", "×", "○", "×")]
+        pieces = [(150 + column * 70, 700 - row * 16, text) for row, values in enumerate(marks) for column, text in enumerate(values)]
+
+        assert "| Speed |" in convert(_pieces_pdf_cid(pieces), "a.pdf").text
+
+    @pytest.mark.parametrize(("rows", "expected"), [
+        ([("등급", "A", "B", "C"), ("정밀", "±1", "±2", "±3"), ("일반", "±5", "±6", "±8")], "| 정밀 | ±1 | ±2 | ±3 |"),
+        ([("A", "≥90", "≤100"), ("B", "≥80", "<90"), ("C", "≥70", "<80")], "| B | ≥80 | <90 |"),
+        ([("Parameter", "Min", "Typ", "Max"), ("Vcc", "≥3", "5", "≤6"), ("Icc", "-", "10", "≤20"), ("Temp", "≥0", "25", "≤70")],
+         "| Icc | - | 10 | ≤20 |"),
+    ])
+    def test_a_table_of_signed_values_stays_a_table(self, rows, expected):
+        """Tolerances, grade thresholds and the limits of a datasheet are values with a sign in front, not
+        the operators of a formula."""
+        pieces = [(150 + column * 80, 700 - row * 16, text) for row, values in enumerate(rows) for column, text in enumerate(values)]
+
+        assert expected in convert(_pieces_pdf_cid(pieces), "a.pdf").text
+
+
+def _pieces_pdf_cid(pieces: list[tuple[float, float, str]]) -> bytes:
+    """`_pieces_pdf` in a Korean CID font, which holds Greek letters and ○ × marks."""
+    from io import BytesIO
+
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfgen import canvas
+
+    pdfmetrics.registerFont(UnicodeCIDFont("HYSMyeongJo-Medium"))
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer)
+    pdf.setFont("HYSMyeongJo-Medium", 11)
+    pdf.drawString(72, 760, "The table below lists the parameters of the model used in the study.")
+    for x, y, text in pieces:
+        pdf.drawString(x, y, text)
+    pdf.drawString(72, 600, "These values hold for every run of the model that is reported in this section.")
+    pdf.save()
+    return buffer.getvalue()
