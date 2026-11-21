@@ -434,3 +434,19 @@ class TestTitlesInBoxes:
     def test_a_sentence_or_a_date_in_a_box_is_no_heading(self):
         for text in self._both([("오늘 행사를 개최했다", 2), ("2026년 11월 20일", 2)], self._SUMMARY):
             assert "#" not in text
+
+    def test_a_table_inside_a_box_with_a_title_is_kept(self):
+        """The box is unfolded by the table itself, which holds the tables of its cells: unfolded from the text of the
+        cell, the table inside it was lost and its placeholder left a `0` in the text."""
+        inner = ('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl rowCnt="2" colCnt="2">'
+                 + "".join("<hp:tr>" + "".join(
+                     f'<hp:tc><hp:subList>{_hwpx_paragraph(f"r{row}c{col}")}</hp:subList><hp:cellAddr colAddr="{col}" rowAddr="{row}"/></hp:tc>'
+                     for col in range(2)) + "</hp:tr>" for row in range(2))
+                 + "</hp:tbl></hp:run></hp:p>")
+        box = ('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl rowCnt="1" colCnt="1"><hp:tr><hp:tc><hp:subList>'
+               + _hwpx_paragraph("큰 제목", (2, "큰 제목")) + _hwpx_paragraph("설명 줄") + inner + _hwpx_paragraph("표 아래 줄")
+               + '</hp:subList><hp:cellAddr colAddr="0" rowAddr="0"/></hp:tc></hp:tr></hp:tbl></hp:run></hp:p>')
+
+        text = convert(_hwpx(box, _hwpx_paragraph(_BODY), _hwpx_paragraph(_BODY)), "a.hwpx").text
+
+        assert text.split("\n\n")[:4] == ["# 큰 제목", "설명 줄", "| r0c0 | r0c1 |\n| --- | --- |\n| r1c0 | r1c1 |", "표 아래 줄"]

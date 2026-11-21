@@ -94,6 +94,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - **Native sheet reader** (`opendockit-xlsx-core`, new package in `packages/`): where it is installed, the cells of a
     sheet are read in Rust (the two sheets above: 1.1 s and 3.7 s); any sheet it does not take on is read by the Python
     readers as before. Built and tested in CI; not yet published.
+- **DOCX, ODT and RTF**: a paragraph in a heading style inside a one-column table — a layout box — is a heading; it
+  came out as a line of text, while the same box in HTML kept its headings. A box without a heading and a cell of a
+  table of two columns or more are written as before.
 - **HWP and HWPX**: a title set in a one-column table — the box around the title of a Korean press release — is a
   heading, and a title on several lines is one heading; such a document had no heading at all, while its PDF had the
   title as one. A box without large text is written as before.

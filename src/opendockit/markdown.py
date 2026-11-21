@@ -858,6 +858,21 @@ def merged_copy(text: str) -> str:
     return _EMBED.sub("", IMAGE_MARKER.sub("", text)).strip()
 
 
+class CellHeading(str):
+    """A paragraph of a table cell that is a heading where a heading can stand. Its value is the paragraph as the cell writes
+    it, so wherever the paragraph is taken for text it is the text it was before; `level` and `title` are the heading it is
+    when its table is a layout box (`TableGrid.unfolded`). (A `str` subclass cannot have `__slots__` that hold values.)"""
+
+    level: int
+    title: str
+
+    @classmethod
+    def of(cls, written: str, level: int, title: str) -> "CellHeading":
+        heading = cls(written)
+        heading.level, heading.title = level, title
+        return heading
+
+
 class TableGrid:
     """Unfold a table with merged cells (rowspan, colspan) into a row × column grid.
 
@@ -1046,6 +1061,55 @@ class TableGrid:
             pieces.append(box[end:])
             self._room.spend(pieces[-1])
         return _BLANK_RUN.sub("\n\n", "".join(pieces)).strip()
+
+    def unfold(self, cells: Iterable[list[str]], heading_of: Callable[[str], tuple[int, str] | None],
+               continues: Callable[[str, str], bool] | None = None) -> list[str]:
+        """The blocks of this table as a layout box — one column, written as paragraphs — when paragraphs of its cells are
+        headings: each heading a block of its own, the text around it written as the box writes a cell (`_draw`), a table
+        nested in it as a block of its own.
+
+        `cells` are the paragraphs of each cell in order, as the extractor read them; `heading_of` gives the level and the
+        text of the ones that are headings. A table draws its cells from their text, where a paragraph is a line among
+        lines, so a heading in a box was written as a line of text: the title of a Korean press release, set in a
+        one-column table, and a paragraph in a heading style in a box of a Word document. Headings following each other for
+        which `continues` holds are one title set on several lines and are written as one, their texts joined by a space.
+
+        The extractor calls this instead of using what `render` wrote only when a cell holds a heading, so a box without one
+        is written as before (Pinned by: test_markdown.py::TestUnfoldedBox)."""
+        self._drawn = set()
+        blocks: list[str] = []
+
+        def written(plain: list[str]) -> None:
+            text = render_table([["\n".join(plain)]]) if plain else ""
+            if text and self._embedded:
+                text = _BLANK_RUN.sub("\n\n", _EMBED.sub(lambda match: f"\n\n{self._nested(match, inline=False)}\n\n", text)).strip()
+            if text:
+                blocks.append(text)
+            plain.clear()
+
+        for cell in cells:
+            plain: list[str] = []
+            title: list[str] = []
+            for block, following in zip(cell, [*cell[1:], None], strict=True):
+                heading = heading_of(block)
+                if heading is None:
+                    plain.append(str(block))
+                    continue
+                written(plain)
+                title.append(heading[1])
+                if following is None or heading_of(following) is None or continues is None or not continues(block, following):
+                    blocks.append(f"{'#' * heading[0]} {' '.join(title)}")
+                    title = []
+            written(plain)
+        return blocks
+
+    def unfolded(self, written: str, cells: list[list[str]]) -> list[str]:
+        """The blocks of this one-column table of the top level: `written`, what `render` wrote, when none of the paragraphs
+        of its `cells` is a `CellHeading`, and otherwise the box unfolded around its headings (`unfold`). For the formats that
+        know a heading when they read it; one that settles its headings later keeps the cells until then (`_hangul._Box`)."""
+        if not any(type(block) is CellHeading for cell in cells for block in cell):
+            return [written]
+        return self.unfold(cells, lambda block: (block.level, block.title) if type(block) is CellHeading else None)
 
     def flatten(self, room: int | None = None) -> str:
         """'cell / cell' lines for places that cannot hold a table (inside a footnote or header). Nested tables are flattened the same

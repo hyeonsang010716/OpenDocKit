@@ -23,7 +23,7 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._lists import _OBJECT_PLACEHOLDERS, BulletNesting, is_placeholder_only, paragraph_head
 from opendockit.extractors._notation import COMMENT_TARGET_MAX
-from opendockit.markdown import render_table
+from opendockit.markdown import TableGrid
 
 
 # Hangul's "개요 1" to "개요 7" (Outline 1-7) paragraph styles are the chapter/section structure of the document. They become Markdown headings.
@@ -255,6 +255,7 @@ class _Box(str):
     are the paragraphs of each cell as they were read, candidates among them, for when one is (`SizeHeadings.resolve`)."""
 
     cells: list[list[str]]
+    grid: TableGrid
 
 
 # Characters not counted for the body size (`SizeHeadings.count`): controls and whitespace
@@ -494,14 +495,14 @@ class SizeHeadings:
         candidate.heading, candidate.size = heading, size
         return candidate
 
-    def box(self, written: str, cells: list[list[str]]) -> str:
+    def box(self, written: str, cells: list[list[str]], grid: TableGrid) -> str:
         """`written`, a one-column table of the top-level body unfolded into paragraphs, remembering the paragraphs of its
         `cells` when one of them is a candidate: the title of a Korean press release stands in such a box, above the lines
         that sum the release up, and the text of a cell is one string by the time a table is drawn."""
         if not any(type(block) is _SizeCandidate for cell in cells for block in cell):
             return written
         box = _Box(written)
-        box.cells = cells
+        box.cells, box.grid = cells, grid
         return box
 
     def resolve(self, blocks: list[str]) -> list[str]:
@@ -535,36 +536,17 @@ class SizeHeadings:
 
     @staticmethod
     def _unfolded(box: _Box, level_of: Callable[[str | None], int]) -> list[str]:
-        """The blocks of a box: as it was written when it holds no heading, and otherwise each heading as a block of its own
-        between the paragraphs around it, which are written as the cell of a one-column table is (`render_table`), so that
-        everything but the heading mark reads as before. Headings of one size following each other in a cell are one title
-        set on several lines ('과기정통부-기후부,' / 'AI 데이터센터 신속 구축을 위한' / '전력계통영향평가 제도 개선 추진') and are
-        written as one."""
-        def level_of(block: str | None, of_any: Callable[[str | None], int] = level_of) -> int:
-            level = of_any(block)
-            return level if level <= _BOX_HEADING_MAX_LEVEL else 0
+        """The blocks of a box: as it was written when it holds no heading, and otherwise as the table unfolds it around its
+        headings (`TableGrid.unfold`), so that everything but the heading mark reads as before. Headings of one size
+        following each other in a cell are one title set on several lines ('과기정통부-기후부,' / 'AI 데이터센터 신속 구축을
+        위한' / '전력계통영향평가 제도 개선 추진') and are written as one."""
+        def heading_of(block: str) -> tuple[int, str] | None:
+            level = level_of(block)
+            return (level, block.heading) if 0 < level <= _BOX_HEADING_MAX_LEVEL else None
 
-        if not any(level_of(block) for cell in box.cells for block in cell):
+        if not any(heading_of(block) for cell in box.cells for block in cell):
             return [str(box)]
-        blocks: list[str] = []
-        for cell in box.cells:
-            plain: list[str] = []
-            title: list[str] = []   # the headings of one size in a row: a title set on several lines, written as one
-            for block, following in zip(cell, [*cell[1:], None], strict=True):
-                level = level_of(block)
-                if not level:
-                    plain.append(str(block))
-                    continue
-                if plain:
-                    blocks.append(render_table([["\n".join(plain)]]))
-                    plain = []
-                title.append(block.heading)
-                if not (level_of(following) and following.size == block.size):
-                    blocks.append(f"{'#' * level} {' '.join(title)}")
-                    title = []
-            if plain:
-                blocks.append(render_table([["\n".join(plain)]]))
-        return blocks
+        return box.grid.unfold(box.cells, heading_of, lambda block, following: following.size == block.size)
 
 
 def _most_frequent(sizes: dict[int, int]) -> int:

@@ -49,7 +49,7 @@ from opendockit.extractors._package import decimal_int
 # Pinned by: test_odf.py::TestSpreadsheet::test_two_tables_on_one_sheet_are_split_like_xlsx).
 from opendockit.extractors._sheet_layout import _append_sheet, _collect_rows, _warn_once
 from opendockit.extractors._xml import thread_parser
-from opendockit.markdown import TableGrid, join_blocks, merged_copy, render_table, solid_length
+from opendockit.markdown import CellHeading, TableGrid, join_blocks, merged_copy, render_table, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
@@ -161,6 +161,8 @@ class _Context:
     plain: bool = False     # no emphasis and no links (slide titles, sheet cells, speaker notes, chart text)
     quote: bool = False     # speaker notes: list levels are marked without a bullet, like the PPTX extractor
     grid: TableGrid | None = None   # the table whose cell is being read (a nested table is handed to it)
+    # a block of a cell of a layout box, a one-column table of the body: a heading is remembered as one (`OdfRenderer._table`)
+    box: bool = False
 
 
 _BODY = _Context()
@@ -462,6 +464,17 @@ def _rows(table: etree._Element) -> Iterator[etree._Element]:
                 break
         else:
             stack.pop()
+
+
+def _is_one_column(table: etree._Element) -> bool:
+    """Whether every row of a table holds one cell, written once: a layout box (`OdfRenderer._table`)."""
+    rows = 0
+    for row in _rows(table):
+        cells = [cell for cell in row if cell.tag == _CELL or cell.tag == _COVERED]
+        if len(cells) != 1 or cells[0].tag != _CELL or _repeat(cells[0], _COLS_REPEATED) != 1 or _repeat(row, _ROWS_REPEATED) != 1:
+            return False
+        rows += 1
+    return rows > 0
 
 
 def _first_used_column(table: etree._Element) -> int:
@@ -796,6 +809,19 @@ class _Renderer:
         tag = node.tag
         if (tag == _P or tag == _H) and _is_hidden(node):
             return []
+        if context.box:
+            # Only the blocks of the cell itself: what is inside a list, a section or a frame of it is read as in any cell
+            inner = replace(context, box=False)
+            level = (self.styles.heading_level(node.get(_TEXT_STYLE_NAME)) if tag == _P
+                     else min(max(decimal_int(node.get(_OUTLINE_LEVEL), 1), 1), 6) if tag == _H else 0)
+            if not level:
+                return self.block(node, inner, depth)
+            blocks = self._paragraph(node, inner, depth, emphasis=False)
+            for index, block in enumerate(blocks):
+                if not is_placeholder_only(block):
+                    blocks[index] = CellHeading.of(block, level, " ".join(block.split()))
+                    break
+            return blocks
         if tag == _P:
             # A paragraph in the 'Title' or a 'Heading n' style is a heading even when it is not a `text:h` (LibreOffice writes the
             # title, and headings whose outline level was removed, as `text:p`).
@@ -806,7 +832,7 @@ class _Renderer:
         if tag == _LIST:
             return self._list(node, context, depth, node.get(_TEXT_STYLE_NAME), 0)
         if tag == _TABLE_ELEMENT:
-            return [self._table(node, context, depth)]
+            return self._table(node, context, depth)
         if tag == _NUMBERED_PARAGRAPH:
             return self._numbered_paragraph(node, context, depth)
         if tag in _BLOCK_WRAPPERS:
@@ -1029,14 +1055,21 @@ class _Renderer:
         self._repeat_budget -= (copies - 1) * length
         return copies
 
-    def _table(self, table: etree._Element, context: _Context, depth: int) -> str:
+    def _table(self, table: etree._Element, context: _Context, depth: int) -> list[str]:
         """A table of a text document or a slide → `TableGrid`. `table:number-columns-spanned` / `number-rows-spanned` are passed
         on as spans (the grid repeats a vertically merged value and decides between Markdown and HTML); a
-        `table:covered-table-cell` only takes up its position."""
+        `table:covered-table-cell` only takes up its position.
+
+        A table of the body with one cell in every row is a layout box, written as paragraphs: the blocks of its cells are
+        kept, so that a heading among them is written as a heading (`TableGrid.unfolded`). In the text of a cell it was a line
+        among lines, and a title the author had marked as one came out as text, as in DOCX (Pinned by:
+        test_odf.py::TestHeadingsInBoxes)."""
         grid = TableGrid()
         # A top-level table checks the character limit cell by cell and stops reading rows once it is exceeded.
         budget = None if context.grid is not None or context.in_cell or context.in_note else TableBudget(self._extraction, self._options)
-        inside = replace(context, in_cell=True, grid=grid)
+        box = budget is not None and not context.plain and _is_one_column(table)
+        box_cells: list[list[str]] = []
+        inside = replace(context, in_cell=True, grid=grid, box=box)
         row_at = 0
         stopped = cut = False
         for row in _rows(table):
@@ -1047,7 +1080,10 @@ class _Renderer:
                 if cell.tag == _COVERED:
                     cells.append((min(column + repeat, _MAX_COLUMNS) - 1, None, 1, 1))
                 elif cell.tag == _CELL:
-                    text = "\n".join(self._blocks(cell, inside, depth + 1)) if len(cell) else ""
+                    cell_blocks = self._blocks(cell, inside, depth + 1) if len(cell) else []
+                    if box:
+                        box_cells.append(cell_blocks)
+                    text = "\n".join(cell_blocks)
                     copies = self._copies(repeat, len(text), 1) if text else 1
                     cut = cut or (bool(text) and copies < repeat)
                     spans = decimal_int(cell.get(_ROWS_SPANNED), 1), decimal_int(cell.get(_COLS_SPANNED), 1)
@@ -1082,14 +1118,14 @@ class _Renderer:
 
         # A table inside a note is one line; a table inside a table is drawn in place by the outer table (`TableGrid.embed`).
         if context.in_note:
-            return note_table(grid.rows(), self._options.max_chars)
+            return [note_table(grid.rows(), self._options.max_chars)]
         if context.grid is not None:
-            return context.grid.embed(grid)
+            return [context.grid.embed(grid)]
         if context.in_cell:
-            return grid.flatten(self._options.max_chars)
+            return [grid.flatten(self._options.max_chars)]
         rendered = grid.render(room=budget.room if budget is not None else None)
         self.omitted_rows += grid.omitted_rows()
-        return rendered
+        return grid.unfolded(rendered, box_cells) if box else [rendered]
 
     # ---- Frames, pictures, embedded objects ----------------------------------------------------------------------
 
@@ -1117,7 +1153,7 @@ class _Renderer:
             if tag == _TEXT_BOX:
                 blocks = self._blocks(child, context, depth + 1)
             elif tag == _TABLE_ELEMENT:
-                blocks = [self._table(child, context, depth + 1)]
+                blocks = self._table(child, context, depth + 1)
             elif tag == _OBJECT:
                 blocks = self._object(child, context, chart_values)
             elif tag == _IMAGE:

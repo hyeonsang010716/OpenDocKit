@@ -695,7 +695,7 @@ class HwpxRenderer:
         rendered = grid.render(room=budget.room if budget is not None else self._options.max_chars)
         self.omitted_rows += grid.omitted_rows()
         if box:
-            return self.size_headings.box(rendered, box_cells)
+            return self.size_headings.box(rendered, box_cells, grid)
         return join_blocks([caption_text, rendered])
 
     def _place_row(self, grid: TableGrid, row: etree._Element, row_index: int, budget: TableBudget | None) -> bool:

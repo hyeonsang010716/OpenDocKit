@@ -89,7 +89,7 @@ from opendockit.extractors._package import (
     related_part,
     transitional_package,
 )
-from opendockit.markdown import TableGrid, clean_characters, join_blocks, merged_copy, solid_length
+from opendockit.markdown import CellHeading, TableGrid, clean_characters, join_blocks, merged_copy, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, renumber_image_markers
 
 
@@ -198,6 +198,10 @@ class _DocxRenderer:
         self.notes = _NoteLabels(self._written_notes())
         # Tables being rendered. A table inside a cell is handed to the table at the top of the stack (markdown.TableGrid.embed)
         self._grids: list[TableGrid] = []
+        # The table of the body being rendered as a block of its own, until it is looked at (`render_top_block`), and the
+        # paragraphs of each cell of the layout box being read — None outside one (`_render_table`)
+        self._top_table: etree._Element | None = None
+        self._box_cells: list[list[str]] | None = None
         self._chunks: dict[object, Extraction] = {}  # imported-content part → its conversion (`_chunk_blocks`)
         self._chart_titles: dict[object, str] = {}  # chart part already written → its `[Chart] title` line (`_object_block`)
         self._smartart: dict[tuple[object, bool], str] = {}  # (SmartArt data part, inside a cell) → its text (`_object_block`)
@@ -256,7 +260,13 @@ class _DocxRenderer:
         """One block of the body. The caller counts its characters once it is rendered, so what was written before is in
         `Extraction.chars` and the characters written since the last count start again (`_room`)."""
         self._pending = self._direct_pending = self._nested_written = 0
-        return self.render_block(element)
+        # A table that is a block of the body itself can be a layout box (`_render_table`); one in a cell, a text box, a
+        # header or a note is not looked at
+        self._top_table = element if element.tag == _w("tbl") else None
+        try:
+            return self.render_block(element)
+        finally:
+            self._top_table = None
 
     def _room(self) -> int | None:
         """Characters the output can still take (None: no limit), below the characters already counted, those of the cells read
@@ -366,7 +376,8 @@ class _DocxRenderer:
             return self._render_paragraph(element)
         if element.tag == _w("altChunk"):
             return self._chunk_blocks(element)
-        return [self._render_table(element)]
+        table = self._render_table(element)
+        return table if isinstance(table, list) else [table]
 
     def _chunk_blocks(self, chunk: etree._Element) -> list[str]:
         """Read the part referenced by imported content (w:altChunk) with the extractor matching its content type and put the result in
@@ -538,6 +549,11 @@ class _DocxRenderer:
         # text are joined with a space below.
         is_body = self._grids or len(text) > _HEADING_MAX_CHARS
         heading = None if is_body else self._heading_level(paragraph, style)
+        # In a cell of a layout box (`_render_table`) the paragraph is written as in any cell, and remembers the heading it is
+        # for when the box is unfolded (`markdown.CellHeading`)
+        in_box = self._box_cells is not None and len(self._grids) == 1 and len(text) <= _HEADING_MAX_CHARS
+        box_heading = (self._heading_level(paragraph, style) if in_box and not is_placeholder_only(text) else None) or 0
+        title = resolve_inline(marked, emphasis=False).strip() if box_heading and self.inline is not None else text
         # A heading-style paragraph (or one with an outline level) holding nothing but a picture is no heading: its number is
         # counted above, but neither the heading mark nor the number is written, as HWP/HWPX do (`_lists.is_placeholder_only`).
         # Taken for a heading, the picture became a block of its own under a bare '#' (or '# 1.')
@@ -560,8 +576,16 @@ class _DocxRenderer:
             number = (list_prefix or "").strip()
             number = "" if number == "-" else number.removeprefix("- ")
             return [f"{'#' * heading} {number + ' ' if number else ''}{' '.join(text.split())}", *after]
+        def written(block: str) -> str:
+            """The paragraph as written here, remembering its heading in a layout box."""
+            if not box_heading:
+                return block
+            number = (list_prefix or "").strip()
+            number = "" if number == "-" else number.removeprefix("- ")
+            return CellHeading.of(block, box_heading, f"{number + ' ' if number else ''}{' '.join(title.split())}")
+
         if list_prefix:
-            return [self._list_item_lines(list_prefix, text), *after]
+            return [written(self._list_item_lines(list_prefix, text)), *after]
 
         # A paragraph with a hand-typed '- ' that is continuation text not closing the preceding items is emitted as a list line one
         # level below the remaining item. It came out at column 0 and read like a top-level item right after a deep item (Pinned by:
@@ -575,7 +599,7 @@ class _DocxRenderer:
             indent = "  " * (self._list_items[-1].depth + 1)
             lines = (line.strip() for line in text.split("\n"))
             text = "\n".join(indent + line if _HAND_TYPED_ITEM.match(line) else line for line in lines)
-        return [text, *after]
+        return [written(text), *after]
 
     def _shows_text(self, text: str) -> bool:
         """Whether paragraph text as read (`_paragraph_text`) holds a character that cleaning keeps, the temporary link and
@@ -690,7 +714,7 @@ class _DocxRenderer:
             return text
         return pending[1] + text
 
-    def _render_table(self, table: etree._Element) -> str:
+    def _render_table(self, table: etree._Element) -> str | list[str]:
         """For a vertical merge, the continuation cells (vMerge continue) are counted and passed on as the row span of the starting
         cell. TableGrid renders by the same rules as the other formats — Markdown repeats only the text on every row and puts picture
         placeholders only in the top cell (Pinned by: test_office.py::TestReportedGaps::
@@ -776,6 +800,15 @@ class _DocxRenderer:
         # test_header_table_longer_than_the_limit_stops_reading_rows).
         budget = None if self._grids else TableBudget(self._extraction if self._part is self._main_part else Extraction(), self._options)
         outer = self._grids[-1] if self._grids else None
+        # A table of the body with one cell in every row is a layout box, written as paragraphs: the paragraphs of its cells
+        # are kept as they are read, so that one in a heading style is written as a heading (`TableGrid.unfolded`). In the
+        # text of a cell it was a line among lines, and a title the author had marked as one came out as text.
+        box = table is self._top_table and bool(cells) and all(col == 0 and not continues for _, col, _, continues, _ in cells) \
+            and len({row for row, *_ in cells}) == len(cells)
+        self._top_table = None
+        # (a table inside a cell of the box is not one: the box's own paragraphs are taken up again after it)
+        outer_box, box_cells = self._box_cells, [] if box else None
+        self._box_cells = box_cells
         self._grids.append(grid)
         if budget is not None:
             saved, self._budget = self._budget, budget
@@ -783,6 +816,7 @@ class _DocxRenderer:
             self._place_cells(grid, cells, budget)
         finally:
             self._grids.pop()
+            self._box_cells = outer_box
             if budget is not None:
                 self._budget = saved
         # A table inside a table is rendered in place by the outer table
@@ -791,7 +825,7 @@ class _DocxRenderer:
             return outer.embed(grid)
         rendered = grid.render(room=budget.room if budget is not None else None)
         self.omitted_rows += grid.omitted_rows()
-        return rendered
+        return grid.unfolded(rendered, box_cells) if box_cells is not None else rendered
 
     def _place_cells(self, grid: TableGrid, cells: list[tuple[int, int, int, bool, etree._Element]],
                      budget: TableBudget | None) -> None:
@@ -838,7 +872,10 @@ class _DocxRenderer:
                 lines = [line for element in _children(cell, *_BLOCK_TAGS) for line in self.render_block(element)]
         finally:
             self._pending, self._direct_pending = pending, direct
-        return "\n".join(line for line in lines if line.strip())
+        lines = [line for line in lines if line.strip()]
+        if self._box_cells is not None and len(self._grids) == 1:
+            self._box_cells.append(lines)
+        return "\n".join(lines)
 
     def image_marker(self, element: etree._Element) -> str:
         """Register the image part referenced by a:blip (r:embed) / v:imagedata (r:id). Relationships of other parts such as headers
