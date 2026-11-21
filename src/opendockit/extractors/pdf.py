@@ -147,6 +147,7 @@ from opendockit.extractors._pdf_table_filters import (
     _without_unadvanced_spaces,
     _without_unbounded_shapes,
 )
+from opendockit.extractors._pdf_tagged_tables import _extract_tagged_tables, _page_tagged_tables, _tagged_tables
 from opendockit.markdown import solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
@@ -185,6 +186,9 @@ _MAX_SIMPLE_FORM_ANNOTATIONS = 100_000
 # The positions of form widgets among the `/Kids` of their fields, for the document being read (`_pdf_forms._widget_index`): a
 # field that every page names is looked up once, not once a page.
 _FORM_POSITIONS: ContextVar[dict | None] = ContextVar("pdf_form_positions", default=None)
+# The tables the structure tree of the document being read states, by page (`_pdf_tagged_tables._tagged_tables`), under the
+# key "tables" once a page has asked for them: the tree is walked once for the document.
+_TAGGED_TABLES: ContextVar[dict | None] = ContextVar("pdf_tagged_tables", default=None)
 # A page whose content adds more pieces to paths than this (`m l c v y h re`, `_path_segments`, as often as drawn) is read with
 # pdfium's simple extraction too, with the same warning. pdfminer and pdfplumber keep every point of a path in their objects: one path
 # of 100,000 / 200,000 / 400,000 / 600,000 line segments peaked at 248 / 385 / 653 / 942MB (1.4KB a segment; 1, 2, 4 and 6.5
@@ -246,11 +250,13 @@ def extract_pdf(data: bytes, options: ConvertOptions) -> Extraction:
     budget = _InflateBudget(options.max_uncompressed_bytes, font_entries=_DOCUMENT_FONT_RANGE_ENTRIES)
     token = _INFLATE_BUDGET.set(budget)
     positions = _FORM_POSITIONS.set({})
+    tagged = _TAGGED_TABLES.set({})
     _quiet_pdfminer(True)
     try:
         return _extract_pdf(data, options, budget)
     finally:
         _quiet_pdfminer(False)
+        _TAGGED_TABLES.reset(tagged)
         _FORM_POSITIONS.reset(positions)
         _INFLATE_BUDGET.reset(token)
 
@@ -584,6 +590,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
     # where only headings remain afterwards the baseline went wrong.
     body_size = _body_font_size(pages)
     for page in pages:
+        _extract_tagged_tables(page)
         _join_ruled_header_lines(page)
         _extract_gutter_tables(page)
         _extract_aligned_tables(page)
@@ -1216,8 +1223,23 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                  hidden_chars=hidden_chars if not lines and not tables and not sideways_text else 0,
                  undecodable=blank and _has_undecodable_contents(layout_page), unmeasured=unmeasured,
                  rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [],
-                 uprights=_upright_rules(page) if lines else [],
+                 uprights=_upright_rules(page) if lines else [], tagged=_tagged_on(layout_page, page_chars) if lines else [],
                  literal_carets=any("^" in char["text"] for char in page_chars), unshown_marks=unshown_marks)
+
+
+def _tagged_on(page: object, chars: list[dict]) -> list:
+    """The tagged tables of a pdfplumber page with the text of their cells (`_pdf_tagged_tables`); none outside a
+    conversion, for a document without a structure tree, and for a page the tree states no table on."""
+    holder = _TAGGED_TABLES.get()
+    if holder is None:
+        return []
+    try:
+        if "tables" not in holder:
+            holder["tables"] = _tagged_tables(page.pdf.doc)  # type: ignore[attr-defined]
+        tables = holder["tables"].get(page.page_obj.pageid)  # type: ignore[attr-defined]
+        return _page_tagged_tables(tables, chars) if tables else []
+    except Exception:  # noqa: BLE001 — the page is read as one without tags
+        return []
 
 
 def _beyond_view(line: dict, view: tuple[float, float, float, float]) -> bool:

@@ -298,6 +298,9 @@ class _Page:
     # multi-line header of a three-line table (`_join_ruled_header_lines`) and to cut a borderless table at its bottom border
     # (`_cut_at_closing_rule`).
     rules: list[tuple[float, float, float]] = field(default_factory=list)
+    # The tables the structure tree of a tagged PDF states on this page (`_pdf_tagged_tables._TaggedTable`), with the text and
+    # the box of each cell. Made into tables where the page agrees with them (`_extract_tagged_tables`).
+    tagged: list = field(default_factory=list)
     # Filled rectangles (top, bottom, left end, right end, `_shade_bands`). Used to join the wrapped line of a striped table's last
     # row to that row (`_table_runs`).
     bands: list[tuple[float, float, float, float]] = field(default_factory=list)

@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **PDF: a table a tagged PDF states is read from its tags.** Word and LibreOffice save a PDF with a structure tree
+  that names the rows and the cells of each table. A table set without any rule — two columns of text, cells that wrap
+  — is now read from that tree where the page agrees with it, and not guessed from the alignment of its text: on 200
+  documents saved by LibreOffice the table score rises from 0.489 to 0.846. A ruled table is read from its rules as
+  before, and a PDF without tags is read as before.
 - **A Korean holdout on the scorecard** (`evals/korean_pairs_holdout.tsv`): sixty press releases from 2023 to 2026 that no
   rule was written on. The rules written on the first sixty carry to them (overall 0.713 → 0.781).
 - **The scorecard counts words** (`evals/metrics.py::words`): how far the output and the reference are made of the same
