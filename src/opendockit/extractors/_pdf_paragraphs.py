@@ -8,7 +8,7 @@ from itertools import accumulate, pairwise
 import math
 import re
 
-from opendockit.extractors._hangul import _CONTACT, _KOREAN_DATE, _WEEKDAY, korean_sentence_end
+from opendockit.extractors._hangul import _ATTACHMENT_LABEL, _CONTACT, _KOREAN_DATE, _WEEKDAY, korean_sentence_end
 from opendockit.extractors._pdf_model import (
     _BOLD_BODY_MAX_RATIO,
     _BOLD_HEADING_MIN_RATIO,
@@ -59,12 +59,19 @@ def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], lin
     paragraphs = _group_paragraphs(page.lines, line_gap)
     side_by_side = _side_by_side_lines(page.lines, paragraphs, body_size) if heading_levels else frozenset()
     previous = None
-    for paragraph in paragraphs:
+    first_top = min([paragraph.top for paragraph in paragraphs] + [table.top for table in page.tables], default=0.0)
+    bars = _attachment_bars(paragraphs, first_top, body_size)
+    for index, paragraph in enumerate(paragraphs):
         key = _heading_key(paragraph, heading_levels, body_size, side_by_side, previous)
         previous = paragraph
         level = heading_levels[key] if key else 0
-        text = (f"{'#' * level} {_paragraph_text(paragraph, ' ')}" if level
-                else _escaped_block_marks(_paragraph_text(paragraph)))
+        if index in bars:
+            if not bars[index]:
+                continue  # the title of a bar, written with its label
+            text = f"{'#' * _ATTACHMENT_BAR_LEVEL} {bars[index]}"
+        else:
+            text = (f"{'#' * level} {_paragraph_text(paragraph, ' ')}" if level
+                    else _escaped_block_marks(_paragraph_text(paragraph)))
         items.append((paragraph.top, text, False))
         spans.append((min(line.x0 for line in paragraph.lines), max(line.x1 for line in paragraph.lines)))
         sizes.append((paragraph.lines[-1].bottom, len(paragraph.lines)))
@@ -74,7 +81,7 @@ def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], lin
     # paragraph is a label placed to the left of the table or picture, it is inserted after it. A picture inside a ruled-table
     # cell is put in that cell.
     images = _place_images_in_cells(page.tables, images or [])
-    blocks = [((table.top, table.x0, table.x1, table.bottom), table.text) for table in page.tables] + images
+    blocks = [((table.top, table.x0, table.x1, table.bottom), _bar_of_table(table) or table.text) for table in page.tables] + images
     follows = _picture_rows(images)
     # pictures joined as a row are placed left to right at the height of the row's first picture
     starts = {text: box[0] for box, text in images}
@@ -109,6 +116,71 @@ def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], lin
         sizes.insert(position, (block_bottom, 0))
     return _shortened_leaders("\n\n".join(text for text in [*(text for _, text, _ in items), *page.sideways,
                                                             "\n".join(page.form_values)] if text.strip()))
+
+
+# The bar an attachment of a Korean official document opens with: its label ('붙임', '참고 2', '붙 임'), a gap, its title.
+# A title that starts as an item of a list does ('붙임 1. …', '붙임 : …') is the list of attachments in the body.
+_ATTACHMENT_BAR = re.compile(rf"^({_ATTACHMENT_LABEL.pattern[1:-1]})\s+(?!\d{{0,2}}\s*[.:)·,])(\S.*)$")
+_ATTACHMENT_BAR_LEVEL = 2
+# Two pieces of a title no farther apart than this share of the text size are one word
+_TOUCHING_PIECES = 0.3
+# A bar is set this much larger than the body at least (15 pt over 14 pt)
+_ATTACHMENT_BAR_SIZE_RATIO = 1.05
+
+
+def _attachment_bars(paragraphs: list[_Paragraph], first_top: float, body_size: float) -> dict[int, str]:
+    """Index → heading text of the paragraphs that are the bar of an attachment, and "" for the paragraph that holds only
+    the title of the bar before it.
+
+    The parts of a Korean official document after its body — 붙임 1, 참고 2 — each open with a bar: a label and a
+    title in a box of one row, set a point or two larger than the body, too little for a heading by size. HWP and HWPX
+    write it as a heading of level 2 (`_hangul.SizeHeadings.row`), and so does the PDF, where the page shows it: one
+    line set larger than the body (`_ATTACHMENT_BAR_SIZE_RATIO`), the label and then the title, that is the first thing
+    on its page or holds the label as a piece of its own (the two cells of the box). A label alone is a bar with what
+    stands beside it, at the height of the label, as its title.
+
+    Deliberate: the list of attachments at the end of the body ('붙임 1. … 1부.', '<붙임>', '붙임 : 행사 사진') is
+    body text — set at the body size, further down its page, its label followed by a mark.
+    Pinned by: test_pdf_attachment_bars.py; judged on the Korean pairs (`evals/README.md`).
+    """
+    bars: dict[int, str] = {}
+    if body_size <= 0:
+        return bars
+    for index, paragraph in enumerate(paragraphs):
+        line = paragraph.lines[0]
+        if len(paragraph.lines) != 1 or line.footnote or line.size < body_size * _ATTACHMENT_BAR_SIZE_RATIO or index in bars:
+            continue
+        first = paragraph.top <= first_top
+        if _ATTACHMENT_LABEL.match(line.text):
+            # The title is what stands beside the label, at its height: one paragraph, or the pieces of one drawn apart
+            # (a bracket in another font)
+            title, end = "", line.x1
+            for place in range(index + 1, len(paragraphs)):
+                beside = paragraphs[place]
+                if not (beside.lines[0].x0 >= end - 1.0 and beside.lines[0].top < line.bottom and beside.lines[-1].bottom > line.top):
+                    break
+                touching = title and beside.lines[0].x0 - end < beside.lines[0].size * _TOUCHING_PIECES
+                title += ("" if touching or not title else " ") + _paragraph_text(beside, " ")
+                end = max(piece.x1 for piece in beside.lines)
+                bars[place] = ""
+            if title:
+                bars[index] = f"{line.text} {title}"
+            continue
+        match = _ATTACHMENT_BAR.match(line.text)
+        if match and (first or (len(line.parts) > 1 and line.parts[0][2].strip() == match.group(1))):
+            bars[index] = line.text
+    return bars
+
+
+def _bar_of_table(table: _Table) -> str:
+    """The heading a ruled table of one row is when it is the bar of an attachment (`_attachment_bars`) whose box is drawn
+    with a line between the label and the title: two cells, the label in the first, a title of one line in the second."""
+    if len(table.rows) != 1:
+        return ""
+    cells = [cell for cell in table.rows[0] if cell and cell.strip()]
+    if len(cells) != 2 or not _ATTACHMENT_LABEL.match(cells[0].strip()) or "<br>" in cells[1] or "\n" in cells[1]:
+        return ""
+    return f"{'#' * _ATTACHMENT_BAR_LEVEL} {cells[0].strip()} {cells[1].strip()}"
 
 
 def _shortened_leaders(text: str) -> str:
