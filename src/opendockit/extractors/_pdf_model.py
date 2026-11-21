@@ -288,6 +288,9 @@ class _Page:
     # Filled rectangles (top, bottom, left end, right end, `_shade_bands`). Used to join the wrapped line of a striped table's last
     # row to that row (`_table_runs`).
     bands: list[tuple[float, float, float, float]] = field(default_factory=list)
+    # Vertical lines of the page (x, top, bottom; `_pdf_banded_tables._upright_rules`). A region between horizontal rules
+    # that one of them stands in or beside is a box or a grid, not a table drawn with horizontal rules only.
+    uprights: list[tuple[float, float, float]] = field(default_factory=list)
     # A '^' character is drawn on the page. The raised numbers of the line text are written with '^' (`_scripted_text`), so on
     # such a page a typed '^1' cannot be told from a raised 1 and footnotes are not linked (`_pdf_footnotes._link_footnotes`).
     literal_carets: bool = False

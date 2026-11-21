@@ -10,6 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **Scorecard** (`evals/`): the structure of the PDF output — reading order, tables, headings — is scored on the 200
   documents of a public benchmark and compared with a baseline on every pull request that touches the PDF reader
+  , and on 60 Korean press releases published as both HWPX and PDF, the HWPX being the reference for the PDF
   (overall 0.875; `evals/README.md`).
 - **DOCX saved as Strict Open XML is read.** It was refused with the advice to save it again; its namespaces and
   relationship types are now read as their Transitional forms, and the lengths Word writes there with a unit (`36pt`)

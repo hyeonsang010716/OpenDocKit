@@ -93,3 +93,37 @@ class TestRuleBandTables:
         text = convert(_pdf([70, 790], rows, left=60, right=540, caption="Table 1. Frame.", body=False), "a.pdf", _PLAIN).text
 
         assert "| --- |" not in text
+
+    def test_one_column_between_rules_stays_lines(self):
+        rows = _rows([["Filtered Task Name"]], 214, (76,)) + _rows([["task228_arc_easy"], ["hellaswag:1.1.0"], ["cot_gsm8k"]], 236, (76,))
+
+        text = convert(_pdf([200, 222, 280], rows, caption="Table 8: Task names."), "a.pdf", _PLAIN).text
+
+        assert "| --- |" not in text and text.count("hellaswag:1.1.0") == 1
+
+    def test_boxes_of_one_width_under_each_other_are_not_a_table(self):
+        """The box around the masthead of a press release and the box under it: three rules of one width, with sides."""
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(595, 842))
+        pdf.setLineWidth(0.4)
+        for top, bottom in ((75, 110), (170, 300)):
+            for x in (60, 536):
+                pdf.line(x, 842 - top, x, 842 - bottom)
+            pdf.line(60, 842 - top, 536, 842 - top)
+        pdf.line(60, 842 - 110, 536, 842 - 110)
+        pdf.setFont("Helvetica", 12)
+        pdf.drawString(260, 842 - 98, "Press release")
+        pdf.drawString(80, 842 - 130, "Release time")
+        pdf.drawString(300, 842 - 130, "Friday 11:00")
+        pdf.setFont("Helvetica-Bold", 22)
+        pdf.drawString(80, 842 - 205, "Smart farming goes abroad")
+        pdf.setFont("Helvetica", 12)
+        for index in range(6):
+            pdf.drawString(80, 842 - 340 - 16 * index, f"Body line {index} of the release, long enough to be a sentence of its text.")
+        pdf.save()
+
+        text = convert(buffer.getvalue(), "a.pdf", _PLAIN).text
+
+        assert "| --- |" not in text and "# Smart farming goes abroad" in text

@@ -37,7 +37,7 @@ document that justifies it.
   Tests that call a real vision model are marked `live` and skipped unless `OPENDOCKIT_LIVE_TESTS=1`; never run them unasked.
 - A change to how structure is guessed from a PDF (headings, tables, reading order) is judged by the scorecard
   (`evals/README.md`), not by the document it was written for: it comes with the comparison against the baseline, no
-  mean may fall, and the baseline is updated in the same change.
+  mean may fall on the benchmark or on the Korean pairs, and the baselines are updated in the same change.
 - A deliberate trade-off gets a row in `docs/decisions/` and a `Pinned by:` comment at the code site.
 - Extractors only produce sections; normalization, headings, images and limits belong to `converter.py`.
 - Tables go through `render_table` / `TableGrid`.

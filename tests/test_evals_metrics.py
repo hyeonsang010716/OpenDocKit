@@ -146,7 +146,32 @@ class TestCompare:
         assert any("FELL" in line and line.startswith("mhs ") for line in lines)
         assert any(line.strip().startswith("a ") and "mhs -0.200" in line for line in lines)
 
+    def test_a_metric_left_out_of_the_gate_is_reported_and_does_not_fail(self):
+        lines, fell = compare(self._card(0.6, 0.7), self._card(0.7, 0.9), tolerance=0.002, gate=("nid", "teds"))
+        assert not fell and any("fell (not gated)" in line for line in lines)
+
     def test_a_mean_within_the_tolerance_or_higher_passes(self):
         assert not compare(self._card(0.699, 0.9), self._card(0.7, 0.9), tolerance=0.002)[1]
         lines, fell = compare(self._card(0.8, 0.95), self._card(0.7, 0.9), tolerance=0.002)
         assert not fell and any("mhs +0.050" in line for line in lines)
+
+
+class TestRun:
+    def test_documents_are_scored_against_markdown_and_against_documents(self, tmp_path):
+        from evals.run import run
+
+        documents, gold, twins = tmp_path / "documents", tmp_path / "gold", tmp_path / "twins"
+        for folder in (documents, gold, twins):
+            folder.mkdir()
+        (documents / "a.md").write_text("# Title\n\nBody text of the document.\n", encoding="utf-8")
+        (documents / "a.txt").write_text("Title\n\nBody text of the document.\n", encoding="utf-8")
+        (gold / "a.md").write_text("# Title\n\nBody text of the document.\n", encoding="utf-8")
+        (twins / "a.html").write_text("<h1>Title</h1><p>Body text of the document.</p>", encoding="utf-8")
+
+        against_markdown = run(gold, documents, None, None)["documents"]["a"]
+        against_a_document = run(twins, documents, None, tmp_path / "out")["documents"]["a"]
+
+        # the .txt is the document converted; the .md beside it is never taken for one
+        assert against_markdown["mhs"] == 0.0 and against_markdown["nid"] > 0.9
+        assert against_a_document == against_markdown
+        assert (tmp_path / "out" / "a.md").read_text(encoding="utf-8").startswith("Title")

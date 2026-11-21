@@ -3,7 +3,9 @@
     uv run python -m evals.run --documents <dir> --gold <dir> [--baseline <file>] [--update-baseline] [--out <dir>]
     uv run python -m evals.run --predictions <dir> --gold <dir>      # score Markdown another converter already wrote
 
-A document `<name>.<ext>` is scored against `<gold>/<name>.md`. With `--baseline` the run ends with status 1 when the
+A document `<name>.<ext>` is scored against `<gold>/<name>.md`. A reference that is not Markdown is a document itself —
+the same text in a format that states its structure, the HWPX of a PDF — and is converted first, so its score says how
+far the two readers agree, which is as good as the reader of the reference is. With `--baseline` the run ends with status 1 when the
 mean of a metric fell by more than `--tolerance`, and lists the documents that moved either way, so a change to a rule
 that guesses structure is judged by all the documents and not by the one it was written for (`evals/README.md`).
 """
@@ -44,7 +46,8 @@ def _score_document(job: tuple[str, str | None, str | None, str, str | None]) ->
             Path(out, f"{name}.md").write_text(text, encoding="utf-8")
     else:
         text, seconds = (Path(prediction).read_text(encoding="utf-8") if prediction and Path(prediction).is_file() else ""), 0.0
-    return name, score(Path(gold).read_text(encoding="utf-8"), text).as_dict(), seconds
+    reference = Path(gold).read_text(encoding="utf-8") if gold.endswith(".md") else _convert(Path(gold))[0]
+    return name, score(reference, text).as_dict(), seconds
 
 
 def _means(documents: dict[str, dict[str, float | None]]) -> dict[str, dict[str, float | int | None]]:
@@ -60,14 +63,14 @@ def run(gold: Path, documents: Path | None, predictions: Path | None, out: Path 
     if out is not None:
         out.mkdir(parents=True, exist_ok=True)
     jobs = []
-    for reference in sorted(gold.glob("*.md")):
+    for reference in sorted(path for path in gold.iterdir() if path.is_file() and not path.name.startswith(".")):
         source = None
         if documents is not None:
             found = sorted(path for path in documents.glob(f"{reference.stem}.*") if path.suffix.lower() != ".md")
             if not found:
                 continue
             source = str(found[0])
-        prediction = str(predictions / reference.name) if predictions is not None else None
+        prediction = str(predictions / f"{reference.stem}.md") if predictions is not None else None
         jobs.append((reference.stem, source, prediction, str(reference), str(out) if out is not None else None))
     with ProcessPoolExecutor(WORKERS) as pool:
         results = list(pool.map(_score_document, jobs, chunksize=4))
@@ -75,8 +78,8 @@ def run(gold: Path, documents: Path | None, predictions: Path | None, out: Path 
     return {"means": _means(scored), "seconds": round(sum(seconds for _, _, seconds in results), 1), "documents": scored}
 
 
-def compare(card: dict, baseline: dict, tolerance: float) -> tuple[list[str], bool]:
-    """The lines of a comparison with `baseline`, and whether the mean of a metric fell by more than `tolerance`."""
+def compare(card: dict, baseline: dict, tolerance: float, gate: tuple[str, ...] = METRICS) -> tuple[list[str], bool]:
+    """The lines of a comparison with `baseline`, and whether the mean of a metric in `gate` fell by more than `tolerance`."""
     lines, fell = [], False
     lines.append(f"{'metric':8} {'baseline':>9} {'now':>9} {'change':>9}")
     for metric in METRICS:
@@ -85,7 +88,7 @@ def compare(card: dict, baseline: dict, tolerance: float) -> tuple[list[str], bo
             continue
         mark = ""
         if now < before - tolerance:
-            fell, mark = True, "  FELL"
+            fell, mark = fell or metric in gate, "  FELL" if metric in gate else "  fell (not gated)"
         lines.append(f"{metric:8} {before:9.4f} {now:9.4f} {now - before:+9.4f}{mark}")
     moved = []
     for name, scores in card["documents"].items():
@@ -106,13 +109,14 @@ def compare(card: dict, baseline: dict, tolerance: float) -> tuple[list[str], bo
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--gold", type=Path, required=True, help="folder of reference Markdown, one <name>.md per document")
+    parser.add_argument("--gold", type=Path, required=True, help="folder of references, one <name>.md (or a document to convert) per document")
     parser.add_argument("--documents", type=Path, help="folder of documents to convert with OpenDocKit")
     parser.add_argument("--predictions", type=Path, help="folder of Markdown already converted, scored as it is")
     parser.add_argument("--out", type=Path, help="folder to write the converted Markdown and scores.json to")
     parser.add_argument("--baseline", type=Path, help="scorecard to compare with")
     parser.add_argument("--update-baseline", action="store_true", help="write this run to --baseline instead of comparing")
     parser.add_argument("--tolerance", type=float, default=0.002, help="how far the mean of a metric may fall")
+    parser.add_argument("--gate", default=",".join(METRICS), help="the metrics whose fall fails the run, comma-separated (default: all)")
     args = parser.parse_args(argv)
     if (args.documents is None) == (args.predictions is None):
         parser.error("give one of --documents and --predictions")
@@ -129,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         args.baseline.parent.mkdir(parents=True, exist_ok=True)
         args.baseline.write_text(json.dumps({key: card[key] for key in ("means", "documents")}, indent=1) + "\n", encoding="utf-8")
         return 0
-    lines, fell = compare(card, json.loads(args.baseline.read_text(encoding="utf-8")), args.tolerance)
+    lines, fell = compare(card, json.loads(args.baseline.read_text(encoding="utf-8")), args.tolerance, tuple(args.gate.split(",")))
     print("\n".join(lines))
     return 1 if fell else 0
 

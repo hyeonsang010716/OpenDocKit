@@ -74,7 +74,7 @@ from opendockit.extractors._pdf_artifacts import (
     _without_drawing_artifacts,
     _xobject_owners,
 )
-from opendockit.extractors._pdf_banded_tables import _extract_banded_tables
+from opendockit.extractors._pdf_banded_tables import _extract_banded_tables, _upright_rules
 from opendockit.extractors._pdf_chars import (
     _drawn_text,
     _drop_cap,
@@ -1212,6 +1212,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                  hidden_chars=hidden_chars if not lines and not tables and not sideways_text else 0,
                  undecodable=blank and _has_undecodable_contents(layout_page), unmeasured=unmeasured,
                  rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [],
+                 uprights=_upright_rules(page) if lines else [],
                  literal_carets=any("^" in char["text"] for char in page_chars), unshown_marks=unshown_marks)
 
 

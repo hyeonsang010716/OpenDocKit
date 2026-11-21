@@ -70,10 +70,36 @@ The other rows are that benchmark's published figures. What the first runs showe
   still unmeasured — the reason a Korean corpus comes next.
 - **What is left in headings is precision**: about one heading in four written is not one in the reference.
 
+## Korean pairs: one document in two formats
+
+```bash
+uv run python evals/fetch_korean_pairs.py ../corpus/korean     # 60 press releases from korea.kr, about 60 MB
+K=../corpus/korean
+uv run python -m evals.run --documents $K/pdf --gold $K/hwpx --baseline evals/baselines/korean-pairs.json --gate nid,nid_s,teds,teds_s
+```
+
+Sixty press releases of Korean ministries that the policy briefing site publishes as HWPX and as PDF
+(`korean_pairs.tsv` lists them; the files themselves are not kept here). The HWPX states its tables and its order of
+text, so its conversion is the reference for the PDF's: nobody labels anything, and the corpus can grow by a command.
+The scores say how far the two readers agree, so read them as a watch for change, not as a grade:
+
+- **NID 0.911**: the same text in the same order. This is what caught the first form of the tables drawn with
+  horizontal rules, which unfolded the top of 17 releases and lost their titles while the English benchmark stood still.
+- **TEDS 0.475** is low for a reason that is not the PDF reader's alone: the box of release time and distribution at
+  the top of every release is a table in the HWPX and four pieces of text without a rule in the PDF.
+- **MHS is not gated here.** The HWPX reader writes 11 headings in the 60 releases and the PDF reader 140, and it is
+  the PDF reader that is right about most: the title of a release stands in a one-column table in the HWPX, where
+  headings by size are not looked for, and comes out as plain text. That is a finding about the HWPX reader — the
+  same document should not have a title in one format and none in the other — and it cannot be fixed where the text
+  of a cell is a string by the time the table decides to unfold: it needs blocks that keep their role.
+
+Compared with `main` before the headings by weight were put back, the PDF reader writes 45 more headings in these
+releases and loses none: the section titles of two long releases, the labels of summary boxes, and — wrongly — a line
+of place and the quoted slogans of a list of companies.
+
 ## What it does not measure yet
 
-- Formats other than PDF. The runner takes any folder of documents and references, so a second corpus needs no code.
-- Korean documents. The plan is pairs of one document in two formats — the HWPX of a press release as the reference
-  for its PDF — which need no labelling by hand.
+- Formats other than PDF. The runner takes any folder of documents and references, so another corpus needs no code.
+- Korean headings against a reference a person checked: the pairs above have none.
 - The level of a heading: MHS treats every level alike.
 - Text that is right but should not be there (running headers, watermarks) only as far as it lowers NID.

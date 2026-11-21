@@ -19,12 +19,6 @@ _GUTTER_MIN = 3.0
 _OVERHANG = 3.0
 # With rules between the rows, a band holding more visual rows than this is not one row of wrapped cells.
 _BAND_MAX_LINES = 4
-# A table of one column is taken only from short entries: at most this share of its lines may fill the width
-# (`_FULL_WIDTH_RATIO` of it), as the lines of a paragraph between rules do.
-_FULL_LINES_MAX = 0.3
-_FULL_WIDTH_RATIO = 0.85
-# The header of a table with two rules only is the row right above the first: within this many line heights of it.
-_HEADER_GAP_RATIO = 1.5
 _MIN_BODY_ROWS = 2
 # A region taller than this share of the page between two rules is the page's own frame (a rule under the running header
 # and one over the footer), not a table.
@@ -37,18 +31,22 @@ _CAPTION_REACH = 4.0
 _FILLED_MIN = 0.5
 # A page with more rules than this is a drawing or a dense form; its rules are compared pair by pair here, so it is left.
 _RULES_MAX = 400
+# The shortest vertical line (pt) that counts as the side of a box or a column line.
+_UPRIGHT_MIN = 5.0
 _PAGE_NUMBER = re.compile(r"^\d{1,4}$")
 
 
 def _extract_banded_tables(page: _Page) -> None:
     """Make tables of the regions between horizontal rules of one width and take their lines out of the body flow.
 
-    Three rules or more need no other sign: the first band is the header. Two rules are a table only with a caption
-    ('Table 6.1: …') right above or below and two columns or more — a pair of rules alone also frames a quotation or
-    the page itself. The columns are the stretches no text of any row crosses, so a paragraph between rules gives one
-    column of full lines and is left (`_FULL_LINES_MAX`). Left as they are too: the value labels of a chart between its
-    grid lines (few cells filled, `_FILLED_MIN`) and a list of contents (a last column of rising page numbers).
-    Pinned by: test_pdf_banded_tables.py; judged on the scorecard (`evals/README.md`).
+    Three rules or more are a table with the first band as its header. Two rules are a table only with a caption
+    ('Table 6.1: …') right above or below — a pair of rules alone also frames a quotation or the page itself. No
+    vertical line may stand in the region or at its ends (`_has_uprights`): the box around the title of a Korean press
+    release and the box under it are three rules of one width too.
+    The columns are the stretches no text of any row crosses; a region of one column is left, a paragraph between rules
+    or a list — one column is written as paragraphs anyway (`render_table`). Left as they are too: the value labels of a chart between its grid lines
+    (few cells filled, `_FILLED_MIN`) and a list of contents (a last column of rising page numbers).
+    Pinned by: test_pdf_banded_tables.py; judged on the scorecards (`evals/README.md`).
     """
     if page.simple or not 2 <= len(page.rules) <= _RULES_MAX or not page.lines:
         return
@@ -58,7 +56,7 @@ def _extract_banded_tables(page: _Page) -> None:
             continue
         if any(table.top < tops[-1] and table.bottom > tops[0] and table.x0 < right and table.x1 > left for table in page.tables):
             continue
-        if _crossed_by_bars(page, left, right, tops):
+        if _crossed_by_bars(page, left, right, tops) or _has_uprights(page, left, right, tops):
             continue
         found = _banded_table(page, left, right, tops, used)
         if found is None:
@@ -68,6 +66,24 @@ def _extract_banded_tables(page: _Page) -> None:
         used.update(id(original) for line in lines for original in _original_lines_of(line))
     if used:
         page.lines = [line for line in page.lines if id(line) not in used]
+
+
+def _upright_rules(page: object) -> list[tuple[float, float, float]]:
+    """(x, top, bottom) of the vertical lines of a pdfplumber page at least `_UPRIGHT_MIN` long: drawn lines and filled
+    rectangles no wider than a rule."""
+    found = [((line["x0"] + line["x1"]) / 2, line["top"], line["bottom"]) for line in page.lines  # type: ignore[attr-defined]
+             if line["x1"] - line["x0"] <= 1 and line["bottom"] - line["top"] >= _UPRIGHT_MIN]
+    found += [((rect["x0"] + rect["x1"]) / 2, rect["top"], rect["bottom"]) for rect in page.rects  # type: ignore[attr-defined]
+              if rect["x1"] - rect["x0"] <= _SAME_RULE_GAP and rect["bottom"] - rect["top"] >= _UPRIGHT_MIN]
+    return found
+
+
+def _has_uprights(page: _Page, left: float, right: float, tops: list[float]) -> bool:
+    """Whether a vertical line stands between the ends of the rules or at one of them, anywhere from the first rule to
+    the last: the side of a box or the column line of a grid. Such a region is left to the search for ruled tables — the
+    box around a title and the box under it share their width, and their sides are what tells them from three rules."""
+    return any(left - _EXTENT_TOLERANCE <= x <= right + _EXTENT_TOLERANCE and top < tops[-1] - _SAME_RULE_GAP and bottom > tops[0] + _SAME_RULE_GAP
+               for x, top, bottom in page.uprights)
 
 
 def _crossed_by_bars(page: _Page, left: float, right: float, tops: list[float]) -> bool:
@@ -134,22 +150,22 @@ def _banded_table(page: _Page, left: float, right: float, tops: list[float], use
     bands = [band for band in bands if band]
     if not bands:
         return None
+    reach = median(line.height for line in inside) * _CAPTION_REACH
+    captioned = any(_TABLE_CAPTION.match(line.text) for line in within
+                    if 0 <= tops[0] - line.bottom <= reach or 0 <= line.top - tops[-1] <= reach)
     if len(tops) >= 3:
         if len(bands) < 2:
             return None
         header, body_bands = bands[0], bands[1:]
     else:
-        height = median(line.height for line in inside)
-        reach = height * _CAPTION_REACH
-        if not any(_TABLE_CAPTION.match(line.text) for line in within
-                   if 0 <= tops[0] - line.bottom <= reach or 0 <= line.top - tops[-1] <= reach):
+        if not captioned:
             return None
         header, body_bands = [bands[0][0]], [bands[0][1:]]
         if not body_bands[0]:
             return None
     lines = [line for row in header for line in row] + [line for band in body_bands for row in band for line in row]
     columns = _columns(lines)
-    if len(tops) < 3 and len(columns) < 2:
+    if len(columns) < 2:
         return None
     # With a rule between every two rows a band is one row, its lines the wrapped lines of its cells; otherwise each
     # visual row is a row, and one that leaves the first column empty continues the cells of the row above.
@@ -167,18 +183,12 @@ def _banded_table(page: _Page, left: float, right: float, tops: list[float], use
                 grid.append(cells)
     if len(grid) - 1 < _MIN_BODY_ROWS and not (len(columns) >= 2 and len(grid) == 2 and len(tops) >= 3):
         return None
-    if len(columns) == 1:
-        body = [line for band in body_bands for row in band for line in row]
-        full = sum(1 for line in body if line.x1 - line.x0 >= (right - left) * _FULL_WIDTH_RATIO)
-        if full > len(body) * _FULL_LINES_MAX:
-            return None
-    else:
-        filled = sum(1 for row in grid[1:] for cell in row if cell)
-        if filled < (len(grid) - 1) * len(columns) * _FILLED_MIN:
-            return None
-        pages = [row[-1] for row in grid]
-        if all(_PAGE_NUMBER.match(page) for page in pages) and all(int(lower) >= int(upper) for upper, lower in zip(pages, pages[1:], strict=False)):
-            return None
+    filled = sum(1 for row in grid[1:] for cell in row if cell)
+    if filled < (len(grid) - 1) * len(columns) * _FILLED_MIN:
+        return None
+    pages = [row[-1] for row in grid]
+    if all(_PAGE_NUMBER.match(page) for page in pages) and all(int(lower) >= int(upper) for upper, lower in zip(pages, pages[1:], strict=False)):
+        return None
     table = _Table(top=min(line.top for line in lines), text=render_table(grid), bottom=max(line.bottom for line in lines),
                    x0=min(line.x0 for line in lines), x1=max(line.x1 for line in lines), rows=grid, spans=tuple(columns))
     return table, lines
