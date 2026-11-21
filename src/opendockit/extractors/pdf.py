@@ -92,6 +92,7 @@ from opendockit.extractors._pdf_figures import _figure_boxes, _open_pdfium, _pag
 from opendockit.extractors._pdf_footnotes import _link_footnotes
 from opendockit.extractors._pdf_forms import _annotated_attachments, _form_values, _has_xfa, _named_attachments
 from opendockit.extractors._pdf_glyph_repair import _Glyphs, _pdfium_glyphs, _repair_replacement_chars
+from opendockit.extractors._pdf_gutter_tables import _extract_gutter_tables
 from opendockit.extractors._pdf_margins import _body_font_size, _edge_rows, _remove_repeated_margins, _typical_line_gap
 from opendockit.extractors._pdf_marks import _mark_checkboxes, _mark_circle_bullets
 from opendockit.extractors._pdf_model import (
@@ -583,6 +584,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
     body_size = _body_font_size(pages)
     for page in pages:
         _join_ruled_header_lines(page)
+        _extract_gutter_tables(page)
         _extract_aligned_tables(page)
         _extract_banded_tables(page)
         _join_row_fragments(page)

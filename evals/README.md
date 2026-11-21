@@ -117,15 +117,18 @@ a difference between two readers. `--plain` converts without emphasis and links,
 | DOCX | 0.992 | 0.991 | 0.967 | 0.995 |
 | ODT | 0.992 | 0.991 | 0.967 | 0.997 |
 | RTF | 0.992 | 0.991 | 0.967 | 0.995 |
-| PDF, as LibreOffice sets it | 0.913 | 0.955 | 0.330 | 0.966 |
+| PDF, as LibreOffice sets it | 0.931 | 0.965 | 0.489 | 0.968 |
 
 - **The readers of the formats that state their structure agree with the reference and with each other.** No document
   is more than 0.15 lower in one of them than in another; 39 of the 42 tables are read exactly. What is left is
   convention (a table of one column is written as paragraphs).
 - **The same documents as PDF lose their tables.** pandoc's tables have no rules, and LibreOffice sets them as
-  aligned text: 3 of 42 are read to 0.9 or more, 9 not at all, the rest in part. On the benchmark's own PDFs, most of
-  which rule their tables, TEDS is 0.776. Tables without any rule are where the PDF reader is weakest, and these 42,
-  with their exact answers, are the place to work on it.
+  aligned text with nothing between two rows but the next line. The first run read 3 of 42 to 0.9 or more and 9 not at
+  all (TEDS 0.330); on the benchmark's own PDFs, most of which rule their tables, TEDS is 0.776. Tables without any
+  rule are where the PDF reader is weakest, and these 42, with their exact answers, are the place to work on it.
+  Reading the lines of a wrapped cell as one cell (`_pdf_gutter_tables.py`) took it to 0.489: 12 of 42 at 0.9 or
+  more, 8 not read at all. What is left: tables of two columns, which no search takes without a rule or a caption (6
+  of the 8), and wide tables still read in pieces.
 - Headings are easy here (0.966): a heading style is set large. The benchmark's own PDFs, where a heading is often
   bold at the body size, are the harder measure of headings.
 
