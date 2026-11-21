@@ -8,6 +8,9 @@ its structure outright (heading styles, tables, lists), and that DOCX is saved b
 OpenDocKit writes for each is scored against the same reference, and a difference between two formats is a difference
 between two readers. Needs `pandoc` and `soffice` on the path; nothing made here is committed.
 
+The PDF is saved twice: as LibreOffice saves it, with the structure tree of a tagged PDF (`/pdf`), and without one
+(`/pdf-untagged`), the same pages with nothing but the page to read the tables from.
+
 The Markdown goes through HTML on its way to DOCX: the references write their tables as HTML, which pandoc reads as
 tables only from HTML.
 """
@@ -19,7 +22,9 @@ import sys
 import tempfile
 
 
-FORMATS = ("odt", "rtf", "pdf")
+# folder → what LibreOffice is asked to convert to
+FORMATS = {"odt": "odt", "rtf": "rtf", "pdf": "pdf",
+           "pdf-untagged": 'pdf:writer_pdf_Export:{"UseTaggedPDF":{"type":"boolean","value":"false"}}'}
 _BATCH = 25
 _SECONDS_PER_BATCH = 600
 _PANDOC_SECONDS = 60
@@ -57,14 +62,15 @@ def main() -> int:
 
     # A profile of its own, so a LibreOffice the user has open is not the one that converts
     with tempfile.TemporaryDirectory() as profile:
-        for name in FORMATS:
+        for name, convert_to in FORMATS.items():
             folder = target / name
             folder.mkdir(exist_ok=True)
-            missing = [path for path in documents if not (folder / f"{path.stem}.{name}").is_file()]
+            suffix = convert_to.partition(":")[0]
+            missing = [path for path in documents if not (folder / f"{path.stem}.{suffix}").is_file()]
             for start in range(0, len(missing), _BATCH):
-                _run(["soffice", f"-env:UserInstallation={Path(profile).as_uri()}", "--headless", "--convert-to", name,
+                _run(["soffice", f"-env:UserInstallation={Path(profile).as_uri()}", "--headless", "--convert-to", convert_to,
                       "--outdir", str(folder), *(str(path) for path in missing[start:start + _BATCH])], _SECONDS_PER_BATCH)
-            print(f"{name:5} {len(list(folder.iterdir())):4}")
+            print(f"{name:12} {len(list(folder.iterdir())):4}")
     return 0
 
 
