@@ -2,14 +2,20 @@
 the columns a paragraph belongs to.
 """
 
-from bisect import bisect_left
-from itertools import accumulate
+from bisect import bisect_left, bisect_right
+from collections.abc import Callable
+from itertools import accumulate, pairwise
 import math
 import re
 
+from opendockit.extractors._hangul import _CONTACT, _KOREAN_DATE, _WEEKDAY, korean_sentence_end
 from opendockit.extractors._pdf_model import (
+    _BOLD_BODY_MAX_RATIO,
+    _BOLD_HEADING_MIN_RATIO,
     _BULLET_START,
+    _CAPTION_START,
     _HEADING_MIN_RATIO,
+    _HEADING_SIZE_RATIO,
     _LONE_BULLET,
     _TABLE_ROW_TOLERANCE,
     _WORD_CHAR,
@@ -41,16 +47,21 @@ _COLUMN_MIN_WIDTH_RATIO = 0.5
 _PICTURE_ROW_MIN = 3
 
 
-def _render_page(page: _Page, heading_levels: dict[float, int], line_gap: float,
-                 images: list[tuple[tuple[float, ...], str]] | None = None) -> str:
+def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], line_gap: float,
+                 images: list[tuple[tuple[float, ...], str]] | None = None, body_size: float = 0.0) -> str:
     """Join the page's paragraphs, tables and pictures in reading order. `images` is a list of ((top, x0, x1, bottom),
     placeholder)."""
     items: list[tuple[float, str, bool]] = []
     spans: list[tuple[float, float]] = []  # horizontal ranges (x0, x1) in the same order as items
     sizes: list[tuple[float, int]] = []  # (bottom coordinate, line count) in the same order as items. Tables and pictures are (bottom, 0)
     boxes: list[tuple[float, float, float, float]] = []  # (top, bottom, x0, x1) of paragraphs. Tables and pictures are not included
-    for paragraph in _group_paragraphs(page.lines, line_gap):
-        level = heading_levels.get(_heading_size(paragraph), 0) if _is_heading(paragraph, heading_levels) else 0
+    paragraphs = _group_paragraphs(page.lines, line_gap)
+    side_by_side = _side_by_side_lines(page.lines, paragraphs, body_size) if heading_levels else frozenset()
+    previous = None
+    for paragraph in paragraphs:
+        key = _heading_key(paragraph, heading_levels, body_size, side_by_side, previous)
+        previous = paragraph
+        level = heading_levels[key] if key else 0
         text = (f"{'#' * level} {' '.join(line.text for line in paragraph.lines)}" if level
                 else _escaped_block_marks(_paragraph_text(paragraph)))
         items.append((paragraph.top, text, False))
@@ -437,10 +448,29 @@ def _continues(previous: _Line, line: _Line, line_gap: float) -> bool:
         return abs((previous.top + previous.bottom) / 2 - (line.top + line.bottom) / 2) <= previous.height
     if previous.size and line.size and abs(previous.size - line.size) > 0.15 * max(previous.size, line.size):
         return False
+    if _weight_breaks(previous, line):
+        return False
     gap = line.top - previous.bottom
     allowed = previous.height * (line_gap if line_gap else 0.5) * 1.5 + 1.0
     horizontally_overlaps = line.x0 < previous.x1 and previous.x0 < line.x1
     return -previous.height * 0.3 <= gap <= allowed and horizontally_overlaps
+
+
+def _weight_breaks(previous: _Line, line: _Line) -> bool:
+    """Whether a change of weight between two lines starts a new paragraph: a bold line that stops clearly short of the
+    regular line below it (by more than twice its height) is a title over that text, and a bold line after a regular line
+    that ends a sentence starts something new.
+
+    Deliberate: a bold title set at the body size and spacing ('5. The dynamics', 'Procedure:') was joined to the text below
+    it, so it could not be a heading. A bold sentence wrapped onto a full line, a bold word inside a sentence, and a bold
+    sentence closing a paragraph keep their paragraph (Pinned by: test_pdf_headings.py::TestBoldHeadings,
+    TestBoldSentenceEnds::test_a_bold_sentence_closing_a_paragraph_keeps_it)."""
+    if previous.bold and not line.bold:
+        return previous.x1 < line.x1 - 2 * previous.height
+    if line.bold and not previous.bold:
+        # A bold line that is itself a sentence ('Do not discard this notice!') closes the paragraph it is set in
+        return previous.text.rstrip().endswith((".", "!", "?", ":", "。")) and not _ends_like_a_sentence(line.text.strip())
+    return False
 
 
 # A line start Markdown reads as the mark of a block: `#` … `######` and a space (a heading) or `>` (a quote)
@@ -468,38 +498,499 @@ def _heading_size(paragraph: _Paragraph) -> float:
     return round(max(line.size for line in paragraph.lines) * 2) / 2
 
 
-def _is_heading(paragraph: _Paragraph, heading_levels: dict[float, int] | None = None, body_size: float = 0.0) -> bool:
-    """A paragraph that is short, mostly letters and holding one, or a year alone, does not start with a bullet, and is clearly
-    larger than the body text.
+# A heading level key: (heading size in 0.5pt steps, whether it is a bold heading at about the body size).
+_HeadingKey = tuple[float, bool]
 
-    Deliberate: a paragraph of no letter is a value, not a heading: a large '56%' of an infographic or a running page number
-    '47698' set larger became a heading. A year or span of years alone ('2023', '2023–2024') stays one, the heading of its
-    part of a timeline (Pinned by: test_pdf_headings.py::TestHeadingSizes)."""
+
+def _heading_shaped(paragraph: _Paragraph) -> bool:
+    """A paragraph that is short (two lines, 100 characters at most; a line holding only the section number, '3.' or 'III.',
+    is not counted), mostly letters and holding one (a large '56%' or '20%↑' of an infographic is a value) or a year alone
+    ('2023', '2023–2024', the headings of a timeline; a bold year at the body size is still a value, `_is_bold_heading`),
+    does not start with a bullet, and is not a form row with check boxes ('☐ Yes ☑') or a table-of-contents row with a dot
+    leader ('2.4. Results … 7').
+
+    Deliberate: asked for a letter, a year set large over its part of a timeline was no heading any more (Pinned by:
+    test_pdf_headings.py::TestHeadingSizes::test_a_large_year_is_a_heading)."""
     text = " ".join(line.text for line in paragraph.lines)
-    size = max(line.size for line in paragraph.lines)
-    if not size or len(paragraph.lines) > 2 or len(text) > 100 or _BULLET_START.match(text):
+    if _CHECKBOX_MARK.search(text) or _LEADER_RUN.search(text):
+        return False
+    if not _HEADING_LETTER.search(text) and not _YEAR.fullmatch(text.strip()):
+        return False
+    counted = [line for line in paragraph.lines if not _LONE_SECTION_NUMBER.match(line.text.strip())]
+    if not counted or not max(line.size for line in paragraph.lines) or len(counted) > 2 or len(text) > 100 or _BULLET_START.match(text):
         return False
     word_chars = len(_WORD_CHAR.findall(text))
-    if word_chars < 2 or word_chars < len(text.replace(" ", "")) * 0.5:
-        return False
-    if not any(character.isalpha() for character in text) and not _YEAR.fullmatch(text.strip()):
-        return False
-    if heading_levels is not None:
-        return _heading_size(paragraph) in heading_levels
-    return bool(body_size) and size / body_size >= _HEADING_MIN_RATIO
+    return word_chars >= 2 and word_chars >= len(text.replace(" ", "")) * 0.5
 
 
-# A year or a span of years alone ('2023', '1990–1999', '2023-24'): a heading by its size though it holds no letter (`_is_heading`)
+def _is_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset[int] = frozenset()) -> bool:
+    """A heading-shaped paragraph (`_heading_shaped`) at least `_HEADING_SIZE_RATIO` times the body size, not a header cell
+    of a table (`_header_cells`) and not a sentence set a little larger (`_slightly_larger_text`)."""
+    return (_heading_shaped(paragraph) and bool(body_size) and not any(id(line) in side_by_side for line in paragraph.lines)
+            and max(line.size for line in paragraph.lines) / body_size >= _HEADING_SIZE_RATIO
+            and not _slightly_larger_text(paragraph, body_size))
+
+
+def _slightly_larger_text(paragraph: _Paragraph, body_size: float) -> bool:
+    """Whether a paragraph under `_HEADING_MIN_RATIO` times the body size (the 1.15–1.2 band a heading by size may also be
+    in) ends like a sentence (`_ends_like_a_sentence`) or is longer than `_SLIGHTLY_LARGER_MAX_CHARS`: a pull quote or a
+    paragraph set a little larger than the body, not a heading. From 1.2 times the body on, the size alone makes a heading,
+    as it did before the band.
+
+    Deliberate: the band was looked at by size only, so an 11.5pt pull quote over a 10pt body and 10.5pt paragraphs over a
+    9pt body became headings ('## Revenue grew in every region this year.') (Pinned by:
+    test_pdf_headings.py::TestHeadingSizes::test_a_sentence_a_little_larger_than_the_body_is_body_text)."""
+    if not body_size or max(line.size for line in paragraph.lines) / body_size >= _HEADING_MIN_RATIO:
+        return False
+    text = " ".join(line.text for line in paragraph.lines).strip()
+    return len(text) > _SLIGHTLY_LARGER_MAX_CHARS or _ends_like_a_sentence(text)
+
+
+def _is_bold_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset[int] = frozenset(),
+                     previous: _Paragraph | None = None) -> bool:
+    """A heading set in a bold face at about the body size: every line is bold, the size is at least
+    `_BOLD_HEADING_MIN_RATIO` of the body, it holds a letter, is not a caption or note label ('Figure 3.', 'Source:',
+    `_CAPTION_START`), and does not end like a sentence (',' or ';'; '.' only when the whole text is a numbered label,
+    `_NUMBERED_LABEL`, such as 'CHAPTER 1.' or 'Part IV.'; `_ends_like_a_sentence`). A short heading may end in ':'
+    ('Procedure:'), '?' or '!'. A bold line with another bold line beside it on the same row (`side_by_side`,
+    `_header_cells`) is a header cell of a table the page did not find, not a heading. Nor is a value line (an amount, a
+    date, an address or a contact, `_is_value_text`) or the name under the closing of a letter (the paragraph before it,
+    `previous`, ends in ',': 'Sincerely,').
+
+    Deliberate: a heading in many books and papers differs from the body only by its weight ('5. The dynamics' in 11pt
+    bold over a 10pt body), and with the size rule alone 53 of 193 headings of a 200-page pdf corpus were body text (Pinned
+    by: test_pdf_headings.py::TestBoldHeadings)."""
+    if not body_size or not _heading_shaped(paragraph) or not all(line.bold for line in paragraph.lines):
+        return False
+    if any(id(line) in side_by_side for line in paragraph.lines):
+        return False
+    text = " ".join(line.text for line in paragraph.lines).strip()
+    if max(line.size for line in paragraph.lines) < body_size * _BOLD_HEADING_MIN_RATIO or _CAPTION_START.match(text):
+        return False
+    if previous is not None and previous.lines[-1].text.rstrip().endswith(","):
+        return False
+    return bool(_HEADING_LETTER.search(text)) and not _ends_like_a_sentence(text) and not _is_value_text(text)
+
+
+def _is_value_text(text: str) -> bool:
+    """Whether a short bold text is a value set in bold, not a title: it holds an amount (a currency sign or code, '원', or
+    digits grouped in thousands, `_AMOUNT`), is a date or a period ('March 3, 2024', 'Q3 2024', '2024-03-01', '2024년 3월
+    5일', `_DATE_LINE`, `_hangul._KOREAN_DATE`), is an address or a list holding a number between two commas or more
+    ('Acme Corp, PO Box 12, Springfield'), or holds a web or e-mail address or a phone number (`_hangul._CONTACT`).
+
+    Deliberate: a bold total, date line or address at the body size became a heading ('# Total due USD 1,234.00', '# 합계
+    금액 1,000,000원', '# March 3, 2024', '# Q3 2024') (Pinned by: test_pdf_headings.py::TestBoldValues)."""
+    if _AMOUNT.search(text) or _DATE_LINE.fullmatch(text) or _KOREAN_DATE.fullmatch(_WEEKDAY.sub("", text)):
+        return True
+    return (text.count(",") >= 2 and any(char.isdigit() for char in text)) or bool(_CONTACT.search(text))
+
+
+def _ends_like_a_sentence(text: str) -> bool:
+    """Whether a short bold text is a sentence rather than a title: it ends in ',' or ';'; in '.' unless the whole text is
+    a numbered label (`_NUMBERED_LABEL`); in '!' or '?' after `_SENTENCE_MIN_WORDS` words or more, or in ':' after
+    `_LEAD_IN_MIN_WORDS`, a leading section number not counted, unless it is set in title case ('The applicant must
+    provide:'; 'Key findings:', 'Summary of Key Findings:' and '1. Scope of Work:' are titles; a Korean line ending in ':'
+    is held to its sentence endings alone);
+    it holds a '!' or '?' with more text after it ('Questions? Call 1-800-555-0100'); or it ends like a Korean sentence
+    without its full stop (`_hangul.korean_sentence_end`, the rule the Hangul readers tell sentences from titles by:
+    `…합니다`, `…할 수 없다`) or like a Korean notice (`_korean_notice_end`).
+
+    Deliberate: with only ',', ';' and '.' looked at, bold notices and lead-ins at the body size became headings ('# Do not
+    discard this notice!', '# The following documents must be attached:', '# 을은 갑의 사전 동의 없이 업무를 위탁할 수
+    없다'), where 'Procedure:', 'Why entropy?' and '제1조(목적)' are headings (Pinned by:
+    test_pdf_headings.py::TestBoldSentences, TestBoldSentenceEnds)."""
+    if text.endswith((",", ";")):
+        return True
+    if text.endswith("."):
+        return not _NUMBERED_LABEL.fullmatch(text)
+    if _INNER_SENTENCE_END.search(text):
+        return True
+    if text.endswith(("!", "?")) and len(text.split()) >= _SENTENCE_MIN_WORDS:
+        return True
+    if text.endswith(":") and not _HANGUL.search(text):
+        words = _SECTION_LEAD.sub("", text).split()
+        if len(words) >= _LEAD_IN_MIN_WORDS and not _title_case(words):
+            return True
+    if text.endswith(":") and _korean_lead_in(text[:-1].split()):
+        return True
+    return korean_sentence_end(text) or _korean_notice_end(text)
+
+
+def _korean_lead_in(words: list[str]) -> bool:
+    """Whether the words of a Korean line ending in ':' are the clause of a lead-in, not a title: a word joined to the next
+    by `…하여` (`첨부하여`), or the object of what the line asks for (a word in the object particle 을 / 를 before the
+    last word: `다음 각 호의 서류를 첨부하여 제출:`, `신청자는 다음 서류를 제출:`). '추진 현황 및 향후 계획:' and '신청 방법 및 절차
+    안내:' are titles (Pinned by: test_pdf_headings.py::TestBoldSentenceEnds::test_a_korean_notice_is_no_heading)."""
+    return any(word.endswith("하여") for word in words) or any(_object_word(word) for word in words[:-1])
+
+
+def _object_word(word: str) -> bool:
+    """Whether a Korean word ends in the object particle: 를 after a syllable without a final consonant (`서류를`), 을 after
+    one with it (`사항을`); not the 을 of a noun after an open syllable (`마을`)."""
+    if len(word) < 2 or not "가" <= word[-2] <= "힣":
+        return False
+    closed = (ord(word[-2]) - 0xAC00) % 28 != 0
+    return (word[-1] == "를" and not closed) or (word[-1] == "을" and closed)
+
+
+def _korean_notice_end(text: str) -> bool:
+    """Whether a Korean line ends like the clause of a notice or an instruction, which `_hangul.korean_sentence_end` (the
+    rule the Hangul readers keep for their titles) does not look at:
+
+    - a verb made a noun after a stem or tense (`…같음`, `…있음`, `…하였음`);
+    - a verbal noun closed by 함, 됨 or 임 (a last word of three syllables or more) said of something earlier in the line:
+      a word ending in a subject, topic or object particle, or two words or more before it (`본 계약은 무효임`, `기한 내
+      제출함`, `외부 회의 참여함`); not the nouns `교수 정년퇴임` or `핵 잠수함`, nor a compound ending in a noun of
+      `_KOREAN_NOUN_ENDS` (`재난 대응 골든타임`, `미 해군 항공모함`);
+    - `…할 것` (not `알아야 할 것`, `해야 할 것`: the things to know or do, a title);
+    - `바람` after the noun of a request (`협조 바람`, `기한 내 회신 바람`, `협조하기 바람`; not the wind, `변화의 바람`,
+      `한류 바람`, `_requested`);
+    - the polite request `…세요` and `…하십시오` / `…시오` (not a greeting, `안녕하세요`, `어서 오세요`), the plain
+      command `…하라` after two words or more (not `사하라`), and `…는다` after two words or more (`결과를 얻는다`).
+
+    Deliberate: in a PDF a bold notice at the body size ('# 서류는 기한 내 제출함', '# 확인해 주세요') became a heading,
+    where '개요', '필요', '다음', '모임' and '향후 과제' are titles (Pinned by:
+    test_pdf_headings.py::TestBoldSentenceEnds::test_a_korean_notice_is_no_heading,
+    test_a_korean_compound_noun_ending_like_a_notice_is_a_heading)."""
+    words = text.rstrip(_KOREAN_CLOSING).split()
+    if not words:
+        return False
+    last = words[-1]
+    if " ".join(words) in _KOREAN_GREETINGS:
+        return False
+    if _KOREAN_VERB_END.search(last):
+        return True
+    if len(words) < 2:
+        return False
+    if last.endswith(("하라", "되라")):
+        # the plain command after a word it is said with (`반드시 확인하라`); a single word is a name as often (`사하라`)
+        return True
+    if (last == "것" and "가" <= words[-2][-1] <= "힣" and (ord(words[-2][-1]) - 0xAC00) % 28 == _FINAL_L
+            and not (len(words) >= 3 and words[-3].endswith("야"))):
+        # `…할 것` tells what to do; `…해야 할 것`, `알아야 할 것` is what one must do or know, the title of a list
+        return True
+    if (_KOREAN_NOMINAL_END.fullmatch(last) and not last.endswith(_KOREAN_NOUN_ENDS)
+            and (len(words) >= 3 or any(word[-1] in _KOREAN_PARTICLES for word in words[:-1]))):
+        return True
+    if last == "바람" and _requested(words[-2]):
+        return True
+    return last.endswith("는다")
+
+
+def _requested(word: str) -> bool:
+    """Whether `word` before a closing `바람` names what is asked for (`협조 바람`, `내용 확인 바람`, `기한 내 회신 바람`,
+    `제출하기 바람`): a noun of a request of `_REQUEST_NOUNS` or a word ending in 기. Any other word makes the line a title
+    about the wind (`한류 바람`, `변화의 바람`, `따뜻한 바람`, `세계를 움직이는 바람`, `새로운 변화 바람`)."""
+    return word.endswith(_REQUEST_NOUNS) or word.endswith("기")
+
+
+# The longest heading by a size 1.15 to 1.2 times the body (`_slightly_larger_text`)
+_SLIGHTLY_LARGER_MAX_CHARS = 60
+# A bold text ending in '!' or '?' with this many words or more is a sentence ('Do not discard this notice!'), not a title
+# ('Why entropy?', 'Welcome!')
+_SENTENCE_MIN_WORDS = 5
+# A bold text ending in ':' with this many words or more, not counting a leading section number, and not in title case
+# (`_title_case`) is the lead-in of a list ('The applicant must provide:'), not a title ('Procedure:', 'Key findings:',
+# 'Summary of Key Findings:', '2.1 Data and Methods:'). A Korean line ending in ':' is held to its sentence endings alone:
+# its lead-ins end like a sentence before the ':' ('1. 추진 경과 및 향후 계획:' is a title). Pinned by:
+# test_pdf_headings.py::TestBoldSentenceEnds::test_a_bold_sentence_with_another_end_is_no_heading,
+# test_a_short_title_is_a_heading
+_LEAD_IN_MIN_WORDS = 4
+# A section number leading a heading ('1. ', '2.1 ', 'III. '), not counted as a word of it
+_SECTION_LEAD = re.compile(r"^(?:\d{1,3}(?:\.\d{1,3})*\.?|[IVXLC]{1,6}\.)\s+")
+# The small words a title in title case keeps in lower case
+_MINOR_WORDS = frozenset(("a", "an", "the", "and", "or", "nor", "but", "of", "for", "to", "in", "on", "at", "by", "with", "from",
+                          "into", "vs", "per", "as", "via"))
+# Function words of a sentence a title does not capitalize after its first word (`_title_case`)
+_SENTENCE_WORDS = frozenset(("is", "are", "was", "were", "be", "will", "must", "shall", "should", "can", "may", "you", "your", "we",
+                             "please", "this", "that", "these", "those"))
+# The first words of a sentence, not of a title (`_title_case`)
+_SENTENCE_STARTS = frozenset(("please", "you", "we", "i", "to"))
+
+
+def _title_case(words: list[str]) -> bool:
+    """Whether the words are set in title case, the way a title is and a sentence is not: the first and every word but the
+    small ones (`_MINOR_WORDS`) start with a capital or a digit, the small ones and the function words of a sentence
+    (`_SENTENCE_WORDS`) after the first word do not, the first word is no word a sentence starts with (`_SENTENCE_STARTS`),
+    the line holds a lowercase letter and no comma ('Summary of Key Findings', 'Q&A Session with Panelists', 'Part 1:
+    Getting Started'; not 'Please Read The Following Carefully', 'Payment Is Due Within 30 Days Of', 'To Apply, Please
+    Include', 'THE PARTIES AGREE AS FOLLOWS')."""
+    text = " ".join(words)
+    if "," in text or not any(char.islower() for char in text):
+        return False
+    for index, word in enumerate(words):
+        word = word.strip(":;,.()\"'“”‘’")
+        if not word or not word[0].isalpha():
+            continue
+        if index == 0 and word.lower() in _SENTENCE_STARTS:
+            return False
+        if word[0].islower() and (index == 0 or word.lower() not in _MINOR_WORDS):
+            return False
+        if index and word[0].isupper() and word.lower() in _MINOR_WORDS | _SENTENCE_WORDS:
+            return False
+    return True
+_HANGUL = re.compile(r"[가-힣]")
+# Closing marks after the end of a Korean clause (`_korean_notice_end`)
+_KOREAN_CLOSING = ".!?:\"'”’)） "
+# Endings of a Korean notice or instruction in the last word, whatever the words before it: a verb made a noun after a stem
+# or tense (`같음`, `있음`, `제출하였음`) and the polite request (`주세요`, `하십시오`, `기입하시오`)
+_KOREAN_VERB_END = re.compile(r"(?:[하되있없같았었였했됐겠않]음|세요|시오)\Z")
+# Greetings ending like a polite request, set as the title of a page (`_korean_notice_end`)
+_KOREAN_GREETINGS = frozenset(("안녕하세요", "어서 오세요", "어서오세요"))
+# A verbal noun closed by 함, 됨 or 임 (`제출함`, `신청함`, `완료됨`, `무효임`): three syllables or more, not `책임` or `모임`
+_KOREAN_NOMINAL_END = re.compile(r"[가-힣]{2,}[함됨임]")
+# Nouns ending like such a verbal noun (`_korean_notice_end`): a meeting, a responsibility, an appointment or a retirement, a
+# frame, a time or a paradigm, a ship, a box, `포함`, and the nouns of adjectives (`독서 정기모임`, `기업의 사회적책임`, `사외이사
+# 재선임`, `분석 프레임`, `자바 런타임`, `에너지 산업의 새로운 패러다임`, `미 해군 항공모함`, `해군 이지스 구축함`, `고객 건의함`,
+# `받은 편지함`, `부가세 불포함`, `모바일 결제의 편리함`, `일상 속 작은 소중함`)
+_KOREAN_NOUN_ENDS = ("모임", "책임", "선임", "퇴임", "취임", "연임", "사임", "부임", "프레임", "타임", "게임", "패러다임", "잠수함", "모함",
+                     "군함", "구축함", "건의함", "사서함", "편지함", "우편함", "보관함", "포함", "편리함", "불편함", "간편함", "소중함",
+                     "따뜻함", "투명함", "편안함", "익숙함", "다양함", "친절함")
+# Subject, topic and object particles: a word ending in one is what a verbal noun at the end of the line is said of
+# (`본 계약은 무효임`)
+_KOREAN_PARTICLES = frozenset("은는이가을를")
+# The final consonant ㄹ (종성 index) of `할` in `…할 것`
+_FINAL_L = 8
+# The nouns of a request before a closing `바람` in an official letter (`_requested`)
+_REQUEST_NOUNS = ("협조", "확인", "참석", "참고", "회신", "제출", "숙지", "준수", "엄수", "양지", "협력", "참여", "검토", "조치", "실천", "개선",
+                  "확산", "동참", "신청", "회람", "공유", "전달", "협의", "응모", "이행", "활용", "보고", "주의", "유의", "작성", "점검")
+# A '!' or '?' after a word with more text after it: two sentences on the line ('Questions? Call 1-800-555-0100')
+_INNER_SENTENCE_END = re.compile(r"[^\W\d_][!?]\s+\S")
+# An amount: a currency sign or code by a number ('$110.00', 'USD 1,234.00', '1,000원', '30 EUR') or digits grouped in thousands
+# ('1,000,000')
+_AMOUNT = re.compile(r"[$€£¥₩]\s?\d|\b(?:USD|EUR|GBP|JPY|KRW|CNY|CHF)\s?\d|\d\s?(?:USD|EUR|GBP|JPY|KRW|CNY|CHF)\b"
+                     r"|\d\s?(?:원|달러|엔|위안)(?![가-힣])|\d{1,3}(?:,\d{3})+")
+# A date or a period alone on the line ('March 3, 2024', '3 March 2024', 'March 2024', 'Q3 2024', 'FY2024', '2024-03-01',
+# '03/01/2024')
+_MONTH = (r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?"
+          r"|Nov(?:ember)?|Dec(?:ember)?)\.?")
+_DATE_LINE = re.compile(rf"(?:[A-Z][a-z]{{2,8}},?\s+)?(?:{_MONTH}\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+\d{{4}}"
+                        rf"|\d{{1,2}}\.?\s+{_MONTH},?\s+\d{{4}}|{_MONTH},?\s+\d{{4}})"
+                        r"|(?:Q[1-4]|H[12])\s*(?:FY\s*)?'?\d{2,4}|FY\s*'?\d{2,4}"
+                        r"|\d{4}\s*[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2}\.?|\d{1,2}\s*[-./]\s*\d{1,2}\s*[-./]\s*\d{2,4}")
+# A letter of a word (not a number or a symbol): a bold '2024' or '12.5%' alone is a value, not a heading.
+_HEADING_LETTER = re.compile(r"[A-Za-z\u00c0-\u024f가-힣一-鿿]")
+# The rows of cells under heading-like lines side by side that make them the header row of a table (`_header_cells`): the
+# panels of a slide have a line or two of text under their headings
+_HEADER_DATA_ROWS = 2
+# A line of this many words or more under a header column is a line of prose, not a cell (`_cell_rows_under`)
+_PROSE_LINE_MIN_WORDS = 3
+# The most words of a value beside a form label on its row ('Kim', 'Acme Corporation', '010-1234-5678') (`_stacked_labels`)
+_LABEL_VALUE_MAX_WORDS = 4
+# The most words of a form label stacked over another ('Name', 'Date of birth') (`_stacked_labels`)
+_LABEL_MAX_WORDS = 3
+# A line of this many words or more is a line of prose under the headings of two columns (`_heads_prose_columns`)
+_PROSE_MIN_WORDS = 5
+# How far under two headings side by side, in line heights, the prose of their columns starts (`_heads_prose_columns`)
+_PROSE_COLUMN_REACH = 4
+# A year or a span of years alone ('2023', '1990–1999', '2023-24'): a heading of a timeline by its size (`_heading_shaped`)
 _YEAR = re.compile(r"(?:1[5-9]|20)\d{2}(?:\s*[-–—~]\s*(?:(?:1[5-9]|20)\d{2}|\d{2}))?")
+# A check box drawn or typed on the line (`_mark_checkboxes`).
+_CHECKBOX_MARK = re.compile(r"[☐☑☒]")
+# A line holding only a section number ('3.', '12', 'III.'), set above the title of a numbered heading.
+_LONE_SECTION_NUMBER = re.compile(r"^(?:\d{1,3}(?:\.\d{1,3})*|[IVXLC]{1,6})\.?$")
+# A bold heading that ends in a full stop: the whole text is a numbered label ('CHAPTER 1.', 'Part IV.', 'Section 2.3.',
+# 'Appendix C.', '제 3 장.'). A sentence that only ends in a number or a capital ('… received by June 30.', '… given in
+# Appendix C.') is no heading (Pinned by: test_pdf_headings.py::TestBoldSentences::test_a_sentence_ending_in_a_number_is_no_heading).
+_NUMBERED_LABEL = re.compile(r"(?:(?i:chapter|part|section|article|appendix|annex|book|unit|lesson|lecture|step|stage|phase)\s+"
+                             r"(?:\d{1,3}(?:\.\d{1,3})*|[IVXLC]{1,6}|[A-Z])|\d{1,3}(?:\.\d{1,3})*|[IVXLC]{1,6}"
+                             r"|제\s*\d{1,3}\s*[장절조편부관항])\.")
 
 
-def _heading_levels(pages: list[_Page], body_size: float, line_gap: float) -> dict[float, int]:
-    """Heading size (in 0.5pt steps) → level. The heading sizes in the document are mapped, largest first, to #, ## and ###
-    (### from the fourth size onward)."""
-    sizes = {
-        _heading_size(paragraph)
-        for page in pages if not page.simple
-        for paragraph in _group_paragraphs(page.lines, line_gap)
-        if _is_heading(paragraph, body_size=body_size)
-    }
-    return {size: min(rank, 3) for rank, size in enumerate(sorted(sizes, reverse=True), start=1)}
+def _rows(lines: list[_Line]) -> list[list[_Line]]:
+    """The lines grouped into rows: sorted by their middle, a line joins the row whose first line it overlaps by half the
+    lower height. The rows are made once and each is looked at once: comparing every line of a crowded row with the others
+    took minutes on a page of a thousand letters set one by one on a row."""
+    rows: list[list[_Line]] = []
+    for line in sorted(lines, key=lambda line: (line.top + line.bottom) / 2):
+        first = rows[-1][0] if rows else None
+        if first is not None and min(first.bottom, line.bottom) - max(first.top, line.top) >= min(first.height, line.height) * 0.5:
+            rows[-1].append(line)
+        else:
+            rows.append([line])
+    return rows
+
+
+def _side_by_side_lines(lines: list[_Line], paragraphs: list[_Paragraph], body_size: float) -> frozenset[int]:
+    """ids of the lines that are no heading for what stands beside them on their row: the header cells of a table
+    (`_header_cells`) and the lines of stacked labels (`_stacked_labels`)."""
+    return _header_cells(lines, body_size) | _stacked_labels(lines, paragraphs, body_size)
+
+
+def _stacked_labels(lines: list[_Line], paragraphs: list[_Paragraph], body_size: float) -> frozenset[int]:
+    """ids of the lines of a paragraph of two lines or more where every line is a label with a value on its right on its
+    row: the labels of a form stacked in one column ('Name' over 'Phone', each with its value beside it), not a heading
+    wrapped over two lines; and of their values. A label is a bold line under `_HEADING_SIZE_RATIO` times the body size (a
+    heading by its size is no form label) of `_LABEL_MAX_WORDS` words at most; its value is the next line on its right,
+    bold or not, of `_LABEL_VALUE_MAX_WORDS` words at most and under `_HEADING_SIZE_RATIO` times the body size as well. A
+    column of values set in bold is no column of labels of the next column on its right (`Author` / `Date` with `Kim` /
+    `May 2024` beside a title). Labels and values are a heading and the heading of the next column all the same when each
+    of the two heads a column of prose of its own (`_heads_prose_columns`).
+
+    Deliberate: two bold labels at the usual line gap were joined into one heading, and their line break was lost ('# Name
+    Phone'). Taken for labels whatever their size and whatever stood on their right, a heading wrapped over two lines beside
+    a short line was lost: a cover title beside 'Draft' / 'May 2024', the left one of two headings of two columns on the
+    same rows, a heading beside a list of facts. Told from the next column's heading by where that column's prose starts,
+    labels whose values line up with the prose of the page ('Email' / 'Phone' in the margin of a resume) became a heading
+    again and both headings of two columns were lost when the right one stood off its prose (indented, centred, numbered)
+    (Pinned by: test_pdf_headings.py::TestStackedLabels)."""
+    values: dict[int, _Line] = {}  # id of a label → its value
+    for row in _rows(lines):
+        ordered = sorted(row, key=lambda line: line.x0)
+        for line, after in pairwise(ordered):
+            if (line.bold and after.x0 >= line.x1 and line.size < body_size * _HEADING_SIZE_RATIO
+                    and after.size < body_size * _HEADING_SIZE_RATIO and len(line.text.split()) <= _LABEL_MAX_WORDS
+                    and len(after.text.split()) <= _LABEL_VALUE_MAX_WORDS):
+                values[id(line)] = after
+    stacked = [paragraph for paragraph in paragraphs
+               if len(paragraph.lines) >= 2 and all(id(line) in values for line in paragraph.lines)]
+    value_ids = {id(values[id(line)]) for paragraph in stacked for line in paragraph.lines}
+    prose = sorted((line for line in lines if len(line.text.split()) >= _PROSE_MIN_WORDS), key=lambda line: line.top)
+    prose_tops = [line.top for line in prose]
+    found: set[int] = set()
+    for paragraph in stacked:
+        beside = [values[id(line)] for line in paragraph.lines]
+        if all(id(line) in value_ids for line in paragraph.lines) or _heads_prose_columns(paragraph.lines, beside, prose, prose_tops):
+            continue  # a column of values (of the labels on its left), or two headings of two columns of prose
+        found.update(id(line) for line in paragraph.lines)
+        found.update(id(line) for line in beside)  # bold values stacked beside the labels are no heading either
+    return frozenset(found)
+
+
+def _heads_prose_columns(left: list[_Line], right: list[_Line], prose: list[_Line], prose_tops: list[float]) -> bool:
+    """Whether the lines `left` and the lines `right` beside them each head a column of prose of their own: within
+    `_PROSE_COLUMN_REACH` line heights under them a line of `_PROSE_MIN_WORDS` words or more overlaps the left lines and
+    ends before the right ones start, and another overlaps the right lines and starts after the left ones end. The
+    headings of two columns do; labels and their values in a form do not (the prose under them, if any, runs under both,
+    or under the values only)."""
+    left_x0, left_x1 = min(line.x0 for line in left), max(line.x1 for line in left)
+    right_x0, right_x1 = min(line.x0 for line in right), max(line.x1 for line in right)
+    bottom = max(line.bottom for line in left + right)
+    reach = bottom + _PROSE_COLUMN_REACH * max(line.height for line in left + right)
+    under_left = under_right = False
+    for line in prose[bisect_left(prose_tops, bottom):bisect_right(prose_tops, reach)]:
+        under_left = under_left or (line.x0 < left_x1 and line.x1 > left_x0 and line.x1 <= right_x0)
+        under_right = under_right or (line.x0 < right_x1 and line.x1 > right_x0 and line.x0 >= left_x1)
+    return under_left and under_right
+
+
+def _header_cells(lines: list[_Line], body_size: float) -> frozenset[int]:
+    """ids of the heading-like lines (short, and bold or at least `_HEADING_SIZE_RATIO` times the body) that stand on one
+    row (overlapping by half the lower height vertically, apart horizontally) with other heading-like lines and have rows
+    of cells under them (`_cell_rows_under`): the header cells of a table the page did not find ('Item | Qty | Price',
+    'Service Stage | Function | Explanation | Benefit'), not headings. Headings side by side with prose under them, or one
+    line each (the panels of a slide: 'Plan', 'Build', 'Test', 'Ship', each over a line of text), and the headings of two
+    columns of a page on one row stay headings, however many stand on the row.
+
+    Deliberate: with the size rule alone, the 7pt bold header row of a table over a 5pt body came out as four headings, and
+    the bold header of a table of two or three columns came out as a heading ('# Description'); counting four heading-like
+    lines on a row instead dropped the four panel headings of a slide (Pinned by: test_pdf_headings.py::TestHeaderRows)."""
+    if not body_size:
+        return frozenset()
+
+    def heading_like(line: _Line) -> bool:
+        return (len(line.text) <= 100 and bool(_HEADING_LETTER.search(line.text))
+                and (line.bold or line.size >= body_size * _HEADING_SIZE_RATIO))
+
+    found: set[int] = set()
+    rows = _rows(lines)
+    for index, row in enumerate(rows):
+        alike = [line for line in row if heading_like(line)]
+        if len(alike) < 2:
+            continue
+        apart, end = [], -math.inf  # heading-like lines side by side, left to right, not overlapping each other
+        for line in sorted(alike, key=lambda line: line.x0):
+            if line.x0 >= end:
+                apart.append(line)
+                end = line.x1
+        if len(apart) >= 2 and _cell_rows_under(apart, rows[index + 1:index + 1 + _HEADER_DATA_ROWS], heading_like):
+            found.update(id(line) for line in alike)
+    return frozenset(found)
+
+
+def _cell_rows_under(header: list[_Line], below: list[list[_Line]], heading_like: Callable[[_Line], bool]) -> bool:
+    """Whether the `_HEADER_DATA_ROWS` rows right under a row of heading-like lines (`header`, left to right) are rows of
+    the cells of a table under them: each row follows the one above within twice its height, holds no heading-like line,
+    has a line in two columns of the header or more (a column runs from a header line's left edge, less its height, to the
+    next one's) and none left of the first, and has a line narrower than half the pitch of its column (a cell, where the
+    lines of prose under side-by-side headings fill their column); and one column of the header or more holds a cell
+    there: a line of fewer than `_PROSE_LINE_MIN_WORDS` words. A column whose every line under the header holds that many
+    words or more is a column of prose, however short its lines ('Open Monday to Friday' / 'from nine to five and' under
+    'Opening Hours'), and headings over columns of prose only are headings.
+
+    Known accepted gap: a table with a single data row is not told from headings with one line under each (the panels of
+    a slide), and its header cells are headings; so is the header of a table whose every cell holds three words or more
+    (Pinned by: test_pdf_headings.py::TestHeaderRows)."""
+    if len(below) < _HEADER_DATA_ROWS:
+        return False
+    lefts = [line.x0 - line.height for line in header]
+    pitches = [after - left for left, after in pairwise(lefts)]
+    pitches.append(pitches[-1])
+    above = header
+    cells = set()  # the columns with a line of fewer than `_PROSE_LINE_MIN_WORDS` words under the header
+    for row in below:
+        if min(line.top for line in row) - max(line.bottom for line in above) > 2 * max(line.height for line in above):
+            return False
+        columns = set()
+        narrow = False
+        for line in row:
+            column = bisect_left(lefts, line.x0 + 1e-9) - 1
+            if column < 0 or heading_like(line):
+                return False
+            columns.add(column)
+            narrow = narrow or line.x1 - line.x0 < pitches[column] * 0.5
+            if len(line.text.split()) < _PROSE_LINE_MIN_WORDS:
+                cells.add(column)
+        if len(columns) < 2 or not narrow:
+            return False
+        above = row
+    return bool(cells)
+
+
+def _bold_body(pages: list[_Page]) -> bool:
+    """Whether the document sets its body in a bold face: at least `_BOLD_BODY_MAX_RATIO` of the characters of its lines are
+    in bold lines. A bold line is then no sign of a heading."""
+    total = bold = 0
+    for page in pages:
+        if page.simple:
+            continue
+        for line in page.lines:
+            total += len(line.text)
+            bold += len(line.text) if line.bold else 0
+    return bool(total) and bold >= total * _BOLD_BODY_MAX_RATIO
+
+
+def _heading_key(paragraph: _Paragraph, heading_levels: dict[_HeadingKey, int], body_size: float,
+                 side_by_side: frozenset[int] = frozenset(), previous: _Paragraph | None = None) -> _HeadingKey | None:
+    """The level key of a paragraph that is a heading: its size when that is a heading size of the document, otherwise
+    (size, True) when the document has bold headings at about the body size and the paragraph is one. None for body text."""
+    if not _heading_shaped(paragraph) or any(id(line) in side_by_side for line in paragraph.lines):
+        return None
+    size = _heading_size(paragraph)
+    if (size, False) in heading_levels:
+        return None if _slightly_larger_text(paragraph, body_size) else (size, False)
+    if (size, True) in heading_levels and _is_bold_heading(paragraph, body_size, side_by_side, previous):
+        return (size, True)
+    return None
+
+
+def _heading_levels(pages: list[_Page], body_size: float, line_gap: float) -> dict[_HeadingKey, int]:
+    """Heading key (`_heading_key`) → level. The heading sizes in the document are mapped, largest first, to #, ## and ###
+    (### from the fourth size onward); at the same size a bold heading at about the body size comes after a larger one, so
+    those come last."""
+    bold_allowed = not _bold_body(pages)
+    keys: set[_HeadingKey] = set()
+    for page in pages:
+        if page.simple:
+            continue
+        paragraphs = _group_paragraphs(page.lines, line_gap)
+        side_by_side = _side_by_side_lines(page.lines, paragraphs, body_size)
+        previous = None
+        for paragraph in paragraphs:
+            if _is_heading(paragraph, body_size, side_by_side):
+                keys.add((_heading_size(paragraph), False))
+            elif bold_allowed and _is_bold_heading(paragraph, body_size, side_by_side, previous):
+                keys.add((_heading_size(paragraph), True))
+            previous = paragraph
+    ranked = sorted(keys, key=lambda key: (-key[0], key[1]))
+    return {key: min(rank, 3) for rank, key in enumerate(ranked, start=1)}

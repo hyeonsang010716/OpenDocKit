@@ -49,26 +49,25 @@ not text of the document.
 | :--- | ---: | ---: | ---: | ---: | :---: |
 | OpenDataLoader hybrid | 0.907 | 0.934 | 0.928 | 0.821 | yes |
 | Docling | 0.882 | 0.898 | 0.887 | 0.824 | yes |
-| *OpenDocKit at `e633db0`, with headings by weight* | *0.869* | *0.914* | *0.710* | *0.790* | no |
+| **OpenDocKit (baseline)** | **0.869** | **0.914** | **0.710** | **0.790** | no |
 | Marker | 0.861 | 0.890 | 0.808 | 0.796 | yes |
 | OpenDataLoader | 0.831 | 0.902 | 0.489 | 0.739 | no |
-| **OpenDocKit (baseline)** | **0.772** | **0.914** | **0.710** | **0.407** | no |
+| *OpenDocKit without headings by weight (`60a5de8`)* | *0.772* | *0.914* | *0.710* | *0.407* | no |
 | PyMuPDF4LLM | 0.732 | 0.885 | 0.401 | 0.412 | no |
 | MarkItDown | 0.589 | 0.844 | 0.273 | 0.000 | no |
 
-The other rows are that benchmark's published figures. What the first run showed:
+The other rows are that benchmark's published figures. What the first runs showed:
 
 - **Reading order is already among the best**, ahead of Docling.
-- **Tables** are well ahead of OpenDataLoader's rules and PyMuPDF4LLM, and 0.18 behind Docling. Of the 42 documents with a
-  table, 8 score zero because no table was written at all, and 20 score 0.9 or more: the loss is in finding tables,
-  not in reading the ones found.
-- **Headings are where the points are.** In 49 of the 107 documents with headings none is written; 43 % of the
-  reference headings are found (Docling 89 %, OpenDataLoader's rules 74 %).
-- **The headings by weight that were taken out in `60a5de8` were a large gain on these documents.** The revision
-  before it found 85 % of the headings (74 % of what it wrote as a heading was one) and scored 0.790; the revision
-  after it scores 0.407. The rules were taken out because of forms, receipts and notices built by hand to break them.
-  None of those is in this corpus, and this corpus has few Korean documents — which is the argument for measuring
-  both before deciding, not for either side.
+- **Tables** are well ahead of OpenDataLoader's rules and PyMuPDF4LLM, and 0.18 behind Docling. Of the 42 documents
+  with a table, 8 score zero because no table was written at all, and 20 score 0.9 or more: the loss is in finding
+  tables, not in reading the ones found.
+- **Headings by weight are worth 0.38 of MHS.** They had been taken out in `60a5de8` because of forms, receipts and
+  notices built by hand to break them; the first run of this scorecard measured the revision before and after
+  (85 % against 43 % of the reference headings found; 74 % against 63 % of what was written as a heading being one),
+  and they were put back. This corpus has few forms and few Korean documents, so the headings wrongly made there are
+  still unmeasured — the reason a Korean corpus comes next.
+- **What is left in headings is precision**: about one heading in four written is not one in the reference.
 
 ## What it does not measure yet
 

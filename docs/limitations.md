@@ -67,6 +67,9 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 
 ### Text and reading order
 
+- **Headings** are told from the body by size (1.15 times the body size or more) and weight (a short bold paragraph at
+  about the body size). A short bold label standing alone at the body size, such as a question of a form, can come out
+  as a heading; a heading that differs from the body only by its font family or colour does not.
 - **A page with malformed page attributes**: if even one page is like this, the whole document is read by plain extraction (no table or heading detection) with a warning.
 - **Right-aligned lines between left-aligned lines** (dialogue transcripts, ※ notes) are read top to bottom; but when the right-hand lines all have the same width they are taken as side-by-side text boxes and read column by column.
 - **Footnotes are linked only where the page proves it** (see [formats](formats.md#pdf)). A page with a mark in a table cell,
