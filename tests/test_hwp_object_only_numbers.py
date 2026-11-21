@@ -26,7 +26,7 @@ from tests.test_hwp_heads_and_shapes import (
 )
 
 
-_TABLE = "1. 추진 배경\n\n2.\n\n| 목표 | 20% |\n| --- | --- |\n\n3. 추진 일정"
+_TABLE = "1. 추진 배경\n\n2.\n\n| 목표 | 20% |\n| --- | --- |\n| 기간 | 1년 |\n\n3. 추진 일정"
 _BOX = "1. 추진 배경\n\n2.\n\n요약 상자\n\n3. 추진 일정"
 
 
@@ -37,8 +37,8 @@ def _hwpx(inner: str) -> bytes:
 
 class TestHwpxParagraphOfOnlyAnObject:
     def test_paragraph_of_only_a_table_keeps_its_number(self):
-        table = ('<hp:tbl rowCnt="1" colCnt="2"><hp:tr>' + builder._hwpx_cell(0, 0, "목표") + builder._hwpx_cell(0, 1, "20%")
-                 + "</hp:tr></hp:tbl>")
+        table = ('<hp:tbl rowCnt="2" colCnt="2"><hp:tr>' + builder._hwpx_cell(0, 0, "목표") + builder._hwpx_cell(0, 1, "20%")
+                 + "</hp:tr><hp:tr>" + builder._hwpx_cell(1, 0, "기간") + builder._hwpx_cell(1, 1, "1년") + "</hp:tr></hp:tbl>")
 
         result = convert(_hwpx(table), "a.hwpx")
 
@@ -52,13 +52,13 @@ class TestHwpxParagraphOfOnlyAnObject:
         assert result.text == _BOX
 
     def test_paragraph_without_a_head_of_only_a_table_gets_no_mark(self):
-        table = ('<hp:tbl rowCnt="1" colCnt="2"><hp:tr>' + builder._hwpx_cell(0, 0, "목표") + builder._hwpx_cell(0, 1, "20%")
-                 + "</hp:tr></hp:tbl>")
+        table = ('<hp:tbl rowCnt="2" colCnt="2"><hp:tr>' + builder._hwpx_cell(0, 0, "목표") + builder._hwpx_cell(0, 1, "20%")
+                 + "</hp:tr><hp:tr>" + builder._hwpx_cell(1, 0, "기간") + builder._hwpx_cell(1, 1, "1년") + "</hp:tr></hp:tbl>")
         body = _hwpx_paragraph("앞 문단") + f'<hp:p paraPrIDRef="0"><hp:run>{table}</hp:run></hp:p>' + _hwpx_paragraph("추진 배경", 1)
 
         result = convert(builder.hwpx_with_picture(body, header_extra=_HWPX_HEADS), "a.hwpx")
 
-        assert result.text == "앞 문단\n\n| 목표 | 20% |\n| --- | --- |\n\n1. 추진 배경"
+        assert result.text == "앞 문단\n\n| 목표 | 20% |\n| --- | --- |\n| 기간 | 1년 |\n\n1. 추진 배경"
 
 
 class TestHwpParagraphOfOnlyAnObject:
@@ -66,7 +66,7 @@ class TestHwpParagraphOfOnlyAnObject:
         record = builder.hwp_record
         section = (_hwp_paragraph("추진 배경", 1)
                    + record(TAG_PARA_HEADER, 0, _para_header(1)) + record(TAG_PARA_TEXT, 1, builder.hwp_text((11, "tbl ")))
-                   + _hwp_table_control(1, "목표", "20%")
+                   + _hwp_table_control(1, "목표", "20%", "기간", "1년", columns=2)
                    + _hwp_paragraph("추진 일정", 1))
         data = _fake_hwp(monkeypatch, sections=[section], docinfo_extra=_HWP_HEADS)
 

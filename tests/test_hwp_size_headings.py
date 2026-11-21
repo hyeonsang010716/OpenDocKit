@@ -150,13 +150,14 @@ class TestSizeHeadings:
         assert convert(data, "a.hwp").text.startswith("# 1. 사업 개요")
 
     def test_cell_text_in_a_larger_size_is_no_heading(self):
-        """In a table of two columns: a table of one is a layout box (`TestTitlesInBoxes`)."""
+        """In a table of two columns and two rows: a table of one column is a layout box (`TestTitlesInBoxes`), and one of
+        one row a line of text (`test_hwp_one_row_tables.py`)."""
         record = builder.hwp_record
-        cells = b"".join(record(TAG_LIST_HEADER, 2, builder.hwp_cell(0, col)) + record(TAG_PARA_HEADER, 2, _para_header(0))
+        cells = b"".join(record(TAG_LIST_HEADER, 2, builder.hwp_cell(index // 2, index % 2)) + record(TAG_PARA_HEADER, 2, _para_header(0))
                          + record(TAG_PARA_TEXT, 3, builder.hwp_text(text)) + record(TAG_PARA_CHAR_SHAPE, 3, struct.pack("<II", 0, 2))
-                         for col, text in enumerate(("표 제목", "단위")))
+                         for index, text in enumerate(("표 제목", "단위", "매출 합계", "천원")))
         table = (record(TAG_PARA_HEADER, 0, _para_header(0)) + record(TAG_PARA_TEXT, 1, builder.hwp_text((11, "tbl ")))
-                 + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("tbl ")) + record(TAG_TABLE, 2, struct.pack("<IHH", 0, 1, 2) + b"\x00" * 10)
+                 + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("tbl ")) + record(TAG_TABLE, 2, struct.pack("<IHH", 0, 2, 2) + b"\x00" * 10)
                  + cells)
         data = _hwp(table, _paragraph(_BODY))
 

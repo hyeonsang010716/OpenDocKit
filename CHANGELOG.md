@@ -137,6 +137,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   inside a word, and the two lines are now written as one. In 60 press releases 287 words are put right; 22 pairs of
   words are joined wrongly, where the PDF holds no space to go by (`docs/decisions/pdf-flow.md`). A PDF from another
   generator, and any line break at a space, is left as it was.
+- **HWP and HWPX: a table of one row is a line of text, and the bar of an attachment a heading.** A table of one row is a
+  header over no rows; in 59 Korean press releases 126 of 219 tables were of this kind and none held data. The cells are
+  now written as one line ('보도시점 배포 즉시 보도 가능 배포 2026. 11. 20.(금)'), a heading when set large, and under the
+  label of an attachment a heading of level 2 (`## 붙임 1 행사 개요`), so the parts of such a document have their
+  titles. A row with a cell of several paragraphs stays a table.
 - **HWP and HWPX**: the soft hyphen (HWP code 24, HWPX `hp:hypen`) is left out, as Hangul draws it only where a line
   breaks inside the word; HWP wrote `Word-processor` for `Wordprocessor`.
 - **HWP and HWPX**: an empty body is not replaced by a preview that holds no letter or digit; empty tables gave

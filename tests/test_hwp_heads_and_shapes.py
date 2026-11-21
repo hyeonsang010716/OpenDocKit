@@ -69,14 +69,16 @@ def _hwp_picture_control(level: int) -> bytes:
             + builder.hwp_record(TAG_SHAPE_PICTURE, level + 1, picture))
 
 
-def _hwp_table_control(level: int, *texts: str) -> bytes:
-    """The CTRL_HEADER of a one-row table and its cells (`level` is the level of the control)."""
+def _hwp_table_control(level: int, *texts: str, columns: int | None = None) -> bytes:
+    """The CTRL_HEADER of a table and its cells, `columns` to a row — one row without it (`level` is the level of the
+    control). A table of one row is written as a line of text, so a test of a table gives two."""
     record = builder.hwp_record
-    cells = b"".join(record(TAG_LIST_HEADER, level + 1, builder.hwp_cell(0, col))
+    columns = columns or len(texts)
+    cells = b"".join(record(TAG_LIST_HEADER, level + 1, builder.hwp_cell(index // columns, index % columns))
                      + record(TAG_PARA_HEADER, level + 1, builder.hwp_para_header())
-                     + record(TAG_PARA_TEXT, level + 2, builder.hwp_text(text)) for col, text in enumerate(texts))
+                     + record(TAG_PARA_TEXT, level + 2, builder.hwp_text(text)) for index, text in enumerate(texts))
     return (record(TAG_CTRL_HEADER, level, builder.hwp_ctrl("tbl "))
-            + record(TAG_TABLE, level + 1, struct.pack("<IHH", 0, 1, len(texts)) + b"\x00" * 10) + cells)
+            + record(TAG_TABLE, level + 1, struct.pack("<IHH", 0, len(texts) // columns, columns) + b"\x00" * 10) + cells)
 
 
 class TestHeadOfAParagraphThatStartsWithAPicture:
@@ -86,14 +88,15 @@ class TestHeadOfAParagraphThatStartsWithAPicture:
 
     def test_hwpx_number_goes_to_the_text_after_a_picture_and_a_table(self):
         body = (_hwpx_paragraph("추진 배경", 1)
-                + f'<hp:p paraPrIDRef="1"><hp:run>{_hwpx_picture()}<hp:tbl rowCnt="1" colCnt="2"><hp:tr>'
+                + f'<hp:p paraPrIDRef="1"><hp:run>{_hwpx_picture()}<hp:tbl rowCnt="2" colCnt="2"><hp:tr>'
                 + builder._hwpx_cell(0, 0, "목표") + builder._hwpx_cell(0, 1, "20%")
+                + "</hp:tr><hp:tr>" + builder._hwpx_cell(1, 0, "기간") + builder._hwpx_cell(1, 1, "1년")
                 + "</hp:tr></hp:tbl><hp:t>추진 목표</hp:t></hp:run></hp:p>"
                 + _hwpx_paragraph("추진 일정", 1))
 
         result = convert(builder.hwpx_with_picture(body, header_extra=_HWPX_HEADS), "a.hwpx")
 
-        assert result.text == ("1. 추진 배경\n\n[Image]\n\n| 목표 | 20% |\n| --- | --- |\n\n"
+        assert result.text == ("1. 추진 배경\n\n[Image]\n\n| 목표 | 20% |\n| --- | --- |\n| 기간 | 1년 |\n\n"
                                "2. 추진 목표\n3. 추진 일정")
 
     def test_hwpx_heading_mark_goes_to_the_text_after_a_picture_and_a_text_box(self):
@@ -125,27 +128,27 @@ class TestHeadOfAParagraphThatStartsWithAPicture:
         section = (_hwp_paragraph("추진 배경", 1)
                    + record(TAG_PARA_HEADER, 0, _para_header(1))
                    + record(TAG_PARA_TEXT, 1, builder.hwp_text((11, "gso "), (11, "tbl "), "추진 목표"))
-                   + _hwp_picture_control(1) + _hwp_table_control(1, "목표", "20%")
+                   + _hwp_picture_control(1) + _hwp_table_control(1, "목표", "20%", "기간", "1년", columns=2)
                    + _hwp_paragraph("추진 일정", 1))
         data = _fake_hwp(monkeypatch, sections=[section], docinfo_extra=_HWP_HEADS + record(TAG_BIN_DATA, 0, _HWP_PICTURE),
                          extra={"BinData/BIN0001.png": builder.png_bytes()})
 
         result = convert(data, "a.hwp")
 
-        assert result.text == ("1. 추진 배경\n\n[Image]\n\n| 목표 | 20% |\n| --- | --- |\n\n"
+        assert result.text == ("1. 추진 배경\n\n[Image]\n\n| 목표 | 20% |\n| --- | --- |\n| 기간 | 1년 |\n\n"
                                "2. 추진 목표\n3. 추진 일정")
 
     def test_hwp_heading_mark_goes_to_the_text_after_a_picture(self, monkeypatch):
         record = builder.hwp_record
         section = (record(TAG_PARA_HEADER, 0, _para_header(0, 2))
                    + record(TAG_PARA_TEXT, 1, builder.hwp_text((11, "gso "), (11, "tbl "), "사업 개요"))
-                   + _hwp_picture_control(1) + _hwp_table_control(1, "구분", "내용"))
+                   + _hwp_picture_control(1) + _hwp_table_control(1, "구분", "내용", "기간", "1년", columns=2))
         data = _fake_hwp(monkeypatch, sections=[section], docinfo_extra=record(TAG_BIN_DATA, 0, _HWP_PICTURE),
                          extra={"BinData/BIN0001.png": builder.png_bytes()})
 
         result = convert(data, "a.hwp")
 
-        assert result.text == "[Image]\n\n| 구분 | 내용 |\n| --- | --- |\n\n# 사업 개요"
+        assert result.text == "[Image]\n\n| 구분 | 내용 |\n| --- | --- |\n| 기간 | 1년 |\n\n# 사업 개요"
 
 
 class TestOutlineParagraphSplitByATable:
@@ -153,24 +156,25 @@ class TestOutlineParagraphSplitByATable:
     heading mark goes on the first piece only."""
 
     def test_hwpx(self):
-        body = ('<hp:p styleIDRef="2"><hp:run><hp:t>사업 개요</hp:t><hp:tbl rowCnt="1" colCnt="2"><hp:tr>'
+        body = ('<hp:p styleIDRef="2"><hp:run><hp:t>사업 개요</hp:t><hp:tbl rowCnt="2" colCnt="2"><hp:tr>'
                 + builder._hwpx_cell(0, 0, "구분") + builder._hwpx_cell(0, 1, "내용")
+                + "</hp:tr><hp:tr>" + builder._hwpx_cell(1, 0, "기간") + builder._hwpx_cell(1, 1, "1년")
                 + "</hp:tr></hp:tbl><hp:t>은 아래와 같다</hp:t></hp:run></hp:p>")
 
         result = convert(builder.hwpx_bytes(body), "a.hwpx")
 
-        assert result.text == "# 사업 개요\n\n| 구분 | 내용 |\n| --- | --- |\n\n은 아래와 같다"
+        assert result.text == "# 사업 개요\n\n| 구분 | 내용 |\n| --- | --- |\n| 기간 | 1년 |\n\n은 아래와 같다"
 
     def test_hwp(self, monkeypatch):
         record = builder.hwp_record
         section = (record(TAG_PARA_HEADER, 0, _para_header(0, 2))
                    + record(TAG_PARA_TEXT, 1, builder.hwp_text("사업 개요", (11, "tbl "), "은 아래와 같다"))
-                   + _hwp_table_control(1, "구분", "내용"))
+                   + _hwp_table_control(1, "구분", "내용", "기간", "1년", columns=2))
         data = _fake_hwp(monkeypatch, sections=[section])
 
         result = convert(data, "a.hwp")
 
-        assert result.text == "# 사업 개요\n\n| 구분 | 내용 |\n| --- | --- |\n\n은 아래와 같다"
+        assert result.text == "# 사업 개요\n\n| 구분 | 내용 |\n| --- | --- |\n| 기간 | 1년 |\n\n은 아래와 같다"
 
 
 class TestLowerLevelNumbers:

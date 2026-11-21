@@ -630,12 +630,12 @@ def hwpx_with_images() -> bytes:
         '<hp:p><hp:run><hp:t>그림 앞 문단</hp:t></hp:run></hp:p>'
         '<hp:p><hp:run><hp:pic><hp:shapeComment>그림입니다. 원본 그림의 이름: a.png</hp:shapeComment>'
         '<hc:img xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" binaryItemIDRef="image1"/></hp:pic></hp:run></hp:p>'
-        '<hp:p><hp:run><hp:tbl rowCnt="1" colCnt="2"><hp:tr>'
+        '<hp:p><hp:run><hp:tbl rowCnt="2" colCnt="2"><hp:tr>'
         + _hwpx_cell(0, 0, "도면")
         + '<hp:tc><hp:subList><hp:p><hp:run><hp:pic>'
         '<hc:img xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" binaryItemIDRef="image2"/></hp:pic>'
         '</hp:run></hp:p></hp:subList><hp:cellAddr colAddr="1" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>'
-        "</hp:tr></hp:tbl></hp:run></hp:p>"
+        "</hp:tr><hp:tr>" + _hwpx_cell(1, 0, "축척") + _hwpx_cell(1, 1, "1:100") + "</hp:tr></hp:tbl></hp:run></hp:p>"
     )
     data = hwpx_bytes(body)
     source = zipfile.ZipFile(BytesIO(data))

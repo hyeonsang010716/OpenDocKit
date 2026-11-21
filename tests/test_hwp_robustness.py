@@ -305,12 +305,13 @@ class TestSpansPastTheTable:
         monkeypatch.setattr(TableGrid, "place", counting)
         cells = "".join(builder._hwpx_cell(0, col * 100, "", row_span=100, col_span=100) for col in range(50))
         table = f'<hp:p><hp:run><hp:tbl rowCnt="1" colCnt="5000"><hp:tr>{cells}</hp:tr></hp:tbl></hp:run></hp:p>'
-        last = ('<hp:p><hp:run><hp:tbl rowCnt="1" colCnt="2"><hp:tr>' + builder._hwpx_cell(0, 0, "끝")
-                + builder._hwpx_cell(0, 1, "값") + "</hp:tr></hp:tbl></hp:run></hp:p>")
+        last = ('<hp:p><hp:run><hp:tbl rowCnt="2" colCnt="2"><hp:tr>' + builder._hwpx_cell(0, 0, "끝")
+                + builder._hwpx_cell(0, 1, "값") + "</hp:tr><hp:tr>" + builder._hwpx_cell(1, 0, "둘") + builder._hwpx_cell(1, 1, "셋")
+                + "</hp:tr></hp:tbl></hp:run></hp:p>")
 
         result = convert(builder.hwpx_bytes("<hp:p><hp:run><hp:t>title</hp:t></hp:run></hp:p>" + table * 50 + last), "a.hwpx")
 
-        assert result.text == "title\n\n| 끝 | 값 |\n| --- | --- |"
+        assert result.text == "title\n\n| 끝 | 값 |\n| --- | --- |\n| 둘 | 셋 |"
         assert sum(filled) <= _CONVERSION_SPAN_BUDGET + len(filled)  # per table it was 50 × 500,000 cells
 
 

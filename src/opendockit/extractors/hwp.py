@@ -906,15 +906,18 @@ class HwpRenderer:
         outer = self._grids[-1] if self._grids else None
         # A table of one column in the top-level body is a layout box: its paragraphs are kept as they are read, so that one
         # set as a title can become a heading by its size (`_hangul.SizeHeadings.box`)
-        box = (col_count == 1 and not caption and not self._grids and not self._cell_depth and self._depth == 1
-               and not self._note_depth and not self._plain_header)
+        layout = (not caption and not self._grids and not self._cell_depth and self._depth == 1
+                  and not self._note_depth and not self._plain_header)
+        box = layout and col_count == 1
+        # ... and a table of one row sets things beside each other, and is one line of text (`SizeHeadings.row`)
+        one_row = layout and not box and row_count == 1
         self._grids.append(grid)
         self._cell_depth += 1
-        box_cells = self._box_cells = [] if box else self._box_cells
+        box_cells = self._box_cells = [] if box or one_row else self._box_cells
         try:
             for position, (header, paragraphs) in enumerate(cells):
                 blocks = self.render(paragraphs)
-                if box:
+                if box or one_row:
                     box_cells.append(blocks)
                 text = "\n".join(blocks)
                 columns = max(col_count, 1)
@@ -926,7 +929,7 @@ class HwpRenderer:
         finally:
             self._cell_depth -= 1
             self._grids.pop()
-            if box:
+            if box or one_row:
                 self._box_cells = None
 
         # A table inside a footnote (and tables inside it) is flattened to one line (`note_table`: cells ' / ', rows '; '). Rendering a
@@ -951,6 +954,8 @@ class HwpRenderer:
         self.omitted_rows += grid.omitted_rows()
         if box:
             return self.size_headings.box(rendered, box_cells, grid)
+        if one_row:
+            return self.size_headings.row(rendered, box_cells, grid)
         return join_blocks([caption_text, rendered])
 
 

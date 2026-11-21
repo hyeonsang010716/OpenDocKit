@@ -40,9 +40,9 @@ class TestSpacedLabels:
     def test_bold_label_is_joined_too(self):
         """Header cells are often bold throughout; their marks are dropped as for any whole cell, and the label is joined."""
         head = '<hh:charProperties itemCnt="1"><hh:charPr id="1" height="1000"><hh:bold/></hh:charPr></hh:charProperties>'
-        body = ('<hp:p><hp:run><hp:tbl rowCnt="1" colCnt="2"><hp:tr>'
+        body = ('<hp:p><hp:run><hp:tbl rowCnt="2" colCnt="2"><hp:tr>'
                 + _cell(0, 0, "기   관   명").replace("<hp:run>", '<hp:run charPrIDRef="1">') + _cell(0, 1, "한국정보원")
-                + "</hp:tr></hp:tbl></hp:run></hp:p>")
+                + "</hp:tr><hp:tr>" + _cell(1, 0, "주소") + _cell(1, 1, "서울") + "</hp:tr></hp:tbl></hp:run></hp:p>")
         data = builder.zip_with(builder.hwpx_bytes(body), edit={
             "Contents/header.xml": lambda xml: xml.replace("</hh:refList>", head + "</hh:refList>")})
 

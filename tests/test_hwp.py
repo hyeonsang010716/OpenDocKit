@@ -1737,27 +1737,27 @@ class TestHyperlinks:
         """A heading is decided on its text without the address, as in DOCX: a long address does not make it body text. A link
         in a table cell or a note is kept; a link whose end is past a table in the same paragraph stays text."""
         address = "https\\://example.com/" + "a" * 150 + ";1;0;0;"
-        def row(field_id: int) -> str:   # a link in the first cell, text in the second
+        def row(field_id: int) -> str:   # a link in the first cell, text in the second; and a second row — one row is a line of text
             return "<hp:tr>" + "".join(
                 f'<hp:tc><hp:subList><hp:p><hp:run>{inner}</hp:run></hp:p></hp:subList><hp:cellAddr colAddr="{column}" rowAddr="0"/>'
                 '<hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>'
                 for column, inner in enumerate((_hwpx_link(field_id, r"https\://cell.example;1;0;0;", "셀"), "<hp:t>값</hp:t>"))
-            ) + "</hp:tr>"
+            ) + "</hp:tr><hp:tr>" + builder._hwpx_cell(1, 0, "둘") + builder._hwpx_cell(1, 1, "셋") + "</hp:tr>"
 
         body = (f'<hp:p styleIDRef="2"><hp:run>{_hwpx_link(1, address, "사업 개요")}</hp:run></hp:p>'
-                f'<hp:p><hp:run><hp:tbl rowCnt="1" colCnt="2">{row(2)}</hp:tbl></hp:run></hp:p>'
+                f'<hp:p><hp:run><hp:tbl rowCnt="2" colCnt="2">{row(2)}</hp:tbl></hp:run></hp:p>'
                 '<hp:p><hp:run><hp:t>본문</hp:t>' + _hwpx_note(_hwpx_p(_hwpx_link(3, r"https\://note.example;1;0;0;", "출처")))
                 + "</hp:run></hp:p>"
                 '<hp:p><hp:run><hp:ctrl><hp:fieldBegin id="4" type="HYPERLINK"><hp:parameters cnt="1"><hp:stringParam name="Command">'
                 r"https\://far.example;1;0;0;</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl><hp:t>앞</hp:t>"
-                f'<hp:tbl rowCnt="1" colCnt="2">{row(5)}</hp:tbl>'
+                f'<hp:tbl rowCnt="2" colCnt="2">{row(5)}</hp:tbl>'
                 '<hp:t>뒤</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="4"/></hp:ctrl></hp:run></hp:p>')
 
         text = convert(builder.hwpx_bytes(body), "a.hwpx").text
 
         assert text.startswith(f"# [사업 개요](https://example.com/{'a' * 150})\n\n| [셀](https://cell.example) | 값 |")
         assert "본문[^1]" in text and text.endswith("[^1]: [출처](https://note.example)")
-        assert "앞\n\n| [셀](https://cell.example) | 값 |\n| --- | --- |\n\n뒤" in text
+        assert "앞\n\n| [셀](https://cell.example) | 값 |\n| --- | --- |\n| 둘 | 셋 |\n\n뒤" in text
 
     def test_hwpx_link_in_a_comment_stays_text(self):
         """Comment text is plain, as in DOCX; the link around commented body text is kept."""

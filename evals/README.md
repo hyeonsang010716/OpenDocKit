@@ -94,15 +94,20 @@ The scores say how far the two readers agree, so read them as a watch for change
   NID did not see (0.9115 with them, 0.9125 without). The HWPX of each release says where a space belongs, and against
   it the rule that puts such a word together again (`docs/decisions/pdf-flow.md`) is right 287 times and wrong 22:
   where a line breaks between two runs of different character properties, Hangul's PDF has no space to show.
-- **NID 0.913**: the same text in the same order. This is what caught the first form of the tables drawn with
+- **NID 0.927**: the same text in the same order. This is what caught the first form of the tables drawn with
   horizontal rules, which unfolded the top of 17 releases and lost their titles while the English benchmark stood still.
-- **TEDS 0.475** is low for a reason that is not the PDF reader's alone: the box of release time and distribution at
-  the top of every release is a table in the HWPX and four pieces of text without a rule in the PDF.
-- **MHS 0.599 over 52 releases is not gated**: it says how far two readers agree, and a heading only one of them writes
+- **TEDS 0.559**, from 0.475, by a change to the reference and not to the PDF reader. The low number was a finding
+  about the HWPX reader: 126 of its 219 tables in these releases were of one row — the bar an attachment opens with,
+  the time of release beside the date — and none held data. They are lines of text now, the bars headings
+  (`docs/decisions/hwp.md`). What still separates the two readers is in the HWPX and not on the page: cells divided
+  by borders that are not drawn (the contact table at the end of every release is six columns in the HWPX and four in
+  the PDF).
+- **MHS 0.640 over 56 releases is not gated**: it says how far two readers agree, and a heading only one of them writes
   is not known to be wrong. The first run had 5 releases to measure it on: the HWPX reader wrote 11 headings in the 60
   releases and the PDF reader 140, because the title of a release stands in a one-column table in the HWPX, where a
   paragraph could not become a heading by its size. It can now (`docs/decisions/hwp.md`), the HWPX reader writes 58,
-  and what is left to read in this number is mostly headings the PDF reader makes and the HWPX reader does not.
+  and with the bars of the attachments 120. What is left to read in this number is headings one reader makes and the
+  other does not: the PDF reader writes the bar of an attachment as a paragraph.
 
 Compared with `main` before the headings by weight were put back, the PDF reader writes 45 more headings in these
 releases and loses none: the section titles of two long releases, the labels of summary boxes, and — wrongly — a line
