@@ -42,7 +42,8 @@ the published ones.
 `overall` is the mean of the three for each document, averaged over the documents.
 
 A fourth number, **Words**, is OpenDocKit's own and stays out of `overall`: how far the two texts are made of the same
-words, whatever their order (`2 * shared / (words of one + words of the other)`). NID compares characters and hardly
+words, whatever their order (`2 * shared / (words of one + words of the other)`). The marks of emphasis are no part of
+a word: `**장관**은` is the word `장관은`, since one reader marks bold and another does not. NID compares characters and hardly
 sees a space, so a word a line break cut in two costs it one character in thousands; here it costs two wrong words and
 a missing one. On the benchmark it is 0.954 for OpenDocKit, 0.937 for OpenDataLoader, 0.932 for Docling and 0.915 for
 PyMuPDF4LLM, scored from the Markdown that benchmark publishes for each. Conversion uses the default
@@ -107,7 +108,7 @@ Sixty press releases of Korean ministries that the policy briefing site publishe
 text, so its conversion is the reference for the PDF's: nobody labels anything, and the corpus can grow by a command.
 The scores say how far the two readers agree, so read them as a watch for change, not as a grade:
 
-- **Words 0.955**, from 0.941: Hangul breaks a line of Korean after any syllable, and every body paragraph of the PDFs
+- **Words 0.977**, from 0.961: Hangul breaks a line of Korean after any syllable, and every body paragraph of the PDFs
   came out with a space inside several of its words ('산림 청과' for '산림청과') — 375 words in the 60 releases, which
   NID did not see (0.9115 with them, 0.9125 without). The HWPX of each release says where a space belongs, and against
   it the rule that puts such a word together again (`docs/decisions/pdf-flow.md`) is right 287 times and wrong 22:
@@ -152,7 +153,7 @@ as they are:
 | NID | 0.918 | 0.935 |
 | TEDS | 0.477 | 0.580 |
 | MHS | 0.708 | 0.807 |
-| Words | 0.943 | 0.957 |
+| Words | 0.963 | 0.978 |
 | Line breaks taken out of a word, right / wrong by the HWPX | | 355 / 32 |
 
 The gains are those of the first sixty (overall 0.666 → 0.747 there), and the rule that joins a word is right as often

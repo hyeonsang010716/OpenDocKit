@@ -144,6 +144,10 @@ class TestWords:
     def test_markup_and_order_are_not_words(self):
         assert score("# Title\n\nfirst second\n\n| a | b |\n|---|---|\n| 1 | 2 |", "second first **Title** a b 1 2").words == 1.0
 
+    def test_emphasis_inside_a_word_does_not_cut_it(self):
+        """The HWPX of a release marks '장관' bold and the PDF marks nothing: the same words."""
+        assert score("**장관**은 `안전`을 ~~최우선~~으로 *강조*했다", "장관은 안전을 최우선으로 강조했다").words == 1.0
+
     def test_a_reference_without_words_is_not_measured(self):
         assert score("---", "text").words is None
 

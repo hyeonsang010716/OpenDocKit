@@ -369,14 +369,22 @@ def reading_order(reference: str, result: str) -> tuple[float | None, float | No
 
 _TAG = re.compile(r"<[^>]*>")
 _WORD = re.compile(r"[^\W_]+")
+# The marks of emphasis, strikethrough and code, which stand inside a word as often as around one ('**장관**은')
+_INLINE_MARKS = re.compile(r"\*+|~~|`")
+
+
+def _words_of(text: str) -> Counter[str]:
+    """The words of a text: its runs of letters and digits, the tags of its tables taken for spaces and its inline marks
+    for nothing — '**장관**은' is the word '장관은', as it is in a text written without emphasis."""
+    return Counter(_WORD.findall(_INLINE_MARKS.sub("", unescape(_TAG.sub(" ", text)))))
 
 
 def words(reference: str, result: str) -> float | None:
     """How far the two texts are made of the same words, whatever their order (both with their tables written as HTML)."""
-    wanted = Counter(_WORD.findall(unescape(_TAG.sub(" ", reference))))
+    wanted = _words_of(reference)
     if not wanted:
         return None
-    found = Counter(_WORD.findall(unescape(_TAG.sub(" ", result))))
+    found = _words_of(result)
     return 2 * sum((wanted & found).values()) / (sum(wanted.values()) + sum(found.values()))
 
 
