@@ -27,7 +27,7 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._lists import is_placeholder_only, paragraph_head
 from opendockit.extractors._notation import NOTE_ROW_SEPARATOR, TableBudget, omitted_rows_warning
-from opendockit.markdown import TableGrid, join_blocks, merged_copy, solid_length
+from opendockit.markdown import CellHeading, TableGrid, join_blocks, merged_copy, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
@@ -250,6 +250,23 @@ class _RowDefinition:
         return self._shared
 
 
+class _CellText(str):
+    """The text of a table cell that remembers its paragraphs, a heading among them (`markdown.CellHeading`), for when its
+    table turns out to be a layout box (`_Flow._close_table`). A table of RTF is rows of cells as they come; that every row
+    holds one is known only at its end."""
+
+    paragraphs: list[str]
+
+
+def _cell_text(paragraphs: list[str]) -> str:
+    text = "\n".join(paragraphs)
+    if not any(type(paragraph) is CellHeading for paragraph in paragraphs):
+        return text
+    cell = _CellText(text)
+    cell.paragraphs = paragraphs
+    return cell
+
+
 class _Table:
     __slots__ = ("grid", "rows", "cells", "cell", "budget", "stops_reading", "full", "root", "used", "nested", "dropped", "holds")
 
@@ -453,7 +470,7 @@ class _Flow:
         if table.dropped:
             return
         if table.cell:  # text after the last `\cell` is a cell (`_Table.build`), inside the limit like any other
-            self._keep(table, "\n".join(table.cell))
+            self._keep(table, _cell_text(table.cell))
             table.cell = []
         grid = table.build()
         if self.tables:
@@ -468,8 +485,16 @@ class _Flow:
             # A table inside a footnote is one line, as in DOCX/HWP (`_notation.note_table` shape: cells ' / ', rows '; ').
             self.add_block(NOTE_ROW_SEPARATOR.join(line for line in grid.flatten(self.reader.options.max_chars).split("\n") if line.strip()))
         else:
-            self.add_block(grid.render(room=table.budget.room if table.budget is not None else None))
+            rendered = grid.render(room=table.budget.room if table.budget is not None else None)
             self.reader.omitted_rows += grid.omitted_rows()
+            # A table with one cell in every row is a layout box, written as paragraphs: a paragraph of it in a heading style
+            # is written as a heading, as in DOCX (`TableGrid.unfolded`; Pinned by: test_rtf.py::TestHeadingsInBoxes)
+            if all(len(cells) == 1 for cells, _ in table.rows):
+                cells = [getattr(cell, "paragraphs", None) or [cell] for row, _ in table.rows for cell in row]
+                for block in grid.unfolded(rendered, cells):
+                    self.add_block(block)
+            else:
+                self.add_block(rendered)
 
     def add_block(self, text: str) -> None:
         if not text.strip():
@@ -539,7 +564,7 @@ class _Flow:
         text = self._paragraph_text(in_cell=True, kept=_takes_cells(table))
         if text:
             table.cell.append(text)
-        cell = "\n".join(table.cell)
+        cell = _cell_text(table.cell)
         table.cell = []
         if table.dropped or not self._keep(table, cell):
             return
@@ -575,7 +600,7 @@ class _Flow:
         if table.dropped:
             return
         if table.cell:
-            self._keep(table, "\n".join(table.cell))
+            self._keep(table, _cell_text(table.cell))
             table.cell = []
         if table.cells:
             # Only the edges of the cells the row really has are kept: the rest of a definition says nothing about this row.
@@ -683,7 +708,16 @@ class _Flow:
         # (Pinned by: test_rtf.py::TestParagraphsAndHeadings::test_heading_holding_only_a_picture_is_not_a_heading).
         if mark is not None:
             lines[0] = paragraph_head(mark[0], mark[1], in_cell=in_cell, heading=False) + lines[0]
-        return "\n".join(lines)
+        written = "\n".join(lines)
+        # A paragraph in a heading style in a cell of a table of the body is written as in any cell, and remembers the heading
+        # it is for when the table is a layout box (`_close_table`)
+        if (in_cell and self.kind == "body" and len(self.tables) == 1 and len(plain) <= _HEADING_MAX_CHARS
+                and not is_placeholder_only(plain) and (box_level := reader.heading_level(paragraph))):
+            title = resolve_inline(_inline_tokens(runs, emphasis=False, links=options.keep_links), emphasis=False)
+            title = " ".join(line for line in (" ".join(line.split()) for line in title.split("\n")) if line)
+            if title:
+                return CellHeading.of(written, box_level, title)
+        return written
 
 
 class _Reader:
