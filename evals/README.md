@@ -49,7 +49,7 @@ not text of the document.
 | :--- | ---: | ---: | ---: | ---: | :---: |
 | OpenDataLoader hybrid | 0.907 | 0.934 | 0.928 | 0.821 | yes |
 | Docling | 0.882 | 0.898 | 0.887 | 0.824 | yes |
-| **OpenDocKit (baseline)** | **0.869** | **0.914** | **0.710** | **0.790** | no |
+| **OpenDocKit (baseline)** | **0.874** | **0.914** | **0.776** | **0.791** | no |
 | Marker | 0.861 | 0.890 | 0.808 | 0.796 | yes |
 | OpenDataLoader | 0.831 | 0.902 | 0.489 | 0.739 | no |
 | *OpenDocKit without headings by weight (`60a5de8`)* | *0.772* | *0.914* | *0.710* | *0.407* | no |
@@ -59,9 +59,10 @@ not text of the document.
 The other rows are that benchmark's published figures. What the first runs showed:
 
 - **Reading order is already among the best**, ahead of Docling.
-- **Tables** are well ahead of OpenDataLoader's rules and PyMuPDF4LLM, and 0.18 behind Docling. Of the 42 documents
-  with a table, 8 score zero because no table was written at all, and 20 score 0.9 or more: the loss is in finding
-  tables, not in reading the ones found.
+- **Tables** are well ahead of OpenDataLoader's rules and PyMuPDF4LLM, and 0.11 behind Docling. The first run had
+  0.710, with 8 of the 42 documents scoring zero because no table was written at all; tables drawn with horizontal
+  rules only (`_pdf_banded_tables.py`) took three of those to 0.79–1.0. The loss is still in finding tables, not in
+  reading the ones found.
 - **Headings by weight are worth 0.38 of MHS.** They had been taken out in `60a5de8` because of forms, receipts and
   notices built by hand to break them; the first run of this scorecard measured the revision before and after
   (85 % against 43 % of the reference headings found; 74 % against 63 % of what was written as a heading being one),

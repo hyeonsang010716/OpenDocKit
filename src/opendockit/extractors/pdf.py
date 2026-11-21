@@ -74,6 +74,7 @@ from opendockit.extractors._pdf_artifacts import (
     _without_drawing_artifacts,
     _xobject_owners,
 )
+from opendockit.extractors._pdf_banded_tables import _extract_banded_tables
 from opendockit.extractors._pdf_chars import (
     _drawn_text,
     _drop_cap,
@@ -583,6 +584,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
     for page in pages:
         _join_ruled_header_lines(page)
         _extract_aligned_tables(page)
+        _extract_banded_tables(page)
         _join_row_fragments(page)
         _read_columns_in_turn(page)
         _read_alternating_sides_in_turn(page)
