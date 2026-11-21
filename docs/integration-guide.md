@@ -105,7 +105,7 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
   - A formula without a value in Excel 2003 XML comes out as the formula, like `=SUM(B1:B2)` (warning).
   - A file in which only some formulas have no result (a report where a server program wrote an extra total row) gives the formula only for those cells (warning per sheet). Opening it in Excel and saving again turns them into values.
 - In `.xls`, when no formula has a calculated result at all, the formulas come out as empty cells (warning; the formula text is not written).
-- An xlsx saved in Strict Open XML format gives `unsupported_format` → advise "save again as a normal Excel Workbook (.xlsx)".
+- An xlsx saved in Strict Open XML format is read like any other. Only one whose content still cannot be read gives `unsupported_format` → advise "save again as a normal Excel Workbook (.xlsx)".
 - Hidden rows and columns are included without distinction. Hyperlink addresses are not included (only the text visible in the cell). Cell comments are added at the end of the sheet as `> Comment(author, cell E5, on "…"): text`.
 - A cell with a time format (`h:mm` and so on) gives only the time, as Excel does, rounded to the second (a fractional-second format also stops at seconds). A negative time is `-01:30:00`. With a date format, a value outside the date range (99999999), 0 or a negative value comes out as the number. In Excel 2003 XML, a numeric cell with a date format also comes out as a date (the 1904 date system is not supported).
 - In `.xls`, when merged cells cover more than 500,000 cells, the merged value is kept in the first cell only (warning).

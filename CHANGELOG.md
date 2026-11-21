@@ -26,7 +26,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **DOCX saved as Strict Open XML is read.** It was refused with the advice to save it again; its namespaces and
   relationship types are now read as their Transitional forms, and the lengths Word writes there with a unit (`36pt`)
   as the twips and half-points they stand for, so indented lists and raised or lowered text come out as they do in an
-  ordinary DOCX. A Strict PowerPoint or Excel file is still refused with that advice.
+  ordinary DOCX. A Strict PowerPoint file is still refused with that advice.
+- **XLSX saved as Strict Open XML Spreadsheet is read**, from the same kind of copy in the ordinary names: three such
+  workbooks saved by Excel read as LibreOffice reads them, and to the same text as their ordinary twins.
 - **Windows is a supported platform.** The suite runs there for every change, and the sample outputs are identical to
   the ones Linux and macOS write.
   - `IsolatedConverter` keeps the memory limit it is given (the `ProcessMemoryLimit` of a job object, as `RLIMIT_AS` is

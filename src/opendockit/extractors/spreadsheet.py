@@ -37,7 +37,14 @@ from opendockit.extractors._openpyxl_reading import (
     _CellReading,
     _is_number,
 )
-from opendockit.extractors._package import ZIP_MEMBER_ERRORS, _xml_parser, members_named_as_referenced, named_part
+from opendockit.extractors._package import (
+    ZIP_MEMBER_ERRORS,
+    _xml_parser,
+    main_part_types,
+    members_named_as_referenced,
+    named_part,
+    transitional_package,
+)
 from opendockit.extractors._sheet_format import (
     _ELAPSED_FORMAT,
     _format_value,
@@ -139,6 +146,17 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
     # Parts stored in another case than their references name them are read under those names: openpyxl and the part readers
     # look a part up as named (Pinned by: test_office_robustness.py::TestTargetInAnotherCase::test_xlsx_parts_in_another_case).
     data = members_named_as_referenced(data) or data
+    # A workbook Excel saved as 'Strict Open XML Spreadsheet' differs in its namespaces and relationship types only: it is read
+    # from a copy that uses the Transitional names, as a Strict DOCX is (`_package.transitional_package`). A package that names
+    # its workbook with the Transitional type too is read as it is. Where the copy cannot be made, or its workbook still has the
+    # Strict name, the advice to save the file again is given as before (`_without_repeated_sheets`)
+    # (Pinned by: test_spreadsheet.py::TestStrictOpenXmlWorkbook).
+    strict, transitional = main_part_types(data)
+    if strict and not transitional:
+        try:
+            data = transitional_package(data)
+        except ZIP_MEMBER_ERRORS:
+            pass
     data, repeated = _without_repeated_sheets(data)
     with zipfile.ZipFile(BytesIO(data)) as archive:
         # openpyxl reads the sheets the workbook's sheet list points to through relationships, wherever they are stored. Looking
@@ -338,9 +356,10 @@ def _without_repeated_sheets(data: bytes) -> tuple[bytes, bool]:
         except etree.XMLSyntaxError:
             return data, False  # openpyxl rejects it for the same reason
         if root.tag == f"{{{_STRICT_SPREADSHEET_MAIN}}}workbook":
-            # A workbook saved as 'Strict Open XML Spreadsheet' has entirely different namespaces. openpyxl found no sheets at all,
-            # so an empty result went out as a 'success' without a warning
-            # (Pinned by: test_spreadsheet.py::test_strict_open_xml_workbook_is_reported_as_unsupported).
+            # A workbook in the Strict names that was not read from its Transitional copy (`_extract_xlsx`: the package names
+            # the workbook with the Transitional type as well, or the copy could not be made). openpyxl found no sheets at
+            # all, so an empty result went out as a 'success' without a warning
+            # (Pinned by: test_spreadsheet.py::TestStrictOpenXmlWorkbook::test_strict_names_under_a_transitional_relationship_are_refused).
             raise UnsupportedFormatError("Excel documents in the Strict Open XML format are not supported. "
                                          "Re-save the file in Excel as 'Excel Workbook (.xlsx)'.")
         targets = _related(archive, names, workbook_path)
