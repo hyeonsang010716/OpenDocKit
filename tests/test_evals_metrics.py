@@ -81,7 +81,7 @@ class TestScore:
 
     def test_the_same_text_scores_one(self):
         scores = score(self.REFERENCE, self.REFERENCE)
-        assert scores.as_dict() == {"overall": 1.0, "nid": 1.0, "nid_s": 1.0, "teds": 1.0, "teds_s": 1.0, "mhs": 1.0, "mhs_s": 1.0}
+        assert scores.as_dict() == {"overall": 1.0, "nid": 1.0, "nid_s": 1.0, "teds": 1.0, "teds_s": 1.0, "mhs": 1.0, "mhs_s": 1.0, "words": 1.0}
 
     def test_an_html_table_scores_as_the_pipe_table_it_equals(self):
         as_html = self.REFERENCE.replace(
@@ -134,6 +134,20 @@ class TestScore:
         assert [(child.tag, child.text) for child in root.children[1].children] == [("content", "one two")]
 
 
+class TestWords:
+    def test_a_word_cut_in_two_costs_words_and_hardly_any_reading_order(self):
+        reference = "산림청과 지방정부, 유관기관 등 산지관리 업무 담당자 약 340명이 참석한 가운데"
+        scores = score(reference, "산림\n청과 지방정부, 유관기관 등 산지관리 업무 담당자 약 340명이 참석한 가\n운데")
+        assert scores.nid > 0.97
+        assert scores.words == pytest.approx(2 * 9 / (11 + 13))
+
+    def test_markup_and_order_are_not_words(self):
+        assert score("# Title\n\nfirst second\n\n| a | b |\n|---|---|\n| 1 | 2 |", "second first **Title** a b 1 2").words == 1.0
+
+    def test_a_reference_without_words_is_not_measured(self):
+        assert score("---", "text").words is None
+
+
 class TestLimitsOfTheMeasure:
     def test_tables_too_large_to_compare_are_not_measured(self, monkeypatch):
         """The tree edit distance compares every pair of elements: past the bound the table score is left out, the rest stays."""
@@ -149,9 +163,9 @@ class TestLimitsOfTheMeasure:
 class TestCompare:
     @staticmethod
     def _card(mhs: float, document: float) -> dict:
-        means = {metric: {"mean": 0.9, "documents": 2} for metric in ("overall", "nid", "nid_s", "teds", "teds_s", "mhs_s")}
+        means = {metric: {"mean": 0.9, "documents": 2} for metric in ("overall", "nid", "nid_s", "teds", "teds_s", "mhs_s", "words")}
         means["mhs"] = {"mean": mhs, "documents": 2}
-        scores = {"overall": 0.9, "nid": 0.9, "nid_s": 0.9, "teds": None, "teds_s": None, "mhs": document, "mhs_s": 0.9}
+        scores = {"overall": 0.9, "nid": 0.9, "nid_s": 0.9, "teds": None, "teds_s": None, "mhs": document, "mhs_s": 0.9, "words": 0.9}
         return {"means": means, "documents": {"a": scores, "b": dict(scores, mhs=0.5)}}
 
     def test_a_mean_that_fell_fails_and_names_the_document(self):
@@ -168,6 +182,15 @@ class TestCompare:
         assert not compare(self._card(0.699, 0.9), self._card(0.7, 0.9), tolerance=0.002)[1]
         lines, fell = compare(self._card(0.8, 0.95), self._card(0.7, 0.9), tolerance=0.002)
         assert not fell and any("mhs +0.050" in line for line in lines)
+
+
+    def test_a_baseline_written_before_a_metric_was_added_is_compared_by_the_others(self):
+        old = self._card(0.7, 0.9)
+        del old["means"]["words"]
+        for scores in old["documents"].values():
+            del scores["words"]
+        lines, fell = compare(self._card(0.7, 0.9), old, tolerance=0.002)
+        assert not fell and not any(line.startswith("words") for line in lines)
 
 
 class TestRun:

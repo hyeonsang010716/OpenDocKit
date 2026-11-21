@@ -12,10 +12,18 @@ beside the scores that benchmark publishes for other converters (`tests/test_eva
 - MHS, headings: one minus the tree edit distance between the two outlines — the headings in order, each holding the
   text under it as one node — over the larger number of nodes. MHS-S ignores the text.
 
+One more is OpenDocKit's own and stays out of `overall`, which is the benchmark's:
+
+- Words: `2 * shared / (words of the reference + words of the result)`, the words being the runs of letters and digits
+  of each text and `shared` those the two have in common, each as often as both have it. NID compares characters and
+  hardly sees a space: a word a line break cut in two ('산림 청과' for '산림청과') costs it one character in thousands,
+  and costs this metric two wrong words and a missing one.
+
 A metric is `None` when the reference has nothing to measure it by (no text, no table, no heading), and TEDS also when
 the tables are too large to compare (`MAX_TABLE_ELEMENTS`).
 """
 
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from html import escape, unescape
@@ -51,6 +59,7 @@ class Scores:
     teds_s: float | None
     mhs: float | None
     mhs_s: float | None
+    words: float | None = None
 
     @property
     def overall(self) -> float | None:
@@ -59,13 +68,14 @@ class Scores:
 
     def as_dict(self) -> dict[str, float | None]:
         return {"overall": self.overall, "nid": self.nid, "nid_s": self.nid_s, "teds": self.teds, "teds_s": self.teds_s,
-                "mhs": self.mhs, "mhs_s": self.mhs_s}
+                "mhs": self.mhs, "mhs_s": self.mhs_s, "words": self.words}
 
 
 def score(reference: str, result: str) -> Scores:
     """Score a converted `result` against the `reference` Markdown of the same document."""
     reference, result = tables_as_html(reference), tables_as_html(result)
-    return Scores(*reading_order(reference, result), *tables(reference, result), *headings(reference, result))
+    return Scores(*reading_order(reference, result), *tables(reference, result), *headings(reference, result),
+                  words(reference, result))
 
 
 # Sequences ----------------------------------------------------------------------------------------------------------
@@ -353,6 +363,21 @@ def reading_order(reference: str, result: str) -> tuple[float | None, float | No
         return None, None
     return (_ratio(whole, _squeeze(result)),
             _ratio(_squeeze(_HTML_TABLE.sub(" ", reference)), _squeeze(_HTML_TABLE.sub(" ", result))))
+
+
+# Words --------------------------------------------------------------------------------------------------------------
+
+_TAG = re.compile(r"<[^>]*>")
+_WORD = re.compile(r"[^\W_]+")
+
+
+def words(reference: str, result: str) -> float | None:
+    """How far the two texts are made of the same words, whatever their order (both with their tables written as HTML)."""
+    wanted = Counter(_WORD.findall(unescape(_TAG.sub(" ", reference))))
+    if not wanted:
+        return None
+    found = Counter(_WORD.findall(unescape(_TAG.sub(" ", result))))
+    return 2 * sum((wanted & found).values()) / (sum(wanted.values()) + sum(found.values()))
 
 
 # Headings -----------------------------------------------------------------------------------------------------------

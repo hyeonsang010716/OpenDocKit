@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **The scorecard counts words** (`evals/metrics.py::words`): how far the output and the reference are made of the same
+  words. The reading-order score compares characters and did not see a word cut in two.
 - **Scorecard** (`evals/`): the structure of the PDF output — reading order, tables, headings — is scored on the 200
   documents of a public benchmark (overall 0.875) and on 60 Korean press releases published as both HWPX and PDF, the
   HWPX being the reference for the PDF, and compared with a baseline (`evals/README.md`). The benchmark's references
@@ -129,6 +131,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **PDF made by Hangul (HWP): a Korean word a line break cut in two is one word again.** Hangul breaks a line after any
+  syllable, and every paragraph came out with a line break — a space, to Markdown — inside several of its words
+  ('산림 청과' for '산림청과'). Its PDF draws the space a line was broken at, so a line that ends without one was broken
+  inside a word, and the two lines are now written as one. In 60 press releases 287 words are put right; 22 pairs of
+  words are joined wrongly, where the PDF holds no space to go by (`docs/decisions/pdf-flow.md`). A PDF from another
+  generator, and any line break at a space, is left as it was.
 - **HWP and HWPX**: the soft hyphen (HWP code 24, HWPX `hp:hypen`) is left out, as Hangul draws it only where a line
   breaks inside the word; HWP wrote `Word-processor` for `Wordprocessor`.
 - **HWP and HWPX**: an empty body is not replaced by a preview that holds no letter or digit; empty tables gave

@@ -39,7 +39,13 @@ the published ones.
 | TEDS | Are the tables the same tables, cell for cell? | the 42 documents with a table |
 | MHS | Are the headings headings, with the right text under each? | the 107 documents with a heading |
 
-`overall` is the mean of the three for each document, averaged over the documents. Conversion uses the default
+`overall` is the mean of the three for each document, averaged over the documents.
+
+A fourth number, **Words**, is OpenDocKit's own and stays out of `overall`: how far the two texts are made of the same
+words, whatever their order (`2 * shared / (words of one + words of the other)`). NID compares characters and hardly
+sees a space, so a word a line break cut in two costs it one character in thousands; here it costs two wrong words and
+a missing one. On the benchmark it is 0.954 for OpenDocKit, 0.937 for OpenDataLoader, 0.932 for Docling and 0.915 for
+PyMuPDF4LLM, scored from the Markdown that benchmark publishes for each. Conversion uses the default
 options without page markers and picture placeholders (`evals/run.py::OPTIONS`), which are OpenDocKit's own marks and
 not text of the document.
 
@@ -75,7 +81,7 @@ The other rows are that benchmark's published figures. What the first runs showe
 ```bash
 uv run python evals/fetch_korean_pairs.py ../corpus/korean     # 60 press releases from korea.kr, about 60 MB
 K=../corpus/korean
-uv run python -m evals.run --documents $K/pdf --gold $K/hwpx --baseline evals/baselines/korean-pairs.json --gate nid,nid_s,teds,teds_s
+uv run python -m evals.run --documents $K/pdf --gold $K/hwpx --baseline evals/baselines/korean-pairs.json --gate nid,nid_s,teds,teds_s,words
 ```
 
 Sixty press releases of Korean ministries that the policy briefing site publishes as HWPX and as PDF
@@ -83,7 +89,12 @@ Sixty press releases of Korean ministries that the policy briefing site publishe
 text, so its conversion is the reference for the PDF's: nobody labels anything, and the corpus can grow by a command.
 The scores say how far the two readers agree, so read them as a watch for change, not as a grade:
 
-- **NID 0.911**: the same text in the same order. This is what caught the first form of the tables drawn with
+- **Words 0.955**, from 0.941: Hangul breaks a line of Korean after any syllable, and every body paragraph of the PDFs
+  came out with a space inside several of its words ('산림 청과' for '산림청과') — 375 words in the 60 releases, which
+  NID did not see (0.9115 with them, 0.9125 without). The HWPX of each release says where a space belongs, and against
+  it the rule that puts such a word together again (`docs/decisions/pdf-flow.md`) is right 287 times and wrong 22:
+  where a line breaks between two runs of different character properties, Hangul's PDF has no space to show.
+- **NID 0.913**: the same text in the same order. This is what caught the first form of the tables drawn with
   horizontal rules, which unfolded the top of 17 releases and lost their titles while the English benchmark stood still.
 - **TEDS 0.475** is low for a reason that is not the PDF reader's alone: the box of release time and distribution at
   the top of every release is a table in the HWPX and four pieces of text without a rule in the PDF.
