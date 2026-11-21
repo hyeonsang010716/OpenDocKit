@@ -712,6 +712,7 @@ class TestComposedCharacters:
         ("\U000f02d7\U000f02e2", 4),              # in a reversed box
         ("\U000f02ba\U000f02c5", 0),              # the pieces of a box, with no border kind
         ("\ua2ba\ua2c5", 3),                      # the same written as HWP 5 units 0xA000 | X
+        ("\u25ef\U000f0289\U000f0294", 1),      # behind the frame glyph of its border kind
     ])
     def test_hwp_number_in_a_frame_is_its_digits(self, monkeypatch, text, border):
         """Hangul writes a two- or three-digit number in a frame as private-use pieces of its digits; the HWPX save of the same

@@ -1130,12 +1130,13 @@ def _composed_text(control: Record) -> str:
     (count,) = struct.unpack_from("<H", payload, 4)
     text = unfold(payload[6:6 + 2 * count].decode("utf-16-le", errors="replace"))
     border = payload[6 + 2 * count] if len(payload) > 6 + 2 * count else 0
-    number = framed_number(text.strip())
-    if number is not None:
-        return number
     frame = FRAME_GLYPHS.get(border)
     if frame is not None and len(text) > 1 and text[0] == frame:
         text = text[1:]
+    # After the frame glyph: pieces behind it were otherwise taken one by one, `◯` + the pieces of 12 giving `①`
+    number = framed_number(text.strip())
+    if number is not None:
+        return number
     return hancom_symbols(text).translate(_CONTROL_TEXT).strip()
 # The control characters of an equation script that `str.split` does not take for white space
 _SCRIPT_CONTROLS = {code: None for code in range(0x20) if not chr(code).isspace()}
