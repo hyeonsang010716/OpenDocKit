@@ -121,7 +121,7 @@ The scores say how far the two readers agree, so read them as a watch for change
   (`docs/decisions/hwp.md`). What still separates the two readers is in the HWPX and not on the page: cells divided
   by borders that are not drawn (the contact table at the end of every release is six columns in the HWPX and four in
   the PDF).
-- **MHS 0.758 over 57 releases is not gated**: it says how far two readers agree, and a heading only one of them writes
+- **MHS 0.759 over 57 releases is not gated**: it says how far two readers agree, and a heading only one of them writes
   is not known to be wrong. The first run had 5 releases to measure it on: the HWPX reader wrote 11 headings in the 60
   releases and the PDF reader 140, because the title of a release stands in a one-column table in the HWPX, where a
   paragraph could not become a heading by its size. It can now (`docs/decisions/hwp.md`), the HWPX reader writes 58,

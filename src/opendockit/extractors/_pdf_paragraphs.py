@@ -634,6 +634,10 @@ def _heading_size(paragraph: _Paragraph) -> float:
 _HeadingKey = tuple[float, bool]
 
 
+# A line that is one quotation from its first character to its last: a saying or a slogan, however it is set
+_QUOTED_LINE = re.compile(r"""["“'‘「『].*["”'’」』]""", re.DOTALL)
+
+
 def _heading_shaped(paragraph: _Paragraph) -> bool:
     """A paragraph that is short (two lines, 100 characters at most; a line holding only the section number, '3.' or 'III.',
     is not counted), mostly letters and holding one (a large '56%' or '20%↑' of an infographic is a value) or a year alone
@@ -644,7 +648,7 @@ def _heading_shaped(paragraph: _Paragraph) -> bool:
     Deliberate: asked for a letter, a year set large over its part of a timeline was no heading any more (Pinned by:
     test_pdf_headings.py::TestHeadingSizes::test_a_large_year_is_a_heading)."""
     text = " ".join(line.text for line in paragraph.lines)
-    if _CHECKBOX_MARK.search(text) or _LEADER_RUN.search(text):
+    if _CHECKBOX_MARK.search(text) or _LEADER_RUN.search(text) or _QUOTED_LINE.fullmatch(text.strip()):
         return False
     if not _HEADING_LETTER.search(text) and not _YEAR.fullmatch(text.strip()):
         return False
