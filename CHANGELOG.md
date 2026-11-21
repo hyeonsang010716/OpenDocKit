@@ -94,6 +94,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - **Native sheet reader** (`opendockit-xlsx-core`, new package in `packages/`): where it is installed, the cells of a
     sheet are read in Rust (the two sheets above: 1.1 s and 3.7 s); any sheet it does not take on is read by the Python
     readers as before. Built and tested in CI; not yet published.
+- **HWP and HWPX**: a title set in a one-column table — the box around the title of a Korean press release — is a
+  heading, and a title on several lines is one heading; such a document had no heading at all, while its PDF had the
+  title as one. A box without large text is written as before.
 - **PDF tables drawn with horizontal rules only** — a rule above, under the header and below, as papers and textbooks
   set them — are tables; a cell left empty or a single column gave the borderless search nothing to align, and the
   rows came out as loose lines. A chart's grid lines, a list of contents and a paragraph between rules stay as they were.
