@@ -20,7 +20,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **A Korean holdout on the scorecard** (`evals/korean_pairs_holdout.tsv`): sixty press releases from 2023 to 2026 that no
   rule was written on. The rules written on the first sixty carry to them (overall 0.713 → 0.781).
 - **The scorecard counts words** (`evals/metrics.py::words`): how far the output and the reference are made of the same
-  words. The reading-order score compares characters and did not see a word cut in two.
+  words. The reading-order score compares characters and did not see a word cut in two. Marks of emphasis are no
+  part of a word.
 - **Scorecard** (`evals/`): the structure of the PDF output — reading order, tables, headings — is scored on the 200
   documents of a public benchmark (overall 0.875) and on 60 Korean press releases published as both HWPX and PDF, the
   HWPX being the reference for the PDF, and compared with a baseline (`evals/README.md`). The benchmark's references
