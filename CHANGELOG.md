@@ -146,6 +146,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   inside a word, and the two lines are now written as one. In 60 press releases 287 words are put right; 22 pairs of
   words are joined wrongly, where the PDF holds no space to go by (`docs/decisions/pdf-flow.md`). A PDF from another
   generator, and any line break at a space, is left as it was.
+- **PDF: a bold title whose number is drawn apart from it is a heading** ('3.' a tab before the title): the joined line
+  lost the weight of the title and came out as body text.
 - **PDF: the bar an attachment of a Korean official document opens with is a heading** (`## 붙임 1 행사 개요`), as in HWP
   and HWPX. It was a line of text, a table of one row, or a label and a title apart: of 52 bars in 59 press releases 15
   were headings. The list of attachments in the body ('붙임 1. … 1부.') stays body text.

@@ -107,9 +107,17 @@ def _join_row_fragments(page: _Page) -> None:
         # an equation) turned the row into a heading (public paper PDF).
         sizes = [line.size for line in row]
         size = statistics.median_low(sizes) if id(row[0]) in cells else row[-1].size if id(row[0]) in markers else max(sizes)
+        # A number or a bullet joined to its item is the item: it keeps the weight of the item's text and what that line
+        # says of the space at its end, as it keeps its size. '3.' set apart from a bold title made the line a new one
+        # without a weight, and the title body text (Pinned by:
+        # test_pdf_headings.py::TestBoldHeadings::test_a_bold_title_whose_number_is_set_apart_is_a_heading). Rows of cells
+        # and of a label beside a value are no titles and stay without one.
+        item = row[-1] if id(row[0]) in markers else None
         replaced[id(page.lines[place])] = _Line(top=min(line.top for line in row), bottom=max(line.bottom for line in row),
                                                 x0=row[0].x0, x1=max(line.x1 for line in row),
-                                                text=_row_text(row, separator), size=size)
+                                                text=_row_text(row, separator), size=size,
+                                                bold=item.bold if item is not None else False,
+                                                space_at_end=item.space_at_end if item is not None else None)
     page.lines = [replaced.get(id(line), line) for line in page.lines if replaced.get(id(line), line) is not None]
 
 

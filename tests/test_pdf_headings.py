@@ -75,6 +75,17 @@ class TestBoldHeadings:
 
         assert "#" not in text
 
+    def test_a_bold_title_whose_number_is_set_apart_is_a_heading(self):
+        """'3.' stands a tab before its title, so the two are joined into one line: the line keeps the weight of the title
+        (`_join_row_fragments`). A numbered item in the weight of the body beside it stays body text."""
+        body = [(y, text, size, font, 72) for y, text, size, font in _body(80)]
+        after = [(y, text, size, font, 72) for y, text, size, font in _body(156)]
+        title = [(140, "3.", 10, "Times-Bold", 72), (140, "Supply and demand of wood pellets", 10, "Times-Bold", 100)]
+        plain = [(140, "3.", 10, "Times-Roman", 72), (140, "Supply and demand of wood pellets", 10, "Times-Roman", 100)]
+
+        assert "# 3. Supply and demand of wood pellets\n\nThe next step" in convert(_pdf_at([*body, *title, *after]), "a.pdf").sections[0].text
+        assert "#" not in convert(_pdf_at([*body, *plain, *after]), "a.pdf").sections[0].text
+
     def test_bold_headings_at_the_body_size_come_below_larger_headings(self):
         text = _text([(60, "Combinatorial Cosmology", 16, "Times-Bold"), *_body(90), (150, "5. The dynamics", 10.5, "Times-Bold"),
                       *_body(166)])

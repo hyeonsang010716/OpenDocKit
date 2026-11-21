@@ -1,7 +1,7 @@
 {
  "means": {
   "overall": {
-   "mean": 0.8747,
+   "mean": 0.8771,
    "documents": 200
   },
   "nid": {
@@ -21,11 +21,11 @@
    "documents": 42
   },
   "mhs": {
-   "mean": 0.7963,
+   "mean": 0.8052,
    "documents": 107
   },
   "mhs_s": {
-   "mean": 0.8737,
+   "mean": 0.883,
    "documents": 107
   },
   "words": {
@@ -605,13 +605,13 @@
    "words": 0.9333
   },
   "01030000000058": {
-   "overall": 0.4631,
-   "nid": 0.9261,
-   "nid_s": 0.9261,
+   "overall": 0.9409,
+   "nid": 0.9271,
+   "nid_s": 0.9271,
    "teds": null,
    "teds_s": null,
-   "mhs": 0.0,
-   "mhs_s": 0.0,
+   "mhs": 0.9547,
+   "mhs_s": 1.0,
    "words": 0.9458
   },
   "01030000000059": {
