@@ -1593,19 +1593,47 @@ class TestXlsFormulasWithoutResults:
         assert not extraction.warnings
 
 
-def test_strict_open_xml_workbook_is_reported_as_unsupported():
-    """A Strict Open XML workbook uses different namespaces (purl.oclc.org), so not a single sheet was found and it passed with
-    an empty result."""
-    def strict(xml: str) -> str:
-        return (xml.replace("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "http://purl.oclc.org/ooxml/spreadsheetml/main")
-                .replace("http://schemas.openxmlformats.org/officeDocument/2006/relationships",
-                         "http://purl.oclc.org/ooxml/officeDocument/relationships"))
+def _strict(xml: str) -> str:
+    """The Strict Open XML names (purl.oclc.org) in place of the Transitional ones, as Excel writes a Strict workbook."""
+    for vocabulary in ("spreadsheetml", "drawingml"):
+        xml = xml.replace(f"http://schemas.openxmlformats.org/{vocabulary}/2006/main", f"http://purl.oclc.org/ooxml/{vocabulary}/main")
+    return xml.replace("http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+                       "http://purl.oclc.org/ooxml/officeDocument/relationships")
 
-    data = builder.zip_with(_xlsx([["항목", "값"], ["가", 1]]), edit=dict.fromkeys(
-        ("_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/worksheets/sheet1.xml", "xl/styles.xml"), strict))
 
-    with pytest.raises(UnsupportedFormatError, match="Strict Open XML"):
-        convert(data, "a.xlsx")
+_STRICT_PARTS = ("_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/worksheets/sheet1.xml", "xl/styles.xml",
+                 "xl/sharedStrings.xml")
+
+
+class TestStrictOpenXmlWorkbook:
+    """A workbook Excel saved as 'Strict Open XML Spreadsheet' differs from an ordinary one in its namespaces and relationship
+    types. It was refused with the advice to save it again (openpyxl finds no sheet in it); it is read from a copy with the
+    Transitional names, as a Strict DOCX is. Three Strict workbooks of the Apache POI test files read as LibreOffice reads them."""
+
+    _ROWS = [["항목", "값", "날짜"], ["가", 1, datetime(2024, 3, 5)], ["나", 2.5, datetime(2024, 12, 31)]]
+
+    def _both(self) -> tuple[bytes, bytes]:
+        plain = _xlsx(self._ROWS)
+        with zipfile.ZipFile(BytesIO(plain)) as archive:
+            parts = [name for name in _STRICT_PARTS if name in archive.namelist()]
+        return plain, builder.zip_with(plain, edit=dict.fromkeys(parts, _strict))
+
+    def test_a_strict_workbook_reads_as_the_same_workbook_in_the_ordinary_names(self):
+        plain, strict = self._both()
+
+        result = convert(strict, "a.xlsx")
+
+        assert result.text == convert(plain, "a.xlsx").text and "| 가 | 1 | 2024-03-05 00:00:00 |" in result.text
+        assert not result.warnings
+
+    def test_strict_names_under_a_transitional_relationship_are_refused(self):
+        """The package names its workbook with the ordinary type, so no copy is made, and the workbook part is in names
+        openpyxl does not know: the advice is given, not an empty result."""
+        plain, _ = self._both()
+        data = builder.zip_with(plain, edit=dict.fromkeys(("xl/workbook.xml", "xl/worksheets/sheet1.xml"), _strict))
+
+        with pytest.raises(UnsupportedFormatError, match="Strict Open XML"):
+            convert(data, "a.xlsx")
 
 
 def _with_zero_results(rows: list[list[object]], *, application: str, full_calc: bool, zero: str = "0") -> bytes:
