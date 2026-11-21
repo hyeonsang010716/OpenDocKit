@@ -128,8 +128,11 @@ class BulletNesting:
 NUMBER_SHAPES = (
     "DIGIT", "CIRCLED_DIGIT", "ROMAN_CAPITAL", "ROMAN_SMALL", "LATIN_CAPITAL", "LATIN_SMALL", "CIRCLED_LATIN_CAPITAL",
     "CIRCLED_LATIN_SMALL", "HANGUL_SYLLABLE", "CIRCLED_HANGUL_SYLLABLE", "HANGUL_JAMO", "CIRCLED_HANGUL_JAMO",
-    "HANGUL_PHONETIC", "IDEOGRAPH", "CIRCLED_IDEOGRAPH",
+    "HANGUL_PHONETIC", "IDEOGRAPH", "CIRCLED_IDEOGRAPH", "DECAGON_CIRCLE", "DECAGON_CIRCLE_HANJA",
 )
+# The ten heavenly stems Hangul numbers with in the shapes DECAGON_CIRCLE (갑, 을, 병 …) and DECAGON_CIRCLE_HANJA (甲, 乙, 丙 …).
+# What Hangul writes after the tenth is not known; Arabic digits are written there
+_STEMS = {"DECAGON_CIRCLE": "갑을병정무기경신임계", "DECAGON_CIRCLE_HANJA": "甲乙丙丁戊己庚辛壬癸"}
 _HANGUL = "가나다라마바사아자차카타파하"
 _JAMO = "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ"
 # Counting numbers (일, 一): digit characters, place characters (십, 백, 천), empty-place character. Numbers after 10 are also written
@@ -192,6 +195,8 @@ def format_number(value: int, shape: str) -> str:
         # After A…Z come AA, BB … (both Word and Hangul repeat the same letter). The start number is a file value, so the length is bounded
         letter = chr(ord("A") + (value - 1) % 26) * ((value - 1) // 26 + 1)
         return letter if shape == "LATIN_CAPITAL" else letter.lower()
+    if shape in _STEMS and value <= 10:
+        return _STEMS[shape][value - 1]
     if shape in ("HANGUL_SYLLABLE", "HANGUL_JAMO"):
         letters = _HANGUL if shape == "HANGUL_SYLLABLE" else _JAMO
         return letters[(value - 1) % len(letters)]

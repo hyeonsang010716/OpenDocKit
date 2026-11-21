@@ -53,15 +53,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Headers of Hangul documents that hold words** (a form's number and title) are written once before the body even
   without `include_headers_footers`, as plain paragraphs without their pictures. In 9 of 34 real files that text was
   nowhere else and was dropped without a warning. Page numbers and footers still need the option.
+- **Charts in HWP**: a chart, an OLE object that holds the chart as OOXML, gives its values as in HWPX; it was left as
+  `[OLE object]` with a warning. In 92 public Hangul files saved both ways, the two now give the same text.
+- **Form objects in HWP**: check boxes and radio buttons give `☒`/`☐` and their caption, combo and edit boxes their text,
+  as in HWPX. A form of nothing but form objects gave only its preview text. A caption's `&&` is one `&` in both formats,
+  as Hangul shows it (`R&D 자율성트랙`).
+- **Comments in HWP** are written after the body as `> Comment(author, on "range"): text`, as in HWPX; they were not read.
+- **Hancom symbols**: the seal mark `(인)`, boxed and circled item numbers, bullets (`□ ▸ ►`) and book brackets (`『 』`)
+  that Hangul keeps in private-use characters are written out where their meaning is known; they were removed. A number
+  in a frame (글자 겹치기) is its digits, and HWP no longer writes the frame glyph in front of it (`△12`), as HWPX does.
+- **HWP numbering to level 10**, and the heavenly-stem number shapes (`갑을병`, `甲乙丙`); levels 8 to 10 took the
+  numbers of level 7.
 
 ### Changed
 
 - **Pictures are prepared faster.** An RGBA PNG that needs no change is passed on as it is instead of being compressed
   again (only the chunks a rewrite keeps are copied, so metadata is still stripped). A 7 MB HWP with 51 pictures
   converts in 118 ms instead of 549 ms.
-
-### Changed
-
 - **Faster start.** An extractor is imported the first time its format is converted, instead of all of them with the
   package. `import opendockit` takes 0.07 s and 43 MB instead of 0.23 s and 101 MB, and a fresh process converting one
   small DOCX 0.09 s instead of 0.25 s — what a command-line run and every Windows worker pay per file. The workers of
@@ -73,12 +81,69 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **DOCX conversion is 12-19% faster** on large documents (20,000 paragraphs, 80,000 table cells); the output is the same
   to the byte.
 
-### Changed
+### Security
 
+- **MCP server on Windows**: a path on a network share (`\\host\share\…`) is refused before anything is looked up,
+  unless that share is given as a `--root` — with other roots and without any — and a device path (`\\.\…`) always.
+  Looking a share up connects to its host and signs in with the user's Windows credentials, and the roots were
+  checked only after the path had been looked up: an agent talked into such a path by a document it read sent the
+  user's NTLM hash to the host the document named, even though the call was then refused. A share to be read is
+  given as `--root \\host\share`; a mapped drive letter is an ordinary folder.
+  The NT form of a path is held to the same rule: `\??\UNC\host\share\…`, which Windows sends to the kernel
+  as it is written, was taken for a local path and, on Python 3.12, looked up.
+
+### Fixed
+
+- **HWP and HWPX**: the soft hyphen (HWP code 24, HWPX `hp:hypen`) is left out, as Hangul draws it only where a line
+  breaks inside the word; HWP wrote `Word-processor` for `Wordprocessor`.
+- **HWP and HWPX**: an empty body is not replaced by a preview that holds no letter or digit; empty tables gave
+  `<.<><><>` as the text.
+- **Threads converting at once**: a valid DOCX or XLSX could come out as corrupted, a DOCX or HWPX with other text, or
+  the process could stop on a bad access, when threads converted at the same moment — most often in a pool whose threads
+  had converted a PowerPoint file. lxml had left them sharing one string dictionary, through a parser kept for every
+  thread. Each converting thread now has a dictionary of its own, and the library's own parsers are one for each thread.
+- **DOCX lists** whose definition points at a numbering style that no definition claims are numbered: they now use the
+  list the style names, as ECMA-376 defines. They came out as plain paragraphs.
+- **DOCX**: a document whose own style is named 'Heading' (Apple Pages' first heading level) gets its headings; a legacy
+  VML picture keeps the alt text written on its shape.
+- **DOCX**: a table row deleted with Track Changes on is left out, as every other tracked deletion is. It came out as a
+  row of the final table, so a struck-out price or clause read as if it still stood. A vertical merge that starts in
+  the deleted row keeps its text in the rows left.
+- Bold or italic that ends on a punctuation mark right before a letter (`**67%**으로`, `**「법」**제15조`) is no longer
+  written: Markdown readers showed its asterisks as text. This affects every format that keeps emphasis.
+- **Servers**: closing an `IsolatedConverter` while a file was still on its way to its worker could never return, if
+  that worker died first. The queue the file travels on is no longer waited for.
+- **MCP server**: the path of a call is resolved in a thread, as its content already was. A path the file system is slow
+  to answer for — a disconnected network drive, a sleeping disk, a UNC name on Windows — stopped the whole server, and
+  with it the agent's session, until it answered.
+- **XLSX**: a sheet stored in another case than the workbook names it (`Sheet2.xml` behind `sheet2.xml`) is read; it
+  was left out without a word. So is a workbook part in another case, which rejected the file, and a styles part in
+  another case, which turned every date into its serial number. A sheet whose part is missing from the file is named in
+  a warning instead of vanishing.
+- **DOCX / PPTX / XLSX**: a main part stored in another case (`word/Document.xml`) is read; the file was rejected as an
+  unsupported archive.
+- **XLSX / XLS / Excel 2003 XML**: a negative number under a negative section of text alone (Yes/No, True/False,
+  On/Off, `"예";"예";"아니요"`) shows that text, as Excel does, not `-Yes`.
+- **HTML**: the line of a table flattened into a cell stays apart from the text beside it (`Total: in1 in2`, not
+  `Total:in1 in2`). The lower levels of a list inside a table cell are marked `└ `, as in DOCX and HWP; every level came
+  out as one.
+- **Mail**: an invitation sent as a text/calendar part alone keeps its description (the agenda), and an event timed with
+  `DURATION` gets its end. A mail without MIME-Version whose only part is an invitation, a forwarded mail or an
+  attachment is read as mail, not as raw text. A mail with an empty HTML part read under a text name is read as mail.
+- **Server use**: `IsolatedConverter.convert` reports running out of memory while copying the content as too large,
+  as `convert` does, instead of letting a raw `MemoryError` out.
+- **Open WebUI**: a UUID inside the uploaded file's own name is kept; only Open WebUI's leading file id is taken off.
+- **PDF reading order**: on the last page of a two-column article whose right column holds only a few closing lines at
+  its top, the rest of a ragged-right left column below them is no longer moved after the right column.
+- **PDF text**: a justified line whose word gaps are 1.1 em or wider (a narrow column with long words) is read as one
+  line; its words came out one by one, shuffled and scattered through the paragraph.
+- **PDF reading order**: the rest of a long left column is kept before a short right column when a subheading breaks it;
+  the left column from its second paragraph on was moved after the right column. The first line of a two-line paragraph
+  over a table in the right column is no longer taken for a caption of a table in the left column and read ahead of it.
+  A two-column page that pdfminer read right column first is read left column first even when one of its lines is
+  drawn in pieces (a reference split at a wide justified space).
 - **PDF headings**: a paragraph without a letter ('56%', a page number set larger) is no heading any more; a year set
   large stays one. A body line starting with `#` or `>` is escaped, so a form row is not a Markdown heading or quote.
-- **PDF reading order**: a two-column page that pdfminer read right column first is read left column first even when
-  one of its lines is drawn in pieces (a reference split at a wide justified space).
 - **PDF forms**: the values of a filled form are kept on a page read with simple extraction (past the time budget, a
   crowded or very heavy page, a page pdfminer cannot read); they were dropped without a word. The annotations walked for
   them are bounded over the document, with a warning past it, and the widgets of a large field are found once a document

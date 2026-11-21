@@ -144,11 +144,11 @@ Section unit: the whole document. Design notes: [decisions/hwp.md](decisions/hwp
 - Text boxes.
 - Footnotes.
 - **Equations → LaTeX**.
-- HWPX charts → data tables (a chart inside a table cell becomes a table inside that cell).
+- Charts → data tables, in HWPX and HWP alike (a chart inside a table cell becomes a table inside that cell).
 - The picture of an HWPX shape filled with a picture.
 - TextArt (글맵시).
 - Overlapped characters (enclosed characters and the like).
-- HWPX form objects: check boxes ☒ / ☐ and input values.
+- Form objects (HWP and HWPX): check boxes ☒ / ☐ and input values.
 - HWPX check bullets (`- ☑`, `- ☐`); in HWP only `- `.
 
 ## HTML

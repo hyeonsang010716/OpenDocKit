@@ -246,9 +246,9 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 - Multilevel lists inside a table cell are marked with `└` (level 2) and `└─` (level 3) before the sub-item.
 - Text boxes, footnotes.
 - A numbered paragraph containing only a table or text box still counts (the `2.` is placed on the line before the table so later numbers do not shift).
-- Text of TextArt (글맵시); HWPX charts → data tables.
+- Text of TextArt (글맵시); charts → data tables (HWP and HWPX).
 - Ruby (small text set above characters) → `base(ruby)`; the characters of overlapped characters (enclosed characters and the like).
-- HWPX form objects: check boxes and radio buttons → `☒`/`☐` + label; combo and edit boxes → value.
+- Form objects (HWP and HWPX): check boxes and radio buttons → `☒`/`☐` + label; combo and edit boxes → value.
 - Hangul equations → LaTeX (`$\frac{1}{n}$`). Equations that cannot be converted, such as a long-division layout (LONGDIV), stay as their script (`[Equation: …]`).
 - Pictures (body, inside tables, grouped objects).
 - Strikethrough text → `~~text~~` (wavy and 3D-style strikethrough is not marked).
@@ -258,10 +258,9 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 - **Hangul 3.x and earlier (old .hwp)** gives `unsupported_format` → advise "save again as HWP or HWPX in Hangul".
 - An encrypted document gives `encrypted_document`.
 - **A distribution (copy-protected) document** does not have its body decrypted; the **preview text (the beginning only)** saved by Hancom Office is used (warning).
-- Headers that hold words (a form's number and title) are written once before the body, without their pictures; footers and page numbers are excluded by default (`include_headers_footers=True` writes every header and footer). Comments (review comments) are added at the end of the document for HWPX only; in HWP they are not included (the body text a comment is attached to is kept).
+- Headers that hold words (a form's number and title) are written once before the body, without their pictures; footers and page numbers are excluded by default (`include_headers_footers=True` writes every header and footer). Comments (review comments) are added at the end of the document as `> Comment(author, on "passage"): text`, in HWP and HWPX alike (the body text a comment is attached to is kept).
 - A document with no text at all (empty tables, only shapes) gives an empty result plus a warning that no text was extracted.
-- Charts of HWP (binary) are not converted.
-- OLE objects such as pasted Excel tables and charts, and videos, do not have their content read; only `[OLE object]` and `[Video]` placeholders remain (a warning reports the count).
+- OLE objects other than charts, such as pasted Excel tables, and videos, do not have their content read; only `[OLE object]` and `[Video]` placeholders remain (a warning reports the count).
 - Known issues:
   - "Start new number" is not applied, so paragraph numbering continues.
   - In HWPX tracked changes, text deleted across runs with different character formatting can remain.

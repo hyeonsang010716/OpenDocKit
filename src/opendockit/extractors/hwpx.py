@@ -18,8 +18,9 @@ from lxml import etree
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
 from opendockit.extractors._charts import embedded_table, package_loader, render_chart
 from opendockit.extractors._equation import render_equation
+from opendockit.extractors._hancom_symbols import framed_number, hancom_symbols
 from opendockit.extractors._hangul import (
-    PREVIEW_CELL_MARKS,
+    CommentRanges,
     ParagraphPieces,
     SizeHeadings,
     click_here_guide,
@@ -27,15 +28,16 @@ from opendockit.extractors._hangul import (
     decorated_text,
     drop_unfilled_guide,
     emphasis_pieces,
+    form_caption,
     has_text,
     header_by_default,
     link_end,
     link_start,
+    preview_has_words,
 )
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, mark_strike
 from opendockit.extractors._lists import BulletNesting, Numbering, NumberLevel, format_number
 from opendockit.extractors._notation import (
-    COMMENT_TARGET_MAX,
     TableBudget,
     chars_left,
     comment_line,
@@ -185,9 +187,7 @@ class HwpxRenderer:
         # fieldBegin and the fieldEnd with the same id
         self.memos: list[tuple[str, str, list[str]]] = []
         self._memo_ids: list[str] = []  # the id of each comment above, to take back those of a passed-over hp:switch branch
-        self._open_memos: dict[str, list[str]] = {}  # comment id not yet closed by fieldEnd and still being gathered → range pieces
-        self._memo_lengths: dict[str, int] = {}  # comment id above → number of characters gathered
-        self._unspaced_memos: dict[str, None] = {}  # comments above with a non-empty range not ending in whitespace (get a space between paragraphs)
+        self._memo_ranges = CommentRanges()  # the ranges of the comments not yet closed by fieldEnd, by comment id
         self._memo_depth = 0  # 1 or more while comment text is rendered. That text is not the range of another comment
         self._open_links: dict[str, str] = {}  # hyperlink field id not yet closed by fieldEnd → its address (`_open_link`)
         # click-here field id not yet closed → (the pieces it was opened in, where its text starts there, its guide text, how many
@@ -231,7 +231,7 @@ class HwpxRenderer:
         name = _local(node)
         if name == "t":
             # A run with a super/subscript character shape. Appended as plain text, 10⁶ became 106 (Pinned by: test_hwp.py::TestSuperscript).
-            plain = _t_text(node)
+            plain = hancom_symbols(_t_text(node))  # Hancom's own symbols as text (`_hancom_symbols`)
             if not self._note_depth:
                 self.size_headings.count(self._size, plain, body=not self._inner and not self._cell_depth)
             text = mark_script(plain, self._script) if self._script else plain
@@ -278,7 +278,10 @@ class HwpxRenderer:
         elif name == "compose":
             # Composed characters: the overlapped characters are in the composeText attribute and were dropped
             # (Pinned by: test_hwp.py::TestComposedCharacters).
-            buffer.append(node.get("composeText", ""))
+            # A number in a frame is private-use pieces of its digits there too, as in HWP (`hwp._composed_text`)
+            text = node.get("composeText", "")
+            number = framed_number(text.strip())
+            buffer.append(number if number is not None else hancom_symbols(text))
         elif name in _FORM_OBJECTS:
             # Form objects: the value is in attributes and children and was dropped (Pinned by: test_hwp.py::TestHwpxFormObjects).
             value = _form_value(node)
@@ -506,6 +509,10 @@ class HwpxRenderer:
                     if not text or text in (self.headers if name == "header" else self.footers):
                         del self.notes[notes:], self.memos[memos:], self._memo_ids[memos:]
                         self._note_count = note_count
+                elif text in (self.headers if name == "header" else self.footers):
+                    # A header written once has its comments once: repeated, its comment lines came out once per copy
+                    # (Pinned by: test_hwp.py::TestHwpMemo::test_comment_of_a_repeated_header_is_written_once)
+                    del self.memos[memos:], self._memo_ids[memos:]
                 found = self.headers if name == "header" else self.footers
                 if text and text not in found:
                     found[text] = None
@@ -564,12 +571,8 @@ class HwpxRenderer:
         finally:
             self._memo_depth -= 1
             self._grids.pop()
-        target: list[str] = []
-        self.memos.append((author, text, target))
+        self.memos.append((author, text, self._memo_ranges.open(field.get("id", ""))))
         self._memo_ids.append(field.get("id", ""))
-        self._open_memos[field.get("id", "")] = target
-        self._memo_lengths[field.get("id", "")] = 0
-        self._unspaced_memos.pop(field.get("id", ""), None)
 
     def _open_link(self, field: etree._Element, buffer: list[str]) -> None:
         """A hyperlink field: the text up to the hp:fieldEnd with its id becomes `[text](address)` under `keep_links`, with the
@@ -583,33 +586,13 @@ class HwpxRenderer:
             buffer.append(link_start())
 
     def _note_memo_target(self, text: str) -> None:
-        """Add a piece of body text to the ranges of the open comments. Only as much as will be shown is gathered (limit + 1 characters
-        even without one trailing space, so that exceeding `COMMENT_TARGET_MAX` can be noticed), and a comment that has gathered enough
-        is removed from the open list. A whitespace-only piece (between paragraphs) is not appended at the start of a range or after
-        whitespace.
-        Recounting the gathered characters for every piece and appending between-paragraph spaces without limit, a single comment
-        without fieldEnd took time quadratic in the number of paragraphs
-        (Pinned by: test_hwp.py::TestMemo::test_hwpx_memos_without_an_end_take_linear_time). A whitespace piece scans only the comments
-        that will take it (`_unspaced_memos`)
-        — scanning all open comments for every paragraph was quadratic when many comments were open with an empty range (Pinned by: same
-        class
-        test_many_hwpx_memos_over_empty_paragraphs_take_linear_time)."""
-        if self._memo_depth or not text or not self._open_memos:  # empty text (`<hp:t/>`) does not extend a range
-            return
-        for memo_id in list(self._unspaced_memos if text.isspace() else self._open_memos):
-            self._open_memos[memo_id].append(text)
-            self._memo_lengths[memo_id] += len(text)
-            if self._memo_lengths[memo_id] > COMMENT_TARGET_MAX + 1:
-                self._close_memo(memo_id)
-            elif text[-1:].isspace():
-                self._unspaced_memos.pop(memo_id, None)
-            else:
-                self._unspaced_memos[memo_id] = None
+        """Add a piece of body text to the ranges of the open comments (`_hangul.CommentRanges`); the text of a comment itself is
+        not the range of another."""
+        if not self._memo_depth:
+            self._memo_ranges.add(text)
 
     def _close_memo(self, memo_id: str) -> None:
-        self._open_memos.pop(memo_id, None)
-        self._memo_lengths.pop(memo_id, None)
-        self._unspaced_memos.pop(memo_id, None)
+        self._memo_ranges.close(memo_id)
 
     def memo_lines(self) -> str:
         return "\n".join(comment_line(author, text, "".join(target).strip()) for author, text, target in self.memos if text)
@@ -817,7 +800,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
     blocks = renderer.size_headings.resolve(blocks)
     body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes), renderer.memo_lines()])
     preview_text = preview.decode("utf-8", errors="replace")
-    if not body.strip() and preview_text.translate(PREVIEW_CELL_MARKS).strip():
+    if not body.strip() and preview_has_words(preview_text):
         body = preview_text
         extraction.warnings.append("The body could not be parsed, so the preview text saved by Hancom Office was used instead "
                                    "(it may contain only the beginning).")
@@ -848,7 +831,7 @@ def _form_value(node: etree._Element) -> str:
     name = _local(node)
     if name in ("checkBtn", "radioBtn"):
         mark = _CHECKED if node.get("value") == "CHECKED" else _UNCHECKED
-        return f"{mark} {node.get('caption', '')}".strip()
+        return f"{mark} {form_caption(node.get('caption', ''))}".strip()
     if name in ("comboBox", "listBox"):
         return node.get("selectedValue", "").strip()
     if name == "edit":
@@ -882,8 +865,8 @@ def _t_text(node: etree._Element) -> str:
             parts.append("\t")
         elif name == "lineBreak":
             parts.append("\n")
-        elif name == "hyphen":
-            parts.append("-")
+        # hp:hypen (so spelled by Hangul; hp:hyphen too) is the soft hyphen of HWP code 24, drawn only at a line break inside
+        # the word: written as `-` it made a different word (Pinned by: test_hwp.py::TestSoftHyphen)
         elif name in ("nbSpace", "fwSpace"):
             parts.append(" ")
         parts.append(child.tail or "")

@@ -9,6 +9,7 @@ from collections import Counter
 from collections.abc import Callable
 import re
 
+from opendockit.extractors._hancom_symbols import hancom_symbols
 from opendockit.extractors._inline import (
     LINK_OPEN,
     emphasis_marks,
@@ -21,6 +22,7 @@ from opendockit.extractors._inline import (
     resolve_strikes,
 )
 from opendockit.extractors._lists import _OBJECT_PLACEHOLDERS, BulletNesting, is_placeholder_only, paragraph_head
+from opendockit.extractors._notation import COMMENT_TARGET_MAX
 
 
 # Hangul's "개요 1" to "개요 7" (Outline 1-7) paragraph styles are the chapter/section structure of the document. They become Markdown headings.
@@ -29,6 +31,66 @@ OUTLINE_STYLE = re.compile(r"^(?:개요|Outline)\s*([1-9])$")
 HEADING_MAX_CHARS = 120
 # Table cell marks in the preview text (HWP `PrvText`, HWPX `Preview/PrvText.txt`). A preview with nothing but these has no text.
 PREVIEW_CELL_MARKS = str.maketrans("", "", "<>")
+_WORD_CHARACTER = re.compile(r"[^\W_]")
+
+
+class CommentRanges:
+    """The body text of the comments (memos) not yet closed, gathered for their `on "range"` (`_notation.comment_line`), the same in
+    HWP and HWPX.
+
+    Only as much as will be shown is gathered (limit + 1 characters even without one trailing space, so that exceeding
+    `COMMENT_TARGET_MAX` can be noticed), and a comment that has gathered enough stops gathering. A whitespace-only piece (between
+    paragraphs) is not appended at the start of a range or after whitespace. Recounting the gathered characters for every piece and
+    appending between-paragraph spaces without limit, a single comment without an end took time quadratic in the number of
+    paragraphs (Pinned by: test_hwp.py::TestMemo::test_hwpx_memos_without_an_end_take_linear_time). A whitespace piece scans only
+    the comments that will take it — scanning all open comments for every paragraph was quadratic when many comments were open
+    with an empty range (Pinned by: test_hwp.py::TestMemo::test_many_hwpx_memos_over_empty_paragraphs_take_linear_time)."""
+
+    def __init__(self) -> None:
+        self._open: dict[object, list[str]] = {}    # comment key → range pieces
+        self._lengths: dict[object, int] = {}       # comment key → number of characters gathered
+        self._unspaced: dict[object, None] = {}     # comments with a non-empty range not ending in whitespace
+
+    def open(self, key: object) -> list[str]:
+        """Start gathering the range of a comment; the list it returns fills as body text comes."""
+        target: list[str] = []
+        self._open[key], self._lengths[key] = target, 0
+        self._unspaced.pop(key, None)
+        return target
+
+    def add(self, text: str) -> None:
+        """Add a piece of body text to the ranges of the open comments. Empty text does not extend a range."""
+        if not text or not self._open or type(text) is _LinkMark:
+            return
+        for key in list(self._unspaced if text.isspace() else self._open):
+            self._open[key].append(text)
+            self._lengths[key] += len(text)
+            if self._lengths[key] > COMMENT_TARGET_MAX + 1:
+                self.close(key)
+            elif text[-1:].isspace():
+                self._unspaced.pop(key, None)
+            else:
+                self._unspaced[key] = None
+
+    def close(self, key: object) -> None:
+        self._open.pop(key, None)
+        self._lengths.pop(key, None)
+        self._unspaced.pop(key, None)
+
+
+def form_caption(caption: str) -> str:
+    """The caption of a Hangul check box or radio button as Hangul shows it: `&&` is one `&` (the Windows convention for a label
+    with a mnemonic), so `R&&D 자율성트랙` reads `R&D 자율성트랙` in Hancom's PDF of the form (Pinned by:
+    test_hwp.py::TestHwpFormObjects::test_double_ampersand_of_a_caption_is_one). A caption with a single `&` was not found in
+    public Hangul files, so what Hangul does with one is not known and it is kept."""
+    return caption.replace("&&", "&")
+
+
+def preview_has_words(preview: str) -> bool:
+    """Whether the preview text holds a letter or digit outside its cell marks. A preview of nothing but marks, punctuation and
+    blanks is a document without text: empty tables with a `.` in a text box gave `<.<><><>` as the body (Pinned by:
+    test_hwp.py::TestPreviewFallback)."""
+    return bool(_WORD_CHARACTER.search(preview.translate(PREVIEW_CELL_MARKS)))
 
 # The temporary link marks of `_inline` (U+000E–U+0014). Document text never holds them in a paragraph that has a link: the text
 # of a control (ruby text, composed characters) is read from a binary HWP as it is, and could otherwise forge a link.
@@ -144,7 +206,10 @@ def click_here_guide(command: str) -> str | None:
     found = _CLICK_HERE_GUIDE.search(command)
     if found is None:
         return None
-    guide = command[found.end():found.end() + int(found.group(1))]
+    # The guide is compared with the text of the field, whose Hancom symbols are written out (`_hancom_symbols`): kept as they
+    # are, an unfilled guide with a seal mark (`(인) 서명`) no longer matched and stayed (Pinned by:
+    # test_hwp.py::TestClickHereFields::test_unfilled_guide_with_a_hancom_symbol_is_dropped)
+    guide = hancom_symbols(command[found.end():found.end() + int(found.group(1))])
     return guide.strip() or None
 
 
