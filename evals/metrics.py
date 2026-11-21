@@ -12,7 +12,8 @@ beside the scores that benchmark publishes for other converters (`tests/test_eva
 - MHS, headings: one minus the tree edit distance between the two outlines — the headings in order, each holding the
   text under it as one node — over the larger number of nodes. MHS-S ignores the text.
 
-A metric is `None` when the reference has nothing to measure it by (no text, no table, no heading).
+A metric is `None` when the reference has nothing to measure it by (no text, no table, no heading), and TEDS also when
+the tables are too large to compare (`MAX_TABLE_ELEMENTS`).
 """
 
 from collections.abc import Callable
@@ -24,6 +25,16 @@ from bs4 import BeautifulSoup
 from lxml import html as lxml_html
 
 
+try:  # the same two lengths, some hundred times faster; without it the definitions below are used (a development dependency)
+    from rapidfuzz.distance import LCSseq as _fast_lcs
+    from rapidfuzz.distance import Levenshtein as _fast_edit
+except ImportError:  # pragma: no cover - the fallback is what the tests of the definitions run
+    _fast_lcs = _fast_edit = None
+
+
+# Tables of more elements than this on either side are not measured: the tree edit distance compares every pair of them,
+# and a sheet of 30,000 cells saved as a document took hours. No document of the benchmark comes near it.
+MAX_TABLE_ELEMENTS = 4000
 _SPACES = re.compile(r"\s+")
 _HTML_TABLE = re.compile(r"<table[^>]*?>.*?</table>", re.IGNORECASE | re.DOTALL)
 _HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
@@ -67,10 +78,12 @@ def _positions(text: str) -> dict[str, int]:
     return masks
 
 
-def lcs_length(first: str, second: str) -> int:
+def lcs_length(first: str, second: str, *, fast: bool = True) -> int:
     """The length of the longest common subsequence, a row of the table at a time in one integer (Hyyrö 2004)."""
     if not first or not second:
         return 0
+    if fast and _fast_lcs is not None:
+        return _fast_lcs.similarity(first, second)
     if len(first) > len(second):
         first, second = second, first
     masks, full = _positions(first), (1 << len(first)) - 1
@@ -81,12 +94,14 @@ def lcs_length(first: str, second: str) -> int:
     return len(first) - row.bit_count()
 
 
-def edit_distance(first: str, second: str) -> int:
+def edit_distance(first: str, second: str, *, fast: bool = True) -> int:
     """The Levenshtein distance, a column of the table at a time in two integers (Myers 1999, as Hyyrö 2003 writes it)."""
     if first == second:
         return 0
     if not first or not second:
         return len(first) or len(second)
+    if fast and _fast_edit is not None:
+        return _fast_edit.distance(first, second)
     masks, full, last = _positions(first), (1 << len(first)) - 1, 1 << (len(first) - 1)
     up, down, distance = full, 0, len(first)
     for character in second:
@@ -315,6 +330,8 @@ def tables(reference: str, result: str) -> tuple[float | None, float | None]:
         return 0.0, 0.0
     # The elements under the table, the tags inside its cells among them, as the reference metric counts them.
     elements = max(len(expected.xpath(".//*")), len(found.xpath(".//*")), 1)  # type: ignore[attr-defined]
+    if elements > MAX_TABLE_ELEMENTS:
+        return None, None
     scores = []
     for with_text in (True, False):
         distance = tree_edit_distance(_table_tree(found, with_text=with_text), _table_tree(expected, with_text=with_text), _rename_cell)

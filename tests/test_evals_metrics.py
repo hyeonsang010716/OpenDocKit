@@ -32,8 +32,10 @@ class TestSequences:
         for _ in range(300):
             first = "".join(rng.choice("abc가나 ") for _ in range(rng.randrange(0, 90)))
             second = "".join(rng.choice("abc가나 ") for _ in range(rng.randrange(0, 90)))
-            assert lcs_length(first, second) == _slow_lcs(first, second)
-            assert edit_distance(first, second) == _slow_edit_distance(first, second)
+            # the definitions written here, and the library used in their place when it is installed
+            for fast in (False, True):
+                assert lcs_length(first, second, fast=fast) == _slow_lcs(first, second)
+                assert edit_distance(first, second, fast=fast) == _slow_edit_distance(first, second)
 
     def test_known_distances(self):
         assert edit_distance("kitten", "sitting") == 3
@@ -132,6 +134,18 @@ class TestScore:
         assert [(child.tag, child.text) for child in root.children[1].children] == [("content", "one two")]
 
 
+class TestLimitsOfTheMeasure:
+    def test_tables_too_large_to_compare_are_not_measured(self, monkeypatch):
+        """The tree edit distance compares every pair of elements: past the bound the table score is left out, the rest stays."""
+        from evals import metrics
+
+        table = "| a | b |\n|---|---|\n" + "| 1 | 2 |\n" * 6
+        assert score(table, table).teds == 1.0
+        monkeypatch.setattr(metrics, "MAX_TABLE_ELEMENTS", 10)
+        scores = score(table, table)
+        assert scores.teds is None and scores.teds_s is None and scores.nid == 1.0
+
+
 class TestCompare:
     @staticmethod
     def _card(mhs: float, document: float) -> dict:
@@ -175,3 +189,16 @@ class TestRun:
         assert against_markdown["mhs"] == 0.0 and against_markdown["nid"] > 0.9
         assert against_a_document == against_markdown
         assert (tmp_path / "out" / "a.md").read_text(encoding="utf-8").startswith("Title")
+
+    def test_plain_converts_without_emphasis_and_links(self, tmp_path):
+        """For a reference written without them (`make_twins.py`)."""
+        from evals.run import run
+
+        documents, gold = tmp_path / "documents", tmp_path / "gold"
+        documents.mkdir()
+        gold.mkdir()
+        (documents / "a.html").write_text('<p>Read <b>this</b> at <a href="https://example.com/x">the site</a>.</p>', encoding="utf-8")
+        (gold / "a.md").write_text("Read this at the site.\n", encoding="utf-8")
+
+        assert run(gold, documents, None, None, plain=True)["documents"]["a"]["nid"] == 1.0
+        assert run(gold, documents, None, None)["documents"]["a"]["nid"] < 1.0

@@ -25,28 +25,30 @@ METRICS = ("overall", "nid", "nid_s", "teds", "teds_s", "mhs", "mhs_s")
 # Page markers and picture placeholders are OpenDocKit's own marks, not text of the document, so they are left out of
 # what is scored; everything else is the default conversion.
 OPTIONS = ConvertOptions(page_markers=False, extract_images=False)
+# For a reference written without them (`make_twins.py`): no emphasis and no links either
+PLAIN_OPTIONS = ConvertOptions(page_markers=False, extract_images=False, keep_emphasis=False, keep_links=False)
 WORKERS = 4
 MOVED = 0.02  # a document is listed when one of its metrics moved by more than this
 
 
-def _convert(path: Path) -> tuple[str, float]:
+def _convert(path: Path, plain: bool = False) -> tuple[str, float]:
     started = time.perf_counter()
     try:
-        text = convert(path.read_bytes(), path.name, OPTIONS).text
+        text = convert(path.read_bytes(), path.name, PLAIN_OPTIONS if plain else OPTIONS).text
     except ConversionError:
         text = ""
     return text, time.perf_counter() - started
 
 
-def _score_document(job: tuple[str, str | None, str | None, str, str | None]) -> tuple[str, dict[str, float | None], float]:
-    name, document, prediction, gold, out = job
+def _score_document(job: tuple[str, str | None, str | None, str, str | None, bool]) -> tuple[str, dict[str, float | None], float]:
+    name, document, prediction, gold, out, plain = job
     if document is not None:
-        text, seconds = _convert(Path(document))
+        text, seconds = _convert(Path(document), plain)
         if out is not None:
             Path(out, f"{name}.md").write_text(text, encoding="utf-8")
     else:
         text, seconds = (Path(prediction).read_text(encoding="utf-8") if prediction and Path(prediction).is_file() else ""), 0.0
-    reference = Path(gold).read_text(encoding="utf-8") if gold.endswith(".md") else _convert(Path(gold))[0]
+    reference = Path(gold).read_text(encoding="utf-8") if gold.endswith(".md") else _convert(Path(gold), plain)[0]
     return name, score(reference, text).as_dict(), seconds
 
 
@@ -58,7 +60,7 @@ def _means(documents: dict[str, dict[str, float | None]]) -> dict[str, dict[str,
     return means
 
 
-def run(gold: Path, documents: Path | None, predictions: Path | None, out: Path | None) -> dict:
+def run(gold: Path, documents: Path | None, predictions: Path | None, out: Path | None, plain: bool = False) -> dict:
     """Score every document that has a reference. Returns the scorecard."""
     if out is not None:
         out.mkdir(parents=True, exist_ok=True)
@@ -71,7 +73,7 @@ def run(gold: Path, documents: Path | None, predictions: Path | None, out: Path 
                 continue
             source = str(found[0])
         prediction = str(predictions / f"{reference.stem}.md") if predictions is not None else None
-        jobs.append((reference.stem, source, prediction, str(reference), str(out) if out is not None else None))
+        jobs.append((reference.stem, source, prediction, str(reference), str(out) if out is not None else None, plain))
     with ProcessPoolExecutor(WORKERS) as pool:
         results = list(pool.map(_score_document, jobs, chunksize=4))
     scored = {name: {metric: None if value is None else round(value, 4) for metric, value in scores.items()} for name, scores, _ in results}
@@ -116,12 +118,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baseline", type=Path, help="scorecard to compare with")
     parser.add_argument("--update-baseline", action="store_true", help="write this run to --baseline instead of comparing")
     parser.add_argument("--tolerance", type=float, default=0.002, help="how far the mean of a metric may fall")
+    parser.add_argument("--plain", action="store_true", help="convert without emphasis and links, for a reference written without them")
     parser.add_argument("--gate", default=",".join(METRICS), help="the metrics whose fall fails the run, comma-separated (default: all)")
     args = parser.parse_args(argv)
     if (args.documents is None) == (args.predictions is None):
         parser.error("give one of --documents and --predictions")
 
-    card = run(args.gold, args.documents, args.predictions, args.out)
+    card = run(args.gold, args.documents, args.predictions, args.out, args.plain)
     for metric in METRICS:
         mean = card["means"][metric]
         print(f"{metric:8} {'none' if mean['mean'] is None else format(mean['mean'], '.4f'):>7}  over {mean['documents']} documents")
