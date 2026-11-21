@@ -23,7 +23,7 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._lists import _OBJECT_PLACEHOLDERS, BulletNesting, is_placeholder_only, paragraph_head
 from opendockit.extractors._notation import COMMENT_TARGET_MAX
-from opendockit.markdown import TableGrid
+from opendockit.markdown import TableGrid, render_table
 
 
 # Hangul's "개요 1" to "개요 7" (Outline 1-7) paragraph styles are the chapter/section structure of the document. They become Markdown headings.
@@ -247,6 +247,14 @@ class _SizeCandidate(str):
 
     heading: str
     size: int
+
+
+# The start of the placeholder a table nested in a cell leaves in its text (`markdown.TableGrid.embed`)
+_EMBEDDED_TABLE = "\ue020"
+
+
+# The label in the first cell of the bar an attachment of a Korean official document opens with (`SizeHeadings.row`)
+_ATTACHMENT_LABEL = re.compile(r"^(?:붙\s*임|참\s*고|별\s*첨|별\s*지|별\s*표)\s*\d{0,2}$")
 
 
 class _Box(str):
@@ -504,6 +512,35 @@ class SizeHeadings:
         box = _Box(written)
         box.cells, box.grid = cells, grid
         return box
+
+    def row(self, written: str, cells: list[list[str]], grid: TableGrid) -> str:
+        """A one-row table of the top-level body as one line of text, its cells joined by a space, when no cell holds more
+        than one paragraph — and `written`, the table as it was drawn, when one does.
+
+        A table of one row has a header and nothing under it. In Hangul documents it is a way to set things beside each
+        other: the label and the title of an attachment ('붙임 1' beside the title, the bar every attachment of a Korean
+        government document opens with), the time of release beside the date, the captions of two charts. In 59 press
+        releases 126 of the 219 tables were of this kind and none of them held data; each came out as a table header over
+        no rows. The line is a heading by its size when every cell is a candidate, held to the rules of a box (`box`), at
+        the smallest of their sizes. Under the label of an attachment (`_ATTACHMENT_LABEL`: '붙임', '참고 2', '별첨') it is
+        a heading of level 2 whatever its size: the bar is set a point larger than the body at most, and what follows it is
+        a part of the document under that title.
+
+        Deliberate: a row with a cell of several paragraphs, a line break or a table stays a table — two texts set side by
+        side are not one line.
+        Pinned by: test_hwp_one_row_tables.py.
+        """
+        filled = [cell for cell in cells if any(block.strip() for block in cell)]
+        if not filled or any(len(cell) != 1 or "\n" in cell[0] or _EMBEDDED_TABLE in cell[0] for cell in filled):
+            return written
+        parts = [cell[0] for cell in filled]
+        line = render_table([[" ".join(parts)]])
+        if not all(type(part) is _SizeCandidate for part in parts):
+            return line
+        title = " ".join(part.heading for part in parts)
+        if len(parts) > 1 and _ATTACHMENT_LABEL.match(parts[0].heading):
+            return f"## {title}"
+        return self.box(line, [[self.candidate(line, title, min(part.size for part in parts))]], grid)
 
     def resolve(self, blocks: list[str]) -> list[str]:
         """The blocks with each candidate settled into a heading or left as body text (a plain `str`)."""

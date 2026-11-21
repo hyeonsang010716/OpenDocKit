@@ -53,7 +53,8 @@ class TestHwpxEmphasis:
         cell = ('<hp:tc><hp:subList>' + _runs((0, "성적서("), (1, "V"), (0, ") 발급")) + "</hp:subList>"
                 '<hp:cellAddr colAddr="0" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>')
         cell2 = cell.replace('colAddr="0"', 'colAddr="1"')
-        body = f'<hp:p><hp:run><hp:tbl rowCnt="1" colCnt="2"><hp:tr>{cell}{cell2}</hp:tr></hp:tbl></hp:run></hp:p>'
+        row2 = "<hp:tr>" + (cell + cell2).replace('rowAddr="0"', 'rowAddr="1"') + "</hp:tr>"  # one row would be a line of text
+        body = f'<hp:p><hp:run><hp:tbl rowCnt="2" colCnt="2"><hp:tr>{cell}{cell2}</hp:tr>{row2}</hp:tbl></hp:run></hp:p>'
 
         assert "| 성적서(**V**) 발급 |" in convert(_hwpx(body), "a.hwpx").text
 
