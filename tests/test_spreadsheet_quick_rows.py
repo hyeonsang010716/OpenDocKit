@@ -167,6 +167,17 @@ class TestSameRowsAsOpenpyxlsParser:
         expected, quick = _both(monkeypatch, data, ConvertOptions(max_chars=None), reader)
         assert quick == expected
 
+    @pytest.mark.parametrize("part", ["<extLst><ext/></extLst>", "<extLst/>", "<hyperlinks><hyperlink ref=\"A1\"/></hyperlinks>",
+                                      "<cols/>", "<mergeCells><mergeCell ref=\"A1:B1\"/></mergeCells>"])
+    def test_a_part_inside_a_cell_leaves_the_cell_as_it_is(self, monkeypatch, streamed, reader, part):
+        """`CT_Cell` may end with an `<extLst>`, which ends before its cell does: letting go of what came before it took the
+        cell's `<v>`, and the cell came out empty where openpyxl's parser reads its value. The same for the other parts."""
+        rows = (f'<row r="1"><c r="A1" t="b"><v>1</v>{part}</c><c r="B1"><v>42</v>{part}</c><c r="C1" t="s"><v>0</v>{part}</c>'
+                f'</row><row r="2">{part}<c r="A2"><v>7</v></c>{part}</row>')
+        expected, quick = _both(monkeypatch, _xlsx(rows), ConvertOptions(), reader)
+        assert quick == expected
+        assert "TRUE" in quick[0] and "7" in quick[0]  # (B1 is hidden by the merge where the part is one)
+
     def test_formulas_read_as_written(self, monkeypatch, streamed, reader):
         rows = ('<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f t="shared" ref="B1:B3" si="0">A1*2</f></c></row>'
                 '<row r="2"><c r="A2"><v>2</v></c><c r="B2"><f t="shared" si="0"/></c></row>')

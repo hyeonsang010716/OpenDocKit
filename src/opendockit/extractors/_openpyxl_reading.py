@@ -676,6 +676,7 @@ class _HandedBack(Exception):
 # which reads it as it always did.
 _MERGE_CELL_TAG = f"{{{SHEET_MAIN_NS}}}mergeCell"
 _ROW_TAGS = (_openpyxl_sheet_reader.ROW_TAG, _openpyxl_sheet_reader.MERGE_TAG, _MERGE_CELL_TAG, *_SHEET_PARTS_LEFT_UNREAD)
+_CONTAINER_TAGS = frozenset((_openpyxl_sheet_reader.DATA_TAG, _openpyxl_sheet_reader.MERGE_TAG))  # `<sheetData>`, `<mergeCells>`
 _XML_DECLARATION = re.compile(rb"<\?xml\s[^>]*?\?>")
 _DECLARED = re.compile(rb"""(version|encoding)\s*=\s*["']([^"']*)["']""")
 _ROOT_START = re.compile(rb"<(?![?!])")
@@ -734,8 +735,14 @@ def _quick_rows(parser: object, reading: _CellReading) -> Iterator[tuple[int, li
         elif tag == _MERGE_CELL_TAG and not reading.streamed:
             continue  # kept for `<mergeCells>`, read when it ends (a streamed sheet's are emptied as they come)
         element.clear()
-        while element.getprevious() is not None:
-            del element.getparent()[0]
+        # The elements read before it are let go only where they are rows, merges or parts of the sheet: inside a cell, an
+        # `<extLst>` (which `CT_Cell` allows) or another part ends before its cell does, and letting go of what came before it
+        # took the cell's `<v>`, so the cell came out empty where openpyxl's parser reads its value (Pinned by:
+        # test_spreadsheet_quick_rows.py::TestSameRowsAsOpenpyxlsParser::test_a_part_inside_a_cell_leaves_the_cell_as_it_is)
+        parent = element.getparent()
+        if parent is not None and (parent.tag in _CONTAINER_TAGS or parent.getparent() is None):
+            while element.getprevious() is not None:
+                del parent[0]
 
 
 def _quick_cell(parser: object, reading: _CellReading, element: object, columns: dict[str, int], row_text: str | None) -> dict:
