@@ -148,6 +148,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   inside a word, and the two lines are now written as one. In 60 press releases 287 words are put right; 22 pairs of
   words are joined wrongly, where the PDF holds no space to go by (`docs/decisions/pdf-flow.md`). A PDF from another
   generator, and any line break at a space, is left as it was.
+- **XLS: a workbook is no longer refused as corrupted** for a defined name xlrd cannot evaluate (a print area written
+  as a relative reference) or a cell comment it cannot read. The cells are read; an unread comment is counted in a
+  warning.
 - **PDF: a bold title whose number is drawn apart from it is a heading** ('3.' a tab before the title): the joined line
   lost the weight of the title and came out as body text.
 - **PDF: the bar an attachment of a Korean official document opens with is a heading** (`## 붙임 1 행사 개요`), as in HWP

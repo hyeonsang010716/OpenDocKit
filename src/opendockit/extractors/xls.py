@@ -4,6 +4,7 @@ records.
 
 import bisect
 from collections.abc import Callable, Iterator
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import timedelta
 import hashlib
@@ -45,7 +46,55 @@ from opendockit.markdown import solid_length
 from opendockit.models import ConvertOptions, Extraction
 
 
+# Cell comments xlrd could not read in the workbook being converted (`_tolerant_note`), counted for the warning
+_UNREAD_NOTES: ContextVar[list[int] | None] = ContextVar("xls_unread_notes", default=None)
+
+
+def _tolerant_names(evaluate: Callable) -> Callable:
+    def evaluate_name_formula(*args: object, **kwargs: object) -> object:
+        try:
+            return evaluate(*args, **kwargs)
+        except xlrd.formula.FormulaError:
+            return None  # the name stays without a value; names are not written
+    return evaluate_name_formula
+
+
+def _tolerant_note(handle: Callable) -> Callable:
+    def handle_note(sheet: object, data: bytes, txos: object) -> object:
+        try:
+            return handle(sheet, data, txos)
+        except (AssertionError, struct.error, UnicodeDecodeError):
+            unread = _UNREAD_NOTES.get()
+            if unread is not None:
+                unread[0] += 1
+            return None
+    return handle_note
+
+
+# xlrd reads two things with the workbook that the cells do not depend on, and gave the whole workbook up on either: the
+# formula of a defined name with an operand it does not allow there (a print area written as a relative reference:
+# 'Token 0x2d (AreaN) found in NAME formula'), and a comment record of a length it does not expect (an assertion). Both
+# files open in Excel and LibreOffice. xlrd offers no option for either, so its two functions are wrapped, once, for the
+# process: a name that cannot be evaluated stays without a value, a comment that cannot be read is left out and counted
+# (Pinned by: test_spreadsheet.py::TestXlsPartsTheCellsDoNotNeed).
+if not getattr(xlrd.book.evaluate_name_formula, "opendockit_tolerant", False):
+    xlrd.book.evaluate_name_formula = _tolerant_names(xlrd.book.evaluate_name_formula)
+    xlrd.book.evaluate_name_formula.opendockit_tolerant = True  # type: ignore[attr-defined]
+    xlrd.sheet.Sheet.handle_note = _tolerant_note(xlrd.sheet.Sheet.handle_note)  # type: ignore[method-assign]
+
+
 def extract_xls(data: bytes, options: ConvertOptions) -> Extraction:
+    unread = _UNREAD_NOTES.set([0])
+    try:
+        extraction = _extract_xls(data, options)
+        if _UNREAD_NOTES.get()[0]:  # type: ignore[index]
+            extraction.warnings.append(f"{_UNREAD_NOTES.get()[0]:,} cell comment(s) of the XLS could not be read.")  # type: ignore[index]
+        return extraction
+    finally:
+        _UNREAD_NOTES.reset(unread)
+
+
+def _extract_xls(data: bytes, options: ConvertOptions) -> Extraction:
     # xlrd writes minor inconsistencies of the file ("WARNING *** OLE2 inconsistency …") to logfile (sys.stdout by default). Mixed
     # into the caller's output, it broke the CLI `--json` result. It is redirected to a sink
     # (Pinned by: test_spreadsheet.py::test_xls_reader_does_not_write_to_stdout).

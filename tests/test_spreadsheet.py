@@ -3358,3 +3358,37 @@ class TestDateFormatsWithoutADay:
         result = convert(data, "a.xls")
 
         assert "| 가 | 2024-03 |" in result.text
+
+
+class TestXlsPartsTheCellsDoNotNeed:
+    """xlrd gave a whole workbook up on a defined name or a comment it could not read, and the workbook was reported as
+    corrupted. Excel and LibreOffice open both, and the cells do not depend on either (two workbooks of the Apache POI
+    test files: a print area written as a relative reference, a comment record with bytes after its author)."""
+
+    _ROWS = [["품목", "수량"], ["연필", "3"]]
+
+    def test_a_defined_name_xlrd_cannot_evaluate_does_not_cost_the_workbook(self):
+        from opendockit.extractors.xls import extract_xls
+
+        name = "Area"
+        formula = bytes([0x2D]) + struct.pack("<HHHH", 0, 1, 0, 1)  # tAreaN: a reference relative to the cell that uses the name
+        record = (struct.pack("<HBBHHH4B", 0, 0, len(name), len(formula), 0, 0, 0, 0, 0, 0)
+                  + b"\x00" + name.encode("latin-1") + formula)
+        stream = builder.xls_bytes([("목록", self._ROWS, b"")], globals_extra=builder.xls_record(0x0018, record))
+
+        extraction = extract_xls(stream, ConvertOptions())
+
+        assert "| 연필 | 3 |" in extraction.sections[0].text and not extraction.warnings
+
+    def test_a_comment_xlrd_cannot_read_is_left_out_and_counted(self):
+        from opendockit.extractors.xls import extract_xls
+
+        author = "김"
+        note = (struct.pack("<4H", 1, 0, 0, 1) + struct.pack("<H", len(author)) + b"\x01" + author.encode("utf-16-le")
+                + b"\x00\x00\x00")  # three bytes after the author, where xlrd allows one
+        stream = builder.xls_bytes([("목록", self._ROWS, builder.xls_record(0x001C, note))])
+
+        extraction = extract_xls(stream, ConvertOptions())
+
+        assert "| 연필 | 3 |" in extraction.sections[0].text
+        assert extraction.warnings == ["1 cell comment(s) of the XLS could not be read."]
