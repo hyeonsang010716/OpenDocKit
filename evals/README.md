@@ -49,7 +49,7 @@ not text of the document.
 | :--- | ---: | ---: | ---: | ---: | :---: |
 | OpenDataLoader hybrid | 0.907 | 0.934 | 0.928 | 0.821 | yes |
 | Docling | 0.882 | 0.898 | 0.887 | 0.824 | yes |
-| **OpenDocKit (baseline)** | **0.874** | **0.914** | **0.776** | **0.791** | no |
+| **OpenDocKit (baseline)** | **0.875** | **0.914** | **0.776** | **0.796** | no |
 | Marker | 0.861 | 0.890 | 0.808 | 0.796 | yes |
 | OpenDataLoader | 0.831 | 0.902 | 0.489 | 0.739 | no |
 | *OpenDocKit without headings by weight (`60a5de8`)* | *0.772* | *0.914* | *0.710* | *0.407* | no |

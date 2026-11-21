@@ -13,6 +13,7 @@ from opendockit.extractors._pdf_model import (
     _BOLD_BODY_MAX_RATIO,
     _BOLD_HEADING_MIN_RATIO,
     _BULLET_START,
+    _CAPTION_LABEL,
     _CAPTION_START,
     _HEADING_MIN_RATIO,
     _HEADING_SIZE_RATIO,
@@ -528,7 +529,17 @@ def _is_heading(paragraph: _Paragraph, body_size: float, side_by_side: frozenset
     of a table (`_header_cells`) and not a sentence set a little larger (`_slightly_larger_text`)."""
     return (_heading_shaped(paragraph) and bool(body_size) and not any(id(line) in side_by_side for line in paragraph.lines)
             and max(line.size for line in paragraph.lines) / body_size >= _HEADING_SIZE_RATIO
-            and not _slightly_larger_text(paragraph, body_size))
+            and not _slightly_larger_text(paragraph, body_size) and not _is_numbered_caption(paragraph))
+
+
+def _is_numbered_caption(paragraph: _Paragraph) -> bool:
+    """Whether the paragraph starts with the numbered label of a figure or table ('Table 13.2. Effect of …', 'Figure 1.6.',
+    'TABLE 28: …', '표 3', `_CAPTION_LABEL`): a caption, however large it is set, not a heading of the text.
+
+    Deliberate: textbooks and reports set their captions larger than the body, and each became a heading — 10 of the 82
+    headings wrongly made on the scorecard's corpus (`evals/README.md`). A label without a number ('Table of Contents',
+    'Notes') stays a heading (Pinned by: test_pdf_headings.py::TestLargeCaptions)."""
+    return bool(_CAPTION_LABEL.match(paragraph.lines[0].text.lstrip()))
 
 
 def _slightly_larger_text(paragraph: _Paragraph, body_size: float) -> bool:
@@ -964,7 +975,7 @@ def _heading_key(paragraph: _Paragraph, heading_levels: dict[_HeadingKey, int], 
                  side_by_side: frozenset[int] = frozenset(), previous: _Paragraph | None = None) -> _HeadingKey | None:
     """The level key of a paragraph that is a heading: its size when that is a heading size of the document, otherwise
     (size, True) when the document has bold headings at about the body size and the paragraph is one. None for body text."""
-    if not _heading_shaped(paragraph) or any(id(line) in side_by_side for line in paragraph.lines):
+    if not _heading_shaped(paragraph) or any(id(line) in side_by_side for line in paragraph.lines) or _is_numbered_caption(paragraph):
         return None
     size = _heading_size(paragraph)
     if (size, False) in heading_levels:

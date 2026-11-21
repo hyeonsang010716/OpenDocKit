@@ -588,3 +588,39 @@ class TestStackedLabels:
                                 *[(320, 80 + index * 12.5, line, 9, "Times-Roman") for index, line in enumerate(right)]])
 
         assert "# Results Of The Study Set Over Two Lines" in text
+
+
+class TestLargeCaptions:
+    """A numbered caption of a figure or table set larger than the body is no heading (`_is_numbered_caption`)."""
+
+    @staticmethod
+    def _pdf(large: list[str]) -> bytes:
+        from io import BytesIO
+
+        from reportlab.pdfgen import canvas
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(595, 842))
+        top = 780.0
+        for title in large:
+            pdf.setFont("Helvetica", 15)
+            pdf.drawString(72, top, title)
+            pdf.setFont("Helvetica", 10)
+            for index in range(4):
+                pdf.drawString(72, top - 26 - 14 * index, f"Body line {index} of the paragraph under it, long enough to be a sentence of the text.")
+            top -= 110
+        pdf.save()
+        return buffer.getvalue()
+
+    def test_a_numbered_table_or_figure_caption_is_not_a_heading(self):
+        text = convert(self._pdf(["Soil colloids", "Table 13.2. Effect of cations on flocculation", "Figure 1.6. Work permits, Thailand",
+                                  "TABLE 28: BREAKDOWN OF CLAUSES"]), "a.pdf").text
+
+        assert "# Soil colloids" in text
+        for caption in ("Table 13.2. Effect of cations on flocculation", "Figure 1.6. Work permits, Thailand", "TABLE 28: BREAKDOWN OF CLAUSES"):
+            assert caption in text and f"# {caption}" not in text
+
+    def test_a_label_without_a_number_stays_a_heading(self):
+        text = convert(self._pdf(["Table of Contents", "Figures and their sources"]), "a.pdf").text
+
+        assert "# Table of Contents" in text and "# Figures and their sources" in text

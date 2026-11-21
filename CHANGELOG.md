@@ -10,8 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **Scorecard** (`evals/`): the structure of the PDF output — reading order, tables, headings — is scored on the 200
   documents of a public benchmark and compared with a baseline on every pull request that touches the PDF reader
-  (overall 0.874; `evals/README.md`).
-
+  (overall 0.875; `evals/README.md`).
 - **DOCX saved as Strict Open XML is read.** It was refused with the advice to save it again; its namespaces and
   relationship types are now read as their Transitional forms, and the lengths Word writes there with a unit (`36pt`)
   as the twips and half-points they stand for, so indented lists and raised or lowered text come out as they do in an
@@ -98,6 +97,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **PDF tables drawn with horizontal rules only** — a rule above, under the header and below, as papers and textbooks
   set them — are tables; a cell left empty or a single column gave the borderless search nothing to align, and the
   rows came out as loose lines. A chart's grid lines, a list of contents and a paragraph between rules stay as they were.
+- **PDF headings**: the numbered caption of a figure or table set larger than the body ('Table 13.2. Effect of …') is
+  no longer a heading.
 - **PDF headings**: a heading set in a bold face at about the body size ('5. The dynamics' in 11pt bold over a 10pt
   body), and a short one 1.15 times the body size that is no sentence, is a heading; only 1.2 times the body size and
   more were. Bold headings at the body size rank after every larger heading, and a document set in bold throughout
