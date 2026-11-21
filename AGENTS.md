@@ -11,6 +11,7 @@ uv run pytest -n auto -m "not timing"   # the bulk of the suite in parallel (und
 uv run pytest -m timing                  # tests that measure time, serially (about 5 minutes)
 uv run pytest tests/test_pdf.py  # one module
 uv run ruff check                # lint
+uv run python -m evals.run --documents <pdfs> --gold <references> --baseline evals/baselines/pdf-structure.json   # structure scores against the baseline (evals/README.md)
 uv run python examples/run_examples.py   # reconvert the sample documents (needs LibreOffice for the .doc / .ppt samples); `git diff examples/output` shows what moved
 uv run opendockit <file> [--json | --count] [--describe]   # --describe calls a vision model (OPENAI_API_KEY, costs money)
 ```
@@ -34,6 +35,9 @@ document that justifies it.
   and a failed one is run again up to twice). A test comparing two measurements times each with `tests.timing.fastest`;
   one that starts processes or threads and checks how they end is also marked `no_rerun`.
   Tests that call a real vision model are marked `live` and skipped unless `OPENDOCKIT_LIVE_TESTS=1`; never run them unasked.
+- A change to how structure is guessed from a PDF (headings, tables, reading order) is judged by the scorecard
+  (`evals/README.md`), not by the document it was written for: it comes with the comparison against the baseline, no
+  mean may fall on the benchmark or on the Korean pairs, and the baselines are updated in the same change.
 - A deliberate trade-off gets a row in `docs/decisions/` and a `Pinned by:` comment at the code site.
 - Extractors only produce sections; normalization, headings, images and limits belong to `converter.py`.
 - Tables go through `render_table` / `TableGrid`.

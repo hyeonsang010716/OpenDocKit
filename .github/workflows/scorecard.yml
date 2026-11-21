@@ -1,0 +1,41 @@
+name: Scorecard
+
+# The structure scores of the PDF reader on a public benchmark, compared with the baseline in evals/baselines/
+# (evals/README.md). Runs when something the PDF output depends on changes.
+on:
+  pull_request:
+    paths:
+      - "src/opendockit/extractors/pdf.py"
+      - "src/opendockit/extractors/_pdf*.py"
+      - "src/opendockit/converter.py"
+      - "src/opendockit/markdown.py"
+      - "evals/**"
+      - "uv.lock"
+      - ".github/workflows/scorecard.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pdf-structure:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --locked --python 3.12
+      - name: Fetch the benchmark documents
+        run: git lfs install && sh evals/fetch_corpus.sh "$RUNNER_TEMP/corpus"
+      - name: Score against the baseline
+        run: >
+          uv run python -m evals.run
+          --documents "$RUNNER_TEMP/corpus/opendataloader-bench/pdfs"
+          --gold "$RUNNER_TEMP/corpus/opendataloader-bench/ground-truth/markdown"
+          --baseline evals/baselines/pdf-structure.json

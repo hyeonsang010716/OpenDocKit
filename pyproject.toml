@@ -140,4 +140,4 @@ ignore = [
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
 lines-after-imports = 2
-known-first-party = ["opendockit", "tests"]
+known-first-party = ["opendockit", "tests", "evals"]

@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **Scorecard** (`evals/`): the structure of the PDF output — reading order, tables, headings — is scored on the 200
+  documents of a public benchmark (overall 0.875) and on 60 Korean press releases published as both HWPX and PDF, the
+  HWPX being the reference for the PDF, and compared with a baseline (`evals/README.md`).
 - **DOCX saved as Strict Open XML is read.** It was refused with the advice to save it again; its namespaces and
   relationship types are now read as their Transitional forms, and the lengths Word writes there with a unit (`36pt`)
   as the twips and half-points they stand for, so indented lists and raised or lowered text come out as they do in an
@@ -91,6 +94,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - **Native sheet reader** (`opendockit-xlsx-core`, new package in `packages/`): where it is installed, the cells of a
     sheet are read in Rust (the two sheets above: 1.1 s and 3.7 s); any sheet it does not take on is read by the Python
     readers as before. Built and tested in CI; not yet published.
+- **PDF tables drawn with horizontal rules only** — a rule above, under the header and below, as papers and textbooks
+  set them — are tables; a cell left empty or a single column gave the borderless search nothing to align, and the
+  rows came out as loose lines. A chart's grid lines, a list of contents and a paragraph between rules stay as they were.
+- **PDF headings**: the numbered caption of a figure or table set larger than the body ('Table 13.2. Effect of …') is
+  no longer a heading.
+- **PDF headings**: a heading set in a bold face at about the body size ('5. The dynamics' in 11pt bold over a 10pt
+  body), and a short one 1.15 times the body size that is no sentence, is a heading; only 1.2 times the body size and
+  more were. Bold headings at the body size rank after every larger heading, and a document set in bold throughout
+  gets none from its weight. A caption, a value without a letter ('56%', a page number; a year set large stays a
+  heading), a sentence, a row with check boxes or dot leaders, and heading-like lines side by side with rows of cells
+  under them (the header row of a table) are not headings.
 
 ### Security
 
@@ -153,8 +167,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   over a table in the right column is no longer taken for a caption of a table in the left column and read ahead of it.
   A two-column page that pdfminer read right column first is read left column first even when one of its lines is
   drawn in pieces (a reference split at a wide justified space).
-- **PDF headings**: a paragraph without a letter ('56%', a page number set larger) is no heading any more; a year set
-  large stays one. A body line starting with `#` or `>` is escaped, so a form row is not a Markdown heading or quote.
 - **PDF forms**: the values of a filled form are kept on a page read with simple extraction (past the time budget, a
   crowded or very heavy page, a page pdfminer cannot read); they were dropped without a word. The annotations walked for
   them are bounded over the document, with a warning past it, and the widgets of a large field are found once a document
@@ -190,7 +202,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   unsupported on Windows, or that the server converts inside its own process there.
 - **PDF text**: a character the font's ToUnicode map gives as U+FFFD is read from pdfium when both readers read its
   whole row alike — every character in the same place, every decoded one the same — and otherwise stays U+FFFD; page
-  and figure numbers in old-style figures came out as '�07' and 'Figure 11.1�'.
+  and figure numbers in old-style figures came out as '�07' and 'Figure 11.1�'. A body
+  line starting with `#` or `>` is escaped, so a form row is not a Markdown heading or quote.
 - **PDF tables**: shading drawn inside a cell in the cell's own colour (Word shades a paragraph per line) no longer
   splits a header cell into rows and repeats the others. The bars of a vector bar chart, a figure label set in a box
   beside its title ('Diagram 4') and a displayed formula are no longer tables. The first level of a two-level header

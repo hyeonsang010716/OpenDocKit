@@ -74,6 +74,7 @@ from opendockit.extractors._pdf_artifacts import (
     _without_drawing_artifacts,
     _xobject_owners,
 )
+from opendockit.extractors._pdf_banded_tables import _extract_banded_tables, _upright_rules
 from opendockit.extractors._pdf_chars import (
     _drawn_text,
     _drop_cap,
@@ -102,6 +103,7 @@ from opendockit.extractors._pdf_model import (
     _BoxIndex,
     _in_margin,
     _info_text,
+    _is_bold_line,
     _Line,
     _Page,
     _visual_rows,
@@ -582,6 +584,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
     for page in pages:
         _join_ruled_header_lines(page)
         _extract_aligned_tables(page)
+        _extract_banded_tables(page)
         _join_row_fragments(page)
         _read_columns_in_turn(page)
         _read_alternating_sides_in_turn(page)
@@ -604,7 +607,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
             images = _page_images(page, renderer, extraction) if renderer else []
             if page.text_untrusted and not images:
                 (unrendered if renderer.skipped > skipped else undrawable).append(page.number)
-            text = _render_page(page, heading_levels, line_gap, images)
+            text = _render_page(page, heading_levels, line_gap, images, body_size)
             if _CID.search(text):
                 has_cid = True
                 text = _CID.sub("", text)
@@ -1175,7 +1178,8 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
         size = statistics.median(sizes) if sizes else 0.0
         lines.append(_Line(top=top, bottom=bottom, x0=line["x0"], x1=line["x1"], text=_drawn_text(text),
                            size=size, parts=_gap_parts(inside, _drawn_text(text), size),
-                           fine_parts=_gap_parts(inside, _drawn_text(text), size, _UNSPACED_GAP_RATIO)))
+                           fine_parts=_gap_parts(inside, _drawn_text(text), size, _UNSPACED_GAP_RATIO),
+                           bold=_is_bold_line(inside)))
         line_owners.append(owner)
     lines = _place_xobject_lines(lines, line_owners)
     _mark_checkboxes(page, lines, [bbox for bbox, _, _ in tables])
@@ -1208,6 +1212,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                  hidden_chars=hidden_chars if not lines and not tables and not sideways_text else 0,
                  undecodable=blank and _has_undecodable_contents(layout_page), unmeasured=unmeasured,
                  rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [],
+                 uprights=_upright_rules(page) if lines else [],
                  literal_carets=any("^" in char["text"] for char in page_chars), unshown_marks=unshown_marks)
 
 
