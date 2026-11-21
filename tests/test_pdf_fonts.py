@@ -85,6 +85,30 @@ class TestSymbolFontCheckboxes:
         assert result.text == f"Consent to collection: {marks[0]} Agree {marks[1]} Disagree"
 
 
+class TestWingdingsGlyphsReadAsLetters:
+    """Hangul's PDF sets the marks before the items of a list in Wingdings without a ToUnicode map, so they are read by
+    their numbers as Windows-1252: 'm' for the circle (6D), '§' for the small square (A7), 'ž' for the dot (9E). 'm (일 시)
+    2026.11.20.' came out of four of sixty press releases."""
+
+    @pytest.mark.parametrize(("code", "mark"), [(b"(m)", "○"), (b"<A7>", "▪"), (b"<9E>", "·"), (b"(l)", "●")],
+                             ids=["circle", "square", "dot", "disc"])
+    def test_a_letter_of_a_wingdings_font_is_the_symbol_of_its_number(self, code, mark):
+        content = b"BT /W 11 Tf 72 720 Td %s Tj ET BT /F1 11 Tf 90 720 Td (Venue of the event) Tj ET" % code
+        font = (b"<< /Type /Font /Subtype /TrueType /BaseFont /INPILL+Wingdings-Regular /Encoding /WinAnsiEncoding"
+                b" /FirstChar 32 /LastChar 255 /Widths [%s] >>" % b" ".join([b"800"] * 224))
+        data = _page_pdf(content, {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", b"W": font})
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "Venue of the event" in text and mark in text and "m Venue" not in text
+
+    def test_a_letter_of_another_font_stays_a_letter(self):
+        content = b"BT /F1 11 Tf 72 720 Td (m) Tj ET BT /F1 11 Tf 90 720 Td (Venue of the event) Tj ET"
+        data = _page_pdf(content, {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"})
+
+        assert convert(data, "a.pdf", ConvertOptions(page_markers=False)).text == "m Venue of the event"
+
+
 def _type3_digits(descriptor: bool = True) -> bytes:
     """Type3 font drawing the digits 0–9 (the form LibreOffice exports a variable font in): the bottom of FontBBox is -1.05em,
     the Descent of the font descriptor is -0.288em."""
