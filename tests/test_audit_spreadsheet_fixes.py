@@ -168,15 +168,19 @@ class TestSheetScansKeepNoTree:
         assert left < 10
         assert len(found) == 3_000 and found[3_000] == {1: "=1-1", 2: "=2-2"}
 
-    def test_sheet_parser_keeps_no_rows(self, monkeypatch):
+    @pytest.mark.parametrize("quick", [True, False], ids=["quick rows", "openpyxl parser"])
+    def test_sheet_parser_keeps_no_rows(self, monkeypatch, quick):
         rows = "".join(_text_row(row, f"item {row}", "x") for row in range(1, 3_001))
         data = _with_sheet_xml(_sheet_xml(rows))
         result = {}
+        monkeypatch.setattr(_openpyxl_reading, "QUICK_ROWS", quick)
+        monkeypatch.setattr(_openpyxl_reading, "NATIVE_ROWS", False)  # it builds no tree at all
 
         def run() -> None:
             result["text"] = convert(data, "a.xlsx", options=ConvertOptions(max_chars=None)).text
 
-        left = _element_count_after(monkeypatch, openpyxl_sheet_reader, "iterparse", run)
+        left = _element_count_after(monkeypatch, *((_openpyxl_reading.etree, "iterparse") if quick
+                                                   else (openpyxl_sheet_reader, "iterparse")), run)
 
         assert left < 10
         assert result["text"].count("| item ") == 3_000 and result["text"].endswith("| item 3000 | x |")

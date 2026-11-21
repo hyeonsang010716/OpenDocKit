@@ -80,6 +80,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   the other modules still have them.
 - **DOCX conversion is 12-19% faster** on large documents (20,000 paragraphs, 80,000 table cells); the output is the same
   to the byte.
+- **XLSX is converted about twice as fast, with the same output.** A 20,000-row sheet of text, amounts and dates takes
+  1.2 s instead of 1.9 s and a 100,000-row one 4.5 s instead of 9.1 s; the text, the warnings and the failures are
+  what they were.
+  - Sheet rows are read with libxml2, which hands over whole rows, instead of through openpyxl's pull parser, which
+    handed every start and end of every element to Python. A cell or a part of an unusual shape is read as before.
+  - A number format is worked out once per format rather than for every cell, and text, numbers and dates take a
+    short way to their text; plain shared and inline strings no longer become openpyxl text objects.
+  - Number formats round the same whatever decimal context the calling thread has set.
+  - **Native sheet reader** (`opendockit-xlsx-core`, new package in `packages/`): where it is installed, the cells of a
+    sheet are read in Rust (the two sheets above: 1.1 s and 3.7 s); any sheet it does not take on is read by the Python
+    readers as before. Built and tested in CI; not yet published.
 
 ### Security
 

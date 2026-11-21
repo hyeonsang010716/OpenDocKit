@@ -105,7 +105,7 @@ packages = ["src/opendockit"]
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/tests", "/docs", "/hermes-plugin", "/claude-plugin", "/.claude-plugin", "/dify-plugin", "/packages", "/README.md", "/CHANGELOG.md", "/LICENSE"]
 # The demo animations are for the README on GitHub; they would add 7 MB to every source distribution.
-exclude = ["/docs/assets/*.gif"]
+exclude = ["/docs/assets/*.gif", "/packages/*/target"]  # the native reader's build folder
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

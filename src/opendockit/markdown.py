@@ -603,7 +603,18 @@ def join_blocks(blocks: Iterable[str]) -> str:
     return "".join(parts).strip()
 
 
+# Every character `_cell_lines` removes or changes besides the outer white space: invisible, control and space-like characters,
+# the line-break controls, line breaks, tabs and a run of spaces.
+_CELL_AS_WRITTEN = re.compile("[" + "".join(pattern.pattern[1:-1] for pattern in (_INVISIBLE, _CONTROL, _SPACE_LIKE))
+                              + "\x0b\x0c\x85\u2028\u2029\r\n\t]|  ")
+
+
 def _cell_lines(value: str) -> list[str]:
+    # A cell with none of those characters (and already in NFC) is one line, its text stripped. Most cells are such text: the
+    # full steps took a fifth of the time a sheet took to draw (Pinned by: test_markdown.py::TestCellLines).
+    if _CELL_AS_WRITTEN.search(value) is None and (value.isascii() or unicodedata.is_normalized("NFC", value)):
+        line = value.strip()
+        return [line] if line else []
     value = unicodedata.normalize("NFC", _SPACE_LIKE.sub(" ", _CONTROL.sub("", _INVISIBLE.sub("", value.translate(_LINE_BREAK_CONTROLS)))))
     lines = [_INNER_SPACES.sub(" ", line).strip() for line in value.replace("\r", "\n").split("\n")]
     return [line for line in lines if line]

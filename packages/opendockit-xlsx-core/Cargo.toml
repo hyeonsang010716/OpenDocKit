@@ -1,0 +1,19 @@
+[package]
+name = "opendockit-xlsx-core"
+version = "0.3.14"
+edition = "2021"
+license = "MIT"
+description = "Native sheet reader of OpenDocKit's XLSX converter"
+publish = false
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.30", features = ["abi3-py312", "extension-module"] }
+quick-xml = "0.42"
+
+[profile.release]
+lto = true
+codegen-units = 1

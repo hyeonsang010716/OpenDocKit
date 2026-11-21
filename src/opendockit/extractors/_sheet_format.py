@@ -3,8 +3,9 @@ dates, times, elapsed time, percentages, digit places, sections and literal text
 """
 
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
+from decimal import ROUND_HALF_UP, Context, Decimal, InvalidOperation
 import functools
 import math
 import re
@@ -175,6 +176,7 @@ def _is_date_number_format(number_format: str | None) -> bool:
     return re.search(r"(?<![_\\])[dmhysDMHYS]", codes) is not None
 
 
+@functools.lru_cache(maxsize=1024)
 def _shows_time(number_format: str) -> bool:
     """Whether the format shows hours or seconds. Letters in quoted text and in bracket sections (colour, locale `[$-en-US]`,
     `[$-x-sysdate]`) are not format codes — the s/h inside them were taken as time and `00:00:00` was appended to date cells. Only
@@ -187,6 +189,7 @@ def _shows_time(number_format: str) -> bool:
 _FORMAT_AM_PM = re.compile(r"AM/PM|A/P", re.IGNORECASE)
 
 
+@functools.lru_cache(maxsize=1024)
 def _shows_date(number_format: str) -> bool:
     """Whether the format shows a date (year, month, day, weekday, era). `m` is minutes when the code right before it is `h` or the
     code right after it is `s` (same rule as Excel). Quoted text, backslash-escaped characters, bracket sections and AM/PM markers
@@ -205,6 +208,7 @@ def _elapsed_hour_or_second(token: str) -> str:
     return token[1].lower().replace("m", "") if _ELAPSED_FORMAT.fullmatch(token) else ""
 
 
+@functools.lru_cache(maxsize=1024)
 def _code_letters(number_format: str, bracket: Callable[[str], str] = _no_bracket) -> str:
     """Only the letters of the format codes (lower case). Quoted text, backslash-escaped characters, bracket sections (unless
     `bracket` gives something for them) and AM/PM markers are left out."""
@@ -231,6 +235,7 @@ def _date_text(value: datetime, number_format: str) -> str:
     return value.date().isoformat()
 
 
+@functools.lru_cache(maxsize=1024)
 def _is_weekday_only(number_format: str | None) -> bool:
     """Whether the format codes of the first section are a weekday only (`aaa`, `aaaa`). Quoted text, bracket sections,
     backslash-escaped characters and symbols are ignored."""
@@ -272,12 +277,14 @@ def _elapsed_text(value: timedelta, number_format: str | None) -> str:
     return f"{sign}{seconds // 3600}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
 
 
+@functools.lru_cache(maxsize=1024)
 def _shows_seconds(number_format: str) -> bool:
     """Whether the format shows seconds (s). Quoted text, backslash-escaped characters and bracket sections (elapsed seconds `[ss]`
     do count as seconds) are not format codes."""
     return "s" in _format_codes(number_format, _elapsed_only).lower()
 
 
+@functools.lru_cache(maxsize=1024)
 def _smallest_unit(number_format: str) -> int:
     """Seconds in the smallest time unit the first section shows: 1 for seconds, 60 for minutes, otherwise 3,600. Quoted text,
     backslash-escaped characters and bracket sections other than elapsed ones (`[Magenta]`) are not format codes."""
@@ -285,6 +292,7 @@ def _smallest_unit(number_format: str) -> int:
     return 1 if "s" in codes else 60 if "m" in codes else 3600
 
 
+@functools.lru_cache(maxsize=1024)
 def _first_section(number_format: str) -> str:
     section = _FORMAT_SECTION.match(number_format)
     return section.group(0) if section else number_format
@@ -493,7 +501,84 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     if value == 0:
         value = 0.0
 
-    section, value, signed_by_format = _format_section(value, number_format)
+    # What the format says is worked out once per format and sign (`_number_plan`); only the value is handled per cell. Read
+    # again for every cell, the format took about 3 µs of the 5 µs a formatted cell cost, and a sheet has a few formats over
+    # very many cells (Pinned by: test_sheet_format_plans.py).
+    plan = _number_plan(number_format, -1 if value < 0 else 0 if value == 0 else 1)
+    if plan is None:
+        return None
+    if plan.negate:
+        value = -value
+    if plan.kind == _GENERAL_WITH_LITERALS:
+        sign = "-" if value < 0 and not plan.signed else ""
+        return f"{sign}{plan.prefix}{_format_value(abs(value))}{plan.suffix}"
+    if plan.kind == _LITERALS_ONLY:
+        return f"{'-' if value < 0 and not plan.signed else ''}{plan.prefix}"
+
+    try:
+        number = _rounded(value, plan.percents, plan.scale, plan.decimals)
+    except InvalidOperation:
+        return None  # a format with hundreds of decimal places — the original value is used
+    text = f"{number:,.{plan.decimals}f}" if plan.comma else f"{number:.{plan.decimals}f}"
+    # The sign goes before the leading literals (currency symbol included) (Excel: -₩1,200). For a value that used the negative
+    # section the sign is shown by the format's literals.
+    sign = "-" if text.startswith("-") and not plan.signed else ""
+    integer, dot, rest = text.removeprefix("-").partition(".")
+    if plan.optional_tail:
+        rest = _without_trailing_zeros(plan.places, rest)
+        dot = dot if rest else ""  # 12 under `0.###` → 12 (same as LibreOffice)
+    if plan.fraction_literals is not None:
+        rest = _fill_decimals(plan.fraction, plan.fraction_literals, rest)
+    if plan.integer_mode == _FILL_DIGITS:
+        integer = _fill_digits(plan.whole, plan.whole_literals, integer)
+    elif plan.integer_mode == _PAD_ZEROS:
+        digits = integer.replace(",", "").zfill(plan.zeros)
+        integer = _grouped(digits) if plan.comma else digits
+    elif plan.integer_mode == _DROP_ZERO and integer == "0" and any(char.isdigit() for char in rest):
+        integer = ""
+    return f"{sign}{plan.prefix}{integer}{dot}{rest}{plan.suffix}"
+
+
+# The kinds of `_NumberPlan`: digit places to fill, the General format with literals around it, literals alone.
+_DIGITS, _GENERAL_WITH_LITERALS, _LITERALS_ONLY = range(3)
+# How the integer part is written (`_NumberPlan.integer_mode`): as formatted, filled into a template with literals, padded with
+# zeros, or left out when it is a zero under optional places.
+_AS_IS, _FILL_DIGITS, _PAD_ZEROS, _DROP_ZERO = range(4)
+
+
+@dataclass(frozen=True, slots=True)
+class _NumberPlan:
+    """What a format section does to a number, worked out from the format alone (`_number_plan`).
+
+    `negate`: the value is put into the section as its absolute value (a negative section that shows the sign itself);
+    `signed`: the format shows the sign, so no `-` is added. For `_LITERALS_ONLY` the text shown is `prefix`."""
+
+    kind: int
+    negate: bool
+    signed: bool
+    prefix: str = ""
+    suffix: str = ""
+    percents: int = 0
+    scale: int = 0
+    decimals: int = 0
+    comma: bool = False
+    places: str = ""
+    optional_tail: bool = False
+    fraction: str = ""
+    fraction_literals: tuple[str, ...] | None = None
+    whole: str = ""
+    whole_literals: tuple[str, ...] = ()
+    integer_mode: int = _AS_IS
+    zeros: int = 0
+
+
+@functools.lru_cache(maxsize=1024)
+def _number_plan(number_format: str, sign: int) -> _NumberPlan | None:
+    """The plan of `number_format` for a value of this sign (-1, 0 or 1), or None when the format is not imitated and the
+    original value is used. Which section a value takes, and whether that section shows the sign, depends only on the sign
+    (`_format_section`)."""
+    section, placed, signed_by_format = _format_section(float(sign), number_format)
+    negate = placed != float(sign)
     section = section.lstrip()  # trailing whitespace may be part of `_ ` (underscore + space), so it is not stripped
     if section.lower() in ("general", "@", "") or _SCIENTIFIC.search(_format_codes(section)):
         return None
@@ -511,8 +596,7 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
         pieces = iter(literals)
         prefix, suffix = ("".join(next(pieces, "") for _ in range(part.count("\x00")))
                           for part in (plain[:before], plain[before + len("general"):]))
-        sign = "-" if value < 0 and not signed_by_format else ""
-        return f"{sign}{prefix.lstrip()}{_format_value(abs(value))}{suffix.rstrip()}"
+        return _NumberPlan(_GENERAL_WITH_LITERALS, negate, signed_by_format, prefix.lstrip(), suffix.rstrip())
     if _FORMAT_DATE_TOKENS.search(plain.replace("\x00", "")) or "/" in plain:
         return None  # date and fraction (# ?/?) formats are not imitated; the original value is used
 
@@ -535,7 +619,7 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
         text = literal_text(plain).strip()
         if not text or not _FORMAT_BARE_SYMBOLS.fullmatch(plain.replace("\x00", "")):
             return None
-        return f"{'-' if value < 0 and not signed_by_format else ''}{text}"
+        return _NumberPlan(_LITERALS_ONLY, negate, signed_by_format, text)
     first = start.start()
     last = max(index for index, char in enumerate(plain) if char in "0#?.,")
 
@@ -562,45 +646,35 @@ def _apply_number_format(value: float, number_format: str) -> str | None:
     scale = len(whole) - len(whole.rstrip(",")) + len(fraction) - len(fraction.rstrip(","))
     whole = whole.rstrip(",")
     places = "".join(char for char in fraction if char in "0#?")
-    decimals = len(places)
-    try:
-        number = _rounded(value, percents, scale, decimals)
-    except InvalidOperation:
-        return None  # a format with hundreds of decimal places — the original value is used
-    text = f"{number:,.{decimals}f}" if "," in whole else f"{number:.{decimals}f}"
-    # The sign goes before the leading literals (currency symbol included) (Excel: -₩1,200). For a value that used the negative
-    # section the sign is shown by the format's literals.
-    sign = "-" if text.startswith("-") and not signed_by_format else ""
-    integer, dot, rest = text.removeprefix("-").partition(".")
-    if places.endswith(("#", "?")):
-        rest = _without_trailing_zeros(places, rest)
-        dot = dot if rest else ""  # 12 under `0.###` → 12 (same as LibreOffice)
-    if any(char not in "0#?," for char in fraction):
-        # Literals between decimal places (`0.0\E+0`, `0.00" "00`) stay where they are, the decimal digits filling the places from
-        # the left as in Excel. They were dropped, so 5 under `0.0\E+0` came out as `5.00` instead of `5.0E+0`
-        # (Pinned by: test_audit_spreadsheet_fixes.py::TestLiteralsBetweenDecimalPlaces).
-        rest = _fill_decimals(fraction, literals[literals_before + whole.count("\x00"):], rest)
+    # Literals between decimal places (`0.0\E+0`, `0.00" "00`) stay where they are, the decimal digits filling the places from
+    # the left as in Excel. They were dropped, so 5 under `0.0\E+0` came out as `5.00` instead of `5.0E+0`
+    # (Pinned by: test_audit_spreadsheet_fixes.py::TestLiteralsBetweenDecimalPlaces).
+    fraction_literals = (tuple(literals[literals_before + whole.count("\x00"):])
+                         if any(char not in "0#?," for char in fraction) else None)
     if (any(char not in "0#?," for char in whole) or "?" in whole) and "," not in whole:
         # A format with literals between digit places (phone number `0##\-####\-####`, date shape `0000\-00\-00`) fills the places
         # from the right and inserts the literals. Dropping the literals turned 010-1234-5678 into 1012345678
         # (Pinned by: test_quality.py::TestSpreadsheetNumberFormats). An integer place `?` without a digit is a space, as in
         # Excel (0.5 under `?.??` → ` .5 `, Pinned by: test_audit_spreadsheet.py::TestQuestionMarkPlaces).
-        integer = _fill_digits(whole, literals[literals_before:], integer)
+        integer_mode = _FILL_DIGITS
     elif whole.count("0") > 1 and all(char in "0#?," for char in whole):
         # The 0s of the integer part are the minimum number of digits (employee number / postal code 001234 written as `000000`).
         # With a thousands separator Excel pads first and groups the padded digits: 1234 under `00,000` is `01,234` and 5 under
         # `0,000` is `0,005`. The padding was dropped, giving `1,234` and `5`
         # (Pinned by: test_spreadsheet.py::TestZeroPaddingWithAThousandsSeparator).
-        digits = integer.replace(",", "").zfill(whole.count("0"))
-        integer = _grouped(digits) if "," in whole else digits
-    elif integer == "0" and not whole.strip("#,") and any(char.isdigit() for char in rest):
+        integer_mode = _PAD_ZEROS
+    elif not whole.strip("#,"):
         # A `#` integer place shows nothing for a zero integer part, as does a format without integer places: 0.5 under `#.##` is
         # `.5` and under `.00` `.50` in Excel. Only the format without integer places dropped it, so `#.##` gave `0.5`.
         # Deliberate: when no other digit is shown (0 under `#,###`, `#` or `.##`, where Excel shows nothing), the 0 stays, as an
         # empty section gives the value instead of nothing
         # (Pinned by: test_audit_spreadsheet.py::TestZeroIntegerUnderOptionalPlaces).
-        integer = ""
-    return f"{sign}{prefix}{integer}{dot}{rest}{suffix}"
+        integer_mode = _DROP_ZERO
+    else:
+        integer_mode = _AS_IS
+    return _NumberPlan(_DIGITS, negate, signed_by_format, prefix, suffix, percents, scale, len(places), "," in whole, places,
+                       places.endswith(("#", "?")), fraction, fraction_literals, whole, tuple(literals[literals_before:]),
+                       integer_mode, whole.count("0"))
 
 
 def _grouped(digits: str) -> str:
@@ -633,12 +707,24 @@ def _rounded(value: float, percents: int, scale: int, decimals: int) -> Decimal:
     (1234567890123456789 under `0` is 1234567890123460000)
     (Pinned by: test_spreadsheet.py::TestNumberFormatRounding).
     """
-    with localcontext() as context:
-        context.prec = 400  # even 1e308 keeps its integer part
-        number = Decimal(format(value, ".15g"))
-        if percents:
-            number *= 100 ** percents
-        return number.scaleb(-3 * scale).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)
+    number = Decimal(format(value, ".15g"))
+    if percents:
+        number = _ROUNDING.multiply(number, 100 ** percents)
+    if scale:
+        number = number.scaleb(-3 * scale, context=_ROUNDING)
+    return number.quantize(_decimal_places(decimals), rounding=ROUND_HALF_UP, context=_ROUNDING)
+
+
+# The context of `_rounded`: even 1e308 keeps its integer part. One context passed to each operation, not a `localcontext` per
+# cell (a third of the time a formatted cell took), and the same whatever context the caller's thread has set. Its flags are
+# never read, so cells formatted in several threads at once do not depend on one another.
+_ROUNDING = Context(prec=400)
+
+
+@functools.lru_cache(maxsize=256)
+def _decimal_places(decimals: int) -> Decimal:
+    """The exponent `_rounded` quantizes to (`1E-2` for two decimal places)."""
+    return Decimal(1).scaleb(-decimals, context=_ROUNDING)
 
 
 def _fill_decimals(template: str, literals: list[str], digits: str) -> str:
