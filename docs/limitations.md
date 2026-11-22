@@ -176,7 +176,10 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 
 ## HWP and HWPX
 
-- **Hangul comments** (review comments) are included only for HWPX, at the end of the document, as the same `> Comment(…)` lines as Word. Comments of binary HWP are not included (the record holding the comment text has not been identified).
+- **Hangul comments** (review comments, 메모) of HWP and HWPX are written at the end of the document, as the same `> Comment(…)` lines as Word.
+- **Text of a master page** (바탕쪽), which Hangul prints on every page of a section, is not read, in HWP or in HWPX.
+- **Left out on purpose**: a hidden comment (숨은 설명), the guide of a click-here field nobody filled in (누름틀: "click here and type"), the caption of a command button and the choices of a combo box (its selected value is written).
+- **Hangul tracked changes**: an HWPX leaves out text deleted under change tracking when the deletion begins and ends in one run of text; a deletion that runs over several runs stays in the text, and binary HWP is written without telling tracked changes apart.
 - **Protected HWP documents**: a password, DRM or certificate-encrypted body is not read (`EncryptedDocumentError`); a
   distribution (read-only) document gives only the preview text Hancom Office saved.
 - **Hangul equations** are converted to LaTeX (`{1} over {n}` → `$\frac{1}{n}$`, following Hancom's published equation specification). An equation that cannot be converted, such as a long-division layout (LONGDIV), is left as its script (`[Equation: …]`).

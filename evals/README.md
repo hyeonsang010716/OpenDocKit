@@ -287,12 +287,17 @@ twins do, so they run where they were made.
 uv run python -m evals.recall --documents $K/hwpx --baseline evals/baselines/recall-korean-pairs.json
 uv run python -m evals.recall --documents $H/hwpx --baseline evals/baselines/recall-korean-holdout.json
 uv run python -m evals.recall --documents ../corpus/twins/docx --baseline evals/baselines/recall-twins-docx.json
-uv run python -m evals.recall --documents <any folder of DOCX, PPTX, XLSX, HWPX> --show 10      # no baseline: just look
+uv run python evals/fetch_hangul_samples.py ../corpus            # 183 sample documents of three Hangul libraries, about 30 MB
+uv run python -m evals.recall --documents ../corpus/hangul-samples --baseline evals/baselines/recall-hangul-samples.json
+uv run python -m evals.recall --documents <any folder of DOCX, PPTX, XLSX, HWPX, HWP> --show 10      # no baseline: just look
 ```
 
 Every scorecard above needs a reference somebody wrote or another reader produced. This one needs none. A DOCX, a
-PPTX, an XLSX and an HWPX state their text in their own XML (`w:t`, `a:t`, the strings of the cells, `hp:t`), so the
-question "did the reader lose anything?" can be put to any folder of documents (`evals/recall.py`):
+PPTX, an XLSX and an HWPX state their text in their own XML (`w:t`, `a:t`, the strings of the cells, `hp:t`), and an
+HWP 5 file in the text records of its paragraphs (`PARA_TEXT`), so the question "did the reader lose anything?" can be
+put to any folder of documents (`evals/recall.py`). The source is read there on its own, flat - every text element,
+every text record, whatever it hangs under - and not with the reader that is measured: a paragraph inside a control
+the reader does not follow is still counted.
 
 | Count | Meaning |
 | :--- | :--- |
@@ -311,11 +316,13 @@ Where it stands (2026-11-22):
 | Korean pairs, HWPX | 59 of 60 (one is encrypted) | 35,190 | 0 | 0 |
 | Korean holdout, HWPX | 60 | 41,505 | 0 | 0 |
 | Format twins, DOCX | 200 | 64,290 | 0 | 0 |
+| Hangul samples, HWP 5 | 91 of 93 | 40,234 | 91 | 0 |
+| Hangul samples, HWPX | 90 | 32,645 | 78 | 0 |
 | Apache POI `test-data/document`, DOCX | 117 of 134 | 87,793 | 231 | 0 |
 | Apache POI `test-data/slideshow`, PPTX | 87 of 98 | 23,554 | 178 | 0 |
 | Apache POI `test-data/spreadsheet`, XLSX | 338 of 367 | 95,584 | 56 | 0 |
 
-The first three have a baseline here. The Apache POI files are that project's test documents, many of them broken on
+The first three and the Hangul samples have a baseline here. The Apache POI files are that project's test documents, many of them broken on
 purpose (the ones not converted are refused, cut at the character limit, or no ZIP package at all). Every place
 they miss a word in was looked at. Seven words stand in a file that is broken on purpose (a document with three bodies,
 a package holding one sheet twice, a header of a kind that does not exist); the rest are left out on purpose:
@@ -326,10 +333,23 @@ a package holding one sheet twice, a header of a kind that does not exist); the 
 - the letters of an equation, written as LaTeX; a ligature written as its letters (`ﬁ` as `fi`); text moved away
   under change tracking.
 
+The Hangul samples (`fetch_hangul_samples.py`) are the sample documents of hwplib, hwpxlib and hwp2hwpx at fixed
+revisions: a small document for each thing a Hangul file can hold (a field, a form object, a comment, tracked changes,
+a master page, a hidden comment …), most of them once as HWP 5 and once as HWPX, and the documents users of those
+libraries reported, among them requests for proposals of 20,000 words. They are what the press releases are not: every
+kind of control, and documents of another kind. Of the 183, one is a distribution document (its body is encrypted) and
+one is cut at the character limit. Every missing word is of one of four kinds, in HWP and HWPX alike:
+
+- the guide of a click-here field nobody filled in (84 words), a hidden comment (10) and a deletion under change
+  tracking (1): left out on purpose (`docs/decisions/hwp.md`);
+- the text of a master page (74 words in three samples made to show it): a gap, not a choice (`docs/limitations.md`).
+
 What the count found when it was first run is the reason it is kept: 4 of the 120 Korean HWPX files wrote
 `미국·영국·독일` as `미국영국독일`, because Hangul keeps that dot in a private-use character that was removed. No
 word was missing, so `joined` is counted, and `private_use` says where a symbol that joins nothing may have gone the
-same way.
+same way. And the first run over the Hangul samples found a request for proposals refused as corrupted: its cover
+sets the title in a one-column table between two empty cells, on which the rule for headings in such tables raised.
+A baseline keeps the status of each document, so a document that was converted and is refused fails the run.
 
 It does not see: text a reader should leave out and writes (a deletion under change tracking); order; structure;
 numbers and dates of cells, which are written from a value and a format and not from a string; pictures. A PDF states

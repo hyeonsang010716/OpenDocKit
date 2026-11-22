@@ -11,7 +11,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Recall on the scorecard** (`evals/recall.py`): the words a DOCX, PPTX, XLSX or HWPX states in its own XML are
   looked for in the Markdown, so a folder of documents shows what a reader lost without anyone writing a reference.
   It counts the words that are missing and the pairs of words written as one. 120 Korean HWPX files (76,695 words)
-  and 200 DOCX twins (64,290 words) miss none; three baselines hold that.
+  and 200 DOCX twins (64,290 words) miss none; three baselines hold that. An HWP 5 file is measured the same way,
+  against the text records of its paragraphs, and a fourth baseline holds the 183 sample documents of three public
+  Hangul libraries (`evals/fetch_hangul_samples.py`): every word they miss is of a kind left out on purpose or the
+  text of a master page, now named in `docs/limitations.md`.
 - **PDF: a table a tagged PDF states is read from its tags.** Word and LibreOffice save a PDF with a structure tree
   that names the rows and the cells of each table. A table set without any rule — two columns of text, cells that wrap
   — is now read from that tree where the page agrees with it, and not guessed from the alignment of its text: on 200

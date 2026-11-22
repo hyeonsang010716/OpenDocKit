@@ -1658,6 +1658,30 @@ def _hwpx_click_here(field_id: int, guide: str, text: str) -> str:
             f'</hp:parameters></hp:fieldBegin></hp:ctrl><hp:t>{text}</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="{field_id}"/></hp:ctrl>')
 
 
+class TestHiddenComments:
+    """A hidden comment is seen only while Hangul shows control codes and is never printed: left out, as hidden text of Word is."""
+
+    def test_hwpx_hidden_comment_is_left_out(self):
+        body = ("<hp:p><hp:run><hp:ctrl><hp:hiddenComment><hp:subList><hp:p><hp:run><hp:t>검토자만 보는 설명</hp:t></hp:run></hp:p>"
+                "</hp:subList></hp:hiddenComment></hp:ctrl><hp:t>보이는 본문</hp:t></hp:run></hp:p>")
+
+        result = convert(builder.hwpx_bytes(body), "a.hwpx")
+
+        assert result.text == "보이는 본문"
+
+    def test_hwp_hidden_comment_is_left_out(self):
+        record = builder.hwp_record
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 1, builder.hwp_text((15, "tcmt"), "보이는 본문"))
+                   + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("tcmt")) + record(TAG_LIST_HEADER, 2, b"\x01\x00" + b"\x00" * 6)
+                   + record(TAG_PARA_HEADER, 2, builder.hwp_para_header())
+                   + record(TAG_PARA_TEXT, 3, builder.hwp_text("검토자만 보는 설명")))
+
+        result = convert(_fake_hwp(None, sections=[section]), "a.hwp")
+
+        assert result.text == "보이는 본문"
+
+
 class TestClickHereFields:
     """Hangul shows the guide of a click-here field (누름틀) that was not filled in (`이곳을 마우스로 누르고 내용을 입력하세요`, or a
     word such as `날짜`) in its place on screen and does not print it, and it was read as the content of the form. The text of a

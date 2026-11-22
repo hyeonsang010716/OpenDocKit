@@ -3,9 +3,13 @@
     uv run python -m evals.recall --documents <dir> [--baseline <file>] [--update-baseline] [--show <n>]
 
 The other scorecards need a reference somebody wrote. This one needs none: a DOCX, PPTX, XLSX or HWPX states its text in
-its XML (`w:t`, `a:t`, the strings of the cells, `hp:t`), so a word of that text that is not in the Markdown was lost on the
-way, and two words the Markdown writes as one were joined by something that was dropped between them. Each loss is listed
-with the chain of elements the word sits in, so the losses of a folder group by their cause.
+its XML (`w:t`, `a:t`, the strings of the cells, `hp:t`) and an HWP 5 file in the text records of its paragraphs, so a
+word of that text that is not in the Markdown was lost on the way, and two words the Markdown writes as one were joined by
+something that was dropped between them. Each loss is listed with the chain of elements (for HWP 5, of controls) the word
+sits in, so the losses of a folder group by their cause.
+
+The source is read here on its own, not with the reader that is measured: every text element of the XML, every text
+record of the stream, whatever it hangs under. A paragraph inside a control the reader does not know is still counted.
 
 What it counts, per document:
 
@@ -27,11 +31,14 @@ from concurrent.futures import ProcessPoolExecutor
 import json
 from pathlib import Path
 import re
+import struct
 import sys
 import unicodedata
 import zipfile
+import zlib
 
 from lxml import etree
+import olefile
 
 from opendockit import ConversionError, ConvertOptions, convert
 
@@ -121,7 +128,8 @@ def _pptx(archive: zipfile.ZipFile):
 
 
 def _hwpx(archive: zipfile.ZipFile):
-    for part, root in _parts(archive, r"Contents/section\d+\.xml"):
+    # A master page is drawn on every page of its section: text of the document as much as a header is
+    for part, root in _parts(archive, r"Contents/(?:section|masterpage)\d+\.xml"):
         yield from _paragraphs(root, part, text="t", breaks=frozenset({"lineBreak", "tab", "nbSpace", "fwSpace", "hwSpace"}))
 
 
@@ -149,11 +157,84 @@ def _xlsx(archive: zipfile.ZipFile):
                 yield part, [(text, f"c[t={kind}]")]
 
 
+# HWP 5 (the record layout of Hancom's published format description, revision 1.3): a section stream is a run of records,
+# each with a tag, a level and a size; the text of a paragraph is a PARA_TEXT record of UTF-16 units, in which a unit
+# below 32 is a control.
+_HWP_PARA_HEADER, _HWP_PARA_TEXT, _HWP_CTRL_HEADER = 66, 67, 71
+_HWP_ONE_UNIT = frozenset({0, 10, 13, *range(24, 32)})  # a control of one unit; every other one takes eight
+# A tab, a line break, the end of the paragraph, a hyphen, a non-breaking and a fixed-width space part two words. A control
+# that stands for an object or opens and closes a field does not: `가[field]나` is written `가나` by Hangul too.
+_HWP_SPACES = frozenset({9, 10, 13, 24, 30, 31})
+_HWP_PASSWORD, _HWP_DISTRIBUTION = 0x2, 0x4
+
+
+def _hwp_records(data: bytes):
+    """(tag, level, payload) of each record of a section stream."""
+    position = 0
+    while position + 4 <= len(data):
+        header, = struct.unpack_from("<I", data, position)
+        size = header >> 20
+        position += 4
+        if size == 0xFFF:
+            if position + 4 > len(data):
+                return
+            size, = struct.unpack_from("<I", data, position)
+            position += 4
+        yield header & 0x3FF, (header >> 10) & 0x3FF, data[position:position + size]
+        position += size
+
+
+def _hwp_text(payload: bytes) -> str:
+    """The characters of a PARA_TEXT record, a control that parts words as a space and any other as nothing."""
+    units = struct.unpack_from(f"<{len(payload) // 2}H", payload)
+    kept: list[int] = []
+    position = 0
+    while position < len(units):
+        unit = units[position]
+        if unit >= 32:
+            kept.append(unit)
+        elif unit in _HWP_SPACES:
+            kept.append(32)
+        position += 1 if unit >= 32 or unit in _HWP_ONE_UNIT else 8
+    return struct.pack(f"<{len(kept)}H", *kept).decode("utf-16-le", "replace")
+
+
+def _hwp(path: Path):
+    """One unit per paragraph of the body streams: its text, with the controls it lies under (`tbl`, `gso`, `secd` …).
+    A file whose body is encrypted (a password, a distribution document) states no text to compare with."""
+    with olefile.OleFileIO(str(path)) as ole:
+        flags, = struct.unpack_from("<I", ole.openstream("FileHeader").read(40), 36)
+        if flags & (_HWP_PASSWORD | _HWP_DISTRIBUTION):
+            raise ValueError("the body is encrypted")
+        sections = sorted((entry for entry in ole.listdir() if len(entry) == 2 and entry[0] == "BodyText"
+                           and re.fullmatch(r"Section\d+", entry[1])), key=lambda entry: int(entry[1][7:]))
+        for entry in sections:
+            data = ole.openstream(entry).read(PART_BYTES + 1)
+            if flags & 0x1:
+                inflater = zlib.decompressobj(-15)
+                data = inflater.decompress(data, PART_BYTES + 1)
+            if len(data) > PART_BYTES:
+                continue
+            above: list[tuple[int, str]] = []  # (level, name) of the controls the record being read lies under
+            for tag, level, payload in _hwp_records(data):
+                if tag in (_HWP_PARA_HEADER, _HWP_CTRL_HEADER):
+                    above = [(at, name) for at, name in above if at < level]
+                if tag == _HWP_CTRL_HEADER:
+                    above.append((level, payload[:4][::-1].decode("latin-1").strip()))
+                elif tag == _HWP_PARA_TEXT:
+                    text = _hwp_text(payload)
+                    if text.strip():
+                        yield "/".join(entry), [(text, "/".join(name for at, name in above if at < level) or "body")]
+
+
 READERS = {".docx": _docx, ".docm": _docx, ".pptx": _pptx, ".pptm": _pptx, ".xlsx": _xlsx, ".xlsm": _xlsx, ".hwpx": _hwpx}
+SUFFIXES = frozenset({*READERS, ".hwp"})
 
 
 def source_units(path: Path) -> list[Unit]:
-    """The text a document states in its own XML, a paragraph or a cell at a time."""
+    """The text a document states in its own XML or records, a paragraph or a cell at a time."""
+    if path.suffix.lower() == ".hwp":
+        return list(_hwp(path))
     with zipfile.ZipFile(path) as archive:
         return list(READERS[path.suffix.lower()](archive))
 
@@ -201,7 +282,7 @@ def _recall(path: str) -> tuple[str, dict]:
     document = Path(path)
     try:
         units = source_units(document)
-    except (zipfile.BadZipFile, etree.XMLSyntaxError, KeyError, OSError, ValueError):
+    except (zipfile.BadZipFile, etree.XMLSyntaxError, KeyError, OSError, ValueError, struct.error, zlib.error):
         return document.name, {"status": "source not read"}
     try:
         result = convert(document.read_bytes(), document.name, OPTIONS)
@@ -214,7 +295,7 @@ def _recall(path: str) -> tuple[str, dict]:
 
 def run(documents: Path) -> dict:
     """The recall of every document of the folder this module reads. Returns the card."""
-    paths = sorted(str(path) for path in documents.iterdir() if path.suffix.lower() in READERS and not path.name.startswith("~$"))
+    paths = sorted(str(path) for path in documents.iterdir() if path.suffix.lower() in SUFFIXES and not path.name.startswith("~$"))
     with ProcessPoolExecutor(max_workers=WORKERS) as pool:
         results = dict(pool.map(_recall, paths, chunksize=4))
     converted = [entry for entry in results.values() if entry["status"] == "converted"]
@@ -277,7 +358,7 @@ def _groups(card: dict, key: str, shown: int) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    parser.add_argument("--documents", type=Path, required=True, help="folder of DOCX, PPTX, XLSX and HWPX documents")
+    parser.add_argument("--documents", type=Path, required=True, help="folder of DOCX, PPTX, XLSX, HWPX and HWP documents")
     parser.add_argument("--baseline", type=Path, help="counts to compare with")
     parser.add_argument("--update-baseline", action="store_true", help="write this run to --baseline instead of comparing")
     parser.add_argument("--show", type=int, default=0, help="how many places of losses to list, with the words lost there")
