@@ -222,7 +222,7 @@ _ITALIC_JOINT = re.compile(r"\x11(\s*)\x10")
 _LINK_SCHEMES = ("http://", "https://", "mailto:")
 # Characters of an address that would end the link early, split a table row, or be changed by `clean_text` (whitespace, control
 # characters, `( ) < > | \`, the brackets of a picture placeholder). They are percent-encoded.
-_LINK_UNSAFE = re.compile(r"[\s\x00-\x1f\x7f-\x9f()<>|\\⟦⟧​-‏‪-‮⁠-⁤﻿­]")
+_LINK_UNSAFE = re.compile(r"[\s\x00-\x1f\x7f-\x9f()<>|\\⟦⟧\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\xad]")
 # Text that stands for an object, not words: picture placeholders, `[Image: alt]` of pictures that are not extracted, OLE objects,
 # charts, videos and footnote references. Emphasis is not put around them, and at the edge of a link they stay outside the brackets
 # (the converter turns a picture placeholder into a block below its line).

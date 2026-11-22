@@ -35,8 +35,8 @@ class TestSymbolFontCharactersInText:
 
     def test_wingdings_run_in_docx_maps_its_private_use_characters_by_the_font(self):
         wing = _font("Wingdings")
-        body = ("<w:p>" + _run("참석 여부: ") + _run("", wing) + _run(" 참석  ") + _run("", wing) + _run(" 불참")
-                + "</w:p><w:p>" + _run("동의: ") + _run("", wing) + _run(" 예 ") + _run("", wing) + _run(" 아니오")
+        body = ("<w:p>" + _run("참석 여부: ") + _run("\uf0fd", wing) + _run(" 참석  ") + _run("\uf0a8", wing) + _run(" 불참")
+                + "</w:p><w:p>" + _run("동의: ") + _run("\uf078", wing) + _run(" 예 ") + _run("\uf06f", wing) + _run(" 아니오")
                 + "</w:p>")
 
         result = convert(_docx_with_body(body), "a.docx")
@@ -46,7 +46,7 @@ class TestSymbolFontCharactersInText:
     def test_symbol_font_run_in_docx_uses_the_symbol_table(self):
         """B3 in Symbol is ≥. The same code is a different character in Wingdings, so it could not go into the common table and was
         removed."""
-        body = "<w:p>" + _run("기준 ") + _run("", _font("Symbol")) + _run(" 80%") + "</w:p>"
+        body = "<w:p>" + _run("기준 ") + _run("\uf0b3", _font("Symbol")) + _run(" 80%") + "</w:p>"
 
         result = convert(_docx_with_body(body), "a.docx")
 
@@ -55,7 +55,7 @@ class TestSymbolFontCharactersInText:
     def test_private_use_character_in_an_ordinary_font_run_keeps_the_generic_rule(self):
         """A private-use-area character in a run that is not in a symbol font is a glyph of that font, so its meaning is unknown. It
         is left to the common table (`clean_text`)."""
-        body = "<w:p>" + _run("항목 끝", _font("맑은 고딕")) + "</w:p>"
+        body = "<w:p>" + _run("항목\uf078 끝", _font("맑은 고딕")) + "</w:p>"
 
         result = convert(_docx_with_body(body), "a.docx")
 
@@ -69,8 +69,8 @@ class TestSymbolFontCharactersInText:
         def plain(text: str) -> str:
             return f'<a:r><a:rPr lang="ko-KR"/><a:t>{text}</a:t></a:r>'
 
-        runs = (plain("참석 여부: ") + symbol("") + plain(" 참석  ") + symbol("") + plain(" 불참 / 동의: ")
-                + symbol("") + plain(" 예 ") + symbol("") + plain(" 아니오"))
+        runs = (plain("참석 여부: ") + symbol("\uf0fd") + plain(" 참석  ") + symbol("\uf0a8") + plain(" 불참 / 동의: ")
+                + symbol("\uf078") + plain(" 예 ") + symbol("\uf06f") + plain(" 아니오"))
 
         body = _slide_text(_pptx_with_runs(runs))
 
@@ -112,7 +112,7 @@ class TestSymbolFontCharactersInText:
         runs = ('<a:r><a:rPr lang="ko-KR"/><a:t>두께 5 </a:t></a:r>'
                 '<a:r><a:rPr lang="ko-KR"><a:latin typeface="Symbol"/></a:rPr><a:t>m</a:t></a:r>'
                 '<a:r><a:rPr lang="ko-KR"/><a:t>m, 원주율 </a:t></a:r>'
-                '<a:r><a:rPr lang="ko-KR"><a:sym typeface="Symbol"/></a:rPr><a:t></a:t></a:r>'
+                '<a:r><a:rPr lang="ko-KR"><a:sym typeface="Symbol"/></a:rPr><a:t>\uf070</a:t></a:r>'
                 '<a:r><a:rPr lang="ko-KR"><a:latin typeface="Arial"/><a:sym typeface="Symbol"/></a:rPr><a:t> (p)</a:t></a:r>')
 
         body = _slide_text(_pptx_with_runs(runs))
@@ -124,8 +124,8 @@ class TestSymbolFontCharactersInText:
         drawn on screen in the Latin font. With a:sym taken as the font of ordinary letters, 'x+z = y+z for all numbers' in real
         PowerPoint 2010 lecture slides became 'ξ+ζ = ψ+ζ φορ αλλ νυμβερσ', and '(KPI A등급)' became '(ΚΠΙ Α등급)'."""
         symbol = '<a:rPr lang="ko-KR"><a:sym typeface="Symbol" pitchFamily="18" charset="2"/></a:rPr>'
-        runs = (f'<a:r><a:rPr lang="ko-KR"/><a:t>목표: ROE </a:t></a:r><a:r>{symbol}<a:t></a:t></a:r>'
-                f'<a:r>{symbol}<a:t> 15% (KPI A등급), x</a:t></a:r><a:r>{symbol}<a:t></a:t></a:r>'
+        runs = (f'<a:r><a:rPr lang="ko-KR"/><a:t>목표: ROE </a:t></a:r><a:r>{symbol}<a:t>\uf0b3</a:t></a:r>'
+                f'<a:r>{symbol}<a:t> 15% (KPI A등급), x</a:t></a:r><a:r>{symbol}<a:t>\uf0de</a:t></a:r>'
                 f'<a:r>{symbol}<a:t>y+z for all</a:t></a:r>')
 
         body = _slide_text(_pptx_with_runs(runs))
@@ -134,7 +134,7 @@ class TestSymbolFontCharactersInText:
 
     def test_pptx_latin_typeface_of_a_symbol_font_maps_too(self):
         runs = ('<a:r><a:rPr lang="ko-KR"/><a:t>확인 </a:t></a:r>'
-                '<a:r><a:rPr lang="ko-KR"><a:latin typeface="Wingdings 2"/></a:rPr><a:t></a:t></a:r>')
+                '<a:r><a:rPr lang="ko-KR"><a:latin typeface="Wingdings 2"/></a:rPr><a:t>\uf050</a:t></a:r>')
 
         body = _slide_text(_pptx_with_runs(runs, in_table=True))
 

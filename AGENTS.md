@@ -46,6 +46,9 @@ document that justifies it.
 - Tables go through `render_table` / `TableGrid`.
 - `convert` stays offline and deterministic. Only `describe.py` uses the network.
 - Exception messages and warnings are fixed English sentences and never include document content or parser errors.
+- No source holds a character that cannot be seen (a zero-width or direction mark, a soft hyphen, a private-use character,
+  a space that is not the space): write it as an escape in Python (`"\u200b"`) and name it by its code point in prose
+  (U+200B). A character typed as an escape into a tool can arrive in the file as the character itself; `tests/test_source_characters.py` fails when one does.
 - No copyleft dependencies in the default install (`heic` is an opt-in extra for that reason). Never commit real documents or keys.
 - Korean text in the source is data (patterns matched against documents, numbering tables, sample content in
   tests) — leave it. Everything the project itself says is English. The one exception is the translated READMEs,

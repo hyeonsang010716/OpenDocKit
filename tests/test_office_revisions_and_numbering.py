@@ -416,7 +416,7 @@ class TestDocxDeletedParagraphMarkChain:
             monkeypatch.setattr(docx, "_FAR_PAST_THE_LIMIT", far)
         numbering = ('<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/>'
                      '<w:lvlText w:val="%1."/></w:lvl></w:abstractNum>' + _number_list(1))
-        words = ["alpha ", "beta", " gamma ", "한글 ", "가", "x" * 40 + " ", "​", "", " ", "#", "1."]
+        words = ["alpha ", "beta", " gamma ", "한글 ", "가", "x" * 40 + " ", "\u200b", "", " ", "#", "1."]
         rng = random.Random(7)
         for _ in range(20):
             body = ""

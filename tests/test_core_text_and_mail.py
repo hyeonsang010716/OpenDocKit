@@ -254,7 +254,7 @@ class TestUtf16WithoutBomAndSpaceCharacters:
     format is not supported.' Spaces (Zs) and format characters (Cf) are allowed."""
 
     @pytest.mark.parametrize("encoding", ["utf-16-le", "utf-16-be"])
-    @pytest.mark.parametrize("space", ["\xa0", "　", "​", "﻿"])
+    @pytest.mark.parametrize("space", ["\xa0", "\u3000", "\u200b", "\ufeff"])
     def test_memo_with_a_space_character_is_text(self, encoding, space):
         data = f"제목{space}보고서\n내용입니다\n".encode(encoding)
 
@@ -376,7 +376,7 @@ class TestHtmlTableServedAsCsv:
     with an HTML tag and has table structure (`<table`, `<tr`, `<td`) and closing tags."""
 
     @pytest.mark.parametrize("filename", ["export.csv", "export.tsv"])
-    @pytest.mark.parametrize("prefix", ["", "﻿", "\n\n  ", "<!DOCTYPE html>\n"])
+    @pytest.mark.parametrize("prefix", ["", "\ufeff", "\n\n  ", "<!DOCTYPE html>\n"])
     def test_html_table_with_a_delimited_text_extension_is_read_as_html(self, filename, prefix):
         data = (prefix + _HTML_TABLE).encode()
 

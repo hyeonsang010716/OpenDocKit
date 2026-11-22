@@ -341,7 +341,7 @@ class TestPageNumberShape:
     long run of white space and anything else was tried in every way of sharing out the white space (cubic). Line text
     has single spaces today, so this was not reachable from a document; the pattern is linear all the same."""
 
-    _TOKENS = ("-", "–", "(", "[", ")", "]", " ", " ", "\n", "Page", "p.", "3", "12345", "/", "쪽", "페이지", "x")
+    _TOKENS = ("-", "–", "(", "[", ")", "]", " ", "\xa0", "\n", "Page", "p.", "3", "12345", "/", "쪽", "페이지", "x")
 
     def test_page_number_pattern_judges_as_before(self):
         reference = r"^[-–(\[]?\s*(?:page|p\.)?\s*\d{1,4}\s*(?:/\s*\d{1,4})?\s*(?:쪽|페이지)?\s*[-–)\]]?$"

@@ -3395,7 +3395,7 @@ class TestListMarkers:
 
         assert all(f"{number} {number}번" not in result.text for number in range(1, 4))
 
-    @pytest.mark.parametrize("bullet", ["", "", "", "", "", ""])
+    @pytest.mark.parametrize("bullet", ["\uf0b7", "\uf0a7", "\uf0d8", "\uf0fc", "\uf076", "\uf06e"])
     def test_symbol_font_bullets_are_lone_bullets(self, bullet):
         """Symbol and Wingdings bullets come out as private-use-area characters (U+F0B7 and so on). When not taken for bullets they came
         apart from the item text. reportlab's CID fonts cannot draw these characters, so only the detection is checked."""
