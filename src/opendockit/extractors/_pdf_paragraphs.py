@@ -19,11 +19,12 @@ from opendockit.extractors._pdf_model import (
     _HEADING_SIZE_RATIO,
     _LONE_BULLET,
     _TABLE_ROW_TOLERANCE,
-    _WORD_CHAR,
+    _has_letter,
     _Line,
     _Page,
     _Paragraph,
     _Table,
+    _word_chars,
 )
 from opendockit.extractors._pdf_ruled_tables import _in_cell
 from opendockit.markdown import render_table
@@ -650,12 +651,12 @@ def _heading_shaped(paragraph: _Paragraph) -> bool:
     text = " ".join(line.text for line in paragraph.lines)
     if _CHECKBOX_MARK.search(text) or _LEADER_RUN.search(text) or _QUOTED_LINE.fullmatch(text.strip()):
         return False
-    if not _HEADING_LETTER.search(text) and not _YEAR.fullmatch(text.strip()):
+    if not _has_letter(text) and not _YEAR.fullmatch(text.strip()):
         return False
     counted = [line for line in paragraph.lines if not _LONE_SECTION_NUMBER.match(line.text.strip())]
     if not counted or not max(line.size for line in paragraph.lines) or len(counted) > 2 or len(text) > 100 or _BULLET_START.match(text):
         return False
-    word_chars = len(_WORD_CHAR.findall(text))
+    word_chars = _word_chars(text)
     return word_chars >= 2 and word_chars >= len(text.replace(" ", "")) * 0.5
 
 
@@ -715,7 +716,7 @@ def _is_bold_heading(paragraph: _Paragraph, body_size: float, side_by_side: froz
         return False
     if previous is not None and previous.lines[-1].text.rstrip().endswith(","):
         return False
-    return bool(_HEADING_LETTER.search(text)) and not _ends_like_a_sentence(text) and not _is_value_text(text)
+    return _has_letter(text) and not _ends_like_a_sentence(text) and not _is_value_text(text)
 
 
 def _is_value_text(text: str) -> bool:
@@ -914,8 +915,6 @@ _DATE_LINE = re.compile(rf"(?:[A-Z][a-z]{{2,8}},?\s+)?(?:{_MONTH}\s+\d{{1,2}}(?:
                         rf"|\d{{1,2}}\.?\s+{_MONTH},?\s+\d{{4}}|{_MONTH},?\s+\d{{4}})"
                         r"|(?:Q[1-4]|H[12])\s*(?:FY\s*)?'?\d{2,4}|FY\s*'?\d{2,4}"
                         r"|\d{4}\s*[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2}\.?|\d{1,2}\s*[-./]\s*\d{1,2}\s*[-./]\s*\d{2,4}")
-# A letter of a word (not a number or a symbol): a bold '2024' or '12.5%' alone is a value, not a heading.
-_HEADING_LETTER = re.compile(r"[A-Za-z\u00c0-\u024f가-힣一-鿿]")
 # The rows of cells under heading-like lines side by side that make them the header row of a table (`_header_cells`): the
 # panels of a slide have a line or two of text under their headings
 _HEADER_DATA_ROWS = 2
@@ -1035,7 +1034,7 @@ def _header_cells(lines: list[_Line], body_size: float) -> frozenset[int]:
         return frozenset()
 
     def heading_like(line: _Line) -> bool:
-        return (len(line.text) <= 100 and bool(_HEADING_LETTER.search(line.text))
+        return (len(line.text) <= 100 and _has_letter(line.text)
                 and (line.bold or line.size >= body_size * _HEADING_SIZE_RATIO))
 
     found: set[int] = set()
