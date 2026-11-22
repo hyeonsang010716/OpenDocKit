@@ -11,7 +11,8 @@ between two readers. Needs `pandoc` and `soffice` on the path; nothing made here
 The PDF is saved twice: as LibreOffice saves it, with the structure tree of a tagged PDF (`/pdf`), and without one
 (`/pdf-untagged`), the same pages with nothing but the page to read the tables from.
 
-A reference written in Hebrew or Arabic letters is laid out from right to left (`_direction`).
+A reference written in Hebrew or Arabic letters is laid out from right to left (`_direction`), its tables too
+(`_tables_from_the_right`).
 
 The Markdown goes through HTML on its way to DOCX: the references write their tables as HTML, which pandoc reads as
 tables only from HTML. That HTML is kept as a twin of its own (`/html`, a whole page with a head), and pandoc writes
@@ -24,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
+import zipfile
 
 
 # folder → what LibreOffice is asked to convert to
@@ -52,6 +54,21 @@ def _direction(reference: Path) -> list[str]:
     return ["--metadata", "dir=rtl"] if leftwards > len(kinds) - leftwards else []
 
 
+def _tables_from_the_right(document: Path) -> None:
+    """Lay the tables of a DOCX out from right to left (`w:bidiVisual`), as Word does in a document of Hebrew or
+    Arabic: its first column is then the one on the right. pandoc writes the paragraphs of such a document from right
+    to left and leaves its tables as they are."""
+    with zipfile.ZipFile(document) as package:
+        parts = {name: package.read(name) for name in package.namelist()}
+    body = parts["word/document.xml"]
+    if b"<w:tblPr>" not in body or b"<w:bidiVisual" in body:
+        return
+    parts["word/document.xml"] = body.replace(b"<w:tblPr>", b"<w:tblPr><w:bidiVisual />")
+    with zipfile.ZipFile(document, "w", zipfile.ZIP_DEFLATED) as package:
+        for name, data in parts.items():
+            package.writestr(name, data)
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print("usage: make_twins.py <reference-dir> <target-dir>", file=sys.stderr)
@@ -68,9 +85,12 @@ def main() -> int:
         if out.is_file():
             continue
         html = _run(["pandoc", "-f", "gfm", "-t", "html", str(reference)], _PANDOC_SECONDS)
-        command = ["pandoc", "-f", "html", "-t", "docx", *_direction(reference), "-o", str(out)]
+        direction = _direction(reference)
+        command = ["pandoc", "-f", "html", "-t", "docx", *direction, "-o", str(out)]
         if html is None or _run(command, _PANDOC_SECONDS, stdin=html) is None:
             out.unlink(missing_ok=True)
+        elif direction:
+            _tables_from_the_right(out)
     documents = sorted(originals.glob("*.docx"))
     print(f"{'docx':12} {len(documents):4}")
     for name, writer in (("html", ["-t", "html", "-s"]), ("epub", ["-t", "epub"])):

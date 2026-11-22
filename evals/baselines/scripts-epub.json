@@ -13,12 +13,12 @@
    "documents": 19
   },
   "teds": {
-   "mean": null,
-   "documents": 0
+   "mean": 1.0,
+   "documents": 19
   },
   "teds_s": {
-   "mean": null,
-   "documents": 0
+   "mean": 1.0,
+   "documents": 19
   },
   "mhs": {
    "mean": 1.0,
@@ -38,8 +38,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -48,8 +48,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -58,8 +58,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -68,8 +68,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -78,8 +78,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -88,8 +88,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -98,8 +98,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -108,8 +108,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -118,8 +118,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -128,8 +128,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -138,8 +138,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -148,8 +148,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -158,8 +158,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -168,8 +168,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -178,8 +178,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -188,8 +188,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -198,8 +198,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -208,8 +208,8 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
@@ -218,32 +218,32 @@
    "overall": 1.0,
    "nid": 1.0,
    "nid_s": 1.0,
-   "teds": null,
-   "teds_s": null,
+   "teds": 1.0,
+   "teds_s": 1.0,
    "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
   }
  },
  "texts": {
-  "amh": "5db1538245a8",
-  "arb": "324664a20dbd",
-  "ben": "fde914da4458",
-  "cmn_hans": "164105d068ba",
-  "ell_monotonic": "045a144d181b",
-  "heb": "325344d5ed80",
-  "hin": "9242a089858d",
-  "hye": "3c637ed8b146",
-  "jpn": "be20a077e7a8",
-  "kat": "32a3f3f42dac",
-  "khm": "9d074dd380b5",
-  "kor": "57798dd27206",
-  "mya": "29c8eb4a78a7",
-  "pes_1": "fbd3d4b3bc84",
-  "rus": "50b8b25526b5",
-  "tam": "18f68bcbac3e",
-  "tha": "0b2ee70235b7",
-  "urd": "c426749fddb8",
-  "vie": "0ef6762e2992"
+  "amh": "e9d79e7fde79",
+  "arb": "f1d960a88e97",
+  "ben": "9453d176c758",
+  "cmn_hans": "b666038c2b23",
+  "ell_monotonic": "b41e5c45a70c",
+  "heb": "60d45be1486e",
+  "hin": "a5c843866e85",
+  "hye": "dcc542802e46",
+  "jpn": "fa6219b1a293",
+  "kat": "2b4f0f0e1484",
+  "khm": "7831cc9c2ec6",
+  "kor": "5197f1ab06e6",
+  "mya": "327f80896791",
+  "pes_1": "914c44eba4fe",
+  "rus": "e068925dff46",
+  "tam": "31c24832eda3",
+  "tha": "d7f6ad5e6b91",
+  "urd": "4f52259abbcd",
+  "vie": "12e274569e44"
  }
 }

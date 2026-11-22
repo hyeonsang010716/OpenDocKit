@@ -5,10 +5,11 @@
 The text is the Universal Declaration of Human Rights, which the "UDHR in Unicode" project keeps as XML in several
 hundred languages (github.com/eric-muller/udhr, read at a fixed revision): a title, a preamble and thirty articles of
 paragraphs and numbered lists. Each language of `LANGUAGES` is written as `<target-dir>/<code>.md` — the title, a
-heading for the preamble and for each article, the paragraphs and the lists — and `make_twins.py` then writes each as a
-DOCX and a PDF. The readers are so scored on the same document in Arabic, Hebrew, Persian, Urdu, Hindi, Bengali,
-Tamil, Thai, Khmer, Burmese, Amharic, Georgian, Armenian, Russian, Greek, Japanese, Chinese, Korean and Vietnamese,
-whose right answer is known. Nothing fetched here is committed.
+heading for the preamble and for each article, the paragraphs and the lists, and at the end a table of the first
+articles (number, heading, first words) — and `make_twins.py` then writes each as a DOCX and a PDF. The readers are so
+scored on the same document in Arabic, Hebrew, Persian, Urdu, Hindi, Bengali, Tamil, Thai, Khmer, Burmese, Amharic,
+Georgian, Armenian, Russian, Greek, Japanese, Chinese, Korean and Vietnamese, whose right answer is known. Nothing
+fetched here is committed.
 """
 
 from pathlib import Path
@@ -28,6 +29,8 @@ LANGUAGES = ("arb", "heb", "pes_1", "urd",                  # written from right
              "amh", "kat", "hye", "rus", "ell_monotonic",   # other alphabets
              "jpn", "cmn_hans", "kor", "vie")               # Han, kana, Hangul; Latin with two marks on a letter
 _ARTICLES = 12  # a reference holds the preamble and this many articles: two pages, with lists among them
+_TABLE_ROWS = 6  # the articles listed in the table at the end
+_CELL_WORDS, _CELL_CHARS = 4, 30  # the start of an article in its row: this many words, cut after this many characters
 _PAUSE = 1.0  # seconds between requests
 _MAX_BYTES = 2 * 1024 * 1024
 _NAMESPACE = "{http://efele.net/udhr}"
@@ -49,6 +52,30 @@ def _blocks(part: ElementTree.Element) -> list[str]:
     return [block for block in blocks if block]
 
 
+def _start(text: str) -> str:
+    """The first words of a text for the cell of a table, cut after `_CELL_CHARS` characters where a text has no spaces
+    (Japanese, Thai), never between a letter and the marks set on it."""
+    cell = " ".join(text.split()[:_CELL_WORDS])
+    if len(cell) <= _CELL_CHARS:
+        return cell
+    end = _CELL_CHARS
+    while end < len(cell) and unicodedata.category(cell[end]) in ("Mn", "Mc", "Me", "Cf"):
+        end += 1
+    return cell[:end].rstrip()
+
+
+def _table(articles: list[ElementTree.Element]) -> str:
+    """A table of the first articles — number, heading, first words — which no text has, so that the tables of every
+    script are scored too. Its first row is its header."""
+    rows = []
+    for number, article in enumerate(articles[:_TABLE_ROWS], 1):
+        title = article.find(f"{_NAMESPACE}title")
+        first = next(iter(_blocks(article)), "")
+        cells = [str(number), _line(title) if title is not None else "", _start(first.partition("\n")[0].removeprefix("1. "))]
+        rows.append("| " + " | ".join(cell.replace("|", "/") for cell in cells) + " |")
+    return "\n".join([rows[0], "| --- | --- | --- |", *rows[1:]]) if len(rows) >= 2 else ""
+
+
 def reference(xml: bytes) -> str:
     """The Markdown of the start of one text."""
     root = ElementTree.fromstring(xml)
@@ -59,6 +86,9 @@ def reference(xml: bytes) -> str:
         if title is not None and _line(title):
             blocks.append(f"## {_line(title)}")
         blocks += _blocks(part)
+    table = _table(root.findall(f"{_NAMESPACE}article"))
+    if table:
+        blocks.append(table)
     return "\n\n".join(blocks) + "\n"
 
 

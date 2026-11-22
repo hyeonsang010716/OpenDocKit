@@ -322,11 +322,12 @@ def _extract_tagged_tables(page: _Page) -> None:
     """Make tables of the tagged tables of the page (`_Page.tagged`) and take their lines out of the body flow, before
     any table is looked for by the alignment of its text.
 
-    A tag is what the program that wrote the PDF says, and a PDF can say anything: the table is taken only when the page
-    agrees with it (`_trusted_grid`). It has two rows and two columns or more; the cells of a row stand side by side in
-    their order and the rows one under the other; every line of the page inside the box of the table lies in one of its
-    cells, so nothing else is taken with it; and no table found by its rules stands there — a ruled table is read from
-    its rules as before. A table that fails any of these is left to the searches that follow, as on a page without tags.
+    A tag is what the program that wrote the PDF says, and a PDF can say anything: the table is taken only when the
+    page agrees with it (`_trusted_grid`). It has two rows and two columns or more; the cells of a row stand side by
+    side in their order — from the left, or in every row from the right — and the rows one under the other; every line
+    of the page inside the box of the table lies in one of its cells, so nothing else is taken with it; and no table
+    found by its rules stands there — a ruled table is read from its rules as before. A table that fails any of these
+    is left to the searches that follow, as on a page without tags.
 
     Deliberate: tags are used for tables only. Headings and reading order of a tagged PDF are still read from the page.
     Pinned by: test_pdf_tagged_tables.py; judged on the PDF twins (`evals/README.md`).
@@ -348,7 +349,7 @@ def _extract_tagged_tables(page: _Page) -> None:
                   and top - _OVERLAP_TOLERANCE <= (line.top + line.bottom) / 2 <= bottom + _OVERLAP_TOLERANCE]
         if not inside or not all(_in_a_cell(line.x0, line.x1, (line.top + line.bottom) / 2, boxes) for line in inside):
             continue
-        page.tables.append(_Table(top=top, text=render_table(grid), bottom=bottom, x0=x0, x1=x1, rows=grid))
+        page.tables.append(_Table(top=top, text=render_table(grid), bottom=bottom, x0=x0, x1=x1, rows=grid, stated=True))
         used.update(id(original) for line in inside for original in _original_lines_of(line))
     if used:
         page.lines = [line for line in page.lines if id(line) not in used]
@@ -373,9 +374,15 @@ def _trusted_grid(tagged: _TaggedTable) -> list[list[str]] | None:
     if len(rows) < 2:
         return None
     previous_top = None
+    # The cells of every row stand side by side in the order of the tree, from the left — or, in a table laid out from
+    # right to left (Arabic, Hebrew), from the right: the tree is in the order of reading either way, and so is the grid
+    rightwards = leftwards = True
     for row in rows:
         placed = [box for _, box, _, _ in row if box is not None]
-        if any(left[2] > right[0] + _OVERLAP_TOLERANCE for left, right in zip(placed, placed[1:], strict=False)):
+        pairs = list(zip(placed, placed[1:], strict=False))
+        rightwards = rightwards and not any(first[2] > second[0] + _OVERLAP_TOLERANCE for first, second in pairs)
+        leftwards = leftwards and not any(second[2] > first[0] + _OVERLAP_TOLERANCE for first, second in pairs)
+        if not rightwards and not leftwards:
             return None
         tops = [box[1] for _, box, row_span, _ in row if box is not None and row_span == 1] or [box[1] for box in placed]
         if tops:

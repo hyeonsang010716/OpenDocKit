@@ -149,6 +149,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **PDF: the first column of an Arabic or Hebrew table is the one on the right.** The columns of such a table came out
+  last to first. A table on a page that runs from right to left is now written from its right column, and the tags of
+  a tagged PDF are believed for a table whose rows run from the right.
 - **Persian, Hindi, Bengali, Sinhala: the zero-width joiners of a word are kept.** The non-joiner inside a Persian word
   and the joiner that chooses the form of a conjunct are part of the spelling; they were removed in every format with
   the characters that cannot be seen. They stay where they stand between two letters of a script that writes them (and
