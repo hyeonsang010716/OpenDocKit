@@ -217,6 +217,9 @@ Recognition:
 - MIME mail is read whatever the transfer encoding of its parts is (base64, quoted-printable, 7bit, 8bit).
 - This includes Office 365 mail whose headers are tens of KB long, and Thunderbird saves that begin with an mbox `From - date` line.
 - A file without a `MIME-Version` line is still mail when it has sender, recipient and MIME body headers.
+- A mail of plain text without any `Content-Type` (sent by a script or an old mail program) is mail when it has a sender, a
+  recipient, subject or date, and `MIME-Version`, `Message-ID` or `Received`. Without any of those three a file that begins
+  with `From:`, `To:` and `Subject:` is taken for a note and stays text as it is written, encoded subject included.
 - ISO-2022-JP and UTF-7 bodies are read.
 
 Body:

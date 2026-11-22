@@ -161,6 +161,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Mail: a plain-text mail without `Content-Type` is read as a mail.** Mail sent by a script or an old program names no
+  content type. It came out as it stood in the file: the subject as `=?utf-8?B?…?=` and every header written out, Bcc
+  among them. It is recognised by `MIME-Version`, `Message-ID` or `Received` beside its sender and recipient; a note
+  that only begins with `From:` and `Subject:` stays text.
 - **XLSX: a shared-string index below zero is no string.** A cell written as `<v>-1</v>` showed the last string of the
   workbook, the value of another cell, without a warning. It is left blank and counted with the malformed values.
 - **XLSX: a workbook with a pivot table grouped by hand is converted.** Excel writes such a group into the pivot
