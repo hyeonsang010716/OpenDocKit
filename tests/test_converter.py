@@ -1269,8 +1269,8 @@ class TestMetadataIsCleaned:
 
         document = Document()
         document.add_paragraph("본문")
-        document.core_properties.title = unicodedata.normalize("NFD", "분기 보고서") + "​x"
-        document.core_properties.subject = " ​ "
+        document.core_properties.title = unicodedata.normalize("NFD", "분기 보고서") + "\u200b\ue000x"
+        document.core_properties.subject = " \u200b "
         buffer = BytesIO()
         document.save(buffer)
 

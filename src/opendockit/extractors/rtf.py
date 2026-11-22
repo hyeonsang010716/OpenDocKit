@@ -121,7 +121,7 @@ _CHARACTERS = {
 }
 # `\~` non-breaking space, `\_` non-breaking hyphen (a plain hyphen, so that the word is found by search). `\-` (optional hyphen) and
 # the other symbols produce nothing.
-_SYMBOLS = {b"~": " ", b"_": "-", b"{": "{", b"}": "}", b"\\": "\\", b"\t": "\t"}
+_SYMBOLS = {b"~": "\xa0", b"_": "-", b"{": "{", b"}": "}", b"\\": "\\", b"\t": "\t"}
 # The control symbols whose byte can be the trail byte of a double-byte character (`_Reader._completes`).
 _TRAIL_SYMBOLS = frozenset((b"\\", b"{", b"}"))
 

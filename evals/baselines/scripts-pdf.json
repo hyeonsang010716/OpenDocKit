@@ -1,0 +1,249 @@
+{
+ "means": {
+  "overall": {
+   "mean": 0.9913,
+   "documents": 19
+  },
+  "nid": {
+   "mean": 0.994,
+   "documents": 19
+  },
+  "nid_s": {
+   "mean": 0.994,
+   "documents": 19
+  },
+  "teds": {
+   "mean": null,
+   "documents": 0
+  },
+  "teds_s": {
+   "mean": null,
+   "documents": 0
+  },
+  "mhs": {
+   "mean": 0.9885,
+   "documents": 19
+  },
+  "mhs_s": {
+   "mean": 0.9963,
+   "documents": 19
+  },
+  "words": {
+   "mean": 0.9629,
+   "documents": 19
+  }
+ },
+ "documents": {
+  "amh": {
+   "overall": 0.9936,
+   "nid": 0.9934,
+   "nid_s": 0.9934,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9938,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "arb": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "ben": {
+   "overall": 0.9926,
+   "nid": 0.9917,
+   "nid_s": 0.9917,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9936,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "cmn_hans": {
+   "overall": 0.9946,
+   "nid": 0.994,
+   "nid_s": 0.994,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9952,
+   "mhs_s": 1.0,
+   "words": 0.829
+  },
+  "ell_monotonic": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "heb": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "hin": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "hye": {
+   "overall": 0.9995,
+   "nid": 0.9994,
+   "nid_s": 0.9994,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9996,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "jpn": {
+   "overall": 0.9526,
+   "nid": 0.9849,
+   "nid_s": 0.9849,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9204,
+   "mhs_s": 0.9643,
+   "words": 0.6202
+  },
+  "kat": {
+   "overall": 0.9953,
+   "nid": 0.9958,
+   "nid_s": 0.9958,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9948,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "khm": {
+   "overall": 0.9969,
+   "nid": 0.9966,
+   "nid_s": 0.9966,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9971,
+   "mhs_s": 1.0,
+   "words": 0.9815
+  },
+  "kor": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "mya": {
+   "overall": 0.9157,
+   "nid": 0.9384,
+   "nid_s": 0.9384,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.8931,
+   "mhs_s": 0.9655,
+   "words": 0.9343
+  },
+  "pes_1": {
+   "overall": 0.9975,
+   "nid": 0.9968,
+   "nid_s": 0.9968,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9982,
+   "mhs_s": 1.0,
+   "words": 0.9788
+  },
+  "rus": {
+   "overall": 0.9999,
+   "nid": 0.9999,
+   "nid_s": 0.9999,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9999,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "tam": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "tha": {
+   "overall": 0.9963,
+   "nid": 0.9958,
+   "nid_s": 0.9958,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9967,
+   "mhs_s": 1.0,
+   "words": 0.9511
+  },
+  "urd": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "vie": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  }
+ },
+ "texts": {
+  "amh": "210abb875ba5",
+  "arb": "310cd7667238",
+  "ben": "b382c29f2bf8",
+  "cmn_hans": "533fae7ffcd3",
+  "ell_monotonic": "8e03096aead9",
+  "heb": "fa734d549e09",
+  "hin": "0c544a05ddff",
+  "hye": "fcdae56759a5",
+  "jpn": "03e091722167",
+  "kat": "e591e7d1f59e",
+  "khm": "ff5306a5463b",
+  "kor": "687a6524762f",
+  "mya": "31d53e0607f7",
+  "pes_1": "c9b32eab4c7e",
+  "rus": "a62cd016166f",
+  "tam": "4d9073b4aaa9",
+  "tha": "bfa6720f730b",
+  "urd": "064d6a91382e",
+  "vie": "f1003a9284d6"
+ }
+}

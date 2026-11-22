@@ -445,7 +445,7 @@ class TestNumberLikeText:
 
     @pytest.mark.parametrize("text", ["12", "-12", "- 12", "₩1,200", "₩ 1,200", "- ₩ 1,200", "-  ₩  1,200", "( $ 3.5 )", "(1,234)",
                                       "▲ 3.5%", "△12", "+ € 7", "1,200원", "12 명", "3.2 %p", "2024-01-02", "9:30", "-12:30:05",
-                                      "− ¥\t5", " £ 5"])
+                                      "− ¥\t5", "\xa0£ 5"])
     def test_numbers_are_still_numbers(self, text):
         assert _sheet_layout._NUMBER_LIKE.fullmatch(text) is not None
 

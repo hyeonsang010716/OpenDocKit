@@ -11,6 +11,8 @@ between two readers. Needs `pandoc` and `soffice` on the path; nothing made here
 The PDF is saved twice: as LibreOffice saves it, with the structure tree of a tagged PDF (`/pdf`), and without one
 (`/pdf-untagged`), the same pages with nothing but the page to read the tables from.
 
+A reference written in Hebrew or Arabic letters is laid out from right to left (`_direction`).
+
 The Markdown goes through HTML on its way to DOCX: the references write their tables as HTML, which pandoc reads as
 tables only from HTML. That HTML is kept as a twin of its own (`/html`, a whole page with a head), and pandoc writes
 it as an EPUB too (`/epub`).
@@ -21,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 
 
 # folder → what LibreOffice is asked to convert to
@@ -40,6 +43,15 @@ def _run(command: list[str], seconds: int, *, stdin: bytes | None = None) -> byt
     return done.stdout if done.returncode == 0 else None
 
 
+def _direction(reference: Path) -> list[str]:
+    """What tells pandoc to lay the document out from right to left, for a reference most of whose letters are Hebrew
+    or Arabic ones: a paragraph of such a document typed into a left-to-right one is another layout (its full stop at
+    the right end), and not the one the documents of those languages have."""
+    kinds = [unicodedata.bidirectional(letter) for letter in reference.read_text(encoding="utf-8") if letter.isalpha()]
+    leftwards = sum(kind in ("R", "AL") for kind in kinds)
+    return ["--metadata", "dir=rtl"] if leftwards > len(kinds) - leftwards else []
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print("usage: make_twins.py <reference-dir> <target-dir>", file=sys.stderr)
@@ -56,7 +68,8 @@ def main() -> int:
         if out.is_file():
             continue
         html = _run(["pandoc", "-f", "gfm", "-t", "html", str(reference)], _PANDOC_SECONDS)
-        if html is None or _run(["pandoc", "-f", "html", "-t", "docx", "-o", str(out)], _PANDOC_SECONDS, stdin=html) is None:
+        command = ["pandoc", "-f", "html", "-t", "docx", *_direction(reference), "-o", str(out)]
+        if html is None or _run(command, _PANDOC_SECONDS, stdin=html) is None:
             out.unlink(missing_ok=True)
     documents = sorted(originals.glob("*.docx"))
     print(f"{'docx':12} {len(documents):4}")
