@@ -79,6 +79,11 @@ _MAIL_BODY_HEADER = re.compile(rb"^(?:Content-Type:\s*(?:multipart/[\w.+-]+|text
 _ENCRYPTED_CONTENT_TYPE = re.compile(
     rb"^Content-Type:\s*(?:multipart/encrypted\b|application/(?:x-)?pkcs7-mime\b(?![^\r\n]*smime-type\s*=\s*\"?(?:signed-data|certs-only)))",
     re.IGNORECASE | re.MULTILINE)
+# A mail of plain text needs no Content-Type (RFC 5322; RFC 2045 reads its absence as text/plain): what a script, a cron job or
+# an old mail program sends. Without that header the block is a mail when it says so in another way no note does: MIME-Version,
+# or a header a mail system writes - Message-ID, Received (`_plain_mail`).
+_ANY_CONTENT_TYPE = re.compile(rb"^Content-Type:", re.IGNORECASE | re.MULTILINE)
+_MAIL_TRACE = re.compile(rb"^(?:Message-ID|Received):", re.IGNORECASE | re.MULTILINE)
 _HEADER_LINE_FOLD = re.compile(rb"\r?\n(?=[ \t])")
 # RFC 2047 encoded words (`=?charset?b?…?=`). In a header mixed with 8-bit text only the words are decoded (`_decoded_header`).
 _ENCODED_WORD = re.compile(r"(=\?[^?\s]+\?[bBqQ]\?[^?\s]*\?=)")
@@ -172,9 +177,9 @@ def mime_mail(data: bytes) -> Message | None:
     if headers is None:
         return None
     if MIME_VERSION.search(headers) is not None:
-        if _MAIL_CONTENT_TYPE.search(headers) is None:
+        if _MAIL_CONTENT_TYPE.search(headers) is None and not _plain_mail(headers, traced=True):
             return None
-    elif not _mail_without_mime_version(headers):
+    elif not _mail_without_mime_version(headers) and not _plain_mail(headers, traced=_MAIL_TRACE.search(headers) is not None):
         return None
     return parse_mail(data[start:])
 
@@ -480,6 +485,18 @@ def _mail_without_mime_version(headers: bytes) -> bool:
     header (a mail Content-Type or Content-Transfer-Encoding) are all present. Conservative — a note that starts with `From:`,
     `To:`, `Subject:` has no body header and stays text."""
     return all(pattern.search(headers) is not None for pattern in (_MAIL_SENDER, _MAIL_ADDRESSING, _MAIL_BODY_HEADER))
+
+
+def _plain_mail(headers: bytes, *, traced: bool) -> bool:
+    """Is a header block without any Content-Type a mail of plain text: when it has the sender, one of recipient/subject/date,
+    and `traced` - a sign that a mail system wrote it (MIME-Version, Message-ID or Received).
+
+    Such a mail was text, as it stood in the file: the subject left as `=?utf-8?B?…?=`, every header written out, Bcc among
+    them, the folded lines folded (Pinned by: test_core_mailboxes_and_charsets.py::TestPlainMailWithoutContentType). A note that
+    begins with `From:`, `To:` and `Subject:` has none of the three signs and stays text, as it does with a body header missing
+    (`_mail_without_mime_version`); so does a block with a Content-Type that is not a mail's (text/html is a saved page)."""
+    return traced and _ANY_CONTENT_TYPE.search(headers) is None and \
+        _MAIL_SENDER.search(headers) is not None and _MAIL_ADDRESSING.search(headers) is not None
 
 
 def is_encrypted_mail(data: bytes) -> bool:

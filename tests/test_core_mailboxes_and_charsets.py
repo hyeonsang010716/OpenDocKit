@@ -79,6 +79,47 @@ class TestMailboxThatStartsWithAnHtmlMail:
 _ENCODED_HEAD = f"From: =?UTF-8?B?{_b64('홍길동')}?= <kim@a.com>\r\nTo: lee@a.com\r\nSubject: =?UTF-8?B?{_b64('결재 요청')}?=\r\n"
 
 
+class TestPlainMailWithoutContentType:
+    """A mail of plain text needs no Content-Type: what a script, a cron job or an old mail program sends. It was text as it
+    stood in the file - the subject undecoded, every header written out, Bcc among them. It is a mail when the block says so in a
+    way no note does: MIME-Version, Message-ID or Received."""
+
+    _HEAD = ("From: =?utf-8?B?7ZmN6ri464+Z?= <kim@a.com>\r\nTo: lee@a.com\r\nBcc: hidden@a.com\r\n"
+             "Date: Mon, 2 Nov 2026 10:00:00 +0900\r\nSubject: =?utf-8?B?6rKw7J6sIOyalOyyrQ==?=\r\n folded on\r\nX-Custom: zzz\r\n")
+    _READ = "Subject: 결재 요청 folded on\nFrom: 홍길동 <kim@a.com>\nTo: lee@a.com\nDate: Mon, 2 Nov 2026 10:00:00 +0900\n\n"
+
+    @pytest.mark.parametrize("sign", ["Message-ID: <1@a.com>\r\n", "Received: from a by b; Mon, 2 Nov 2026 10:00:01 +0900\r\n",
+                                      "MIME-Version: 1.0\r\n", "message-id: <1@a.com>\r\n"],
+                             ids=["message-id", "received", "mime-version", "lower-case"])
+    @pytest.mark.parametrize("name", ["a.eml", "a.txt", "a"])
+    def test_a_plain_mail_is_read_as_a_mail(self, sign, name):
+        result = convert((self._HEAD + sign + "\r\n본문 첫 줄\r\n둘째 줄\r\n").encode(), name)
+
+        assert result.format is DocumentFormat.TEXT
+        assert result.text == self._READ + "본문 첫 줄\n둘째 줄"
+        assert "hidden@a.com" not in result.text and "X-Custom" not in result.text
+
+    def test_a_body_in_a_korean_code_page_is_read(self):
+        data = (self._HEAD + "Message-ID: <1@a.com>\r\n\r\n").encode() + "본문 한글".encode("cp949") + b"\r\n"
+
+        assert convert(data, "a.eml").text == self._READ + "본문 한글"
+
+    def test_a_note_that_begins_like_a_mail_stays_text(self):
+        """No sign of a mail system: a memo written with the same four lines keeps every line it has."""
+        note = "From: 총무팀\nTo: 전 직원\nDate: 2026-11-02\nSubject: 회의실 예약 안내\nDepartment: 본사\n\n내용입니다.\n"
+
+        result = convert(note.encode(), "memo.txt")
+
+        assert result.text == note.strip()
+
+    def test_a_saved_page_with_a_message_id_is_not_taken_for_a_plain_mail(self):
+        """A Content-Type that is not a mail's keeps its own reading: text/html with MIME-Version is a saved page (MHTML)."""
+        data = (self._HEAD + "Message-ID: <1@a.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+                "<html><body><p>페이지</p></body></html>\r\n").encode()
+
+        assert convert(data, "a.mht").format is DocumentFormat.HTML
+
+
 class TestMailWithoutMimeVersion:
     """A mail missing the MIME-Version line (sent by old groupware or scripts) was not detected as mail, so it was text with its
     encoded subject and base64 body as is. It is read as mail when it has a sender, one of recipient, subject or date, and a mail
