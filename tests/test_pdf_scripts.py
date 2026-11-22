@@ -58,6 +58,26 @@ class TestLettersOfEveryScript:
         assert result.text.splitlines()[0] == line
 
 
+class TestTitlesInCornerBrackets:
+    @pytest.mark.parametrize("title", ["『世界人権宣言』", "「개인정보 보호법」"])
+    def test_a_title_set_in_corner_brackets_is_a_heading(self, title):
+        """Corner brackets mark the name of a work or a law. Taken for the quotes of a saying, they kept the title of a
+        document from being its heading."""
+        body = "これはにほんごのさいしょのだんらくですのでよろしく"
+
+        result = convert(pdf_of_glyphs([(72, 760, 18, title, False), *_body(body, 730)]), "a.pdf", _OPTIONS)
+
+        assert result.text.splitlines()[0] == f"# {title}"
+
+    def test_a_saying_in_quotes_is_still_no_heading(self):
+        body = "これはにほんごのさいしょのだんらくですのでよろしく"
+        saying = chr(0x201C) + "みんなでそだつしょくば" + chr(0x201D)
+
+        result = convert(pdf_of_glyphs([(72, 760, 18, saying, False), *_body(body, 730)]), "a.pdf", _OPTIONS)
+
+        assert "#" not in result.text
+
+
 class TestWordCharacters:
     @pytest.mark.parametrize("letter", ["a", "É", "Ж", "λ", "あ", "カ", "한", "漢", "ש", "ع", "क", "ก", "7", "٣", "७"])
     def test_a_letter_or_a_digit_of_any_script_is_one(self, letter):

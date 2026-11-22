@@ -3317,7 +3317,7 @@ class TestIndentedLabels:
         assert "| 매출원가 | 600 |\n| └ 재료비 | 400 |\n| └─ 원재료 | 300 |" in result.text
 
     def test_leading_spaces_of_the_first_label_become_a_level_mark(self, streamed):
-        data = _xlsx([["과목", "금액"], ["판매비", 150], ["  급여", 100], ["　　복리후생비", 50], ["합계", "  1,000"]])
+        data = _xlsx([["과목", "금액"], ["판매비", 150], ["  급여", 100], ["\u3000\u3000복리후생비", 50], ["합계", "  1,000"]])
 
         result = convert(data, "a.xlsx")
 

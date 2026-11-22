@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   — is now read from that tree where the page agrees with it, and not guessed from the alignment of its text: on 200
   documents saved by LibreOffice the table score rises from 0.489 to 0.846. A ruled table is read from its rules as
   before, and a PDF without tags is read as before.
+- **Script twins on the scorecard** (`evals/fetch_script_texts.py`): one text — the Universal Declaration of Human
+  Rights — in nineteen languages, from Arabic and Hebrew to Hindi, Thai, Burmese, Georgian and Japanese, as DOCX, ODT,
+  RTF, HTML, EPUB and PDF. The benchmark is English and the pairs are Korean; this is the measure of every other
+  script. The PDF reader scores 0.991 on it (0.882 before `ActualText` was read) beside 1.000 for the other formats.
 - **The scorecard names the documents whose text changed**, whether a score moved or not: a baseline keeps a digest of
   each converted text.
 - **HTML and EPUB twins on the scorecard**: the same 200 references as an HTML page and as an EPUB score 0.990 and
@@ -149,6 +153,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   and the joiner that chooses the form of a conjunct are part of the spelling; they were removed in every format with
   the characters that cannot be seen. They stay where they stand between two letters of a script that writes them (and
   between the pictographs a joiner makes one of), and go everywhere else as before.
+- **PDF: a title set in corner brackets is a heading.** `『世界人権宣言』` at the head of a Japanese document, or the name
+  of a law in `「 」`, was taken for a quotation, which is no heading. Corner brackets mark a title; only a line in
+  quotation marks is a saying.
 - **PDF: Hindi, Thai and other scripts whose glyphs are not their characters.** A browser and LibreOffice write, around
   the glyphs of such a script, the characters they stand for (`ActualText`); that text is now read. Before, the vowel
   sign Hindi draws before its consonant was lost, the vowels and tone marks of Thai stood apart from their letters or

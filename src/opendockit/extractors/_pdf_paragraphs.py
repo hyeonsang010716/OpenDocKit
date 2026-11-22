@@ -635,8 +635,12 @@ def _heading_size(paragraph: _Paragraph) -> float:
 _HeadingKey = tuple[float, bool]
 
 
-# A line that is one quotation from its first character to its last: a saying or a slogan, however it is set
-_QUOTED_LINE = re.compile(r"""["“'‘「『].*["”'’」』]""", re.DOTALL)
+# A line that is one quotation from its first character to its last: a saying or a slogan, however it is set.
+# Deliberate: not a line in corner brackets. Those are the marks of a title in Japanese and Korean (the name of a work or a
+# law, '『世界人権宣言』'), and with them the title of a Japanese document was no heading; no quotation of the Korean
+# releases the rule was written on is set in them (Pinned by:
+# test_pdf_scripts.py::TestTitlesInCornerBrackets).
+_QUOTED_LINE = re.compile(r"""["“'‘].*["”'’]""", re.DOTALL)
 
 
 def _heading_shaped(paragraph: _Paragraph) -> bool:

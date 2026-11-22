@@ -220,6 +220,51 @@ fields, files of thirty characters — and was dropped for the references a pers
 The twins depend on the versions of pandoc and LibreOffice that made them (3.9 and 26.2 for the baselines), so they
 run where they were made, not in CI.
 
+## Script twins: one text in nineteen languages
+
+```bash
+uv run python evals/fetch_script_texts.py ../corpus/scripts/gold       # 19 texts, about 180 KB
+uv run python evals/make_twins.py ../corpus/scripts/gold ../corpus/scripts/twins
+P=../corpus/scripts
+for f in docx odt rtf html epub pdf pdf-untagged; do
+  uv run python -m evals.run --plain --documents $P/twins/$f --gold $P/gold --baseline evals/baselines/scripts-$f.json
+done
+```
+
+The benchmark is English and the pairs are Korean. A reader can be right on both and lose every other script, and the
+PDF reader did: a letter was a Latin letter, a Hangul syllable or a Han character, so a Russian document had no
+heading; a line of Arabic or Hebrew came out backwards; the vowel signs of Hindi and the tone marks of Thai were lost
+or ended their line. These twins are the measure that was missing.
+
+The text is the Universal Declaration of Human Rights — its title, its preamble and its first twelve articles, with
+the headings and the numbered lists it has — in Arabic, Hebrew, Persian, Urdu, Hindi, Bengali, Tamil, Thai, Khmer,
+Burmese, Amharic, Georgian, Armenian, Russian, Greek, Japanese, Chinese, Korean and Vietnamese, from the XML of the
+"UDHR in Unicode" project at a fixed revision (`fetch_script_texts.py`). `make_twins.py` writes each as a DOCX and
+LibreOffice saves it in the other formats; a text in Hebrew or Arabic letters is laid out from right to left.
+
+| Twin | Overall | NID | MHS | Words |
+| :--- | ---: | ---: | ---: | ---: |
+| DOCX, ODT, RTF, HTML, EPUB | 1.000 | 1.000 | 1.000 | 0.997 |
+| PDF (tagged and untagged alike: the text has no table) | 0.992 | 0.994 | 0.990 | 0.963 |
+| *PDF before the text a PDF says its glyphs stand for was read* | *0.882* | *0.910* | *0.853* | *0.839* |
+| *PDF before lines were read from right to left* | *0.740* | *0.791* | *0.690* | *0.644* |
+
+- **The readers of the formats that state their text read every script.** What is left of 1.000 is one convention:
+  the zero-width characters inside a Persian or Bengali word are taken out with the other characters that cannot be
+  seen.
+- **The PDF reader is within one point of them**, from 0.740 two changes earlier: the four texts written from right to
+  left scored 0.42 to 0.44 on NID read backwards and score 0.997 to 1.000 now, and Hindi went from 0.745 to 1.000.
+  Lowest is Burmese (NID 0.938), and there the twin is at fault, not its reader: LibreOffice draws the vowel sign
+  U+102C in a second font and names it a space in the PDF it writes, so no reader finds it (`pdftotext` loses the same
+  letters). The twins found one fault of the reader on their first run: the title of the Japanese text, set in corner
+  brackets (『世界人権宣言』), was taken for a quotation and was no heading (`docs/decisions/pdf.md`).
+- **Words is no measure for a script without spaces.** In Japanese, Chinese, Thai, Khmer and Burmese a "word" is what
+  stands between two spaces, a whole line or sentence, and a line break in a PDF paragraph ends one. NID is the measure
+  there.
+
+They depend on the versions of pandoc and LibreOffice and on the fonts of the machine that made them, as the format
+twins do, so they run where they were made.
+
 ## What it does not measure yet
 
 - XLSX, PPTX and mail: the twins cover the text formats only. HTML as it is found on the web, with navigation and

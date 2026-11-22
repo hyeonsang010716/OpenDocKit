@@ -41,7 +41,7 @@ SYMBOL_GLYPHS: dict[str, dict[int, str]] = {
     "wingdings 2": {0x4F: "✗", 0x50: "✓", 0x51: "☒", 0x52: "☑", 0x53: "☒", 0x54: "☒", 0xA3: "☐"},
 }
 # Characters to convert in the text of a symbol-font run: U+F020-F0FF, font numbers moved into the private use area.
-_SYMBOL_PRIVATE_USE = re.compile("[-]")
+_SYMBOL_PRIVATE_USE = re.compile("[\uf020-\uf0ff]")
 
 
 def symbol_glyph(font: str, code: int) -> str | None:

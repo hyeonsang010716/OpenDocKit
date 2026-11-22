@@ -35,7 +35,7 @@ class TestCleanText:
         """Where the font is unknown (PDF, titles), the Wingdings check boxes ☒ (FD) and ✗ (FB) were removed, leaving only □, so
         the chosen item read the other way round. Codes whose meaning differs by font (78 is Wingdings ☒ but Symbol ξ, 6F is □ but ο)
         are not put in the shared mapping — the extractor converts them by font."""
-        text = " 참석  불참  반려  승인 "
+        text = "\uf0fd 참석 \uf0a8 불참 \uf0fb 반려 \uf0fe 승인 \uf078\uf06f"
 
         result = clean_text(text)
 
@@ -64,7 +64,7 @@ class TestCleanText:
         assert solid_length(text) == len("".join(result.split()))
 
     def test_removes_invisible_and_private_use_characters(self):
-        text = "가​나﻿다라 마\x07"
+        text = "가\u200b나\ufeff다\ue000라\xa0마\x07"
 
         result = clean_text(text)
 
@@ -197,8 +197,8 @@ class TestCleanText:
 
 class TestSolidLength:
     @pytest.mark.parametrize("text", [
-        "id12,12,이름12", "| a | b |\n| --- | --- |", "plain\ttext\r\n", "x\x0by\x0cz", "a\xa0b　c", "> quote", "a\n>\nb",
-        "é", "각", "x\x01y", "a​b", " item", "1", "⟦IMG:ab:3⟧ pic", "\x1cx\x1f",
+        "id12,12,이름12", "| a | b |\n| --- | --- |", "plain\ttext\r\n", "x\x0by\x0cz", "a\xa0b\u3000c", "> quote", "a\n>\nb",
+        "é", "각", "x\x01y", "a\u200bb", "\uf0b7 item", "\ue0201\ue021", "⟦IMG:ab:3⟧ pic", "\x1cx\x1f",
         "ÅÅ", "😀 ok", "̸>"])
     def test_plain_text_is_counted_as_by_the_full_steps(self, text):
         """Pins: text with none of the characters the steps remove or change, already in NFC, is counted by its length without
