@@ -84,6 +84,10 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **Word-spacing restoration is an estimate.** For text placed word by word, the actual gap where the font changes is estimated and a space is inserted. A thin space before a symbol (a parenthesis and the like) following Hangul is not restored (`Test(*) 진행` → `Test (*)진행`).
 - **Slanted text** (about 6 degrees or more) is treated as a watermark and removed from the body. Small slanted labels inside figures are removed with it.
 - **Text drawn rotated 90 degrees within a page** (identifiers in the margin of a paper, a table laid sideways on a portrait page) is read rotated and placed at the end of that page as line-by-line text. Table structure is not restored. Text written rotated inside a cell of a ruled table is read as that cell's text (except cells mixed with horizontal text).
+- **Scripts whose glyphs are not their characters** (Hindi and the other scripts of India, Thai, Arabic): the text is taken
+  from what the PDF says its glyphs stand for (`ActualText`), which a browser and LibreOffice write. A PDF that does not
+  say it, from a program that draws a vowel sign before its consonant as a glyph without a name, loses that sign; and a
+  PDF that says it wrongly is read wrongly.
 - **Arabic, Hebrew, Persian and Urdu** are read in their order of reading (the page holds them backwards). Left as known
   gaps: a font that names its glyphs wrongly cannot be read by anyone — the Arabic typeface of United Nations documents
   draws a letter as a shape plus dots and names only the shape, so 'في' comes out as 'ني' (`pdftotext` and copying from a

@@ -8,7 +8,7 @@ import re
 import statistics
 
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
-from opendockit.extractors._pdf_bidi import _RIGHT_TO_LEFT, _logical, _visual_units
+from opendockit.extractors._pdf_bidi import _RIGHT_TO_LEFT, _is_mark, _logical, _visual_units
 from opendockit.extractors._pdf_model import _SPACED_CHAR
 from opendockit.extractors._pdf_pdfminer import _LAPARAMS
 
@@ -68,6 +68,8 @@ def _text_from_chars(chars: list[dict]) -> str:
     ordered = sorted(chars, key=lambda char: char["x0"])
     if any(_RIGHT_TO_LEFT.search(char["text"]) for char in ordered):
         return " ".join(_logical(_visual_units(ordered, _LAPARAMS["word_margin"])).split())
+    if any(_is_mark(char["text"]) for char in ordered):
+        ordered = sorted(chars, key=_place_in_its_word)
     parts: list[str] = []
     previous = None
     for char in ordered:
@@ -75,11 +77,29 @@ def _text_from_chars(chars: list[dict]) -> str:
             parts.append(" ")
             previous = None
             continue
+        if _is_mark(char["text"]):
+            parts.append(char["text"])  # it stands over its letter: no gap to measure, and none measured from it
+            continue
         if previous is not None and char["x0"] - previous["x1"] > _LAPARAMS["word_margin"] * max(char["width"], char["height"]):
             parts.append(" ")
         parts.append(char["text"])
         previous = char
     return " ".join("".join(parts).split())
+
+
+# A mark is put before a letter that starts within this share of its height to its left (`_place_in_its_word`).
+_MARK_REACH_RATIO = 0.1
+
+
+def _place_in_its_word(char: dict) -> float:
+    """Where a character stands in its line from left to right: its left edge, and for a mark set on a letter (a vowel
+    sign or tone mark of Thai, an accent) a little left of it.
+
+    A font draws such a mark from the place where its letter ended, without moving on, so the mark and the letter after
+    it start at the same place, give or take what kerning adds. By the left edge alone the mark came after that letter
+    and stood on it: 'ดวงจนัทร์' for 'ดวงจันทร์' in the cells of a table, whose text is read from left to right and not in
+    the order of drawing (Pinned by: test_pdf_actual_text.py::TestMarksSetOnALetter)."""
+    return char["x0"] - (char["height"] * _MARK_REACH_RATIO if _is_mark(char["text"]) else 0.0)
 
 
 # A character whose text matrix leans its upright strokes by more than this (c / d, about 6 degrees) is slanted: synthetic italic
