@@ -70,6 +70,14 @@ class TestHeadingsInBoxes:
     def test_a_cell_that_is_only_a_heading(self, kind):
         assert _convert_box(kind, [[("Only a title", 1)]]).split("\n\n") == ["# Only a title", "After the box."]
 
+    @pytest.mark.parametrize("empty", [[], [("", 0)]])
+    def test_an_empty_cell_beside_the_heading(self, kind, empty):
+        """The title of a cover page stands between two empty cells. A cell without a paragraph raised, and the document
+        was refused as corrupted."""
+        text = _convert_box(kind, [empty, [("Title in a box", 1), ("A line under the title.", 0)], empty])
+
+        assert text.split("\n\n") == ["# Title in a box", "A line under the title.", "After the box."]
+
 
 class TestBoxesInsideOtherThings:
     def test_a_one_column_table_inside_a_cell_is_not_unfolded(self):
@@ -119,6 +127,12 @@ class TestUnfoldedBox:
                              lambda block, following: following is second)
 
         assert blocks == ["# A title, set on two lines", "# Another"]
+
+    def test_a_cell_without_a_paragraph_writes_nothing(self):
+        heading = CellHeading.of("Title", 1, "Title")
+        grid = self._grid([], [heading, "under it"], [])
+
+        assert grid.unfolded(grid.render(), [[], [heading, "under it"], []]) == ["# Title", "under it"]
 
     def test_a_heading_taken_for_text_is_the_text_it_was(self):
         """Its value is the paragraph as the cell writes it: joined, sliced or cleaned, it is that text."""

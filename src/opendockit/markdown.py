@@ -1103,7 +1103,7 @@ class TableGrid:
         which `continues` holds are one title set on several lines and are written as one, their texts joined by a space.
 
         The extractor calls this instead of using what `render` wrote only when a cell holds a heading, so a box without one
-        is written as before (Pinned by: test_markdown.py::TestUnfoldedBox)."""
+        is written as before (Pinned by: test_headings_in_boxes.py::TestUnfoldedBox)."""
         self._drawn = set()
         blocks: list[str] = []
 
@@ -1118,7 +1118,10 @@ class TableGrid:
         for cell in cells:
             plain: list[str] = []
             title: list[str] = []
-            for block, following in zip(cell, [*cell[1:], None], strict=True):
+            # Not strict: a cell without a paragraph (the empty cell above and below the title of a cover page) has
+            # nothing to pair with the None that ends the others
+            # (Pinned by: test_headings_in_boxes.py::TestHeadingsInBoxes::test_an_empty_cell_beside_the_heading).
+            for block, following in zip(cell, [*cell[1:], None], strict=False):
                 heading = heading_of(block)
                 if heading is None:
                     plain.append(str(block))
