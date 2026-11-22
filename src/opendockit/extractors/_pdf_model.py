@@ -91,6 +91,9 @@ _CAPTION_START = re.compile(r"^(?:(?i:fig(?:ure)?|table|tab|chart|graph|diagram|
 # the page width) at the same height (tolerance in pt) and the pieces sit on the column boundaries of the first line. A two-column
 # layout (2 pieces) and long sentence lines are not tables.
 _TABLE_ROW_TOLERANCE = 2.5
+# The same between a fragment in the font of another script and a number or Latin text beside it (`_visual_rows`): the two
+# fonts put their first lines up to 0.56 of the size apart (Bengali beside a number), which leaves 0.44 of it shared
+_SCRIPT_ROW_OVERLAP_RATIO = 0.4
 _ROW_OVERLAP_RATIO = 0.5  # vertical overlap for pieces with offset tops to count as one row (vs. the lower line height, staggered in `_visual_rows`)
 _TABLE_CELL_MAX_RATIO = 0.25
 
@@ -401,6 +404,22 @@ def _encloses(outer: tuple[float, ...], inner: tuple[float, ...]) -> bool:
             and inner[2] <= outer[2] + 1 and inner[3] <= outer[3] + 1)
 
 
+# Scripts written without spaces between words: Han and kana, which break a line after any character, and Thai, Lao,
+# Burmese and Khmer, which break it after a word
+_BREAKS_ANYWHERE = re.compile("[\u3040-\u30ff\u3400-\u9fff]")
+_UNSPACED = re.compile("[\u0e00-\u0eff\u1000-\u109f\u1780-\u17ff]")
+
+
+def _runs_on(above: str, below: str) -> bool:
+    """Whether the line `below` goes on from the line `above` with nothing between them: both in a script written
+    without spaces between words, where a line is broken inside running text. Joined by a space as the lines of a cell
+    are, '皮' and '膚の色' read '皮 膚の色'."""
+    if not above or not below:
+        return False
+    return bool((_BREAKS_ANYWHERE.match(above[-1]) or _UNSPACED.match(above[-1]))
+                and (_BREAKS_ANYWHERE.match(below[0]) or _UNSPACED.match(below[0])))
+
+
 def _in_another_script(text: str) -> bool:
     """Whether a text holds a letter of a script other than the Latin one (Hangul, Han, kana, Devanagari, Thai, Arabic …):
     such text is set in a font of its own, whose letters stand at another height than the digits and Latin letters
@@ -413,7 +432,7 @@ def _visual_rows(lines: list[_Line], staggered: bool = False) -> list[list[_Line
     top coordinates within `_TABLE_ROW_TOLERANCE`.
 
     With `staggered`, a fragment whose top is out of step is also grouped if it has the same font size as the topmost
-    fragment of the row and overlaps it vertically by at least `_ROW_OVERLAP_RATIO` of the smaller line height — only
+    fragment of the row and overlaps it vertically by at least `_SCRIPT_ROW_OVERLAP_RATIO` of the smaller line height — only
     between a fragment holding a letter of a script other than the Latin one and one that holds none (`_in_another_script`;
     asked for Hangul or Han only, the numbers beside the Hindi, Thai, Bengali, Tamil, Khmer, Burmese and Amharic cells of
     a table were rows of their own and the table of seven of the nineteen script twins was not found, Pinned by:
@@ -432,7 +451,7 @@ def _visual_rows(lines: list[_Line], staggered: bool = False) -> list[list[_Line
         overlap = min(first.bottom, line.bottom) - line.top
         return (staggered and bool(first.size) and abs(first.size - line.size) <= 0.5
                 and _in_another_script(first.text) != _in_another_script(line.text)
-                and overlap >= min(first.height, line.height) * _ROW_OVERLAP_RATIO)
+                and overlap >= min(first.height, line.height) * _SCRIPT_ROW_OVERLAP_RATIO)
 
     rows: list[list[_Line]] = []
     for line in sorted(lines, key=lambda line: (line.top, line.x0)):

@@ -30,7 +30,9 @@ LANGUAGES = ("arb", "heb", "pes_1", "urd",                  # written from right
              "jpn", "cmn_hans", "kor", "vie")               # Han, kana, Hangul; Latin with two marks on a letter
 _ARTICLES = 12  # a reference holds the preamble and this many articles: two pages, with lists among them
 _TABLE_ROWS = 6  # the articles listed in the table at the end
-_CELL_WORDS, _CELL_CHARS = 4, 30  # the start of an article in its row: this many words, cut after this many characters
+# The start of an article in its row: this many words, cut after this many characters. Not 30: the column of a twin holds
+# ten Han characters, and a cell cut to three full lines ends where its line does, which no reader of a page can see
+_CELL_WORDS, _CELL_CHARS = 4, 24
 _PAUSE = 1.0  # seconds between requests
 _MAX_BYTES = 2 * 1024 * 1024
 _NAMESPACE = "{http://efele.net/udhr}"
@@ -54,14 +56,16 @@ def _blocks(part: ElementTree.Element) -> list[str]:
 
 def _start(text: str) -> str:
     """The first words of a text for the cell of a table, cut after `_CELL_CHARS` characters where a text has no spaces
-    (Japanese, Thai), never between a letter and the marks set on it."""
+    (Japanese, Thai), never between a letter and the marks set on it, and not after a zero-width joiner."""
     cell = " ".join(text.split()[:_CELL_WORDS])
     if len(cell) <= _CELL_CHARS:
         return cell
     end = _CELL_CHARS
-    while end < len(cell) and unicodedata.category(cell[end]) in ("Mn", "Mc", "Me", "Cf"):
+    while end < len(cell) and unicodedata.category(cell[end]) in ("Mn", "Mc", "Me"):
         end += 1
-    return cell[:end].rstrip()
+    while end and (cell[end - 1].isspace() or unicodedata.category(cell[end - 1]) == "Cf"):
+        end -= 1  # a zero-width joiner at the end of a cell joins nothing
+    return cell[:end]
 
 
 def _table(articles: list[ElementTree.Element]) -> str:

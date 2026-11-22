@@ -4,7 +4,7 @@
 import pytest
 
 from opendockit import ConvertOptions, convert
-from opendockit.extractors._pdf_model import _has_letter, _is_word_char, _word_chars
+from opendockit.extractors._pdf_model import _has_letter, _is_word_char, _runs_on, _word_chars
 from tests.builder import pdf_of_glyphs
 
 
@@ -113,6 +113,27 @@ class TestTablesOfEveryScript:
         assert all(line.count("|") == 4 for line in table)
         assert [line.split("|")[1].strip() for line in (table[0], *table[2:])] == ["1", "2", "3", "4"]
 
+    @pytest.mark.parametrize(("step", "found"), [(5.5, True), (6.5, False)])
+    def test_how_far_out_of_step_the_number_may_stand(self, step, found):
+        """Bengali beside a number stands 0.56 of the size lower, which leaves 0.44 of it shared; a number that shares
+        a third of its height with a line is as likely the number of the line above or below."""
+        cells = [("अनुच्छेद", "सभी मनुष्यों को"), ("धारा", "सभी को इस"), ("भाग", "प्रत्येक व्यक्ति"), ("खंड", "कोई भी नहीं")]
+
+        assert ("| 1 |" in self._table(cells, step=step)) is found
+
+    def test_a_cell_in_a_script_without_spaces_is_seen_to_end(self):
+        """A line of Japanese is broken after any character, so what had no room on the line above is one character and
+        not the 'word' a line without spaces is: taken for a word, no cell was ever seen to end, and a table whose
+        cells wrap with no more room between two rows than between two lines was not found."""
+        cells = [("第１条", "すべての人間は生まれな"), ("第２条", "すべて人は人種皮膚の色"), ("第３条", "すべての人は生命"), ("第４条", "何人も奴隷にされ又は")]
+
+        text = self._table(cells, pitch=12, wrapped={1: "がらにして", 2: "性言語", 4: "苦役に"})
+        table = [line for line in text.splitlines() if line.startswith("|")]
+
+        # the lines of a cell are joined by nothing: the line was broken inside running text
+        assert table == ["| 1 | 第１条 | すべての人間は生まれながらにして |", "| --- | --- | --- |", "| 2 | 第２条 | すべて人は人種皮膚の色性言語 |",
+                         "| 3 | 第３条 | すべての人は生命 |", "| 4 | 第４条 | 何人も奴隷にされ又は苦役に |"]
+
     def test_latin_fragments_at_heights_out_of_step_are_still_rows_of_their_own(self):
         """Without a letter of another script the heights say what they said: the pieces of a formula out of step are
         not the cells of a row."""
@@ -131,6 +152,18 @@ class TestTablesOfEveryScript:
 
         assert table == ["| 1 | 제 1 조 | 모든 인간은 |", "| --- | --- | --- |", "| 2 | 제 2 조 | 모든 사람은 인종 피부색 |",
                          "| 3 | 제 3 조 | 모든 사람은 생명과 신체의 |", "| 4 | 제 4 조 | 어느 누구도 노예 |"]
+
+
+class TestLinesOfRunningText:
+    @pytest.mark.parametrize(("above", "below"), [("すべて人は、人種、皮", "膚の色"), ("人人生而自由", "在尊严"), ("บุคคลใด ๆ จะถูกยึดเป็น", "ทาส"), ("មានសិទ្ធិ", "ឱ្យគេ")])
+    def test_a_line_of_a_script_without_spaces_goes_on_into_the_next(self, above, below):
+        """The lines of a cell are joined by a space; in Japanese, Chinese, Thai or Khmer that put a space into a word
+        or between two words that have none."""
+        assert _runs_on(above, below)
+
+    @pytest.mark.parametrize(("above", "below"), [("the inherent", "dignity"), ("모든 사람은", "인종"), ("第１条", "Article"), ("Article", "第１条"), ("", "膚")])
+    def test_any_other_line_is_set_apart_from_the_next_by_a_space(self, above, below):
+        assert not _runs_on(above, below)
 
 
 class TestWordCharacters:

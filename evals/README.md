@@ -245,8 +245,8 @@ LibreOffice saves it in the other formats; a text in Hebrew or Arabic letters is
 | Twin | Overall | NID | TEDS | MHS |
 | :--- | ---: | ---: | ---: | ---: |
 | DOCX, ODT, RTF, HTML, EPUB | 1.000 | 1.000 | 1.000 | 1.000 |
-| PDF, as LibreOffice saves it (tagged) | 0.950 | 0.985 | 0.886 | 0.980 |
-| PDF, the same pages without tags | 0.840 | 0.969 | 0.576 | 0.975 |
+| PDF, as LibreOffice saves it (tagged) | 0.977 | 0.992 | 0.948 | 0.990 |
+| PDF, the same pages without tags | 0.912 | 0.983 | 0.767 | 0.987 |
 
 Without the table at the end of each text — the first six articles by number, heading and first words, which the
 texts were given so that tables are scored too — the PDF reader scored 0.993 (NID 0.995, MHS 0.991), from 0.882 before
@@ -266,13 +266,14 @@ the text a PDF says its glyphs stand for was read and 0.740 before lines were re
 - **Tables are where the PDF reader loses most, as on the format twins.** A table of a text in Hebrew or Arabic
   letters is laid out from right to left, its first column on the right, and is read so (TEDS 0.52 read from the left;
   Arabic and Hebrew 1.00 now, Persian and Urdu 0.84). Without tags the first run found the table of ten of the
-  nineteen texts: the number that opens a row is set in a Latin font and stands at another height than the cells in
-  the font of the script, and only Hangul and Han were looked at for that. With every script looked at, Hindi is read
-  whole and Korean nearly (0.97); Thai and Tamil are found with their wrapped cells as rows (0.55), and Amharic,
-  Bengali, Chinese, Japanese, Khmer and Burmese are still not found. With tags the Japanese table is not read either:
-  one of its rows lies on two pages, and such a table is left to the page (`docs/decisions/pdf-tables.md`); the tables
-  of Georgian, Persian and Urdu continue on a second page and are written as a table on each. That is the next thing
-  these twins are for.
+  nineteen texts, for reasons that had nothing to do with tables and everything with scripts: the number that opens a
+  row is set in a Latin font and stands at another height than the cells in the font of the script, and only Hangul
+  and Han were looked at for that; a line of Japanese or Thai has no spaces, so no cell was ever seen to end where its
+  text did; and a header such as '제 1 조' is words of one letter. With those put right TEDS without tags went from
+  0.490 to 0.767: Hindi, Japanese, Chinese and Khmer are read (1.00, 0.96, 0.97, 0.97); Amharic, Bengali, Tamil and
+  Thai are found with their wrapped cells still rows (0.53 to 0.60); Burmese is not found. With tags (0.948) what is
+  left is tables that go on over a page: the Georgian, Persian and Urdu ones are written as a table on each page, as
+  the reader writes every table (`docs/decisions/pdf-tables.md`).
 - **Words is no measure for a script without spaces.** In Japanese, Chinese, Thai, Khmer and Burmese a "word" is what
   stands between two spaces, a whole line or sentence, and a line break in a PDF paragraph ends one. NID is the measure
   there.
