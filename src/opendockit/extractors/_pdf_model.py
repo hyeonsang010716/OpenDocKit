@@ -32,7 +32,29 @@ _LONE_BULLET = re.compile(rf"^[•●○◦▪▫■□◆◇►▶➢✓✔※\
 _BARE_NUMBER = re.compile(r"^\d{1,3}$")
 
 
-_WORD_CHAR = re.compile(r"[0-9A-Za-z가-힣ㄱ-ㅎ一-鿿]")
+def _is_word_char(text: str) -> bool:
+    """Whether a text starts with a letter or a digit, of whatever script.
+
+    Deliberate: asked for a Latin letter, a Hangul syllable or a Han character, the lines of every other script — Cyrillic,
+    Greek, kana, Arabic, Hebrew, Devanagari — had no letter in them: a bold line was not seen to be bold, a short line
+    was no heading, and the pieces one line was drawn in were not joined, so a Russian or Greek document came out without
+    a single heading and a Japanese sentence with its pieces out of order. A number that is not a digit ('¼', '²', '①',
+    'Ⅳ') is a sign as before (Pinned by: test_pdf_scripts.py)."""
+    first = text[:1]
+    return first.isalpha() or first.isdecimal()
+
+
+def _word_chars(text: str) -> int:
+    """How many characters of a text are letters or digits (`_is_word_char`)."""
+    return sum(1 for letter in text if letter.isalpha() or letter.isdecimal())
+
+
+def _has_letter(text: str) -> bool:
+    """Whether a text holds a letter of a word, of whatever script (not a number or a symbol): a bold '2024' or '12.5%'
+    alone is a value, not a heading."""
+    return any(letter.isalpha() for letter in text)
+
+
 # Line starting with a bullet symbol. First-level bullets in a slide PDF have large text and were mistaken for headings.
 _BULLET_START = re.compile(rf"^[•●○◦▪▫■□◆◇►▶➢✓✔※\-–―·*{_SYMBOL_BULLETS}]")
 # Minimum font size ratio (relative to the body) for a heading. The level (#, ##, ###) is assigned not by the ratio but by the rank
@@ -196,9 +218,9 @@ def _space_at_end(chars: list[dict]) -> bool | None:
 
 
 def _is_bold_line(chars: list[dict]) -> bool:
-    """Whether at least `_BOLD_LINE_RATIO` of the letters and digits (`_WORD_CHAR`) of a line's characters are drawn in a bold
+    """Whether at least `_BOLD_LINE_RATIO` of the letters and digits (`_is_word_char`) of a line's characters are drawn in a bold
     face (`_BOLD_FONT`, the subset prefix 'ABCDEF+' of the font name left out)."""
-    letters = [char for char in chars if _WORD_CHAR.match(char.get("text", ""))]
+    letters = [char for char in chars if _is_word_char(char.get("text", ""))]
     if not letters:
         return False
     bold = sum(1 for char in letters if _BOLD_FONT.search(str(char.get("fontname", "")).rpartition("+")[2]))

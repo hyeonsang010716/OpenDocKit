@@ -145,6 +145,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **PDF: headings and lines in scripts other than Latin, Hangul and Han.** Whether a line holds a letter was asked
+  with those three ranges, so a line of Cyrillic, Greek, kana, Armenian, Georgian, Hebrew or Arabic held none: it was
+  never a heading, by size or by weight, and the pieces it was drawn in were not joined into one line. A Russian or a
+  Greek document came out without a single heading, and the start of a Japanese sentence could stand under its end.
+  A letter is now a letter of any script. Documents in Latin, Hangul and Han convert as before.
 - **PDF made by Hangul (HWP): a Korean word a line break cut in two is one word again.** Hangul breaks a line after any
   syllable, and every paragraph came out with a line break — a space, to Markdown — inside several of its words
   ('산림 청과' for '산림청과'). Its PDF draws the space a line was broken at, so a line that ends without one was broken
