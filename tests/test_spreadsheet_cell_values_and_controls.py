@@ -369,6 +369,23 @@ class TestOneMalformedCellValue:
         assert result.sections[0].text == f"| a | b |\n| --- | --- |\n| {shown} | 2 |\n| 3 | 4 |".replace("|  |", "| |")
         assert any("malformed cell value(s)" in warning for warning in result.warnings)
 
+    @pytest.mark.parametrize("index", ["-1", " -2", "-0"])
+    def test_a_shared_string_index_below_zero_points_to_no_text(self, load_mode, index):
+        """A list counts a negative index from its end: the cell showed the last string of the workbook, a value of another
+        cell, and nothing said so."""
+        strings = '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>first</t></si><si><t>LAST</t></si></sst>'
+        override = ('<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.'
+                    'spreadsheetml.sharedStrings+xml"/></Types>')
+        data = builder.zip_with(_workbook([["a", "b"], [1, 2], [3, 4]]), {
+            _SHEET: lambda xml: xml.replace('<c r="A2" t="n"><v>1</v></c>', f'<c r="A2" t="s"><v>{index}</v></c>')
+                                   .replace('<c r="A3" t="n"><v>3</v></c>', '<c r="A3" t="s"><v>1</v></c>'),
+            "[Content_Types].xml": lambda xml: xml.replace("</Types>", override)}, add={"xl/sharedStrings.xml": strings})
+
+        result = convert(data, "a.xlsx")
+
+        assert result.sections[0].text == "| a | b |\n| --- | --- |\n| | 2 |\n| LAST | 4 |"
+        assert any("1 malformed cell value(s)" in warning for warning in result.warnings)
+
     @pytest.mark.parametrize("style", ['s="57"', 's=""', 's="x"'])
     def test_cell_style_that_does_not_exist_reads_as_general(self, load_mode, style):
         data = _patched(_cell_a2(f'<c r="A2" {style} t="n"><v>1</v></c>'))
