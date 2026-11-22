@@ -15,9 +15,9 @@ import unicodedata
 _RIGHT_TO_LEFT = re.compile("[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]")
 # The forms a font draws a letter in (initial, medial, final, isolated, ligatures): a PDF made by a browser names those,
 # and the letters they stand for are what was written.
-_PRESENTATION_FORM = re.compile("[יִ-﷿ﹰ-ﻼ]")
+_PRESENTATION_FORM = re.compile("[\ufb1d-\ufdff\ufe70-\ufefc]")
 # The stroke that stretches a word to the width of its line (tatweel) and the marks that only steer the direction
-_STRETCH_AND_MARKS = re.compile("[ـ‎‏‪-‮⁦-⁩]")
+_STRETCH_AND_MARKS = re.compile("[\u0640\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 _MIRRORED = {"(": ")", ")": "(", "[": "]", "]": "[", "{": "}", "}": "{", "<": ">", ">": "<", "«": "»", "»": "«", "‹": "›", "›": "‹"}
 _OPENING = "([{<«‹"
 # The marks a sentence or a clause ends with: the end of the line they stand at is the end of its text (`_end_vote`)
@@ -260,7 +260,7 @@ def _visual_units(ordered: Sequence[dict], word_gap: float) -> list[str]:
         text = char["text"]
         if not text.strip():
             # A space glyph that moves nothing — the letter beside it covers the place it is drawn at — is no space: a
-            # browser draws the zero-width non-joiner inside a Persian word ('می‌شود') as the space glyph of its font
+            # browser draws the zero-width non-joiner inside a Persian word (U+200C, between 'می' and 'شود') as the space glyph of its font
             middle = (char["x0"] + char["x1"]) / 2
             if any(0 <= beside < len(ordered) and ordered[beside]["text"].strip()
                    and ordered[beside]["x0"] <= char["x0"] + 0.01 and ordered[beside]["x1"] > middle

@@ -62,7 +62,7 @@ class TestLinesAreReadInTheirDirection:
 
     def test_a_letter_named_by_its_form_is_the_letter(self):
         """A browser names the shape a letter is drawn in at its place in the word (U+FEAE, U+FEE4, U+FED7)."""
-        assert _page("ﺮﻤﻗ") == "قمر"
+        assert _page("\ufeae\ufee4\ufed7") == "قمر"
 
     def test_the_stroke_that_stretches_a_word_is_no_part_of_it(self):
         assert _page("ةدـحتملا ممــألا") == "الأمم المتحدة"
@@ -172,14 +172,14 @@ class TestGlyphsOfALine:
         over, whichever of the two starts further left."""
         letters = [("د", 0, 6), ("ص", 6, 12), ("ق", 12, 18), ("ي", 18, 24)]
 
-        over_the_middle = _text_from_chars(_chars([*letters, ("ُ", 20, 22)]))
-        before_its_letter = _text_from_chars(_chars([*letters, ("ُ", 17.5, 19.5)]))
+        over_the_middle = _text_from_chars(_chars([*letters, ("\u064f", 20, 22)]))
+        before_its_letter = _text_from_chars(_chars([*letters, ("\u064f", 17.5, 19.5)]))
 
         assert over_the_middle == before_its_letter == "يُقصد"
 
     def test_a_space_glyph_drawn_under_the_next_letter_is_no_space(self):
         """A browser draws the zero-width non-joiner of a Persian word as the space glyph of its font, without moving on:
-        'می‌شود' is one word."""
+        'می\u200cشود' is one word."""
         chars = _chars([("د", 0, 6), ("و", 6, 12), ("ش", 12, 18), (" ", 18, 21), ("ی", 18, 24), ("م", 24, 30)])
 
         assert _text_from_chars(chars) == "میشود"

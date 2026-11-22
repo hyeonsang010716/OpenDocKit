@@ -64,7 +64,7 @@ class TestWordCharacters:
         assert _is_word_char(letter)
         assert _word_chars(letter * 3) == 3
 
-    @pytest.mark.parametrize("sign", ["¼", "²", "①", "Ⅳ", "•", "—", "%", " ", "", "́"])
+    @pytest.mark.parametrize("sign", ["¼", "²", "①", "Ⅳ", "•", "—", "%", " ", "", "\u0301"])
     def test_a_sign_or_a_number_that_is_no_digit_is_none(self, sign):
         """'¼' and 'ð' are what a formula's glyphs come out as when their font does not say what they are: counted as
         letters, the pieces of formulas were joined differently on two papers of the benchmark."""
