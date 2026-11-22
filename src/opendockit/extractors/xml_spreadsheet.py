@@ -24,7 +24,7 @@ from opendockit.extractors._sheet_format import (
     format_cell,
 )
 from opendockit.extractors._sheet_layout import _append_sheet, _CellComment, _collect_rows, _comment_block, _level_marked, _SheetRows
-from opendockit.models import ConvertOptions, Extraction
+from opendockit.models import ConvertOptions, Extraction, name_in_warning
 
 
 def extract_xml_spreadsheet(data: bytes, options: ConvertOptions) -> Extraction:
@@ -49,7 +49,7 @@ def extract_xml_spreadsheet(data: bytes, options: ConvertOptions) -> Extraction:
         name = _ss(worksheet, "Name") or f"Sheet{index}"
         visible = worksheet.find(f"{{{_X}}}WorksheetOptions/{{{_X}}}Visible")
         if visible is not None and (visible.text or "").strip() != "SheetVisible" and not options.include_hidden_sheets:
-            extraction.warnings.append(f"Hidden sheet '{name}' was excluded.")
+            extraction.warnings.append(f"Hidden sheet '{name_in_warning(name)}' was excluded.")
             continue
 
         table = worksheet.find(f"{{{_SS}}}Table")
@@ -63,7 +63,7 @@ def extract_xml_spreadsheet(data: bytes, options: ConvertOptions) -> Extraction:
         rows = _collect_rows(cells, options, name, extraction)
         across = {id(rows[index]): found for index, found in spans.items() if index < len(rows)}
         if formulas:
-            extraction.warnings.append(f"Sheet '{name}': {len(formulas):,} formula(s) with no stored result were copied as written "
+            extraction.warnings.append(f"Sheet '{name_in_warning(name)}': {len(formulas):,} formula(s) with no stored result were copied as written "
                                        "(opening and re-saving the file in Excel converts them to values).")
         # Cell comments go after the sheet as in XLSX and XLS; they were dropped without a warning
         # (Pinned by: test_spreadsheet.py::TestXmlSpreadsheetComments).

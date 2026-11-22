@@ -43,7 +43,7 @@ from opendockit.extractors._sheet_layout import (
     _SheetRows,
 )
 from opendockit.markdown import solid_length
-from opendockit.models import ConvertOptions, Extraction
+from opendockit.models import ConvertOptions, Extraction, name_in_warning
 
 
 # Cell comments xlrd could not read in the workbook being converted (`_tolerant_note`), counted for the warning
@@ -118,7 +118,7 @@ def _extract_xls(data: bytes, options: ConvertOptions) -> Extraction:
     if drawings is None:
         extraction.warnings.append("Text box and shape text and pictures in the XLS could not be read, so only cell contents were converted.")
     for name in _xls_chart_sheets(stream, options.include_hidden_sheets, book.biff_version, book.encoding):
-        extraction.warnings.append(f"Chart sheet '{name}' was not read "
+        extraction.warnings.append(f"Chart sheet '{name_in_warning(name)}' was not read "
                                    "(XLS charts are not converted to value tables — saving as XLSX converts them).")
     unresolved, placeholder_zeros = _xls_formulas_without_results(stream)
     if unresolved:
@@ -134,10 +134,10 @@ def _extract_xls(data: bytes, options: ConvertOptions) -> Extraction:
     for sheet_index in range(book.nsheets):
         sheet = book.sheet_by_index(sheet_index)
         if sheet.visibility != 0 and not options.include_hidden_sheets:
-            extraction.warnings.append(f"Hidden sheet '{sheet.name}' was excluded.")
+            extraction.warnings.append(f"Hidden sheet '{name_in_warning(sheet.name)}' was excluded.")
             continue
         if sheet.nrows == 0 and sheet_index in holding_charts:
-            extraction.warnings.append(f"Chart sheet '{sheet.name}' was not read "
+            extraction.warnings.append(f"Chart sheet '{name_in_warning(sheet.name)}' was not read "
                                        "(XLS charts are not converted to value tables — saving as XLSX converts them).")
 
         blank = placeholder_zeros.get(sheet_index, set())  # formula cells whose 0 in the result slot cannot be trusted
@@ -350,7 +350,8 @@ def _fill_xls_merges(sheet: xlrd.sheet.Sheet, rows: list[list[str]], warnings: l
     # (same rule as XLSX `_readable_merges`; Pinned by: test_audit_spreadsheet_fixes.py::TestReversedXlsMergeRanges).
     merges = sorted({merge for merge in sheet.merged_cells if merge[0] < merge[1] and merge[2] < merge[3]})
     if sum((bottom - top) * (right - left) for top, bottom, left, right in merges) > _MAX_MERGED_CELLS:
-        warnings.append(f"Sheet '{sheet.name}': there are too many merged cells, so vertical merge values were left in the first cell only.")
+        warnings.append(f"Sheet '{name_in_warning(sheet.name)}': there are too many merged cells, so vertical merge values were left in "
+                        "the first cell only.")
         return across
     for top, bottom, left, right in merges:
         if left >= offset:  # a merge starting in a dropped leading empty column has an empty first cell, so there is no value to fill
@@ -777,7 +778,7 @@ def _xls_drawing_blocks(items: list[str | bytes | None], sheet_name: str, extrac
             missing += 1
 
     if missing:
-        extraction.warnings.append(f"Sheet '{sheet_name}': {missing:,} picture(s) could not be read.")
+        extraction.warnings.append(f"Sheet '{name_in_warning(sheet_name)}': {missing:,} picture(s) could not be read.")
     return blocks
 
 

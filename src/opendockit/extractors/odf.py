@@ -50,7 +50,7 @@ from opendockit.extractors._package import decimal_int
 from opendockit.extractors._sheet_layout import _append_sheet, _collect_rows, _warn_once
 from opendockit.extractors._xml import thread_parser
 from opendockit.markdown import CellHeading, TableGrid, join_blocks, merged_copy, render_table, solid_length
-from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
+from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, name_in_warning
 
 
 _OFFICE = "urn:oasis:names:tc:opendocument:xmlns:office:1.0"
@@ -1311,7 +1311,7 @@ class _Renderer:
                     wanted = min(columns, limit - column)
                     copies = self._copies(wanted, len(text))
                     if copies < wanted:
-                        self._warn_once(f"Sheet '{name}': a repeated cell was read fewer times than written.")
+                        self._warn_once(f"Sheet '{name_in_warning(name)}': a repeated cell was read fewer times than written.")
                     for copy in range(copies):
                         values[column + copy] = text
                     if copies == 1:
@@ -1347,7 +1347,7 @@ class _Renderer:
             if copies < repeat and not cut:
                 # Said once per sheet, for the first row that was cut: a warning per row was 500 warnings for 500 row elements.
                 cut = True
-                self._extraction.warnings.append(f"Sheet '{name}': a row repeated {repeat:,} times was read {copies:,} times only.")
+                self._extraction.warnings.append(f"Sheet '{name_in_warning(name)}': a row repeated {repeat:,} times was read {copies:,} times only.")
             if gap:
                 yield ()
                 yielded += 1
@@ -1570,7 +1570,7 @@ def _extract_sheets(renderer: _Renderer, body: etree._Element, extraction: Extra
     for index, table in enumerate(body.iterchildren(_TABLE_ELEMENT), start=1):
         name = table.get(f"{{{_TABLE}}}name") or f"Sheet{index}"
         if table.get(f"{{{_TABLE}}}style-name") in renderer.styles.hidden_tables and not options.include_hidden_sheets:
-            extraction.warnings.append(f"Hidden sheet '{name}' was excluded.")
+            extraction.warnings.append(f"Hidden sheet '{name_in_warning(name)}' was excluded.")
             continue
         spans: dict[int, list[tuple[int, int, str]]] = {}
         room = chars_left(extraction, options)

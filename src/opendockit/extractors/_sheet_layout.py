@@ -15,7 +15,7 @@ from opendockit.extractors._lists import cell_level_mark
 from opendockit.extractors._notation import comment_line
 from opendockit.extractors._sheet_format import _format_value
 from opendockit.markdown import join_blocks, render_table, solid_length
-from opendockit.models import IMAGE_MARKER, ConvertOptions, Extraction, Section, SectionKind
+from opendockit.models import IMAGE_MARKER, ConvertOptions, Extraction, Section, SectionKind, name_in_warning
 
 
 # Upper bound on the number of cells covered by merge ranges in a full load (same as the merged-cell total limit of
@@ -91,7 +91,7 @@ def _collect_rows(rows: object, options: ConvertOptions, sheet_name: str, extrac
             continue
 
         if not warned and any(values[width:]):
-            _warn_once(extraction.warnings, f"Sheet '{sheet_name}': columns beyond column {width} were excluded.")
+            _warn_once(extraction.warnings, f"Sheet '{name_in_warning(sheet_name)}': columns beyond column {width} were excluded.")
             warned = True
         collected.append(values[:width])
         if extraction.count(sum(_cell_length(value) for value in values[:width] if value), options):
@@ -139,7 +139,7 @@ def _until_long_empty_gap(rows: Iterator[tuple[int, tuple[str, ...]]], sheet_nam
         skipped = max(number - previous - 1, 0)
         run = empty_streak + skipped + (0 if any(row) else 1)  # empty rows up to and including this row
         if run >= _EMPTY_ROW_STOP:
-            warnings.append(f"Sheet '{sheet_name}': {_EMPTY_ROW_STOP:,} consecutive empty rows were found, "
+            warnings.append(f"Sheet '{name_in_warning(sheet_name)}': {_EMPTY_ROW_STOP:,} consecutive empty rows were found, "
                             f"so nothing was read from row {previous - empty_streak + 1:,} on.")
             return
         if skipped:

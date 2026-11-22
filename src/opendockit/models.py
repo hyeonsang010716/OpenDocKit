@@ -10,6 +10,7 @@ import math
 import re
 import threading
 from typing import Final
+import unicodedata
 import warnings
 
 
@@ -345,6 +346,26 @@ def renumber_image_markers(text: str, markers: dict[int, str]) -> str:
 # The filters `quiet_warnings` currently has in place: (category, module regex) → [the entry put into warnings.filters (None if it
 # was already there), number of users].
 _QUIET_FILTERS: dict[tuple[type[Warning], str], list] = {}
+# A name the document gives (a sheet, an attached file) as a warning may quote it: this many characters at most, and none of
+# these. A warning is one line of a fixed sentence; the name is the one part of it the author of the document writes.
+_WARNING_NAME_CHARS = 100
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_JOINERS = frozenset(("\u200c", "\u200d"))  # format characters that spell a word (Persian, Hindi): the only ones kept
+
+
+def name_in_warning(name: str, limit: int = _WARNING_NAME_CHARS) -> str:
+    """`name` as a warning quotes it: on one line, without control characters and without the format characters that change
+    how the line is shown (direction overrides and isolates, zero-width spaces, the byte order mark), cut at `limit` characters.
+
+    A sheet named with a line break and three thousand characters, or an attached file named with U+202E, made a warning of
+    several lines, of any length, or one that reads backwards on a screen - and a warning is handed to whoever reads the
+    result, a language model among them (Pinned by: test_names_in_warnings.py)."""
+    flat = " ".join(_CONTROL_CHARACTERS.sub(" ", name).split())
+    if not flat.isascii():
+        flat = " ".join("".join(char for char in flat if char in _JOINERS or unicodedata.category(char) != "Cf").split())
+    return flat if len(flat) <= limit else flat[:limit - 1].rstrip() + "\u2026"
+
+
 _QUIET_LOCK = threading.Lock()
 
 

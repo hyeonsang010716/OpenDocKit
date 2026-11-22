@@ -145,6 +145,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- **Names in warnings are bounded.** A warning quotes the name of a hidden sheet or of a file attached to a PDF, and that
+  name is written by the author of the document: with a line break and a few thousand characters in it, the warning
+  carried a text of their choosing to whoever reads the warnings, a language model among them. Every such name is now
+  put on one line, without control characters or direction overrides, and cut at 100 characters, as the names of mail
+  attachments already were (XLSX, XLS, ODS, Excel 2003 XML, PDF, mail).
 - **MCP server on Windows**: a path on a network share (`\\host\share\…`) is refused before anything is looked up,
   unless that share is given as a `--root` — with other roots and without any — and a device path (`\\.\…`) always.
   Looking a share up connects to its host and signs in with the user's Windows credentials, and the roots were
