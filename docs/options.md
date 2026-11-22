@@ -30,8 +30,8 @@ result = convert(data, "deck.pptx", options)
 | `extract_images` | `True` | Image extraction. `False` ignores images completely: pictures inside a document leave no placeholder (HTML, mail and EPUB pictures that have alt text keep `[Image: alt text]`), and an image file uploaded on its own is not read (empty result plus a warning). However, OLE objects whose content is not read (a pasted Excel sheet and the like) still leave an `[OLE object]` placeholder and a warning (DOCX, PPTX, HWP, HWPX) |
 | `decode_images` | `True` | Picture decoding. `False` is for text only: no picture is decoded, downscaled or returned (`images` is empty), and each picture inside a document keeps the placeholder a conversion without description gives it — `[Image: alt text]`, `[Image]`, nothing for a decoration, a repeated logo or a scanned page — told from the picture's header. PDF pictures and pages, which would have to be drawn first, and an image file uploaded on its own are read as with `extract_images=False`. Use it when only the text is wanted: the alt text authors give pictures stays, at a fraction of the time and memory |
 | `max_images` | none | Number of images to describe per document (cost cap). Without it, all are described |
-| `min_image_side` | 64 | Images smaller than this (px) are discarded |
-| `repeated_image_threshold` | 3 | A picture repeated this many times is treated as a logo and discarded |
+| `min_image_side` | 64 | Pictures inside a document whose short side is smaller than this (px) are discarded as decoration. Not an image file given by itself, and not a PDF page rendered because its text is only a picture |
+| `repeated_image_threshold` | 3 | A picture that appears this many times is treated as a logo and discarded. `1` therefore discards every picture inside a document, its alt text included, without a warning; to convert without pictures use `extract_images=False` |
 | `image_max_side` | 2048 | Long side (px) of images sent to the vision model |
 | `pdf_render_scale` | 2.0 | PDF rendering scale (2.0 = 144 dpi) |
 
@@ -63,6 +63,9 @@ To use a different vision model, implement the `ImageDescriber` protocol; see [i
 
 Values are checked when `ConvertOptions` is created.
 
+- `keep_links`, `keep_emphasis`, `extract_images` and `include_footnotes` say how a document's links, emphasis, pictures and
+  notes are written as Markdown. A file that already is Markdown or plain text (`.md`, `.txt`) is passed on as it is written:
+  its `[text](url)`, `**bold**`, `![alt](picture)` and `[^1]` are text of the file and are not rewritten.
 - A negative limit, or a meaningless 0 (`max_pages`, `max_sheet_cols`, `max_file_bytes` and so on), raises `ValueError`.
 - For `max_chars`, `max_images`, `min_image_side` and `pdf_time_budget`, 0 means "allow none" and is accepted.
 - `None` means "no limit" and is accepted for `max_chars`, `max_pages`, `max_images` and `pdf_time_budget`.
@@ -75,7 +78,7 @@ Values are checked when `ConvertOptions` is created.
 
 ## Exceptions
 
-All exceptions are subclasses of `ConversionError`; branch on `code`. The one exception is a broken installation: a library needed to read the file that cannot be imported (a broken wheel, a binary built for another Python) raises `ImportError` with a fixed sentence on each conversion that needs it, also from `IsolatedConverter`, as `import opendockit` did when it imported every reader up front. The messages are fixed wording that can be shown to end users as is, and never contain document content or parser error text. A failed image description is a warning, not an exception.
+Every failure to convert a document is a subclass of `ConversionError`; branch on `code`. What is not about the document is raised as it is: a wrong argument is a `TypeError` or `ValueError` (the options are checked when they are made, the file name and the data when `convert` is called), a path `convert_file` cannot open is an `OSError`, and an `IsolatedConverter` used after `aclose()` raises `RuntimeError`. The last such case is a broken installation: a library needed to read the file that cannot be imported (a broken wheel, a binary built for another Python) raises `ImportError` with a fixed sentence on each conversion that needs it, also from `IsolatedConverter`, as `import opendockit` did when it imported every reader up front. The messages are fixed wording that can be shown to end users as is, and never contain document content or parser error text. A failed image description is a warning, not an exception.
 
 | Exception | `code` | When |
 | --- | --- | --- |
