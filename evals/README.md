@@ -246,7 +246,7 @@ LibreOffice saves it in the other formats; a text in Hebrew or Arabic letters is
 | :--- | ---: | ---: | ---: | ---: |
 | DOCX, ODT, RTF, HTML, EPUB | 1.000 | 1.000 | 1.000 | 1.000 |
 | PDF, as LibreOffice saves it (tagged) | 0.950 | 0.985 | 0.886 | 0.980 |
-| PDF, the same pages without tags | 0.795 | 0.965 | 0.446 | 0.974 |
+| PDF, the same pages without tags | 0.840 | 0.969 | 0.576 | 0.975 |
 
 Without the table at the end of each text — the first six articles by number, heading and first words, which the
 texts were given so that tables are scored too — the PDF reader scored 0.993 (NID 0.995, MHS 0.991), from 0.882 before
@@ -265,9 +265,12 @@ the text a PDF says its glyphs stand for was read and 0.740 before lines were re
   for a quotation and was no heading (`docs/decisions/pdf.md`).
 - **Tables are where the PDF reader loses most, as on the format twins.** A table of a text in Hebrew or Arabic
   letters is laid out from right to left, its first column on the right, and is read so (TEDS 0.52 read from the left;
-  Arabic and Hebrew 1.00 now, Persian and Urdu 0.84). Without tags no search takes the table of nine of the nineteen
-  texts — Amharic, Bengali, Chinese, Hindi, Japanese, Khmer, Burmese, Tamil, Thai — and with tags the Japanese one is
-  not taken either. That is the next thing these twins are for.
+  Arabic and Hebrew 1.00 now, Persian and Urdu 0.84). Without tags the first run found the table of ten of the
+  nineteen texts: the number that opens a row is set in a Latin font and stands at another height than the cells in
+  the font of the script, and only Hangul and Han were looked at for that. With every script looked at, Hindi is read
+  whole and Korean nearly (0.97); Thai and Tamil are found with their wrapped cells as rows (0.55), and Amharic,
+  Bengali, Chinese, Japanese, Khmer and Burmese are still not found — nor is the Japanese one with tags. That is the
+  next thing these twins are for.
 - **Words is no measure for a script without spaces.** In Japanese, Chinese, Thai, Khmer and Burmese a "word" is what
   stands between two spaces, a whole line or sentence, and a line break in a PDF paragraph ends one. NID is the measure
   there.

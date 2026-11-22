@@ -401,13 +401,23 @@ def _encloses(outer: tuple[float, ...], inner: tuple[float, ...]) -> bool:
             and inner[2] <= outer[2] + 1 and inner[3] <= outer[3] + 1)
 
 
+def _in_another_script(text: str) -> bool:
+    """Whether a text holds a letter of a script other than the Latin one (Hangul, Han, kana, Devanagari, Thai, Arabic …):
+    such text is set in a font of its own, whose letters stand at another height than the digits and Latin letters
+    beside them."""
+    return any(letter >= "\u0370" and letter.isalpha() for letter in text)
+
+
 def _visual_rows(lines: list[_Line], staggered: bool = False) -> list[list[_Line]]:
     """Group line fragments at the same height into one row (top to bottom, left to right within a row). Same height =
     top coordinates within `_TABLE_ROW_TOLERANCE`.
 
     With `staggered`, a fragment whose top is out of step is also grouped if it has the same font size as the topmost
     fragment of the row and overlaps it vertically by at least `_ROW_OVERLAP_RATIO` of the smaller line height — only
-    between a fragment containing Hangul/Hanja and one that does not. A generator that top-aligns table cells
+    between a fragment holding a letter of a script other than the Latin one and one that holds none (`_in_another_script`;
+    asked for Hangul or Han only, the numbers beside the Hindi, Thai, Bengali, Tamil, Khmer, Burmese and Amharic cells of
+    a table were rows of their own and the table of seven of the nineteen script twins was not found, Pinned by:
+    test_pdf_scripts.py::TestTablesOfEveryScript). A generator that top-aligns table cells
     (LibreOffice) has a different ascent per font, so the baselines and glyph boxes of the Hangul cells and number
     cells of the same row were 4.5–5pt out of step (11pt font). Looking at the top alone, '사원' and '3,200,000'
     became different rows and the borderless table scattered column by column. Two consecutive lines do not overlap by
@@ -421,12 +431,15 @@ def _visual_rows(lines: list[_Line], staggered: bool = False) -> list[list[_Line
             return True
         overlap = min(first.bottom, line.bottom) - line.top
         return (staggered and bool(first.size) and abs(first.size - line.size) <= 0.5
-                and bool(_SPACED_CHAR.search(first.text)) != bool(_SPACED_CHAR.search(line.text))
+                and _in_another_script(first.text) != _in_another_script(line.text)
                 and overlap >= min(first.height, line.height) * _ROW_OVERLAP_RATIO)
 
     rows: list[list[_Line]] = []
     for line in sorted(lines, key=lambda line: (line.top, line.x0)):
-        if rows and same_row(rows[-1][0], line):
+        # A fragment at the height of one that joined the row out of step is in the row too: of two cells set in the
+        # font of the script, the second overlapped the number that opens the row a hair less than the first
+        if rows and (same_row(rows[-1][0], line) or (staggered and any(
+                abs(line.top - member.top) <= _TABLE_ROW_TOLERANCE for member in rows[-1][1:]))):
             rows[-1].append(line)
         else:
             rows.append([line])

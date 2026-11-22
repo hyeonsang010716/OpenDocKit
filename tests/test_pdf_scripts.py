@@ -78,6 +78,61 @@ class TestTitlesInCornerBrackets:
         assert "#" not in result.text
 
 
+class TestTablesOfEveryScript:
+    """A table without rules whose first column is a number: the number is set in a Latin font and stands at another
+    height than the cells in the font of the script beside it."""
+
+    _INTRO = "यह एक लंबा अनुच्छेद है जो तालिका से पहले आता है"
+
+    def _table(self, cells: list[tuple[str, str]], *, step: float = 4.6, third: float = 0.6, pitch: float = 24,
+               wrapped: dict[int, str] | None = None) -> str:
+        """The page of a table of three columns — 1, 2, 3 …, then the two texts of each row — whose numbers stand `step`
+        higher than the cells and whose third column stands `third` lower than the second, the rows `pitch` apart;
+        `wrapped` gives rows a second line in the third column, a line (12) under the first."""
+        runs = [(72, 790 - 14 * line, 10, self._INTRO, False) for line in range(3)]
+        y = 720.0
+        for number, (second, last) in enumerate(cells, 1):
+            runs += [(72, y + step, 10, str(number), False), (200, y, 10, second, False), (330, y - third, 10, last, False)]
+            if wrapped and number in wrapped:
+                y -= 12
+                runs.append((330, y - third, 10, wrapped[number], False))
+            y -= pitch
+        return convert(pdf_of_glyphs(runs), "a.pdf", _OPTIONS).text
+
+    @pytest.mark.parametrize("script", ["hindi", "thai", "hebrew"])
+    def test_the_number_of_a_row_stands_in_its_row(self, script):
+        """The fragments of a row at heights out of step were one row only between Hangul or Han and other text. The
+        numbers beside Hindi, Thai, Bengali or Tamil cells were rows of their own, and no table was found."""
+        cells = {"hindi": [("अनुच्छेद", "सभी मनुष्यों को"), ("धारा", "सभी को इस"), ("भाग", "प्रत्येक व्यक्ति"), ("खंड", "कोई भी नहीं")],
+                 "thai": [("ข้อหนึ่ง", "มนุษย์ทั้งหลาย"), ("ข้อสอง", "ทุกคนย่อมมี"), ("ข้อสาม", "คนทุกคนมี"), ("ข้อสี่", "บุคคลใดจะ")],
+                 "hebrew": [("ףיעס", "םדא ינב לכ"), ("קרפ", "םדא לכ"), ("קלח", "שיא לכ"), ("תוא", "דחא ףא")]}[script]
+
+        table = [line for line in self._table(cells).splitlines() if line.startswith("|")]
+
+        assert len(table) == 5
+        assert all(line.count("|") == 4 for line in table)
+        assert [line.split("|")[1].strip() for line in (table[0], *table[2:])] == ["1", "2", "3", "4"]
+
+    def test_latin_fragments_at_heights_out_of_step_are_still_rows_of_their_own(self):
+        """Without a letter of another script the heights say what they said: the pieces of a formula out of step are
+        not the cells of a row."""
+        cells = [("Article", "All human beings"), ("Section", "Everyone is"), ("Part", "Each person"), ("Clause", "No one shall")]
+
+        assert "| 1 |" not in self._table(cells)
+
+    def test_a_header_of_words_of_one_letter_is_a_header(self):
+        """'제 1 조' holds two words and no two letters side by side. A table whose cells wrap, with no more room between
+        two rows than between the lines of a cell, needs a header with a word in each column but one — and a word was
+        two letters."""
+        cells = [("제 1 조", "모든 인간은"), ("제 2 조", "모든 사람은 인종"), ("제 3 조", "모든 사람은 생명과"), ("제 4 조", "어느 누구도 노예")]
+
+        text = self._table(cells, pitch=12, wrapped={2: "피부색", 3: "신체의"})
+        table = [line for line in text.splitlines() if line.startswith("|")]
+
+        assert table == ["| 1 | 제 1 조 | 모든 인간은 |", "| --- | --- | --- |", "| 2 | 제 2 조 | 모든 사람은 인종 피부색 |",
+                         "| 3 | 제 3 조 | 모든 사람은 생명과 신체의 |", "| 4 | 제 4 조 | 어느 누구도 노예 |"]
+
+
 class TestWordCharacters:
     @pytest.mark.parametrize("letter", ["a", "É", "Ж", "λ", "あ", "カ", "한", "漢", "ש", "ع", "क", "ก", "7", "٣", "७"])
     def test_a_letter_or_a_digit_of_any_script_is_one(self, letter):

@@ -38,7 +38,9 @@ _ROW_LINES_MAX = 0.7
 # only this many rows further down are tried as its start.
 _PAGE_LINES_MAX = 1500
 _STARTS_TRIED = 3
-_WORD = re.compile(r"[^\W\d_]{2}")
+# A word of a header cell: two letters, or one of a script that writes a word with one (Hangul, Han, kana) — '제 1 조'
+# holds two words and no two letters side by side
+_WORD = re.compile(r"[^\W\d_]{2}|[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7a3]")
 
 
 def _extract_gutter_tables(page: _Page) -> None:
@@ -65,7 +67,9 @@ def _extract_gutter_tables(page: _Page) -> None:
     """
     if page.simple or not _MIN_LINES * 2 <= len(page.lines) <= _PAGE_LINES_MAX:
         return
-    rows = _visual_rows(page.lines)
+    # With the cells set in the font of another script at the height of the number beside them (`_visual_rows`): a number
+    # that opens a row was a row of its own, and a table whose rows start in one column is none
+    rows = _visual_rows(page.lines, staggered=True)
     page_columns = _table_columns(page)
     used: set[int] = set()
     start = tried = 0

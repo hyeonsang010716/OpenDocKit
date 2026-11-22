@@ -1,27 +1,27 @@
 {
  "means": {
   "overall": {
-   "mean": 0.7949,
+   "mean": 0.8399,
    "documents": 19
   },
   "nid": {
-   "mean": 0.965,
+   "mean": 0.9687,
    "documents": 19
   },
   "nid_s": {
-   "mean": 0.9705,
+   "mean": 0.9738,
    "documents": 19
   },
   "teds": {
-   "mean": 0.4461,
+   "mean": 0.5759,
    "documents": 19
   },
   "teds_s": {
-   "mean": 0.4695,
+   "mean": 0.6112,
    "documents": 19
   },
   "mhs": {
-   "mean": 0.9735,
+   "mean": 0.975,
    "documents": 19
   },
   "mhs_s": {
@@ -95,12 +95,12 @@
    "words": 1.0
   },
   "hin": {
-   "overall": 0.6535,
-   "nid": 0.9737,
-   "nid_s": 0.9789,
-   "teds": 0.0,
-   "teds_s": 0.0,
-   "mhs": 0.9868,
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": 1.0,
+   "teds_s": 1.0,
+   "mhs": 1.0,
    "mhs_s": 1.0,
    "words": 1.0
   },
@@ -145,12 +145,12 @@
    "words": 0.9801
   },
   "kor": {
-   "overall": 0.8588,
-   "nid": 0.9692,
-   "nid_s": 0.9947,
-   "teds": 0.6165,
-   "teds_s": 0.6757,
-   "mhs": 0.9908,
+   "overall": 0.9872,
+   "nid": 0.9948,
+   "nid_s": 0.9966,
+   "teds": 0.9686,
+   "teds_s": 1.0,
+   "mhs": 0.9982,
    "mhs_s": 1.0,
    "words": 0.9919
   },
@@ -185,22 +185,22 @@
    "words": 1.0
   },
   "tam": {
-   "overall": 0.6545,
-   "nid": 0.9755,
-   "nid_s": 0.9775,
-   "teds": 0.0,
-   "teds_s": 0.0,
-   "mhs": 0.988,
+   "overall": 0.8445,
+   "nid": 0.9819,
+   "nid_s": 0.9925,
+   "teds": 0.5606,
+   "teds_s": 0.7576,
+   "mhs": 0.991,
    "mhs_s": 1.0,
    "words": 1.0
   },
   "tha": {
-   "overall": 0.6481,
-   "nid": 0.9619,
-   "nid_s": 0.9674,
-   "teds": 0.0,
-   "teds_s": 0.0,
-   "mhs": 0.9823,
+   "overall": 0.8383,
+   "nid": 0.974,
+   "nid_s": 0.992,
+   "teds": 0.5531,
+   "teds_s": 0.6098,
+   "mhs": 0.9879,
    "mhs_s": 1.0,
    "words": 0.9467
   },
@@ -232,17 +232,17 @@
   "cmn_hans": "4a63a39eb20f",
   "ell_monotonic": "27d8278b107e",
   "heb": "b5b308878861",
-  "hin": "22f7d91c343c",
+  "hin": "027d15692ba0",
   "hye": "92d6e3a7fb59",
   "jpn": "07e5b448d6c5",
   "kat": "4be19e4d4a03",
   "khm": "e98a33b6697b",
-  "kor": "c369b6726dea",
+  "kor": "40d56369b414",
   "mya": "0e61f1159d63",
   "pes_1": "96b6fbcec457",
   "rus": "dd954da8fd4e",
-  "tam": "0dd288bb6b80",
-  "tha": "55b65d2aa9d7",
+  "tam": "64fbe4726601",
+  "tha": "5f8168d2624a",
   "urd": "722cc3551fc2",
   "vie": "a5edcee95236"
  }
