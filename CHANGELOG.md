@@ -161,6 +161,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **PDF: a scanned page is kept at a small `pdf_render_scale`.** Rendered under `min_image_side` (a scale of 0.1 or
+  less), the page was dropped as a decoration and the warning that names such pages went with it. A rendered page is
+  never a decoration. `docs/options.md` now says what `repeated_image_threshold=1` does and that the Markdown options
+  do not rewrite a file that already is Markdown.
 - **A patch of an HTML file is text.** A git or unified diff that touches a page, and a `.rst` or `.tex` document that
   lists one in a code block, were read as HTML and lost every line with a tag in it. They are text: by the name
   (`.patch`, `.diff`, `.rst`, `.tex`) or, for a patch, by how it opens.

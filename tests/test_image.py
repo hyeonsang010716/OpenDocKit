@@ -2739,6 +2739,25 @@ class TestBilevelAndPalettePicturesShrunkWithBlending:
         assert _rules_down_the_middle(first) == 40
 
 
+class TestScannedPageAtASmallScale:
+    """A page whose text is only a picture is rendered and kept as the page. At a small `pdf_render_scale` its picture fell
+    under `min_image_side`, was dropped as a decoration like an icon, and took the warning that names such pages with it: the
+    page was empty and nothing said so."""
+
+    @pytest.mark.parametrize("scale", [0.01, 0.1, 0.2, 2.0])
+    def test_the_page_and_its_warning_stay(self, scale):
+        result = convert(builder.pdf_with_images(), "a.pdf", ConvertOptions(pdf_render_scale=scale))
+
+        assert [image.kind.value for image in result.images] == ["figure", "page"]
+        assert any(warning.startswith("1 page(s) whose text exists only as an image (2)") for warning in result.warnings)
+
+    def test_a_small_picture_inside_a_document_is_still_a_decoration(self):
+        """Only the rendered page is taken out of the rule: a picture of the body under `min_image_side` goes as before."""
+        result = convert(builder.docx_with_images(), "a.docx", ConvertOptions(min_image_side=10_000))
+
+        assert result.images == [] and "[Image" not in result.text
+
+
 class TestScannedPagesLeftOutByTheImageLimit:
     """A scanned page image that `max_images` left out leaves its page empty, yet the warning said it was 'left as a
     placeholder' and the page was named nowhere."""

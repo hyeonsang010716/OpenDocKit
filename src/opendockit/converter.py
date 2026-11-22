@@ -477,7 +477,11 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     spent = 0
     full = False
     for raw in sorted(raw_images, key=lambda raw: raw.kind is not ImageKind.PAGE):
-        key = (raw.data, raw.kind is not ImageKind.STANDALONE)
+        # Only a picture inside the body can be a decoration (an icon, a divider). A page rendered because its text is
+        # only a picture is the page: at a small `pdf_render_scale` it fell under `min_image_side`, and the page went
+        # with it, without the warning that names such pages
+        # (Pinned by: test_image.py::TestScannedPageAtASmallScale).
+        key = (raw.data, raw.kind is ImageKind.FIGURE)
         if key not in decoded and not full:
             try:
                 image = prepare_image(raw.data, min_side=options.min_image_side, max_side=options.image_max_side,
@@ -511,7 +515,7 @@ def _prepare_images(raw_images: list[RawImage], sections: list[Section], options
     past: list[RawImage] = []  # pictures past the budget of prepared bytes: not kept (the one that did not fit was let go of)
     for raw in raw_images:
         alt = _alt_text(raw)
-        outcome = decoded.get((raw.data, raw.kind is not ImageKind.STANDALONE))
+        outcome = decoded.get((raw.data, raw.kind is ImageKind.FIGURE))
         if outcome is None:
             past.append(raw)
             continue
@@ -707,7 +711,7 @@ def _placeholders_only(raw_images: list[RawImage], options: ConvertOptions) -> d
         size = sizes[raw.data]
         if size is None:
             fallbacks[raw.id] = _image_fallback(_alt_text(raw))
-        elif raw.kind is not ImageKind.STANDALONE and is_decoration(*size, min_side=options.min_image_side):
+        elif raw.kind is ImageKind.FIGURE and is_decoration(*size, min_side=options.min_image_side):
             fallbacks[raw.id] = ""
         else:
             counts[raw.data] = counts.get(raw.data, 0) + 1
