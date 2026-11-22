@@ -778,6 +778,23 @@ class TestHancomSymbols:
 
         assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "『조선 상고사』 (인)"
 
+    def test_wingdings_numbers_in_the_basic_private_use_area_are_the_glyphs_hangul_draws(self, monkeypatch):
+        """Hangul draws U+F020-F0FF with the Wingdings glyph of that number whatever font the run names: the PDFs it printed of
+        four press releases hold a Wingdings glyph 9E or 6D exactly where their HWPX holds U+F09E or U+F06D. Removed, the
+        middle dot joined the words on its two sides and the round bullet of a line was lost."""
+        dot, ring = chr(0xF09E), chr(0xF06D)
+        body = ("<hp:p><hp:run><hp:t>배지를 제작하여 미국&#xF09E;영국&#xF09E;독일 인사들이 동참</hp:t></hp:run></hp:p>"
+                "<hp:p><hp:run><hp:t> &#xF06D; (일 시) 2026.11.20.</hp:t></hp:run></hp:p>")
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == ("배지를 제작하여 미국·영국·독일 인사들이 동참\n\n"
+                                                                     "○ (일 시) 2026.11.20.")
+        assert self._hwp(monkeypatch, f"핵심과제를 발굴{dot}구체화하고 {ring} 항목") == "핵심과제를 발굴·구체화하고 ○ 항목"
+
+    def test_a_number_the_wingdings_table_does_not_hold_is_left_out_as_before(self, monkeypatch):
+        """Glyph 21 of Wingdings (a pencil) has no character in the shared table: the cleaning removes it, as it did."""
+        assert self._hwp(monkeypatch, f"가{chr(0xF021)}나") == "가나"
+        assert convert(builder.hwpx_bytes("<hp:p><hp:run><hp:t>가&#xF021;나</hp:t></hp:run></hp:p>"), "a.hwpx").text == "가나"
+
 
 class TestHwpxFormObjects:
     """HWPX form objects (check box, radio button, combo box, edit box) keep their values in element attributes and children, so
