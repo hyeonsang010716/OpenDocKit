@@ -269,8 +269,10 @@ the text a PDF says its glyphs stand for was read and 0.740 before lines were re
   nineteen texts: the number that opens a row is set in a Latin font and stands at another height than the cells in
   the font of the script, and only Hangul and Han were looked at for that. With every script looked at, Hindi is read
   whole and Korean nearly (0.97); Thai and Tamil are found with their wrapped cells as rows (0.55), and Amharic,
-  Bengali, Chinese, Japanese, Khmer and Burmese are still not found — nor is the Japanese one with tags. That is the
-  next thing these twins are for.
+  Bengali, Chinese, Japanese, Khmer and Burmese are still not found. With tags the Japanese table is not read either:
+  one of its rows lies on two pages, and such a table is left to the page (`docs/decisions/pdf-tables.md`); the tables
+  of Georgian, Persian and Urdu continue on a second page and are written as a table on each. That is the next thing
+  these twins are for.
 - **Words is no measure for a script without spaces.** In Japanese, Chinese, Thai, Khmer and Burmese a "word" is what
   stands between two spaces, a whole line or sentence, and a line break in a PDF paragraph ends one. NID is the measure
   there.
