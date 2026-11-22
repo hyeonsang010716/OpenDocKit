@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.3.15] - 2026-11-23
+
+The first release measured on scorecards. The structure of the PDF output, and the headings, lists and tables of DOCX,
+ODT, RTF, HTML and EPUB, are scored against references on every change (`evals/`): 200 benchmark PDFs, the same 200
+documents in seven formats, 120 Korean press releases published as HWPX and PDF, and one text in nineteen scripts. A
+second kind of check needs no reference: the words a DOCX, PPTX, XLSX, HWPX or HWP file states itself are looked for
+in the output. What those measures found is most of this release: tables a PDF states in its tags, right-to-left and
+Indic scripts in PDF, headings and titles in Hangul documents, symbols Hangul keeps as font numbers, and sound
+documents that were refused as corrupted (a title box with an empty cell, a pivot table grouped by hand).
+DOCX and XLSX saved as Strict Open XML are read, Windows is a supported platform, and XLSX converts about twice as fast.
+One sample output changed: `numbered-outline.hwpx` writes its paragraphs with outline heads as headings.
+
 ### Added
 
 - **Recall on the scorecard** (`evals/recall.py`): the words a DOCX, PPTX, XLSX or HWPX states in its own XML are
@@ -1088,7 +1100,8 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.14...HEAD
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.15...HEAD
+[0.3.15]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.15
 [0.3.14]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.14
 [0.3.13]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.13
 [0.3.12]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.12
