@@ -578,7 +578,8 @@ class TestEmphasisAgainstPunctuation:
     def test_hangul_span_of_private_use_bullets_leaves_no_marks(self):
         from tests.test_hwp_emphasis import _hwpx, _runs
 
-        bullet = chr(0xF081)
+        # a number the Wingdings table does not hold: Hangul draws U+F081 as a circled 1, which is kept (`_hancom_symbols`)
+        bullet = chr(0xF021)
 
         assert convert(_hwpx(_runs((1, bullet), (0, " 추진 배경을 설명한다"))), "a.hwpx").text == "추진 배경을 설명한다"
         assert convert(_hwpx(_runs((1, bullet + " 추진 배경"), (0, " 을 설명한다"))), "a.hwpx").text == "추진 배경 을 설명한다"

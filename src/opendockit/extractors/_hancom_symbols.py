@@ -9,9 +9,21 @@ The values below were established by the rhwp project (MIT License, https://gith
 Office prints of real documents and against the HWPX Hangul saves of HWP 5 files (`HANCOM_SYMBOL_BMP_TO_PLANE15`,
 `VERIFIED_HANCOM_PUA_DISPLAY`, `pua_overlap_digit` and the text-surface table of rhwp's renderer). Line and box pieces Hangul draws
 rules and text diagrams with are left out on purpose: as text they are runs of rule characters, up to 96 in a row in a header line.
+
+A character of the basic private use area at U+F020-F0FF is another thing: Hangul draws it with the Wingdings glyph of that
+number (U+F09E is glyph 9E, a middle dot) whatever font the run names, as Word does for a symbol-font run. The PDFs Hancom
+Office printed of two of the sixty Korean pairs hold a Wingdings glyph of the same number exactly as often as their HWPX holds
+the character (U+F09E once, U+F06D six times; two releases of the holdout likewise, five and four times), and no font of
+those HWPX files is a symbol font. Removed with the other
+private-use characters, the middle dot between two words joined them (`미국영국독일` for `미국·영국·독일`) and the round bullet
+of a line was lost. They are read with the table DOCX, PPTX and PDF use for a Wingdings run (`_symbols.SYMBOL_GLYPHS`); a number
+that table does not hold is left to the cleaning as before
+(Pinned by: test_hwp.py::TestHancomSymbols::test_wingdings_numbers_in_the_basic_private_use_area_are_the_glyphs_hangul_draws).
 """
 
 import re
+
+from opendockit.extractors._symbols import SYMBOL_GLYPHS
 
 
 _PLANE_15 = 0xF0000
@@ -41,7 +53,11 @@ _SYMBOLS = {
     0xF03EF: "한", 0xF03F0: "글", 0xF03F1: "과", 0xF03F2: "컴", 0xF03F3: "퓨", 0xF03F4: "터",
     0xF0854: "『", 0xF0855: "』",
 }
-_PLANE_15_CHARACTER = re.compile("[\U000f0000-\U000ffffd]")
+# The Wingdings glyphs Hangul draws for U+F020-F0FF, as the characters of the shared table (see the module docstring).
+_WINGDINGS = {0xF000 | number: glyph for number, glyph in SYMBOL_GLYPHS["wingdings"].items() if 0x20 <= number <= 0xFF}
+_SYMBOL_TEXT = {**_SYMBOLS, **_WINGDINGS}
+# Plane 15 and U+F020-F0FF: the characters `hancom_symbols` looks at
+_SYMBOL_CHARACTER = re.compile(f"[{chr(0xF0000)}-{chr(0xFFFFD)}{chr(0xF020)}-{chr(0xF0FF)}]")
 
 # The digits of a number set in a frame by composed characters (글자 겹치기): Hangul writes each digit as a private-use piece of its
 # place. Two-digit pieces of a circle, a reversed circle, a box and a reversed box: tens 1-9 at base + 1-9, ones 0-9 at
@@ -59,11 +75,11 @@ def unfold(text: str) -> str:
 
 
 def hancom_symbols(text: str) -> str:
-    """The text with the known plane-15 Hancom symbols written out (`_SYMBOLS`); other private-use characters are left for the
-    cleaning to remove."""
-    if not _PLANE_15_CHARACTER.search(text):
+    """The text with the known plane-15 Hancom symbols (`_SYMBOLS`) and the Wingdings numbers of U+F020-F0FF (`_WINGDINGS`)
+    written out; other private-use characters are left for the cleaning to remove."""
+    if not _SYMBOL_CHARACTER.search(text):
         return text
-    return text.translate(_SYMBOLS)
+    return text.translate(_SYMBOL_TEXT)
 
 
 def _digit_place(character: str) -> tuple[int, int] | None:
