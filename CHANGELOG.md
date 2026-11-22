@@ -156,6 +156,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **XLSX: a workbook with a pivot table grouped by hand is converted.** Excel writes such a group into the pivot
+  cache, a part the conversion never uses; openpyxl could not read it and the whole workbook was refused as corrupted.
+  Pivot caches are no longer read at all, broken or not.
 - **HWP, HWPX: the middle dot and the bullets Hangul keeps as Wingdings numbers.** Hangul writes some symbols as
   private-use characters U+F020–F0FF and draws them with the Wingdings glyph of that number, whatever font the text
   names. They were removed with the other private-use characters, so the dot between two words joined them — `미국·영국·독일`
