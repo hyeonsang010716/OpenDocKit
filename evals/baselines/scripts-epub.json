@@ -1,0 +1,249 @@
+{
+ "means": {
+  "overall": {
+   "mean": 0.9996,
+   "documents": 19
+  },
+  "nid": {
+   "mean": 0.9997,
+   "documents": 19
+  },
+  "nid_s": {
+   "mean": 0.9997,
+   "documents": 19
+  },
+  "teds": {
+   "mean": null,
+   "documents": 0
+  },
+  "teds_s": {
+   "mean": null,
+   "documents": 0
+  },
+  "mhs": {
+   "mean": 0.9996,
+   "documents": 19
+  },
+  "mhs_s": {
+   "mean": 1.0,
+   "documents": 19
+  },
+  "words": {
+   "mean": 0.9972,
+   "documents": 19
+  }
+ },
+ "documents": {
+  "amh": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "arb": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "ben": {
+   "overall": 0.9946,
+   "nid": 0.9957,
+   "nid_s": 0.9957,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9936,
+   "mhs_s": 1.0,
+   "words": 0.9814
+  },
+  "cmn_hans": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "ell_monotonic": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "heb": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "hin": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "hye": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "jpn": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "kat": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "khm": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "kor": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "mya": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "pes_1": {
+   "overall": 0.9979,
+   "nid": 0.9977,
+   "nid_s": 0.9977,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 0.9982,
+   "mhs_s": 1.0,
+   "words": 0.9651
+  },
+  "rus": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "tam": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "tha": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "urd": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  },
+  "vie": {
+   "overall": 1.0,
+   "nid": 1.0,
+   "nid_s": 1.0,
+   "teds": null,
+   "teds_s": null,
+   "mhs": 1.0,
+   "mhs_s": 1.0,
+   "words": 1.0
+  }
+ },
+ "texts": {
+  "amh": "5db1538245a8",
+  "arb": "324664a20dbd",
+  "ben": "8f7afe109507",
+  "cmn_hans": "164105d068ba",
+  "ell_monotonic": "045a144d181b",
+  "heb": "325344d5ed80",
+  "hin": "9242a089858d",
+  "hye": "3c637ed8b146",
+  "jpn": "be20a077e7a8",
+  "kat": "32a3f3f42dac",
+  "khm": "9d074dd380b5",
+  "kor": "57798dd27206",
+  "mya": "29c8eb4a78a7",
+  "pes_1": "09cf622151dc",
+  "rus": "50b8b25526b5",
+  "tam": "18f68bcbac3e",
+  "tha": "0b2ee70235b7",
+  "urd": "c426749fddb8",
+  "vie": "0ef6762e2992"
+ }
+}
