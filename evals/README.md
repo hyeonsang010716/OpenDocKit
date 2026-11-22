@@ -265,15 +265,15 @@ the text a PDF says its glyphs stand for was read and 0.740 before lines were re
   for a quotation and was no heading (`docs/decisions/pdf.md`).
 - **Tables are where the PDF reader loses most, as on the format twins.** A table of a text in Hebrew or Arabic
   letters is laid out from right to left, its first column on the right, and is read so (TEDS 0.52 read from the left;
-  Arabic and Hebrew 1.00 now, Persian and Urdu 0.84). Without tags the first run found the table of ten of the
+  Arabic and Hebrew 1.00 now, Persian and Urdu 0.84). Without tags the first run found the table of eleven of the
   nineteen texts, for reasons that had nothing to do with tables and everything with scripts: the number that opens a
   row is set in a Latin font and stands at another height than the cells in the font of the script, and only Hangul
   and Han were looked at for that; a line of Japanese or Thai has no spaces, so no cell was ever seen to end where its
   text did; and a header such as '제 1 조' is words of one letter. With those put right TEDS without tags went from
-  0.490 to 0.767: Hindi, Japanese, Chinese and Khmer are read (1.00, 0.96, 0.97, 0.97); Amharic, Bengali, Tamil and
-  Thai are found with their wrapped cells still rows (0.53 to 0.60); Burmese is not found. With tags (0.948) what is
-  left is tables that go on over a page: the Georgian, Persian and Urdu ones are written as a table on each page, as
-  the reader writes every table (`docs/decisions/pdf-tables.md`).
+  0.490 to 0.767: Hindi, Japanese and Khmer are read (1.00, 0.96, 0.97); Amharic, Bengali, Tamil and Thai are found
+  with their wrapped cells still rows (0.53 to 0.60); Burmese is not found. With tags (0.948) what is left is tables
+  that go on over a page: the Georgian, Persian and Urdu ones are written as a table on each page, as the reader
+  writes every table (`docs/decisions/pdf-tables.md`).
 - **Words is no measure for a script without spaces.** In Japanese, Chinese, Thai, Khmer and Burmese a "word" is what
   stands between two spaces, a whole line or sentence, and a line break in a PDF paragraph ends one. NID is the measure
   there.
