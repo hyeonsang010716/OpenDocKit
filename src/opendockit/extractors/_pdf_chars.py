@@ -8,6 +8,7 @@ import re
 import statistics
 
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
+from opendockit.extractors._pdf_bidi import _RIGHT_TO_LEFT, _logical, _visual_units
 from opendockit.extractors._pdf_model import _SPACED_CHAR
 from opendockit.extractors._pdf_pdfminer import _LAPARAMS
 
@@ -63,10 +64,13 @@ def _drawn_text(text: str) -> str:
 
 def _text_from_chars(chars: list[dict]) -> str:
     """Build text by joining the characters of a line left to right. Whitespace characters and wide gaps (same criterion as pdfminer's
-    word_margin) are the word spacing."""
+    word_margin) are the word spacing. A line with Hebrew or Arabic letters is read in their direction (`_pdf_bidi._logical`)."""
+    ordered = sorted(chars, key=lambda char: char["x0"])
+    if any(_RIGHT_TO_LEFT.search(char["text"]) for char in ordered):
+        return " ".join(_logical(_visual_units(ordered, _LAPARAMS["word_margin"])).split())
     parts: list[str] = []
     previous = None
-    for char in sorted(chars, key=lambda char: char["x0"]):
+    for char in ordered:
         if not char["text"].strip():
             parts.append(" ")
             previous = None
@@ -184,7 +188,10 @@ def _gap_parts(chars: list[dict], text: str, size: float, unspaced: float | None
     parts = tuple((group[0]["x0"], max(char["x1"] for char in group),
                    _drawn_text(_text_from_chars([*group, *spaces.between(group[0]["x0"], group[-1]["x1"])])))
                   for group in groups)
-    return parts if " ".join(part[2] for part in parts) == text else ()
+    if " ".join(part[2] for part in parts) == text:
+        return parts
+    # the pieces of a line read from right to left follow each other that way
+    return parts if _RIGHT_TO_LEFT.search(text) and " ".join(part[2] for part in reversed(parts)) == text else ()
 
 
 class _SpaceStarts:
