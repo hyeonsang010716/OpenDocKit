@@ -116,6 +116,11 @@ def _tolerant_parse_cell(parser: object, element: object) -> dict:
         return _parse_cell(parser, element)
     counter = parser.col_counter
     try:
+        if element.get("t") == "s" and (element.findtext(_openpyxl_sheet_reader.VALUE_TAG) or "").lstrip().startswith("-"):
+            # A list takes -1 for its last item: the cell showed the last shared string of the workbook, and nothing said
+            # its index points to no text (Pinned by: test_spreadsheet_cell_values_and_controls.py::
+            # TestOneMalformedCellValue::test_a_shared_string_index_below_zero_points_to_no_text).
+            raise IndexError
         cell = _checked(_parse_cell(parser, element))
     except (TranslatorError, TokenizerError):
         # A formula openpyxl cannot read or cannot move to this cell (a shared formula whose reference moves off the sheet).
@@ -807,6 +812,8 @@ def _quick_cell(parser: object, reading: _CellReading, element: object, columns:
                         if type(value) is float and not math.isfinite(value):
                             return _tolerant_parse_cell(parser, element)
                 elif data_type == "s":
+                    if not value.isdigit():  # a sign, a blank: `_tolerant_parse_cell` says what such an index is
+                        return _tolerant_parse_cell(parser, element)
                     value = parser.shared_strings[int(value)]
                 elif data_type == "b":
                     value = bool(int(value))
