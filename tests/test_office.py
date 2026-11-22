@@ -3657,6 +3657,26 @@ class TestOfficeLineBreaksNestedFieldsAndMetadata:
 
         assert result.text == "I. 개요\n\n  - 1.1. 배경\n    - I.1.a 세부\n\nII. 계획"
 
+    def test_docx_legal_numbering_keeps_the_zeros_of_its_own_level(self):
+        """Word's built-in "Article I / Section 1.01 / (a)" list: the second level is decimalZero with w:isLgl. The article's
+        number is written in Arabic digits, the section's own number keeps its zero. It came out as 'Section 1.1'. A level whose
+        own number is not zero-padded digits is written in Arabic digits as before, and so is a zero-padded upper level."""
+        numbering = ('<w:abstractNum w:abstractNumId="0">' + _number_level(0, "Article %1.", "upperRoman")
+                     + _number_level(1, "Section %1.%2", "decimalZero", "<w:isLgl/>") + _number_level(2, "(%3)", "lowerLetter")
+                     + "</w:abstractNum>"
+                     + '<w:abstractNum w:abstractNumId="1">' + _number_level(0, "%1.", "decimalZero")
+                     + _number_level(1, "%1.%2.", "upperRoman", "<w:isLgl/>") + "</w:abstractNum>"
+                     + _number_list(1, 0) + _number_list(2, 1))
+        body = (_paragraph("Definitions", 1, 0) + _paragraph("Terms", 1, 1) + _paragraph("Scope", 1, 1)
+                + _paragraph("Payment", 1, 0) + _paragraph("Price", 1, 1)
+                + _paragraph("Annex", 2, 0) + _paragraph("Forms", 2, 1))
+
+        result = convert(_docx_with_body(body, numbering=numbering), "a.docx")
+
+        lines = [line.strip().removeprefix("- ") for line in result.text.splitlines() if line.strip()]
+        assert lines == ["Article I. Definitions", "Section 1.01 Terms", "Section 1.02 Scope", "Article II. Payment",
+                         "Section 2.01 Price", "01. Annex", "1.1. Forms"]
+
     def test_docx_strikethrough_across_a_line_break_is_marked_per_line(self):
         """A strikethrough spanning a line break (w:br) was grouped into one mark, giving '~~- 1차 …\\n- 2차 …~~', and the first line
         started with '~~' so it was not read as a sub-item. The mark is closed and reopened on every line, and the bullet ('- ') at
