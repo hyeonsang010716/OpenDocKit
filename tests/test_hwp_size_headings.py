@@ -163,16 +163,20 @@ class TestSizeHeadings:
 
         assert "#" not in convert(data, "a.hwp").text
 
-    def test_document_with_outline_headings_keeps_those_only(self):
-        """Where the author marked the structure with outline styles, a large line is not taken for a heading too."""
+    def test_titles_by_size_stand_beside_outline_headings(self):
+        """A document with an outline heading used to keep those only. One outline head on a note then left a request for
+        proposals with that note as its single heading and its chapter titles, set large, as text; a press release whose
+        attachment is outlined lost its headline. Both kinds of title are headings."""
         data = _hwp(_paragraph("표지 제목", (0, 2)), _paragraph(_BODY),
                     builder.hwp_record(TAG_PARA_HEADER, 0, _para_header(0, 2)) + builder.hwp_record(
-                        TAG_PARA_TEXT, 1, builder.hwp_text("추진 계획")))
+                        TAG_PARA_TEXT, 1, builder.hwp_text("추진 계획")),
+                    _paragraph(_BODY), _paragraph("사업 개요", (0, 1)), _paragraph(_BODY))
 
         lines = convert(data, "a.hwp").text.splitlines()
 
-        assert lines[0] == "표지 제목"
+        assert lines[0] == "# 표지 제목"
         assert "# 추진 계획" in lines
+        assert [line for line in lines if line.endswith("사업 개요")] == ["## 사업 개요"]
 
     def test_document_without_character_sizes_has_no_size_headings(self):
         data = _fake_hwp(None, sections=[_paragraph("제목") + _paragraph(_BODY)])
@@ -281,6 +285,23 @@ class TestOutlineHeads:
         text = convert(_hwpx(body, head=head), "a.hwpx").text
 
         assert text == "# 1. 추진 배경\n\n## 가. 현황\n\n본문입니다"
+
+    def test_one_outline_head_on_a_note_leaves_the_titles_by_size(self):
+        """The shape of a request for proposals among the hwp2hwpx samples: chapter titles set large on plain paragraphs, and one
+        note that carries an outline head. That one head made the note the only heading of 89,000 characters."""
+        head = ('<hh:numberings itemCnt="1"><hh:numbering id="1" start="1">'
+                + "".join(f'<hh:paraHead level="{level}" numFormat="DIGIT">^{level}.</hh:paraHead>' for level in range(1, 7))
+                + '</hh:numbering></hh:numberings>'
+                '<hh:paraProperties itemCnt="2"><hh:paraPr id="0"><hh:heading type="NONE" idRef="0" level="0"/></hh:paraPr>'
+                '<hh:paraPr id="1"><hh:heading type="OUTLINE" idRef="0" level="5"/></hh:paraPr></hh:paraProperties>')
+        body = ('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="2"><hp:secPr outlineShapeIDRef="1"/><hp:t>제안요청서</hp:t></hp:run></hp:p>'
+                + _hwpx_paragraph(_BODY) + _hwpx_paragraph("사업 개요", (1, "사업 개요")) + _hwpx_paragraph(_BODY)
+                + _hwpx_paragraph("추진 계획", (1, "추진 계획")) + _hwpx_paragraph(_BODY)
+                + _hwpx_paragraph("※ 별지 서식 과업변경 요청서", shape=1) + _hwpx_paragraph(_BODY))
+
+        headings = [line for line in convert(_hwpx(body, head=head), "a.hwpx").text.splitlines() if line.startswith("#")]
+
+        assert headings == ["# 제안요청서", "## 사업 개요", "## 추진 계획", "###### 1. ※ 별지 서식 과업변경 요청서"]
 
     def test_hwp_outline_head_on_a_normal_paragraph_is_a_heading(self):
         from tests.test_hwp import _numbering, _section_definition

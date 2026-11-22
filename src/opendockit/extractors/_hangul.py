@@ -464,8 +464,12 @@ class SizeHeadings:
     1.15 / 1.3 / 1.5 times the body size becomes a level 3 / 2 / 1 heading; the body size is the size most text characters of
     the top-level body paragraphs have (counted while they are read, `count`). The paragraph must also look like a title
     (`_size_heading_text`): the same files otherwise gave a heading for a cover-page date, every table-of-contents line, the
-    addressee line of a form and a sentence written large. A document with any outline heading (style or paragraph head) keeps
-    those only: there the author marked the structure.
+    addressee line of a form and a sentence written large. A document with outline headings (style or paragraph head) has its
+    titles by size beside them: one outline head on a note left a request for proposals of 89,000 characters with that note as
+    its only heading, its 48 chapter and section titles as text, and a press release whose attachment is outlined lost its
+    headline. Of ten documents with outline headings (the Korean pairs and the samples of the Hangul libraries) the size
+    headings taken away were titles in every one that had any, and no other line
+    (Pinned by: test_hwp_size_headings.py::TestSizeHeadings::test_titles_by_size_stand_beside_outline_headings).
 
     The paragraphs are rendered as they are read, before the body size is known, so a candidate is kept as a `_SizeCandidate` in the
     blocks and settled by `resolve` at the end (Pinned by: test_hwp_size_headings.py).
@@ -474,7 +478,6 @@ class SizeHeadings:
     def __init__(self) -> None:
         self._sizes: dict[int, int] = {}   # character size → number of characters written in it, top-level body paragraphs
         self._all_sizes: dict[int, int] = {}   # the same over every paragraph but notes (cells, text boxes, headers)
-        self.outlined = False              # whether the document has an outline heading
 
     def count(self, size: int, text: str, *, body: bool = True) -> None:
         """Count the characters of `text`, written in `size`, of a top-level body paragraph (the paragraphs a candidate comes
@@ -564,7 +567,7 @@ class SizeHeadings:
         body = self.body_size(titles)
 
         def level_of(block: str | None, body: int = body) -> int:
-            if type(block) is not _SizeCandidate or self.outlined or body <= 0:
+            if type(block) is not _SizeCandidate or body <= 0:
                 return 0
             return next((level for ratio, level in _SIZE_HEADING_LEVELS if block.size >= body * ratio), 0)
 
@@ -627,8 +630,8 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     No paragraph is a heading with `no_heading`, set for a header written without `include_headers_footers`
     (`header_by_default`): a header in a 개요 style made `# 시험합의서` the first heading of each such document (Pinned by:
     test_hwp_headers.py::TestHeadersByDefault::test_header_written_by_default_is_no_heading).
-    An outline head on a paragraph that is a sentence (`_outline_title`) leaves it a numbered paragraph, and does not make the
-    document one with outline headings: contracts and regulations number their clauses with outline heads (`1. 갑은 을에게 …
+    An outline head on a paragraph that is a sentence (`_outline_title`) leaves it a numbered paragraph:
+    contracts and regulations number their clauses with outline heads (`1. 갑은 을에게 …
     지급한다.`, `가. 다만, … 아니하다.`) (Pinned by:
     test_hwp_size_headings.py::TestOutlineHeads::test_numbered_clause_sentences_stay_numbered_paragraphs).
     """
@@ -637,8 +640,6 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     heading_level = int(match.group(1)) if match is not None else level + 1 if outline and top and _outline_title(plain) else 0
     fits = len(f"{mark} {plain}" if mark else plain) <= HEADING_MAX_CHARS and "\n" not in plain
     heading = bool(heading_level) and fits
-    if heading and top and size_headings is not None:
-        size_headings.outlined = True
 
     # The level of a bullet paragraph is set from its left margin compared with the preceding items (`BulletNesting`). Other
     # paragraphs close the more deeply indented items

@@ -121,13 +121,17 @@ The scores say how far the two readers agree, so read them as a watch for change
   (`docs/decisions/hwp.md`). What still separates the two readers is in the HWPX and not on the page: cells divided
   by borders that are not drawn (the contact table at the end of every release is six columns in the HWPX and four in
   the PDF).
-- **MHS 0.759 over 57 releases is not gated**: it says how far two readers agree, and a heading only one of them writes
+- **MHS 0.776 over 57 releases is not gated**: it says how far two readers agree, and a heading only one of them writes
   is not known to be wrong. The first run had 5 releases to measure it on: the HWPX reader wrote 11 headings in the 60
   releases and the PDF reader 140, because the title of a release stands in a one-column table in the HWPX, where a
   paragraph could not become a heading by its size. It can now (`docs/decisions/hwp.md`), the HWPX reader writes 58,
   and with the bars of the attachments 120. The PDF reader wrote 15 of those 52 bars as headings; it reads 55 lines as
   bars now (`docs/decisions/pdf.md`), which took this number from 0.640 to 0.750. What is left to read in it is
-  headings one reader makes and the other does not.
+  headings one reader makes and the other does not. It rose to 0.776 when the HWPX reader stopped leaving out the
+  titles by size of a document that has outline headings: the headline of one release, whose attachment is outlined,
+  had been text in the HWPX and a heading in the PDF (four files). `mhs_s`, which compares the outlines without their
+  text, fell from 0.875 to 0.862 on the same four: the reference has two more headings there than the PDF, the two
+  outline heads, and the count of headings is all that number sees.
 
 Compared with `main` before the headings by weight were put back, the PDF reader writes 45 more headings in these
 releases and loses none: the section titles of two long releases, the labels of summary boxes, and — wrongly — a line

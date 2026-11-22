@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+
+- **HWP, HWPX: one outline heading no longer hides the titles set large.** A document with any outline heading kept
+  those only. A request for proposals of 89,000 characters with a single outline head, on a note, came out with that
+  note as its only heading and its 48 chapter and section titles as text, and press releases whose attachment or one
+  list item is outlined lost their headline. Titles by size and outline headings are both headings now.
+
 ## [0.3.15] - 2026-11-23
 
 The first release measured on scorecards. The structure of the PDF output, and the headings, lists and tables of DOCX,
