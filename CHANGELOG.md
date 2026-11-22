@@ -145,6 +145,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **PDF: Arabic, Hebrew, Persian and Urdu are read in their order of reading.** A PDF holds glyphs at places, and a
+  line written from right to left came out backwards letter by letter ('םלוע םולש' for 'שלום עולם'), whether Word,
+  LibreOffice or a browser had made the file. Each such line is now brought back to its text: letters from the right,
+  numbers and Latin words inside it from the left, brackets, ligatures and vowel marks in place, the letters a browser
+  names by their shape as the letters they are, and the runs Word draws a line in joined into the line. On a Hebrew
+  and a Persian Wikipedia article printed by a browser all and 99.6% of the article's words are found in the output
+  (5% and 7% before). Lines without such letters convert as before; what is left is in `docs/limitations.md`.
 - **PDF: headings and lines in scripts other than Latin, Hangul and Han.** Whether a line holds a letter was asked
   with those three ranges, so a line of Cyrillic, Greek, kana, Armenian, Georgian, Hebrew or Arabic held none: it was
   never a heading, by size or by weight, and the pieces it was drawn in were not joined into one line. A Russian or a

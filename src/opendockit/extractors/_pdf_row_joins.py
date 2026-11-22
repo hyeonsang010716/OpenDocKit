@@ -6,6 +6,7 @@ from bisect import bisect_left, bisect_right
 import re
 import statistics
 
+from opendockit.extractors._pdf_bidi import _RIGHT_TO_LEFT
 from opendockit.extractors._pdf_label_values import _label_value_rows, _near
 from opendockit.extractors._pdf_model import (
     _BARE_NUMBER,
@@ -113,8 +114,10 @@ def _join_row_fragments(page: _Page) -> None:
         # test_pdf_headings.py::TestBoldHeadings::test_a_bold_title_whose_number_is_set_apart_is_a_heading). Rows of cells
         # and of a label beside a value are no titles and stay without one.
         item = row[-1] if id(row[0]) in markers else None
+        if item is None:
+            row = _from_the_right(row)
         replaced[id(page.lines[place])] = _Line(top=min(line.top for line in row), bottom=max(line.bottom for line in row),
-                                                x0=row[0].x0, x1=max(line.x1 for line in row),
+                                                x0=min(line.x0 for line in row), x1=max(line.x1 for line in row),
                                                 text=_row_text(row, separator), size=size,
                                                 bold=item.bold if item is not None else False,
                                                 space_at_end=item.space_at_end if item is not None else None)
@@ -145,6 +148,24 @@ def _row_text(row: list[_Line], separator: str) -> str:
     for previous, line in zip(row, row[1:], strict=False):
         text += ("\n" if line.top > previous.top + previous.height / 2 else separator) + line.text
     return text
+
+
+def _from_the_right(row: list[_Line]) -> list[_Line]:
+    """The fragments of a row in the order they are read when the row holds Hebrew or Arabic text: those at one height
+    from right to left. A fragment starting below the middle of the one before it (`_row_text`) stays after it. A row
+    without such text is returned as it is.
+
+    Deliberate: the fragments of a row are joined from left to right, the order of the page, and a label to the right
+    of its value or the number to the right of its list item came after it ('البند الأول: مقدمة. 1.'). The order within a
+    fragment is that of its text already (`_pdf_bidi._logical`) (Pinned by: test_pdf_right_to_left.py::TestListNumbers)."""
+    if not any(_RIGHT_TO_LEFT.search(line.text) for line in row):
+        return row
+    levels: list[list[_Line]] = [[row[0]]]
+    for previous, line in zip(row, row[1:], strict=False):
+        if line.top > previous.top + previous.height / 2:
+            levels.append([])
+        levels[-1].append(line)
+    return [line for level in levels for line in sorted(level, key=lambda line: -line.x1)]
 
 
 def _leader_rows(rows: list[list[_Line]], used: set[int]) -> list[list[_Line]]:
@@ -210,7 +231,9 @@ def _marker_rows(lines: list[_Line], used: set[int]) -> list[list[_Line]]:
     centres differ by at most half the smaller line height) is the first line of that item. A bare number is accepted
     only as a footnote number: the previous or next number sits right above or below at the same left edge
     (`_numbered_in_turn`). If no line starts at the same height as the marker (figure tick labels, a number between
-    lines) it is left alone (Pinned by: test_pdf.py::TestListMarkers).
+    lines) it is left alone (Pinned by: test_pdf.py::TestListMarkers). Beside Hebrew or Arabic text the marker stands
+    to the right of its item, and the line that ends close to its left is the item (Pinned by:
+    test_pdf_right_to_left.py::TestListNumbers).
     """
     def is_marker(line: _Line) -> bool:
         return bool(_LIST_NUMBER.match(line.text) or _LONE_BULLET.match(line.text) or _BARE_NUMBER.match(line.text))
@@ -230,6 +253,12 @@ def _marker_rows(lines: list[_Line], used: set[int]) -> list[list[_Line]]:
                     and marker.x1 - 1 <= line.x0 <= marker.x1 + marker.height * _MARKER_GAP_RATIO
                     and abs((line.top + line.bottom) / 2 - middle) <= min(line.height, marker.height) / 2),
                    key=lambda line: line.x0, default=None)
+        if item is None:
+            # In text written from right to left the number stands to the right of its item, which ends close to it
+            item = max((line for line in near if id(line) not in taken and _RIGHT_TO_LEFT.search(line.text)
+                        and marker.x0 - marker.height * _MARKER_GAP_RATIO <= line.x1 <= marker.x0 + 1
+                        and abs((line.top + line.bottom) / 2 - middle) <= min(line.height, marker.height) / 2),
+                       key=lambda line: line.x1, default=None)
         if item is None or (_BARE_NUMBER.match(marker.text) and not _numbered_in_turn(marker, lines)):
             continue
         found.append([marker, item])

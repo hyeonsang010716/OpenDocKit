@@ -84,6 +84,13 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **Word-spacing restoration is an estimate.** For text placed word by word, the actual gap where the font changes is estimated and a space is inserted. A thin space before a symbol (a parenthesis and the like) following Hangul is not restored (`Test(*) 진행` → `Test (*)진행`).
 - **Slanted text** (about 6 degrees or more) is treated as a watermark and removed from the body. Small slanted labels inside figures are removed with it.
 - **Text drawn rotated 90 degrees within a page** (identifiers in the margin of a paper, a table laid sideways on a portrait page) is read rotated and placed at the end of that page as line-by-line text. Table structure is not restored. Text written rotated inside a cell of a ruled table is read as that cell's text (except cells mixed with horizontal text).
+- **Arabic, Hebrew, Persian and Urdu** are read in their order of reading (the page holds them backwards). Left as known
+  gaps: a font that names its glyphs wrongly cannot be read by anyone — the Arabic typeface of United Nations documents
+  draws a letter as a shape plus dots and names only the shape, so 'في' comes out as 'ني' (`pdftotext` and copying from a
+  viewer give the same); the columns of a table come in the order of the page, from left to right, so the first column
+  of an Arabic table is the last; in a document made by Word, two numbers with a hyphen between them may come in either
+  order ('2030-2015'), because Word sets them by how they were typed; and a page read by simple extraction (time budget,
+  unreadable structure) keeps the order pdfium gives it.
 - **Vertical writing** (pages set in WMode 1 fonts): characters are scattered one by one and the column order (right to left) is not kept.
 - **Lines drawn separately per font.** A PDF that draws Hangul and digits on the same baseline as separate runs per font (Cairo output and the like) is read as one line by re-collecting the characters in x order. Characters drawn on top of each other (fake bold, overlapping text boxes) are not merged.
 - **A 2-up imposition PDF that places each page as a Form XObject**: lines at the same height on the left and right pages are joined into one line.

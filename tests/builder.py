@@ -679,11 +679,12 @@ def pdf_with_images() -> bytes:
     return buffer.getvalue()
 
 
-def pdf_of_glyphs(runs: list[tuple[float, float, float, str | list[str], bool]]) -> bytes:
+def pdf_of_glyphs(runs: list[tuple[float, float, float, str | list[str], bool]], *, producer: str | None = None) -> bytes:
     """A page of text in any script, drawn as the runs (x, y from the bottom of the page, size, glyphs, bold) in the order
     given. The glyphs of a run are drawn from left to right, each 0.58 of the size wide; a run is a text, one glyph for
     each character, or a list with the text of each glyph (a ligature is one glyph of several characters). The fonts
-    are Identity-H fonts named 'Any' and 'Any-Bold' without a font program, whose ToUnicode says what each glyph is."""
+    are Identity-H fonts named 'Any' and 'Any-Bold' without a font program, whose ToUnicode says what each glyph is.
+    `producer` is the program the document says it was written by."""
     import zlib
 
     def stream(body: bytes) -> bytes:
@@ -711,13 +712,16 @@ def pdf_of_glyphs(runs: list[tuple[float, float, float, str | list[str], bool]])
                3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R "
                   b"/Resources << /Font << /F1 6 0 R /F2 7 0 R >> >> >>",
                4: stream(content), 5: stream(cmap), 6: font(b"Any"), 7: font(b"Any-Bold")}
+    if producer is not None:
+        objects[8] = b"<< /Producer (%s) >>" % producer.encode("ascii")
     data, offsets = b"%PDF-1.7\n", {}
     for number, body in objects.items():
         offsets[number] = len(data)
         data += b"%d 0 obj\n%s\nendobj\n" % (number, body)
-    xref = len(data)
-    data += b"xref\n0 8\n0000000000 65535 f \n" + b"".join(b"%010d 00000 n \n" % offsets[number] for number in range(1, 8))
-    return data + b"trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % xref
+    xref, size = len(data), len(objects) + 1
+    data += b"xref\n0 %d\n0000000000 65535 f \n" % size + b"".join(b"%010d 00000 n \n" % offsets[number] for number in range(1, size))
+    trailer = b"/Size %d /Root 1 0 R" % size + (b" /Info 8 0 R" if producer is not None else b"")
+    return data + b"trailer\n<< %s >>\nstartxref\n%d\n%%%%EOF\n" % (trailer, xref)
 
 
 def pdf_with_font_runs(lines: list[str]) -> bytes:
