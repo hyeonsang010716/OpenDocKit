@@ -103,6 +103,14 @@ _CODE_EXTENSIONS = frozenset({
     ".h", ".cc", ".cpp", ".hpp", ".cs", ".swift", ".scala", ".sh", ".sql", ".css", ".scss", ".yaml", ".yml", ".toml", ".ini",
     ".cfg", ".conf", ".log",
 })
+# Text that quotes markup as its subject and is read as text before HTML detection, like code: a patch of an HTML file, and
+# documents written in reStructuredText or TeX, whose code blocks hold whole pages. Not in `_CODE_EXTENSIONS`: .rst and .tex are
+# prose, and what else that list decides (the line separators of a string) is not theirs.
+_MARKUP_QUOTING_EXTENSIONS = frozenset({".patch", ".diff", ".rst", ".tex"})
+# The opening of a patch whatever its name: `diff --git a/x b/x`, or the two file lines of a unified diff (`--- a/x`, `+++ b/x`),
+# after the lines `git format-patch`, `svn diff` and `diff -u` may put before them (`Index:`, `=====`, `index 1a2b..`).
+_DIFF_START = re.compile(rb"(?:(?:Index: [^\n]*|={20,}|index [0-9a-f]+\.\.[0-9a-f]+[^\n]*)\r?\n){0,3}"
+                         rb"(?:diff --git a/[^\n]+ b/|--- [^\n]+\r?\n\+\+\+ [^\n]+\r?\n@@ )")
 # JSON detection (`_is_json`): the largest size parsed as a whole, and the opening shape checked in larger text.
 _JSON_PARSE_BYTES = 1024 * 1024
 _JSON_START = re.compile(rb'\s*(?:\{\s*"|\[\s*[\[{"])')
@@ -214,7 +222,7 @@ def _is_pdf(data: bytes) -> bool:
     return position == 0 or (position > 0 and _PDF_BODY.search(data) is not None)
 
 
-def pdf_lookalike_text_format(data: bytes, filename: str | None) -> DocumentFormat | None:
+def pdf_lookalike_text_format(data: bytes, filename: str | None, *, at_start: bool = False) -> DocumentFormat | None:
     """Check whether a file detected as PDF but not readable as PDF is actually text, and if so return its text-family format.
 
     Only when the header is not at the very beginning (other text precedes it) and the whole file is UTF-8 text. A note that wrote
@@ -223,8 +231,12 @@ def pdf_lookalike_text_format(data: bytes, filename: str | None) -> DocumentForm
     so the two cannot be told apart before trying to read it as PDF. A real PDF does not decode as UTF-8 because of its binary comment
     line and compressed streams, so a corrupted PDF is still rejected as corrupted. Known accepted gap: a CP949 note is not turned back
     into text (binary PDF fragments sometimes decode as CP949 too).
+
+    `at_start` takes a header at the very beginning too. The caller passes it only after the file failed to read as a PDF and
+    when its name says text (`named_as_text`): `notes.txt` beginning "%PDF-1.7 files begin with this header." was rejected as a
+    corrupted PDF (Pinned by: test_detect.py::TestTextThatLooksLikeAPdf::test_note_that_begins_with_the_header).
     """
-    if data.startswith(_PDF_MAGIC) or b"\x00" in data or not is_utf8_text(data):
+    if (data.startswith(_PDF_MAGIC) and not at_start) or b"\x00" in data or not is_utf8_text(data):
         return None
     try:
         return _detect_text(data, extension_of(filename))
@@ -235,7 +247,7 @@ def pdf_lookalike_text_format(data: bytes, filename: str | None) -> DocumentForm
 def named_as_text(filename: str | None) -> bool:
     """Does the file name give a text or code extension (`.txt`, `.md`, `.html`, `.json`, `.log` …)?"""
     extension = extension_of(filename)
-    return extension in _TEXT_EXTENSIONS or extension in _CODE_EXTENSIONS
+    return extension in _TEXT_EXTENSIONS or extension in _CODE_EXTENSIONS or extension in _MARKUP_QUOTING_EXTENSIONS
 
 
 def code_or_data_text(data: bytes, filename: str | None) -> bool:
@@ -509,6 +521,10 @@ def _detect_text(data: bytes, extension: str) -> DocumentFormat:
     # (Pinned by: test_core_mail_and_detect.py::TestHtmlInsideJsonAndCode). Server script names (.jsp, .php, .asp) are not included —
     # "Excel download" HTML served under those names is common.
     if extension in _CODE_EXTENSIONS or _is_json(data, body, wide):
+        return DocumentFormat.TEXT
+    # A patch of an HTML file, and a document that lists a page in a code block, hold whole tags, closing ones too: read as HTML
+    # they lost every line with a tag in it (Pinned by: test_core_mail_and_detect.py::TestTextThatQuotesMarkup).
+    if extension in _MARKUP_QUOTING_EXTENSIONS or _DIFF_START.match(body):
         return DocumentFormat.TEXT
 
     # A document that starts with prose is not taken as HTML just because of an opening tag in the first 2KB. It must have a closing

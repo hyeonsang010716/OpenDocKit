@@ -364,7 +364,7 @@ def _extract(document_format: DocumentFormat, data: bytes, filename: str | None,
         if document_format is not DocumentFormat.PDF or isinstance(exc, ImportError) or (isinstance(exc, ConversionError)
                                                           and not isinstance(exc, CorruptedDocumentError)):
             raise
-        fallback = pdf_lookalike_text_format(data, filename)
+        fallback = pdf_lookalike_text_format(data, filename, at_start=named_as_text(filename))
         if fallback is None:
             raise
         return fallback, EXTRACTORS[fallback](data, options)
