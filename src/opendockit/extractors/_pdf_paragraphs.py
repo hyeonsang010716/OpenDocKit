@@ -7,6 +7,7 @@ from collections.abc import Callable
 from itertools import accumulate, pairwise
 import math
 import re
+import unicodedata
 
 from opendockit.extractors._hangul import _ATTACHMENT_LABEL, _CONTACT, _KOREAN_DATE, _WEEKDAY, korean_sentence_end
 from opendockit.extractors._pdf_model import (
@@ -289,7 +290,7 @@ def _table_text(table: _Table) -> str:
     test_pdf_table_columns.py::TestMergedCellOpenAtThePageEnd::
     test_rows_continued_without_a_header_get_the_open_cell_whatever_their_values)."""
     if not table.continued:
-        return render_table(table.rows)
+        return render_table([_from_the_right(row) for row in table.rows] if table.from_the_right else table.rows)
     rows = [list(row) for row in table.rows]
 
     if table.bands and table.spans and math.isfinite(table.bands[0][0]):
@@ -297,7 +298,46 @@ def _table_text(table: _Table) -> str:
         starts = [cell[0] for cell in table.cells if abs(cell[1] - top) <= 1.0]
         rows[0] = [cell if cell or any(abs(start - span[0]) <= 1.0 for start in starts) else None
                    for cell, span in zip(rows[0], table.spans, strict=False)]
-    return render_table(rows, merged_titles_only=True)
+    return render_table([_from_the_right(row) for row in rows] if table.from_the_right else rows, merged_titles_only=True)
+
+
+def _from_the_right(row: list) -> list:
+    """The cells of a row from the rightmost to the leftmost. A cell covered by the one to its left (None) stays behind
+    the cell that covers it."""
+    groups: list[list] = []
+    for cell in row:
+        if cell is None and groups:
+            groups[-1].append(cell)
+        else:
+            groups.append([cell])
+    return [cell for group in reversed(groups) for cell in group]
+
+
+def _read_tables_from_the_right(page: _Page) -> None:
+    """Write the tables of a page laid out from right to left with their rightmost column first.
+
+    The first column of a table in an Arabic or Hebrew document is the one on the right: the page is read from there,
+    and a DOCX of the same document states its cells in that order. Read from the left as every table was, the columns
+    came out last to first ('| المدينة | العمر | الاسم |' for name, age, city). A table is turned when the lines of its page
+    run from right to left (`_Page.leftwards`) and most of the letters in its cells are right-to-left ones — a table of
+    Latin text in such a document is laid out from the left. `rows` and `spans` keep the order of the page, on which
+    the tables continued over a page and the pictures in cells are placed; only the text is written from the right
+    (`_table_text`). A table read from the tags of a tagged PDF is in the order of reading already (`_Table.stated`).
+
+    Deliberate: a merged cell is not known from an empty one in `rows`, so the text of a cell that spans columns stands
+    in the last of them and not in the first.
+    Pinned by: test_pdf_right_to_left.py::TestTables.
+    """
+    if not page.leftwards:
+        return
+    for table in page.tables:
+        if table.stated or table.from_the_right or not table.rows or max(len(row) for row in table.rows) < 2:
+            continue
+        kinds = [unicodedata.bidirectional(letter) for row in table.rows for cell in row for letter in cell or "" if letter.isalpha()]
+        leftwards = sum(kind in ("R", "AL") for kind in kinds)
+        if leftwards > len(kinds) - leftwards:
+            table.from_the_right = True
+            table.text = _table_text(table)
 
 
 def _with_pictures(text: str, tops: tuple[float, ...], pictures: list[tuple[float, str]]) -> str:

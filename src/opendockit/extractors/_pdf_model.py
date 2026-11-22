@@ -268,6 +268,11 @@ class _Table:
     # Columns of a ruled table whose bottom cell has no bottom border (a vertically merged cell split at the page end,
     # `_open_below_columns`). Its text is continued in the empty top cell of the next page's table (`_carry_open_cells`).
     open_below: tuple[int, ...] = ()
+    # The columns are in the order the document states (the structure tree of a tagged PDF), not in that of the page.
+    stated: bool = False
+    # The table is read from right to left: `rows` and `spans` keep the order of the page, its text is written with the
+    # rightmost column first (`_pdf_paragraphs._read_tables_from_the_right`, `_table_text`).
+    from_the_right: bool = False
 
 
 @dataclass(slots=True)
@@ -324,6 +329,8 @@ class _Page:
     # Filled shapes of the size of a letter standing in the lines of text where no character stands
     # (`_pdf_artifacts._letter_shapes`): text the page draws as outlines, which is missing from what was read.
     letter_shapes: int = 0
+    # The lines of the page are laid out from right to left (`_pdf_bidi._page_reading`).
+    leftwards: bool = False
     # The tables the structure tree of a tagged PDF states on this page (`_pdf_tagged_tables._TaggedTable`), with the text and
     # the box of each cell. Made into tables where the page agrees with them (`_extract_tagged_tables`).
     tagged: list = field(default_factory=list)

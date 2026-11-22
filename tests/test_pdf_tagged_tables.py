@@ -98,6 +98,20 @@ class TestTablesFromTheTree:
 
         assert text == f"{_INTRO}\n\n{_READ}\n\n{_AFTER}"
 
+    def test_a_table_laid_out_from_right_to_left_is_read_in_the_order_of_its_tree(self):
+        """The first cell of a row of an Arabic or Hebrew table stands on the right. Its cells did not 'stand side by
+        side in their order', so the tags were not believed and the table was left to the page."""
+        rows = [[[2], [1]], [[4, 5], [3]], [[7], [6]], [[9], [8]]]  # each row from its right cell to its left one
+
+        text = _text(_tagged_pdf(_PIECES, [("P", [0]), _table(rows), ("P", [10])]))
+
+        assert text.splitlines()[2:5] == ["| Opened | Office |", "| --- | --- |", "| 2009, after two years in a rented room | Phnom Penh |"]
+
+    def test_rows_that_run_both_ways_are_not_believed(self):
+        rows = [[[1], [2]], [[4, 5], [3]], [[6], [7]], [[9], [8]]]
+
+        assert "|" not in _text(_tagged_pdf(_PIECES, [("P", [0]), _table(rows), ("P", [10])]))
+
     def test_a_cell_that_spans_rows_or_columns(self):
         pieces = [(72, 100, _INTRO), (72, 140, "Region"), (200, 140, "Office"), (330, 140, "Opened"),
                   (72, 154, "North"), (200, 154, "Battambang"), (330, 154, "2012"),

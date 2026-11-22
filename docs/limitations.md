@@ -91,8 +91,8 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **Arabic, Hebrew, Persian and Urdu** are read in their order of reading (the page holds them backwards). Left as known
   gaps: a font that names its glyphs wrongly cannot be read by anyone — the Arabic typeface of United Nations documents
   draws a letter as a shape plus dots and names only the shape, so 'في' comes out as 'ني' (`pdftotext` and copying from a
-  viewer give the same); the columns of a table come in the order of the page, from left to right, so the first column
-  of an Arabic table is the last; in a document made by Word, two numbers with a hyphen between them may come in either
+  viewer give the same); a table is read from its right column when the page runs from right to left, so a table laid
+  out from the left in such a document comes out turned round when the PDF has no tags; in a document made by Word, two numbers with a hyphen between them may come in either
   order ('2030-2015'), because Word sets them by how they were typed; and a page read by simple extraction (time budget,
   unreadable structure) keeps the order pdfium gives it.
 - **Vertical writing** (pages set in WMode 1 fonts): characters are scattered one by one and the column order (right to left) is not kept.

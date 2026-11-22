@@ -6,6 +6,7 @@ import pytest
 from opendockit import ConvertOptions, convert
 from opendockit.extractors._pdf_bidi import _PAGE_READING, _logical, _page_reading, _Reading, _visual_units
 from opendockit.extractors._pdf_chars import _text_from_chars
+from opendockit.extractors._pdf_paragraphs import _from_the_right
 from tests.builder import pdf_of_glyphs
 
 
@@ -160,6 +161,42 @@ class TestListNumbers:
 
     def test_a_number_alone_on_a_page_read_from_the_left_is_left_alone(self):
         assert ".5" in _page(".5", "The value is small.")
+
+
+class TestTables:
+    _ROWS = [("םש", "ליג", "ריע"), ("דוד", "30", "הפיח"), ("הרש", "25", "תליא"), ("יסוי", "41", "ןולוח")]  # as on the page
+    _TEXT = "הקידבל תירבעב ךורא טסקט והז"
+
+    def _page(self, rows: list[tuple[str, str, str]], text: str) -> str:
+        runs = [(72, 780 - 14 * line, 10, text, False) for line in range(3)]
+        for number, row in enumerate(rows):
+            runs += [(x, 700 - 16 * number, 10, cell, False) for x, cell in zip((72, 240, 400), row, strict=True)]
+        return convert(pdf_of_glyphs(runs), "a.pdf", _OPTIONS).text
+
+    def test_the_first_column_of_a_table_is_the_one_on_the_right(self):
+        """Read from the left as every table was, the columns of a Hebrew or Arabic table came out last to first."""
+        table = [line for line in self._page(self._ROWS, self._TEXT).splitlines() if line.startswith("|")]
+
+        assert table == ["| עיר | גיל | שם |", "| --- | --- | --- |", "| חיפה | 30 | דוד |", "| אילת | 25 | שרה |", "| חולון | 41 | יוסי |"]
+
+    def test_a_table_of_latin_text_in_such_a_document_is_read_from_the_left(self):
+        rows = [("Name", "Age", "City"), ("David", "30", "Haifa"), ("Sara", "25", "Eilat"), ("Yossi", "41", "Holon")]
+
+        table = [line for line in self._page(rows, self._TEXT).splitlines() if line.startswith("|")]
+
+        assert table[0] == "| Name | Age | City |"
+
+    def test_a_table_on_a_page_read_from_the_left_is_read_from_the_left(self):
+        """One Hebrew table in an English document: the page does not run from right to left, and the table is left as
+        it stands."""
+        table = [line for line in self._page(self._ROWS, "This is a long line of English text for the test.").splitlines()
+                 if line.startswith("|")]
+
+        assert table[0] == "| שם | גיל | עיר |"
+
+    def test_a_cell_covered_by_the_one_beside_it_stays_behind_it(self):
+        assert _from_the_right(["a", None, "b", "c"]) == ["c", "b", "a", None]
+        assert _from_the_right(["a", "", "b"]) == ["b", "", "a"]
 
 
 def _chars(units: list[tuple[str, float, float]]) -> list[dict]:

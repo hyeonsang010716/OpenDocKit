@@ -114,7 +114,7 @@ from opendockit.extractors._pdf_model import (
     _space_at_end,
     _visual_rows,
 )
-from opendockit.extractors._pdf_paragraphs import _heading_levels, _keep_proven_line_ends, _render_page
+from opendockit.extractors._pdf_paragraphs import _heading_levels, _keep_proven_line_ends, _read_tables_from_the_right, _render_page
 from opendockit.extractors._pdf_pdfium_pages import _PdfiumPages
 from opendockit.extractors._pdf_pdfminer import (
     _DOCUMENT_FONT_RANGE_ENTRIES,
@@ -603,6 +603,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
         _extract_gutter_tables(page)
         _extract_aligned_tables(page)
         _extract_banded_tables(page)
+        _read_tables_from_the_right(page)
         _join_row_fragments(page)
         _read_columns_in_turn(page)
         _read_alternating_sides_in_turn(page)
@@ -1259,7 +1260,8 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                  uprights=_upright_rules(page) if lines else [], tagged=_tagged_on(layout_page, page_chars) if lines else [],
                  letter_shapes=_letter_shapes(page.curves, sorted((line.top, line.bottom, line.x0, line.x1) for line in lines),
                                               chars, char_tops) if lines else 0,
-                 literal_carets=any("^" in char["text"] for char in page_chars), unshown_marks=unshown_marks)
+                 literal_carets=any("^" in char["text"] for char in page_chars), unshown_marks=unshown_marks,
+                 leftwards=_PAGE_READING.get().leftwards is True)
 
 
 def _tagged_on(page: object, chars: list[dict]) -> list:

@@ -1,8 +1,10 @@
 """The references of the script twins (`evals/fetch_script_texts.py`) and the direction their twins are laid out in
 (`evals/make_twins.py`)."""
 
-from evals.fetch_script_texts import LANGUAGES, REVISION, SOURCE, reference
-from evals.make_twins import _direction
+import zipfile
+
+from evals.fetch_script_texts import LANGUAGES, REVISION, SOURCE, _start, reference
+from evals.make_twins import _direction, _tables_from_the_right
 
 
 _TEXT = """<?xml version="1.0" encoding="UTF-8"?>
@@ -34,7 +36,8 @@ class TestReference:
             "# Universal Declaration of Human Rights\n\n## Preamble\n\n"
             "Whereas recognition of the inherent dignity is the foundation of freedom,\n\n"
             "## Article 1\n\nAll human beings are born free.\n\n"
-            "## Article 2\n\n1. Everyone is entitled to all the rights.\n2. No distinction shall be made.\n")
+            "## Article 2\n\n1. Everyone is entitled to all the rights.\n2. No distinction shall be made.\n\n"
+            "| 1 | Article 1 | All human beings are |\n| --- | --- | --- |\n| 2 | Article 2 | Everyone is entitled to |\n")
 
     def test_a_reference_stops_after_twelve_articles(self):
         articles = "".join(f'<article number="{number}"><title>Article {number}</title><para>Text {number}.</para></article>'
@@ -46,11 +49,35 @@ class TestReference:
         assert "## Article 12" in written
         assert "## Article 13" not in written
 
+    def test_the_start_of_an_article_is_cut_between_two_letters(self):
+        """A text without spaces is one 'word': it is cut after thirty characters, and not between a letter and the mark
+        set on it."""
+        assert _start("All human beings are born free and equal") == "All human beings are"
+        assert _start("人" * 50) == "人" * 30
+        marked = "ก" * 29 + "กิ" + "ก" * 10
+
+        assert _start(marked) == "ก" * 29 + "กิ"
+
     def test_the_texts_are_read_at_one_revision(self):
         """The list is the same on every run only when the revision is: a branch name would follow the project."""
         assert len(REVISION) == 40 and all(letter in "0123456789abcdef" for letter in REVISION)
         assert SOURCE.format(code=LANGUAGES[0]).startswith(f"https://raw.githubusercontent.com/eric-muller/udhr/{REVISION}/")
         assert len(set(LANGUAGES)) == len(LANGUAGES) == 19
+
+
+class TestTablesFromTheRight:
+    def test_the_tables_of_a_document_are_laid_out_from_the_right(self, tmp_path):
+        document = tmp_path / "a.docx"
+        with zipfile.ZipFile(document, "w") as package:
+            package.writestr("word/document.xml", "<w:tbl><w:tblPr><w:tblW/></w:tblPr></w:tbl><w:tbl><w:tblPr></w:tblPr></w:tbl>")
+            package.writestr("word/styles.xml", "<w:styles/>")
+
+        _tables_from_the_right(document)
+        _tables_from_the_right(document)  # a second time changes nothing
+
+        with zipfile.ZipFile(document) as package:
+            assert package.read("word/document.xml").count(b"<w:tblPr><w:bidiVisual />") == 2
+            assert package.read("word/styles.xml") == b"<w:styles/>"
 
 
 class TestDirection:
