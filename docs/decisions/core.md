@@ -36,6 +36,7 @@ src/opendockit/
     ├── _xlsx_parts.py # the XLSX parts read without openpyxl: drawings, comments, form controls, pictures in cells, relationships
     ├── _pdf_pdfminer.py # what is replaced in pdfminer: stream and object budgets, font tables, symbol fonts, CMaps
     ├── _pdf_model.py # the line, table, page and paragraph records, shared thresholds, box and colour helpers
+    ├── _pdf_bidi.py # a line of Hebrew or Arabic brought from the order of the page to the order of reading
     ├── _pdf_chars.py # the text of a run of characters: spaces from gaps, letter spacing, superscripts and subscripts
     ├── _pdf_artifacts.py # characters that are not text (watermarks, shadow copies, tilted or hidden text), sideways text
     ├── _pdf_pieces.py # one line drawn as several pieces put back together; symbols and footnote marks in place
