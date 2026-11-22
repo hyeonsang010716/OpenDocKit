@@ -12,6 +12,7 @@ uv run pytest -m timing                  # tests that measure time, serially (ab
 uv run pytest tests/test_pdf.py  # one module
 uv run ruff check                # lint
 uv run python -m evals.run --documents <pdfs> --gold <references> --baseline evals/baselines/pdf-structure.json   # structure scores against the baseline (evals/README.md)
+uv run python -m evals.recall --documents <docx, pptx, xlsx, hwpx> [--baseline evals/baselines/recall-korean-pairs.json]   # words of the source missing from the output
 uv run python examples/run_examples.py   # reconvert the sample documents (needs LibreOffice for the .doc / .ppt samples); `git diff examples/output` shows what moved
 uv run opendockit <file> [--json | --count] [--describe]   # --describe calls a vision model (OPENAI_API_KEY, costs money)
 ```
@@ -41,6 +42,8 @@ document that justifies it.
   the same change. The holdout is run, not read: a rule is not written from its documents (`evals/README.md`). The comparison also names
   the documents whose text changed without a score moving: look at them before saying what a change did.
   A change to how DOCX, ODT, RTF, HTML or EPUB write headings, lists or tables is run against their twins the same way.
+  A change to what a reader of DOCX, PPTX, XLSX or HWPX keeps or drops is run against the recall baselines
+  (`evals/recall.py`): no document may miss or join more words than it did.
   A change to how the characters, the marks or the direction of a line are read is run against the script twins
   (nineteen languages, `evals/README.md`): no mean may fall there either.
 - A deliberate trade-off gets a row in `docs/decisions/` and a `Pinned by:` comment at the code site.

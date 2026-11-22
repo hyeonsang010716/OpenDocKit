@@ -281,6 +281,60 @@ the text a PDF says its glyphs stand for was read and 0.740 before lines were re
 They depend on the versions of pandoc and LibreOffice and on the fonts of the machine that made them, as the format
 twins do, so they run where they were made.
 
+## Recall: is every word of the document there?
+
+```bash
+uv run python -m evals.recall --documents $K/hwpx --baseline evals/baselines/recall-korean-pairs.json
+uv run python -m evals.recall --documents $H/hwpx --baseline evals/baselines/recall-korean-holdout.json
+uv run python -m evals.recall --documents ../corpus/twins/docx --baseline evals/baselines/recall-twins-docx.json
+uv run python -m evals.recall --documents <any folder of DOCX, PPTX, XLSX, HWPX> --show 10      # no baseline: just look
+```
+
+Every scorecard above needs a reference somebody wrote or another reader produced. This one needs none. A DOCX, a
+PPTX, an XLSX and an HWPX state their text in their own XML (`w:t`, `a:t`, the strings of the cells, `hp:t`), so the
+question "did the reader lose anything?" can be put to any folder of documents (`evals/recall.py`):
+
+| Count | Meaning |
+| :--- | :--- |
+| `missing` | a word of the source that is nowhere in the Markdown, not even with a mark inside it (`CO<sub>2</sub>`) |
+| `joined` | two neighbouring words the Markdown writes as one although something stands between them in the source |
+| `private_use` | the private-use characters of the source: symbols of a font, which neither count above sees when one stands alone |
+
+A run against a baseline ends with status 1 when a document misses or joins more than it did. `--show` groups the
+losses by the chain of elements they sit in, which is how a cause is found: forty words under
+`sdt/sdtContent/p/r/t` in one file are the prompts of empty content controls.
+
+Where it stands (2026-11-22):
+
+| Documents | Converted | Words | Missing | Joined |
+| :--- | ---: | ---: | ---: | ---: |
+| Korean pairs, HWPX | 59 of 60 (one is encrypted) | 35,190 | 0 | 0 |
+| Korean holdout, HWPX | 60 | 41,505 | 0 | 0 |
+| Format twins, DOCX | 200 | 64,290 | 0 | 0 |
+| Apache POI `test-data/document`, DOCX | 117 of 134 | 87,793 | 231 | 0 |
+| Apache POI `test-data/slideshow`, PPTX | 87 of 98 | 23,554 | 178 | 0 |
+| Apache POI `test-data/spreadsheet`, XLSX | 338 of 367 | 95,584 | 56 | 0 |
+
+The first three have a baseline here. The Apache POI files are that project's test documents, many of them broken on
+purpose (the ones not converted are refused, cut at the character limit, or no ZIP package at all). Every place
+they miss a word in was looked at. Seven words stand in a file that is broken on purpose (a document with three bodies,
+a package holding one sheet twice, a header of a kind that does not exist); the rest are left out on purpose:
+
+- the prompt of an empty content control (`w:showingPlcHdr`: "Click here to enter text") and the placeholders of a
+  slide's footer, date and number;
+- cells beyond the column limit, which the result says in a warning;
+- the letters of an equation, written as LaTeX; a ligature written as its letters (`ﬁ` as `fi`); text moved away
+  under change tracking.
+
+What the count found when it was first run is the reason it is kept: 4 of the 120 Korean HWPX files wrote
+`미국·영국·독일` as `미국영국독일`, because Hangul keeps that dot in a private-use character that was removed. No
+word was missing, so `joined` is counted, and `private_use` says where a symbol that joins nothing may have gone the
+same way.
+
+It does not see: text a reader should leave out and writes (a deletion under change tracking); order; structure;
+numbers and dates of cells, which are written from a value and a format and not from a string; pictures. A PDF states
+no text of its own apart from what the reader reads, so it has no recall of this kind.
+
 ## What it does not measure yet
 
 - XLSX, PPTX and mail: the twins cover the text formats only. HTML as it is found on the web, with navigation and

@@ -1,0 +1,432 @@
+{
+ "documents": {
+  "156600851.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 254
+  },
+  "156603253.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 662
+  },
+  "156605655.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 286
+  },
+  "156608093.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 11,
+   "status": "converted",
+   "words": 6291
+  },
+  "156610495.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 217
+  },
+  "156612896.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 378
+  },
+  "156615309.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 248
+  },
+  "156617718.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 1,
+   "status": "converted",
+   "words": 302
+  },
+  "156620119.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 252
+  },
+  "156622522.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 973
+  },
+  "156624927.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 624
+  },
+  "156627328.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 2265
+  },
+  "156629729.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 345
+  },
+  "156632130.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 296
+  },
+  "156634531.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 564
+  },
+  "156636932.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 321
+  },
+  "156639333.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 586
+  },
+  "156641734.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 365
+  },
+  "156644135.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 313
+  },
+  "156646536.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 1610
+  },
+  "156648939.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 1073
+  },
+  "156651342.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 6,
+   "status": "converted",
+   "words": 1491
+  },
+  "156653756.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 326
+  },
+  "156656157.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 601
+  },
+  "156658558.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 309
+  },
+  "156660959.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 354
+  },
+  "156663360.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 432
+  },
+  "156665761.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 775
+  },
+  "156668162.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 326
+  },
+  "156670563.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 113
+  },
+  "156672964.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 4,
+   "status": "converted",
+   "words": 1501
+  },
+  "156675381.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 334
+  },
+  "156677785.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 482
+  },
+  "156680191.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 364
+  },
+  "156682592.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 348
+  },
+  "156685000.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 1155
+  },
+  "156710763.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 597
+  },
+  "156713783.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 290
+  },
+  "156716784.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 211
+  },
+  "156719785.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 2077
+  },
+  "156722786.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 888
+  },
+  "156725835.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 2,
+   "status": "converted",
+   "words": 1250
+  },
+  "156728836.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 1036
+  },
+  "156731837.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 1113
+  },
+  "156734838.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 4,
+   "status": "converted",
+   "words": 885
+  },
+  "156737839.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 4,
+   "status": "converted",
+   "words": 884
+  },
+  "156740841.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 630
+  },
+  "156743842.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 180
+  },
+  "156746848.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 316
+  },
+  "156749868.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 239
+  },
+  "156752869.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 237
+  },
+  "156755914.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 530
+  },
+  "156758915.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 535
+  },
+  "156761934.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 325
+  },
+  "156764945.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 252
+  },
+  "156767953.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 220
+  },
+  "156770955.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 529
+  },
+  "156773958.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 294
+  },
+  "156776968.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 193
+  },
+  "156780000.hwpx": {
+   "joined": 0,
+   "missing": 0,
+   "private_use": 0,
+   "status": "converted",
+   "words": 658
+  }
+ },
+ "totals": {
+  "converted": 60,
+  "documents": 60,
+  "joined": 0,
+  "missing": 0,
+  "private_use": 32,
+  "words": 41505
+ }
+}
