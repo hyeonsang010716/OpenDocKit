@@ -10,7 +10,7 @@ import statistics
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._pdf_bidi import _RIGHT_TO_LEFT, _is_mark, _logical, _visual_units
 from opendockit.extractors._pdf_model import _SPACED_CHAR
-from opendockit.extractors._pdf_pdfminer import _LAPARAMS
+from opendockit.extractors._pdf_pdfminer import _JOINERS, _LAPARAMS
 
 
 # Gap within a line (relative to the character size, `_split_merged_cells`) taken as a spot where pdfminer (char_margin 2.0) merged
@@ -67,6 +67,8 @@ def _text_from_chars(chars: list[dict]) -> str:
     word_margin) are the word spacing. A line with Hebrew or Arabic letters is read in their direction (`_pdf_bidi._logical`)."""
     ordered = sorted(chars, key=lambda char: char["x0"])
     if any(_RIGHT_TO_LEFT.search(char["text"]) for char in ordered):
+        # A joiner is drawn where the letter before it ended, which is where the next one starts: it stands between them
+        ordered = sorted(chars, key=lambda char: char["x0"] - (_JOINER_REACH if char["text"] in _JOINERS else 0.0))
         return " ".join(_logical(_visual_units(ordered, _LAPARAMS["word_margin"])).split())
     if any(_is_mark(char["text"]) for char in ordered):
         ordered = sorted(chars, key=_place_in_its_word)
@@ -87,6 +89,7 @@ def _text_from_chars(chars: list[dict]) -> str:
     return " ".join("".join(parts).split())
 
 
+_JOINER_REACH = 0.05  # pt a zero-width joiner is put to the left of a letter that starts where it stands
 # A mark is put before a letter that starts within this share of its height to its left (`_place_in_its_word`).
 _MARK_REACH_RATIO = 0.1
 

@@ -18,7 +18,35 @@ from opendockit.models import IMAGE_MARKER
 # (U+2066–2069) are what current editors write around a right-to-left name; only the older embeddings were removed and the
 # isolates stayed between the letters
 # (Pinned by: test_markdown.py::TestInvisibleAndControlCharacters::test_removes_bidi_isolates_and_other_invisible_marks).
+# This class is what a text is searched for to know whether cleaning would change it; the characters are taken out by
+# `without_invisible`, which keeps two of them where they are part of a spelling.
 _INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u061c\u180e\ufeff\u00ad]")
+_NEVER_SEEN = re.compile("[\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u061c\u180e\ufeff\u00ad]")
+# The scripts in which the zero-width non-joiner (U+200C) and joiner (U+200D) are written on purpose: the Arabic script
+# (Persian, Urdu, Kurdish), the scripts of India and Sinhala, Burmese and Khmer — and the pictographs a joiner makes one of.
+_JOINED = ("\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufefc"
+           "\u0900-\u0dff\u1000-\u109f\u1780-\u17ff"
+           "\u2600-\u27bf\ufe0f\U0001f000-\U0001faff")
+_STRAY_JOINER = re.compile(f"(?<![{_JOINED}])[\u200c\u200d]+|[\u200c\u200d]+(?![{_JOINED}])")
+
+
+def without_invisible(text: str) -> str:
+    """`text` without the characters that cannot be seen (`_INVISIBLE`), but for a zero-width joiner or non-joiner that
+    stands between two characters of a script that writes it.
+
+    Deliberate: the two are part of a spelling there and not noise. Persian writes the non-joiner inside a word
+    ('می' + U+200C + 'شود', 'he becomes', where the letters must not join), Hindi, Bengali and Sinhala choose the form of
+    a conjunct with them ('ශ්' + U+200D + 'රී'), and a joiner makes one pictograph of several (a family of three). Taken
+    out with the rest, a Persian word became another spelling of itself and a family three people in a row; the script
+    twins scored the readers of DOCX, HTML and the other formats 0.996 on Persian and Bengali for it and 1.000 on the
+    seventeen other languages. Anywhere else — between Latin letters, beside a space, at the start or the end — they
+    are noise as before and go (Pinned by: test_markdown.py::TestJoinersOfASpelling)."""
+    text = _NEVER_SEEN.sub("", text)
+    if "\u200c" in text or "\u200d" in text:
+        text = _STRAY_JOINER.sub("", text)
+    return text
+
+
 # Remove the C0 and C1 control characters and DEL, keeping only tab (\t) and newline (\n). Form feed (\f), vertical tab (\v) and
 # next line (U+0085, the C1 line break) are text boundaries, so they are turned into line breaks instead of being removed
 # (`_LINE_BREAK_CONTROLS`) — removed, the numbers on either side in `합계 100\f200` (합계 = total) ran together and the CSV cell
@@ -219,7 +247,7 @@ def clean_characters(text: str) -> str:
     # Remove first, then normalize. In the other order, the characters on either side of a removed one become newly combinable
     # and the result is no longer NFC.
     text = text.replace("\r\n", "\n").replace("\r", "\n").translate(_TEXT_LINE_BREAKS)
-    text = _INVISIBLE.sub("", text)
+    text = without_invisible(text)
     text = _CONTROL.sub("", text)
     text = _PRIVATE_USE.sub("", text.translate(_SYMBOL_FONT_GLYPHS))
     text = _SPACE_LIKE.sub(" ", text)
@@ -544,7 +572,7 @@ def clean_line(text: str) -> str:
     """`text` as one clean line: the characters `clean_text` removes are removed, NFC, and every run of whitespace (line breaks
     included) is one space, stripped. Without the Markdown handling of `clean_text` (fences, list indentation): for values such
     as document metadata that are not body text."""
-    text = _INVISIBLE.sub("", text.translate(_LINE_BREAK_CONTROLS))
+    text = without_invisible(text.translate(_LINE_BREAK_CONTROLS))
     text = _PRIVATE_USE.sub("", _CONTROL.sub("", text).translate(_SYMBOL_FONT_GLYPHS))
     return " ".join(unicodedata.normalize("NFC", text).split())
 
@@ -577,7 +605,7 @@ def solid_length(text: str, *, quote_lines: bool = True) -> int:
     # private-use characters stopped a table that was within the limit, and the document came back cut without `exceeded`
     # (Pinned by: test_markdown.py::TestSolidLength::test_nested_table_placeholder_is_not_counted).
     text = _EMBED.sub("", IMAGE_MARKER.sub("", text))
-    text = _PRIVATE_USE.sub("", _CONTROL.sub("", _INVISIBLE.sub("", text)).translate(_SYMBOL_FONT_GLYPHS))
+    text = _PRIVATE_USE.sub("", _CONTROL.sub("", without_invisible(text)).translate(_SYMBOL_FONT_GLYPHS))
     # The quote marks of a line that holds nothing else go too: rendering drops a quoted line left with only its marks when
     # the picture on it is erased (too small, a repeated logo), and the empty quote lines around it
     # (`converter._settle_quote_gaps`). Counted, a 12-character quote with five erased pictures was reported over a limit of
@@ -615,7 +643,7 @@ def _cell_lines(value: str) -> list[str]:
     if _CELL_AS_WRITTEN.search(value) is None and (value.isascii() or unicodedata.is_normalized("NFC", value)):
         line = value.strip()
         return [line] if line else []
-    value = unicodedata.normalize("NFC", _SPACE_LIKE.sub(" ", _CONTROL.sub("", _INVISIBLE.sub("", value.translate(_LINE_BREAK_CONTROLS)))))
+    value = unicodedata.normalize("NFC", _SPACE_LIKE.sub(" ", _CONTROL.sub("", without_invisible(value.translate(_LINE_BREAK_CONTROLS)))))
     lines = [_INNER_SPACES.sub(" ", line).strip() for line in value.replace("\r", "\n").split("\n")]
     return [line for line in lines if line]
 

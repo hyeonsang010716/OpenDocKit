@@ -1328,6 +1328,38 @@ class TestCleaningTwice:
         assert clean_text(result) == result
 
 
+class TestJoinersOfASpelling:
+    """The zero-width non-joiner (U+200C) and joiner (U+200D) are part of a spelling in some scripts and noise in the
+    others (`markdown.without_invisible`)."""
+
+    _NON_JOINER, _JOINER = "\u200c", "\u200d"
+
+    @pytest.mark.parametrize(("before", "joiner", "after"), [
+        ("می", _NON_JOINER, "شود"),          # Persian: 'he becomes', the letters must not join
+        ("ශ්", _JOINER, "රී"),               # Sinhala: the joiner chooses the form of the conjunct
+        ("क्", _JOINER, "ष"),                # Hindi
+        ("র্", _JOINER, "য"),                # Bengali
+        (chr(0x1F468), _JOINER, chr(0x1F467)),  # a man and a girl made one pictograph
+    ])
+    def test_a_joiner_between_two_characters_of_a_script_that_writes_it_is_kept(self, before, joiner, after):
+        assert clean_text(before + joiner + after) == before + joiner + after
+        assert markdown.clean_line(before + joiner + after) == before + joiner + after
+
+    @pytest.mark.parametrize("text", ["a\u200cb", "\u200cسلام", "سلام\u200d", "می \u200cشود", "می\u200c شود", "가\u200d나", "\u200c"])
+    def test_a_joiner_anywhere_else_is_noise(self, text):
+        without = text.replace(self._NON_JOINER, "").replace(self._JOINER, "")
+
+        assert clean_text(text) == without.strip()
+
+    def test_the_other_characters_that_cannot_be_seen_go_between_such_letters_too(self):
+        assert clean_text("می\u200bشود\u200e و\xad") == "میشود و"
+
+    def test_a_joiner_in_the_cell_of_a_table_is_kept_the_same_way(self):
+        table = render_table([["می" + self._NON_JOINER + "شود", "a" + self._NON_JOINER + "b"], ["1", "2"]])
+
+        assert table.splitlines()[0] == "| می" + self._NON_JOINER + "شود | ab |"
+
+
 class TestInvisibleAndControlCharacters:
     def test_removes_bidi_isolates_and_other_invisible_marks(self):
         """Editors write the isolates U+2066–2069 around a right-to-left name; they stayed between the letters, as did the Arabic

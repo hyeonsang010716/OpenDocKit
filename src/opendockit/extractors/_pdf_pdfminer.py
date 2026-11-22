@@ -887,6 +887,7 @@ pdffont.PDFSimpleFont.__init__ = _names_win_ansi
 # A marked-content sequence may say what its glyphs stand for (`/Span << /ActualText (…) >> BDC … EMC`, PDF 32000-1 14.9.4).
 # The glyphs of one cluster of a script are taken together up to this many, and its text is this long at most; a longer
 # sequence is left as its glyphs say (`_stand_for`).
+_JOINERS = ("\u200c", "\u200d")
 _ACTUAL_TEXT_GLYPHS = 8
 _ACTUAL_TEXT_CHARS = 32
 _TAGS = "_opendockit_tags"
@@ -932,10 +933,12 @@ def _actual_text(props: object) -> str | None:
 
     Deliberate: a text of spaces and marks without a shape says what a glyph is not, not what it is. InDesign writes a
     soft hyphen (U+00AD) over the space glyph it sets at every place a word may be broken, and over the hyphen of a word
-    it did break; a browser writes a zero-width non-joiner over a space glyph that moves nothing. Taken as the text,
-    the first put a hyphen before every such word ('these -distributions are') on ten documents of the benchmark. The
-    glyphs of such a sequence are read as they are drawn (Pinned by:
-    test_pdf_actual_text.py::TestActualText::test_a_text_with_nothing_to_see_changes_nothing)."""
+    it did break. Taken as the text, that put a hyphen before every such word ('these -distributions are') on ten
+    documents of the benchmark. The glyphs of such a sequence are read as they are drawn (Pinned by:
+    test_pdf_actual_text.py::TestActualText::test_a_text_with_nothing_to_see_changes_nothing). The one exception is a
+    zero-width joiner or non-joiner alone, which LibreOffice and a browser write over the glyph they set for it: it is
+    part of the spelling of a Persian or a Hindi word and is kept where it stands between two letters of such a script
+    (Pinned by: test_pdf_actual_text.py::TestActualText::test_a_joiner_inside_a_word_is_kept)."""
     if not isinstance(props, dict):
         return None
     try:
@@ -943,7 +946,9 @@ def _actual_text(props: object) -> str | None:
         text = decode_text(value) if isinstance(value, bytes) else None
     except Exception:  # noqa: BLE001 — a broken entry says nothing; the glyphs are read as they are
         return None
-    if text is None or not any(unicodedata.category(letter)[0] not in "CZ" for letter in text):
+    if text is None or text in _JOINERS:
+        return text  # a zero-width joiner or non-joiner is part of a spelling (`markdown.without_invisible`)
+    if not any(unicodedata.category(letter)[0] not in "CZ" for letter in text):
         return None
     return text
 
