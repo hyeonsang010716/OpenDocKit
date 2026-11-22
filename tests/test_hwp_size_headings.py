@@ -413,6 +413,12 @@ class TestTitlesInBoxes:
         for text in self._both([("보도자료", 0), *self._TITLE, ("배포 즉시 보도", 0)]):
             assert text.split("\n\n")[:3] == ["보도자료", "# 산림청, 전국 산지관리 담당자 워크숍 개최", "배포 즉시 보도"]
 
+    def test_a_title_between_two_empty_cells_is_a_heading(self):
+        """The cover page of a request for proposals: an empty cell, the title, an empty cell. Both readers raised on the
+        cell without a paragraph and the document was refused as corrupted (a public sample of hwpxlib)."""
+        for text in self._both([], self._TITLE, []):
+            assert text.split("\n\n")[0] == "# 산림청, 전국 산지관리 담당자 워크숍 개최"
+
     def test_a_box_without_a_title_is_written_as_before(self):
         plain = [("참고 사항", 0), ("문의는 담당 부서로 하십시오", 0)]
         for text in self._both(plain, self._SUMMARY):
