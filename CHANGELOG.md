@@ -161,6 +161,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **A patch of an HTML file is text.** A git or unified diff that touches a page, and a `.rst` or `.tex` document that
+  lists one in a code block, were read as HTML and lost every line with a tag in it. They are text: by the name
+  (`.patch`, `.diff`, `.rst`, `.tex`) or, for a patch, by how it opens.
+- **A text file that begins with `%PDF-` is text.** `notes.txt` beginning "%PDF-1.7 files begin with this header" was
+  refused as a corrupted PDF. Named as text, not readable as a PDF and UTF-8 throughout, it is read as text.
 - **Mail: a plain-text mail without `Content-Type` is read as a mail.** Mail sent by a script or an old program names no
   content type. It came out as it stood in the file: the subject as `=?utf-8?B?…?=` and every header written out, Bcc
   among them. It is recognised by `MIME-Version`, `Message-ID` or `Received` beside its sender and recipient; a note

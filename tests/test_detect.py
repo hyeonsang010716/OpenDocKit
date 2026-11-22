@@ -489,6 +489,29 @@ class TestTextThatLooksLikeAPdf:
         assert result.format is expected
         assert "%PDF-" in result.text
 
+    @pytest.mark.parametrize("filename", ["notes.txt", "notes.md", "notes.log"])
+    def test_note_that_begins_with_the_header(self, filename):
+        """A note whose first words are the header itself was a 'corrupted PDF' even named as text: the rescue above asked for
+        text in front of the header. Named as text, not readable as a PDF and UTF-8 throughout, it is text."""
+        note = "%PDF-1.7 로 시작하는 파일은 PDF 입니다.\n아래는 메모입니다.\n"
+
+        result = convert(note.encode(), filename)
+
+        assert result.format in (DocumentFormat.TEXT, DocumentFormat.MARKDOWN)
+        assert result.text == note.strip()
+
+    @pytest.mark.parametrize("filename", [None, "notes.pdf", "notes"])
+    def test_a_file_that_begins_with_the_header_and_is_not_named_as_text_stays_a_broken_pdf(self, filename):
+        with pytest.raises(CorruptedDocumentError):
+            convert("%PDF-1.7 로 시작하는 파일은 PDF 입니다.\n".encode(), filename)
+
+    def test_a_broken_binary_pdf_named_as_text_is_still_refused(self):
+        """What keeps a damaged PDF from coming back as its own source: it does not decode as UTF-8."""
+        data = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Length 5 >>\nstream\n\x9c\xff\x00\x01\x02\nendstream\n"
+
+        with pytest.raises(CorruptedDocumentError):
+            convert(data, "scan.txt")
+
     @staticmethod
     def _listing() -> str:
         """A complete one-page PDF as a tutorial lists it (ASCII, offsets of the PDF alone: parsers rebuild the table)."""

@@ -83,6 +83,35 @@ class TestPlainMailWithAnEncodedAttachment:
         assert result.warnings == ["1 mail attachment(s) (report.pdf) were not read. Convert attachments separately."]
 
 
+class TestTextThatQuotesMarkup:
+    """A patch of an HTML file and a document that lists a page in a code block hold whole tags, closing ones too. Read as HTML
+    they lost every line with a tag in it, and nothing said so."""
+
+    PATCH = ("diff --git a/index.html b/index.html\nindex 1a2b3c4..5d6e7f8 100644\n--- a/index.html\n+++ b/index.html\n"
+             "@@ -1,6 +1,6 @@\n <html>\n <body>\n-<p>old value</p>\n+<p>new value</p>\n <table><tr><td>cell</td></tr></table>\n"
+             " </body>\n </html>\n")
+    UNIFIED = PATCH.split("\n", 2)[2]
+    LISTING = ("Embedding a page\n================\n\n.. code-block:: html\n\n   <html><body><p>x</p>"
+               "<table><tr><td>c</td></tr></table></body></html>\n\nAfter the listing.\n")
+
+    @pytest.mark.parametrize(("text", "filename"), [
+        (PATCH, "fix.patch"), (PATCH, "fix.diff"), (PATCH, None), (PATCH, "fix.txt"), (UNIFIED, None), (UNIFIED, "a.txt"),
+        ("Index: index.html\n" + "=" * 67 + "\n" + UNIFIED, None), (LISTING, "guide.rst"), (LISTING, "guide.tex"),
+    ], ids=["patch", "diff", "git-unnamed", "git-txt", "unified-unnamed", "unified-txt", "svn-unnamed", "rst", "tex"])
+    def test_it_is_text_and_keeps_every_line(self, text, filename):
+        result = convert(text.encode(), filename)
+
+        assert result.format is DocumentFormat.TEXT
+        assert result.text == text.strip()
+
+    def test_a_page_is_still_a_page(self):
+        """Only the opening of a patch counts: a page that shows a diff further down, or is named as a page, is HTML."""
+        page = "<html><body><pre>--- a/x\n+++ b/x\n@@ -1 +1 @@\n</pre><p>본문</p></body></html>"
+
+        assert convert(page.encode(), None).format is DocumentFormat.HTML
+        assert convert(self.LISTING.encode(), None).format is DocumentFormat.HTML  # the accepted gap of unnamed code stays
+
+
 class TestHtmlInsideJsonAndCode:
     """JSON and source code that start as text but hold HTML strings (closing tags included) were read as HTML, which mangled the
     keys, indentation and code lines."""
